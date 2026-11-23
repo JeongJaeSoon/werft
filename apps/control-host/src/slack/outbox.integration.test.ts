@@ -6,11 +6,12 @@ import {
   expect,
   test,
 } from "bun:test";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import {
   createOutboxSlackNoticeSink,
   createRowDelivery,
   createSlackBotApi,
+  createSlackEventsService,
   drainSlackInbox,
   drainSlackOutbox,
   reconcileSlackThreadStatuses,
@@ -27,6 +28,10 @@ import {
 } from "@werft-ai/chat-slack";
 import {
   agentCardRequestSchema,
+  type ConversationId,
+  type ConversationInputId,
+  type ConversationTopicId,
+  clientMessageIdSchema,
   DEFAULT_SURFACE_CEILING,
   SESSION_SCOPE_VALUES,
   SLACK_NOTICE_MESSAGES,
@@ -75,7 +80,10 @@ import {
   type PushSource,
   SecretKey,
 } from "@werft-ai/platform";
-import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
+import {
+  slackEventEnvelope,
+  startFakeSlackApi,
+} from "@werft-ai/testkit/fake-slack-api";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import {
   createTempDatabase,
@@ -315,7 +323,12 @@ async function agentInSlack() {
 
 let eventCounter = 0;
 
-async function mention(fixture: Fixture, ts: string, user = PERSON) {
+async function mention(
+  fixture: Fixture,
+  ts: string,
+  user = PERSON,
+  extra: Record<string, unknown> = {},
+) {
   eventCounter += 1;
   const eventId = `EvOut${eventCounter}`;
   const event = {
@@ -325,6 +338,7 @@ async function mention(fixture: Fixture, ts: string, user = PERSON) {
     ts,
     ...(ts === THREAD ? {} : { thread_ts: THREAD }),
     text: `<@${BOT_USER}> summarize the thread`,
+    ...extra,
   };
   await createPostgresSlackInboundEventStore(db).record({
     workspaceId: fixture.workspaceId,
@@ -1319,6 +1333,535 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         expect(await statuses()).toEqual([
           ["voided_by_delete", "source_deleted"],
         ]);
+      },
+    );
+  });
+
+  describe("a web input's Slack mirror", () => {
+    const ECHO_SECRET = "echo-signing-secret";
+    const outbox = () => createPostgresSlackOutboxStore(db);
+    const conversations = () => schema.createPostgresConversationStore(db);
+    const query = async <Row>(statement: ReturnType<typeof sql>) =>
+      ((await db.execute(statement)) as unknown as { rows: Row[] }).rows;
+
+    const ownerOf = async () => {
+      const [row] = await db
+        .select({ userId: linkedAccounts.userId })
+        .from(linkedAccounts)
+        .where(eq(linkedAccounts.externalUserId, PERSON));
+      if (!row) throw new Error("no linked owner");
+      return row.userId;
+    };
+
+    async function channelConversation(fixture: Fixture) {
+      return conversations().findOrCreateConversation({
+        kind: "channel",
+        workspaceId: fixture.workspaceId,
+        agentId: fixture.agentId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+      });
+    }
+
+    async function webInput(
+      fixture: Fixture,
+      options: {
+        topicId?: ConversationTopicId | null;
+        conversationId?: ConversationId;
+        requester?: string;
+      } = {},
+    ) {
+      const conversationId =
+        options.conversationId ?? (await channelConversation(fixture)).id;
+      const taken = await schema
+        .createPostgresConversationInputStore(db)
+        .takeWebInput({
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          requesterUserId: options.requester ?? (await ownerOf()),
+          conversationId,
+          topicId: options.topicId ?? null,
+          clientMessageId: clientMessageIdSchema.parse(randomUUID()),
+          body: "ship the report",
+        });
+      if (taken.outcome !== "taken") throw new Error(taken.outcome);
+      return taken.receipt;
+    }
+
+    type InputRow = {
+      id: string;
+      topic_id: string;
+      seq: number;
+      slack_team_id: string | null;
+      slack_channel_id: string | null;
+      slack_ts: string | null;
+      turn_id: string | null;
+    };
+    const inputsOf = (agentId: string) =>
+      query<InputRow>(sql`
+        SELECT id::text, topic_id::text, seq, slack_team_id, slack_channel_id,
+          slack_ts, turn_id::text
+        FROM conversation_inputs WHERE agent_id = ${agentId}::uuid
+        ORDER BY topic_id, seq`);
+    const topicOf = async (topicId: string) => {
+      const [topic] = await query<{
+        slack_team_id: string | null;
+        slack_channel_id: string | null;
+        slack_thread_ts: string | null;
+      }>(sql`
+        SELECT slack_team_id, slack_channel_id, slack_thread_ts
+        FROM conversation_topics WHERE id = ${topicId}::uuid`);
+      return topic;
+    };
+    const mirrors = async () =>
+      (await rows()).filter((row) => row.kind === "input_mirror");
+
+    /** An event through the events gate, as Slack would send it. */
+    async function viaGate(fixture: Fixture, event: Record<string, unknown>) {
+      const gate = createSlackEventsService({
+        signingSecrets: {
+          forAgent: async () => ({
+            workspaceId: fixture.workspaceId,
+            slackAppId: fixture.slackAppId,
+            appId: APP_ID,
+            signingSecret: ECHO_SECRET,
+          }),
+        },
+        inbox: createPostgresSlackInboundEventStore(db),
+        apps: createPostgresSlackAppStore(db, key),
+        identities: createPostgresAgentIdentityStore(db),
+        installs: schema.createPostgresSlackInstallStore(db),
+        bindings: createPostgresSurfaceBindingStore(db),
+        sourceMarks: schema.createPostgresSlackSourceMarkStore(db),
+      });
+      const rawBody = new TextEncoder().encode(
+        JSON.stringify(
+          slackEventEnvelope({ appId: APP_ID, teamId: TEAM, event }),
+        ),
+      );
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const signature = `v0=${createHmac("sha256", ECHO_SECRET)
+        .update(`v0:${timestamp}:`)
+        .update(rawBody)
+        .digest("hex")}`;
+      return gate.receive({
+        agentId: fixture.agentId,
+        rawBody,
+        timestamp,
+        signature,
+      });
+    }
+
+    // What Slack sends back for a post the outbox made under a sender's name.
+    const echoOf = (ts: string, threadTs?: string) => ({
+      type: "message",
+      subtype: "bot_message",
+      channel: CHANNEL,
+      ts,
+      ...(threadTs === undefined ? {} : { thread_ts: threadTs }),
+      bot_id: "B0OWN",
+      app_id: APP_ID,
+      username: `owner (${SLACK_OUTBOX_MESSAGES.ko.web})`,
+      text: "ship the report",
+    });
+
+    const dropReasons = async (workspaceId: string) =>
+      (
+        await db
+          .select({ dropReason: schema.slackInboundEvents.dropReason })
+          .from(schema.slackInboundEvents)
+          .where(eq(schema.slackInboundEvents.workspaceId, workspaceId))
+      ).map((row) => row.dropReason);
+
+    test("before: a web console instruction's echo is dropped at the gate as the app's own and makes no turn", async () => {
+      const fixture = await agentInSlack();
+      const answer = await viaGate(fixture, echoOf("100.000150", THREAD));
+      expect(answer).toMatchObject({ result: "recorded", status: "dropped" });
+      expect(await dropReasons(fixture.workspaceId)).toEqual(["own_bot_user"]);
+      expect(await db.select().from(turns)).toEqual([]);
+      expect(await inputsOf(fixture.agentId)).toEqual([]);
+    });
+
+    test("a web input opening a topic is posted at the top of the channel; its ts becomes the input's alias and the topic's", async () => {
+      const fixture = await agentInSlack();
+      const receipt = await webInput(fixture);
+      expect(await topicOf(receipt.topicId)).toEqual({
+        slack_team_id: null,
+        slack_channel_id: null,
+        slack_thread_ts: null,
+      });
+
+      expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+      const [mirror] = await mirrors();
+      if (!mirror?.slackTs) throw new Error("no mirror sent");
+      expect(mirror).toMatchObject({
+        status: "sent",
+        inputId: receipt.inputId,
+        channelId: CHANNEL,
+        threadTs: "",
+        sessionId: null,
+        sources: { direct: [{ input_id: receipt.inputId }], inherited: [] },
+      });
+      expect(posted()).toEqual([
+        expect.objectContaining({
+          channelId: CHANNEL,
+          threadTs: null,
+          ts: mirror.slackTs,
+          options: expect.objectContaining({
+            username: `owner (${SLACK_OUTBOX_MESSAGES.ko.web})`,
+          }),
+        }),
+      ]);
+      expect(await inputsOf(fixture.agentId)).toEqual([
+        expect.objectContaining({
+          id: receipt.inputId,
+          seq: 1,
+          slack_team_id: TEAM,
+          slack_channel_id: CHANNEL,
+          slack_ts: mirror.slackTs,
+          turn_id: null,
+        }),
+      ]);
+      expect(await topicOf(receipt.topicId)).toEqual({
+        slack_team_id: TEAM,
+        slack_channel_id: CHANNEL,
+        slack_thread_ts: mirror.slackTs,
+      });
+
+      // Slack sends the post back: dropped at the gate, no new input or turn.
+      const answer = await viaGate(fixture, echoOf(mirror.slackTs));
+      expect(answer).toMatchObject({ status: "dropped" });
+      expect(await dropReasons(fixture.workspaceId)).toEqual(["own_bot_user"]);
+      expect(await inputsOf(fixture.agentId)).toHaveLength(1);
+      expect(await db.select().from(turns)).toEqual([]);
+      // Mirrored once: a later pass finds nothing owed.
+      expect(await outboxPass()).toMatchObject({ enqueued: 0, sent: 0 });
+      expect(posted()).toHaveLength(1);
+    });
+
+    test("a person's reply in the mirror's thread is taken as the topic's next input", async () => {
+      const fixture = await agentInSlack();
+      const receipt = await webInput(fixture);
+      await outboxPass();
+      const [mirror] = await mirrors();
+      if (!mirror?.slackTs) throw new Error("no mirror sent");
+
+      await mention(fixture, "100.000900", PERSON, {
+        thread_ts: mirror.slackTs,
+      });
+
+      const taken = await inputsOf(fixture.agentId);
+      expect(taken).toHaveLength(2);
+      expect(taken[1]).toMatchObject({
+        topic_id: receipt.topicId,
+        seq: 2,
+        slack_ts: "100.000900",
+      });
+      expect(taken[1]?.turn_id).not.toBeNull();
+    });
+
+    test("a topic's second web input waits for the first's post, then goes into the thread it opened", async () => {
+      const fixture = await agentInSlack();
+      const first = await webInput(fixture);
+      const second = await webInput(fixture, { topicId: first.topicId });
+      expect(second).toMatchObject({ topicId: first.topicId, seq: 2 });
+
+      await outboxPass({ botToken: null });
+      expect((await mirrors()).map((row) => row.inputId)).toEqual([
+        first.inputId,
+      ]);
+      await outboxPass();
+      await outboxPass();
+      const [opened, inThread] = await mirrors();
+      expect(opened).toMatchObject({ inputId: first.inputId, threadTs: "" });
+      expect(inThread).toMatchObject({
+        inputId: second.inputId,
+        threadTs: opened?.slackTs,
+        status: "sent",
+      });
+      const [, secondRow] = await inputsOf(fixture.agentId);
+      expect(secondRow?.slack_ts).toBe(inThread?.slackTs ?? "");
+      // The topic keeps the thread the first post opened.
+      expect((await topicOf(first.topicId))?.slack_thread_ts).toBe(
+        opened?.slackTs ?? "",
+      );
+    });
+
+    test("a web input in a topic Slack opened goes into that thread and leaves the topic's alias", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const [slackInput] = await inputsOf(fixture.agentId);
+      if (!slackInput) throw new Error("no Slack input");
+      const receipt = await webInput(fixture, {
+        topicId: slackInput.topic_id as ConversationTopicId,
+      });
+      expect(receipt.seq).toBe(2);
+
+      await outboxPass();
+      const [mirror] = await mirrors();
+      expect(mirror).toMatchObject({ threadTs: THREAD, status: "sent" });
+      expect(await topicOf(slackInput.topic_id)).toEqual({
+        slack_team_id: TEAM,
+        slack_channel_id: CHANNEL,
+        slack_thread_ts: THREAD,
+      });
+      expect((await inputsOf(fixture.agentId))[1]?.slack_ts).toBe(
+        mirror?.slackTs ?? "",
+      );
+    });
+
+    test("a DM web input goes to the D channel of that person's own placed topic, never another person's", async () => {
+      const fixture = await agentInSlack();
+      const owner = await ownerOf();
+      const other = randomUUID();
+      await db.insert(users).values({
+        id: other,
+        email: `${other}@example.invalid`,
+        passwordHash: "argon2id$placeholder",
+        displayName: "other",
+      });
+      await db.insert(memberships).values({
+        workspaceId: fixture.workspaceId,
+        userId: other,
+        role: "member",
+      });
+      const dmOf = (personUserId: string) =>
+        conversations().findOrCreateConversation({
+          kind: "dm",
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          personUserId,
+        });
+      const otherDm = await dmOf(other);
+      await conversations().findOrCreateThreadTopic(otherDm.id, {
+        teamId: TEAM,
+        channelId: "D0OTHER",
+        threadTs: "100.000310",
+      });
+      const ownerDm = await dmOf(owner);
+      const receipt = await webInput(fixture, {
+        conversationId: ownerDm.id,
+      });
+      expect(receipt.slackMirror).toBe("pending");
+      // No placed topic of the owner's: the input waits.
+      expect(await outbox().unmirroredInputs(10)).toEqual([]);
+
+      await conversations().findOrCreateThreadTopic(ownerDm.id, {
+        teamId: TEAM,
+        channelId: "D0OWNER",
+        threadTs: "100.000320",
+      });
+      expect(await outbox().unmirroredInputs(10)).toEqual([
+        expect.objectContaining({
+          inputId: receipt.inputId,
+          channelId: "D0OWNER",
+          threadTs: "",
+          senderSlackUserId: PERSON,
+        }),
+      ]);
+    });
+
+    describe("and the delete check", () => {
+      const marks = () => schema.createPostgresSlackSourceMarkStore(db);
+      // A row standing for anything whose sources hold the web input.
+      const enqueueFromInput = (
+        fixture: Fixture,
+        inputId: string,
+        dedupeKey: string,
+      ) =>
+        outbox().enqueue({
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          slackAppId: fixture.slackAppId,
+          installationId: mirrorsInstallation,
+          kind: "reply",
+          channelId: CHANNEL,
+          threadTs: "100.000100",
+          slackUserId: null,
+          sessionId: null,
+          sessionLinkId: null,
+          body: { text: "done" },
+          dedupeKey,
+          sources: {
+            direct: [{ input_id: inputId as ConversationInputId }],
+            inherited: [],
+          },
+        });
+      let mirrorsInstallation = "";
+      const installationOf = async () => {
+        const [row] = await db
+          .select({ id: schema.slackInstallations.id })
+          .from(schema.slackInstallations)
+          .where(eq(schema.slackInstallations.appId, APP_ID));
+        mirrorsInstallation = row?.id ?? "";
+      };
+      const statusOf = async (dedupeKey: string) =>
+        (await rows()).find((row) => row.dedupeKey === dedupeKey)?.status;
+
+      test("a row from a web input is not held back by deletes before the input has its alias", async () => {
+        const fixture = await agentInSlack();
+        await installationOf();
+        const receipt = await webInput(fixture);
+        await marks().markDeleted({
+          workspaceId: fixture.workspaceId,
+          teamId: TEAM,
+          channelId: CHANNEL,
+          ts: "100.000100",
+          at: new Date(),
+        });
+        await outboxPass({ botToken: null });
+        await enqueueFromInput(fixture, receipt.inputId, "from-input:1");
+        // Sent alone, ahead of the mirror: the mirror's own alias is not
+        // known yet, so nothing deleted in Slack is this input.
+        await db.execute(sql`
+          UPDATE slack_outbox SET next_attempt_at = now() + interval '1 hour'
+          WHERE kind = 'input_mirror'`);
+        expect(await outboxPass()).toMatchObject({ sent: 1, voided: 0 });
+        expect(await statusOf("from-input:1")).toBe("sent");
+      });
+
+      test("once the mirror gave the input its alias, deleting that post voids the rows from the input", async () => {
+        const fixture = await agentInSlack();
+        await installationOf();
+        const receipt = await webInput(fixture);
+        await outboxPass();
+        const [mirror] = await mirrors();
+        if (!mirror?.slackTs) throw new Error("no mirror sent");
+        await enqueueFromInput(fixture, receipt.inputId, "from-input:2");
+        await marks().markDeleted({
+          workspaceId: fixture.workspaceId,
+          teamId: TEAM,
+          channelId: CHANNEL,
+          ts: mirror.slackTs,
+          at: new Date(),
+        });
+
+        expect(await outboxPass()).toMatchObject({ voided: 1, sent: 0 });
+        expect(await statusOf("from-input:2")).toBe("voided_by_delete");
+      });
+
+      test("a delete Slack sent before the post was recorded is the input's as soon as the alias is written", async () => {
+        const fixture = await agentInSlack();
+        await installationOf();
+        const receipt = await webInput(fixture);
+        await outboxPass({ botToken: null });
+        const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
+        if (!claim) throw new Error("nothing claimed");
+        expect(await outbox().beginSend(claim)).toBe(true);
+        const ts = "100.000777";
+        await marks().markDeleted({
+          workspaceId: fixture.workspaceId,
+          teamId: TEAM,
+          channelId: CHANNEL,
+          ts,
+          at: new Date(),
+        });
+        expect(
+          await outbox().settle(claim, { status: "sent", slackTs: ts }),
+        ).toBe(true);
+        // A mark of a message nothing names is purged; the alias names it.
+        expect(
+          await schema.purgeUnknownSlackSourceMarks(db, {
+            limit: 10,
+            dryRun: false,
+            retentionMs: 0,
+          }),
+        ).toEqual({ deleted: 0, edited: 0 });
+        await enqueueFromInput(fixture, receipt.inputId, "from-input:3");
+        expect(await outboxPass()).toMatchObject({ voided: 1, sent: 0 });
+        expect(await statusOf("from-input:3")).toBe("voided_by_delete");
+      });
+    });
+
+    test("a mirror whose thread a reply already made a topic of links the input and leaves the topics apart", async () => {
+      const fixture = await agentInSlack();
+      const receipt = await webInput(fixture);
+      await outboxPass({ botToken: null });
+      const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
+      if (!claim) throw new Error("nothing claimed");
+      expect(await outbox().beginSend(claim)).toBe(true);
+      const ts = "100.000555";
+      const conversation = await channelConversation(fixture);
+      const replyTopic = await conversations().findOrCreateThreadTopic(
+        conversation.id,
+        { teamId: TEAM, channelId: CHANNEL, threadTs: ts },
+      );
+
+      expect(
+        await outbox().settle(claim, { status: "sent", slackTs: ts }),
+      ).toBe("topic_alias_taken");
+      expect((await inputsOf(fixture.agentId))[0]).toMatchObject({
+        id: receipt.inputId,
+        slack_ts: ts,
+      });
+      expect((await topicOf(receipt.topicId))?.slack_thread_ts).toBeNull();
+      expect((await topicOf(replyTopic.id))?.slack_thread_ts).toBe(ts);
+      expect((await mirrors())[0]).toMatchObject({
+        status: "sent",
+        slackTs: ts,
+      });
+    });
+
+    test.skipIf(engine === "PGlite")(
+      "the post's record and its echo arriving at once leave one input and one alias",
+      async () => {
+        const fixture = await agentInSlack();
+        const receipt = await webInput(fixture);
+        await outboxPass({ botToken: null });
+        const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
+        if (!claim) throw new Error("nothing claimed");
+        expect(await outbox().beginSend(claim)).toBe(true);
+        const ts = "100.000666";
+        let held!: () => void;
+        const hold = new Promise<void>((resolve) => {
+          held = resolve;
+        });
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        // A delete check reading the input, kept open: the record waits
+        // with its post known and not yet written.
+        const reading = db.transaction(async (tx) => {
+          await tx.execute(sql`
+            SELECT 1 FROM conversation_inputs
+            WHERE id = ${receipt.inputId}::uuid FOR SHARE`);
+          held();
+          await released;
+        });
+        await hold;
+        const recording = outbox().settle(claim, {
+          status: "sent",
+          slackTs: ts,
+        });
+        // The echo before the ts is saved, and Slack's retry of it after.
+        const early = await viaGate(fixture, echoOf(ts));
+        expect(
+          await Promise.race([
+            recording.then(() => "recorded"),
+            Bun.sleep(300).then(() => "waiting"),
+          ]),
+        ).toBe("waiting");
+        release();
+        await reading;
+        const [settled, late] = await Promise.all([
+          recording,
+          viaGate(fixture, echoOf(ts)),
+        ]);
+        expect(settled).toBe(true);
+        expect(early).toMatchObject({ status: "dropped" });
+        expect(late).toMatchObject({ status: "dropped" });
+        expect(await inputsOf(fixture.agentId)).toEqual([
+          expect.objectContaining({ id: receipt.inputId, slack_ts: ts }),
+        ]);
+        expect(
+          await query<{ n: number }>(sql`
+            SELECT count(*)::int AS n FROM conversation_inputs
+            WHERE slack_team_id = ${TEAM} AND slack_channel_id = ${CHANNEL}
+              AND slack_ts = ${ts}`),
+        ).toEqual([{ n: 1 }]);
+        expect((await topicOf(receipt.topicId))?.slack_thread_ts).toBe(ts);
+        expect(await db.select().from(turns)).toEqual([]);
       },
     );
   });

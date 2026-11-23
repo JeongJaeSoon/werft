@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0331_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#PR). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+  - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
+  - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.
+  - 답글이 게시 결과보다 먼저 처리되어 스레드가 이미 다른 주제인 드문 경우는 합치지 않고 `warn` 로그 `Slack mirror opened a thread another topic already holds; the topics stay apart`를 남긴다.
+  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0330_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 판단 버퍼의 만료 칸 `buffer_expires_at`과 그 색인을 더한다**(JeongJaeSoon/werft#2059). 따로 할 일은 없고 Slack 동작도 그대로다.
   - 판단 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 듣는 때만 멘션 없는 글을 본문째 담는다. 스위치 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없어서, 올린 뒤에도 버퍼는 비어 있다.
   - 담긴 줄은 10분 뒤 reconciler가 통째로 지운다(로그 `Judgment buffer purged`, `expired_count`·`unlistened_count`). Slack에서 글이 지워지면 바로, 채널 보관·삭제·봇이 나감·binding `off`·에이전트 보관 때도 바로 지운다. 글이 고쳐지면 담긴 본문만 바뀐다.

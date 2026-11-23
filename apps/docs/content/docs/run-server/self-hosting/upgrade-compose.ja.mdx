@@ -253,6 +253,19 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 - 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
 - サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
 
+<a id="웹-입력을-slack-거울과-잇는-릴리스" />
+### Web 入力を Slack のミラーとつなぐリリース
+
+migration `0331_input_mirror` が、`slack_outbox` に種類 `input_mirror` と、その行が映す Web 入力の列 `input_id` を追加し、まだ Slack に映っていない Web 入力を探す部分索引を `conversation_inputs` に `CONCURRENTLY` で作る。上げるときにすることはない。このリリースには Web 入力を記録する route がないため新しい種類の行は作られず、Slack のメンションと返信、Web・API セッションの動作は変わらない。
+
+- Web 入力は `instruction` と同じ形（送信者名の後に「(Webコンソール)」）で Slack に投稿される。新しい話題の最初の入力はチャンネル（DM ならその人の DM）の最上位の投稿になり、残りはその話題のスレッドに投稿される。
+- 投稿に成功すると、同じトランザクションでその投稿の (team、チャンネル、ts) が入力の Slack 別名になり、新しい話題なら話題の Slack の場所にもなる。同じスレッドへの人の返信は、その話題の次の番号として受け付けられる。
+- Slack が送り返すその投稿のイベントは、これまでどおり自分のアプリの投稿（`own_bot_user`）として入口で捨て、新しい入力やターンを作らない。
+- 別名ができた後でその Slack 投稿を削除すると、その Web 入力を出典に持つ outbox の行が `voided_by_delete` で止まる。別名より先に届いた削除の印も、別名ができた時点でその入力のものになる。
+- 人の返信が投稿結果の記録より先に処理され、そのスレッドがすでに別の話題になっているまれな場合、二つの話題はまとめない。slack ロールが `warn` ログ `Slack mirror opened a thread another topic already holds; the topics stay apart` を残す。
+- DM の新しい話題は、その人の DM チャンネルを知っている話題があるときだけ投稿される。なければ入力は Slack に映らないまま待つ。
+- CHECK と外部キーは `NOT VALID` で追加し、別の文で検証する。サポート期間内のイメージに戻しても問題ない。
+
 <a id="판단-버퍼를-더하는-릴리스" />
 ### 判断バッファを追加するリリース
 

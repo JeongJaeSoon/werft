@@ -40,6 +40,7 @@ import {
   type ConversationCallId,
   type ConversationCallState,
   type ConversationChannelState,
+  type ConversationInputId,
   type ConversationInputSlackMirror,
   type ConversationKind,
   ENDED_ATTEMPT_STATES,
@@ -5500,6 +5501,12 @@ export const conversationInputs = pgTable(
       "conversation_inputs_origin_check",
       sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL AND ${table.bufferExpiresAt} IS NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.body} IS NOT NULL AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}) AND ${table.bufferExpiresAt} IS NULL) OR (${table.bufferExpiresAt} IS NOT NULL AND ${table.clientMessageId} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NULL AND ${table.body} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.requesterKind} = 'slack_user')`,
     ),
+    // The web inputs still owed their Slack mirror, which the outbox walks.
+    index("conversation_inputs_mirror_due_idx")
+      .on(table.receivedAt)
+      .where(
+        sql`${table.slackMirror} = 'pending' AND ${table.slackTs} IS NULL`,
+      ),
     // The buffer's expiry pass walks this.
     index("conversation_inputs_buffer_expiry_idx")
       .on(table.bufferExpiresAt)
@@ -5967,6 +5974,8 @@ export const slackOutbox = pgTable(
     sources: jsonb().$type<StoredSourceSet>(),
     /** That turn's public id; null for none, and on rows written before it. */
     sourcesTurn: integer("sources_turn"),
+    /** The web input an `input_mirror` row shows in Slack; set on it alone. */
+    inputId: uuid("input_id").$type<ConversationInputId>(),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
@@ -5993,13 +6002,22 @@ export const slackOutbox = pgTable(
       foreignColumns: [sessionLinks.id],
     }),
     foreignKey({
+      name: "slack_outbox_input_fk",
+      columns: [table.inputId],
+      foreignColumns: [conversationInputs.id],
+    }),
+    check(
+      "slack_outbox_input_check",
+      sql`(${table.kind} = 'input_mirror') = (${table.inputId} IS NOT NULL)`,
+    ),
+    foreignKey({
       name: "slack_outbox_agent_fk",
       columns: [table.workspaceId, table.agentId],
       foreignColumns: [agents.workspaceId, agents.id],
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror')`,
     ),
     check(
       "slack_outbox_status_check",

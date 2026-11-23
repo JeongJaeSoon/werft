@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  type ConversationInputId,
   DEFAULT_USER_LOCALE,
   type PushRequestOrigin,
   pendingQuestionSchema,
@@ -38,7 +39,11 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
-import { lockedDeletedSource, outboxSources } from "../conversations/index.ts";
+import {
+  linkInputAlias,
+  lockedDeletedSource,
+  outboxSources,
+} from "../conversations/index.ts";
 import {
   mirrorsInstructions,
   postsPrompts,
@@ -731,10 +736,13 @@ export function createPostgresSlackOutboxStore(
             if (heard) return "duplicate";
           }
         }
+        // A row of no session (an input's mirror) keeps its sources as given.
         const sources =
-          input.sessionId === null || input.sources == null
+          input.sources == null
             ? null
-            : await outboxSources(tx, input.sessionId, input.sources);
+            : input.sessionId === null
+              ? input.sources
+              : await outboxSources(tx, input.sessionId, input.sources);
         const [row] = await tx
           .insert(t)
           .values({ ...input, sources, id: randomUUID() })
@@ -875,6 +883,86 @@ export function createPostgresSlackOutboxStore(
       return rows.flatMap(({ channel, ...row }): SlackUnpostedInstruction[] =>
         channel === "web" || channel === "api" ? [{ ...row, channel }] : [],
       );
+    },
+
+    async unmirroredInputs(limit) {
+      // Where each goes: its topic's thread; else the top of its channel;
+      // else, in a DM, the person's D channel a placed topic of the same
+      // conversation (that person's and agent's alone) names.
+      const rows = rowsOf<{
+        input_id: ConversationInputId;
+        workspace_id: string;
+        agent_id: string;
+        slack_app_id: string;
+        installation_id: string;
+        channel_id: string;
+        thread_ts: string;
+        body: string;
+        sender_name: string | null;
+        sender_slack_user_id: string | null;
+        locale: UserLocale | null;
+      }>(
+        await db.execute(sql`
+        SELECT i.id AS input_id, i.workspace_id, i.agent_id,
+          a.id AS slack_app_id, inst.id AS installation_id,
+          p.channel_id, p.thread_ts, i.body,
+          u.display_name AS sender_name, la.external_user_id AS sender_slack_user_id,
+          u.locale
+        FROM conversation_inputs i
+        JOIN conversation_topics tp ON tp.id = i.topic_id
+        JOIN conversations c ON c.id = tp.conversation_id
+        CROSS JOIN LATERAL (
+          SELECT x.team_id, x.channel_id, x.thread_ts FROM (
+            SELECT 1 AS rank, tp.slack_team_id AS team_id,
+              tp.slack_channel_id AS channel_id, tp.slack_thread_ts AS thread_ts
+            WHERE tp.slack_thread_ts IS NOT NULL
+            UNION ALL
+            SELECT 2, c.team_id, c.channel_id, ''
+            WHERE c.kind = 'channel'
+            UNION ALL
+            (SELECT 3, o.slack_team_id, o.slack_channel_id, ''
+             FROM conversation_topics o
+             WHERE o.conversation_id = c.id AND o.agent_id = i.agent_id
+               AND c.kind = 'dm' AND c.person_user_id::text = i.requester_id
+               AND o.slack_channel_id IS NOT NULL
+             ORDER BY o.created_at DESC, o.id
+             LIMIT 1)
+          ) x ORDER BY x.rank LIMIT 1
+        ) p
+        JOIN slack_apps a ON a.workspace_id = i.workspace_id
+          AND a.agent_id = i.agent_id AND a.kind = 'agent' AND a.state = 'created'
+        JOIN slack_installations inst ON inst.app_id = a.app_id
+          AND inst.team_id = p.team_id AND inst.status <> 'revoked'
+        JOIN users u ON u.id::text = i.requester_id
+        LEFT JOIN linked_accounts la ON la.workspace_id = i.workspace_id
+          AND la.user_id = u.id AND la.provider = 'slack'
+          AND la.external_tenant = p.team_id AND la.status = 'active'
+        WHERE i.slack_mirror = 'pending' AND i.slack_ts IS NULL
+          AND i.requester_kind = 'user'
+          AND NOT EXISTS (
+            SELECT 1 FROM slack_outbox so
+            WHERE so.dedupe_key = 'input_mirror:' || i.id::text)
+          -- An unplaced topic waits on its first mirror, whose post places it.
+          AND (tp.slack_thread_ts IS NOT NULL OR NOT EXISTS (
+            SELECT 1 FROM conversation_inputs e
+            WHERE e.topic_id = i.topic_id AND e.seq < i.seq
+              AND e.slack_mirror = 'pending' AND e.slack_ts IS NULL))
+        ORDER BY i.received_at, i.id
+        LIMIT ${limit}`),
+      );
+      return rows.map((row) => ({
+        inputId: row.input_id,
+        workspaceId: row.workspace_id,
+        agentId: row.agent_id,
+        slackAppId: row.slack_app_id,
+        installationId: row.installation_id,
+        channelId: row.channel_id,
+        threadTs: row.thread_ts,
+        body: row.body,
+        senderName: row.sender_name,
+        senderSlackUserId: row.sender_slack_user_id,
+        locale: row.locale,
+      }));
     },
 
     async unansweredTurns(limit) {
@@ -1400,22 +1488,43 @@ export function createPostgresSlackOutboxStore(
                 nextAttemptAt: sql`now() + make_interval(secs => ${outcome.retryInMs / 1000})`,
               }
             : { status: outcome.status, errorCode: outcome.errorCode };
-      const rows = await db
-        .update(t)
-        .set({
-          ...set,
-          ...released,
-          // SET reads the old status: still pending means beginSend never ran.
-          attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
-        })
-        .where(fenced(fence))
-        .returning({ id: t.id, sessionId: t.sessionId });
-      const [row] = rows;
-      // A post into the thread is a moment to show its status again soon.
-      if (outcome.status === "sent" && row?.sessionId) {
-        await touchSlackThreadStatus(db, row.sessionId);
-      }
-      return rows.length > 0;
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(t)
+          .set({
+            ...set,
+            ...released,
+            // SET reads the old status: still pending means beginSend never ran.
+            attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
+          })
+          .where(fenced(fence))
+          .returning({
+            sessionId: t.sessionId,
+            workspaceId: t.workspaceId,
+            inputId: t.inputId,
+            installationId: t.installationId,
+            channelId: t.channelId,
+            threadTs: t.threadTs,
+          });
+        if (row === undefined) return false;
+        // A post into the thread is a moment to show its status again soon.
+        if (outcome.status === "sent" && row.sessionId) {
+          await touchSlackThreadStatus(tx, row.sessionId);
+        }
+        // The post is the mirrored input's alias from the moment it is known.
+        if (outcome.status === "sent" && row.inputId !== null) {
+          const linked = await linkInputAlias(tx, {
+            workspaceId: row.workspaceId,
+            inputId: row.inputId as ConversationInputId,
+            installationId: row.installationId,
+            channelId: row.channelId,
+            threadTs: row.threadTs,
+            ts: outcome.slackTs,
+          });
+          if (linked === "topic_alias_taken") return linked;
+        }
+        return true;
+      });
     },
   };
 }

@@ -55,6 +55,47 @@ export async function enqueueSlackInstructions(deps: {
   return turns.length;
 }
 
+/**
+ * Enqueues each web input owed a Slack mirror, once: shown as an instruction
+ * from the web is, its sources the input itself.
+ */
+export async function enqueueSlackInputMirrors(deps: {
+  outbox: Pick<SlackOutboxStore, "unmirroredInputs" | "enqueue">;
+  limit: number;
+}): Promise<number> {
+  const inputs = await deps.outbox.unmirroredInputs(deps.limit);
+  for (const input of inputs) {
+    const username = slackInstructionSender(
+      "web",
+      input.senderName,
+      input.locale ?? DEFAULT_USER_LOCALE,
+    );
+    await deps.outbox.enqueue({
+      workspaceId: input.workspaceId,
+      agentId: input.agentId,
+      slackAppId: input.slackAppId,
+      installationId: input.installationId,
+      kind: "input_mirror",
+      channelId: input.channelId,
+      threadTs: input.threadTs,
+      slackUserId: null,
+      sessionId: null,
+      sessionLinkId: null,
+      body: {
+        text: input.body,
+        sender:
+          input.senderSlackUserId === null
+            ? { username }
+            : { username, slack_user_id: input.senderSlackUserId },
+      },
+      dedupeKey: `input_mirror:${input.inputId}`,
+      sources: { direct: [{ input_id: input.inputId }], inherited: [] },
+      inputId: input.inputId,
+    });
+  }
+  return inputs.length;
+}
+
 /** One outbox row per turn and kind: what makes a turn answered. */
 export function slackTurnDedupeKey(
   state: SlackUnansweredTurn["state"],

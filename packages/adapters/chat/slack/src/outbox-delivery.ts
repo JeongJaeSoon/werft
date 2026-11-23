@@ -116,7 +116,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
   // posted nothing then, so it goes once more as the app.
   // Read before begin, so a slow users.info spends no send lease.
   const senderImage = (botToken: string, claim: SlackOutboxClaim) =>
-    claim.kind !== "instruction" ||
+    (claim.kind !== "instruction" && claim.kind !== "input_mirror") ||
     claim.body.sender?.slack_user_id === undefined
       ? Promise.resolve(null)
       : deps.slack
