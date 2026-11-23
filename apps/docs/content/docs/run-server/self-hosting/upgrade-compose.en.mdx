@@ -253,6 +253,19 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="세션-없는-호출의-예약-표를-만드는-릴리스" />
+### The release that adds the table of calls with no session
+
+Migration `0328_conversation_calls` adds `conversation_calls`, the table of provider calls that serve no session (conversation calls). Nothing in this release issues one yet, so it stays empty. The upgrade needs nothing from you.
+
+- Before a conversation call's token is issued, the call's most it may cost is reserved on the budget account chosen by whose request it serves (its root). That most counts the request body's byte cap as input tokens and `max_tokens` as output tokens. When the account cannot hold it, neither a token nor a row is made.
+- The token is stored only as its hash and is bound to one Messages call through the egress proxy. The proxy refuses a request outside that call's path, model, `max_tokens` or body byte cap, and a second call with the same token.
+- A used call is settled on the account by the proxy's usage report. Nothing is written to a session's usage (`provider_usage`).
+- The reconciler releases the reservation of a token not used within 2 minutes and logs `Conversation call reservations reconciled` (`released_count`). A call that was used and never reported is not released.
+- A session's title call, and a session's call no running turn serves, are now held on the account of the session's first turn, the one that created it. An installation with no limits runs them as before. With a limit, a title call past it is refused and the title cut from the first message stays.
+- The egress proxy adds the header `x-werft-exchange-id` to its provider authorize requests; an earlier API ignores it. A conversation call's token is granted only with it, so upgrade the api and the egress proxy together.
+- It only adds a table, so rolling back to an image inside the support window is safe.
+
 <a id="채널-요약-표를-만드는-릴리스" />
 ### The release that adds channel summary tables
 

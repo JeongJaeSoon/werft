@@ -306,7 +306,7 @@ describe("the account a running turn's calls are held on", () => {
     await who.run(web(ana));
     const first = await open(who);
     expect(first.opened).toEqual({ outcome: "created" });
-    // The turn ended: no running turn would choose no account.
+    // The turn ended: a new open would choose the first turn's account.
     await db
       .update(turns)
       .set({ status: "completed" })
@@ -540,6 +540,63 @@ describe("the account a running turn's calls are held on", () => {
     expect((await rowOf(held.exchangeId))?.budgetRootKind).toBe("none");
   });
 
+  // Before 94S-2019 both were held on the session's limit alone.
+  test("a call no running turn serves, and a title call, are charged as the session's first turn", async () => {
+    const who = await sessionOf();
+    const [ana, ben] = [crypto.randomUUID(), crypto.randomUUID()];
+    const ofAna = {
+      rootKind: "user" as const,
+      owner: { kind: "user" as const, userId: ana },
+    };
+    await who.run(web(ana));
+    await who.run(web(ben));
+    const title = () =>
+      budgetChoiceOfCall(db, {
+        exchangeId: crypto.randomUUID(),
+        sessionId: who.sessionId,
+        attemptId: who.attemptId,
+        title: true,
+      });
+    // Ben's turn runs: his calls are his, the title call is still Ana's.
+    expect((await open(who)).budget).toEqual({
+      rootKind: "user",
+      owner: { kind: "user", userId: ben },
+    });
+    expect(await title()).toEqual({ choice: ofAna, turnId: null });
+    // Between turns, a call is the session's.
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.sessionId, who.sessionId));
+    const between = await open(who);
+    expect(between.budget).toEqual(ofAna);
+    expect(between.opened).toEqual({ outcome: "created" });
+    expect((await reservationOf(between.exchangeId))?.accountId).toBe(
+      (await accountOf(ana))?.id,
+    );
+  });
+
+  test("a session made with a personal key charges its between-turn calls to the key's maker", async () => {
+    const who = await sessionOf();
+    const maker = crypto.randomUUID();
+    await who.run({
+      requesterKind: "user",
+      requesterId: maker,
+      requesterAuth: {
+        method: "personal_key",
+        api_key_id: crypto.randomUUID(),
+      },
+    });
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.sessionId, who.sessionId));
+    expect((await open(who)).budget).toEqual({
+      rootKind: "key",
+      owner: { kind: "user", userId: maker },
+    });
+  });
+
   test("an old person's turn with no credential recorded is still that person's", async () => {
     const who = await sessionOf();
     const person = crypto.randomUUID();
@@ -576,7 +633,7 @@ describe("the account a running turn's calls are held on", () => {
           },
         },
       ],
-      ["no running turn (a title call, a call between turns)", null],
+      ["a session with no turn yet, so no first turn to charge", null],
     ];
     for (const [name, requester] of cases) {
       test(name, async () => {

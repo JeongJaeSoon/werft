@@ -163,7 +163,10 @@ async function lockCurrentAccount(
  */
 export const BUDGET_CALL_LOCK_SPACE = 1_380_271_444;
 
-async function lockBudgetCall(tx: Database, callId: string): Promise<void> {
+export async function lockBudgetCall(
+  tx: Database,
+  callId: string,
+): Promise<void> {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(${BUDGET_CALL_LOCK_SPACE}::int, hashtext(${callId}))`,
   );
