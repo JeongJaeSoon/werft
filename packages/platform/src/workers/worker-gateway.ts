@@ -1247,9 +1247,18 @@ export function createWorkerGateway(deps: {
     mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
-    const kept = legacyConfigsFromRow(binding.legacyRuntimeConfigs).map(
-      (config) => servedLegacyConfig(config, providerToken),
-    );
+    // A checkpoint sealed under digest scheme 1 hashed the mode the session
+    // ran then: the one its spec recorded, before a claim decided it again.
+    const recorded: RuntimeConfig[] =
+      binding.spec.permission_mode === current.permission_mode
+        ? []
+        : [{ ...current, permission_mode: binding.spec.permission_mode }];
+    const kept = [
+      ...recorded,
+      ...legacyConfigsFromRow(binding.legacyRuntimeConfigs).map((config) =>
+        servedLegacyConfig(config, providerToken),
+      ),
+    ];
     // First, ahead of the cap: what the session ran before its limit removed
     // a tool is the config its own checkpoints carry.
     const unlimited = specConfigOf(

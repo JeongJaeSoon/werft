@@ -70,12 +70,22 @@ describe("the mode a claim runs", () => {
 
 describe("restore candidates", () => {
   test("a session that ran one config only is offered no candidate", async () => {
-    expect((await claim("default")).restore_runtime_configs).toBeUndefined();
+    expect((await claim("auto")).restore_runtime_configs).toBeUndefined();
+  });
+
+  // A digest scheme 1 checkpoint hashed the mode the session ran before a
+  // claim decided it again.
+  test("a spec recorded as default is offered its config in that mode", async () => {
+    const response = await claim("default");
+    expect(response.runtime_config.permission_mode).toBe("auto");
+    expect(response.restore_runtime_configs).toEqual([
+      { ...response.runtime_config, permission_mode: "default" },
+    ]);
   });
 
   test("a session whose model moved is offered the config it ran before", async () => {
-    const before = await claim("default");
-    const response = await claim("default", {
+    const before = await claim("auto");
+    const response = await claim("auto", {
       legacyRuntimeConfigs: [
         { ...before.runtime_config, model: "claude-sonnet-4" },
         { not: "a config" },
@@ -106,9 +116,9 @@ describe("the row's platform prompt", () => {
 
   test("rides the run config and the configs kept as they ran; a revision 0 row adds it nowhere", async () => {
     // A kept config is stored as it ran, the row's prompt included.
-    const before = (await claim("default", { platformPrompt: prompt }))
+    const before = (await claim("auto", { platformPrompt: prompt }))
       .runtime_config;
-    const prompted = await claim("default", {
+    const prompted = await claim("auto", {
       platformPrompt: prompt,
       legacyRuntimeConfigs: [{ ...before, model: "claude-sonnet-4" }],
     });
@@ -117,9 +127,9 @@ describe("the row's platform prompt", () => {
       prompt,
       prompt,
     ]);
-    const unprompted = (await claim("default")).runtime_config;
+    const unprompted = (await claim("auto")).runtime_config;
     for (const platformPrompt of [null, undefined]) {
-      const plain = await claim("default", {
+      const plain = await claim("auto", {
         legacyRuntimeConfigs: [{ ...unprompted, model: "claude-sonnet-4" }],
         ...(platformPrompt === undefined ? {} : { platformPrompt }),
       });
