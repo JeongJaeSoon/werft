@@ -1409,6 +1409,20 @@ describe("Slack edits and deletes", () => {
     expect(JSON.stringify([...w.marks.edited.values()])).not.toContain("plan");
   });
 
+  test("an edit hands its new text to the mark store, for a buffered message only, and the inbox keeps none of it", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    await w.service.receive(w.signed(w.event(EDITED)));
+    await w.service.receive(
+      w.signed(w.event(DELETED, { eventId: "Ev0DELETE" })),
+    );
+    expect(w.marks.editedBodies).toEqual(["the fixed plan"]);
+    for (const row of w.inbox.rows.values()) {
+      expect(row).toMatchObject({ status: "processed", payload: null });
+    }
+  });
+
   test("an edit without its own time takes the envelope's", async () => {
     const w = world();
     await w.install();

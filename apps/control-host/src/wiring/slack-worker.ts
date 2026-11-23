@@ -4,6 +4,7 @@ import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
   ChannelMemberStore,
+  JudgmentBufferStore,
   SlackCardSettleStore,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
@@ -47,6 +48,7 @@ export interface SlackInboundDeps {
   welcomeAgents: Param<typeof createSlackWelcome>["agents"];
   welcomeApps: Param<typeof createSlackWelcome>["apps"];
   welcomeOutbox: Param<typeof createSlackWelcome>["outbox"];
+  buffer: JudgmentBufferStore;
   logger: StructuredLogger;
 }
 
@@ -71,6 +73,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     botTurns: deps.botTurns,
     sessionLinks: deps.sessionLinks,
     conversations: deps.conversations,
+    buffer: deps.buffer,
     sessions: deps.sessions,
     agentDetails: deps.agentDetails,
     releaseRepositoryUnusable: deps.releaseRepositoryUnusable,

@@ -24,6 +24,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - push를 요청한 사람(그 push를 요청한 턴의 사람. 사람이 없으면 세션을 맡은 사람, 곧 시작한 사람이나 넘겨받은 사람)이 세션의 비공개 채널을 모두 나가면, Slack 승인 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버 누구나 승인·거절할 수 있다. 결정 기록(`decided_by`)에는 누른 사람이 남는다. 나간 요청자는 결정할 수 없고, 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 카드는 채널 멤버 변화(`member_joined_channel`·`member_left_channel`) 때 다시 그려진다. 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Push requester's channel membership unconfirmed`를 남긴다.
   - 도구 권한·질문 카드는 그대로다.
   - 카드의 새 표시 상태(`open_requester_left`·`reject_only_requester_left`)를 모르는 옛 이미지로 되돌리면, 그 카드를 끝난 카드로 보고 다시 그리지 않는다(버튼은 남고 누르면 그대로 판정된다).
+- **migration `0330_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 판단 버퍼의 만료 칸 `buffer_expires_at`과 그 색인을 더한다**(JeongJaeSoon/werft#2059). 따로 할 일은 없고 Slack 동작도 그대로다.
+  - 판단 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 듣는 때만 멘션 없는 글을 본문째 담는다. 스위치 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없어서, 올린 뒤에도 버퍼는 비어 있다.
+  - 담긴 줄은 10분 뒤 reconciler가 통째로 지운다(로그 `Judgment buffer purged`, `expired_count`·`unlistened_count`). Slack에서 글이 지워지면 바로, 채널 보관·삭제·봇이 나감·binding `off`·에이전트 보관 때도 바로 지운다. 글이 고쳐지면 담긴 본문만 바뀐다.
+  - 줄을 고치지 않고 칸과 색인을 더하고 CHECK를 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 다만 옛 reconciler는 버퍼 줄을 지우지 않는다(스위치를 켠 적이 없으면 버퍼 줄은 없다).
 
 - **migration `0329_slack_outbox_voided_by_delete`가 outbox 상태 `voided_by_delete`와 칸 `sources_turn`을 더하고, Slack에서 지운 글에 걸린 답과 턴을 막는다**(JeongJaeSoon/werft#2058). 따로 할 일은 없고, 지운 글이 없는 Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
   - 출처(물려받은 것 포함)에 지운 글(묘비 포함)이 든 outbox 줄은 보내기 직전에 `voided_by_delete`(`error_code` `source_deleted`)로 끝나고 나가지 않는다. slack 역할이 `warn` 로그 `Slack send voided: a source was deleted`를 남긴다. 보내기 시작한 뒤의 삭제는 나간 글을 그대로 두고, 수정은 아무것도 막지 않는다.

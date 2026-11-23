@@ -37,6 +37,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { agentSummaries } from "./agent-summaries.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import { actorStillMember, containsPattern, UUID } from "./control-shared.ts";
+import { dropUnlistenedBuffer } from "./conversations/index.ts";
 import {
   decodeCreatedAtCursor,
   encodeCreatedAtCursor,
@@ -934,6 +935,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           input.deletedBy,
         );
         await destroyAgentSlackAppSecrets(tx, input.workspaceId, agent.id);
+        await dropUnlistenedBuffer(tx, { agentId: agent.id });
         const keys = await tx
           .update(apiKeys)
           .set({ revokedAt: DB_NOW })
