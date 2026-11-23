@@ -9,11 +9,13 @@ import {
 import type { Database } from "@werft-ai/db";
 import * as schema from "@werft-ai/db";
 import {
+  channelSessionPlaces,
   createDatabaseAgentAuthority,
   createPostgresSessionControl,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
+  createPostgresSurfaceBindingStore,
 } from "@werft-ai/db";
 import { makeFixtureRelease, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { StructuredLogger } from "@werft-ai/observability";
@@ -265,6 +267,25 @@ describe("private-channel-sessions with an agent that has no install", () => {
       { agent_id: agentId, channel_id: "G1", reason: "BACKEND_UNAVAILABLE" },
     ]);
     expect(line.no_install.channel_count).toBe(3);
+  });
+
+  test("the move reads a binding's kind inside, under its lock", async () => {
+    const store = createPostgresSurfaceBindingStore(db);
+    const read: Record<string, unknown> = {};
+    for (const place of await channelSessionPlaces(db, { agentId })) {
+      const changed = await store.channelKindChanged(place, async (inside) => {
+        read[place.channelId] = await inside.bindingKind();
+        return null;
+      });
+      expect(changed).toBeNull();
+    }
+    expect(read).toEqual({
+      G1: "private_channel",
+      P1: "public_channel",
+      N1: "private_channel",
+      N2: "public_channel",
+      N3: null,
+    });
   });
 
   test("apply moves no_install channels like the others, never widening", async () => {

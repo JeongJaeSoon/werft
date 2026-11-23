@@ -6,6 +6,7 @@ import {
 import * as schema from "@werft-ai/db";
 import {
   type ChannelSessionRow,
+  channelBindingKind,
   channelSessionPlaces,
   createDatabaseAgentAuthority,
   createPostgresChannelMemberStore,
@@ -17,8 +18,6 @@ import {
   readChannelScopePlan,
   sessions,
   sessionVisibleTo,
-  slackInstallations,
-  surfaceBindings,
   users,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
@@ -31,7 +30,7 @@ import {
   type SecretStore,
   type SurfaceAppStore,
 } from "@werft-ai/platform";
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   agentSlackBotToken,
@@ -177,39 +176,9 @@ const NOT_INSTALLED = "SLACK_NOT_INSTALLED";
 
 type BindingKind = "public_channel" | "private_channel" | "unknown";
 
-// The channel's kind as the private channel's door reads it from the
-// bindings (of those that know a kind, a live one first, then a private
-// one); "unknown" when none does, which the door holds private.
-async function bindingKindOf(
-  db: Database,
-  place: ChannelSessionPlace,
-): Promise<BindingKind> {
-  const [row] = await db
-    .select({ kind: surfaceBindings.surfaceKind })
-    .from(surfaceBindings)
-    .innerJoin(
-      slackInstallations,
-      eq(slackInstallations.id, surfaceBindings.installationId),
-    )
-    .where(
-      and(
-        eq(surfaceBindings.workspaceId, place.workspaceId),
-        eq(slackInstallations.teamId, place.teamId),
-        eq(surfaceBindings.externalSurfaceId, place.channelId),
-        isNotNull(surfaceBindings.surfaceKind),
-      ),
-    )
-    .orderBy(
-      sql`(${surfaceBindings.revokedAt} IS NULL) DESC`,
-      sql`(${surfaceBindings.surfaceKind} = 'private_channel') DESC`,
-      sql`${surfaceBindings.updatedAt} DESC`,
-      sql`${surfaceBindings.id} DESC`,
-    )
-    .limit(1);
-  return row?.kind === "public_channel" || row?.kind === "private_channel"
-    ? row.kind
-    : "unknown";
-}
+const bindingKindOf = async (
+  read: () => Promise<ChannelKindNow | null>,
+): Promise<BindingKind> => (await read()) ?? "unknown";
 
 // Without Slack only narrowing is safe: a public binding may be stale, and
 // a session widened on it would already have been seen.
@@ -376,15 +345,20 @@ async function run(
     const ids = { agent_id: place.agentId, channel_id: place.channelId };
     if (command.command === "apply") {
       let reason = "failed";
-      // Read before the move's transaction, which holds the connection.
-      const bound = await bindingKindOf(db, place);
-      // Asked inside the move, after its lock on the channel.
-      const changed = await bindings.channelKindChanged(place, async () => {
-        const now = await slack.kindOf(place);
-        if ("kind" in now) return now.kind;
-        reason = now.unconfirmed;
-        return reason === NOT_INSTALLED ? noInstallKind(bound) : null;
-      });
+      let bound: BindingKind = "unknown";
+      // Asked inside the move, after its lock on the channel: a binding
+      // changed meanwhile is read as it is now.
+      const changed = await bindings.channelKindChanged(
+        place,
+        async (inside) => {
+          const now = await slack.kindOf(place);
+          if ("kind" in now) return now.kind;
+          reason = now.unconfirmed;
+          if (reason !== NOT_INSTALLED) return null;
+          bound = await bindingKindOf(inside.bindingKind);
+          return noInstallKind(bound);
+        },
+      );
       if (reason === NOT_INSTALLED) {
         noInstall(ids, bound, changed?.moves.length ?? 0);
         noInstallMoved += changed?.moves.length ?? 0;
@@ -422,7 +396,7 @@ async function run(
     let bound: BindingKind | null = null;
     if ("kind" in read) kind = read.kind;
     else if (read.unconfirmed === NOT_INSTALLED) {
-      bound = await bindingKindOf(db, place);
+      bound = await bindingKindOf(() => channelBindingKind(db, place));
       const narrowed = noInstallKind(bound);
       if (narrowed === null) {
         noInstall(ids, bound, 0);
