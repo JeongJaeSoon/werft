@@ -115,8 +115,6 @@ describe("effectiveGitHubPolicy", () => {
         settings: SETTINGS,
         startRepositoryId: "infra",
         agentSettingsRevision: 4,
-        // A session with no snapshot keeps the cap it began under.
-        pushAttached: "ask",
       }),
     ],
     [
@@ -135,7 +133,6 @@ describe("effectiveGitHubPolicy", () => {
         source: "agent",
         settings: { ...SETTINGS, repositories: [] },
         agentSettingsRevision: 4,
-        pushAttached: "ask",
       }),
     ],
     [
@@ -265,8 +262,18 @@ describe("a release session and a row a person saved", () => {
         settings: null,
         agentSettingsRevision: 4,
         currentRepositories: ["app", "infra"],
+        // The person turned push approval on after the start.
+        pushAttached: "ask",
       }),
     );
+    expect(pushDecisionOf(read)).toBe("ask");
+    const off = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: undefined,
+      agentRow: { ...human, pushApproval: false },
+    });
+    expect(off.pushAttached).toBe("allow");
+    expect(pushDecisionOf(off)).toBe("allow");
   });
 
   test("a row a migration wrote (updatedBy null) changes nothing", () => {
@@ -609,16 +616,17 @@ describe("push_attached: a push to an attached repository", () => {
     }
   });
 
-  test("an agent session with no snapshot began as ask, so a later allow does not widen it", () => {
+  test("an agent session with no snapshot reads the row as it is now", () => {
     const read = (pushAttached: string | null) =>
       effectiveGitHubPolicy({
         source: "agent",
         releasePin: undefined,
         agentRow: { ...person, pushAttached },
       }).pushAttached;
-    expect(read("allow")).toBe("ask");
+    expect(read("allow")).toBe("allow");
+    expect(read("ask")).toBe("ask");
     expect(read("deny")).toBe("deny");
-    expect(read(null)).toBe("ask");
+    expect(read(null)).toBe("allow");
   });
 
   test("a snapshot only narrows: allow at start and ask now is ask; ask at start and allow now is ask", () => {
@@ -697,7 +705,7 @@ describe("newSessionGitHubPolicy", () => {
     expect(newSessionGitHubPolicy(null, undefined).settings).toBeNull();
   });
 
-  test("a new session starts at the row's own push_attached, not at the cap of a session with no snapshot", () => {
+  test("a new session starts at the row's own push_attached", () => {
     const start = (pushAttached: string | null) =>
       newSessionGitHubPolicy({ ...ROW, pushAttached }, PIN).pushAttached;
     expect(start("allow")).toBe("allow");

@@ -542,10 +542,9 @@ integration("the readers of an agent's GitHub settings", () => {
           decision,
         );
       }
-      // No snapshot means no recorded start value for push_attached: it counts
-      // as ask, so a later allow cannot loosen the session, but deny still binds.
+      // No snapshot: the row decides as it is now.
       const NO_SNAPSHOT = [
-        [false, "allow", "ask"],
+        [false, "allow", "allow"],
         [false, "ask", "ask"],
         [false, "deny", "deny"],
         [true, "allow", "ask"],
@@ -581,14 +580,16 @@ integration("the readers of an agent's GitHub settings", () => {
       }
       // A row a person saved for the agent afterwards sets push_attached for
       // a release session too.
-      for (const [pushAttached, decision] of [
-        ["allow", "allow"],
-        ["ask", "ask"],
-        ["deny", "deny"],
+      for (const [pushApproval, pushAttached, decision] of [
+        [false, "allow", "allow"],
+        [false, "ask", "ask"],
+        [false, "deny", "deny"],
+        // Approval a person turned on asks even with no pin.
+        [true, "allow", "ask"],
       ] as const) {
         const { workspaceId, agentId, sessionId } = await fixture();
         await settingsRow(workspaceId, agentId, {
-          pushApproval: false,
+          pushApproval,
           pushAttached,
           revision: 2,
           updatedBy: randomUUID(),
@@ -692,7 +693,7 @@ integration("the readers of an agent's GitHub settings", () => {
       expect(await columnOf(agentId)).toBe("deny");
     });
 
-    test("a session with no snapshot is capped at ask even when the row now says allow", async () => {
+    test("a session with no snapshot asks when the row now turns approval on", async () => {
       const { workspaceId, agentId, sessionId } = await fixture({
         source: "agent",
       });

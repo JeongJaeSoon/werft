@@ -694,7 +694,7 @@ export function pushDecisionOf(policy: {
   if (settings === "invalid")
     return meetPushAttached("ask", policy.pushAttached);
   const approval: PushAttached =
-    settings !== null && settings.push_approval ? "ask" : "allow";
+    settings?.push_approval ? "ask" : "allow";
   return meetPushAttached(approval, policy.pushAttached);
 }
 
@@ -917,7 +917,12 @@ export function effectiveGitHubPolicy(input: {
         settings: null,
         agentSettingsRevision: agentRow.revision,
         currentRepositories: current.data.repositories,
-        pushAttached: releasePushAttached(agentRow),
+        // With no pin the settings stay the release's, but approval a person
+        // turned on after the start still asks.
+        pushAttached: meetPushAttached(
+          releasePushAttached(agentRow),
+          current.data.push_approval ? "ask" : "allow",
+        ),
       };
     }
     return {
@@ -951,12 +956,8 @@ export function effectiveGitHubPolicy(input: {
     return {
       ...base,
       settings: current.data,
-      // A session with no snapshot began before this setting existed, when
-      // an attached push always needed a person: later saves only narrow it.
-      pushAttached: meetPushAttached(
-        "ask",
-        pushAttachedOf(agentRow.pushAttached),
-      ),
+      // A session with no snapshot reads the row as it is now.
+      pushAttached: pushAttachedOf(agentRow.pushAttached),
     };
   }
   const start = githubPolicyStartSchema.safeParse(input.start);

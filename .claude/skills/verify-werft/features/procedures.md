@@ -850,7 +850,7 @@ node "$U" "$RUN" slack-cards "$AID"                      # 첫 카드의 last_up
 node "$U" "$RUN" slack-click "$AID" deny
 node "$U" "$RUN" slack-cards "$AID"                      # 두 번째 카드의 last_update가 "거부됨"
 ap_compose exec -T postgres psql -U postgres -d sessions -c "select answer->>'decision' decision, answer->>'remember' remember, settled_answer_result, payload->'remember_offer' from pending_requests where tool='Bash' order by created_at"
-# push 승인: 도구 허용과 따로 push 카드가 온다.
+# push 승인: 도구 허용과 따로 push 카드가 온다. push 전 사람 승인을 켠 에이전트만이다(기본 mock run은 아래 주의).
 node "$U" "$RUN" key owner personal sessions:read,sessions:write,sessions:approve; ap_as owner
 ap_post "/v1/sessions/$SID/push-requests" '{}'            # SID는 commit 대본(P-GITHUB-SANDBOX 4의 SPEC)이 끝난 Slack 세션
 node "$U" "$RUN" slack-cards "$AID"                      # push.approve·push.reject 카드
