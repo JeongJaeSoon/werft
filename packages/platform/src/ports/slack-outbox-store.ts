@@ -169,7 +169,7 @@ export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
  * topic's thread, or, for a topic Slack has not placed (`threadTs` ""), the
  * top of its channel, or of the person's DM a placed topic of theirs names.
  */
-export type SlackUnmirroredInput = {
+export type UnmirroredWebInput = {
   inputId: ConversationInputId;
   workspaceId: string;
   agentId: string;
@@ -561,7 +561,7 @@ export interface SlackOutboxStore {
    * first. A topic Slack has not placed has only its earliest such input
    * mirrored: that post places it, and the rest go into its thread after.
    */
-  unmirroredInputs(limit: number): Promise<SlackUnmirroredInput[]>;
+  unmirroredInputs(limit: number): Promise<UnmirroredWebInput[]>;
   /**
    * Linked turns past the link's mark that ended without their outbox
    * row. A turn that owes an `instruction` row waits for it,
