@@ -143,6 +143,7 @@ SDK에서는 아래 응답이 `APIError`로 오고, `isApiError(error, "SESSION_
 | 409 `RECOVERY_REQUIRED` | 복구 결정이 먼저다([닫기](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | 닫는 중이거나 닫혔다 |
 | 409 `CHECKPOINT_UNAVAILABLE` | checkpoint 문제로 새 turn을 받지 않는다. 원인은 응답의 `message`에 있다. 대화 기록이 상한을 넘은 경우면 새 세션을 연다 |
+| 409 `SOURCE_DELETED` | 세션에 Slack에서 삭제된 글이 들어 있어 새 turn을 받지 않는다. 새 세션을 연다 |
 | 413 | 메시지가 너무 길다 |
 | 429 | 대기 입력이 상한에 닿았다 |
 

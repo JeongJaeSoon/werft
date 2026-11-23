@@ -54,6 +54,8 @@ export type SlackOutboxDrain = {
   failed: number;
   uncertain: number;
   lost: number;
+  /** Rows never sent: a source was deleted in Slack before the send. */
+  voided: number;
   /** Thread statuses sent. */
   statuses: number;
   /** Posted cards redrawn. */
@@ -99,6 +101,7 @@ export async function drainSlackOutbox(deps: {
     failed: 0,
     uncertain: 0,
     lost: 0,
+    voided: 0,
     statuses: 0,
     cards: 0,
   };
@@ -278,11 +281,24 @@ export async function drainSlackOutbox(deps: {
 
       // When Slack is asked, so a join noted after it outdates its answer.
       const askedAt = Date.now() * 1000;
+      let voided = false;
       const outcome = await deliver({
         row: claim,
         attempts: claim.attempts,
-        begin: async () => deps.outbox.beginSend(claim),
+        begin: async () => {
+          const begun = await deps.outbox.beginSend(claim);
+          voided = begun === "voided_by_delete";
+          return begun === true;
+        },
       });
+      if (outcome.kind === "lease_lost" && voided) {
+        drain.voided += 1;
+        deps.logger.warn("Slack send voided: a source was deleted", {
+          ...ids,
+          error: "source_deleted",
+        });
+        continue;
+      }
       if (outcome.kind === "lease_lost") {
         drain.lost += 1;
         deps.logger.warn("Slack outbox lease lost before send", ids);

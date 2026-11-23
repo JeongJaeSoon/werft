@@ -29,6 +29,11 @@ export const ACCEPTED: readonly {
     proof: "apps/control-host/src/api/routes/sessions/achievements.test.ts",
   },
   {
+    problem: 'error $.error.code: the receiver refuses "SOURCE_DELETED"',
+    why: "Only a session start or a message into a session answers it (POST /v1/sessions, POST /v1/sessions/{id}/messages, and the Slack handler in process); no worker route starts a session or appends an input.",
+    proof: "packages/platform/src/sessions/session-caller-limit.test.ts",
+  },
+  {
     problem:
       "/bootstrap-claim response $.runtime_config.mcp_servers: the receiver's maxItems is 2; the sender's is 10",
     why: "Only a worker that announced workspace_mcp gets workspace servers; a claim from a worker without it is refused, retryable, before anything is bound, so it still gets at most the catalog server and github.",

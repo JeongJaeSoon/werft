@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0328_slack_outbox_voided_by_delete`가 outbox 상태 `voided_by_delete`를 더하고, Slack에서 지운 글에 걸린 답과 턴을 막는다**(JeongJaeSoon/werft#PRNUM). 따로 할 일은 없고, 지운 글이 없는 Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
+  - 출처(물려받은 것 포함)에 지운 글(묘비 포함)이 든 outbox 줄은 보내기 직전에 `voided_by_delete`(`error_code` `source_deleted`)로 끝나고 나가지 않는다. slack 역할이 `warn` 로그 `Slack send voided: a source was deleted`를 남긴다. 보내기 시작한 뒤의 삭제는 나간 글을 그대로 두고, 수정은 아무것도 막지 않는다.
+  - 지운 글로는 세션을 만들거나 턴을 넣지 않는다. Slack에는 안내를 올리지 않고 `warn` 로그 `Slack input refused by the session`(`code` `SOURCE_DELETED`)만 남는다.
+  - **보이는 변화**: 지운 Slack 글이 든 세션에 웹·API로 메시지를 보내면 409 `SOURCE_DELETED`로 거절된다.
+  - CHECK는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
+
 - **비공개 Slack 채널에서 시작한 세션은 새 공유 범위 `private_channel`로 생기고, 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보인다**(JeongJaeSoon/werft#2053). migration `0327_private_channel_share_scope`가 `session_shares`의 범위 CHECK에 `private_channel`을 더한다. 따로 할 일은 없다.
   - 보이는 변화: API key(개인 key·에이전트 key 모두, key 주인이 멤버여도)로는 이 세션이 목록에 없고 상세·turns·events·outputs·pending-requests가 `404`다. 판정 기록에는 이유 `private_channel_key`로 남는다. 채널을 나간 만든 사람과 멤버가 아닌 owner·admin도 못 본다(사유를 적은 감사 읽기는 된다. 관리 목록 `/v1/admin/sessions`에는 메타데이터만 `share_scope: private_channel`로 남고, 관리 종료는 채널 밖에서 `404`다). 공유 범위를 바꾸려 하면 409(`reason_code: private_channel_session`)다.
   - 멤버 확인은 api와 slack 역할이 bot token으로 `conversations.members`를 읽고 5분 캐시한다(`groups:read`, 새 scope 없음). 확인하지 못하면(429·Slack 장애·bot이 채널 밖) 멤버에게도 숨긴다. 세션 목록은 `private_channel` 세션이 있는 채널마다 한 번씩, 동시에 8개까지 확인한다.

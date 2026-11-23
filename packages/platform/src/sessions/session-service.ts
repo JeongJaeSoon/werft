@@ -586,6 +586,13 @@ export function createSessionService(deps: {
     );
   }
 
+  function sourceDeleted() {
+    return new SessionServiceError(
+      "SOURCE_DELETED",
+      "This session holds a deleted Slack message",
+    );
+  }
+
   function previewRefused() {
     return new SessionServiceError(
       "FORBIDDEN",
@@ -759,6 +766,8 @@ export function createSessionService(deps: {
           "UNSUPPORTED_CAPABILITY",
           "This session has no runtime spec pinned on its own model, so it takes no more input; create a new session",
         );
+      case "source_deleted":
+        throw sourceDeleted();
       case "queue_full":
       case "storage_exhausted":
         throw limitError(result);
@@ -1084,6 +1093,8 @@ export function createSessionService(deps: {
             release.agent_id,
             result.receiptId,
           );
+        case "source_deleted":
+          throw sourceDeleted();
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);

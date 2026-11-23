@@ -1131,6 +1131,141 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
+  describe("a deleted source", () => {
+    const workspaceOf = async (sessionId: string) => {
+      const [session] = await db
+        .select({ workspaceId: sessions.workspaceId })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      return session?.workspaceId ?? "";
+    };
+    const marks = () => schema.createPostgresSlackSourceMarkStore(db);
+    const statuses = async () =>
+      (await rows())
+        .filter((row) => row.kind === "reply")
+        .map((row) => [row.status, row.errorCode]);
+
+    test("a reply waiting in the outbox is never sent once the message it answers is deleted", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+      await outboxPass({ botToken: null });
+      expect(await statuses()).toEqual([["pending", null]]);
+      await marks().markDeleted({
+        workspaceId: await workspaceOf(sessionId),
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: THREAD,
+        at: new Date(),
+      });
+
+      expect(await outboxPass()).toMatchObject({ voided: 1, sent: 0 });
+      expect(posted()).toEqual([]);
+      expect(await statuses()).toEqual([
+        ["voided_by_delete", "source_deleted"],
+      ]);
+      // Settled: a later pass neither sends it nor tells the thread.
+      expect(await outboxPass()).toMatchObject({ claimed: 0, voided: 0 });
+      expect(posted()).toEqual([]);
+    });
+
+    test("a reply sent before the delete stays as it went; the next turn's reply, inheriting the message, is voided", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await mention(fixture, "100.000200");
+      await endTurn(sessionId, 2, "completed", [[text("second")]]);
+      await outboxPass({ botToken: null });
+      const before = posted().length;
+      await marks().markDeleted({
+        workspaceId: await workspaceOf(sessionId),
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: THREAD,
+        at: new Date(),
+      });
+
+      expect(await outboxPass()).toMatchObject({ voided: 1, sent: 0 });
+      expect(posted()).toHaveLength(before);
+      expect(await statuses()).toEqual([
+        ["sent", null],
+        ["voided_by_delete", "source_deleted"],
+      ]);
+    });
+
+    test("an edit of the message holds back no reply", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+      await outboxPass({ botToken: null });
+      await marks().markEdited({
+        workspaceId: await workspaceOf(sessionId),
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: THREAD,
+        at: new Date(),
+      });
+
+      expect(await outboxPass()).toMatchObject({ sent: 1, voided: 0 });
+      expect(await statuses()).toEqual([["sent", null]]);
+    });
+
+    test.skipIf(engine === "PGlite")(
+      "a send waits for a delete under way and is voided by it",
+      async () => {
+        const fixture = await agentInSlack();
+        await mention(fixture, THREAD);
+        const sessionId = await sessionOf(fixture);
+        await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+        const outbox = createPostgresSlackOutboxStore(db);
+        await outboxPass({ botToken: null });
+        const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+        if (!claim) throw new Error("nothing claimed");
+        const mark = {
+          workspaceId: await workspaceOf(sessionId),
+          teamId: TEAM,
+          channelId: CHANNEL,
+          ts: THREAD,
+        };
+        let held!: () => void;
+        const hold = new Promise<void>((resolve) => {
+          held = resolve;
+        });
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        // A delete's transaction as markDeleted runs it, kept open.
+        const deleting = db.transaction(async (tx) => {
+          await tx.execute(schema.lockSlackSourceMark(mark));
+          await tx.execute(sql`
+            INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at)
+            VALUES (${mark.workspaceId}::uuid, ${TEAM}, ${CHANNEL}, ${THREAD}, now())`);
+          held();
+          await released;
+        });
+        await hold;
+        const begun = outbox.beginSend(claim);
+        expect(
+          await Promise.race([
+            begun.then(() => "begun"),
+            Bun.sleep(300).then(() => "waiting"),
+          ]),
+        ).toBe("waiting");
+        release();
+        await deleting;
+        expect(await begun).toBe("voided_by_delete");
+        expect(await statuses()).toEqual([
+          ["voided_by_delete", "source_deleted"],
+        ]);
+      },
+    );
+  });
+
   test("a reply whose thread was muted or unlinked while it waited is not sent", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

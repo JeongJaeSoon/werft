@@ -143,6 +143,7 @@ SDK では、下のレスポンスが `APIError` として届き、`isApiError(e
 | 409 `RECOVERY_REQUIRED` | 先に復旧判断が必要である([クローズ](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | 閉じている途中、または閉じている |
 | 409 `CHECKPOINT_UNAVAILABLE` | checkpoint の問題で新しいターンを受け付けない。原因はレスポンスの `message` にある。会話履歴が上限を超えた場合は、新しいセッションを開く |
+| 409 `SOURCE_DELETED` | セッションに Slack で削除されたメッセージが含まれるため、新しいターンを受け付けない。新しいセッションを開く |
 | 413 | メッセージが長すぎる |
 | 429 | 待機中の入力が上限に達した |
 

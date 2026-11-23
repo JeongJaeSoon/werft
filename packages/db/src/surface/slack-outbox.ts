@@ -38,7 +38,7 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
-import { outboxSources } from "../conversations/index.ts";
+import { lockedDeletedSource, outboxSources } from "../conversations/index.ts";
 import {
   mirrorsInstructions,
   postsPrompts,
@@ -1317,20 +1317,54 @@ export function createPostgresSlackOutboxStore(
         }));
     },
 
-    async beginSend(fence) {
-      const rows = await db
-        .update(t)
-        .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
-        .where(
-          and(
-            fenced(fence),
-            eq(t.status, "pending"),
-            sql`${t.leaseExpiresAt} > now()`,
-            channelNotWaiting(sql.raw('"slack_outbox"')),
-          ),
-        )
-        .returning({ id: t.id });
-      return rows.length > 0;
+    beginSend(fence) {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .select({
+            workspaceId: t.workspaceId,
+            sessionId: t.sessionId,
+            sources: t.sources,
+          })
+          .from(t)
+          .where(
+            and(
+              fenced(fence),
+              eq(t.status, "pending"),
+              sql`${t.leaseExpiresAt} > now()`,
+            ),
+          )
+          .for("update");
+        if (row === undefined) return false;
+        // A row whose sources hold a message Slack deleted is never sent;
+        // a delete that comes once it is sending leaves what went out.
+        if (
+          row.sources !== null &&
+          (await lockedDeletedSource(tx, row)) !== null
+        ) {
+          await tx
+            .update(t)
+            .set({
+              status: "voided_by_delete",
+              errorCode: "source_deleted",
+              ...released,
+            })
+            .where(eq(t.id, fence.id));
+          return "voided_by_delete" as const;
+        }
+        const rows = await tx
+          .update(t)
+          .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
+          .where(
+            and(
+              eq(t.id, fence.id),
+              // The marks' locks may have been waited for.
+              sql`${t.leaseExpiresAt} > clock_timestamp()`,
+              channelNotWaiting(sql.raw('"slack_outbox"')),
+            ),
+          )
+          .returning({ id: t.id });
+        return rows.length > 0;
+      });
     },
 
     async settle(fence, outcome) {

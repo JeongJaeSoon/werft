@@ -5906,7 +5906,7 @@ export const slackOutbox = pgTable(
     ),
     check(
       "slack_outbox_status_check",
-      sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain')`,
+      sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain', 'voided_by_delete')`,
     ),
     // slackOutboxChannelRefused: no row names a Slack user as its channel
     // but a model notice's direct message.

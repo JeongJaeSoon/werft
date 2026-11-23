@@ -37,13 +37,16 @@ export type SlackOutboxKind =
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
  * never came, so Slack may hold the message; it is never sent again.
+ * `voided_by_delete`: one of its sources was deleted in Slack before its
+ * send began, so it was never sent (`error_code` `source_deleted`).
  */
 export type SlackOutboxStatus =
   | "pending"
   | "sending"
   | "sent"
   | "failed"
-  | "uncertain";
+  | "uncertain"
+  | "voided_by_delete";
 
 /**
  * What goes out, before Slack controls are escaped. `mention_user_ids`: the
@@ -536,8 +539,12 @@ export interface SlackOutboxStore {
    * `pending` until beginSend, so a crash before the send is claimed again.
    */
   claim(input: { limit: number; leaseMs: number }): Promise<SlackOutboxClaim[]>;
-  /** `sending` from here on: a lease that runs out now leaves it `uncertain`. */
-  beginSend(fence: SlackOutboxFence): Promise<boolean>;
+  /**
+   * `sending` from here on: a lease that runs out now leaves it `uncertain`.
+   * `voided_by_delete`: a source of the row was deleted in Slack, and the
+   * row is settled so; nothing may go out.
+   */
+  beginSend(fence: SlackOutboxFence): Promise<boolean | "voided_by_delete">;
   /** False when the lease was lost: the row is someone else's now. */
   settle(fence: SlackOutboxFence, outcome: SlackOutboxSettle): Promise<boolean>;
 }

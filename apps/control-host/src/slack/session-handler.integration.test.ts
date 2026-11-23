@@ -1208,6 +1208,55 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     ).toEqual(["100.000100"]);
   });
 
+  test("a mention deleted before its turn goes in makes no session, and says nothing in Slack", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices, threadNotices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+      workspaceId: fixture.workspaceId,
+      teamId: TEAM,
+      channelId: CHANNEL,
+      ts: "100.000100",
+      at: new Date(),
+    });
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+    expect(await inboxStatuses()).toEqual(["processed"]);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(await inputsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
+    expect(threadNotices).toEqual([]);
+  });
+
+  test("a thread whose first message was deleted takes no next turn; an edit of it holds nothing back", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices, threadNotices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    const [session] = await sessionsOf(fixture);
+    const marks = schema.createPostgresSlackSourceMarkStore(db);
+    const place = {
+      workspaceId: fixture.workspaceId,
+      teamId: TEAM,
+      channelId: CHANNEL,
+    };
+    // Before: an edit of the first message leaves the thread going on.
+    await marks.markEdited({ ...place, ts: "100.000100", at: new Date() });
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    await drain(handle);
+    expect((await turnsOf(session?.id)).map((t) => t.sequence)).toEqual([1, 2]);
+    // After: its delete stops the next one, which inherits it.
+    await marks.markDeleted({ ...place, ts: "100.000100", at: new Date() });
+    await deliver(fixture, message("100.000300", { thread_ts: "100.000100" }));
+    await drain(handle);
+    expect((await turnsOf(session?.id)).map((t) => t.sequence)).toEqual([1, 2]);
+    expect((await inputsOf(fixture)).map((input) => input.ts)).toEqual([
+      "100.000100",
+      "100.000200",
+    ]);
+    expect(notices).toEqual([]);
+    expect(threadNotices).toEqual([]);
+  });
+
   test("a refused post takes no input", async () => {
     const fixture = await agentInSlack();
     await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));

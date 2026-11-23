@@ -53,6 +53,7 @@ import type {
   SessionRecord,
   SessionUnitOfWork,
   SessionViewer,
+  StoredSourceSet,
   UsageDecision,
 } from "@werft-ai/platform";
 import {
@@ -101,7 +102,7 @@ import {
   lockIdempotencyScope,
   parseTurnSequence,
 } from "./control-shared.ts";
-import { newTurnSources } from "./conversations/turn-sources.ts";
+import { lockedDeletedSource, newTurnSources } from "./conversations/index.ts";
 import {
   decodeCreatedAtCursor,
   decodeEventCursor,
@@ -343,6 +344,8 @@ async function insertQueuedTurn(
     requesterKind?: string | null;
     requesterId?: string | null;
     requesterAuth?: RequesterAuth | null;
+    /** The sources the caller already judged; read here when left out. */
+    sources?: StoredSourceSet | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -367,10 +370,13 @@ async function insertQueuedTurn(
       requesterAuth: input.requesterAuth ?? null,
       callerChannel: input.callerChannel ?? null,
       callerLimitDigest: input.callerLimitDigest ?? null,
-      sources: await newTurnSources(tx, {
-        sessionId: input.sessionId,
-        slackMessage: input.slackMessage,
-      }),
+      sources:
+        input.sources !== undefined
+          ? input.sources
+          : await newTurnSources(tx, {
+              sessionId: input.sessionId,
+              slackMessage: input.slackMessage,
+            }),
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -624,6 +630,27 @@ export function createPostgresSessionUnitOfWork(
             reason: envCapture.reason,
             receiptId,
           };
+        }
+        // A Slack message deleted before its session was made makes none.
+        if (
+          input.slackMessage !== undefined &&
+          workspaceId &&
+          (await lockedDeletedSource(tx, {
+            workspaceId,
+            sessionId: null,
+            sources: {
+              direct: [
+                {
+                  team_id: input.slackMessage.team_id,
+                  channel_id: input.slackMessage.channel_id,
+                  ts: input.slackMessage.ts,
+                },
+              ],
+              inherited: [],
+            },
+          })) !== null
+        ) {
+          return { outcome: "source_deleted" };
         }
         const refused = await admitInput(tx, {
           sessionId: null,
@@ -942,6 +969,23 @@ export function createPostgresSessionUnitOfWork(
         if (session.status === "failed" && pinRefusesLive(session)) {
           return { outcome: "pin_required" };
         }
+        // The turn would carry a source Slack deleted: its own message, or
+        // one an earlier turn of the session came from.
+        const sources = await newTurnSources(tx, {
+          sessionId,
+          slackMessage:
+            platform === undefined ? (input.slackMessage ?? null) : null,
+        });
+        if (
+          session.workspaceId !== null &&
+          (await lockedDeletedSource(tx, {
+            workspaceId: session.workspaceId,
+            sessionId,
+            sources,
+          })) !== null
+        ) {
+          return { outcome: "source_deleted" };
+        }
         const refused = await admitInput(tx, {
           sessionId,
           message: input.message,
@@ -958,6 +1002,7 @@ export function createPostgresSessionUnitOfWork(
           sequence,
           message: input.message,
           traceContext: input.traceContext ?? null,
+          sources,
           ...(platform === undefined
             ? {
                 actorId: input.principal.actor?.userId ?? null,
