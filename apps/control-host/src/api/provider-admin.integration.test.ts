@@ -45,8 +45,11 @@ import { DatabaseIdentityStore } from "./auth.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { createProviderAdmin } from "./provider-admin.ts";
 import { createProviderLogin } from "./provider-login.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerLoginProviderRoutes } from "./routes/login-providers.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/musterrolle/auth.ts";
+import { registerLoginProviderRoutes } from "./routes/musterrolle/login-providers.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

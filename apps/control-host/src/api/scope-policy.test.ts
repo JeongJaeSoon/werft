@@ -12,7 +12,7 @@ import { hashApiKey } from "./keys.ts";
 import { API_ROUTE_SCOPES } from "./openapi.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
-import { registerAuthRoutes } from "./routes/auth.ts";
+import { registerAuthRoutes } from "./routes/musterrolle/auth.ts";
 import { registerCloseRoutes } from "./routes/sessions/close.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
 import { registerInterruptRoutes } from "./routes/sessions/interrupt.ts";

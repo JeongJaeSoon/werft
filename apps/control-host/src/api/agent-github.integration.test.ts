@@ -60,10 +60,13 @@ import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
 import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/musterrolle/auth.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

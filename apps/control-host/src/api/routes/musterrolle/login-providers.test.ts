@@ -10,11 +10,13 @@ import {
   startProviderLoginResponseSchema,
 } from "@werft-ai/contracts";
 import { SessionServiceError } from "@werft-ai/platform";
-import type { ProviderAdmin } from "../provider-admin.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
+import type { ProviderAdmin } from "../../provider-admin.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerLoginProviderRoutes } from "./login-providers.ts";
 
-const createApiApp = recordRouteErrors("routes/login-providers.test.ts");
+const createApiApp = recordRouteErrors(
+  "routes/musterrolle/login-providers.test.ts",
+);
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const ID = "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b";

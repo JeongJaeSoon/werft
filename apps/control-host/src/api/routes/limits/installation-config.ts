@@ -8,9 +8,9 @@ import {
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
-} from "../app.ts";
-import type { InstallationConfigAdmin } from "../installation-config.ts";
-import { mapped } from "./errors.ts";
+} from "../../app.ts";
+import type { InstallationConfigAdmin } from "../../installation-config.ts";
+import { mapped } from "../errors.ts";
 
 export function registerInstallationConfigRoutes(
   router: ApiRouter,

@@ -36,8 +36,8 @@ import {
   webSessionInput,
 } from "../../auth.ts";
 import type { PasswordChecks } from "../../password-checks.ts";
-import { passwordClosedTo, workspaceView } from "../auth.ts";
 import { mapped, requireParams } from "../errors.ts";
+import { passwordClosedTo, workspaceView } from "./auth.ts";
 
 // 32 random bytes, base64url, like every other one-time token here.
 export function generateInviteToken(): string {

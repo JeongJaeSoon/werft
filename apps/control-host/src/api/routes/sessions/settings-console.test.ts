@@ -10,10 +10,12 @@ import {
   SessionServiceError,
   type SettingsConsoleService,
 } from "@werft-ai/platform";
-import { recordRouteErrors } from "../route-error-coverage.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSettingsConsoleRoutes } from "./installation-settings.ts";
 
-const createApiApp = recordRouteErrors("routes/settings-console.test.ts");
+const createApiApp = recordRouteErrors(
+  "routes/sessions/settings-console.test.ts",
+);
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const BASE = "/v1/installation/settings";

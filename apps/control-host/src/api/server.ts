@@ -259,7 +259,7 @@ import {
   refuseDeletedAgents,
   registerAgentRoutes,
 } from "./routes/agents/agents.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerSkillRoutes } from "./routes/extensions/skills.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
@@ -274,18 +274,16 @@ import {
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
-import { registerInstallationConfigRoutes } from "./routes/installation-config.ts";
-import {
-  registerInstallationSettingsRoutes,
-  registerSettingsConsoleRoutes,
-} from "./routes/installation-settings.ts";
-import { registerLoginProviderRoutes } from "./routes/login-providers.ts";
-import { registerLoginSettingsRoutes } from "./routes/login-settings.ts";
+import { registerInstallationConfigRoutes } from "./routes/limits/installation-config.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
 import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
 import { registerAuditLogRoutes } from "./routes/musterrolle/audit-log.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/musterrolle/auth.ts";
 import { registerCredentialBindingRoutes } from "./routes/musterrolle/credential-bindings.ts";
 import { registerEnvVariableRoutes } from "./routes/musterrolle/env-variables.ts";
 import {
@@ -293,9 +291,10 @@ import {
   registerPublicInviteRoutes,
 } from "./routes/musterrolle/invites.ts";
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
+import { registerLoginProviderRoutes } from "./routes/musterrolle/login-providers.ts";
+import { registerLoginSettingsRoutes } from "./routes/musterrolle/login-settings.ts";
 import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
-import { registerSkillRoutes } from "./routes/musterrolle/skills.ts";
 import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
 import { registerWorkspaceMcpServerRoutes } from "./routes/musterrolle/workspace-mcp-servers.ts";
 import { registerWorkspaceRoutes } from "./routes/musterrolle/workspaces.ts";
@@ -305,6 +304,10 @@ import {
 } from "./routes/sessions/achievements.ts";
 import { registerCloseRoutes } from "./routes/sessions/close.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
+import {
+  registerInstallationSettingsRoutes,
+  registerSettingsConsoleRoutes,
+} from "./routes/sessions/installation-settings.ts";
 import { registerInterruptRoutes } from "./routes/sessions/interrupt.ts";
 import { registerSessionOutputRoutes } from "./routes/sessions/outputs.ts";
 import { registerPauseRoutes } from "./routes/sessions/pause.ts";

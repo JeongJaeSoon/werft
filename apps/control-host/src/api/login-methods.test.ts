@@ -30,7 +30,10 @@ import { createFlowSealer } from "./oidc/flow-cookie.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { createProviderLogin } from "./provider-login.ts";
 import { recordRouteErrors } from "./route-error-coverage.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/musterrolle/auth.ts";
 
 // The routes of an invite's sign-up and of a person's own ways to sign in,
 // over stores that answer what each test says. What the database does with

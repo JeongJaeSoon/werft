@@ -43,7 +43,10 @@ import {
   issueSetupToken,
 } from "./auth.ts";
 import { PasswordChecks } from "./password-checks.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/musterrolle/auth.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
