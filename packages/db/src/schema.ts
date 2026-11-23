@@ -31,8 +31,10 @@ import {
   type BudgetOwnerKind,
   type BudgetReservationState,
   type BudgetRootKind,
+  CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
   CONVERSATION_ROLLOUT_VALUES,
+  type ConversationInputSlackMirror,
   type ConversationKind,
   ENDED_ATTEMPT_STATES,
   ENV_VARIABLE_KIND_VALUES,
@@ -5318,16 +5320,37 @@ export const conversationInputs = pgTable(
     // As on turns: `user` names a Werft user, `slack_bot` a Slack bot user.
     requesterKind: text("requester_kind").notNull(),
     requesterId: text("requester_id").notNull(),
-    /** The turn the input became. */
-    turnId: bigint("turn_id", { mode: "number" })
-      .notNull()
-      .references(() => turns.id),
+    /**
+     * The turn the input became. A web input is taken before it has one;
+     * a Slack input always names one.
+     */
+    turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
+    /** Set on a web input only: the client's key for its retries. */
+    clientMessageId: text("client_message_id"),
+    /** A web input's text, which no other row holds yet. */
+    body: text(),
+    slackMirror: text("slack_mirror").$type<ConversationInputSlackMirror>(),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
     unique("conversation_inputs_seq_uniq").on(table.topicId, table.seq),
+    uniqueIndex("conversation_inputs_client_message_uniq")
+      .on(
+        table.agentId,
+        table.requesterKind,
+        table.requesterId,
+        table.clientMessageId,
+      )
+      .where(sql`${table.clientMessageId} IS NOT NULL`),
+    // A Slack input has a turn and no web fields; a web input is a user's,
+    // with its text and whether Slack is to mirror it. A NULL operand makes
+    // "IN" NULL, which a CHECK passes; hence IS NOT NULL.
+    check(
+      "conversation_inputs_origin_check",
+      sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.body} IS NOT NULL AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}))`,
+    ),
     // Unique per agent: two agents in one channel each take the message.
     unique("conversation_inputs_slack_uniq").on(
       table.agentId,

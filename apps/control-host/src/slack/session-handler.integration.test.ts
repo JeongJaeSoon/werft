@@ -708,7 +708,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     }
     // Each input names the turn its own message became: the second
     // thread's first turn is no turn of the first thread's session.
-    const madeOf = new Map(
+    const madeOf = new Map<number | null, string | null>(
       (
         await db
           .select({ id: turns.id, slackMessage: turns.slackMessage })

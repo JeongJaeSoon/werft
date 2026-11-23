@@ -248,6 +248,16 @@ Migration `0316_conversation_inputs` adds the input table `conversation_inputs`.
 - The reconciler no longer removes the delete and edit marks (`deleted_sources`, `edited_sources`) of a post with an input row after 70 minutes.
 - Rolling back to an image inside the support window makes turns as before, with no input rows for the posts in between.
 
+<a id="웹-입력-칸을-입력-접수-표에-더하는-릴리스" />
+### The release that adds web input columns to the input table
+
+Migration `0319_web_inputs` adds three columns for web inputs to the input table `conversation_inputs` (`client_message_id`, `body`, `slack_mirror`) and lets `turn_id` be empty. A receipt service comes with it that, the moment the server takes a web input, settles its input id, topic, requester and number, but no route calls it in this release. The upgrade needs nothing from you, and the web console and Slack behave as before.
+
+- A web input row keeps its text, and its `turn_id` may be empty because it is taken before it becomes a turn. A Slack input row still points at its turn and keeps no text. The check `conversation_inputs_origin_check` tells them apart.
+- When the same person sends to the same agent again with the same `client_message_id`, the earlier receipt comes back. Other text under the same key is refused.
+- The index is built `CONCURRENTLY`, and the check is added `NOT VALID` and validated on its own, so writes are not held for long. Every existing row is a Slack input row and passes the check.
+- Rolling back to an image inside the support window is fine. The older image does not read the new columns and records Slack input rows as before.
+
 <a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
 ### The release that records each turn's requester credential
 

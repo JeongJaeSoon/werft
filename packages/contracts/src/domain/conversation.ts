@@ -20,6 +20,33 @@ export const conversationInputIdSchema = z
 export type ConversationInputId = z.infer<typeof conversationInputIdSchema>;
 
 /**
+ * The key a web client gives an input so a retry finds it again: unique per
+ * agent and person, with no expiry. The DB checks the same pattern.
+ */
+export const CLIENT_MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+export const clientMessageIdSchema = z
+  .string()
+  .regex(CLIENT_MESSAGE_ID_PATTERN)
+  .brand<"ClientMessageId">();
+export type ClientMessageId = z.infer<typeof clientMessageIdSchema>;
+
+/**
+ * Whether Slack is to mirror a web input: `not_target` when the person has
+ * no Slack account linked, which only a DM input can be, since a channel
+ * input from such a person is refused; `pending` until Slack places it.
+ */
+export const CONVERSATION_INPUT_SLACK_MIRROR_VALUES = [
+  "not_target",
+  "pending",
+] as const;
+export const conversationInputSlackMirrorSchema = z.enum(
+  CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
+);
+export type ConversationInputSlackMirror = z.infer<
+  typeof conversationInputSlackMirrorSchema
+>;
+
+/**
  * An agent's main conversation: one per channel it is in, one per person it
  * talks to in DMs.
  */
