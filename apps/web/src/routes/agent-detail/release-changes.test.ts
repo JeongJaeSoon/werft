@@ -259,7 +259,7 @@ describe("releaseChanges", () => {
         ...unpinned,
         github: {
           repositories: ["sample-app"],
-          push_approval: true,
+          push_approval: false,
           features: { ...FEATURES, review: false },
           actions_allow: [],
         },

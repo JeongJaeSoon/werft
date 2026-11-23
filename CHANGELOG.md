@@ -23,6 +23,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 칸 하나를 더하고 값을 바꾸는 migration이라 지원 창 안의 이미지로 되돌려도 된다(옛 이미지는 그 칸을 읽지도 쓰지도 않는다). 되돌린 이미지는 옛 방식(두 관리자의 요청과 동의, 리뷰된 PR)으로 동작하고, 꺼진 설정은 꺼진 채로 남는다. 되돌린 이미지나 올리는 동안 아직 떠 있던 옛 서버가 옛 방식으로 켠 자동 승인, 그리고 옛 서버가 멈췄다 다시 켠 스킬의 자동 연동은 이 버전에서 꺼짐으로 읽히고 아무것도 승인하지 않는다(새 칸은 이 버전만 쓴다). 쓰려면 화면에서 다시 켠다.
 
 
+
+- **사람이 고른 적 없는 빈 값은 이제 GitHub push 승인을 묻지 않는다. 새 에이전트는 사람이 승인을 켜기 전까지 승인 없이 push한다**(JeongJaeSoon/werft#2061). migration은 없고 저장된 설정은 바꾸지 않는다. 판정을 읽는 방식만 바뀐다.
+  - 승인 없음으로 바뀌는 것: GitHub 설정을 저장하지 않은 에이전트와 github 설정이 없는 release(핀이 `push_approval: false`인 release 포함), 첨부 저장소 push 정책이 비어 있는(NULL) 설정. 에이전트 GitHub 탭과 `GET /v1/agents/{id}/github`의 `push_attached`도 이 경우 `allow`로 보인다.
+  - 그대로인 것: 사람이 켠 **push 전 사람 승인**, 정책 `ask`·`deny`, release 핀의 `push_approval: true`, 읽을 수 없는 설정(계속 사람에게 묻는다), push 승인과 정책 중 더 엄격한 쪽을 따르는 규칙.
+  - 올리는 즉시 이미 도는 세션의 다음 push부터 적용된다. 데모 설치에서는 25개 에이전트(NULL 행 9, 설정 없음 16)가 승인 없이 push하게 된다. 사람 승인을 계속 받을 에이전트는 올리기 전에 GitHub 탭에서 **push 전 사람 승인**을 켜고 저장한다.
+  - 지원 창 안의 옛 이미지로 되돌리면 빈 값이 다시 사람 승인으로 읽힌다(더 엄격해질 뿐이다).
 - **API key는 `private_channel` 세션에 쓰기·승인도 못 한다. 요청자가 채널을 나간 push는 지금 채널 멤버가 승인·거절한다**(JeongJaeSoon/werft#2062). migration은 없고 따로 할 일도 없다.
   - 보이는 변화: 개인 key·에이전트 key로 `private_channel` 세션에 메시지, 대기 요청 답, push 요청·승인·거절, PR 열기·댓글, workflow 실행, 중단·재개·종료·인계 등 `/v1/sessions/{id}` 아래 모든 경로를 부르면 `404`다(읽기는 JeongJaeSoon/werft#2053부터 `404`). 판정 기록의 이유는 `private_channel_key`다. 세션 안에서 에이전트가 요청하는 push, key로 만든 세션, 공개 채널 세션은 그대로다.
   - push를 요청한 사람(그 push를 요청한 턴의 사람. 사람이 없으면 세션을 맡은 사람, 곧 시작한 사람이나 넘겨받은 사람)이 세션의 비공개 채널을 모두 나가면, Slack 승인 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버 누구나 승인·거절할 수 있다. 결정 기록(`decided_by`)에는 누른 사람이 남는다. 나간 요청자는 결정할 수 없고, 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 카드는 채널 멤버 변화(`member_joined_channel`·`member_left_channel`) 때 다시 그려진다. 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Push requester's channel membership unconfirmed`를 남긴다.

@@ -249,13 +249,13 @@ export function releaseChanges(
     ...leafChanges("settings", "", configA, configB, (path) =>
       READABLE_CONFIG.test(path),
     ),
-    // A release without the pin runs as one with every person approving
-    // each push and no optional permission (policyPinsSchema).
+    // A release without the pin runs with no push approval and no optional
+    // permission (policyPinsSchema).
     ...valueChange(
       "settings",
       { key: "pushApproval" },
-      githubA?.push_approval ?? true,
-      githubB?.push_approval ?? true,
+      githubA?.push_approval ?? false,
+      githubB?.push_approval ?? false,
     ),
     ...leafChanges(
       "settings",

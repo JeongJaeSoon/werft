@@ -255,7 +255,8 @@ integration("the readers of an agent's GitHub settings", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
-      pushAttached: "ask",
+      // No row: nobody chose to be asked.
+      pushAttached: "allow",
     });
     await settingsRow(workspaceId, agentId, {
       repositories: ["sample-app", "docs"],
@@ -285,7 +286,8 @@ integration("the readers of an agent's GitHub settings", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
-      pushAttached: "ask",
+      // A pin carries no push_attached, and a migration's row changes nothing.
+      pushAttached: "allow",
     });
   });
 
@@ -418,7 +420,7 @@ integration("the readers of an agent's GitHub settings", () => {
       return rows[0]?.push_attached;
     };
 
-    test("a row written without the column holds null and reads as ask, with no approval by policy", async () => {
+    test("a row written without the column holds null and reads as allow: nobody chose to be asked", async () => {
       const { workspaceId, agentId, sessionId } = await fixture({
         source: "agent",
       });
@@ -432,7 +434,7 @@ integration("the readers of an agent's GitHub settings", () => {
         pushAttached: null,
       });
       const found = await pushes.findSession(workspaceId, sessionId);
-      expect(found).toMatchObject({ push: "ask" });
+      expect(found).toMatchObject({ push: "allow" });
       // Reading it does not write the column.
       expect(await columnOf(agentId)).toBeNull();
     });
@@ -540,10 +542,9 @@ integration("the readers of an agent's GitHub settings", () => {
           decision,
         );
       }
-      // No snapshot means no recorded start value for push_attached: it counts
-      // as ask, so a later allow cannot loosen the session, but deny still binds.
+      // No snapshot: the row decides as it is now.
       const NO_SNAPSHOT = [
-        [false, "allow", "ask"],
+        [false, "allow", "allow"],
         [false, "ask", "ask"],
         [false, "deny", "deny"],
         [true, "allow", "ask"],
@@ -564,26 +565,31 @@ integration("the readers of an agent's GitHub settings", () => {
           decision,
         );
       }
-      // A release pin carries no push_attached: it reads as ask, so a release
-      // session never gets a policy approval.
-      for (const pushApproval of [false, true]) {
+      // A release pin carries no push_attached: nobody chose to be asked, so
+      // the pin's own push_approval decides.
+      for (const [pushApproval, decision] of [
+        [false, "allow"],
+        [true, "ask"],
+      ] as const) {
         const { workspaceId, sessionId } = await fixture({
           pins: { github: { ...PIN_OFF, push_approval: pushApproval } },
         });
         expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
-          "ask",
+          decision,
         );
       }
-      // A row a person saved for the agent afterwards can take a release
-      // session from ask to deny, never to allow.
-      for (const [pushAttached, decision] of [
-        ["allow", "ask"],
-        ["ask", "ask"],
-        ["deny", "deny"],
+      // A row a person saved for the agent afterwards sets push_attached for
+      // a release session too.
+      for (const [pushApproval, pushAttached, decision] of [
+        [false, "allow", "allow"],
+        [false, "ask", "ask"],
+        [false, "deny", "deny"],
+        // Approval a person turned on asks even with no pin.
+        [true, "allow", "ask"],
       ] as const) {
         const { workspaceId, agentId, sessionId } = await fixture();
         await settingsRow(workspaceId, agentId, {
-          pushApproval: false,
+          pushApproval,
           pushAttached,
           revision: 2,
           updatedBy: randomUUID(),
@@ -687,7 +693,7 @@ integration("the readers of an agent's GitHub settings", () => {
       expect(await columnOf(agentId)).toBe("deny");
     });
 
-    test("a session with no snapshot is capped at ask even when the row now says allow", async () => {
+    test("a session with no snapshot asks when the row now turns approval on", async () => {
       const { workspaceId, agentId, sessionId } = await fixture({
         source: "agent",
       });
@@ -773,8 +779,15 @@ integration("the readers of an agent's GitHub settings", () => {
     expect(sessionIds).toContain(person.sessionId);
   });
 
-  test("a `release` session asks under the one rule, so a policy approval it was handed goes back to a person at the claim", async () => {
-    const { workspaceId, sessionId } = await fixture();
+  test("a `release` session whose pin asks keeps asking, so a policy approval it was handed goes back to a person at the claim", async () => {
+    // A pin with approval off and no row: nobody chose to be asked.
+    const open = await fixture();
+    expect(
+      (await pushes.findSession(open.workspaceId, open.sessionId))?.push,
+    ).toBe("allow");
+    const { workspaceId, sessionId } = await fixture({
+      pins: { github: { ...PIN_OFF, push_approval: true } },
+    });
     const found = await pushes.findSession(workspaceId, sessionId);
     expect(found?.push).toBe("ask");
     expect(found?.policyApproval).toMatchObject({
@@ -996,7 +1009,8 @@ integration("the readers of an agent's GitHub settings", () => {
           features: REVIEW_ON,
           actions_allow: [],
         },
-        push_attached: "ask",
+        // A row from before the column (null) starts the snapshot at allow.
+        push_attached: "allow",
       });
     });
 
@@ -1007,7 +1021,7 @@ integration("the readers of an agent's GitHub settings", () => {
       for (const [stored, expected] of [
         ["allow", "allow"],
         ["deny", "deny"],
-        [undefined, "ask"],
+        [undefined, "allow"],
       ] as const) {
         await settingsRow(workspaceId, agentId, {
           updatedBy: PERSON,
@@ -1162,6 +1176,7 @@ integration("the readers of an agent's GitHub settings", () => {
         currentRepositories: ["sample-app", "docs"],
         startActionsAllow: null,
         enabledAtStart: true,
+        // The person's row turned push approval on.
         pushAttached: "ask",
       });
       expect(
