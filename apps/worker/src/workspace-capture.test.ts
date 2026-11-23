@@ -707,6 +707,17 @@ exec "$REAL_GIT" "$@"`);
       });
     });
 
+    test("a linked git worktree added from the workspace", async () => {
+      await commitFiles({ "a.txt": "a\n" });
+      await git(root, "worktree", "add", "--quiet", "-b", "wt-branch", "wt");
+      await git(root, "add", "wt");
+      expect(await capture()).toEqual({
+        status: "refused",
+        reason:
+          "wt is a submodule (a git worktree or clone inside the workspace, once added, is one; a branch made with git switch -c in the workspace itself is not)",
+      });
+    });
+
     test("a branch made with git switch -c in the workspace itself", async () => {
       await commitFiles({ "a.txt": "a\n" });
       await git(root, "switch", "--quiet", "-c", "feature", "main");
