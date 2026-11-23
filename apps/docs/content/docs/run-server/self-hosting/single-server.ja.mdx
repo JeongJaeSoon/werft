@@ -123,7 +123,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 
 env ファイルを `/etc/werft/test-ops.env` 以外の場所に置く場合は、スクリプトを呼ぶたびに `TEST_OPS_ENV_FILE` にそのパスを渡します。
 
-モデル key は設置後にコンソールのモデル接続で入力するため、`v0.1.2` タグでは `ANTHROPIC_API_KEY` を空のままにします。ただし `v0.1.0` タグの checkout では compose がこれを必須とし、空のままだと `preflight` が exit 1 で終わります。そのバージョンでは env ファイルにモデル key (または後でコンソールで差し替える仮の値) を入れます。空を許す変更は [JeongJaeSoon/werft#1262](https://github.com/JeongJaeSoon/werft/pull/1262) で入り、`v0.1.2` がそれを含む最初の公開リリースです。`PLATFORM_SECRET_KEY` を失うと保存した資格情報を読めなくなるため、別途安全にバックアップします。
+モデル key は設置後にコンソールのモデル接続で入力するため、`ANTHROPIC_API_KEY` は空のままにします。`PLATFORM_SECRET_KEY` を失うと保存した資格情報を読めなくなるため、別途安全にバックアップします。
 
 設定文書は `/etc/werft/settings.json` に置き、セッションが使う GitHub リポジトリを書きます。最初の `deploy` が空のインストールに一度だけ入れ、その後は文書を直しても取り込まれないため、設定はコンソールで変更します。秘密情報は含みません。リポジトリ URL だけを実際の値に変更します。例は公開リポジトリ用です。リポジトリ項目には `"auth": { "kind": "github_app" }` が必要です。なければ `preflight` が文書全体を拒否し、設置を止めます。非公開リポジトリは、そのリポジトリに GitHub App をインストールします（[GitHub](/integrations/github)）。
 
@@ -207,7 +207,7 @@ curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:3000/readyz
 curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/docs
 ```
 
-ready の本文と 200、docs 200、各サービスの healthy を確認します。PostgreSQL は loopback だけで待ち受け、Docker TCP socket は外部から到達できない必要があります。運用 AWS S3 設置全体とデータがある状態での復元は、このチュートリアルでは実行確認していません。LocalStack の空 checkpoint の照合と ready 200 で代替しません。
+ready の本文と 200、docs 200、各サービスの healthy を確認します。PostgreSQL は loopback だけで待ち受け、Docker TCP socket は外部から到達できない必要があります。
 
 <a id="자주-막히는-곳" />
 ## よくある問題
@@ -222,7 +222,7 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 原因を直し、同じ release ファイルと同じ環境で `deploy` を再実行します。成功済みの環境を再起動するときは `start` を使います。
 
-`preflight` が `path(s) the containers mount cannot be read by the user their container runs as` で止まった場合、括弧内のコンテナユーザーが表示されたパスを読めません。postgres（uid 999）と migrate（uid 1000）はホストのユーザーとして実行されないため、制限的な umask（`077`、`027`）で作られたリポジトリの checkout やバンドル、または他のユーザーが読めない設定文書が原因です。checkout またはバンドルのディレクトリに `chmod -R o+rX`、設定文書に `chmod o+r` を実行するか、umask `022` で取得し直します。postgres volume が初期化済みの設置は初期 SQL を再度読まないため、これまで問題が出ていなくても、この検査がある版の `upgrade`・`start` で初めて止まることがあります。この検査がない以前のリリースでは、同じ原因が `deploy` での postgres unhealthy（ログの `Permission denied`）か migrate の失敗としてのみ現れます。
+`preflight` が `path(s) the containers mount cannot be read by the user their container runs as` で止まった場合、括弧内のコンテナユーザーが表示されたパスを読めません。postgres（uid 999）と migrate（uid 1000）はホストのユーザーとして実行されないため、制限的な umask（`077`、`027`）で作られたリポジトリの checkout やバンドル、または他のユーザーが読めない設定文書が原因です。checkout またはバンドルのディレクトリに `chmod -R o+rX`、設定文書に `chmod o+r` を実行するか、umask `022` で取得し直します。postgres volume が初期化済みの設置は初期 SQL を再度読まないため、これまで問題が出ていなくても、この検査がある版の `upgrade`・`start` で初めて止まることがあります。
 
 quota エラーは [XFS の準備](/run-server/self-hosting/prepare-xfs)、bucket の保護・権限エラーは [bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)を確認します。env 権限エラーは[手順 2 のファイル mode](#2-비밀과-설정-문서)、settings digest エラーは[手順 3 の digest・release 入力生成](#3-release-입력-생성)を確認します。最初の deploy が失敗しても、正常デプロイの状態ファイルがあるとは考えないでください。
 
