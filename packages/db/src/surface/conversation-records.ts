@@ -225,7 +225,8 @@ export async function deleteConversationRecords(
         (await db.transaction(async (tx) => {
           const seen = await recordsOf(tx, conversation);
           // The order every write naming a message takes: its mark lock, then
-          // the conversation (a buffer hold), then the summary row.
+          // the conversation (a buffer hold), then the summary row, and the
+          // summary before any buffered row (a Slack channel delete).
           for (const ts of seen.touched) {
             await tx.execute(lockSlackSourceMark({ ...place, ts }));
           }
@@ -252,6 +253,8 @@ export async function deleteConversationRecords(
                 (${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId})
               AND ts IN (${texts(records.marks)})`);
           }
+          const summary = await deleteChannelSummary(tx, place);
+          if (!within(summary.sourceTs, seen.touched)) throw new RecordsMoved();
           // An engagement is written without the conversation's lock: all of
           // the conversation's go, and one not seen before starts again.
           const engagementTs = rowsOf<{ ts: string }>(
@@ -265,8 +268,6 @@ export async function deleteConversationRecords(
           if (!within(engagementTs, seen.touched)) throw new RecordsMoved();
           const engagements = engagementTs.length;
           const buffered = await dropBufferedInputs(tx, records.bufferedIds);
-          const summary = await deleteChannelSummary(tx, place);
-          if (!within(summary.sourceTs, seen.touched)) throw new RecordsMoved();
           const result = {
             engagements,
             summaryLines: summary.lines,
