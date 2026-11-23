@@ -1660,6 +1660,13 @@
       "when": 1795411513081,
       "tag": "0327_private_channel_share_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 328,
+      "version": "7",
+      "when": 1795412829019,
+      "tag": "0328_conversation_calls",
+      "breakpoints": true
     }
   ]
 }
