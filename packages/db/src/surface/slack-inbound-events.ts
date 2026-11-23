@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  type ConversationInputId,
   SLACK_INBOUND_EVENT_STATUS_VALUES,
   type SlackInboundEventStatus,
 } from "@werft-ai/contracts";
@@ -12,8 +11,7 @@ import type {
 import { and, eq, gt, sql } from "drizzle-orm";
 import {
   holdBufferedInput,
-  lockSessionForSources,
-  recordSourceInput,
+  takeSlackTurnInput,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { slackInboundEvents, slackInstallations } from "../schema.ts";
@@ -191,92 +189,24 @@ export function createPostgresSlackInboundEventStore(
           });
         if (row === undefined) return false;
         if (input === undefined) return true;
-        // One taker per topic at a time, so the topic's highest number plus
-        // one is free.
-        const topic = await tx.execute(sql`
-          SELECT id FROM conversation_topics
-          WHERE id = ${input.topicId}::uuid
-            AND workspace_id = ${row.workspaceId}::uuid
-            AND agent_id = ${row.agentId}::uuid
-          FOR UPDATE`);
-        if (rowsOf(topic).length === 0) {
-          throw new Error(
-            `topic ${input.topicId} is no topic of the event's agent`,
-          );
-        }
         if ("buffered" in input) {
+          // One taker per topic at a time, so the topic's highest number plus
+          // one is free.
+          const topic = await tx.execute(sql`
+            SELECT id FROM conversation_topics
+            WHERE id = ${input.topicId}::uuid
+              AND workspace_id = ${row.workspaceId}::uuid
+              AND agent_id = ${row.agentId}::uuid
+            FOR UPDATE`);
+          if (rowsOf(topic).length === 0) {
+            throw new Error(
+              `topic ${input.topicId} is no topic of the event's agent`,
+            );
+          }
           await holdBufferedInput(tx, row, input);
           return true;
         }
-        const [turn] = rowsOf<{
-          id: string;
-          requester_kind: string | null;
-          requester_id: string | null;
-        }>(
-          await tx.execute(sql`
-            SELECT t.id, t.requester_kind, t.requester_id
-            FROM turns t JOIN sessions s ON s.id = t.session_id
-            WHERE t.session_id = ${input.turn.sessionId}::uuid
-              AND t.sequence = ${input.turn.sequence}
-              AND s.workspace_id = ${row.workspaceId}::uuid`),
-        );
-        if (turn === undefined) {
-          throw new Error(
-            `turn ${input.turn.sequence} of session ${input.turn.sessionId} is missing`,
-          );
-        }
-        if (
-          (turn.requester_kind !== "user" &&
-            turn.requester_kind !== "slack_bot") ||
-          turn.requester_id === null
-        ) {
-          throw new Error(`turn ${turn.id} has no Slack requester`);
-        }
-        await lockSessionForSources(tx, input.turn.sessionId);
-        await tx.execute(sql`
-          INSERT INTO conversation_inputs (
-            id, workspace_id, agent_id, topic_id, seq,
-            slack_team_id, slack_channel_id, slack_ts,
-            requester_kind, requester_id, turn_id
-          )
-          SELECT ${randomUUID()}::uuid, ${row.workspaceId}::uuid,
-            ${row.agentId}::uuid, ${input.topicId}::uuid,
-            COALESCE(MAX(i.seq), 0) + 1,
-            ${row.teamId}, ${input.channelId}, ${input.ts},
-            ${turn.requester_kind}, ${turn.requester_id},
-            ${turn.id}::bigint
-          FROM conversation_inputs i WHERE i.topic_id = ${input.topicId}::uuid
-          ON CONFLICT (agent_id, slack_team_id, slack_channel_id, slack_ts)
-            DO NOTHING`);
-        // The row this insert or an earlier take of the message wrote.
-        const [taken] = rowsOf<{ id: ConversationInputId }>(
-          await tx.execute(sql`
-            SELECT id FROM conversation_inputs
-            WHERE agent_id = ${row.agentId}::uuid
-              AND slack_team_id = ${row.teamId}
-              AND slack_channel_id = ${input.channelId}
-              AND slack_ts = ${input.ts}`),
-        );
-        if (taken !== undefined) {
-          await recordSourceInput(tx, {
-            sessionId: input.turn.sessionId,
-            inputId: taken.id,
-            place: {
-              teamId: row.teamId,
-              channelId: input.channelId,
-              ts: input.ts,
-            },
-          });
-        }
-        await tx.execute(sql`
-          INSERT INTO conversation_engagements (
-            workspace_id, agent_id, team_id, channel_id, ts, kind, session_id
-          ) VALUES (
-            ${row.workspaceId}::uuid, ${row.agentId}::uuid, ${row.teamId},
-            ${input.channelId}, ${input.ts}, ${input.engagement},
-            ${input.turn.sessionId}::uuid
-          )
-          ON CONFLICT DO NOTHING`);
+        await takeSlackTurnInput(tx, row, input);
         return true;
       });
     },

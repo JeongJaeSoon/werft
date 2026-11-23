@@ -517,6 +517,41 @@ const turnIdsOf = async (sessionId: string | undefined) =>
       .orderBy(asc(turns.sequence))
   ).map((turn) => turn.id);
 
+/**
+ * Leaves the turn of the post at `ts` as an image that took the input only
+ * on the inbox row's completion left it after dying: no input, no
+ * engagement, and no input named in any source key.
+ */
+async function forgetSlackInput(ts: string) {
+  await db
+    .delete(schema.conversationInputs)
+    .where(eq(schema.conversationInputs.slackTs, ts));
+  await db
+    .delete(schema.conversationEngagements)
+    .where(eq(schema.conversationEngagements.ts, ts));
+  type Key = { ts?: string; input_id?: string };
+  const unnamed = (keys: Key[]) =>
+    keys.map(({ input_id, ...key }) =>
+      key.ts === ts || input_id === undefined ? key : { ...key, input_id },
+    );
+  for (const turn of await db
+    .select({ id: turns.id, sources: turns.sources })
+    .from(turns)) {
+    const set = turn.sources as { direct: Key[]; inherited: Key[] } | null;
+    if (set === null) continue;
+    await db
+      .update(turns)
+      .set({
+        sources: {
+          ...set,
+          direct: unnamed(set.direct),
+          inherited: unnamed(set.inherited),
+        } as typeof turn.sources,
+      })
+      .where(eq(turns.id, turn.id));
+  }
+}
+
 /** The thread's link as a pass that died right after reserving it left it. */
 async function reserveThread(fixture: Fixture) {
   const [installation] = await db.select().from(slackInstallations);
@@ -777,8 +812,9 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     const [claim] = await claimAll(30_000);
     if (claim === undefined) throw new Error("nothing claimed");
     // The turn is taken; the pass dies before its row completes.
-    expect(await handler(shortLease).handle(claim)).toBeDefined();
-    expect(await inputsOf(fixture)).toEqual([]);
+    await handler(shortLease).handle(claim);
+    // The turn's transaction took the input with it.
+    expect(await inputsOf(fixture)).toHaveLength(1);
     await Bun.sleep(100);
     expect(await drain(handler().handle)).toMatchObject({ processed: 1 });
     const [session] = await sessionsOf(fixture);
@@ -798,6 +834,37 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     ]);
   });
 
+  test("a pass that died after the turn leaves the turn's input, though the install was revoked before the retry", async () => {
+    const fixture = await agentInSlack();
+    await deliver(fixture, mention("100.000100"));
+    const [claim] = await claimAll(30_000);
+    if (claim === undefined) throw new Error("nothing claimed");
+    // The turn is taken; the pass dies before its row completes.
+    await handler(shortLease).handle(claim);
+    await db
+      .update(slackInstallations)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(slackInstallations.appId, APP_ID));
+    await Bun.sleep(100);
+    // The retry drops the event before any handler runs.
+    expect(await drain(handler().handle)).toMatchObject({ dropped: 1 });
+    expect(await inboxStatuses()).toEqual(["dropped"]);
+    const [session] = await sessionsOf(fixture);
+    const turnIds = await turnIdsOf(session?.id);
+    expect(turnIds).toHaveLength(1);
+    expect(
+      (await inputsOf(fixture)).map((input) => [
+        input.seq,
+        input.ts,
+        input.requesterId,
+        input.turnId,
+      ]),
+    ).toEqual([[1, "100.000100", fixture.ownerId, turnIds[0] ?? 0]]);
+    expect(
+      (await engagementsOf(fixture)).map((row) => [row.ts, row.kind]),
+    ).toEqual([["100.000100", "mention"]]);
+  });
+
   test("a retry after the turn takes its input as the turn's, though the person was unlinked meanwhile", async () => {
     const fixture = await agentInSlack();
     const { handle, notices } = handler();
@@ -812,7 +879,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     );
     const [claim] = await claimAll(30_000);
     if (claim === undefined) throw new Error("nothing claimed");
-    expect(await handler(shortLease).handle(claim)).toBeDefined();
+    await handler(shortLease).handle(claim);
     await db.delete(linkedAccounts);
     await Bun.sleep(100);
     expect(await drain(handle)).toMatchObject({ processed: 1 });
@@ -838,12 +905,67 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toEqual([]);
   });
 
+  test("a retry of a turn an older image took without its input takes the input as the turn's, though the person was unlinked meanwhile", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    await deliver(
+      fixture,
+      message("100.000200", {
+        thread_ts: "100.000100",
+        text: `<@${BOT_USER}> again`,
+      }),
+    );
+    const [claim] = await claimAll(30_000);
+    if (claim === undefined) throw new Error("nothing claimed");
+    await handler(shortLease).handle(claim);
+    await forgetSlackInput("100.000200");
+    expect(await inputsOf(fixture)).toHaveLength(1);
+    await db.delete(linkedAccounts);
+    await Bun.sleep(100);
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+    const [session] = await sessionsOf(fixture);
+    const turnIds = await turnIdsOf(session?.id);
+    expect(turnIds).toHaveLength(2);
+    expect(await inputsOf(fixture)).toMatchObject([
+      { seq: 1, ts: "100.000100" },
+      {
+        seq: 2,
+        ts: "100.000200",
+        requesterKind: "user",
+        requesterId: fixture.ownerId,
+        turnId: turnIds[1],
+      },
+    ]);
+    expect(
+      (await engagementsOf(fixture)).map((row) => [row.ts, row.kind]),
+    ).toEqual([
+      ["100.000100", "mention"],
+      ["100.000200", "bound"],
+    ]);
+    // The retry names the input in the turn's source key again.
+    const [input] = await db
+      .select({ id: schema.conversationInputs.id })
+      .from(schema.conversationInputs)
+      .where(eq(schema.conversationInputs.slackTs, "100.000200"));
+    const [second] = await db
+      .select({ sources: turns.sources })
+      .from(turns)
+      .where(eq(turns.id, turnIds[1] ?? 0));
+    expect(
+      (second?.sources as { direct: { input_id?: string }[] } | null)?.direct[0]
+        ?.input_id,
+    ).toBe(input?.id ?? "missing");
+    expect(notices).toEqual([]);
+  });
+
   test("a retry after the session was made but never linked links it and takes the input", async () => {
     const fixture = await agentInSlack();
     await deliver(fixture, mention("100.000100"));
     const [claim] = await claimAll(30_000);
     if (claim === undefined) throw new Error("nothing claimed");
-    expect(await handler(shortLease).handle(claim)).toBeDefined();
+    await handler(shortLease).handle(claim);
     // As if the pass died between createSession and attachSession.
     await db.update(sessionLinks).set({ sessionId: null });
     await Bun.sleep(100);
@@ -856,7 +978,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inputsOf(fixture)).toHaveLength(1);
   });
 
-  test("a receipt whose row lost its lease takes nothing", async () => {
+  test("a row that lost its lease completes nothing; its turn's input stands", async () => {
     const fixture = await agentInSlack();
     await deliver(fixture, mention("100.000100"));
     const [claim] = await claimAll(30_000);
@@ -866,7 +988,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await claimAll(30_000);
     const inbox = createPostgresSlackInboundEventStore(db);
     expect(await inbox.complete(claim, receipt ?? undefined)).toBe(false);
-    expect(await inputsOf(fixture)).toEqual([]);
+    expect(await inputsOf(fixture)).toHaveLength(1);
   });
 
   test("a DM is taken into the person's DM conversation", async () => {

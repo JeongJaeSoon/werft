@@ -1,4 +1,5 @@
 import {
+  type ConversationTopicId,
   type EngagementKind,
   formatSurfaceRef,
   messageTextSchema,
@@ -23,6 +24,7 @@ import type {
   SlackAppStore,
   SlackInboundEventStore,
   SurfaceBindingStore,
+  TurnInputTopic,
 } from "@werft-ai/platform";
 import {
   type AuthorizationPolicy,
@@ -714,14 +716,21 @@ export function createSlackSessionHandler(
     };
     // Once the session took the turn it counts, whatever fails after.
     let accepted = false;
-    let turn: { sessionId: string; sequence: number };
-    let engagement: EngagementKind = "bound";
     try {
+      // Before the turn: the turn's transaction takes the message as this
+      // topic's input.
+      const topicId = await topicOf(
+        place,
+        claim.teamId,
+        threadTs,
+        agent,
+        await conversation(),
+      );
       if (link.sessionId === null && link.openedByTs !== event.ts) {
         link = await adoptOrReopen(link, event.ts);
       }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        turn = await openSession(
+        await openSession(
           caller,
           link,
           message,
@@ -732,20 +741,18 @@ export function createSlackSessionHandler(
               : undefined,
           await conversation(),
           slackMessage,
+          { topicId, engagement: openedAs },
           () => {
             accepted = true;
           },
         );
-        engagement = openedAs;
       } else {
-        const sessionId = link.sessionId;
-        const appended = await deps.sessions.appendMessage(caller, sessionId, {
+        await deps.sessions.appendMessage(caller, link.sessionId, {
           idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
           body: { message, mode: "enqueue" },
           slackMessage,
+          slackInput: { topicId, engagement: "bound" },
         });
-        // A turn id is its number in the session.
-        turn = { sessionId, sequence: Number(appended.turn_id) };
       }
       // The turn's insert marks the thread's status due; the outbox pass
       // that follows this one sends it.
@@ -791,20 +798,32 @@ export function createSlackSessionHandler(
       }
       return;
     }
-    // Beside the turn, not before it: the inbox row's completion takes it.
-    return inputOf(
-      turn,
-      place,
-      claim.teamId,
-      threadTs,
-      event.ts,
-      agent,
-      engagement,
-      await conversation(),
-    );
+    // The turn's transaction took the input with it.
   };
 
-  /** The input of a message its turn took, in the thread's topic. */
+  /** The thread's topic, in its main conversation. */
+  async function topicOf(
+    place: { dm: boolean; personUserId: string | null; channelId: string },
+    teamId: string,
+    threadTs: string,
+    agent: { workspaceId: string; agentId: string },
+    found?: Conversation | null,
+  ): Promise<ConversationTopicId> {
+    const conversation = found ?? (await conversationOf(place, teamId, agent));
+    if (conversation === null) {
+      throw new Error("A Slack DM has no person to take its input");
+    }
+    const topic = await deps.conversations.findOrCreateThreadTopic(
+      conversation.id,
+      { teamId, channelId: place.channelId, threadTs },
+    );
+    return topic.id;
+  }
+
+  /**
+   * The input of a message a turn took before the turn's transaction took
+   * it too, in the thread's topic: the inbox row's completion takes it.
+   */
   async function inputOf(
     turn: InboundInputReceipt["turn"],
     place: { dm: boolean; personUserId: string | null; channelId: string },
@@ -813,18 +832,9 @@ export function createSlackSessionHandler(
     ts: string,
     agent: { workspaceId: string; agentId: string },
     engagement: EngagementKind,
-    found?: Conversation | null,
   ): Promise<InboundInputReceipt> {
-    const conversation = found ?? (await conversationOf(place, teamId, agent));
-    if (conversation === null) {
-      throw new Error("A Slack DM turn was taken with no person");
-    }
-    const topic = await deps.conversations.findOrCreateThreadTopic(
-      conversation.id,
-      { teamId, channelId: place.channelId, threadTs },
-    );
     return {
-      topicId: topic.id,
+      topicId: await topicOf(place, teamId, threadTs, agent),
       channelId: place.channelId,
       ts,
       turn,
@@ -883,8 +893,9 @@ export function createSlackSessionHandler(
     shareScope: "private" | "private_channel" | undefined,
     parent: Conversation | null,
     slackMessage: SlackMessageRef,
+    slackInput: TurnInputTopic,
     onCreated: () => void,
-  ): Promise<{ sessionId: string; sequence: number }> {
+  ): Promise<void> {
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
       body: {
@@ -894,6 +905,7 @@ export function createSlackSessionHandler(
       ...(shareScope === undefined ? {} : { shareScope }),
       ...(parent === null ? {} : { parentConversationId: parent.id }),
       slackMessage,
+      slackInput,
     });
     onCreated();
     const attached = await deps.sessionLinks.attachSession(
@@ -903,7 +915,6 @@ export function createSlackSessionHandler(
     if (attached.sessionId !== created.session_id) {
       throw new Error(`Slack thread ${link.id} already holds another session`);
     }
-    return { sessionId: created.session_id, sequence: Number(created.turn_id) };
   }
 
   /** The message's link for the web; a turn goes on without one. */

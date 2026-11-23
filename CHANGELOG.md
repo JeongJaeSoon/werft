@@ -14,6 +14,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **slack 역할이 Slack 글의 접수 줄(`conversation_inputs`)을 inbox 행을 처리됨으로 바꿀 때가 아니라 그 글의 턴을 넣는 transaction에서 적는다**(JeongJaeSoon/werft#2084). migration은 없고 따로 할 일도 없다. Slack에서 보이는 동작은 그대로다.
+  - 턴을 넣은 직후 slack 역할이 죽고 그사이 설치가 해지되면, 예전에는 턴만 남고 접수 줄이 없었다. 이제 둘은 함께 생기거나 함께 생기지 않는다.
+  - 이 릴리스 전 이미지가 턴만 넣고 죽은 이벤트는 다시 돌 때 지금처럼 접수 줄을 채운다. 지원 창 안의 이미지로 되돌려도 된다.
+
 - **Slack 역할에 스위치 `SLACK_ROLE_CLOSE_LINKS`(기본 `false`, Helm은 `slack.extraEnv`)가 생긴다. 지금은 켜지 않는다**(JeongJaeSoon/werft#2083). migration은 없고, 꺼진 채로는 Slack 스레드의 동작이 그대로다.
   - 켜면 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결(link)을 마지막 보고 줄을 넣은 뒤 닫는다. 그 스레드에 다시 멘션하면 새 세션이 새 연결로 열린다. 켜기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
   - 조용한(muted) 연결과 턴을 보고하지 않는 연결은 보낼 마지막 보고가 없으므로 세션이 닫히면 바로 닫는다. 그 뒤에 보고 방식을 바꿔도 닫힌 세션의 밀린 답은 보내지 않는다.
