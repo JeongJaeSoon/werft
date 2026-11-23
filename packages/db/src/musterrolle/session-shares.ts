@@ -25,6 +25,8 @@ import {
   agents,
   conversations,
   memberTeams,
+  pushIntents,
+  pushRequests,
   receipts,
   sessionShares,
   sessionShareTargets,
@@ -373,6 +375,56 @@ async function setShare(
   });
 }
 
+const objectOf = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+/**
+ * SessionShareStore.pushRequesterOf: the person of the turn that asked for
+ * the push (its root for a push follow-up, as pushFollowUpRequester has it),
+ * else the person who asked over the API, else the session's starter.
+ */
+export async function pushRequesterOf(
+  db: Database,
+  ownerId: string,
+  sessionId: string,
+  pushRequestId: string,
+): Promise<string | null> {
+  if (!UUID.test(sessionId) || !UUID.test(pushRequestId)) return null;
+  const [row] = await db
+    .select({
+      requestedBy: pushRequests.requestedBy,
+      starter: sessions.createdByUserId,
+      turnKind: turns.requesterKind,
+      turnRequester: turns.requesterId,
+      turnAuth: turns.requesterAuth,
+    })
+    .from(pushRequests)
+    .innerJoin(sessions, eq(sessions.id, pushRequests.sessionId))
+    .leftJoin(pushIntents, eq(pushIntents.pushRequestId, pushRequests.id))
+    .leftJoin(turns, eq(turns.id, pushIntents.turnId))
+    .where(
+      and(
+        eq(pushRequests.id, pushRequestId.toLowerCase()),
+        eq(pushRequests.sessionId, sessionId.toLowerCase()),
+        eq(sessions.ownerId, ownerId),
+      ),
+    )
+    .limit(1);
+  if (row === undefined) return null;
+  const auth = objectOf(row.turnAuth);
+  const root = auth?.method === "push_decision" ? objectOf(auth.root) : null;
+  const [kind, id] =
+    root !== null
+      ? [root.requester_kind, root.requester_id]
+      : [row.turnKind, row.turnRequester];
+  if (kind === "user" && typeof id === "string") return id;
+  const asked = objectOf(row.requestedBy)?.actor_user_id;
+  if (row.turnKind === null && typeof asked === "string") return asked;
+  return row.starter;
+}
+
 export function createPostgresSessionShareStore(
   db: Database,
 ): SessionShareStore {
@@ -419,6 +471,9 @@ export function createPostgresSessionShareStore(
           ),
         );
     },
+
+    pushRequesterOf: (ownerId, sessionId, pushRequestId) =>
+      pushRequesterOf(db, ownerId, sessionId, pushRequestId),
 
     async originOf(ownerId, sessionId) {
       if (!UUID.test(sessionId)) return null;

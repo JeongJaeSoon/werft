@@ -290,6 +290,9 @@ export interface SlackInteractionsStageDeps {
   sessions: Param<typeof createSlackInteractionService>["sessions"];
   followUps: Param<typeof createSlackInteractionService>["followUps"];
   outbox: Param<typeof createSlackInteractionService>["outbox"];
+  requesterLeft: NonNullable<
+    Param<typeof createSlackInteractionService>["requesterLeft"]
+  >;
   consoleOrigin: string | null;
   logger: StructuredLogger;
 }
@@ -310,6 +313,7 @@ export function wireSlackInteractions(deps: SlackInteractionsStageDeps) {
     botToken: async (workspaceId, slackAppId) =>
       slackBotToken(secrets(), workspaceId, slackAppId),
     outbox: deps.outbox,
+    requesterLeft: deps.requesterLeft,
     connectUrl: slackConnectUrl(deps.consoleOrigin),
     logger: deps.logger,
   });
