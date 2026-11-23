@@ -46,6 +46,7 @@ const columns = {
   channelId: surfaceBindings.externalSurfaceId,
   channelKind: surfaceBindings.surfaceKind,
   mode: surfaceBindings.mode,
+  listen: surfaceBindings.listen,
   ceilingActions: surfaceBindings.ceilingActions,
   ceilingDisclosure: surfaceBindings.ceilingDisclosure,
   home: surfaceBindings.home,
@@ -146,6 +147,7 @@ async function writeReceipt(
       channel_id: binding.channelId,
       channel_kind: binding.channelKind,
       mode: binding.mode,
+      listen: binding.listen,
       home: binding.home,
       ceiling: binding.ceiling,
       status: binding.status,
@@ -251,6 +253,8 @@ async function set(
       const values = {
         surfaceKind: input.channelKind,
         mode: input.mode,
+        // Absent, an update keeps the channel's and an insert takes the default.
+        ...(input.listen === undefined ? {} : { listen: input.listen }),
         home: input.home,
         ceilingActions: [...input.ceiling.actions],
         ceilingDisclosure: input.ceiling.disclosure,

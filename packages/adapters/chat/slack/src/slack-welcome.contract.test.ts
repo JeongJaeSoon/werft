@@ -27,6 +27,7 @@ const home = (
   channelId: "C0HOME",
   channelKind: "public_channel",
   mode: "on",
+  listen: "free",
   ceiling: DEFAULT_SURFACE_CEILING as SurfaceBindingRecord["ceiling"],
   home: true,
   memoryWritePolicy: "deny",

@@ -4216,6 +4216,14 @@
               "on"
             ]
           },
+          "listen": {
+            "type": "string",
+            "enum": [
+              "free",
+              "mention",
+              "off"
+            ]
+          },
           "home": {
             "default": false,
             "type": "boolean"
@@ -34411,6 +34419,14 @@
                     "on"
                   ]
                 },
+                "listen": {
+                  "type": "string",
+                  "enum": [
+                    "free",
+                    "mention",
+                    "off"
+                  ]
+                },
                 "ceiling": {
                   "type": "object",
                   "properties": {
@@ -34539,6 +34555,7 @@
                 "surface_kind",
                 "agent_id",
                 "mode",
+                "listen",
                 "ceiling",
                 "home",
                 "memory_write_policy",
@@ -34634,6 +34651,14 @@
                 "enum": [
                   "off",
                   "on"
+                ]
+              },
+              "listen": {
+                "type": "string",
+                "enum": [
+                  "free",
+                  "mention",
+                  "off"
                 ]
               },
               "ceiling": {
@@ -34764,6 +34789,7 @@
               "surface_kind",
               "agent_id",
               "mode",
+              "listen",
               "ceiling",
               "home",
               "memory_write_policy",
@@ -34866,6 +34892,14 @@
                   "on"
                 ]
               },
+              "listen": {
+                "type": "string",
+                "enum": [
+                  "free",
+                  "mention",
+                  "off"
+                ]
+              },
               "ceiling": {
                 "type": "object",
                 "properties": {
@@ -34994,6 +35028,7 @@
               "surface_kind",
               "agent_id",
               "mode",
+              "listen",
               "ceiling",
               "home",
               "memory_write_policy",

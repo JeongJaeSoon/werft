@@ -140,6 +140,8 @@ finalize 뒤에도 `pending`이면 Slack이 아직 이 주소를 확인하지 �
 
 binding의 `mode`는 `off`(이 채널에서 쓰지 않음)·`on`(사용)이다. `mention_only`가 `false`면 사용 중인 채널에서 사람이 멘션 없이 채널에 바로 쓴 글에도 세션을 연다. 에이전트가 참여하지 않은 스레드의 답글에는 반응하지 않는다.
 
+binding에는 듣기 설정 `listen`도 있다. `free`(채널의 모든 글)·`mention`(멘션과 에이전트가 참여한 스레드)·`off`(듣지 않음) 가운데 하나다. 지금은 저장하고 읽기만 하며, 에이전트가 무엇에 반응하는지는 위의 `mode`와 `mention_only`가 정한다. 새로 연결한 채널은 `free`로 시작한다. 이 값이 생기기 전부터 있던 채널은 그때 에이전트의 `mention_only`를 따라 `true`면 `mention`, `false`면 `free`가 됐다. `PUT`에서 `listen`을 빼면 그 채널의 값을 그대로 둔다.
+
 에이전트마다 자기 Slack 앱을 갖는다. 연결에는 앱 id, 팀 id, bot token이 든 자격 참조의 이름(`credential_ref`, 값이 아니다)을 보낸다.
 
 ```sh

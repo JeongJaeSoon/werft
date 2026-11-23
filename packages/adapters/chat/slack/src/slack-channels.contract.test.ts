@@ -210,6 +210,7 @@ const binding = (
   channelId,
   channelKind: "public_channel",
   mode: "on",
+  listen: "free",
   ceiling: DEFAULT_SURFACE_CEILING as SurfaceBindingRecord["ceiling"],
   home: false,
   memoryWritePolicy: "deny",

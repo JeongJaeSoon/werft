@@ -169,6 +169,8 @@ async function agentInSlack(
     appId?: string;
     /** False leaves PERSON unlinked, as their Slack account links once. */
     linkPerson?: boolean;
+    listen?: "free" | "mention" | "off";
+    rollout?: "off" | "shadow" | "on";
   } = {},
 ) {
   const appId = options.appId ?? APP_ID;
@@ -302,6 +304,18 @@ async function agentInSlack(
       .update(agents)
       .set({ slackMentionOnly: false })
       .where(eq(agents.id, agentId));
+  }
+  if (options.rollout !== undefined) {
+    await db
+      .update(agents)
+      .set({ conversationRollout: options.rollout })
+      .where(eq(agents.id, agentId));
+  }
+  if (options.listen !== undefined) {
+    await db
+      .update(surfaceBindings)
+      .set({ listen: options.listen })
+      .where(eq(surfaceBindings.id, bound.binding.id));
   }
   if (options.linkPerson !== false)
     await db.insert(linkedAccounts).values({
@@ -1165,6 +1179,49 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       "and the next step",
     ]);
     expect(notices).toEqual([]);
+  });
+
+  // The conversation layer is not wired in yet: the channel's listen setting
+  // and the agent's switch change nothing on the receive path.
+  for (const listen of ["off", "free"] as const) {
+    test(`a channel listening ${listen}, its agent switched on, still answers a mention and its thread, and no other unmentioned post`, async () => {
+      const fixture = await agentInSlack("main", { listen, rollout: "on" });
+      const { handle, notices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await deliver(
+        fixture,
+        message("100.000200", { thread_ts: "100.000100" }),
+      );
+      await deliver(fixture, message("200.000100"));
+      await deliver(
+        fixture,
+        message("200.000200", { thread_ts: "200.000100" }),
+      );
+      await drain(handle);
+      expect((await links()).map((link) => link.threadId)).toEqual([
+        "100.000100",
+      ]);
+      const [session, ...others] = await sessionsOf(fixture);
+      expect(others).toEqual([]);
+      expect((await turnsOf(session?.id)).map((turn) => turn.sequence)).toEqual(
+        [1, 2],
+      );
+      expect(notices).toEqual([]);
+    });
+  }
+
+  test("an agent not waiting for a mention still opens a session on an unmentioned top-level post in a channel listening off", async () => {
+    const fixture = await agentInSlack("main", {
+      mentionOnly: false,
+      listen: "off",
+      rollout: "on",
+    });
+    const { handle } = handler();
+    await deliver(fixture, message("100.000100"));
+    await drain(handle);
+    expect((await links()).map((link) => link.threadId)).toEqual([
+      "100.000100",
+    ]);
   });
 
   test("an unused channel takes no unmentioned post", async () => {

@@ -140,6 +140,8 @@ Still `pending` after finalize means Slack has not reached the address yet. Publ
 
 A binding's `mode` is `off` (not used in this channel) or `on` (in use). When `mention_only` is `false`, a person's top-level message in a channel in use opens a session without a mention. A reply in a thread the agent is not part of gets no response.
 
+A binding also has a listen setting, `listen`: `free` (every message in the channel), `mention` (mentions and threads the agent is part of) or `off` (nothing). For now it is only stored and read; what the agent responds to is still decided by `mode` and `mention_only` above. A newly connected channel starts at `free`. A channel that existed before the setting took its agent's `mention_only` at that time: `mention` for `true`, `free` for `false`. A `PUT` without `listen` keeps the channel's value.
+
 Each agent has its own Slack app. To connect it, send the app id, the team id, and the name of a credential reference that holds the bot token (`credential_ref`, not the value).
 
 ```sh

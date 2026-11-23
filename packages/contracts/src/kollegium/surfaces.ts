@@ -52,6 +52,23 @@ export const surfaceChannelKindSchema = z.enum(SURFACE_CHANNEL_KIND_VALUES);
 export const BINDING_MODE_VALUES = ["off", "on"] as const;
 export const bindingModeSchema = z.enum(BINDING_MODE_VALUES);
 
+/**
+ * What the conversation layer listens to in an `on` channel: `free` every
+ * message, `mention` mentions and threads the agent is part of, `off`
+ * nothing. Read only while the agent's `CONVERSATION_ROLLOUT_VALUES` switch
+ * is on; until then the agent's `mention_only` decides, as before.
+ */
+export const BINDING_LISTEN_VALUES = ["free", "mention", "off"] as const;
+export const bindingListenSchema = z.enum(BINDING_LISTEN_VALUES);
+
+/**
+ * The agent's switch for the conversation layer. `off`: input takes the
+ * path it always took. `shadow`: the same path, the layer's answer only
+ * recorded. `on`: the layer decides.
+ */
+export const CONVERSATION_ROLLOUT_VALUES = ["off", "shadow", "on"] as const;
+export const conversationRolloutSchema = z.enum(CONVERSATION_ROLLOUT_VALUES);
+
 export const MEMORY_WRITE_POLICY_VALUES = ["deny", "allow_explicit"] as const;
 export const memoryWritePolicySchema = z.enum(MEMORY_WRITE_POLICY_VALUES);
 
@@ -149,6 +166,7 @@ export const surfaceBindingSchema = z
     surface_kind: surfaceChannelKindSchema.nullable(),
     agent_id: agentIdSchema,
     mode: bindingModeSchema,
+    listen: bindingListenSchema,
     ceiling: surfaceCeilingSchema,
     /** The agent's home channel; an agent has one at most, never a DM. */
     home: z.boolean(),
@@ -299,6 +317,8 @@ export function formatSurfaceRef(channelId: string, threadId: string): string {
 export type SurfaceKind = z.infer<typeof surfaceKindSchema>;
 export type SurfaceChannelKind = z.infer<typeof surfaceChannelKindSchema>;
 export type BindingMode = z.infer<typeof bindingModeSchema>;
+export type BindingListen = z.infer<typeof bindingListenSchema>;
+export type ConversationRollout = z.infer<typeof conversationRolloutSchema>;
 export type MemoryWritePolicy = z.infer<typeof memoryWritePolicySchema>;
 export type SurfaceBindingStatus = z.infer<typeof surfaceBindingStatusSchema>;
 export type SurfaceMembership = z.infer<typeof surfaceMembershipSchema>;
