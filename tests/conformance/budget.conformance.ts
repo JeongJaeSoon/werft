@@ -151,13 +151,14 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
       expect(warmed.status).toBe(201);
       const warmId = warmed.body.session_id;
       expect((await api.settleAllowing(warmId, "1")).status).toBe("completed");
-      const [held] = await sql(
-        `select r.workspace_id, a.owner_id, r.tokens, r.root_kind from budget_reservations r join budget_accounts a on a.id = r.account_id where a.owner_kind = 'user' and r.call_id in (select exchange_id::text from provider_usage where session_id = '${warmId}') order by r.tokens desc limit 1`,
-      );
-      expect(held).toBeDefined();
-      const [workspaceId, ownerId, tokens, rootKind] = (held as string).split(
-        "|",
-      );
+      // The proxy reports usage after the turn ends: wait for it settled.
+      const held = await poll("the warm call settled", 60_000, async () => {
+        const [row] = await sql(
+          `select r.workspace_id, a.owner_id, r.tokens, r.root_kind from budget_reservations r join budget_accounts a on a.id = r.account_id where a.owner_kind = 'user' and r.state = 'settled' and r.call_id in (select exchange_id::text from provider_usage where session_id = '${warmId}') order by r.tokens desc limit 1`,
+        );
+        return row ?? null;
+      });
+      const [workspaceId, ownerId, tokens, rootKind] = held.split("|");
       expect(rootKind).toBe("key");
       const reserve = Number(tokens);
       expect(reserve).toBeGreaterThan(0);
@@ -222,11 +223,14 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
         expect(
           (await api.settleAllowing(firstId, "1", HELD_MS + 120_000)).status,
         ).toBe("completed");
-        // Settled: nothing of the slow call is held any more.
-        const [after] = await sql(
-          `select reserved_tokens from budget_accounts where owner_kind = 'user' and owner_id = '${ownerId}' order by period_start desc limit 1`,
-        );
-        expect(Number(after)).toBe(0);
+        // Settled, once the proxy's report lands: nothing of the slow call
+        // is held any more.
+        await poll("the slow call settled", 60_000, async () => {
+          const [after] = await sql(
+            `select reserved_tokens from budget_accounts where owner_kind = 'user' and owner_id = '${ownerId}' order by period_start desc limit 1`,
+          );
+          return Number(after) === 0 ? true : null;
+        });
       } finally {
         await sql(
           `delete from budget_limits where subject = 'user' and subject_id = '${ownerId}'`,
