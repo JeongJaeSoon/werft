@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { UUID } from "./control-shared.ts";
+import { DB_NOW } from "./db-clock.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { idempotencyKeys, receipts, sessionLinks, turns } from "./schema.ts";
+import { lockChannelKind } from "./sessions/index.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 const t = sessionLinks;
 
@@ -94,10 +97,46 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
     },
 
     async attachSession(linkId, sessionId) {
-      await db
-        .update(t)
-        .set({ sessionId: sessionId.toLowerCase() })
-        .where(and(eq(t.id, linkId), isNull(t.sessionId)));
+      await db.transaction(async (tx) => {
+        const [link] = await tx
+          .select({ installationId: t.installationId, channelId: t.channelId })
+          .from(t)
+          .where(eq(t.id, linkId));
+        // A conversion of the channel, running or done, is not missed: one
+        // that made the channel private while this session was being made
+        // narrows it here. One that made it public leaves it to the channel's
+        // members, never wider than it was made.
+        if (link?.installationId && link.channelId) {
+          await lockChannelKind(tx, link.installationId, link.channelId);
+        }
+        const attached = await tx
+          .update(t)
+          .set({ sessionId: sessionId.toLowerCase() })
+          .where(and(eq(t.id, linkId), isNull(t.sessionId)))
+          .returning({ id: t.id });
+        if (attached.length === 0) return;
+        const narrowed = await tx.execute(sql`
+          INSERT INTO session_shares (session_id, owner_id, workspace_id, scope,
+            updated_by, updated_at, revision)
+          SELECT s.id, s.owner_id, s.workspace_id, 'private_channel', NULL,
+            ${DB_NOW}, 1
+          FROM ${t} l
+          JOIN surface_bindings b ON b.id = l.surface_binding_id
+          JOIN sessions s ON s.id = l.session_id
+          WHERE l.id = ${linkId}::uuid AND b.surface_kind = 'private_channel'
+            AND s.workspace_id IS NOT NULL
+          ON CONFLICT (session_id) DO UPDATE
+            SET scope = EXCLUDED.scope, updated_by = NULL,
+              updated_at = EXCLUDED.updated_at,
+              revision = session_shares.revision + 1
+            WHERE session_shares.scope NOT IN ('private', 'private_channel')
+          RETURNING session_id`);
+        if (rowsOf(narrowed).length > 0) {
+          await tx.execute(
+            sql`SELECT pg_notify('session_events', ${sessionId.toLowerCase()})`,
+          );
+        }
+      });
       return read(linkId);
     },
 

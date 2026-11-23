@@ -209,6 +209,30 @@ migration `0337_conversation_records_deleted`가 `conversations`에 `records_del
 - 칸은 nullable이거나 상수 기본값이라 표를 다시 쓰지 않는다. `conversations`의 CHECK·외래 키와 `deleted_sources`의 CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 쓰기를 오래 막지 않는다.
 - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 새 칸을 읽지 않고, 관리자 삭제가 단 표식도 Slack의 삭제 표식처럼 본다.
 
+### 비공개 채널의 옛 세션을 옮기는 릴리스
+
+migration은 없다. 비공개 Slack 채널에서 이 릴리스 전에 만든 세션은 공유 범위 줄이 없어 워크스페이스에 보인다. 운영자 명령 `private-channel-sessions.ts`가 그 세션을 `private_channel`로 옮긴다. 돌리기 전까지는 옛 세션은 워크스페이스에, 새 세션만 지금 채널 멤버에게 보인다.
+
+- 돌리는 때: 비공개 채널에서 만든 사람이 범위를 `private`로 좁혀 둔 세션에도 채널 확인을 먼저 거는 릴리스에 올린 뒤에 돌린다. 그 전에 돌리면 그런 세션은 채널을 나간 만든 사람과 그 사람의 key에 계속 닿는다.
+- 먼저 `plan`으로 본다. 아무것도 바꾸지 않는다.
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/private-channel-sessions.ts plan
+```
+
+세션마다 `from`·`to`, 못 보게 될 사람 수 `people_losing`, API key로 만든 턴 수 `key_turns`가 나온다. 못 보게 되는 사람은 채널 멤버가 아닌 사람(owner·admin·에이전트 관리자 포함), Slack을 연결하지 않은 멤버, 채널을 나간 만든 사람, 이름으로 공유받은 사람이다. `key_turns`가 0이 아닌 세션을 key로 폴링하던 연동은 옮긴 뒤 `404`를 받는다.
+- 그다음 `apply`로 옮긴다. 다시 돌려도 더 옮기는 것이 없다. `--workspace <id>`나 `--agent <id>`로 하나만 고를 수 있다.
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/private-channel-sessions.ts apply --agent <agent_id>
+```
+
+- 결과는 한 줄 JSON이다. 만든 사람이 `private`로 좁혀 둔 세션은 넓히지 않고 `kept_private`로 센다. 공개 채널 세션은 그대로다(`unchanged`).
+- 명령은 채널마다 에이전트의 bot token으로 Slack에 채널 종류를 묻는다. 종류를 확인하지 못한 채널은 `unconfirmed_channels`, 옮기지 못한 세션은 `skipped`(`no_channel_conversation`·`no_workspace`, 옮기는 사이 범위가 바뀌면 `share_changed`)에 남고 그대로 둔다. 하나라도 있으면 종료 코드 `3`이다. 고친 뒤 다시 돌린다. 공개로 묶였지만 지금 비공개인 채널의 binding은 `private_channel`이 되고 다시 승인을 기다린다(`bindings`에 `now_private`).
+- 봇이 빠진 채널은 멤버 목록을 읽지 못해 `members_unconfirmed: true`다. 옮기면 그 채널의 세션은 모두에게 숨는다. 남길 채널이면 명령 전에 봇을 다시 초대한다.
+- 올린 뒤 채널을 공개↔비공개로 바꾸면 binding과 그 채널의 세션이 같이 옮겨진다. 비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다.
+- 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
+
 ### 처리를 마친 Slack 이벤트의 옛 원문을 지우는 릴리스
 
 migration은 없다. migration 0308 전의 slack 역할은 이벤트 처리를 마쳐도 inbox 행에 원문(`payload`)을 남겼다. 운영자 명령 `slack-inbound-payloads.ts`가 그 원문을 지운다. 돌리기 전에는 그 원문이 남아 있을 뿐이고 동작은 같다.

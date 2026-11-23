@@ -373,6 +373,29 @@ describe("fake Slack bot calls, through the slack role's client", () => {
     expect((await remove("C0NOWHERE")).status).toBe(400);
   });
 
+  test("/fake/conversions makes a seeded channel private or public under the same id", async () => {
+    const [open] = slack.seedChannels([
+      { name: "converted", members: ["A0BOT"] },
+    ]);
+    const id = open?.id ?? "";
+    const root = slack.url.replace(/\/api$/, "");
+    const convert = (body: unknown) =>
+      fetch(`${root}/fake/conversions`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    expect(await api.channelKind(bot, id)).toBe("public_channel");
+    const answered = await convert({ channel_id: id, is_private: true });
+    expect(await answered.json()).toEqual({ ok: true, is_private: true });
+    expect(await api.channelKind(bot, id)).toBe("private_channel");
+    await convert({ channel_id: id, is_private: false });
+    expect(await api.channelKind(bot, id)).toBe("public_channel");
+    expect(
+      (await convert({ channel_id: "C0NOWHERE", is_private: true })).status,
+    ).toBe(400);
+    expect((await convert({ channel_id: id })).status).toBe(400);
+  });
+
   test("permalink links the message in the team's archive; a failure or another token is refused", async () => {
     expect(
       await api.permalink(bot, { channelId: "C0OPEN", ts: "1.000100" }),

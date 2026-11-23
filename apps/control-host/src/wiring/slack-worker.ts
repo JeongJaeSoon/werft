@@ -11,6 +11,7 @@ import type {
 import {
   createRowDelivery,
   createSlackBotApi,
+  createSlackChannelConversionHandler,
   createSlackChannelLifecycleHandler,
   createSlackMemberCacheInvalidator,
   createSlackMemberJoinedHandler,
@@ -53,7 +54,8 @@ export interface SlackInboundDeps {
 }
 
 /**
- * The member-cache void wraps the channel lifecycle handler, which wraps the
+ * The member-cache void wraps the channel conversion handler, which wraps
+ * the channel lifecycle handler, which wraps the
  * left-handler, which wraps the joined-handler, which wraps the session
  * handler.
  */
@@ -102,14 +104,21 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     agents: deps.identities,
     members: deps.members,
     ...(deps.cards === undefined ? {} : { cards: deps.cards }),
-    next: createSlackChannelLifecycleHandler({
+    next: createSlackChannelConversionHandler({
       agents: deps.identities,
       bindings: deps.bindings,
-      conversations: deps.conversations,
-      next: createSlackMemberLeftHandler({
+      logger: deps.logger,
+      slack: slackApi,
+      botToken,
+      next: createSlackChannelLifecycleHandler({
         agents: deps.identities,
         bindings: deps.bindings,
-        next: memberJoined,
+        conversations: deps.conversations,
+        next: createSlackMemberLeftHandler({
+          agents: deps.identities,
+          bindings: deps.bindings,
+          next: memberJoined,
+        }),
       }),
     }),
   });

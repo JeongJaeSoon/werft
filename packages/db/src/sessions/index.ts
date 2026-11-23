@@ -11,6 +11,11 @@ export {
   actionableRequest,
   awaitingInputAt,
 } from "./pending-status.ts";
+export {
+  lockChannelKind,
+  lockChannelSessions,
+  moveChannelSessionScope,
+} from "./private-channel-scope.ts";
 export { lockPreviewFeed, lockRequester } from "./requester-locks.ts";
 export {
   holdIncompatibleBeforeLaunch,

@@ -84,6 +84,13 @@ function service(
     reject: async () => ({ outcome: "not_found" }),
     observeLifecycle: async () => true,
     botLeft: async () => true,
+    channelKindChanged: async () => ({
+      binding: "unchanged",
+      moves: [],
+      keptPrivate: [],
+      unchanged: [],
+      skipped: [],
+    }),
     channelDeleted: async () => true,
     channelNotFound: async () => "unchanged",
     botRemovedFrom: async () => false,

@@ -2,6 +2,7 @@ import type {
   BindingListen,
   BindingMode,
   MemoryWritePolicy,
+  SessionShareScope,
   SurfaceBindingStatus,
   SurfaceCeiling,
   SurfaceChannelKind,
@@ -9,6 +10,48 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
+
+/** A Slack channel some agent's linked sessions came from. */
+export type ChannelSessionPlace = {
+  workspaceId: string;
+  agentId: string;
+  installationId: string;
+  teamId: string;
+  channelId: string;
+};
+
+/** What Slack says a channel is now. */
+export type ChannelKindNow = "public_channel" | "private_channel";
+
+/**
+ * Why a session of a private channel is not moved: its channel's
+ * conversation cannot be decided (the link names no usable channel, or the
+ * session's parent is another conversation), or it has no workspace to
+ * share in, or its share changed while it was being moved (run again).
+ */
+export type ChannelSessionSkip =
+  | "no_channel_conversation"
+  | "no_workspace"
+  | "share_changed";
+
+export type ChannelScopeMove = {
+  sessionId: string;
+  from: SessionShareScope;
+  to: SessionShareScope;
+};
+
+/** How a channel's sessions follow its kind (answer 15, 94S-2001). */
+export type ChannelScopePlan = {
+  moves: ChannelScopeMove[];
+  /** Narrowed to their creator: kept private, never widened to the channel. */
+  keptPrivate: string[];
+  unchanged: string[];
+  skipped: { sessionId: string; reason: ChannelSessionSkip }[];
+};
+
+export type ChannelKindChanged = ChannelScopePlan & {
+  binding: "now_private" | "now_public" | "unchanged";
+};
 
 export type SurfaceBindingRecord = {
   id: string;
@@ -205,6 +248,21 @@ export interface SurfaceBindingStore {
     channelId: string,
     at: number | null,
   ): Promise<boolean>;
+  /**
+   * What the channel is now, as `kindNow` asks Slack inside the transaction
+   * after a lock on the channel, so of two conversions racing the later read
+   * is the one written (a conversion event, or the operator command). Null
+   * when `kindNow` cannot tell: nothing changes. In one transaction: a live
+   * binding still of the other kind follows, a public one turned private waiting for
+   * approval (reason `channel_now_private`), a private one turned public
+   * ready (a `left` one stays, its kind checked by the table); then the
+   * channel's sessions follow (`ChannelScopePlan`). Running it again with
+   * the same kind changes nothing.
+   */
+  channelKindChanged(
+    place: ChannelSessionPlace,
+    kindNow: () => Promise<ChannelKindNow | null>,
+  ): Promise<ChannelKindChanged | null>;
   /**
    * Slack deleted the channel (`channel_deleted`, `group_deleted`) at `at`.
    * Its `ready`, `pending_approval` or `left` binding becomes `gone`:
