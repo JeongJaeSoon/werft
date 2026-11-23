@@ -1653,6 +1653,13 @@
       "when": 1795409940527,
       "tag": "0326_link_posting",
       "breakpoints": true
+    },
+    {
+      "idx": 327,
+      "version": "7",
+      "when": 1795411513081,
+      "tag": "0327_private_channel_share_scope",
+      "breakpoints": true
     }
   ]
 }
