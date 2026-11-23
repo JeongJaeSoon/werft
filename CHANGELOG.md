@@ -14,6 +14,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0334_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#2067). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+  - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
+  - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.
+  - 답글이 게시 결과보다 먼저 처리되어 스레드가 이미 다른 주제인 드문 경우는 합치지 않고 `warn` 로그 `Slack mirror opened a thread another topic already holds; the topics stay apart`를 남긴다.
+  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
 - **에이전트가 받는 GitHub 도구 설명과 checkpoint 거절 이유가, 브랜치는 worktree 없이 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 만든다고 알린다**(JeongJaeSoon/werft#2069). migration은 없고 따로 할 일도 없다.
   - 작업 공간 안의 git worktree·clone은 지금처럼 checkpoint가 거절하고, 그 턴의 push는 `turn_ended_without_checkpoint`로 취소된다. `git worktree`의 묻기 규칙도 그대로다.
 - **migration `0333_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더하고, 지운 Slack 글을 출처로 가진 턴이 있는 열린 세션을 멈춘다**(JeongJaeSoon/werft#2064). 따로 할 일은 없고, 지운 글이 없는 세션의 동작은 그대로다.
@@ -39,18 +44,18 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - API가 바뀐다. `PUT /v1/workspace/skills/{name}/sync/auto-approve`의 `action`은 `on`과 `off`만 받는다(`request`와 `consent`는 400). 응답의 `git.auto_approve`는 `{ state, enabled_by }`이고 `state`는 `off`나 `on`이다. `last_check.auto_approval`에서 `rule`과 `pull_request`가 빠지고, `reason`은 `checks_failed`와 `baseline_changed`만 남는다. `last_check.trigger.kind`에 `auto_approve`(자동 연동을 켤 때의 확인)가 더해진다. `PUT /v1/workspace/skills/{name}/sync`와 `…/sync/auto-approve`의 응답에 `check`가 더해진다. 그 호출이 돌린 확인이 끝났으면 `checked`, 돌고 있던 확인 뒤로 밀렸으면 `queued`, 확인을 돌리지 않았으면 null이다.
   - 칸 하나를 더하고 값을 바꾸는 migration이라 지원 창 안의 이미지로 되돌려도 된다(옛 이미지는 그 칸을 읽지도 쓰지도 않는다). 되돌린 이미지는 옛 방식(두 관리자의 요청과 동의, 리뷰된 PR)으로 동작하고, 꺼진 설정은 꺼진 채로 남는다. 되돌린 이미지나 올리는 동안 아직 떠 있던 옛 서버가 옛 방식으로 켠 자동 승인, 그리고 옛 서버가 멈췄다 다시 켠 스킬의 자동 연동은 이 버전에서 꺼짐으로 읽히고 아무것도 승인하지 않는다(새 칸은 이 버전만 쓴다). 쓰려면 화면에서 다시 켠다.
 
-
-
 - **사람이 고른 적 없는 빈 값은 이제 GitHub push 승인을 묻지 않는다. 새 에이전트는 사람이 승인을 켜기 전까지 승인 없이 push한다**(JeongJaeSoon/werft#2061). migration은 없고 저장된 설정은 바꾸지 않는다. 판정을 읽는 방식만 바뀐다.
   - 승인 없음으로 바뀌는 것: GitHub 설정을 저장하지 않은 에이전트와 github 설정이 없는 release(핀이 `push_approval: false`인 release 포함), 첨부 저장소 push 정책이 비어 있는(NULL) 설정. 에이전트 GitHub 탭과 `GET /v1/agents/{id}/github`의 `push_attached`도 이 경우 `allow`로 보인다.
   - 그대로인 것: 사람이 켠 **push 전 사람 승인**, 정책 `ask`·`deny`, release 핀의 `push_approval: true`, 읽을 수 없는 설정(계속 사람에게 묻는다), push 승인과 정책 중 더 엄격한 쪽을 따르는 규칙.
   - 올리는 즉시 이미 도는 세션의 다음 push부터 적용된다. 데모 설치에서는 25개 에이전트(NULL 행 9, 설정 없음 16)가 승인 없이 push하게 된다. 사람 승인을 계속 받을 에이전트는 올리기 전에 GitHub 탭에서 **push 전 사람 승인**을 켜고 저장한다.
   - 지원 창 안의 옛 이미지로 되돌리면 빈 값이 다시 사람 승인으로 읽힌다(더 엄격해질 뿐이다).
+
 - **API key는 `private_channel` 세션에 쓰기·승인도 못 한다. 요청자가 채널을 나간 push는 지금 채널 멤버가 승인·거절한다**(JeongJaeSoon/werft#2062). migration은 없고 따로 할 일도 없다.
   - 보이는 변화: 개인 key·에이전트 key로 `private_channel` 세션에 메시지, 대기 요청 답, push 요청·승인·거절, PR 열기·댓글, workflow 실행, 중단·재개·종료·인계 등 `/v1/sessions/{id}` 아래 모든 경로를 부르면 `404`다(읽기는 JeongJaeSoon/werft#2053부터 `404`). 판정 기록의 이유는 `private_channel_key`다. 세션 안에서 에이전트가 요청하는 push, key로 만든 세션, 공개 채널 세션은 그대로다.
   - push를 요청한 사람(그 push를 요청한 턴의 사람. 사람이 없으면 세션을 맡은 사람, 곧 시작한 사람이나 넘겨받은 사람)이 세션의 비공개 채널을 모두 나가면, Slack 승인 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버 누구나 승인·거절할 수 있다. 결정 기록(`decided_by`)에는 누른 사람이 남는다. 나간 요청자는 결정할 수 없고, 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 카드는 채널 멤버 변화(`member_joined_channel`·`member_left_channel`) 때 다시 그려진다. 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Push requester's channel membership unconfirmed`를 남긴다.
   - 도구 권한·질문 카드는 그대로다.
   - 카드의 새 표시 상태(`open_requester_left`·`reject_only_requester_left`)를 모르는 옛 이미지로 되돌리면, 그 카드를 끝난 카드로 보고 다시 그리지 않는다(버튼은 남고 누르면 그대로 판정된다).
+
 - **migration `0330_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 판단 버퍼의 만료 칸 `buffer_expires_at`과 그 색인을 더한다**(JeongJaeSoon/werft#2059). 따로 할 일은 없고 Slack 동작도 그대로다.
   - 판단 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 듣는 때만 멘션 없는 글을 본문째 담는다. 스위치 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없어서, 올린 뒤에도 버퍼는 비어 있다.
   - 담긴 줄은 10분 뒤 reconciler가 통째로 지운다(로그 `Judgment buffer purged`, `expired_count`·`unlistened_count`). Slack에서 글이 지워지면 바로, 채널 보관·삭제·봇이 나감·binding `off`·에이전트 보관 때도 바로 지운다. 글이 고쳐지면 담긴 본문만 바뀐다.

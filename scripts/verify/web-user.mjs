@@ -294,15 +294,17 @@ switch (cmd) {
       ].includes(mode)
     )
       throw new Error("agent UUID and event mode required");
+    // A sequence number, or a full ts of a post the outbox made.
+    const SLACK_EVENT_SEQ = /^(?:[0-9]{1,6}|[0-9]{1,12}\.[0-9]{6})$/;
     // mention|plain take a channel id and a sequence number for new ids;
     // reply also takes the sequence number of the post it answers.
     // The optional last word is the post's text, e.g. a GATE-SPEC script.
     const [channel = "C0VERIFY", seq = "1", parent, text] = rest.slice(1);
-    if (!/^[A-Z0-9]{1,20}$/.test(channel) || !/^[0-9]{1,6}$/.test(seq))
+    if (!/^[A-Z0-9]{1,20}$/.test(channel) || !SLACK_EVENT_SEQ.test(seq))
       throw new Error("channel id and sequence number required");
     if (
       (mode === "reply" || mode === "own-reply" || mode === "own-mirror") &&
-      !/^[0-9]{1,6}$/.test(parent ?? "")
+      !SLACK_EVENT_SEQ.test(parent ?? "")
     )
       throw new Error(`${mode} needs the parent post's sequence number`);
     console.log(

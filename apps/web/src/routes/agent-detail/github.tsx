@@ -576,6 +576,7 @@ function GitHubSettings({
   const pushAttached = draft ? draft.pushAttached : basePushAttached;
   const saveError = useRef<HTMLDivElement>(null);
   const pendingRegion = useRef<HTMLDivElement>(null);
+  const saveBar = useRef<HTMLDivElement>(null);
   const editable = manages && data.enabled && base !== null;
   // No row yet: the defaults shown are themselves worth saving.
   const firstSave = editable && data.github === null;
@@ -664,6 +665,39 @@ function GitHubSettings({
   const pendingTitle = firstSave
     ? t("agentGitHub.pending.firstTitle")
     : t("agentGitHub.pending.title", { count: pending });
+  const showSaveBar =
+    manages && (pending > 0 || firstSave || Boolean(saveFailure));
+  // The bar is opaque and stuck to the screen's foot (WCAG 2.4.11): a control
+  // that focus reaches under it scrolls up past it by the bar's height, and the
+  // control in the tab that already has focus when the bar appears or grows
+  // (the switch that made the first change) is scrolled up out from under it,
+  // never past its own top. Focus in a portal (a dialog) sits above the bar.
+  useLayoutEffect(() => {
+    const bar = saveBar.current;
+    if (!showSaveBar || !bar) return;
+    const root = document.documentElement;
+    const fit = () => {
+      root.style.scrollPaddingBottom = `${bar.offsetHeight}px`;
+      const focused = document.activeElement;
+      const tab = bar.parentElement;
+      if (!(focused instanceof HTMLElement) || !tab?.contains(focused)) return;
+      if (bar.contains(focused)) return;
+      const box = focused.getBoundingClientRect();
+      const hidden = Math.min(
+        box.bottom - bar.getBoundingClientRect().top,
+        box.top,
+      );
+      if (hidden > 0) window.scrollBy(0, hidden);
+    };
+    fit();
+    const resized =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    resized?.observe(bar);
+    return () => {
+      resized?.disconnect();
+      root.style.scrollPaddingBottom = "";
+    };
+  }, [showSaveBar]);
   const actionsOn = settings?.features.actions ?? false;
   const keys: SectionKey[] = [
     "github",
@@ -755,67 +789,6 @@ function GitHubSettings({
             </Text>
           )}
         </IntegrationHeader>
-        {manages && (pending > 0 || firstSave || saveFailure) ? (
-          <Alert
-            ref={pendingRegion}
-            tabIndex={-1}
-            variant={saveFailure ? "red" : "blue"}
-            role="region"
-            aria-label={pendingTitle}
-            className="outline-none"
-          >
-            <AlertTitle>{pendingTitle}</AlertTitle>
-            <AlertDescription>
-              {t("agentGitHub.pending.body")}
-              {saveFailure ? (
-                <div
-                  ref={saveError}
-                  tabIndex={-1}
-                  className="mt-2 outline-none"
-                >
-                  <FieldError>{saveFailure}</FieldError>
-                </div>
-              ) : null}
-            </AlertDescription>
-            <AlertActions>
-              <Button
-                type="button"
-                size="sm"
-                disabled={
-                  (pending === 0 && !firstSave) ||
-                  stale ||
-                  save.isPending ||
-                  toggles.pending
-                }
-                onClick={() => save.mutate()}
-              >
-                {save.isPending
-                  ? t("agentGitHub.pending.saving")
-                  : t("agentGitHub.pending.save")}
-              </Button>
-              {draft !== null || saveFailure ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={save.isPending}
-                  onClick={() => {
-                    setDraft(null);
-                    save.reset();
-                    // The region stays for a first save but this button goes.
-                    if (firstSave) pendingRegion.current?.focus();
-                  }}
-                >
-                  {t(
-                    stale || save.error?.code === "REVISION_CONFLICT"
-                      ? "agentGitHub.pending.reload"
-                      : "agentGitHub.pending.revert",
-                  )}
-                </Button>
-              ) : null}
-            </AlertActions>
-          </Alert>
-        ) : null}
         {data.github === null && base ? (
           <Alert>
             <AlertDescription>{t("agentGitHub.legacy")}</AlertDescription>
@@ -1161,6 +1134,74 @@ function GitHubSettings({
             onAction={() => enabled.setConfirming(true)}
           />
         </DangerZone>
+      ) : null}
+      {showSaveBar ? (
+        // Last in the tab and sticky, so it stays at the screen's foot while
+        // there is something to save, even far down at the push section.
+        <div
+          ref={saveBar}
+          className="sticky bottom-0 z-10 bg-background pt-2 pb-4"
+        >
+          <Alert
+            ref={pendingRegion}
+            tabIndex={-1}
+            variant={saveFailure ? "red" : "blue"}
+            role="region"
+            aria-label={pendingTitle}
+            className="outline-none"
+          >
+            <AlertTitle>{pendingTitle}</AlertTitle>
+            <AlertDescription>
+              {t("agentGitHub.pending.body")}
+              {saveFailure ? (
+                <div
+                  ref={saveError}
+                  tabIndex={-1}
+                  className="mt-2 outline-none"
+                >
+                  <FieldError>{saveFailure}</FieldError>
+                </div>
+              ) : null}
+            </AlertDescription>
+            <AlertActions>
+              <Button
+                type="button"
+                size="sm"
+                disabled={
+                  (pending === 0 && !firstSave) ||
+                  stale ||
+                  save.isPending ||
+                  toggles.pending
+                }
+                onClick={() => save.mutate()}
+              >
+                {save.isPending
+                  ? t("agentGitHub.pending.saving")
+                  : t("agentGitHub.pending.save")}
+              </Button>
+              {draft !== null || saveFailure ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={save.isPending}
+                  onClick={() => {
+                    setDraft(null);
+                    save.reset();
+                    // The region stays for a first save but this button goes.
+                    if (firstSave) pendingRegion.current?.focus();
+                  }}
+                >
+                  {t(
+                    stale || save.error?.code === "REVISION_CONFLICT"
+                      ? "agentGitHub.pending.reload"
+                      : "agentGitHub.pending.revert",
+                  )}
+                </Button>
+              ) : null}
+            </AlertActions>
+          </Alert>
+        </div>
       ) : null}
       {enabled.update.error && !enabled.confirming && data.enabled ? (
         <FieldError>{failure(enabled.update.error, t)}</FieldError>
