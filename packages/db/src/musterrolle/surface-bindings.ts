@@ -6,12 +6,12 @@ import {
 } from "@werft-ai/contracts";
 import type {
   ChannelKindChanged,
+  ChannelKindNow,
   ChannelSessionPlace,
   Principal,
   ResolveSurfaceBindingInput,
   ResolveSurfaceBindingResult,
   SetSurfaceBindingResult,
-  SlackChannelKindNow,
   SurfaceBindingRecord,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
@@ -29,7 +29,7 @@ import {
   slackInstallations,
   surfaceBindings,
 } from "../schema.ts";
-import { moveChannelSessionScope } from "../sessions/private-channel-scope.ts";
+import { moveChannelSessionScope } from "../sessions/index.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { callerHoldsRight } from "./agent-identities.ts";
 import { lockedRole } from "./api-keys.ts";
@@ -1064,7 +1064,7 @@ const ACTIVE_OR_LEFT = new Set(["ready", "pending_approval", "left"]);
 async function channelKindChanged(
   db: Database,
   place: ChannelSessionPlace,
-  kind: SlackChannelKindNow,
+  kind: ChannelKindNow,
 ): Promise<ChannelKindChanged> {
   return db.transaction(async (tx) => {
     let binding: ChannelKindChanged["binding"] = "unchanged";

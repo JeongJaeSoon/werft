@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type {
   ChannelKindChanged,
+  ChannelKindNow,
   ChannelSessionPlace,
-  SlackChannelKindNow,
   SlackInboundClaim,
 } from "@werft-ai/platform";
 import { createSlackChannelConversionHandler } from "./slack-channel-conversion.ts";
@@ -35,7 +35,7 @@ const claim = (event: Record<string, unknown>) =>
   }) as unknown as SlackInboundClaim;
 
 function handler(agents = resolved) {
-  const calls: [ChannelSessionPlace, SlackChannelKindNow][] = [];
+  const calls: [ChannelSessionPlace, ChannelKindNow][] = [];
   const passed: unknown[] = [];
   const handle = createSlackChannelConversionHandler({
     agents,

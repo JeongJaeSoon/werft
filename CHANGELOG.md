@@ -14,12 +14,20 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **비공개 Slack 채널에서 이 릴리스 전에 만든 세션을 `private_channel`로 옮기는 운영자 명령 `private-channel-sessions.ts`가 생기고, 채널을 공개↔비공개로 바꾸면 그 채널의 binding과 세션이 따라 옮겨진다**(JeongJaeSoon/werft#PR). migration은 없다. 명령을 돌리기 전까지 옛 세션은 지금처럼 `workspace`로 읽히고, 새 세션만 `private_channel`로 생긴다.
+  - **아직 돌리지 않는다.** 비공개 채널에서 만든 사람이 범위를 `private`로 좁혀 둔 세션에도 채널 확인을 먼저 거는 변경이 들어간 릴리스에서 돌린다. 그 전에 돌리면 그런 세션은 채널을 나간 만든 사람과 그 사람의 key에 계속 닿는다.
+  - 순서: api 컨테이너에서 `bun run apps/control-host/src/api/private-channel-sessions.ts plan`으로 세션마다 못 보게 될 사람 수(`people_losing`)와 API key로 만든 턴 수(`key_turns`)를 보고, `apply`로 옮긴다. `--workspace <id>`나 `--agent <id>`로 하나만 고를 수 있다. 결과는 한 줄 JSON이고, 다시 돌려도 더 옮기는 것이 없다.
+  - 보이는 변화: 옮긴 세션은 API key(개인 key·에이전트 key 모두)의 목록에서 빠지고 상세가 `404`다. 채널을 나간 만든 사람, 채널 멤버가 아닌 owner·admin, Slack을 연결하지 않은 멤버, 이름으로 공유받은 사람도 못 본다. 그 세션을 key로 폴링하던 연동은 끊긴다. 이름 공유 줄은 지우지 않지만 효력이 없다.
+  - 만든 사람이 `private`로 좁혀 둔 세션은 넓히지 않는다(`kept_private`로 센다). 공개 채널 세션은 그대로다.
+  - 명령은 채널마다 bot token으로 Slack에 채널 종류를 묻는다(`conversations.info`, 사람 수는 `conversations.members`, 새 scope 없음). 종류를 확인하지 못한 채널(`unconfirmed_channels`)과 옮기지 못한 세션(`skipped`, 이유 `no_channel_conversation`·`no_workspace`)은 그대로 두고 종료 코드 `3`으로 끝난다. 고친 뒤 다시 돌린다. 공개로 묶였지만 지금 비공개인 채널의 binding은 `private_channel`이 되고 승인을 다시 기다린다(이유 `channel_now_private`).
+  - 봇이 빠진 채널은 멤버 목록을 읽지 못해 `members_unconfirmed: true`이고, 옮기면 모두에게 숨는다. 남길 채널이면 명령 전에 봇을 다시 초대한다.
+  - 전환: Slack이 채널에 올리는 `channel_convert_to_private`·`channel_convert_to_public` 글(본문은 남기지 않는다)을 받으면 binding과 그 채널의 세션을 한 transaction에서 옮긴다. 비공개로 바꾸면 위와 같고, **비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다**(Slack에서 지난 글이 공개되는 것과 같다). 옛 `people`·`team` 범위는 되살리지 않는다.
+  - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
 - **migration `0334_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#2067). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
   - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
   - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.
   - 답글이 게시 결과보다 먼저 처리되어 스레드가 이미 다른 주제인 드문 경우는 합치지 않고 `warn` 로그 `Slack mirror opened a thread another topic already holds; the topics stay apart`를 남긴다.
   - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
-
 - **migration `0333_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더하고, 지운 Slack 글을 출처로 가진 턴이 있는 열린 세션을 멈춘다**(JeongJaeSoon/werft#2064). 따로 할 일은 없고, 지운 글이 없는 세션의 동작은 그대로다.
   - 직접 출처든 물려받은 출처든 턴 하나만 걸려도 세션 전체를 멈춘다. 글의 수정으로는 멈추지 않는다. 닫힌 세션은 건드리지 않는다.
   - 실행 중인 턴은 끊지 않고, 끝난 뒤 pause처럼 `paused`가 된다. 대기 중인 입력은 내보내지 않는다.
@@ -76,7 +84,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 보이는 변화: API key(개인 key·에이전트 key 모두, key 주인이 멤버여도)로는 이 세션이 목록에 없고 상세·turns·events·outputs·pending-requests가 `404`다. 판정 기록에는 이유 `private_channel_key`로 남는다. 채널을 나간 만든 사람과 멤버가 아닌 owner·admin도 못 본다(사유를 적은 감사 읽기는 된다. 관리 목록 `/v1/admin/sessions`에는 메타데이터만 `share_scope: private_channel`로 남고, 관리 종료는 채널 밖에서 `404`다). 공유 범위를 바꾸려 하면 409(`reason_code: private_channel_session`)다.
   - 멤버 확인은 api와 slack 역할이 bot token으로 `conversations.members`를 읽고 5분 캐시한다(`groups:read`, 새 scope 없음). 확인하지 못하면(429·Slack 장애·bot이 채널 밖) 멤버에게도 숨긴다. 세션 목록은 `private_channel` 세션이 있는 채널마다 한 번씩, 동시에 8개까지 확인한다.
   - 개인 key의 사용량 합계(`scope=me`)에는 key 주인이 만든 `private_channel` 세션이 이름 없는 금액·개수로 들어간다. 세션을 가리키는 줄(도구 호출, 최근 성과)은 보이지 않는다.
-  - 이 릴리스 전에 비공개 채널에서 만든 세션은 그대로 `workspace`다(옮기기는 다음 티켓).
+  - 이 릴리스 전에 비공개 채널에서 만든 세션은 그대로 `workspace`다. 운영자 명령 `private-channel-sessions.ts`가 옮긴다(위 항목).
   - 공개 채널·DM·웹·API로 만든 세션은 그대로다.
   - 지원 창 안의 옛 이미지로 되돌리거나 함께 돌리면, 옛 host는 `private_channel` 세션을 만든 사람에게만 보인다. 그동안 다른 채널 멤버는 잠깐 못 보고, 채널을 나간 만든 사람은 그 host에서 (자기 key로도) 계속 본다. 워크스페이스 전체로 넓어지지는 않는다.
 

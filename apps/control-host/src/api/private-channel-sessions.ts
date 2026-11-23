@@ -22,9 +22,9 @@ import {
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import type {
+  ChannelKindNow,
   ChannelSessionPlace,
   SecretKey,
-  SlackChannelKindNow,
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -136,7 +136,7 @@ export type PrivateChannelSlack = {
   /** The channel's kind now; a reason when it cannot be told. */
   kindOf(
     place: ChannelSessionPlace,
-  ): Promise<{ kind: SlackChannelKindNow } | { unconfirmed: string }>;
+  ): Promise<{ kind: ChannelKindNow } | { unconfirmed: string }>;
   /** Every member's Slack id; null when the list cannot be read whole. */
   memberIds(place: ChannelSessionPlace): Promise<readonly string[] | null>;
 };

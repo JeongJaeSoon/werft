@@ -3,13 +3,13 @@ import {
   slackScopeSegmentSchema,
 } from "@werft-ai/contracts";
 import type {
+  ChannelKindNow,
   ChannelScopePlan,
   ChannelSessionPlace,
-  SlackChannelKindNow,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
-import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
+import { createPostgresConversationStore } from "../conversations/index.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -140,7 +140,7 @@ async function channelConversationId(
  */
 export function planChannelScope(
   rows: readonly ChannelSessionRow[],
-  kind: SlackChannelKindNow,
+  kind: ChannelKindNow,
   channel: { usable: boolean; conversationId: string | null },
 ): ChannelScopePlan {
   const plan: ChannelScopePlan = {
@@ -192,7 +192,7 @@ export function planChannelScope(
 export async function readChannelScopePlan(
   db: Database,
   place: ChannelSessionPlace,
-  kind: SlackChannelKindNow,
+  kind: ChannelKindNow,
 ): Promise<{ rows: ChannelSessionRow[]; plan: ChannelScopePlan }> {
   const rows = await channelSessions(db, place);
   const usable = usableChannel(place);
@@ -213,7 +213,7 @@ export async function readChannelScopePlan(
 export async function moveChannelSessionScope(
   tx: Database,
   place: ChannelSessionPlace,
-  kind: SlackChannelKindNow,
+  kind: ChannelKindNow,
 ): Promise<ChannelScopePlan> {
   const rows = await channelSessions(tx, place);
   const usable = usableChannel(place);

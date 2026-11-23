@@ -224,6 +224,30 @@ From this release model connections, MCP servers and repository GitHub App keys 
 - The 0285 rollback SQL above no longer applies after this release: `credential_source` allows `stored` only.
 
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
+### The release that moves old private channel sessions
+
+There is no migration. Sessions made in a private Slack channel before this release have no share row and are visible to the workspace. The operator command `private-channel-sessions.ts` moves them to `private_channel`. Until it runs, the old sessions stay visible to the workspace and only new ones are limited to the channel's current members.
+
+- When to run it: after upgrading to the release that also puts the channel check first on a private channel's sessions whose creator narrowed them to `private`. Run before that, such sessions stay reachable by a creator who left the channel and by that person's keys.
+- Look first with `plan`. It changes nothing.
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/private-channel-sessions.ts plan
+```
+
+Each session shows `from`, `to`, how many people would stop seeing it (`people_losing`) and how many of its turns an API key asked for (`key_turns`). Those who stop seeing it are people outside the channel (owners, admins and agent admins included), members without a Slack link, a creator who left the channel, and people it was shared with by name. An integration polling a session with `key_turns` above 0 gets `404` after the move.
+- Then move them with `apply`. Running it again moves nothing more. `--workspace <id>` or `--agent <id>` picks one.
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/private-channel-sessions.ts apply --agent <agent_id>
+```
+
+- The result is one line of JSON. A session its creator narrowed to `private` is not widened and counts in `kept_private`. Public channel sessions stay as they are (`unchanged`).
+- For each channel the command asks Slack what the channel is, with the agent's bot token. A channel whose kind it cannot read goes in `unconfirmed_channels` and a session it cannot move in `skipped` (`no_channel_conversation`, `no_workspace`); both are left as they were, and any of them ends with exit code `3`. Fix them and run it again. The binding of a channel bound as public but private now becomes `private_channel` and waits for approval again (`now_private` in `bindings`).
+- A channel the bot left cannot list its members, so its sessions show `members_unconfirmed: true`; once moved, they are hidden from everyone. Invite the bot back first for a channel you keep.
+- After the upgrade, making a channel private or public moves its binding and its sessions along. Making a private channel public makes its `private_channel` sessions visible to the workspace.
+- Rolling back to an image in the support window is fine. An old image shows a `private_channel` session to its creator only.
+
 ### The release that stops sessions holding a deleted Slack message
 
 Migration `0333_source_deleted` adds `source_deleted_at` (timestamptz, nullable) to `sessions`. Nothing to do when upgrading. Sessions with no deleted message behave as before.

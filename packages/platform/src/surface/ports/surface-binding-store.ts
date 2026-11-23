@@ -21,7 +21,7 @@ export type ChannelSessionPlace = {
 };
 
 /** What Slack says a channel is now. */
-export type SlackChannelKindNow = "public_channel" | "private_channel";
+export type ChannelKindNow = "public_channel" | "private_channel";
 
 /**
  * Why a session of a private channel is not moved: its channel's
@@ -266,7 +266,7 @@ export interface SurfaceBindingStore {
    */
   channelKindChanged(
     place: ChannelSessionPlace,
-    kind: SlackChannelKindNow,
+    kind: ChannelKindNow,
   ): Promise<ChannelKindChanged>;
   channelDeleted(
     installationId: string,
