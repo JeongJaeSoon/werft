@@ -12,252 +12,17 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+## v0.4.0
+
+`v0.3.0` 뒤 `main`에 들어간 변경이다. Slack 글을 입력 접수 표·관여 기록·채널 요약 같은 대화 층에 적기 시작하고, 비공개 Slack 채널에서 생긴 세션은 지금 채널 멤버에게만 보이며, Slack에서 지운 글을 출처로 가진 턴은 가려지고 그 세션은 멈춘다. 스킬의 버전·승인·GitHub 동기화와 워크스페이스 MCP 서버가 들어온다. 실행 한도와 작업 공간 보존 시간의 env, `BOOTSTRAP_TOKEN`, 설정의 `value_env`·`secret_id`, 설치 카탈로그 MCP, 실행 규칙, 에이전트 접근 설정이 없어지고, migration `0336`이 Slack 스레드의 옛 unique를 지워 올린 뒤에는 `v0.3.0` 이하의 이미지로 되돌릴 수 없다. 그래서 minor 버전을 올린다. migration `0286`–`0337`이 있으므로 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다. 운영자 명령 `private-channel-sessions.ts`와 `slack-inbound-payloads.ts`는 모든 역할을 이 릴리스로 올린 뒤에 돌린다.
+
 ### 운영자가 할 일
 
-- **운영자 명령 `private-channel-sessions.ts`가 Slack 앱 설치가 없는 에이전트(`SLACK_NOT_INSTALLED`)의 채널을 `no_install`로 따로 세고, 그런 채널만 남으면 exit 0으로 끝난다**(JeongJaeSoon/werft#2089). 비공개 binding이거나 종류를 모르는 채널의 세션은 `private_channel`로 옮기고 공개 binding은 넓히지 않는다. 재설치하면 지금 채널 멤버에게 다시 보인다. 그 밖의 읽지 못한 채널은 지금처럼 exit 3이다.
-
-- **slack 역할이 Slack 글의 접수 줄(`conversation_inputs`)을 inbox 행을 처리됨으로 바꿀 때가 아니라 그 글의 턴을 넣는 transaction에서 적는다**(JeongJaeSoon/werft#2084). migration은 없고 따로 할 일도 없다. Slack에서 보이는 동작은 그대로다.
-  - 턴을 넣은 직후 slack 역할이 죽고 그사이 설치가 해지되면, 예전에는 턴만 남고 접수 줄이 없었다. 이제 둘은 함께 생기거나 함께 생기지 않는다.
-  - 이 릴리스 전 이미지가 턴만 넣고 죽은 이벤트는 다시 돌 때 지금처럼 접수 줄을 채운다. 지원 창 안의 이미지로 되돌려도 된다.
-
-- **Slack 역할에 스위치 `SLACK_ROLE_CLOSE_LINKS`(기본 `false`, Helm은 `slack.extraEnv`)가 생긴다. 지금은 켜지 않는다**(JeongJaeSoon/werft#2083). migration은 없고, 꺼진 채로는 Slack 스레드의 동작이 그대로다.
-  - 켜면 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결(link)을 마지막 보고 줄을 넣은 뒤 닫는다. 그 스레드에 다시 멘션하면 새 세션이 새 연결로 열린다. 켜기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
-  - 조용한(muted) 연결과 턴을 보고하지 않는 연결은 보낼 마지막 보고가 없으므로 세션이 닫히면 바로 닫는다. 그 뒤에 보고 방식을 바꿔도 닫힌 세션의 밀린 답은 보내지 않는다.
-  - 닫는 사유(`closed_reason`)는 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기 등 그 밖이면 `abandoned`다.
-  - 스위치와 상관없이, Slack 줄을 보낼지는 그 줄이 가리키는 연결을 보고 판단하고 연결이 닫혔는지는 보지 않는다. 닫힌 연결에는 그 연결의 줄이 `uncertain`이 됐다는 알림 한 줄 말고는 새 줄을 넣지 않는다.
-
-- **migration `0337_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#2077). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
-  - 세션, 턴과 입력 원문, 입력 접수 줄, 이벤트, transcript, checkpoint는 지우지 않는다. 대화 행도 남는다.
-  - 지우기 전에, 지울 기록이 가리키는 글 가운데 어느 턴의 입력도 아닌 글에 삭제 표식(`admin_deleted`)을 단다. 그 글을 출처로 가진 세션만 `SOURCE_DELETED`로 멈추고 보내지 않은 답은 나가지 않는다. 같은 채널의 다른 세션은 그대로 돈다.
-  - `--by`는 그 워크스페이스의 owner나 admin이어야 하고, receipt `delete_conversation_records`의 행위자로 남는다. DM 대화는 `dm_not_supported`로 거절한다. 다시 불러도 결과가 같다. 사용법은 문서 사이트의 "데이터별 보존" 아래 "대화 기록의 관리자 삭제"에 있다.
-  - 있던 표식은 `slack_deleted`가 된다. `conversations`의 CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
-
-- **비공개 Slack 채널에서 생긴 세션은 공유 범위와 상관없이 채널 문을 먼저 지난다. 그래서 채널을 나간 만든 사람은 자기 `private` 세션을 못 보고, API key로는 그 세션에 닿지 않는다**(JeongJaeSoon/werft#2081). migration은 없고 따로 할 일도 없다. `share_scope` 값은 바뀌지 않는다.
-  - 세션의 부모 대화가 비공개 채널이면(그 워크스페이스에 있는 그 채널의 binding 가운데 종류를 아는 것의 `surface_kind`. 에이전트와 상관없이 보고, 살아 있는 binding을 먼저 보며, 그중 하나라도 비공개면 비공개다) 그 에이전트를 쓸 수 있는 지금 채널 멤버만 문을 지나고, 그다음 범위의 원래 규칙을 함께 본다. `private`는 만든 사람 본인, `people`·`team`은 지목된 사람, `workspace`는 워크스페이스 규칙이다. `private_channel` 세션은 지금과 같다.
-  - 보이는 변화: 비공개 채널의 `private` 세션은 채널을 나간 만든 사람도, 다른 채널 멤버도 목록에서 못 보고 상세가 `404`다. API key(개인 key·에이전트 key 모두)로는 읽기·쓰기·승인이 모두 `404`이고 판정 기록의 이유는 `private_channel_key`다. 공유를 넓혀도(`private`→`workspace` 등) 채널 밖 사람에게는 보이지 않고, 채널을 나간 만든 사람은 공유도 바꾸지 못한다(`404`).
-  - 이 릴리스 전에 비공개 채널에서 만든 `workspace`·`people`·`team` 세션도 같은 문을 지난다. 채널 밖의 워크스페이스 멤버와 key는 더 이상 보지 못한다(`private_channel`로 옮기기 전이어도 같다).
-  - binding이 없어 종류를 모르는 채널의 세션은 비공개로 본다. 그런 채널이 걸린 판정마다 `warn` 로그 `Channel kind unknown; held private`(`event` `session.private_channel.kind_unknown`, `conversation_count`)를 남긴다.
-  - 공개 채널·DM·웹·API로 만든 세션은 그대로다.
-  - 지원 창 안의 옛 이미지로 되돌리면 옛 판정(`private_channel` 범위만 채널 문을 지남)으로 돌아간다. 그동안 나간 만든 사람과 key가 다시 자기 `private` 세션에 닿는다.
-
-- **비공개 Slack 채널에서 이 릴리스 전에 만든 세션을 `private_channel`로 옮기는 운영자 명령 `private-channel-sessions.ts`가 생기고, 채널을 공개↔비공개로 바꾸면 그 채널의 binding과 세션이 따라 옮겨진다**(JeongJaeSoon/werft#2073). migration은 없다. 명령을 돌리기 전까지 옛 세션은 지금처럼 `workspace`로 읽히고, 새 세션만 `private_channel`로 생긴다.
-  - **아직 돌리지 않는다.** 비공개 채널에서 만든 사람이 범위를 `private`로 좁혀 둔 세션에도 채널 확인을 먼저 거는 변경이 들어간 릴리스에서 돌린다. 그 전에 돌리면 그런 세션은 채널을 나간 만든 사람과 그 사람의 key에 계속 닿는다.
-  - 순서: api 컨테이너에서 `bun run apps/control-host/src/api/private-channel-sessions.ts plan`으로 세션마다 못 보게 될 사람 수(`people_losing`)와 API key로 만든 턴 수(`key_turns`)를 보고, `apply`로 옮긴다. `--workspace <id>`나 `--agent <id>`로 하나만 고를 수 있다. 결과는 한 줄 JSON이고, 다시 돌려도 더 옮기는 것이 없다.
-  - 명령은 API가 쓰는 master key를 받아야 한다. 저장된 bot token이 그 키로 열리지 않으면 그 채널은 `unconfirmed_channels`에 `reason` `master_key_mismatch`로 남고 stderr에 한 줄이 나온다(JeongJaeSoon/werft#2088). entrypoint가 서버 프로세스에만 키를 넘기는 구성에서 명령에 키를 주는 방법은 문서 사이트의 Compose 업그레이드 문서 "비공개 채널의 옛 세션을 옮기는 릴리스"에 있다.
-  - 보이는 변화: 옮긴 세션은 API key(개인 key·에이전트 key 모두)의 목록에서 빠지고 상세가 `404`다. 채널을 나간 만든 사람, 채널 멤버가 아닌 owner·admin, Slack을 연결하지 않은 멤버, 이름으로 공유받은 사람도 못 본다. 그 세션을 key로 폴링하던 연동은 끊긴다. 이름 공유 줄은 지우지 않지만 효력이 없다.
-  - 만든 사람이 `private`로 좁혀 둔 세션은 넓히지 않는다(`kept_private`로 센다). 공개 채널 세션은 그대로다.
-  - 명령은 채널마다 bot token으로 Slack에 채널 종류를 묻는다(`conversations.info`, 사람 수는 `conversations.members`, 새 scope 없음). 종류를 확인하지 못한 채널(`unconfirmed_channels`)과 옮기지 못한 세션(`skipped`, 이유 `no_channel_conversation`·`no_workspace`·`share_changed`)은 그대로 두고 종료 코드 `3`으로 끝난다. 고친 뒤 다시 돌린다. 공개로 묶였지만 지금 비공개인 채널의 binding은 `private_channel`이 되고 승인을 다시 기다린다(이유 `channel_now_private`).
-  - 봇이 빠진 채널은 멤버 목록을 읽지 못해 `members_unconfirmed: true`이고, 옮기면 모두에게 숨는다. 남길 채널이면 명령 전에 봇을 다시 초대한다.
-  - 전환: Slack이 채널에 올리는 `channel_convert_to_private`·`channel_convert_to_public` 글(본문은 남기지 않는다)을 받으면 binding과 그 채널의 세션을 한 transaction에서 옮긴다. 글이 늦게 올 수 있어서, 글이 말하는 종류가 아니라 Slack에 지금 물은 종류를 따른다. 다른 채널에서 시작해 이 채널에 이어진 세션은 그 채널을 따르고 넓히지 않는다. 비공개로 바꾸면 위와 같고, **비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다**(Slack에서 지난 글이 공개되는 것과 같다). 옛 `people`·`team` 범위는 되살리지 않는다.
-  - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
 - **migration `0336_session_link_old_uniques`가 `session_links`의 옛 unique 둘(`session_links_surface_ref_key`, `session_links_session_uniq`)을 지운다. 이 릴리스를 올린 뒤에는 `v0.3.0` 이하의 이미지로 되돌릴 수 없다**(JeongJaeSoon/werft#2079). 따로 할 일은 없고, Slack 스레드의 동작은 그대로다.
   - 남는 unique는 닫히지 않은 link만 보는 둘이다. 스레드와 세션마다 열린 link는 하나뿐이고, 닫힌 link는 그 옆에 이력으로 남을 수 있다. 이 릴리스의 link 닫기는 기본으로 꺼진 스위치 `SLACK_ROLE_CLOSE_LINKS`(JeongJaeSoon/werft#2083) 뒤에 있다.
   - `v0.3.0` 이하의 이미지는 옛 unique를 가리키는 `ON CONFLICT`로 스레드를 예약하므로, 되돌리면 Slack 스레드에 세션이 생기지 않는다. 열린 link만 보는 예약으로 옮긴 JeongJaeSoon/werft#2041부터의 이미지로는 되돌려도 된다. 더 앞으로 가야 하면 업그레이드 전 백업으로 DB를 복원한다.
   - `v0.3.0`에서 바로 올리면 migrate가 끝난 뒤 옛 slack 역할이 내려갈 때까지 그 역할이 받은 스레드 예약이 실패하고, 그 이벤트는 다시 시도된다.
   - 행은 고치지 않는다. 제약은 표를 읽지 않는 한 문장으로, 인덱스는 `CONCURRENTLY`로 지운다.
-
-- **migration 0308 전에 처리를 마친 Slack inbox 행에 남은 원문(`payload`)을 지우는 운영자 명령 `slack-inbound-payloads.ts`가 생긴다**(JeongJaeSoon/werft#2080). migration은 없다. 돌리기 전에는 그 원문이 남아 있을 뿐이고 동작은 같다.
-  - **모든 slack 역할이 0308 이후 이미지로 돈 뒤에 한 번 돌린다.** 앞선 이미지의 slack 역할이 남아 있으면 처리한 행에 원문을 다시 남긴다.
-  - api 컨테이너에서 `bun run apps/control-host/src/api/slack-inbound-payloads.ts`를 돌린다. 처리를 마친 행(`processed`)의 원문만 지우고, 처리 중인 행과 실패한 행(받은 지 7일 뒤 reconciler가 지운다)은 그대로다.
-  - 기본키 순서로 1000행씩(`--batch-size`, 1~10000) 문장마다 따로 커밋한다. 행 잠금은 그 묶음의 처리된 행에만 잡히고 표의 읽기·쓰기는 막지 않는다. 결과는 한 줄 JSON(상태별 원문 있는 행 수 전후, 지운 수, 묶음 수와 크기, 걸린 시간)이고, 다시 돌려도 더 지우는 것이 없다.
-  - 끝난 뒤에도 원문이 남은 처리된 행이 있으면 종료 코드 `3`이다. 앞선 이미지의 slack 역할을 내린 뒤 다시 돌린다. 수는 묶음마다 따로 읽으므로 `0`이 앞선 이미지가 없다는 증거는 아니다. 돌리기 전에 컨테이너의 이미지를 확인한다. 지운 원문은 돌아오지 않는다.
-- **Slack에서 채널이 삭제되면(`channel_deleted`·`group_deleted`) 그 채널의 채널 요약을 모든 버전의 이력과 함께 지운다**(JeongJaeSoon/werft#2075). migration은 없고 따로 할 일도 없다. 이 릴리스에는 요약을 쓰는 길이 없어서 지울 행도 아직 없다.
-  - 관여 기록, 대화, `channel_contexts` 행은 남는다. 보관과 `channel_not_found`(조회 실패로 정리한 채널)로는 지우지 않는다.
-- **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#2074). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
-  - 칸: `slack_outbox.correlation_id`(웹 입력의 Slack 글마다 새로 만드는 상관값), `slack_outbox.held_for_input_id`(그 입력의 글 스레드를 기다리는 줄), `conversation_inputs.slack_mirror`의 새 값 `unconfirmed`.
-  - 웹 입력의 Slack 글에는 상관값이 message metadata(`event_type` `werft_input_mirror`)로 실린다. 다른 줄의 `chat.postMessage`에는 지금처럼 metadata가 없다.
-  - `uncertain`이면 다시 보내지 않고 새 스레드도 만들지 않는다. 돌아온 자기 앱의 글이 그 상관값을 가진 `uncertain` 거울 하나를 정확히 가리킬 때만 그 글을 거울로 잇는다. 본문으로는 잇지 않는다.
-  - 문에서 버린 이벤트의 `drop_fields`에 `metadata`(`event_type`과 거울의 `correlation_id`)가 더해진다. `event_payload`의 나머지는 남기지 않는다.
-  - 보류된 줄은 거울이 끝내 실패하거나 `SLACK_ROLE_INPUT_HOLD_SEC`(기본 3600, Helm `slack.inputHoldSec`)가 지나면 보내지 않고 `failed`(`input_unplaced`)로 닫는다. 로그 `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`.
-  - "다시 보내기"는 사람이 부를 때만 같은 입력의 거울을 새 상관값으로 보낸다. 이 릴리스에는 그 버튼이나 route가 없다.
-  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
-- **Slack에서 지운 글을 직접 출처로 가진 턴은 API와 웹에서 가려진다**(JeongJaeSoon/werft#2071). migration은 없고 따로 할 일도 없다. 저장된 값은 지우지 않고 읽을 때만 가리며, 지운 글이 없는 세션의 응답은 그대로다.
-  - 그 글이 입력인 턴의 입력, 그 턴의 답과 도구 결과를 가린다. 턴 응답은 `message`가 `""`, `result`가 `null`이 되고 `source_deleted_at`이 붙는다. `terminal_reason`도 `null`이다. 이벤트(SSE와 보관된 이벤트 포함)는 모양만 남기고 내용(엔진의 system 글, error의 `message`, 끝난 이유 포함)을 비우며 envelope에 `source_deleted_at`이 붙는다. 그 턴의 열린 요청은 목록에서 빠진다.
-  - 물려받기만 한 뒤 턴은 가리지 않는다(세션은 지금처럼 멈춘다).
-  - 첫 턴에서 만든 제목(`derived`·`generated`)은 세션 목록·상세·검색·도구 호출·사용량 목록에서 `null`이 되고 `title_deleted_at`이 붙는다. 사람이 준 제목은 그대로이고, status 이벤트에 남은 예전 제목은 가린다.
-  - 감사 읽기도 같이 가린다. 무엇을 가렸는지는 결정 행의 시각과 `deleted_sources.deleted_at`으로 알 수 있다.
-  - 웹은 가린 곳에 "Slack에서 삭제됨"을 보여 준다.
-
-- **세션의 권한 모드를 release에 적힌 값이 아니라 지금 규칙(연결과 모델)으로 정한다. 그래서 `default`로 만든 옛 Claude 모델 release의 세션이 `auto`로 바뀐다**(JeongJaeSoon/werft#2070). migration은 없고, release를 다시 만들 필요도 없다. release id는 그대로다.
-  - Claude 모델(`anthropic` 연결, 또는 `litellm` 연결의 Claude 모델 id)은 `auto`, Codex(`openai_responses`)와 Claude가 아닌 모델은 `default`로 돈다. 이미 도는 세션은 다음에 worker가 세션을 받을 때 바뀐다. 세션 상세의 `runtime.permission_mode`도 이 값을 보인다.
-  - 그 세션은 사람에게 묻던 호출을 이제 분류기가 판정한다. 묻기 목록에 걸린 호출과 push 승인은 지금처럼 사람에게 간다.
-  - 모드를 고르는 설정은 없다. 연결, 에이전트, 설치 설정 어디에도 없고, `default`로 되돌리는 스위치도 없다.
-  - release의 `spec_source.permission_mode`는 `default`와 `auto`만 읽는다. `acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`가 적힌 release(지금 서버는 만들지 않는다)는 spec을 읽지 못해 새 세션을 시작하지 못한다.
-  - 지원 창 안의 이미지로 되돌리면 옛 release의 세션은 다시 `default`로 돈다.
-
-- **migration `0334_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#2067). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
-  - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
-  - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.
-  - 답글이 게시 결과보다 먼저 처리되어 스레드가 이미 다른 주제인 드문 경우는 합치지 않고 `warn` 로그 `Slack mirror opened a thread another topic already holds; the topics stay apart`를 남긴다.
-  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
-- **에이전트가 받는 GitHub 도구 설명과 checkpoint 거절 이유가, 브랜치는 worktree 없이 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 만든다고 알린다**(JeongJaeSoon/werft#2069). migration은 없고 따로 할 일도 없다.
-  - 작업 공간 안의 git worktree·clone은 지금처럼 checkpoint가 거절하고, 그 턴의 push는 `turn_ended_without_checkpoint`로 취소된다. `git worktree`의 묻기 규칙도 그대로다.
-- **migration `0333_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더하고, 지운 Slack 글을 출처로 가진 턴이 있는 열린 세션을 멈춘다**(JeongJaeSoon/werft#2064). 따로 할 일은 없고, 지운 글이 없는 세션의 동작은 그대로다.
-  - 직접 출처든 물려받은 출처든 턴 하나만 걸려도 세션 전체를 멈춘다. 글의 수정으로는 멈추지 않는다. 닫힌 세션은 건드리지 않는다.
-  - 실행 중인 턴은 끊지 않고, 끝난 뒤 pause처럼 `paused`가 된다. 대기 중인 입력은 내보내지 않는다.
-  - `attention.code`는 `SOURCE_DELETED`이고, 메시지·재개·`start_fresh`·`retry_restore`는 `409 SOURCE_DELETED`로 거절된다. 닫기만 된다. 이유는 세션 이벤트 `source_deleted`로 남는다.
-  - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 칸을 읽지 않으므로 멈춘 세션을 재개할 수 있게 된다.
-- **`private_channel` 세션의 DM 알림은 지금 채널 멤버에게만 가고, 인수는 채널 멤버가 한다**(JeongJaeSoon/werft#2066). migration은 없고 따로 할 일도 없다.
-  - 세션에 관한 DM(모델이 허용 목록에서 빠짐, 다음 모델로 옮김, `runtime_retired`로 멈춤, worker 이미지 교체)은 보내기 직전에, 받는 Slack 계정이 세션의 비공개 채널 중 하나의 지금 멤버인지 본다. 멤버가 아니거나 확인하지 못하면 보내지 않고 `failed`(`error_code` `reader_outside_channel`)로 끝난다. 에이전트 관리자도 같다. 에이전트 단위 알림(에이전트의 모델 이동)은 그대로다.
-  - 요청자가 비활성화되어 인수를 기다리는 `private_channel` 세션은 그 채널의 지금 멤버이고 세션에 쓸 수 있는(`session.submit`) 사람이 `POST /v1/sessions/{id}/takeover`로 인수한다. 사유는 받지 않는다. owner·admin도 채널 멤버가 아니면 `404`다. 다른 세션의 인수는 그대로다.
-  - 요청자가 채널을 나가도 세션은 멈추지 않는다. 보고와 카드는 지금처럼 그 채널의 스레드에만 가고, 봇이 채널에서 빠지면 어디에도 보내지 않는다.
-- **migration `0332_unknown_budget_end`가 끝을 모르는 호출을 적는 칸 `unknown_at`을 더하고, 한도가 있는 계정에서 root 종류 `none`의 예약을 한도의 80%에서 거절한다**(JeongJaeSoon/werft#2065). 따로 할 일은 없고, 예산 한도가 없는 설치는 지금처럼 돈다.
-  - 쓰인 provider 호출에 lease(5분) 안에 사용량 보고가 없으면 reconciler가 `budget_reservations`(대화 호출은 `conversation_calls`도)의 `unknown_at`을 적는다. 상태는 `reserved`(`in_flight`) 그대로이고, 예약은 풀지 않고 쓴 것으로 센다. 늦은 보고가 실제 값으로 정산하고, lease 갱신과 해제는 표시를 지운다. 세션 호출과 대화 호출 모두 같다.
-  - 끝을 모르는 예약이 많은 계정부터 배치 크기만큼 그 수와 묶인 금액이 `warn` 로그 `Budget reservations of unknown end held`에, 모든 계정의 합계가 `Budget reservations of unknown end reported`에 남는다. `Provider exchange ledger reconciled`와 `Conversation call reservations reconciled`에 `unknown_count`가 더해진다. 묶인 예약을 푸는 운영자 명령은 아직 없다.
-  - root 종류 `none`(사람도 key도 없는 실행)은 80%에서, 사람과 key·Slack 봇의 요청은 100%에서 거절된다. 한도가 없는 계정에는 80% 판정이 없다.
-  - 상태 값과 CHECK는 바뀌지 않는다. 지원 창 안의 이미지로 되돌려도 `unknown_at`은 무시되고 예약은 `reserved`로 정산된다.
-
-- **스킬의 자동 승인이 화면의 '자동 연동' 스위치로 바뀌고, migration `0331_reset_skill_auto_approve`가 이미 켜졌거나 요청 중이던 자동 승인을 모두 끄고 `skill_git_sources`에 칸 `auto_approve_checks_grant_id`를 더한다**(JeongJaeSoon/werft#2055). 업그레이드한 뒤 자동 연동을 쓸 스킬마다 스킬 상세의 GitHub 동기화 구역에서 다시 켜야 한다. 다시 켜지 않으면 새 버전이 승인 대기로 쌓인다. 끈 수는 migration 로그(`db.migrate.notice`)에 `0331: auto-approve turned off on N GitHub skill sources`로 남고, 끈 것이 없으면 아무 줄도 남지 않는다.
-  - 켜는 방법이 바뀌었다. 오너나 어드민 한 명이 화면에서 켜고 끈다. 다른 관리자의 동의는 필요 없다. 연동 대상이 브랜치이기만 하면 되고(태그와 커밋은 400 `not_branch`), GitHub의 브랜치 보호 규칙과 PR 리뷰는 보지 않는다.
-  - 켜 두면 고정 규칙 검사를 통과한 버전이 사람의 승인 없이 승인되어 현재 버전이 된다. 규칙에 걸린 버전만 승인 대기로 남는다. 켜는 순간에도 한 번 확인해, 승인 대기로 있던 버전(처음 등록한 v1 포함)이 규칙을 통과하면 승인한다.
-  - 그 브랜치에 push할 수 있는 사람과 App이 곧 스킬을 바꿀 수 있는 사람이 된다. 에이전트의 App이 그 저장소에 push할 수 있으면 에이전트도 포함된다. 누가 push할 수 있는지는 GitHub ruleset으로 정한다. 고정 규칙 검사는 스크립트가 조합하는 URL이나 base64 같은 내용을 걸러 내지 못한다.
-  - 자동 연동을 켜지 않은 스킬은 지금과 같다. 새 버전은 승인 대기로 들어오고 사람이 승인한다.
-  - API가 바뀐다. `PUT /v1/workspace/skills/{name}/sync/auto-approve`의 `action`은 `on`과 `off`만 받는다(`request`와 `consent`는 400). 응답의 `git.auto_approve`는 `{ state, enabled_by }`이고 `state`는 `off`나 `on`이다. `last_check.auto_approval`에서 `rule`과 `pull_request`가 빠지고, `reason`은 `checks_failed`와 `baseline_changed`만 남는다. `last_check.trigger.kind`에 `auto_approve`(자동 연동을 켤 때의 확인)가 더해진다. `PUT /v1/workspace/skills/{name}/sync`와 `…/sync/auto-approve`의 응답에 `check`가 더해진다. 그 호출이 돌린 확인이 끝났으면 `checked`, 돌고 있던 확인 뒤로 밀렸으면 `queued`, 확인을 돌리지 않았으면 null이다.
-  - 칸 하나를 더하고 값을 바꾸는 migration이라 지원 창 안의 이미지로 되돌려도 된다(옛 이미지는 그 칸을 읽지도 쓰지도 않는다). 되돌린 이미지는 옛 방식(두 관리자의 요청과 동의, 리뷰된 PR)으로 동작하고, 꺼진 설정은 꺼진 채로 남는다. 되돌린 이미지나 올리는 동안 아직 떠 있던 옛 서버가 옛 방식으로 켠 자동 승인, 그리고 옛 서버가 멈췄다 다시 켠 스킬의 자동 연동은 이 버전에서 꺼짐으로 읽히고 아무것도 승인하지 않는다(새 칸은 이 버전만 쓴다). 쓰려면 화면에서 다시 켠다.
-
-- **사람이 고른 적 없는 빈 값은 이제 GitHub push 승인을 묻지 않는다. 새 에이전트는 사람이 승인을 켜기 전까지 승인 없이 push한다**(JeongJaeSoon/werft#2061). migration은 없고 저장된 설정은 바꾸지 않는다. 판정을 읽는 방식만 바뀐다.
-  - 승인 없음으로 바뀌는 것: GitHub 설정을 저장하지 않은 에이전트와 github 설정이 없는 release(핀이 `push_approval: false`인 release 포함), 첨부 저장소 push 정책이 비어 있는(NULL) 설정. 에이전트 GitHub 탭과 `GET /v1/agents/{id}/github`의 `push_attached`도 이 경우 `allow`로 보인다.
-  - 그대로인 것: 사람이 켠 **push 전 사람 승인**, 정책 `ask`·`deny`, release 핀의 `push_approval: true`, 읽을 수 없는 설정(계속 사람에게 묻는다), push 승인과 정책 중 더 엄격한 쪽을 따르는 규칙.
-  - 올리는 즉시 이미 도는 세션의 다음 push부터 적용된다. 데모 설치에서는 25개 에이전트(NULL 행 9, 설정 없음 16)가 승인 없이 push하게 된다. 사람 승인을 계속 받을 에이전트는 올리기 전에 GitHub 탭에서 **push 전 사람 승인**을 켜고 저장한다.
-  - 지원 창 안의 옛 이미지로 되돌리면 빈 값이 다시 사람 승인으로 읽힌다(더 엄격해질 뿐이다).
-
-- **API key는 `private_channel` 세션에 쓰기·승인도 못 한다. 요청자가 채널을 나간 push는 지금 채널 멤버가 승인·거절한다**(JeongJaeSoon/werft#2062). migration은 없고 따로 할 일도 없다.
-  - 보이는 변화: 개인 key·에이전트 key로 `private_channel` 세션에 메시지, 대기 요청 답, push 요청·승인·거절, PR 열기·댓글, workflow 실행, 중단·재개·종료·인계 등 `/v1/sessions/{id}` 아래 모든 경로를 부르면 `404`다(읽기는 JeongJaeSoon/werft#2053부터 `404`). 판정 기록의 이유는 `private_channel_key`다. 세션 안에서 에이전트가 요청하는 push, key로 만든 세션, 공개 채널 세션은 그대로다.
-  - push를 요청한 사람(그 push를 요청한 턴의 사람. 사람이 없으면 세션을 맡은 사람, 곧 시작한 사람이나 넘겨받은 사람)이 세션의 비공개 채널을 모두 나가면, Slack 승인 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버 누구나 승인·거절할 수 있다. 결정 기록(`decided_by`)에는 누른 사람이 남는다. 나간 요청자는 결정할 수 없고, 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 카드는 채널 멤버 변화(`member_joined_channel`·`member_left_channel`) 때 다시 그려진다. 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Push requester's channel membership unconfirmed`를 남긴다.
-  - 도구 권한·질문 카드는 그대로다.
-  - 카드의 새 표시 상태(`open_requester_left`·`reject_only_requester_left`)를 모르는 옛 이미지로 되돌리면, 그 카드를 끝난 카드로 보고 다시 그리지 않는다(버튼은 남고 누르면 그대로 판정된다).
-
-- **migration `0330_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 판단 버퍼의 만료 칸 `buffer_expires_at`과 그 색인을 더한다**(JeongJaeSoon/werft#2059). 따로 할 일은 없고 Slack 동작도 그대로다.
-  - 판단 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 듣는 때만 멘션 없는 글을 본문째 담는다. 스위치 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없어서, 올린 뒤에도 버퍼는 비어 있다.
-  - 담긴 줄은 10분 뒤 reconciler가 통째로 지운다(로그 `Judgment buffer purged`, `expired_count`·`unlistened_count`). Slack에서 글이 지워지면 바로, 채널 보관·삭제·봇이 나감·binding `off`·에이전트 보관 때도 바로 지운다. 글이 고쳐지면 담긴 본문만 바뀐다.
-  - 줄을 고치지 않고 칸과 색인을 더하고 CHECK를 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 다만 옛 reconciler는 버퍼 줄을 지우지 않는다(스위치를 켠 적이 없으면 버퍼 줄은 없다).
-
-- **migration `0329_slack_outbox_voided_by_delete`가 outbox 상태 `voided_by_delete`와 칸 `sources_turn`을 더하고, Slack에서 지운 글에 걸린 답과 턴을 막는다**(JeongJaeSoon/werft#2058). 따로 할 일은 없고, 지운 글이 없는 Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
-  - 출처(물려받은 것 포함)에 지운 글(묘비 포함)이 든 outbox 줄은 보내기 직전에 `voided_by_delete`(`error_code` `source_deleted`)로 끝나고 나가지 않는다. slack 역할이 `warn` 로그 `Slack send voided: a source was deleted`를 남긴다. 보내기 시작한 뒤의 삭제는 나간 글을 그대로 두고, 수정은 아무것도 막지 않는다.
-  - 지운 글로는 세션을 만들거나 턴을 넣지 않는다. Slack에는 안내를 올리지 않고 `warn` 로그 `Slack input refused by the session`(`code` `SOURCE_DELETED`)만 남는다.
-  - **보이는 변화**: 지운 Slack 글이 든 세션에 웹·API로 메시지를 보내면 409 `SOURCE_DELETED`로 거절된다.
-  - CHECK는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
-
-- **migration `0328_conversation_calls`가 세션 없는 provider 호출(대화 호출)의 표 `conversation_calls`를 더하고, 세션 제목 짓기 호출과 실행 중인 턴이 없는 세션 호출을 그 세션을 만든 첫 턴의 예산 계정에 매긴다**(JeongJaeSoon/werft#2057). 따로 할 일은 없다.
-  - 대화 호출은 토큰을 내기 전에 root의 계정에 그 호출의 최대 비용(요청 본문 바이트 상한과 `max_tokens`)을 예약하고, 토큰은 egress proxy를 지나는 Messages 호출 한 번에만 쓰인다. 2분 안에 쓰이지 않은 토큰의 예약은 reconciler가 푼다(로그 `Conversation call reservations reconciled`, `released_count`). 이 릴리스에는 대화 호출을 내는 경로가 없어서 표는 비어 있다.
-  - 한도를 정하지 않은 설치에서는 제목 짓기 호출과 턴 사이의 호출이 지금처럼 돈다. 한도를 넣으면 이 호출들도 세션을 만든 사람(또는 key)의 계정에서 판정되고, 넘으면 제목은 첫 메시지에서 자른 것이 그대로 남는다.
-  - egress proxy가 provider 허가 요청에 헤더 `x-werft-exchange-id`를 붙인다. 앞선 API는 이 헤더를 무시한다. 대화 호출 토큰은 이 헤더가 있어야 허가되므로 api와 egress proxy를 함께 올린다.
-  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
-
-- **비공개 Slack 채널에서 시작한 세션은 새 공유 범위 `private_channel`로 생기고, 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보인다**(JeongJaeSoon/werft#2053). migration `0327_private_channel_share_scope`가 `session_shares`의 범위 CHECK에 `private_channel`을 더한다. 따로 할 일은 없다.
-  - 보이는 변화: API key(개인 key·에이전트 key 모두, key 주인이 멤버여도)로는 이 세션이 목록에 없고 상세·turns·events·outputs·pending-requests가 `404`다. 판정 기록에는 이유 `private_channel_key`로 남는다. 채널을 나간 만든 사람과 멤버가 아닌 owner·admin도 못 본다(사유를 적은 감사 읽기는 된다. 관리 목록 `/v1/admin/sessions`에는 메타데이터만 `share_scope: private_channel`로 남고, 관리 종료는 채널 밖에서 `404`다). 공유 범위를 바꾸려 하면 409(`reason_code: private_channel_session`)다.
-  - 멤버 확인은 api와 slack 역할이 bot token으로 `conversations.members`를 읽고 5분 캐시한다(`groups:read`, 새 scope 없음). 확인하지 못하면(429·Slack 장애·bot이 채널 밖) 멤버에게도 숨긴다. 세션 목록은 `private_channel` 세션이 있는 채널마다 한 번씩, 동시에 8개까지 확인한다.
-  - 개인 key의 사용량 합계(`scope=me`)에는 key 주인이 만든 `private_channel` 세션이 이름 없는 금액·개수로 들어간다. 세션을 가리키는 줄(도구 호출, 최근 성과)은 보이지 않는다.
-  - 이 릴리스 전에 비공개 채널에서 만든 세션은 그대로 `workspace`다. 운영자 명령 `private-channel-sessions.ts`가 옮긴다(위 항목).
-  - 공개 채널·DM·웹·API로 만든 세션은 그대로다.
-  - 지원 창 안의 옛 이미지로 되돌리거나 함께 돌리면, 옛 host는 `private_channel` 세션을 만든 사람에게만 보인다. 그동안 다른 채널 멤버는 잠깐 못 보고, 채널을 나간 만든 사람은 그 host에서 (자기 key로도) 계속 본다. 워크스페이스 전체로 넓어지지는 않는다.
-
-- **migration `0326_link_posting`이 Slack 스레드의 게시 설정을 `session_links`의 칸 셋(`report_mode`·`mirror_instructions`·`post_prompts`)으로 나누고, 채널 binding에 `report_mode` 기본값 `per_step`을 더한다**(JeongJaeSoon/werft#2052). 따로 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
-  - outbox는 이제 `visibility` 대신 새 칸을 본다(아직 옮기지 않은 `summary` link를 막을 때만 `visibility`를 읽는다). 답·실패·결과 알림은 `report_mode`(비면 채널 값), 웹·API 지시 거울은 `mirror_instructions`, 승인 카드·질문은 `post_prompts`다.
-  - `full` link는 그대로 두고(기본값이 같은 뜻), `summary` link는 api 기동 때 도는 정리가 `none`·`false`·`false`로 옮긴다. 로그 `Summary session links moved`. 이 릴리스까지 `summary` link를 만드는 길은 없었다.
-  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. `visibility`는 뒤의 릴리스가 지운다.
-
-- **migration `0325_channel_summaries`가 채널 요약 표 셋(`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`)을 더한다**(JeongJaeSoon/werft#2054). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다. 요약을 쓰는 길은 아직 없어서 표는 비어 있다.
-  - 줄에는 에이전트가 쓴 글만 있고 Slack 글의 본문은 없다. 출처(글의 자리와 입력 접수 줄 id)와 화자는 서버가 입력 접수 줄에서 읽는다.
-  - 바뀔 때마다 버전이 오르고 옛 버전은 되돌리기용 이력으로 남는다. 출처 글이 지워지거나 고쳐지면 그 줄을 모든 버전에서 지운다.
-  - 요약 줄의 출처인 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
-  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
-
-- **migration `0324_source_sets`가 `turns`와 `slack_outbox`에 출처 집합 칸 `sources`(jsonb, nullable)와 GIN 색인 둘을 더한다**(JeongJaeSoon/werft#2048). 따로 할 일은 없고, Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
-  - 출처 집합은 그 턴이 나온 Slack 글을 자리(team, 채널, ts)와 입력 접수 줄 id로만 적는다. 본문은 없다. 그 턴의 입력은 `direct`, 같은 세션 앞 턴들의 것은 `inherited`로 가른다. 한 집합은 256개까지 적고, 넘으면 `overflow`를 표시한다.
-  - Slack 글로 생긴 턴과 그 세션의 뒤 턴(이어 가는 턴, push 후속 턴, 웹·API 지시), 그 턴의 답·실패 알림·승인 카드 줄이 출처를 갖는다. Slack과 무관한 웹·API 세션의 턴은 비어 있다.
-  - 출처에 든 글의 삭제·수정 표식은 70분이 지나도 지워지지 않는다. 지운 출처로 답을 막거나 세션을 멈추는 동작은 아직 없다.
-  - 칸은 기본값 없이 더하고 색인은 `CONCURRENTLY`로 만들어 표를 다시 쓰지 않는다. 있던 줄은 비어 있는 채로 남는다. 지원 창 안의 이미지로 되돌려도 된다.
-
-- **migration `0323_conversation_engagements`가 관여 기록 표 `conversation_engagements`를 더하고, Slack 글이 세션의 턴이 될 때 그 글에 에이전트가 관여했다는 줄을 하나 적는다**(JeongJaeSoon/werft#2049). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다.
-  - 입력 접수 줄을 적는 같은 transaction에서 적는다. 줄에는 에이전트, 글의 자리(team, 채널, ts), 종류, 그 글이 든 세션만 남고 본문·스레드 ts·링크는 없다.
-  - 종류: 세션을 연 멘션이나 DM은 `mention`, 멘션 없는 맨 위 글로 연 세션은 `reply`, 이미 열린 세션에 들어간 글은 `bound`.
-  - 한 글이 두 이벤트로 와도, 다시 처리돼도 에이전트마다 한 줄이다. 있던 세션은 채우지 않는다.
-  - 관여 기록이 있는 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
-  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
-
-- **provider 호출이 세션 한도와 함께 실행 중인 턴의 root 예산 계정에서도 잡히고, migration `0322_budget_root_slack_bot`이 root 종류에 `slack_bot`을 더한다**(JeongJaeSoon/werft#2050). 따로 할 일은 없다.
-  - 한도를 정하지 않은 설치(`budget_limits` 행 없음)에서는 지금처럼 돈다. 원장에 호출마다 root 종류(`user`·`key`·`slack_bot`·`none`)와 계정이 남는다. root `none`(사람이 시키지 않은 에이전트 스스로의 일)은 한도가 없으면 거절되지만, 이 릴리스에는 그런 턴을 만드는 경로가 없다.
-  - `budget_limits`에 한도를 넣으면 넘는 호출은 지금과 같은 `BUDGET_EXCEEDED`로 거절된다. 거절마다 API가 `info` 로그 `Provider exchange refused for the budget`(`turn_id`, `refused_by` `session`/`account`, `budget_root_kind`, `budget_account_id`)을 남긴다.
-  - 요청자를 읽을 수 없는 턴, 세션 제목 짓기 호출, 실행 중인 턴이 없는 호출은 세션 한도만 본다. 제목 짓기 호출은 egress proxy가 open에 헤더로 알리므로 api와 egress proxy를 함께 올린다(proxy만 앞선 버전이면 그동안 제목 호출도 턴의 계정에 잡힌다). CHECK를 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
-
-- **에이전트 앱이 Slack 채널의 보관·보관 해제·이름 변경·삭제 이벤트 여덟 개를 받고, 삭제된 채널의 binding을 새 상태 `gone`으로 둔다**(JeongJaeSoon/werft#2047). migration `0321_channel_lifecycle`이 대화에 채널 상태·이름 칸을 더하고 binding 상태에 `gone`을, inbox 버림 이유에 `channel_gone`을 더한다.
-  - **업그레이드 뒤 에이전트마다 콘솔 Slack 탭의 "다시 확인"(`POST /v1/agents/{id}/slack/app/events/recheck`) 또는 API 컨테이너의 `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>`를 한 번 실행해야** 채널 삭제·보관·이름 변경 이벤트가 온다. 하지 않으면 삭제된 채널의 처리는 게시나 채널 조회가 `channel_not_found`를 받는 조회 실패 경로로만 동작한다(그때까지 binding은 `ready`로 남는다). 새 scope는 없다. 다시 보낸 manifest가 설치에 없는 scope를 요청하면 "다시 확인"도 응답의 `reinstall_required`와 콘솔 안내로 재설치를 알린다(JeongJaeSoon/werft#2056). [업그레이드 안내](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#slack-채널-이벤트와-manifest-다시-보내기)
-  - 삭제된 Slack 채널을 에이전트의 채널 목록에 "삭제됨"으로 보인다. `gone` 채널은 글을 받지도 보내지도 않는다. 살아 있는 채널의 멘션·세션·답은 그대로다.
-  - 이벤트를 놓친 채널도 게시나 채널 조회의 `channel_not_found`로 공개 채널은 `gone`, bot이 있던 비공개 채널은 `left`가 된다. 429·Slack 장애·token 오류로는 바뀌지 않는다.
-  - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 `status`에 `gone`이 생긴다.
-  - 칸과 값을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 다만 되돌린 이미지는 `gone` binding을 `left`처럼 막지 못하고 보통 줄로 읽는다.
-
-- **migration `0320_session_parent_conversation`이 세션에 부모 대화 칸 `parent_conversation_id`(nullable)를 더하고, api가 기동할 때마다 Slack에 묶인 세션의 부모 대화를 채운다**(JeongJaeSoon/werft#2045). 따로 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
-  - 새 Slack 세션은 만들 때 채운다. 채널 스레드의 세션은 그 채널의 메인 대화, DM 세션은 그 사람의 DM 메인 대화다. link가 없는 세션(웹의 "새 세션", 세션 API)은 비워 둔다.
-  - 있던 세션은 api 기동 때 한 번씩 도는 정리가 묶음으로 채운다. 닫히거나 폐기된 link의 세션도 채운다. 세션마다 비어 있을 때만 채우므로 다시 기동해도, 여러 api가 함께 기동해도 결과가 같고, 중간에 멈추면 다음 기동이 남은 세션부터 잇는다.
-  - DM 세션의 사람은 그 세션을 연 사람, 없거나 워크스페이스 멤버가 아니면 link를 만든 사람이다. 새 세션이 만들 때 고르는 사람과 같다. 둘 다 없으면 부모를 비워 두고 로그 `Linked DM sessions left without a parent conversation`에 이유별 수(`no_person`·`no_membership`)를 남긴다. 채운 수는 `Parent conversations filled`, 채우지 못한 세션은 경고 로그에 세션 id와 함께 남고 다음 기동에서 다시 시도한다.
-  - 세션의 요청자 칸(`requester_kind`)은 채우지 않는다.
-  - 칸은 `NOT VALID`로 더한 외래 키를 따로 검증하므로 `sessions`를 오래 잠그지 않는다. 지원 창 안의 이미지로 되돌려도 되고, 그동안 만든 Slack 세션은 부모 없이 생겼다가 다시 올리면 채워진다.
-
-- **migration `0318_provider_exchange_budget`이 provider 호출 원장 `provider_exchanges`에 예산 계정 칸 `budget_root_kind`·`budget_account_id`를 nullable로 더한다**(JeongJaeSoon/werft#2044). 따로 할 일은 없고 동작도 그대로다.
-  - 이 릴리스에서는 어떤 호출도 계정을 넘기지 않으므로 두 칸은 비어 있고, 세션 비용 한도와 토큰 한도는 지금처럼 동작한다.
-  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
-
-- **migration `0317_binding_listen`이 채널 binding에 듣기 칸 `listen`(`free`·`mention`·`off`)을, 에이전트에 대화 층 스위치 `conversation_rollout`(`off`·`shadow`·`on`)을 더한다**(JeongJaeSoon/werft#2042). 따로 할 일은 없고 동작도 그대로다.
-  - 있던 binding은 그 에이전트의 `slack_mention_only`가 `true`면 `mention`, `false`면 `free`로 채운다. 새로 만드는 binding은 `free`로 시작한다. `slack_mention_only`는 바꾸지 않고, 에이전트가 무엇에 반응하는지는 지금처럼 그 값과 binding의 `mode`가 정한다.
-  - 모든 에이전트의 스위치는 `off`다. 이 릴리스의 받는 길은 두 칸을 읽지 않는다.
-  - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 binding에 `listen`이 생긴다. `PUT`에서 `listen`을 빼면 그 채널의 값을 그대로 둔다.
-  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
-
-- **migration `0319_web_inputs`가 입력 접수 표 `conversation_inputs`에 웹 입력의 칸 셋(`client_message_id`·`body`·`slack_mirror`)을 더하고 `turn_id`를 비워 둘 수 있게 한다**(JeongJaeSoon/werft#2046). 할 일은 없고 동작도 그대로다.
-  - 웹에서 들어온 입력을 서버가 받는 즉시 입력 id·주제·요청자·순번을 정해 적는 접수 서비스가 생긴다. 이 릴리스에서는 이 서비스를 부르는 route가 없어 웹 입력 줄은 생기지 않는다. 웹 콘솔의 세션 시작과 메시지는 지금 길 그대로다.
-  - 웹 입력 줄은 본문을 갖는다. Slack 접수 줄은 지금처럼 본문 없이 턴을 가리킨다. CHECK가 둘을 가른다.
-  - 인덱스는 `CONCURRENTLY`로 만들고 CHECK는 `NOT VALID`로 더해 따로 검증하므로 쓰기를 오래 막지 않는다. 있던 줄은 모두 Slack 접수 줄이라 검증을 통과한다. 지원 창 안의 이미지로 되돌려도 된다.
-
-- **migration `0314_budget_accounts`가 예산 계정 표 셋(`budget_limits`·`budget_accounts`·`budget_reservations`)을 빈 채로 만든다**(JeongJaeSoon/werft#2034). 따로 할 일은 없다.
-  - 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 그대로이고, 한도를 정하는 화면·API·운영자 명령은 아직 없다.
-  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
-
-- **migration `0313_session_link_history`가 `session_links`에 `closed_at`·`closed_reason` 칸과 닫히지 않은 link만 보는 부분 unique 둘을, `slack_outbox`에 `session_link_id` 칸을 더한다**(JeongJaeSoon/werft#2038). 이 릴리스의 코드는 새 칸을 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 있던 줄은 모두 닫히지 않은 link로 남고, 옛 unique 둘은 뒤의 릴리스가 지울 때까지 남는다. 인덱스는 `CONCURRENTLY`로 만들고 CHECK와 외래 키는 `NOT VALID`로 더해 따로 검증하므로 쓰기를 오래 막지 않는다. 지원 창 안의 이미지로 되돌려도 된다.
-
-- **api가 멈추기 시작하면 열린 세션 이벤트 스트림(SSE)을 바로 끝내, 열린 스트림이 있어도 종료가 드레인 상한(35초)을 기다리지 않는다**(JeongJaeSoon/werft#2032). 할 일은 없다. stop grace는 그대로 두어도 된다.
-  - api 재시작·재배포 때 콘솔과 SDK의 이벤트 스트림은 곧바로 끊기고, 새 api에 `Last-Event-ID`로 다시 붙어 놓친 이벤트 없이 이어진다. 이전에는 스트림이 드레인 상한까지 붙어 있다가 잘렸다.
-  - 로그 `SSE stream closed`의 `reason`에 `shutting_down`이 생긴다. 열린 스트림 때문에 `Drain deadline passed` 경고가 나던 종료는 이제 `In-flight requests drained`로 끝난다.
-
-- **Slack 글을 입력 접수 표 `conversation_inputs`에 적는다**(JeongJaeSoon/werft#2040). migration `0316_conversation_inputs`가 표를 만든다. 할 일은 없고, Slack과 세션의 동작은 그대로다.
-  - slack 역할이 멘션·DM·묶인 스레드의 글을 지금처럼 턴으로 넣은 뒤, inbox 행을 처리됨으로 바꾸는 같은 transaction에서 접수 줄 하나를 적는다. 0310의 `conversations`·`conversation_topics`도 이때부터 채운다.
-  - 접수 줄에는 글의 자리(team, 채널, ts), 주제 안의 순번(서버가 접수한 순서), 요청자, 그 글이 된 턴만 남고 본문은 없다. `message`와 `app_mention`으로 두 번 와도, 재전송돼도 에이전트마다 한 줄이다.
-  - 접수 줄이 있는 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
-  - 지원 창 안의 이미지로 되돌리면 그동안의 글은 접수 줄 없이 턴만 생긴다.
-
-- **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 표를 더하는 일에는 할 일이 없고 동작도 그대로다. 표를 채우기 시작하는 것은 위 `conversation_inputs` 항목이다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
-
-- **Slack에서 글을 지우거나 고친 이벤트를 버리지 않고 그 글의 자리와 시각만 표식으로 남기며, migration `0312_slack_source_marks`가 표 `deleted_sources`·`edited_sources`를 더한다**(JeongJaeSoon/werft#2035). 따로 할 일은 없다.
-  - `message_deleted`, 답이 달린 글을 지울 때 오는 묘비 `message_changed`는 삭제 표식, 사람이 고친 `message_changed`는 수정 표식이 된다. 글의 본문과 이벤트 원문은 저장하지 않고, inbox 행은 원문 없이 `processed`로 남는다. 같은 글이 지워지면 수정 표식은 지운다.
-  - 표식은 만든 지 70분(판단 버퍼 10분과 1시간)이 지나면 reconciler가 지우고, 지운 수를 로그 `Unknown Slack source marks purged`에 남긴다.
-  - 버린 이유 `message_subtype`으로 집계하던 질의는 수가 준다. 링크 미리보기처럼 사람이 고치지 않은 `message_changed`는 지금처럼 버린다.
-  - 표를 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
-- **Slack inbox(`slack_inbound_events`)가 처리를 마친 이벤트의 원문(`payload`)을 바로 지우고, 실패한 이벤트의 원문은 받은 지 7일이 지나면 reconciler가 지운다**(JeongJaeSoon/werft#2025). 따로 할 일은 없다.
-  - migration `0308_slack_inbound_payload_check`가 CHECK를 바꾼다. 처리된 행과 실패한 행은 원문이 없어도 되고, 받은 행은 원문이 있어야 하고, 버린 행은 지금처럼 원문이 없다. 새 CHECK를 `NOT VALID`로 더해 검증한 뒤 옛 CHECK를 지우고, 인덱스는 `CONCURRENTLY`로 만든다.
-  - 처리된 행의 원문을 읽던 진단 SQL은 이제 빈 값을 본다. 행(이벤트 종류·상태·버린 이유·시도 횟수)은 남는다. 이 릴리스 전에 처리한 행의 원문은 아직 남아 있다.
-  - 이미지는 지원 창 안으로 되돌려도 된다. 원문을 지운 행이 생긴 뒤에는 옛 CHECK를 다시 걸 수 없으므로 0308 아래로 스키마를 내리지 않는다.
-
-- **Slack 입력에서 자기 앱의 메아리와 Slackbot 글의 버린 이유가 바뀌고, migration `0307_slack_drop_fields`가 `slack_inbound_events`에 `drop_fields` 칸을 더한다**(JeongJaeSoon/werft#2026). 할 일은 버린 이유로 집계하는 대시보드나 질의를 맞추는 것뿐이다.
-  - 에이전트 자신의 앱이 `bot_id`를 달고 쓴 글(에이전트의 답, 웹 콘솔에서 사람 이름으로 올린 지시)은 bot 허용 목록보다 먼저 `own_bot_user`로 버린다. 이전에는 허용 목록 규칙에 걸려 `bot_allowlist_empty`·`bot_not_allowed`·`bot_message`로 남았다.
-  - Slackbot(`USLACK`)의 글은 DM이든 채널이든 새 이유 `slackbot`으로 버린다. 이전에는 Slackbot DM을 사람 DM으로 처리해 실패하는 계정 연결 안내를 outbox에 넣었고, 채널 글도 사람 글로 받았다.
-  - 문에서 버린 줄의 `drop_fields`에는 보낸 쪽(`bot_id`·`app_id`·`user`)과 `subtype`·`message.subtype`만 남고 본문은 남지 않는다. 옛 줄과 slack 역할이 버린 줄은 비어 있다. CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 검증 스캔 동안 쓰기를 막지 않는다(칸 추가와 CHECK 교체는 잠깐 잠금을 잡는다). 옛 이미지와 섞여 돌아도 된다.
-
-- **migration `slack_channel_member_cache`가 Slack 비공개 채널 멤버 확인용 임시 캐시 표를 더한다**(JeongJaeSoon/werft#2033). 할 일은 없다. 표에는 Slack 사용자 id와 읽은 시각만 5분 동안 남고, reconciler가 지난 줄을 지운다(로그 `Expired Slack channel member lists deleted`). 백업에 이 표가 빠져도 복원 뒤 Slack에서 다시 읽는다. 아직 이 캐시를 읽는 화면이나 API는 없다.
-
-- **보호 브랜치 자동 승인이 고정 규칙 검사에 걸린 스킬 버전에서 멈춘다**(JeongJaeSoon/werft#2024). 올린 뒤 자동 승인되던 스킬 버전이 승인 대기로 남을 수 있다. scripts·실행 파일 추가, 300줄 넘는 변경, 새 URL 호스트, 보이지 않는 유니코드, 지시처럼 보이는 문장, `description` 변경 중 하나라도 앞 승인 버전과 비교해 걸리면 그 스킬만 멈추고(`last_check.auto_approval.reason`: `checks_failed`), 같은 push의 다른 스킬은 그대로 자동 승인된다. 멈춘 버전은 스킬 상세의 "자동 승인" 행과 검토 화면 맨 위의 "고정 규칙 검사"에서 걸린 규칙을 보고 사람이 승인한다. 설정할 것은 없다.
-
-- **API가 EGRESS 허용 목록을 proxy와 같은 방식으로 한 번 읽어, 올린 뒤 콘솔 경고와 collector 경고가 달라질 수 있다**(JeongJaeSoon/werft#2009). 설정 값은 그대로 두어도 된다. 경고가 새로 나오면 목록을 확인한다.
-  - 모델 연결 콘솔의 "egress 허용 목록 밖" 경고가 워크스페이스 MCP 등록 검사와 같은 목록을 쓴다. `API.Anthropic.com:443`이나 `github.com.:443`처럼 대소문자나 끝의 점이 다른 항목, `[fd00::1]:8443` 같은 IPv6 항목에 맞는 주소는 이제 경고하지 않는다. 쉼표와 공백만 있는 값은 "목록을 모름"으로 읽어 어떤 주소에도 경고하지 않는다(이전에는 모든 주소에 경고했다). 등록이 `credential_allowlist_unset`으로 거절하는 것과 같다.
-  - OTLP collector가 worker 허용 목록(`EGRESS_ALLOWLIST`·`EGRESS_PRIVATE_ALLOWLIST`)에 있다는 기동 경고 `tracing.collector_on_egress_allowlist`가 host 끝의 점을 무시한다. `collector.internal.:4318` 같은 항목에도 이제 경고가 나온다.
-  - proxy가 기동을 거절하는 항목(포트가 없거나 1~65535의 정수가 아닌 항목)은 API도 버린다. 콘솔 목록에서 빠지고, 포트 없는 `collector.internal`에는 collector 경고가 더는 나오지 않으며, `[fd00::1:443]` 같은 항목이 `[fd00::1]:443` 등록을 허용하지 않는다.
-
-- **스킬 버전의 `review`에 `superseded`(대체됨)가 생기고, 더 새로운 버전이 승인된 스킬의 승인 대기 버전은 올릴 때 대체됨으로 닫힌다**(JeongJaeSoon/werft#2019).
-  - 새 버전이 승인되거나(사람의 승인, 동기화의 자동 승인) 되돌리기로 현재 버전이 되면, 그보다 순번이 작은 보관하지 않은 승인 대기 버전이 같은 transaction에서 `superseded`가 된다. 검토 목록과 승인 대기 수에서 빠지고, 버전 목록에는 '대체됨'으로 보인다. 관리자는 그 버전을 여전히 승인하거나 거절할 수 있고, 되돌리기는 지금처럼 승인된 버전만 고른다.
-  - migration `0306_skill_superseded_versions`가 이미 쌓인 승인 대기 버전 가운데 같은 스킬에 순번이 더 큰 승인 버전이 있는 것만 `superseded`로 바꾼다. 그 승인은 receipt를 새로 쓰지 않는다. 바뀔 행 수는 올리기 전에 이 쿼리로 센다: `SELECT count(*) FROM extension_bundles AS old WHERE old.review = 'pending' AND old.archived_at IS NULL AND old.version IS NOT NULL AND EXISTS (SELECT 1 FROM extension_bundles AS newer WHERE newer.workspace_id = old.workspace_id AND newer.name = old.name AND newer.review = 'approved' AND newer.version > old.version);`
-  - `GET /v1/workspace/skills` 응답의 `review` 값을 `pending`·`approved`·`rejected` 셋으로만 가정하는 API client는 `superseded`를 다루도록 고친다. 대체를 일으킨 `approve_extension`·`revert_extension` receipt의 `result.superseded`에 닫힌 버전의 id와 순번이 남는다. 알림은 없다.
-  - rolling deploy 중 옛 replica에서 한 승인은 아무것도 닫지 않는다. 그 사이 승인한 스킬에 남은 오래된 대기 버전은 관리자가 거절하거나 승인해서 닫는다.
-
 - **v0.1.0보다 앞선 설치만을 위한 경로가 없어진다. 그런 설치는 이 판으로 바로 올리지 못하므로, 먼저 이 판보다 앞선 release로 올려 옮긴다**(JeongJaeSoon/werft#2018). 호환 경로는 없다.
 
   - 파일 카탈로그 가져오기: `settings import|seed --from-dir`(이제 `Unknown option`), compose migrate의 `/legacy-config` 마운트와 `PLATFORM_LEGACY_CONFIG_DIR`, Helm migrate Job의 옛 `catalog` ConfigMap 마운트와 그 seed 단계. compose migrate는 `SETTINGS_DOCUMENT`가 있을 때만 `settings seed --document`를 돈다.
@@ -267,34 +32,6 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 백업·복원: 내장 Gitea 데이터가 든 백업을 exit 3으로 거절하던 검사와, 남은 `<project>_gitea-data` volume에 대한 `backup`·`reset` 경고가 없어졌다. 그런 백업의 `gitea/`·`repos/`는 복원하지 않고 무시한다.
   - local-docker: isolation contract 6보다 앞선 worker와 network를 위한 특별 처리(교체 전 확인이 실패한 contract 5 미만 worker를 공유 network에서 떼어 내기, contract 5 network의 host 주소 유예, worker 없이 남은 옛 network 재생성)가 없어졌다. contract 5 미만 worker는 다른 옛 contract 컨테이너처럼 stale로 교체되고, 확인이 실패하면 network에 붙은 채 다음 pass를 기다린다. launch와 교체 전 확인은 host 주소가 있는 network를 worker가 붙어 있든 없든 `gives the host an address on it`으로 거절하고 그 자리에서 다시 만들지 않는다. worker가 없어진 network는 `reconcileNetworks`가 지운다. 옛 worker가 남아 교체가 진행되지 않으면 운영자가 확인하고 그 컨테이너를 지운다.
   - quota label 없이 이름으로 찾던 옛 workspace volume(`werft-ws-<installationId>-<sessionId>`)을 찾지도, GC로 회수하지도, `migrate-workspace`의 원본으로 쓰지도 않는다. 남아 있으면 운영자가 확인하고 `docker volume rm`으로 지운다. `migrate-workspace`는 다른 quota로 만든 label 있는 workspace를 옮기는 데 그대로 쓴다.
-
-- **Slack·GitHub 계정 연결의 일회용 state가 봉인된 cookie로 바뀌어, 올리는 순간 진행 중이던 연결은 한 번 실패한다**(JeongJaeSoon/werft#1997). `werft_slack_link`·`werft_github_link`의 값을 로그인 공급자 flow cookie와 같은 방식(AES-256-GCM, master key에서 뽑은 키)으로 봉인한다. 옛 형식의 cookie는 읽지 않으므로, 올리기 전에 연결을 시작해 동의 화면에 있던 사람은 callback에서 `400`(다시 시작 안내)을 받고 처음부터 다시 한다. 호환 경로는 없다. 데이터와 이미 연결된 계정에는 영향이 없다. Slack 연결도 이제 서버가 시작 뒤 10분을 검사한다(이전에는 브라우저의 cookie 만료에만 기댔다).
-
-- **설치 카탈로그 MCP(설치 owner가 콘솔이나 설정 문서의 `mcp_servers`로 더하던 원격 MCP 서버)가 없어진다. 워크스페이스 MCP 서버로 옮기지 않는다**(JeongJaeSoon/werft#1998).
-  - migration `0304_retire_catalog_mcp`가 카탈로그 행, 그 저장값, 에이전트의 카탈로그 선택을 지운다. migrate 로그 `db.migrate.notice`에 지운 서버의 수와 이름이 남는다(`0304: … catalog MCP servers retired (…)`). 계속 쓸 서버는 올리기 전에 이 이름을 적어 두고, 올린 뒤 워크스페이스 MCP 서버로 등록해 에이전트에서 고른다.
-  - 비어 있지 않은 `mcp_servers`를 담은 설정 문서는 가져오기가 `400 invalid_document`로 거절한다. 보관한 내보내기 파일과 seed 문서에서 그 칸을 지운다.
-  - `/v1/installation/settings/mcp-servers`와 `/v1/agents/{id}/mcp/settings` route가 없어졌다(`404`).
-  - 옛 release의 세션은 그 서버 없이 돈다. 그 서버를 넣고 찍은 checkpoint도 복원된다. 대안이 16개 찬 세션은 가장 오래된 대안 하나의 checkpoint를 복원하지 못할 수 있다. 그러면 API 로그에 `claim.retired_catalog_restore_dropped` 경고가 세션 id와 함께 남는다. 그 서버가 쓰던 credential 이름의 묶음을 풀어도 세션은 시작된다.
-  - rolling deploy 중 옛 replica가 카탈로그를 쓰면(가져오기·콘솔·카탈로그를 적은 카드 저장) DB가 거절한다. 올리는 동안 카탈로그를 바꾸지 않는다.
-
-- **worker가 `packages`가 없는 bootstrap claim을 계약 위반으로 거절한다**(JeongJaeSoon/werft#1991). 지원 창 안의 control-host(`v0.3.0`부터)는 claim마다 `packages`를 보내므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다. `packages`를 보내지 않는 더 옛 control-host에 이 worker 이미지를 붙이면 세션이 시작하지 않는다. 그런 control-host를 만났을 때 HOME의 npm·Bundler·Go 설정을 지우던 동작도 없어졌다.
-
-- **Slack 계정 연결(Sign in with Slack)이 로그인 공급자와 같은 주소 규칙과 id_token 검사를 받는다**(JeongJaeSoon/werft#1995).
-  - API는 Slack에 https로만 요청한다. `slack.com`이 loopback·link-local·reserved 주소로 풀리면 보내지 않고 연결이 `503`으로 끝난다. 그런 DNS·프록시를 두었다면 올리기 전에 바로잡는다.
-  - id_token은 `exp`·`iat`·`sub`가 있어야 하고, `aud`가 client 하나뿐이어야 한다. `iat`는 앞으로 60초, 뒤로 11분까지 받는다(이전에는 미래의 `iat`를 1초도 받지 않았다). 서버 시계가 크게 어긋나면 연결이 `400`으로 거절된다.
-  - mock Slack 시험 스택은 `MOCK_SLACK_OIDC_ISSUER`의 host:port에만 평문 http와 사설 주소를 허용한다.
-- **`HEARTBEAT_TTL_SEC`의 하한이 20초 초과에서 15초 초과로 내려가고, worker가 옛 API를 위해 하던 호환 재시도가 없어진다**(JeongJaeSoon/werft#1983).
-  - 하한은 worker의 lease 안전 마진(10초)과 heartbeat 간격(5초)의 합이다. 10초마다 heartbeat를 보내던 옛 worker는 지원 창 밖이다. 그런 worker가 아직 돌 때 TTL을 20초 이하로 낮추면 그 attempt는 첫 heartbeat 무렵 lease를 잃는다. TTL을 낮추기 전에 옛 worker가 남아 있지 않은지 본다.
-  - worker는 strict API가 400으로 거절한 release(`stop_kind`)와 pending-control(`settled[].reason`·`answer_result`)을 그 필드를 뺀 채 다시 보내지 않는다. 로그 `worker.release.stop_kind_refused`·`worker.pending.settlement_detail_refused`도 더 나오지 않는다. 지원 창 안의 API는 이 필드를 모두 받으므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다.
-- **세션 제목 생성·Luna 판정·GitHub Packages token 확인 호출이 설정된 주소 밖으로 나가지 않는다. redirect를 따라가지 않고, 메타데이터·link-local 주소로 풀린 이름은 거절한다**(JeongJaeSoon/werft#1986).
-  - 제목·판정 호출은 `SESSION_TITLE_EGRESS_URL`의 host:port(egress proxy)에만 간다. 사설 주소와 plain http는 계속 된다. 모델 서버 주소는 전처럼 proxy가 판단하므로, 사설 모델 서버 때문에 새로 설정할 것은 없다.
-  - token 확인은 `GITHUB_PACKAGES_API_URL`의 host:port에만 간다. 기본값 `https://api.github.com`은 공인 주소로 풀릴 때만 부른다. 사내 DNS가 `api.github.com`을 사설 주소로 돌려주는 설치는 token 등록이 "확인할 수 없음"으로 실패한다. 이때는 `GITHUB_PACKAGES_API_URL`에 그 주소를 직접 적는다. 직접 적은 주소는 http이거나 사설 주소여도 된다.
-  - `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(workspace MCP 서버용)에 proxy를 넣을 필요는 없다. 넣지 않는다.
-
-- **egress proxy와 API가 같은 IP 주소 판정을 쓴다. 경계 주소는 거절 쪽으로 바뀌었다**(JeongJaeSoon/werft#1987). 올리기 전에 allowlist에 둔 이름이 아래 주소로 풀리지 않는지 확인한다. 그런 이름이 있으면 그 목적지는 올린 뒤 `403`(proxy) 또는 `address_not_allowed`(API)가 된다.
-  - egress proxy는 6to4(`2002::/16`), Teredo를 포함한 `2001::/23`, `2000::/3` 밖의 IPv6(`::a.b.c.d`, `::ffff:0:a.b.c.d`, `4000::/2` 등), `3fff::/20`, site-local `fec0::/10`를 reserved로 거절한다. 이전에는 6to4와 `::a.b.c.d`를 안에 든 IPv4로 판정했고, 나머지는 public(`fec0::/10`은 private)으로 통과시켰다. `EGRESS_PRIVATE_ALLOWLIST` 목적지도 `fec0::/10`로 풀리면 거절된다.
-  - API의 IdP·모델 공급자·워크스페이스 MCP 요청은 앞자리가 0인 IPv4 답(`010.0.0.1`)을 거절한다. 이전에는 `10.0.0.1`로 읽었다.
-  - 연결의 `billing: none`과 저장소 `api_base`의 http 허용에서 link-local(`169.254.0.0/16`, `fe80::/10`)이 사설 주소에서 빠졌다. 그런 endpoint의 연결은 콘솔에서 더할 때와 설정 문서로 seed할 때 거절된다. egress proxy는 link-local에 닿지 않으므로 이 연결은 원래 동작하지 않았다. IPv6 안에 쓴 IPv4(`::ffff:10.0.0.1` 등)는 계속 사설로 보지 않는다.
 - **`BOOTSTRAP_TOKEN`·`BOOTSTRAP_TOKEN_FILE` 환경 값과 Helm `secrets.bootstrapToken`이 없어졌다. 첫 owner는 운영자가 받은 일회용 설정 링크로 만든다**(JeongJaeSoon/werft#1979).
   - Helm values에 `secrets.bootstrapToken`이 남아 있으면(`true`든 `false`든) render가 멈춘다. values에서 지우고 Secret의 `BOOTSTRAP_TOKEN`도 지운다.
   - compose·test-ops env 파일의 `BOOTSTRAP_TOKEN`은 어느 컨테이너에도 가지 않는다. 지운다.
@@ -303,27 +40,6 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 로그인 화면의 첫 owner 링크가 없어졌다. `/bootstrap`은 살아 있는 링크로 열었을 때만 폼을 보인다.
   - owner를 모두 잃었을 때의 복구도 같은 링크로 한다. migration `0300_setup_links`가 `setup_links` 표를 더한다. 쓴 토큰을 적던 `bootstrap_token_uses` 표는 더 읽거나 쓰지 않고 남겨 둔다.
   - rolling deploy 중 옛 replica는 링크를 모르고 새 replica는 옛 토큰을 받지 않는다. 첫 owner 만들기와 복구는 모든 api가 새 이미지로 바뀐 뒤에 한다.
-- **에이전트 release가 없는 열린 세션은 올린 뒤 API가 기동할 때 닫힌다**(JeongJaeSoon/werft#2028). 기동할 때마다 남은 것을 다시 찾으며, 요청을 받는 것과 함께 뒤에서 돌므로 요청을 받기 전에 끝난다는 보장은 없다. release를 요구하기 전에 접수된 세션이라 어떤 worker도 맡지 못하고 열린 채 남아 있던 것이다. recovery close와 같은 방식으로 닫힌다(대기 입력은 `SESSION_CLOSED`로 취소되고, 기다리던 제어 receipt는 `CONTROL_SUPERSEDED`로 실패한다). 닫은 수가 API 로그 `Sessions without an agent release closed` 한 줄로 남는다. 닫지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다. 대상이 없으면 아무 일도 일어나지 않는다. 할 일은 없고, 그런 세션을 따로 보고 있었다면 로그를 확인한다.
-- **에이전트 slug 유일 색인이 지우지 않은 에이전트만 보는 부분 색인(`WHERE deleted_at IS NULL`)으로 바뀐다. 그래서 rolling deploy 중이나 되돌린 뒤 옛 코드에서는 에이전트 생성이 실패한다**(JeongJaeSoon/werft#1807).
-  - 원인: 옛 replica의 `ON CONFLICT`에는 `WHERE`가 없어서 PostgreSQL이 맞는 색인을 찾지 못한다.
-  - 대처: 모든 api replica가 새 이미지로 바뀔 때까지 에이전트를 만들지 않는다.
-  - 되돌릴 때: 지운 에이전트와 같은 slug가 다시 쓰이지 않았다면 migration `0290`의 색인을 전체 유일 색인으로 되돌린다.
-  - 이번 판의 `DELETE /v1/agents/{id}`는 행을 지우지 않는다. 대신 에이전트를 보관하고, 그 에이전트의 surface 바인딩·신원·에이전트 API 키를 같은 트랜잭션에서 회수한다. 기존 세션은 그대로 읽힌다.
-  - 같은 트랜잭션에서 그 에이전트 전용 Slack 앱의 signing secret·client secret·bot token을 지운다.
-  - 앱 행과 Slack 쪽 앱은 남는다. Slack에서 앱을 없애려면 따로 지운다.
-- **변수·워크스페이스 MCP 서버·GitHub App·로그인 공급자·로그인 방법·Slack config token을 지우면 행이 `deleted_at`·`deleted_by`와 함께 남는다. 비밀은 지울 때 같이 없어진다**(JeongJaeSoon/werft#1796). migration `0289`가 여섯 표에 두 열을 더하고, 이름·issuer·App id·subject의 UNIQUE를 지우지 않은 행만 보는 부분 index로 바꾼다. `slack_config_tokens`는 새 `id` PK를 받는다. 롤링 배포 중 앞선 api replica는 지운 행을 걸러 내지 않으므로 새 replica가 지운 것을 다시 보여 줄 수 있고, 로그인 공급자 생성은 500으로 실패한다. 모든 replica가 바뀌면 해당 없다. 되돌릴 때는 앞선 판이 지운 행을 살아 있는 행으로 읽으므로, 먼저 여섯 표에서 `DELETE … WHERE deleted_at IS NOT NULL`로 지운 행을 없앤다.
-- **워크스페이스·에이전트의 실행 규칙(허용·묻기·막기 목록, 자동 모드 목록)이 없어졌다. 저장해 둔 규칙은 새 세션에도, 이미 도는 세션의 다음 claim에도 더는 적용되지 않는다**(JeongJaeSoon/werft#1798). 규칙으로 막던 도구나 묻던 명령이 있었다면 올린 뒤에는 권한 모드와 플랫폼의 작업 공간 규칙대로만 돈다. 올리기 전에 저장된 규칙을 확인한다. MCP 도구 하나를 막는 방법은 에이전트 카드의 `capabilities.tool_policy.per_tool`에 `deny`를 적는 것뿐이다.
-  - **없어진 API:** `GET|PUT /v1/workspaces/{id}/engine-settings`, `GET|PUT /v1/agents/{id}/engine-settings`. 이 경로를 부르던 client는 `404`를 받는다. 콘솔의 워크스페이스 설정 **실행 규칙** 카드와 에이전트 상세의 **실행 규칙** 탭도 없어졌다.
-  - DB의 `workspace_engine_settings`·`agent_engine_settings` 표와 `sessions.engine_settings_start` 열은 데이터를 지우지 않도록 그대로 두고 더는 읽거나 쓰지 않는다. migration은 없다. 지난 저장의 receipt는 그대로 읽힌다.
-  - worker는 `engine_settings` capability를 더는 알리지 않고, 앞선 control-host가 보낸 `runtime_config.engine_settings`도 엔진에 넘기지 않는다. 그래서 control-host를 먼저 올리고 worker 이미지를 바꾼다. worker를 먼저 바꾸면 묻기·패턴 막기·자동 모드 규칙을 저장해 둔 워크스페이스·에이전트의 세션은 앞선 control-host가 재시도 가능한 503으로 claim을 거절해, control-host가 바뀔 때까지 시작하지 않고 기다린다.
-
-- **Claude 모델의 새 release는 `auto` 권한 모드로 돈다. 연결의 자동 모드 판정과 그 API는 없어졌다.** Claude 모델은 `anthropic` 연결의 모델, 또는 `litellm` 연결에서 `claude-`·`anthropic/claude-`로 시작하거나 `sonnet`·`opus`·`haiku`·`fable`(`[1m]`이 붙어도 된다)과 정확히 같은 모델 id다. 그 밖의 모델(`my-sonnet-proxy`처럼 계열 이름을 품기만 한 id 포함)과 Codex 연결(`openai_responses`)은 `default`다. 세션의 모델이 다음 판으로 옮겨 가면 모드도 새 모델로 다시 정한다. 자동 모드는 그것을 지원하는 모델에서만 동작한다([Claude Code의 자동 모드 요건](https://code.claude.com/docs/en/permission-modes#eliminate-prompts-with-auto-mode)). 이미 만든 release는 고정된 모드를 지키므로, 다시 release할 때까지 원래 모드로 돈다.
-  - **`auto`도 `default`와 같은 작업 공간 규칙을 받는다.** `git`·`gh`, `sed`, 작업 공간 안 쓰기·`mkdir`, 조회는 분류기 없이 실행되고, 묻기 목록(비밀 경로, `git --output`, 비밀 이름의 `git add` 등)에 걸린 호출은 분류기가 아니라 사람에게 권한 요청으로 간다. 그래서 `auto` 세션에도 사람이 답할 권한 요청이 생길 수 있다. `bun run`·`npm run`·`npx` 같은 스크립트 실행은 엔진이 `auto`에서 허용을 빼므로 분류기가 판정한다. 분류기를 쓸 수 없는 연결에서는 분류기가 판정할 호출이 거부된다.
-  - **엔진 설정은 인자가 아니라 파일로 넘긴다.** worker는 엔진을 시작할 때마다 합친 설정(플랫폼 기본값, 자동 모드 규칙)을 체크아웃 밖의 `$CLAUDE_CONFIG_DIR/launcher-settings.json`(이미지에서는 `/home/bun/.claude/launcher-settings.json`)에 새로 쓰고 그 경로를 `--settings`로 준다. 파일에는 그 파일 자신의 편집을 막는 deny 규칙(`Edit(~/…)`, `Edit(//…)`)이 함께 들어가고, 세션 중에 바뀌어도 다음 엔진 시작 때 다시 쓴다. 그래서 설정 크기에 걸던 엔진 인자 한도(100 000바이트)는 없어졌다.
-  - `--fake-model` 스택의 `fake-messages`는 자동 모드의 안전 검사에 언제나 허용으로 답하므로, 그 스택의 예시 release도 `auto`로 돈다. 사람에게 권한을 묻는 것은 묻기 규칙에 걸린 호출뿐이라, 문서 예제의 권한 요청 단계는 `tee` 대신 묻기 규칙에 걸리는 `sed -n "w …"`로 파일을 쓰고, 데모 데이터의 권한 요청 세션은 작업 공간 규칙의 묻기에 걸리는 명령을 쓴다.
-- **Codex 세션이 작업 공간 규칙의 허용 명령(`git`, `gh`, `sed`, `mkdir`, `bun`·`npm`·`pnpm`·`yarn`의 `test`·`run`)을 묻지 않고 실행한다.** 앞선 판은 이 명령마다 사람에게 물었다. 묻기 목록 중 Codex 규칙(명령 앞쪽 토큰의 prefix)으로 표현되는 모양만 계속 묻고, 나머지(`git log --output=x`, `git add secret.env`, `git config alias.x …`, `sed -n "w …"` 등)는 묻지 않고 실행된다. 이 허용은 sandbox 밖에서 돈다. 목록과 이유는 [에이전트 권한](https://jeongjaesoon.github.io/werft/ko/agents/permissions/)의 자율 모드 절에 있다. 저장소의 `.codex/rules`는 더는 읽지 않는다(앞선 판에서는 저장소 규칙이 명령을 허용할 수 있었다).
-  - **없어진 API:** `POST /v1/installation/settings/connections/{id}/auto-mode`와 연결 응답의 `auto_mode` 필드. 이 경로를 부르던 client는 `404`를 받는다. 콘솔 설정 → 모델 연결의 **자동 모드 판정** 버튼도 없어졌다.
-  - DB의 `provider_connections.auto_mode` 열은 데이터를 지우지 않도록 그대로 두고 더는 읽거나 쓰지 않는다. migration은 없다. 지난 판정의 `set_connection_auto_mode` receipt는 그대로 읽힌다.
 - **모델 연결·MCP 서버·저장소별 GitHub App 키는 DB 저장값(`"stored": true`)만 쓴다. 환경 변수(`value_env`)와 Secrets Manager(`secret_id`) 참조는 없어졌고, api는 Secrets Manager를 읽지 않는다**(JeongJaeSoon/werft#1784). 값은 콘솔이나 `POST /v1/installation/settings/{connections|mcp-servers|repositories}/{id}/credential`로 넣고, `PLATFORM_SECRET_KEY`로 암호화해 둔다. 할 일은 다음과 같다.
   - 올리기 전에 env나 Secrets Manager를 가리키는 모델 연결마다 지금 릴리스 콘솔의 **화면에서 키 넣기**로 키를 넣어 두면 끊기지 않는다. MCP 서버와 저장소 App 키는 지금 릴리스에서 옮길 길이 없으니, 올린 뒤 바로 키를 넣는다(아래).
   - 사용 중지한 연결·MCP 서버가 아직 env나 Secrets Manager를 가리키면 올린 뒤 다시 켤 수 없다. 콘솔은 사용 중지한 행의 키를 받지 않고, 키 없는 행을 켜지 않는다. 그 연결을 계속 쓰려면 올리기 전에 켜고 **화면에서 키 넣기**로 키를 넣는다. MCP 서버는 올리기 전에 켜 두고 올린 뒤 키를 넣는다. 아니면 올린 뒤 새 id로 연결이나 서버를 만든다. id는 다시 쓰지 않는다.
@@ -332,30 +48,291 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - Helm values에서 `secrets.catalogEnv`와 `config.aws.secretsManagerEndpointUrl`을 지운다. 남아 있으면 render가 멈춘다. `catalogEnv`에 `BOOTSTRAP_TOKEN`을 넣었다면 그것도 지운다(첫 owner는 설정 링크로 만든다. 위 항목).
   - compose의 api env에서 연결 키 변수(`ANTHROPIC_API_KEY` 등)와 `AWS_ENDPOINT_URL_SECRETS_MANAGER`를 지운다.
   - 키 없이는 저장하지 않는다. 콘솔은 8자를 넣기 전까지 저장 버튼을 켜지 않고, API는 8바이트 미만이거나 제어 문자·앞뒤 공백이 있는 값을 `400`으로 거절하며, DB도 CHECK와 trigger로 막는다. 연결 화면의 "화면에서 키 넣기" 버튼과 `POST /v1/installation/settings/connections/{id}/convert`는 없어졌다. v0.3.0의 0285 되돌리기 SQL은 이 릴리스 뒤에는 쓸 수 없다([외부 자격 증명 출처를 없앤 릴리스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#외부-자격-증명-출처를-없앤-릴리스)).
-
-- **에이전트가 켠 워크스페이스 MCP 서버를 세션이 쓴다. 그런 서버가 있는 세션은 새 worker 이미지(capability `workspace_mcp`)만 claim한다**(JeongJaeSoon/werft#1759). 앞선 worker는 그 세션을 claim하면 재시도 가능한 503(`BACKEND_UNAVAILABLE`)을 받고, 아무것도 묶이지 않는다. 그래서 control-host를 먼저 올리고 worker 이미지를 바꾼다. 바뀔 때까지 그런 세션은 시작하지 않고 기다린다. 워크스페이스 서버가 없는 세션은 앞선 worker도 그대로 claim한다. 새 worker를 앞선 control-host에 붙이면 control-host가 모르는 key를 거절하고, worker는 그 key를 빼고 다시 claim한다. 서버 호출은 proxy를 거쳐 등록한 URL로 가고, 저장된 관리자 자격(OAuth access token 또는 정적 token)이 Bearer로 붙는다. 그러므로 서버의 host:port를 proxy와 api 둘 다의 `EGRESS_CREDENTIAL_ALLOWLIST`(로컬 시험 서버는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에 넣는다. compose는 두 쪽에 같은 값을 준다. api 목록에 없으면 등록이 거절되고, proxy 목록에만 없으면 등록은 되지만 호출이 proxy에서 막힌다. 요청 줄은 등록한 경로와 query 그대로다. 보내는 `tools/call`은 `accepted` `call_mcp` receipt에 서버 이름·연결 generation·도구를 남기고, 그 receipt를 쓰지 못하면 보내지 않는다. 거절된 호출은 같은 receipt에 이유(`workspace_server_unavailable`, `oauth_needs_reauth`, `credential_unavailable`)를 남긴다. 세션은 시작 때의 서버 이름·URL로 고정되므로, 세션 중에 지우거나 URL을 바꾼 서버는 그 세션에서 `workspace_server_unavailable`로 거절되고 다음 세션부터 새 URL을 쓴다. 이 PR에는 migration이 없다(열과 표는 JeongJaeSoon/werft#1754의 0287). 되돌리면 앞선 control-host는 워크스페이스 서버를 claim에 싣지 않으므로, 그 세션은 서버 없이 돈다. 이 판이 만든 checkpoint는 앞선 판에서 config가 달라 resume하지 못하고 새로 시작한다.
-
-- **엔진 설정 `permissions.deny`의 `mcp__<서버>__*`가 그 서버의 MCP 도구를 모두 막는다. 앞선 빌드는 이 규칙을 도구 이름 하나로 보고 아무것도 막지 않았다**(JeongJaeSoon/werft#1757). 워크스페이스·에이전트 엔진 설정에 이미 `__*`로 끝나는 `mcp__` deny를 저장해 두었다면, 올린 뒤 그 서버(내장 `github` 포함)의 `tools/call`이 모두 거절된다. 저장된 엔진 규칙은 호출마다 판정하므로 세션 도구 목록(claim, `tools/list`)에는 도구가 남는다. 막혔는지는 목록이 아니라 호출 결과로 본다. 올리기 전에 저장된 규칙을 본다. 롤링 배포 중에는 앞선 api replica가 여전히 막지 않으므로, 모든 api replica가 새 이미지로 바뀐 뒤에 효과가 있다. 에이전트 MCP 설정의 허용 도구에 `__*`로 끝나는 이름을 새로 저장하는 일은 이제 `tool_outside_server`로 거절된다. 이미 저장된 그런 이름은 그대로 남고 도구 하나의 이름으로만 비교된다. migration은 없다. 되돌리면 와일드카드 deny는 다시 아무것도 막지 않는다.
-
+- **설치 카탈로그 MCP(설치 owner가 콘솔이나 설정 문서의 `mcp_servers`로 더하던 원격 MCP 서버)가 없어진다. 워크스페이스 MCP 서버로 옮기지 않는다**(JeongJaeSoon/werft#1998).
+  - migration `0304_retire_catalog_mcp`가 카탈로그 행, 그 저장값, 에이전트의 카탈로그 선택을 지운다. migrate 로그 `db.migrate.notice`에 지운 서버의 수와 이름이 남는다(`0304: … catalog MCP servers retired (…)`). 계속 쓸 서버는 올리기 전에 이 이름을 적어 두고, 올린 뒤 워크스페이스 MCP 서버로 등록해 에이전트에서 고른다.
+  - 비어 있지 않은 `mcp_servers`를 담은 설정 문서는 가져오기가 `400 invalid_document`로 거절한다. 보관한 내보내기 파일과 seed 문서에서 그 칸을 지운다.
+  - `/v1/installation/settings/mcp-servers`와 `/v1/agents/{id}/mcp/settings` route가 없어졌다(`404`).
+  - 옛 release의 세션은 그 서버 없이 돈다. 그 서버를 넣고 찍은 checkpoint도 복원된다. 대안이 16개 찬 세션은 가장 오래된 대안 하나의 checkpoint를 복원하지 못할 수 있다. 그러면 API 로그에 `claim.retired_catalog_restore_dropped` 경고가 세션 id와 함께 남는다. 그 서버가 쓰던 credential 이름의 묶음을 풀어도 세션은 시작된다.
+  - rolling deploy 중 옛 replica가 카탈로그를 쓰면(가져오기·콘솔·카탈로그를 적은 카드 저장) DB가 거절한다. 올리는 동안 카탈로그를 바꾸지 않는다.
+- **워크스페이스·에이전트의 실행 규칙(허용·묻기·막기 목록, 자동 모드 목록)이 없어졌다. 저장해 둔 규칙은 새 세션에도, 이미 도는 세션의 다음 claim에도 더는 적용되지 않는다**(JeongJaeSoon/werft#1798). 규칙으로 막던 도구나 묻던 명령이 있었다면 올린 뒤에는 권한 모드와 플랫폼의 작업 공간 규칙대로만 돈다. 올리기 전에 저장된 규칙을 확인한다. MCP 도구 하나를 막는 방법은 에이전트 카드의 `capabilities.tool_policy.per_tool`에 `deny`를 적는 것뿐이다.
+  - **없어진 API:** `GET|PUT /v1/workspaces/{id}/engine-settings`, `GET|PUT /v1/agents/{id}/engine-settings`. 이 경로를 부르던 client는 `404`를 받는다. 콘솔의 워크스페이스 설정 **실행 규칙** 카드와 에이전트 상세의 **실행 규칙** 탭도 없어졌다.
+  - DB의 `workspace_engine_settings`·`agent_engine_settings` 표와 `sessions.engine_settings_start` 열은 데이터를 지우지 않도록 그대로 두고 더는 읽거나 쓰지 않는다. migration은 없다. 지난 저장의 receipt는 그대로 읽힌다.
+  - worker는 `engine_settings` capability를 더는 알리지 않고, 앞선 control-host가 보낸 `runtime_config.engine_settings`도 엔진에 넘기지 않는다. 그래서 control-host를 먼저 올리고 worker 이미지를 바꾼다. worker를 먼저 바꾸면 묻기·패턴 막기·자동 모드 규칙을 저장해 둔 워크스페이스·에이전트의 세션은 앞선 control-host가 재시도 가능한 503으로 claim을 거절해, control-host가 바뀔 때까지 시작하지 않고 기다린다.
+- **에이전트는 담당 팀 구성원과 owner·admin, 그 에이전트의 관리자만 쓴다. 워크스페이스 설정의 "에이전트 접근" 카드와 `PATCH /v1/workspaces/{id}/agent-access`가 없어진다**(JeongJaeSoon/werft#1801). migration은 없다. `use`나 `view`로 저장해 둔 워크스페이스에서도 이제 담당 팀 밖의 멤버에게 에이전트가 보이지 않는다.
+  - 그 멤버에게 에이전트는 목록·개수에서 빠지고 상세·설정은 없는 id와 같은 `404`다. 그 멤버의 세션 시작(`POST /v1/sessions`)도 없는 release와 같은 `404`이고, Slack 멘션·DM은 세션을 시작하지 않고 권한이 없다는 안내만 받는다. 사용 팀으로 지정된 팀의 멤버라도 담당 팀 밖이면 같고, 만든 사람이 없는 key도 담당 팀 밖으로 본다.
+  - 공유로 보이는 세션이어도 그 멤버에게는 세션의 에이전트가 가려진다(`agent: null`, `agent_hidden: true`). `workspace` 범위 세션은 그 멤버에게 보이지 않고, 자기 세션과 `people`·`team` 공유는 그대로 닿는다. 보관 팀의 에이전트는 예외로 모두에게 보인다.
+  - `GET /v1/auth/me`의 `workspace.settings`에서 `agent_outsider_access`·`agent_outsider_session_visibility`가 빠진다. 저장된 값은 지우지 않고 읽지 않는다. 이 변경 전 이미지로 되돌리면 저장된 값(없으면 기본값)이 다시 적용된다.
 - **Helm: checkpoint object store 설정은 `config.aws`·`config.checkpoints`·`secrets.objectStoreKeys`에서만 받는다. 어느 role의 `extraEnv`, `config.limits`, `secrets.catalogEnv`에 `AWS_`나 `CHECKPOINT_OBJECT_`로 시작하는 이름이 있으면 render가 멈춘다**(JeongJaeSoon/werft#1745). 앞선 chart는 `extraEnv`를 그 role에만 넣었다. 그래서 `api.extraEnv`로 바꾼 bucket·endpoint·`CHECKPOINT_OBJECT_STORE`는 api에서만 이기고, checkpoint GC·세션 보관 CronJob과 scheduler는 chart 값으로 돌았다. `CHECKPOINT_OBJECT_STORE`와 `CHECKPOINT_OBJECT_ENCRYPTION_CHECK`는 새 values `config.checkpoints.objectStore`(기본 `s3`)·`config.checkpoints.encryptionCheck`(기본 `enforce`)로 넣는다. 이제 api와 두 CronJob이 같은 값을 받는다. 그 밖의 `AWS_` 이름(`AWS_ENDPOINT_URL_S3`, `AWS_ROLE_ARN`, `AWS_PROFILE` 등)은 chart로 넣을 길이 없다. IRSA role은 api ServiceAccount의 annotation으로 준다. render가 멈추면 hook도 돌지 않으므로 설치는 그대로다. 올리기 전에 `api.extraEnv`의 값이 chart 값과 달랐는지 본다. 달랐다면 세션 보관 job이 api가 읽지 않는 저장소로 이벤트를 옮기고 DB 행을 지웠을 수 있다. 그 이벤트는 설정을 맞춘 뒤에는 읽지 못하므로, 앞선 chart의 CronJob으로 restore를 먼저 돌린다. 옮길 곳과 절차는 업그레이드 문서에 있다. 이 이름을 values에 두지 않은 설치는 할 일이 없다. Pod env에 `CHECKPOINT_OBJECT_STORE=s3`·`CHECKPOINT_OBJECT_ENCRYPTION_CHECK=enforce`가 더해질 뿐이고, 읽는 쪽의 기본값과 같다. Compose는 바뀌지 않는다. migration은 없다. 되돌리면 앞선 chart는 두 새 values를 읽지 않아 api와 두 CronJob이 기본값(`s3`, `enforce`)으로 돈다. `helm rollback`은 그 revision의 values로 돌아가므로 옛 `api.extraEnv`와 함께 앞선 갈라짐도 돌아온다. 되돌린 동안에는 보관 CronJob을 멈춘다([object store 설정을 한 곳에서 받는 릴리스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체)).
-
 - **멈춘·일시 정지한 세션의 workspace(Docker volume, Kubernetes PVC) 보존 시간도 env가 아니라 설정 > 워크스페이스 > 실행 한도 "멈춘 세션의 작업 공간"·"일시 정지한 세션의 작업 공간"에서 owner가 저장한다. migrate가 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`·`EXECUTION_WORKSPACE_PAUSED_TTL_SEC`를 한 번 옮겨 담고, scheduler는 이 env를 읽지 않는다**(JeongJaeSoon/werft#1744). 옮기는 방식과 로그는 아래 실행 한도 항목과 같다. Compose의 scheduler는 두 env를 받지 않고(앞선 `:-86400` 기본값도 없앴다), 두 값은 `.env`·호스트 env에서 migrate에만 넘어간다. scheduler에 overlay로 넘기던 값은 올리기 전에 `.env`로 옮기거나 올린 뒤 화면에서 저장한다. Helm은 두 키를 scheduler가 읽던 대로 `scheduler.extraEnv`가 `config.limits`보다 이기게 골라 migrate Job에 넣고, `api.extraEnv`의 두 키는 옮기지 않는다. `config.limits`의 두 키는 이제 scheduler에 들어가지 않는다. `scheduler.extraEnv`의 값은 scheduler Pod에도 그대로 남지만 읽히지 않는다. 아무것도 넣지 않은 설치는 앞선 기본값(각 86400초)을 쓴다. 범위는 0–315360000초(3650일)다. 앞선 릴리스는 상한이 없었으므로 그보다 긴 값, 그리고 앞선 scheduler가 거절하던 값(빈 문자열·공백, 소수, 음수)은 옮기지 않고 그 키를 막는다. 앞선 릴리스와 달리 scheduler의 시작은 멈추지 않는다. 둘 중 하나라도 막혔거나 설정을 읽지 못하는 동안 scheduler는 `stopped`·`paused` 세션의 workspace를 둘 다 새로 회수하지 않는다(로그 `Workspace TTLs cannot be read; keeping every stopped and paused session's workspace`). 끝난 세션의 workspace, 앞선 pass가 마치지 못한 회수, launch는 그대로 한다. 화면에서 값을 저장하면 다음 pass부터 다시 만료를 센다. migration은 없다. 되돌리면 앞선 scheduler는 env(compose 기본 86400초, Helm `scheduler.extraEnv`)만 읽으므로, 화면에서 보존 시간을 늘려 두었다면 되돌리기 전에 그 값을 `.env`나 `scheduler.extraEnv`에 옮겨 적는다. 그러지 않으면 앞선 scheduler가 더 일찍 volume을 지우고, checkpoint 없는 `stopped` 세션의 volume에만 남은 작업은 사라진다([데이터별 보존](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/storage/#데이터별-보존)).
 - **세션 이벤트 보관의 기간과 세기만/실제로 옮기기도 env가 아니라 설정 > 워크스페이스 > 실행 한도 "세션 기록 보관"에서 owner가 저장한다. migrate가 `SESSION_ARCHIVE_AFTER_DAYS`·`SESSION_ARCHIVE_DRY_RUN`을 한 번 옮겨 담고, 보관 job은 실행마다 DB에서 두 값을 읽는다**(JeongJaeSoon/werft#1743). 옮기는 방식과 로그는 아래 실행 한도 항목과 같다. Compose의 `maintenance`는 두 env를 받지 않고, 두 값은 `.env`·호스트 env에서 migrate에만 넘어간다. `maintenance`에 overlay로 넘기던 값은 올리기 전에 `.env`로 옮기거나 올린 뒤 화면에서 저장한다. Helm은 `sessionArchive.afterDays`·`dryRun`의 chart 기본값(180, `true`)을 지웠다. 설치 values에 적은 값만 migrate Job에 들어가고(`0`·`false`도 값이다), 보관 CronJob은 두 값을 받지 않는다. 앞선 chart는 범위 밖 `afterDays`에서 렌더를 멈췄지만, 이제는 렌더가 되고 migrate가 그 키를 막는다. 아무것도 넣지 않은 설치는 앞선 기본값(180일, 세기만)을 쓴다. 앞선 판이 거절하던 값(날짜는 숫자만, dry run은 `true`·`false`·`1`·`0`만)은 옮기지 않고 그 키를 막는다. 막힌 동안 보관 job은 아무것도 옮기지 않고 `Session archive refused: its settings cannot be read`(키 이름만)를 남기고 1로 끝난다. Compose의 `maintenance` 루프는 종료 코드를 보지 않으므로 이 로그로 본다. `restore`는 설정을 읽지 않아 키가 막혀 있어도 돈다. 화면은 API의 object store 설정으로 보아 보관할 수 없는 설치(`disabled`·`unversioned`)이면 그렇다고 알린다. migration은 없다. 되돌리면 앞선 빌드는 env·values만 읽으므로, 되돌리기 전에 화면의 두 값을 `.env`(Helm `sessionArchive.afterDays`·`dryRun`)에 옮겨 적는다. 그러지 않으면 앞선 빌드가 자기 기본값이나 남은 옛 값으로 보관한다([세션 이벤트 보관](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/storage/#세션-이벤트-보관)).
 - **turn 시간과 provider 재시도도 env가 아니라 설정 > 워크스페이스 > 실행 한도에서 owner가 저장한다. migrate가 `MAX_TURN_SECONDS`·`PROVIDER_MAX_RETRIES`를 한 번 옮겨 담고, api·scheduler는 이 env를 읽지 않는다**(JeongJaeSoon/werft#1742). 옮기는 방식과 로그는 바로 아래 항목과 같다. Compose의 `x-installation-limits`에는 `EXECUTION_SLOT_LIMIT`만 남고, 두 값은 `.env`·호스트 env에서 migrate에만 넘어간다. api·scheduler에 overlay로 넘기던 값은 올리기 전에 `.env`로 옮기거나 올린 뒤 화면에서 저장한다. Helm은 values에 남은 `config.limits`의 두 키를 migrate Job에만 넣고, chart의 `config.limits` 기본값에서 두 키를 뺐다. 두 키는 scheduler가 읽던 대로 `scheduler.extraEnv`가 `config.limits`보다 이기고, `api.extraEnv`의 두 키는 옮기지 않는다. 아무것도 넣지 않은 설치는 앞선 기본값(3600초, 2회)을 쓴다. 옮긴 값이 떠 있는 worker의 값과 같으면 올린 뒤에도 그 worker는 그대로 돈다. scheduler는 pass마다 콘솔 값을 읽어 그 pass가 예약하는 launch에 고정한다. 값을 바꾸면 다른 값으로 뜬 worker 가운데 쉬고 있는 것은 바로 내려가고, turn을 돌고 있는 것은 받은 값으로 그 turn을 마친 뒤 내려간다. 값을 고정하기 전에 예약된 launch는 컨테이너·Pod env의 값으로 견주고, 그 env도 읽지 못하는 claim된 worker의 drain 기한은 turn 시간이 가질 수 있는 가장 긴 값(604800초) + 5분이다. 범위를 벗어난 env 값(예: `MAX_TURN_SECONDS=0`)은 앞선 릴리스와 달리 api·scheduler의 시작을 멈추지 않는다. 옮기지 않고 그 키를 막으며, 막힌 동안 scheduler는 새 launch를 예약하지 않고(로그 `Launches skipped: the worker limits cannot be read`) 값을 고정하기 전에 예약된 launch도 다시 만들지 않는다(`Launch held: …`). `GET /v1/limits`·`GET /v1/sessions/{id}/usage`도 `503`이다. 화면에서 값을 저장하면 풀린다. migration은 없다. 되돌리면 앞선 빌드는 env를 읽으므로(없으면 compose·chart 기본값), 화면에서 바꾼 값을 쓰려면 env·values에 다시 넣는다([웹으로 옮긴 실행 한도](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)).
 - **세션 비용·토큰, 대기 메시지, 입력 보관, 작업 공간 용량 한도는 env가 아니라 설정 > 워크스페이스 > 실행 한도에서 owner가 저장한다. migrate가 `SESSION_COST_LIMIT_USD`·`SESSION_TOKEN_LIMIT`·`QUEUED_INPUT_LIMIT_PER_SESSION`·`STORAGE_LIMIT_BYTES`·`WORKSPACE_ENFORCE`를 한 번 옮겨 담고, 어느 role도 이 env를 읽지 않는다**(JeongJaeSoon/werft#1734). migrate는 schema migration 뒤, 어느 role보다 먼저 저장한 값이 없는 키에만 env 값을 옮기고 값 없이 `note:` 줄을 남긴다. 워크스페이스가 있으면 작성자 없는 감사 기록(`by: "env_import"`)을 남긴다. 빈 값은 넣지 않은 것으로 본다. Compose는 `.env`·호스트 env의 이 값을 migrate에만 넘기므로, api·scheduler에 overlay로 넘기던 값은 올리기 전에 `.env`로 옮기거나 올린 뒤 화면에서 저장한다. Helm은 values에 남은 `config.limits`의 네 키와 `api.workspaceEnforce`를 migrate Job에만 넣는다. `api.extraEnv`의 같은 이름도 migrate Job에 넣고(같은 이름이 둘이면 `api.extraEnv`가 이긴다), api Pod에도 그대로 남지만 api는 읽지 않는다. values의 `api.workspaceEnforce: warn` 기본값을 뺐다. 아무것도 넣지 않은 설치는 앞선 기본값과 같은 값을 쓴다. 모든 role을 이 버전으로 올린 뒤 env·values의 그 줄을 지운다. 남아 있으면 migrate가 돌 때마다 `Ignored removed settings` 줄이 나온다. 저장한 값은 env가 바꾸지 않는다. 범위를 벗어난 값은 옮기지 않는다. 앞선 릴리스는 시작을 멈췄지만, 이제는 시작한 뒤 화면에서 값을 저장할 때까지 그 키를 읽는 일만 `503 BACKEND_UNAVAILABLE`로 거절한다. 세션 한도 네 키(비용·토큰·대기 메시지·입력 보관) 중 하나라도 막히면 새 세션과 메시지, `GET /v1/limits`·`GET /v1/sessions/{id}/usage`가 거절된다. 세션 비용이나 토큰이 막히면 scheduler는 launch를 건너뛴다. 설정을 60초 넘게 읽지 못할 때(DB 장애)도 같다. 같은 `Idempotency-Key`로 다시 보낸 요청은 막힌 동안에도 저장한 답을 받는다. 낮춘 비용 상한은 실행 중인 세션의 다음 provider 호출부터, 올린 상한은 다음 claim부터 걸린다. 이미 떠 있는 worker는 claim 때 받은 작업 공간 용량 정책을 계속 쓴다. `PENDING_REQUEST_TTL_SEC`도 이제 API 첫 기동이 아니라 migrate가 옮기고, Helm은 `api.extraEnv`의 그 값을 migrate Job에 넣는다. `v0.2.0` 이상에서 이미 옮긴 설치는 할 일이 없다. 되돌릴 때 `installation_config` 표는 지우지 않는다. 화면에서 바꾼 값을 되돌린 빌드에서도 쓰려면 env·values에 다시 넣는다([웹으로 옮긴 실행 한도](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)).
+- **`MAX_TURN_SECONDS`·`PROVIDER_MAX_RETRIES`는 launch가 예약될 때 그 launch에 고정되고 격리 stamp에서 빠진다. 값을 바꿔도 worker가 한꺼번에 교체되지 않는다**(JeongJaeSoon/werft#1739). 전에는 둘 중 하나를 바꾸면 모든 worker가 stale이 됐다. claim된 worker는 새 `MAX_TURN_SECONDS` + 5분 기한으로 drain됐고, claim되지 않은 worker는 교체 횟수를 쓰며 다시 만들어졌다. 이제 claim된 worker는 받은 값으로 지금 turn을 마친 뒤 내려가고, 기한은 그 worker의 turn 시간 + 5분이다. claim되지 않은 launch는 반납되고 세션이 새 값으로 다시 예약한다(경고 `Launch was reserved with other worker limits`, pass 로그 `launch_limits_changed_count`). 다른 사유(격리 계약, 회수된 이미지)의 drain 기한도 그 worker가 받은 turn 시간으로 잰다. 올릴 때 할 일은 없고 migration도 없다. 앞선 판이 만든 컨테이너·Pod는 그 값이 지금 값과 같으면 그대로 쓴다. 되돌리면 앞선 판은 이 판이 만든 컨테이너·Pod를 모두 stale로 보고 한 번씩 교체한다. claim된 것은 turn을 마친 뒤 교체한다([turn 시간과 재시도를 바꿀 때](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)).
 - **게시 chart의 기본 worker 이미지가 그 릴리스의 Claude·Codex 두 이미지 목록(`images.workers`)으로 바뀐다. 패키지의 `images.worker`는 비어 있고, Helm values의 `images.workerCodex`는 없어졌다**(JeongJaeSoon/werft#1737). 새 설치는 두 엔진의 세션을 함께 띄운다. 올리기 전에 단일 이미지를 유지할지 목록으로 바꿀지 정한다. 두 절차 모두 [Kubernetes 업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-kubernetes)에 있다. control-host를 먼저 바꾸는 1단계는 두 설치에 같다.
   - 단일 이미지를 유지하려면 values에 `images.workers: []`와 `images.worker`의 repository·digest·runtime을 적는다. 값은 대상 chart의 `files/release-images.json`에서 얻는다. 1단계의 `next_workers control`과 2단계의 `worker.json`이 이 값을 만든다. Codex 이미지를 배포하는 설치는 2단계의 `ENGINE`을 `codex`로 둔다.
   - 목록으로 바꾸려면 [이미지 목록 설치의 upgrade](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-kubernetes#이미지-목록-설치의-upgrade)를 따른다. 2단계는 대상 chart의 `files/next-workers.jq final`로 만든 목록을 넘긴다. 처음 바꿀 때는 `KNOWN`에 배포된 이미지(있으면 직전 이미지도)의 `releasedAt`을 적고, runtime 없이 배포했다면 runtime도 적는다(JeongJaeSoon/werft#1731).
   - 이 절차 없이 올리면 결과는 설치에 따라 다르다. values에 `images.worker`를 적은 설치는 render에서 실패한다(`set images.workers: [] to deploy images.worker alone`). hook과 migration은 돌지 않는다. 적지 않은 설치는 목록 설치로 바뀌고, 지금 이미지를 직전 이미지로 남기지 않는다. 지금 이미지의 checkpoint를 목록의 이미지가 복원하지 못하면(엔진·SDK·CLI가 다르거나 runtime 없이 배포한 이미지) 업그레이드 전 검사가 승인할 수 없는 `refused`로 멈춘다.
   - values에 적은 목록은 기본 목록과 합쳐지지 않는다. Helm이 목록을 통째로 바꾸기 때문이다. 목록 설치는 릴리스마다 같은 절차로 새 목록을 만든다. 그러지 않으면 새 릴리스의 worker 이미지가 들어가지 않는다.
   - `images.workerCodex`를 읽던 스크립트는 같은 chart의 `files/release-images.json`이나 release manifest의 `images["worker-codex"]`·`workerCodexRuntime`·`workerCodexReleasedAt`을 읽게 바꾼다. 셋 다 그대로 남는다.
-- **`MAX_TURN_SECONDS`·`PROVIDER_MAX_RETRIES`는 launch가 예약될 때 그 launch에 고정되고 격리 stamp에서 빠진다. 값을 바꿔도 worker가 한꺼번에 교체되지 않는다**(JeongJaeSoon/werft#1739). 전에는 둘 중 하나를 바꾸면 모든 worker가 stale이 됐다. claim된 worker는 새 `MAX_TURN_SECONDS` + 5분 기한으로 drain됐고, claim되지 않은 worker는 교체 횟수를 쓰며 다시 만들어졌다. 이제 claim된 worker는 받은 값으로 지금 turn을 마친 뒤 내려가고, 기한은 그 worker의 turn 시간 + 5분이다. claim되지 않은 launch는 반납되고 세션이 새 값으로 다시 예약한다(경고 `Launch was reserved with other worker limits`, pass 로그 `launch_limits_changed_count`). 다른 사유(격리 계약, 회수된 이미지)의 drain 기한도 그 worker가 받은 turn 시간으로 잰다. 올릴 때 할 일은 없고 migration도 없다. 앞선 판이 만든 컨테이너·Pod는 그 값이 지금 값과 같으면 그대로 쓴다. 되돌리면 앞선 판은 이 판이 만든 컨테이너·Pod를 모두 stale로 보고 한 번씩 교체한다. claim된 것은 turn을 마친 뒤 교체한다([turn 시간과 재시도를 바꿀 때](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)).
-- **모델 연결의 "사용할 모델"은 공급자가 알려 준 목록에서 체크해 고른다. 그래서 api가 연결의 key로 공급자의 `GET /v1/models`를 직접 부르고, 그 호스트는 api의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 서버는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에 있어야 한다**(JeongJaeSoon/werft#1773). Compose와 Helm은 proxy와 api에 같은 목록을 주고 기본값에 `api.anthropic.com:443`·`api.openai.com:443`이 있으므로, 기본값을 쓰는 설치는 할 일이 없다. 목록을 바꿔 쓰는 설치, 그리고 LiteLLM·호환 서버를 쓰는 설치는 그 endpoint의 `host:port`가 api 쪽 목록에도 있는지 본다. 없으면 화면이 그 이유(`host_not_allowed`, 목록이 비면 `credential_allowlist_unset`)를 보이고 목록을 읽지 않으며, 저장된 모델은 그대로 둔다. 모델 이름을 손으로 적던 입력 칸은 없어졌다. 공급자가 목록을 주지 않는 경우에도 이미 저장된 모델은 체크된 채 남고 저장할 수 있지만, 새 이름을 손으로 더할 수는 없다. 그런 연결은 API(`POST /v1/installation/settings/connections/{id}/models`)로 넣는다. 이 route는 이름을 그대로 받는다. migration은 없다. 되돌리면 앞선 화면의 입력 칸이 돌아오고, 이 판이 저장한 목록은 그대로 쓰인다.
-- **계정 연결 거절 응답 여덟 가지(`BAD_REQUEST`·`SLACK_NOT_INSTALLED`·`LINK_TEAM_MISMATCH`·`LINK_TAKEN`·`LINK_EXISTS`·`GITHUB_LINK_NOT_CONFIGURED`)의 `error.message` 첫 문장 끝맺음이 합니다체로 바뀐다(예: "연결돼 있어요" → "연결돼 있습니다")**(JeongJaeSoon/werft#1893). `code`·HTTP 상태·`retryable`은 그대로다. 이 글을 글자로 비교하는 연동이 있으면 `code`로 판단하게 바꾼다. migration은 없다.
+- **`HEARTBEAT_TTL_SEC`의 하한이 20초 초과에서 15초 초과로 내려가고, worker가 옛 API를 위해 하던 호환 재시도가 없어진다**(JeongJaeSoon/werft#1983).
+  - 하한은 worker의 lease 안전 마진(10초)과 heartbeat 간격(5초)의 합이다. 10초마다 heartbeat를 보내던 옛 worker는 지원 창 밖이다. 그런 worker가 아직 돌 때 TTL을 20초 이하로 낮추면 그 attempt는 첫 heartbeat 무렵 lease를 잃는다. TTL을 낮추기 전에 옛 worker가 남아 있지 않은지 본다.
+  - worker는 strict API가 400으로 거절한 release(`stop_kind`)와 pending-control(`settled[].reason`·`answer_result`)을 그 필드를 뺀 채 다시 보내지 않는다. 로그 `worker.release.stop_kind_refused`·`worker.pending.settlement_detail_refused`도 더 나오지 않는다. 지원 창 안의 API는 이 필드를 모두 받으므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다.
+- **worker가 `packages`가 없는 bootstrap claim을 계약 위반으로 거절한다**(JeongJaeSoon/werft#1991). 지원 창 안의 control-host(`v0.3.0`부터)는 claim마다 `packages`를 보내므로, control-host를 먼저 올리는 순서를 지키면 할 일은 없다. `packages`를 보내지 않는 더 옛 control-host에 이 worker 이미지를 붙이면 세션이 시작하지 않는다. 그런 control-host를 만났을 때 HOME의 npm·Bundler·Go 설정을 지우던 동작도 없어졌다.
+- **에이전트 slug 유일 색인이 지우지 않은 에이전트만 보는 부분 색인(`WHERE deleted_at IS NULL`)으로 바뀐다. 그래서 rolling deploy 중이나 되돌린 뒤 옛 코드에서는 에이전트 생성이 실패한다**(JeongJaeSoon/werft#1807).
+  - 원인: 옛 replica의 `ON CONFLICT`에는 `WHERE`가 없어서 PostgreSQL이 맞는 색인을 찾지 못한다.
+  - 대처: 모든 api replica가 새 이미지로 바뀔 때까지 에이전트를 만들지 않는다.
+  - 되돌릴 때: 지운 에이전트와 같은 slug가 다시 쓰이지 않았다면 migration `0290`의 색인을 전체 유일 색인으로 되돌린다.
+  - 이번 판의 `DELETE /v1/agents/{id}`는 행을 지우지 않는다. 대신 에이전트를 보관하고, 그 에이전트의 surface 바인딩·신원·에이전트 API 키를 같은 트랜잭션에서 회수한다. 기존 세션은 그대로 읽힌다.
+  - 같은 트랜잭션에서 그 에이전트 전용 Slack 앱의 signing secret·client secret·bot token을 지운다.
+  - 앱 행과 Slack 쪽 앱은 남는다. Slack에서 앱을 없애려면 따로 지운다.
+- **변수·워크스페이스 MCP 서버·GitHub App·로그인 공급자·로그인 방법·Slack config token을 지우면 행이 `deleted_at`·`deleted_by`와 함께 남는다. 비밀은 지울 때 같이 없어진다**(JeongJaeSoon/werft#1796). migration `0289`가 여섯 표에 두 열을 더하고, 이름·issuer·App id·subject의 UNIQUE를 지우지 않은 행만 보는 부분 index로 바꾼다. `slack_config_tokens`는 새 `id` PK를 받는다. 롤링 배포 중 앞선 api replica는 지운 행을 걸러 내지 않으므로 새 replica가 지운 것을 다시 보여 줄 수 있고, 로그인 공급자 생성은 500으로 실패한다. 모든 replica가 바뀌면 해당 없다. 되돌릴 때는 앞선 판이 지운 행을 살아 있는 행으로 읽으므로, 먼저 여섯 표에서 `DELETE … WHERE deleted_at IS NOT NULL`로 지운 행을 없앤다.
+- **에이전트 release가 없는 열린 세션은 올린 뒤 API가 기동할 때 닫힌다**(JeongJaeSoon/werft#2028). 기동할 때마다 남은 것을 다시 찾으며, 요청을 받는 것과 함께 뒤에서 돌므로 요청을 받기 전에 끝난다는 보장은 없다. release를 요구하기 전에 접수된 세션이라 어떤 worker도 맡지 못하고 열린 채 남아 있던 것이다. recovery close와 같은 방식으로 닫힌다(대기 입력은 `SESSION_CLOSED`로 취소되고, 기다리던 제어 receipt는 `CONTROL_SUPERSEDED`로 실패한다). 닫은 수가 API 로그 `Sessions without an agent release closed` 한 줄로 남는다. 닫지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다. 대상이 없으면 아무 일도 일어나지 않는다. 할 일은 없고, 그런 세션을 따로 보고 있었다면 로그를 확인한다.
 - **쓰지 않는 표 `catalog_authority`·`owner_workspace_map`·`push_continuations`를 행째 지운다**(JeongJaeSoon/werft#2010). migration `0305_drop_unused_tables`가 지운다. `v0.1.0` 이후 어느 릴리스도 앞의 두 표를 읽거나 쓰지 않았고, `push_continuations`를 쓴 마지막 릴리스는 `v0.1.1`이므로 지원 창 안의 이미지는 영향이 없다. 다만 표에 행이 남아 있을 수 있다. `catalog_authority`에는 설정 파일 카탈로그 시절에 활성화한 revision 한 행, `owner_workspace_map`에는 운영자가 손으로 넣은 owner와 워크스페이스의 매핑, `push_continuations`에는 `v0.1.1` 이하가 만든 이어 턴 기록이다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0305: dropped rows: …`). 그 행이 필요하면 올리기 전에 백업한다. 0305 아래로 스키마를 내려도 행은 돌아오지 않는다.
+- **Slack·GitHub 계정 연결의 일회용 state가 봉인된 cookie로 바뀌어, 올리는 순간 진행 중이던 연결은 한 번 실패한다**(JeongJaeSoon/werft#1997). `werft_slack_link`·`werft_github_link`의 값을 로그인 공급자 flow cookie와 같은 방식(AES-256-GCM, master key에서 뽑은 키)으로 봉인한다. 옛 형식의 cookie는 읽지 않으므로, 올리기 전에 연결을 시작해 동의 화면에 있던 사람은 callback에서 `400`(다시 시작 안내)을 받고 처음부터 다시 한다. 호환 경로는 없다. 데이터와 이미 연결된 계정에는 영향이 없다. Slack 연결도 이제 서버가 시작 뒤 10분을 검사한다(이전에는 브라우저의 cookie 만료에만 기댔다).
+- **계정 연결 거절 응답 여덟 가지(`BAD_REQUEST`·`SLACK_NOT_INSTALLED`·`LINK_TEAM_MISMATCH`·`LINK_TAKEN`·`LINK_EXISTS`·`GITHUB_LINK_NOT_CONFIGURED`)의 `error.message` 첫 문장 끝맺음이 합니다체로 바뀐다(예: "연결돼 있어요" → "연결돼 있습니다")**(JeongJaeSoon/werft#1893). `code`·HTTP 상태·`retryable`은 그대로다. 이 글을 글자로 비교하는 연동이 있으면 `code`로 판단하게 바꾼다. migration은 없다.
+- **api가 멈추기 시작하면 열린 세션 이벤트 스트림(SSE)을 바로 끝내, 열린 스트림이 있어도 종료가 드레인 상한(35초)을 기다리지 않는다**(JeongJaeSoon/werft#2032). 할 일은 없다. stop grace는 그대로 두어도 된다.
+  - api 재시작·재배포 때 콘솔과 SDK의 이벤트 스트림은 곧바로 끊기고, 새 api에 `Last-Event-ID`로 다시 붙어 놓친 이벤트 없이 이어진다. 이전에는 스트림이 드레인 상한까지 붙어 있다가 잘렸다.
+  - 로그 `SSE stream closed`의 `reason`에 `shutting_down`이 생긴다. 열린 스트림 때문에 `Drain deadline passed` 경고가 나던 종료는 이제 `In-flight requests drained`로 끝난다.
+- **세션 제목 생성·Luna 판정·GitHub Packages token 확인 호출이 설정된 주소 밖으로 나가지 않는다. redirect를 따라가지 않고, 메타데이터·link-local 주소로 풀린 이름은 거절한다**(JeongJaeSoon/werft#1986).
+  - 제목·판정 호출은 `SESSION_TITLE_EGRESS_URL`의 host:port(egress proxy)에만 간다. 사설 주소와 plain http는 계속 된다. 모델 서버 주소는 전처럼 proxy가 판단하므로, 사설 모델 서버 때문에 새로 설정할 것은 없다.
+  - token 확인은 `GITHUB_PACKAGES_API_URL`의 host:port에만 간다. 기본값 `https://api.github.com`은 공인 주소로 풀릴 때만 부른다. 사내 DNS가 `api.github.com`을 사설 주소로 돌려주는 설치는 token 등록이 "확인할 수 없음"으로 실패한다. 이때는 `GITHUB_PACKAGES_API_URL`에 그 주소를 직접 적는다. 직접 적은 주소는 http이거나 사설 주소여도 된다.
+  - `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(workspace MCP 서버용)에 proxy를 넣을 필요는 없다. 넣지 않는다.
+- **egress proxy와 API가 같은 IP 주소 판정을 쓴다. 경계 주소는 거절 쪽으로 바뀌었다**(JeongJaeSoon/werft#1987). 올리기 전에 allowlist에 둔 이름이 아래 주소로 풀리지 않는지 확인한다. 그런 이름이 있으면 그 목적지는 올린 뒤 `403`(proxy) 또는 `address_not_allowed`(API)가 된다.
+  - egress proxy는 6to4(`2002::/16`), Teredo를 포함한 `2001::/23`, `2000::/3` 밖의 IPv6(`::a.b.c.d`, `::ffff:0:a.b.c.d`, `4000::/2` 등), `3fff::/20`, site-local `fec0::/10`를 reserved로 거절한다. 이전에는 6to4와 `::a.b.c.d`를 안에 든 IPv4로 판정했고, 나머지는 public(`fec0::/10`은 private)으로 통과시켰다. `EGRESS_PRIVATE_ALLOWLIST` 목적지도 `fec0::/10`로 풀리면 거절된다.
+  - API의 IdP·모델 공급자·워크스페이스 MCP 요청은 앞자리가 0인 IPv4 답(`010.0.0.1`)을 거절한다. 이전에는 `10.0.0.1`로 읽었다.
+  - 연결의 `billing: none`과 저장소 `api_base`의 http 허용에서 link-local(`169.254.0.0/16`, `fe80::/10`)이 사설 주소에서 빠졌다. 그런 endpoint의 연결은 콘솔에서 더할 때와 설정 문서로 seed할 때 거절된다. egress proxy는 link-local에 닿지 않으므로 이 연결은 원래 동작하지 않았다. IPv6 안에 쓴 IPv4(`::ffff:10.0.0.1` 등)는 계속 사설로 보지 않는다.
+- **API가 EGRESS 허용 목록을 proxy와 같은 방식으로 한 번 읽어, 올린 뒤 콘솔 경고와 collector 경고가 달라질 수 있다**(JeongJaeSoon/werft#2009). 설정 값은 그대로 두어도 된다. 경고가 새로 나오면 목록을 확인한다.
+  - 모델 연결 콘솔의 "egress 허용 목록 밖" 경고가 워크스페이스 MCP 등록 검사와 같은 목록을 쓴다. `API.Anthropic.com:443`이나 `github.com.:443`처럼 대소문자나 끝의 점이 다른 항목, `[fd00::1]:8443` 같은 IPv6 항목에 맞는 주소는 이제 경고하지 않는다. 쉼표와 공백만 있는 값은 "목록을 모름"으로 읽어 어떤 주소에도 경고하지 않는다(이전에는 모든 주소에 경고했다). 등록이 `credential_allowlist_unset`으로 거절하는 것과 같다.
+  - OTLP collector가 worker 허용 목록(`EGRESS_ALLOWLIST`·`EGRESS_PRIVATE_ALLOWLIST`)에 있다는 기동 경고 `tracing.collector_on_egress_allowlist`가 host 끝의 점을 무시한다. `collector.internal.:4318` 같은 항목에도 이제 경고가 나온다.
+  - proxy가 기동을 거절하는 항목(포트가 없거나 1~65535의 정수가 아닌 항목)은 API도 버린다. 콘솔 목록에서 빠지고, 포트 없는 `collector.internal`에는 collector 경고가 더는 나오지 않으며, `[fd00::1:443]` 같은 항목이 `[fd00::1]:443` 등록을 허용하지 않는다.
+- **모델 연결의 "사용할 모델"은 공급자가 알려 준 목록에서 체크해 고른다. 그래서 api가 연결의 key로 공급자의 `GET /v1/models`를 직접 부르고, 그 호스트는 api의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 서버는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에 있어야 한다**(JeongJaeSoon/werft#1773). Compose와 Helm은 proxy와 api에 같은 목록을 주고 기본값에 `api.anthropic.com:443`·`api.openai.com:443`이 있으므로, 기본값을 쓰는 설치는 할 일이 없다. 목록을 바꿔 쓰는 설치, 그리고 LiteLLM·호환 서버를 쓰는 설치는 그 endpoint의 `host:port`가 api 쪽 목록에도 있는지 본다. 없으면 화면이 그 이유(`host_not_allowed`, 목록이 비면 `credential_allowlist_unset`)를 보이고 목록을 읽지 않으며, 저장된 모델은 그대로 둔다. 모델 이름을 손으로 적던 입력 칸은 없어졌다. 공급자가 목록을 주지 않는 경우에도 이미 저장된 모델은 체크된 채 남고 저장할 수 있지만, 새 이름을 손으로 더할 수는 없다. 그런 연결은 API(`POST /v1/installation/settings/connections/{id}/models`)로 넣는다. 이 route는 이름을 그대로 받는다. migration은 없다. 되돌리면 앞선 화면의 입력 칸이 돌아오고, 이 판이 저장한 목록은 그대로 쓰인다.
+- **Slack 계정 연결(Sign in with Slack)이 로그인 공급자와 같은 주소 규칙과 id_token 검사를 받는다**(JeongJaeSoon/werft#1995).
+  - API는 Slack에 https로만 요청한다. `slack.com`이 loopback·link-local·reserved 주소로 풀리면 보내지 않고 연결이 `503`으로 끝난다. 그런 DNS·프록시를 두었다면 올리기 전에 바로잡는다.
+  - id_token은 `exp`·`iat`·`sub`가 있어야 하고, `aud`가 client 하나뿐이어야 한다. `iat`는 앞으로 60초, 뒤로 11분까지 받는다(이전에는 미래의 `iat`를 1초도 받지 않았다). 서버 시계가 크게 어긋나면 연결이 `400`으로 거절된다.
+  - mock Slack 시험 스택은 `MOCK_SLACK_OIDC_ISSUER`의 host:port에만 평문 http와 사설 주소를 허용한다.
+- **초대 없이 가입(JIT)은 어느 OIDC 공급자에서든 허용 도메인이 하나 이상 있어야 켜진다**(JeongJaeSoon/werft#1964). 지금까지는 Google issuer만 막았다. migration은 없고, 이미 허용 도메인 없이 켜진 공급자는 바꾸지 않아 로그인과 가입이 전처럼 된다. 그런 공급자는 공급자 화면의 **초대 없이 가입** 줄에 그 공급자의 계정이면 누구나 초대 없이 가입한다는 경고가 보인다. 판정은 `jit_role`이나 `allowed_domains`를 바꾸는 요청에만 한다.
+- **공급자 로그인에서 그 공급자 계정이 아직 어느 계정과도 연결되지 않았고, 워크스페이스의 활성 계정 하나만 같은 이메일을 쓰며 공급자가 그 주소를 확인했으면(`email_verified: true`) 그 계정에 자동으로 연결하고 로그인시킨다**(JeongJaeSoon/werft#1808). migration은 없다. 계정을 합치지는 않는다. 허용 도메인·공급자 켜짐·초대 규칙은 연결보다 먼저 그대로 적용된다.
+  - 연결하면 receipt `link_login_method`(`via: "verified_email"`)와 api 로그 `Login method linked by verified email`(주소 없음)이 남는다.
+  - `LOGIN_LINK_REQUIRED`(409)는 그 계정이 이 공급자의 다른 계정과 이미 연결됐거나, 초대에서 공급자가 초대와 다른 주소를 확인했을 때만 나온다.
+- **master key를 `PLATFORM_SECRET_KEY` 말고 `PLATFORM_SECRET_KEY_FILE`(키를 담은 파일의 경로)로도 줄 수 있다. 서버와 운영자 명령이 같은 로더로 읽는다**(JeongJaeSoon/werft#1994). migration은 없고, `PLATFORM_SECRET_KEY`만 쓰는 설치는 그대로다.
+  - 둘 다 있으면 같은 키여야 한다. 다르면 `master_key_mismatch`, 파일을 못 읽거나 비었거나 둘 다 없으면 `master_key_missing`, 64자리 hex가 아니면 `master_key_invalid`다. 메시지에는 설정 이름만 남는다.
+  - 컨테이너 안에서 운영자 명령을 돌릴 때는 그 명령의 환경에도 둘 중 하나가 있어야 한다. entrypoint가 서버 프로세스에만 키를 넘기는 구성은 아래 `private-channel-sessions.ts` 항목의 방법을 따른다.
+- **Claude 모델의 새 release는 `auto` 권한 모드로 돈다. 연결의 자동 모드 판정과 그 API는 없어졌다.**(JeongJaeSoon/werft#1778) Claude 모델은 `anthropic` 연결의 모델, 또는 `litellm` 연결에서 `claude-`·`anthropic/claude-`로 시작하거나 `sonnet`·`opus`·`haiku`·`fable`(`[1m]`이 붙어도 된다)과 정확히 같은 모델 id다. 그 밖의 모델(`my-sonnet-proxy`처럼 계열 이름을 품기만 한 id 포함)과 Codex 연결(`openai_responses`)은 `default`다. 세션의 모델이 다음 판으로 옮겨 가면 모드도 새 모델로 다시 정한다. 자동 모드는 그것을 지원하는 모델에서만 동작한다([Claude Code의 자동 모드 요건](https://code.claude.com/docs/en/permission-modes#eliminate-prompts-with-auto-mode)). 모드는 release에 적힌 값이 아니라 이 규칙으로 정하므로, `default`로 만든 옛 Claude 모델 release의 세션도 `auto`로 돈다(바로 아래 JeongJaeSoon/werft#2070 항목).
+  - **`auto`도 `default`와 같은 작업 공간 규칙을 받는다.** `git`·`gh`, `sed`, 작업 공간 안 쓰기·`mkdir`, 조회는 분류기 없이 실행되고, 묻기 목록(비밀 경로, `git --output`, 비밀 이름의 `git add` 등)에 걸린 호출은 분류기가 아니라 사람에게 권한 요청으로 간다. 그래서 `auto` 세션에도 사람이 답할 권한 요청이 생길 수 있다. `bun run`·`npm run`·`npx` 같은 스크립트 실행은 엔진이 `auto`에서 허용을 빼므로 분류기가 판정한다. 분류기를 쓸 수 없는 연결에서는 분류기가 판정할 호출이 거부된다.
+  - **엔진 설정은 인자가 아니라 파일로 넘긴다.** worker는 엔진을 시작할 때마다 합친 설정(플랫폼 기본값, 자동 모드 규칙)을 체크아웃 밖의 `$CLAUDE_CONFIG_DIR/launcher-settings.json`(이미지에서는 `/home/bun/.claude/launcher-settings.json`)에 새로 쓰고 그 경로를 `--settings`로 준다. 파일에는 그 파일 자신의 편집을 막는 deny 규칙(`Edit(~/…)`, `Edit(//…)`)이 함께 들어가고, 세션 중에 바뀌어도 다음 엔진 시작 때 다시 쓴다. 그래서 설정 크기에 걸던 엔진 인자 한도(100 000바이트)는 없어졌다.
+  - `--fake-model` 스택의 `fake-messages`는 자동 모드의 안전 검사에 언제나 허용으로 답하므로, 그 스택의 예시 release도 `auto`로 돈다. 사람에게 권한을 묻는 것은 묻기 규칙에 걸린 호출뿐이라, 문서 예제의 권한 요청 단계는 `tee` 대신 묻기 규칙에 걸리는 `sed -n "w …"`로 파일을 쓰고, 데모 데이터의 권한 요청 세션은 작업 공간 규칙의 묻기에 걸리는 명령을 쓴다.
+- **세션의 권한 모드를 release에 적힌 값이 아니라 지금 규칙(연결과 모델)으로 정한다. 그래서 `default`로 만든 옛 Claude 모델 release의 세션이 `auto`로 바뀐다**(JeongJaeSoon/werft#2070). migration은 없고, release를 다시 만들 필요도 없다. release id는 그대로다.
+  - Claude 모델(`anthropic` 연결, 또는 `litellm` 연결의 Claude 모델 id)은 `auto`, Codex(`openai_responses`)와 Claude가 아닌 모델은 `default`로 돈다. 이미 도는 세션은 다음에 worker가 세션을 받을 때 바뀐다. 세션 상세의 `runtime.permission_mode`도 이 값을 보인다.
+  - 그 세션은 사람에게 묻던 호출을 이제 분류기가 판정한다. 묻기 목록에 걸린 호출과 push 승인은 지금처럼 사람에게 간다.
+  - 모드를 고르는 설정은 없다. 연결, 에이전트, 설치 설정 어디에도 없고, `default`로 되돌리는 스위치도 없다.
+  - release의 `spec_source.permission_mode`는 `default`와 `auto`만 읽는다. `acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`가 적힌 release(지금 서버는 만들지 않는다)는 spec을 읽지 못해 새 세션을 시작하지 못한다.
+  - 지원 창 안의 이미지로 되돌리면 옛 release의 세션은 다시 `default`로 돈다.
+- **Codex 세션이 작업 공간 규칙의 허용 명령(`git`, `gh`, `sed`, `mkdir`, `bun`·`npm`·`pnpm`·`yarn`의 `test`·`run`)을 묻지 않고 실행한다**(JeongJaeSoon/werft#1778). 앞선 판은 이 명령마다 사람에게 물었다. 묻기 목록 중 Codex 규칙(명령 앞쪽 토큰의 prefix)으로 표현되는 모양만 계속 묻고, 나머지(`git log --output=x`, `git add secret.env`, `git config alias.x …`, `sed -n "w …"` 등)는 묻지 않고 실행된다. 이 허용은 sandbox 밖에서 돈다. 목록과 이유는 [에이전트 권한](https://jeongjaesoon.github.io/werft/ko/agents/permissions/)의 자율 모드 절에 있다. 저장소의 `.codex/rules`는 더는 읽지 않는다(앞선 판에서는 저장소 규칙이 명령을 허용할 수 있었다).
+  - **없어진 API:** `POST /v1/installation/settings/connections/{id}/auto-mode`와 연결 응답의 `auto_mode` 필드. 이 경로를 부르던 client는 `404`를 받는다. 콘솔 설정 → 모델 연결의 **자동 모드 판정** 버튼도 없어졌다.
+  - DB의 `provider_connections.auto_mode` 열은 데이터를 지우지 않도록 그대로 두고 더는 읽거나 쓰지 않는다. migration은 없다. 지난 판정의 `set_connection_auto_mode` receipt는 그대로 읽힌다.
+- **Codex worker 컨테이너에 Werft seccomp 프로필이 걸리고, Kubernetes에서는 노드 라벨 `werft.codex-seccomp-profile=installed`가 붙은 노드에만 배치된다. 기본으로 켜진 chart의 프로필 설치 DaemonSet(`codexSandbox.installer`)에는 Kubernetes 1.30 이상이 필요하다**(JeongJaeSoon/werft#1800, JeongJaeSoon/werft#1815). migration은 없다.
+  - Codex의 `auto` 모드는 Codex의 bubblewrap 샌드박스 안에서만 돈다. 샌드박스를 쓸 수 없거나 끈 worker에서는 `auto` 세션이 시작 전에 거절되고 이유에 끄는 값이 남는다. 다른 권한 모드는 그대로 돈다.
+  - Kubernetes: 설치 DaemonSet이 worker 노드에 프로필 파일을 쓰고 그 노드에 라벨을 붙인다. 라벨이 붙은 노드가 없으면 Codex Pod는 `Pending`으로 남는다. Security Profiles Operator나 노드 이미지로 프로필을 두는 클러스터는 `codexSandbox.installer.enabled=false`로 끄고, chart의 `files/codex-sandbox-seccomp.json`을 `<kubeletDir>/seccomp/werft/codex-sandbox.json`에 둔 뒤 그 노드에 라벨을 직접 붙인다. 노드에 프로필을 둘 수 없으면 `codexSandbox.enabled=false`로 샌드박스와 `auto`를 끈다.
+  - Compose: Codex 이미지의 `WORKER_IMAGE_RUNTIME`을 넣어야 프로필이 걸린다. 끄려면 scheduler에 `CODEX_SANDBOX=disabled`를 준다.
+  - AppArmor가 켜진 호스트(Ubuntu·Debian의 기본값)에서는 bubblewrap이 막혀 지금은 Codex `auto`를 쓸 수 없다. 자세한 조건과 설정은 [설정](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/configuration)에 있다.
+- **엔진 설정 `permissions.deny`의 `mcp__<서버>__*`가 그 서버의 MCP 도구를 모두 막는다. 앞선 빌드는 이 규칙을 도구 이름 하나로 보고 아무것도 막지 않았다**(JeongJaeSoon/werft#1757). 워크스페이스·에이전트 엔진 설정에 이미 `__*`로 끝나는 `mcp__` deny를 저장해 두었다면, 올린 뒤 그 서버(내장 `github` 포함)의 `tools/call`이 모두 거절된다. 저장된 엔진 규칙은 호출마다 판정하므로 세션 도구 목록(claim, `tools/list`)에는 도구가 남는다. 막혔는지는 목록이 아니라 호출 결과로 본다. 올리기 전에 저장된 규칙을 본다. 롤링 배포 중에는 앞선 api replica가 여전히 막지 않으므로, 모든 api replica가 새 이미지로 바뀐 뒤에 효과가 있다. 에이전트 MCP 설정의 허용 도구에 `__*`로 끝나는 이름을 새로 저장하는 일은 이제 `tool_outside_server`로 거절된다. 이미 저장된 그런 이름은 그대로 남고 도구 하나의 이름으로만 비교된다. migration은 없다. 되돌리면 와일드카드 deny는 다시 아무것도 막지 않는다.
+- **에이전트가 받는 GitHub 도구 설명과 checkpoint 거절 이유가, 브랜치는 worktree 없이 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 만든다고 알린다**(JeongJaeSoon/werft#2069). migration은 없고 따로 할 일도 없다.
+  - 작업 공간 안의 git worktree·clone은 지금처럼 checkpoint가 거절하고, 그 턴의 push는 `turn_ended_without_checkpoint`로 취소된다. `git worktree`의 묻기 규칙도 그대로다.
+- **에이전트가 켠 워크스페이스 MCP 서버를 세션이 쓴다. 그런 서버가 있는 세션은 새 worker 이미지(capability `workspace_mcp`)만 claim한다**(JeongJaeSoon/werft#1751, JeongJaeSoon/werft#1754, JeongJaeSoon/werft#1759). 서버를 등록·인증하는 표는 migration `0286_workspace_mcp_servers`가 더한다. 앞선 worker는 그 세션을 claim하면 재시도 가능한 503(`BACKEND_UNAVAILABLE`)을 받고, 아무것도 묶이지 않는다. 그래서 control-host를 먼저 올리고 worker 이미지를 바꾼다. 바뀔 때까지 그런 세션은 시작하지 않고 기다린다. 워크스페이스 서버가 없는 세션은 앞선 worker도 그대로 claim한다. 새 worker를 앞선 control-host에 붙이면 control-host가 모르는 key를 거절하고, worker는 그 key를 빼고 다시 claim한다. 서버 호출은 proxy를 거쳐 등록한 URL로 가고, 저장된 관리자 자격(OAuth access token 또는 정적 token)이 Bearer로 붙는다. 그러므로 서버의 host:port를 proxy와 api 둘 다의 `EGRESS_CREDENTIAL_ALLOWLIST`(로컬 시험 서버는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에 넣는다. compose는 두 쪽에 같은 값을 준다. api 목록에 없으면 등록이 거절되고, proxy 목록에만 없으면 등록은 되지만 호출이 proxy에서 막힌다. 요청 줄은 등록한 경로와 query 그대로다. 보내는 `tools/call`은 `accepted` `call_mcp` receipt에 서버 이름·연결 generation·도구를 남기고, 그 receipt를 쓰지 못하면 보내지 않는다. 거절된 호출은 같은 receipt에 이유(`workspace_server_unavailable`, `oauth_needs_reauth`, `credential_unavailable`)를 남긴다. 세션은 시작 때의 서버 이름·URL로 고정되므로, 세션 중에 지우거나 URL을 바꾼 서버는 그 세션에서 `workspace_server_unavailable`로 거절되고 다음 세션부터 새 URL을 쓴다. 이 PR에는 migration이 없다(열과 표는 JeongJaeSoon/werft#1754의 0287). 되돌리면 앞선 control-host는 워크스페이스 서버를 claim에 싣지 않으므로, 그 세션은 서버 없이 돈다. 이 판이 만든 checkpoint는 앞선 판에서 config가 달라 resume하지 못하고 새로 시작한다.
+- **관리자 없이 14일이 지난 에이전트는 새 세션을 시작하지 않는다. migration `0293_agent_ownerless_since`가 `agents.ownerless_since`(nullable)를 더한다**(JeongJaeSoon/werft#1958, JeongJaeSoon/werft#1961). 관리자가 없는 에이전트는 콘솔에 표시와 경고가 보이고, 14일이 지나면 웹·API·Slack·에이전트 key의 시작이 `409 AGENT_NOT_RUNNABLE`(`details.reason_code: agent_ownerless`)로 거절된다. 이미 열린 세션의 다음 입력은 막지 않는다.
+  - 올릴 때 이미 관리자가 없는 에이전트는 올린 뒤 처음 확인한 시각부터 14일을 센다. 계속 쓸 에이전트에는 그 전에 관리자를 둔다. 관리자를 다시 두면 바로 다음 시작부터 된다.
+- **사람이 고른 적 없는 빈 값은 이제 GitHub push 승인을 묻지 않는다. 새 에이전트는 사람이 승인을 켜기 전까지 승인 없이 push한다**(JeongJaeSoon/werft#2061). migration은 없고 저장된 설정은 바꾸지 않는다. 판정을 읽는 방식만 바뀐다.
+  - 승인 없음으로 바뀌는 것: GitHub 설정을 저장하지 않은 에이전트와 github 설정이 없는 release(핀이 `push_approval: false`인 release 포함), 첨부 저장소 push 정책이 비어 있는(NULL) 설정. 에이전트 GitHub 탭과 `GET /v1/agents/{id}/github`의 `push_attached`도 이 경우 `allow`로 보인다.
+  - 그대로인 것: 사람이 켠 **push 전 사람 승인**, 정책 `ask`·`deny`, release 핀의 `push_approval: true`, 읽을 수 없는 설정(계속 사람에게 묻는다), push 승인과 정책 중 더 엄격한 쪽을 따르는 규칙.
+  - 올리는 즉시 이미 도는 세션의 다음 push부터 적용된다. 데모 설치에서는 25개 에이전트(NULL 행 9, 설정 없음 16)가 승인 없이 push하게 된다. 사람 승인을 계속 받을 에이전트는 올리기 전에 GitHub 탭에서 **push 전 사람 승인**을 켜고 저장한다.
+  - 지원 창 안의 옛 이미지로 되돌리면 빈 값이 다시 사람 승인으로 읽힌다(더 엄격해질 뿐이다).
 - **Slack에서 push를 승인·거절한 뒤의 후속 턴이 에이전트의 턴이 되고, 누른 사람의 세션 입력 권한을 더는 보지 않는다**(JeongJaeSoon/werft#2037). 전에는 그 턴의 보낸 사람이 길에 따라 달랐다. 실행 중인 턴을 기다렸다 넣으면 push를 요청한 사람, 바로 넣으면 버튼을 누른 사람이었다. 이제 두 길 모두 요청자가 그 세션의 에이전트(`requester.kind: "agent"`, `auth_method: "push_decision"`)이고 사람 칸(`actor_id`)은 비어, 화면에서 보낸 사람이 사람 이름이 아닌 일반 라벨로 보인다. 그 턴이 세션의 마지막 턴인 동안 commit은 App만으로 귀속된다. PR에 적는 "요청한 사람"은 push를 요청한 턴에서 읽으므로 바뀌지 않는다. 승인·거절은 push 결정 권한만 보므로, 세션 입력 권한이 없는 승인자가 눌러도 후속 턴이 생기고 누른 사람 이름의 메시지 추가 receipt는 생기지 않는다. 같은 push 요청의 후속 턴은 세션에 하나만 생긴다. 세션의 상태 검사(일시 정지, 인수 대기, 체크포인트, 입력 한도)는 그대로다. migration은 없다. 되돌리면 앞선 판은 이 판이 넣은 후속 턴을 요청자 없는 턴으로 읽는다.
 - **새 턴마다 요청자가 들어온 자격(인증 근거)을 남기고, 턴 읽기 API(`GET /v1/sessions/{id}/turns`, `GET /v1/sessions/{id}/turns/{turn_id}`)가 `requester`(`kind`·`id`·`auth_method`·`carried`)를 돌려준다**(JeongJaeSoon/werft#2027). migration `0315_turn_requester_auth`가 `turns.requester_auth`(jsonb)와 `tool_call_audits.requester_kind`·`requester_id`(text)를 더한다. 셋 다 nullable이고 기본값·색인·backfill이 없어 표를 다시 쓰지 않는다. 올릴 때 할 일은 없다. 근거는 콘솔 로그인 세션 id, 개인 key id, 에이전트 key의 에이전트, Slack 설치와 연결 계정이고, key의 비밀·cookie·Slack 사용자 id는 담지 않는다. 승인 뒤 이어 가는 턴은 멈췄던 턴의 요청자와 근거를 물려받는다(`carried`가 true). 옛 턴은 고치지 않아 `requester`나 `auth_method`가 null로 보인다. 감사 행의 두 칸은 이 릴리스에서 비어 있다. 되돌리면 앞선 판은 새 칸을 읽지도 쓰지도 않는다([턴에 요청자의 인증 근거를 남기는 릴리스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#턴에-요청자의-인증-근거를-남기는-릴리스)).
+- **스킬의 자동 승인이 화면의 '자동 연동' 스위치로 바뀌고, migration `0331_reset_skill_auto_approve`가 이미 켜졌거나 요청 중이던 자동 승인을 모두 끄고 `skill_git_sources`에 칸 `auto_approve_checks_grant_id`를 더한다**(JeongJaeSoon/werft#2055). 업그레이드한 뒤 자동 연동을 쓸 스킬마다 스킬 상세의 GitHub 동기화 구역에서 다시 켜야 한다. 다시 켜지 않으면 새 버전이 승인 대기로 쌓인다. 끈 수는 migration 로그(`db.migrate.notice`)에 `0331: auto-approve turned off on N GitHub skill sources`로 남고, 끈 것이 없으면 아무 줄도 남지 않는다.
+  - 켜는 방법이 바뀌었다. 오너나 어드민 한 명이 화면에서 켜고 끈다. 다른 관리자의 동의는 필요 없다. 연동 대상이 브랜치이기만 하면 되고(태그와 커밋은 400 `not_branch`), GitHub의 브랜치 보호 규칙과 PR 리뷰는 보지 않는다.
+  - 켜 두면 고정 규칙 검사를 통과한 버전이 사람의 승인 없이 승인되어 현재 버전이 된다. 규칙에 걸린 버전만 승인 대기로 남는다. 켜는 순간에도 한 번 확인해, 승인 대기로 있던 버전(처음 등록한 v1 포함)이 규칙을 통과하면 승인한다.
+  - 그 브랜치에 push할 수 있는 사람과 App이 곧 스킬을 바꿀 수 있는 사람이 된다. 에이전트의 App이 그 저장소에 push할 수 있으면 에이전트도 포함된다. 누가 push할 수 있는지는 GitHub ruleset으로 정한다. 고정 규칙 검사는 스크립트가 조합하는 URL이나 base64 같은 내용을 걸러 내지 못한다.
+  - 자동 연동을 켜지 않은 스킬은 지금과 같다. 새 버전은 승인 대기로 들어오고 사람이 승인한다.
+  - API가 바뀐다. `PUT /v1/workspace/skills/{name}/sync/auto-approve`의 `action`은 `on`과 `off`만 받는다(`request`와 `consent`는 400). 응답의 `git.auto_approve`는 `{ state, enabled_by }`이고 `state`는 `off`나 `on`이다. `last_check.auto_approval`에서 `rule`과 `pull_request`가 빠지고, `reason`은 `checks_failed`와 `baseline_changed`만 남는다. `last_check.trigger.kind`에 `auto_approve`(자동 연동을 켤 때의 확인)가 더해진다. `PUT /v1/workspace/skills/{name}/sync`와 `…/sync/auto-approve`의 응답에 `check`가 더해진다. 그 호출이 돌린 확인이 끝났으면 `checked`, 돌고 있던 확인 뒤로 밀렸으면 `queued`, 확인을 돌리지 않았으면 null이다.
+  - 칸 하나를 더하고 값을 바꾸는 migration이라 지원 창 안의 이미지로 되돌려도 된다(옛 이미지는 그 칸을 읽지도 쓰지도 않는다). 되돌린 이미지는 옛 방식(두 관리자의 요청과 동의, 리뷰된 PR)으로 동작하고, 꺼진 설정은 꺼진 채로 남는다. 되돌린 이미지나 올리는 동안 아직 떠 있던 옛 서버가 옛 방식으로 켠 자동 승인, 그리고 옛 서버가 멈췄다 다시 켠 스킬의 자동 연동은 이 버전에서 꺼짐으로 읽히고 아무것도 승인하지 않는다(새 칸은 이 버전만 쓴다). 쓰려면 화면에서 다시 켠다.
+  - 스킬의 버전·승인·GitHub 동기화는 이 릴리스에 들어온다(JeongJaeSoon/werft#1971, JeongJaeSoon/werft#1973, JeongJaeSoon/werft#1974, JeongJaeSoon/werft#1975). `v0.3.0`에는 `skill_git_sources`(migration `0296`)가 없으므로, `v0.3.0`에서 바로 올리면 0331이 끄는 자동 승인은 없다.
+  - 고정 규칙 검사는 앞 승인 버전과 비교해 scripts·실행 파일 추가, 300줄 넘는 변경, 새 URL 호스트, 보이지 않는 유니코드, 지시처럼 보이는 문장, `description` 변경 중 하나라도 걸리면 그 스킬만 멈추고(`last_check.auto_approval.reason`: `checks_failed`), 같은 push의 다른 스킬은 그대로 승인한다. 멈춘 버전은 검토 화면 맨 위의 "고정 규칙 검사"에서 걸린 규칙을 보고 사람이 승인한다(JeongJaeSoon/werft#2024).
+- **스킬 버전의 `review`에 `superseded`(대체됨)가 생기고, 더 새로운 버전이 승인된 스킬의 승인 대기 버전은 올릴 때 대체됨으로 닫힌다**(JeongJaeSoon/werft#2019).
+  - 새 버전이 승인되거나(사람의 승인, 동기화의 자동 승인) 되돌리기로 현재 버전이 되면, 그보다 순번이 작은 보관하지 않은 승인 대기 버전이 같은 transaction에서 `superseded`가 된다. 검토 목록과 승인 대기 수에서 빠지고, 버전 목록에는 '대체됨'으로 보인다. 관리자는 그 버전을 여전히 승인하거나 거절할 수 있고, 되돌리기는 지금처럼 승인된 버전만 고른다.
+  - migration `0306_skill_superseded_versions`가 이미 쌓인 승인 대기 버전 가운데 같은 스킬에 순번이 더 큰 승인 버전이 있는 것만 `superseded`로 바꾼다. 그 승인은 receipt를 새로 쓰지 않는다. 바뀔 행 수는 올리기 전에 이 쿼리로 센다: `SELECT count(*) FROM extension_bundles AS old WHERE old.review = 'pending' AND old.archived_at IS NULL AND old.version IS NOT NULL AND EXISTS (SELECT 1 FROM extension_bundles AS newer WHERE newer.workspace_id = old.workspace_id AND newer.name = old.name AND newer.review = 'approved' AND newer.version > old.version);`
+  - `GET /v1/workspace/skills` 응답의 `review` 값을 `pending`·`approved`·`rejected` 셋으로만 가정하는 API client는 `superseded`를 다루도록 고친다. 대체를 일으킨 `approve_extension`·`revert_extension` receipt의 `result.superseded`에 닫힌 버전의 id와 순번이 남는다. 알림은 없다.
+  - rolling deploy 중 옛 replica에서 한 승인은 아무것도 닫지 않는다. 그 사이 승인한 스킬에 남은 오래된 대기 버전은 관리자가 거절하거나 승인해서 닫는다.
+- **비공개 Slack 채널에서 시작한 세션은 새 공유 범위 `private_channel`로 생기고, 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보인다**(JeongJaeSoon/werft#2053). migration `0327_private_channel_share_scope`가 `session_shares`의 범위 CHECK에 `private_channel`을 더한다. 따로 할 일은 없다.
+  - 보이는 변화: API key(개인 key·에이전트 key 모두, key 주인이 멤버여도)로는 이 세션이 목록에 없고 상세·turns·events·outputs·pending-requests가 `404`다. 판정 기록에는 이유 `private_channel_key`로 남는다. 채널을 나간 만든 사람과 멤버가 아닌 owner·admin도 못 본다(사유를 적은 감사 읽기는 된다. 관리 목록 `/v1/admin/sessions`에는 메타데이터만 `share_scope: private_channel`로 남고, 관리 종료는 채널 밖에서 `404`다). 공유 범위를 바꾸려 하면 409(`reason_code: private_channel_session`)다.
+  - 멤버 확인은 api와 slack 역할이 bot token으로 `conversations.members`를 읽고 5분 캐시한다(`groups:read`, 새 scope 없음). 확인하지 못하면(429·Slack 장애·bot이 채널 밖) 멤버에게도 숨긴다. 세션 목록은 `private_channel` 세션이 있는 채널마다 한 번씩, 동시에 8개까지 확인한다.
+  - 개인 key의 사용량 합계(`scope=me`)에는 key 주인이 만든 `private_channel` 세션이 이름 없는 금액·개수로 들어간다. 세션을 가리키는 줄(도구 호출, 최근 성과)은 보이지 않는다.
+  - 이 릴리스 전에 비공개 채널에서 만든 세션은 그대로 `workspace`다. 운영자 명령 `private-channel-sessions.ts`가 옮긴다(위 항목).
+  - 공개 채널·DM·웹·API로 만든 세션은 그대로다.
+  - 지원 창 안의 옛 이미지로 되돌리거나 함께 돌리면, 옛 host는 `private_channel` 세션을 만든 사람에게만 보인다. 그동안 다른 채널 멤버는 잠깐 못 보고, 채널을 나간 만든 사람은 그 host에서 (자기 key로도) 계속 본다. 워크스페이스 전체로 넓어지지는 않는다.
+- **비공개 Slack 채널에서 생긴 세션은 공유 범위와 상관없이 채널 문을 먼저 지난다. 그래서 채널을 나간 만든 사람은 자기 `private` 세션을 못 보고, API key로는 그 세션에 닿지 않는다**(JeongJaeSoon/werft#2081). migration은 없고 따로 할 일도 없다. `share_scope` 값은 바뀌지 않는다.
+  - 세션의 부모 대화가 비공개 채널이면(그 워크스페이스에 있는 그 채널의 binding 가운데 종류를 아는 것의 `surface_kind`. 에이전트와 상관없이 보고, 살아 있는 binding을 먼저 보며, 그중 하나라도 비공개면 비공개다) 그 에이전트를 쓸 수 있는 지금 채널 멤버만 문을 지나고, 그다음 범위의 원래 규칙을 함께 본다. `private`는 만든 사람 본인, `people`·`team`은 지목된 사람, `workspace`는 워크스페이스 규칙이다. `private_channel` 세션은 지금과 같다.
+  - 보이는 변화: 비공개 채널의 `private` 세션은 채널을 나간 만든 사람도, 다른 채널 멤버도 목록에서 못 보고 상세가 `404`다. API key(개인 key·에이전트 key 모두)로는 읽기·쓰기·승인이 모두 `404`이고 판정 기록의 이유는 `private_channel_key`다. 공유를 넓혀도(`private`→`workspace` 등) 채널 밖 사람에게는 보이지 않고, 채널을 나간 만든 사람은 공유도 바꾸지 못한다(`404`).
+  - 이 릴리스 전에 비공개 채널에서 만든 `workspace`·`people`·`team` 세션도 같은 문을 지난다. 채널 밖의 워크스페이스 멤버와 key는 더 이상 보지 못한다(`private_channel`로 옮기기 전이어도 같다).
+  - binding이 없어 종류를 모르는 채널의 세션은 비공개로 본다. 그런 채널이 걸린 판정마다 `warn` 로그 `Channel kind unknown; held private`(`event` `session.private_channel.kind_unknown`, `conversation_count`)를 남긴다.
+  - 공개 채널·DM·웹·API로 만든 세션은 그대로다.
+  - 지원 창 안의 옛 이미지로 되돌리면 옛 판정(`private_channel` 범위만 채널 문을 지남)으로 돌아간다. 그동안 나간 만든 사람과 key가 다시 자기 `private` 세션에 닿는다.
+- **비공개 Slack 채널에서 이 릴리스 전에 만든 세션을 `private_channel`로 옮기는 운영자 명령 `private-channel-sessions.ts`가 생기고, 채널을 공개↔비공개로 바꾸면 그 채널의 binding과 세션이 따라 옮겨진다**(JeongJaeSoon/werft#2073). migration은 없다. 명령을 돌리기 전까지 옛 세션의 범위 값은 `workspace` 그대로이고, 새 세션만 `private_channel`로 생긴다. 옛 세션도 보이는 범위는 위 JeongJaeSoon/werft#2081 항목대로 채널 문을 먼저 지난다.
+  - **`v0.4.0`으로 올린 뒤에 돌린다.** 비공개 채널에서 만든 사람이 범위를 `private`로 좁혀 둔 세션에도 채널 확인을 먼저 거는 변경(JeongJaeSoon/werft#2081)이 같은 릴리스에 있다. 그 변경이 없는 이미지에서 돌리면 그런 세션은 채널을 나간 만든 사람과 그 사람의 key에 계속 닿는다.
+  - 순서: api 컨테이너에서 `bun run apps/control-host/src/api/private-channel-sessions.ts plan`으로 세션마다 못 보게 될 사람 수(`people_losing`)와 API key로 만든 턴 수(`key_turns`)를 보고, `apply`로 옮긴다. `--workspace <id>`나 `--agent <id>`로 하나만 고를 수 있다. 결과는 한 줄 JSON이고, 다시 돌려도 더 옮기는 것이 없다.
+  - 명령은 API가 쓰는 master key를 받아야 한다. 저장된 bot token이 그 키로 열리지 않으면 그 채널은 `unconfirmed_channels`에 `reason` `master_key_mismatch`로 남고 stderr에 한 줄이 나온다(JeongJaeSoon/werft#2088). entrypoint가 서버 프로세스에만 키를 넘기는 구성에서 명령에 키를 주는 방법은 문서 사이트의 Compose 업그레이드 문서 "비공개 채널의 옛 세션을 옮기는 릴리스"에 있다.
+  - Slack 앱 설치가 없는 에이전트(`SLACK_NOT_INSTALLED`)의 채널은 `no_install`로 따로 세고, 그런 채널만 남으면 exit 0으로 끝난다(JeongJaeSoon/werft#2089). 비공개 binding이거나 종류를 모르는 채널의 세션은 `private_channel`로 옮기고 공개 binding은 넓히지 않는다. 재설치하면 지금 채널 멤버에게 다시 보인다. 그 밖의 읽지 못한 채널은 지금처럼 exit 3이다.
+  - 보이는 변화: 옮긴 세션은 API key(개인 key·에이전트 key 모두)의 목록에서 빠지고 상세가 `404`다. 채널을 나간 만든 사람, 채널 멤버가 아닌 owner·admin, Slack을 연결하지 않은 멤버, 이름으로 공유받은 사람도 못 본다. 그 세션을 key로 폴링하던 연동은 끊긴다. 이름 공유 줄은 지우지 않지만 효력이 없다.
+  - 만든 사람이 `private`로 좁혀 둔 세션은 넓히지 않는다(`kept_private`로 센다). 공개 채널 세션은 그대로다.
+  - 명령은 채널마다 bot token으로 Slack에 채널 종류를 묻는다(`conversations.info`, 사람 수는 `conversations.members`, 새 scope 없음). 종류를 확인하지 못한 채널(`unconfirmed_channels`)과 옮기지 못한 세션(`skipped`, 이유 `no_channel_conversation`·`no_workspace`·`share_changed`)은 그대로 두고 종료 코드 `3`으로 끝난다. 고친 뒤 다시 돌린다. 공개로 묶였지만 지금 비공개인 채널의 binding은 `private_channel`이 되고 승인을 다시 기다린다(이유 `channel_now_private`).
+  - 봇이 빠진 채널은 멤버 목록을 읽지 못해 `members_unconfirmed: true`이고, 옮기면 모두에게 숨는다. 남길 채널이면 명령 전에 봇을 다시 초대한다.
+  - 전환: Slack이 채널에 올리는 `channel_convert_to_private`·`channel_convert_to_public` 글(본문은 남기지 않는다)을 받으면 binding과 그 채널의 세션을 한 transaction에서 옮긴다. 글이 늦게 올 수 있어서, 글이 말하는 종류가 아니라 Slack에 지금 물은 종류를 따른다. 다른 채널에서 시작해 이 채널에 이어진 세션은 그 채널을 따르고 넓히지 않는다. 비공개로 바꾸면 위와 같고, **비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다**(Slack에서 지난 글이 공개되는 것과 같다). 옛 `people`·`team` 범위는 되살리지 않는다.
+  - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
+- **`private_channel` 세션의 DM 알림은 지금 채널 멤버에게만 가고, 인수는 채널 멤버가 한다**(JeongJaeSoon/werft#2066). migration은 없고 따로 할 일도 없다.
+  - 세션에 관한 DM(모델이 허용 목록에서 빠짐, 다음 모델로 옮김, `runtime_retired`로 멈춤, worker 이미지 교체)은 보내기 직전에, 받는 Slack 계정이 세션의 비공개 채널 중 하나의 지금 멤버인지 본다. 멤버가 아니거나 확인하지 못하면 보내지 않고 `failed`(`error_code` `reader_outside_channel`)로 끝난다. 에이전트 관리자도 같다. 에이전트 단위 알림(에이전트의 모델 이동)은 그대로다.
+  - 요청자가 비활성화되어 인수를 기다리는 `private_channel` 세션은 그 채널의 지금 멤버이고 세션에 쓸 수 있는(`session.submit`) 사람이 `POST /v1/sessions/{id}/takeover`로 인수한다. 사유는 받지 않는다. owner·admin도 채널 멤버가 아니면 `404`다. 다른 세션의 인수는 그대로다.
+  - 요청자가 채널을 나가도 세션은 멈추지 않는다. 보고와 카드는 지금처럼 그 채널의 스레드에만 가고, 봇이 채널에서 빠지면 어디에도 보내지 않는다.
+- **API key는 `private_channel` 세션에 쓰기·승인도 못 한다. 요청자가 채널을 나간 push는 지금 채널 멤버가 승인·거절한다**(JeongJaeSoon/werft#2062). migration은 없고 따로 할 일도 없다.
+  - 보이는 변화: 개인 key·에이전트 key로 `private_channel` 세션에 메시지, 대기 요청 답, push 요청·승인·거절, PR 열기·댓글, workflow 실행, 중단·재개·종료·인계 등 `/v1/sessions/{id}` 아래 모든 경로를 부르면 `404`다(읽기는 JeongJaeSoon/werft#2053부터 `404`). 판정 기록의 이유는 `private_channel_key`다. 세션 안에서 에이전트가 요청하는 push, key로 만든 세션, 공개 채널 세션은 그대로다.
+  - push를 요청한 사람(그 push를 요청한 턴의 사람. 사람이 없으면 세션을 맡은 사람, 곧 시작한 사람이나 넘겨받은 사람)이 세션의 비공개 채널을 모두 나가면, Slack 승인 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버 누구나 승인·거절할 수 있다. 결정 기록(`decided_by`)에는 누른 사람이 남는다. 나간 요청자는 결정할 수 없고, 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 카드는 채널 멤버 변화(`member_joined_channel`·`member_left_channel`) 때 다시 그려진다. 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Push requester's channel membership unconfirmed`를 남긴다.
+  - 도구 권한·질문 카드는 그대로다.
+  - 카드의 새 표시 상태(`open_requester_left`·`reject_only_requester_left`)를 모르는 옛 이미지로 되돌리면, 그 카드를 끝난 카드로 보고 다시 그리지 않는다(버튼은 남고 누르면 그대로 판정된다).
+- **migration `slack_channel_member_cache`가 Slack 비공개 채널 멤버 확인용 임시 캐시 표를 더한다**(JeongJaeSoon/werft#2033). 할 일은 없다. 표에는 Slack 사용자 id와 읽은 시각만 5분 동안 남고, reconciler가 지난 줄을 지운다(로그 `Expired Slack channel member lists deleted`). 백업에 이 표가 빠져도 복원 뒤 Slack에서 다시 읽는다. 아직 이 캐시를 읽는 화면이나 API는 없다.
+- **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 표를 더하는 일에는 할 일이 없고 동작도 그대로다. 표를 채우기 시작하는 것은 위 `conversation_inputs` 항목이다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
+- **Slack 글을 입력 접수 표 `conversation_inputs`에 적는다**(JeongJaeSoon/werft#2040). migration `0316_conversation_inputs`가 표를 만든다. 할 일은 없고, Slack과 세션의 동작은 그대로다.
+  - slack 역할이 멘션·DM·묶인 스레드의 글을 지금처럼 턴으로 넣은 뒤, inbox 행을 처리됨으로 바꾸는 같은 transaction에서 접수 줄 하나를 적는다. 0310의 `conversations`·`conversation_topics`도 이때부터 채운다.
+  - 접수 줄에는 글의 자리(team, 채널, ts), 주제 안의 순번(서버가 접수한 순서), 요청자, 그 글이 된 턴만 남고 본문은 없다. `message`와 `app_mention`으로 두 번 와도, 재전송돼도 에이전트마다 한 줄이다.
+  - 접수 줄이 있는 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
+  - 지원 창 안의 이미지로 되돌리면 그동안의 글은 접수 줄 없이 턴만 생긴다.
+- **migration `0319_web_inputs`가 입력 접수 표 `conversation_inputs`에 웹 입력의 칸 셋(`client_message_id`·`body`·`slack_mirror`)을 더하고 `turn_id`를 비워 둘 수 있게 한다**(JeongJaeSoon/werft#2046). 할 일은 없고 동작도 그대로다.
+  - 웹에서 들어온 입력을 서버가 받는 즉시 입력 id·주제·요청자·순번을 정해 적는 접수 서비스가 생긴다. 이 릴리스에서는 이 서비스를 부르는 route가 없어 웹 입력 줄은 생기지 않는다. 웹 콘솔의 세션 시작과 메시지는 지금 길 그대로다.
+  - 웹 입력 줄은 본문을 갖는다. Slack 접수 줄은 지금처럼 본문 없이 턴을 가리킨다. CHECK가 둘을 가른다.
+  - 인덱스는 `CONCURRENTLY`로 만들고 CHECK는 `NOT VALID`로 더해 따로 검증하므로 쓰기를 오래 막지 않는다. 있던 줄은 모두 Slack 접수 줄이라 검증을 통과한다. 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0317_binding_listen`이 채널 binding에 듣기 칸 `listen`(`free`·`mention`·`off`)을, 에이전트에 대화 층 스위치 `conversation_rollout`(`off`·`shadow`·`on`)을 더한다**(JeongJaeSoon/werft#2042). 따로 할 일은 없고 동작도 그대로다.
+  - 있던 binding은 그 에이전트의 `slack_mention_only`가 `true`면 `mention`, `false`면 `free`로 채운다. 새로 만드는 binding은 `free`로 시작한다. `slack_mention_only`는 바꾸지 않고, 에이전트가 무엇에 반응하는지는 지금처럼 그 값과 binding의 `mode`가 정한다.
+  - 모든 에이전트의 스위치는 `off`다. 이 릴리스의 받는 길은 두 칸을 읽지 않는다.
+  - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 binding에 `listen`이 생긴다. `PUT`에서 `listen`을 빼면 그 채널의 값을 그대로 둔다.
+  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0320_session_parent_conversation`이 세션에 부모 대화 칸 `parent_conversation_id`(nullable)를 더하고, api가 기동할 때마다 Slack에 묶인 세션의 부모 대화를 채운다**(JeongJaeSoon/werft#2045). 따로 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
+  - 새 Slack 세션은 만들 때 채운다. 채널 스레드의 세션은 그 채널의 메인 대화, DM 세션은 그 사람의 DM 메인 대화다. link가 없는 세션(웹의 "새 세션", 세션 API)은 비워 둔다.
+  - 있던 세션은 api 기동 때 한 번씩 도는 정리가 묶음으로 채운다. 닫히거나 폐기된 link의 세션도 채운다. 세션마다 비어 있을 때만 채우므로 다시 기동해도, 여러 api가 함께 기동해도 결과가 같고, 중간에 멈추면 다음 기동이 남은 세션부터 잇는다.
+  - DM 세션의 사람은 그 세션을 연 사람, 없거나 워크스페이스 멤버가 아니면 link를 만든 사람이다. 새 세션이 만들 때 고르는 사람과 같다. 둘 다 없으면 부모를 비워 두고 로그 `Linked DM sessions left without a parent conversation`에 이유별 수(`no_person`·`no_membership`)를 남긴다. 채운 수는 `Parent conversations filled`, 채우지 못한 세션은 경고 로그에 세션 id와 함께 남고 다음 기동에서 다시 시도한다.
+  - 세션의 요청자 칸(`requester_kind`)은 채우지 않는다.
+  - 칸은 `NOT VALID`로 더한 외래 키를 따로 검증하므로 `sessions`를 오래 잠그지 않는다. 지원 창 안의 이미지로 되돌려도 되고, 그동안 만든 Slack 세션은 부모 없이 생겼다가 다시 올리면 채워진다.
+- **에이전트 앱이 Slack 채널의 보관·보관 해제·이름 변경·삭제 이벤트 여덟 개를 받고, 삭제된 채널의 binding을 새 상태 `gone`으로 둔다**(JeongJaeSoon/werft#2047). migration `0321_channel_lifecycle`이 대화에 채널 상태·이름 칸을 더하고 binding 상태에 `gone`을, inbox 버림 이유에 `channel_gone`을 더한다.
+  - **업그레이드 뒤 에이전트마다 콘솔 Slack 탭의 "다시 확인"(`POST /v1/agents/{id}/slack/app/events/recheck`) 또는 API 컨테이너의 `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>`를 한 번 실행해야** 채널 삭제·보관·이름 변경 이벤트가 온다. 하지 않으면 삭제된 채널의 처리는 게시나 채널 조회가 `channel_not_found`를 받는 조회 실패 경로로만 동작한다(그때까지 binding은 `ready`로 남는다). 새 scope는 없다. 다시 보낸 manifest가 설치에 없는 scope를 요청하면 "다시 확인"도 응답의 `reinstall_required`와 콘솔 안내로 재설치를 알린다(JeongJaeSoon/werft#2056). [업그레이드 안내](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#slack-채널-이벤트와-manifest-다시-보내기)
+  - 봇이 채널에서 빠지면 `channel_left`·`group_left`로 알아 binding에 남긴다(JeongJaeSoon/werft#1947). 이 두 이벤트도 같은 "다시 확인"으로 manifest를 다시 보내야 온다. 공개 채널은 binding 상태와 승인을 그대로 두고 멤버십만 초대 대기(`awaiting_invite`)로 바꾸고, 사람이 봇을 뺀 공개 채널에는 봇이 스스로 다시 들어가지 않는다. 다시 초대하면 돌아온다. 비공개 채널은 지금처럼 `left`다.
+  - 삭제된 Slack 채널을 에이전트의 채널 목록에 "삭제됨"으로 보인다. `gone` 채널은 글을 받지도 보내지도 않는다. 살아 있는 채널의 멘션·세션·답은 그대로다.
+  - 이벤트를 놓친 채널도 게시나 채널 조회의 `channel_not_found`로 공개 채널은 `gone`, bot이 있던 비공개 채널은 `left`가 된다. 429·Slack 장애·token 오류로는 바뀌지 않는다.
+  - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 `status`에 `gone`이 생긴다.
+  - 칸과 값을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 다만 되돌린 이미지는 `gone` binding을 `left`처럼 막지 못하고 보통 줄로 읽는다.
+- **migration `0323_conversation_engagements`가 관여 기록 표 `conversation_engagements`를 더하고, Slack 글이 세션의 턴이 될 때 그 글에 에이전트가 관여했다는 줄을 하나 적는다**(JeongJaeSoon/werft#2049). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다.
+  - 입력 접수 줄을 적는 같은 transaction에서 적는다. 줄에는 에이전트, 글의 자리(team, 채널, ts), 종류, 그 글이 든 세션만 남고 본문·스레드 ts·링크는 없다.
+  - 종류: 세션을 연 멘션이나 DM은 `mention`, 멘션 없는 맨 위 글로 연 세션은 `reply`, 이미 열린 세션에 들어간 글은 `bound`.
+  - 한 글이 두 이벤트로 와도, 다시 처리돼도 에이전트마다 한 줄이다. 있던 세션은 채우지 않는다.
+  - 관여 기록이 있는 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
+  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0324_source_sets`가 `turns`와 `slack_outbox`에 출처 집합 칸 `sources`(jsonb, nullable)와 GIN 색인 둘을 더한다**(JeongJaeSoon/werft#2048). 따로 할 일은 없고, Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
+  - 출처 집합은 그 턴이 나온 Slack 글을 자리(team, 채널, ts)와 입력 접수 줄 id로만 적는다. 본문은 없다. 그 턴의 입력은 `direct`, 같은 세션 앞 턴들의 것은 `inherited`로 가른다. 한 집합은 256개까지 적고, 넘으면 `overflow`를 표시한다.
+  - Slack 글로 생긴 턴과 그 세션의 뒤 턴(이어 가는 턴, push 후속 턴, 웹·API 지시), 그 턴의 답·실패 알림·승인 카드 줄이 출처를 갖는다. Slack과 무관한 웹·API 세션의 턴은 비어 있다.
+  - 출처에 든 글의 삭제·수정 표식은 70분이 지나도 지워지지 않는다. 지운 출처로 답을 막거나 세션을 멈추는 동작은 아직 없다.
+  - 칸은 기본값 없이 더하고 색인은 `CONCURRENTLY`로 만들어 표를 다시 쓰지 않는다. 있던 줄은 비어 있는 채로 남는다. 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0325_channel_summaries`가 채널 요약 표 셋(`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`)을 더한다**(JeongJaeSoon/werft#2054). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다. 요약을 쓰는 길은 아직 없어서 표는 비어 있다.
+  - 줄에는 에이전트가 쓴 글만 있고 Slack 글의 본문은 없다. 출처(글의 자리와 입력 접수 줄 id)와 화자는 서버가 입력 접수 줄에서 읽는다.
+  - 바뀔 때마다 버전이 오르고 옛 버전은 되돌리기용 이력으로 남는다. 출처 글이 지워지거나 고쳐지면 그 줄을 모든 버전에서 지운다.
+  - 요약 줄의 출처인 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
+  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0326_link_posting`이 Slack 스레드의 게시 설정을 `session_links`의 칸 셋(`report_mode`·`mirror_instructions`·`post_prompts`)으로 나누고, 채널 binding에 `report_mode` 기본값 `per_step`을 더한다**(JeongJaeSoon/werft#2052). 따로 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
+  - outbox는 이제 `visibility` 대신 새 칸을 본다(아직 옮기지 않은 `summary` link를 막을 때만 `visibility`를 읽는다). 답·실패·결과 알림은 `report_mode`(비면 채널 값), 웹·API 지시 거울은 `mirror_instructions`, 승인 카드·질문은 `post_prompts`다.
+  - `full` link는 그대로 두고(기본값이 같은 뜻), `summary` link는 api 기동 때 도는 정리가 `none`·`false`·`false`로 옮긴다. 로그 `Summary session links moved`. 이 릴리스까지 `summary` link를 만드는 길은 없었다.
+  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. `visibility`는 뒤의 릴리스가 지운다.
+- **migration `0313_session_link_history`가 `session_links`에 `closed_at`·`closed_reason` 칸과 닫히지 않은 link만 보는 부분 unique 둘을, `slack_outbox`에 `session_link_id` 칸을 더한다**(JeongJaeSoon/werft#2038). 이 릴리스의 코드는 새 칸을 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 있던 줄은 모두 닫히지 않은 link로 남고, 옛 unique 둘은 뒤의 릴리스가 지울 때까지 남는다. 인덱스는 `CONCURRENTLY`로 만들고 CHECK와 외래 키는 `NOT VALID`로 더해 따로 검증하므로 쓰기를 오래 막지 않는다. 지원 창 안의 이미지로 되돌려도 된다.
+- **Slack 역할에 스위치 `SLACK_ROLE_CLOSE_LINKS`(기본 `false`, Helm은 `slack.extraEnv`)가 생긴다. 지금은 켜지 않는다**(JeongJaeSoon/werft#2083). migration은 없고, 꺼진 채로는 Slack 스레드의 동작이 그대로다.
+  - 켜면 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결(link)을 마지막 보고 줄을 넣은 뒤 닫는다. 그 스레드에 다시 멘션하면 새 세션이 새 연결로 열린다. 켜기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
+  - 조용한(muted) 연결과 턴을 보고하지 않는 연결은 보낼 마지막 보고가 없으므로 세션이 닫히면 바로 닫는다. 그 뒤에 보고 방식을 바꿔도 닫힌 세션의 밀린 답은 보내지 않는다.
+  - 닫는 사유(`closed_reason`)는 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기 등 그 밖이면 `abandoned`다.
+  - 스위치와 상관없이, Slack 줄을 보낼지는 그 줄이 가리키는 연결을 보고 판단하고 연결이 닫혔는지는 보지 않는다. 닫힌 연결에는 그 연결의 줄이 `uncertain`이 됐다는 알림 한 줄 말고는 새 줄을 넣지 않는다.
+- **slack 역할이 Slack 글의 접수 줄(`conversation_inputs`)을 inbox 행을 처리됨으로 바꿀 때가 아니라 그 글의 턴을 넣는 transaction에서 적는다**(JeongJaeSoon/werft#2084). migration은 없고 따로 할 일도 없다. Slack에서 보이는 동작은 그대로다.
+  - 턴을 넣은 직후 slack 역할이 죽고 그사이 설치가 해지되면, 예전에는 턴만 남고 접수 줄이 없었다. 이제 둘은 함께 생기거나 함께 생기지 않는다.
+  - 이 릴리스 전 이미지가 턴만 넣고 죽은 이벤트는 다시 돌 때 지금처럼 접수 줄을 채운다. 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0334_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#2067). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+  - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
+  - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.
+  - 답글이 게시 결과보다 먼저 처리되어 스레드가 이미 다른 주제인 드문 경우는 합치지 않고 `warn` 로그 `Slack mirror opened a thread another topic already holds; the topics stay apart`를 남긴다.
+  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#2074). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+  - 칸: `slack_outbox.correlation_id`(웹 입력의 Slack 글마다 새로 만드는 상관값), `slack_outbox.held_for_input_id`(그 입력의 글 스레드를 기다리는 줄), `conversation_inputs.slack_mirror`의 새 값 `unconfirmed`.
+  - 웹 입력의 Slack 글에는 상관값이 message metadata(`event_type` `werft_input_mirror`)로 실린다. 다른 줄의 `chat.postMessage`에는 지금처럼 metadata가 없다.
+  - `uncertain`이면 다시 보내지 않고 새 스레드도 만들지 않는다. 돌아온 자기 앱의 글이 그 상관값을 가진 `uncertain` 거울 하나를 정확히 가리킬 때만 그 글을 거울로 잇는다. 본문으로는 잇지 않는다.
+  - 문에서 버린 이벤트의 `drop_fields`에 `metadata`(`event_type`과 거울의 `correlation_id`)가 더해진다. `event_payload`의 나머지는 남기지 않는다.
+  - 보류된 줄은 거울이 끝내 실패하거나 `SLACK_ROLE_INPUT_HOLD_SEC`(기본 3600, Helm `slack.inputHoldSec`)가 지나면 보내지 않고 `failed`(`input_unplaced`)로 닫는다. 로그 `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`.
+  - "다시 보내기"는 사람이 부를 때만 같은 입력의 거울을 새 상관값으로 보낸다. 이 릴리스에는 그 버튼이나 route가 없다.
+  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0330_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 판단 버퍼의 만료 칸 `buffer_expires_at`과 그 색인을 더한다**(JeongJaeSoon/werft#2059). 따로 할 일은 없고 Slack 동작도 그대로다.
+  - 판단 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 듣는 때만 멘션 없는 글을 본문째 담는다. 스위치 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없어서, 올린 뒤에도 버퍼는 비어 있다.
+  - 담긴 줄은 10분 뒤 reconciler가 통째로 지운다(로그 `Judgment buffer purged`, `expired_count`·`unlistened_count`). Slack에서 글이 지워지면 바로, 채널 보관·삭제·봇이 나감·binding `off`·에이전트 보관 때도 바로 지운다. 글이 고쳐지면 담긴 본문만 바뀐다.
+  - 줄을 고치지 않고 칸과 색인을 더하고 CHECK를 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 다만 옛 reconciler는 버퍼 줄을 지우지 않는다(스위치를 켠 적이 없으면 버퍼 줄은 없다).
+- **Slack에서 채널이 삭제되면(`channel_deleted`·`group_deleted`) 그 채널의 채널 요약을 모든 버전의 이력과 함께 지운다**(JeongJaeSoon/werft#2075). migration은 없고 따로 할 일도 없다. 이 릴리스에는 요약을 쓰는 길이 없어서 지울 행도 아직 없다.
+  - 관여 기록, 대화, `channel_contexts` 행은 남는다. 보관과 `channel_not_found`(조회 실패로 정리한 채널)로는 지우지 않는다.
+- **migration `0337_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#2077). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
+  - 세션, 턴과 입력 원문, 입력 접수 줄, 이벤트, transcript, checkpoint는 지우지 않는다. 대화 행도 남는다.
+  - 지우기 전에, 지울 기록이 가리키는 글 가운데 어느 턴의 입력도 아닌 글에 삭제 표식(`admin_deleted`)을 단다. 그 글을 출처로 가진 세션만 `SOURCE_DELETED`로 멈추고 보내지 않은 답은 나가지 않는다. 같은 채널의 다른 세션은 그대로 돈다.
+  - `--by`는 그 워크스페이스의 owner나 admin이어야 하고, receipt `delete_conversation_records`의 행위자로 남는다. DM 대화는 `dm_not_supported`로 거절한다. 다시 불러도 결과가 같다. 사용법은 문서 사이트의 "데이터별 보존" 아래 "대화 기록의 관리자 삭제"에 있다.
+  - 있던 표식은 `slack_deleted`가 된다. `conversations`의 CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
 - **Slack 사용자 id(`U…`·`W…`)를 channel로 가진 outbox 줄은 모델 안내만 넣을 수 있고, 다른 줄은 넣기에서 거절되며 Slack에 보내지 않는다**(JeongJaeSoon/werft#2029). migration `0309_slack_outbox_channel`이 CHECK `slack_outbox_channel_check`를 더한다. 어느 릴리스도 그런 줄을 쓰지 않았으므로 보통은 할 일이 없다. 그런 줄이 남아 있으면 migrate 로그 `db.migrate.notice`에 수가 남고(`0309: … slack_outbox rows name a Slack user as their channel`) migrate가 `VALIDATE CONSTRAINT`에서 멈춘다. 그 줄을 지우고 다시 돌린다([사람에게 바로 가는 Slack 글을 막는 릴리스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#사람에게-바로-가는-slack-글을-막는-릴리스)).
+- **Slack 입력에서 자기 앱의 메아리와 Slackbot 글의 버린 이유가 바뀌고, migration `0307_slack_drop_fields`가 `slack_inbound_events`에 `drop_fields` 칸을 더한다**(JeongJaeSoon/werft#2026). 할 일은 버린 이유로 집계하는 대시보드나 질의를 맞추는 것뿐이다.
+  - 에이전트 자신의 앱이 `bot_id`를 달고 쓴 글(에이전트의 답, 웹 콘솔에서 사람 이름으로 올린 지시)은 bot 허용 목록보다 먼저 `own_bot_user`로 버린다. 이전에는 허용 목록 규칙에 걸려 `bot_allowlist_empty`·`bot_not_allowed`·`bot_message`로 남았다.
+  - Slackbot(`USLACK`)의 글은 DM이든 채널이든 새 이유 `slackbot`으로 버린다. 이전에는 Slackbot DM을 사람 DM으로 처리해 실패하는 계정 연결 안내를 outbox에 넣었고, 채널 글도 사람 글로 받았다.
+  - 문에서 버린 줄의 `drop_fields`에는 보낸 쪽(`bot_id`·`app_id`·`user`)과 `subtype`·`message.subtype`만 남고 본문은 남지 않는다. 옛 줄과 slack 역할이 버린 줄은 비어 있다. CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 검증 스캔 동안 쓰기를 막지 않는다(칸 추가와 CHECK 교체는 잠깐 잠금을 잡는다). 옛 이미지와 섞여 돌아도 된다.
+- **Slack inbox(`slack_inbound_events`)가 처리를 마친 이벤트의 원문(`payload`)을 바로 지우고, 실패한 이벤트의 원문은 받은 지 7일이 지나면 reconciler가 지운다**(JeongJaeSoon/werft#2025). 따로 할 일은 없다.
+  - migration `0308_slack_inbound_payload_check`가 CHECK를 바꾼다. 처리된 행과 실패한 행은 원문이 없어도 되고, 받은 행은 원문이 있어야 하고, 버린 행은 지금처럼 원문이 없다. 새 CHECK를 `NOT VALID`로 더해 검증한 뒤 옛 CHECK를 지우고, 인덱스는 `CONCURRENTLY`로 만든다.
+  - 처리된 행의 원문을 읽던 진단 SQL은 이제 빈 값을 본다. 행(이벤트 종류·상태·버린 이유·시도 횟수)은 남는다. 이 릴리스 전에 처리한 행의 원문은 아직 남아 있다.
+  - 이미지는 지원 창 안으로 되돌려도 된다. 원문을 지운 행이 생긴 뒤에는 옛 CHECK를 다시 걸 수 없으므로 0308 아래로 스키마를 내리지 않는다.
+- **migration 0308 전에 처리를 마친 Slack inbox 행에 남은 원문(`payload`)을 지우는 운영자 명령 `slack-inbound-payloads.ts`가 생긴다**(JeongJaeSoon/werft#2080). migration은 없다. 돌리기 전에는 그 원문이 남아 있을 뿐이고 동작은 같다.
+  - **모든 slack 역할을 `v0.4.0`(0308 이후 이미지)으로 올린 뒤에 한 번 돌린다.** 앞선 이미지의 slack 역할이 남아 있으면 처리한 행에 원문을 다시 남긴다.
+  - api 컨테이너에서 `bun run apps/control-host/src/api/slack-inbound-payloads.ts`를 돌린다. 처리를 마친 행(`processed`)의 원문만 지우고, 처리 중인 행과 실패한 행(받은 지 7일 뒤 reconciler가 지운다)은 그대로다.
+  - 기본키 순서로 1000행씩(`--batch-size`, 1~10000) 문장마다 따로 커밋한다. 행 잠금은 그 묶음의 처리된 행에만 잡히고 표의 읽기·쓰기는 막지 않는다. 결과는 한 줄 JSON(상태별 원문 있는 행 수 전후, 지운 수, 묶음 수와 크기, 걸린 시간)이고, 다시 돌려도 더 지우는 것이 없다.
+  - 끝난 뒤에도 원문이 남은 처리된 행이 있으면 종료 코드 `3`이다. 앞선 이미지의 slack 역할을 내린 뒤 다시 돌린다. 수는 묶음마다 따로 읽으므로 `0`이 앞선 이미지가 없다는 증거는 아니다. 돌리기 전에 컨테이너의 이미지를 확인한다. 지운 원문은 돌아오지 않는다.
+- **Slack에서 글을 지우거나 고친 이벤트를 버리지 않고 그 글의 자리와 시각만 표식으로 남기며, migration `0312_slack_source_marks`가 표 `deleted_sources`·`edited_sources`를 더한다**(JeongJaeSoon/werft#2035). 따로 할 일은 없다.
+  - `message_deleted`, 답이 달린 글을 지울 때 오는 묘비 `message_changed`는 삭제 표식, 사람이 고친 `message_changed`는 수정 표식이 된다. 글의 본문과 이벤트 원문은 저장하지 않고, inbox 행은 원문 없이 `processed`로 남는다. 같은 글이 지워지면 수정 표식은 지운다.
+  - 표식은 만든 지 70분(판단 버퍼 10분과 1시간)이 지나면 reconciler가 지우고, 지운 수를 로그 `Unknown Slack source marks purged`에 남긴다.
+  - 버린 이유 `message_subtype`으로 집계하던 질의는 수가 준다. 링크 미리보기처럼 사람이 고치지 않은 `message_changed`는 지금처럼 버린다.
+  - 표를 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0329_slack_outbox_voided_by_delete`가 outbox 상태 `voided_by_delete`와 칸 `sources_turn`을 더하고, Slack에서 지운 글에 걸린 답과 턴을 막는다**(JeongJaeSoon/werft#2058). 따로 할 일은 없고, 지운 글이 없는 Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
+  - 출처(물려받은 것 포함)에 지운 글(묘비 포함)이 든 outbox 줄은 보내기 직전에 `voided_by_delete`(`error_code` `source_deleted`)로 끝나고 나가지 않는다. slack 역할이 `warn` 로그 `Slack send voided: a source was deleted`를 남긴다. 보내기 시작한 뒤의 삭제는 나간 글을 그대로 두고, 수정은 아무것도 막지 않는다.
+  - 지운 글로는 세션을 만들거나 턴을 넣지 않는다. Slack에는 안내를 올리지 않고 `warn` 로그 `Slack input refused by the session`(`code` `SOURCE_DELETED`)만 남는다.
+  - **보이는 변화**: 지운 Slack 글이 든 세션에 웹·API로 메시지를 보내면 409 `SOURCE_DELETED`로 거절된다.
+  - CHECK는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0333_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더하고, 지운 Slack 글을 출처로 가진 턴이 있는 열린 세션을 멈춘다**(JeongJaeSoon/werft#2064). 따로 할 일은 없고, 지운 글이 없는 세션의 동작은 그대로다.
+  - 직접 출처든 물려받은 출처든 턴 하나만 걸려도 세션 전체를 멈춘다. 글의 수정으로는 멈추지 않는다. 닫힌 세션은 건드리지 않는다.
+  - 실행 중인 턴은 끊지 않고, 끝난 뒤 pause처럼 `paused`가 된다. 대기 중인 입력은 내보내지 않는다.
+  - `attention.code`는 `SOURCE_DELETED`이고, 메시지·재개·`start_fresh`·`retry_restore`는 `409 SOURCE_DELETED`로 거절된다. 닫기만 된다. 이유는 세션 이벤트 `source_deleted`로 남는다.
+  - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 칸을 읽지 않으므로 멈춘 세션을 재개할 수 있게 된다.
+- **Slack에서 지운 글을 직접 출처로 가진 턴은 API와 웹에서 가려진다**(JeongJaeSoon/werft#2071). migration은 없고 따로 할 일도 없다. 저장된 값은 지우지 않고 읽을 때만 가리며, 지운 글이 없는 세션의 응답은 그대로다.
+  - 그 글이 입력인 턴의 입력, 그 턴의 답과 도구 결과를 가린다. 턴 응답은 `message`가 `""`, `result`가 `null`이 되고 `source_deleted_at`이 붙는다. `terminal_reason`도 `null`이다. 이벤트(SSE와 보관된 이벤트 포함)는 모양만 남기고 내용(엔진의 system 글, error의 `message`, 끝난 이유 포함)을 비우며 envelope에 `source_deleted_at`이 붙는다. 그 턴의 열린 요청은 목록에서 빠진다.
+  - 물려받기만 한 뒤 턴은 가리지 않는다(세션은 지금처럼 멈춘다).
+  - 첫 턴에서 만든 제목(`derived`·`generated`)은 세션 목록·상세·검색·도구 호출·사용량 목록에서 `null`이 되고 `title_deleted_at`이 붙는다. 사람이 준 제목은 그대로이고, status 이벤트에 남은 예전 제목은 가린다.
+  - 감사 읽기도 같이 가린다. 무엇을 가렸는지는 결정 행의 시각과 `deleted_sources.deleted_at`으로 알 수 있다.
+  - 웹은 가린 곳에 "Slack에서 삭제됨"을 보여 준다.
+- **migration `0314_budget_accounts`가 예산 계정 표 셋(`budget_limits`·`budget_accounts`·`budget_reservations`)을 빈 채로 만든다**(JeongJaeSoon/werft#2034). 따로 할 일은 없다.
+  - 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 그대로이고, 한도를 정하는 화면·API·운영자 명령은 아직 없다.
+  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0318_provider_exchange_budget`이 provider 호출 원장 `provider_exchanges`에 예산 계정 칸 `budget_root_kind`·`budget_account_id`를 nullable로 더한다**(JeongJaeSoon/werft#2044). 따로 할 일은 없고 동작도 그대로다.
+  - 이 릴리스에서는 어떤 호출도 계정을 넘기지 않으므로 두 칸은 비어 있고, 세션 비용 한도와 토큰 한도는 지금처럼 동작한다.
+  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
+- **provider 호출이 세션 한도와 함께 실행 중인 턴의 root 예산 계정에서도 잡히고, migration `0322_budget_root_slack_bot`이 root 종류에 `slack_bot`을 더한다**(JeongJaeSoon/werft#2050). 따로 할 일은 없다.
+  - 한도를 정하지 않은 설치(`budget_limits` 행 없음)에서는 지금처럼 돈다. 원장에 호출마다 root 종류(`user`·`key`·`slack_bot`·`none`)와 계정이 남는다. root `none`(사람이 시키지 않은 에이전트 스스로의 일)은 한도가 없으면 거절되지만, 이 릴리스에는 그런 턴을 만드는 경로가 없다.
+  - `budget_limits`에 한도를 넣으면 넘는 호출은 지금과 같은 `BUDGET_EXCEEDED`로 거절된다. 거절마다 API가 `info` 로그 `Provider exchange refused for the budget`(`turn_id`, `refused_by` `session`/`account`, `budget_root_kind`, `budget_account_id`)을 남긴다.
+  - 요청자를 읽을 수 없는 턴, 세션 제목 짓기 호출, 실행 중인 턴이 없는 호출은 세션 한도만 본다. 제목 짓기 호출은 egress proxy가 open에 헤더로 알리므로 api와 egress proxy를 함께 올린다(proxy만 앞선 버전이면 그동안 제목 호출도 턴의 계정에 잡힌다). CHECK를 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0328_conversation_calls`가 세션 없는 provider 호출(대화 호출)의 표 `conversation_calls`를 더하고, 세션 제목 짓기 호출과 실행 중인 턴이 없는 세션 호출을 그 세션을 만든 첫 턴의 예산 계정에 매긴다**(JeongJaeSoon/werft#2057). 따로 할 일은 없다.
+  - 대화 호출은 토큰을 내기 전에 root의 계정에 그 호출의 최대 비용(요청 본문 바이트 상한과 `max_tokens`)을 예약하고, 토큰은 egress proxy를 지나는 Messages 호출 한 번에만 쓰인다. 2분 안에 쓰이지 않은 토큰의 예약은 reconciler가 푼다(로그 `Conversation call reservations reconciled`, `released_count`). 이 릴리스에는 대화 호출을 내는 경로가 없어서 표는 비어 있다.
+  - 한도를 정하지 않은 설치에서는 제목 짓기 호출과 턴 사이의 호출이 지금처럼 돈다. 한도를 넣으면 이 호출들도 세션을 만든 사람(또는 key)의 계정에서 판정되고, 넘으면 제목은 첫 메시지에서 자른 것이 그대로 남는다.
+  - egress proxy가 provider 허가 요청에 헤더 `x-werft-exchange-id`를 붙인다. 앞선 API는 이 헤더를 무시한다. 대화 호출 토큰은 이 헤더가 있어야 허가되므로 api와 egress proxy를 함께 올린다.
+  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0332_unknown_budget_end`가 끝을 모르는 호출을 적는 칸 `unknown_at`을 더하고, 한도가 있는 계정에서 root 종류 `none`의 예약을 한도의 80%에서 거절한다**(JeongJaeSoon/werft#2065). 따로 할 일은 없고, 예산 한도가 없는 설치는 지금처럼 돈다.
+  - 쓰인 provider 호출에 lease(5분) 안에 사용량 보고가 없으면 reconciler가 `budget_reservations`(대화 호출은 `conversation_calls`도)의 `unknown_at`을 적는다. 상태는 `reserved`(`in_flight`) 그대로이고, 예약은 풀지 않고 쓴 것으로 센다. 늦은 보고가 실제 값으로 정산하고, lease 갱신과 해제는 표시를 지운다. 세션 호출과 대화 호출 모두 같다.
+  - 끝을 모르는 예약이 많은 계정부터 배치 크기만큼 그 수와 묶인 금액이 `warn` 로그 `Budget reservations of unknown end held`에, 모든 계정의 합계가 `Budget reservations of unknown end reported`에 남는다. `Provider exchange ledger reconciled`와 `Conversation call reservations reconciled`에 `unknown_count`가 더해진다. 묶인 예약을 푸는 운영자 명령은 아직 없다.
+  - root 종류 `none`(사람도 key도 없는 실행)은 80%에서, 사람과 key·Slack 봇의 요청은 100%에서 거절된다. 한도가 없는 계정에는 80% 판정이 없다.
+  - 상태 값과 CHECK는 바뀌지 않는다. 지원 창 안의 이미지로 되돌려도 `unknown_at`은 무시되고 예약은 `reserved`로 정산된다.
 
 ## v0.3.0
 
