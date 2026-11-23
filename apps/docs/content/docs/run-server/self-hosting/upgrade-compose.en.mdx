@@ -485,6 +485,15 @@ Migration `0312_slack_source_marks` creates two tables, `deleted_sources` and `e
 - Queries that count the drop reason `message_subtype` see fewer rows, without the edits and deletes. A `message_changed` no person made, such as a link preview, is still dropped.
 - The migration only adds tables, so rolling back to an image inside the support window is fine. The earlier image does not use them and drops edits and deletes again.
 
+<a id="slack-스레드의-옛-link-unique를-지운-릴리스" />
+### The release that drops the old link uniques of Slack threads
+
+Migration `0336_session_link_old_uniques` drops the two old uniques of `session_links` (`session_links_surface_ref_key`, `session_links_session_uniq`). The uniques left are the two that cover only links not closed (`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`). Each thread and each session still has at most one open link, and closed links may stay beside it as history. There is nothing to do on upgrade, and Slack threads behave as before.
+
+- **You cannot roll back to an image of `v0.3.0` or earlier.** Those images reserve a Slack thread's link with an `ON CONFLICT` naming the old unique `(installation_id, surface_ref)`, so after this migration the reservation ends in an error and the thread gets no session. Rolling back to an image from the release that moved reservations to the open-only uniques onward is fine. To go back further, restore the database from the backup taken before the upgrade.
+- If you upgrade straight from `v0.3.0`, thread reservations taken by the old slack role fail from the end of migrate until that role stops. Failed events are retried like any failed reservation, and the new slack role handles them.
+- No row is changed. The constraint is dropped in one statement that reads no table (it takes a brief lock), and the index is dropped `CONCURRENTLY`. Every statement may run again.
+
 <a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
 ### The release that adds link history columns for Slack threads
 

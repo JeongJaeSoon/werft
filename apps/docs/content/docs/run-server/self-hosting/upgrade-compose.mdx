@@ -438,6 +438,14 @@ migration `0312_slack_source_marks`가 새 표 `deleted_sources`와 `edited_sour
 - 버린 이유 `message_subtype`으로 집계하던 질의는 수정·삭제 이벤트가 빠진 만큼 수가 준다. 링크 미리보기처럼 사람이 고치지 않은 `message_changed`는 지금처럼 버린다.
 - 표를 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 앞선 이미지는 이 표를 쓰지 않고 수정·삭제 이벤트를 다시 버린다.
 
+### Slack 스레드의 옛 link unique를 지운 릴리스
+
+migration `0336_session_link_old_uniques`가 `session_links`의 옛 unique 둘(`session_links_surface_ref_key`, `session_links_session_uniq`)을 지운다. 남는 unique는 닫히지 않은 link만 보는 둘(`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`)이다. 스레드와 세션마다 열린 link는 지금처럼 하나뿐이고, 닫힌 link는 그 옆에 이력으로 남을 수 있다. 올릴 때 할 일은 없고, Slack 스레드의 동작은 그대로다.
+
+- **`v0.3.0` 이하의 이미지로는 되돌릴 수 없다.** 그 이미지는 Slack 스레드의 link를 옛 unique `(installation_id, surface_ref)`를 가리키는 `ON CONFLICT`로 예약하므로, 이 migration 뒤에는 그 예약이 오류로 끝나고 스레드에 세션이 생기지 않는다. 열린 link만 보는 예약으로 옮긴 릴리스부터의 이미지로는 되돌려도 된다. 그보다 앞으로 돌아가야 하면 업그레이드 전 백업으로 DB를 복원한다.
+- `v0.3.0`에서 바로 올리면 migrate가 끝난 뒤 옛 slack 역할이 내려갈 때까지 그 역할이 받은 스레드 예약이 실패한다. 실패한 이벤트는 다른 예약 실패처럼 다시 시도되고, 새 slack 역할이 처리한다.
+- 행은 고치지 않는다. 제약은 표를 읽지 않는 한 문장으로 지우고(잠깐 잠금을 잡는다), 인덱스는 `CONCURRENTLY`로 지운다. 각 문장은 다시 돌려도 된다.
+
 ### Slack 스레드의 link 이력 칸을 더한 릴리스
 
 migration `0313_session_link_history`가 `session_links`에 `closed_at`·`closed_reason` 칸과 닫히지 않은 link만 보는 부분 unique 둘(`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`)을 더하고, `slack_outbox`에 `session_link_id` 칸을 더한다. 이 릴리스의 코드는 새 칸을 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 있던 줄은 모두 닫히지 않은 link로 남는다.
