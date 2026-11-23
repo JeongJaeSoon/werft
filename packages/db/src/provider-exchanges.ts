@@ -305,7 +305,11 @@ export function createProviderExchangeLedger(
             reserves: [...held.reserves, input.reserve],
           })
         ) {
-          return { outcome: "budget_exceeded" };
+          return {
+            outcome: "budget_exceeded",
+            by: "session",
+            accountId: null,
+          };
         }
         // The session admitted it; the account judges it next, in this
         // transaction, so a refusal there leaves nothing on either side.
@@ -320,7 +324,11 @@ export function createProviderExchangeLedger(
           );
           switch (reserved.outcome) {
             case "refused":
-              return { outcome: "budget_exceeded" };
+              return {
+                outcome: "budget_exceeded",
+                by: "account",
+                accountId: reserved.accountId,
+              };
             case "conflict":
               return { outcome: "conflict" };
             case "replayed":

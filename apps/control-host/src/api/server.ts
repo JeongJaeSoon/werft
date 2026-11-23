@@ -2,6 +2,7 @@ import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
+  budgetChoiceOfCall,
   closeAgentlessSessions,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
@@ -1312,6 +1313,7 @@ const authorizerListener =
             admits: async () =>
               admitsReservations(await installationConfig.sessionBudget()),
           }),
+          budgetOf: (call) => budgetChoiceOfCall(db, call),
           ...(githubMcpGrantKey === null
             ? {}
             : {

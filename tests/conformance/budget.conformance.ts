@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test";
-import { Api, e2eStack } from "../e2e/client.ts";
+import { Api, e2eStack, poll } from "../e2e/client.ts";
 import { docker, serviceContainer } from "./docker.ts";
 import { scenario, scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
@@ -86,6 +86,135 @@ describe(`cost limit on ${engine.runtimeKind}`, () => {
       // The refusal is the gateway's: a session that failed for another
       // reason after its first reply would pass every check above.
       expect(await budgetRefusals()).toBeGreaterThan(refusedBefore);
+    },
+    TIMEOUT,
+  );
+});
+
+/** psql in the stack's postgres container, as the container's own user. */
+async function sql(query: string): Promise<string[]> {
+  const out = await docker([
+    "exec",
+    await serviceContainer("postgres"),
+    "sh",
+    "-c",
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F "|" -c "$1"',
+    "sh",
+    query,
+  ]);
+  return out.split("\n").filter((line) => line.trim() !== "");
+}
+
+/** The gateway's own log of opens the budget refused, by the side that did. */
+async function accountRefusals(sessionId: string): Promise<number> {
+  let count = 0;
+  const log = await docker(["logs", await serviceContainer("api")]);
+  for (const line of log.split("\n")) {
+    const start = line.indexOf("{");
+    if (start < 0) continue;
+    try {
+      const entry = JSON.parse(line.slice(start)) as {
+        message?: string;
+        fields?: { session_id?: string; refused_by?: string };
+      };
+      if (
+        entry.message === "Provider exchange refused for the budget" &&
+        entry.fields?.session_id === sessionId &&
+        entry.fields.refused_by === "account"
+      ) {
+        count += 1;
+      }
+    } catch {
+      // Not a JSON log line.
+    }
+  }
+  return count;
+}
+
+describe(`budget account on ${engine.runtimeKind}`, () => {
+  scenario(
+    engine,
+    "provider_budget",
+    "two calls in flight on one team account: the one past its limit is refused, the other runs and settles",
+    async () => {
+      // A first session, with no limit, shows what one call holds and on
+      // which account: the suite's key has no person, so the agent's team.
+      const warm = scriptId("budget-warm");
+      const warmed = await api.createSession(
+        engine.prompt({ id: warm, commands: [], final: "warm" }),
+        undefined,
+        engine.repositoryId,
+      );
+      expect(warmed.status).toBe(201);
+      const warmId = warmed.body.session_id;
+      expect((await api.settleAllowing(warmId, "1")).status).toBe("completed");
+      const [held] = await sql(
+        `select r.workspace_id, a.owner_id, r.tokens, r.root_kind from budget_reservations r join budget_accounts a on a.id = r.account_id where a.owner_kind = 'team' and r.call_id in (select exchange_id::text from provider_usage where session_id = '${warmId}') order by r.tokens desc limit 1`,
+      );
+      expect(held).toBeDefined();
+      const [workspaceId, teamId, tokens, rootKind] = (held as string).split(
+        "|",
+      );
+      expect(rootKind).toBe("key");
+      const reserve = Number(tokens);
+      expect(reserve).toBeGreaterThan(0);
+      const [spent] = await sql(
+        `select spent_tokens + reserved_tokens from budget_accounts where owner_kind = 'team' and owner_id = '${teamId}' order by period_start desc limit 1`,
+      );
+      // Room for one more call's reserve, not for two.
+      const limit = Number(spent) + Math.floor(reserve * 1.5);
+      await sql(
+        `insert into budget_limits (workspace_id, subject, subject_id, tokens) values ('${workspaceId}', 'team', '${teamId}', ${limit})`,
+      );
+      try {
+        const slow = scriptId("budget-slow");
+        const first = await api.createSession(
+          engine.prompt({
+            id: slow,
+            commands: [],
+            final: "slow",
+            finalDelayMs: 20_000,
+          }),
+          undefined,
+          engine.repositoryId,
+        );
+        expect(first.status).toBe(201);
+        const firstId = first.body.session_id;
+        // Its call is open, holding its reserve, while the provider waits.
+        await poll("the slow call to be open", 120_000, async () => {
+          const rows = await sql(
+            `select 1 from provider_exchanges where session_id = '${firstId}' and released_at is null and budget_root_kind = 'key'`,
+          );
+          return rows.length > 0 ? true : null;
+        });
+        const late = scriptId("budget-late");
+        const second = await api.createSession(
+          engine.prompt({ id: late, commands: [], final: "never reached" }),
+          undefined,
+          engine.repositoryId,
+        );
+        expect(second.status).toBe(201);
+        const secondId = second.body.session_id;
+        expect((await api.settleAllowing(secondId, "1")).status).toBe("failed");
+        expect((await api.session(secondId)).attention?.code).toBe(
+          "BUDGET_EXCEEDED",
+        );
+        expect(await engine.modelCalls(late)).toEqual([]);
+        expect(await accountRefusals(secondId)).toBeGreaterThan(0);
+
+        expect((await api.settleAllowing(firstId, "1")).status).toBe(
+          "completed",
+        );
+        // Settled: nothing of the slow call is held any more.
+        const [after] = await sql(
+          `select reserved_tokens from budget_accounts where owner_kind = 'team' and owner_id = '${teamId}' order by period_start desc limit 1`,
+        );
+        expect(Number(after)).toBe(0);
+      } finally {
+        await sql(
+          `delete from budget_limits where subject = 'team' and subject_id = '${teamId}'`,
+        );
+      }
     },
     TIMEOUT,
   );
