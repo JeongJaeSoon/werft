@@ -224,6 +224,7 @@ COMMIT;
 - 上の 0285 のロールバック SQL は、このリリースの後では使えません。`credential_source` は `stored` だけを許します。
 
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
+<a id="대화-기록의-관리자-삭제를-더하는-릴리스" />
 ### 会話記録の管理者削除を追加するリリース
 
 migration `0336_conversation_records_deleted` が `conversations` に `records_deleted_at`・`records_deleted_by_user_id`(nullable)を、`deleted_sources` に `reason`(既定値 `slack_deleted`)を追加する。アップグレード時に行うことはなく、Slack とセッションの動作は変わらない。

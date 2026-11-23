@@ -224,6 +224,7 @@ From this release model connections, MCP servers and repository GitHub App keys 
 - The 0285 rollback SQL above no longer applies after this release: `credential_source` allows `stored` only.
 
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
+<a id="대화-기록의-관리자-삭제를-더하는-릴리스" />
 ### The release that adds the admin delete of conversation records
 
 Migration `0336_conversation_records_deleted` adds `records_deleted_at` and `records_deleted_by_user_id` (nullable) to `conversations`, and `reason` (default `slack_deleted`) to `deleted_sources`. Nothing to do when upgrading, and Slack and sessions behave as before.
