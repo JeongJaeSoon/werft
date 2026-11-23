@@ -793,6 +793,55 @@ describe("에이전트 GitHub 탭", () => {
     );
   });
 
+  test("저장하지 않은 변경이 있는 동안 저장 상자는 탭 끝에서 화면 아래에 붙고, 이름과 키보드로 닿는다", async () => {
+    const { server } = await activeAgent();
+    const sent: unknown[] = [];
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push(await request.json());
+          return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    // The push section names where its changes are saved.
+    expect(
+      screen.getByText(/화면 아래에 붙는 저장 막대에서 함께 저장/),
+    ).toBeTruthy();
+
+    const push = switchNamed("push 전 사람 승인");
+    await user.click(push);
+    const region = await screen.findByRole("region", {
+      name: "저장하지 않은 변경 1건",
+    });
+    const bar = region.parentElement as HTMLElement;
+    expect(bar.className.split(" ")).toEqual(
+      expect.arrayContaining(["sticky", "bottom-0", "bg-background"]),
+    );
+    // Below every section, the push section included, so it is in view there.
+    expect(
+      push.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("heading", { name: "최근 기록" })
+        .compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // From the switch, Tab reaches the bar's save and Enter saves.
+    const save = within(region).getByRole("button", { name: "저장" });
+    push.focus();
+    for (let step = 0; step < 80 && document.activeElement !== save; step++)
+      await user.tab();
+    expect(document.activeElement === save).toBe(true);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ settings: { push_approval: false } });
+  });
+
   test("설정이 없는 에이전트는 저장 전에도 머리글과 스위치가 같이 push 승인 꺼짐이다", async () => {
     const { server, release } = await activeAgent();
     release.policy_pins = {};

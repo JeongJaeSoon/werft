@@ -7,7 +7,7 @@ export const agentGitHubKo = {
   "agentGitHub.turnOn": "GitHub 켜기",
   "agentGitHub.disableRow": "GitHub 사용 끄기",
   "agentGitHub.pushHint":
-    "이 에이전트가 만든 commit을 push하기 전에 사람 승인을 받을지 정합니다. 바꾼 것은 위의 저장 상자에서 함께 저장합니다.",
+    "이 에이전트가 만든 commit을 push하기 전에 사람 승인을 받을지 정합니다. 바꾼 것은 화면 아래에 붙는 저장 막대에서 함께 저장합니다.",
   "agentGitHub.addSubmit": "추가",
   "agentGitHub.table.repository": "저장소",
   "agentGitHub.table.use": "사용",
@@ -223,7 +223,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.turnOn": "Turn GitHub on",
   "agentGitHub.disableRow": "Turn off GitHub",
   "agentGitHub.pushHint":
-    "Whether a person approves the commits this agent makes before they are pushed. Changes are saved together in the save box above.",
+    "Whether a person approves the commits this agent makes before they are pushed. Changes are saved together in the save bar at the bottom of the screen.",
   "agentGitHub.addSubmit": "Add",
   "agentGitHub.table.repository": "Repository",
   "agentGitHub.table.use": "Use",
@@ -441,7 +441,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.turnOn": "GitHub をオンにする",
   "agentGitHub.disableRow": "GitHub をオフにする",
   "agentGitHub.pushHint":
-    "このエージェントが作った commit を push する前に人の承認を受けるかを決めます。変更は上の保存ボックスでまとめて保存します。",
+    "このエージェントが作った commit を push する前に人の承認を受けるかを決めます。変更は画面下に固定される保存バーでまとめて保存します。",
   "agentGitHub.addSubmit": "追加",
   "agentGitHub.table.repository": "リポジトリ",
   "agentGitHub.table.use": "使用",

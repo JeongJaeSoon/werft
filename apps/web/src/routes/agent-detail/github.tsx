@@ -755,67 +755,6 @@ function GitHubSettings({
             </Text>
           )}
         </IntegrationHeader>
-        {manages && (pending > 0 || firstSave || saveFailure) ? (
-          <Alert
-            ref={pendingRegion}
-            tabIndex={-1}
-            variant={saveFailure ? "red" : "blue"}
-            role="region"
-            aria-label={pendingTitle}
-            className="outline-none"
-          >
-            <AlertTitle>{pendingTitle}</AlertTitle>
-            <AlertDescription>
-              {t("agentGitHub.pending.body")}
-              {saveFailure ? (
-                <div
-                  ref={saveError}
-                  tabIndex={-1}
-                  className="mt-2 outline-none"
-                >
-                  <FieldError>{saveFailure}</FieldError>
-                </div>
-              ) : null}
-            </AlertDescription>
-            <AlertActions>
-              <Button
-                type="button"
-                size="sm"
-                disabled={
-                  (pending === 0 && !firstSave) ||
-                  stale ||
-                  save.isPending ||
-                  toggles.pending
-                }
-                onClick={() => save.mutate()}
-              >
-                {save.isPending
-                  ? t("agentGitHub.pending.saving")
-                  : t("agentGitHub.pending.save")}
-              </Button>
-              {draft !== null || saveFailure ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={save.isPending}
-                  onClick={() => {
-                    setDraft(null);
-                    save.reset();
-                    // The region stays for a first save but this button goes.
-                    if (firstSave) pendingRegion.current?.focus();
-                  }}
-                >
-                  {t(
-                    stale || save.error?.code === "REVISION_CONFLICT"
-                      ? "agentGitHub.pending.reload"
-                      : "agentGitHub.pending.revert",
-                  )}
-                </Button>
-              ) : null}
-            </AlertActions>
-          </Alert>
-        ) : null}
         {data.github === null && base ? (
           <Alert>
             <AlertDescription>{t("agentGitHub.legacy")}</AlertDescription>
@@ -1161,6 +1100,71 @@ function GitHubSettings({
             onAction={() => enabled.setConfirming(true)}
           />
         </DangerZone>
+      ) : null}
+      {manages && (pending > 0 || firstSave || saveFailure) ? (
+        // Last in the tab and sticky, so it stays at the screen's foot while
+        // there is something to save, even far down at the push section.
+        <div className="sticky bottom-0 z-10 bg-background pt-2 pb-4">
+          <Alert
+            ref={pendingRegion}
+            tabIndex={-1}
+            variant={saveFailure ? "red" : "blue"}
+            role="region"
+            aria-label={pendingTitle}
+            className="outline-none"
+          >
+            <AlertTitle>{pendingTitle}</AlertTitle>
+            <AlertDescription>
+              {t("agentGitHub.pending.body")}
+              {saveFailure ? (
+                <div
+                  ref={saveError}
+                  tabIndex={-1}
+                  className="mt-2 outline-none"
+                >
+                  <FieldError>{saveFailure}</FieldError>
+                </div>
+              ) : null}
+            </AlertDescription>
+            <AlertActions>
+              <Button
+                type="button"
+                size="sm"
+                disabled={
+                  (pending === 0 && !firstSave) ||
+                  stale ||
+                  save.isPending ||
+                  toggles.pending
+                }
+                onClick={() => save.mutate()}
+              >
+                {save.isPending
+                  ? t("agentGitHub.pending.saving")
+                  : t("agentGitHub.pending.save")}
+              </Button>
+              {draft !== null || saveFailure ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={save.isPending}
+                  onClick={() => {
+                    setDraft(null);
+                    save.reset();
+                    // The region stays for a first save but this button goes.
+                    if (firstSave) pendingRegion.current?.focus();
+                  }}
+                >
+                  {t(
+                    stale || save.error?.code === "REVISION_CONFLICT"
+                      ? "agentGitHub.pending.reload"
+                      : "agentGitHub.pending.revert",
+                  )}
+                </Button>
+              ) : null}
+            </AlertActions>
+          </Alert>
+        </div>
       ) : null}
       {enabled.update.error && !enabled.confirming && data.enabled ? (
         <FieldError>{failure(enabled.update.error, t)}</FieldError>
