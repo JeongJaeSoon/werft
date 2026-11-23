@@ -354,9 +354,8 @@ export function SessionChat({
                   }
                 >
                   {item.turn.source_deleted_at ? (
-                    <span className="text-muted-foreground">
-                      {t("session.sourceDeleted")}
-                    </span>
+                    // The bubble's own colour: muted text on it fails contrast.
+                    <span className="italic">{t("session.sourceDeleted")}</span>
                   ) : (
                     item.turn.message
                   )}
