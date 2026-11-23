@@ -94,6 +94,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
   const goneChannels = new Set<string>();
   const readyChannels = new Map<string, "public_channel" | "private_channel">();
   const rejectedChannels = new Set<string>();
+  const echoes: unknown[] = [];
   const service = createSlackEventsService({
     signingSecrets,
     inbox: inbox.store,
@@ -101,6 +102,12 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     identities: identities.store,
     installs: installs.store,
     sourceMarks: marks.store,
+    mirrorEchoes: {
+      matchMirrorEcho: async (echo) => {
+        echoes.push(echo);
+        return "no_candidate";
+      },
+    },
     bindings: {
       findLiveSlackChannel: async (_installationId, channelId) => {
         const kind = readyChannels.get(channelId);
@@ -197,6 +204,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
 
   return {
     service,
+    echoes,
     signingSecrets,
     inbox,
     marks,
@@ -727,6 +735,91 @@ describe("Slack events service", () => {
       expect(JSON.stringify(row)).not.toContain("notes.txt");
       expect(JSON.stringify(row)).not.toContain("웹 콘솔");
     }
+  });
+
+  test("a dropped row keeps a message's metadata type and a mirror's correlation id, never the rest of its payload", async () => {
+    const w = world();
+    await w.install();
+    const correlation = "019a0000-0000-7000-8000-0000000000c1";
+    const cases = [
+      [
+        {
+          ...OWN_MIRROR,
+          metadata: {
+            event_type: "werft_input_mirror",
+            event_payload: { correlation_id: correlation, note: "Run it" },
+          },
+        },
+        { event_type: "werft_input_mirror", correlation_id: correlation },
+      ],
+      // Another type's payload is never read.
+      [
+        {
+          ...OWN_MIRROR,
+          ts: "1.4",
+          metadata: {
+            event_type: "task_created",
+            event_payload: { correlation_id: correlation, title: "Run it" },
+          },
+        },
+        { event_type: "task_created" },
+      ],
+      // Not an id: the type alone.
+      [
+        {
+          ...OWN_MIRROR,
+          ts: "1.5",
+          metadata: {
+            event_type: "werft_input_mirror",
+            event_payload: { correlation_id: "Run it" },
+          },
+        },
+        { event_type: "werft_input_mirror" },
+      ],
+      [{ ...OWN_MIRROR, ts: "1.6" }, undefined],
+    ] as const;
+    for (const [fields] of cases) {
+      await w.service.receive(w.signed(w.event(fields)));
+    }
+    const rows = [...w.inbox.rows.values()];
+    expect(
+      rows.map((row) =>
+        row.status === "dropped" ? row.dropFields.metadata : null,
+      ),
+    ).toEqual(cases.map(([, kept]) => kept));
+    for (const row of rows) {
+      expect(JSON.stringify(row)).not.toContain("Run it");
+    }
+    // Only the post that names a mirror's request is matched, by its id.
+    expect(w.echoes).toEqual([
+      {
+        workspaceId: WORKSPACE,
+        slackAppId: APP_ROW,
+        correlationId: correlation,
+        channelId: "C0CHAN",
+        ts: "1.3",
+      },
+    ]);
+  });
+
+  test("a person's message carrying a mirror's metadata is never matched", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    await w.service.receive(
+      w.signed(
+        w.event({
+          ...MENTION,
+          metadata: {
+            event_type: "werft_input_mirror",
+            event_payload: {
+              correlation_id: "019a0000-0000-7000-8000-0000000000c1",
+            },
+          },
+        }),
+      ),
+    );
+    expect(w.echoes).toEqual([]);
   });
 
   test("another agent's bot of this Werft install is dropped, even when the allow list still names it", async () => {

@@ -1,4 +1,5 @@
 import {
+  SLACK_INPUT_MIRROR_EVENT_TYPE,
   SLACK_USER_CHANNEL_CODE,
   slackOutboxChannelRefused,
 } from "@werft-ai/contracts";
@@ -162,8 +163,19 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
         : response;
     }
     const { sender } = presentation;
+    // A mirror's post names its request, so the post Slack sends back can.
+    const metadata =
+      claim.kind === "input_mirror" && claim.correlationId != null
+        ? {
+            metadata: {
+              event_type: SLACK_INPUT_MIRROR_EVENT_TYPE,
+              event_payload: { correlation_id: claim.correlationId },
+            },
+          }
+        : {};
     const response = await deps.slack.postMessage(botToken, {
       ...target,
+      ...metadata,
       username: sender.username,
       ...(iconUrl === null ? {} : { iconUrl }),
     });
@@ -176,6 +188,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     // before the name left the text has it there already.
     return deps.slack.postMessage(botToken, {
       ...target,
+      ...metadata,
       text: slackInstructionFallbackText(claim.body, text, sender.username),
     });
   };
