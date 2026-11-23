@@ -40,6 +40,11 @@ import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
 import { outboxSources } from "../conversations/index.ts";
 import {
+  mirrorsInstructions,
+  postsPrompts,
+  reportsTurns,
+} from "../link-posting.ts";
+import {
   catalogName,
   createPostgresPushRequests,
   toolSummaryContext,
@@ -124,6 +129,7 @@ const fenced = (fence: SlackOutboxFence) =>
 const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
   coalesce(${turn}.channel IN ('web', 'api'), false)
   AND ${turn}.created_at >= ${link}.created_at
+  AND ${mirrorsInstructions(link)}
   AND NOT EXISTS (
     SELECT 1 FROM slack_outbox oi
     WHERE oi.dedupe_key = 'instruction:' || ${link}.id || ':' || ${turn}.sequence
@@ -194,7 +200,11 @@ const addressed = (db: Database, row: SQL) => sql`(
       AND l.thread_id = ${row}.thread_ts
       AND l.revoked_at IS NULL
       AND NOT l.muted
-      AND l.visibility = 'full'
+      AND CASE ${row}.kind
+        WHEN 'instruction' THEN ${mirrorsInstructions(sql.raw("l"))}
+        WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
+        ELSE ${reportsTurns(sql.raw("l"))}
+      END
   ))
 )`;
 
@@ -781,7 +791,7 @@ export function createPostgresSlackOutboxStore(
           WHERE l2.session_id IS NOT NULL
             AND l2.revoked_at IS NULL
             AND NOT l2.muted
-            AND l2.visibility = 'full'
+            AND ${reportsTurns(sql.raw("l2"))}
             AND l2.closed_at IS NULL
         ) m
         WHERE l.id = m.id AND m.mark > l.answered_through
@@ -832,7 +842,7 @@ export function createPostgresSlackOutboxStore(
           and(
             isNull(sessionLinks.revokedAt),
             eq(sessionLinks.muted, false),
-            eq(sessionLinks.visibility, "full"),
+            mirrorsInstructions(sql.raw('"session_links"')),
             isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             // By a range per link, as unansweredTurns finds its turns.
@@ -849,7 +859,7 @@ export function createPostgresSlackOutboxStore(
               ) open
               WHERE ol.revoked_at IS NULL
                 AND NOT ol.muted
-                AND ol.visibility = 'full'
+                AND ${mirrorsInstructions(sql.raw("ol"))}
                 AND ol.closed_at IS NULL
             ))`,
             sql`${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
@@ -936,13 +946,13 @@ export function createPostgresSlackOutboxStore(
               ) open
               WHERE ol.revoked_at IS NULL
                 AND NOT ol.muted
-                AND ol.visibility = 'full'
+                AND ${reportsTurns(sql.raw("ol"))}
                 AND ol.closed_at IS NULL
             ))`,
             isNull(sessionLinks.revokedAt),
-            // A muted or summary-only thread is not where a full answer goes.
+            // A muted thread, or one that hears of no turns, gets no answer.
             eq(sessionLinks.muted, false),
-            eq(sessionLinks.visibility, "full"),
+            reportsTurns(sql.raw('"session_links"')),
             isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             inArray(turns.status, ENDED_WITH_POST),
@@ -1033,7 +1043,7 @@ export function createPostgresSlackOutboxStore(
       const live = and(
         isNull(sessionLinks.revokedAt),
         eq(sessionLinks.muted, false),
-        eq(sessionLinks.visibility, "full"),
+        postsPrompts(sql.raw('"session_links"')),
         isNull(sessionLinks.closedAt),
         ne(slackInstallations.status, "revoked"),
       );

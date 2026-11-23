@@ -1,5 +1,5 @@
 {
-  "id": "a43e33b4-4572-41e4-898b-af5304d8b98f",
+  "id": "5fbc2e2a-3f58-40db-81ad-5f8fdcdc00c1",
   "prevId": "4c5813e5-1a57-4694-b6ca-91856937f77f",
   "version": "7",
   "dialect": "postgresql",
@@ -13481,6 +13481,26 @@
           "notNull": true,
           "default": "'full'"
         },
+        "report_mode": {
+          "name": "report_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mirror_instructions": {
+          "name": "mirror_instructions",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "post_prompts": {
+          "name": "post_prompts",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
         "muted": {
           "name": "muted",
           "type": "boolean",
@@ -13675,6 +13695,10 @@
         "session_links_visibility_check": {
           "name": "session_links_visibility_check",
           "value": "\"session_links\".\"visibility\" IN ('full', 'summary')"
+        },
+        "session_links_report_mode_check": {
+          "name": "session_links_report_mode_check",
+          "value": "\"session_links\".\"report_mode\" IS NULL OR \"session_links\".\"report_mode\" IN ('notify_only', 'progress', 'per_step', 'none')"
         },
         "session_links_revision_check": {
           "name": "session_links_revision_check",
@@ -14429,7 +14453,7 @@
       "checkConstraints": {
         "session_shares_scope_check": {
           "name": "session_shares_scope_check",
-          "value": "\"session_shares\".\"scope\" IN ('private', 'people', 'team', 'workspace', 'private_channel')"
+          "value": "\"session_shares\".\"scope\" IN ('private', 'people', 'team', 'workspace')"
         }
       },
       "isRLSEnabled": false
@@ -17293,6 +17317,13 @@
           "notNull": true,
           "default": false
         },
+        "report_mode": {
+          "name": "report_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'per_step'"
+        },
         "memory_write_policy": {
           "name": "memory_write_policy",
           "type": "text",
@@ -17491,6 +17522,10 @@
         "surface_bindings_listen_check": {
           "name": "surface_bindings_listen_check",
           "value": "\"surface_bindings\".\"listen\" IN ('free','mention','off')"
+        },
+        "surface_bindings_report_mode_check": {
+          "name": "surface_bindings_report_mode_check",
+          "value": "\"surface_bindings\".\"report_mode\" IN ('notify_only','progress','per_step')"
         },
         "surface_bindings_ceiling_check": {
           "name": "surface_bindings_ceiling_check",
