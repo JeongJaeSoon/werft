@@ -107,6 +107,13 @@ export function createSessionShareService(deps: {
             undefined,
             { reason_code: "preview_session" },
           );
+        case "channel_fixed":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            "A private channel's session is seen by the channel's members alone",
+            undefined,
+            { reason_code: "private_channel_session" },
+          );
         case "unchanged":
           return { share: shareView(result.share), receipt_id: null };
         default:

@@ -65,7 +65,7 @@ import {
 } from "../musterrolle/index.ts";
 import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
-import { viewerOf } from "../sessions/index.ts";
+import { viewerFor } from "../sessions/index.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";
 import type {
@@ -1019,7 +1019,7 @@ export function createAgentService(deps: {
       const summaries = await store.summaries(
         caller.ownerId,
         page.items.map((agent) => agent.id),
-        viewerOf(caller),
+        await viewerFor(authorization, caller),
       );
       return {
         ...page,

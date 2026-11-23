@@ -240,6 +240,22 @@ describe("POST /v1/sessions validation", () => {
     ).toEqual(["title", "message"]);
   });
 
+  // 94S-1999: a session's Slack thread (and with it a private channel's
+  // scope) comes from the Slack role alone. The API takes no thread, so no
+  // key opens a session in a private channel's thread.
+  test("a Slack thread in the body is refused; the session API takes none", async () => {
+    for (const extra of [
+      { slack_message: { team_id: "T0ACME", channel_id: "C0PRIV", ts: "1.2" } },
+      { channel_id: "C0PRIV", thread_ts: "1.2" },
+      { parent_conversation_id: "019a0000-0000-7000-8000-00000000c0a1" },
+      { share_scope: "private_channel" },
+    ]) {
+      const response = await post({ ...valid, ...extra });
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe("BAD_REQUEST");
+    }
+  });
+
   test("attached_repository_ids: 400 for a repeated or invalid id; 403 for an agent with no GitHub settings, at any count", async () => {
     for (const ids of [
       ["docs", "docs"],

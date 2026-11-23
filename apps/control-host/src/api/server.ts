@@ -19,6 +19,7 @@ import {
   createPostgresAuditRetention,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
+  createPostgresChannelMemberStore,
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
@@ -185,6 +186,7 @@ import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
   type SlackServicesStageDeps,
   wireSlackBot,
+  wireSlackChannelMembers,
   wireSlackChannels,
   wireSlackConfig,
   wireSlackInteractions,
@@ -569,6 +571,8 @@ const checkpoints = createApiCheckpoints(
 const credentialBindings = createPostgresCredentialBindingStore(db);
 const slackGuests = createPostgresSlackGuestSetting(db);
 const sessionShares = createPostgresSessionShareStore(db);
+const slackSecretStore = () => createPostgresSecretStore(db, secretKey);
+const slackAppStore = createPostgresSlackAppStore(db, secretKey);
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
@@ -577,13 +581,18 @@ const authorization = createAuthorizationPolicy({
   credentials: credentialBindings,
   slackGuests,
   sessions: sessionShares,
+  channelMembers: wireSlackChannelMembers({
+    apiUrl: slackApiUrlFrom(process.env),
+    appStore: slackAppStore,
+    secrets: slackSecretStore,
+    store: createPostgresChannelMemberStore(db),
+    logger,
+  }),
   decisions: createPostgresDecisionLog(db),
   logger,
 });
 const agentStore = createPostgresAgentStore(db);
 const surfaceBindingStore = createPostgresSurfaceBindingStore(db);
-const slackSecretStore = () => createPostgresSecretStore(db, secretKey);
-const slackAppStore = createPostgresSlackAppStore(db, secretKey);
 const {
   api: slackBotApi,
   join: slackJoin,

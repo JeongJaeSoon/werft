@@ -23,10 +23,12 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
+  PrivateChannelPlace,
   SessionOrigin,
   SessionShareStore,
   SessionViewer,
 } from "../sessions/ports/session-share-store.ts";
+import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
 import type { UsageDecision } from "./agent-usage-decision.ts";
 import type { ConversationAccess } from "./ports/conversation-access.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
@@ -270,7 +272,12 @@ export const slackGuestsDisabled: SlackGuestSetting = {
 };
 
 /** Who made a session and whom it is shared with, read for every decision. */
-export type SessionAccess = Pick<SessionShareStore, "visibleTo" | "originOf">;
+export type SessionAccess = Pick<SessionShareStore, "visibleTo" | "originOf"> &
+  Partial<Pick<SessionShareStore, "privateChannels">>;
+
+// Member checks run at once per decision; more would spend the Slack
+// install's rate limit on one list.
+const PRIVATE_CHANNEL_CHECKS_AT_ONCE = 8;
 
 // Without a store no session was ever re-shared, so each reads workspace;
 // whose session it is cannot be read, so nobody may change that.
@@ -308,6 +315,15 @@ export interface AuthorizationPolicy {
     request: AuthorizationRequest,
     options?: { record?: false | "deny" },
   ): Promise<AuthorizationDecision>;
+  /**
+   * The conversations of the private channels whose `private_channel`
+   * sessions this subject sees now (SessionViewer.privateChannels), for a
+   * read across sessions. Records nothing.
+   */
+  privateChannelsOf?(
+    subject: AuthorizationSubject,
+    ownerScope: string,
+  ): Promise<string[]>;
 }
 
 // The scope each session action needs. Actions with no scope have no rule
@@ -493,6 +509,8 @@ export function createAuthorizationPolicy(
     credentials?: CredentialCheck;
     slackGuests?: SlackGuestSetting;
     sessions?: SessionAccess;
+    /** Without it no one sees a private_channel session. */
+    channelMembers?: ChannelMemberCheckable;
     /** Without it every conversation decision is refused. */
     conversations?: ConversationAccess;
     newDecisionId?: () => string;
@@ -707,6 +725,65 @@ export function createAuthorizationPolicy(
     return (await startsInside(reading, workspaceId, agentId)) ? "ok" : "role";
   }
 
+  // Design 9-3 for a private channel's sessions: a person who may use the
+  // agent and is a member of the channel now; never a key. An event or a
+  // click from that very channel (its channel read from the signed Slack
+  // payload) is a member's, so Slack is not asked. Whatever cannot be
+  // confirmed hides the channel.
+  async function privateChannelsFor(
+    reading: Extract<IdentityReading, { status: "ok" }>,
+    surface: AuthorizationSurface,
+    workspaceId: string,
+    places: readonly PrivateChannelPlace[],
+  ): Promise<string[]> {
+    const { principal } = reading;
+    if (places.length === 0 || principal.kind === "api_key") return [];
+    const same = (a: string | undefined, b: string) =>
+      a !== undefined && a.toLowerCase() === b.toLowerCase();
+    const seen: string[] = [];
+    const ask: PrivateChannelPlace[] = [];
+    for (const place of places) {
+      if (
+        surface.kind === "slack" &&
+        surface.channel_id === place.channelId &&
+        same(surface.agent_id, place.agentId)
+      ) {
+        seen.push(place.conversationId);
+      } else if (principal.kind === "user") {
+        ask.push(place);
+      }
+    }
+    const members = deps.channelMembers;
+    if (members === undefined) return seen;
+    const sees = async (place: PrivateChannelPlace) => {
+      try {
+        const agentId = place.agentId.toLowerCase();
+        return (
+          (await usageFor(reading, workspaceId, agentId)).allowed &&
+          (await members.isMember({
+            workspaceId,
+            agentId,
+            channelId: place.channelId,
+            userId: principal.id,
+          }))
+        );
+      } catch (error) {
+        deps.logger?.warn("Private channel access unconfirmed; hidden", {
+          error_name: errorName(error),
+        });
+        return false;
+      }
+    };
+    for (let at = 0; at < ask.length; at += PRIVATE_CHANNEL_CHECKS_AT_ONCE) {
+      const batch = ask.slice(at, at + PRIVATE_CHANNEL_CHECKS_AT_ONCE);
+      const answers = await Promise.all(batch.map(sees));
+      batch.forEach((place, i) => {
+        if (answers[i]) seen.push(place.conversationId);
+      });
+    }
+    return seen;
+  }
+
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
 
@@ -796,14 +873,31 @@ export function createAuthorizationPolicy(
     // Step 2 goes on to the share: a session outside it does not exist for
     // this subject, save for what a manager does with a reason.
     if (resource.kind === "session" && resource.id !== null) {
+      const places =
+        (await sessions.privateChannels?.(resource.owner_scope, resource.id)) ??
+        [];
       const visible = await sessions.visibleTo(
         resource.owner_scope,
         resource.id,
-        viewerOf(reading),
+        {
+          ...viewerOf(reading),
+          privateChannels: await privateChannelsFor(
+            reading,
+            surface,
+            resource.owner_scope,
+            places,
+          ),
+        },
       );
+      // The reason a key is refused is kept apart from not_found, though
+      // it answers the same.
+      const hidden: AuthorizationReason =
+        principal.kind === "api_key" && places.length > 0
+          ? "private_channel_key"
+          : "not_found";
       if (action === "session.share") {
         if (!(await mayShare(principal, resource.owner_scope, resource.id))) {
-          return [visible ? "role" : "not_found", []];
+          return [visible ? "role" : hidden, []];
         }
       } else if (manager && OUT_OF_SHARE_ACTIONS.has(action)) {
         // Audit reads and takeovers are management screens only, so asking
@@ -814,10 +908,10 @@ export function createAuthorizationPolicy(
           if (action === "session.audit_read" || action === "member.manage") {
             return ["justification_required", []];
           }
-          return ["not_found", []];
+          return [hidden, []];
         }
       } else if (!visible) {
-        return ["not_found", []];
+        return [hidden, []];
       }
     }
 
@@ -988,6 +1082,26 @@ export function createAuthorizationPolicy(
   }
 
   return {
+    async privateChannelsOf(subject, ownerScope) {
+      if (subject.principal === null || !sessions.privateChannels) return [];
+      const reading = await identity.reread({
+        ...subject,
+        principal: subject.principal,
+      });
+      if (
+        reading.status !== "ok" ||
+        ownerScope !== ownerScopeOf(reading.principal)
+      ) {
+        return [];
+      }
+      return privateChannelsFor(
+        reading,
+        subject.surface,
+        ownerScope,
+        await sessions.privateChannels(ownerScope, null),
+      );
+    },
+
     async usageOfRelease(subject, ownerScope, releaseId) {
       if (
         subject.principal === null ||

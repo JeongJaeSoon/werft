@@ -594,6 +594,10 @@ export const AUTHORIZATION_REASON_VALUES = [
   "justification_required",
   // An approval by the very key that started the session (GA-8).
   "self_approval",
+  // A key, a person's or an agent's, on a private_channel session: only
+  // the channel's current members see it, and a key is no member. Answered
+  // as not_found, so the session's existence stays hidden.
+  "private_channel_key",
   // A member rule the store decides under its row locks, after the role
   // allowed the act: only an owner touches an owner or grants the owner
   // role; nobody turns off or demotes themselves; the last live owner

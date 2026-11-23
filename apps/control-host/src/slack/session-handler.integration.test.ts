@@ -1780,7 +1780,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
 
   // Slack sends a private channel's events with channel_type "C" too
   // (measured): the binding's kind, read from Slack, decides the scope.
-  test("a mention in an approved private channel opens a workspace-wide session, read by API keys", async () => {
+  test("a mention in an approved private channel opens a private_channel session no API key reads", async () => {
     const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
@@ -1806,8 +1806,17 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         .select({ scope: sessionShares.scope })
         .from(sessionShares)
         .where(eq(sessionShares.sessionId, id)),
-    ).toEqual([]);
+    ).toEqual([{ scope: "private_channel" }]);
     const shares = createPostgresSessionShareStore(db);
+    const [place, ...more] = await shares.privateChannels(
+      fixture.workspaceId,
+      id,
+    );
+    expect(more).toEqual([]);
+    expect(place).toMatchObject({
+      agentId: fixture.agentId,
+      channelId: CHANNEL,
+    });
     const [creator] = await db
       .select({ userId: sessions.createdByUserId })
       .from(sessions)
@@ -1817,15 +1826,31 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       await shares.visibleTo(fixture.workspaceId, id, {
         userId: creator?.userId ?? null,
         apiKeyId: randomUUID(),
+        privateChannels: [place?.conversationId ?? ""],
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       await shares.visibleTo(fixture.workspaceId, id, {
         userId: null,
         apiKeyId: randomUUID(),
         keyAgentId: fixture.agentId,
+        privateChannels: [place?.conversationId ?? ""],
+      }),
+    ).toBe(false);
+    // The person who asked, a member now, sees it as a member does.
+    expect(
+      await shares.visibleTo(fixture.workspaceId, id, {
+        userId: creator?.userId ?? null,
+        apiKeyId: null,
+        privateChannels: [place?.conversationId ?? ""],
       }),
     ).toBe(true);
+    expect(
+      await shares.visibleTo(fixture.workspaceId, id, {
+        userId: creator?.userId ?? null,
+        apiKeyId: null,
+      }),
+    ).toBe(false);
   });
 
   test("the bot removed from an approved private channel leaves it inactive and silent; invited again it waits for a new approval before it answers", async () => {
