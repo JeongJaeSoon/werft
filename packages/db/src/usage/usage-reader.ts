@@ -18,6 +18,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { servedTitle } from "../conversations/index.ts";
 import { INSTALLATION_STORAGE_SCOPE } from "../input-limits.ts";
 import { sessionVisibleTo } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
@@ -510,7 +511,7 @@ async function usageAchievements(
       const recent = await run<RecentAchievementRow>(sql`
         WITH ${picked}
         SELECT a.id, a.created_at, a.session_id,
-               ss.title AS session_title, a.rule_id, r.title AS rule_title,
+               ${servedTitle("ss")} AS session_title, a.rule_id, r.title AS rule_title,
                a.title, a.link, a.evidence_kind, a.judge, a.review_state
         FROM a
         JOIN ${achievementRules} r ON r.id = a.rule_id

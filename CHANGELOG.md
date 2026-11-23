@@ -14,6 +14,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **Slack에서 지운 글을 직접 출처로 가진 턴은 API와 웹에서 가려진다**(JeongJaeSoon/werft#2071). migration은 없고 따로 할 일도 없다. 저장된 값은 지우지 않고 읽을 때만 가리며, 지운 글이 없는 세션의 응답은 그대로다.
+  - 그 글이 입력인 턴의 입력, 그 턴의 답과 도구 결과를 가린다. 턴 응답은 `message`가 `""`, `result`가 `null`이 되고 `source_deleted_at`이 붙는다. `terminal_reason`도 `null`이다. 이벤트(SSE와 보관된 이벤트 포함)는 모양만 남기고 내용(엔진의 system 글, error의 `message`, 끝난 이유 포함)을 비우며 envelope에 `source_deleted_at`이 붙는다. 그 턴의 열린 요청은 목록에서 빠진다.
+  - 물려받기만 한 뒤 턴은 가리지 않는다(세션은 지금처럼 멈춘다).
+  - 첫 턴에서 만든 제목(`derived`·`generated`)은 세션 목록·상세·검색·도구 호출·사용량 목록에서 `null`이 되고 `title_deleted_at`이 붙는다. 사람이 준 제목은 그대로이고, status 이벤트에 남은 예전 제목은 가린다.
+  - 감사 읽기도 같이 가린다. 무엇을 가렸는지는 결정 행의 시각과 `deleted_sources.deleted_at`으로 알 수 있다.
+  - 웹은 가린 곳에 "Slack에서 삭제됨"을 보여 준다.
+
 - **세션의 권한 모드를 release에 적힌 값이 아니라 지금 규칙(연결과 모델)으로 정한다. 그래서 `default`로 만든 옛 Claude 모델 release의 세션이 `auto`로 바뀐다**(JeongJaeSoon/werft#2070). migration은 없고, release를 다시 만들 필요도 없다. release id는 그대로다.
   - Claude 모델(`anthropic` 연결, 또는 `litellm` 연결의 Claude 모델 id)은 `auto`, Codex(`openai_responses`)와 Claude가 아닌 모델은 `default`로 돈다. 이미 도는 세션은 다음에 worker가 세션을 받을 때 바뀐다. 세션 상세의 `runtime.permission_mode`도 이 값을 보인다.
   - 그 세션은 사람에게 묻던 호출을 이제 분류기가 판정한다. 묻기 목록에 걸린 호출과 push 승인은 지금처럼 사람에게 간다.

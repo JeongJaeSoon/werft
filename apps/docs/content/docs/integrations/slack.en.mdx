@@ -193,6 +193,10 @@ The agent app receives a channel being archived (`channel_archive`, `group_archi
 - When the bot joins a `gone` channel again (`member_joined_channel`), a public channel is in use again and a private one waits for approval. A public channel that has since turned private waits for approval as a private channel.
 - All four kinds clear the channel's member check cache.
 
+## Messages deleted in Slack
+
+A turn whose instruction is a message deleted in Slack (including the tombstone of a message with replies) is withheld in the web console and the API. Its instruction, the agent's replies and what its tools read and returned show as "Deleted in Slack"; the tools' names and when the message was deleted are kept. An audit read shows the same. A session title cut or made from the first message is withheld too; a title a person gave is kept. A turn that only inherited the message, such as a later turn of the same session, is not withheld. Nothing stored is erased: it is withheld when read.
+
 ## Next steps
 
 - [API key](/api-keys)

@@ -39,6 +39,7 @@ import {
   lockIdempotencyScope,
   UUID,
 } from "../control-shared.ts";
+import { directSourceDeletedAt } from "../conversations/index.ts";
 import { DB_NOW, dbNow } from "../db-clock.ts";
 import { toolSummaryContext } from "../push-requests.ts";
 import type { Database } from "../queries.ts";
@@ -651,7 +652,14 @@ export function createPostgresPendingRequests(
         .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
         .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
         .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
-        .where(actionablePendingWhere(sessionId))
+        .where(
+          and(
+            actionablePendingWhere(sessionId),
+            // A request of a turn whose instruction Slack deleted shows its
+            // input to no one, so it is not listed.
+            sql`${directSourceDeletedAt(sql`${turns.sources}`, sql`${sessions.workspaceId}`)} IS NULL`,
+          ),
+        )
         .orderBy(
           asc(pendingRequests.createdAt),
           asc(pendingRequests.requestId),

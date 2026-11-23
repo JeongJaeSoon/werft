@@ -476,6 +476,10 @@ export const sessionSummarySchema = z.object({
     .meta({
       description: `The session's name: the \`title\` it was created or renamed with, or else one derived from its first message (whitespace collapsed, cut to ${SESSION_TITLE_MAX_GRAPHEMES} characters with a trailing ellipsis). Null for sessions created before titles existed and for a first message with no text.`,
     }),
+  title_deleted_at: timestampSchema.nullable().default(null).meta({
+    description:
+      "When Slack deleted the message a derived or generated `title` came from (the first turn's instruction). Set, `title` is null and the session is not found by its words. A title a person gave is kept. Null otherwise, and from a server before the field.",
+  }),
   // The three below default to null for the same rollout reason as title.
   agent: z
     .object({
