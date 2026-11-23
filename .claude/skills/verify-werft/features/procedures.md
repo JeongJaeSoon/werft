@@ -993,6 +993,21 @@ a0_matrix A7 "$OS"
 
 기대: plan `{"outcome":"planned",…"from":"workspace","to":"private_channel","people_losing":0,…}` exit 0. 첫 apply는 `outcome:"moved"`·`sessions_moved:1`로 그 세션을 `moved`에 넣고 exit 0, 두 번째는 `outcome:"unchanged"`·`moved:[]`로 exit 0. 첫 apply의 `run_id`로 `a0_sql "select result from receipts where operation='share_session' and target_ref->>'session_id'='$OS'"`를 보면 `previous_scope:"workspace"`·`scope:"private_channel"`·`reason:"operator_private_channel_migration"`·같은 `run_id`가 한 줄 나온다. scope `private_channel`, binding `private_channel`·`pending_approval`. A7: owner·mem 200, out(채널 밖)·unl(연결 끊음) 404, owner 개인 key(`ap_get`) 404. 옮기기 전에도 mem·out은 404다. share 행이 없는 공개 채널 세션은 만든 사람만 읽는다(plan의 `from:"workspace"`는 채널 종류를 말한다). Slack에서 채널 종류를 읽지 못한 채널은 `unconfirmed_channels`에 들고 exit 3으로 끝난다. 실제 Slack 설치에서 모든 채널이 `reason:"failed"`로 나오면 명령의 Slack 읽기 경로 문제다(mock run에서는 재현되지 않는다).
 
+Slack이 채널을 바꿨다고 알리는 경로는 `convert-private`·`convert-public` 이벤트로 본다. 세션이 열린 공개 채널 `CONV`(binding `on`)를 mock에서 먼저 바꾸고 이벤트를 보낸다. 핸들러는 메시지가 아니라 mock이 지금 답하는 종류를 쓴다.
+
+```sh
+# Actor: stack operator.
+a0_mock /fake/conversions "$(jq -nc --arg c "$CONV" '{channel_id:$c, is_private:true}')"
+a0_event "$AID" convert-private "$CONV" $((S + 500))
+a0_settle
+a0_mock /fake/conversions "$(jq -nc --arg c "$CONV" '{channel_id:$c, is_private:false}')"
+a0_event "$AID" convert-public "$CONV" $((S + 600))
+a0_settle
+a0_sql "select operation, target_ref->>'session_id' as session, result from receipts where result ? 'event_id' order by created_at"
+```
+
+기대: 이벤트마다 binding receipt(`request_surface_binding` `channel_now_private`, 그다음 `set_surface_binding` `channel_now_public`) 한 줄과 세션마다 `share_session` 한 줄. 세션 receipt는 `reason:"slack_channel_converted"`·`by:"slack_event"`·`people_losing:null`이고, 같은 이벤트의 binding receipt와 같은 `event_id`(`EvVerifyconvert…`)를 단다. 범위는 `workspace` → `private_channel` → `workspace`.
+
 ## P-A0-DELETE — 근거 메시지 삭제(조건 3)
 
 워커 슬롯이 차 있으면 턴이 줄에 선다. 앞 절차의 세션을 닫고 시작한다.
