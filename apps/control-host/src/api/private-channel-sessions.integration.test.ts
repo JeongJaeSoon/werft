@@ -157,18 +157,19 @@ integration("private-channel-sessions on PostgreSQL", () => {
         : { kind: "private_channel" },
     memberIds: async () => ["U0SOMEONE"],
   };
-  const run = async (argv: string[]) => {
+  const run = async (argv: string[], asked: PrivateChannelSlack = slack) => {
     const out: string[] = [];
+    const err: string[] = [];
     const exit = await runPrivateChannelSessions(argv, {
       env: { DATABASE_URL: "postgres://unused.invalid/db" },
       out: (line) => out.push(line),
-      err: () => {},
+      err: (line) => err.push(line),
       loadKey: async () => ({}) as SecretKey,
       openDatabase: async () => ({ db, close: async () => {} }),
-      openSlack: () => slack,
+      openSlack: () => asked,
     });
     expect(out).toHaveLength(1);
-    return { exit, line: JSON.parse(out[0] as string) };
+    return { exit, err, line: JSON.parse(out[0] as string) };
   };
   const shares = async () =>
     (
@@ -180,8 +181,9 @@ integration("private-channel-sessions on PostgreSQL", () => {
 
   test("plan counts who loses each session, writes nothing, and exits 3 for the channel it could not read", async () => {
     const before = await shares();
-    const { exit, line } = await run(["plan", "--agent", agentId]);
+    const { exit, err, line } = await run(["plan", "--agent", agentId]);
     expect(exit).toBe(PRIVATE_CHANNEL_SESSIONS_EXIT.incomplete);
+    expect(err).toEqual([]);
     expect(line.outcome).toBe("planned");
     const bySession = Object.fromEntries(
       (line.sessions as { session_id: string }[]).map((row) => [
@@ -230,5 +232,30 @@ integration("private-channel-sessions on PostgreSQL", () => {
     expect(second.line.moved).toEqual([]);
     expect(second.line.unchanged).toBe(3);
     expect(await shares()).toEqual(after);
+  });
+
+  test("channels unread for the master key are named with that reason, and stderr says once what to do", async () => {
+    const before = await shares();
+    for (const command of ["plan", "apply"]) {
+      const { exit, err, line } = await run([command, "--agent", agentId], {
+        kindOf: async () => ({ unconfirmed: "master_key_mismatch" }),
+        memberIds: async () => null,
+      });
+      expect(exit).toBe(PRIVATE_CHANNEL_SESSIONS_EXIT.incomplete);
+      expect(
+        (line.unconfirmed_channels as { reason: string }[]).map(
+          (channel) => channel.reason,
+        ),
+      ).toEqual([
+        "master_key_mismatch",
+        "master_key_mismatch",
+        "master_key_mismatch",
+      ]);
+      expect(err).toHaveLength(1);
+      expect(err[0]).toStartWith(
+        "private-channel-sessions: master_key_mismatch: ",
+      );
+    }
+    expect(await shares()).toEqual(before);
   });
 });
