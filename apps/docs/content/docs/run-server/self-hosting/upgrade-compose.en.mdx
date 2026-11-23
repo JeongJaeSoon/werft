@@ -253,7 +253,7 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
-<a id="채널-요약-표를-만드는-릴리스" />
+<a id="세션-없는-호출의-예약-표를-만드는-릴리스" />
 ### The release that adds the table of calls with no session
 
 Migration `0328_conversation_calls` adds `conversation_calls`, the table of provider calls that serve no session (conversation calls). Nothing in this release issues one yet, so it stays empty. The upgrade needs nothing from you.
@@ -266,6 +266,7 @@ Migration `0328_conversation_calls` adds `conversation_calls`, the table of prov
 - The egress proxy adds the header `x-werft-exchange-id` to its provider authorize requests; an earlier API ignores it. A conversation call's token is granted only with it, so upgrade the api and the egress proxy together.
 - It only adds a table, so rolling back to an image inside the support window is safe.
 
+<a id="채널-요약-표를-만드는-릴리스" />
 ### The release that adds channel summary tables
 
 Migration `0325_channel_summaries` adds three channel summary tables (`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`). Nothing in this release writes a summary yet, so they stay empty. The upgrade needs nothing from you, and Slack and sessions behave as before.

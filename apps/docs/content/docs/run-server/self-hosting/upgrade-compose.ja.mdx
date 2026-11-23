@@ -253,7 +253,7 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 - 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
 - サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
 
-<a id="채널-요약-표를-만드는-릴리스" />
+<a id="세션-없는-호출의-예약-표를-만드는-릴리스" />
 ### セッションのない呼び出しの予約表を作るリリース
 
 migration `0328_conversation_calls` が、セッションのない provider 呼び出し(会話呼び出し)の表 `conversation_calls` を追加する。このリリースには会話呼び出しを出す経路がないので、表は空のままである。上げるときにすることはない。
@@ -266,6 +266,7 @@ migration `0328_conversation_calls` が、セッションのない provider 呼�
 - egress proxy が provider の許可リクエストにヘッダー `x-werft-exchange-id` を付ける。前の API はこのヘッダーを無視する。会話呼び出しのトークンはこのヘッダーがあるときだけ許可されるので、api と egress proxy を一緒に上げる。
 - 表を追加するだけなので、サポート期間内のイメージに戻してもよい。
 
+<a id="채널-요약-표를-만드는-릴리스" />
 ### チャンネル要約の表を作るリリース
 
 migration `0325_channel_summaries` がチャンネル要約の表を三つ(`channel_summaries`、`channel_summary_lines`、`channel_summary_line_sources`)追加する。このリリースには要約を書く経路がないので、表は空のままである。上げるときにすることはなく、Slack とセッションの動作も変わらない。
