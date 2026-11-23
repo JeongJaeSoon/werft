@@ -2337,10 +2337,15 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
           slack: {
             ...createSlackBotApi({ apiUrl: slack.url }),
             // The mirror is still sending when its echo reaches the gate.
-            postMessage: async (_token, input) => {
+            postMessage: async (token, input) => {
               const correlationId =
                 input.metadata?.event_payload.correlation_id;
-              if (correlationId === undefined) throw new Error("no metadata");
+              if (correlationId === undefined) {
+                return createSlackBotApi({ apiUrl: slack.url }).postMessage(
+                  token,
+                  input,
+                );
+              }
               echoes.push(correlationId);
               await viaGate(fixture, echoNaming("100.000900", correlationId));
               return unreadable();
@@ -2348,7 +2353,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
           },
         });
         expect(echoes).toHaveLength(1);
-        // Its own settle finds the row already taken by the echo.
+        // Its own settle finds the row already taken by the echo; the row
+        // it freed may go in the same pass.
         expect(pass).toMatchObject({ lost: 1, uncertain: 0 });
         expect(await mirrors()).toEqual([
           expect.objectContaining({

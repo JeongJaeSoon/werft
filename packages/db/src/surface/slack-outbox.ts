@@ -1025,23 +1025,42 @@ export function createPostgresSlackOutboxStore(
 
     async closeOverdueHeld(holdMs) {
       return db.transaction(async (tx) => {
-        // The inputs first, as a settle takes them, then the rows held for
-        // them: the other order deadlocks with a mirror's settle.
+        const overdue = await tx
+          .select({ id: t.id, inputId: t.heldForInputId })
+          .from(t)
+          .where(
+            and(
+              sql`${t.heldForInputId} IS NOT NULL`,
+              eq(t.status, "pending"),
+              sql`${t.createdAt} <= now() - make_interval(secs => ${holdMs / 1000})`,
+            ),
+          );
+        if (overdue.length === 0) return 0;
+        // The inputs first, as a settle takes them, then only the rows read
+        // above: the other order, or a row committed since, deadlocks with
+        // a mirror's settle.
+        const inputIds = [
+          ...new Set(
+            overdue.flatMap((row) =>
+              row.inputId === null ? [] : [row.inputId],
+            ),
+          ),
+        ];
         await tx.execute(sql`
           SELECT 1 FROM conversation_inputs
-          WHERE id IN (
-            SELECT held_for_input_id FROM slack_outbox
-            WHERE held_for_input_id IS NOT NULL AND status = 'pending'
-              AND created_at <= now() - make_interval(secs => ${holdMs / 1000}))
+          WHERE id = ANY(${`{${inputIds.join(",")}}`}::uuid[])
           ORDER BY id FOR UPDATE`);
         const closed = await tx
           .update(t)
           .set({ status: "failed", errorCode: "input_unplaced", ...released })
           .where(
             and(
+              inArray(
+                t.id,
+                overdue.map((row) => row.id),
+              ),
               sql`${t.heldForInputId} IS NOT NULL`,
               eq(t.status, "pending"),
-              sql`${t.createdAt} <= now() - make_interval(secs => ${holdMs / 1000})`,
             ),
           )
           .returning({ inputId: t.heldForInputId });
@@ -1499,6 +1518,8 @@ export function createPostgresSlackOutboxStore(
         .where(
           and(
             eq(t.status, "pending"),
+            // A held row has no thread to check yet; its hold ends it.
+            sql`${t.heldForInputId} IS NULL`,
             sql`NOT ${addressed(db, sql.raw('"slack_outbox"'))}`,
           ),
         )
