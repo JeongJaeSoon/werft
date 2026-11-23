@@ -16,6 +16,7 @@ const REFUSALS: Partial<Record<string, MessageKey>> = {
   not_installed: "github.repo.pickHint",
   no_author_app: "github.repo.pickNoApp",
   name_held: "github.repo.pickNameHeld",
+  settings_seed_unavailable: "github.repo.notPublished",
 };
 
 /** What the server confirmed for one switch: the revision it left behind. */
