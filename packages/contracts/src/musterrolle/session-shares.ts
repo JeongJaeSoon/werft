@@ -21,15 +21,29 @@ import { apiKeyIdSchema } from "./api-keys.ts";
 import { teamIdSchema } from "./teams.ts";
 
 // Who sees a session: its creator alone, the people or teams it
-// names, or the whole workspace. Slack DMs start private; channel, web and
-// API sessions start workspace-wide.
+// names, the whole workspace, or the current members of the private Slack
+// channel it came from. Slack DMs start private, private channels
+// private_channel; public channel, web and API sessions start
+// workspace-wide.
 export const SESSION_SHARE_SCOPE_VALUES = [
   "private",
   "people",
   "team",
   "workspace",
+  "private_channel",
 ] as const;
 export const sessionShareScopeSchema = z.enum(SESSION_SHARE_SCOPE_VALUES);
+
+/**
+ * What a person may set. `private_channel` follows the channel the session
+ * came from and is never chosen.
+ */
+export const SETTABLE_SESSION_SHARE_SCOPE_VALUES = [
+  "private",
+  "people",
+  "team",
+  "workspace",
+] as const satisfies readonly (typeof SESSION_SHARE_SCOPE_VALUES)[number][];
 
 export const SESSION_SHARE_TARGET_LIMIT = 100;
 
@@ -52,7 +66,7 @@ export const sessionShareSchema = z
 
 export const setSessionShareRequestSchema = z
   .object({
-    scope: sessionShareScopeSchema,
+    scope: z.enum(SETTABLE_SESSION_SHARE_SCOPE_VALUES),
     user_ids: z.array(userIdSchema).max(SESSION_SHARE_TARGET_LIMIT).optional(),
     team_ids: z.array(teamIdSchema).max(SESSION_SHARE_TARGET_LIMIT).optional(),
     expected_revision: revisionSchema.optional(),

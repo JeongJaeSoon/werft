@@ -108,6 +108,21 @@ export const viewerOf = (actor: Caller): SessionViewer => ({
   keyAgentId: actor.actor?.agentId ?? null,
 });
 
+/**
+ * viewerOf with the private channels the policy finds the caller a member
+ * of now, for a read across sessions. A read that skips this hides every
+ * private_channel session.
+ */
+export async function viewerFor(
+  authorization: Pick<AuthorizationPolicy, "privateChannelsOf">,
+  actor: Caller,
+): Promise<SessionViewer> {
+  const privateChannels =
+    (await authorization.privateChannelsOf?.(actor.subject, actor.ownerId)) ??
+    [];
+  return { ...viewerOf(actor), privateChannels };
+}
+
 function extensionRefusalError(refusal: ExtensionRefusal): SessionServiceError {
   return new SessionServiceError(
     "UNSUPPORTED_CAPABILITY",
@@ -758,12 +773,19 @@ export function createSessionService(deps: {
       input: {
         idempotencyKey: string;
         body: CreateSessionRequest;
-        shareScope?: "private";
+        /** private_channel needs the channel's conversation as the parent. */
+        shareScope?: "private" | "private_channel";
         parentConversationId?: ConversationId;
         slackMessage?: SlackMessageRef;
         traceContext?: string;
       },
     ): Promise<CreateSessionResponse> {
+      if (
+        input.shareScope === "private_channel" &&
+        input.parentConversationId === undefined
+      ) {
+        throw new Error("a private_channel session needs its channel");
+      }
       const preview = input.body.preview === true;
       if (preview && !signedInPerson(actor)) {
         throw new SessionServiceError(
@@ -1538,7 +1560,7 @@ export function createSessionService(deps: {
       const page = await reader.listSessions(
         actor.ownerId,
         query,
-        viewerOf(actor),
+        await viewerFor(authorization, actor),
       );
       return {
         items: page.items.map(({ spec, ...item }) => {
@@ -1566,7 +1588,11 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      return reader.countSessions(actor.ownerId, query, viewerOf(actor));
+      return reader.countSessions(
+        actor.ownerId,
+        query,
+        await viewerFor(authorization, actor),
+      );
     },
 
     async getSession(actor: Caller, sessionId: string): Promise<SessionDetail> {

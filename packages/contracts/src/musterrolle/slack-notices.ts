@@ -136,6 +136,8 @@ const NOTICE_FOR: Record<
   justification_required: "noRight",
   credential_unbound: "credentialUnbound",
   self_approval: "noRight",
+  // A key's refusal: no key acts on Slack, and it reads as not_found.
+  private_channel_key: "outOfShare",
   // Member and key rules: decided on the web, never for a Slack action.
   owner_protected: "noRight",
   self_protected: "noRight",

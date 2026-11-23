@@ -241,6 +241,8 @@ curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '
 
 `scope` は `private`(作った人だけ)、`people`(`user_ids` の人)、`team`(`team_ids` のチームの現在のメンバー)、`workspace`(すべてのメンバー)のいずれかである。一度も変えていないセッションは `workspace`、`revision` 0 になる。エージェントのセッションは `workspace` でもエージェントの内側だけが見られ(保管チームのエージェントは例外)、そのとき `audience_limited` が `true` になる([担当チーム外の member](/agents/permissions#担当チーム外の-member))。コンソールのセッション画面はタイトルの下の 1 行の末尾にこの値を読み取り専用で示し、`audience_limited` なら `ワークスペース(担当チーム外の人は見られません)` と書く。範囲を変える `POST /v1/sessions/{id}/share` は Web ログインでしか呼べないため、SDK のメソッドはない([`setSessionShare`](/reference/http-api/sessions/setSessionShare))。
 
+プライベートな Slack チャンネルで始めたセッションは `private_channel` である。そのエージェントを使えて、いまそのチャンネルのメンバーである人だけが見る。作った人もチャンネルを抜けると見られず、ワークスペースの owner・admin もメンバーでなければ見られない(理由を書いた[監査読み取り](/reference/http-api/admin/auditReadSession)はできる)。メンバーかどうかを Slack に確認できないときは隠す。API キーは個人キーでもエージェントキーでも、キーの持ち主がメンバーでも一覧に出ず、詳細・turns・イベント・成果物・待機中のリクエストは `404` になる。この範囲はチャンネルが決めるので、`POST /v1/sessions/{id}/share` で変えると 409 `REVISION_CONFLICT`(`reason_code: private_channel_session`)になる。コンソールは `プライベートチャンネルの現在のメンバー` と表示する。公開チャンネル・DM・Web・API で作ったセッションは変わらない。
+
 ## タイトル
 
 `title` を送ると、連続する空白・改行を空白 1 つにまとめ、前後を切って保存する。その結果が空か 80 文字(絵文字や結合文字は 1 つで 1 文字)を超えると 400 になる。省略すると最初の `message` から同じ規則で作り、80 文字を超えると先頭 79 文字に `…` を付ける。モデルは呼ばないので、同じメッセージからは必ず同じタイトルになる。空白だけのメッセージと、この機能より前に作ったセッションは `title` が `null` になる。

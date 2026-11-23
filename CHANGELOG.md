@@ -14,6 +14,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **비공개 Slack 채널에서 시작한 세션은 새 공유 범위 `private_channel`로 생기고, 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보인다**(JeongJaeSoon/werft#2053). migration `0327_private_channel_share_scope`가 `session_shares`의 범위 CHECK에 `private_channel`을 더한다. 따로 할 일은 없다.
+  - 보이는 변화: API key(개인 key·에이전트 key 모두, key 주인이 멤버여도)로는 이 세션이 목록에 없고 상세·turns·events·outputs·pending-requests가 `404`다. 판정 기록에는 이유 `private_channel_key`로 남는다. 채널을 나간 만든 사람과 멤버가 아닌 owner·admin도 못 본다(사유를 적은 감사 읽기는 된다. 관리 목록 `/v1/admin/sessions`에는 메타데이터만 `share_scope: private_channel`로 남고, 관리 종료는 채널 밖에서 `404`다). 공유 범위를 바꾸려 하면 409(`reason_code: private_channel_session`)다.
+  - 멤버 확인은 api와 slack 역할이 bot token으로 `conversations.members`를 읽고 5분 캐시한다(`groups:read`, 새 scope 없음). 확인하지 못하면(429·Slack 장애·bot이 채널 밖) 멤버에게도 숨긴다. 세션 목록은 `private_channel` 세션이 있는 채널마다 한 번씩, 동시에 8개까지 확인한다.
+  - 개인 key의 사용량 합계(`scope=me`)에는 key 주인이 만든 `private_channel` 세션이 이름 없는 금액·개수로 들어간다. 세션을 가리키는 줄(도구 호출, 최근 성과)은 보이지 않는다.
+  - 이 릴리스 전에 비공개 채널에서 만든 세션은 그대로 `workspace`다(옮기기는 다음 티켓).
+  - 공개 채널·DM·웹·API로 만든 세션은 그대로다.
+  - 지원 창 안의 옛 이미지로 되돌리거나 함께 돌리면, 옛 host는 `private_channel` 세션을 만든 사람에게만 보인다. 그동안 다른 채널 멤버는 잠깐 못 보고, 채널을 나간 만든 사람은 그 host에서 (자기 key로도) 계속 본다. 워크스페이스 전체로 넓어지지는 않는다.
 - **migration `0326_link_posting`이 Slack 스레드의 게시 설정을 `session_links`의 칸 셋(`report_mode`·`mirror_instructions`·`post_prompts`)으로 나누고, 채널 binding에 `report_mode` 기본값 `per_step`을 더한다**(JeongJaeSoon/werft#2052). 따로 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
   - outbox는 이제 `visibility` 대신 새 칸을 본다(아직 옮기지 않은 `summary` link를 막을 때만 `visibility`를 읽는다). 답·실패·결과 알림은 `report_mode`(비면 채널 값), 웹·API 지시 거울은 `mirror_instructions`, 승인 카드·질문은 `post_prompts`다.
   - `full` link는 그대로 두고(기본값이 같은 뜻), `summary` link는 api 기동 때 도는 정리가 `none`·`false`·`false`로 옮긴다. 로그 `Summary session links moved`. 이 릴리스까지 `summary` link를 만드는 길은 없었다.

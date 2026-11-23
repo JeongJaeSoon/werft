@@ -115,7 +115,7 @@ export type AcceptSessionInput = {
   envNames?: readonly string[];
   // A Slack DM's session starts seen by its creator alone (design 4.6);
   // left out, by the whole workspace.
-  shareScope?: "private";
+  shareScope?: "private" | "private_channel";
   // The main conversation a Slack session belongs to; left out, none (a
   // standalone session).
   parentConversationId?: ConversationId;

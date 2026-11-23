@@ -532,6 +532,8 @@ function shareText(t: BlockText, share: SessionShareView): string | null {
   if (share.scope === "team")
     return t("session.share.team", { count: share.team_ids.length });
   if (share.scope === "private") return t("session.share.private");
+  if (share.scope === "private_channel")
+    return t("session.share.privateChannel");
   if (share.scope !== "workspace") return null;
   // Only those inside the agent see it when its managing team is not the
   // holding team.

@@ -72,6 +72,7 @@ import {
 } from "../wiring/chat-slack.ts";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
+import { wireSlackChannelMembers } from "../wiring/slack-api.ts";
 import { wireSlackInbound, wireSlackOutbound } from "../wiring/slack-worker.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -168,6 +169,14 @@ export function slackSessionHandler(deps: {
     credentials,
     slackGuests: createPostgresSlackGuestSetting(db),
     sessions: createPostgresSessionShareStore(db),
+    // A press on a card outside the session's channel asks Slack.
+    channelMembers: wireSlackChannelMembers({
+      apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
+      appStore: createPostgresSlackAppStore(db, deps.secretKey),
+      secrets: () => createPostgresSecretStore(db, deps.secretKey),
+      store: createPostgresChannelMemberStore(db),
+      logger,
+    }),
     decisions: createPostgresDecisionLog(db),
     logger,
   });

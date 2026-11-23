@@ -7,6 +7,8 @@
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
+  ChannelMemberCheckable,
+  ChannelMemberStore,
   SecretStore,
   SlackAppStore,
   SlackInstallStore,
@@ -19,6 +21,7 @@ import {
   createSlackBotApi,
   createSlackChannelJoiner,
   createSlackChannelKinds,
+  createSlackChannelMembers,
   createSlackChannelSearchService,
   createSlackConfigApi,
   createSlackConfigTokens,
@@ -80,6 +83,30 @@ export function wireSlackBot(deps: SlackBotStageDeps): SlackBotStage {
     logger: deps.logger,
   });
   return { api, join, welcome };
+}
+
+/**
+ * Whether a person is a member of a channel now, for the policy's private
+ * channel decisions; its own bot API, as no stage needs to come first.
+ */
+export function wireSlackChannelMembers(deps: {
+  apiUrl: string;
+  appStore: SlackAppStore;
+  secrets: SecretStoreSource;
+  store: ChannelMemberStore;
+  logger: StructuredLogger;
+}): ChannelMemberCheckable {
+  return createSlackChannelMembers({
+    store: deps.store,
+    slack: createSlackBotApi({ apiUrl: deps.apiUrl }),
+    botToken: (workspaceId, agentId) =>
+      agentSlackBotToken(
+        { apps: deps.appStore, secrets: deps.secrets() },
+        workspaceId,
+        agentId,
+      ),
+    logger: deps.logger,
+  });
 }
 
 export interface SlackChannelsStageDeps {

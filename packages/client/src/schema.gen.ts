@@ -6976,7 +6976,7 @@ export interface components {
             /** Format: uuid */
             session_id: string;
             /** @enum {string} */
-            scope: "private" | "people" | "team" | "workspace";
+            scope: "private" | "people" | "team" | "workspace" | "private_channel";
             user_ids: string[];
             team_ids: string[];
             revision: number;
@@ -7005,7 +7005,7 @@ export interface components {
                 /** @enum {string} */
                 admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
                 /** @enum {string} */
-                share_scope: "private" | "people" | "team" | "workspace";
+                share_scope: "private" | "people" | "team" | "workspace" | "private_channel";
                 /** Format: date-time */
                 created_at: string;
                 takeover_required_at: string | null;

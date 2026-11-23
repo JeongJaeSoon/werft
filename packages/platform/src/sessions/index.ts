@@ -24,6 +24,7 @@ export {
   idempotencyConflict,
   payloadHash,
   selfApproval,
+  viewerFor,
   viewerOf,
 } from "./session-service.ts";
 export {
