@@ -22,6 +22,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - API가 바뀐다. `PUT /v1/workspace/skills/{name}/sync/auto-approve`의 `action`은 `on`과 `off`만 받는다(`request`와 `consent`는 400). 응답의 `git.auto_approve`는 `{ state, enabled_by }`이고 `state`는 `off`나 `on`이다. `last_check.auto_approval`에서 `rule`과 `pull_request`가 빠지고, `reason`은 `checks_failed`와 `baseline_changed`만 남는다. `last_check.trigger.kind`에 `auto_approve`(자동 연동을 켤 때의 확인)가 더해진다. `PUT /v1/workspace/skills/{name}/sync`와 `…/sync/auto-approve`의 응답에 `check`가 더해진다. 그 호출이 돌린 확인이 끝났으면 `checked`, 돌고 있던 확인 뒤로 밀렸으면 `queued`, 확인을 돌리지 않았으면 null이다.
   - 칸 하나를 더하고 값을 바꾸는 migration이라 지원 창 안의 이미지로 되돌려도 된다(옛 이미지는 그 칸을 읽지도 쓰지도 않는다). 되돌린 이미지는 옛 방식(두 관리자의 요청과 동의, 리뷰된 PR)으로 동작하고, 꺼진 설정은 꺼진 채로 남는다. 되돌린 이미지나 올리는 동안 아직 떠 있던 옛 서버가 옛 방식으로 켠 자동 승인, 그리고 옛 서버가 멈췄다 다시 켠 스킬의 자동 연동은 이 버전에서 꺼짐으로 읽히고 아무것도 승인하지 않는다(새 칸은 이 버전만 쓴다). 쓰려면 화면에서 다시 켠다.
 
+
+- **API key는 `private_channel` 세션에 쓰기·승인도 못 한다. 요청자가 채널을 나간 push는 지금 채널 멤버가 승인·거절한다**(JeongJaeSoon/werft#2062). migration은 없고 따로 할 일도 없다.
+  - 보이는 변화: 개인 key·에이전트 key로 `private_channel` 세션에 메시지, 대기 요청 답, push 요청·승인·거절, PR 열기·댓글, workflow 실행, 중단·재개·종료·인계 등 `/v1/sessions/{id}` 아래 모든 경로를 부르면 `404`다(읽기는 JeongJaeSoon/werft#2053부터 `404`). 판정 기록의 이유는 `private_channel_key`다. 세션 안에서 에이전트가 요청하는 push, key로 만든 세션, 공개 채널 세션은 그대로다.
+  - push를 요청한 사람(그 push를 요청한 턴의 사람. 사람이 없으면 세션을 맡은 사람, 곧 시작한 사람이나 넘겨받은 사람)이 세션의 비공개 채널을 모두 나가면, Slack 승인 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버 누구나 승인·거절할 수 있다. 결정 기록(`decided_by`)에는 누른 사람이 남는다. 나간 요청자는 결정할 수 없고, 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 카드는 채널 멤버 변화(`member_joined_channel`·`member_left_channel`) 때 다시 그려진다. 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Push requester's channel membership unconfirmed`를 남긴다.
+  - 도구 권한·질문 카드는 그대로다.
+  - 카드의 새 표시 상태(`open_requester_left`·`reject_only_requester_left`)를 모르는 옛 이미지로 되돌리면, 그 카드를 끝난 카드로 보고 다시 그리지 않는다(버튼은 남고 누르면 그대로 판정된다).
 - **migration `0330_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 판단 버퍼의 만료 칸 `buffer_expires_at`과 그 색인을 더한다**(JeongJaeSoon/werft#2059). 따로 할 일은 없고 Slack 동작도 그대로다.
   - 판단 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 듣는 때만 멘션 없는 글을 본문째 담는다. 스위치 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없어서, 올린 뒤에도 버퍼는 비어 있다.
   - 담긴 줄은 10분 뒤 reconciler가 통째로 지운다(로그 `Judgment buffer purged`, `expired_count`·`unlistened_count`). Slack에서 글이 지워지면 바로, 채널 보관·삭제·봇이 나감·binding `off`·에이전트 보관 때도 바로 지운다. 글이 고쳐지면 담긴 본문만 바뀐다.

@@ -40,6 +40,7 @@ import {
 } from "@werft-ai/platform";
 import {
   SLACK_CARD_SETTLE_TIMING,
+  type SlackPushRequesterLeft,
   settleSlackCards,
 } from "./slack-card-settle.ts";
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
@@ -121,6 +122,7 @@ export type SlackInteractionDeps = {
   defer?: (work: () => Promise<void>) => void;
   /** How long a submitted form waits on its checks before asking again. */
   submitDeadlineMs?: number;
+  requesterLeft?: SlackPushRequesterLeft;
 };
 
 const OK: SlackInteractionResponse = { ok: true };
@@ -233,6 +235,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           batchSize: 1,
           deadline: Date.now() + SLACK_CARD_SETTLE_TIMING.leaseMs,
           only,
+          ...(deps.requesterLeft === undefined
+            ? {}
+            : { requesterLeft: deps.requesterLeft }),
         });
         return;
       }
@@ -331,6 +336,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   async function admit(
     pressed: Pressed,
     sessionId: string,
+    pushRequestId?: string,
   ): Promise<Allowed | { refused: string }> {
     const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
@@ -343,7 +349,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       user,
       action: "session.approve",
       channel: { id: pressed.channelId, dm: pressed.channelId.startsWith("D") },
-      resource: { kind: "session", id: sessionId },
+      resource: {
+        kind: "session",
+        id: sessionId,
+        ...(pushRequestId === undefined ? {} : { pushRequestId }),
+      },
       requestId,
       connectUrl: deps.connectUrl,
     });
@@ -817,7 +827,16 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     value: SlackInteractionValue,
   ): Promise<SlackInteractionOutcome> {
     try {
-      const admitted = await admit(pressed, value.s);
+      // A push card's press names its request, which the policy reads for
+      // a requester who left a private channel.
+      const push =
+        actionId === SLACK_INTERACTION_ACTIONS.pushApprove ||
+        actionId === SLACK_INTERACTION_ACTIONS.pushReject;
+      const admitted = await admit(
+        pressed,
+        value.s,
+        push ? value.r : undefined,
+      );
       if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
       const card = cardOf(pressed, payload)(value);
       // Option buttons share a block, where Slack wants each id once.

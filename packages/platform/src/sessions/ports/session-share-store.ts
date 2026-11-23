@@ -113,6 +113,18 @@ export interface SessionShareStore {
     ownerId: string,
     sessionId: string | null,
   ): Promise<PrivateChannelPlace[]>;
+  /**
+   * The person a push request is whose: the requester of the turn that
+   * asked for it (that turn's root when it was itself a push follow-up), or
+   * the person who asked over the API; with no person there, whoever
+   * started the session. Null when none is a person or the request is not
+   * the session's.
+   */
+  pushRequesterOf(
+    ownerId: string,
+    sessionId: string,
+    pushRequestId: string,
+  ): Promise<string | null>;
   get(ownerId: string, sessionId: string): Promise<SessionShare | null>;
   /** Wakes the session's open streams so each re-checks what it may see. */
   set(input: SetSessionShareInput): Promise<SetSessionShareResult>;
