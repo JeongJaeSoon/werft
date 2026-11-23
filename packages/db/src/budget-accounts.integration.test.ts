@@ -479,7 +479,7 @@ integration("budget accounts on PostgreSQL", () => {
     }
   });
 
-  test("two reserves of root kind none at once across the 80% mark: one gets in", async () => {
+  test("two reserves of root kind none at once across the 80% mark: both wait on the account row, one gets in", async () => {
     const choice = team("none");
     if (choice.owner?.kind !== "team") throw new Error("team");
     await saveBudgetLimit(
@@ -499,11 +499,31 @@ integration("budget accounts on PostgreSQL", () => {
       .update(budgetAccounts)
       .set({ reservedCostUsd: 0, reservedTokens: 0, spentCostUsd: 2 })
       .where(eq(budgetAccounts.id, warm.accountId as never));
-    // 2 + 3 is under 8; 2 + 3 + 3 reaches it.
-    const results = await Promise.all([
-      reserveFor(choice, 3),
-      reserveFor(choice, 3),
-    ]);
+    // Another transaction holds the account row, as a reserve in flight
+    // does: both reserves must queue on it, so neither judges a sum the
+    // other has not added to yet. 2 + 3 is under 8; 2 + 3 + 3 reaches it.
+    const holder = await pool.connect();
+    await holder.query("BEGIN");
+    await holder.query(
+      "SELECT 1 FROM budget_accounts WHERE id = $1 FOR UPDATE",
+      [warm.accountId],
+    );
+    let reserving: Promise<{ outcome: string }>[] = [];
+    try {
+      reserving = [reserveFor(choice, 3), reserveFor(choice, 3)];
+      for (const one of reserving) {
+        expect(
+          await Promise.race([
+            one.then(() => "done"),
+            Bun.sleep(400).then(() => "waited"),
+          ]),
+        ).toBe("waited");
+      }
+    } finally {
+      await holder.query("COMMIT");
+      holder.release();
+    }
+    const results = await Promise.all(reserving);
     expect(results.map((result) => result.outcome).sort()).toEqual([
       "refused",
       "reserved",

@@ -14,9 +14,9 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0330_unknown_budget_end`가 끝을 모르는 호출을 적는 칸 `unknown_at`을 더하고, 한도가 있는 계정에서 root 종류 `none`의 예약을 한도의 80%에서 거절한다**(JeongJaeSoon/werft#2065). 따로 할 일은 없고, 예산 한도가 없는 설치는 지금처럼 돈다.
+- **migration `0331_unknown_budget_end`가 끝을 모르는 호출을 적는 칸 `unknown_at`을 더하고, 한도가 있는 계정에서 root 종류 `none`의 예약을 한도의 80%에서 거절한다**(JeongJaeSoon/werft#2065). 따로 할 일은 없고, 예산 한도가 없는 설치는 지금처럼 돈다.
   - 쓰인 provider 호출에 lease(5분) 안에 사용량 보고가 없으면 reconciler가 `budget_reservations`(대화 호출은 `conversation_calls`도)의 `unknown_at`을 적는다. 상태는 `reserved`(`in_flight`) 그대로이고, 예약은 풀지 않고 쓴 것으로 센다. 늦은 보고가 실제 값으로 정산하고, lease 갱신과 해제는 표시를 지운다. 세션 호출과 대화 호출 모두 같다.
-  - 계정마다 `unknown` 예약의 수와 묶인 금액이 `warn` 로그 `Budget reservations of unknown end held`에 남는다. `Provider exchange ledger reconciled`와 `Conversation call reservations reconciled`에 `unknown_count`가 더해진다. 묶인 예약을 푸는 운영자 명령은 아직 없다.
+  - 끝을 모르는 예약이 많은 계정부터 배치 크기만큼 그 수와 묶인 금액이 `warn` 로그 `Budget reservations of unknown end held`에, 모든 계정의 합계가 `Budget reservations of unknown end reported`에 남는다. `Provider exchange ledger reconciled`와 `Conversation call reservations reconciled`에 `unknown_count`가 더해진다. 묶인 예약을 푸는 운영자 명령은 아직 없다.
   - root 종류 `none`(사람도 key도 없는 실행)은 80%에서, 사람과 key·Slack 봇의 요청은 100%에서 거절된다. 한도가 없는 계정에는 80% 판정이 없다.
   - 상태 값과 CHECK는 바뀌지 않는다. 지원 창 안의 이미지로 되돌려도 `unknown_at`은 무시되고 예약은 `reserved`로 정산된다.
 
