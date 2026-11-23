@@ -253,6 +253,18 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 - 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
 - サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
 
+<a id="지운-slack-글에-걸린-답과-턴을-막는-릴리스" />
+### 削除された Slack メッセージにかかる返信とターンを止めるリリース
+
+migration `0329_slack_outbox_voided_by_delete` が `slack_outbox` の状態に `voided_by_delete` を、その行がどのターンのものかを示す列 `sources_turn` を追加する。上げるときにすることはない。削除されたメッセージのないスレッドのメンションと返信、Web・API のセッションの動作は変わらない。
+
+- Slack で削除されたメッセージ(返信のついた親メッセージの墓標を含む)が出典にある outbox の行は、送信の直前で止まる。返信、失敗の通知、承認カード、Web の指示のミラーがすべて対象で、そのセッションの前のターンから引き継いだ出典も見る。行は状態 `voided_by_delete`、`error_code` `source_deleted` で終わり、二度と送らない。slack ロールが `warn` ログ `Slack send voided: a source was deleted` を残す。
+- 送信が始まった後に届いた削除は、すでに出たメッセージを消さない。印の確認と送信の開始は同じメッセージのロックで分かれる。
+- メッセージの編集は何も止めない。
+- 削除されたメッセージからはセッションもターンも作らない。そのメッセージのメンションと、前のメッセージが削除されたスレッドの次の投稿が対象である。Slack には案内を投稿せず、slack ロールが `warn` ログ `Slack input refused by the session`(`code` `SOURCE_DELETED`)を残す。
+- そのようなセッションに Web や API からメッセージを送ると、新たに 409 `SOURCE_DELETED` で拒否される。このリリースはセッションを止めない。
+- CHECK は `NOT VALID` で追加し別の文で検証するので、書き込みを長く止めない。サポート期間内のイメージに戻してもよい。古いイメージは `voided_by_delete` の行を読まず、送りもしない。
+
 <a id="세션-없는-호출의-예약-표를-만드는-릴리스" />
 ### セッションのない呼び出しの予約表を作るリリース
 

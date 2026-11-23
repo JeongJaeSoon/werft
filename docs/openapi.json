@@ -4319,6 +4319,7 @@
                   "LAUNCH_FAILED",
                   "CATALOG_MISMATCH",
                   "TAKEOVER_REQUIRED",
+                  "SOURCE_DELETED",
                   "SLACK_NOT_INSTALLED",
                   "LINK_TEAM_MISMATCH",
                   "LINK_TAKEN",
@@ -14214,6 +14215,7 @@
                       "LAUNCH_FAILED",
                       "CATALOG_MISMATCH",
                       "TAKEOVER_REQUIRED",
+                      "SOURCE_DELETED",
                       "SLACK_NOT_INSTALLED",
                       "LINK_TEAM_MISMATCH",
                       "LINK_TAKEN",
@@ -59299,7 +59301,7 @@
             }
           },
           "409": {
-            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `SESSION_PAUSED`: The session is pausing or paused; resume it first.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.\n- `SESSION_STOPPED`: The session is stopping or stopped; resume it first.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).\n- `SESSION_CLOSING`: The session is closing; wait for the close receipt. A close that cannot finish returns the session to `active`.\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.\n- `TAKEOVER_REQUIRED`: The person who asked for the session was offboarded; it takes no input until an owner takes it over.",
+            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `SESSION_PAUSED`: The session is pausing or paused; resume it first.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.\n- `SESSION_STOPPED`: The session is stopping or stopped; resume it first.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).\n- `SESSION_CLOSING`: The session is closing; wait for the close receipt. A close that cannot finish returns the session to `active`.\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.\n- `TAKEOVER_REQUIRED`: The person who asked for the session was offboarded; it takes no input until an owner takes it over.\n- `SOURCE_DELETED`: The session holds a Slack message that was deleted in Slack, so it takes no new turn.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -59329,7 +59331,8 @@
                                 "SESSION_CLOSING",
                                 "SESSION_CLOSED",
                                 "CHECKPOINT_UNAVAILABLE",
-                                "TAKEOVER_REQUIRED"
+                                "TAKEOVER_REQUIRED",
+                                "SOURCE_DELETED"
                               ]
                             }
                           }

@@ -253,6 +253,18 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="지운-slack-글에-걸린-답과-턴을-막는-릴리스" />
+### The release that holds back replies and turns of deleted Slack messages
+
+Migration `0329_slack_outbox_voided_by_delete` adds the status `voided_by_delete` to `slack_outbox`, and the column `sources_turn`, the turn a row belongs to. The upgrade needs nothing from you. Mentions and replies in threads with no deleted message, and web and API sessions, behave as before.
+
+- An outbox row whose sources hold a message deleted in Slack (a parent's tombstone included) stops right before its send. That covers replies, failure notices, approval cards and the mirror of a web instruction, and sources inherited from the session's earlier turns count. The row ends as `voided_by_delete` with `error_code` `source_deleted` and is never sent again. The slack role logs the warning `Slack send voided: a source was deleted`.
+- A delete that comes after a send began leaves what went out. Checking the marks and starting the send take the same message's lock.
+- An edit of a message holds back nothing.
+- A deleted message makes no session and no turn: its own mention, and the next post of a thread whose earlier message was deleted. Nothing is posted in Slack; the slack role logs the warning `Slack input refused by the session` (`code` `SOURCE_DELETED`).
+- A message sent from the web or the API to such a session is now refused with 409 `SOURCE_DELETED`. This release does not stop the session.
+- The CHECK is added `NOT VALID` and validated in its own statement, so writes are not held for long. Rolling back to an image in the support window is safe: an older image neither reads nor sends a `voided_by_delete` row.
+
 <a id="세션-없는-호출의-예약-표를-만드는-릴리스" />
 ### The release that adds the table of calls with no session
 

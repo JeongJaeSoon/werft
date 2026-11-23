@@ -558,7 +558,7 @@ describe("Git 스킬 상세의 동기화", () => {
 
       await settle(() => screen.queryByText(judged) !== null);
       expect(screen.getByText(judged)).toBeDefined();
-      expect(readsAfterOn).toBe(3);
+      expect<number | null>(readsAfterOn).toBe(3);
     } finally {
       jest.useRealTimers();
       environmentManager.setIsServer(() => server);

@@ -38,7 +38,7 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
-import { outboxSources } from "../conversations/index.ts";
+import { lockedDeletedSource, outboxSources } from "../conversations/index.ts";
 import {
   mirrorsInstructions,
   postsPrompts,
@@ -114,6 +114,7 @@ const entry = {
   body: t.body,
   dedupeKey: t.dedupeKey,
   sources: t.sources,
+  sourcesTurn: t.sourcesTurn,
 };
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
@@ -1064,6 +1065,7 @@ export function createPostgresSlackOutboxStore(
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pendingRequests.requestId,
           sources: turns.sources,
+          sourcesTurn: turns.sequence,
           payload: pendingRequests.payload,
           expiresAt: pendingRequests.expiresAt,
         })
@@ -1107,6 +1109,19 @@ export function createPostgresSlackOutboxStore(
               WHERE pi.push_request_id = ${pushRequests.id}
               ORDER BY pi.turn_id LIMIT 1)
             ELSE (SELECT lt.sources FROM ${turns} lt
+              WHERE lt.session_id = ${sessions.id}
+                AND lt.created_at <= ${pushRequests.createdAt}
+              ORDER BY lt.sequence DESC LIMIT 1)
+            END`,
+          // The sequence of that same turn.
+          sourcesTurn: sql<number | null>`CASE WHEN EXISTS (
+              SELECT 1 FROM push_intents pi
+              WHERE pi.push_request_id = ${pushRequests.id})
+            THEN (SELECT it.sequence FROM push_intents pi
+              JOIN ${turns} it ON it.id = pi.turn_id
+              WHERE pi.push_request_id = ${pushRequests.id}
+              ORDER BY pi.turn_id LIMIT 1)
+            ELSE (SELECT lt.sequence FROM ${turns} lt
               WHERE lt.session_id = ${sessions.id}
                 AND lt.created_at <= ${pushRequests.createdAt}
               ORDER BY lt.sequence DESC LIMIT 1)
@@ -1317,20 +1332,55 @@ export function createPostgresSlackOutboxStore(
         }));
     },
 
-    async beginSend(fence) {
-      const rows = await db
-        .update(t)
-        .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
-        .where(
-          and(
-            fenced(fence),
-            eq(t.status, "pending"),
-            sql`${t.leaseExpiresAt} > now()`,
-            channelNotWaiting(sql.raw('"slack_outbox"')),
-          ),
-        )
-        .returning({ id: t.id });
-      return rows.length > 0;
+    beginSend(fence) {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .select({
+            workspaceId: t.workspaceId,
+            sessionId: t.sessionId,
+            sources: t.sources,
+            throughTurn: t.sourcesTurn,
+          })
+          .from(t)
+          .where(
+            and(
+              fenced(fence),
+              eq(t.status, "pending"),
+              sql`${t.leaseExpiresAt} > now()`,
+            ),
+          )
+          .for("update");
+        if (row === undefined) return false;
+        // A row whose sources hold a message Slack deleted is never sent;
+        // a delete that comes once it is sending leaves what went out.
+        if (
+          row.sources !== null &&
+          (await lockedDeletedSource(tx, row)) !== null
+        ) {
+          await tx
+            .update(t)
+            .set({
+              status: "voided_by_delete",
+              errorCode: "source_deleted",
+              ...released,
+            })
+            .where(eq(t.id, fence.id));
+          return "voided_by_delete" as const;
+        }
+        const rows = await tx
+          .update(t)
+          .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
+          .where(
+            and(
+              eq(t.id, fence.id),
+              // The marks' locks may have been waited for.
+              sql`${t.leaseExpiresAt} > clock_timestamp()`,
+              channelNotWaiting(sql.raw('"slack_outbox"')),
+            ),
+          )
+          .returning({ id: t.id });
+        return rows.length > 0;
+      });
     },
 
     async settle(fence, outcome) {

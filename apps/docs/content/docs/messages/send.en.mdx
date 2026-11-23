@@ -143,6 +143,7 @@ In the SDK, the responses below arrive as `APIError`, and you tell them apart li
 | 409 `RECOVERY_REQUIRED` | A recovery decision comes first ([Close](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | The session is closing or closed |
 | 409 `CHECKPOINT_UNAVAILABLE` | A checkpoint problem prevents accepting a new turn. The cause is in the response's `message`. If the transcript is over its limit, open a new session |
+| 409 `SOURCE_DELETED` | The session holds a message that was deleted in Slack, so it takes no new turn. Open a new session |
 | 413 | The message is too long |
 | 429 | Queued inputs reached the limit |
 

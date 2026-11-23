@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **스킬의 자동 승인이 화면의 '자동 연동' 스위치로 바뀌고, migration `0329_reset_skill_auto_approve`가 이미 켜졌거나 요청 중이던 자동 승인을 모두 끈다**(JeongJaeSoon/werft#2055). 업그레이드한 뒤 자동 연동을 쓸 스킬마다 스킬 상세의 GitHub 동기화 구역에서 다시 켜야 한다. 다시 켜지 않으면 새 버전이 승인 대기로 쌓인다. 끈 수는 migration 로그(`db.migrate.notice`)에 `0329: auto-approve turned off on N GitHub skill sources`로 남고, 끈 것이 없으면 아무 줄도 남지 않는다.
+- **스킬의 자동 승인이 화면의 '자동 연동' 스위치로 바뀌고, migration `0330_reset_skill_auto_approve`가 이미 켜졌거나 요청 중이던 자동 승인을 모두 끈다**(JeongJaeSoon/werft#2055). 업그레이드한 뒤 자동 연동을 쓸 스킬마다 스킬 상세의 GitHub 동기화 구역에서 다시 켜야 한다. 다시 켜지 않으면 새 버전이 승인 대기로 쌓인다. 끈 수는 migration 로그(`db.migrate.notice`)에 `0330: auto-approve turned off on N GitHub skill sources`로 남고, 끈 것이 없으면 아무 줄도 남지 않는다.
   - 켜는 방법이 바뀌었다. 오너나 어드민 한 명이 화면에서 켜고 끈다. 다른 관리자의 동의는 필요 없다. 연동 대상이 브랜치이기만 하면 되고(태그와 커밋은 400 `not_branch`), GitHub의 브랜치 보호 규칙과 PR 리뷰는 보지 않는다.
   - 켜 두면 고정 규칙 검사를 통과한 버전이 사람의 승인 없이 승인되어 현재 버전이 된다. 규칙에 걸린 버전만 승인 대기로 남는다. 켜는 순간에도 한 번 확인해, 승인 대기로 있던 버전(처음 등록한 v1 포함)이 규칙을 통과하면 승인한다.
   - 그 브랜치에 push할 수 있는 사람과 App이 곧 스킬을 바꿀 수 있는 사람이 된다. 에이전트의 App이 그 저장소에 push할 수 있으면 에이전트도 포함된다. 누가 push할 수 있는지는 GitHub ruleset으로 정한다. 고정 규칙 검사는 스크립트가 조합하는 URL이나 base64 같은 내용을 걸러 내지 못한다.
@@ -22,12 +22,17 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - API가 바뀐다. `PUT /v1/workspace/skills/{name}/sync/auto-approve`의 `action`은 `on`과 `off`만 받는다(`request`와 `consent`는 400). 응답의 `git.auto_approve`는 `{ state, enabled_by }`이고 `state`는 `off`나 `on`이다. `last_check.auto_approval`에서 `rule`과 `pull_request`가 빠지고, `reason`은 `checks_failed`와 `baseline_changed`만 남는다. `last_check.trigger.kind`에 `auto_approve`(자동 연동을 켤 때의 확인)가 더해진다. `PUT /v1/workspace/skills/{name}/sync`와 `…/sync/auto-approve`의 응답에 `check`가 더해진다. 그 호출이 돌린 확인이 끝났으면 `checked`, 돌고 있던 확인 뒤로 밀렸으면 `queued`, 확인을 돌리지 않았으면 null이다.
   - 표는 그대로 두고 값만 바꾸는 migration이라 지원 창 안의 이미지로 되돌려도 된다. 되돌린 이미지는 옛 방식(두 관리자의 요청과 동의, 리뷰된 PR)으로 동작하고, 꺼진 설정은 꺼진 채로 남는다. 되돌린 이미지나 올리는 동안 아직 떠 있던 옛 서버에서 두 관리자가 옛 방식으로 켠 자동 승인은 이 버전에서 꺼짐으로 읽히고 아무것도 승인하지 않는다. 쓰려면 화면에서 다시 켠다.
 
+- **migration `0329_slack_outbox_voided_by_delete`가 outbox 상태 `voided_by_delete`와 칸 `sources_turn`을 더하고, Slack에서 지운 글에 걸린 답과 턴을 막는다**(JeongJaeSoon/werft#2058). 따로 할 일은 없고, 지운 글이 없는 Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
+  - 출처(물려받은 것 포함)에 지운 글(묘비 포함)이 든 outbox 줄은 보내기 직전에 `voided_by_delete`(`error_code` `source_deleted`)로 끝나고 나가지 않는다. slack 역할이 `warn` 로그 `Slack send voided: a source was deleted`를 남긴다. 보내기 시작한 뒤의 삭제는 나간 글을 그대로 두고, 수정은 아무것도 막지 않는다.
+  - 지운 글로는 세션을 만들거나 턴을 넣지 않는다. Slack에는 안내를 올리지 않고 `warn` 로그 `Slack input refused by the session`(`code` `SOURCE_DELETED`)만 남는다.
+  - **보이는 변화**: 지운 Slack 글이 든 세션에 웹·API로 메시지를 보내면 409 `SOURCE_DELETED`로 거절된다.
+  - CHECK는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0328_conversation_calls`가 세션 없는 provider 호출(대화 호출)의 표 `conversation_calls`를 더하고, 세션 제목 짓기 호출과 실행 중인 턴이 없는 세션 호출을 그 세션을 만든 첫 턴의 예산 계정에 매긴다**(JeongJaeSoon/werft#2057). 따로 할 일은 없다.
   - 대화 호출은 토큰을 내기 전에 root의 계정에 그 호출의 최대 비용(요청 본문 바이트 상한과 `max_tokens`)을 예약하고, 토큰은 egress proxy를 지나는 Messages 호출 한 번에만 쓰인다. 2분 안에 쓰이지 않은 토큰의 예약은 reconciler가 푼다(로그 `Conversation call reservations reconciled`, `released_count`). 이 릴리스에는 대화 호출을 내는 경로가 없어서 표는 비어 있다.
   - 한도를 정하지 않은 설치에서는 제목 짓기 호출과 턴 사이의 호출이 지금처럼 돈다. 한도를 넣으면 이 호출들도 세션을 만든 사람(또는 key)의 계정에서 판정되고, 넘으면 제목은 첫 메시지에서 자른 것이 그대로 남는다.
   - egress proxy가 provider 허가 요청에 헤더 `x-werft-exchange-id`를 붙인다. 앞선 API는 이 헤더를 무시한다. 대화 호출 토큰은 이 헤더가 있어야 허가되므로 api와 egress proxy를 함께 올린다.
   - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
-
 
 - **비공개 Slack 채널에서 시작한 세션은 새 공유 범위 `private_channel`로 생기고, 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보인다**(JeongJaeSoon/werft#2053). migration `0327_private_channel_share_scope`가 `session_shares`의 범위 CHECK에 `private_channel`을 더한다. 따로 할 일은 없다.
   - 보이는 변화: API key(개인 key·에이전트 key 모두, key 주인이 멤버여도)로는 이 세션이 목록에 없고 상세·turns·events·outputs·pending-requests가 `404`다. 판정 기록에는 이유 `private_channel_key`로 남는다. 채널을 나간 만든 사람과 멤버가 아닌 owner·admin도 못 본다(사유를 적은 감사 읽기는 된다. 관리 목록 `/v1/admin/sessions`에는 메타데이터만 `share_scope: private_channel`로 남고, 관리 종료는 채널 밖에서 `404`다). 공유 범위를 바꾸려 하면 409(`reason_code: private_channel_session`)다.
