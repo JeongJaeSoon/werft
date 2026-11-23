@@ -82,14 +82,28 @@ integration("private-channel-sessions on PostgreSQL", () => {
         ],
       );
     }
+    // A Slack session hangs off the conversation of its channel, which is
+    // what the private channel's door reads.
+    const parents: Record<string, string> = {};
+    for (const channel of ["G1", "G9", "G2"]) {
+      parents[channel] = randomUUID();
+      await pool.query(
+        "INSERT INTO channel_contexts (id, workspace_id, team_id, channel_id) VALUES ($1, $2, 'T1', $3)",
+        [randomUUID(), workspaceId, channel],
+      );
+      await pool.query(
+        "INSERT INTO conversations (id, workspace_id, agent_id, kind, team_id, channel_id) VALUES ($1, $2, $3, 'channel', 'T1', $4)",
+        [parents[channel], workspaceId, agentId, channel],
+      );
+    }
     let n = 0;
     const session = async (channel: string) => {
       const id = randomUUID();
       n += 1;
       await pool.query(
-        `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, created_by_user_id)
-         VALUES ($1, $2::text, 'https://example.invalid/repo.git', $3, $2::uuid, $4)`,
-        [id, workspaceId, `session/${id}`, creator],
+        `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, created_by_user_id, parent_conversation_id)
+         VALUES ($1, $2::text, 'https://example.invalid/repo.git', $3, $2::uuid, $4, $5)`,
+        [id, workspaceId, `session/${id}`, creator, parents[channel]],
       );
       await pool.query(
         `INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id,
