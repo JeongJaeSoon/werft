@@ -141,13 +141,14 @@ export function createSlackMemberJoinedHandler(deps: {
       channel,
       kind,
     );
-    // A `left` binding passes: recordJoin brings it back to approval when
+    // A `left` or `gone` binding passes: recordJoin brings it back when
     // this join is newer than the leave.
     if (
       binding === null ||
       (binding.status !== "ready" &&
         binding.status !== "pending_approval" &&
-        binding.status !== "left")
+        binding.status !== "left" &&
+        binding.status !== "gone")
     ) {
       return;
     }
@@ -165,6 +166,7 @@ export function createSlackMemberJoinedHandler(deps: {
       channel,
       binding.id,
       at,
+      kind,
     );
     if (!recorded) return;
     if (binding.home && binding.status === "ready") {
@@ -192,7 +194,7 @@ const memberLeftSchema = z.union([
 // join and leave events carry no `ts`; `event_ts` ("<seconds>.<micros>") is
 // the time Slack stamped them, and the envelope's time is the fallback. An
 // integer of microseconds, since a Date would tie two events in one ms.
-function lifecycleTime(claim: SlackInboundClaim): number | null {
+export function lifecycleTime(claim: SlackInboundClaim): number | null {
   const stamp = (claim.payload.event as { event_ts?: unknown } | undefined)
     ?.event_ts;
   const parts =
@@ -254,7 +256,7 @@ export function createSlackMemberLeftHandler(deps: {
 export function createSlackChannelJoiner(deps: {
   bindings: Pick<
     SurfaceBindingStore,
-    "setMembership" | "botRemovedFrom" | "lastLeaveNoted"
+    "setMembership" | "botRemovedFrom" | "lastLeaveNoted" | "channelNotFound"
   >;
   slack: Pick<SlackBotApi, "channelMembership" | "joinChannel">;
   botToken(workspaceId: string, agentId: string): Promise<string | null>;
@@ -285,12 +287,28 @@ export function createSlackChannelJoiner(deps: {
         (installationId !== null &&
           (await deps.bindings.botRemovedFrom(installationId, channelId)))
       );
+    const askedAt = Date.now() * 1000;
     const membership = await joinSlackChannel(
       deps.slack,
       botToken,
       channelId,
       mayJoin,
     );
+    // Slack not finding the channel: a public one was deleted, a private one
+    // may also have lost the bot. The store tells the two apart; a binding
+    // it changes takes no membership answer, nor does one the bot joined
+    // after Slack was asked (`stale`).
+    if (
+      membership?.error === "channel_not_found" &&
+      installationId !== null &&
+      (await deps.bindings.channelNotFound(
+        installationId,
+        channelId,
+        askedAt,
+      )) !== "unchanged"
+    ) {
+      return membership;
+    }
     if (
       membership !== null &&
       (binding.membership?.state !== membership.state ||

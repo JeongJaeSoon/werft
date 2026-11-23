@@ -34476,6 +34476,7 @@
                     "ready",
                     "pending_approval",
                     "left",
+                    "gone",
                     "partial",
                     "failed",
                     "revoked"
@@ -34710,6 +34711,7 @@
                   "ready",
                   "pending_approval",
                   "left",
+                  "gone",
                   "partial",
                   "failed",
                   "revoked"
@@ -34949,6 +34951,7 @@
                   "ready",
                   "pending_approval",
                   "left",
+                  "gone",
                   "partial",
                   "failed",
                   "revoked"

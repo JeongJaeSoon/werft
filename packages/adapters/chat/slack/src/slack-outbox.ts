@@ -7,7 +7,7 @@ import type {
   SlackOutboxSettle,
   SlackOutboxStore,
 } from "@werft-ai/platform";
-import { messageOf } from "@werft-ai/platform";
+import { messageOf, type SurfaceBindingStore } from "@werft-ai/platform";
 import type { RowDelivery } from "./outbox-delivery.ts";
 import {
   SLACK_CARD_SETTLE_TIMING,
@@ -78,6 +78,8 @@ export async function drainSlackOutbox(deps: {
     | null;
   /** How a claimed row reaches the channel; see `createRowDelivery`. */
   delivery: RowDelivery;
+  /** Told when Slack no longer finds a channel a row was sent to. */
+  bindings?: Pick<SurfaceBindingStore, "channelNotFound">;
   logger: SlackInboxLogger;
   consoleOrigin: string | null;
   batchSize: number;
@@ -273,6 +275,8 @@ export async function drainSlackOutbox(deps: {
         return true;
       };
 
+      // When Slack is asked, so a join noted after it outdates its answer.
+      const askedAt = Date.now() * 1000;
       const outcome = await deliver({
         row: claim,
         attempts: claim.attempts,
@@ -286,6 +290,21 @@ export async function drainSlackOutbox(deps: {
       const settled = await settle(settleOf(outcome));
       if (settled && outcome.kind === "uncertain") {
         await noticeUncertain(claim);
+      }
+      // The channel is gone, or a private one lost the bot: its binding says
+      // so, and no row goes there after this one. A DM or a user channel has
+      // no binding of its own and is left alone.
+      if (
+        settled &&
+        outcome.kind === "failed" &&
+        outcome.code === "channel_not_found" &&
+        !claim.channelId.startsWith("D")
+      ) {
+        await deps.bindings?.channelNotFound(
+          claim.installationId,
+          claim.channelId,
+          askedAt,
+        );
       }
     }
   }

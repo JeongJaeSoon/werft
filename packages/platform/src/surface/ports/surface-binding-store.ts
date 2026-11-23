@@ -170,17 +170,20 @@ export interface SurfaceBindingStore {
    * The join's last write: the binding's membership becomes `joined`, in one
    * transaction with the order check of `observeLifecycle`, so a leave noted
    * after the join was first seen is not overwritten. False, and nothing
-   * written, when the join has been overtaken. A `left` binding goes to
-   * `pending_approval` here (reason `rejoined_channel`) only for a join
+   * written, when the join has been overtaken. A `left` or `gone` binding
+   * goes to `pending_approval` (a public `gone` one to `ready`) here (reason `rejoined_channel`) only for a join
    * stamped strictly after the last noted leave; a tie, or a join with no
    * time, cannot be ordered against that leave, so the binding stays `left`
-   * and the call is false.
+   * and the call is false. `kind` is what Slack says the channel is now: a
+   * public `gone` binding whose channel turned private waits for approval as
+   * a private channel (reason `channel_now_private`) instead.
    */
   recordJoin(
     installationId: string,
     channelId: string,
     bindingId: string,
     at: number | null,
+    kind?: "public_channel" | "private_channel",
   ): Promise<boolean>;
   /**
    * The bot left a channel, or was removed from it, at `at`. When this is
@@ -202,6 +205,37 @@ export interface SurfaceBindingStore {
     channelId: string,
     at: number | null,
   ): Promise<boolean>;
+  /**
+   * Slack deleted the channel (`channel_deleted`, `group_deleted`) at `at`.
+   * Its `ready`, `pending_approval` or `left` binding becomes `gone`:
+   * inactive, no longer home, its approval cleared, a `set_surface_binding`
+   * receipt (reason `channel_deleted`); mode, ceiling and kind stay. The
+   * deletion is noted as the channel's leave whatever its order, so a join
+   * stamped before it changes nothing; a join noted after it (a retried
+   * deletion arriving late) keeps the binding as that join left it. False
+   * when no binding changed.
+   */
+  channelDeleted(
+    installationId: string,
+    channelId: string,
+    at: number | null,
+  ): Promise<boolean>;
+  /**
+   * Slack answered `channel_not_found` for a bound channel. A public
+   * channel is visible to a bot outside it, so its binding becomes `gone`.
+   * A private channel hides from a bot outside it, deleted or not: a `ready`
+   * binding recorded as `joined` becomes `left`, as if its `group_left`
+   * was lost, and any other one stays. Both are noted as a leave with no
+   * time. Receipts say `channel_not_found`. `askedAt` is when the caller
+   * asked Slack, in microseconds: a join noted after it means the bot came in
+   * since, so the answer is out of date, nothing changes and the result is
+   * `stale`; the caller records nothing from that answer either.
+   */
+  channelNotFound(
+    installationId: string,
+    channelId: string,
+    askedAt?: number,
+  ): Promise<"gone" | "left" | "unchanged" | "stale">;
   /**
    * Whether the newest join or leave noted for the channel is a leave (a
    * tie counts as the leave, as in `recordJoin`). The channel's event record,

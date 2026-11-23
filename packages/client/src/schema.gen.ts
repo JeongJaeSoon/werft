@@ -11908,7 +11908,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "gone" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
@@ -11949,7 +11949,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "gone" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
@@ -11992,7 +11992,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "gone" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */

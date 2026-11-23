@@ -235,6 +235,7 @@ function joinSubject(slack: Slack): ChannelJoinSubject {
         },
         botRemovedFrom: async () => false,
         lastLeaveNoted: async () => null,
+        channelNotFound: async () => "unchanged" as const,
       },
       slack: slack.api,
       botToken: async () => token,

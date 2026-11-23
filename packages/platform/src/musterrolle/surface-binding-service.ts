@@ -88,10 +88,24 @@ export function createSurfaceBindingService(deps: {
   ): Promise<SurfaceBindingRecord> {
     // A channel the bot left holds no bot; asking Slack would only race the
     // leave (the store ignores the answer), so the record stays as it is.
-    if (binding.status === "left") return binding;
+    // A channel Slack deleted has no one to join.
+    if (binding.status === "left" || binding.status === "gone") return binding;
     let membership = binding.membership;
     try {
       membership = (await deps.join?.(binding)) ?? membership;
+      // Slack not finding the channel may have changed the binding (gone,
+      // left) or come too late to count: what is stored is the answer.
+      if (
+        membership?.error === "channel_not_found" &&
+        binding.installationId !== null &&
+        binding.channelId !== null
+      ) {
+        const stored = await store.findLiveSlackChannel(
+          binding.installationId,
+          binding.channelId,
+        );
+        if (stored) return stored;
+      }
       if (binding.home && membership?.state === "joined") {
         await deps.welcome?.welcome(binding.workspaceId, binding.agentId, {
           ask: false,
