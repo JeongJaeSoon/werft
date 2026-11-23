@@ -356,6 +356,36 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     expect(await sessionRows()).toEqual(before);
   });
 
+  test("keeps unmarked a message a turn took before its input row was written, and that session goes on", async () => {
+    const place = await channel();
+    const taken = await buffered(place);
+    // Another agent's turn named the message; its input row comes later.
+    const takerSources = {
+      direct: [{ team_id: TEAM, channel_id: place.channelId, ts: taken.ts }],
+      inherited: [],
+    };
+    const taker = await sessionWith(takerSources);
+
+    const result = await deleteConversationRecords(db, {
+      conversationId: idOf(place.conversationId),
+      by: adminEmail,
+    });
+
+    expect(result).toMatchObject({
+      outcome: "deleted",
+      counts: { engagements: 0, summaryLines: 0, buffered: 1, marked: 0 },
+      sessionsStopped: [],
+    });
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM deleted_sources WHERE channel_id = $1",
+        [place.channelId],
+      ),
+    ).toBe(0);
+    expect(await stoppedAt(taker.sessionId)).toBeNull();
+    expect(await sendRefused(taker.sessionId, takerSources)).toBeNull();
+  });
+
   test("a dry run counts and changes nothing", async () => {
     const place = await channel();
     await mention(place);

@@ -12,4 +12,5 @@ ALTER TABLE "conversations" DROP CONSTRAINT IF EXISTS "conversations_records_del
 ALTER TABLE "conversations" VALIDATE CONSTRAINT "conversations_records_deleted_by_fk";--> statement-breakpoint
 ALTER TABLE "conversations" DROP CONSTRAINT IF EXISTS "conversations_records_deleted_check", ADD CONSTRAINT "conversations_records_deleted_check" CHECK (("conversations"."records_deleted_at" IS NULL) = ("conversations"."records_deleted_by_user_id" IS NULL)) NOT VALID;--> statement-breakpoint
 ALTER TABLE "conversations" VALIDATE CONSTRAINT "conversations_records_deleted_check";--> statement-breakpoint
-ALTER TABLE "deleted_sources" DROP CONSTRAINT IF EXISTS "deleted_sources_reason_check", ADD CONSTRAINT "deleted_sources_reason_check" CHECK ("deleted_sources"."reason" IN ('slack_deleted','admin_deleted'));
+ALTER TABLE "deleted_sources" DROP CONSTRAINT IF EXISTS "deleted_sources_reason_check", ADD CONSTRAINT "deleted_sources_reason_check" CHECK ("deleted_sources"."reason" IN ('slack_deleted','admin_deleted')) NOT VALID;--> statement-breakpoint
+ALTER TABLE "deleted_sources" VALIDATE CONSTRAINT "deleted_sources_reason_check";

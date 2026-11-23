@@ -107,17 +107,27 @@ async function recordsOf(
     ]),
   ].sort();
   // A turn's input, or a web input, is the session's: it stays, and so does
-  // the message it was, unmarked (its session goes on).
+  // the message it was, unmarked (its session goes on). A turn names its
+  // message as a direct source before its input row is written, in another
+  // transaction, so the turn counts too; a turn inserted later takes the
+  // message's mark lock first.
   const held = new Set(
     touched.length === 0
       ? []
-      : rowsOf<{ slack_ts: string }>(
+      : rowsOf<{ ts: string }>(
           await tx.execute(sql`
-            SELECT DISTINCT slack_ts FROM conversation_inputs
-            WHERE (workspace_id, slack_team_id, slack_channel_id) = (${channel})
-              AND buffer_expires_at IS NULL
-              AND slack_ts IN (${texts(touched)})`),
-        ).map((row) => row.slack_ts),
+            SELECT m.ts FROM unnest(ARRAY[${texts(touched)}]) AS m(ts)
+            WHERE EXISTS (
+                SELECT 1 FROM conversation_inputs i
+                WHERE (i.workspace_id, i.slack_team_id, i.slack_channel_id) = (${channel})
+                  AND i.buffer_expires_at IS NULL AND i.slack_ts = m.ts)
+              OR EXISTS (
+                SELECT 1 FROM turns st JOIN sessions ss ON ss.id = st.session_id
+                WHERE ss.workspace_id = ${c.workspace_id}::uuid
+                  AND st.sources @> jsonb_build_object('direct', jsonb_build_array(
+                    jsonb_build_object('team_id', ${c.team_id}::text,
+                      'channel_id', ${c.channel_id}::text, 'ts', m.ts))))`),
+        ).map((row) => row.ts),
   );
   return {
     engagementTs,
@@ -242,18 +252,18 @@ export async function deleteConversationRecords(
                 (${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId})
               AND ts IN (${texts(records.marks)})`);
           }
-          const engagements =
-            records.engagementTs.length === 0
-              ? 0
-              : rowsOf(
-                  await tx.execute(sql`
-                  DELETE FROM conversation_engagements
-                  WHERE (workspace_id, team_id, channel_id) =
-                      (${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId})
-                    AND agent_id = ${conversation.agent_id}::uuid
-                    AND ts IN (${texts(records.engagementTs)})
-                  RETURNING ts`),
-                ).length;
+          // An engagement is written without the conversation's lock: all of
+          // the conversation's go, and one not seen before starts again.
+          const engagementTs = rowsOf<{ ts: string }>(
+            await tx.execute(sql`
+            DELETE FROM conversation_engagements
+            WHERE (workspace_id, team_id, channel_id) =
+                (${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId})
+              AND agent_id = ${conversation.agent_id}::uuid
+            RETURNING ts`),
+          ).map((row) => row.ts);
+          if (!within(engagementTs, seen.touched)) throw new RecordsMoved();
+          const engagements = engagementTs.length;
           const buffered = await dropBufferedInputs(tx, records.bufferedIds);
           const summary = await dropChannelSummary(tx, place);
           if (!within(summary.sourceTs, seen.touched)) throw new RecordsMoved();
