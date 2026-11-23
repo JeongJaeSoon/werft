@@ -174,7 +174,7 @@ try {
                 : change
                   ? `EvVerify${mode.replace("-", "")}${channel}${seq}${text ?? ""}`
                   : posted || lifecycle
-                    ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
+                    ? `EvVerify${mode.replace("-", "")}${channel}${seq.replace(/\W/g, "")}`
                     : "EvVerify1",
           event: channelEvent
             ? {
@@ -260,7 +260,9 @@ try {
                           text: text || "verify inbox",
                           ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
                           ...(botMention ? { bot_id: "B0REVIEW" } : {}),
-                          ...(botMention && parent
+                          ...((botMention || mode === "mention") &&
+                          parent &&
+                          parent !== "0"
                             ? {
                                 thread_ts: slackTsOf(parent ?? ""),
                               }
