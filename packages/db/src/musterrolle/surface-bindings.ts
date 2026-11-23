@@ -6,6 +6,7 @@ import {
 } from "@werft-ai/contracts";
 import type {
   ChannelKindChanged,
+  ChannelKindInside,
   ChannelKindNow,
   ChannelSessionPlace,
   Principal,
@@ -33,6 +34,7 @@ import {
   surfaceBindings,
 } from "../schema.ts";
 import {
+  channelBindingKind,
   lockChannelKind,
   lockChannelSessions,
   moveChannelSessionScope,
@@ -1072,13 +1074,15 @@ const ACTIVE_OR_LEFT = new Set(["ready", "pending_approval", "left"]);
 async function channelKindChanged(
   db: Database,
   place: ChannelSessionPlace,
-  kindNow: () => Promise<ChannelKindNow | null>,
+  kindNow: (inside: ChannelKindInside) => Promise<ChannelKindNow | null>,
 ): Promise<ChannelKindChanged | null> {
   return db.transaction(async (tx) => {
     // One change of a channel at a time, Slack asked after the lock: of two
     // racing, the later read is written. Nothing else is held while asking.
     await lockChannelKind(tx, place.installationId, place.channelId);
-    const kind = await kindNow();
+    const kind = await kindNow({
+      bindingKind: () => channelBindingKind(tx, place),
+    });
     if (kind === null) return null;
     // The session rows, then the agent, then the binding: an input takes its
     // session before the agent, and an archive the agent before the binding.

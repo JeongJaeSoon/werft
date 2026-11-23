@@ -66,6 +66,35 @@ export async function channelSessionPlaces(
   }));
 }
 
+/**
+ * The kind the bindings of the place's channel record, read as the private
+ * channel's door reads them (session-shares `channelKindOf`): of those that
+ * know a kind, a live one before a revoked one, a private one first. Null
+ * when none knows it, which the door holds private.
+ */
+export async function channelBindingKind(
+  db: Database,
+  place: ChannelSessionPlace,
+): Promise<ChannelKindNow | null> {
+  if (!UUID.test(place.workspaceId)) return null;
+  const [row] = rowsOf<{ surface_kind: string }>(
+    await db.execute(sql`
+      SELECT b.surface_kind FROM surface_bindings b
+      JOIN slack_installations i ON i.id = b.installation_id
+      WHERE b.workspace_id = ${lower(place.workspaceId)}::uuid
+        AND i.team_id = ${place.teamId}
+        AND b.external_surface_id = ${place.channelId}
+        AND b.surface_kind IS NOT NULL
+      ORDER BY (b.revoked_at IS NULL) DESC,
+        (b.surface_kind = 'private_channel') DESC, b.updated_at DESC, b.id DESC
+      LIMIT 1`),
+  );
+  return row?.surface_kind === "public_channel" ||
+    row?.surface_kind === "private_channel"
+    ? row.surface_kind
+    : null;
+}
+
 const linkedSessionIds = (place: ChannelSessionPlace) => sql`
   SELECT l.session_id FROM session_links l
   JOIN surface_bindings b ON b.id = l.surface_binding_id

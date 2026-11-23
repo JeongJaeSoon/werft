@@ -23,6 +23,15 @@ export type ChannelSessionPlace = {
 /** What Slack says a channel is now. */
 export type ChannelKindNow = "public_channel" | "private_channel";
 
+/** What `kindNow` may read inside the move, under its lock on the channel. */
+export type ChannelKindInside = {
+  /**
+   * The kind the channel's bindings record, as the private channel's door
+   * reads them; null when none knows it.
+   */
+  bindingKind(): Promise<ChannelKindNow | null>;
+};
+
 /**
  * Why a session of a private channel is not moved: its channel's
  * conversation cannot be decided (the link names no usable channel, or the
@@ -261,7 +270,7 @@ export interface SurfaceBindingStore {
    */
   channelKindChanged(
     place: ChannelSessionPlace,
-    kindNow: () => Promise<ChannelKindNow | null>,
+    kindNow: (inside: ChannelKindInside) => Promise<ChannelKindNow | null>,
   ): Promise<ChannelKindChanged | null>;
   /**
    * Slack deleted the channel (`channel_deleted`, `group_deleted`) at `at`.

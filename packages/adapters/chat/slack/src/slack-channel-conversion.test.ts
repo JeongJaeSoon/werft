@@ -10,6 +10,8 @@ import { createSlackChannelConversionHandler } from "./slack-channel-conversion.
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const AGENT = "019a0000-0000-7000-8000-0000000000a1";
 const INSTALLATION = "019a0000-0000-7000-8000-0000000000c1";
+// The handler asks Slack and never reads the binding's kind itself.
+const INSIDE = { bindingKind: async () => null };
 
 const resolved = {
   resolveSlackEvent: async () => ({
@@ -52,7 +54,7 @@ function handler(
         place,
         kindNow,
       ): Promise<ChannelKindChanged | null> => {
-        const kind = await kindNow();
+        const kind = await kindNow(INSIDE);
         if (kind === null) return null;
         calls.push([place, kind]);
         return {
@@ -133,7 +135,7 @@ describe("channel conversion handler", () => {
       agents: resolved,
       bindings: {
         channelKindChanged: async (_place, kindNow) => {
-          await kindNow();
+          await kindNow(INSIDE);
           throw new Error("not reached");
         },
       },
@@ -156,7 +158,7 @@ describe("channel conversion handler", () => {
       agents: resolved,
       bindings: {
         channelKindChanged: async (_place, kindNow) => {
-          await kindNow();
+          await kindNow(INSIDE);
           return {
             binding: "now_private",
             moves: [],

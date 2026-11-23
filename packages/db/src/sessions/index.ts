@@ -12,6 +12,7 @@ export {
   awaitingInputAt,
 } from "./pending-status.ts";
 export {
+  channelBindingKind,
   lockChannelKind,
   lockChannelSessions,
   moveChannelSessionScope,
