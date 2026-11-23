@@ -21,6 +21,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { lockSessionReach } from "./sessions/requester-locks.ts";
 import { createPostgresUsageReader } from "./usage/usage-reader.ts";
 
 // sessionVisibleTo on a private channel's sessions (94S-1999): the channel
@@ -257,5 +258,37 @@ describe("private_channel sessions on the reads", () => {
       expect(text).not.toContain(privateChannel);
       expect(text).not.toContain("C0PRIV");
     }
+  });
+
+  // Under the session row Slack cannot be asked: what the policy confirmed
+  // stands for a person, and no key reaches it.
+  test("a follow-up or an answer reaches it under the lock as the policy let it", async () => {
+    const reach = (
+      who: { userId: string | null; apiKeyId: string | null },
+      answer = false,
+    ) =>
+      db.transaction((tx) =>
+        lockSessionReach(
+          tx as unknown as Database,
+          {
+            ...who,
+            role: "member",
+            keyAgentId: null,
+            slackBotUserId: null,
+          },
+          {
+            id: ids.privateOne,
+            workspaceId: ws,
+            createdByUserId: requester,
+            createdByApiKeyId: null,
+            agentReleaseId: null,
+          },
+          { answer },
+        ),
+      );
+    expect(await reach({ userId: member, apiKeyId: null })).toBe("not_found");
+    expect(await reach({ userId: member, apiKeyId: randomUUID() })).toBe(
+      "not_found",
+    );
   });
 });
