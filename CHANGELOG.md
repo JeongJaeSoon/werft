@@ -14,6 +14,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0329_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 판단 버퍼의 만료 칸 `buffer_expires_at`과 그 색인을 더한다**(JeongJaeSoon/werft#2059). 따로 할 일은 없고 Slack 동작도 그대로다.
+  - 판단 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 듣는 때만 멘션 없는 글을 본문째 담는다. 스위치 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없어서, 올린 뒤에도 버퍼는 비어 있다.
+  - 담긴 줄은 10분 뒤 reconciler가 통째로 지운다(로그 `Judgment buffer purged`, `expired_count`·`unlistened_count`). Slack에서 글이 지워지면 바로, 채널 보관·삭제·봇이 나감·binding `off`·에이전트 보관 때도 바로 지운다. 글이 고쳐지면 담긴 본문만 바뀐다.
+  - 줄을 고치지 않고 칸과 색인을 더하고 CHECK를 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 다만 옛 reconciler는 버퍼 줄을 지우지 않는다(스위치를 켠 적이 없으면 버퍼 줄은 없다).
+
 - **migration `0328_conversation_calls`가 세션 없는 provider 호출(대화 호출)의 표 `conversation_calls`를 더하고, 세션 제목 짓기 호출과 실행 중인 턴이 없는 세션 호출을 그 세션을 만든 첫 턴의 예산 계정에 매긴다**(JeongJaeSoon/werft#2057). 따로 할 일은 없다.
   - 대화 호출은 토큰을 내기 전에 root의 계정에 그 호출의 최대 비용(요청 본문 바이트 상한과 `max_tokens`)을 예약하고, 토큰은 egress proxy를 지나는 Messages 호출 한 번에만 쓰인다. 2분 안에 쓰이지 않은 토큰의 예약은 reconciler가 푼다(로그 `Conversation call reservations reconciled`, `released_count`). 이 릴리스에는 대화 호출을 내는 경로가 없어서 표는 비어 있다.
   - 한도를 정하지 않은 설치에서는 제목 짓기 호출과 턴 사이의 호출이 지금처럼 돈다. 한도를 넣으면 이 호출들도 세션을 만든 사람(또는 key)의 계정에서 판정되고, 넘으면 제목은 첫 메시지에서 자른 것이 그대로 남는다.

@@ -227,6 +227,15 @@ migration `0320_session_parent_conversation`이 `sessions.parent_conversation_id
 - 채운 수는 로그 `Parent conversations filled`에 남는다. 채우지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다.
 - 지원 창 안의 이미지로 되돌려도 된다. 그동안 만든 Slack 세션은 부모 없이 생기고, 다시 올리면 기동 때 채워진다.
 
+### 판단 버퍼를 더하는 릴리스
+
+migration `0329_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 만료 칸 `buffer_expires_at`과 그 색인을 더하고, 줄의 종류를 가리는 CHECK에 '판단 버퍼에 담긴 Slack 글'을 더한다. 줄은 고치지 않고 색인은 `CONCURRENTLY`로 만든다. 올릴 때 할 일은 없고 Slack 동작도 그대로다.
+
+- 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 들을 때만 멘션 없는 글을 담는다. 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없다.
+- 담긴 줄은 글의 본문과 쓴 사람의 Slack id를 갖고, 10분 뒤 reconciler가 통째로 지운다. 로그 `Judgment buffer purged`의 `expired_count`가 만료로, `unlistened_count`가 더 듣지 않는 채널로 지운 수다.
+- Slack에서 그 글이 지워지면 바로 지우고, 고쳐지면 담긴 본문만 새 본문으로 바꾼다. 지워지거나 고쳐진 뒤에 늦게 온 글은 담지 않는다. 채널 보관·삭제, 봇이 채널을 나감, binding `off`, 에이전트 보관 때도 바로 지운다.
+- 지원 창 안의 이미지로 되돌려도 된다. 옛 reconciler는 버퍼 줄을 지우지 않지만, 스위치를 켠 적이 없으면 버퍼 줄은 없다.
+
 ### 세션 없는 호출의 예약 표를 만드는 릴리스
 
 migration `0328_conversation_calls`가 세션 없는 provider 호출(대화 호출)의 표 `conversation_calls`를 더한다. 이 릴리스에는 대화 호출을 내는 경로가 없어서 표는 비어 있다. 올릴 때 할 일은 없다.
