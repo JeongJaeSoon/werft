@@ -530,24 +530,22 @@ describe("Codex round 1 (94S-1999)", () => {
     },
   ];
 
-  test("a Slack decision from the channel by someone who may not use the agent", async () => {
+  test("a Slack decision from the channel still needs the agent access", async () => {
     const viewers: SessionViewer[] = [];
     const [caller, identity] = fromChannel("outsider");
     await reason(caller, identity, "session.read", PRIVATE_SESSION, {
       viewers,
     });
-    expect(viewers.map((viewer) => viewer.privateChannels)).toEqual([
-      [CONVERSATION],
-    ]);
+    expect(viewers.map((viewer) => viewer.privateChannels)).toEqual([[]]);
   });
 
-  test("an owner outside the channel, with a reason, on what is not an audit read", async () => {
+  test("an owner outside the channel takes no control of it, reason or not", async () => {
     for (const action of ["session.control", "session.recover"] as const) {
       expect(
         await reason(person("owner"), plain, action, PRIVATE_SESSION, {
           justification: "incident 42",
         }),
-      ).toBe("ok");
+      ).toBe("not_found");
     }
   });
 });

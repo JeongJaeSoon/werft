@@ -740,32 +740,31 @@ export function createAuthorizationPolicy(
     if (places.length === 0 || principal.kind === "api_key") return [];
     const same = (a: string | undefined, b: string) =>
       a !== undefined && a.toLowerCase() === b.toLowerCase();
-    const seen: string[] = [];
-    const ask: PrivateChannelPlace[] = [];
-    for (const place of places) {
-      if (
-        surface.kind === "slack" &&
-        surface.channel_id === place.channelId &&
-        same(surface.agent_id, place.agentId)
-      ) {
-        seen.push(place.conversationId);
-      } else if (principal.kind === "user") {
-        ask.push(place);
-      }
-    }
+    if (principal.kind !== "user") return [];
     const members = deps.channelMembers;
-    if (members === undefined) return seen;
+    // The signed payload stands in for the member check only; the agent
+    // access is checked all the same.
+    const fromChannel = (place: PrivateChannelPlace) =>
+      surface.kind === "slack" &&
+      surface.channel_id === place.channelId &&
+      same(surface.agent_id, place.agentId);
+    const ask = places.filter(
+      (place) => fromChannel(place) || members !== undefined,
+    );
+    const seen: string[] = [];
     const sees = async (place: PrivateChannelPlace) => {
       try {
         const agentId = place.agentId.toLowerCase();
         return (
           (await usageFor(reading, workspaceId, agentId)).allowed &&
-          (await members.isMember({
-            workspaceId,
-            agentId,
-            channelId: place.channelId,
-            userId: principal.id,
-          }))
+          (fromChannel(place) ||
+            (members !== undefined &&
+              (await members.isMember({
+                workspaceId,
+                agentId,
+                channelId: place.channelId,
+                userId: principal.id,
+              }))))
         );
       } catch (error) {
         deps.logger?.warn("Private channel access unconfirmed; hidden", {
@@ -899,7 +898,12 @@ export function createAuthorizationPolicy(
         if (!(await mayShare(principal, resource.owner_scope, resource.id))) {
           return [visible ? "role" : hidden, []];
         }
-      } else if (manager && OUT_OF_SHARE_ACTIONS.has(action)) {
+      } else if (
+        manager &&
+        OUT_OF_SHARE_ACTIONS.has(action) &&
+        // A private channel's policy leaves a manager its audit read alone.
+        (places.length === 0 || action === "session.audit_read")
+      ) {
         // Audit reads and takeovers are management screens only, so asking
         // for the reason there reveals nothing; a control without one is as
         // blind as anyone's (owner and admin see not_found on the ordinary

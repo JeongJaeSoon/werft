@@ -21,6 +21,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { createPostgresUsageReader } from "./usage/usage-reader.ts";
 
 // sessionVisibleTo on a private channel's sessions (94S-1999): the channel
 // the policy found the viewer a member of goes before who made the session,
@@ -228,5 +229,33 @@ describe("private_channel sessions on the reads", () => {
     expect(await shares.get(ws, ids.privateOne)).toMatchObject({
       scope: "private_channel",
     });
+  });
+
+  // Architect: a personal key's totals are its creator's own spending and
+  // keep a private channel's sessions, as amounts nothing labels.
+  test("a creator's totals, a personal key's included, count it with no label naming it", async () => {
+    await db
+      .update(sessions)
+      .set({ costUsd: 1.25 })
+      .where(eq(sessions.id, ids.privateOne));
+    const usage = createPostgresUsageReader(db);
+    const filter = { kind: "user", ownerId: ws, userId: requester } as const;
+    const period = { since: new Date(0) };
+    const summary = await usage.usageSummary(filter, period);
+    expect(summary.sessionCount).toBe(3);
+    expect(Number(summary.costUsd)).toBe(1.25);
+    const labelled = [
+      await usage.usageSummaryGroups(filter, period, "agent"),
+      await usage.usageSummaryGroups(filter, period, "user"),
+      await usage.usageBreakdown(filter, period, "agent"),
+      await usage.usageBreakdown(filter, period, "model"),
+      await usage.usageSeries(filter, period),
+    ];
+    for (const record of labelled) {
+      const text = JSON.stringify(record);
+      expect(text).not.toContain(ids.privateOne);
+      expect(text).not.toContain(privateChannel);
+      expect(text).not.toContain("C0PRIV");
+    }
   });
 });
