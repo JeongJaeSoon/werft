@@ -250,6 +250,22 @@ describe("0325 link posting", () => {
     );
   });
 
+  test("a link whose binding is not found still reports: only none silences", async () => {
+    const { rows } = await oldHostLink();
+    const id = rows[0]?.id;
+    await client.query(
+      "UPDATE session_links SET surface_binding_id = $1 WHERE id = $2",
+      [randomUUID(), id],
+    );
+    const [row] = rowsOf<{ reports: boolean }>(
+      await db.execute(sql`
+        SELECT ${reportsTurns(sql.raw("l"))} AS reports FROM session_links l WHERE l.id = ${id}
+      `),
+    );
+    expect(row).toEqual({ reports: true });
+    await client.query("DELETE FROM session_links WHERE id = $1", [id]);
+  });
+
   test("none stays readable on links but no binding or writer may pick it", async () => {
     await expect(
       client.query(

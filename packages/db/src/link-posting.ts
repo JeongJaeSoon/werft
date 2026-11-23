@@ -1,3 +1,4 @@
+import { DEFAULT_REPORT_MODE } from "@werft-ai/contracts";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { rowsOf } from "./statement-rows.ts";
@@ -18,7 +19,8 @@ export const reportsTurns = (link: SQL) => sql`(
   NOT ${unmovedSummary(link)}
   AND coalesce(
     ${link}.report_mode,
-    (SELECT pb.report_mode FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id)
+    (SELECT pb.report_mode FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
+    ${DEFAULT_REPORT_MODE}
   ) <> 'none'
 )`;
 
