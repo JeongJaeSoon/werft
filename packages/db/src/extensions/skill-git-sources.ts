@@ -172,7 +172,23 @@ function checkOf(value: unknown): SkillSyncCheck | null {
   };
 }
 
+/**
+ * On as one manager turns it on: that manager fills both user columns. A row
+ * the two-manager flow turned on, by a host from before running beside this
+ * one or after a rollback, names two people. That was consent to another
+ * rule, so it reads as off.
+ */
+export const autoApproveOn = (
+  row: Pick<
+    Row,
+    "autoApprove" | "autoApproveRequestedBy" | "autoApproveConsentedBy"
+  >,
+): boolean =>
+  row.autoApprove === "on" &&
+  row.autoApproveRequestedBy === row.autoApproveConsentedBy;
+
 export function sourceOf(row: Row): SkillGitSource {
+  const on = autoApproveOn(row);
   return {
     workspaceId: row.workspaceId,
     name: row.name,
@@ -184,9 +200,9 @@ export function sourceOf(row: Row): SkillGitSource {
     ref: row.ref,
     syncEnabled: row.syncEnabled,
     autoApprove: {
-      state: row.autoApprove === "on" ? "on" : "off",
-      enabledBy: row.autoApproveConsentedBy,
-      grantId: row.autoApproveGrantId,
+      state: on ? "on" : "off",
+      enabledBy: on ? row.autoApproveConsentedBy : null,
+      grantId: on ? row.autoApproveGrantId : null,
     },
     lastCheck: checkOf(row.lastCheck),
   };
@@ -499,7 +515,10 @@ export function createPostgresSkillGitSourceStore(
         if (!input.managerRoles.includes(role)) return { outcome: "outranked" };
         const row = await lockedSource(tx, input.workspaceId, input.name);
         if (!row) return { outcome: "not_found" };
-        if (row.autoApprove === input.action) {
+        // What the two-manager flow left is cleared by off and replaced by on.
+        if (
+          input.action === "on" ? autoApproveOn(row) : row.autoApprove === "off"
+        ) {
           return { outcome: "unchanged", source: sourceOf(row) };
         }
         const by = input.action === "on" ? userId : null;

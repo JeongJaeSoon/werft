@@ -548,12 +548,14 @@ describe("the console", () => {
     const paused = await sync.setSync(caller(), "research", false);
     expect(paused.git.sync_enabled).toBe(false);
     expect(paused.receipt_id).not.toBeNull();
+    expect(paused.check).toBeNull();
     expect(registered).toEqual([]);
     const again = await sync.setSync(caller(), "research", false);
     expect(again.receipt_id).toBeNull();
     const resumed = await sync.setSync(caller(), "research", true);
     expect(resumed.git.sync_enabled).toBe(true);
     expect(resumed.git.last_check?.trigger.kind).toBe("resume");
+    expect(resumed.check).toBe("checked");
     expect(registered.map((one) => one.trigger.kind)).toEqual(["resume"]);
   });
 
@@ -642,6 +644,7 @@ describe("auto-approve", () => {
       enabled_by: USER,
     });
     if (turnedOn.receipt_id === null) throw new Error("no receipt");
+    expect(turnedOn.check).toBe("checked");
     expect(turnedOn.git.last_check?.trigger).toEqual({
       kind: "auto_approve",
       delivery_id: null,
@@ -657,6 +660,7 @@ describe("auto-approve", () => {
     state.branch = false;
     const off = await sync.setAutoApprove(caller(), "research", "off");
     expect(off.git.auto_approve).toEqual({ state: "off", enabled_by: null });
+    expect(off.check).toBeNull();
     expect(state.branches).toHaveLength(3);
     expect(registered).toHaveLength(1);
   });

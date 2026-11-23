@@ -690,12 +690,14 @@ export function createSkillGitSync(
             name,
             git: await sourceView(result.source),
             receipt_id: null,
+            check: null,
           };
         case "updated": {
           let source = result.source;
+          let ran: Awaited<ReturnType<typeof check>> | null = null;
           if (enabled) {
             // Turning sync back on checks once, right away.
-            await check(caller.ownerId, name, {
+            ran = await check(caller.ownerId, name, {
               kind: "resume",
               deliveryId: null,
               userId,
@@ -706,6 +708,7 @@ export function createSkillGitSync(
             name,
             git: await sourceView(source),
             receipt_id: result.receiptId,
+            check: ran === "not_found" ? null : ran,
           };
         }
       }
@@ -768,12 +771,14 @@ export function createSkillGitSync(
             name,
             git: await sourceView(result.source),
             receipt_id: null,
+            check: null,
           };
         case "updated": {
           let source = result.source;
+          let ran: Awaited<ReturnType<typeof check>> | null = null;
           // Paused sync approves nothing; its resume checks instead.
           if (action === "on" && source.syncEnabled) {
-            await check(caller.ownerId, name, {
+            ran = await check(caller.ownerId, name, {
               kind: "auto_approve",
               deliveryId: null,
               userId,
@@ -784,6 +789,7 @@ export function createSkillGitSync(
             name,
             git: await sourceView(source),
             receipt_id: result.receiptId,
+            check: ran === "not_found" ? null : ran,
           };
         }
       }

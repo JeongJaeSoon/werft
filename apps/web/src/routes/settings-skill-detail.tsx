@@ -188,7 +188,10 @@ function SyncPanel({
     readonly until: number;
   } | null>(null);
   useEffect(() => {
-    if (queued === null || lastAt === queued.seen) return;
+    if (queued === null || lastAt === null || lastAt === queued.seen) return;
+    // A list read from before the answer shows an older check: not a move.
+    if (queued.seen !== null && Date.parse(lastAt) < Date.parse(queued.seen))
+      return;
     setQueued(
       queued.moves + 1 >= 2
         ? null
@@ -200,8 +203,8 @@ function SyncPanel({
     refetchInterval: () =>
       queued !== null && Date.now() < queued.until ? QUEUED_POLL_MS : false,
   });
-  const waitQueued = () =>
-    setQueued({ seen: lastAt, moves: 0, until: Date.now() + QUEUED_WAIT_MS });
+  const waitQueued = (seen: string | null) =>
+    setQueued({ seen, moves: 0, until: Date.now() + QUEUED_WAIT_MS });
   const check = useSkillWrite(
     () =>
       unwrap(
@@ -211,7 +214,8 @@ function SyncPanel({
       ) as Promise<CheckSkillResponse>,
     {
       onDone: (answer) => {
-        if (answer.outcome === "queued") waitQueued();
+        if (answer.outcome === "queued")
+          waitQueued(answer.last_check?.at ?? null);
         setOutcome({
           kind: "notice",
           text:
@@ -240,12 +244,8 @@ function SyncPanel({
       onDone: (answer, enabled) => {
         // Resuming checks once; behind a running check that one is queued
         // and the answer still carries the old last check.
-        if (
-          enabled &&
-          answer.receipt_id !== null &&
-          (answer.git.last_check?.at ?? null) === lastAt
-        )
-          waitQueued();
+        if (answer.check === "queued")
+          waitQueued(answer.git.last_check?.at ?? null);
         setOutcome({
           kind: "notice",
           text: t(
@@ -272,13 +272,8 @@ function SyncPanel({
       onDone: (answer, on) => {
         // Turning it on checks once, queued behind a running check as a
         // resume's is.
-        if (
-          on &&
-          git.sync_enabled &&
-          answer.receipt_id !== null &&
-          (answer.git.last_check?.at ?? null) === lastAt
-        )
-          waitQueued();
+        if (answer.check === "queued")
+          waitQueued(answer.git.last_check?.at ?? null);
         setOutcome({
           kind: "notice",
           text: t(

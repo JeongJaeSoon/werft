@@ -11477,6 +11477,8 @@ export interface components {
             };
             /** @description Null when sync already was in that state. */
             receipt_id: string | null;
+            /** @description The check this call ran, on a resume or on turning auto-approve on. `queued`: a check of the skill was running, and it runs once more when it ends. Null when the call ran none. */
+            check: ("checked" | "queued") | null;
         };
         PutSkillAutoApproveRequest: {
             /**

@@ -38,6 +38,7 @@ import {
 } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 import {
+  autoApproveOn,
   gitVersionJson,
   gitVersionOf,
   lockedManagers,
@@ -399,7 +400,7 @@ export function createPostgresExtensionBundleStore(
             !synced ||
             auto === undefined ||
             source?.syncEnabled !== true ||
-            source.autoApprove !== "on" ||
+            !autoApproveOn(source) ||
             source.autoApproveGrantId !== auto.grantId
           ) {
             return null;

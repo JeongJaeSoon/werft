@@ -674,22 +674,54 @@ integration("Git skill sources on PostgreSQL", () => {
     expect(written).toHaveLength(2);
   });
 
-  test("a row left requested by a host from before reads as off, and one manager turns it on or off", async () => {
-    for (const action of ["on", "off"] as const) {
-      const { workspaceId, admin } = await registered("legacy");
-      await db
-        .update(skillGitSources)
-        .set({ autoApprove: "requested", autoApproveRequestedBy: admin.userId })
-        .where(eq(skillGitSources.workspaceId, workspaceId));
-      expect((await sources().get(workspaceId, "legacy"))?.autoApprove).toEqual(
-        { state: "off", enabledBy: null, grantId: null },
-      );
-      expect(
-        await autoApprove(workspaceId, "legacy", action, admin.caller),
-      ).toMatchObject({
-        outcome: "updated",
-        source: { autoApprove: { state: action } },
-      });
+  test("what the two-manager flow of a host from before left, requested or on, reads as off and approves nothing; one manager turns it on or off", async () => {
+    for (const left of ["requested", "on"] as const) {
+      for (const action of ["on", "off"] as const) {
+        const { workspaceId, admin } = await registered("legacy");
+        const consenter = await person(workspaceId, "admin");
+        const grantId = randomUUID();
+        await db
+          .update(skillGitSources)
+          .set(
+            left === "on"
+              ? {
+                  autoApprove: "on",
+                  autoApproveRequestedBy: admin.userId,
+                  autoApproveConsentedBy: consenter.userId,
+                  autoApproveGrantId: grantId,
+                }
+              : {
+                  autoApprove: "requested",
+                  autoApproveRequestedBy: admin.userId,
+                },
+          )
+          .where(eq(skillGitSources.workspaceId, workspaceId));
+        expect(
+          (await sources().get(workspaceId, "legacy"))?.autoApprove,
+        ).toEqual({ state: "off", enabledBy: null, grantId: null });
+        if (left === "on") {
+          // Even a check that names the row's own grant approves nothing.
+          const held = await synced(
+            workspaceId,
+            "legacy",
+            "Two.",
+            trigger("webhook"),
+            true,
+            grantId,
+          );
+          if (held.outcome !== "registered") throw new Error(held.outcome);
+          expect(held.bundle).toMatchObject({ version: 2, review: "pending" });
+          expect(
+            (await sources().get(workspaceId, "legacy"))?.lastCheck,
+          ).toMatchObject({ result: "created", autoApproval: null });
+        }
+        expect(
+          await autoApprove(workspaceId, "legacy", action, admin.caller),
+        ).toMatchObject({
+          outcome: "updated",
+          source: { autoApprove: { state: action } },
+        });
+      }
     }
   });
 

@@ -566,7 +566,7 @@ describe("GitHub skills", () => {
       {
         setSync: async (_caller, name, enabled) => {
           expect([name, enabled]).toEqual(["research", false]);
-          return { name, git: SOURCE, receipt_id: VERSION_ID };
+          return { name, git: SOURCE, receipt_id: VERSION_ID, check: null };
         },
       },
       "PUT",
@@ -610,7 +610,12 @@ describe("GitHub skills", () => {
       {
         setAutoApprove: async (_caller, name, action) => {
           expect([name, action]).toEqual(["research", "on"]);
-          return { name, git: SOURCE, receipt_id: VERSION_ID };
+          return {
+            name,
+            git: SOURCE,
+            receipt_id: VERSION_ID,
+            check: "queued",
+          };
         },
       },
       "PUT",
@@ -618,7 +623,9 @@ describe("GitHub skills", () => {
       JSON.stringify({ action: "on" }),
     );
     expect(turnedOn.status).toBe(200);
-    skillSyncResponseSchema.parse(await turnedOn.json());
+    expect(skillSyncResponseSchema.parse(await turnedOn.json()).check).toBe(
+      "queued",
+    );
     // The two-manager actions are gone with the consent they asked for.
     for (const action of ["request", "consent"]) {
       expect(

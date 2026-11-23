@@ -370,6 +370,10 @@ export const skillSyncResponseSchema = z
     receipt_id: receiptIdSchema.nullable().meta({
       description: "Null when sync already was in that state.",
     }),
+    check: z.enum(["checked", "queued"]).nullable().meta({
+      description:
+        "The check this call ran, on a resume or on turning auto-approve on. `queued`: a check of the skill was running, and it runs once more when it ends. Null when the call ran none.",
+    }),
   })
   .strict();
 export type SkillSyncResponse = z.infer<typeof skillSyncResponseSchema>;

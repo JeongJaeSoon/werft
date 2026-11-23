@@ -275,7 +275,12 @@ describe("Git 스킬 상세의 동기화", () => {
               }),
             }
           : { ...git, sync_enabled: false };
-        return json(200, { name: "triage", git, receipt_id: RECEIPT_ID });
+        return json(200, {
+          name: "triage",
+          git,
+          receipt_id: RECEIPT_ID,
+          check: git.sync_enabled ? "checked" : null,
+        });
       },
     });
     const user = await setupUser();
@@ -347,7 +352,12 @@ describe("Git 스킬 상세의 동기화", () => {
                 }),
               }
             : { ...git, auto_approve: { state: "off", enabled_by: null } };
-        return json(200, { name: "triage", git, receipt_id: RECEIPT_ID });
+        return json(200, {
+          name: "triage",
+          git,
+          receipt_id: RECEIPT_ID,
+          check: git.auto_approve.state === "on" ? "checked" : null,
+        });
       },
     });
     const user = await setupUser();
@@ -456,7 +466,12 @@ describe("Git 스킬 상세의 동기화", () => {
         "PUT /v1/workspace/skills/triage/sync": () => {
           git = { ...git, sync_enabled: true };
           readsAfterResume = 0;
-          return json(200, { name: "triage", git, receipt_id: RECEIPT_ID });
+          return json(200, {
+            name: "triage",
+            git,
+            receipt_id: RECEIPT_ID,
+            check: "queued",
+          });
         },
       });
       const settle = async (until: () => boolean) => {
@@ -475,6 +490,75 @@ describe("Git 스킬 상세의 동기화", () => {
 
       await settle(() => screen.queryByText(resumed) !== null);
       expect(screen.getByText(resumed)).toBeDefined();
+    } finally {
+      jest.useRealTimers();
+      environmentManager.setIsServer(() => server);
+    }
+  });
+
+  test("자동 연동을 켠 확인이 밀리면, 화면이 읽은 뒤에 끝난 확인이 있어도 끝날 때까지 다시 읽는다", async () => {
+    const pushed = (hour: number) =>
+      check({ at: `2026-11-21T0${hour}:00:00.000Z` });
+    // The screen read the check of 01:00. One ended at 02:00 since and
+    // another runs, so the check that turning it on asks for comes third.
+    let git = gitSource({ last_check: pushed(1) });
+    let readsAfterOn: number | null = null;
+    const server = environmentManager.isServer();
+    environmentManager.setIsServer(() => false);
+    jest.useFakeTimers();
+    try {
+      renderAt("/settings/workspace/skills/triage", {
+        "GET /v1/auth/me": () => json(200, me()),
+        [SKILLS]: () => {
+          if (readsAfterOn !== null) readsAfterOn++;
+          if (readsAfterOn === 2) git = { ...git, last_check: pushed(3) };
+          if (readsAfterOn === 3)
+            git = {
+              ...git,
+              last_check: {
+                ...pushed(4),
+                trigger: {
+                  kind: "auto_approve",
+                  delivery_id: null,
+                  user_id: USER_ID,
+                },
+                auto_approval: { result: "approved", reason: null, checks: [] },
+              },
+            };
+          return json(200, {
+            items: [{ ...gitSkill(), git }] satisfies Skill[],
+          });
+        },
+        "PUT /v1/workspace/skills/triage/sync/auto-approve": () => {
+          git = {
+            ...git,
+            auto_approve: { state: "on", enabled_by: USER_ID },
+            last_check: pushed(2),
+          };
+          readsAfterOn = 0;
+          return json(200, {
+            name: "triage",
+            git,
+            receipt_id: RECEIPT_ID,
+            check: "queued",
+          });
+        },
+      });
+      const settle = async (until: () => boolean) => {
+        for (let step = 0; step < 100 && !until(); step++)
+          await act(async () => {
+            jest.advanceTimersByTime(50);
+          });
+      };
+      await settle(() => screen.queryByRole("button", { name: "켬" }) !== null);
+      fireEvent.click(screen.getByRole("button", { name: "켬" }));
+      await settle(() => readsAfterOn === 2);
+      const judged = /자동 연동 켬 · 바뀐 내용 없음/;
+      expect(screen.queryByText(judged)).toBeNull();
+
+      await settle(() => screen.queryByText(judged) !== null);
+      expect(screen.getByText(judged)).toBeDefined();
+      expect(readsAfterOn).toBe(3);
     } finally {
       jest.useRealTimers();
       environmentManager.setIsServer(() => server);
