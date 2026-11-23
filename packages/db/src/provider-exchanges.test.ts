@@ -933,6 +933,10 @@ describe("holding a call on a budget account beside its session", () => {
         .deleted,
     ).toBe(1);
     expect(await rows()).toEqual([]);
+    // The proxy's release again leaves a fresh mark that names no account.
+    expect(await ledger.release({ exchangeId, ...who, reserve: RESERVE })).toBe(
+      "released",
+    );
     expect((await report(who, exchangeId)).outcome).toBe("recorded");
     const billed = {
       spentCostUsd: 0.0084,

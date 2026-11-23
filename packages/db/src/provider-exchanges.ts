@@ -87,33 +87,23 @@ export async function settleProviderExchange(
         eq(providerExchanges.attemptId, input.attemptId),
       ),
     )
-    .returning({ budgetRootKind: providerExchanges.budgetRootKind });
-  if (deleted.length > 0) {
-    // After the session and attempt rows the report holds: the account row
-    // comes last in every transaction that takes it.
-    if (deleted.some((row) => row.budgetRootKind !== null)) {
-      await settleBudgetIn(tx, {
-        callId: input.exchangeId,
-        actual: input.actual,
-      });
-    }
-    return { foreignRow: false };
-  }
-  const [other] = await tx
-    .select({ exchangeId: providerExchanges.exchangeId })
-    .from(providerExchanges)
-    .where(eq(providerExchanges.exchangeId, input.exchangeId))
-    .limit(1);
-  if (other === undefined) {
-    // No row, yet the call may still hold an account: its release mark was
-    // deleted after PROVIDER_EXCHANGE_KEEP_DAYS and the bill came later. A
-    // call that never named an account has no reservation to find.
-    await settleBudgetIn(tx, {
-      callId: input.exchangeId,
-      actual: input.actual,
-    });
-  }
-  return { foreignRow: other !== undefined };
+    .returning({ exchangeId: providerExchanges.exchangeId });
+  const [other] =
+    deleted.length > 0
+      ? []
+      : await tx
+          .select({ exchangeId: providerExchanges.exchangeId })
+          .from(providerExchanges)
+          .where(eq(providerExchanges.exchangeId, input.exchangeId))
+          .limit(1);
+  if (other !== undefined) return { foreignRow: true };
+  // Settled by the call id, not by the row: the row that held the account may
+  // be gone, its release mark deleted after PROVIDER_EXCHANGE_KEEP_DAYS, or
+  // replaced by a later release's mark that names no account. A call that
+  // never named one has no reservation, and nothing changes. After the
+  // session and attempt rows the report holds: the account row comes last.
+  await settleBudgetIn(tx, { callId: input.exchangeId, actual: input.actual });
+  return { foreignRow: false };
 }
 
 /**
