@@ -240,7 +240,7 @@ Migration `0316_conversation_inputs` adds the input table `conversation_inputs`.
 <a id="웹-입력-칸을-입력-접수-표에-더하는-릴리스" />
 ### The release that adds web input columns to the input table
 
-Migration `0318_web_inputs` adds three columns for web inputs to the input table `conversation_inputs` (`client_message_id`, `body`, `slack_mirror`) and lets `turn_id` be empty. A receipt service comes with it that, the moment the server takes a web input, settles its input id, topic, requester and number, but no route calls it in this release. The upgrade needs nothing from you, and the web console and Slack behave as before.
+Migration `0319_web_inputs` adds three columns for web inputs to the input table `conversation_inputs` (`client_message_id`, `body`, `slack_mirror`) and lets `turn_id` be empty. A receipt service comes with it that, the moment the server takes a web input, settles its input id, topic, requester and number, but no route calls it in this release. The upgrade needs nothing from you, and the web console and Slack behave as before.
 
 - A web input row keeps its text, and its `turn_id` may be empty because it is taken before it becomes a turn. A Slack input row still points at its turn and keeps no text. The check `conversation_inputs_origin_check` tells them apart.
 - When the same person sends to the same agent again with the same `client_message_id`, the earlier receipt comes back. Other text under the same key is refused.

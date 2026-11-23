@@ -240,7 +240,7 @@ migration `0316_conversation_inputs` が入力受付の表 `conversation_inputs`
 <a id="웹-입력-칸을-입력-접수-표에-더하는-릴리스" />
 ### Web 入力の列を入力受付の表に追加するリリース
 
-migration `0318_web_inputs` が入力受付の表 `conversation_inputs` に Web 入力の列三つ(`client_message_id`、`body`、`slack_mirror`)を追加し、`turn_id` を空にできるようにする。Web から届いた入力をサーバーが受け取った時点で入力 id・話題・依頼者・番号を決めて記録する受付サービスも入るが、このリリースにはそのサービスを呼ぶ route がない。上げるときにすることはなく、Web コンソールと Slack の動作も変わらない。
+migration `0319_web_inputs` が入力受付の表 `conversation_inputs` に Web 入力の列三つ(`client_message_id`、`body`、`slack_mirror`)を追加し、`turn_id` を空にできるようにする。Web から届いた入力をサーバーが受け取った時点で入力 id・話題・依頼者・番号を決めて記録する受付サービスも入るが、このリリースにはそのサービスを呼ぶ route がない。上げるときにすることはなく、Web コンソールと Slack の動作も変わらない。
 
 - Web 入力の行は本文を持ち、ターンになる前に受け付けるので `turn_id` が空のことがある。Slack の受付の行はこれまでどおり本文なしでターンを指す。CHECK `conversation_inputs_origin_check` が両者を分ける。
 - 同じ人が同じエージェントに同じ `client_message_id` で送り直すと、前の受付結果が返る。同じキーで本文が違えば拒否する。
