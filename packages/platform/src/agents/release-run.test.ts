@@ -29,12 +29,11 @@ describe("releaseRunOf", () => {
       connection_id: TEST_CONNECTION_ID,
       runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
       tools: ["Read", "Edit", "Bash", "Agent"],
-      permission_mode: "auto",
       project_settings: { claude_md: true },
     });
   });
 
-  test("a Responses connection runs codex, and never auto", () => {
+  test("a Responses connection runs codex", () => {
     const catalog = testCatalog({
       connections: { codex: responses },
       // As installed: no catalog for Codex.
@@ -49,7 +48,6 @@ describe("releaseRunOf", () => {
       kind: "codex_app_server",
       version: "0.40.0",
     });
-    expect(found.ok && found.run.permission_mode).toBe("default");
     // Codex has no tool catalog: its fixed tool set is what it runs.
     expect(found.ok && found.run.tools).toEqual(["exec_command"]);
   });

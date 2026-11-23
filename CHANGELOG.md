@@ -14,6 +14,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **세션의 권한 모드를 release에 적힌 값이 아니라 지금 규칙(연결과 모델)으로 정한다. 그래서 `default`로 만든 옛 Claude 모델 release의 세션이 `auto`로 바뀐다**(JeongJaeSoon/werft#PR). migration은 없고, release를 다시 만들 필요도 없다. release id는 그대로다.
+  - Claude 모델(`anthropic` 연결, 또는 `litellm` 연결의 Claude 모델 id)은 `auto`, Codex(`openai_responses`)와 Claude가 아닌 모델은 `default`로 돈다. 이미 도는 세션은 다음에 worker가 세션을 받을 때 바뀐다. 세션 상세의 `runtime.permission_mode`도 이 값을 보인다.
+  - 그 세션은 사람에게 묻던 호출을 이제 분류기가 판정한다. 묻기 목록에 걸린 호출과 push 승인은 지금처럼 사람에게 간다.
+  - 모드를 고르는 설정은 없다. 연결, 에이전트, 설치 설정 어디에도 없고, `default`로 되돌리는 스위치도 없다.
+  - release의 `spec_source.permission_mode`는 `default`와 `auto`만 읽는다. `acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`가 적힌 release(지금 서버는 만들지 않는다)는 spec을 읽지 못해 새 세션을 시작하지 못한다.
+  - 지원 창 안의 이미지로 되돌리면 옛 release의 세션은 다시 `default`로 돈다.
+
 - **migration `0333_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더하고, 지운 Slack 글을 출처로 가진 턴이 있는 열린 세션을 멈춘다**(JeongJaeSoon/werft#2064). 따로 할 일은 없고, 지운 글이 없는 세션의 동작은 그대로다.
   - 직접 출처든 물려받은 출처든 턴 하나만 걸려도 세션 전체를 멈춘다. 글의 수정으로는 멈추지 않는다. 닫힌 세션은 건드리지 않는다.
   - 실행 중인 턴은 끊지 않고, 끝난 뒤 pause처럼 `paused`가 된다. 대기 중인 입력은 내보내지 않는다.

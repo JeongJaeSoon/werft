@@ -34,7 +34,6 @@ const run: ReleaseRun = {
   connection,
   runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
   tools: ["Read", "Grep", "Edit", "Bash"],
-  permission_mode: "auto",
   project_settings: { claude_md: true },
 };
 
@@ -193,6 +192,32 @@ describe("runtimeConfigOfSpec", () => {
       },
       project_settings: { claude_md: true },
     });
+  });
+
+  // Before: the engine ran the mode the release recorded (the first value).
+  // After: the mode is decided again from runtime, connection and model.
+  test.each([
+    ["an old Claude release", "default", {}, "auto"],
+    ["a new Claude release", "auto", {}, "auto"],
+    [
+      "a Codex release",
+      "default",
+      {
+        runtime: { kind: "codex_app_server", version: "0.167.0" },
+        connection: {
+          id: "conn-1",
+          kind: "openai_responses",
+          endpoint: "https://api.openai.invalid",
+          billing: "per_token",
+        },
+        model: "gpt-5",
+      },
+      "default",
+    ],
+    ["a non-Claude litellm release", "default", { model: "gpt-5" }, "default"],
+  ] as const)("%s recorded %p and runs %p", (_name, recorded, edit, mode) => {
+    const source = { ...sourceOf(), ...edit, permission_mode: recorded };
+    expect(runtimeConfigOfSpec(source, "t", true).permission_mode).toBe(mode);
   });
 
   test("a session without a repository reads no CLAUDE.md", () => {

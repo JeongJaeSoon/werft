@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
-  type PermissionMode,
   type PlatformPrompt,
+  type SpecSource,
 } from "@werft-ai/contracts";
 import type {
   WorkerBinding,
@@ -27,8 +27,11 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
   }) as WorkerUnitOfWork;
 }
 
-/** One claim of a session whose spec runs `mode`. */
-async function claim(mode: PermissionMode, extra: Partial<WorkerBinding> = {}) {
+/** One claim of a session whose spec recorded `mode`. */
+async function claim(
+  mode: SpecSource["permission_mode"],
+  extra: Partial<WorkerBinding> = {},
+) {
   const binding = testBinding({
     spec: testSpecSource({ permission_mode: mode }),
     ...extra,
@@ -57,9 +60,10 @@ async function claim(mode: PermissionMode, extra: Partial<WorkerBinding> = {}) {
 }
 
 describe("the mode a claim runs", () => {
-  test("is the session spec's, whatever the connection says now", async () => {
-    for (const mode of ["default", "auto", "bypassPermissions"] as const) {
-      expect((await claim(mode)).runtime_config.permission_mode).toBe(mode);
+  // Before, a spec recorded as default ran default.
+  test("is decided from the spec's Claude model, not the mode it recorded", async () => {
+    for (const mode of ["default", "auto"] as const) {
+      expect((await claim(mode)).runtime_config.permission_mode).toBe("auto");
     }
   });
 });

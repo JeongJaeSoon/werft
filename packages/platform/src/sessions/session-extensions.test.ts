@@ -543,7 +543,8 @@ describe("the session view shows what the engine runs", () => {
       extensions: [],
     }) as unknown as SessionDetailRecord;
 
-  test("the spec's runtime, connection, model and mode, whatever the connection says now", async () => {
+  // Before, a spec recorded as default showed default.
+  test("the spec's runtime, connection and model, and the mode its model runs", async () => {
     for (const mode of ["default", "auto"] as const) {
       const { service, caller } = setup({
         session: detailOn(testSpecSource({ permission_mode: mode })),
@@ -553,7 +554,7 @@ describe("the session view shows what the engine runs", () => {
         version: "0.3.270",
         connection_id: "conn-1",
         model: "claude-sonnet-5",
-        permission_mode: mode,
+        permission_mode: "auto",
       });
     }
   });
