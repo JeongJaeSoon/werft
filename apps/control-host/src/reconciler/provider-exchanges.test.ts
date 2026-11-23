@@ -36,6 +36,7 @@ describe("the provider exchange ledger's reconciler pass", () => {
       settled: 2,
       noticed: [NOTICED],
       deleted: 3,
+      unknown: 4,
     };
     expect(
       await runProviderExchangeReconciler({
@@ -68,6 +69,7 @@ describe("the provider exchange ledger's reconciler pass", () => {
           settled_count: 2,
           noticed_count: 1,
           deleted_count: 3,
+          unknown_count: 4,
         },
       },
     ]);
@@ -81,7 +83,7 @@ describe("the provider exchange ledger's reconciler pass", () => {
       logger: sink,
       reconcile: async (options) => {
         asked.push(options);
-        return { settled: 0, noticed: [], deleted: 0 };
+        return { settled: 0, noticed: [], deleted: 0, unknown: 0 };
       },
     });
     expect(asked).toEqual([{ dryRun: true, limit: 100 }]);
