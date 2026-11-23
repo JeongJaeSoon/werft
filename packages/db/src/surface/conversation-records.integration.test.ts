@@ -394,6 +394,7 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     // message's mark lock held; B then asks for that mark lock. The delete
     // waited first, so its deadlock check runs first and ends it.
     const b = await pool.connect();
+    const bPid = (await b.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
     await b.query("BEGIN");
     await b.query("SELECT 1 FROM conversations WHERE id = $1 FOR SHARE", [
       place.conversationId,
@@ -402,7 +403,19 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
       conversationId: idOf(place.conversationId),
       by: adminEmail,
     });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Until the delete waits on B.
+    while (
+      Number(
+        (
+          await pool.query(
+            "SELECT count(*) AS n FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))",
+            [bPid],
+          )
+        ).rows[0].n,
+      ) === 0
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const bLock = await drizzle(b, { schema })
       .execute(
         lockSlackSourceMark({
