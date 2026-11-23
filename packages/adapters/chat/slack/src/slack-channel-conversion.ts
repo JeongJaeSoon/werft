@@ -19,7 +19,8 @@ const conversionSchema = z.object({
  * The `slack` role's handler for a channel made private or public, which
  * Slack tells as a message in it (`channel_convert_to_private`,
  * `channel_convert_to_public`): the channel's binding and its sessions
- * follow the new kind (answer 15, 94S-2001). The message itself is no one's
+ * follow the new kind (answer 15, 94S-2001), each session moved with a
+ * `share_session` receipt naming the event. The message itself is no one's
  * request and goes no further. Every other event goes to `next`.
  *
  * Conversions can arrive out of order, so the kind applied is the one Slack
@@ -52,8 +53,10 @@ export function createSlackChannelConversionHandler(deps: {
     // Asked inside the move, after its lock on the channel. A failed read
     // throws, and the inbox tries the event again.
     let applied: ChannelKindNow | null = null;
+    let tokenless = false;
     const kindNow = async () => {
       const token = await deps.botToken(claim.workspaceId, claim.slackAppId);
+      tokenless = token === null;
       const kind =
         token === null
           ? named === "private_channel"
@@ -72,6 +75,13 @@ export function createSlackChannelConversionHandler(deps: {
         channelId: parsed.data.channel,
       },
       kindNow,
+      // Members are not read here: who loses the sessions is not counted.
+      {
+        ref: { event_id: claim.eventId },
+        reason: "slack_channel_converted",
+        by: "slack_event",
+        noInstall: () => tokenless,
+      },
     );
     if (changed === null) {
       deps.logger.info(

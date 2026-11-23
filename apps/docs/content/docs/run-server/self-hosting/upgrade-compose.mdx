@@ -221,18 +221,19 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/priv
 ```
 
 세션마다 `from`·`to`, 못 보게 될 사람 수 `people_losing`, API key로 만든 턴 수 `key_turns`가 나온다. 못 보게 되는 사람은 채널 멤버가 아닌 사람(owner·admin·에이전트 관리자 포함), Slack을 연결하지 않은 멤버, 채널을 나간 만든 사람, 이름으로 공유받은 사람이다. `key_turns`가 0이 아닌 세션을 key로 폴링하던 연동은 옮긴 뒤 `404`를 받는다.
-- 그다음 `apply`로 옮긴다. 다시 돌려도 더 옮기는 것이 없다. `--workspace <id>`나 `--agent <id>`로 하나만 고를 수 있다.
+- 그다음 `apply`로 옮긴다. 다시 돌려도 더 옮기는 것이 없다(`outcome: unchanged`). `--workspace <id>`나 `--agent <id>`로 하나만 고를 수 있다.
 
 ```sh
 docker compose --profile apps exec -T api bun run apps/control-host/src/api/private-channel-sessions.ts apply --agent <agent_id>
 ```
 
-- 결과는 한 줄 JSON이다. 만든 사람이 `private`로 좁혀 둔 세션은 넓히지 않고 `kept_private`로 센다. 공개 채널 세션은 그대로다(`unchanged`).
+- 결과는 한 줄 JSON이다. `outcome`은 세션이나 binding을 하나라도 바꿨으면 `moved`, 바꾼 것이 없으면 `unchanged`이고 둘 다 종료 코드 `0`이다. 아래의 `unconfirmed_channels`나 `skipped`가 있으면 `incomplete`, 종료 코드 `3`이다. `run_id`는 이 실행의 id이고, 옮긴 세션 수 `sessions_moved`와 바뀐 binding 수 `bindings_changed`가 따로 나와 binding만 바뀐 실행도 읽힌다. 만든 사람이 `private`로 좁혀 둔 세션은 넓히지 않고 `kept_private`로 센다. 공개 채널 세션은 그대로다(`unchanged`).
+- 옮긴 세션마다 그 세션의 receipt 목록에 `share_session` receipt가 하나 남는다. `result`에는 이전 범위 `previous_scope`, 새 범위 `scope`, 사유 `reason: "operator_private_channel_migration"`, Slack 설치가 없어 binding의 종류로 정했는지 `no_install`, 그 세션을 더 못 보게 된 사람 수 `people_losing`(명단은 없다. `no_install`이면 `null`), 출력의 `run_id`, `by: "operator_cli"`가 들고, 세션 본문은 들지 않는다. 같은 실행에서 바뀐 binding의 receipt도 같은 `run_id`를 단다. receipt를 쓰지 못하면 그 채널의 세션과 binding도 옮기지 않고 종료 코드 `1`로 멈춘다. 앞 채널에서 옮긴 것은 남으니 고친 뒤 다시 돌린다. 이 릴리스 전 명령으로 옮긴 세션에는 이 receipt가 없다.
 - 명령은 채널마다 에이전트의 bot token으로 Slack에 채널 종류를 묻는다. 종류를 확인하지 못한 채널은 `unconfirmed_channels`, 옮기지 못한 세션은 `skipped`(`no_channel_conversation`·`no_workspace`, 옮기는 사이 범위가 바뀌면 `share_changed`)에 남고 그대로 둔다. 하나라도 있으면 종료 코드 `3`이다. 고친 뒤 다시 돌린다. 공개로 묶였지만 지금 비공개인 채널의 binding은 `private_channel`이 되고 다시 승인을 기다린다(`bindings`에 `now_private`).
 - `unconfirmed_channels`의 `reason`이 `master_key_mismatch`면 명령이 받은 master key로 저장된 bot token이 열리지 않은 것이고, stderr에 `master_key_mismatch` 한 줄이 함께 나온다. 명령은 API가 쓰는 키를 받아야 한다. `docker compose exec`로 띄운 명령은 컨테이너에 설정된 env만 받는다. 그래서 entrypoint가 서버 프로세스에만 키를 넘기는 구성에서는 서비스 env에 `PLATFORM_SECRET_KEY_FILE`을 두거나([설정](/run-server/self-hosting/reference/configuration)의 "Secret과 AWS values"), 그 실행에만 `-e PLATFORM_SECRET_KEY= -e PLATFORM_SECRET_KEY_FILE=<컨테이너 안의 키 파일 경로>`를 넘긴다. 앞의 것은 컨테이너 env에 남은 다른 키를 비운다.
 - Slack 앱 설치가 없는 에이전트(`SLACK_NOT_INSTALLED`)의 채널은 `unconfirmed_channels`가 아니라 `no_install`에 따로 센다(`channel_count`·`session_count`). 종료 코드 `3`의 이유가 아니다. Slack에 물을 수 없으므로 binding에 적힌 종류를 쓴다. 비공개 binding이거나 종류를 아는 binding이 없는 채널(`kind_unknown_as_private`)의 세션은 `private_channel`로 옮기고, 공개 binding이면 그대로 둔다. 멤버를 읽을 수 없어 못 보게 될 사람 수는 확인할 수 없다(`people_losing: "unconfirmed_no_install"`). 옮긴 세션은 재설치 전까지 에이전트 말고는 아무도 보지 못한다. 앱을 다시 설치하면 지금 채널 멤버에게 다시 보이고, 그 뒤 `plan`과 `apply`를 다시 돌리면 Slack이 답한 종류로 바로잡힌다.
 - 봇이 빠진 채널은 멤버 목록을 읽지 못해 `members_unconfirmed: true`다. 옮기면 그 채널의 세션은 모두에게 숨는다. 남길 채널이면 명령 전에 봇을 다시 초대한다.
-- 올린 뒤 채널을 공개↔비공개로 바꾸면 binding과 그 채널의 세션이 같이 옮겨진다. 비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다.
+- 올린 뒤 채널을 공개↔비공개로 바꾸면 binding과 그 채널의 세션이 같이 옮겨진다. 옮긴 세션마다 같은 `share_session` receipt가 남되 `reason: "slack_channel_converted"`, `by: "slack_event"`이고, `run_id` 대신 Slack 이벤트 id `event_id`를 단다. 이때는 멤버를 읽지 않아 `people_losing`이 `null`이다. 비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다.
 - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
 
 ### 처리를 마친 Slack 이벤트의 옛 원문을 지우는 릴리스

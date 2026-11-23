@@ -310,8 +310,35 @@ describe("private-channel-sessions with an agent that has no install", () => {
       [ids.n2]: "private_channel",
       [ids.n3]: "private_channel",
     });
+    // Each moved session's receipt says whether Slack or its binding decided.
+    const marks = await client.query<{
+      session_id: string;
+      no_install: boolean;
+      people_losing: number | null;
+    }>(
+      `SELECT target_ref->>'session_id' AS session_id,
+         (result->>'no_install')::boolean AS no_install,
+         (result->>'people_losing')::int AS people_losing
+       FROM receipts WHERE operation = 'share_session' AND result->>'run_id' = $1`,
+      [first.line.run_id],
+    );
+    expect(
+      Object.fromEntries(
+        marks.rows.map((row) => [
+          row.session_id,
+          [row.no_install, row.people_losing],
+        ]),
+      ),
+    ).toEqual({
+      // G1's binding was private already: the door hid it from non-members.
+      [ids.g1]: [false, 0],
+      [ids.n1]: [true, null],
+      [ids.n1b]: [true, null],
+      [ids.n3]: [true, null],
+    });
     const second = await run(["apply", "--agent", agentId]);
     expect(second.exit).toBe(PRIVATE_CHANNEL_SESSIONS_EXIT.ok);
+    expect(second.line.outcome).toBe("unchanged");
     expect(second.line.moved).toEqual([]);
   });
 });

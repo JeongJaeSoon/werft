@@ -62,6 +62,30 @@ export type ChannelKindChanged = ChannelScopePlan & {
   binding: "now_private" | "now_public" | "unchanged";
 };
 
+/**
+ * Who changed a channel's kind. With it, every session the move writes gets a
+ * `share_session` receipt in the move's transaction, and the binding's
+ * receipt carries the same `ref`.
+ */
+export type ChannelScopeChange = {
+  /** The operator's run (`run_id`) or the Slack event (`event_id`). */
+  ref: { run_id: string } | { event_id: string };
+  reason: "operator_private_channel_migration" | "slack_channel_converted";
+  by: "operator_cli" | "slack_event";
+  /** Read after `kindNow`: the kind did not come from Slack (no install or no bot token). */
+  noInstall(): boolean;
+  /**
+   * How many people stop seeing each of the channel's sessions if narrowed,
+   * read in the move's transaction (`tx`, the store's database handle) after
+   * the sessions are locked and before the binding or a share is written.
+   * Null, or left out, when it is not checked.
+   */
+  peopleLosing?(
+    tx: unknown,
+    sessionIds: readonly string[],
+  ): Promise<ReadonlyMap<string, number> | null>;
+};
+
 export type SurfaceBindingRecord = {
   id: string;
   workspaceId: string;
@@ -266,11 +290,12 @@ export interface SurfaceBindingStore {
    * approval (reason `channel_now_private`), a private one turned public
    * ready (a `left` one stays, its kind checked by the table); then the
    * channel's sessions follow (`ChannelScopePlan`). Running it again with
-   * the same kind changes nothing.
+   * the same kind changes nothing. A failed receipt write undoes it all.
    */
   channelKindChanged(
     place: ChannelSessionPlace,
     kindNow: (inside: ChannelKindInside) => Promise<ChannelKindNow | null>,
+    change?: ChannelScopeChange,
   ): Promise<ChannelKindChanged | null>;
   /**
    * Slack deleted the channel (`channel_deleted`, `group_deleted`) at `at`.

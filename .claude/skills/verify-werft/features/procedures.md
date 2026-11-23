@@ -991,7 +991,7 @@ a0_sql "select surface_kind, status from surface_bindings where external_surface
 a0_matrix A7 "$OS"
 ```
 
-기대: plan `{"outcome":"planned",…"from":"workspace","to":"private_channel","people_losing":0,…}` exit 0. 첫 apply는 그 세션을 `moved`에 넣고 exit 0, 두 번째는 `moved:[]`로 exit 0. scope `private_channel`, binding `private_channel`·`pending_approval`. A7: owner·mem 200, out(채널 밖)·unl(연결 끊음) 404, owner 개인 key(`ap_get`) 404. 옮기기 전에도 mem·out은 404다. share 행이 없는 공개 채널 세션은 만든 사람만 읽는다(plan의 `from:"workspace"`는 채널 종류를 말한다). Slack에서 채널 종류를 읽지 못한 채널은 `unconfirmed_channels`에 들고 exit 3으로 끝난다. 실제 Slack 설치에서 모든 채널이 `reason:"failed"`로 나오면 명령의 Slack 읽기 경로 문제다(mock run에서는 재현되지 않는다).
+기대: plan `{"outcome":"planned",…"from":"workspace","to":"private_channel","people_losing":0,…}` exit 0. 첫 apply는 `outcome:"moved"`·`sessions_moved:1`로 그 세션을 `moved`에 넣고 exit 0, 두 번째는 `outcome:"unchanged"`·`moved:[]`로 exit 0. 첫 apply의 `run_id`로 `a0_sql "select result from receipts where operation='share_session' and target_ref->>'session_id'='$OS'"`를 보면 `previous_scope:"workspace"`·`scope:"private_channel"`·`reason:"operator_private_channel_migration"`·같은 `run_id`가 한 줄 나온다. scope `private_channel`, binding `private_channel`·`pending_approval`. A7: owner·mem 200, out(채널 밖)·unl(연결 끊음) 404, owner 개인 key(`ap_get`) 404. 옮기기 전에도 mem·out은 404다. share 행이 없는 공개 채널 세션은 만든 사람만 읽는다(plan의 `from:"workspace"`는 채널 종류를 말한다). Slack에서 채널 종류를 읽지 못한 채널은 `unconfirmed_channels`에 들고 exit 3으로 끝난다. 실제 Slack 설치에서 모든 채널이 `reason:"failed"`로 나오면 명령의 Slack 읽기 경로 문제다(mock run에서는 재현되지 않는다).
 
 ## P-A0-DELETE — 근거 메시지 삭제(조건 3)
 
