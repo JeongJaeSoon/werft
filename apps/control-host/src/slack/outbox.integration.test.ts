@@ -1196,6 +1196,34 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       ]);
     });
 
+    test("an overflowed set is judged by its own turn and those before, not by a later turn's message", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      // Turn 2 is in before turn 1's reply is written.
+      await mention(fixture, "100.000200");
+      await outboxPass({ botToken: null });
+      // As a session past the set's key limit stores them.
+      await db.execute(sql`
+        UPDATE turns SET sources = sources || '{"overflow": true}'::jsonb
+        WHERE session_id = ${sessionId}::uuid`);
+      await db.execute(sql`
+        UPDATE slack_outbox SET sources = sources || '{"overflow": true}'::jsonb`);
+      const [reply] = await rows();
+      expect(reply).toMatchObject({ kind: "reply", sourcesTurn: 1 });
+      await marks().markDeleted({
+        workspaceId: await workspaceOf(sessionId),
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000200",
+        at: new Date(),
+      });
+
+      expect(await outboxPass()).toMatchObject({ sent: 1, voided: 0 });
+      expect(await statuses()).toEqual([["sent", null]]);
+    });
+
     test("an edit of the message holds back no reply", async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);

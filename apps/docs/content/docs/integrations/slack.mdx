@@ -185,7 +185,7 @@ release가 처음 배포되면 home 채널에 `안녕하세요, <에이전트 �
 
 ## 채널 보관·이름 변경·삭제
 
-에이전트 앱은 채널의 보관(`channel_archive`·`group_archive`), 보관 해제(`channel_unarchive`·`group_unarchive`), 이름 변경(`channel_rename`·`group_rename`), 삭제(`channel_deleted`·`group_deleted`) 이벤트를 받는다. `channel_*`은 공개 채널, `group_*`은 비공개 채널의 것이다. 앱이 이미 가진 scope로 오는 이벤트라 새 scope는 없다. Slack 문서로는 이미 가진 scope의 이벤트를 더하는 데 재설치가 필요 없다. 이 이벤트가 생기기 전에 만든 앱은 **다시 확인**(`POST /v1/agents/{id}/slack/app/events/recheck`)으로 manifest를 다시 보내야 받는다.
+에이전트 앱은 채널의 보관(`channel_archive`·`group_archive`), 보관 해제(`channel_unarchive`·`group_unarchive`), 이름 변경(`channel_rename`·`group_rename`), 삭제(`channel_deleted`·`group_deleted`) 이벤트를 받는다. `channel_*`은 공개 채널, `group_*`은 비공개 채널의 것이다. 앱이 이미 가진 scope로 오는 이벤트라 새 scope는 없다. Slack 문서로는 이미 가진 scope의 이벤트를 더하는 데 재설치가 필요 없다. 이 이벤트가 생기기 전에 만든 앱은 **다시 확인**(`POST /v1/agents/{id}/slack/app/events/recheck`)으로 manifest를 다시 보내야 받는다. 콘솔 없이 보내려면 API 컨테이너에서 `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>`를 실행한다. 다시 보낸 manifest가 설치에 없는 scope를 요청해 Slack이 권한이 바뀌었다고 답하면, 다시 확인의 응답(`reinstall_required: true`)과 콘솔 안내가 앱을 다시 설치하라고 알린다.
 
 - 보관·보관 해제·이름 변경은 그 채널의 대화에 상태(`active`·`archived`)와 새 이름만 적는다. 채널의 binding과 받기·답하기는 그대로다.
 - 채널이 삭제되면 그 채널의 binding이 `gone`이 된다. binding은 지우지 않고 남기며, 그 채널의 글을 받지 않고 그 채널로 아무것도 보내지 않는다. home이었으면 home이 풀리고 승인도 지워진다. 대화에는 `deleted`가 적힌다. 콘솔의 채널 목록에는 "삭제됨"으로 보인다.

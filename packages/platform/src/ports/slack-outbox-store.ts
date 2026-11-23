@@ -90,6 +90,11 @@ export type SlackOutboxEntry = {
    * them; absent or null for none, and for a row of no one turn.
    */
   sources?: StoredSourceSet | null;
+  /**
+   * That turn's public id. An overflowed set is judged by the direct sources
+   * of it and the turns before it, not of turns that came later.
+   */
+  sourcesTurn?: number | null;
 };
 
 export type SlackOutboxFence = { id: string; claimToken: string };
@@ -161,6 +166,8 @@ export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
 export type SlackPendingPrompt = SlackLinkedTurnTarget & {
   /** The sources of the turn that asked. */
   sources: StoredSourceSet | null;
+  /** That turn's public id; null with no sources. */
+  sourcesTurn: number | null;
   /** The Slack account linked to whoever asked for the turn, if any. */
   requesterSlackUserId: string | null;
   prompt:

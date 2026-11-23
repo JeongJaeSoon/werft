@@ -21,6 +21,7 @@ import {
   createPostgresCatalogRepositoryStore,
   createPostgresChannelMemberStore,
   createPostgresCommitAttributionLedger,
+  createPostgresConversationCalls,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresEnvVariableStore,
@@ -1291,6 +1292,7 @@ const workers = createWorkerGateway({
     store: judgmentEgress,
     upstream: judgeConnections.upstream,
   },
+  conversationCalls: { store: createPostgresConversationCalls(db) },
   ...(titleEgressUrl === null
     ? {}
     : {

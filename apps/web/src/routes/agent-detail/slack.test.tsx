@@ -1810,6 +1810,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: read,
+          reinstall_required: false,
         });
       },
     });
@@ -1854,6 +1855,7 @@ describe("Slack management", () => {
               ...appResponse(APP),
               event_url: SENT,
               events: { state: "pending", checked_at: AT, url: SENT },
+              reinstall_required: false,
             }),
     });
     const user = await setupUser();
@@ -1876,6 +1878,33 @@ describe("Slack management", () => {
     expect(app.textContent).not.toContain("다시 보냈습니다");
   });
 
+  test("says a reinstall is needed when the recheck's manifest adds permissions", async () => {
+    const events = { state: "verified", checked_at: AT, url: SENT } as const;
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, { ...appResponse(APP), event_url: SENT, events }),
+      [`POST ${PATH}/slack/app/events/recheck`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events,
+          reinstall_required: true,
+        }),
+    });
+    const user = await setupUser();
+    const addresses = await screen.findByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    await user.click(
+      within(addresses).getByRole("button", { name: "다시 확인" }),
+    );
+    await within(addresses).findByText(
+      "manifest를 Slack에 다시 보냈습니다. 앱에 새 권한이 더해져, 앱을 다시 설치해야 적용됩니다.",
+    );
+    expect(addresses.textContent).not.toContain("Request URL을 확인했습니다");
+  });
+
   test("locks picking the home until Slack checks the Request URL", async () => {
     let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
       state: "pending",
@@ -1895,6 +1924,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: read,
+          reinstall_required: false,
         });
       },
     });
@@ -1956,6 +1986,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: { state: "pending", checked_at: AT, url: SENT },
+          reinstall_required: false,
         });
       },
     });

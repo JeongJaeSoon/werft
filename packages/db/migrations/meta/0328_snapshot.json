@@ -1,5 +1,5 @@
 {
-  "id": "26842f4d-aba3-472e-9de5-a3658ca1e0bc",
+  "id": "7332c1f9-4b15-465b-830d-9a0f14c53426",
   "prevId": "9a233f7f-3207-4cfa-9051-cef955c84c2a",
   "version": "7",
   "dialect": "postgresql",
@@ -5336,6 +5336,232 @@
         "control_intents_interrupt_target_check": {
           "name": "control_intents_interrupt_target_check",
           "value": "\"control_intents\".\"kind\" <> 'interrupt' OR (\"control_intents\".\"target_turn_id\" IS NOT NULL AND \"control_intents\".\"attempt_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.conversation_calls": {
+      "name": "conversation_calls",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "root_kind": {
+          "name": "root_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requester_user_id": {
+          "name": "requester_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max_tokens": {
+          "name": "max_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max_request_bytes": {
+          "name": "max_request_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'reserved'"
+        },
+        "exchange_id": {
+          "name": "exchange_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "usage": {
+          "name": "usage",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tokens": {
+          "name": "tokens",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "conversation_calls_token_uniq": {
+          "name": "conversation_calls_token_uniq",
+          "columns": [
+            {
+              "expression": "token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_calls_exchange_uniq": {
+          "name": "conversation_calls_exchange_uniq",
+          "columns": [
+            {
+              "expression": "exchange_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_calls_reserved_expiry_idx": {
+          "name": "conversation_calls_reserved_expiry_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"state\" = 'reserved'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_calls_workspace_id_workspaces_id_fk": {
+          "name": "conversation_calls_workspace_id_workspaces_id_fk",
+          "tableFrom": "conversation_calls",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_calls_agent_id_agents_id_fk": {
+          "name": "conversation_calls_agent_id_agents_id_fk",
+          "tableFrom": "conversation_calls",
+          "tableTo": "agents",
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "conversation_calls_root_kind_check": {
+          "name": "conversation_calls_root_kind_check",
+          "value": "\"conversation_calls\".\"root_kind\" IN ('user','key','slack_bot','none')"
+        },
+        "conversation_calls_state_check": {
+          "name": "conversation_calls_state_check",
+          "value": "\"conversation_calls\".\"state\" IN ('reserved','in_flight','settled','released')"
+        },
+        "conversation_calls_limits_check": {
+          "name": "conversation_calls_limits_check",
+          "value": "\"conversation_calls\".\"max_tokens\" > 0 AND \"conversation_calls\".\"max_request_bytes\" > 0"
+        },
+        "conversation_calls_state_columns_check": {
+          "name": "conversation_calls_state_columns_check",
+          "value": "CASE \"conversation_calls\".\"state\"\n        WHEN 'reserved' THEN \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'in_flight' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'settled' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NOT NULL\n        ELSE \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NULL\n      END"
+        },
+        "conversation_calls_settled_check": {
+          "name": "conversation_calls_settled_check",
+          "value": "(\"conversation_calls\".\"state\" = 'settled') = (\"conversation_calls\".\"cost_usd\" IS NOT NULL AND \"conversation_calls\".\"tokens\" IS NOT NULL)"
+        },
+        "conversation_calls_nonneg_check": {
+          "name": "conversation_calls_nonneg_check",
+          "value": "(\"conversation_calls\".\"cost_usd\" >= 0 AND \"conversation_calls\".\"cost_usd\" <> 'NaN') AND \"conversation_calls\".\"tokens\" BETWEEN 0 AND 9007199254740991"
         }
       },
       "isRLSEnabled": false
@@ -16932,7 +17158,7 @@
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
-          "value": "\"slack_outbox\".\"status\" IN ('pending', 'sending', 'sent', 'failed', 'uncertain', 'voided_by_delete')"
+          "value": "\"slack_outbox\".\"status\" IN ('pending', 'sending', 'sent', 'failed', 'uncertain')"
         },
         "slack_outbox_channel_check": {
           "name": "slack_outbox_channel_check",

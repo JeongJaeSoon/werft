@@ -22,6 +22,7 @@ import {
   getSlackAppResponseSchema,
   listWorkspaceSlackAppsResponseSchema,
   putSlackSecretResponseSchema,
+  recheckSlackAppEventsResponseSchema,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
@@ -411,6 +412,17 @@ describe("the agent Slack app API", () => {
       state: "pending",
       url: `https://events.example.test/v1/slack/events/${AGENT}`,
     });
+    expect(recheck.json.reinstall_required).toBe(false);
+    slack.state.permissionsUpdated = true;
+    const widened = await call("POST", `${appPath(AGENT)}/events/recheck`, {
+      cookie: admin,
+    });
+    slack.state.permissionsUpdated = false;
+    expect(widened.status).toBe(200);
+    expect(
+      recheckSlackAppEventsResponseSchema.parse(widened.json)
+        .reinstall_required,
+    ).toBe(true);
     const none = await call("POST", `${appPath(IDLE_AGENT)}/events/recheck`, {
       cookie: admin,
     });

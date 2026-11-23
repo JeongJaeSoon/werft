@@ -20143,6 +20143,303 @@
         ],
         "additionalProperties": false
       },
+      "RecheckSlackAppEventsResponse": {
+        "type": "object",
+        "properties": {
+          "slack_app": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "agent",
+                      "link",
+                      "manual"
+                    ]
+                  },
+                  "agent_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "creating",
+                      "created",
+                      "failed",
+                      "abandoned",
+                      "deleting",
+                      "deleted"
+                    ]
+                  },
+                  "app_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Z0-9]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "client_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "redirect_url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "created_by_token_user": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[A-Z0-9]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  "updated_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  "secrets": {
+                    "type": "object",
+                    "properties": {
+                      "slack_signing_secret": {
+                        "$ref": "#/components/schemas/SlackSecretSummary"
+                      },
+                      "slack_client_secret": {
+                        "$ref": "#/components/schemas/SlackSecretSummary"
+                      },
+                      "slack_bot_token": {
+                        "$ref": "#/components/schemas/SlackSecretSummary"
+                      }
+                    },
+                    "required": [
+                      "slack_signing_secret",
+                      "slack_client_secret",
+                      "slack_bot_token"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "agent_id",
+                  "state",
+                  "app_id",
+                  "client_id",
+                  "redirect_url",
+                  "created_by_token_user",
+                  "created_at",
+                  "updated_at",
+                  "secrets"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "events": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "verified",
+                  "pending",
+                  "failed"
+                ]
+              },
+              "checked_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "type": "string",
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "state",
+              "checked_at",
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "config_token_issuer_changed"
+                    },
+                    "previous_user_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[A-Z0-9]+$"
+                    },
+                    "user_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[A-Z0-9]+$"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "previous_user_id",
+                    "user_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "repository_required"
+                    },
+                    "release_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "release_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "release_unavailable"
+                    },
+                    "release_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "release_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "const": "no_active_release"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "config_token": {
+            "type": "string",
+            "enum": [
+              "unset",
+              "active",
+              "needs_reentry"
+            ]
+          },
+          "reinstall_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "slack_app",
+          "event_url",
+          "events",
+          "warnings",
+          "config_token",
+          "reinstall_required"
+        ],
+        "additionalProperties": false
+      },
       "GetSlackAppManifestResponse": {
         "type": "object",
         "properties": {
@@ -94800,7 +95097,7 @@
           "Agents"
         ],
         "summary": "Send the agent app's Request URL to Slack again",
-        "description": "Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. `reinstall_required: true` means Slack answered that the manifest asks for a scope the install lacks: the app must be installed again before the new scopes apply. Owners, admins and the agent's admins from a signed-in console; API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -94842,6 +95139,7 @@
             "content": {
               "application/json": {
                 "example": {
+                  "reinstall_required": false,
                   "slack_app": {
                     "id": "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
                     "kind": "agent",
@@ -94884,7 +95182,7 @@
                   "config_token": "active"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/GetSlackAppResponse"
+                  "$ref": "#/components/schemas/RecheckSlackAppEventsResponse"
                 }
               }
             }

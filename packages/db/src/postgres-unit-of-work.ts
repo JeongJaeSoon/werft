@@ -638,6 +638,7 @@ export function createPostgresSessionUnitOfWork(
           (await lockedDeletedSource(tx, {
             workspaceId,
             sessionId: null,
+            throughTurn: null,
             sources: {
               direct: [
                 {
@@ -982,6 +983,7 @@ export function createPostgresSessionUnitOfWork(
             workspaceId: session.workspaceId,
             sessionId,
             sources,
+            throughTurn: null,
           })) !== null
         ) {
           return { outcome: "source_deleted" };

@@ -14,7 +14,8 @@ const placeOrder = (place: SourcePlace) =>
 /**
  * The first source Slack deleted, of a set as a turn or an outbox row stores
  * it, direct and inherited alike; null when none was. A set that overflowed
- * is judged by every direct source of its session's turns as well.
+ * is judged by the direct sources of its turn and its session's turns before
+ * it as well.
  *
  * Each source's mark lock is taken first, in one order (as a summary write
  * takes them), and held to the end of the caller's transaction: a delete
@@ -24,7 +25,13 @@ const placeOrder = (place: SourcePlace) =>
  */
 export async function lockedDeletedSource(
   tx: Database,
-  input: { workspaceId: string; sessionId: string | null; sources: unknown },
+  input: {
+    workspaceId: string;
+    sessionId: string | null;
+    sources: unknown;
+    /** The set's own turn (public id); null when every turn is before it. */
+    throughTurn: number | null;
+  },
 ): Promise<SourcePlace | null> {
   const set = sourceSetOf(input.sources);
   const keys: SourceKey[] = [...set.direct, ...set.inherited];
@@ -32,7 +39,9 @@ export async function lockedDeletedSource(
     const earlier = rowsOf<{ sources: unknown }>(
       await tx.execute(sql`
         SELECT sources FROM turns
-        WHERE session_id = ${input.sessionId}::uuid AND sources IS NOT NULL`),
+        WHERE session_id = ${input.sessionId}::uuid AND sources IS NOT NULL
+          AND (${input.throughTurn}::int IS NULL
+            OR sequence <= ${input.throughTurn}::int)`),
     );
     for (const row of earlier) keys.push(...sourceSetOf(row.sources).direct);
   }

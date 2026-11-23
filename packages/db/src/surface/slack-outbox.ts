@@ -114,6 +114,7 @@ const entry = {
   body: t.body,
   dedupeKey: t.dedupeKey,
   sources: t.sources,
+  sourcesTurn: t.sourcesTurn,
 };
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
@@ -1064,6 +1065,7 @@ export function createPostgresSlackOutboxStore(
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pendingRequests.requestId,
           sources: turns.sources,
+          sourcesTurn: turns.sequence,
           payload: pendingRequests.payload,
           expiresAt: pendingRequests.expiresAt,
         })
@@ -1107,6 +1109,19 @@ export function createPostgresSlackOutboxStore(
               WHERE pi.push_request_id = ${pushRequests.id}
               ORDER BY pi.turn_id LIMIT 1)
             ELSE (SELECT lt.sources FROM ${turns} lt
+              WHERE lt.session_id = ${sessions.id}
+                AND lt.created_at <= ${pushRequests.createdAt}
+              ORDER BY lt.sequence DESC LIMIT 1)
+            END`,
+          // The sequence of that same turn.
+          sourcesTurn: sql<number | null>`CASE WHEN EXISTS (
+              SELECT 1 FROM push_intents pi
+              WHERE pi.push_request_id = ${pushRequests.id})
+            THEN (SELECT it.sequence FROM push_intents pi
+              JOIN ${turns} it ON it.id = pi.turn_id
+              WHERE pi.push_request_id = ${pushRequests.id}
+              ORDER BY pi.turn_id LIMIT 1)
+            ELSE (SELECT lt.sequence FROM ${turns} lt
               WHERE lt.session_id = ${sessions.id}
                 AND lt.created_at <= ${pushRequests.createdAt}
               ORDER BY lt.sequence DESC LIMIT 1)
@@ -1324,6 +1339,7 @@ export function createPostgresSlackOutboxStore(
             workspaceId: t.workspaceId,
             sessionId: t.sessionId,
             sources: t.sources,
+            throughTurn: t.sourcesTurn,
           })
           .from(t)
           .where(

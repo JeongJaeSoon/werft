@@ -136,6 +136,11 @@ From this release on, the API no longer reads `SLACK_EVENTS_PUBLIC_URL`. When ev
 - Changing the saved address does not send it to apps already made. Press Recheck on the agent's Slack tab, or run `slack-app finalize`.
 - Keep the `slack_settings` table when rolling back. Earlier builds do not read it.
 
+<a id="slack-채널-이벤트와-manifest-다시-보내기" />
+### Slack channel events and sending the manifest again
+
+After upgrading, press Recheck on each agent's Slack tab once, or run `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` in the API container once per agent. Only then does an app made earlier receive channel deletion, archive and rename events. Without it, a deleted channel is handled only when a post or a channel lookup gets `channel_not_found`. When the manifest sent again asks for a scope the install lacks, Recheck's notice and the command's `warnings` (`reinstall_required`) say to install the app again.
+
 <a id="웹으로-옮긴-실행-한도" />
 ### Execution limits moved to the web
 
@@ -251,7 +256,7 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 <a id="지운-slack-글에-걸린-답과-턴을-막는-릴리스" />
 ### The release that holds back replies and turns of deleted Slack messages
 
-Migration `0328_slack_outbox_voided_by_delete` adds the status `voided_by_delete` to `slack_outbox`. The upgrade needs nothing from you. Mentions and replies in threads with no deleted message, and web and API sessions, behave as before.
+Migration `0329_slack_outbox_voided_by_delete` adds the status `voided_by_delete` to `slack_outbox`, and the column `sources_turn`, the turn a row belongs to. The upgrade needs nothing from you. Mentions and replies in threads with no deleted message, and web and API sessions, behave as before.
 
 - An outbox row whose sources hold a message deleted in Slack (a parent's tombstone included) stops right before its send. That covers replies, failure notices, approval cards and the mirror of a web instruction, and sources inherited from the session's earlier turns count. The row ends as `voided_by_delete` with `error_code` `source_deleted` and is never sent again. The slack role logs the warning `Slack send voided: a source was deleted`.
 - A delete that comes after a send began leaves what went out. Checking the marks and starting the send take the same message's lock.
@@ -259,6 +264,19 @@ Migration `0328_slack_outbox_voided_by_delete` adds the status `voided_by_delete
 - A deleted message makes no session and no turn: its own mention, and the next post of a thread whose earlier message was deleted. Nothing is posted in Slack; the slack role logs the warning `Slack input refused by the session` (`code` `SOURCE_DELETED`).
 - A message sent from the web or the API to such a session is now refused with 409 `SOURCE_DELETED`. This release does not stop the session.
 - The CHECK is added `NOT VALID` and validated in its own statement, so writes are not held for long. Rolling back to an image in the support window is safe: an older image neither reads nor sends a `voided_by_delete` row.
+
+<a id="세션-없는-호출의-예약-표를-만드는-릴리스" />
+### The release that adds the table of calls with no session
+
+Migration `0328_conversation_calls` adds `conversation_calls`, the table of provider calls that serve no session (conversation calls). Nothing in this release issues one yet, so it stays empty. The upgrade needs nothing from you.
+
+- Before a conversation call's token is issued, the call's most it may cost is reserved on the budget account chosen by whose request it serves (its root). That most counts the request body's byte cap as input tokens and `max_tokens` as output tokens. When the account cannot hold it, neither a token nor a row is made.
+- The token is stored only as its hash and is bound to one Messages call through the egress proxy. The proxy refuses a request outside that call's path, model, `max_tokens` or body byte cap, and a second call with the same token.
+- A used call is settled on the account by the proxy's usage report. Nothing is written to a session's usage (`provider_usage`).
+- The reconciler releases the reservation of a token not used within 2 minutes and logs `Conversation call reservations reconciled` (`released_count`). A call that was used and never reported is not released.
+- A session's title call, and a session's call no running turn serves, are now held on the account of the session's first turn, the one that created it. An installation with no limits runs them as before. With a limit, a title call past it is refused and the title cut from the first message stays.
+- The egress proxy adds the header `x-werft-exchange-id` to its provider authorize requests; an earlier API ignores it. A conversation call's token is granted only with it, so upgrade the api and the egress proxy together.
+- It only adds a table, so rolling back to an image inside the support window is safe.
 
 <a id="채널-요약-표를-만드는-릴리스" />
 ### The release that adds channel summary tables
