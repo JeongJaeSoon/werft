@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0336_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#PRNUM). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
+- **migration `0336_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#2077). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
   - 세션, 턴과 입력 원문, 입력 접수 줄, 이벤트, transcript, checkpoint는 지우지 않는다. 대화 행도 남는다.
   - 지우기 전에, 지울 기록이 가리키는 글 가운데 어느 턴의 입력도 아닌 글에 삭제 표식(`admin_deleted`)을 단다. 그 글을 출처로 가진 세션만 `SOURCE_DELETED`로 멈추고 보내지 않은 답은 나가지 않는다. 같은 채널의 다른 세션은 그대로 돈다.
   - `--by`는 그 워크스페이스의 owner나 admin이어야 하고, receipt `delete_conversation_records`의 행위자로 남는다. DM 대화는 `dm_not_supported`로 거절한다. 다시 불러도 결과가 같다. 사용법은 문서 사이트의 "데이터별 보존" 아래 "대화 기록의 관리자 삭제"에 있다.
