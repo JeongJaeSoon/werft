@@ -548,7 +548,8 @@ integration(
       expect(attachDone).toBe(false);
       answerC2("private_channel");
       expect((await c2Converting)?.binding).toBe("now_private");
-      expect((await scopes())[await c2Attach]).toBe("private_channel");
+      const attachedDuring = await c2Attach;
+      expect((await scopes())[attachedDuring]).toBe("private_channel");
       const madePublic = await attachLate(publicBinding, "C1");
       expect((await scopes())[madePublic]).toBe("workspace");
       const { rows: noShare } = await pool.query(
