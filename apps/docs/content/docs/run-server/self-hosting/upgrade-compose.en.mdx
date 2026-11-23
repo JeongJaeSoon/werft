@@ -248,6 +248,17 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="채널-요약-표를-만드는-릴리스" />
+### The release that adds channel summary tables
+
+Migration `0325_channel_summaries` adds three channel summary tables (`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`). Nothing in this release writes a summary yet, so they stay empty. The upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- A channel has one summary, shared by the agents in it. A line keeps the agent's own words, the agent that wrote it and when; its source rows keep where the Slack message it came from was (team, channel, ts), the input row's id and the speaker (that input's requester). No Slack message text is stored. The server reads the speaker and the source off the input row.
+- Every change moves the version up by one, and older versions stay as history to revert to.
+- When a source message is deleted or edited in Slack, its lines are removed from the current version and every older one, and the version moves up. A revert does not bring them back.
+- The reconciler keeps the delete and edit marks of a message a summary line came from past their 70 minutes.
+- Only new tables are made, so rolling back to an image in the support window is safe.
+
 <a id="턴과-outbox-줄에-출처-집합을-적는-릴리스" />
 ### The release that records source sets on turns and outbox rows
 

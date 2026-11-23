@@ -1,5 +1,5 @@
 {
-  "id": "754c0725-5e2e-41c3-a7f8-fe3a96cda5c8",
+  "id": "4c5813e5-1a57-4694-b6ca-91856937f77f",
   "prevId": "45199509-46d7-4bbd-aeb1-a9c61c173d1b",
   "version": "7",
   "dialect": "postgresql",
@@ -4373,6 +4373,339 @@
         "channel_contexts_ids_check": {
           "name": "channel_contexts_ids_check",
           "value": "\"channel_contexts\".\"team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"channel_contexts\".\"channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.channel_summaries": {
+      "name": "channel_summaries",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "channel_summaries_channel_fk": {
+          "name": "channel_summaries_channel_fk",
+          "tableFrom": "channel_summaries",
+          "tableTo": "channel_contexts",
+          "columnsFrom": ["workspace_id", "team_id", "channel_id"],
+          "columnsTo": ["workspace_id", "team_id", "channel_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "channel_summaries_workspace_id_team_id_channel_id_pk": {
+          "name": "channel_summaries_workspace_id_team_id_channel_id_pk",
+          "columns": ["workspace_id", "team_id", "channel_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "channel_summaries_version_check": {
+          "name": "channel_summaries_version_check",
+          "value": "\"channel_summaries\".\"version\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.channel_summary_line_sources": {
+      "name": "channel_summary_line_sources",
+      "schema": "",
+      "columns": {
+        "line_id": {
+          "name": "line_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input_id": {
+          "name": "input_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ts": {
+          "name": "ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "speaker_kind": {
+          "name": "speaker_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "speaker_id": {
+          "name": "speaker_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "channel_summary_line_sources_message_idx": {
+          "name": "channel_summary_line_sources_message_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "channel_summary_line_sources_line_id_channel_summary_lines_id_fk": {
+          "name": "channel_summary_line_sources_line_id_channel_summary_lines_id_fk",
+          "tableFrom": "channel_summary_line_sources",
+          "tableTo": "channel_summary_lines",
+          "columnsFrom": ["line_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "channel_summary_line_sources_line_id_input_id_pk": {
+          "name": "channel_summary_line_sources_line_id_input_id_pk",
+          "columns": ["line_id", "input_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "channel_summary_line_sources_slack_check": {
+          "name": "channel_summary_line_sources_slack_check",
+          "value": "\"channel_summary_line_sources\".\"team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"channel_summary_line_sources\".\"channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"channel_summary_line_sources\".\"ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.channel_summary_lines": {
+      "name": "channel_summary_lines",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin_id": {
+          "name": "origin_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "written_by_agent_id": {
+          "name": "written_by_agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "written_at": {
+          "name": "written_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ordinal": {
+          "name": "ordinal",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "channel_summary_lines_ordinal_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "from_version": {
+          "name": "from_version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_version": {
+          "name": "to_version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "channel_summary_lines_summary_idx": {
+          "name": "channel_summary_lines_summary_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "from_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "channel_summary_lines_summary_fk": {
+          "name": "channel_summary_lines_summary_fk",
+          "tableFrom": "channel_summary_lines",
+          "tableTo": "channel_summaries",
+          "columnsFrom": ["workspace_id", "team_id", "channel_id"],
+          "columnsTo": ["workspace_id", "team_id", "channel_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "channel_summary_lines_agent_fk": {
+          "name": "channel_summary_lines_agent_fk",
+          "tableFrom": "channel_summary_lines",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "written_by_agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "channel_summary_lines_text_check": {
+          "name": "channel_summary_lines_text_check",
+          "value": "char_length(\"channel_summary_lines\".\"text\") BETWEEN 1 AND 2000"
+        },
+        "channel_summary_lines_versions_check": {
+          "name": "channel_summary_lines_versions_check",
+          "value": "\"channel_summary_lines\".\"from_version\" >= 1 AND (\"channel_summary_lines\".\"to_version\" IS NULL OR \"channel_summary_lines\".\"to_version\" > \"channel_summary_lines\".\"from_version\")"
         }
       },
       "isRLSEnabled": false
@@ -13148,26 +13481,6 @@
           "notNull": true,
           "default": "'full'"
         },
-        "report_mode": {
-          "name": "report_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "mirror_instructions": {
-          "name": "mirror_instructions",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "post_prompts": {
-          "name": "post_prompts",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
         "muted": {
           "name": "muted",
           "type": "boolean",
@@ -13362,10 +13675,6 @@
         "session_links_visibility_check": {
           "name": "session_links_visibility_check",
           "value": "\"session_links\".\"visibility\" IN ('full', 'summary')"
-        },
-        "session_links_report_mode_check": {
-          "name": "session_links_report_mode_check",
-          "value": "\"session_links\".\"report_mode\" IS NULL OR \"session_links\".\"report_mode\" IN ('notify_only', 'progress', 'per_step', 'none')"
         },
         "session_links_revision_check": {
           "name": "session_links_revision_check",
@@ -16984,13 +17293,6 @@
           "notNull": true,
           "default": false
         },
-        "report_mode": {
-          "name": "report_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'per_step'"
-        },
         "memory_write_policy": {
           "name": "memory_write_policy",
           "type": "text",
@@ -17189,10 +17491,6 @@
         "surface_bindings_listen_check": {
           "name": "surface_bindings_listen_check",
           "value": "\"surface_bindings\".\"listen\" IN ('free','mention','off')"
-        },
-        "surface_bindings_report_mode_check": {
-          "name": "surface_bindings_report_mode_check",
-          "value": "\"surface_bindings\".\"report_mode\" IN ('notify_only','progress','per_step')"
         },
         "surface_bindings_ceiling_check": {
           "name": "surface_bindings_ceiling_check",

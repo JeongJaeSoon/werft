@@ -1,5 +1,9 @@
 import { type SQL, sql } from "drizzle-orm";
-import { sourceSetHoldsMark } from "../conversations/index.ts";
+import {
+  dropChannelSummaryLinesOf,
+  lockSlackSourceMark,
+  sourceSetHoldsMark,
+} from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 
@@ -30,8 +34,7 @@ export type SlackSourceMarkColumns = {
 /**
  * Whether Werft keeps something that points at the marked message, so its
  * mark stays: an input or engagement row of any agent in the workspace, or a
- * turn or Slack outbox row with it among its sources. The summary records add
- * their own test here as they come.
+ * turn, Slack outbox row or channel summary line with it among its sources.
  */
 export function knownSlackSource(mark: SlackSourceMarkColumns): SQL {
   return sql`(EXISTS (
@@ -46,16 +49,16 @@ export function knownSlackSource(mark: SlackSourceMarkColumns): SQL {
       AND e.team_id = ${mark.teamId}
       AND e.channel_id = ${mark.channelId}
       AND e.ts = ${mark.ts})
-    OR ${sourceSetHoldsMark(mark)})`;
+    OR ${sourceSetHoldsMark(mark)}
+    OR EXISTS (
+    SELECT 1 FROM channel_summary_line_sources s
+    WHERE s.workspace_id = ${mark.workspaceId}
+      AND s.team_id = ${mark.teamId}
+      AND s.channel_id = ${mark.channelId}
+      AND s.ts = ${mark.ts}))`;
 }
 
-/**
- * Holds one message's marks until the transaction ends: an edit that cannot
- * see a delete not committed yet would otherwise leave its mark beside it.
- */
-export function lockSlackSourceMark(mark: Omit<SlackSourceMark, "at">): SQL {
-  return sql`SELECT pg_advisory_xact_lock(hashtext('slack_source_marks'), hashtext(concat_ws('|', ${mark.workspaceId}::text, ${mark.teamId}::text, ${mark.channelId}::text, ${mark.ts}::text)))`;
-}
+export { lockSlackSourceMark };
 
 export function createPostgresSlackSourceMarkStore(db: Database): {
   markDeleted(mark: SlackSourceMark): Promise<"recorded" | "duplicate">;
@@ -75,6 +78,7 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
         await tx.execute(sql`
           DELETE FROM edited_sources
           WHERE (workspace_id, team_id, channel_id, ts) = (${key(mark)})`);
+        await dropChannelSummaryLinesOf(tx, mark);
         return rowsOf(inserted).length > 0 ? "recorded" : "duplicate";
       });
     },
@@ -92,6 +96,8 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
           SET edited_at = GREATEST(edited_sources.edited_at, EXCLUDED.edited_at),
               marked_at = now()
         RETURNING ts`);
+        // An edited source leaves the summary as a deleted one does.
+        await dropChannelSummaryLinesOf(tx, mark);
         return rowsOf(written).length > 0 ? "recorded" : "deleted";
       });
     },

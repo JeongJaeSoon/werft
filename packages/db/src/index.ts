@@ -14,6 +14,7 @@ export {
 } from "./checkpoints/checkpoint-runtime.ts";
 export * from "./checkpoints/checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
+export * from "./conversations/channel-summaries.ts";
 export * from "./conversations/conversation-inputs.ts";
 export * from "./conversations/conversation-store.ts";
 export * from "./conversations/engagements.ts";
