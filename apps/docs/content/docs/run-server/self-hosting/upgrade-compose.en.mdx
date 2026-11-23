@@ -223,7 +223,7 @@ From this release model connections, MCP servers and repository GitHub App keys 
 - A connection or MCP server made in the console is saved only with its key. The web keeps the save button off until 8 or more characters are typed; the API refuses with 400 a missing key, one shorter than 8 bytes, or one with control characters or surrounding whitespace; the database refuses a console-made row without its value in the same transaction. The console's "Enter key on screen" button, which turned an external connection into a stored one, and the `POST …/connections/{id}/convert` route are gone.
 - The 0285 rollback SQL above no longer applies after this release: `credential_source` allows `stored` only.
 
-<a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
+<a id="비공개-채널의-옛-세션을-옮기는-릴리스" />
 ### The release that moves old private channel sessions
 
 There is no migration. Sessions made in a private Slack channel before this release have no share row and are visible to the workspace. The operator command `private-channel-sessions.ts` moves them to `private_channel`. Until it runs, the old sessions stay visible to the workspace and only new ones are limited to the channel's current members.
@@ -248,6 +248,7 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/priv
 - After the upgrade, making a channel private or public moves its binding and its sessions along. Making a private channel public makes its `private_channel` sessions visible to the workspace.
 - Rolling back to an image in the support window is fine. An old image shows a `private_channel` session to its creator only.
 
+<a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
 ### The release that stops sessions holding a deleted Slack message
 
 Migration `0333_source_deleted` adds `source_deleted_at` (timestamptz, nullable) to `sessions`. Nothing to do when upgrading. Sessions with no deleted message behave as before.

@@ -199,8 +199,11 @@ integration(
       ]);
       const kindOf = (channelId: string) =>
         channelId === "C1" ? "public_channel" : "private_channel";
-      // Before: the agent's key reads every one of them.
-      expect(await visible(agentKey)).toEqual([...ids].sort());
+      // Before: the agent's key reads every workspace one of them (a key
+      // never reads a private or people share).
+      expect(await visible(agentKey)).toEqual(
+        [open, revoked, stillPublic, publicOne].sort(),
+      );
 
       const before = await totals();
       for (const place of places) {
@@ -291,7 +294,7 @@ integration(
 
       // After: no key reaches a moved one; the creator sees them only as a
       // member of the channel, and the narrowed one stays theirs.
-      expect(await visible(agentKey)).toEqual([narrowed, publicOne].sort());
+      expect(await visible(agentKey)).toEqual([publicOne]);
       expect(await visible({ userId: creator, apiKeyId: null })).toEqual(
         [narrowed, publicOne].sort(),
       );
@@ -488,6 +491,8 @@ integration(
       const attachLate = async (bindingId: string, channel: string) => {
         const sessionId = randomUUID();
         const linkId = randomUUID();
+        thread += 1;
+        const ts = `${1000 + thread}.000100`;
         await pool.query(
           `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, created_by_user_id)
          VALUES ($1, $2::text, 'https://example.invalid/repo.git', $3, $2::uuid, $4)`,
@@ -497,7 +502,7 @@ integration(
           `INSERT INTO session_links (id, workspace_id, owner_id, installation_id,
            surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id,
            release_id)
-         VALUES ($1, $2::uuid, $2::text, $3, $4, $5, $6, '2000.000100', '2000.000100', $7, $8)`,
+         VALUES ($1, $2::uuid, $2::text, $3, $4, $5, $6, $9, $9, $7, $8)`,
           [
             linkId,
             workspaceId,
@@ -507,6 +512,7 @@ integration(
             channel,
             agentId,
             releaseId,
+            ts,
           ],
         );
         const attached = await createPostgresSessionLinkStore(db).attachSession(
