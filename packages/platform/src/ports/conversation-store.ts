@@ -1,8 +1,25 @@
 import type {
   ConversationChannelState,
   ConversationId,
+  ConversationRollout,
   ConversationTopicId,
 } from "@werft-ai/contracts";
+
+/**
+ * What decides whether an agent's channel holds unmentioned messages in the
+ * judgment buffer, besides the binding: the agent's switch and state, and
+ * the channel's state as its conversation noted it (`active` with none).
+ */
+export type JudgmentBufferPlace = {
+  rollout: ConversationRollout;
+  agentActive: boolean;
+  channelState: ConversationChannelState;
+};
+
+/** Reads `JudgmentBufferPlace` for the receive path. */
+export interface JudgmentBufferStore {
+  place(key: ChannelConversationKey): Promise<JudgmentBufferPlace>;
+}
 
 /** What names one main conversation of one agent. */
 export type ConversationKey =

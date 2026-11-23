@@ -80,6 +80,19 @@ export type InboundInputReceipt = {
   engagement: EngagementKind;
 };
 
+/**
+ * An unmentioned message the receive path holds for the judgment (a0/D2):
+ * its text and poster, kept in its topic until the buffer's lifetime ends.
+ * Its row completes without it when a delete or edit mark of the message
+ * came first, or the channel stopped listening meanwhile.
+ */
+export type BufferedInputReceipt = {
+  topicId: ConversationTopicId;
+  channelId: string;
+  ts: string;
+  buffered: { body: string; slackUserId: string };
+};
+
 /** What a write after a claim is fenced on. */
 export type SlackInboundFence = Pick<SlackInboundClaim, "id" | "claimToken">;
 
@@ -121,11 +134,12 @@ export interface SlackInboundEventStore {
    * Marks the row `processed`, its payload cleared, and in the same
    * transaction takes `input`: next in its topic, or nothing when the
    * agent took that message already, and records the agent's engagement in
-   * it, once per message.
+   * it, once per message. A buffered message is held instead, with no
+   * engagement.
    */
   complete(
     fence: SlackInboundFence,
-    input?: InboundInputReceipt,
+    input?: InboundInputReceipt | BufferedInputReceipt,
   ): Promise<boolean>;
   /** Ends the row `dropped` for `reason`, its payload and key cleared. */
   drop(

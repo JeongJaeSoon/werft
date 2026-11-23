@@ -3,6 +3,7 @@ import {
   type SlackInboundDropReason,
 } from "@werft-ai/contracts";
 import type {
+  BufferedInputReceipt,
   InboundInputReceipt,
   SlackInboundClaim,
   SlackInboundEventStore,
@@ -42,7 +43,7 @@ export function slackConversationKey(
 export type SlackInboundHandler = (
   event: SlackInboundClaim,
   // biome-ignore lint/suspicious/noConfusingVoidType: most handlers take no input and return nothing.
-) => Promise<InboundInputReceipt | void>;
+) => Promise<InboundInputReceipt | BufferedInputReceipt | void>;
 
 /** Thrown by a handler to end the event `dropped` instead of retrying it. */
 export class SlackInboundDropped extends Error {
@@ -125,7 +126,7 @@ export async function drainSlackInbox(deps: {
         continue;
       }
       let failure: { error: unknown } | undefined;
-      let input: InboundInputReceipt | undefined;
+      let input: InboundInputReceipt | BufferedInputReceipt | undefined;
       try {
         input = (await deps.handler(event)) ?? undefined;
       } catch (error) {

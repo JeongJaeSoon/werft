@@ -264,6 +264,16 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="판단-버퍼를-더하는-릴리스" />
+### The release that adds the judgment buffer
+
+Migration `0330_judgment_buffer` adds an expiry column `buffer_expires_at` and its index to the input table `conversation_inputs`, and widens the CHECK on its kinds of row to a Slack message held in the judgment buffer. No row is changed, and the index is built `CONCURRENTLY`. The upgrade needs nothing from you, and Slack behaves as before.
+
+- The buffer holds unmentioned messages only for an agent whose conversation layer switch `conversation_rollout` is `shadow` or `on`, in a channel listening `free`. The switch defaults to `off`, and no API in this release changes it.
+- A held row has the message's text and its poster's Slack id, and the reconciler removes it whole after 10 minutes. In the log `Judgment buffer purged`, `expired_count` counts rows removed at expiry and `unlistened_count` rows of a channel no longer heard.
+- A message deleted in Slack goes at once; an edit only replaces the held text. A message that arrives after its own delete or edit is not held. Archiving or deleting the channel, the bot leaving it, the binding turned `off` or the agent archived remove its rows at once too.
+- You can roll back to an image within the support window. The old reconciler does not remove buffer rows, but there are none unless the switch was turned on.
+
 <a id="지운-slack-글에-걸린-답과-턴을-막는-릴리스" />
 ### The release that holds back replies and turns of deleted Slack messages
 

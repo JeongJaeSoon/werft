@@ -12,6 +12,7 @@ import {
   purgeExpiredEnvStart,
   purgeExpiredSlackChannelMembers,
   purgeFailedSlackInboundPayloads,
+  purgeJudgmentBuffer,
   purgeUnknownSlackSourceMarks,
   reconcileAgentOwnership,
   reconcileExpiredLeases,
@@ -134,6 +135,7 @@ export function reconcileOnce(
     purgeExpiredEnvStart: (options) => purgeExpiredEnvStart(db, options),
     purgeFailedSlackInboundPayloads: (options) =>
       purgeFailedSlackInboundPayloads(db, options),
+    purgeJudgmentBuffer: (options) => purgeJudgmentBuffer(db, options),
     purgeSlackSourceMarks: (options) =>
       purgeUnknownSlackSourceMarks(db, options),
     purgeSlackChannelMembers: (options) =>

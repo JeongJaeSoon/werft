@@ -264,6 +264,16 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 - 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
 - サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
 
+<a id="판단-버퍼를-더하는-릴리스" />
+### 判断バッファを追加するリリース
+
+migration `0330_judgment_buffer` が、入力受付の表 `conversation_inputs` に有効期限の列 `buffer_expires_at` とその索引を追加し、行の種類を分ける CHECK に「判断バッファに入った Slack メッセージ」を加える。行は書き換えず、索引は `CONCURRENTLY` で作る。上げるときにすることはなく、Slack の動作も変わらない。
+
+- バッファがメンションのないメッセージを入れるのは、エージェントの会話層スイッチ `conversation_rollout` が `shadow`・`on` で、チャンネルが `free` で聞いているときだけである。既定値は `off` で、このリリースにはスイッチを変える API がない。
+- 入った行はメッセージの本文と投稿者の Slack id を持ち、10 分後に reconciler が行ごと消す。ログ `Judgment buffer purged` の `expired_count` が期限切れで、`unlistened_count` がもう聞かないチャンネルとして消した数である。
+- Slack でそのメッセージが削除されればすぐ消し、編集されれば入っている本文だけを新しい本文に替える。削除・編集の後に遅れて届いたメッセージは入れない。チャンネルのアーカイブ・削除、bot の退出、binding の `off`、エージェントのアーカイブでもすぐ消す。
+- サポート期間内のイメージに戻してもよい。古い reconciler はバッファの行を消さないが、スイッチを入れたことがなければバッファの行はない。
+
 <a id="지운-slack-글에-걸린-답과-턴을-막는-릴리스" />
 ### 削除された Slack メッセージにかかる返信とターンを止めるリリース
 
