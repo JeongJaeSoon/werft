@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { createHash } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { InvalidCursorError } from "@werft-ai/platform";
@@ -72,6 +79,12 @@ function memoryBucket() {
 
 let client: PGlite;
 let db: Database;
+
+// The first migratedPGlite() of a process runs every migration; paying that in
+// the first test's beforeEach put it against the default 5s hook limit.
+beforeAll(async () => {
+  await (await migratedPGlite()).close();
+}, 60_000);
 
 beforeEach(async () => {
   client = await migratedPGlite();
@@ -229,6 +242,9 @@ const archive = (
   });
 
 describe("session event archiving", () => {
+  // The body alone is about 6s here: four passes of ~60 cursor pages each (before
+  // archiving, after it, from the middle, wide), over 2,345 events so that three
+  // chunks exist. Shrinking either would weaken what the test proves.
   test("reads the same pages, cursors, list time and clock after archiving, and restores the same rows", async () => {
     await projectionsCaughtUp();
     const id = await session();
@@ -334,7 +350,7 @@ describe("session event archiving", () => {
         id,
       ]),
     ).toEqual([]);
-  });
+  }, 30_000);
 
   test("a tail written after archiving reads on, and archives as a new chunk", async () => {
     await projectionsCaughtUp();
