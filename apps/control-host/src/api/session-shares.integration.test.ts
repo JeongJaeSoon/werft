@@ -171,6 +171,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
           createMemberService({
             authorization,
             store: createPostgresMemberStore(db),
+            sessions: createPostgresSessionShareStore(db),
           }),
           createInviteService({
             authorization,

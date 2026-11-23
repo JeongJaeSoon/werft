@@ -19,6 +19,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 실행 중인 턴은 끊지 않고, 끝난 뒤 pause처럼 `paused`가 된다. 대기 중인 입력은 내보내지 않는다.
   - `attention.code`는 `SOURCE_DELETED`이고, 메시지·재개·`start_fresh`·`retry_restore`는 `409 SOURCE_DELETED`로 거절된다. 닫기만 된다. 이유는 세션 이벤트 `source_deleted`로 남는다.
   - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 칸을 읽지 않으므로 멈춘 세션을 재개할 수 있게 된다.
+- **`private_channel` 세션의 DM 알림은 지금 채널 멤버에게만 가고, 인수는 채널 멤버가 한다**(JeongJaeSoon/werft#2066). migration은 없고 따로 할 일도 없다.
+  - 세션에 관한 DM(모델이 허용 목록에서 빠짐, 다음 모델로 옮김, `runtime_retired`로 멈춤, worker 이미지 교체)은 보내기 직전에, 받는 Slack 계정이 세션의 비공개 채널 중 하나의 지금 멤버인지 본다. 멤버가 아니거나 확인하지 못하면 보내지 않고 `failed`(`error_code` `reader_outside_channel`)로 끝난다. 에이전트 관리자도 같다. 에이전트 단위 알림(에이전트의 모델 이동)은 그대로다.
+  - 요청자가 비활성화되어 인수를 기다리는 `private_channel` 세션은 그 채널의 지금 멤버이고 세션에 쓸 수 있는(`session.submit`) 사람이 `POST /v1/sessions/{id}/takeover`로 인수한다. 사유는 받지 않는다. owner·admin도 채널 멤버가 아니면 `404`다. 다른 세션의 인수는 그대로다.
+  - 요청자가 채널을 나가도 세션은 멈추지 않는다. 보고와 카드는 지금처럼 그 채널의 스레드에만 가고, 봇이 채널에서 빠지면 어디에도 보내지 않는다.
 - **migration `0332_unknown_budget_end`가 끝을 모르는 호출을 적는 칸 `unknown_at`을 더하고, 한도가 있는 계정에서 root 종류 `none`의 예약을 한도의 80%에서 거절한다**(JeongJaeSoon/werft#2065). 따로 할 일은 없고, 예산 한도가 없는 설치는 지금처럼 돈다.
   - 쓰인 provider 호출에 lease(5분) 안에 사용량 보고가 없으면 reconciler가 `budget_reservations`(대화 호출은 `conversation_calls`도)의 `unknown_at`을 적는다. 상태는 `reserved`(`in_flight`) 그대로이고, 예약은 풀지 않고 쓴 것으로 센다. 늦은 보고가 실제 값으로 정산하고, lease 갱신과 해제는 표시를 지운다. 세션 호출과 대화 호출 모두 같다.
   - 끝을 모르는 예약이 많은 계정부터 배치 크기만큼 그 수와 묶인 금액이 `warn` 로그 `Budget reservations of unknown end held`에, 모든 계정의 합계가 `Budget reservations of unknown end reported`에 남는다. `Provider exchange ledger reconciled`와 `Conversation call reservations reconciled`에 `unknown_count`가 더해진다. 묶인 예약을 푸는 운영자 명령은 아직 없다.

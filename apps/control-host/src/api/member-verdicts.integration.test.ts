@@ -13,6 +13,7 @@ import {
   createPostgresDecisionLog,
   createPostgresInviteStore,
   createPostgresMemberStore,
+  createPostgresSessionShareStore,
   memberships,
   users,
   workspaces,
@@ -104,6 +105,7 @@ integration("the member list offers what the writes accept", () => {
           createMemberService({
             authorization,
             store: createPostgresMemberStore(db),
+            sessions: createPostgresSessionShareStore(db),
           }),
           invites,
         );

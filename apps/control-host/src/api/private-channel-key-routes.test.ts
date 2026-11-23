@@ -271,6 +271,7 @@ function app(reached: Record<string, unknown> = {}) {
         createMemberService({
           authorization,
           store: store("members"),
+          sessions,
         } as never),
         unreached("invites"),
       );

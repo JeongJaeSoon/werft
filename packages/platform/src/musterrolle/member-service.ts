@@ -5,6 +5,7 @@ import {
   TAKEOVER_LIST_LIMIT,
   type TakeOverSessionResponse,
 } from "@werft-ai/contracts";
+import type { SessionShareStore } from "../sessions/ports/session-share-store.ts";
 import { memberView } from "./invite-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import type {
@@ -25,6 +26,7 @@ export type AccessChange = {
 export function createMemberService(deps: {
   authorization: AuthorizationPolicy;
   store: MemberStore;
+  sessions: Pick<SessionShareStore, "privateChannels">;
   newId?: () => string;
 }) {
   const { authorization, store } = deps;
@@ -161,19 +163,25 @@ export function createMemberService(deps: {
       // share; it then rides on the decision and the receipt.
       justification: string | null = null,
     ): Promise<TakeOverSessionResponse> {
+      // A private channel's session goes to whoever in its channel may
+      // write to it; anyone else, an owner included, finds no such session
+      // (answer 15).
+      const inChannel =
+        (await deps.sessions.privateChannels(caller.ownerId, sessionId))
+          .length > 0;
       await requirePermitted(
         authorization,
         caller,
-        "member.manage",
+        inChannel ? "session.submit" : "member.manage",
         { kind: "session", id: sessionId },
-        justification ?? undefined,
+        inChannel ? undefined : (justification ?? undefined),
       );
       const result = await store.takeOver({
         principal: caller,
         workspaceId: caller.ownerId,
         sessionId,
         newRequesterId: personOf(caller),
-        justification,
+        justification: inChannel ? null : justification,
       });
       switch (result.outcome) {
         case "not_found":

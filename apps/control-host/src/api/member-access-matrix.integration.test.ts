@@ -6,6 +6,7 @@ import {
   createPostgresDecisionLog,
   createPostgresInviteStore,
   createPostgresMemberStore,
+  createPostgresSessionShareStore,
   memberships,
   users,
   workspaces,
@@ -106,6 +107,7 @@ integration("who may disable a member or suspend an account", () => {
           createMemberService({
             authorization,
             store: createPostgresMemberStore(db),
+            sessions: createPostgresSessionShareStore(db),
           }),
           createInviteService({
             authorization,

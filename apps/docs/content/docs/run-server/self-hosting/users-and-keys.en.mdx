@@ -113,6 +113,7 @@ Even for owners and admins, a session outside its share scope does not appear in
 - **Admin terminate.** `POST /v1/admin/sessions/{id}/terminate` (`{"expected_revision": …, "justification": "…"}`) lets owners and admins stop a session whatever its scope. The reason becomes the stop reason.
 - **Admin recovery.** `POST /v1/admin/sessions/{id}/recovery-decisions` lets only owners decide recovery whatever the scope. The body is the recovery decision of [Session recovery](/run-server/self-hosting/recover-sessions), and its `reason` is the justification.
 - **Takeover.** When a departed member's session is outside what the person taking it over can see, send `{"justification": "…"}` to `POST /v1/sessions/{id}/takeover`. Without it the answer is `403` (`reason_code: justification_required`).
+- **Taking over a private channel's session.** A `private_channel` session is taken over through the same route by a current member of its channel who may write to it, with no justification asked. An owner or admin outside the channel gets `404`.
 
 <a id="확인" />
 ## Verify

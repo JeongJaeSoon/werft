@@ -115,6 +115,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     const members = createMemberService({
       authorization,
       store: createPostgresMemberStore(db),
+      sessions: schema.createPostgresSessionShareStore(db),
     });
     const invites = createInviteService({
       authorization,

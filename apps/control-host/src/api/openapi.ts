@@ -5395,7 +5395,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Disable a member of the workspace",
     description:
-      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover (a `private_channel` session's, for a current member of its channel). Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
@@ -5483,7 +5483,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Admin",
     summary: "Become the requester of an offboarded member's session",
     description:
-      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.",
+      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. A `private_channel` session is taken over instead by a current member of its channel who may write to it, with no justification asked; anyone else, an owner included, gets 404. The body may be empty. API keys are refused.",
     auth: "session",
     body: "TakeOverSessionRequest",
     success: { status: 200, schema: "ReceiptAcceptedResponse" },
