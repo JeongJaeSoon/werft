@@ -14,6 +14,15 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#PR). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+  - 칸: `slack_outbox.correlation_id`(웹 입력의 Slack 글마다 새로 만드는 상관값), `slack_outbox.held_for_input_id`(그 입력의 글 스레드를 기다리는 줄), `conversation_inputs.slack_mirror`의 새 값 `unconfirmed`.
+  - 웹 입력의 Slack 글에는 상관값이 message metadata(`event_type` `werft_input_mirror`)로 실린다. 다른 줄의 `chat.postMessage`에는 지금처럼 metadata가 없다.
+  - `uncertain`이면 다시 보내지 않고 새 스레드도 만들지 않는다. 돌아온 자기 앱의 글이 그 상관값을 가진 `uncertain` 거울 하나를 정확히 가리킬 때만 그 글을 거울로 잇는다. 본문으로는 잇지 않는다.
+  - 문에서 버린 이벤트의 `drop_fields`에 `metadata`(`event_type`과 거울의 `correlation_id`)가 더해진다. `event_payload`의 나머지는 남기지 않는다.
+  - 보류된 줄은 거울이 끝내 실패하거나 `SLACK_ROLE_INPUT_HOLD_SEC`(기본 3600, Helm `slack.inputHoldSec`)가 지나면 보내지 않고 `failed`(`input_unplaced`)로 닫는다. 로그 `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`.
+  - "다시 보내기"는 사람이 부를 때만 같은 입력의 거울을 새 상관값으로 보낸다. 이 릴리스에는 그 버튼이나 route가 없다.
+  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0334_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#2067). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
   - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
   - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.

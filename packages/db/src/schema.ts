@@ -108,6 +108,7 @@ import {
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
   type SlackMessageRef,
+  type SlackMirrorCorrelationId,
   SURFACE_BINDING_STATUS_VALUES,
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
@@ -5996,6 +5997,17 @@ export const slackOutbox = pgTable(
     sourcesTurn: integer("sources_turn"),
     /** The web input an `input_mirror` row shows in Slack; set on it alone. */
     inputId: uuid("input_id").$type<ConversationInputId>(),
+    /**
+     * An `input_mirror` row's own value, sent as its post's message
+     * metadata; a send again is a new row with a new one.
+     */
+    correlationId: uuid("correlation_id").$type<SlackMirrorCorrelationId>(),
+    /**
+     * Set while the row waits for this web input's Slack post: it goes into
+     * the thread that post is in, which has no ts yet. Cleared when the post
+     * is known, the thread written in; left on a row closed unsent.
+     */
+    heldForInputId: uuid("held_for_input_id").$type<ConversationInputId>(),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
@@ -6030,6 +6042,26 @@ export const slackOutbox = pgTable(
       "slack_outbox_input_check",
       sql`(${table.kind} = 'input_mirror') = (${table.inputId} IS NOT NULL)`,
     ),
+    foreignKey({
+      name: "slack_outbox_held_for_input_fk",
+      columns: [table.heldForInputId],
+      foreignColumns: [conversationInputs.id],
+    }),
+    // A mirror is never held for itself or another input.
+    check(
+      "slack_outbox_correlation_check",
+      sql`(${table.correlationId} IS NULL OR ${table.kind} = 'input_mirror') AND (${table.heldForInputId} IS NULL OR ${table.kind} <> 'input_mirror')`,
+    ),
+    // The rows waiting for an input's post, which its settle releases.
+    index("slack_outbox_held_idx")
+      .on(table.heldForInputId)
+      .where(sql`${table.heldForInputId} IS NOT NULL`),
+    // The uncertain mirrors a post Slack sends back may name.
+    index("slack_outbox_correlation_idx")
+      .on(table.correlationId)
+      .where(
+        sql`${table.correlationId} IS NOT NULL AND ${table.status} = 'uncertain'`,
+      ),
     foreignKey({
       name: "slack_outbox_agent_fk",
       columns: [table.workspaceId, table.agentId],

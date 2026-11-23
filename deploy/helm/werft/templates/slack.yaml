@@ -47,6 +47,8 @@ spec:
               value: {{ .Values.slack.batchSize | quote }}
             - name: SLACK_ROLE_LEASE_SEC
               value: {{ .Values.slack.leaseSec | quote }}
+            - name: SLACK_ROLE_INPUT_HOLD_SEC
+              value: {{ .Values.slack.inputHoldSec | quote }}
             {{- include "ap.limitsEnv" . | nindent 12 }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}

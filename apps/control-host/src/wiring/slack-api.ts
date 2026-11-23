@@ -173,6 +173,7 @@ export interface SlackServicesStageDeps {
   agentAuthority: Param<typeof createSlackChannelSearchService>["agents"];
   inbox: Param<typeof createSlackEventsService>["inbox"];
   sourceMarks: Param<typeof createSlackEventsService>["sourceMarks"];
+  mirrorEchoes: Param<typeof createSlackEventsService>["mirrorEchoes"];
   identities: AgentIdentityStore;
   installs: SlackInstallStore;
   bindings: SurfaceBindingStore;
@@ -237,6 +238,7 @@ export function wireSlackServices(
     signingSecrets,
     inbox: deps.inbox,
     sourceMarks: deps.sourceMarks,
+    mirrorEchoes: deps.mirrorEchoes,
     apps: appStore,
     identities: deps.identities,
     installs: deps.installs,

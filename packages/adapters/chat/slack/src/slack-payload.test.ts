@@ -9,6 +9,7 @@ import {
   type PendingQuestion,
   SLACK_NOTICE_MESSAGES,
   type SlackNoticeMessage,
+  slackMirrorCorrelationIdSchema,
   type UserLocale,
 } from "@werft-ai/contracts";
 import type {
@@ -88,6 +89,9 @@ const LINK = "https://console.example/sessions/019a0000";
 const EXPIRES = "2026-11-03T00:00:00Z";
 const LOCALES: UserLocale[] = ["ko", "ja", "en"];
 const COMMIT = "abcdef1234567890".padEnd(40, "0");
+const MIRROR_CORRELATION = slackMirrorCorrelationIdSchema.parse(
+  "019a0000-0000-7000-8000-0000000000c1",
+);
 
 const choose: PendingQuestion = {
   question_id: "q-1",
@@ -706,6 +710,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
       unpromptedRequests: async () => [],
       expireSending: async () => [],
       closeUnaddressed: async () => [],
+      closeOverdueHeld: async () => 0,
       untoldUncertain: async () => [],
       claim: async () => batches.shift() ?? [],
       beginSend: async () => true,
@@ -752,6 +757,62 @@ describe("Slack payload fixtures: what the drain sends", () => {
     return calls;
   }
 
+  // Before 94S-2007 no post carried message metadata; now a web input's
+  // mirror alone does, naming its request.
+  test("only a web input's mirror sends message metadata", async () => {
+    const posts = async (row: SlackOutboxClaim) =>
+      (await sent(row, []))
+        .filter((call) => (call as unknown[])[0] === "postMessage")
+        .map((call) => (call as [string, Record<string, unknown>])[1]);
+    const sender = { username: "Owner (Web console)", slack_user_id: "U0O" };
+    for (const row of [
+      claim({}),
+      claim({ kind: "instruction", body: { text: "Add a test", sender } }),
+      claim({ kind: "welcome", sessionId: null, threadTs: "" }),
+      claim({ kind: "failure_notice" }),
+    ]) {
+      for (const post of await posts(row)) {
+        expect(post).not.toHaveProperty("metadata");
+      }
+    }
+    const mirror = claim({
+      kind: "input_mirror",
+      threadTs: "",
+      sessionId: null,
+      correlationId: MIRROR_CORRELATION,
+      body: { text: "Add a test", sender },
+    });
+    expect(await posts(mirror)).toEqual([
+      expect.objectContaining({
+        metadata: {
+          event_type: "werft_input_mirror",
+          event_payload: { correlation_id: MIRROR_CORRELATION },
+        },
+      }),
+    ]);
+    // Refused the sender's name, it goes again as the app with the same id.
+    const refused = await sent(mirror, [
+      response({ body: { ok: false, error: "missing_scope" } }),
+      response(),
+    ]);
+    const metadataOf = (call: unknown) =>
+      (call as [string, { metadata?: unknown }])[1].metadata;
+    expect(
+      refused
+        .filter((call) => (call as unknown[])[0] === "postMessage")
+        .map(metadataOf),
+    ).toEqual([
+      {
+        event_type: "werft_input_mirror",
+        event_payload: { correlation_id: MIRROR_CORRELATION },
+      },
+      {
+        event_type: "werft_input_mirror",
+        event_payload: { correlation_id: MIRROR_CORRELATION },
+      },
+    ]);
+  });
+
   test("postMessage and postEphemeral arguments per row kind", async () => {
     const tableBody = {
       text: ["| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n"),
@@ -781,6 +842,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
         claim({
           kind: "input_mirror",
           threadTs: "",
+          correlationId: MIRROR_CORRELATION,
           body: {
             text: "Add a test",
             sender: { username: "Owner (Web console)", slack_user_id: "U0O" },

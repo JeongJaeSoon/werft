@@ -3,6 +3,7 @@ import {
   eventText,
   eventToolCall,
   SLACK_NOTICE_MESSAGES,
+  slackMirrorCorrelationIdSchema,
 } from "@werft-ai/contracts";
 import type {
   SlackOutboxStore,
@@ -91,6 +92,7 @@ export async function enqueueSlackInputMirrors(deps: {
       dedupeKey: `input_mirror:${input.inputId}`,
       sources: { direct: [{ input_id: input.inputId }], inherited: [] },
       inputId: input.inputId,
+      correlationId: slackMirrorCorrelationIdSchema.parse(crypto.randomUUID()),
     });
   }
   return inputs.length;

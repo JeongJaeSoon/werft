@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import {
   SLACK_ACCEPTED_MESSAGE_SUBTYPES,
   SLACK_INBOUND_EVENT_TYPES,
+  SLACK_INPUT_MIRROR_EVENT_TYPE,
   SLACK_SIGNATURE_WINDOW_SECONDS,
   type SlackEventCallback,
   type SlackInboundDropFields,
@@ -9,6 +10,7 @@ import {
   type SlackInboundEventStatus,
   slackEventCallbackSchema,
   slackEventEnvelopeSchema,
+  slackMirrorCorrelationIdSchema,
   slackUrlVerificationSchema,
 } from "@werft-ai/contracts";
 import type {
@@ -17,6 +19,7 @@ import type {
   SlackAppStore,
   SlackInboundEventInput,
   SlackInboundEventStore,
+  SlackOutboxStore,
 } from "@werft-ai/platform";
 import {
   agentForSlackEvent,
@@ -257,7 +260,35 @@ function dropFields(
   if (user !== undefined) fields.user = user;
   if (subtype !== undefined) fields.subtype = subtype;
   if (innerSubtype !== undefined) fields.message = { subtype: innerSubtype };
+  const metadata = metadataOf(event);
+  if (metadata !== undefined) fields.metadata = metadata;
   return fields;
+}
+
+/**
+ * The message metadata's type, and a web input mirror's correlation id; the
+ * rest of `event_payload` may carry text or people's values, and is not read.
+ */
+function metadataOf(
+  event: SlackEventCallback["event"],
+): SlackInboundDropFields["metadata"] {
+  const metadata = event.metadata as
+    | { event_type?: unknown; event_payload?: unknown }
+    | undefined;
+  const eventType = shortString(metadata?.event_type);
+  if (eventType === undefined) return undefined;
+  if (eventType !== SLACK_INPUT_MIRROR_EVENT_TYPE) {
+    return { event_type: eventType };
+  }
+  const payload = metadata?.event_payload as
+    | { correlation_id?: unknown }
+    | undefined;
+  const correlation = slackMirrorCorrelationIdSchema.safeParse(
+    payload?.correlation_id,
+  );
+  return correlation.success
+    ? { event_type: eventType, correlation_id: correlation.data }
+    : { event_type: eventType };
 }
 
 const SLACK_TS = /^\d{1,12}\.\d{1,12}$/;
@@ -330,9 +361,39 @@ export function createSlackEventsService(deps: {
   installs: Pick<SlackInstallStore, "revokeInstallation">;
   bindings: Pick<SurfaceBindingStore, "findLiveSlackChannel" | "wasRejected">;
   sourceMarks: SlackSourceMarkStore;
+  /** Links an uncertain mirror to its post when Slack sends the post back. */
+  mirrorEchoes: Pick<SlackOutboxStore, "matchMirrorEcho">;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
+
+  // This app's own post that names a mirror's request: its ts is that
+  // mirror's, if exactly one uncertain mirror has the id. Text never counts.
+  async function matchMirrorEcho(
+    app: SlackEventsApp,
+    event: SlackEventCallback["event"],
+  ) {
+    const correlationId = metadataOf(event)?.correlation_id;
+    const channel = shortString(event.channel);
+    const ts = typeof event.ts === "string" ? event.ts : undefined;
+    if (
+      correlationId === undefined ||
+      channel === undefined ||
+      ts === undefined ||
+      !SLACK_TS.test(ts) ||
+      event.subtype === "message_changed" ||
+      event.subtype === "message_deleted"
+    ) {
+      return;
+    }
+    await deps.mirrorEchoes.matchMirrorEcho({
+      workspaceId: app.workspaceId,
+      slackAppId: app.slackAppId,
+      correlationId: slackMirrorCorrelationIdSchema.parse(correlationId),
+      channelId: channel,
+      ts,
+    });
+  }
 
   async function classify(
     agentId: string,
@@ -599,6 +660,14 @@ export function createSlackEventsService(deps: {
                   envelope.event,
                 ),
               };
+      // Before the record: a match that throws leaves the event to Slack's
+      // retry, which a recorded event would answer as a duplicate.
+      if (
+        classified.status === "dropped" &&
+        classified.dropReason === "own_bot_user"
+      ) {
+        await matchMirrorEcho(app, envelope.event);
+      }
       const result = await deps.inbox.record(row);
       return {
         kind: "ack",

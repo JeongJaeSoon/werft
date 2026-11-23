@@ -242,6 +242,8 @@ slack:
   healthStaleSec: 90
   batchSize: 10
   leaseSec: 60
+  # How long a Slack row waits for its web input's post before it closes.
+  inputHoldSec: 3600
   nodeSelector: {}
   tolerations: []
   affinity: {}
