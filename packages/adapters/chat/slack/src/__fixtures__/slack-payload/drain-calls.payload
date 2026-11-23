@@ -1,4 +1,23 @@
 {
+  "input-mirror-sender": [
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "iconUrl": "https://images.example/owner.png",
+        "text": "Add a test",
+        "threadTs": "",
+        "username": "Owner (Web console)"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
   "input-notice-blocks": [
     [
       "postMessage",

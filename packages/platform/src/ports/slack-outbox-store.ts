@@ -1,5 +1,6 @@
 import type {
   AdmissionState,
+  ConversationInputId,
   PendingQuestion,
   PushRequestOrigin,
   UserLocale,
@@ -22,7 +23,9 @@ import type {
  * `instruction`: an input sent from the web or the API, shown in the thread
  * ahead of its answer. `model_notice`: a direct message to one person (their
  * Slack user id is the `channelId`, `threadTs` is "") that a session's model
- * left the agent's allowed list.
+ * left the agent's allowed list. `input_mirror`: a web input shown in Slack
+ * as an `instruction` is, with no session; its post's ts becomes the input's
+ * Slack alias, and its topic's when the topic had none (`threadTs` "" then).
  */
 export type SlackOutboxKind =
   | "instruction"
@@ -32,7 +35,8 @@ export type SlackOutboxKind =
   | "input_notice"
   | "welcome"
   | "action_notice"
-  | "model_notice";
+  | "model_notice"
+  | "input_mirror";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
@@ -95,6 +99,8 @@ export type SlackOutboxEntry = {
    * of it and the turns before it, not of turns that came later.
    */
   sourcesTurn?: number | null;
+  /** The web input an `input_mirror` row shows; absent or null otherwise. */
+  inputId?: ConversationInputId | null;
 };
 
 export type SlackOutboxFence = { id: string; claimToken: string };
@@ -156,6 +162,26 @@ export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
   senderName: string | null;
   /** The Slack account linked to the sender, if any. */
   senderSlackUserId: string | null;
+};
+
+/**
+ * A web input still owed its Slack mirror, and where the mirror goes: its
+ * topic's thread, or, for a topic Slack has not placed (`threadTs` ""), the
+ * top of its channel, or of the person's DM a placed topic of theirs names.
+ */
+export type UnmirroredWebInput = {
+  inputId: ConversationInputId;
+  workspaceId: string;
+  agentId: string;
+  slackAppId: string;
+  installationId: string;
+  channelId: string;
+  threadTs: string;
+  body: string;
+  senderName: string | null;
+  /** The sender's Slack account in the installation's team, if linked. */
+  senderSlackUserId: string | null;
+  locale: UserLocale | null;
 };
 
 /**
@@ -531,6 +557,12 @@ export interface SlackOutboxStore {
    */
   unpostedInstructions(limit: number): Promise<SlackUnpostedInstruction[]>;
   /**
+   * Web inputs owed a Slack mirror with no `input_mirror` row yet, oldest
+   * first. A topic Slack has not placed has only its earliest such input
+   * mirrored: that post places it, and the rest go into its thread after.
+   */
+  unmirroredInputs(limit: number): Promise<UnmirroredWebInput[]>;
+  /**
    * Linked turns past the link's mark that ended without their outbox
    * row. A turn that owes an `instruction` row waits for it,
    * so the answer never goes ahead of what it answers.
@@ -571,5 +603,14 @@ export interface SlackOutboxStore {
    */
   beginSend(fence: SlackOutboxFence): Promise<boolean | "voided_by_delete">;
   /** False when the lease was lost: the row is someone else's now. */
-  settle(fence: SlackOutboxFence, outcome: SlackOutboxSettle): Promise<boolean>;
+  /**
+   * False when the lease was lost. A sent `input_mirror` row gives its input
+   * the post as its Slack alias in the same transaction, and its topic too
+   * when the topic had none; `topic_alias_taken` when another topic already
+   * holds that thread (a reply taken before this), which is left as it is.
+   */
+  settle(
+    fence: SlackOutboxFence,
+    outcome: SlackOutboxSettle,
+  ): Promise<boolean | "topic_alias_taken">;
 }

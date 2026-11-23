@@ -17,6 +17,7 @@ import {
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import {
+  enqueueSlackInputMirrors,
   enqueueSlackInstructions,
   enqueueSlackPrompts,
   enqueueSlackTurnAnswers,
@@ -61,6 +62,11 @@ export type SlackOutboxDrain = {
   statuses: number;
   /** Posted cards redrawn. */
   cards: number;
+  /**
+   * Web input mirrors that opened a thread a reply had already made a topic
+   * of; the input took the post as its alias, its topic stayed unplaced.
+   */
+  topicAliasTaken: number;
 };
 
 /**
@@ -106,6 +112,7 @@ export async function drainSlackOutbox(deps: {
     voided: 0,
     statuses: 0,
     cards: 0,
+    topicAliasTaken: 0,
   };
   // A reply Slack may or may not hold: the thread hears so, once.
   const noticeUncertain = async (row: SlackOutboxLost) => {
@@ -143,6 +150,7 @@ export async function drainSlackOutbox(deps: {
       case "input_notice":
         return deps.delivery.approvable.requestDecision(input);
       case "instruction":
+      case "input_mirror":
       case "reply":
       case "welcome":
         return deps.delivery.direct(input);
@@ -172,6 +180,10 @@ export async function drainSlackOutbox(deps: {
   await deps.outbox.advanceAnswered();
   // First, so an answer enqueued below is claimed after what it answers.
   drain.enqueued = await enqueueSlackInstructions({
+    outbox: deps.outbox,
+    limit: deps.batchSize,
+  });
+  drain.enqueued += await enqueueSlackInputMirrors({
     outbox: deps.outbox,
     limit: deps.batchSize,
   });
@@ -263,10 +275,18 @@ export async function drainSlackOutbox(deps: {
         attempts: claim.attempts,
       };
       const settle = async (outcome: SlackOutboxSettle) => {
-        if (!(await deps.outbox.settle(claim, outcome))) {
+        const settled = await deps.outbox.settle(claim, outcome);
+        if (!settled) {
           drain.lost += 1;
           deps.logger.warn("Slack outbox lease lost", ids);
           return false;
+        }
+        if (settled === "topic_alias_taken") {
+          drain.topicAliasTaken += 1;
+          deps.logger.warn(
+            "Slack mirror opened a thread another topic already holds; the topics stay apart",
+            ids,
+          );
         }
         drain[
           outcome.status === "pending"

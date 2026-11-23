@@ -272,6 +272,7 @@ async function drainFixture(
     readerLocale: async () => null,
     advanceAnswered: async () => 0,
     unpostedInstructions: async () => [],
+    unmirroredInputs: async () => [],
     unansweredTurns: async () => [],
     promptCard: async () => null,
     unpromptedRequests: async () => [],
