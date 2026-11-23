@@ -412,7 +412,7 @@ wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
 
 OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushRequest), [`listPushRequests`](/reference/http-api/push-requests/listPushRequests), [`getPushRequest`](/reference/http-api/push-requests/getPushRequest), [`approvePushRequest`](/reference/http-api/push-requests/approvePushRequest), [`rejectPushRequest`](/reference/http-api/push-requests/rejectPushRequest), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
 
-**Goal.** Ask for the commit a session made to be pushed to the repository's `agent/<session-id>` branch, and have someone with `sessions:approve` approve or reject that commit. The push is done by the platform (the API), not the worker, within a few seconds after approval.
+**Goal.** Ask for the commit a session made to be pushed to the repository's `agent/<session-id>` branch. If the agent has not turned on approval before push (the default, and the demo agent in this example), the request is approved at once; if it has, someone with `sessions:approve` approves or rejects that commit. The push is done by the platform (the API), not the worker, within a few seconds after approval.
 
 **Steps.** Send the request with no body (`{}`). The platform pins the session's latest checkpoint revision and its `git_commit`, the session's `repository_id` and the branch `agent/<session-id>`. To pin the revision you looked at, send `checkpoint_revision` too; it is refused as `checkpoint_moved` once a newer one has been saved. Either way, work the session did after that revision may not be in it. The person who approves or rejects checks the pinned `git_commit` and puts the same value in the `/approve` or `/reject` body. An approval that names a different commit is refused. A session can have only one open request (`requested`, `approved`, `pushing`), so request again after a rejection.
 
@@ -420,16 +420,11 @@ OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushReque
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{}')
 echo "$push_request" | jq -e --arg branch "agent/$SID" \
-  '.state == "requested" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
+  '.state == "approved" and .resolved_by.kind == "policy" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
 PUSH_ID=$(echo "$push_request" | jq -r .id)
 PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
-
-rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
-echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
-curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
-  | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
+curl -sS "$API/v1/receipts/$(echo "$push_request" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
+  | jq -e '.operation == "resolve_push" and .result.verdict == "allow"'
 
 again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -438,15 +433,6 @@ test "$(echo "$again" | tail -n1)" = 409
 echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
 curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${APPROVE[@]}" \
   | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
-
-push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" --data '{}')
-PUSH_ID=$(echo "$push_request" | jq -r .id)
-approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
-echo "$approved" | jq -e '.state == "approved"'
-curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" | jq -e '.items[1].state == "rejected"'
 
 for _ in $(seq 1 30); do
   pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" "${AUTH[@]}")
@@ -457,7 +443,18 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${APPROV
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 
-**Expected response.** The request returns 201 with `state: "requested"` and the pinned values. The decision returns 200 with `approved` or `rejected` and `resolved_by`. A receipt (`request_push`, `resolve_push`) is left for every request, decision and refused attempt, and for a refusal the error's `error.details.receipt_id` points to that receipt. The receipt's `result` has the verdict (`verdict`), the refusal reason (`refusal`), the request id, the checkpoint revision, the commit and the target branch, and `actor` says who did it. An approved request goes through `pushing` to `pushed` or `failed`, and the `push` receipt that `push_receipt_id` points to has the remote URL, the ref (`refs/heads/agent/<session-id>`), the previous commit, the approver, and on failure the `refusal`. What each reason means is in the [When a push is refused](/integrations/github#push가-거절되는-경우).
+If the agent turned on **approval before push**, the request waits as `requested`. The person who approves or rejects it checks the request's `git_commit` and sends:
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')"
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')"
+```
+
+**Expected response.** The request returns 201 with the pinned values. With approval before push off it is `state: "approved"` with `resolved_by.kind: "policy"`, and approving it again is 409 `PUSH_REQUEST_RESOLVED` because it is already decided. With it on it is `state: "requested"`, and a person's decision returns 200 with `approved` or `rejected` and `resolved_by`. A receipt (`request_push`, `resolve_push`) is left for every request, decision and refused attempt, and for a refusal the error's `error.details.receipt_id` points to that receipt. The receipt's `result` has the verdict (`verdict`), the refusal reason (`refusal`), the request id, the checkpoint revision, the commit and the target branch, and `actor` says who did it. An approved request goes through `pushing` to `pushed` or `failed`, and the `push` receipt that `push_receipt_id` points to has the remote URL, the ref (`refs/heads/agent/<session-id>`), the previous commit, the approver, and on failure the `refusal`. What each reason means is in the [When a push is refused](/integrations/github#push가-거절되는-경우).
 
 **Common errors.** 409 `PUSH_SOURCE_MISSING` means the session has no repository or checkpoint yet. 409 `PUSH_REQUEST_OPEN` means there is an open request. 409 `PUSH_REQUEST_RESOLVED` means the request was already decided. 409 `CHECKPOINT_MOVED` means the `git_commit` in the approval body differs from the pinned commit, or after the request the session left a checkpoint with a different commit. If a checkpoint appears again after the request but the commit is the same, the approval goes through. Reject this request and request again. Deciding with a key that lacks `sessions:approve` is 403 `FORBIDDEN` and leaves a receipt. A worker's credentials (launch nonce and session token) are not authenticated on `/v1`, so they get 401.
 

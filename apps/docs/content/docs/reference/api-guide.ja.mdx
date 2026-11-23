@@ -412,7 +412,7 @@ wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
 
 OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushRequest)、[`listPushRequests`](/reference/http-api/push-requests/listPushRequests)、[`getPushRequest`](/reference/http-api/push-requests/getPushRequest)、[`approvePushRequest`](/reference/http-api/push-requests/approvePushRequest)、[`rejectPushRequest`](/reference/http-api/push-requests/rejectPushRequest)、[`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
 
-**目標.** セッションが作ったコミットを、リポジトリの `agent/<session-id>` ブランチに push するよう求め、`sessions:approve` を持つ人にそのコミットを承認または拒否してもらいます。push は worker ではなくプラットフォーム(API)が、承認の数秒後までに行います。
+**目標.** セッションが作ったコミットを、リポジトリの `agent/<session-id>` ブランチに push するよう求めます。エージェントが push 前の人の承認をオンにしていなければ(既定値、この例のデモエージェント)リクエストはすぐに承認され、オンにしていれば `sessions:approve` を持つ人がそのコミットを承認または拒否します。push は worker ではなくプラットフォーム(API)が、承認の数秒後までに行います。
 
 **手順.** ボディなし(`{}`)でリクエストを送ります。プラットフォームは、セッションの最新のチェックポイントの revision とその `git_commit`、セッションの `repository_id`、ブランチ `agent/<session-id>` を固定します。見た revision を固定するには `checkpoint_revision` も送ります。それより新しい revision が保存済みなら `checkpoint_moved` で拒否されます。どちらの場合も、その revision のあとにセッションが行った作業は含まれていないことがあります。承認または拒否する人は、固定された `git_commit` を確認し、同じ値を `/approve` か `/reject` のボディに入れます。別のコミットを指す承認は拒否されます。1 つのセッションが持てる開いたリクエストは 1 つだけ(`requested`、`approved`、`pushing`)なので、拒否のあとに改めて要求します。
 
@@ -420,16 +420,11 @@ OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushReque
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{}')
 echo "$push_request" | jq -e --arg branch "agent/$SID" \
-  '.state == "requested" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
+  '.state == "approved" and .resolved_by.kind == "policy" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
 PUSH_ID=$(echo "$push_request" | jq -r .id)
 PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
-
-rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
-echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
-curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
-  | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
+curl -sS "$API/v1/receipts/$(echo "$push_request" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
+  | jq -e '.operation == "resolve_push" and .result.verdict == "allow"'
 
 again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -438,15 +433,6 @@ test "$(echo "$again" | tail -n1)" = 409
 echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
 curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${APPROVE[@]}" \
   | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
-
-push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" --data '{}')
-PUSH_ID=$(echo "$push_request" | jq -r .id)
-approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
-echo "$approved" | jq -e '.state == "approved"'
-curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" | jq -e '.items[1].state == "rejected"'
 
 for _ in $(seq 1 30); do
   pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" "${AUTH[@]}")
@@ -457,7 +443,18 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${APPROV
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 
-**期待するレスポンス.** リクエストは 201 で、`state: "requested"` と固定された値を返します。判断は 200 で、`approved` か `rejected` と `resolved_by` を返します。リクエスト、判断、拒否された試行のすべてに receipt(`request_push`、`resolve_push`)が残り、拒否の場合はエラーの `error.details.receipt_id` がその receipt を指します。receipt の `result` には、判定(`verdict`)、拒否の理由(`refusal`)、リクエスト id、チェックポイントの revision、コミット、対象ブランチがあり、`actor` が誰が行ったかを示します。承認されたリクエストは `pushing` を経て `pushed` か `failed` になり、`push_receipt_id` が指す `push` receipt には、リモート URL、ref(`refs/heads/agent/<session-id>`)、直前のコミット、承認者、失敗時の `refusal` があります。各理由の意味は [push が拒否される場合](/integrations/github#push가-거절되는-경우)にあります。
+エージェントが **push 前の人の承認**をオンにしていれば、リクエストは `requested` のまま人を待ちます。承認または拒否する人は、そのリクエストの `git_commit` を確かめて次のように送ります。
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')"
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')"
+```
+
+**期待するレスポンス.** リクエストは 201 で固定された値を返します。push 前の人の承認がオフなら `state: "approved"`、`resolved_by.kind: "policy"` で、すでに判断済みなので再び承認すると 409 `PUSH_REQUEST_RESOLVED` です。オンなら `state: "requested"` で、人の判断は 200 で `approved` か `rejected` と `resolved_by` を返します。リクエスト、判断、拒否された試行のすべてに receipt(`request_push`、`resolve_push`)が残り、拒否の場合はエラーの `error.details.receipt_id` がその receipt を指します。receipt の `result` には、判定(`verdict`)、拒否の理由(`refusal`)、リクエスト id、チェックポイントの revision、コミット、対象ブランチがあり、`actor` が誰が行ったかを示します。承認されたリクエストは `pushing` を経て `pushed` か `failed` になり、`push_receipt_id` が指す `push` receipt には、リモート URL、ref(`refs/heads/agent/<session-id>`)、直前のコミット、承認者、失敗時の `refusal` があります。各理由の意味は [push が拒否される場合](/integrations/github#push가-거절되는-경우)にあります。
 
 **よくあるエラー.** 409 `PUSH_SOURCE_MISSING` は、セッションにリポジトリかチェックポイントがまだありません。409 `PUSH_REQUEST_OPEN` は、開いたリクエストがあります。409 `PUSH_REQUEST_RESOLVED` は、リクエストがすでに判断済みです。409 `CHECKPOINT_MOVED` は、承認ボディの `git_commit` が固定されたコミットと違うか、リクエストのあとにセッションが別のコミットのチェックポイントを残しました。リクエストのあとにチェックポイントがまた現れても、コミットが同じなら承認は通ります。このリクエストを拒否して、改めて要求します。`sessions:approve` のない key で判断すると 403 `FORBIDDEN` になり、receipt が残ります。worker の資格情報(起動ノンスとセッショントークン)は `/v1` で認証されないので、401 になります。
 

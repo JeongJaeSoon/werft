@@ -412,7 +412,7 @@ wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
 
 OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushRequest), [`listPushRequests`](/reference/http-api/push-requests/listPushRequests), [`getPushRequest`](/reference/http-api/push-requests/getPushRequest), [`approvePushRequest`](/reference/http-api/push-requests/approvePushRequest), [`rejectPushRequest`](/reference/http-api/push-requests/rejectPushRequest), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
 
-**목적.** 세션이 만든 commit을 저장소의 `agent/<session-id>` 브랜치로 내보내도록 요청하고, `sessions:approve`를 가진 사람이 그 commit을 승인하거나 거부한다. push는 worker가 아니라 플랫폼(API)이 승인 뒤 몇 초 안에 한다.
+**목적.** 세션이 만든 commit을 저장소의 `agent/<session-id>` 브랜치로 내보내도록 요청한다. 에이전트가 push 전 사람 승인을 켜지 않았으면(기본값, 이 예시의 데모 에이전트) 요청은 바로 승인되고, 켰으면 `sessions:approve`를 가진 사람이 그 commit을 승인하거나 거부한다. push는 worker가 아니라 플랫폼(API)이 승인 뒤 몇 초 안에 한다.
 
 **순서.** 요청은 body 없이(`{}`) 보낸다. 플랫폼이 세션의 최신 checkpoint revision과 그 `git_commit`, 세션의 `repository_id`, 브랜치 `agent/<session-id>`를 고정한다. 읽어 둔 revision을 못 박으려면 `checkpoint_revision`을 함께 보낸다. 그 뒤 더 새 revision이 저장됐으면 `checkpoint_moved`로 거절된다. 어느 쪽이든 그 revision 뒤에 세션이 한 일은 담기지 않았을 수 있다. 승인하거나 거부할 사람은 고정된 `git_commit`을 확인하고, `/approve`나 `/reject` body에 같은 값을 넣는다. 다른 commit을 적은 승인은 거절된다. 한 세션에 열린 요청(`requested`·`approved`·`pushing`)은 하나뿐이므로, 거부한 뒤에 새로 요청한다.
 
@@ -420,16 +420,11 @@ OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushReque
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{}')
 echo "$push_request" | jq -e --arg branch "agent/$SID" \
-  '.state == "requested" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
+  '.state == "approved" and .resolved_by.kind == "policy" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
 PUSH_ID=$(echo "$push_request" | jq -r .id)
 PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
-
-rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
-echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
-curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
-  | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
+curl -sS "$API/v1/receipts/$(echo "$push_request" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
+  | jq -e '.operation == "resolve_push" and .result.verdict == "allow"'
 
 again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -438,15 +433,6 @@ test "$(echo "$again" | tail -n1)" = 409
 echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
 curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${APPROVE[@]}" \
   | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
-
-push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" --data '{}')
-PUSH_ID=$(echo "$push_request" | jq -r .id)
-approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
-echo "$approved" | jq -e '.state == "approved"'
-curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" | jq -e '.items[1].state == "rejected"'
 
 for _ in $(seq 1 30); do
   pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" "${AUTH[@]}")
@@ -457,7 +443,18 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${APPROV
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 
-**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `resolved_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`resolve_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [push가 거절되는 경우](/integrations/github#push가-거절되는-경우)에 있다.
+에이전트가 **push 전 사람 승인**을 켰으면 요청은 `requested`로 사람을 기다린다. 승인하거나 거부할 사람은 그 요청의 `git_commit`을 확인하고 이렇게 보낸다.
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')"
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')"
+```
+
+**기대 응답.** 요청은 201로 고정한 값들을 돌려준다. push 전 사람 승인이 꺼져 있으면 `state: "approved"`, `resolved_by.kind: "policy"`이고, 이미 결정된 요청이라 다시 승인하면 409 `PUSH_REQUEST_RESOLVED`다. 켜져 있으면 `state: "requested"`이고, 사람의 결정은 200으로 `approved` 또는 `rejected`와 `resolved_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`resolve_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [push가 거절되는 경우](/integrations/github#push가-거절되는-경우)에 있다.
 
 **흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_RESOLVED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다른 commit으로 checkpoint를 남겼다. 요청 뒤 checkpoint가 다시 생겼어도 commit이 같으면 승인된다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
 
