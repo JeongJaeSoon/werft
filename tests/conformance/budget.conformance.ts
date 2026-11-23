@@ -137,10 +137,11 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
   scenario(
     engine,
     "provider_budget",
-    "two calls in flight on one team account: the one past its limit is refused, the other runs and settles",
+    "two calls in flight on one person's account: the one past its limit is refused, the other runs and settles",
     async () => {
       // A first session, with no limit, shows what one call holds and on
-      // which account: the suite's key has no person, so the agent's team.
+      // which account: the suite's key is the owner's personal key, so the
+      // owner's own account, as root kind key.
       const warm = scriptId("budget-warm");
       const warmed = await api.createSession(
         engine.prompt({ id: warm, commands: [], final: "warm" }),
@@ -151,23 +152,23 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
       const warmId = warmed.body.session_id;
       expect((await api.settleAllowing(warmId, "1")).status).toBe("completed");
       const [held] = await sql(
-        `select r.workspace_id, a.owner_id, r.tokens, r.root_kind from budget_reservations r join budget_accounts a on a.id = r.account_id where a.owner_kind = 'team' and r.call_id in (select exchange_id::text from provider_usage where session_id = '${warmId}') order by r.tokens desc limit 1`,
+        `select r.workspace_id, a.owner_id, r.tokens, r.root_kind from budget_reservations r join budget_accounts a on a.id = r.account_id where a.owner_kind = 'user' and r.call_id in (select exchange_id::text from provider_usage where session_id = '${warmId}') order by r.tokens desc limit 1`,
       );
       expect(held).toBeDefined();
-      const [workspaceId, teamId, tokens, rootKind] = (held as string).split(
+      const [workspaceId, ownerId, tokens, rootKind] = (held as string).split(
         "|",
       );
       expect(rootKind).toBe("key");
       const reserve = Number(tokens);
       expect(reserve).toBeGreaterThan(0);
       const [spent] = await sql(
-        `select spent_tokens + reserved_tokens from budget_accounts where owner_kind = 'team' and owner_id = '${teamId}' order by period_start desc limit 1`,
+        `select spent_tokens + reserved_tokens from budget_accounts where owner_kind = 'user' and owner_id = '${ownerId}' order by period_start desc limit 1`,
       );
       // Room for one more call's reserve and a little: a second call, even
       // one the engine asks again with a smaller reserve, does not fit.
       const limit = Number(spent) + reserve + 1_000;
       await sql(
-        `insert into budget_limits (workspace_id, subject, subject_id, tokens) values ('${workspaceId}', 'team', '${teamId}', ${limit})`,
+        `insert into budget_limits (workspace_id, subject, subject_id, tokens) values ('${workspaceId}', 'user', '${ownerId}', ${limit})`,
       );
       try {
         const slow = scriptId("budget-slow");
@@ -223,12 +224,12 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
         ).toBe("completed");
         // Settled: nothing of the slow call is held any more.
         const [after] = await sql(
-          `select reserved_tokens from budget_accounts where owner_kind = 'team' and owner_id = '${teamId}' order by period_start desc limit 1`,
+          `select reserved_tokens from budget_accounts where owner_kind = 'user' and owner_id = '${ownerId}' order by period_start desc limit 1`,
         );
         expect(Number(after)).toBe(0);
       } finally {
         await sql(
-          `delete from budget_limits where subject = 'team' and subject_id = '${teamId}'`,
+          `delete from budget_limits where subject = 'user' and subject_id = '${ownerId}'`,
         );
       }
     },
