@@ -63,7 +63,7 @@ const markedMinutesAgo = (
     .where(sql`${table.workspaceId} = ${workspaceId} AND ${table.ts} = ${ts}`);
 
 describe("Slack source marks", () => {
-  test("the tables keep where a message was and when, nothing else", async () => {
+  test("the tables keep where a message was, when and (for a delete) why, nothing else", async () => {
     const found = await db.execute<{ table_name: string; column_name: string }>(
       sql`SELECT table_name, column_name FROM information_schema.columns
         WHERE table_name IN ('deleted_sources', 'edited_sources')
@@ -76,6 +76,7 @@ describe("Slack source marks", () => {
       "deleted_sources.ts",
       "deleted_sources.deleted_at",
       "deleted_sources.marked_at",
+      "deleted_sources.reason",
       "edited_sources.workspace_id",
       "edited_sources.team_id",
       "edited_sources.channel_id",

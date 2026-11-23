@@ -108,6 +108,21 @@ export function dropUnlistenedBuffer(
   );
 }
 
+/** Removes the buffered rows named, with the topics they leave empty. */
+export function dropBufferedInputs(
+  tx: Database,
+  ids: readonly string[],
+): Promise<number> {
+  if (ids.length === 0) return Promise.resolve(0);
+  return dropBuffered(
+    tx,
+    sql`i.id IN (${sql.join(
+      ids.map((id) => sql`${id}::uuid`),
+      sql`, `,
+    )})`,
+  );
+}
+
 /** Removes every agent's buffered row of a message Slack deleted. */
 export function dropBufferedMessage(
   tx: Database,

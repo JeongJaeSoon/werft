@@ -143,14 +143,24 @@ export async function dropChannelSummaryLinesOf(
 
 /**
  * Deletes the channel's summary: every version's lines, their sources and
- * the summary row. The channel's context row stays, as its conversations
- * point at it. Zero lines when it has none, so a second call changes nothing.
+ * the summary row, under the summary's lock. The channel's context row
+ * stays, as its conversations point at it. Returns how many line rows went and the Slack ts
+ * of every source they had, so a caller that marked those messages first
+ * can tell a line written since it looked.
  */
 export async function deleteChannelSummary(
   tx: Database,
   place: ChannelSummaryPlace,
-): Promise<{ lines: number }> {
-  if ((await lockSummary(tx, place, false)) === null) return { lines: 0 };
+): Promise<{ lines: number; sourceTs: string[] }> {
+  if ((await lockSummary(tx, place, false)) === null) {
+    return { lines: 0, sourceTs: [] };
+  }
+  const sourceTs = rowsOf<{ ts: string }>(
+    await tx.execute(sql`
+      SELECT DISTINCT ts FROM channel_summary_line_sources
+      WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}
+      ORDER BY ts`),
+  ).map((row) => row.ts);
   const lines = rowsOf(
     await tx.execute(sql`
       DELETE FROM channel_summary_lines
@@ -160,7 +170,7 @@ export async function deleteChannelSummary(
   await tx.execute(sql`
     DELETE FROM channel_summaries
     WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}`);
-  return { lines };
+  return { lines, sourceTs };
 }
 
 export function createPostgresChannelSummaryStore(
@@ -442,7 +452,10 @@ export function createPostgresChannelSummaryStore(
     },
 
     async deleteChannel(place) {
-      return db.transaction((tx) => deleteChannelSummary(tx, place));
+      return db.transaction(async (tx) => {
+        const { lines } = await deleteChannelSummary(tx, place);
+        return { lines };
+      });
     },
   };
 }

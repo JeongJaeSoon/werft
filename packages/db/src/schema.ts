@@ -43,6 +43,8 @@ import {
   type ConversationInputId,
   type ConversationInputSlackMirror,
   type ConversationKind,
+  DELETED_SOURCE_REASON_VALUES,
+  type DeletedSourceReason,
   ENDED_ATTEMPT_STATES,
   ENGAGEMENT_KIND_VALUES,
   ENV_VARIABLE_KIND_VALUES,
@@ -1316,12 +1318,21 @@ export const deletedSources = pgTable(
     markedAt: timestamp("marked_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** `DELETED_SOURCE_REASON_VALUES`: kept for the audit, never checked. */
+    reason: text()
+      .$type<DeletedSourceReason>()
+      .notNull()
+      .default("slack_deleted"),
   },
   (table) => [
     primaryKey({
       columns: [table.workspaceId, table.teamId, table.channelId, table.ts],
     }),
     index("deleted_sources_marked_idx").on(table.markedAt),
+    check(
+      "deleted_sources_reason_check",
+      sql`${table.reason} IN (${sql.raw(sqlList(DELETED_SOURCE_REASON_VALUES))})`,
+    ),
   ],
 );
 
@@ -5317,6 +5328,9 @@ export const conversations = pgTable(
     /** The name of the last rename seen; null until a channel is renamed. */
     channelName: text("channel_name"),
     channelNameUs: bigint("channel_name_us", { mode: "number" }),
+    /** The last admin delete of the conversation's records: when, and who. */
+    recordsDeletedAt: timestamp("records_deleted_at", { withTimezone: true }),
+    recordsDeletedByUserId: uuid("records_deleted_by_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -5342,6 +5356,15 @@ export const conversations = pgTable(
       columns: [table.workspaceId, table.personUserId],
       foreignColumns: [memberships.workspaceId, memberships.userId],
     }),
+    foreignKey({
+      name: "conversations_records_deleted_by_fk",
+      columns: [table.workspaceId, table.recordsDeletedByUserId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    check(
+      "conversations_records_deleted_check",
+      sql`(${table.recordsDeletedAt} IS NULL) = (${table.recordsDeletedByUserId} IS NULL)`,
+    ),
     // Nulls are distinct, so each unique holds only for its own kind.
     unique("conversations_channel_uniq").on(
       table.agentId,

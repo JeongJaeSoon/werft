@@ -241,6 +241,16 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/slac
 - 消した原文は戻らない。空いた場所は autovacuum の後に新しい行が使い、ファイルの大きさは減らない。rollback の下限は 0308 のままである。
 
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
+<a id="대화-기록의-관리자-삭제를-더하는-릴리스" />
+### 会話記録の管理者削除を追加するリリース
+
+migration `0337_conversation_records_deleted` が `conversations` に `records_deleted_at`・`records_deleted_by_user_id`(nullable)を、`deleted_sources` に `reason`(既定値 `slack_deleted`)を追加する。アップグレード時に行うことはなく、Slack とセッションの動作は変わらない。
+
+- 運用者コマンド `conversation-records.ts delete` が入る([会話記録の管理者削除](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제))。実行しなければ何も変わらない。
+- 既存の削除の印はすべて `slack_deleted` になる。管理者削除が付ける印は `admin_deleted` で、そのメッセージが後で Slack で削除されると `slack_deleted` に変わる。検査は両方を同じに扱う。
+- 列は nullable か定数の既定値なので、表を書き直さない。`conversations` の CHECK・外部キーと `deleted_sources` の CHECK は `NOT VALID` で追加してから別に検証するので、書き込みを長く止めない。
+- サポート範囲内のイメージに戻してもよい。古いイメージは新しい列を読まず、管理者削除が付けた印も Slack の削除の印と同じに扱う。
+
 ### 削除された Slack メッセージを含むセッションを止めるリリース
 
 migration `0333_source_deleted` が `sessions` に `source_deleted_at`(timestamptz、nullable)を追加する。アップグレード時に行うことはない。削除されたメッセージのないセッションの動作は変わらない。

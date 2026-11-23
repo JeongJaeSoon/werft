@@ -3461,6 +3461,31 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
+  // A stack whose key is in PLATFORM_SECRET_KEY_FILE: a set but empty
+  // variable keeps the local layer's key out, or the two would differ.
+  test(
+    "the local stack takes an empty PLATFORM_SECRET_KEY as no key",
+    () => {
+      const keyOf = (variables: Record<string, string>) => {
+        // Not the checkout's .env, which the api's env_file would read.
+        const { exitCode, stderr, model } = render(
+          [...LOCAL_LAYERS],
+          variables,
+          { noEnvResolution: true },
+        );
+        expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+        return ["api", "slack"].map(
+          (name) =>
+            (model?.services[name]?.environment?.PLATFORM_SECRET_KEY ?? "")
+              .length,
+        );
+      };
+      expect(keyOf({ PLATFORM_SECRET_KEY: "" })).toEqual([0, 0]);
+      expect(keyOf({})).toEqual([64, 64]);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
   // `scripts/local.sh dev`: the control host roles run the checkout's source
   // read-only under the restarter, and the stack without the overlay is the
   // same as before.

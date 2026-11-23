@@ -5618,7 +5618,7 @@ describe.each(ENGINES)("closing a closed session's link on %s", (engine) => {
     expect(await outbox.enqueue({ ...entry, dedupeKey: "late:1" })).toBe(
       "link_closed",
     );
-    // Not another link's row, nor a key that names no row.
+    // Nor a key that names no row of this link, nor a malformed one.
     expect(
       await outbox.enqueue({
         ...entry,

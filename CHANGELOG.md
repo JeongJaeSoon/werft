@@ -14,14 +14,28 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **Slack 역할에 스위치 `SLACK_ROLE_CLOSE_LINKS`(기본 `false`, Helm은 `slack.extraEnv`)가 생긴다. 지금은 켜지 않는다**(JeongJaeSoon/werft#PRNUM). migration은 없고, 꺼진 채로는 Slack 스레드의 동작이 그대로다.
+- **Slack 역할에 스위치 `SLACK_ROLE_CLOSE_LINKS`(기본 `false`, Helm은 `slack.extraEnv`)가 생긴다. 지금은 켜지 않는다**(JeongJaeSoon/werft#2083). migration은 없고, 꺼진 채로는 Slack 스레드의 동작이 그대로다.
   - 켜면 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결(link)을 마지막 보고 줄을 넣은 뒤 닫는다. 그 스레드에 다시 멘션하면 새 세션이 새 연결로 열린다. 켜기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
   - 조용한(muted) 연결과 턴을 보고하지 않는 연결은 보낼 마지막 보고가 없으므로 세션이 닫히면 바로 닫는다. 그 뒤에 보고 방식을 바꿔도 닫힌 세션의 밀린 답은 보내지 않는다.
   - 닫는 사유(`closed_reason`)는 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기 등 그 밖이면 `abandoned`다.
   - 스위치와 상관없이, Slack 줄을 보낼지는 그 줄이 가리키는 연결을 보고 판단하고 연결이 닫혔는지는 보지 않는다. 닫힌 연결에는 그 연결의 줄이 `uncertain`이 됐다는 알림 한 줄 말고는 새 줄을 넣지 않는다.
 
+- **migration `0337_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#2077). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
+  - 세션, 턴과 입력 원문, 입력 접수 줄, 이벤트, transcript, checkpoint는 지우지 않는다. 대화 행도 남는다.
+  - 지우기 전에, 지울 기록이 가리키는 글 가운데 어느 턴의 입력도 아닌 글에 삭제 표식(`admin_deleted`)을 단다. 그 글을 출처로 가진 세션만 `SOURCE_DELETED`로 멈추고 보내지 않은 답은 나가지 않는다. 같은 채널의 다른 세션은 그대로 돈다.
+  - `--by`는 그 워크스페이스의 owner나 admin이어야 하고, receipt `delete_conversation_records`의 행위자로 남는다. DM 대화는 `dm_not_supported`로 거절한다. 다시 불러도 결과가 같다. 사용법은 문서 사이트의 "데이터별 보존" 아래 "대화 기록의 관리자 삭제"에 있다.
+  - 있던 표식은 `slack_deleted`가 된다. `conversations`의 CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
+
+- **비공개 Slack 채널에서 생긴 세션은 공유 범위와 상관없이 채널 문을 먼저 지난다. 그래서 채널을 나간 만든 사람은 자기 `private` 세션을 못 보고, API key로는 그 세션에 닿지 않는다**(JeongJaeSoon/werft#2081). migration은 없고 따로 할 일도 없다. `share_scope` 값은 바뀌지 않는다.
+  - 세션의 부모 대화가 비공개 채널이면(그 워크스페이스에 있는 그 채널의 binding 가운데 종류를 아는 것의 `surface_kind`. 에이전트와 상관없이 보고, 살아 있는 binding을 먼저 보며, 그중 하나라도 비공개면 비공개다) 그 에이전트를 쓸 수 있는 지금 채널 멤버만 문을 지나고, 그다음 범위의 원래 규칙을 함께 본다. `private`는 만든 사람 본인, `people`·`team`은 지목된 사람, `workspace`는 워크스페이스 규칙이다. `private_channel` 세션은 지금과 같다.
+  - 보이는 변화: 비공개 채널의 `private` 세션은 채널을 나간 만든 사람도, 다른 채널 멤버도 목록에서 못 보고 상세가 `404`다. API key(개인 key·에이전트 key 모두)로는 읽기·쓰기·승인이 모두 `404`이고 판정 기록의 이유는 `private_channel_key`다. 공유를 넓혀도(`private`→`workspace` 등) 채널 밖 사람에게는 보이지 않고, 채널을 나간 만든 사람은 공유도 바꾸지 못한다(`404`).
+  - 이 릴리스 전에 비공개 채널에서 만든 `workspace`·`people`·`team` 세션도 같은 문을 지난다. 채널 밖의 워크스페이스 멤버와 key는 더 이상 보지 못한다(`private_channel`로 옮기기 전이어도 같다).
+  - binding이 없어 종류를 모르는 채널의 세션은 비공개로 본다. 그런 채널이 걸린 판정마다 `warn` 로그 `Channel kind unknown; held private`(`event` `session.private_channel.kind_unknown`, `conversation_count`)를 남긴다.
+  - 공개 채널·DM·웹·API로 만든 세션은 그대로다.
+  - 지원 창 안의 옛 이미지로 되돌리면 옛 판정(`private_channel` 범위만 채널 문을 지남)으로 돌아간다. 그동안 나간 만든 사람과 key가 다시 자기 `private` 세션에 닿는다.
+
 - **migration `0336_session_link_old_uniques`가 `session_links`의 옛 unique 둘(`session_links_surface_ref_key`, `session_links_session_uniq`)을 지운다. 이 릴리스를 올린 뒤에는 `v0.3.0` 이하의 이미지로 되돌릴 수 없다**(JeongJaeSoon/werft#2079). 따로 할 일은 없고, Slack 스레드의 동작은 그대로다.
-  - 남는 unique는 닫히지 않은 link만 보는 둘이다. 스레드와 세션마다 열린 link는 하나뿐이고, 닫힌 link는 그 옆에 이력으로 남을 수 있다. 이 릴리스에는 link를 닫는 길이 없다.
+  - 남는 unique는 닫히지 않은 link만 보는 둘이다. 스레드와 세션마다 열린 link는 하나뿐이고, 닫힌 link는 그 옆에 이력으로 남을 수 있다. 이 릴리스의 link 닫기는 기본으로 꺼진 스위치 `SLACK_ROLE_CLOSE_LINKS`(JeongJaeSoon/werft#2083) 뒤에 있다.
   - `v0.3.0` 이하의 이미지는 옛 unique를 가리키는 `ON CONFLICT`로 스레드를 예약하므로, 되돌리면 Slack 스레드에 세션이 생기지 않는다. 열린 link만 보는 예약으로 옮긴 JeongJaeSoon/werft#2041부터의 이미지로는 되돌려도 된다. 더 앞으로 가야 하면 업그레이드 전 백업으로 DB를 복원한다.
   - `v0.3.0`에서 바로 올리면 migrate가 끝난 뒤 옛 slack 역할이 내려갈 때까지 그 역할이 받은 스레드 예약이 실패하고, 그 이벤트는 다시 시도된다.
   - 행은 고치지 않는다. 제약은 표를 읽지 않는 한 문장으로, 인덱스는 `CONCURRENTLY`로 지운다.
@@ -31,10 +45,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - api 컨테이너에서 `bun run apps/control-host/src/api/slack-inbound-payloads.ts`를 돌린다. 처리를 마친 행(`processed`)의 원문만 지우고, 처리 중인 행과 실패한 행(받은 지 7일 뒤 reconciler가 지운다)은 그대로다.
   - 기본키 순서로 1000행씩(`--batch-size`, 1~10000) 문장마다 따로 커밋한다. 행 잠금은 그 묶음의 처리된 행에만 잡히고 표의 읽기·쓰기는 막지 않는다. 결과는 한 줄 JSON(상태별 원문 있는 행 수 전후, 지운 수, 묶음 수와 크기, 걸린 시간)이고, 다시 돌려도 더 지우는 것이 없다.
   - 끝난 뒤에도 원문이 남은 처리된 행이 있으면 종료 코드 `3`이다. 앞선 이미지의 slack 역할을 내린 뒤 다시 돌린다. 수는 묶음마다 따로 읽으므로 `0`이 앞선 이미지가 없다는 증거는 아니다. 돌리기 전에 컨테이너의 이미지를 확인한다. 지운 원문은 돌아오지 않는다.
-
 - **Slack에서 채널이 삭제되면(`channel_deleted`·`group_deleted`) 그 채널의 채널 요약을 모든 버전의 이력과 함께 지운다**(JeongJaeSoon/werft#2075). migration은 없고 따로 할 일도 없다. 이 릴리스에는 요약을 쓰는 길이 없어서 지울 행도 아직 없다.
   - 관여 기록, 대화, `channel_contexts` 행은 남는다. 보관과 `channel_not_found`(조회 실패로 정리한 채널)로는 지우지 않는다.
-
 - **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#2074). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
   - 칸: `slack_outbox.correlation_id`(웹 입력의 Slack 글마다 새로 만드는 상관값), `slack_outbox.held_for_input_id`(그 입력의 글 스레드를 기다리는 줄), `conversation_inputs.slack_mirror`의 새 값 `unconfirmed`.
   - 웹 입력의 Slack 글에는 상관값이 message metadata(`event_type` `werft_input_mirror`)로 실린다. 다른 줄의 `chat.postMessage`에는 지금처럼 metadata가 없다.
