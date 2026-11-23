@@ -16,6 +16,7 @@ import {
   type AgentIdentityStore,
   type ConfigTokenSummary,
   type CreatedSlackApp,
+  type InboundInputReceipt,
   lastFour,
   type RotatedConfigToken,
   type SecretAudit,
@@ -974,6 +975,8 @@ export function createMemorySlackInboundEventStore(
   const rows = new Map<string, SlackInboundEventInput>();
   const lease = new Map<string, MemoryInboundRow>();
   const calls = { seen: 0, record: 0 };
+  /** What each completion took, in order. */
+  const inputs: InboundInputReceipt[] = [];
   const faults = { record: 0 };
   const held = (fence: SlackInboundFence) => {
     const row = [...lease.values()].find((r) => r.id === fence.id);
@@ -1058,9 +1061,12 @@ export function createMemorySlackInboundEventStore(
         installationStatus: options.installationStatus?.() ?? "verified",
       };
     },
-    async complete(fence) {
+    async complete(fence, input) {
       const row = held(fence);
-      if (row) release(row, "processed");
+      if (row) {
+        release(row, "processed");
+        if (input) inputs.push(input);
+      }
       return row !== undefined;
     },
     async drop(fence, reason) {
@@ -1080,7 +1086,7 @@ export function createMemorySlackInboundEventStore(
       return spent ? "failed" : "retry";
     },
   };
-  return { store, rows, lease, calls, faults };
+  return { store, rows, lease, calls, faults, inputs };
 }
 
 /** Keyed by `workspace|team|channel|ts`, like the tables' primary keys. */

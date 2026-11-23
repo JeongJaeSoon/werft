@@ -8,6 +8,7 @@ import {
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
   createPostgresChannelMemberStore,
+  createPostgresConversationStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationSettingsStore,
@@ -214,6 +215,7 @@ export function slackSessionHandler(deps: {
     },
     botTurns: createPostgresSlackThreadBotTurnStore(db),
     sessionLinks: createPostgresSessionLinkStore(db),
+    conversations: createPostgresConversationStore(db),
     sessions,
     agentDetails: agentStore,
     releaseRepositoryUnusable: async (workspaceId, releaseId) => {

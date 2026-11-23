@@ -14,6 +14,10 @@ export const conversationTopicIdSchema = z
   .uuid()
   .brand<"ConversationTopicId">();
 export type ConversationTopicId = z.infer<typeof conversationTopicIdSchema>;
+export const conversationInputIdSchema = z
+  .uuid()
+  .brand<"ConversationInputId">();
+export type ConversationInputId = z.infer<typeof conversationInputIdSchema>;
 
 /**
  * An agent's main conversation: one per channel it is in, one per person it

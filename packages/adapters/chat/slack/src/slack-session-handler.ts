@@ -11,6 +11,8 @@ import type {
   AgentIdentityStore,
   AgentStore,
   BotTurnStore,
+  ConversationStore,
+  InboundInputReceipt,
   LinkedAccountStore,
   SessionLinkRecord,
   SessionLinkStore,
@@ -123,6 +125,8 @@ export type SlackSessionHandlerDeps = {
   /** Bot-started turns in a row per thread, across the workspace's agents. */
   botTurns: BotTurnStore;
   sessionLinks: SessionLinkStore;
+  /** Where a message made a turn of is taken as its topic's input. */
+  conversations: ConversationStore;
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
@@ -223,6 +227,40 @@ export function createSlackSessionHandler(
       surfaceRef,
     );
     if (found !== null && found.revokedAt !== null) return;
+    // A retry of a message whose turn was taken before the pass died: the
+    // turn stands, so its input is taken whatever this pass would judge now.
+    const sessionId =
+      found === null
+        ? null
+        : (found.sessionId ?? (await deps.sessionLinks.openedSession(found)));
+    const taken =
+      sessionId === null
+        ? null
+        : await deps.sessionLinks.slackTurn(sessionId, {
+            teamId: claim.teamId,
+            channelId: event.channel,
+            ts: event.ts,
+          });
+    if (found !== null && sessionId !== null && taken !== null) {
+      // The session was made but the pass died before the link learned it.
+      if (found.sessionId === null) {
+        const attached = await deps.sessionLinks.attachSession(
+          found.id,
+          sessionId,
+        );
+        if (attached.sessionId !== sessionId) {
+          throw new Error(`Slack thread ${found.id} holds another session`);
+        }
+      }
+      return inputOf(
+        { sessionId, sequence: taken.sequence },
+        { dm, personUserId: taken.requesterId, channelId: event.channel },
+        claim.teamId,
+        threadTs,
+        event.ts,
+        agent,
+      );
+    }
     // Before the early returns below, which let most unmentioned talk go:
     // the event itself says the channel is private, so a binding made for a
     // public one waits for approval now, whoever spoke and whatever was said.
@@ -546,20 +584,31 @@ export function createSlackSessionHandler(
     }
     // Once the session took the turn it counts, whatever fails after.
     let accepted = false;
+    let turn: { sessionId: string; sequence: number };
     try {
       if (link.sessionId === null && link.openedByTs !== event.ts) {
         link = await adoptOrReopen(link, event.ts);
       }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        await openSession(caller, link, message, dm, slackMessage, () => {
-          accepted = true;
-        });
+        turn = await openSession(
+          caller,
+          link,
+          message,
+          dm,
+          slackMessage,
+          () => {
+            accepted = true;
+          },
+        );
       } else {
-        await deps.sessions.appendMessage(caller, link.sessionId, {
+        const sessionId = link.sessionId;
+        const appended = await deps.sessions.appendMessage(caller, sessionId, {
           idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
           body: { message, mode: "enqueue" },
           slackMessage,
         });
+        // A turn id is its number in the session.
+        turn = { sessionId, sequence: Number(appended.turn_id) };
       }
       // The turn's insert marks the thread's status due; the outbox pass
       // that follows this one sends it.
@@ -600,8 +649,53 @@ export function createSlackSessionHandler(
       } else {
         await notice(error.code, { message: "failed" });
       }
+      return;
     }
+    // Beside the turn, not before it: the inbox row's completion takes it.
+    return inputOf(
+      turn,
+      { dm, personUserId: decision.actorUserId, channelId: event.channel },
+      claim.teamId,
+      threadTs,
+      event.ts,
+      agent,
+    );
   };
+
+  /** The input of a message its turn took, in the thread's topic. */
+  async function inputOf(
+    turn: InboundInputReceipt["turn"],
+    place: { dm: boolean; personUserId: string | null; channelId: string },
+    teamId: string,
+    threadTs: string,
+    ts: string,
+    agent: { workspaceId: string; agentId: string },
+  ): Promise<InboundInputReceipt> {
+    if (place.dm && place.personUserId === null) {
+      throw new Error("A Slack DM turn was taken with no person");
+    }
+    const conversation = await deps.conversations.findOrCreateConversation(
+      place.dm
+        ? {
+            kind: "dm",
+            workspaceId: agent.workspaceId,
+            agentId: agent.agentId,
+            personUserId: place.personUserId as string,
+          }
+        : {
+            kind: "channel",
+            workspaceId: agent.workspaceId,
+            agentId: agent.agentId,
+            teamId,
+            channelId: place.channelId,
+          },
+    );
+    const topic = await deps.conversations.findOrCreateThreadTopic(
+      conversation.id,
+      { teamId, channelId: place.channelId, threadTs },
+    );
+    return { topicId: topic.id, channelId: place.channelId, ts, turn };
+  }
 
   /**
    * The link's opening message gave out before the link learned its
@@ -626,7 +720,7 @@ export function createSlackSessionHandler(
     dm: boolean,
     slackMessage: SlackMessageRef,
     onCreated: () => void,
-  ): Promise<void> {
+  ): Promise<{ sessionId: string; sequence: number }> {
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
       body: {
@@ -644,6 +738,7 @@ export function createSlackSessionHandler(
     if (attached.sessionId !== created.session_id) {
       throw new Error(`Slack thread ${link.id} already holds another session`);
     }
+    return { sessionId: created.session_id, sequence: Number(created.turn_id) };
   }
 
   /** The message's link for the web; a turn goes on without one. */

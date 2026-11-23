@@ -6086,6 +6086,8 @@ export interface components {
             channel_kind?: "public_channel" | "private_channel" | "dm";
             /** @enum {string} */
             mode: "off" | "on";
+            /** @enum {string} */
+            listen?: "free" | "mention" | "off";
             /** @default false */
             home: boolean;
             ceiling?: {
@@ -6572,7 +6574,7 @@ export interface components {
                 display_name: string;
             } | null;
             /**
-             * @description Who the instruction is recorded as coming from, as stored. `kind` is `user` (a person: console, linked Slack account or personal key), `api_key` (a key no person holds, `id` the key) or `slack_bot` (an allowed Slack bot, `id` its Slack user id); a client takes any other kind as unknown. `auth_method` is the credential it came in on: `web_session`, `personal_key`, `agent_key`, `service_key`, `slack_link`, `slack_bot` or `unauthenticated`, any other value read as unknown; null when none was recorded. `carried` is true for a turn that took its requester from an earlier one, such as the continuation after an approval. Null for a turn with no requester recorded: one from before it was, or one the platform queued itself.
+             * @description Who the instruction is recorded as coming from, as stored. `kind` is `user` (a person: console, linked Slack account or personal key), `api_key` (a key no person holds, `id` the key), `slack_bot` (an allowed Slack bot, `id` its Slack user id) or `agent` (work the platform queued as the agent's own, such as the follow-up to a push decision, `id` the agent); a client takes any other kind as unknown. `auth_method` is the credential it came in on: `web_session`, `personal_key`, `agent_key`, `service_key`, `slack_link`, `slack_bot`, `unauthenticated` or `push_decision` (not a credential: the push decision an `agent` turn follows), any other value read as unknown; null when none was recorded. `carried` is true for a turn that took its requester from an earlier one, such as the continuation after an approval. Null for a turn with no requester recorded: one from before it was, or one the platform queued itself.
              * @default null
              */
             requester: {
@@ -6619,7 +6621,7 @@ export interface components {
                 display_name: string;
             } | null;
             /**
-             * @description Who the instruction is recorded as coming from, as stored. `kind` is `user` (a person: console, linked Slack account or personal key), `api_key` (a key no person holds, `id` the key) or `slack_bot` (an allowed Slack bot, `id` its Slack user id); a client takes any other kind as unknown. `auth_method` is the credential it came in on: `web_session`, `personal_key`, `agent_key`, `service_key`, `slack_link`, `slack_bot` or `unauthenticated`, any other value read as unknown; null when none was recorded. `carried` is true for a turn that took its requester from an earlier one, such as the continuation after an approval. Null for a turn with no requester recorded: one from before it was, or one the platform queued itself.
+             * @description Who the instruction is recorded as coming from, as stored. `kind` is `user` (a person: console, linked Slack account or personal key), `api_key` (a key no person holds, `id` the key), `slack_bot` (an allowed Slack bot, `id` its Slack user id) or `agent` (work the platform queued as the agent's own, such as the follow-up to a push decision, `id` the agent); a client takes any other kind as unknown. `auth_method` is the credential it came in on: `web_session`, `personal_key`, `agent_key`, `service_key`, `slack_link`, `slack_bot`, `unauthenticated` or `push_decision` (not a credential: the push decision an `agent` turn follows), any other value read as unknown; null when none was recorded. `carried` is true for a turn that took its requester from an earlier one, such as the continuation after an approval. Null for a turn with no requester recorded: one from before it was, or one the platform queued itself.
              * @default null
              */
             requester: {
@@ -11895,6 +11897,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -11934,6 +11938,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -11975,6 +11981,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */

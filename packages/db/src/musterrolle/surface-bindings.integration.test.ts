@@ -138,6 +138,7 @@ integration("surface bindings on PostgreSQL", () => {
       channelId: string | null;
       channelKind?: SurfaceChannelKind;
       mode?: "off" | "on";
+      listen?: "free" | "mention" | "off";
       home?: boolean;
     },
   ) =>
@@ -150,10 +151,76 @@ integration("surface bindings on PostgreSQL", () => {
         channel.channelKind ??
         (channel.channelId === null ? "dm" : "public_channel"),
       mode: channel.mode ?? "on",
+      ...(channel.listen === undefined ? {} : { listen: channel.listen }),
       home: channel.home ?? false,
       ceiling: DEFAULT_SURFACE_CEILING,
       managerRoles: MANAGERS,
     });
+
+  test("a new binding listens to every message, even for an agent that waits for a mention", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, installationId } = await slackAgent(owner);
+    await db
+      .update(agents)
+      .set({ slackMentionOnly: true })
+      .where(eq(agents.id, agentId));
+
+    const set = await setAs(owner, agentId, { channelId: "C0NEWSET" });
+    const invited = await store().ensureInvitedChannel(
+      installationId,
+      "C0NEWINVITE",
+      "public_channel",
+    );
+    const dm = await store().ensureDmBinding(installationId);
+    expect([
+      set.outcome === "set" ? set.binding.listen : set.outcome,
+      invited?.listen,
+      dm?.listen,
+    ]).toEqual(["free", "free", "free"]);
+    const [agent] = await db
+      .select({ mentionOnly: agents.slackMentionOnly })
+      .from(agents)
+      .where(eq(agents.id, agentId));
+    expect(agent).toEqual({ mentionOnly: true });
+  });
+
+  test("a save without listen keeps the channel's; a save with it changes it and its receipt says so", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId } = await slackAgent(owner);
+    const first = await setAs(owner, agentId, { channelId: "C0KEEP" });
+    if (first.outcome !== "set") throw new Error(first.outcome);
+    // As migration 0317 leaves a channel of an agent that waits for a mention.
+    await db
+      .update(surfaceBindings)
+      .set({ listen: "mention" })
+      .where(eq(surfaceBindings.id, first.binding.id));
+
+    // The web console sends no listen.
+    const kept = await setAs(owner, agentId, {
+      channelId: "C0KEEP",
+      mode: "off",
+    });
+    expect(kept).toMatchObject({
+      outcome: "set",
+      binding: { id: first.binding.id, mode: "off", listen: "mention" },
+    });
+
+    const changed = await setAs(owner, agentId, {
+      channelId: "C0KEEP",
+      listen: "off",
+    });
+    expect(changed).toMatchObject({
+      outcome: "set",
+      binding: { mode: "on", listen: "off" },
+    });
+    const [receipt] = await db
+      .select({ result: receipts.result })
+      .from(receipts)
+      .where(
+        eq(receipts.id, changed.outcome === "set" ? changed.receiptId : ""),
+      );
+    expect(receipt?.result).toMatchObject({ mode: "on", listen: "off" });
+  });
 
   test("a channel's binding is stored, resolved and replaced in place", async () => {
     const owner = await person(await workspace(), "owner");

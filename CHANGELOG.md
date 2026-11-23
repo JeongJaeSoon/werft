@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0317_binding_listen`이 채널 binding에 듣기 칸 `listen`(`free`·`mention`·`off`)을, 에이전트에 대화 층 스위치 `conversation_rollout`(`off`·`shadow`·`on`)을 더한다**(JeongJaeSoon/werft#2042). 따로 할 일은 없고 동작도 그대로다.
+  - 있던 binding은 그 에이전트의 `slack_mention_only`가 `true`면 `mention`, `false`면 `free`로 채운다. 새로 만드는 binding은 `free`로 시작한다. `slack_mention_only`는 바꾸지 않고, 에이전트가 무엇에 반응하는지는 지금처럼 그 값과 binding의 `mode`가 정한다.
+  - 모든 에이전트의 스위치는 `off`다. 이 릴리스의 받는 길은 두 칸을 읽지 않는다.
+  - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 binding에 `listen`이 생긴다. `PUT`에서 `listen`을 빼면 그 채널의 값을 그대로 둔다.
+  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0314_budget_accounts`가 예산 계정 표 셋(`budget_limits`·`budget_accounts`·`budget_reservations`)을 빈 채로 만든다**(JeongJaeSoon/werft#2034). 따로 할 일은 없다.
   - 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 그대로이고, 한도를 정하는 화면·API·운영자 명령은 아직 없다.
   - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
@@ -24,7 +30,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - api 재시작·재배포 때 콘솔과 SDK의 이벤트 스트림은 곧바로 끊기고, 새 api에 `Last-Event-ID`로 다시 붙어 놓친 이벤트 없이 이어진다. 이전에는 스트림이 드레인 상한까지 붙어 있다가 잘렸다.
   - 로그 `SSE stream closed`의 `reason`에 `shutting_down`이 생긴다. 열린 스트림 때문에 `Drain deadline passed` 경고가 나던 종료는 이제 `In-flight requests drained`로 끝난다.
 
-- **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 이 릴리스의 코드는 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
+- **Slack 글을 입력 접수 표 `conversation_inputs`에 적는다**(JeongJaeSoon/werft#2040). migration `0316_conversation_inputs`가 표를 만든다. 할 일은 없고, Slack과 세션의 동작은 그대로다.
+  - slack 역할이 멘션·DM·묶인 스레드의 글을 지금처럼 턴으로 넣은 뒤, inbox 행을 처리됨으로 바꾸는 같은 transaction에서 접수 줄 하나를 적는다. 0310의 `conversations`·`conversation_topics`도 이때부터 채운다.
+  - 접수 줄에는 글의 자리(team, 채널, ts), 주제 안의 순번(서버가 접수한 순서), 요청자, 그 글이 된 턴만 남고 본문은 없다. `message`와 `app_mention`으로 두 번 와도, 재전송돼도 에이전트마다 한 줄이다.
+  - 접수 줄이 있는 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
+  - 지원 창 안의 이미지로 되돌리면 그동안의 글은 접수 줄 없이 턴만 생긴다.
+
+- **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 표를 더하는 일에는 할 일이 없고 동작도 그대로다. 표를 채우기 시작하는 것은 위 `conversation_inputs` 항목이다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
 
 - **Slack에서 글을 지우거나 고친 이벤트를 버리지 않고 그 글의 자리와 시각만 표식으로 남기며, migration `0312_slack_source_marks`가 표 `deleted_sources`·`edited_sources`를 더한다**(JeongJaeSoon/werft#2035). 따로 할 일은 없다.
   - `message_deleted`, 답이 달린 글을 지울 때 오는 묘비 `message_changed`는 삭제 표식, 사람이 고친 `message_changed`는 수정 표식이 된다. 글의 본문과 이벤트 원문은 저장하지 않고, inbox 행은 원문 없이 `processed`로 남는다. 같은 글이 지워지면 수정 표식은 지운다.
@@ -151,6 +163,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **모델 연결의 "사용할 모델"은 공급자가 알려 준 목록에서 체크해 고른다. 그래서 api가 연결의 key로 공급자의 `GET /v1/models`를 직접 부르고, 그 호스트는 api의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 서버는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에 있어야 한다**(JeongJaeSoon/werft#1773). Compose와 Helm은 proxy와 api에 같은 목록을 주고 기본값에 `api.anthropic.com:443`·`api.openai.com:443`이 있으므로, 기본값을 쓰는 설치는 할 일이 없다. 목록을 바꿔 쓰는 설치, 그리고 LiteLLM·호환 서버를 쓰는 설치는 그 endpoint의 `host:port`가 api 쪽 목록에도 있는지 본다. 없으면 화면이 그 이유(`host_not_allowed`, 목록이 비면 `credential_allowlist_unset`)를 보이고 목록을 읽지 않으며, 저장된 모델은 그대로 둔다. 모델 이름을 손으로 적던 입력 칸은 없어졌다. 공급자가 목록을 주지 않는 경우에도 이미 저장된 모델은 체크된 채 남고 저장할 수 있지만, 새 이름을 손으로 더할 수는 없다. 그런 연결은 API(`POST /v1/installation/settings/connections/{id}/models`)로 넣는다. 이 route는 이름을 그대로 받는다. migration은 없다. 되돌리면 앞선 화면의 입력 칸이 돌아오고, 이 판이 저장한 목록은 그대로 쓰인다.
 - **계정 연결 거절 응답 여덟 가지(`BAD_REQUEST`·`SLACK_NOT_INSTALLED`·`LINK_TEAM_MISMATCH`·`LINK_TAKEN`·`LINK_EXISTS`·`GITHUB_LINK_NOT_CONFIGURED`)의 `error.message` 첫 문장 끝맺음이 합니다체로 바뀐다(예: "연결돼 있어요" → "연결돼 있습니다")**(JeongJaeSoon/werft#1893). `code`·HTTP 상태·`retryable`은 그대로다. 이 글을 글자로 비교하는 연동이 있으면 `code`로 판단하게 바꾼다. migration은 없다.
 - **쓰지 않는 표 `catalog_authority`·`owner_workspace_map`·`push_continuations`를 행째 지운다**(JeongJaeSoon/werft#2010). migration `0305_drop_unused_tables`가 지운다. `v0.1.0` 이후 어느 릴리스도 앞의 두 표를 읽거나 쓰지 않았고, `push_continuations`를 쓴 마지막 릴리스는 `v0.1.1`이므로 지원 창 안의 이미지는 영향이 없다. 다만 표에 행이 남아 있을 수 있다. `catalog_authority`에는 설정 파일 카탈로그 시절에 활성화한 revision 한 행, `owner_workspace_map`에는 운영자가 손으로 넣은 owner와 워크스페이스의 매핑, `push_continuations`에는 `v0.1.1` 이하가 만든 이어 턴 기록이다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0305: dropped rows: …`). 그 행이 필요하면 올리기 전에 백업한다. 0305 아래로 스키마를 내려도 행은 돌아오지 않는다.
+- **Slack에서 push를 승인·거절한 뒤의 후속 턴이 에이전트의 턴이 되고, 누른 사람의 세션 입력 권한을 더는 보지 않는다**(JeongJaeSoon/werft#2037). 전에는 그 턴의 보낸 사람이 길에 따라 달랐다. 실행 중인 턴을 기다렸다 넣으면 push를 요청한 사람, 바로 넣으면 버튼을 누른 사람이었다. 이제 두 길 모두 요청자가 그 세션의 에이전트(`requester.kind: "agent"`, `auth_method: "push_decision"`)이고 사람 칸(`actor_id`)은 비어, 화면에서 보낸 사람이 사람 이름이 아닌 일반 라벨로 보인다. 그 턴이 세션의 마지막 턴인 동안 commit은 App만으로 귀속된다. PR에 적는 "요청한 사람"은 push를 요청한 턴에서 읽으므로 바뀌지 않는다. 승인·거절은 push 결정 권한만 보므로, 세션 입력 권한이 없는 승인자가 눌러도 후속 턴이 생기고 누른 사람 이름의 메시지 추가 receipt는 생기지 않는다. 같은 push 요청의 후속 턴은 세션에 하나만 생긴다. 세션의 상태 검사(일시 정지, 인수 대기, 체크포인트, 입력 한도)는 그대로다. migration은 없다. 되돌리면 앞선 판은 이 판이 넣은 후속 턴을 요청자 없는 턴으로 읽는다.
 - **새 턴마다 요청자가 들어온 자격(인증 근거)을 남기고, 턴 읽기 API(`GET /v1/sessions/{id}/turns`, `GET /v1/sessions/{id}/turns/{turn_id}`)가 `requester`(`kind`·`id`·`auth_method`·`carried`)를 돌려준다**(JeongJaeSoon/werft#2027). migration `0315_turn_requester_auth`가 `turns.requester_auth`(jsonb)와 `tool_call_audits.requester_kind`·`requester_id`(text)를 더한다. 셋 다 nullable이고 기본값·색인·backfill이 없어 표를 다시 쓰지 않는다. 올릴 때 할 일은 없다. 근거는 콘솔 로그인 세션 id, 개인 key id, 에이전트 key의 에이전트, Slack 설치와 연결 계정이고, key의 비밀·cookie·Slack 사용자 id는 담지 않는다. 승인 뒤 이어 가는 턴은 멈췄던 턴의 요청자와 근거를 물려받는다(`carried`가 true). 옛 턴은 고치지 않아 `requester`나 `auth_method`가 null로 보인다. 감사 행의 두 칸은 이 릴리스에서 비어 있다. 되돌리면 앞선 판은 새 칸을 읽지도 쓰지도 않는다([턴에 요청자의 인증 근거를 남기는 릴리스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#턴에-요청자의-인증-근거를-남기는-릴리스)).
 - **Slack 사용자 id(`U…`·`W…`)를 channel로 가진 outbox 줄은 모델 안내만 넣을 수 있고, 다른 줄은 넣기에서 거절되며 Slack에 보내지 않는다**(JeongJaeSoon/werft#2029). migration `0309_slack_outbox_channel`이 CHECK `slack_outbox_channel_check`를 더한다. 어느 릴리스도 그런 줄을 쓰지 않았으므로 보통은 할 일이 없다. 그런 줄이 남아 있으면 migrate 로그 `db.migrate.notice`에 수가 남고(`0309: … slack_outbox rows name a Slack user as their channel`) migrate가 `VALIDATE CONSTRAINT`에서 멈춘다. 그 줄을 지우고 다시 돌린다([사람에게 바로 가는 Slack 글을 막는 릴리스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#사람에게-바로-가는-slack-글을-막는-릴리스)).
 

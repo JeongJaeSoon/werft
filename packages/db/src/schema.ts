@@ -20,6 +20,7 @@ import {
   AUTHORIZATION_OUTCOME_VALUES,
   AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
   type AuthorizationAction,
+  BINDING_LISTEN_VALUES,
   BINDING_MODE_VALUES,
   BUDGET_LIMIT_SUBJECT_VALUES,
   BUDGET_OWNER_KIND_VALUES,
@@ -31,6 +32,7 @@ import {
   type BudgetReservationState,
   type BudgetRootKind,
   CONVERSATION_KIND_VALUES,
+  CONVERSATION_ROLLOUT_VALUES,
   type ConversationKind,
   ENDED_ATTEMPT_STATES,
   ENV_VARIABLE_KIND_VALUES,
@@ -3960,6 +3962,11 @@ export const agents = pgTable(
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
     slackMentionOnly: boolean("slack_mention_only").notNull().default(true),
+    /** `CONVERSATION_ROLLOUT_VALUES`; `off` until the layer is switched on. */
+    conversationRollout: text("conversation_rollout")
+      .$type<"off" | "shadow" | "on">()
+      .notNull()
+      .default("off"),
     /** Slack bot users whose direct mention the agent answers; empty for none. */
     slackAllowedBotUserIds: text("slack_allowed_bot_user_ids")
       .array()
@@ -4036,6 +4043,10 @@ export const agents = pgTable(
     check(
       "agents_status_check",
       sql`${table.status} IN (${sql.raw(sqlList(AGENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "agents_conversation_rollout_check",
+      sql`${table.conversationRollout} IN (${sql.raw(sqlList(CONVERSATION_ROLLOUT_VALUES))})`,
     ),
     check(
       "agents_slug_check",
@@ -4891,6 +4902,11 @@ export const surfaceBindings = pgTable(
       "public_channel" | "private_channel" | "dm"
     >(),
     mode: text().$type<"off" | "on">().notNull(),
+    /** `BINDING_LISTEN_VALUES`: a new channel listens to every message. */
+    listen: text()
+      .$type<"free" | "mention" | "off">()
+      .notNull()
+      .default("free"),
     /** The channel's ceiling; `surfaceCeilingSchema` split in two columns. */
     ceilingActions: text("ceiling_actions").array().notNull(),
     ceilingDisclosure: text("ceiling_disclosure")
@@ -4962,6 +4978,10 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_mode_check",
       sql`${table.mode} IN (${sql.raw(sqlList(BINDING_MODE_VALUES))})`,
+    ),
+    check(
+      "surface_bindings_listen_check",
+      sql`${table.listen} IN (${sql.raw(sqlList(BINDING_LISTEN_VALUES))})`,
     ),
     check(
       "surface_bindings_ceiling_check",
@@ -5248,6 +5268,61 @@ export const conversationTopics = pgTable(
     check(
       "conversation_topics_slack_check",
       sql`(${table.slackTeamId} IS NULL AND ${table.slackChannelId} IS NULL AND ${table.slackThreadTs} IS NULL) OR (${table.slackTeamId} IS NOT NULL AND ${table.slackChannelId} IS NOT NULL AND ${table.slackThreadTs} IS NOT NULL AND ${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackThreadTs} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')`,
+    ),
+  ],
+);
+
+/**
+ * One input an agent took into a topic, numbered in the order the server took
+ * it. The Slack (team, channel, ts) is an alias, not the input's id. Holds no
+ * message text.
+ */
+export const conversationInputs = pgTable(
+  "conversation_inputs",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    // Of the same agent and workspace, which the receipt's insert checks.
+    topicId: uuid("topic_id")
+      .notNull()
+      .references(() => conversationTopics.id),
+    /** From 1 within the topic, in the order of receipt, never Slack's ts. */
+    seq: integer().notNull(),
+    slackTeamId: text("slack_team_id"),
+    slackChannelId: text("slack_channel_id"),
+    slackTs: text("slack_ts"),
+    // As on turns: `user` names a Werft user, `slack_bot` a Slack bot user.
+    requesterKind: text("requester_kind").notNull(),
+    requesterId: text("requester_id").notNull(),
+    /** The turn the input became. */
+    turnId: bigint("turn_id", { mode: "number" })
+      .notNull()
+      .references(() => turns.id),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("conversation_inputs_seq_uniq").on(table.topicId, table.seq),
+    // Unique per agent: two agents in one channel each take the message.
+    unique("conversation_inputs_slack_uniq").on(
+      table.agentId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.slackTs,
+    ),
+    // For the delete marks, which name a message by workspace, not agent.
+    index("conversation_inputs_slack_message_idx").on(
+      table.workspaceId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.slackTs,
+    ),
+    check("conversation_inputs_seq_check", sql`${table.seq} > 0`),
+    check(
+      "conversation_inputs_slack_check",
+      sql`(${table.slackTeamId} IS NULL AND ${table.slackChannelId} IS NULL AND ${table.slackTs} IS NULL) OR (${table.slackTeamId} IS NOT NULL AND ${table.slackChannelId} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackTs} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')`,
     ),
   ],
 );

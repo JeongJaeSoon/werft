@@ -26,6 +26,7 @@ function recordOf(
     channelId: "G0PRIVATE",
     channelKind: "private_channel",
     mode: "on",
+    listen: "free",
     ceiling: { actions: [], disclosure: "full" },
     home: false,
     memoryWritePolicy: "deny",
@@ -61,6 +62,7 @@ function service(
           channelId: input.channelId,
           channelKind: input.channelKind,
           mode: input.mode,
+          listen: input.listen ?? "free",
           ceiling: input.ceiling,
           home: input.home,
           memoryWritePolicy: "deny",
@@ -171,6 +173,27 @@ describe("a refused binding names why in details.reason_code", () => {
       code: "REVISION_CONFLICT",
       details: { reason_code: "not_pending" },
     });
+  });
+});
+
+describe("a Slack binding's listen setting (94S-2013)", () => {
+  test("a save names the setting it changes, and one without it leaves the store's", async () => {
+    const { bindings } = service(async () => "public_channel");
+    const narrowed = await bindings.putSlackBinding(caller, AGENT, {
+      channel_id: "C0OPS",
+      mode: "on",
+      listen: "mention",
+      home: false,
+    });
+    const unnamed = await bindings.putSlackBinding(caller, AGENT, {
+      channel_id: "C0OPS",
+      mode: "on",
+      home: false,
+    });
+    expect([
+      narrowed.slack_binding.listen,
+      unnamed.slack_binding.listen,
+    ]).toEqual(["mention", "free"]);
   });
 });
 
