@@ -1,5 +1,5 @@
 {
-  "id": "e959de85-ac2c-4394-8c2d-b099192e498c",
+  "id": "33b5a73f-c70f-4db0-89a9-7467b8f97d42",
   "prevId": "bcc4c110-dea3-4f02-a730-a8b98e3688ca",
   "version": "7",
   "dialect": "postgresql",
@@ -10623,6 +10623,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "budget_root_kind": {
+          "name": "budget_root_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "budget_account_id": {
+          "name": "budget_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -10662,7 +10674,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "provider_exchanges_budget_root_kind_check": {
+          "name": "provider_exchanges_budget_root_kind_check",
+          "value": "\"provider_exchanges\".\"budget_root_kind\" IN ('user','key','none')"
+        },
+        "provider_exchanges_budget_account_check": {
+          "name": "provider_exchanges_budget_account_check",
+          "value": "\"provider_exchanges\".\"budget_account_id\" IS NULL OR \"provider_exchanges\".\"budget_root_kind\" IS NOT NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.provider_usage": {
@@ -14240,12 +14261,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "parent_conversation_id": {
-          "name": "parent_conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "takeover_required_at": {
           "name": "takeover_required_at",
           "type": "timestamp with time zone",
@@ -14614,15 +14629,6 @@
           "tableFrom": "sessions",
           "tableTo": "api_keys",
           "columnsFrom": ["created_by_api_key_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "sessions_parent_conversation_id_conversations_id_fk": {
-          "name": "sessions_parent_conversation_id_conversations_id_fk",
-          "tableFrom": "sessions",
-          "tableTo": "conversations",
-          "columnsFrom": ["parent_conversation_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"

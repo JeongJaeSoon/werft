@@ -289,6 +289,14 @@ GROUP BY 1, 2;
 - The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
 - Earlier images write no such row either, so rolling back with the constraint in place is safe.
 
+<a id="원장에-예산-계정-칸을-더하는-릴리스" />
+### The release that adds budget account columns to the ledger
+
+Migration `0318_provider_exchange_budget` adds two nullable columns to the provider call ledger `provider_exchanges`: `budget_root_kind` (the root kind the call was charged as, `user`, `key` or `none`) and `budget_account_id` (the budget account the call was also held on). Nothing to do.
+
+- In this release no call names an account, so both columns stay empty and the session cost and token limits work as before. The code that holds a call on an account and the session limit at once ships now; wiring it into the call path comes in a later release.
+- The migration only adds columns, so rolling back to an image inside the support window is fine.
+
 <a id="예산-계정-표를-더하는-릴리스" />
 ### The release that adds the budget account tables
 

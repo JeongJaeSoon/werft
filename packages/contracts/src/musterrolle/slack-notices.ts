@@ -142,6 +142,9 @@ const NOTICE_FOR: Record<
   last_owner: "noRight",
   emergency_admin: "noRight",
   scope_not_grantable: "noRight",
+  // Conversation posts: judged on the web only until Slack opens them.
+  conversation_archived: "noRight",
+  listening_off: "noRight",
   // Access decisions: a person whose basis is missing or no longer valid
   // gets it back by linking again; the rest read as a missing right, and a
   // policy or membership that could not be read as a passing failure.
