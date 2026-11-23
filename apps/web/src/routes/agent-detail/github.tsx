@@ -576,6 +576,7 @@ function GitHubSettings({
   const pushAttached = draft ? draft.pushAttached : basePushAttached;
   const saveError = useRef<HTMLDivElement>(null);
   const pendingRegion = useRef<HTMLDivElement>(null);
+  const saveBar = useRef<HTMLDivElement>(null);
   const editable = manages && data.enabled && base !== null;
   // No row yet: the defaults shown are themselves worth saving.
   const firstSave = editable && data.github === null;
@@ -664,6 +665,25 @@ function GitHubSettings({
   const pendingTitle = firstSave
     ? t("agentGitHub.pending.firstTitle")
     : t("agentGitHub.pending.title", { count: pending });
+  const showSaveBar = manages && (pending > 0 || firstSave || saveFailure);
+  // The bar is opaque and stuck to the screen's foot: a control that focus
+  // reaches under it scrolls up past it (WCAG 2.4.11), by the bar's height.
+  useLayoutEffect(() => {
+    const bar = saveBar.current;
+    if (!showSaveBar || !bar) return;
+    const root = document.documentElement;
+    const fit = () => {
+      root.style.scrollPaddingBottom = `${bar.offsetHeight}px`;
+    };
+    fit();
+    const resized =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    resized?.observe(bar);
+    return () => {
+      resized?.disconnect();
+      root.style.scrollPaddingBottom = "";
+    };
+  }, [showSaveBar]);
   const actionsOn = settings?.features.actions ?? false;
   const keys: SectionKey[] = [
     "github",
@@ -1101,10 +1121,13 @@ function GitHubSettings({
           />
         </DangerZone>
       ) : null}
-      {manages && (pending > 0 || firstSave || saveFailure) ? (
+      {showSaveBar ? (
         // Last in the tab and sticky, so it stays at the screen's foot while
         // there is something to save, even far down at the push section.
-        <div className="sticky bottom-0 z-10 bg-background pt-2 pb-4">
+        <div
+          ref={saveBar}
+          className="sticky bottom-0 z-10 bg-background pt-2 pb-4"
+        >
           <Alert
             ref={pendingRegion}
             tabIndex={-1}

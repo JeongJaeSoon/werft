@@ -842,6 +842,25 @@ describe("에이전트 GitHub 탭", () => {
     expect(sent[0]).toMatchObject({ settings: { push_approval: false } });
   });
 
+  test("저장 막대가 있는 동안만 문서가 막대 높이만큼 아래 scroll 여백을 두어, 초점이 막대 뒤로 숨지 않는다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    const root = document.documentElement;
+    expect(root.style.scrollPaddingBottom).toBe("");
+
+    await user.click(switchNamed("push 전 사람 승인"));
+    await screen.findByRole("region", { name: "저장하지 않은 변경 1건" });
+    expect(root.style.scrollPaddingBottom).toMatch(/^\d+px$/);
+
+    await user.click(screen.getByRole("button", { name: "되돌리기" }));
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
+    expect(root.style.scrollPaddingBottom).toBe("");
+  });
+
   test("설정이 없는 에이전트는 저장 전에도 머리글과 스위치가 같이 push 승인 꺼짐이다", async () => {
     const { server, release } = await activeAgent();
     release.policy_pins = {};
