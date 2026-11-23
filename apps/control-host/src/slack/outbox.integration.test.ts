@@ -1560,6 +1560,26 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       expect(taken[1]?.turn_id).not.toBeNull();
     });
 
+    // Until web inputs open turns, the mirror's thread has no session, and
+    // an unmentioned reply there is a stray reply like any other.
+    test("an unmentioned reply in the mirror's thread is not taken yet", async () => {
+      const fixture = await agentInSlack();
+      await webInput(fixture);
+      await outboxPass();
+      const [mirror] = await mirrors();
+      if (!mirror?.slackTs) throw new Error("no mirror sent");
+
+      await mention(fixture, "100.000901", PERSON, {
+        type: "message",
+        channel_type: "channel",
+        thread_ts: mirror.slackTs,
+        text: "follow up without a mention",
+      });
+
+      expect(await inputsOf(fixture.agentId)).toHaveLength(1);
+      expect(await db.select().from(turns)).toEqual([]);
+    });
+
     test("a topic's second web input waits for the first's post, then goes into the thread it opened", async () => {
       const fixture = await agentInSlack();
       const first = await webInput(fixture);

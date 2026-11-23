@@ -63,7 +63,7 @@ const change =
   mode === "delete" ||
   mode === "delete-bot" ||
   mode === "tombstone";
-const target = `${1792800000 + Number(seq)}.000001`;
+const target = slackTsOf(seq) ?? "1792800000.000001";
 const changedAt = `${Math.floor(Date.now() / 1000)}.000002`;
 const changeChannelType = channel.startsWith("D")
   ? "im"
