@@ -223,16 +223,21 @@ export async function deleteConversationRecords(
     try {
       counts =
         (await db.transaction(async (tx) => {
+          // The admin's membership first: a member's disable holds it while it
+          // waits on a session, which may wait on a mark lock taken below.
+          const admin = await adminOf(tx);
+          if (admin === undefined) return null;
           const seen = await recordsOf(tx, conversation);
-          // Mark locks first, as every write naming a message takes them. Then
-          // the summary row before the conversation: a Slack channel delete
+          // Then mark locks, which every write naming a message takes first;
+          // then the summary row before the conversation: a Slack channel delete
           // holds the summary while it waits on a buffer hold, which waits on
           // the conversation.
           for (const ts of seen.touched) {
             await tx.execute(lockSlackSourceMark({ ...place, ts }));
           }
-          // With no summary row there is nothing to lock or delete; one made
-          // since is after this delete, and is left.
+          // With no summary row this attempt has none to lock or delete; one
+          // made since names a message not seen, so the attempt starts again
+          // and takes it.
           const summaryHeld =
             rowsOf(
               await tx.execute(sql`
@@ -242,8 +247,6 @@ export async function deleteConversationRecords(
             FOR UPDATE`),
             ).length > 0;
           await find(tx, true);
-          const admin = await adminOf(tx);
-          if (admin === undefined) return null;
           const records = await recordsOf(tx, conversation);
           if (!within(records.touched, seen.touched)) throw new RecordsMoved();
           const marked =
