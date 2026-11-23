@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **GitHub 도구 설명이 브랜치는 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 만든다고 알리고, 작업 공간 안의 git worktree나 clone이 checkpoint를 막는다고 적는다**(JeongJaeSoon/werft#PRNUM). migration은 없고 따로 할 일도 없다.
+- **GitHub 도구 설명이 브랜치는 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 만든다고 알리고, 작업 공간 안의 git worktree나 clone이 checkpoint를 막는다고 적는다**(JeongJaeSoon/werft#2069). migration은 없고 따로 할 일도 없다.
   - `git worktree`는 지금처럼 작업 공간 안이든 밖이든 사람에게 묻는다. 묻기 규칙은 바뀌지 않았다.
   - `request_push`·`attach_repository`·`get_push_request`의 설명에 위 사실과, 그때 push가 `turn_ended_without_checkpoint`로 취소된다는 것이 더해진다.
   - checkpoint가 중첩 저장소나 submodule로 거절할 때의 이유 문구에 worktree·clone이 그 경우이고 `git switch -c`로 만든 브랜치는 아니라는 설명이 붙는다. 거절 자체는 그대로다.
