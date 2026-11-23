@@ -1009,6 +1009,9 @@ export function createAuthorizationPolicy(
           ? "private_channel_key"
           : "not_found";
       if (action === "session.share") {
+        // Behind a private channel's door its share is changed only by
+        // someone who passes it: its creator gone from the channel is not.
+        if (places.length > 0 && !visible) return [hidden, []];
         if (!(await mayShare(principal, resource.owner_scope, resource.id))) {
           return [visible ? "role" : hidden, []];
         }

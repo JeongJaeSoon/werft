@@ -487,6 +487,90 @@ describe("private_channel sessions on the reads", () => {
     );
   });
 
+  // Codex (94S-2052): the channel's kind is read from every binding of it in
+  // the workspace, so another agent's live private binding is not hidden by
+  // this agent's revoked public one.
+  test("another agent's live private binding holds the channel private", async () => {
+    const otherAgent = randomUUID();
+    await db.insert(agents).values({
+      id: otherAgent,
+      workspaceId: ws,
+      managingTeamId: await fixtureTeam(db, ws),
+      slug: "other",
+      name: "other",
+    });
+    const [first, second] = [randomUUID(), randomUUID()];
+    for (const [id, appId] of [
+      [first, "A0PCONE"],
+      [second, "A0PCTWO"],
+    ] as const) {
+      await db.insert(slackInstallations).values({
+        id,
+        workspaceId: ws,
+        appId,
+        teamId: "T0ACME",
+      });
+    }
+    for (const [agent, installationId, surfaceKind, revokedAt] of [
+      [agentId, first, "public_channel", new Date()],
+      [otherAgent, second, "private_channel", null],
+    ] as const) {
+      await db.insert(surfaceBindings).values({
+        id: randomUUID(),
+        workspaceId: ws,
+        agentId: agent,
+        surface: "slack",
+        installationId,
+        externalSurfaceId: "C0SHARED",
+        surfaceKind,
+        mode: "on",
+        status: revokedAt === null ? "ready" : "revoked",
+        revokedAt,
+        ceilingActions: [],
+        ceilingDisclosure: "summary",
+      });
+    }
+    const shared = randomUUID();
+    await db.insert(channelContexts).values({
+      id: randomUUID(),
+      workspaceId: ws,
+      teamId: "T0ACME",
+      channelId: "C0SHARED",
+    });
+    await db.insert(conversations).values({
+      id: shared,
+      workspaceId: ws,
+      agentId,
+      kind: "channel",
+      teamId: "T0ACME",
+      channelId: "C0SHARED",
+    });
+    const session = randomUUID();
+    await db.insert(sessions).values({
+      id: session,
+      ownerId: ws,
+      workspaceId: ws,
+      repoUrl: "https://example.invalid/repo.git",
+      branch: "main",
+      createdByUserId: requester,
+      parentConversationId: shared,
+    });
+    const shares = createPostgresSessionShareStore(db);
+    expect(
+      await shares.visibleTo(ws, session, { userId: member, apiKeyId: null }),
+    ).toBe(false);
+    expect(
+      await shares.visibleTo(ws, session, {
+        userId: member,
+        apiKeyId: null,
+        privateChannels: [shared],
+      }),
+    ).toBe(true);
+    expect(await shares.privateChannels(ws, session)).toEqual([
+      { conversationId: shared, agentId, channelId: "C0SHARED" },
+    ]);
+  });
+
   // Architect: the admin list is how an audit read finds one, so it keeps
   // the row, as metadata alone.
   test("the admin list keeps it as metadata, with nothing that names its channel or thread", async () => {

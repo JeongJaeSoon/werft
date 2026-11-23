@@ -118,10 +118,13 @@ function insideSessionAgent(db: Database, viewer: SessionViewer): SQL[] {
 }
 
 // The kind the channel of conversation `conversation` (a conversations row
-// or alias) has now: its live binding's, else its newest one's; null with no
-// binding at all. Qualified by hand: the outer query may read these tables.
+// or alias) has now, read from every binding of that channel in the
+// workspace, whichever agent or install holds it: a live one before a
+// revoked one, and among those a private one first, so one binding that
+// says private holds the channel private; null with no binding at all.
+// Qualified by hand: the outer query may read these tables.
 const channelKindOf = (conversation: SQL) =>
-  sql`(SELECT pb.surface_kind FROM ${surfaceBindings} pb JOIN ${slackInstallations} pi ON pi.id = pb.installation_id WHERE pb.agent_id = ${conversation}.agent_id AND pi.team_id = ${conversation}.team_id AND pb.external_surface_id = ${conversation}.channel_id ORDER BY (pb.revoked_at IS NULL) DESC, pb.updated_at DESC, pb.id DESC LIMIT 1)`;
+  sql`(SELECT pb.surface_kind FROM ${surfaceBindings} pb JOIN ${slackInstallations} pi ON pi.id = pb.installation_id WHERE pb.workspace_id = ${conversation}.workspace_id AND pi.team_id = ${conversation}.team_id AND pb.external_surface_id = ${conversation}.channel_id ORDER BY (pb.revoked_at IS NULL) DESC, (pb.surface_kind = 'private_channel') DESC, pb.updated_at DESC, pb.id DESC LIMIT 1)`;
 
 /**
  * The session the enclosing query reads from `sessions` sits behind a private

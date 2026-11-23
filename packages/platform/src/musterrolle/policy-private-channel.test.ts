@@ -802,3 +802,24 @@ describe("a session from a channel of unknown kind", () => {
     });
   });
 });
+
+// Codex (94S-2052): behind the door the share is changed only by someone
+// who passes it.
+describe("a share change on a private channel's session", () => {
+  test("is not_found for its creator gone from the channel, role for a member who did not make it", async () => {
+    expect(
+      await reason(
+        person("requester"),
+        plain,
+        "session.share",
+        PRIVATE_SESSION,
+      ),
+    ).toBe("not_found");
+    expect(
+      await reason(person("member"), plain, "session.share", PRIVATE_SESSION),
+    ).toBe("role");
+    expect(
+      await reason(person("member"), plain, "session.share", OPEN_SESSION),
+    ).toBe("ok");
+  });
+});
