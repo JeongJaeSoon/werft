@@ -82676,7 +82676,7 @@
           "Workspace settings"
         ],
         "summary": "Pause or resume a GitHub skill's sync",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away. Each change writes an `update_extension_sync` receipt; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away, and `check` says whether that check ended (`checked`) or waits behind a running one (`queued`). Each change writes an `update_extension_sync` receipt; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
         "security": [
           {
             "cookieSession": []
@@ -82769,7 +82769,8 @@
                       "auto_approval": null
                     }
                   },
-                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                  "check": null
                 },
                 "schema": {
                   "$ref": "#/components/schemas/SkillSyncResponse"
@@ -83003,7 +83004,7 @@
           "Workspace settings"
         ],
         "summary": "Turn a GitHub skill's auto-approve on or off",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a version itself once it passes the fixed-rule checks: no person, second manager or GitHub review takes part. One manager turns it `on` or `off`, at once. Turning it on reads GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit), and GitHub not answering is 502 `GITHUB_UNAVAILABLE`. It then checks once (`last_check.trigger.kind` `auto_approve`), so a version already `pending` is judged too. While on, every check judges the version the ref's content is, a new one or one still `pending`, by the fixed-rule checks against the approved version before it (with none, every file counts as added). With no finding the sync approves it and makes it current when it is the highest (an `approve_extension` receipt with who turned auto-approve on and the commit). A finding leaves it `pending` with `checks_failed` and the rules in `last_check.auto_approval.checks` (a script added, a large change, a new URL host, hidden Unicode, an instruction-like sentence, a changed description), and another version approved while the checks ran leaves it `pending` with `baseline_changed` until the next check. Only that skill stops; the other skills a push reaches go on. A version a person rejected is not judged again. Paused sync never auto-approves, not even POST …/sync/check; turning sync back on checks once. Each change writes an `update_extension_sync` receipt with the action (`auto_approve_on`, `auto_approve_off`); the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a version itself once it passes the fixed-rule checks: no person, second manager or GitHub review takes part. One manager turns it `on` or `off`, at once. Turning it on reads GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit), and GitHub not answering is 502 `GITHUB_UNAVAILABLE`. It then checks once (`last_check.trigger.kind` `auto_approve`), so a version already `pending` is judged too; `check` says whether that check ended (`checked`) or waits behind a running one (`queued`). While on, every check judges the version the ref's content is, a new one or one still `pending`, by the fixed-rule checks against the approved version before it (with none, every file counts as added). With no finding the sync approves it and makes it current when it is the highest (an `approve_extension` receipt with who turned auto-approve on and the commit). A finding leaves it `pending` with `checks_failed` and the rules in `last_check.auto_approval.checks` (a script added, a large change, a new URL host, hidden Unicode, an instruction-like sentence, a changed description), and another version approved while the checks ran leaves it `pending` with `baseline_changed` until the next check. Only that skill stops; the other skills a push reaches go on. A version a person rejected is not judged again. Paused sync never auto-approves, not even POST …/sync/check; turning sync back on checks once. Each change writes an `update_extension_sync` receipt with the action (`auto_approve_on`, `auto_approve_off`); the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
         "security": [
           {
             "cookieSession": []
@@ -83096,7 +83097,8 @@
                       "auto_approval": null
                     }
                   },
-                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                  "check": "checked"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/SkillSyncResponse"

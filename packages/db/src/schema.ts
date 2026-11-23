@@ -6253,6 +6253,10 @@ export const skillGitSources = pgTable(
     // The receipt that last changed settings while on (turning it on, a
     // pause, a resume): a check that read them under another approves nothing.
     autoApproveGrantId: uuid("auto_approve_grant_id"),
+    // The grant again, written only by a host that approves on the fixed-rule
+    // checks alone. A host from before writes the grant and not this, so
+    // what it turned on, or paused and resumed, reads as off.
+    autoApproveChecksGrantId: uuid("auto_approve_checks_grant_id"),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id),

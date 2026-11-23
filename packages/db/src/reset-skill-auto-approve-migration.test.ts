@@ -25,9 +25,9 @@ describe("the migration that resets skill auto-approve", () => {
   const consenter = randomUUID();
   const grant = randomUUID();
 
-  const run = async () => {
+  const run = async (statements = sql) => {
     const notices: string[] = [];
-    await client.exec(sql, {
+    await client.exec(statements, {
       onNotice: (notice) => notices.push(notice.message ?? ""),
     });
     return notices;
@@ -37,7 +37,8 @@ describe("the migration that resets skill auto-approve", () => {
       await client.query(
         `SELECT name, auto_approve, auto_approve_requested_by AS requested_by,
            auto_approve_consented_by AS consented_by,
-           auto_approve_grant_id AS grant_id, sync_enabled
+           auto_approve_grant_id AS grant_id,
+           auto_approve_checks_grant_id AS checks_grant_id, sync_enabled
          FROM skill_git_sources ORDER BY name`,
       )
     ).rows;
@@ -104,6 +105,7 @@ describe("the migration that resets skill auto-approve", () => {
       requested_by: null,
       consented_by: null,
       grant_id: null,
+      checks_grant_id: null,
       sync_enabled: true,
     };
     expect(await sources()).toEqual([
@@ -111,6 +113,7 @@ describe("the migration that resets skill auto-approve", () => {
       { name: "was-on", ...off },
       { name: "was-requested", ...off },
     ]);
-    expect(await run()).toEqual([]);
+    // The reset again, without the column the first run added.
+    expect(await run(sql.slice(sql.indexOf("DO $$")))).toEqual([]);
   });
 });

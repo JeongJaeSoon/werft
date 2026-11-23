@@ -173,19 +173,21 @@ function checkOf(value: unknown): SkillSyncCheck | null {
 }
 
 /**
- * On as one manager turns it on: that manager fills both user columns. A row
- * the two-manager flow turned on, by a host from before running beside this
- * one or after a rollback, names two people. That was consent to another
- * rule, so it reads as off.
+ * On under the rule of today, approval on the fixed-rule checks alone: the
+ * grant is one this host wrote, twice. A host from before, running beside
+ * this one or after a rollback, turns it on by request and consent and
+ * writes the grant once. That was consent to another rule, so it reads as
+ * off.
  */
 export const autoApproveOn = (
   row: Pick<
     Row,
-    "autoApprove" | "autoApproveRequestedBy" | "autoApproveConsentedBy"
+    "autoApprove" | "autoApproveGrantId" | "autoApproveChecksGrantId"
   >,
 ): boolean =>
   row.autoApprove === "on" &&
-  row.autoApproveRequestedBy === row.autoApproveConsentedBy;
+  row.autoApproveGrantId !== null &&
+  row.autoApproveChecksGrantId === row.autoApproveGrantId;
 
 export function sourceOf(row: Row): SkillGitSource {
   const on = autoApproveOn(row);
@@ -483,6 +485,9 @@ export function createPostgresSkillGitSourceStore(
             ...(row.autoApprove === "on"
               ? { autoApproveGrantId: input.receiptId }
               : {}),
+            ...(autoApproveOn(row)
+              ? { autoApproveChecksGrantId: input.receiptId }
+              : {}),
             updatedAt: DB_NOW,
           })
           .where(byName(input.workspaceId, input.name))
@@ -530,6 +535,8 @@ export function createPostgresSkillGitSourceStore(
             autoApproveRequestedBy: by,
             autoApproveConsentedBy: by,
             autoApproveGrantId: input.action === "on" ? input.receiptId : null,
+            autoApproveChecksGrantId:
+              input.action === "on" ? input.receiptId : null,
             updatedAt: DB_NOW,
           })
           .where(byName(input.workspaceId, input.name))

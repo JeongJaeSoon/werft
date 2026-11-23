@@ -674,11 +674,10 @@ integration("Git skill sources on PostgreSQL", () => {
     expect(written).toHaveLength(2);
   });
 
-  test("what the two-manager flow of a host from before left, requested or on, reads as off and approves nothing; one manager turns it on or off", async () => {
+  test("what a host from before writes by request and consent, requested or on, reads as off and approves nothing; one manager turns it on or off", async () => {
     for (const left of ["requested", "on"] as const) {
       for (const action of ["on", "off"] as const) {
         const { workspaceId, admin } = await registered("legacy");
-        const consenter = await person(workspaceId, "admin");
         const grantId = randomUUID();
         await db
           .update(skillGitSources)
@@ -686,8 +685,9 @@ integration("Git skill sources on PostgreSQL", () => {
             left === "on"
               ? {
                   autoApprove: "on",
+                  // A sole manager consented to their own request there.
                   autoApproveRequestedBy: admin.userId,
-                  autoApproveConsentedBy: consenter.userId,
+                  autoApproveConsentedBy: admin.userId,
                   autoApproveGrantId: grantId,
                 }
               : {
@@ -723,6 +723,17 @@ integration("Git skill sources on PostgreSQL", () => {
         });
       }
     }
+
+    // Its pause and resume of one turned on here write a grant of their own.
+    const { workspaceId, admin } = await registered("legacy");
+    await autoApprove(workspaceId, "legacy", "on", admin.caller);
+    await db
+      .update(skillGitSources)
+      .set({ autoApproveGrantId: randomUUID() })
+      .where(eq(skillGitSources.workspaceId, workspaceId));
+    expect(
+      (await sources().get(workspaceId, "legacy"))?.autoApprove.state,
+    ).toBe("off");
   });
 
   test("with auto-approve on, a synced version that passes the fixed-rule checks is approved and current and supersedes the older pending one; paused sync, or a grant from before a settings change, approves nothing", async () => {
