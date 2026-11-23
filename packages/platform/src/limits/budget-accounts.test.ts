@@ -4,6 +4,7 @@ import {
   assertBudgetAmount,
   type BudgetChoice,
   type BudgetRoot,
+  budgetRootOfTurn,
   chooseBudgetAccount,
   personLimitOf,
 } from "./budget-accounts.ts";
@@ -48,6 +49,18 @@ describe("chooseBudgetAccount", () => {
       { rootKind: "key", owner: null },
     ],
     [
+      "an allowed Slack bot: the agent's team, kept as slack_bot",
+      { kind: "slack_bot" },
+      TEAM,
+      { rootKind: "slack_bot", owner: { kind: "team", teamId: TEAM } },
+    ],
+    [
+      "a Slack bot of an agent with no team: no account",
+      { kind: "slack_bot" },
+      null,
+      { rootKind: "slack_bot", owner: null },
+    ],
+    [
       "no person and no key: the agent's team",
       { kind: "none" },
       TEAM,
@@ -63,6 +76,173 @@ describe("chooseBudgetAccount", () => {
   for (const [name, root, team, expected] of cases) {
     test(name, () => {
       expect(chooseBudgetAccount(root, team)).toEqual(expected);
+    });
+  }
+});
+
+describe("budgetRootOfTurn", () => {
+  const WEB = { method: "web_session", web_session_id: PERSON };
+  // The stored requester columns and credential, and the root they give.
+  const cases: [
+    string,
+    {
+      requesterKind: string | null;
+      requesterId: string | null;
+      requesterAuth: unknown;
+    },
+    BudgetRoot | null,
+  ][] = [
+    [
+      "a person in the console",
+      { requesterKind: "user", requesterId: PERSON, requesterAuth: WEB },
+      { kind: "user", userId: PERSON },
+    ],
+    [
+      "a linked Slack account is the person",
+      {
+        requesterKind: "user",
+        requesterId: PERSON,
+        requesterAuth: { method: "slack_link" },
+      },
+      { kind: "user", userId: PERSON },
+    ],
+    [
+      "a continuation carries the person in its own columns",
+      {
+        requesterKind: "user",
+        requesterId: PERSON,
+        requesterAuth: {
+          ...WEB,
+          carried_from: { turn: "2", reason: "continuation" },
+        },
+      },
+      { kind: "user", userId: PERSON },
+    ],
+    [
+      "an old turn with no credential recorded is still the person's",
+      { requesterKind: "user", requesterId: PERSON, requesterAuth: null },
+      { kind: "user", userId: PERSON },
+    ],
+    [
+      "a personal key: a key, made by the person it names",
+      {
+        requesterKind: "user",
+        requesterId: MAKER,
+        requesterAuth: { method: "personal_key", api_key_id: TEAM },
+      },
+      { kind: "key", keyKind: "personal", createdByUserId: MAKER },
+    ],
+    [
+      "an agent key",
+      {
+        requesterKind: "api_key",
+        requesterId: TEAM,
+        requesterAuth: { method: "agent_key", agent_id: "agent-1" },
+      },
+      { kind: "key", keyKind: "agent", createdByUserId: null },
+    ],
+    [
+      "a key no person and no agent holds",
+      {
+        requesterKind: "api_key",
+        requesterId: TEAM,
+        requesterAuth: { method: "service_key" },
+      },
+      { kind: "key", keyKind: "operator", createdByUserId: null },
+    ],
+    [
+      "an allowed Slack bot",
+      {
+        requesterKind: "slack_bot",
+        requesterId: "U0BOT",
+        requesterAuth: { method: "slack_bot" },
+      },
+      { kind: "slack_bot" },
+    ],
+    [
+      "a push follow-up: the root of the push request, not the agent",
+      {
+        requesterKind: "agent",
+        requesterId: "agent-1",
+        requesterAuth: {
+          method: "push_decision",
+          root: {
+            requester_kind: "user",
+            requester_id: PERSON,
+            requester_auth: WEB,
+            via: [],
+          },
+        },
+      },
+      { kind: "user", userId: PERSON },
+    ],
+    [
+      "a push follow-up of a personal key's push",
+      {
+        requesterKind: "agent",
+        requesterId: "agent-1",
+        requesterAuth: {
+          method: "push_decision",
+          root: {
+            requester_kind: "user",
+            requester_id: MAKER,
+            requester_auth: { method: "personal_key" },
+            via: [],
+          },
+        },
+      },
+      { kind: "key", keyKind: "personal", createdByUserId: MAKER },
+    ],
+    [
+      "the agent's own turn with no push behind it",
+      { requesterKind: "agent", requesterId: "agent-1", requesterAuth: null },
+      { kind: "none" },
+    ],
+    [
+      "a push follow-up whose push turn was not found: unreadable",
+      {
+        requesterKind: "agent",
+        requesterId: "agent-1",
+        requesterAuth: { method: "push_decision" },
+      },
+      null,
+    ],
+    [
+      "a root that is itself a push decision: unreadable",
+      {
+        requesterKind: "agent",
+        requesterId: "agent-1",
+        requesterAuth: {
+          method: "push_decision",
+          root: {
+            requester_kind: "agent",
+            requester_id: "agent-1",
+            requester_auth: { method: "push_decision" },
+            via: [],
+          },
+        },
+      },
+      null,
+    ],
+    [
+      "no requester recorded",
+      { requesterKind: null, requesterId: null, requesterAuth: null },
+      null,
+    ],
+    [
+      "a kind this build does not know",
+      { requesterKind: "robot", requesterId: "r-1", requesterAuth: null },
+      null,
+    ],
+    [
+      "a person whose id is not a user id",
+      { requesterKind: "user", requesterId: "not-a-uuid", requesterAuth: WEB },
+      null,
+    ],
+  ];
+  for (const [name, turn, expected] of cases) {
+    test(name, () => {
+      expect(budgetRootOfTurn(turn)).toEqual(expected);
     });
   }
 });
@@ -111,21 +291,16 @@ describe("admitsBudgetReserve", () => {
   test("without a limit only the agent's own work is refused", () => {
     for (const limit of [null, { costUsd: null, tokens: null }]) {
       expect(
-        ["user", "key", "none"].map((rootKind) =>
-          admitsBudgetReserve({
-            rootKind: rootKind as "user" | "key" | "none",
-            limit,
-            held: null,
-            reserve,
-          }),
+        (["user", "key", "slack_bot", "none"] as const).map((rootKind) =>
+          admitsBudgetReserve({ rootKind, limit, held: null, reserve }),
         ),
-      ).toEqual([true, true, false]);
+      ).toEqual([true, true, true, false]);
     }
   });
   test("with a limit every root kind is held to it", () => {
     const limit = { costUsd: 10, tokens: null };
     const held = { ...empty, reserved: { costUsd: 6, tokens: 100 } };
-    for (const rootKind of ["user", "key", "none"] as const) {
+    for (const rootKind of ["user", "key", "slack_bot", "none"] as const) {
       expect(
         admitsBudgetReserve({ rootKind, limit, held: empty, reserve }),
       ).toBe(true);

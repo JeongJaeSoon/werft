@@ -1,3 +1,4 @@
+import type { BudgetAccountId } from "@werft-ai/contracts";
 import type { BudgetChoice } from "../budget-accounts.ts";
 import type { ProviderUsage } from "../index.ts";
 
@@ -49,8 +50,14 @@ export type ProviderExchangeOpenResult =
   // Released before this open arrived: nothing counts it.
   | { outcome: "released" }
   // The session's spend, or the account's, with this call's reserve reaches
-  // a limit: nothing is held on either.
-  | { outcome: "budget_exceeded" }
+  // a limit: nothing is held on either. `by` names which, for the log.
+  | {
+      outcome: "budget_exceeded";
+      by: "session" | "account";
+      // The account that refused; null for the session, or for the agent's
+      // own work with no team to charge.
+      accountId: BudgetAccountId | null;
+    }
   // No such attempt of that session.
   | { outcome: "unknown_attempt" }
   // The id is another owner's, or the same id came with another reserve or

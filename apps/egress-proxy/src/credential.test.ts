@@ -516,6 +516,8 @@ type LedgerRequest = {
   session_id?: string;
   attempt_id?: string;
   reserve?: Record<string, unknown>;
+  /** The x-werft-exchange-call header, when sent. */
+  call?: string;
 };
 
 type UsageReport = {
@@ -611,7 +613,11 @@ describe("startCredentialProxy", () => {
           return usageAnswer();
         }
         if (new URL(request.url).pathname === "/exchanges") {
-          ledgered.push((await request.json()) as LedgerRequest);
+          const call = request.headers.get("x-werft-exchange-call");
+          ledgered.push({
+            ...((await request.json()) as LedgerRequest),
+            ...(call === null ? {} : { call }),
+          });
           return ledgerAnswer();
         }
         const body = (await request.json()) as {
@@ -752,6 +758,11 @@ describe("startCredentialProxy", () => {
       });
     }
     expect(up.seen).toHaveLength(1);
+    // The one call it covers is a title's: its open says so, to be charged
+    // to no turn's account; nothing else the proxy sends carries it.
+    expect(withPort.ledgered.map((sent) => [sent.op, sent.call])).toEqual([
+      ["open", "title"],
+    ]);
   });
 
   test("streams a response body as it arrives", async () => {

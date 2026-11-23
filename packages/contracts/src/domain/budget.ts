@@ -3,10 +3,16 @@ import { z } from "zod";
 /**
  * Whose request a provider call serves, read from the root of the chain that
  * led to it, never from who queued the turn: a person (their own turn and
- * every turn that follows from it), a key (an outside request), or nobody
+ * every turn that follows from it), a key or an allowed Slack bot (outside
+ * requests, kept apart so a bot's spend can be read on its own), or nobody
  * (the agent on its own).
  */
-export const BUDGET_ROOT_KIND_VALUES = ["user", "key", "none"] as const;
+export const BUDGET_ROOT_KIND_VALUES = [
+  "user",
+  "key",
+  "slack_bot",
+  "none",
+] as const;
 export type BudgetRootKind = (typeof BUDGET_ROOT_KIND_VALUES)[number];
 
 /** A person's account, or an agent team's. */

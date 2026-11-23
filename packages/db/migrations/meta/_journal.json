@@ -1618,6 +1618,13 @@
       "when": 1795401628512,
       "tag": "0321_channel_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 322,
+      "version": "7",
+      "when": 1795404261492,
+      "tag": "0322_budget_root_slack_bot",
+      "breakpoints": true
     }
   ]
 }

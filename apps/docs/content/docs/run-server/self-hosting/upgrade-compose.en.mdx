@@ -299,6 +299,19 @@ GROUP BY 1, 2;
 - The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
 - Earlier images write no such row either, so rolling back with the constraint in place is safe.
 
+<a id="호출을-턴의-예산-계정에-매기는-릴리스" />
+### The release that charges calls to the turn's budget account
+
+From this release a provider call's open holds the call on a budget account as well as on the session limit. The account is chosen by whose request the running turn serves (its root). Migration `0322_budget_root_slack_bot` adds `slack_bot` to the ledger's root kinds (it replaces the CHECK on `provider_exchanges.budget_root_kind` and `budget_reservations.root_kind`). Nothing to do.
+
+- On an installation with no limits set (no `budget_limits` rows), turns of people, keys and Slack bots run as before. The ledger keeps each call's root kind and account. The agent's own work that no one asked for (root `none`) is refused while no limit is set, but nothing in this release makes such a turn (a push follow-up takes the requester of the turn before it).
+- How the account is chosen: a person's turn, and the continuations and push follow-ups after it, go to that person's account (`user`). A personal key's turn goes to the account of the person who made the key (`key`), a key with no person to the account of the team that manages the agent (`key`), and an allowed Slack bot's turn to that team's account as well (`slack_bot`). With the team archived, only the root kind is kept, with no account.
+- A turn whose requester cannot be read (such as an old turn with no requester recorded), a session title call, a call with no running turn (such as one between turns), and a session with no workspace hold no account and see only the session limit, as before.
+- With a limit in `budget_limits`, a call past it on that account is refused with the same `BUDGET_EXCEEDED` as a session over its limit. A turn the account refused ends as a provider error (`api_error` on the Claude Code engine), and the session's attention (`BUDGET_EXCEEDED`) still comes only from the session limit; the log below ties the turn to the refusal by `turn_id`. This release has no screen or API that sets limits.
+- For every refused open the API logs `Provider exchange refused for the budget` at `info`, with `session_id`, `attempt_id`, `turn_id` (the running turn), `refused_by` (`session` or `account`), `budget_root_kind` and `budget_account_id`.
+- The CHECK only widens, so rolling back to an image inside the support window is fine. A call already open ends on the account its first open chose (or on the session limit alone).
+- The egress proxy marks a title call in its open with a header. While the api runs this release and the egress proxy an earlier one, title calls are held on the running turn's account too. On an installation with no limits set this makes no difference; upgrade the two together.
+
 <a id="원장에-예산-계정-칸을-더하는-릴리스" />
 ### The release that adds budget account columns to the ledger
 

@@ -6,6 +6,7 @@ import {
 import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
+  type BudgetChoice,
   GITHUB_MCP_UPSTREAM_PATH,
   type GitHubMcpGrant,
   hashToken,
@@ -42,6 +43,10 @@ export const EGRESS_USAGE_PATH = "/usage";
 // ledger before its usage is known; an open the
 // session's budget cannot hold is refused.
 export const EGRESS_EXCHANGES_PATH = "/exchanges";
+// On an open, `title`: a session title call, which serves no turn and so is
+// held on no turn's account. A header, not the body: the open's body is
+// strict, and an API before it ignores a header it does not know.
+export const EGRESS_EXCHANGE_CALL_HEADER = "x-werft-exchange-call";
 // A token, a purpose and, for the object store, one S3 request line and its
 // headers; anything bigger is not a request from the proxy.
 const MAX_BODY_BYTES = 16 * 1024;
@@ -301,6 +306,15 @@ export function createEgressAuthorizer(deps: {
   logger: StructuredLogger;
   /** Absent, the exchanges route answers 404 as an older API does. */
   exchanges?: ProviderExchangeLedger;
+  /**
+   * The budget account an open also holds its call on; undefined, or this
+   * absent, the session's limit alone. A release frees what the open held.
+   */
+  budgetOf?: (call: {
+    exchangeId: string;
+    sessionId: string;
+    attemptId: string;
+  }) => Promise<{ choice: BudgetChoice | undefined; turnId: string | null }>;
   /** Absent when the API runs without an object store: the route refuses. */
   objectStore?: ObjectRouteSigner;
   /**
@@ -409,7 +423,9 @@ export function createEgressAuthorizer(deps: {
           "Expected {op: open | release, exchange_id, session_id, attempt_id, reserve} or {op: renew, exchange_id}",
         );
       }
-      return answerWithin(() => recordExchange(exchanges, body), {
+      const title =
+        request.headers.get(EGRESS_EXCHANGE_CALL_HEADER) === "title";
+      return answerWithin(() => recordExchange(exchanges, body, title), {
         purpose: "exchange",
       });
     }
@@ -560,6 +576,7 @@ export function createEgressAuthorizer(deps: {
   async function recordExchange(
     ledger: ProviderExchangeLedger,
     body: z.infer<typeof exchangeRequestSchema>,
+    title: boolean,
   ): Promise<Response> {
     if (body.op === "renew") {
       return Response.json({ state: await ledger.renew(body.exchange_id) });
@@ -588,7 +605,17 @@ export function createEgressAuthorizer(deps: {
       if (released === "conflict") throw conflict();
       return Response.json({ state: released });
     }
-    const opened = await ledger.open(call);
+    const chosen = title
+      ? undefined
+      : await deps.budgetOf?.({
+          exchangeId: call.exchangeId,
+          sessionId: call.sessionId,
+          attemptId: call.attemptId,
+        });
+    const budget = chosen?.choice;
+    const opened = await ledger.open(
+      budget === undefined ? call : { ...call, budget },
+    );
     switch (opened.outcome) {
       case "created":
         return Response.json({ state: "open" }, { status: 201 });
@@ -597,6 +624,14 @@ export function createEgressAuthorizer(deps: {
       case "released":
         return Response.json({ state: opened.outcome });
       case "budget_exceeded":
+        deps.logger.info("Provider exchange refused for the budget", {
+          session_id: body.session_id,
+          attempt_id: body.attempt_id,
+          turn_id: chosen?.turnId ?? undefined,
+          refused_by: opened.by,
+          budget_root_kind: budget?.rootKind,
+          budget_account_id: opened.accountId ?? undefined,
+        });
         throw new WorkerGatewayError(
           403,
           "BUDGET_EXCEEDED",
