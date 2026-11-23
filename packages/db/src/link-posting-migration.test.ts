@@ -144,8 +144,14 @@ describe("0325 link posting", () => {
   });
 
   test("the start pass moves summary links to none, off, off; full links read per_step, on, on", async () => {
-    // Before the pass a summary link still reads as full did: the pass is
-    // what moves it, and it runs before the outbox at each start.
+    // Before the pass an unmoved summary link already reads as silent: the
+    // outbox's gates hold that, since the pass may run late or fail.
+    expect(
+      (await byVisibility()).map((row) => [row.visibility, row.reports_turns]),
+    ).toEqual([
+      ["full", true],
+      ["summary", false],
+    ]);
     expect(await moveSummaryLinks(db)).toBe(1);
     expect(await moveSummaryLinks(db)).toBe(0);
     expect(await byVisibility()).toEqual([

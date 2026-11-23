@@ -2,6 +2,12 @@ import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { rowsOf } from "./statement-rows.ts";
 
+// A `summary` link the start pass has not moved yet still reads NULL, true,
+// true: it posts nothing until moved, as before the columns. The pass may run
+// late or fail on a start, so every gate holds this, not the pass alone.
+const unmovedSummary = (link: SQL) =>
+  sql`(${link}.visibility = 'summary' AND ${link}.report_mode IS NULL)`;
+
 /**
  * Whether a link's thread hears of its turns: replies, failures and notices.
  * A link's own `report_mode` wins, else its binding's. Only `none` (a moved
@@ -9,11 +15,20 @@ import { rowsOf } from "./statement-rows.ts";
  * one posts once per turn, as `full` did.
  */
 export const reportsTurns = (link: SQL) => sql`(
-  coalesce(
+  NOT ${unmovedSummary(link)}
+  AND coalesce(
     ${link}.report_mode,
     (SELECT pb.report_mode FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id)
   ) <> 'none'
 )`;
+
+/** Whether inputs asked from the web or the API show in the link's thread. */
+export const mirrorsInstructions = (link: SQL) =>
+  sql`(${link}.mirror_instructions AND NOT ${unmovedSummary(link)})`;
+
+/** Whether approval cards and questions go to the link's thread. */
+export const postsPrompts = (link: SQL) =>
+  sql`(${link}.post_prompts AND NOT ${unmovedSummary(link)})`;
 
 const MOVE_BATCH = 500;
 
@@ -35,8 +50,11 @@ export async function moveSummaryLinks(db: Database): Promise<number> {
           SELECT id FROM session_links
           WHERE visibility = 'summary' AND report_mode IS NULL
           LIMIT ${MOVE_BATCH}
-          FOR UPDATE SKIP LOCKED
+          -- Waits for a link another writer holds rather than skipping it,
+          -- so a short batch means none is left.
+          FOR UPDATE
         )
+        AND visibility = 'summary' AND report_mode IS NULL
         RETURNING id
       `),
     );

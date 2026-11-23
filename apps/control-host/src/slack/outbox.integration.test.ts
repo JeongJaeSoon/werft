@@ -3621,6 +3621,13 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
       [],
     ],
     [
+      // The start pass may run late or fail: a link it has not moved yet
+      // still posts nothing.
+      "summary, not moved yet",
+      () => db.update(sessionLinks).set({ visibility: "summary" }),
+      [],
+    ],
+    [
       "mirror_instructions off",
       () => db.update(sessionLinks).set({ mirrorInstructions: false }),
       ["input_notice:2", "reply:1", "reply:2"],
