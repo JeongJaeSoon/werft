@@ -2,10 +2,14 @@ import type { BudgetAccountId } from "@werft-ai/contracts";
 import {
   admitsBudgetReserve,
   assertBudgetAmount,
+  type BudgetAmount,
   type BudgetLedger,
   type BudgetLimit,
   type BudgetOwner,
+  type BudgetReleaseResult,
+  type BudgetReserveInput,
   type BudgetReserveResult,
+  type BudgetSettleResult,
   personLimitOf,
 } from "@werft-ai/platform";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
@@ -164,183 +168,189 @@ async function lockBudgetCall(tx: Database, callId: string): Promise<void> {
     sql`SELECT pg_advisory_xact_lock(${BUDGET_CALL_LOCK_SPACE}::int, hashtext(${callId}))`,
   );
 }
+/** The same reserve again, or another under its id; null when none. */
+async function replayOf(
+  tx: Database,
+  input: BudgetReserveInput,
+  costUsd: number,
+): Promise<BudgetReserveResult | null> {
+  const [row] = await tx
+    .select({
+      reservation: budgetReservations,
+      ownerKind: budgetAccounts.ownerKind,
+      ownerId: budgetAccounts.ownerId,
+    })
+    .from(budgetReservations)
+    .leftJoin(
+      budgetAccounts,
+      eq(budgetAccounts.id, budgetReservations.accountId),
+    )
+    .where(eq(budgetReservations.callId, input.callId));
+  if (!row) return null;
+  const owner = input.choice.owner;
+  const sameOwner =
+    owner === null
+      ? row.ownerKind === null
+      : row.ownerKind === ownerColumns(owner).ownerKind &&
+        row.ownerId === ownerColumns(owner).ownerId;
+  const same =
+    sameOwner &&
+    row.reservation.workspaceId === input.workspaceId &&
+    row.reservation.rootKind === input.choice.rootKind &&
+    row.reservation.unmetered === input.unmetered &&
+    row.reservation.costUsd === costUsd &&
+    row.reservation.tokens === input.reserve.tokens;
+  return same
+    ? { outcome: "replayed", state: row.reservation.state }
+    : { outcome: "conflict" };
+}
 
-export function createBudgetLedger(db: Database): BudgetLedger {
-  async function replayOf(
-    tx: Database,
-    input: Parameters<BudgetLedger["reserve"]>[0],
-    costUsd: number,
-  ): Promise<BudgetReserveResult | null> {
-    const [row] = await tx
-      .select({
-        reservation: budgetReservations,
-        ownerKind: budgetAccounts.ownerKind,
-        ownerId: budgetAccounts.ownerId,
+/**
+ * The reserve in a transaction the caller holds. Takes the call's lock, then
+ * the account row: a caller may hold advisory locks of its own before it,
+ * but no row lock an account's holder could be waiting on.
+ */
+export async function reserveBudgetIn(
+  tx: Database,
+  input: BudgetReserveInput,
+): Promise<BudgetReserveResult> {
+  const costUsd = input.unmetered ? 0 : toStoredCost(input.reserve.costUsd);
+  const tokens = input.reserve.tokens;
+  // The amount as given, before an unmetered call's cost is dropped.
+  assertBudgetAmount(input.reserve);
+  await lockBudgetCall(tx, input.callId);
+  const replay = await replayOf(tx, input, costUsd);
+  if (replay) return replay;
+  const owner = input.choice.owner;
+  // The account row's lock is what makes two reserves of one account
+  // judge one after the other.
+  const account =
+    owner === null
+      ? null
+      : await lockCurrentAccount(tx, input.workspaceId, owner);
+  const limit =
+    owner === null ? null : await budgetLimitOf(tx, input.workspaceId, owner);
+  const admitted = admitsBudgetReserve({
+    rootKind: input.choice.rootKind,
+    limit,
+    held: account && {
+      spent: { costUsd: account.spentCostUsd, tokens: account.spentTokens },
+      reserved: {
+        costUsd: account.reservedCostUsd,
+        tokens: account.reservedTokens,
+      },
+    },
+    reserve: { costUsd, tokens },
+  });
+  const accountId = account?.id ?? null;
+  if (!admitted) return { outcome: "refused", accountId };
+  const inserted = await tx
+    .insert(budgetReservations)
+    .values({
+      callId: input.callId,
+      workspaceId: input.workspaceId,
+      accountId,
+      rootKind: input.choice.rootKind,
+      unmetered: input.unmetered,
+      costUsd,
+      tokens,
+    })
+    .onConflictDoNothing()
+    .returning({ callId: budgetReservations.callId });
+  // Under the call's lock no other reserve of the id gets in.
+  if (inserted.length === 0) return { outcome: "conflict" };
+  if (account) {
+    await tx
+      .update(budgetAccounts)
+      .set({
+        reservedCostUsd: sql`${budgetAccounts.reservedCostUsd} + ${costUsd}`,
+        reservedTokens: sql`${budgetAccounts.reservedTokens} + ${tokens}`,
       })
-      .from(budgetReservations)
-      .leftJoin(
-        budgetAccounts,
-        eq(budgetAccounts.id, budgetReservations.accountId),
-      )
-      .where(eq(budgetReservations.callId, input.callId));
-    if (!row) return null;
-    const owner = input.choice.owner;
-    const sameOwner =
-      owner === null
-        ? row.ownerKind === null
-        : row.ownerKind === ownerColumns(owner).ownerKind &&
-          row.ownerId === ownerColumns(owner).ownerId;
-    const same =
-      sameOwner &&
-      row.reservation.workspaceId === input.workspaceId &&
-      row.reservation.rootKind === input.choice.rootKind &&
-      row.reservation.unmetered === input.unmetered &&
-      row.reservation.costUsd === costUsd &&
-      row.reservation.tokens === input.reserve.tokens;
-    return same
-      ? { outcome: "replayed", state: row.reservation.state }
-      : { outcome: "conflict" };
+      .where(eq(budgetAccounts.id, account.id));
   }
+  return { outcome: "reserved", accountId, rootKind: input.choice.rootKind };
+}
 
-  return {
-    async reserve(input) {
-      const costUsd = input.unmetered ? 0 : toStoredCost(input.reserve.costUsd);
-      const tokens = input.reserve.tokens;
-      // The amount as given, before an unmetered call's cost is dropped.
-      assertBudgetAmount(input.reserve);
-      return db.transaction(async (tx) => {
-        await lockBudgetCall(tx, input.callId);
-        const replay = await replayOf(tx, input, costUsd);
-        if (replay) return replay;
-        const owner = input.choice.owner;
-        // The account row's lock is what makes two reserves of one account
-        // judge one after the other.
-        const account =
-          owner === null
-            ? null
-            : await lockCurrentAccount(tx, input.workspaceId, owner);
-        const limit =
-          owner === null
-            ? null
-            : await budgetLimitOf(tx, input.workspaceId, owner);
-        const admitted = admitsBudgetReserve({
-          rootKind: input.choice.rootKind,
-          limit,
-          held: account && {
-            spent: {
-              costUsd: account.spentCostUsd,
-              tokens: account.spentTokens,
-            },
-            reserved: {
-              costUsd: account.reservedCostUsd,
-              tokens: account.reservedTokens,
-            },
-          },
-          reserve: { costUsd, tokens },
-        });
-        const accountId = account?.id ?? null;
-        if (!admitted) return { outcome: "refused", accountId };
-        const inserted = await tx
-          .insert(budgetReservations)
-          .values({
-            callId: input.callId,
-            workspaceId: input.workspaceId,
-            accountId,
-            rootKind: input.choice.rootKind,
-            unmetered: input.unmetered,
-            costUsd,
-            tokens,
-          })
-          .onConflictDoNothing()
-          .returning({ callId: budgetReservations.callId });
-        // Under the call's lock no other reserve of the id gets in.
-        if (inserted.length === 0) return { outcome: "conflict" };
-        if (account) {
-          await tx
-            .update(budgetAccounts)
-            .set({
-              reservedCostUsd: sql`${budgetAccounts.reservedCostUsd} + ${costUsd}`,
-              reservedTokens: sql`${budgetAccounts.reservedTokens} + ${tokens}`,
-            })
-            .where(eq(budgetAccounts.id, account.id));
-        }
-        return {
-          outcome: "reserved",
-          accountId,
-          rootKind: input.choice.rootKind,
-        };
-      });
-    },
-
-    async settle({ callId, actual }) {
-      assertBudgetAmount(actual);
-      return db.transaction(async (tx) => {
-        await lockBudgetCall(tx, callId);
-        const [row] = await tx
-          .select()
-          .from(budgetReservations)
-          .where(eq(budgetReservations.callId, callId))
-          .for("update");
-        if (!row) return "unknown";
-        if (row.state === "settled") return "already_settled";
-        const costUsd = row.unmetered ? 0 : toStoredCost(actual.costUsd);
-        // A released reserve was already taken off; a call billed after its
-        // release still spent what the settlement says.
-        const held = row.state === "reserved";
-        await tx
-          .update(budgetReservations)
-          .set({
-            state: "settled",
-            settledCostUsd: costUsd,
-            settledTokens: actual.tokens,
-            endedAt: DB_NOW,
-          })
-          .where(eq(budgetReservations.callId, callId));
-        if (row.accountId !== null) {
-          await tx
-            .update(budgetAccounts)
-            .set({
-              spentCostUsd: sql`${budgetAccounts.spentCostUsd} + ${costUsd}`,
-              spentTokens: sql`${budgetAccounts.spentTokens} + ${actual.tokens}`,
-              ...(held
-                ? {
-                    reservedCostUsd: sql`${budgetAccounts.reservedCostUsd} - ${row.costUsd}`,
-                    reservedTokens: sql`${budgetAccounts.reservedTokens} - ${row.tokens}`,
-                  }
-                : {}),
-            })
-            .where(eq(budgetAccounts.id, row.accountId));
-        }
-        return "settled";
-      });
-    },
-
-    async release(callId) {
-      return db.transaction(async (tx) => {
-        await lockBudgetCall(tx, callId);
-        const [row] = await tx
-          .select()
-          .from(budgetReservations)
-          .where(eq(budgetReservations.callId, callId))
-          .for("update");
-        if (!row) return "unknown";
-        if (row.state === "settled") return "settled";
-        if (row.state === "released") return "already_released";
-        await tx
-          .update(budgetReservations)
-          .set({ state: "released", endedAt: DB_NOW })
-          .where(eq(budgetReservations.callId, callId));
-        if (row.accountId !== null) {
-          await tx
-            .update(budgetAccounts)
-            .set({
+/** The settle in a transaction the caller holds, locked as reserveBudgetIn. */
+export async function settleBudgetIn(
+  tx: Database,
+  input: { callId: string; actual: BudgetAmount },
+): Promise<BudgetSettleResult> {
+  const { callId, actual } = input;
+  assertBudgetAmount(actual);
+  await lockBudgetCall(tx, callId);
+  const [row] = await tx
+    .select()
+    .from(budgetReservations)
+    .where(eq(budgetReservations.callId, callId))
+    .for("update");
+  if (!row) return "unknown";
+  if (row.state === "settled") return "already_settled";
+  const costUsd = row.unmetered ? 0 : toStoredCost(actual.costUsd);
+  // A released reserve was already taken off; a call billed after its
+  // release still spent what the settlement says.
+  const held = row.state === "reserved";
+  await tx
+    .update(budgetReservations)
+    .set({
+      state: "settled",
+      settledCostUsd: costUsd,
+      settledTokens: actual.tokens,
+      endedAt: DB_NOW,
+    })
+    .where(eq(budgetReservations.callId, callId));
+  if (row.accountId !== null) {
+    await tx
+      .update(budgetAccounts)
+      .set({
+        spentCostUsd: sql`${budgetAccounts.spentCostUsd} + ${costUsd}`,
+        spentTokens: sql`${budgetAccounts.spentTokens} + ${actual.tokens}`,
+        ...(held
+          ? {
               reservedCostUsd: sql`${budgetAccounts.reservedCostUsd} - ${row.costUsd}`,
               reservedTokens: sql`${budgetAccounts.reservedTokens} - ${row.tokens}`,
-            })
-            .where(eq(budgetAccounts.id, row.accountId));
-        }
-        return "released";
-      });
-    },
+            }
+          : {}),
+      })
+      .where(eq(budgetAccounts.id, row.accountId));
+  }
+  return "settled";
+}
+
+/** The release in a transaction the caller holds, locked as reserveBudgetIn. */
+export async function releaseBudgetIn(
+  tx: Database,
+  callId: string,
+): Promise<BudgetReleaseResult> {
+  await lockBudgetCall(tx, callId);
+  const [row] = await tx
+    .select()
+    .from(budgetReservations)
+    .where(eq(budgetReservations.callId, callId))
+    .for("update");
+  if (!row) return "unknown";
+  if (row.state === "settled") return "settled";
+  if (row.state === "released") return "already_released";
+  await tx
+    .update(budgetReservations)
+    .set({ state: "released", endedAt: DB_NOW })
+    .where(eq(budgetReservations.callId, callId));
+  if (row.accountId !== null) {
+    await tx
+      .update(budgetAccounts)
+      .set({
+        reservedCostUsd: sql`${budgetAccounts.reservedCostUsd} - ${row.costUsd}`,
+        reservedTokens: sql`${budgetAccounts.reservedTokens} - ${row.tokens}`,
+      })
+      .where(eq(budgetAccounts.id, row.accountId));
+  }
+  return "released";
+}
+
+export function createBudgetLedger(db: Database): BudgetLedger {
+  return {
+    reserve: (input) => db.transaction((tx) => reserveBudgetIn(tx, input)),
+    settle: (input) => db.transaction((tx) => settleBudgetIn(tx, input)),
+    release: (callId) => db.transaction((tx) => releaseBudgetIn(tx, callId)),
   };
 }

@@ -1,13 +1,20 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { HeldSpend, ProviderUsage } from "@werft-ai/platform";
+import {
+  type BudgetChoice,
+  type HeldSpend,
+  type ProviderUsage,
+  reservationCostUsd,
+  reservationTokens,
+} from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
+import { createBudgetLedger, saveBudgetLimit } from "./budget-accounts.ts";
 import {
   createProviderExchangeLedger,
   LOCK_SPACE,
@@ -16,7 +23,13 @@ import {
 } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
-import { attempts, providerExchanges, sessions } from "./schema.ts";
+import {
+  attempts,
+  budgetAccounts,
+  providerExchanges,
+  sessions,
+  workspaces,
+} from "./schema.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -331,6 +344,218 @@ integration("the provider exchange ledger under concurrent writers", () => {
       providerTokens: RESERVE.inputTokens + 80,
       unmetered: false,
       reserves: [RESERVE],
+    });
+  }, 20_000);
+});
+
+integration("a budgeted open under concurrent writers", () => {
+  let database: TempDatabase;
+  let pool: Pool;
+  let db: NodePgDatabase<typeof schema>;
+  let workspaceId: string;
+
+  beforeAll(async () => {
+    database = await createTempDatabase({
+      prefix: "provider_exchanges_budget_it",
+    });
+    pool = new Pool({ connectionString: database.url, max: 8 });
+    db = drizzle(pool, { schema });
+    workspaceId = crypto.randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "Budget" });
+  }, 60_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await database.drop();
+  }, 60_000);
+
+  const asDb = () => db as unknown as Database;
+  const ledger = () =>
+    createProviderExchangeLedger(asDb(), { admits: async () => () => true });
+
+  async function owner() {
+    const sessionId = crypto.randomUUID();
+    const attemptId = `att-${crypto.randomUUID()}`;
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL session_replication_role = replica`);
+      await tx.insert(sessions).values({
+        id: sessionId,
+        ownerId: "owner-ledger-budget-it",
+        repoUrl: "https://github.com/acme/app.git",
+        branch: "main",
+        repositoryId: "app",
+        checkpointRevision: 1,
+        workspaceId,
+      });
+      await tx.insert(attempts).values({
+        id: attemptId,
+        sessionId,
+        executionId: `exec-${attemptId}`,
+        leaseEpoch: 1,
+        executionGeneration: 1,
+        authRevision: 1,
+        state: "running",
+        leaseExpiresAt: new Date("2030-01-01T00:00:00Z"),
+      });
+    });
+    return { sessionId, attemptId };
+  }
+
+  /** A person whose month's account exists, so only its row lock orders opens. */
+  async function person(costUsd: number | null) {
+    const userId = crypto.randomUUID();
+    const budget: BudgetChoice = {
+      rootKind: "user",
+      owner: { kind: "user", userId },
+    };
+    if (costUsd !== null) {
+      await saveBudgetLimit(
+        asDb(),
+        workspaceId,
+        { kind: "user", userId },
+        {
+          costUsd,
+          tokens: null,
+        },
+      );
+    }
+    const warm = await createBudgetLedger(asDb()).reserve({
+      callId: `warm-${userId}`,
+      workspaceId,
+      choice: budget,
+      reserve: { costUsd: 0, tokens: 0 },
+      unmetered: false,
+    });
+    if (warm.outcome !== "reserved" || warm.accountId === null) {
+      throw new Error(warm.outcome);
+    }
+    await createBudgetLedger(asDb()).release(`warm-${userId}`);
+    return { userId, budget, accountId: warm.accountId };
+  }
+
+  async function accountRow(accountId: string) {
+    const [row] = await db
+      .select()
+      .from(budgetAccounts)
+      .where(eq(budgetAccounts.id, accountId as never));
+    return row;
+  }
+
+  /** A transaction holding one account row, as a reserve in flight does. */
+  async function holdingAccount(accountId: string) {
+    const connection: PoolClient = await pool.connect();
+    await connection.query("BEGIN");
+    await connection.query(
+      "SELECT 1 FROM budget_accounts WHERE id = $1 FOR UPDATE",
+      [accountId],
+    );
+    return async () => {
+      await connection.query("COMMIT");
+      connection.release();
+    };
+  }
+
+  test("opens of two sessions on one account queue on its row, so only one fits its limit", async () => {
+    // Room for one reserve, not two.
+    const { budget, accountId } = await person(
+      reservationCostUsd(RESERVE) * 1.5,
+    );
+    const sessionsOf = await Promise.all([owner(), owner()]);
+    const release = await holdingAccount(accountId);
+    let openings: Promise<{ outcome: string }>[] = [];
+    try {
+      openings = sessionsOf.map((who) =>
+        ledger().open({
+          exchangeId: crypto.randomUUID(),
+          ...who,
+          reserve: RESERVE,
+          budget,
+        }),
+      );
+      // Each waits on the account row: the session locks are apart.
+      for (const opening of openings) {
+        expect(await waits(opening)).toBe("waited");
+      }
+    } finally {
+      await release();
+    }
+    const outcomes = (await Promise.all(openings)).map((one) => one.outcome);
+    expect(outcomes.sort()).toEqual(["budget_exceeded", "created"]);
+    const account = await accountRow(accountId);
+    expect(account?.reservedTokens).toBe(reservationTokens(RESERVE));
+    const held = (await db.select().from(providerExchanges)).filter((row) =>
+      sessionsOf.some((who) => who.sessionId === row.sessionId),
+    );
+    expect(held).toHaveLength(1);
+  }, 20_000);
+
+  test("a budgeted open does not wait on the session and attempt rows a fence holds", async () => {
+    const { budget } = await person(null);
+    const who = await owner();
+    const connection: PoolClient = await pool.connect();
+    await connection.query("BEGIN");
+    await connection.query(
+      "SELECT 1 FROM sessions s JOIN attempts a ON a.session_id = s.id WHERE s.id = $1 AND a.id = $2 FOR UPDATE",
+      [who.sessionId, who.attemptId],
+    );
+    try {
+      const opening = ledger().open({
+        exchangeId: crypto.randomUUID(),
+        ...who,
+        reserve: RESERVE,
+        budget,
+      });
+      expect(await waits(opening)).toBe("done");
+      expect(await opening).toEqual({ outcome: "created" });
+    } finally {
+      await connection.query("COMMIT");
+      connection.release();
+    }
+  }, 20_000);
+
+  test("a report and an open on one account, both waiting on its row, finish without a deadlock", async () => {
+    const { budget, accountId } = await person(null);
+    const who = await owner();
+    const reported = crypto.randomUUID();
+    await ledger().open({
+      exchangeId: reported,
+      ...who,
+      reserve: RESERVE,
+      budget,
+    });
+    const release = await holdingAccount(accountId);
+    let reporting: Promise<unknown> | undefined;
+    let opening: Promise<{ outcome: string }> | undefined;
+    try {
+      // The report holds the session and attempt rows, then waits on the
+      // account; the open of the same session holds its session lock.
+      reporting = createPostgresWorkerUnitOfWork(
+        asDb(),
+      ).recordProviderUsageAtomic({
+        exchangeId: reported,
+        ...who,
+        usage: { ...RESERVE, outputTokens: 80, estimated: false },
+        priceFor: () => ({ costUsd: 0.0084, pricedBy: "table" }),
+      });
+      opening = ledger().open({
+        exchangeId: crypto.randomUUID(),
+        ...who,
+        reserve: RESERVE,
+        budget,
+      });
+      expect(await waits(reporting)).toBe("waited");
+      expect(await waits(opening)).toBe("waited");
+    } finally {
+      await release();
+    }
+    expect(await reporting).toMatchObject({ outcome: "recorded" });
+    expect(await opening).toEqual({ outcome: "created" });
+    const account = await accountRow(accountId);
+    expect(account).toMatchObject({
+      spentCostUsd: 0.0084,
+      reservedTokens: reservationTokens(RESERVE),
     });
   }, 20_000);
 });

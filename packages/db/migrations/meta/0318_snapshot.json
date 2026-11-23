@@ -1,5 +1,5 @@
 {
-  "id": "281cc45b-41ad-4e89-a9a7-247dd5af727c",
+  "id": "33b5a73f-c70f-4db0-89a9-7467b8f97d42",
   "prevId": "bcc4c110-dea3-4f02-a730-a8b98e3688ca",
   "version": "7",
   "dialect": "postgresql",
@@ -5075,25 +5075,7 @@
           "name": "turn_id",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": false
-        },
-        "client_message_id": {
-          "name": "client_message_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_mirror": {
-          "name": "slack_mirror",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "received_at": {
           "name": "received_at",
@@ -5104,40 +5086,6 @@
         }
       },
       "indexes": {
-        "conversation_inputs_client_message_uniq": {
-          "name": "conversation_inputs_client_message_uniq",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "requester_kind",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "requester_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "client_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"conversation_inputs\".\"client_message_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "conversation_inputs_slack_message_idx": {
           "name": "conversation_inputs_slack_message_idx",
           "columns": [
@@ -5212,10 +5160,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "conversation_inputs_origin_check": {
-          "name": "conversation_inputs_origin_check",
-          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending'))"
-        },
         "conversation_inputs_seq_check": {
           "name": "conversation_inputs_seq_check",
           "value": "\"conversation_inputs\".\"seq\" > 0"
@@ -10679,6 +10623,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "budget_root_kind": {
+          "name": "budget_root_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "budget_account_id": {
+          "name": "budget_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -10718,7 +10674,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "provider_exchanges_budget_root_kind_check": {
+          "name": "provider_exchanges_budget_root_kind_check",
+          "value": "\"provider_exchanges\".\"budget_root_kind\" IN ('user','key','none')"
+        },
+        "provider_exchanges_budget_account_check": {
+          "name": "provider_exchanges_budget_account_check",
+          "value": "\"provider_exchanges\".\"budget_account_id\" IS NULL OR \"provider_exchanges\".\"budget_root_kind\" IS NOT NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.provider_usage": {

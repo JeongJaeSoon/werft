@@ -3410,12 +3410,28 @@ export const providerExchanges = pgTable(
     // stays so a late open cannot count the reserve again, and no judgment
     // counts it.
     releasedAt: timestamp("released_at", { withTimezone: true }),
+    // The budget account the call is held on beside its session, and the
+    // root kind it was charged as; the budget_reservations row of the same
+    // call id holds the amounts. No kind: an open that named no account, held
+    // by the session limit alone. A kind with no account: a key or an agent
+    // with no team to charge. No foreign key, as above: the open already
+    // holds the account row.
+    budgetRootKind: text("budget_root_kind").$type<BudgetRootKind>(),
+    budgetAccountId: uuid("budget_account_id").$type<BudgetAccountId>(),
   },
   (table) => [
     index("provider_exchanges_lease_idx").on(table.leaseExpiresAt),
     index("provider_exchanges_session_held_idx")
       .on(table.sessionId)
       .where(sql`${table.releasedAt} IS NULL`),
+    check(
+      "provider_exchanges_budget_root_kind_check",
+      sql`${table.budgetRootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
+    ),
+    check(
+      "provider_exchanges_budget_account_check",
+      sql`${table.budgetAccountId} IS NULL OR ${table.budgetRootKind} IS NOT NULL`,
+    ),
   ],
 );
 
