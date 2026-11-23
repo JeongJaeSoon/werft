@@ -223,7 +223,7 @@ From this release model connections, MCP servers and repository GitHub App keys 
 - A connection or MCP server made in the console is saved only with its key. The web keeps the save button off until 8 or more characters are typed; the API refuses with 400 a missing key, one shorter than 8 bytes, or one with control characters or surrounding whitespace; the database refuses a console-made row without its value in the same transaction. The console's "Enter key on screen" button, which turned an external connection into a stored one, and the `POST …/connections/{id}/convert` route are gone.
 - The 0285 rollback SQL above no longer applies after this release: `credential_source` allows `stored` only.
 
-<a id="쓰지-않는-표-셋을-지운-릴리스" />
+<a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
 ### The release that stops sessions holding a deleted Slack message
 
 Migration `0330_source_deleted` adds `source_deleted_at` (timestamptz, nullable) to `sessions`. Nothing to do when upgrading. Sessions with no deleted message behave as before.
@@ -234,6 +234,7 @@ Migration `0330_source_deleted` adds `source_deleted_at` (timestamptz, nullable)
 - Why it stopped is recorded as a `system` event `source_deleted` on the session's event stream, with the deleted message's place and the admission it moved to. Closed sessions are left alone.
 - The column is added without a default, so the table is not rewritten. Rolling back to an image within the support window is fine; an older image does not read the column, so a stopped session can be resumed again.
 
+<a id="쓰지-않는-표-셋을-지운-릴리스" />
 ### The release that drops three unused tables
 
 Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_workspace_map` and `push_continuations` tables with their rows. No release since `v0.1.0` reads or writes the first two, and the last release that used `push_continuations` is `v0.1.1`. Rolling back to an image inside the support window is therefore unaffected.
