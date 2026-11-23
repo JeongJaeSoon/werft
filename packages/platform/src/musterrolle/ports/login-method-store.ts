@@ -1,4 +1,4 @@
-import type { MembershipRole } from "./identity-store.ts";
+import type { MembershipRole } from "../../ports/identity-store.ts";
 
 /** The provider a flow ran against, as the callback read it. */
 type FlowProvider = { id: string; configRevision: number };

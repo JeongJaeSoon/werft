@@ -1,8 +1,8 @@
 import { z } from "zod";
 import {
   type OutboundHttp,
+  OutboundRefusedError,
   type OutboundResponse,
-  WorkspaceMcpOutboundError,
 } from "../../ports/outbound-http.ts";
 
 /** A call slower than this is a failed try. */
@@ -59,7 +59,7 @@ export class DecisionsCallError extends Error {
 }
 
 function failed(error: unknown): DecisionsCallError {
-  if (!(error instanceof WorkspaceMcpOutboundError)) {
+  if (!(error instanceof OutboundRefusedError)) {
     return new DecisionsCallError("unreachable");
   }
   if (error.reason === "answered" && error.detail.status !== undefined) {

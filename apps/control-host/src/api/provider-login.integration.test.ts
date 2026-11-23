@@ -39,7 +39,10 @@ import { DatabaseIdentityStore, hashWebSessionToken } from "./auth.ts";
 import { GOOGLE_ISSUER } from "./oidc/index.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import { createProviderLogin } from "./provider-login.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/musterrolle/auth.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

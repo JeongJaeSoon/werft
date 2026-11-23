@@ -2,7 +2,7 @@ import type {
   DeleteSecretResult,
   SecretAudit,
   SecretSummary,
-} from "./secret-store.ts";
+} from "../../secrets/ports/secret-store.ts";
 
 /** What Slack answers to `tooling.tokens.rotate`; stored encrypted, never shown. */
 export type RotatedConfigToken = {
@@ -54,7 +54,7 @@ export type CompleteResult =
  * Slack is asked, and the lease, not a held lock, keeps a second process
  * from spending the single-use refresh token.
  */
-export interface SlackConfigTokenStore {
+export interface SurfaceConfigTokenStore {
   /**
    * The access token while it is valid past `freshUntil`; otherwise the
    * lease. A lease found expired means a rotation's answer may be lost with

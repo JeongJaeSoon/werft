@@ -13,7 +13,7 @@ import {
   SecretDecryptError,
   type SecretKey,
   SessionServiceError,
-  type SlackAppStore,
+  type SurfaceAppStore,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { slackEventsUrl } from "../wiring/chat-slack.ts";
@@ -184,7 +184,7 @@ const EXIT_BY_CODE: Partial<Record<string, number>> = {
 
 async function finalize(
   agentId: string,
-  deps: SlackCliDeps & { apps: SlackAppStore },
+  deps: SlackCliDeps & { apps: SurfaceAppStore },
   eventsBase: () => Promise<string | null>,
   io: SlackAppIo,
 ): Promise<number> {

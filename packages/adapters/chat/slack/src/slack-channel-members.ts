@@ -6,7 +6,7 @@ import {
   type ChannelMemberQuestion,
   type ChannelMemberStore,
   type ChannelMembership,
-  type SlackCardSettleStore,
+  type SurfaceCardSettleStore,
 } from "@werft-ai/platform";
 import { z } from "zod";
 import { SLACK_CARD_SETTLE_TIMING } from "./slack-card-settle.ts";
@@ -169,7 +169,7 @@ const memberChangeSchema = z.object({
 export function createSlackMemberCacheInvalidator(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   members: Pick<ChannelMemberStore, "forget">;
-  cards?: Pick<SlackCardSettleStore, "markPushCardsDueIn">;
+  cards?: Pick<SurfaceCardSettleStore, "markPushCardsDueIn">;
   next: SlackInboundHandler;
 }): SlackInboundHandler {
   return async (claim) => {

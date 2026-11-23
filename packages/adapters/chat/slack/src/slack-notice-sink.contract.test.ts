@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { SlackOutboxEntry, SlackOutboxStore } from "@werft-ai/platform";
+import type {
+  SurfaceOutboxEntry,
+  SurfaceOutboxStore,
+} from "@werft-ai/platform";
 import type {
   SlackNoticeRecord,
   SlackNoticeSink,
@@ -75,8 +78,8 @@ function describeSlackNoticeSinkContract(
  * same key twice enqueues once.
  */
 function memoryOutbox() {
-  const rows = new Map<string, SlackOutboxEntry>();
-  const outbox: Pick<SlackOutboxStore, "enqueue" | "readerLocale"> = {
+  const rows = new Map<string, SurfaceOutboxEntry>();
+  const outbox: Pick<SurfaceOutboxStore, "enqueue" | "readerLocale"> = {
     async enqueue(entry) {
       if (rows.has(entry.dedupeKey)) return "duplicate";
       rows.set(entry.dedupeKey, entry);

@@ -10,7 +10,7 @@ import type {
   ReviewAchievementRequest,
   SessionAchievement,
 } from "@werft-ai/contracts";
-import type { TeamActor } from "../../ports/team-store.ts";
+import type { TeamActor } from "../../musterrolle/ports/team-store.ts";
 
 /** Triggers within this of the last one merge into one judgment. */
 export const ACHIEVEMENT_JUDGMENT_QUIET_MS = 120_000;

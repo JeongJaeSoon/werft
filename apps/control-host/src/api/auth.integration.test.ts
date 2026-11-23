@@ -49,7 +49,10 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/musterrolle/auth.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 

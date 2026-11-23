@@ -60,7 +60,7 @@ import { createApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
-import { registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerPublicAuthRoutes } from "./routes/musterrolle/auth.ts";
 import { registerUsageRoutes } from "./routes/usage/usage.ts";
 
 // A legacy key's owner: a uuid now, since its sessions run a release of a

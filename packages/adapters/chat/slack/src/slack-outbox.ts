@@ -2,10 +2,10 @@ import { DEFAULT_USER_LOCALE } from "@werft-ai/contracts";
 import type {
   DeliveryInput,
   DeliveryOutcome,
-  SlackOutboxClaim,
-  SlackOutboxLost,
-  SlackOutboxSettle,
-  SlackOutboxStore,
+  SurfaceOutboxClaim,
+  SurfaceOutboxLost,
+  SurfaceOutboxSettle,
+  SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import { messageOf, type SurfaceBindingStore } from "@werft-ai/platform";
 import type { RowDelivery } from "./outbox-delivery.ts";
@@ -31,7 +31,7 @@ import {
 /** The row settle a delivery ends in; `lease_lost` settles nothing. */
 function settleOf(
   outcome: Exclude<DeliveryOutcome, { kind: "lease_lost" }>,
-): SlackOutboxSettle {
+): SurfaceOutboxSettle {
   switch (outcome.kind) {
     case "sent":
       return { status: "sent", slackTs: outcome.ref };
@@ -89,7 +89,7 @@ export const SLACK_INPUT_HOLD_MS = 60 * 60_000;
  * flight, so nothing Slack may already hold is sent twice.
  */
 export async function drainSlackOutbox(deps: {
-  outbox: SlackOutboxStore;
+  outbox: SurfaceOutboxStore;
   slack: Pick<SlackBotApi, "setStatus" | "updateMessage"> & SlackBotSender;
   /** Null without a master key: rows wait, unsent. */
   botToken:
@@ -134,7 +134,7 @@ export async function drainSlackOutbox(deps: {
     linksClosed: 0,
   };
   // A reply Slack may or may not hold: the thread hears so, once.
-  const noticeUncertain = async (row: SlackOutboxLost) => {
+  const noticeUncertain = async (row: SurfaceOutboxLost) => {
     if (row.kind !== "reply" || row.sessionId === null) return;
     const link_url = sessionUrl(deps.consoleOrigin, row.sessionId);
     const locale = row.body.locale ?? DEFAULT_USER_LOCALE;
@@ -159,7 +159,7 @@ export async function drainSlackOutbox(deps: {
   };
   // The notice kinds go through Notifiable, a decision request through
   // Approvable; the rest the sender posts itself.
-  const deliver = (input: DeliveryInput<SlackOutboxClaim>) => {
+  const deliver = (input: DeliveryInput<SurfaceOutboxClaim>) => {
     switch (input.row.kind) {
       case "notice":
       case "failure_notice":
@@ -308,7 +308,7 @@ export async function drainSlackOutbox(deps: {
         channel_id: claim.channelId,
         attempts: claim.attempts,
       };
-      const settle = async (outcome: SlackOutboxSettle) => {
+      const settle = async (outcome: SurfaceOutboxSettle) => {
         const settled = await deps.outbox.settle(claim, outcome);
         if (!settled) {
           drain.lost += 1;

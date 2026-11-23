@@ -14,18 +14,18 @@ import {
 } from "@werft-ai/contracts";
 import type {
   NeutralizeEvent,
-  SlackCardClaim,
-  SlackCardFence,
-  SlackCardRendered,
-  SlackCardSettleStore,
-  SlackOpenPushCard,
-  SlackOutboxFence,
-  SlackOutboxStore,
-  SlackPendingPrompt,
-  SlackPromptCard,
-  SlackUnansweredTurn,
-  SlackUnpostedInstruction,
   StoredSourceSet,
+  SurfaceCardClaim,
+  SurfaceCardFence,
+  SurfaceCardRendered,
+  SurfaceCardSettleStore,
+  SurfaceOpenPushCard,
+  SurfaceOutboxFence,
+  SurfaceOutboxStore,
+  SurfacePendingPrompt,
+  SurfacePromptCard,
+  SurfaceUnansweredTurn,
+  SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
   and,
@@ -133,7 +133,7 @@ const entry = {
 // The fence alone, with no lease test: a claimed row whose lease ran out is
 // either reclaimed (a new token) or, mid-send, moved to `uncertain` (no
 // token), and both fail this.
-const fenced = (fence: SlackOutboxFence) =>
+const fenced = (fence: SurfaceOutboxFence) =>
   and(eq(t.id, fence.id), eq(t.claimToken, fence.claimToken));
 
 // A turn asked from the web or the API after its thread was linked, with no
@@ -302,11 +302,11 @@ function questionPrompt({
   stored,
   expiresAt,
   ...row
-}: Omit<SlackPendingPrompt, "prompt"> & {
+}: Omit<SurfacePendingPrompt, "prompt"> & {
   requestId: string;
   stored: { kind?: string; questions?: unknown };
   expiresAt: Date;
-}): SlackPendingPrompt[] {
+}): SurfacePendingPrompt[] {
   const questions = pendingQuestionSchema
     .array()
     .min(1)
@@ -341,12 +341,12 @@ async function promptCardOf(
     body: unknown;
     sessionId: string;
   },
-): Promise<SlackPromptCard | null> {
+): Promise<SurfacePromptCard | null> {
   const [prefix, , ...rest] = row.dedupeKey.split(":");
   const requestId = rest.join(":");
-  let display: SlackPromptCard["display"] | null = null;
-  let decidedVia: SlackPromptCard["decidedVia"] = null;
-  let pushRevisions: SlackPromptCard["pushRevisions"];
+  let display: SurfacePromptCard["display"] | null = null;
+  let decidedVia: SurfacePromptCard["decidedVia"] = null;
+  let pushRevisions: SurfacePromptCard["pushRevisions"];
   if (prefix === "push") {
     const push = await createPostgresPushRequests(db).displayOf(
       row.ownerId,
@@ -444,7 +444,7 @@ const CHOICES = sql.raw(
 
 const SHOWS_CHOICE = sql`coalesce(o.settle_rendered, 'open') IN ${CHOICES}`;
 
-const cardFenced = (fence: SlackCardFence) =>
+const cardFenced = (fence: SurfaceCardFence) =>
   sql`id = ${fence.id} AND settle_claim_token = ${fence.claimToken}`;
 
 const CARD_RELEASED = sql`
@@ -459,7 +459,7 @@ const settledAs = (rendered: SQL) =>
 /** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
 function createPostgresSlackCardSettleStore(
   db: Database,
-): SlackCardSettleStore {
+): SurfaceCardSettleStore {
   // Design §4 rule 6, as the thread status writer has it.
   const recordUncertain = (start: SQL, windowMs: number) => sql`
     settle_uncertain_rev = settle_uncertain_rev + 1,
@@ -552,7 +552,7 @@ function createPostgresSlackCardSettleStore(
         id: row.id as string,
         seq: Number(row.seq),
         sessionId: row.session_id as string,
-        rendered: row.rendered as SlackOpenPushCard["rendered"],
+        rendered: row.rendered as SurfaceOpenPushCard["rendered"],
         sessionCheckpointRevision:
           row.session_revision === null ? null : Number(row.session_revision),
         checkpointRevision: Number(row.checkpoint_revision),
@@ -603,7 +603,7 @@ function createPostgresSlackCardSettleStore(
             pick.inherited, st.settle_attempts`),
       );
       return rows.map(
-        (row): SlackCardClaim => ({
+        (row): SurfaceCardClaim => ({
           id: row.id as string,
           claimToken: row.settle_claim_token as string,
           workspaceId: row.workspace_id as string,
@@ -612,8 +612,8 @@ function createPostgresSlackCardSettleStore(
           channelId: row.channel_id as string,
           slackTs: row.slack_ts as string,
           dedupeKey: row.dedupe_key as string,
-          body: row.body as SlackCardClaim["body"],
-          rendered: (row.settle_rendered as SlackCardRendered | null) ?? null,
+          body: row.body as SurfaceCardClaim["body"],
+          rendered: (row.settle_rendered as SurfaceCardRendered | null) ?? null,
           uncertainRev: Number(row.settle_uncertain_rev),
           uncertain: Boolean(row.uncertain),
           inherited: Boolean(row.inherited),
@@ -749,7 +749,7 @@ export function createPostgresSlackOutboxStore(
   // Fills the neutral fields of an event stored before they were written,
   // so a reply read ahead of the fill still has its text.
   options: { neutralize?: NeutralizeEvent } = {},
-): SlackOutboxStore {
+): SurfaceOutboxStore {
   return {
     threadStatus: createPostgresSlackThreadStatusStore(db),
 
@@ -1040,8 +1040,9 @@ export function createPostgresSlackOutboxStore(
           asc(turns.sequence),
         )
         .limit(limit);
-      return rows.flatMap(({ channel, ...row }): SlackUnpostedInstruction[] =>
-        channel === "web" || channel === "api" ? [{ ...row, channel }] : [],
+      return rows.flatMap(
+        ({ channel, ...row }): SurfaceUnpostedInstruction[] =>
+          channel === "web" || channel === "api" ? [{ ...row, channel }] : [],
       );
     },
 
@@ -1353,7 +1354,12 @@ export function createPostgresSlackOutboxStore(
               )
               .orderBy(asc(events.turnId), asc(events.sourceSequence));
       return rows.map(
-        ({ turnRowId, status, attemptId: _, ...row }): SlackUnansweredTurn => ({
+        ({
+          turnRowId,
+          status,
+          attemptId: _,
+          ...row
+        }): SurfaceUnansweredTurn => ({
           ...row,
           state: status === "completed" ? "completed" : "failed",
           events: said
@@ -1498,7 +1504,7 @@ export function createPostgresSlackOutboxStore(
         )
         .orderBy(asc(pushRequests.createdAt), asc(pushRequests.id))
         .limit(limit);
-      const prompts: SlackPendingPrompt[][] = [];
+      const prompts: SurfacePendingPrompt[][] = [];
       // One at a time: most tools read nothing, a GitHub tool a row or two.
       for (const { requestId, payload, expiresAt, ...row } of asked) {
         const stored = payload as {
@@ -1545,7 +1551,7 @@ export function createPostgresSlackOutboxStore(
             targetBranch,
             gitCommit,
             ...row
-          }): SlackPendingPrompt => ({
+          }): SurfacePendingPrompt => ({
             ...row,
             prompt: {
               kind: "push",

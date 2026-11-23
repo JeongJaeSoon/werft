@@ -6,7 +6,7 @@ import {
   type ChannelKindReadable,
   type SecretStore,
   SessionServiceError,
-  type SlackAppStore,
+  type SurfaceAppStore,
 } from "@werft-ai/platform";
 import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
 import {
@@ -31,7 +31,7 @@ export function slackBotToken(
 /** The bot token of the agent's own app; null without one. */
 export async function agentSlackBotToken(
   deps: {
-    apps: Pick<SlackAppStore, "findForAgent">;
+    apps: Pick<SurfaceAppStore, "findForAgent">;
     secrets: Pick<SecretStore, "get">;
   },
   workspaceId: string,
@@ -47,7 +47,7 @@ export async function agentSlackBotToken(
  * be bound.
  */
 export function createSlackChannelKinds(deps: {
-  apps: Pick<SlackAppStore, "findForAgent"> | null;
+  apps: Pick<SurfaceAppStore, "findForAgent"> | null;
   secrets: Pick<SecretStore, "get"> | null;
   slack: SlackBotApi;
   /** Revokes the install when Slack says the bot token was revoked. */

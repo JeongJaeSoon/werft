@@ -23,8 +23,8 @@ on:
       - apps/control-host/src/api/oidc/**
       - apps/control-host/src/api/auth.ts
       - apps/control-host/src/api/*login*.ts
-      - apps/control-host/src/api/routes/auth.ts
-      - apps/control-host/src/api/routes/login-*.ts
+      - apps/control-host/src/api/routes/musterrolle/auth.ts
+      - apps/control-host/src/api/routes/musterrolle/login-*.ts
       - apps/web/src/auth/**
       - apps/web/src/components/auth-page.tsx
       - apps/web/src/i18n/auth.ts

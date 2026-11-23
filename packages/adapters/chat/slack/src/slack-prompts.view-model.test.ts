@@ -4,7 +4,7 @@ import {
   presentPushRequest,
   SLACK_INTERACTION_ACTIONS,
 } from "@werft-ai/contracts";
-import type { SlackPromptCard } from "@werft-ai/platform";
+import type { SurfacePromptCard } from "@werft-ai/platform";
 import { SLACK_SUMMARY_MESSAGES } from "./slack-prompt-summary.ts";
 import {
   type SlackPrompt,
@@ -148,7 +148,7 @@ describe("the Slack push card and its view model", () => {
         locale: "en",
         linkUrl: null,
         display: { ...push, state: "requested" },
-      } as unknown as SlackPromptCard & { display: { kind: "push" } },
+      } as unknown as SurfacePromptCard & { display: { kind: "push" } },
       { sessionId: SESSION, requestId: "push-1" },
     );
     const rejectOnly = actionsOf(card.blocks);

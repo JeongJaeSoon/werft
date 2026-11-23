@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SlackInboundClaim } from "@werft-ai/platform";
+import type { SurfaceInboundClaim } from "@werft-ai/platform";
 import {
   createSlackChannelLifecycleHandler,
   lifecycleChannelOf,
@@ -31,7 +31,7 @@ const claim = (event: Record<string, unknown>, eventTime: Date | null = null) =>
     eventType: String(event.type),
     eventTime,
     payload: { event },
-  }) as unknown as SlackInboundClaim;
+  }) as unknown as SurfaceInboundClaim;
 
 function handler(agents = resolved) {
   const calls: unknown[][] = [];

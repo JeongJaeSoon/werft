@@ -6,15 +6,15 @@ import {
   type ListCredentialBindingsResponse,
   type RevokeCredentialBindingResponse,
 } from "@werft-ai/contracts";
-import type {
-  CredentialBinding,
-  CredentialBindingStore,
-} from "../ports/credential-binding-store.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import type {
+  CredentialBinding,
+  CredentialBindingStore,
+} from "./ports/credential-binding-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import {
   ACTOR_INACTIVE,

@@ -4,11 +4,11 @@ import {
   WAITING_PUSH_INTENT_STATUSES,
 } from "@werft-ai/contracts";
 import type {
-  SlackThreadStatusClaim,
-  SlackThreadStatusFacts,
-  SlackThreadStatusFence,
-  SlackThreadStatusReconcile,
-  SlackThreadStatusStore,
+  SurfaceThreadStatusClaim,
+  SurfaceThreadStatusFacts,
+  SurfaceThreadStatusFence,
+  SurfaceThreadStatusReconcile,
+  SurfaceThreadStatusStore,
 } from "@werft-ai/platform";
 import { IN_FLIGHT_STATUSES } from "@werft-ai/platform";
 import { exists, type SQL, sql } from "drizzle-orm";
@@ -52,7 +52,7 @@ const targetOf = (row: Raw) => ({
   threadTs: row.thread_id as string,
 });
 
-const fenced = (fence: SlackThreadStatusFence) =>
+const fenced = (fence: SurfaceThreadStatusFence) =>
   sql`session_link_id = ${fence.sessionLinkId} AND claim_token = ${fence.claimToken}`;
 
 const RELEASED = sql`claim_token = NULL, lease_expires_at = NULL, inflight_at = NULL`;
@@ -63,10 +63,10 @@ const SESSION_ID = sql.raw(`"sessions"."id"`);
 
 export function createPostgresSlackThreadStatusStore(
   db: Database,
-): SlackThreadStatusStore {
+): SurfaceThreadStatusStore {
   const factsOf = async (sessionIds: string[]) => {
     if (sessionIds.length === 0)
-      return new Map<string, SlackThreadStatusFacts>();
+      return new Map<string, SurfaceThreadStatusFacts>();
     const turnIs = (statuses: SQL) =>
       sql<boolean>`EXISTS (SELECT 1 FROM turns t WHERE t.session_id = ${SESSION_ID} AND t.status IN (${statuses}))`;
     const rows = await db
@@ -131,7 +131,7 @@ export function createPostgresSlackThreadStatusStore(
             gitCommit: push.git_commit,
             origin: push.origin as PushRequestOrigin,
           })),
-        } satisfies SlackThreadStatusFacts,
+        } satisfies SurfaceThreadStatusFacts,
       ]),
     );
   };
@@ -185,7 +185,7 @@ export function createPostgresSlackThreadStatusStore(
             st.sent_status, st.sent_at`),
       );
       return rows.map(
-        (row): SlackThreadStatusClaim => ({
+        (row): SurfaceThreadStatusClaim => ({
           ...targetOf(row),
           claimToken: row.claim_token as string,
           dirtyRev: Number(row.dirty_rev),
@@ -319,7 +319,7 @@ export function createPostgresSlackThreadStatusStore(
           LIMIT ${limit}`),
       );
       const facts = await factsOf(rows.map((row) => row.session_id as string));
-      return rows.flatMap((row): SlackThreadStatusReconcile[] => {
+      return rows.flatMap((row): SurfaceThreadStatusReconcile[] => {
         const found = facts.get(row.session_id as string);
         return found === undefined
           ? []

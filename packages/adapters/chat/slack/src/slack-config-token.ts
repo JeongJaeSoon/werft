@@ -3,7 +3,7 @@ import {
   type RotatedConfigToken,
   type SecretAudit,
   SessionServiceError,
-  type SlackConfigTokenStore,
+  type SurfaceConfigTokenStore,
 } from "@werft-ai/platform";
 import {
   SLACK_APP_GONE_CODES,
@@ -90,7 +90,7 @@ export async function slackLacksApp(
  * called with no transaction open and its answer stored in a second one.
  */
 export function createSlackConfigTokens(deps: {
-  store: SlackConfigTokenStore;
+  store: SurfaceConfigTokenStore;
   api: SlackConfigApi;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;

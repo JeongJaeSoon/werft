@@ -28,7 +28,7 @@ import type {
  * as an `instruction` is, with no session; its post's ts becomes the input's
  * Slack alias, and its topic's when the topic had none (`threadTs` "" then).
  */
-export type SlackOutboxKind =
+export type SurfaceOutboxKind =
   | "instruction"
   | "reply"
   | "notice"
@@ -45,7 +45,7 @@ export type SlackOutboxKind =
  * `voided_by_delete`: one of its sources was deleted in Slack before its
  * send began, so it was never sent (`error_code` `source_deleted`).
  */
-export type SlackOutboxStatus =
+export type SurfaceOutboxStatus =
   | "pending"
   | "sending"
   | "sent"
@@ -60,7 +60,7 @@ export type SlackOutboxStatus =
  * image goes with it. `locale`: the language of the words the platform adds,
  * the link's label included; rows from before it have none and read English.
  */
-export type SlackOutboxBody = {
+export type SurfaceOutboxBody = {
   text: string;
   link_url?: string;
   locale?: UserLocale;
@@ -70,12 +70,12 @@ export type SlackOutboxBody = {
   sender?: { username: string; slack_user_id?: string };
 };
 
-export type SlackOutboxEntry = {
+export type SurfaceOutboxEntry = {
   workspaceId: string;
   agentId: string;
   slackAppId: string;
   installationId: string;
-  kind: SlackOutboxKind;
+  kind: SurfaceOutboxKind;
   channelId: string;
   threadTs: string;
   /** The ephemeral's reader; set exactly for `notice`. */
@@ -87,7 +87,7 @@ export type SlackOutboxEntry = {
   sessionLinkId: string | null;
   /** The session the console link opens; null for a refusal. */
   sessionId: string | null;
-  body: SlackOutboxBody;
+  body: SurfaceOutboxBody;
   /** The same key twice enqueues once. */
   dedupeKey: string;
   /**
@@ -116,10 +116,10 @@ export type SlackOutboxEntry = {
   heldForInputId?: ConversationInputId | null;
 };
 
-export type SlackOutboxFence = { id: string; claimToken: string };
+export type SurfaceOutboxFence = { id: string; claimToken: string };
 
-export type SlackOutboxClaim = SlackOutboxEntry &
-  SlackOutboxFence & {
+export type SurfaceOutboxClaim = SurfaceOutboxEntry &
+  SurfaceOutboxFence & {
     /**
      * Attempts so far, this one included. A claim whose lease lapses before
      * beginSend or settle does not count.
@@ -128,13 +128,13 @@ export type SlackOutboxClaim = SlackOutboxEntry &
   };
 
 /** A row the lease ran out on mid-send, now `uncertain`. */
-export type SlackOutboxLost = SlackOutboxEntry & { id: string };
+export type SurfaceOutboxLost = SurfaceOutboxEntry & { id: string };
 
 /**
  * Where a linked session's turns answer: the link's thread. `locale`: that
  * of whoever started the session, whom the thread is in their language for.
  */
-export type SlackLinkedTurnTarget = {
+export type SurfaceLinkedTurnTarget = {
   locale: UserLocale | null;
   sessionLinkId: string;
   sessionId: string;
@@ -147,7 +147,7 @@ export type SlackLinkedTurnTarget = {
 };
 
 /** An ended turn of a live linked session that has no outbox row yet. */
-export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
+export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
   /** The public turn id, 1-based within the session. */
   turnId: number;
   /** The turn's sources, which its reply or failure notice carries on. */
@@ -166,7 +166,7 @@ export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
  * A turn of a live linked session asked from the web or the API that the
  * thread has not been shown yet.
  */
-export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
+export type SurfaceUnpostedInstruction = SurfaceLinkedTurnTarget & {
   turnId: number;
   sources: StoredSourceSet | null;
   channel: "web" | "api";
@@ -202,7 +202,7 @@ export type UnmirroredWebInput = {
  * no outbox row yet: a permission or question a client can answer, or a
  * push request waiting for its decision.
  */
-export type SlackPendingPrompt = SlackLinkedTurnTarget & {
+export type SurfacePendingPrompt = SurfaceLinkedTurnTarget & {
   /** The sources of the turn that asked. */
   sources: StoredSourceSet | null;
   /** That turn's public id; null with no sources. */
@@ -245,7 +245,7 @@ export type SlackPendingPrompt = SlackLinkedTurnTarget & {
  * request as the database holds it now, and the Slack account of whoever
  * decided it in the card's workspace.
  */
-export type SlackPromptCard = {
+export type SurfacePromptCard = {
   locale: UserLocale;
   /** Where a decided request was decided; null while none was. */
   decidedVia: "slack" | "web" | null;
@@ -260,14 +260,14 @@ export type SlackPromptCard = {
   display: PendingRequestDisplay | ({ kind: "push" } & PushRequestDisplay);
 };
 
-export type SlackOutboxSettle =
+export type SurfaceOutboxSettle =
   | { status: "sent"; slackTs: string }
   | { status: "failed"; errorCode: string }
   | { status: "uncertain"; errorCode: string }
   | { status: "pending"; retryInMs: number; errorCode: string };
 
 /** One session's state as stored, read for its thread status. */
-export type SlackThreadStatusFacts = {
+export type SurfaceThreadStatusFacts = {
   admissionState: AdmissionState;
   executionRevoked: boolean;
   /** A turn whose outcome is unknown: the session waits on recovery. */
@@ -290,7 +290,7 @@ export type SlackThreadStatusFacts = {
   }[];
 };
 
-export type SlackThreadStatusTarget = {
+export type SurfaceThreadStatusTarget = {
   sessionLinkId: string;
   sessionId: string;
   workspaceId: string;
@@ -299,13 +299,13 @@ export type SlackThreadStatusTarget = {
   threadTs: string;
 };
 
-export type SlackThreadStatusFence = {
+export type SurfaceThreadStatusFence = {
   sessionLinkId: string;
   claimToken: string;
 };
 
-export type SlackThreadStatusClaim = SlackThreadStatusTarget &
-  SlackThreadStatusFence & {
+export type SurfaceThreadStatusClaim = SurfaceThreadStatusTarget &
+  SurfaceThreadStatusFence & {
     /** dirty_rev when claimed: what a send or a skip settles, no further. */
     dirtyRev: number;
     uncertainRev: number;
@@ -316,10 +316,10 @@ export type SlackThreadStatusClaim = SlackThreadStatusTarget &
     sentAt: Date | null;
   };
 
-export type SlackThreadStatusReconcile = SlackThreadStatusTarget & {
+export type SurfaceThreadStatusReconcile = SurfaceThreadStatusTarget & {
   sentStatus: string | null;
   sentAt: Date | null;
-  facts: SlackThreadStatusFacts;
+  facts: SurfaceThreadStatusFacts;
 };
 
 /**
@@ -327,7 +327,7 @@ export type SlackThreadStatusReconcile = SlackThreadStatusTarget & {
  * `claim` is fenced by its token except `uncertain`, which must land even
  * when the lease is lost.
  */
-export interface SlackThreadStatusStore {
+export interface SurfaceThreadStatusStore {
   /**
    * Rows whose send outlived the lease and its grace become uncertain from
    * the send's start (design §4 rule 6), so they wait out the window first.
@@ -342,15 +342,15 @@ export interface SlackThreadStatusStore {
     limit: number;
     leaseMs: number;
     graceMs: number;
-  }): Promise<SlackThreadStatusClaim[]>;
+  }): Promise<SurfaceThreadStatusClaim[]>;
   /** Null when the session is gone. */
-  facts(sessionId: string): Promise<SlackThreadStatusFacts | null>;
+  facts(sessionId: string): Promise<SurfaceThreadStatusFacts | null>;
   /**
    * The send's start, or null when the token is no longer this writer's or
    * less than `minLeaseLeftMs` of the lease is left.
    */
   beginSend(
-    fence: SlackThreadStatusFence,
+    fence: SurfaceThreadStatusFence,
     minLeaseLeftMs: number,
   ): Promise<Date | null>;
   /**
@@ -358,7 +358,7 @@ export interface SlackThreadStatusStore {
    * a window after the latest uncertain one and none was recorded since.
    */
   finish(
-    fence: SlackThreadStatusFence,
+    fence: SurfaceThreadStatusFence,
     sent: {
       dirtyRev: number;
       status: string;
@@ -368,17 +368,17 @@ export interface SlackThreadStatusStore {
     },
   ): Promise<boolean>;
   /** The computed status is the one Slack shows: nothing to send. */
-  skip(fence: SlackThreadStatusFence, dirtyRev: number): Promise<boolean>;
+  skip(fence: SurfaceThreadStatusFence, dirtyRev: number): Promise<boolean>;
   /** A send whose outcome is unknown; lands without the lease. */
   uncertain(
-    fence: SlackThreadStatusFence,
+    fence: SurfaceThreadStatusFence,
     startedAt: Date,
     windowMs: number,
   ): Promise<void>;
   /** Try again no sooner than `retryInMs` from now, nor any boundary set. */
-  defer(fence: SlackThreadStatusFence, retryInMs: number): Promise<boolean>;
+  defer(fence: SurfaceThreadStatusFence, retryInMs: number): Promise<boolean>;
   /** Slack will not show a status there; skipped until re-enabled. */
-  disable(fence: SlackThreadStatusFence, reason: string): Promise<boolean>;
+  disable(fence: SurfaceThreadStatusFence, reason: string): Promise<boolean>;
   /**
    * Re-enables rows disabled `disabledForMs` ago or before their
    * installation was verified again, then up to `limit` live links whose
@@ -388,7 +388,7 @@ export interface SlackThreadStatusStore {
   reconcileBatch(input: {
     limit: number;
     disabledForMs: number;
-  }): Promise<SlackThreadStatusReconcile[]>;
+  }): Promise<SurfaceThreadStatusReconcile[]>;
   /** Stamps the links reconciled, raising dirty_rev where marked dirty. */
   reconciled(rows: { sessionLinkId: string; dirty: boolean }[]): Promise<void>;
 }
@@ -400,7 +400,7 @@ export interface SlackThreadStatusStore {
  * (`*_requester_left`), or how it ended (`done` for a turn's notice from
  * before the cards).
  */
-export type SlackCardRendered =
+export type SurfaceCardRendered =
   | CardChoice
   | "allowed"
   | "allowedSession"
@@ -412,17 +412,17 @@ export type SlackCardRendered =
   | "closed"
   | "done";
 
-export type SlackCardFence = { id: string; claimToken: string };
+export type SurfaceCardFence = { id: string; claimToken: string };
 
-export type SlackCardClaim = SlackCardFence & {
+export type SurfaceCardClaim = SurfaceCardFence & {
   workspaceId: string;
   slackAppId: string;
   sessionId: string | null;
   channelId: string;
   slackTs: string;
   dedupeKey: string;
-  body: SlackOutboxBody;
-  rendered: SlackCardRendered | null;
+  body: SurfaceOutboxBody;
+  rendered: SurfaceCardRendered | null;
   uncertainRev: number;
   /** An edit of unknown outcome is on record: it sends regardless. */
   uncertain: boolean;
@@ -440,7 +440,7 @@ type CardChoice =
   | "reject_only_requester_left";
 
 /** A push card still showing a choice, for `pushApprovability`. */
-export type SlackOpenPushCard = {
+export type SurfaceOpenPushCard = {
   id: string;
   seq: number;
   sessionId: string;
@@ -456,7 +456,7 @@ export type SlackOpenPushCard = {
  * Every write after `claim` is fenced by its token except `uncertain`,
  * which must land even when the lease is lost.
  */
-export interface SlackCardSettleStore {
+export interface SurfaceCardSettleStore {
   /**
    * Marks `due` the sent cards whose request moved on from what they show:
    * answered or closed (web, expiry, session close), a push decided, a
@@ -485,7 +485,7 @@ export interface SlackCardSettleStore {
   openPushCards(input: {
     limit: number;
     afterSeq: number | null;
-  }): Promise<SlackOpenPushCard[]>;
+  }): Promise<SurfaceOpenPushCard[]>;
   /** Edits that outlived the lease and its grace become uncertain. */
   expireInflight(input: { graceMs: number; windowMs: number }): Promise<number>;
   /**
@@ -497,14 +497,14 @@ export interface SlackCardSettleStore {
     leaseMs: number;
     graceMs: number;
     only?: { channelId: string; slackTs: string };
-  }): Promise<SlackCardClaim[]>;
+  }): Promise<SurfaceCardClaim[]>;
   /** The card's request as stored now; null when it is gone. */
-  card(claim: SlackCardClaim): Promise<SlackPromptCard | null>;
+  card(claim: SurfaceCardClaim): Promise<SurfacePromptCard | null>;
   /** True while the card is a turn's notice whose turn still waits. */
-  turnWaits(claim: SlackCardClaim): Promise<boolean>;
+  turnWaits(claim: SurfaceCardClaim): Promise<boolean>;
   /** The edit's start, or null when the lease is lost or nearly over. */
   beginSend(
-    fence: SlackCardFence,
+    fence: SurfaceCardFence,
     minLeaseLeftMs: number,
   ): Promise<Date | null>;
   /**
@@ -512,36 +512,36 @@ export interface SlackCardSettleStore {
    * clears only as in the thread status writer.
    */
   finish(
-    fence: SlackCardFence,
+    fence: SurfaceCardFence,
     sent: {
-      rendered: SlackCardRendered;
+      rendered: SurfaceCardRendered;
       uncertainRev: number;
       windowMs: number;
     },
   ): Promise<boolean>;
   /** Shows what it showed already: release the row as drawn. */
-  skip(fence: SlackCardFence): Promise<boolean>;
+  skip(fence: SurfaceCardFence): Promise<boolean>;
   /** An edit whose outcome is unknown; lands without the lease. */
   uncertain(
-    fence: SlackCardFence,
+    fence: SurfaceCardFence,
     startedAt: Date,
     windowMs: number,
   ): Promise<void>;
   /** Try again no sooner than `retryInMs`; `failed` counts an attempt. */
   defer(
-    fence: SlackCardFence,
+    fence: SurfaceCardFence,
     /** A null `error` keeps the one recorded before. */
     input: { retryInMs: number; failed: boolean; error: string | null },
   ): Promise<boolean>;
   /** Slack takes no more edits of it. */
-  abandon(fence: SlackCardFence, error: string): Promise<boolean>;
+  abandon(fence: SurfaceCardFence, error: string): Promise<boolean>;
 }
 
-export interface SlackOutboxStore {
+export interface SurfaceOutboxStore {
   /** Absent in stores without the thread status table. */
-  threadStatus?: SlackThreadStatusStore;
+  threadStatus?: SurfaceThreadStatusStore;
   /** Absent in stores without the card settle columns. */
-  cards?: SlackCardSettleStore;
+  cards?: SurfaceCardSettleStore;
   /**
    * `link_closed`: the entry's link is closed, and the entry is not the
    * notice that one of that link's own rows went uncertain.
@@ -550,7 +550,7 @@ export interface SlackOutboxStore {
    * or an activation committing meanwhile is waited for, not missed.
    */
   enqueue(
-    entry: SlackOutboxEntry,
+    entry: SurfaceOutboxEntry,
     whileHome?: { bindingId: string; releaseId: string },
   ): Promise<"enqueued" | "duplicate" | "not_home" | "link_closed">;
   /** The language of the user that Slack account is linked to, if any. */
@@ -577,7 +577,7 @@ export interface SlackOutboxStore {
    * the link, with no `instruction` row yet; neither cancelled nor
    * interrupted.
    */
-  unpostedInstructions(limit: number): Promise<SlackUnpostedInstruction[]>;
+  unpostedInstructions(limit: number): Promise<SurfaceUnpostedInstruction[]>;
   /**
    * Web inputs owed a Slack mirror with no `input_mirror` row yet, oldest
    * first. A topic Slack has not placed has only its earliest such input
@@ -609,7 +609,7 @@ export interface SlackOutboxStore {
    * row. A turn that owes an `instruction` row waits for it,
    * so the answer never goes ahead of what it answers.
    */
-  unansweredTurns(limit: number): Promise<SlackUnansweredTurn[]>;
+  unansweredTurns(limit: number): Promise<SurfaceUnansweredTurn[]>;
   /**
    * The card posted as that message for that request, or null when no
    * `input_notice` row of the session sent it.
@@ -619,31 +619,34 @@ export interface SlackOutboxStore {
     requestId: string;
     channelId: string;
     slackTs: string;
-  }): Promise<SlackPromptCard | null>;
+  }): Promise<SurfacePromptCard | null>;
   /** Requests of live linked sessions without their `input_notice` row. */
-  unpromptedRequests(limit: number): Promise<SlackPendingPrompt[]>;
+  unpromptedRequests(limit: number): Promise<SurfacePendingPrompt[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */
-  expireSending(): Promise<SlackOutboxLost[]>;
+  expireSending(): Promise<SurfaceOutboxLost[]>;
   /**
    * Fails `pending` rows with nowhere left to go: a revoked installation, or
    * a link revoked, muted or turned to summary since the row was enqueued.
    */
   closeUnaddressed(): Promise<
-    Pick<SlackOutboxLost, "id" | "kind" | "channelId">[]
+    Pick<SurfaceOutboxLost, "id" | "kind" | "channelId">[]
   >;
   /** `uncertain` replies whose thread has not been told so yet. */
-  untoldUncertain(limit: number): Promise<SlackOutboxLost[]>;
+  untoldUncertain(limit: number): Promise<SurfaceOutboxLost[]>;
   /**
    * Due `pending` rows under a lease from the database clock. They stay
    * `pending` until beginSend, so a crash before the send is claimed again.
    */
-  claim(input: { limit: number; leaseMs: number }): Promise<SlackOutboxClaim[]>;
+  claim(input: {
+    limit: number;
+    leaseMs: number;
+  }): Promise<SurfaceOutboxClaim[]>;
   /**
    * `sending` from here on: a lease that runs out now leaves it `uncertain`.
    * `voided_by_delete`: a source of the row was deleted in Slack, and the
    * row is settled so; nothing may go out.
    */
-  beginSend(fence: SlackOutboxFence): Promise<boolean | "voided_by_delete">;
+  beginSend(fence: SurfaceOutboxFence): Promise<boolean | "voided_by_delete">;
   /** False when the lease was lost: the row is someone else's now. */
   /**
    * False when the lease was lost. A sent `input_mirror` row gives its input
@@ -652,7 +655,7 @@ export interface SlackOutboxStore {
    * holds that thread (a reply taken before this), which is left as it is.
    */
   settle(
-    fence: SlackOutboxFence,
-    outcome: SlackOutboxSettle,
+    fence: SurfaceOutboxFence,
+    outcome: SurfaceOutboxSettle,
   ): Promise<boolean | "topic_alias_taken">;
 }

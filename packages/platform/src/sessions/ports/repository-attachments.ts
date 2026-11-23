@@ -5,7 +5,10 @@ import type {
   RepositoryAttachFailure,
   RepositoryAttachResult,
 } from "@werft-ai/contracts";
-import type { FenceRejection, WorkerFence } from "./worker-unit-of-work.ts";
+import type {
+  FenceRejection,
+  WorkerFence,
+} from "../../ports/worker-unit-of-work.ts";
 
 /** One repository the agent attached mid-session, as its row stands. */
 export type RepositoryAttachmentRow = {

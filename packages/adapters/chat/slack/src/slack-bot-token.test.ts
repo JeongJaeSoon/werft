@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SessionServiceError, type SlackAppRecord } from "@werft-ai/platform";
+import { SessionServiceError, type SurfaceAppRecord } from "@werft-ai/platform";
 import { createSlackChannelKinds } from "./slack-bot-token.ts";
 import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
 
@@ -44,7 +44,7 @@ describe("channel kinds through the agent's own app", () => {
   ) =>
     createSlackChannelKinds({
       apps: apps
-        ? { findForAgent: async () => slackApp as SlackAppRecord }
+        ? { findForAgent: async () => slackApp as SurfaceAppRecord }
         : null,
       secrets: { get: async () => token },
       slack,

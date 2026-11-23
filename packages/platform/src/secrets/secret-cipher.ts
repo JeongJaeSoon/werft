@@ -4,7 +4,7 @@ import {
   hkdfSync,
   randomBytes,
 } from "node:crypto";
-import type { SecretOwnerRef } from "../ports/secret-store.ts";
+import type { SecretOwnerRef } from "./ports/secret-store.ts";
 
 const ALGORITHM = "aes-256-gcm";
 const NONCE_BYTES = 12;

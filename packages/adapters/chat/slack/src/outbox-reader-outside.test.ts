@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { SlackOutboxClaim, SlackOutboxKind } from "@werft-ai/platform";
+import type { SurfaceOutboxClaim, SurfaceOutboxKind } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {
   createRowDelivery,
@@ -27,9 +27,9 @@ beforeAll(() => {
 afterAll(() => fakeSlack.stop());
 
 function rowOf(
-  kind: SlackOutboxKind,
+  kind: SurfaceOutboxKind,
   sessionId: string | null,
-): SlackOutboxClaim {
+): SurfaceOutboxClaim {
   const direct = kind === "model_notice";
   return {
     id: `row-${kind}-${sessionId}`,
@@ -50,9 +50,9 @@ function rowOf(
   };
 }
 
-async function deliver(row: SlackOutboxClaim, outside: boolean) {
+async function deliver(row: SurfaceOutboxClaim, outside: boolean) {
   fakeSlack.messages.length = 0;
-  const asked: SlackOutboxClaim[] = [];
+  const asked: SurfaceOutboxClaim[] = [];
   let begun = false;
   const delivery = createRowDelivery({
     slack: createSlackBotApi({ apiUrl: fakeSlack.url }),

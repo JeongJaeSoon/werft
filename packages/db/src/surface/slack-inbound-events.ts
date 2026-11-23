@@ -4,9 +4,9 @@ import {
   type SlackInboundEventStatus,
 } from "@werft-ai/contracts";
 import type {
-  SlackInboundClaim,
-  SlackInboundEventStore,
-  SlackInboundFence,
+  SurfaceInboundClaim,
+  SurfaceInboundEventStore,
+  SurfaceInboundFence,
 } from "@werft-ai/platform";
 import { and, eq, gt, sql } from "drizzle-orm";
 import {
@@ -22,14 +22,14 @@ const t = slackInboundEvents;
 
 // Every lease judgment below is `now()` in the database, the clock the
 // uninstall's superseded check also reads; no app clock enters it.
-const leaseHeld = (fence: SlackInboundFence) =>
+const leaseHeld = (fence: SurfaceInboundFence) =>
   and(
     eq(t.id, fence.id),
     eq(t.claimToken, fence.claimToken),
     gt(t.leaseExpiresAt, sql`now()`),
   );
 
-const installationStatusOf = sql<SlackInboundClaim["installationStatus"]>`(
+const installationStatusOf = sql<SurfaceInboundClaim["installationStatus"]>`(
   SELECT i.status FROM ${slackInstallations} i
   WHERE i.app_id = slack_inbound_events.app_id
     AND i.team_id = slack_inbound_events.team_id
@@ -44,7 +44,7 @@ const order = (alias: string) =>
 
 export function createPostgresSlackInboundEventStore(
   db: Database,
-): SlackInboundEventStore {
+): SurfaceInboundEventStore {
   return {
     async seen(appId, eventId) {
       const [row] = await db

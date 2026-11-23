@@ -272,7 +272,7 @@ export interface WorkspaceMcpStore {
 
 export {
   type OutboundHttp,
+  OutboundRefusedError,
   type OutboundRequest,
   type OutboundResponse,
-  WorkspaceMcpOutboundError,
 } from "../../ports/outbound-http.ts";

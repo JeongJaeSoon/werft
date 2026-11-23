@@ -21,9 +21,9 @@ import type {
   LinkedAccountStore,
   SessionLinkRecord,
   SessionLinkStore,
-  SlackAppStore,
-  SlackInboundEventStore,
+  SurfaceAppStore,
   SurfaceBindingStore,
+  SurfaceInboundEventStore,
   TurnInputTopic,
 } from "@werft-ai/platform";
 import {
@@ -114,7 +114,7 @@ export function withoutBotMention(text: string, botUserId: string): string {
 }
 
 export type SlackSessionHandlerDeps = {
-  inbox: Pick<SlackInboundEventStore, "renew">;
+  inbox: Pick<SurfaceInboundEventStore, "renew">;
   /** The lease each effect is held under, renewed just before it. */
   leaseMs: number;
   authorization: AuthorizationPolicy;
@@ -129,7 +129,7 @@ export type SlackSessionHandlerDeps = {
     | "requireApproval"
   >;
   /** Whether the agent waits for a mention in every channel in use. */
-  settings: Pick<SlackAppStore, "getSettings">;
+  settings: Pick<SurfaceAppStore, "getSettings">;
   /** Bot-started turns in a row per thread, across the workspace's agents. */
   botTurns: BotTurnStore;
   sessionLinks: SessionLinkStore;

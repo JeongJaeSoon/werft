@@ -8,15 +8,12 @@ import type {
   ListApiKeysResponse,
   RevokeApiKeyResponse,
 } from "@werft-ai/contracts";
-import type {
-  WorkspaceKey,
-  WorkspaceKeyStore,
-} from "../ports/api-key-store.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import type { WorkspaceKey, WorkspaceKeyStore } from "./ports/api-key-store.ts";
 import {
   requireAllowedUnrecorded,
   requirePermitted,

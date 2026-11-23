@@ -6,11 +6,13 @@ import {
   updateInstallationConfigResponseSchema,
 } from "@werft-ai/contracts";
 import { SessionServiceError } from "@werft-ai/platform";
-import type { InstallationConfigAdmin } from "../installation-config.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
+import type { InstallationConfigAdmin } from "../../installation-config.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerInstallationConfigRoutes } from "./installation-config.ts";
 
-const createApiApp = recordRouteErrors("routes/installation-config.test.ts");
+const createApiApp = recordRouteErrors(
+  "routes/limits/installation-config.test.ts",
+);
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const PATH = "/v1/installation-config";

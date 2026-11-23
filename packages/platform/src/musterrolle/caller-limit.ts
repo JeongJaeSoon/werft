@@ -4,8 +4,8 @@ import type {
   AuthorizationRequest,
   AuthorizationSubject,
 } from "@werft-ai/contracts";
-import type { CallerLimitRuleFacts } from "../ports/agent-caller-limits-store.ts";
 import { POLICY_VERSION } from "./policy.ts";
+import type { CallerLimitRuleFacts } from "./ports/agent-caller-limits-store.ts";
 
 export const CALLER_LIMIT_DIMENSION_VALUES = [
   "repository",

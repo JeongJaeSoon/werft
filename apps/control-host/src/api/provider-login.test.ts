@@ -38,7 +38,7 @@ import {
   providerRedirectUri,
 } from "./provider-login.ts";
 import { recordRouteErrors } from "./route-error-coverage.ts";
-import { registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerPublicAuthRoutes } from "./routes/musterrolle/auth.ts";
 
 const createApiApp = recordRouteErrors("provider-login.test.ts");
 
