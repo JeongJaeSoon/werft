@@ -119,6 +119,7 @@ export interface SlackOutboundDeps {
   apiUrl: string;
   secrets: Parameters<typeof slackBotToken>[0];
   consoleOrigin: string | null;
+  readerOutside?: Param<typeof createRowDelivery>["readerOutside"];
 }
 
 export interface SlackOutbound {
@@ -136,6 +137,9 @@ export function wireSlackOutbound(deps: SlackOutboundDeps): SlackOutbound {
     botToken,
     delivery: createRowDelivery({
       slack: api,
+      ...(deps.readerOutside === undefined
+        ? {}
+        : { readerOutside: deps.readerOutside }),
       botToken,
       consoleOrigin: deps.consoleOrigin,
     }),

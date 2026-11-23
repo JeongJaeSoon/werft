@@ -7,7 +7,6 @@
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
-  ChannelMemberCheckable,
   ChannelMemberStore,
   SecretStore,
   SlackAppStore,
@@ -34,6 +33,7 @@ import {
   createSlackSigningSecrets,
   createSlackTokenRevoked,
   createSlackWelcome,
+  type SlackChannelMembers,
   slackBotToken,
   slackPublicUrlsOf,
 } from "./chat-slack.ts";
@@ -95,7 +95,7 @@ export function wireSlackChannelMembers(deps: {
   secrets: SecretStoreSource;
   store: ChannelMemberStore;
   logger: StructuredLogger;
-}): ChannelMemberCheckable {
+}): SlackChannelMembers {
   return createSlackChannelMembers({
     store: deps.store,
     slack: createSlackBotApi({ apiUrl: deps.apiUrl }),

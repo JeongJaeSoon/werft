@@ -28,7 +28,10 @@ import type {
   SessionShareStore,
   SessionViewer,
 } from "../sessions/ports/session-share-store.ts";
-import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
+import type {
+  ChannelMemberCheckable,
+  ChannelMembership,
+} from "../surface/ports/channel-member-checkable.ts";
 import type { UsageDecision } from "./agent-usage-decision.ts";
 import type { ConversationAccess } from "./ports/conversation-access.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
@@ -361,6 +364,35 @@ export async function pushRequesterLeft(
       error_name: error instanceof Error ? error.name : typeof error,
     });
     return false;
+  }
+}
+
+/**
+ * Whether a direct message about a `private_channel` session would reach
+ * someone who cannot see it: the account it is addressed to is a member of
+ * none of the session's channels, or that cannot be told (answer 15, PR2).
+ * `membership` asks about that account itself, not whoever links it now. A
+ * notice leaks on a guess, so the unknown counts as outside, unlike
+ * `pushRequesterLeft`, where the guess would widen an approval.
+ */
+export async function readerOutsideChannels(
+  deps: { sessions: Pick<SessionShareStore, "privateChannels"> },
+  input: {
+    workspaceId: string;
+    sessionId: string;
+    membership: (place: PrivateChannelPlace) => Promise<ChannelMembership>;
+  },
+): Promise<boolean> {
+  try {
+    const places = await deps.sessions.privateChannels(
+      input.workspaceId,
+      input.sessionId,
+    );
+    if (places.length === 0) return false;
+    const answers = await Promise.all(places.map(input.membership));
+    return !answers.includes("member");
+  } catch {
+    return true;
   }
 }
 

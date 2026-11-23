@@ -37,6 +37,7 @@ function serviceAnswering(result: SetAccessResult) {
       listAwaitingTakeover: async () => ({ items: [], total: 0 }),
       takeOver: async () => ({ outcome: "not_found" }),
     },
+    sessions: { privateChannels: async () => [] },
   });
   return { service, calls, recorded };
 }

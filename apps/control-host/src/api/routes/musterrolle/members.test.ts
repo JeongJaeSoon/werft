@@ -141,6 +141,7 @@ function app(
   const service = createMemberService({
     authorization: options.authorization ?? allowing,
     store: memberStore,
+    sessions: { privateChannels: async () => [] },
   });
   const invites = createInviteService({
     authorization: options.authorization ?? allowing,

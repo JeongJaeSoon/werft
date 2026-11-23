@@ -681,6 +681,7 @@ const pendingRequests = createPendingRequestService({
 const members = createMemberService({
   authorization,
   store: createPostgresMemberStore(db),
+  sessions: sessionShares,
 });
 const slackInstallStore = createPostgresSlackInstallStore(db);
 const slackIdentityStore = createPostgresAgentIdentityStore(db);

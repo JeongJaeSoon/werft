@@ -113,6 +113,7 @@ owner・admin でも、共有範囲外のセッションは一覧・詳細・tur
 - **管理終了.** `POST /v1/admin/sessions/{id}/terminate`（`{"expected_revision": …, "justification": "…"}`）で、owner・admin は範囲に関係なくセッションを止めます。理由が停止理由になります。
 - **管理復旧.** `POST /v1/admin/sessions/{id}/recovery-decisions` で、owner だけが範囲に関係なく復旧の決定を出します。本文は[セッションの復旧](/run-server/self-hosting/recover-sessions)の復旧決定と同じで、その `reason` が理由です。
 - **引き継ぎ.** 離れたメンバーのセッションが引き継ぐ人に見えない範囲なら、`POST /v1/sessions/{id}/takeover` に `{"justification": "…"}` を渡します。なければ `403`（`reason_code: justification_required`）です。
+- **プライベートチャンネルのセッションの引き継ぎ.** `private_channel` セッションは、そのチャンネルの現在のメンバーでセッションに書き込める人が同じ経路で引き継ぎ、理由は求めません。owner・admin もチャンネルのメンバーでなければ `404` です。
 
 <a id="확인" />
 ## 確認
