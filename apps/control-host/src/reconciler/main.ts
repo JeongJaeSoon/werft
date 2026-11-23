@@ -1,6 +1,7 @@
 import type * as schema from "@werft-ai/db";
 import {
   announceLapsedInputWaits,
+  createPostgresConversationCalls,
   deleteExpiredWebSessions,
   expireAuthzDecisions,
   expireOverdueInterrupts,
@@ -28,6 +29,7 @@ import {
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { queueDatabaseUrl } from "../database-url.ts";
 import { withJobDatabase } from "../job-database.ts";
+import { runConversationCallReconciler } from "./conversation-calls.ts";
 import { runProviderExchangeReconciler } from "./provider-exchanges.ts";
 import {
   type ReconcilerLogger,
@@ -66,6 +68,19 @@ export async function main(
         },
         logger,
         reconcile: (options) => reconcileProviderExchanges(db, options),
+      });
+      const conversationCalls = createPostgresConversationCalls(db);
+      await runConversationCallReconciler({
+        environment: {
+          ...(environment.RECONCILER_BATCH_SIZE === undefined
+            ? {}
+            : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
+          ...(environment.RECONCILER_DRY_RUN === undefined
+            ? {}
+            : { RECONCILER_DRY_RUN: environment.RECONCILER_DRY_RUN }),
+        },
+        logger,
+        releaseExpired: (options) => conversationCalls.releaseExpired(options),
       });
     },
     { max: SEQUENTIAL_ROLE_POOL_MAX },

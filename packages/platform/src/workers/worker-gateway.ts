@@ -51,6 +51,7 @@ import type {
 } from "@werft-ai/contracts";
 import {
   canonicalJsonOfJson,
+  conversationCallIdSchema,
   DEFAULT_WORKSPACE_ENFORCE,
   ENGINE_COAUTHOR_EMAILS,
   GITHUB_MCP_SERVER,
@@ -121,6 +122,9 @@ import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import type { GitHubPackagesStore } from "../github/ports/github-packages.ts";
 import {
   budgetExceeded,
+  CONVERSATION_CALL_TOKEN_PREFIX,
+  type ConversationCallStore,
+  hashConversationCallToken,
   type PricedBy,
   type ProviderUsage,
   priceJudgmentUsage,
@@ -362,6 +366,22 @@ export type EgressGrant = {
 export type JudgmentEgressGrant = {
   judgment_id: string;
   upstream: EgressUpstream;
+};
+
+/**
+ * A conversation call's grant: no session or attempt either, so a proxy from
+ * before it refuses it. Its one request's limits, the request's bytes among
+ * them, are what the call's reservation was priced at.
+ */
+export type ConversationCallEgressGrant = {
+  conversation_call_id: string;
+  upstream: EgressUpstream;
+  request_limits: {
+    path: string;
+    model: string;
+    max_tokens: number;
+    max_request_bytes: number;
+  };
 };
 
 function claimedExtensionsOf(
@@ -724,6 +744,8 @@ export function createWorkerGateway(deps: {
   };
   // Absent, a session keeps the title cut from its first message.
   titles?: { store: SessionTitleStore; titler: SessionTitler };
+  // Absent, a conversation call's token is refused like any unknown one.
+  conversationCalls?: { store: ConversationCallStore };
   // Absent, the judgment route is refused. `upstream` reaches the judge a
   // connection names; absent, or null for that connection, the route is
   // unavailable.
@@ -1510,6 +1532,44 @@ export function createWorkerGateway(deps: {
         path: TITLE_PROVIDER_PATH,
         model: run.model,
         max_tokens: TITLE_MAX_TOKENS,
+      },
+    };
+  }
+
+  // A conversation call's token, bound to the exchange that first presents
+  // it; null for any other token, and for one that is unknown, expired,
+  // used up or bound to another exchange, which the session route then
+  // refuses as any token it does not know. Its account was held when it was
+  // issued, so nothing is judged here but the token.
+  async function authorizedConversationEgress(
+    token: string,
+    path: string | undefined,
+    exchangeId: string | undefined,
+  ): Promise<ConversationCallEgressGrant | null> {
+    // A proxy from before names no exchange: there is none to bind.
+    if (
+      deps.conversationCalls === undefined ||
+      !token.startsWith(CONVERSATION_CALL_TOKEN_PREFIX) ||
+      exchangeId === undefined
+    ) {
+      return null;
+    }
+    const result = await deps.conversationCalls.store.authorizeAtomic({
+      tokenHash: hashConversationCallToken(token),
+      exchangeId,
+    });
+    if (result.outcome !== "ok") return null;
+    const connection = connectionOf(catalog, result.connectionId);
+    if (!connection) moved("call's connection");
+    requireProviderPath(connection.provider.kind, path);
+    return {
+      conversation_call_id: result.callId,
+      upstream: providerUpstreamOf(connection.provider),
+      request_limits: {
+        path: result.path,
+        model: result.model,
+        max_tokens: result.maxTokens,
+        max_request_bytes: result.maxRequestBytes,
       },
     };
   }
@@ -2362,6 +2422,58 @@ export function createWorkerGateway(deps: {
         pricedBy: result.pricedBy,
         ...(result.ledgerForeignRow ? { ledgerForeignRow: true } : {}),
       };
+    },
+
+    // A provider request's grant when its token is a conversation call's;
+    // null for any other token, which authorizeEgress then judges.
+    authorizeConversationCallEgress(request: {
+      token: string;
+      path?: string | undefined;
+      /** The proxy's exchange, which the call's token is bound to. */
+      exchange_id?: string | undefined;
+    }): Promise<ConversationCallEgressGrant | null> {
+      return authorizedConversationEgress(
+        request.token,
+        request.path,
+        request.exchange_id,
+      );
+    },
+
+    // What a conversation call used, from the exchange its token is bound
+    // to: settled on the account it was reserved on, never on a session.
+    async recordConversationCallUsage(report: {
+      exchangeId: string;
+      callId: string;
+      usage: ProviderUsage;
+    }): Promise<{ costUsd: number; pricedBy: PricedBy }> {
+      const callId = conversationCallIdSchema.safeParse(report.callId);
+      if (deps.conversationCalls === undefined || !callId.success) {
+        throw new WorkerGatewayError(404, "NOT_FOUND", "No such call");
+      }
+      const priced = priceProviderUsage(report.usage);
+      let pricedBy: PricedBy = priced.pricedBy;
+      const result = await deps.conversationCalls.store.settleAtomic({
+        callId: callId.data,
+        exchangeId: report.exchangeId,
+        usage: report.usage,
+        priceFor: (call) => {
+          if (!call.unmetered) return priced;
+          pricedBy = "unmetered";
+          return { costUsd: 0 };
+        },
+      });
+      switch (result.outcome) {
+        case "unknown_call":
+          throw new WorkerGatewayError(404, "NOT_FOUND", "No such call");
+        case "conflict":
+          throw new WorkerGatewayError(
+            409,
+            "IDEMPOTENCY_CONFLICT",
+            "That call is another exchange's or was reported with other usage",
+          );
+        default:
+          return { costUsd: result.costUsd, pricedBy };
+      }
     },
 
     async nextInput(
