@@ -187,6 +187,7 @@ describe("joining a bound channel", () => {
   test("Slack not finding the channel tells the store; a channel it changed takes no membership, and other errors tell it nothing", async () => {
     const recorded: [string, SurfaceMembership][] = [];
     const told: string[] = [];
+    const asked: (number | undefined)[] = [];
     let verdict: "gone" | "left" | "unchanged" = "gone";
     const joinerFor = (error: Error) =>
       createSlackChannelJoiner({
@@ -196,8 +197,9 @@ describe("joining a bound channel", () => {
           },
           botRemovedFrom: async () => false,
           lastLeaveNoted: async () => null,
-          channelNotFound: async (installation, channelId) => {
+          channelNotFound: async (installation, channelId, askedAt) => {
             told.push(`${installation}:${channelId}`);
+            asked.push(askedAt);
             return verdict;
           },
         },
@@ -223,6 +225,9 @@ describe("joining a bound channel", () => {
       error: "channel_not_found",
     });
     expect(told).toEqual([`${INSTALLATION}:C1`]);
+    // When Slack was asked, so a join noted since outdates the answer.
+    expect(asked[0]).toBeGreaterThan(0);
+    expect(asked[0]).toBeLessThanOrEqual(Date.now() * 1000);
     expect(recorded).toEqual([]);
     // A private channel the bot never joined stays as it was: its membership
     // is recorded as before.
@@ -436,6 +441,7 @@ describe("the bot's invite", () => {
     overtakenAfterCheck = false,
   ) {
     const lifecycle: [string, number | null][] = [];
+    const joinKinds: unknown[] = [];
     const asked: string[] = [];
     const demoted: string[] = [];
     const recorded: [string, SurfaceMembership][] = [];
@@ -477,8 +483,9 @@ describe("the bot's invite", () => {
             channelKind: "private_channel",
           } as SurfaceBindingRecord;
         },
-        recordJoin: async (_installation, channelId, id, at) => {
+        recordJoin: async (_installation, channelId, id, at, kind) => {
           lifecycle.push([channelId, at]);
+          joinKinds.push(kind);
           if (!overtakenAfterCheck) {
             recorded.push([id, { state: "joined", error: null }]);
           }
@@ -516,6 +523,7 @@ describe("the bot's invite", () => {
       asked,
       demoted,
       lifecycle,
+      joinKinds,
     };
   }
 
@@ -542,6 +550,21 @@ describe("the bot's invite", () => {
     );
     expect(h.recorded).toEqual([["b1", { state: "joined", error: null }]]);
     expect(h.welcomed).toEqual([AGENT]);
+  });
+
+  test("a deleted public channel's bot joining it again tells the store the kind Slack reports now, so one turned private is not put back in use", async () => {
+    const h = handler({
+      home: false,
+      status: "gone",
+      channelKind: "public_channel",
+    });
+    await h.handle(
+      claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
+    );
+    expect(h.joinKinds).toEqual(["private_channel"]);
+    // The ready-only demotion does not run on a gone binding: the store's
+    // join decides.
+    expect(h.demoted).toEqual([]);
   });
 
   test("a bound channel that is not home is marked joined, with no welcome", async () => {

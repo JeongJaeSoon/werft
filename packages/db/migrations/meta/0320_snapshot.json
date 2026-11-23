@@ -1,5 +1,5 @@
 {
-  "id": "6ef98ea4-42a4-4650-a35d-27e59379a389",
+  "id": "d0bb266d-f79f-4f7f-99ee-f6c91b04a040",
   "prevId": "20819092-2b5b-487e-baf7-46081877949f",
   "version": "7",
   "dialect": "postgresql",
@@ -5421,31 +5421,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "channel_state": {
-          "name": "channel_state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "channel_state_us": {
-          "name": "channel_state_us",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "channel_name": {
-          "name": "channel_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "channel_name_us": {
-          "name": "channel_name_us",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5512,14 +5487,6 @@
         "conversations_kind_check": {
           "name": "conversations_kind_check",
           "value": "\"conversations\".\"kind\" IN ('channel','dm')"
-        },
-        "conversations_channel_state_check": {
-          "name": "conversations_channel_state_check",
-          "value": "\"conversations\".\"channel_state\" IN ('active','archived','deleted') AND (\"conversations\".\"kind\" = 'channel' OR (\"conversations\".\"channel_state\" = 'active' AND \"conversations\".\"channel_state_us\" IS NULL AND \"conversations\".\"channel_name\" IS NULL AND \"conversations\".\"channel_name_us\" IS NULL))"
-        },
-        "conversations_channel_name_check": {
-          "name": "conversations_channel_name_check",
-          "value": "\"conversations\".\"channel_name\" IS NULL OR char_length(\"conversations\".\"channel_name\") BETWEEN 1 AND 80"
         },
         "conversations_place_check": {
           "name": "conversations_place_check",
@@ -14350,6 +14317,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "parent_conversation_id": {
+          "name": "parent_conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "takeover_required_at": {
           "name": "takeover_required_at",
           "type": "timestamp with time zone",
@@ -14718,6 +14691,15 @@
           "tableFrom": "sessions",
           "tableTo": "api_keys",
           "columnsFrom": ["created_by_api_key_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "sessions_parent_conversation_id_conversations_id_fk": {
+          "name": "sessions_parent_conversation_id_conversations_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "conversations",
+          "columnsFrom": ["parent_conversation_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -15802,7 +15784,7 @@
         },
         "slack_inbound_events_drop_reason_check": {
           "name": "slack_inbound_events_drop_reason_check",
-          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left','channel_gone')"
+          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left')"
         },
         "slack_inbound_events_payload_check": {
           "name": "slack_inbound_events_payload_check",
@@ -16977,7 +16959,7 @@
         },
         "surface_bindings_status_check": {
           "name": "surface_bindings_status_check",
-          "value": "\"surface_bindings\".\"status\" IN ('ready','pending_approval','left','gone','partial','failed','revoked')"
+          "value": "\"surface_bindings\".\"status\" IN ('ready','pending_approval','left','partial','failed','revoked')"
         },
         "surface_bindings_membership_check": {
           "name": "surface_bindings_membership_check",
@@ -16998,10 +16980,6 @@
         "surface_bindings_pending_check": {
           "name": "surface_bindings_pending_check",
           "value": "\"surface_bindings\".\"status\" <> 'pending_approval' OR (\"surface_bindings\".\"surface\" = 'slack' AND \"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"external_surface_id\" IS NOT NULL AND \"surface_bindings\".\"surface_kind\" = 'private_channel' AND NOT \"surface_bindings\".\"home\")"
-        },
-        "surface_bindings_gone_check": {
-          "name": "surface_bindings_gone_check",
-          "value": "\"surface_bindings\".\"status\" <> 'gone' OR (\"surface_bindings\".\"surface\" = 'slack' AND \"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"external_surface_id\" IS NOT NULL AND COALESCE(\"surface_bindings\".\"surface_kind\" IN ('public_channel', 'private_channel'), false) AND NOT \"surface_bindings\".\"home\" AND \"surface_bindings\".\"approved_at\" IS NULL AND \"surface_bindings\".\"approved_lifecycle_us\" IS NULL)"
         },
         "surface_bindings_left_check": {
           "name": "surface_bindings_left_check",

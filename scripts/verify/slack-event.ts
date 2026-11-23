@@ -14,7 +14,8 @@ const [agentId, mode, channel = "C0VERIFY", seq = "1", parent, text] =
   process.argv.slice(1);
 // `mention` and `plain` are top-level posts by U0MOCK in `channel`, with
 // or without a mention; each sequence number is its own event and thread.
-// `reply` is an unmentioned post in the thread `parent` opened.
+// `reply` is an unmentioned post in the thread `parent` opened. `plain`
+// to a D… channel is U0MOCK's DM to the bot.
 // `bot-mention` is the same mention from another app's bot U0REVIEWBOT (seed
 // it with /fake/users first); with `parent` it is a reply in that thread.
 const botMention = mode === "bot-mention";
@@ -228,7 +229,10 @@ try {
                     : mode === "plain" || mode === "reply"
                       ? {
                           type: "message",
-                          channel_type: "channel",
+                          // A D… channel is U0MOCK's DM with the bot.
+                          channel_type: channel.startsWith("D")
+                            ? "im"
+                            : "channel",
                           user: "U0MOCK",
                           channel,
                           ts,

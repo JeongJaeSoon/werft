@@ -166,6 +166,7 @@ export function createSlackMemberJoinedHandler(deps: {
       channel,
       binding.id,
       at,
+      kind,
     );
     if (!recorded) return;
     if (binding.home && binding.status === "ready") {
@@ -286,6 +287,7 @@ export function createSlackChannelJoiner(deps: {
         (installationId !== null &&
           (await deps.bindings.botRemovedFrom(installationId, channelId)))
       );
+    const askedAt = Date.now() * 1000;
     const membership = await joinSlackChannel(
       deps.slack,
       botToken,
@@ -298,8 +300,11 @@ export function createSlackChannelJoiner(deps: {
     if (
       membership?.error === "channel_not_found" &&
       installationId !== null &&
-      (await deps.bindings.channelNotFound(installationId, channelId)) !==
-        "unchanged"
+      (await deps.bindings.channelNotFound(
+        installationId,
+        channelId,
+        askedAt,
+      )) !== "unchanged"
     ) {
       return membership;
     }

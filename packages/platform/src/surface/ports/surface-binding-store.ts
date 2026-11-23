@@ -174,13 +174,16 @@ export interface SurfaceBindingStore {
    * goes to `pending_approval` (a public `gone` one to `ready`) here (reason `rejoined_channel`) only for a join
    * stamped strictly after the last noted leave; a tie, or a join with no
    * time, cannot be ordered against that leave, so the binding stays `left`
-   * and the call is false.
+   * and the call is false. `kind` is what Slack says the channel is now: a
+   * public `gone` binding whose channel turned private waits for approval as
+   * a private channel (reason `channel_now_private`) instead.
    */
   recordJoin(
     installationId: string,
     channelId: string,
     bindingId: string,
     at: number | null,
+    kind?: "public_channel" | "private_channel",
   ): Promise<boolean>;
   /**
    * The bot left a channel, or was removed from it, at `at`. When this is
@@ -208,7 +211,9 @@ export interface SurfaceBindingStore {
    * inactive, no longer home, its approval cleared, a `set_surface_binding`
    * receipt (reason `channel_deleted`); mode, ceiling and kind stay. The
    * deletion is noted as the channel's leave whatever its order, so a join
-   * stamped before it changes nothing. False when no binding changed.
+   * stamped before it changes nothing; a join noted after it (a retried
+   * deletion arriving late) keeps the binding as that join left it. False
+   * when no binding changed.
    */
   channelDeleted(
     installationId: string,
@@ -221,11 +226,14 @@ export interface SurfaceBindingStore {
    * A private channel hides from a bot outside it, deleted or not: a `ready`
    * binding recorded as `joined` becomes `left`, as if its `group_left`
    * was lost, and any other one stays. Both are noted as a leave with no
-   * time. Receipts say `channel_not_found`.
+   * time. Receipts say `channel_not_found`. `askedAt` is when the caller
+   * asked Slack, in microseconds: a join noted after it means the bot came in
+   * since, so the answer is older than that and nothing changes.
    */
   channelNotFound(
     installationId: string,
     channelId: string,
+    askedAt?: number,
   ): Promise<"gone" | "left" | "unchanged">;
   /**
    * Whether the newest join or leave noted for the channel is a leave (a

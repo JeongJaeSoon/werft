@@ -14,12 +14,19 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **에이전트 앱이 Slack 채널의 보관·보관 해제·이름 변경·삭제 이벤트 여덟 개를 받고, 삭제된 채널의 binding을 새 상태 `gone`으로 둔다**(JeongJaeSoon/werft#PR). migration `0320_channel_lifecycle`이 대화에 채널 상태·이름 칸을 더하고 binding 상태에 `gone`을, inbox 버림 이유에 `channel_gone`을 더한다.
+- **에이전트 앱이 Slack 채널의 보관·보관 해제·이름 변경·삭제 이벤트 여덟 개를 받고, 삭제된 채널의 binding을 새 상태 `gone`으로 둔다**(JeongJaeSoon/werft#2047). migration `0321_channel_lifecycle`이 대화에 채널 상태·이름 칸을 더하고 binding 상태에 `gone`을, inbox 버림 이유에 `channel_gone`을 더한다.
   - **이미 만든 에이전트 앱은 콘솔 Slack 탭의 "다시 확인"(`POST /v1/agents/{id}/slack/app/events/recheck`)으로 manifest를 다시 보내야** 새 이벤트를 받는다. 보내지 않으면 지금처럼 삭제된 채널의 binding이 `ready`로 남는다(게시가 `channel_not_found`를 받으면 그때 바뀐다). 새 scope는 없다.
   - 삭제된 Slack 채널을 에이전트의 채널 목록에 "삭제됨"으로 보인다. `gone` 채널은 글을 받지도 보내지도 않는다. 살아 있는 채널의 멘션·세션·답은 그대로다.
   - 이벤트를 놓친 채널도 게시나 채널 조회의 `channel_not_found`로 공개 채널은 `gone`, bot이 있던 비공개 채널은 `left`가 된다. 429·Slack 장애·token 오류로는 바뀌지 않는다.
   - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 `status`에 `gone`이 생긴다.
   - 칸과 값을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 다만 되돌린 이미지는 `gone` binding을 `left`처럼 막지 못하고 보통 줄로 읽는다.
+
+- **migration `0320_session_parent_conversation`이 세션에 부모 대화 칸 `parent_conversation_id`(nullable)를 더하고, api가 기동할 때마다 Slack에 묶인 세션의 부모 대화를 채운다**(JeongJaeSoon/werft#2045). 따로 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
+  - 새 Slack 세션은 만들 때 채운다. 채널 스레드의 세션은 그 채널의 메인 대화, DM 세션은 그 사람의 DM 메인 대화다. link가 없는 세션(웹의 "새 세션", 세션 API)은 비워 둔다.
+  - 있던 세션은 api 기동 때 한 번씩 도는 정리가 묶음으로 채운다. 닫히거나 폐기된 link의 세션도 채운다. 세션마다 비어 있을 때만 채우므로 다시 기동해도, 여러 api가 함께 기동해도 결과가 같고, 중간에 멈추면 다음 기동이 남은 세션부터 잇는다.
+  - DM 세션의 사람은 그 세션을 연 사람, 없거나 워크스페이스 멤버가 아니면 link를 만든 사람이다. 새 세션이 만들 때 고르는 사람과 같다. 둘 다 없으면 부모를 비워 두고 로그 `Linked DM sessions left without a parent conversation`에 이유별 수(`no_person`·`no_membership`)를 남긴다. 채운 수는 `Parent conversations filled`, 채우지 못한 세션은 경고 로그에 세션 id와 함께 남고 다음 기동에서 다시 시도한다.
+  - 세션의 요청자 칸(`requester_kind`)은 채우지 않는다.
+  - 칸은 `NOT VALID`로 더한 외래 키를 따로 검증하므로 `sessions`를 오래 잠그지 않는다. 지원 창 안의 이미지로 되돌려도 되고, 그동안 만든 Slack 세션은 부모 없이 생겼다가 다시 올리면 채워진다.
 
 - **migration `0318_provider_exchange_budget`이 provider 호출 원장 `provider_exchanges`에 예산 계정 칸 `budget_root_kind`·`budget_account_id`를 nullable로 더한다**(JeongJaeSoon/werft#2044). 따로 할 일은 없고 동작도 그대로다.
   - 이 릴리스에서는 어떤 호출도 계정을 넘기지 않으므로 두 칸은 비어 있고, 세션 비용 한도와 토큰 한도는 지금처럼 동작한다.

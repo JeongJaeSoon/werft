@@ -1622,6 +1622,13 @@ export const sessions = pgTable(
     // The surface the creating request came from. Rows from before it got
     // it from their creator columns where those prove it (0158), else null.
     channel: text().$type<SurfaceKind>(),
+    // The main conversation a Slack session belongs to: its channel's, or
+    // for a DM its person's. Null on a session with no link (a standalone
+    // one) and on one whose DM person cannot be found. Rows from before it
+    // are filled by fillSessionParents at host start.
+    parentConversationId: uuid("parent_conversation_id").references(
+      (): AnyPgColumn => conversations.id,
+    ),
     takeoverRequiredAt: timestamp("takeover_required_at", {
       withTimezone: true,
     }),

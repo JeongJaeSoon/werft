@@ -30,6 +30,7 @@ import {
   verifySlackInstallation,
 } from "../surface/slack-installations.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
+import { waitsOn } from "../testing/lock-wait.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentIdentityStore } from "./agent-identities.ts";
 import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
@@ -1581,6 +1582,151 @@ integration("surface bindings on PostgreSQL", () => {
         expect(await store().channelNotFound(installationId, "C0NONE")).toBe(
           "unchanged",
         );
+      });
+
+      test("a public channel deleted and then joined as a private one waits for approval as private, not in use", async () => {
+        const { owner, agentId, installationId } = await approved();
+        const open = await setAs(owner, agentId, { channelId: "C0TURN" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        await store().channelDeleted(installationId, "C0TURN", at(3));
+        expect(
+          await store().observeLifecycle(installationId, "C0TURN", at(5)),
+        ).toBe(true);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "C0TURN",
+            open.binding.id,
+            at(5),
+            "private_channel",
+          ),
+        ).toBe(true);
+        expect(
+          await store().findLiveSlackChannel(installationId, "C0TURN"),
+        ).toMatchObject({
+          status: "pending_approval",
+          channelKind: "private_channel",
+          approvedAt: null,
+          home: false,
+        });
+        const asked = (await db.select().from(receipts)).filter(
+          (row) =>
+            row.operation === "request_surface_binding" &&
+            (row.targetRef as { resource?: { id?: string } }).resource?.id ===
+              open.binding.id,
+        );
+        expect(asked.map((row) => row.result)).toEqual([
+          expect.objectContaining({ reason: "channel_now_private" }),
+        ]);
+      });
+
+      test("a channel_not_found asked before the bot's join changes nothing; one asked after it leaves the channel", async () => {
+        // Approved before the bot was invited; the join then writes only the
+        // membership, so the binding's revision does not move.
+        const { installationId, binding } = await approved();
+        expect(
+          await store().observeLifecycle(installationId, "G0SECRET", at(5)),
+        ).toBe(true);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "G0SECRET",
+            binding.id,
+            at(5),
+          ),
+        ).toBe(true);
+        const joined = await store().findLiveSlackChannel(
+          installationId,
+          "G0SECRET",
+        );
+        expect(joined).toMatchObject({
+          status: "ready",
+          revision: binding.revision,
+          membership: { state: "joined", error: null },
+        });
+        expect(
+          await store().channelNotFound(installationId, "G0SECRET", at(4)),
+        ).toBe("unchanged");
+        expect(
+          await store().findLiveSlackChannel(installationId, "G0SECRET"),
+        ).toMatchObject({ status: "ready", revision: binding.revision });
+        expect(
+          await store().channelNotFound(installationId, "G0SECRET", at(6)),
+        ).toBe("left");
+      });
+
+      test("a deletion retried after a newer join keeps the channel as the join left it", async () => {
+        const { owner, agentId, installationId } = await approved();
+        const open = await setAs(owner, agentId, { channelId: "C0BACK" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        expect(
+          await store().channelDeleted(installationId, "C0BACK", at(3)),
+        ).toBe(true);
+        expect(
+          await store().observeLifecycle(installationId, "C0BACK", at(5)),
+        ).toBe(true);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "C0BACK",
+            open.binding.id,
+            at(5),
+          ),
+        ).toBe(true);
+        expect(
+          (await store().findLiveSlackChannel(installationId, "C0BACK"))
+            ?.status,
+        ).toBe("ready");
+        expect(
+          await store().channelDeleted(installationId, "C0BACK", at(3)),
+        ).toBe(false);
+        expect(
+          (await store().findLiveSlackChannel(installationId, "C0BACK"))
+            ?.status,
+        ).toBe("ready");
+      });
+
+      test("channel_not_found takes the channel's event record before the binding, as a join does", async () => {
+        const { owner, agentId, installationId } = await approved();
+        const open = await setAs(owner, agentId, { channelId: "C0RACE" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+
+        const holder = await pool.connect();
+        try {
+          await holder.query("BEGIN");
+          await holder.query(
+            `INSERT INTO slack_channel_lifecycle (installation_id, channel_id, last_event_us)
+             VALUES ($1, $2, 0)
+             ON CONFLICT (installation_id, channel_id) DO UPDATE
+               SET last_event_us = slack_channel_lifecycle.last_event_us`,
+            [installationId, "C0RACE"],
+          );
+          const pid = (await holder.query("SELECT pg_backend_pid() AS pid"))
+            .rows[0].pid as number;
+          let done = false;
+          const pending = store()
+            .channelNotFound(installationId, "C0RACE")
+            .finally(() => {
+              done = true;
+            });
+          expect(await waitsOn(db, pid, () => done)).toBe(true);
+          // Waiting on the record, it holds no lock on the binding yet.
+          const probe = await pool.connect();
+          try {
+            await probe.query("BEGIN");
+            await probe.query(
+              "SELECT 1 FROM surface_bindings WHERE id = $1 FOR UPDATE NOWAIT",
+              [open.binding.id],
+            );
+            await probe.query("ROLLBACK");
+          } finally {
+            probe.release();
+          }
+          await holder.query("COMMIT");
+          expect(await pending).toBe("gone");
+        } finally {
+          holder.release();
+        }
       });
 
       test("a private channel the bot never joined keeps its status on channel_not_found", async () => {

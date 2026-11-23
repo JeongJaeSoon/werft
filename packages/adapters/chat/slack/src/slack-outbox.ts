@@ -275,6 +275,8 @@ export async function drainSlackOutbox(deps: {
         return true;
       };
 
+      // When Slack is asked, so a join noted after it outdates its answer.
+      const askedAt = Date.now() * 1000;
       const outcome = await deliver({
         row: claim,
         attempts: claim.attempts,
@@ -301,6 +303,7 @@ export async function drainSlackOutbox(deps: {
         await deps.bindings?.channelNotFound(
           claim.installationId,
           claim.channelId,
+          askedAt,
         );
       }
     }

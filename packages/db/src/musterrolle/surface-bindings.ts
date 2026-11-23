@@ -447,12 +447,12 @@ export function createPostgresSurfaceBindingStore(
         ? ((await noteOf(db, installationId.toLowerCase(), channelId))?.leave ??
           null)
         : null,
-    recordJoin: (installationId, channelId, bindingId, at) =>
-      recordJoin(db, installationId, channelId, bindingId, at),
+    recordJoin: (installationId, channelId, bindingId, at, kind) =>
+      recordJoin(db, installationId, channelId, bindingId, at, kind),
     channelDeleted: (installationId, channelId, at) =>
       channelDeleted(db, installationId, channelId, at),
-    channelNotFound: (installationId, channelId) =>
-      channelNotFound(db, installationId, channelId),
+    channelNotFound: (installationId, channelId, askedAt) =>
+      channelNotFound(db, installationId, channelId, askedAt),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
     async setMembership(bindingId, membership, expected, leaveNoted) {
@@ -731,6 +731,7 @@ async function recordJoin(
   channelId: string,
   bindingId: string,
   at: number | null,
+  kind?: "public_channel" | "private_channel",
 ): Promise<boolean> {
   if (!UUID.test(installationId) || !UUID.test(bindingId)) return false;
   return db.transaction(async (tx) => {
@@ -774,10 +775,22 @@ async function recordJoin(
       if (at === null || (noted?.leave != null && at <= noted.leave)) {
         return false;
       }
-      if (current.channelKind === "public_channel") {
+      const nowPrivate =
+        current.channelKind === "public_channel" && kind === "private_channel";
+      if (current.channelKind === "public_channel" && !nowPrivate) {
         await reopenGone(tx, current);
       } else {
-        await sendBackToApproval(tx, id, "rejoined_channel");
+        if (nowPrivate) {
+          await tx
+            .update(surfaceBindings)
+            .set({ surfaceKind: "private_channel" })
+            .where(eq(surfaceBindings.id, id));
+        }
+        await sendBackToApproval(
+          tx,
+          id,
+          nowPrivate ? "channel_now_private" : "rejoined_channel",
+        );
       }
     }
     await tx
@@ -1033,7 +1046,8 @@ async function channelDeleted(
     // joined again: a join stamped before it, arriving late, revives nothing.
     if (at === null) await noteUntimedLeave(tx, installation, channelId);
     else {
-      await tx.execute(sql`
+      const [noted] = rowsOf<{ last_join_us: string | number | null }>(
+        await tx.execute(sql`
         INSERT INTO ${slackChannelLifecycle} (installation_id, channel_id,
           last_event_us, last_leave_us)
         VALUES (${installation}, ${channelId}, ${at}::bigint, ${at}::bigint)
@@ -1042,7 +1056,14 @@ async function channelDeleted(
                 EXCLUDED.last_event_us),
               last_leave_us = GREATEST(
                 COALESCE(${slackChannelLifecycle.lastLeaveUs}, 0),
-                EXCLUDED.last_leave_us)`);
+                EXCLUDED.last_leave_us)
+        RETURNING last_join_us`),
+      );
+      // A join noted after the deletion (this one retried, arriving late)
+      // brought the channel back: the binding stays as that join left it.
+      if (noted?.last_join_us != null && Number(noted.last_join_us) > at) {
+        return false;
+      }
     }
     const current = await lockBinding(tx, channelOf(installation, channelId));
     if (!current || !ACTIVE_OR_LEFT.has(current.status)) return false;
@@ -1055,10 +1076,18 @@ async function channelNotFound(
   db: Database,
   installationId: string,
   channelId: string,
+  askedAt?: number,
 ): Promise<"gone" | "left" | "unchanged"> {
   if (!UUID.test(installationId)) return "unchanged";
   const installation = installationId.toLowerCase();
   return db.transaction(async (tx) => {
+    // The channel's event record first, then the binding, as joins and
+    // deletions take them.
+    const noted = await noteOf(tx, installation, channelId, { lock: true });
+    // The bot joined after Slack was asked: the answer is out of date.
+    if (askedAt !== undefined && noted?.join != null && noted.join > askedAt) {
+      return "unchanged";
+    }
     const current = await lockBinding(tx, channelOf(installation, channelId));
     if (!current) return "unchanged";
     // Slack shows a public channel to a bot outside it, so not finding one

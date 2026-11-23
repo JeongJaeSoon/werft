@@ -11,6 +11,7 @@ import type {
   AgentIdentityStore,
   AgentStore,
   BotTurnStore,
+  Conversation,
   ConversationStore,
   InboundInputReceipt,
   LinkedAccountStore,
@@ -587,6 +588,17 @@ export function createSlackSessionHandler(
           })
       ).link;
     }
+    const place = {
+      dm,
+      personUserId: decision.actorUserId,
+      channelId: event.channel,
+    };
+    // Found once: the new session's parent and the input's topic share it.
+    let lookup: Promise<Conversation | null> | undefined;
+    const conversation = () => {
+      lookup ??= conversationOf(place, claim.teamId, agent);
+      return lookup;
+    };
     // Once the session took the turn it counts, whatever fails after.
     let accepted = false;
     let turn: { sessionId: string; sequence: number };
@@ -600,6 +612,7 @@ export function createSlackSessionHandler(
           link,
           message,
           dm,
+          await conversation(),
           slackMessage,
           () => {
             accepted = true;
@@ -659,11 +672,12 @@ export function createSlackSessionHandler(
     // Beside the turn, not before it: the inbox row's completion takes it.
     return inputOf(
       turn,
-      { dm, personUserId: decision.actorUserId, channelId: event.channel },
+      place,
       claim.teamId,
       threadTs,
       event.ts,
       agent,
+      await conversation(),
     );
   };
 
@@ -675,11 +689,27 @@ export function createSlackSessionHandler(
     threadTs: string,
     ts: string,
     agent: { workspaceId: string; agentId: string },
+    found?: Conversation | null,
   ): Promise<InboundInputReceipt> {
-    if (place.dm && place.personUserId === null) {
+    const conversation = found ?? (await conversationOf(place, teamId, agent));
+    if (conversation === null) {
       throw new Error("A Slack DM turn was taken with no person");
     }
-    const conversation = await deps.conversations.findOrCreateConversation(
+    const topic = await deps.conversations.findOrCreateThreadTopic(
+      conversation.id,
+      { teamId, channelId: place.channelId, threadTs },
+    );
+    return { topicId: topic.id, channelId: place.channelId, ts, turn };
+  }
+
+  /** The thread's main conversation; none for a DM with no person. */
+  async function conversationOf(
+    place: { dm: boolean; personUserId: string | null; channelId: string },
+    teamId: string,
+    agent: { workspaceId: string; agentId: string },
+  ): Promise<Conversation | null> {
+    if (place.dm && place.personUserId === null) return null;
+    return deps.conversations.findOrCreateConversation(
       place.dm
         ? {
             kind: "dm",
@@ -695,11 +725,6 @@ export function createSlackSessionHandler(
             channelId: place.channelId,
           },
     );
-    const topic = await deps.conversations.findOrCreateThreadTopic(
-      conversation.id,
-      { teamId, channelId: place.channelId, threadTs },
-    );
-    return { topicId: topic.id, channelId: place.channelId, ts, turn };
   }
 
   /**
@@ -723,6 +748,7 @@ export function createSlackSessionHandler(
     link: SessionLinkRecord,
     message: string,
     dm: boolean,
+    parent: Conversation | null,
     slackMessage: SlackMessageRef,
     onCreated: () => void,
   ): Promise<{ sessionId: string; sequence: number }> {
@@ -733,6 +759,7 @@ export function createSlackSessionHandler(
         message,
       },
       ...(dm ? { shareScope: "private" as const } : {}),
+      ...(parent === null ? {} : { parentConversationId: parent.id }),
       slackMessage,
     });
     onCreated();

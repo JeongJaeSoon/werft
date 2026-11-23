@@ -262,6 +262,7 @@ async function drainFixture(
   const messages: Parameters<SlackBotSender["postMessage"]>[1][] = [];
   const settlements: SlackOutboxSettle[] = [];
   const notFound: string[] = [];
+  const askedAt: (number | undefined)[] = [];
   const batches = [[row], []];
   const outbox: SlackOutboxStore = {
     enqueue: async (entry) => {
@@ -313,8 +314,9 @@ async function drainFixture(
     botToken,
     delivery: createRowDelivery({ slack, botToken, consoleOrigin }),
     bindings: {
-      channelNotFound: async (installationId, channelId) => {
+      channelNotFound: async (installationId, channelId, asked) => {
         notFound.push(`${installationId}:${channelId}`);
+        askedAt.push(asked);
         return "gone";
       },
     },
@@ -325,7 +327,7 @@ async function drainFixture(
     deadline: 1_000,
     now: () => 0,
   });
-  return { pass, effects, messages, settlements, notFound };
+  return { pass, effects, messages, settlements, notFound, askedAt };
 }
 
 describe("outbox policy wiring without SQL", () => {
@@ -428,6 +430,7 @@ describe("outbox policy wiring without SQL", () => {
   );
 
   test("a send Slack answers channel_not_found fails and tells the binding store; 429, an outage or a token error does not", async () => {
+    const before = Date.now() * 1000;
     const lost = await drainFixture(claim(), [
       response({ body: { ok: false, error: "channel_not_found" } }),
     ]);
@@ -435,6 +438,9 @@ describe("outbox policy wiring without SQL", () => {
       { status: "failed", errorCode: "channel_not_found" },
     ]);
     expect(lost.notFound).toEqual(["installation-1:C0OPS"]);
+    // When Slack was asked, so the store can tell a join noted since.
+    expect(lost.askedAt[0]).toBeGreaterThanOrEqual(before);
+    expect(lost.askedAt[0]).toBeLessThanOrEqual(Date.now() * 1000);
     // A DM has no binding of its own to change.
     const dm = await drainFixture(claim({ channelId: "D0PERSON" }), [
       response({ body: { ok: false, error: "channel_not_found" } }),
