@@ -188,8 +188,8 @@ release가 처음 배포되면 home 채널에 `안녕하세요, <에이전트 �
 에이전트 앱은 채널의 보관(`channel_archive`·`group_archive`), 보관 해제(`channel_unarchive`·`group_unarchive`), 이름 변경(`channel_rename`·`group_rename`), 삭제(`channel_deleted`·`group_deleted`) 이벤트를 받는다. `channel_*`은 공개 채널, `group_*`은 비공개 채널의 것이다. 앱이 이미 가진 scope로 오는 이벤트라 새 scope는 없다. Slack 문서로는 이미 가진 scope의 이벤트를 더하는 데 재설치가 필요 없다. 이 이벤트가 생기기 전에 만든 앱은 **다시 확인**(`POST /v1/agents/{id}/slack/app/events/recheck`)으로 manifest를 다시 보내야 받는다. 콘솔 없이 보내려면 API 컨테이너에서 `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>`를 실행한다. 다시 보낸 manifest가 설치에 없는 scope를 요청해 Slack이 권한이 바뀌었다고 답하면, 다시 확인의 응답(`reinstall_required: true`)과 콘솔 안내가 앱을 다시 설치하라고 알린다.
 
 - 보관·보관 해제·이름 변경은 그 채널의 대화에 상태(`active`·`archived`)와 새 이름만 적는다. 채널의 binding과 받기·답하기는 그대로다.
-- 채널이 삭제되면 그 채널의 binding이 `gone`이 된다. binding은 지우지 않고 남기며, 그 채널의 글을 받지 않고 그 채널로 아무것도 보내지 않는다. home이었으면 home이 풀리고 승인도 지워진다. 대화에는 `deleted`가 적힌다. 콘솔의 채널 목록에는 "삭제됨"으로 보인다.
-- 삭제 이벤트를 놓쳐도 게시나 채널 조회에 Slack이 `channel_not_found`로 답하면 공개 채널의 binding은 `gone`이 된다. Slack은 bot이 없는 비공개 채널에도 `channel_not_found`로 답해 삭제와 bot 제거를 가를 수 없으므로, bot이 들어가 있던 비공개 채널은 `left`로 둔다(`group_left`를 놓친 것과 같다). 초대를 기다리거나 승인을 기다리는 비공개 채널은 그대로 둔다. 429, Slack 장애, token 오류로는 상태가 바뀌지 않는다.
+- 채널이 삭제되면 그 채널의 binding이 `gone`이 된다. binding은 지우지 않고 남기며, 그 채널의 글을 받지 않고 그 채널로 아무것도 보내지 않는다. home이었으면 home이 풀리고 승인도 지워진다. 대화에는 `deleted`가 적힌다. 콘솔의 채널 목록에는 "삭제됨"으로 보인다. 그 채널의 채널 요약도 모든 버전의 이력과 함께 지운다. 요약은 채널에 든 에이전트가 같이 쓰는 한 벌이라, 에이전트마다 오는 삭제 이벤트 중 첫 것이 지우고 나머지는 지울 것이 없다. 관여 기록과 대화는 세션의 보존을 따라 남는다. 보관으로는 요약을 지우지 않는다.
+- 삭제 이벤트를 놓쳐도 게시나 채널 조회에 Slack이 `channel_not_found`로 답하면 공개 채널의 binding은 `gone`이 된다. Slack은 bot이 없는 비공개 채널에도 `channel_not_found`로 답해 삭제와 bot 제거를 가를 수 없으므로, bot이 들어가 있던 비공개 채널은 `left`로 둔다(`group_left`를 놓친 것과 같다). 초대를 기다리거나 승인을 기다리는 비공개 채널은 그대로 둔다. 429, Slack 장애, token 오류로는 상태가 바뀌지 않는다. `channel_not_found`로는 채널 요약을 지우지 않는다. bot이 다시 들어오면 되돌아가는 판정이기 때문이다.
 - `gone`인 채널에 bot이 다시 들어오면(`member_joined_channel`) 공개 채널은 사용 중으로, 비공개 채널은 승인 대기로 돌아온다. 공개였다가 그사이 비공개로 바뀐 채널은 비공개 채널로 승인을 기다린다.
 - 네 종류 모두 그 채널의 멤버 확인 캐시를 지운다.
 

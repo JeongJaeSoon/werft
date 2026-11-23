@@ -141,6 +141,28 @@ export async function dropChannelSummaryLinesOf(
   return gone;
 }
 
+/**
+ * Deletes the channel's summary: every version's lines, their sources and
+ * the summary row. The channel's context row stays, as its conversations
+ * point at it. Zero lines when it has none, so a second call changes nothing.
+ */
+export async function deleteChannelSummary(
+  tx: Database,
+  place: ChannelSummaryPlace,
+): Promise<{ lines: number }> {
+  if ((await lockSummary(tx, place, false)) === null) return { lines: 0 };
+  const lines = rowsOf(
+    await tx.execute(sql`
+      DELETE FROM channel_summary_lines
+      WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}
+      RETURNING id`),
+  ).length;
+  await tx.execute(sql`
+    DELETE FROM channel_summaries
+    WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}`);
+  return { lines };
+}
+
 export function createPostgresChannelSummaryStore(
   db: Database,
 ): ChannelSummaryStore {
@@ -420,19 +442,7 @@ export function createPostgresChannelSummaryStore(
     },
 
     async deleteChannel(place) {
-      return db.transaction(async (tx) => {
-        if ((await lockSummary(tx, place, false)) === null) return { lines: 0 };
-        const lines = rowsOf(
-          await tx.execute(sql`
-            DELETE FROM channel_summary_lines
-            WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}
-            RETURNING id`),
-        ).length;
-        await tx.execute(sql`
-          DELETE FROM channel_summaries
-          WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}`);
-        return { lines };
-      });
+      return db.transaction((tx) => deleteChannelSummary(tx, place));
     },
   };
 }
