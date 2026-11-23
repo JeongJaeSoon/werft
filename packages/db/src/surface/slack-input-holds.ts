@@ -95,9 +95,14 @@ export async function markMirrorUnconfirmed(
   inputIds: readonly ConversationInputId[],
 ) {
   if (inputIds.length === 0) return;
+  const ids = `{${[...new Set(inputIds)].join(",")}}`;
+  // In id order, as every path that takes several inputs does.
+  await tx.execute(sql`
+    SELECT 1 FROM conversation_inputs
+    WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`);
   await tx.execute(sql`
     UPDATE conversation_inputs SET slack_mirror = 'unconfirmed'
-    WHERE id = ANY(${`{${inputIds.join(",")}}`}::uuid[])
+    WHERE id = ANY(${ids}::uuid[])
       AND slack_mirror = 'pending' AND slack_ts IS NULL`);
 }
 

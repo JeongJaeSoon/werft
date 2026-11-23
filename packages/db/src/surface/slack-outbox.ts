@@ -1531,9 +1531,14 @@ export function createPostgresSlackOutboxStore(
             inputId: t.inputId,
           });
         // A mirror closed here never reached Slack: what it held closes too.
-        for (const inputId of new Set(
-          closed.flatMap((row) => (row.inputId === null ? [] : [row.inputId])),
-        )) {
+        // In id order, as every path that takes several inputs does.
+        for (const inputId of [
+          ...new Set(
+            closed.flatMap((row) =>
+              row.inputId === null ? [] : [row.inputId],
+            ),
+          ),
+        ].sort()) {
           await closeHeldOfFailedMirror(tx, inputId as ConversationInputId);
         }
         return closed.map(({ inputId: _, ...row }) => row);
