@@ -14,12 +14,17 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0329_slack_outbox_voided_by_delete`가 outbox 상태 `voided_by_delete`와 칸 `sources_turn`을 더하고, Slack에서 지운 글에 걸린 답과 턴을 막는다**(JeongJaeSoon/werft#2058). 따로 할 일은 없고, 지운 글이 없는 Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
+  - 출처(물려받은 것 포함)에 지운 글(묘비 포함)이 든 outbox 줄은 보내기 직전에 `voided_by_delete`(`error_code` `source_deleted`)로 끝나고 나가지 않는다. slack 역할이 `warn` 로그 `Slack send voided: a source was deleted`를 남긴다. 보내기 시작한 뒤의 삭제는 나간 글을 그대로 두고, 수정은 아무것도 막지 않는다.
+  - 지운 글로는 세션을 만들거나 턴을 넣지 않는다. Slack에는 안내를 올리지 않고 `warn` 로그 `Slack input refused by the session`(`code` `SOURCE_DELETED`)만 남는다.
+  - **보이는 변화**: 지운 Slack 글이 든 세션에 웹·API로 메시지를 보내면 409 `SOURCE_DELETED`로 거절된다.
+  - CHECK는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0328_conversation_calls`가 세션 없는 provider 호출(대화 호출)의 표 `conversation_calls`를 더하고, 세션 제목 짓기 호출과 실행 중인 턴이 없는 세션 호출을 그 세션을 만든 첫 턴의 예산 계정에 매긴다**(JeongJaeSoon/werft#2057). 따로 할 일은 없다.
   - 대화 호출은 토큰을 내기 전에 root의 계정에 그 호출의 최대 비용(요청 본문 바이트 상한과 `max_tokens`)을 예약하고, 토큰은 egress proxy를 지나는 Messages 호출 한 번에만 쓰인다. 2분 안에 쓰이지 않은 토큰의 예약은 reconciler가 푼다(로그 `Conversation call reservations reconciled`, `released_count`). 이 릴리스에는 대화 호출을 내는 경로가 없어서 표는 비어 있다.
   - 한도를 정하지 않은 설치에서는 제목 짓기 호출과 턴 사이의 호출이 지금처럼 돈다. 한도를 넣으면 이 호출들도 세션을 만든 사람(또는 key)의 계정에서 판정되고, 넘으면 제목은 첫 메시지에서 자른 것이 그대로 남는다.
   - egress proxy가 provider 허가 요청에 헤더 `x-werft-exchange-id`를 붙인다. 앞선 API는 이 헤더를 무시한다. 대화 호출 토큰은 이 헤더가 있어야 허가되므로 api와 egress proxy를 함께 올린다.
   - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
-
 
 - **비공개 Slack 채널에서 시작한 세션은 새 공유 범위 `private_channel`로 생기고, 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보인다**(JeongJaeSoon/werft#2053). migration `0327_private_channel_share_scope`가 `session_shares`의 범위 CHECK에 `private_channel`을 더한다. 따로 할 일은 없다.
   - 보이는 변화: API key(개인 key·에이전트 key 모두, key 주인이 멤버여도)로는 이 세션이 목록에 없고 상세·turns·events·outputs·pending-requests가 `404`다. 판정 기록에는 이유 `private_channel_key`로 남는다. 채널을 나간 만든 사람과 멤버가 아닌 owner·admin도 못 본다(사유를 적은 감사 읽기는 된다. 관리 목록 `/v1/admin/sessions`에는 메타데이터만 `share_scope: private_channel`로 남고, 관리 종료는 채널 밖에서 `404`다). 공유 범위를 바꾸려 하면 409(`reason_code: private_channel_session`)다.

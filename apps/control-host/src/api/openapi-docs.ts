@@ -186,6 +186,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The pause has already committed its stop and can no longer be cancelled; wait for it, then resume.",
   TAKEOVER_REQUIRED:
     "The person who asked for the session was offboarded; it takes no input until an owner takes it over.",
+  SOURCE_DELETED:
+    "The session holds a Slack message that was deleted in Slack, so it takes no new turn.",
   ALREADY_EXISTS:
     "A resource with the same identity already exists; the operation names which field must be unique.",
   INVITE_USED: "The invite was already accepted and cannot be used again.",

@@ -49,6 +49,7 @@ export async function enqueueSlackInstructions(deps: {
       },
       dedupeKey: `instruction:${turn.sessionLinkId}:${turn.turnId}`,
       sources: turn.sources,
+      sourcesTurn: turn.turnId,
     });
   }
   return turns.length;
@@ -181,6 +182,7 @@ export async function enqueueSlackTurnAnswers(deps: {
         turn.turnId,
       ),
       sources: turn.sources,
+      sourcesTurn: turn.turnId,
     });
   }
   return turns.length;
@@ -229,6 +231,7 @@ export async function enqueueSlackPrompts(deps: {
         row.prompt.requestId,
       ),
       sources: row.sources,
+      sourcesTurn: row.sourcesTurn,
     });
   }
   return pending.length;

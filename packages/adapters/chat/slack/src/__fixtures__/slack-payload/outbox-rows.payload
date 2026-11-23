@@ -27,6 +27,7 @@
       ],
       "inherited": []
     },
+    "sourcesTurn": 1,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -46,6 +47,7 @@
     "slackAppId": "app-1",
     "slackUserId": null,
     "sources": null,
+    "sourcesTurn": 2,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -68,6 +70,7 @@
     "slackAppId": "app-1",
     "slackUserId": null,
     "sources": null,
+    "sourcesTurn": 3,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -89,6 +92,7 @@
     "slackAppId": "app-1",
     "slackUserId": null,
     "sources": null,
+    "sourcesTurn": 4,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -109,6 +113,7 @@
     "slackAppId": "app-1",
     "slackUserId": null,
     "sources": null,
+    "sourcesTurn": 5,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -221,6 +226,7 @@
     "slackAppId": "app-1",
     "slackUserId": null,
     "sources": null,
+    "sourcesTurn": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -369,6 +375,7 @@
     "slackAppId": "app-1",
     "slackUserId": null,
     "sources": null,
+    "sourcesTurn": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   }
