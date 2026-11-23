@@ -728,13 +728,7 @@ function GitHubSettings({
                 }),
             `${t("agentGitHub.status.pushApproval")} ${
               base
-                ? t(
-                    // A release without settings still asks a person,
-                    // whatever a first save would start from.
-                    data.github === null || base.push_approval
-                      ? "agentGitHub.on"
-                      : "agentGitHub.off",
-                  )
+                ? t(base.push_approval ? "agentGitHub.on" : "agentGitHub.off")
                 : "—"
             }`,
           ].join(" · ")}

@@ -1,5 +1,5 @@
 {
-  "id": "1b489a11-53dd-4691-8612-a6d20460367c",
+  "id": "a35323ff-c07f-43d7-8c97-030dc8aadba2",
   "prevId": "f64ab5ac-6c42-4896-8c14-187894b7610d",
   "version": "7",
   "dialect": "postgresql",
@@ -15197,12 +15197,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "source_deleted_at": {
-          "name": "source_deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "restore_attempt_id": {
           "name": "restore_attempt_id",
           "type": "text",
@@ -15740,6 +15734,12 @@
         },
         "auto_approve_grant_id": {
           "name": "auto_approve_grant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auto_approve_checks_grant_id": {
+          "name": "auto_approve_checks_grant_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false

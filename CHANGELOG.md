@@ -20,6 +20,21 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - `attention.code`는 `SOURCE_DELETED`이고, 메시지·재개·`start_fresh`·`retry_restore`는 `409 SOURCE_DELETED`로 거절된다. 닫기만 된다. 이유는 세션 이벤트 `source_deleted`로 남는다.
   - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 칸을 읽지 않으므로 멈춘 세션을 재개할 수 있게 된다.
 
+- **스킬의 자동 승인이 화면의 '자동 연동' 스위치로 바뀌고, migration `0331_reset_skill_auto_approve`가 이미 켜졌거나 요청 중이던 자동 승인을 모두 끄고 `skill_git_sources`에 칸 `auto_approve_checks_grant_id`를 더한다**(JeongJaeSoon/werft#2055). 업그레이드한 뒤 자동 연동을 쓸 스킬마다 스킬 상세의 GitHub 동기화 구역에서 다시 켜야 한다. 다시 켜지 않으면 새 버전이 승인 대기로 쌓인다. 끈 수는 migration 로그(`db.migrate.notice`)에 `0331: auto-approve turned off on N GitHub skill sources`로 남고, 끈 것이 없으면 아무 줄도 남지 않는다.
+  - 켜는 방법이 바뀌었다. 오너나 어드민 한 명이 화면에서 켜고 끈다. 다른 관리자의 동의는 필요 없다. 연동 대상이 브랜치이기만 하면 되고(태그와 커밋은 400 `not_branch`), GitHub의 브랜치 보호 규칙과 PR 리뷰는 보지 않는다.
+  - 켜 두면 고정 규칙 검사를 통과한 버전이 사람의 승인 없이 승인되어 현재 버전이 된다. 규칙에 걸린 버전만 승인 대기로 남는다. 켜는 순간에도 한 번 확인해, 승인 대기로 있던 버전(처음 등록한 v1 포함)이 규칙을 통과하면 승인한다.
+  - 그 브랜치에 push할 수 있는 사람과 App이 곧 스킬을 바꿀 수 있는 사람이 된다. 에이전트의 App이 그 저장소에 push할 수 있으면 에이전트도 포함된다. 누가 push할 수 있는지는 GitHub ruleset으로 정한다. 고정 규칙 검사는 스크립트가 조합하는 URL이나 base64 같은 내용을 걸러 내지 못한다.
+  - 자동 연동을 켜지 않은 스킬은 지금과 같다. 새 버전은 승인 대기로 들어오고 사람이 승인한다.
+  - API가 바뀐다. `PUT /v1/workspace/skills/{name}/sync/auto-approve`의 `action`은 `on`과 `off`만 받는다(`request`와 `consent`는 400). 응답의 `git.auto_approve`는 `{ state, enabled_by }`이고 `state`는 `off`나 `on`이다. `last_check.auto_approval`에서 `rule`과 `pull_request`가 빠지고, `reason`은 `checks_failed`와 `baseline_changed`만 남는다. `last_check.trigger.kind`에 `auto_approve`(자동 연동을 켤 때의 확인)가 더해진다. `PUT /v1/workspace/skills/{name}/sync`와 `…/sync/auto-approve`의 응답에 `check`가 더해진다. 그 호출이 돌린 확인이 끝났으면 `checked`, 돌고 있던 확인 뒤로 밀렸으면 `queued`, 확인을 돌리지 않았으면 null이다.
+  - 칸 하나를 더하고 값을 바꾸는 migration이라 지원 창 안의 이미지로 되돌려도 된다(옛 이미지는 그 칸을 읽지도 쓰지도 않는다). 되돌린 이미지는 옛 방식(두 관리자의 요청과 동의, 리뷰된 PR)으로 동작하고, 꺼진 설정은 꺼진 채로 남는다. 되돌린 이미지나 올리는 동안 아직 떠 있던 옛 서버가 옛 방식으로 켠 자동 승인, 그리고 옛 서버가 멈췄다 다시 켠 스킬의 자동 연동은 이 버전에서 꺼짐으로 읽히고 아무것도 승인하지 않는다(새 칸은 이 버전만 쓴다). 쓰려면 화면에서 다시 켠다.
+
+
+
+- **사람이 고른 적 없는 빈 값은 이제 GitHub push 승인을 묻지 않는다. 새 에이전트는 사람이 승인을 켜기 전까지 승인 없이 push한다**(JeongJaeSoon/werft#2061). migration은 없고 저장된 설정은 바꾸지 않는다. 판정을 읽는 방식만 바뀐다.
+  - 승인 없음으로 바뀌는 것: GitHub 설정을 저장하지 않은 에이전트와 github 설정이 없는 release(핀이 `push_approval: false`인 release 포함), 첨부 저장소 push 정책이 비어 있는(NULL) 설정. 에이전트 GitHub 탭과 `GET /v1/agents/{id}/github`의 `push_attached`도 이 경우 `allow`로 보인다.
+  - 그대로인 것: 사람이 켠 **push 전 사람 승인**, 정책 `ask`·`deny`, release 핀의 `push_approval: true`, 읽을 수 없는 설정(계속 사람에게 묻는다), push 승인과 정책 중 더 엄격한 쪽을 따르는 규칙.
+  - 올리는 즉시 이미 도는 세션의 다음 push부터 적용된다. 데모 설치에서는 25개 에이전트(NULL 행 9, 설정 없음 16)가 승인 없이 push하게 된다. 사람 승인을 계속 받을 에이전트는 올리기 전에 GitHub 탭에서 **push 전 사람 승인**을 켜고 저장한다.
+  - 지원 창 안의 옛 이미지로 되돌리면 빈 값이 다시 사람 승인으로 읽힌다(더 엄격해질 뿐이다).
 - **API key는 `private_channel` 세션에 쓰기·승인도 못 한다. 요청자가 채널을 나간 push는 지금 채널 멤버가 승인·거절한다**(JeongJaeSoon/werft#2062). migration은 없고 따로 할 일도 없다.
   - 보이는 변화: 개인 key·에이전트 key로 `private_channel` 세션에 메시지, 대기 요청 답, push 요청·승인·거절, PR 열기·댓글, workflow 실행, 중단·재개·종료·인계 등 `/v1/sessions/{id}` 아래 모든 경로를 부르면 `404`다(읽기는 JeongJaeSoon/werft#2053부터 `404`). 판정 기록의 이유는 `private_channel_key`다. 세션 안에서 에이전트가 요청하는 push, key로 만든 세션, 공개 채널 세션은 그대로다.
   - push를 요청한 사람(그 push를 요청한 턴의 사람. 사람이 없으면 세션을 맡은 사람, 곧 시작한 사람이나 넘겨받은 사람)이 세션의 비공개 채널을 모두 나가면, Slack 승인 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버 누구나 승인·거절할 수 있다. 결정 기록(`decided_by`)에는 누른 사람이 남는다. 나간 요청자는 결정할 수 없고, 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 카드는 채널 멤버 변화(`member_joined_channel`·`member_left_channel`) 때 다시 그려진다. 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Push requester's channel membership unconfirmed`를 남긴다.

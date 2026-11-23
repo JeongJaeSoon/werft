@@ -3159,7 +3159,7 @@ export interface paths {
         get?: never;
         /**
          * Pause or resume a GitHub skill's sync
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away. Each change writes an `update_extension_sync` receipt; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away, and `check` says whether that check ended (`checked`) or waits behind a running one (`queued`). Each change writes an `update_extension_sync` receipt; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
          */
@@ -3180,8 +3180,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Request, consent to or turn off a GitHub skill's auto-approve
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a new version itself when its commit came in through a reviewed pull request on a protected branch. One manager `request`s it and another `consent`s (403 `self_consent` for the requester while another manager can; a workspace's only manager may, and the receipt says so); `off` turns it off at once. A request and a consent each check GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit) and a ruleset or classic branch protection on it must require a pull request with at least one approving review (400 `protection_missing`; classic protection is read only when the App may read administration, so without it the rule counts as missing); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. A consent with nothing requested is 400 `auto_approve_not_requested`. While on, every check that makes a version reads the branch's rule and the pull requests of the commit: a merged pull request into that branch whose reviewers' last reviews include an approval by someone other than its author and no request for changes. The version is approved by the sync (an `approve_extension` receipt with who enabled and consented, the commit, the pull request and the rule); otherwise it stays `pending` and `last_check.auto_approval.reason` says why (`not_branch`, `protection_missing`, `no_reviewed_pull_request`, `github_unreachable`). Fixed-rule checks of the version against the last approved one hold it back too: a finding leaves it `pending` with `checks_failed` and the rules in `last_check.auto_approval.checks` (a script added, a large change, a new URL host, hidden Unicode, an instruction-like sentence, a changed description), and another version approved while they ran leaves it `pending` with `baseline_changed`. Only that skill stops; the other skills a push reaches go on. Paused sync never auto-approves, not even POST …/sync/check. Each change writes an `update_extension_sync` receipt with the action; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
+         * Turn a GitHub skill's auto-approve on or off
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a version itself once it passes the fixed-rule checks: no person, second manager or GitHub review takes part. One manager turns it `on` or `off`, at once. Turning it on reads GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit), and GitHub not answering is 502 `GITHUB_UNAVAILABLE`. It then checks once (`last_check.trigger.kind` `auto_approve`), so a version already `pending` is judged too; `check` says whether that check ended (`checked`) or waits behind a running one (`queued`). While on, every check judges the version the ref's content is, a new one or one still `pending`, by the fixed-rule checks against the approved version before it (with none, every file counts as added). With no finding the sync approves it and makes it current when it is the highest (an `approve_extension` receipt with who turned auto-approve on and the commit). A finding leaves it `pending` with `checks_failed` and the rules in `last_check.auto_approval.checks` (a script added, a large change, a new URL host, hidden Unicode, an instruction-like sentence, a changed description), and another version approved while the checks ran leaves it `pending` with `baseline_changed` until the next check. Only that skill stops; the other skills a push reaches go on. A version a person rejected is not judged again. Paused sync never auto-approves, not even POST …/sync/check; turning sync back on checks once. Each change writes an `update_extension_sync` receipt with the action (`auto_approve_on`, `auto_approve_off`); the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
          */
@@ -3662,7 +3662,7 @@ export interface paths {
         };
         /**
          * The agent's GitHub switch, settings and what may be turned on
-         * @description `enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved). `settings_revision` is the row's revision (null without a row) and `start_repository_id` a repository kept for compatibility: once the agent has a settings row, a session naming none starts without a repository whatever this holds, and attaches what the task needs. `push_attached` (`allow`, `ask` or `deny`) says whether a push to a repository the session attached needs a person: the row's value, `ask` for a row saved before the field existed, and `allow` while there is no row (what a first save writes). Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling; `repository_ceiling_unset` is true while the workspace has none yet, and the list is then judged against the default the first save writes, without writing it on this read), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.
+         * @description `enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; until settings are saved the release pushes without a person unless its own pin turns approval on). `settings_revision` is the row's revision (null without a row) and `start_repository_id` a repository kept for compatibility: once the agent has a settings row, a session naming none starts without a repository whatever this holds, and attaches what the task needs. `push_attached` (`allow`, `ask` or `deny`) says whether a push to a repository the session attached needs a person: the row's value, and `allow` for a row saved before the field existed or while there is no row (nobody chose to be asked). Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling; `repository_ceiling_unset` is true while the workspace has none yet, and the list is then judged against the default the first save writes, without writing it on this read), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -11222,19 +11222,18 @@ export interface components {
                     sync_enabled: boolean;
                     /** @enum {string} */
                     webhook: "ready" | "no_public_url" | "no_secret";
-                    /** @description Protected-branch auto-approve: one manager requests, another consents. */
+                    /** @description Auto-approve: while on, the sync approves a version that passes the fixed-rule checks, with no person's review. */
                     auto_approve: {
                         /** @enum {string} */
-                        state: "off" | "requested" | "on";
-                        requested_by: string | null;
-                        consented_by: string | null;
+                        state: "off" | "on";
+                        enabled_by: string | null;
                     };
                     last_check: {
                         /** Format: date-time */
                         at: string;
                         trigger: {
                             /** @enum {string} */
-                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                             delivery_id: string | null;
                             user_id: string | null;
                         };
@@ -11248,17 +11247,11 @@ export interface components {
                             code: string;
                             message: string;
                         }[];
-                        /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                        /** @description How auto-approve judged the version this content is, while it is on: a new version (`created`) or one still `pending` (`unchanged`); null otherwise. */
                         auto_approval: {
                             /** @enum {string} */
                             result: "approved" | "pending";
-                            reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable" | "checks_failed" | "baseline_changed") | null;
-                            rule: {
-                                /** @enum {string} */
-                                kind: "ruleset" | "branch_protection";
-                                required_reviews: number;
-                            } | null;
-                            pull_request: number | null;
+                            reason: ("checks_failed" | "baseline_changed") | null;
                             /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
                             checks: {
                                 /** @enum {string} */
@@ -11287,7 +11280,7 @@ export interface components {
                         commit: string;
                         trigger: {
                             /** @enum {string} */
-                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                             delivery_id: string | null;
                             user_id: string | null;
                         };
@@ -11349,7 +11342,7 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
@@ -11400,7 +11393,7 @@ export interface components {
                 at: string;
                 trigger: {
                     /** @enum {string} */
-                    kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                    kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                     delivery_id: string | null;
                     user_id: string | null;
                 };
@@ -11414,17 +11407,11 @@ export interface components {
                     code: string;
                     message: string;
                 }[];
-                /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                /** @description How auto-approve judged the version this content is, while it is on: a new version (`created`) or one still `pending` (`unchanged`); null otherwise. */
                 auto_approval: {
                     /** @enum {string} */
                     result: "approved" | "pending";
-                    reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable" | "checks_failed" | "baseline_changed") | null;
-                    rule: {
-                        /** @enum {string} */
-                        kind: "ruleset" | "branch_protection";
-                        required_reviews: number;
-                    } | null;
-                    pull_request: number | null;
+                    reason: ("checks_failed" | "baseline_changed") | null;
                     /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
                     checks: {
                         /** @enum {string} */
@@ -11451,19 +11438,18 @@ export interface components {
                 sync_enabled: boolean;
                 /** @enum {string} */
                 webhook: "ready" | "no_public_url" | "no_secret";
-                /** @description Protected-branch auto-approve: one manager requests, another consents. */
+                /** @description Auto-approve: while on, the sync approves a version that passes the fixed-rule checks, with no person's review. */
                 auto_approve: {
                     /** @enum {string} */
-                    state: "off" | "requested" | "on";
-                    requested_by: string | null;
-                    consented_by: string | null;
+                    state: "off" | "on";
+                    enabled_by: string | null;
                 };
                 last_check: {
                     /** Format: date-time */
                     at: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
@@ -11477,17 +11463,11 @@ export interface components {
                         code: string;
                         message: string;
                     }[];
-                    /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                    /** @description How auto-approve judged the version this content is, while it is on: a new version (`created`) or one still `pending` (`unchanged`); null otherwise. */
                     auto_approval: {
                         /** @enum {string} */
                         result: "approved" | "pending";
-                        reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable" | "checks_failed" | "baseline_changed") | null;
-                        rule: {
-                            /** @enum {string} */
-                            kind: "ruleset" | "branch_protection";
-                            required_reviews: number;
-                        } | null;
-                        pull_request: number | null;
+                        reason: ("checks_failed" | "baseline_changed") | null;
                         /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
                         checks: {
                             /** @enum {string} */
@@ -11500,13 +11480,15 @@ export interface components {
             };
             /** @description Null when sync already was in that state. */
             receipt_id: string | null;
+            /** @description The check this call ran, on a resume or on turning auto-approve on. `queued`: a check of the skill was running, and it runs once more when it ends. Null when the call ran none. */
+            check: ("checked" | "queued") | null;
         };
         PutSkillAutoApproveRequest: {
             /**
-             * @description `request` and `consent` are by two managers (one, when the workspace has one); `off` turns it off at once.
+             * @description One manager turns it on or off, at once.
              * @enum {string}
              */
-            action: "request" | "consent" | "off";
+            action: "on" | "off";
         };
         RevertSkillResponse: {
             name: string;
@@ -11526,7 +11508,7 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
@@ -11565,7 +11547,7 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
@@ -11612,7 +11594,7 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
@@ -11651,7 +11633,7 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
@@ -11726,7 +11708,7 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
@@ -11807,7 +11789,7 @@ export interface components {
                         commit: string;
                         trigger: {
                             /** @enum {string} */
-                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                             delivery_id: string | null;
                             user_id: string | null;
                         };
@@ -34752,8 +34734,7 @@ export interface operations {
                      *         "sync_enabled": false,
                      *         "auto_approve": {
                      *           "state": "off",
-                     *           "requested_by": null,
-                     *           "consented_by": null
+                     *           "enabled_by": null
                      *         },
                      *         "webhook": "no_public_url",
                      *         "last_check": {
@@ -34770,7 +34751,8 @@ export interface operations {
                      *           "auto_approval": null
                      *         }
                      *       },
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "check": null
                      *     }
                      */
                     "application/json": components["schemas"]["SkillSyncResponse"];
@@ -34889,7 +34871,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "action": "request"
+                 *       "action": "on"
                  *     }
                  */
                 "application/json": components["schemas"]["PutSkillAutoApproveRequest"];
@@ -34915,9 +34897,8 @@ export interface operations {
                      *         "ref": "main",
                      *         "sync_enabled": true,
                      *         "auto_approve": {
-                     *           "state": "requested",
-                     *           "requested_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
-                     *           "consented_by": null
+                     *           "state": "on",
+                     *           "enabled_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
                      *         },
                      *         "webhook": "no_public_url",
                      *         "last_check": {
@@ -34934,7 +34915,8 @@ export interface operations {
                      *           "auto_approval": null
                      *         }
                      *       },
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "check": "checked"
                      *     }
                      */
                     "application/json": components["schemas"]["SkillSyncResponse"];

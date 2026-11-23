@@ -793,7 +793,7 @@ describe("에이전트 GitHub 탭", () => {
     );
   });
 
-  test("설정이 없는 릴리스는 첫 저장을 push 승인 꺼짐에서 시작해도 지금은 승인이 켜졌다고 보인다", async () => {
+  test("설정이 없는 에이전트는 저장 전에도 머리글과 스위치가 같이 push 승인 꺼짐이다", async () => {
     const { server, release } = await activeAgent();
     release.policy_pins = {};
     renderAt(
@@ -809,6 +809,25 @@ describe("에이전트 GitHub 탭", () => {
       "false",
     );
     // The GitHub header's summary line.
+    expect(screen.getByText(/push 전 승인 꺼짐/)).toBeTruthy();
+    expect(screen.queryByText(/push 전 승인 켜짐/)).toBeNull();
+  });
+
+  test("릴리스 핀이 push 승인을 켰으면 머리글과 스위치가 같이 켜짐이다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        github: { ...SETTINGS, push_approval: true },
+        settings_revision: null,
+        legacy_defaults: null,
+      }),
+    );
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
+    expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
+      "true",
+    );
     expect(screen.getByText(/push 전 승인 켜짐/)).toBeTruthy();
     expect(screen.queryByText(/push 전 승인 꺼짐/)).toBeNull();
   });
