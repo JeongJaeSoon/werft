@@ -31,6 +31,7 @@ import {
   createPostgresSlackConfigTokenStore,
   createPostgresSlackInboundEventStore,
   createPostgresSlackInstallStore,
+  createPostgresSlackSourceMarkStore,
   createPostgresSurfaceBindingStore,
   memberships,
   secretValues,
@@ -465,7 +466,7 @@ integration(
         request_url: `${PUBLIC}/v1/slack/events/${agentId}`,
         bot_events: [...SLACK_AGENT_BOT_EVENTS],
       });
-      expect(manifest.settings.event_subscriptions.bot_events).toHaveLength(10);
+      expect(manifest.settings.event_subscriptions.bot_events).toHaveLength(18);
       // apps.manifest.update replaces the whole manifest, scopes included.
       expect(manifest.oauth_config).toMatchObject({
         scopes: { bot: [...BOT_SCOPES] },
@@ -507,6 +508,8 @@ integration(
         identities: createPostgresAgentIdentityStore(db),
         installs: createPostgresSlackInstallStore(db),
         bindings: createPostgresSurfaceBindingStore(db),
+        sourceMarks: createPostgresSlackSourceMarkStore(db),
+        mirrorEchoes: { matchMirrorEcho: async () => "no_candidate" },
       });
       const listener = Bun.serve({
         hostname: "127.0.0.1",

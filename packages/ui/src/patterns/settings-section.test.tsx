@@ -45,6 +45,31 @@ describe("SettingsSection", () => {
     expect(section.className.split(/\s+/)).toContain("gap-4");
   });
 
+  test("제목 줄의 sm 버튼은 기본 버튼과 같은 높이·좌우 여백으로 맞춘다", () => {
+    const { getByRole } = render(
+      <SettingsSection
+        title="앱"
+        actions={
+          <>
+            <button type="button" data-werft-button="" data-size="sm">
+              추가
+            </button>
+            <button type="button" data-size="default">
+              관리
+            </button>
+          </>
+        }
+      />,
+    );
+    const slot = getByRole("button", { name: "추가" }).parentElement;
+    const classes = (slot?.className ?? "").split(/\s+/);
+    expect(classes).toContain(
+      "[&_[data-werft-button][data-size=sm]]:h-[var(--werft-control-height)]",
+    );
+    expect(classes).toContain("[&_[data-werft-button][data-size=sm]]:px-3");
+    expect(slot).toBe(getByRole("button", { name: "관리" }).parentElement);
+  });
+
   test("onSubmit이 있으면 본문·행·하단을 검증 없는 form으로 감싼다", () => {
     const sent: string[] = [];
     const { getByRole } = render(

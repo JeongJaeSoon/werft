@@ -15,6 +15,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
 import * as schema from "../schema.ts";
 import {
   agents,
@@ -30,6 +31,8 @@ import {
   verifySlackInstallation,
 } from "../surface/slack-installations.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
+import { waitsOn } from "../testing/lock-wait.ts";
+import { newPartitionedSession } from "../testing/sessions.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentIdentityStore } from "./agent-identities.ts";
 import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
@@ -98,7 +101,7 @@ integration("surface bindings on PostgreSQL", () => {
   }
 
   // An agent linked to its own Slack app; fixture ids shaped like Slack's.
-  async function slackAgent(owner: Caller) {
+  async function slackAgent(owner: Caller, teamId?: string) {
     const workspaceId = owner.ownerId;
     const agentId = randomUUID();
     await db.insert(agents).values({
@@ -110,7 +113,7 @@ integration("surface bindings on PostgreSQL", () => {
     });
     const key = {
       appId: `A${randomUUID().slice(0, 8).toUpperCase()}`,
-      teamId: `T${randomUUID().slice(0, 8).toUpperCase()}`,
+      teamId: teamId ?? `T${randomUUID().slice(0, 8).toUpperCase()}`,
     };
     await registerSlackInstallation(db, { ...key, workspaceId });
     await verifySlackInstallation(db, { ...key, botUserId: "B0BOT" });
@@ -138,6 +141,7 @@ integration("surface bindings on PostgreSQL", () => {
       channelId: string | null;
       channelKind?: SurfaceChannelKind;
       mode?: "off" | "on";
+      listen?: "free" | "mention" | "off";
       home?: boolean;
     },
   ) =>
@@ -150,10 +154,76 @@ integration("surface bindings on PostgreSQL", () => {
         channel.channelKind ??
         (channel.channelId === null ? "dm" : "public_channel"),
       mode: channel.mode ?? "on",
+      ...(channel.listen === undefined ? {} : { listen: channel.listen }),
       home: channel.home ?? false,
       ceiling: DEFAULT_SURFACE_CEILING,
       managerRoles: MANAGERS,
     });
+
+  test("a new binding listens to every message, even for an agent that waits for a mention", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, installationId } = await slackAgent(owner);
+    await db
+      .update(agents)
+      .set({ slackMentionOnly: true })
+      .where(eq(agents.id, agentId));
+
+    const set = await setAs(owner, agentId, { channelId: "C0NEWSET" });
+    const invited = await store().ensureInvitedChannel(
+      installationId,
+      "C0NEWINVITE",
+      "public_channel",
+    );
+    const dm = await store().ensureDmBinding(installationId);
+    expect([
+      set.outcome === "set" ? set.binding.listen : set.outcome,
+      invited?.listen,
+      dm?.listen,
+    ]).toEqual(["free", "free", "free"]);
+    const [agent] = await db
+      .select({ mentionOnly: agents.slackMentionOnly })
+      .from(agents)
+      .where(eq(agents.id, agentId));
+    expect(agent).toEqual({ mentionOnly: true });
+  });
+
+  test("a save without listen keeps the channel's; a save with it changes it and its receipt says so", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId } = await slackAgent(owner);
+    const first = await setAs(owner, agentId, { channelId: "C0KEEP" });
+    if (first.outcome !== "set") throw new Error(first.outcome);
+    // As migration 0317 leaves a channel of an agent that waits for a mention.
+    await db
+      .update(surfaceBindings)
+      .set({ listen: "mention" })
+      .where(eq(surfaceBindings.id, first.binding.id));
+
+    // The web console sends no listen.
+    const kept = await setAs(owner, agentId, {
+      channelId: "C0KEEP",
+      mode: "off",
+    });
+    expect(kept).toMatchObject({
+      outcome: "set",
+      binding: { id: first.binding.id, mode: "off", listen: "mention" },
+    });
+
+    const changed = await setAs(owner, agentId, {
+      channelId: "C0KEEP",
+      listen: "off",
+    });
+    expect(changed).toMatchObject({
+      outcome: "set",
+      binding: { mode: "on", listen: "off" },
+    });
+    const [receipt] = await db
+      .select({ result: receipts.result })
+      .from(receipts)
+      .where(
+        eq(receipts.id, changed.outcome === "set" ? changed.receiptId : ""),
+      );
+    expect(receipt?.result).toMatchObject({ mode: "on", listen: "off" });
+  });
 
   test("a channel's binding is stored, resolved and replaced in place", async () => {
     const owner = await person(await workspace(), "owner");
@@ -1317,6 +1387,609 @@ integration("surface bindings on PostgreSQL", () => {
         status: "ready",
         home: true,
         membership: { state: "joined", error: null },
+      });
+    });
+
+    describe("a channel Slack deleted is gone", () => {
+      const reasonOf = async (bindingId: string, reason: string) =>
+        (await db.select().from(receipts)).filter(
+          (row) =>
+            row.operation === "set_surface_binding" &&
+            (row.targetRef as { resource?: { id?: string } }).resource?.id ===
+              bindingId &&
+            (row.result as { reason?: string }).reason === reason,
+        );
+
+      test("a deletion makes a private home, a waiting channel and a public one gone, inactive and kept; a retried one writes nothing", async () => {
+        const { owner, agentId, installationId, binding } = await approved();
+        const home = await setAs(owner, agentId, {
+          channelId: "G0SECRET",
+          channelKind: "private_channel",
+          home: true,
+        });
+        if (home.outcome !== "set") throw new Error(home.outcome);
+        // Before: the binding is in use and home.
+        expect(home.binding).toMatchObject({ status: "ready", home: true });
+
+        expect(
+          await store().channelDeleted(installationId, "G0SECRET", at(2)),
+        ).toBe(true);
+        expect(
+          await store().findLiveSlackChannel(installationId, "G0SECRET"),
+        ).toMatchObject({
+          id: binding.id,
+          status: "gone",
+          home: false,
+          approvedAt: null,
+          mode: "on",
+          channelKind: "private_channel",
+          ceiling: binding.ceiling,
+          revision: home.binding.revision + 1,
+        });
+        expect(
+          await store().resolveSlackChannel(installationId, "G0SECRET"),
+        ).toBeNull();
+        const [receipt] = await reasonOf(binding.id, "channel_deleted");
+        expect(receipt?.actor).toMatchObject({
+          principal: { kind: "installation", id: installationId },
+        });
+        expect(receipt?.result).toMatchObject({
+          status: "gone",
+          previous_status: "ready",
+          lifecycle_us: at(2),
+        });
+        expect(
+          await store().channelDeleted(installationId, "G0SECRET", at(2)),
+        ).toBe(false);
+        expect(await reasonOf(binding.id, "channel_deleted")).toHaveLength(1);
+
+        const pending = await setAs(owner, agentId, {
+          channelId: "G0WAIT",
+          channelKind: "private_channel",
+        });
+        if (pending.outcome !== "set") throw new Error(pending.outcome);
+        expect(pending.binding.status).toBe("pending_approval");
+        await store().channelDeleted(installationId, "G0WAIT", null);
+        expect(
+          await store().findPendingApproval(installationId, "G0WAIT"),
+        ).toBeNull();
+        expect(
+          (await store().findLiveSlackChannel(installationId, "G0WAIT"))
+            ?.status,
+        ).toBe("gone");
+
+        await setAs(owner, agentId, { channelId: "C0OPEN" });
+        await store().channelDeleted(installationId, "C0OPEN", at(3));
+        expect(
+          await store().findLiveSlackChannel(installationId, "C0OPEN"),
+        ).toMatchObject({ status: "gone", channelKind: "public_channel" });
+        // An unbound channel binds nothing.
+        expect(
+          await store().channelDeleted(installationId, "C0NEVER", at(3)),
+        ).toBe(false);
+        expect(
+          await store().findLiveSlackChannel(installationId, "C0NEVER"),
+        ).toBeNull();
+      });
+
+      let summaryTs = 1792800000;
+      // A channel's summary at version 2 with a line of each version, and
+      // the agent's engagement with a message in it.
+      async function summarized(
+        workspaceId: string,
+        agentId: string,
+        teamId: string,
+        channelId: string,
+      ) {
+        const conversations = createPostgresConversationStore(db);
+        await conversations.findOrCreateConversation({
+          kind: "channel",
+          workspaceId,
+          agentId,
+          teamId,
+          channelId,
+        });
+        await pool.query(
+          "INSERT INTO channel_summaries (workspace_id, team_id, channel_id, version) VALUES ($1, $2, $3, 2)",
+          [workspaceId, teamId, channelId],
+        );
+        for (const [from, to] of [
+          [1, 2],
+          [2, null],
+        ]) {
+          const lineId = randomUUID();
+          summaryTs += 1;
+          await pool.query(
+            "INSERT INTO channel_summary_lines (id, origin_id, workspace_id, team_id, channel_id, text, written_by_agent_id, from_version, to_version) VALUES ($1, $1, $2, $3, $4, 'line', $5, $6, $7)",
+            [lineId, workspaceId, teamId, channelId, agentId, from, to],
+          );
+          await pool.query(
+            "INSERT INTO channel_summary_line_sources (line_id, input_id, workspace_id, team_id, channel_id, ts, speaker_kind, speaker_id) VALUES ($1, $2, $3, $4, $5, $6, 'slack_user', 'U0SPEAKER')",
+            [
+              lineId,
+              randomUUID(),
+              workspaceId,
+              teamId,
+              channelId,
+              `${summaryTs}.000100`,
+            ],
+          );
+        }
+        const session = await newPartitionedSession(db, "channel-deleted");
+        await pool.query(
+          "INSERT INTO conversation_engagements (workspace_id, agent_id, team_id, channel_id, ts, kind, session_id) VALUES ($1, $2, $3, $4, $5, 'mention', $6)",
+          [
+            workspaceId,
+            agentId,
+            teamId,
+            channelId,
+            `${summaryTs}.000100`,
+            session.sessionId,
+          ],
+        );
+      }
+
+      const SUMMARY_TABLES = [
+        "channel_summaries",
+        "channel_summary_lines",
+        "channel_summary_line_sources",
+      ] as const;
+      async function rowsOf(workspaceId: string, channelId: string) {
+        const counts: Record<string, number> = {};
+        for (const table of [
+          ...SUMMARY_TABLES,
+          "conversation_engagements",
+          "conversations",
+          "channel_contexts",
+        ]) {
+          const { rows } = await pool.query(
+            `SELECT count(*)::int AS n FROM ${table} WHERE workspace_id = $1 AND channel_id = $2`,
+            [workspaceId, channelId],
+          );
+          counts[table] = rows[0].n;
+        }
+        return counts;
+      }
+      const SUMMARIZED = {
+        channel_summaries: 1,
+        channel_summary_lines: 2,
+        channel_summary_line_sources: 2,
+        conversation_engagements: 1,
+        conversations: 1,
+        channel_contexts: 1,
+      };
+      const DELETED = {
+        channel_summaries: 0,
+        channel_summary_lines: 0,
+        channel_summary_line_sources: 0,
+        conversation_engagements: 1,
+        conversations: 1,
+        channel_contexts: 1,
+      };
+
+      test("a deletion deletes the channel's summary with every version, and keeps other channels, the engagement and the channel's context; an archive deletes nothing", async () => {
+        const { owner, agentId, installationId, key } = await approved();
+        const workspaceId = owner.ownerId;
+        await setAs(owner, agentId, { channelId: "C0SUM" });
+        await setAs(owner, agentId, { channelId: "C0KEEP" });
+        await summarized(workspaceId, agentId, key.teamId, "C0SUM");
+        await summarized(workspaceId, agentId, key.teamId, "C0KEEP");
+
+        await createPostgresConversationStore(db).recordChannelState(
+          {
+            kind: "channel",
+            workspaceId,
+            agentId,
+            teamId: key.teamId,
+            channelId: "C0SUM",
+          },
+          "archived",
+          at(1),
+        );
+        expect(await rowsOf(workspaceId, "C0SUM")).toEqual(SUMMARIZED);
+
+        expect(
+          await store().channelDeleted(installationId, "C0SUM", at(2)),
+        ).toBe(true);
+        expect(await rowsOf(workspaceId, "C0SUM")).toEqual(DELETED);
+        expect(await rowsOf(workspaceId, "C0KEEP")).toEqual(SUMMARIZED);
+      });
+
+      test("every agent's deletion of a channel ends as one: the later ones and a retry find no summary, bound or not", async () => {
+        const { owner, agentId, installationId, key } = await approved();
+        const workspaceId = owner.ownerId;
+        const other = await slackAgent(owner, key.teamId);
+        await setAs(owner, agentId, { channelId: "C0SHARED" });
+        await setAs(owner, other.agentId, { channelId: "C0SHARED" });
+        await summarized(workspaceId, agentId, key.teamId, "C0SHARED");
+
+        expect(
+          await store().channelDeleted(installationId, "C0SHARED", at(2)),
+        ).toBe(true);
+        expect(await rowsOf(workspaceId, "C0SHARED")).toEqual(DELETED);
+        expect(
+          await store().channelDeleted(other.installationId, "C0SHARED", at(2)),
+        ).toBe(true);
+        expect(
+          await store().channelDeleted(installationId, "C0SHARED", at(2)),
+        ).toBe(false);
+        expect(await rowsOf(workspaceId, "C0SHARED")).toEqual(DELETED);
+
+        // A binding already gone changes nothing, and the summary goes still.
+        await pool.query(
+          "INSERT INTO channel_summaries (workspace_id, team_id, channel_id, version) VALUES ($1, $2, 'C0SHARED', 0)",
+          [workspaceId, key.teamId],
+        );
+        expect(
+          await store().channelDeleted(installationId, "C0SHARED", at(4)),
+        ).toBe(false);
+        expect(await rowsOf(workspaceId, "C0SHARED")).toEqual(DELETED);
+
+        // An agent with no binding for the channel deletes it too.
+        await summarized(workspaceId, agentId, key.teamId, "C0UNBOUND");
+        expect(
+          await store().channelDeleted(installationId, "C0UNBOUND", null),
+        ).toBe(false);
+        expect(await rowsOf(workspaceId, "C0UNBOUND")).toEqual(DELETED);
+      });
+
+      test("a channel_not_found and a deletion older than a newer join keep the summary", async () => {
+        const { owner, agentId, installationId, key } = await approved();
+        const workspaceId = owner.ownerId;
+        const open = await setAs(owner, agentId, { channelId: "C0LOST" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        await summarized(workspaceId, agentId, key.teamId, "C0LOST");
+        expect(await store().channelNotFound(installationId, "C0LOST")).toBe(
+          "gone",
+        );
+        expect(await rowsOf(workspaceId, "C0LOST")).toEqual(SUMMARIZED);
+
+        const back = await setAs(owner, agentId, { channelId: "C0BACK" });
+        if (back.outcome !== "set") throw new Error(back.outcome);
+        await summarized(workspaceId, agentId, key.teamId, "C0BACK");
+        await store().observeLifecycle(installationId, "C0BACK", at(5));
+        await store().recordJoin(
+          installationId,
+          "C0BACK",
+          back.binding.id,
+          at(5),
+        );
+        expect(
+          await store().channelDeleted(installationId, "C0BACK", at(3)),
+        ).toBe(false);
+        expect(await rowsOf(workspaceId, "C0BACK")).toEqual(SUMMARIZED);
+      });
+
+      test("a join stamped before the deletion revives nothing; a later one brings a private channel back to approval and a public one into use", async () => {
+        const { owner, agentId, installationId, binding } = await approved();
+        await store().channelDeleted(installationId, "G0SECRET", at(3));
+        expect(
+          await store().observeLifecycle(installationId, "G0SECRET", at(2)),
+        ).toBe(false);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "G0SECRET",
+            binding.id,
+            at(2),
+          ),
+        ).toBe(false);
+        expect(
+          await store().ensureInvitedChannel(
+            installationId,
+            "G0SECRET",
+            "private_channel",
+          ),
+        ).toMatchObject({ id: binding.id, status: "gone" });
+        expect(
+          await store().observeLifecycle(installationId, "G0SECRET", at(4)),
+        ).toBe(true);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "G0SECRET",
+            binding.id,
+            at(4),
+          ),
+        ).toBe(true);
+        expect(
+          await store().findLiveSlackChannel(installationId, "G0SECRET"),
+        ).toMatchObject({
+          status: "pending_approval",
+          approvedAt: null,
+          membership: { state: "joined", error: null },
+        });
+
+        const open = await setAs(owner, agentId, { channelId: "C0OPEN" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        await store().channelDeleted(installationId, "C0OPEN", at(3));
+        expect(
+          await store().observeLifecycle(installationId, "C0OPEN", at(5)),
+        ).toBe(true);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "C0OPEN",
+            open.binding.id,
+            at(5),
+          ),
+        ).toBe(true);
+        expect(
+          await store().resolveSlackChannel(installationId, "C0OPEN"),
+        ).toMatchObject({
+          status: "ready",
+          membership: { state: "joined", error: null },
+        });
+        expect(
+          await reasonOf(open.binding.id, "rejoined_channel"),
+        ).toHaveLength(1);
+      });
+
+      test("channel_not_found: a public channel is gone, a private one the bot was in is left, and any other stays", async () => {
+        const { owner, agentId, installationId, binding } = await approved();
+        await store().setMembership(binding.id, {
+          state: "joined",
+          error: null,
+        });
+        expect(await store().channelNotFound(installationId, "G0SECRET")).toBe(
+          "left",
+        );
+        expect(
+          await store().findLiveSlackChannel(installationId, "G0SECRET"),
+        ).toMatchObject({
+          status: "left",
+          approvedAt: null,
+          membership: { state: "awaiting_invite", error: null },
+        });
+        expect(await reasonOf(binding.id, "channel_not_found")).toHaveLength(1);
+        // Already left, waiting, or never in: nothing changes.
+        expect(await store().channelNotFound(installationId, "G0SECRET")).toBe(
+          "unchanged",
+        );
+        await setAs(owner, agentId, {
+          channelId: "G0WAIT",
+          channelKind: "private_channel",
+        });
+        expect(await store().channelNotFound(installationId, "G0WAIT")).toBe(
+          "unchanged",
+        );
+        expect(
+          (await store().findLiveSlackChannel(installationId, "G0WAIT"))
+            ?.status,
+        ).toBe("pending_approval");
+
+        const open = await setAs(owner, agentId, { channelId: "C0OPEN" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        expect(await store().channelNotFound(installationId, "C0OPEN")).toBe(
+          "gone",
+        );
+        expect(
+          await store().findLiveSlackChannel(installationId, "C0OPEN"),
+        ).toMatchObject({ status: "gone" });
+        expect(await store().channelNotFound(installationId, "C0OPEN")).toBe(
+          "unchanged",
+        );
+        expect(await store().channelNotFound(installationId, "C0NONE")).toBe(
+          "unchanged",
+        );
+      });
+
+      test("a public channel deleted and then joined as a private one waits for approval as private, not in use", async () => {
+        const { owner, agentId, installationId } = await approved();
+        const open = await setAs(owner, agentId, { channelId: "C0TURN" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        await store().channelDeleted(installationId, "C0TURN", at(3));
+        expect(
+          await store().observeLifecycle(installationId, "C0TURN", at(5)),
+        ).toBe(true);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "C0TURN",
+            open.binding.id,
+            at(5),
+            "private_channel",
+          ),
+        ).toBe(true);
+        expect(
+          await store().findLiveSlackChannel(installationId, "C0TURN"),
+        ).toMatchObject({
+          status: "pending_approval",
+          channelKind: "private_channel",
+          approvedAt: null,
+          home: false,
+        });
+        const asked = (await db.select().from(receipts)).filter(
+          (row) =>
+            row.operation === "request_surface_binding" &&
+            (row.targetRef as { resource?: { id?: string } }).resource?.id ===
+              open.binding.id,
+        );
+        expect(asked.map((row) => row.result)).toEqual([
+          expect.objectContaining({ reason: "channel_now_private" }),
+        ]);
+      });
+
+      test("a channel_not_found asked before the bot's join is stale and changes nothing; one asked after it leaves the channel", async () => {
+        // Approved before the bot was invited; the join then writes only the
+        // membership, so the binding's revision does not move.
+        const { installationId, binding } = await approved();
+        expect(
+          await store().observeLifecycle(installationId, "G0SECRET", at(5)),
+        ).toBe(true);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "G0SECRET",
+            binding.id,
+            at(5),
+          ),
+        ).toBe(true);
+        const joined = await store().findLiveSlackChannel(
+          installationId,
+          "G0SECRET",
+        );
+        expect(joined).toMatchObject({
+          status: "ready",
+          revision: binding.revision,
+          membership: { state: "joined", error: null },
+        });
+        expect(
+          await store().channelNotFound(installationId, "G0SECRET", at(4)),
+        ).toBe("stale");
+        expect(
+          await store().findLiveSlackChannel(installationId, "G0SECRET"),
+        ).toMatchObject({ status: "ready", revision: binding.revision });
+        expect(
+          await store().channelNotFound(installationId, "G0SECRET", at(6)),
+        ).toBe("left");
+      });
+
+      test("a deletion retried after a newer join keeps the channel as the join left it", async () => {
+        const { owner, agentId, installationId } = await approved();
+        const open = await setAs(owner, agentId, { channelId: "C0BACK" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        expect(
+          await store().channelDeleted(installationId, "C0BACK", at(3)),
+        ).toBe(true);
+        expect(
+          await store().observeLifecycle(installationId, "C0BACK", at(5)),
+        ).toBe(true);
+        expect(
+          await store().recordJoin(
+            installationId,
+            "C0BACK",
+            open.binding.id,
+            at(5),
+          ),
+        ).toBe(true);
+        expect(
+          (await store().findLiveSlackChannel(installationId, "C0BACK"))
+            ?.status,
+        ).toBe("ready");
+        expect(
+          await store().channelDeleted(installationId, "C0BACK", at(3)),
+        ).toBe(false);
+        expect(
+          (await store().findLiveSlackChannel(installationId, "C0BACK"))
+            ?.status,
+        ).toBe("ready");
+      });
+
+      test("channel_not_found takes the channel's event record before the binding, as a join does", async () => {
+        const { owner, agentId, installationId } = await approved();
+        const open = await setAs(owner, agentId, { channelId: "C0RACE" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+
+        const holder = await pool.connect();
+        try {
+          await holder.query("BEGIN");
+          await holder.query(
+            `INSERT INTO slack_channel_lifecycle (installation_id, channel_id, last_event_us)
+             VALUES ($1, $2, 0)
+             ON CONFLICT (installation_id, channel_id) DO UPDATE
+               SET last_event_us = slack_channel_lifecycle.last_event_us`,
+            [installationId, "C0RACE"],
+          );
+          const pid = (await holder.query("SELECT pg_backend_pid() AS pid"))
+            .rows[0].pid as number;
+          let done = false;
+          const pending = store()
+            .channelNotFound(installationId, "C0RACE")
+            .finally(() => {
+              done = true;
+            });
+          expect(await waitsOn(db, pid, () => done)).toBe(true);
+          // Waiting on the record, it holds no lock on the binding yet.
+          const probe = await pool.connect();
+          try {
+            await probe.query("BEGIN");
+            await probe.query(
+              "SELECT 1 FROM surface_bindings WHERE id = $1 FOR UPDATE NOWAIT",
+              [open.binding.id],
+            );
+            await probe.query("ROLLBACK");
+          } finally {
+            probe.release();
+          }
+          await holder.query("COMMIT");
+          expect(await pending).toBe("gone");
+        } finally {
+          holder.release();
+        }
+      });
+
+      test("a private channel the bot never joined keeps its status on channel_not_found", async () => {
+        const { installationId, binding } = await approved();
+        await store().setMembership(binding.id, {
+          state: "awaiting_invite",
+          error: "channel_not_found",
+        });
+        expect(await store().channelNotFound(installationId, "G0SECRET")).toBe(
+          "unchanged",
+        );
+        expect(
+          (await store().findLiveSlackChannel(installationId, "G0SECRET"))
+            ?.status,
+        ).toBe("ready");
+      });
+
+      test("a console save keeps a gone channel gone and refuses it as home; Slack answers write no membership over it", async () => {
+        const { owner, agentId, installationId } = await waiting();
+        const open = await setAs(owner, agentId, { channelId: "C0OPEN" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        await store().channelDeleted(installationId, "C0OPEN", at(2));
+        const saved = await setAs(owner, agentId, {
+          channelId: "C0OPEN",
+          mode: "off",
+        });
+        expect(saved).toMatchObject({
+          outcome: "set",
+          binding: { status: "gone", mode: "off" },
+        });
+        const asPrivate = await setAs(owner, agentId, {
+          channelId: "C0OPEN",
+          channelKind: "private_channel",
+        });
+        expect(asPrivate).toMatchObject({
+          outcome: "set",
+          binding: { status: "gone" },
+        });
+        expect(
+          await setAs(owner, agentId, { channelId: "C0OPEN", home: true }),
+        ).toEqual({ outcome: "pending_home" });
+        await store().setMembership(open.binding.id, {
+          state: "joined",
+          error: null,
+        });
+        expect(
+          (await store().findLiveSlackChannel(installationId, "C0OPEN"))
+            ?.membership,
+        ).toEqual(open.binding.membership);
+      });
+
+      test("the database holds a gone binding to no home and no approval", async () => {
+        const { binding } = await approved();
+        expect(
+          await refusal(
+            db
+              .update(surfaceBindings)
+              .set({ status: "gone" })
+              .where(eq(surfaceBindings.id, binding.id)),
+          ),
+        ).toContain("surface_bindings_gone_check");
+        expect(
+          await refusal(
+            db
+              .update(surfaceBindings)
+              .set({
+                status: "gone",
+                approvedAt: null,
+                approvedLifecycleUs: null,
+              })
+              .where(eq(surfaceBindings.id, binding.id)),
+          ),
+        ).toBe("accepted");
       });
     });
 

@@ -103,6 +103,7 @@ owner·admin에게도 공유 범위 밖 세션은 목록·상세·turn에 보이
 - **관리 종료.** `POST /v1/admin/sessions/{id}/terminate`(`{"expected_revision": …, "justification": "…"}`)는 owner·admin이 범위와 관계없이 세션을 멈춘다. 사유가 stop 이유가 된다.
 - **관리 복구.** `POST /v1/admin/sessions/{id}/recovery-decisions`는 owner만 범위와 관계없이 복구 결정을 내린다. 본문은 [세션 복구](/run-server/self-hosting/recover-sessions)의 복구 결정과 같고, 그 `reason`이 사유다.
 - **인수.** 나간 멤버의 세션이 인수하는 사람에게 보이지 않는 범위면 `POST /v1/sessions/{id}/takeover`에 `{"justification": "…"}`를 준다. 없으면 `403`(`reason_code: justification_required`)이다.
+- **비공개 채널 세션의 인수.** `private_channel` 세션은 그 채널의 지금 멤버이고 세션에 쓸 수 있는 사람이 같은 경로로 인수하고, 사유는 받지 않는다. owner·admin도 채널 멤버가 아니면 `404`다.
 
 ## 확인
 

@@ -34,6 +34,7 @@ import {
   PutBucketEncryptionCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import { messageOf } from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
@@ -428,9 +429,7 @@ if (import.meta.main) {
   try {
     code = await main(process.argv.slice(2));
   } catch (error) {
-    console.error(
-      `${process.argv[2]}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`${process.argv[2]}: ${messageOf(error)}`);
     code = error instanceof TargetRefusedError ? EXIT_TARGET_REFUSED : 1;
   }
   process.exit(code);

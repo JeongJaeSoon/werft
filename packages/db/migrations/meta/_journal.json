@@ -1506,6 +1506,223 @@
       "when": 1795369392732,
       "tag": "0305_drop_unused_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 306,
+      "version": "7",
+      "when": 1795373386774,
+      "tag": "0306_skill_superseded_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 307,
+      "version": "7",
+      "when": 1795376910063,
+      "tag": "0307_slack_drop_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 308,
+      "version": "7",
+      "when": 1795379190668,
+      "tag": "0308_slack_inbound_payload_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 309,
+      "version": "7",
+      "when": 1795380896942,
+      "tag": "0309_slack_outbox_channel",
+      "breakpoints": true
+    },
+    {
+      "idx": 310,
+      "version": "7",
+      "when": 1795383132651,
+      "tag": "0310_conversation_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 311,
+      "version": "7",
+      "when": 1795384474321,
+      "tag": "0311_slack_channel_member_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 312,
+      "version": "7",
+      "when": 1795388263470,
+      "tag": "0312_slack_source_marks",
+      "breakpoints": true
+    },
+    {
+      "idx": 313,
+      "version": "7",
+      "when": 1795389730578,
+      "tag": "0313_session_link_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 314,
+      "version": "7",
+      "when": 1795390956009,
+      "tag": "0314_budget_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 315,
+      "version": "7",
+      "when": 1795391763312,
+      "tag": "0315_turn_requester_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 316,
+      "version": "7",
+      "when": 1795393406289,
+      "tag": "0316_conversation_inputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 317,
+      "version": "7",
+      "when": 1795394580396,
+      "tag": "0317_binding_listen",
+      "breakpoints": true
+    },
+    {
+      "idx": 318,
+      "version": "7",
+      "when": 1795396324620,
+      "tag": "0318_provider_exchange_budget",
+      "breakpoints": true
+    },
+    {
+      "idx": 319,
+      "version": "7",
+      "when": 1795399017387,
+      "tag": "0319_web_inputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 320,
+      "version": "7",
+      "when": 1795399787643,
+      "tag": "0320_session_parent_conversation",
+      "breakpoints": true
+    },
+    {
+      "idx": 321,
+      "version": "7",
+      "when": 1795401628512,
+      "tag": "0321_channel_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 322,
+      "version": "7",
+      "when": 1795404261492,
+      "tag": "0322_budget_root_slack_bot",
+      "breakpoints": true
+    },
+    {
+      "idx": 323,
+      "version": "7",
+      "when": 1795405236774,
+      "tag": "0323_conversation_engagements",
+      "breakpoints": true
+    },
+    {
+      "idx": 324,
+      "version": "7",
+      "when": 1795406439958,
+      "tag": "0324_source_sets",
+      "breakpoints": true
+    },
+    {
+      "idx": 325,
+      "version": "7",
+      "when": 1795408522053,
+      "tag": "0325_channel_summaries",
+      "breakpoints": true
+    },
+    {
+      "idx": 326,
+      "version": "7",
+      "when": 1795409940527,
+      "tag": "0326_link_posting",
+      "breakpoints": true
+    },
+    {
+      "idx": 327,
+      "version": "7",
+      "when": 1795411513081,
+      "tag": "0327_private_channel_share_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 328,
+      "version": "7",
+      "when": 1795412829019,
+      "tag": "0328_conversation_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 329,
+      "version": "7",
+      "when": 1795414701516,
+      "tag": "0329_slack_outbox_voided_by_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 330,
+      "version": "7",
+      "when": 1795417934028,
+      "tag": "0330_judgment_buffer",
+      "breakpoints": true
+    },
+    {
+      "idx": 331,
+      "version": "7",
+      "when": 1795422022558,
+      "tag": "0331_reset_skill_auto_approve",
+      "breakpoints": true
+    },
+    {
+      "idx": 332,
+      "version": "7",
+      "when": 1795426865484,
+      "tag": "0332_unknown_budget_end",
+      "breakpoints": true
+    },
+    {
+      "idx": 333,
+      "version": "7",
+      "when": 1795428097118,
+      "tag": "0333_source_deleted",
+      "breakpoints": true
+    },
+    {
+      "idx": 334,
+      "version": "7",
+      "when": 1795430550758,
+      "tag": "0334_input_mirror",
+      "breakpoints": true
+    },
+    {
+      "idx": 335,
+      "version": "7",
+      "when": 1795433683482,
+      "tag": "0335_input_hold",
+      "breakpoints": true
+    },
+    {
+      "idx": 336,
+      "version": "7",
+      "when": 1795449089497,
+      "tag": "0336_session_link_old_uniques",
+      "breakpoints": true
     }
   ]
 }

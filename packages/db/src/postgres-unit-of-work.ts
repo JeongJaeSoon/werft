@@ -17,10 +17,12 @@ import {
   postSessionMessageResponseSchema,
   type Receipt,
   type ReceiptSessionTarget,
+  type RequesterAuth,
   type RuntimeKind,
   readStoredEvent,
   receiptSchema,
   SESSION_STATUS_VALUES,
+  type SessionEventPayload,
   type SessionExtension,
   type SessionStatus,
   type SlackMessageRef,
@@ -46,11 +48,13 @@ import type {
   EventPage,
   NeutralizeEvent,
   ReadEventsQuery,
+  RecordedActor,
   SessionDetailRecord,
   SessionReader,
   SessionRecord,
   SessionUnitOfWork,
   SessionViewer,
+  StoredSourceSet,
   UsageDecision,
 } from "@werft-ai/platform";
 import {
@@ -84,6 +88,10 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import {
+  pushFollowUpQueued,
+  pushFollowUpRequester,
+} from "./action/push-follow-ups.ts";
 import { captureWorkspaceMcpStart } from "./agents/agent-workspace-mcp.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import { workerRuntimeView } from "./checkpoints/checkpoint-runtime.ts";
@@ -95,6 +103,13 @@ import {
   lockIdempotencyScope,
   parseTurnSequence,
 } from "./control-shared.ts";
+import {
+  directSourceDeletedAt,
+  firstTurnDeletedAt,
+  lockedDeletedSource,
+  newTurnSources,
+  titleDeletedAt,
+} from "./conversations/index.ts";
 import {
   decodeCreatedAtCursor,
   decodeEventCursor,
@@ -108,7 +123,11 @@ import { DB_NOW } from "./db-clock.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
-import { agentReachable, hasOwner } from "./musterrolle/administers.ts";
+import {
+  agentNamedInSession,
+  agentReachable,
+  hasOwner,
+} from "./musterrolle/administers.ts";
 import {
   inputRefusal,
   lockCallerLimit,
@@ -178,6 +197,7 @@ import {
   sameChunks,
 } from "./sessions/session-event-archives.ts";
 import { recordStatus } from "./sessions/session-events.ts";
+import { withheldEventPayload } from "./sessions/withheld-events.ts";
 
 export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -239,6 +259,59 @@ function usageRecord(usage: UsageDecision | null, requester: Requester) {
   };
 }
 
+/**
+ * The credential a turn's requester came in on. A person with no credential
+ * this can name (a caller assembled without a login) gets none; the input
+ * is not refused for it.
+ */
+const NO_REQUESTER: Requester = {
+  userId: null,
+  apiKeyId: null,
+  role: null,
+  keyAgentId: null,
+  slackBotUserId: null,
+};
+
+function requesterAuthOf(
+  actor: RecordedActor | undefined,
+  requester: Requester,
+): RequesterAuth | null {
+  const installationId =
+    actor?.principal.kind === "installation" ? actor.principal.id : null;
+  if (requester.slackBotUserId !== null) {
+    return installationId === null || requester.keyAgentId === null
+      ? null
+      : {
+          method: "slack_bot",
+          installation_id: installationId,
+          agent_id: requester.keyAgentId,
+        };
+  }
+  if (requester.userId !== null) {
+    if (installationId !== null && actor?.linkedAccount !== undefined) {
+      return {
+        method: "slack_link",
+        installation_id: installationId,
+        linked_account_id: actor.linkedAccount.id,
+        linked_account_revision: actor.linkedAccount.revision,
+      };
+    }
+    if (requester.apiKeyId !== null) {
+      return { method: "personal_key", api_key_id: requester.apiKeyId };
+    }
+    return actor?.webSessionId === undefined
+      ? null
+      : { method: "web_session", web_session_id: actor.webSessionId };
+  }
+  if (requester.apiKeyId !== null) {
+    const agentId = requester.keyAgentId ?? actor?.agentId ?? null;
+    return agentId === null
+      ? { method: "service_key" }
+      : { method: "agent_key", agent_id: agentId };
+  }
+  return { method: "unauthenticated" };
+}
+
 function callerRecord(
   limit: CallerLimit | null,
   subject: AuthorizationSubject | undefined,
@@ -278,6 +351,9 @@ async function insertQueuedTurn(
     usageTeamId?: string | null;
     requesterKind?: string | null;
     requesterId?: string | null;
+    requesterAuth?: RequesterAuth | null;
+    /** The sources the caller already judged; read here when left out. */
+    sources?: StoredSourceSet | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -299,8 +375,16 @@ async function insertQueuedTurn(
       usageTeamId: input.usageTeamId ?? null,
       requesterKind: input.requesterKind ?? null,
       requesterId: input.requesterId ?? null,
+      requesterAuth: input.requesterAuth ?? null,
       callerChannel: input.callerChannel ?? null,
       callerLimitDigest: input.callerLimitDigest ?? null,
+      sources:
+        input.sources !== undefined
+          ? input.sources
+          : await newTurnSources(tx, {
+              sessionId: input.sessionId,
+              slackMessage: input.slackMessage,
+            }),
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -555,6 +639,28 @@ export function createPostgresSessionUnitOfWork(
             receiptId,
           };
         }
+        // A Slack message deleted before its session was made makes none.
+        if (
+          input.slackMessage !== undefined &&
+          workspaceId &&
+          (await lockedDeletedSource(tx, {
+            workspaceId,
+            sessionId: null,
+            throughTurn: null,
+            sources: {
+              direct: [
+                {
+                  team_id: input.slackMessage.team_id,
+                  channel_id: input.slackMessage.channel_id,
+                  ts: input.slackMessage.ts,
+                },
+              ],
+              inherited: [],
+            },
+          })) !== null
+        ) {
+          return { outcome: "source_deleted" };
+        }
         const refused = await admitInput(tx, {
           sessionId: null,
           message: input.message,
@@ -595,6 +701,7 @@ export function createPostgresSessionUnitOfWork(
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
+          parentConversationId: input.parentConversationId ?? null,
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId,
@@ -634,6 +741,7 @@ export function createPostgresSessionUnitOfWork(
           slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
           ...usageRecord(usage, requester),
+          requesterAuth: requesterAuthOf(actor, requester),
           ...callerRecord(callerLimit, input.callerSubject),
         });
 
@@ -691,11 +799,11 @@ export function createPostgresSessionUnitOfWork(
             response: postSessionMessageResponseSchema.parse(existing.result),
           };
         }
-        const requester = await lockRequester(
-          tx,
-          input.principal,
-          "sessions:write",
-        );
+        const platform = input.platform;
+        const requester =
+          platform === undefined
+            ? await lockRequester(tx, input.principal, "sessions:write")
+            : NO_REQUESTER;
         if (!requester) return { outcome: "actor_inactive" };
         // The session row lock serializes every append to one session, so
         // max(sequence)+1 below cannot be handed out twice or leave a gap.
@@ -709,6 +817,7 @@ export function createPostgresSessionUnitOfWork(
             checkpointPendingReason: sessions.checkpointPendingReason,
             status: sessions.status,
             takeoverRequiredAt: sessions.takeoverRequiredAt,
+            sourceDeletedAt: sessions.sourceDeletedAt,
             agentReleaseId: sessions.agentReleaseId,
             runtimeSpec: sessions.runtimeSpec,
             model: sessions.model,
@@ -733,6 +842,14 @@ export function createPostgresSessionUnitOfWork(
         if (!session) {
           return { outcome: "not_found" };
         }
+        // Before any check of the input itself: a follow-up already queued is
+        // the answer, whatever the session would say to a new one now.
+        if (
+          platform !== undefined &&
+          (await pushFollowUpQueued(tx, sessionId, platform.pushRequestId))
+        ) {
+          return { outcome: "already_queued" };
+        }
         if (!(await keyReaches(tx, requester, session.agentReleaseId))) {
           return { outcome: "actor_inactive" };
         }
@@ -740,7 +857,9 @@ export function createPostgresSessionUnitOfWork(
         // but said after it: a session the requester cannot see does not exist
         // for them, whoever its agent is.
         const usage =
-          session.agentReleaseId !== null && session.workspaceId !== null
+          platform === undefined &&
+          session.agentReleaseId !== null &&
+          session.workspaceId !== null
             ? await lockAgentUsage(
                 tx,
                 requester,
@@ -765,6 +884,7 @@ export function createPostgresSessionUnitOfWork(
         // member rows; said after it, and before the usage refusal, so a
         // creator who lost the agent hears why their preview stopped.
         const previewHeld =
+          platform !== undefined ||
           !session.preview ||
           (limitedAgentId !== null &&
             session.workspaceId !== null &&
@@ -775,7 +895,10 @@ export function createPostgresSessionUnitOfWork(
               session.workspaceId,
               limitedAgentId,
             )));
-        if ((await lockSessionReach(tx, requester, session)) !== "ok") {
+        if (
+          platform === undefined &&
+          (await lockSessionReach(tx, requester, session)) !== "ok"
+        ) {
           return { outcome: "not_found" };
         }
         if (!previewHeld) {
@@ -814,6 +937,11 @@ export function createPostgresSessionUnitOfWork(
         }
         if (session.takeoverRequiredAt !== null) {
           return { outcome: "awaiting_takeover" };
+        }
+        // Before the admission: a session stopped for a deleted source says
+        // why, whether it is pausing, paused or stopped by now.
+        if (session.sourceDeletedAt !== null) {
+          return { outcome: "source_deleted", sessionStopped: true };
         }
         if (session.admissionState !== "active") {
           return {
@@ -856,6 +984,24 @@ export function createPostgresSessionUnitOfWork(
         if (session.status === "failed" && pinRefusesLive(session)) {
           return { outcome: "pin_required" };
         }
+        // The turn would carry a source Slack deleted: its own message, or
+        // one an earlier turn of the session came from.
+        const sources = await newTurnSources(tx, {
+          sessionId,
+          slackMessage:
+            platform === undefined ? (input.slackMessage ?? null) : null,
+        });
+        if (
+          session.workspaceId !== null &&
+          (await lockedDeletedSource(tx, {
+            workspaceId: session.workspaceId,
+            sessionId,
+            sources,
+            throughTurn: null,
+          })) !== null
+        ) {
+          return { outcome: "source_deleted" };
+        }
         const refused = await admitInput(tx, {
           sessionId,
           message: input.message,
@@ -871,12 +1017,31 @@ export function createPostgresSessionUnitOfWork(
           sessionId: sessionId,
           sequence,
           message: input.message,
-          actorId: input.principal.actor?.userId ?? null,
-          channel: input.channel ?? null,
-          slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
-          ...usageRecord(usage, requester),
-          ...callerRecord(senderLimit, input.callerSubject),
+          sources,
+          ...(platform === undefined
+            ? {
+                actorId: input.principal.actor?.userId ?? null,
+                channel: input.channel ?? null,
+                slackMessage: input.slackMessage ?? null,
+                ...usageRecord(usage, requester),
+                requesterAuth: requesterAuthOf(
+                  input.principal.actor,
+                  requester,
+                ),
+                ...callerRecord(senderLimit, input.callerSubject),
+              }
+            : {
+                // The agent's turn: no person, no surface, no usage basis.
+                actorId: null,
+                channel: null,
+                slackMessage: null,
+                ...(await pushFollowUpRequester(tx, {
+                  agentReleaseId: session.agentReleaseId,
+                  pushRequestId: platform.pushRequestId,
+                  decision: platform.decision,
+                })),
+              }),
         });
         await tx
           .update(sessions)
@@ -972,7 +1137,16 @@ type TurnRead = {
   turn: TurnRow;
   awaitingInput: boolean;
   creatorName: string | null;
+  sourceDeletedAt: Date | null;
 };
+
+const turnWorkspace = sql`(SELECT ws.workspace_id FROM sessions ws WHERE ws.id = ${turns.sessionId})`;
+
+/** When Slack deleted the turn's instruction (directSourceDeletedAt). */
+const turnSourceDeletedAt =
+  sql<Date | null>`${directSourceDeletedAt(sql`${turns.sources}`, turnWorkspace)}`.mapWith(
+    (value: string | Date | null) => (value === null ? null : new Date(value)),
+  );
 
 // result_json holds the SDK result message: its `result` and `usage` when
 // present, otherwise the whole document is the result.
@@ -990,27 +1164,77 @@ function resultParts(resultJson: unknown): {
   return { result: resultJson ?? null, usage: null };
 }
 
+// As stored: a kind or method this build does not know is shown, not dropped.
+function requesterView(row: {
+  requesterKind: string | null;
+  requesterId: string | null;
+  requesterAuth: unknown;
+}): TurnSummary["requester"] {
+  if (!row.requesterKind || !row.requesterId) return null;
+  const auth =
+    row.requesterAuth !== null &&
+    typeof row.requesterAuth === "object" &&
+    !Array.isArray(row.requesterAuth)
+      ? (row.requesterAuth as Record<string, unknown>)
+      : null;
+  const method = auth?.method;
+  const carried = auth?.carried_from;
+  return {
+    kind: row.requesterKind,
+    id: row.requesterId,
+    auth_method: typeof method === "string" && method !== "" ? method : null,
+    carried:
+      carried !== null &&
+      typeof carried === "object" &&
+      !Array.isArray(carried),
+  };
+}
+
 function summarizeTurn(
-  { turn: row, awaitingInput, creatorName }: TurnRead,
+  { turn: row, awaitingInput, creatorName, sourceDeletedAt }: TurnRead,
   checkpointRevision: number | null,
 ): TurnSummary {
   return {
     turn_id: String(row.sequence),
     session_id: row.sessionId,
     status: turnStatusSchema.parse(publicStatus(row.status, awaitingInput)),
-    message: row.message,
+    // Its instruction was deleted in Slack: withheld, not erased.
+    message: sourceDeletedAt === null ? row.message : "",
+    source_deleted_at: sourceDeletedAt?.toISOString() ?? null,
     channel: row.channel,
     slack_permalink: row.slackMessage?.permalink ?? null,
     created_by:
       row.actorId === null || creatorName === null
         ? null
         : { user_id: row.actorId, display_name: creatorName },
-    terminal_reason: row.terminalReason,
+    requester: requesterView(row),
+    // A reason an engine wrote may quote what the turn read.
+    terminal_reason: sourceDeletedAt === null ? row.terminalReason : null,
     checkpoint_revision: checkpointRevision,
     created_at: row.createdAt.toISOString(),
     started_at: row.startedAt?.toISOString() ?? null,
     ended_at: row.endedAt?.toISOString() ?? null,
   };
+}
+
+/** A title cut or made from a deleted first message reads as none. */
+function withheldTitle(
+  row: Pick<SessionRow, "title" | "titleSource">,
+  firstDeletedAt: Date | null,
+): { title: string | null; title_deleted_at: string | null } {
+  return firstDeletedAt !== null &&
+    (row.titleSource === "derived" || row.titleSource === "generated")
+    ? { title: null, title_deleted_at: firstDeletedAt.toISOString() }
+    : { title: row.title, title_deleted_at: null };
+}
+
+/** A status event without the title a withheld one would show. */
+function withoutTitle(payload: SessionEventPayload): SessionEventPayload {
+  if (payload.event !== "status" || payload.data.title === undefined) {
+    return payload;
+  }
+  const { title: _title, ...data } = payload.data;
+  return { event: "status", data };
 }
 
 const byteLength = (value: unknown) =>
@@ -1151,6 +1375,10 @@ export function createPostgresSessionReader(
         id: sessions.id,
         runtimeKind: sql<RuntimeKind | null>`${sessions.runtimeSpec} -> 'runtime' ->> 'kind'`,
         retiredCheckpointRevision: sessions.contextResetCheckpointRevision,
+        workspaceId: sessions.workspaceId,
+        // Any title an event set may be one made from the first turn,
+        // even once a person renamed the session since.
+        titleDeleted: sql<boolean>`${firstTurnDeletedAt("sessions")} IS NOT NULL`,
       })
       .from(sessions)
       .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
@@ -1198,6 +1426,7 @@ export function createPostgresSessionReader(
         turn: turns,
         awaitingInput: sql<boolean>`exists (${actionableOfTurn(db)})`,
         creatorName: users.displayName,
+        sourceDeletedAt: turnSourceDeletedAt,
       })
       .from(turns)
       .leftJoin(users, eq(users.id, turns.actorId));
@@ -1267,6 +1496,7 @@ export function createPostgresSessionReader(
         sessionId: turns.sessionId,
         actorId: turns.actorId,
         slackMessage: turns.slackMessage,
+        sourceDeletedAt: turnSourceDeletedAt,
       })
       .from(turns)
       .where(and(inArray(turns.sessionId, ids), eq(turns.sequence, 1)));
@@ -1306,6 +1536,7 @@ export function createPostgresSessionReader(
               id: agents.id,
               name: agents.name,
               activeReleaseId: agents.activeReleaseId,
+              status: agents.status,
               release_version_no: agentVersions.versionNo,
               createdAt: agentReleases.createdAt,
               earlier: earlierInSecond(agentReleases),
@@ -1355,7 +1586,7 @@ export function createPostgresSessionReader(
                 .where(
                   and(
                     inArray(agents.id, agentIds),
-                    agentReachable(
+                    agentNamedInSession(
                       executor,
                       agents.workspaceId,
                       {
@@ -1379,7 +1610,7 @@ export function createPostgresSessionReader(
       );
       return {
         id: row.id,
-        title: row.title,
+        ...withheldTitle(row, firstTurnOf(row)?.sourceDeletedAt ?? null),
         preview: row.preview,
         agent_hidden:
           release !== undefined && usable?.has(release.id) === false,
@@ -1392,6 +1623,7 @@ export function createPostgresSessionReader(
                 release_label: releaseLabel(release.createdAt, release.earlier),
                 release_is_active:
                   release.activeReleaseId === release.releaseId,
+                archived: release.status === "archived",
               }
             : null,
         created_by:
@@ -1437,7 +1669,8 @@ export function createPostgresSessionReader(
       q === undefined
         ? undefined
         : or(
-            sql`${sessions.title} ILIKE ${containsPattern(q)}`,
+            // A title withheld for its deleted message finds nothing.
+            sql`(${sessions.title} ILIKE ${containsPattern(q)} AND ${titleDeletedAt("sessions")} IS NULL)`,
             ID_PREFIX.test(q)
               ? sql`${sessions.id}::text LIKE ${`${q}%`}`
               : undefined,
@@ -1524,8 +1757,9 @@ export function createPostgresSessionReader(
                           and(
                             eq(agentReleases.agentId, query.agent_id),
                             // An agent the viewer may not use, or is outside,
-                            // filters like one that is not there.
-                            agentReachable(
+                            // filters like one that is not there, save one
+                            // the holding team holds, named on its sessions.
+                            agentNamedInSession(
                               db,
                               agents.workspaceId,
                               {
@@ -1751,6 +1985,9 @@ export function createPostgresSessionReader(
               row.pauseReason === "awaiting_input" ? row.pauseReason : null,
             pending_request_count: read.pendingCount,
             attention:
+              (row.sourceDeletedAt === null
+                ? null
+                : { code: "SOURCE_DELETED" as const }) ??
               (await drainAttention(tx, row)) ??
               (await contextGapAttention(tx, row)) ??
               startupFailedAttention(row) ??
@@ -1848,7 +2085,10 @@ export function createPostgresSessionReader(
         [row.id],
         session.retiredCheckpointRevision,
       );
-      const parts = resultParts(row.resultJson);
+      const parts =
+        read.sourceDeletedAt === null
+          ? resultParts(row.resultJson)
+          : { result: null, usage: resultParts(row.resultJson).usage };
       const attemptRows = row.attemptId
         ? await db
             .select()
@@ -1996,6 +2236,36 @@ export function createPostgresSessionReader(
         }
       }
       const fetched = Number(rows[0]?.fetched ?? 0);
+      // The page's turns whose instruction Slack deleted; their events are
+      // served withheld, an archived one as one still stored.
+      const sequences = [
+        ...new Set(
+          rows.flatMap((row) =>
+            row.turn_sequence === null ? [] : [Number(row.turn_sequence)],
+          ),
+        ),
+      ];
+      const withheld = new Map(
+        sequences.length === 0
+          ? []
+          : (
+              await db
+                .select({
+                  sequence: turns.sequence,
+                  deletedAt: turnSourceDeletedAt,
+                })
+                .from(turns)
+                .where(
+                  and(
+                    eq(turns.sessionId, sessionId),
+                    inArray(turns.sequence, sequences),
+                    isNotNull(turns.sources),
+                  ),
+                )
+            ).flatMap(({ sequence, deletedAt }) =>
+              deletedAt === null ? [] : [[sequence, deletedAt] as const],
+            ),
+      );
       // Fields filled here on read count against the byte bound too: a page
       // stops before the row they would push past it.
       let filledBytes = 0;
@@ -2003,10 +2273,20 @@ export function createPostgresSessionReader(
       const items: SseEvent[] = [];
       for (const [index, row] of rows.entries()) {
         const stored = readStoredEvent(row.type, row.payload);
-        const payload =
+        const neutral =
           stored.readable && row.bare && options.neutralize
             ? options.neutralize(owned.runtimeKind, stored.payload)
             : stored.payload;
+        const deletedAt =
+          row.turn_sequence === null
+            ? undefined
+            : withheld.get(Number(row.turn_sequence));
+        const payload =
+          deletedAt !== undefined
+            ? withheldEventPayload(neutral)
+            : owned.titleDeleted && neutral.event === "status"
+              ? withoutTitle(neutral)
+              : neutral;
         if (payload !== stored.payload) {
           filledBytes +=
             byteLength(payload.data) - byteLength(stored.payload.data);
@@ -2035,6 +2315,9 @@ export function createPostgresSessionReader(
               turn_id:
                 row.turn_sequence === null ? null : String(row.turn_sequence),
               attempt_id: row.attempt_id,
+              ...(deletedAt === undefined
+                ? {}
+                : { source_deleted_at: deletedAt.toISOString() }),
               occurred_at: new Date(Number(row.occurred_ms)).toISOString(),
               data: payload.data,
             },

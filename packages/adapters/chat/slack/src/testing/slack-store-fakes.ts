@@ -14,8 +14,10 @@ import {
 import {
   type AgentIdentityRecord,
   type AgentIdentityStore,
+  type BufferedInputReceipt,
   type ConfigTokenSummary,
   type CreatedSlackApp,
+  type InboundInputReceipt,
   lastFour,
   type RotatedConfigToken,
   type SecretAudit,
@@ -40,6 +42,10 @@ import {
   type SlackInstallApi,
   type SlackInstallGrant,
 } from "../slack-config-api.ts";
+import type {
+  SlackSourceMark,
+  SlackSourceMarkStore,
+} from "../slack-events-service.ts";
 
 /** Token-shaped values are made per run, never written into a file. */
 export function fakeSlackValue(prefix: string): string {
@@ -970,6 +976,8 @@ export function createMemorySlackInboundEventStore(
   const rows = new Map<string, SlackInboundEventInput>();
   const lease = new Map<string, MemoryInboundRow>();
   const calls = { seen: 0, record: 0 };
+  /** What each completion took, in order. */
+  const inputs: (InboundInputReceipt | BufferedInputReceipt)[] = [];
   const faults = { record: 0 };
   const held = (fence: SlackInboundFence) => {
     const row = [...lease.values()].find((r) => r.id === fence.id);
@@ -1039,7 +1047,8 @@ export function createMemorySlackInboundEventStore(
           eventSubtype: row.eventSubtype,
           eventTime: row.eventTime,
           conversationKey: row.conversationKey,
-          payload: row.payload,
+          // A row recorded without its payload is processed, never claimed.
+          payload: row.payload ?? {},
           installationStatus: options.installationStatus?.() ?? "verified",
         });
       }
@@ -1053,9 +1062,12 @@ export function createMemorySlackInboundEventStore(
         installationStatus: options.installationStatus?.() ?? "verified",
       };
     },
-    async complete(fence) {
+    async complete(fence, input) {
       const row = held(fence);
-      if (row) release(row, "processed");
+      if (row) {
+        release(row, "processed");
+        if (input) inputs.push(input);
+      }
       return row !== undefined;
     },
     async drop(fence, reason) {
@@ -1075,5 +1087,36 @@ export function createMemorySlackInboundEventStore(
       return spent ? "failed" : "retry";
     },
   };
-  return { store, rows, lease, calls, faults };
+  return { store, rows, lease, calls, faults, inputs };
+}
+
+/** Keyed by `workspace|team|channel|ts`, like the tables' primary keys. */
+export function createMemorySlackSourceMarkStore() {
+  const deleted = new Map<string, SlackSourceMark>();
+  const edited = new Map<string, SlackSourceMark>();
+  /** The text each edit handed over for the judgment buffer, in order. */
+  const editedBodies: string[] = [];
+  const keyOf = (mark: SlackSourceMark) =>
+    [mark.workspaceId, mark.teamId, mark.channelId, mark.ts].join("|");
+  const store: SlackSourceMarkStore = {
+    async markDeleted(mark) {
+      const key = keyOf(mark);
+      edited.delete(key);
+      if (deleted.has(key)) return "duplicate";
+      deleted.set(key, mark);
+      return "recorded";
+    },
+    async markEdited(mark, body) {
+      const key = keyOf(mark);
+      if (deleted.has(key)) return "deleted";
+      if (body !== undefined) editedBodies.push(body);
+      const before = edited.get(key);
+      edited.set(
+        key,
+        before !== undefined && before.at > mark.at ? before : mark,
+      );
+      return "recorded";
+    },
+  };
+  return { store, deleted, edited, editedBodies };
 }

@@ -7,6 +7,7 @@ import type {
   AuditReadResponse,
   CloseSessionRequest,
   ControlAcceptedResponse,
+  ConversationId,
   CountSessionsQuery,
   CountSessionsResponse,
   CreateSessionRequest,
@@ -37,6 +38,7 @@ import {
   CREDENTIAL_UNBOUND_GUIDANCE,
   newSessionGitHubPolicy,
   normalizeSessionTitle,
+  permissionModeOf,
   releaseModel,
   startRepositoryOf,
 } from "@werft-ai/contracts";
@@ -83,6 +85,7 @@ import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import type { SessionControl } from "./ports/session-control.ts";
 import type { SessionViewer } from "./ports/session-share-store.ts";
 import type {
+  AppendMessageResult,
   EventPage,
   InputAcceptance,
   InputLimitRefusal,
@@ -105,6 +108,21 @@ export const viewerOf = (actor: Caller): SessionViewer => ({
   apiKeyId: actor.actor?.apiKeyId ?? null,
   keyAgentId: actor.actor?.agentId ?? null,
 });
+
+/**
+ * viewerOf with the private channels the policy finds the caller a member
+ * of now, for a read across sessions. A read that skips this hides every
+ * private_channel session.
+ */
+export async function viewerFor(
+  authorization: Pick<AuthorizationPolicy, "privateChannelsOf">,
+  actor: Caller,
+): Promise<SessionViewer> {
+  const privateChannels =
+    (await authorization.privateChannelsOf?.(actor.subject, actor.ownerId)) ??
+    [];
+  return { ...viewerOf(actor), privateChannels };
+}
 
 function extensionRefusalError(refusal: ExtensionRefusal): SessionServiceError {
   return new SessionServiceError(
@@ -429,7 +447,7 @@ export function createSessionService(deps: {
       version: spec.runtime.version,
       connection_id: spec.connection.id,
       model: spec.model,
-      permission_mode: spec.permission_mode,
+      permission_mode: permissionModeOf(spec),
     };
   }
 
@@ -437,6 +455,13 @@ export function createSessionService(deps: {
     throw new SessionServiceError(
       "REVISION_CONFLICT",
       `expected_revision does not match the current revision ${currentRevision}`,
+    );
+  }
+
+  function sessionSourceDeleted(): never {
+    throw new SessionServiceError(
+      "SOURCE_DELETED",
+      "A Slack message this session drew on was deleted; it takes no messages and cannot be resumed, only closed",
     );
   }
 
@@ -569,6 +594,13 @@ export function createSessionService(deps: {
     );
   }
 
+  function sourceDeleted() {
+    return new SessionServiceError(
+      "SOURCE_DELETED",
+      "This session holds a deleted Slack message",
+    );
+  }
+
   function previewRefused() {
     return new SessionServiceError(
       "FORBIDDEN",
@@ -692,17 +724,86 @@ export function createSessionService(deps: {
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }
 
+  // What an input's write came to, as the service answers it; null for a
+  // push follow-up the session already has.
+  async function appended(
+    ownerId: string,
+    result: AppendMessageResult,
+    agentPrivate: SessionServiceError | null,
+  ): Promise<PostSessionMessageResponse | null> {
+    switch (result.outcome) {
+      case "already_queued":
+        return null;
+      case "conflict":
+        return idempotencyConflict();
+      case "agent_private":
+        throw agentPrivate ?? agentPrivateError();
+      case "caller_limited":
+        throw callerLimitedError(result.dimension);
+      case "preview_refused":
+        throw previewRefused();
+      case "not_found":
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      case "rejected": {
+        const rejection = ADMISSION_REJECTIONS[result.admissionState];
+        throw new SessionServiceError(rejection.code, rejection.message);
+      }
+      case "checkpoint_unavailable":
+        throw new SessionServiceError(
+          "CHECKPOINT_UNAVAILABLE",
+          `Session cannot be checkpointed: ${result.reason}`,
+        );
+      case "awaiting_takeover":
+        throw new SessionServiceError(
+          "TAKEOVER_REQUIRED",
+          "The person who asked for this session has left; it takes no messages until an owner takes it over",
+        );
+      case "source_deleted":
+        if (result.sessionStopped) return sessionSourceDeleted();
+        throw sourceDeleted();
+      case "actor_inactive":
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "This principal is no longer a member of the workspace",
+        );
+      case "credential_unbound":
+        throw await credentialUnbound(
+          ownerId,
+          result.agentId,
+          result.receiptId,
+        );
+      case "pin_required":
+        throw new SessionServiceError(
+          "UNSUPPORTED_CAPABILITY",
+          "This session has no runtime spec pinned on its own model, so it takes no more input; create a new session",
+        );
+      case "queue_full":
+      case "storage_exhausted":
+        throw limitError(result);
+      default:
+        return result.response;
+    }
+  }
+
   return {
     async createSession(
       actor: Caller,
       input: {
         idempotencyKey: string;
         body: CreateSessionRequest;
-        shareScope?: "private";
+        /** private_channel needs the channel's conversation as the parent. */
+        shareScope?: "private" | "private_channel";
+        parentConversationId?: ConversationId;
         slackMessage?: SlackMessageRef;
         traceContext?: string;
       },
     ): Promise<CreateSessionResponse> {
+      if (
+        input.shareScope === "private_channel" &&
+        input.parentConversationId === undefined
+      ) {
+        throw new Error("a private_channel session needs its channel");
+      }
       const preview = input.body.preview === true;
       if (preview && !signedInPerson(actor)) {
         throw new SessionServiceError(
@@ -960,6 +1061,9 @@ export function createSessionService(deps: {
           : input.shareScope === undefined
             ? {}
             : { shareScope: input.shareScope }),
+        ...(input.parentConversationId === undefined
+          ? {}
+          : { parentConversationId: input.parentConversationId }),
         ...(input.slackMessage === undefined
           ? {}
           : { slackMessage: input.slackMessage }),
@@ -998,6 +1102,8 @@ export function createSessionService(deps: {
             release.agent_id,
             result.receiptId,
           );
+        case "source_deleted":
+          throw sourceDeleted();
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
@@ -1066,53 +1172,48 @@ export function createSessionService(deps: {
           : { traceContext: input.traceContext }),
         ...(agentPrivate ? { agentPrivate: true as const } : {}),
       });
-      switch (result.outcome) {
-        case "conflict":
-          return idempotencyConflict();
-        case "agent_private":
-          throw agentPrivate ?? agentPrivateError();
-        case "caller_limited":
-          throw callerLimitedError(result.dimension);
-        case "preview_refused":
-          throw previewRefused();
-        case "not_found":
-          throw new SessionServiceError("NOT_FOUND", "Resource not found");
-        case "rejected": {
-          const rejection = ADMISSION_REJECTIONS[result.admissionState];
-          throw new SessionServiceError(rejection.code, rejection.message);
-        }
-        case "checkpoint_unavailable":
-          throw new SessionServiceError(
-            "CHECKPOINT_UNAVAILABLE",
-            `Session cannot be checkpointed: ${result.reason}`,
-          );
-        case "awaiting_takeover":
-          throw new SessionServiceError(
-            "TAKEOVER_REQUIRED",
-            "The person who asked for this session has left; it takes no messages until an owner takes it over",
-          );
-        case "actor_inactive":
-          throw new SessionServiceError(
-            "FORBIDDEN",
-            "This principal is no longer a member of the workspace",
-          );
-        case "credential_unbound":
-          throw await credentialUnbound(
-            actor.ownerId,
-            result.agentId,
-            result.receiptId,
-          );
-        case "pin_required":
-          throw new SessionServiceError(
-            "UNSUPPORTED_CAPABILITY",
-            "This session has no runtime spec pinned on its own model, so it takes no more input; create a new session",
-          );
-        case "queue_full":
-        case "storage_exhausted":
-          throw limitError(result);
-        default:
-          return result.response;
-      }
+      const response = await appended(actor.ownerId, result, agentPrivate);
+      if (response === null)
+        throw new Error("Only a push follow-up is queued once");
+      return response;
+    },
+
+    /**
+     * The turn that follows a push decision, queued as the agent's own work:
+     * nothing about a person is judged or recorded, and the session's own
+     * checks and limits hold as for any input. Not an API route. Null when
+     * the session already has this push request's follow-up.
+     */
+    async queuePushFollowUp(
+      ownerId: string,
+      sessionId: string,
+      input: {
+        idempotencyKey: string;
+        message: string;
+        pushRequestId: string;
+        decision: "approve" | "reject";
+        requestId?: string;
+      },
+    ): Promise<PostSessionMessageResponse | null> {
+      const body = { message: input.message, mode: "enqueue" as const };
+      const result = await inputs.appendInputAtomic({
+        principal: {
+          ownerId,
+          ...(input.requestId === undefined
+            ? {}
+            : { requestId: input.requestId }),
+        },
+        sessionId,
+        idempotencyKey: input.idempotencyKey,
+        payloadHash: payloadHash(body),
+        message: input.message,
+        limits: await inputLimits(),
+        platform: {
+          pushRequestId: input.pushRequestId,
+          decision: input.decision,
+        },
+      });
+      return appended(ownerId, result, null);
     },
 
     async terminateSession(
@@ -1381,6 +1482,8 @@ export function createSessionService(deps: {
           );
         case "execution_revoked":
           throw executionRevoked();
+        case "source_deleted":
+          throw sessionSourceDeleted();
         case "not_restore_failed":
           throw new SessionServiceError(
             "REQUEST_STALE",
@@ -1458,6 +1561,8 @@ export function createSessionService(deps: {
           );
         case "execution_revoked":
           throw executionRevoked();
+        case "source_deleted":
+          throw sessionSourceDeleted();
         case "pending_requests_open":
           throw new SessionServiceError(
             "PENDING_REQUESTS_OPEN",
@@ -1479,7 +1584,7 @@ export function createSessionService(deps: {
       const page = await reader.listSessions(
         actor.ownerId,
         query,
-        viewerOf(actor),
+        await viewerFor(authorization, actor),
       );
       return {
         items: page.items.map(({ spec, ...item }) => {
@@ -1507,7 +1612,11 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      return reader.countSessions(actor.ownerId, query, viewerOf(actor));
+      return reader.countSessions(
+        actor.ownerId,
+        query,
+        await viewerFor(authorization, actor),
+      );
     },
 
     async getSession(actor: Caller, sessionId: string): Promise<SessionDetail> {

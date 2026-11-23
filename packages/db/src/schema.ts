@@ -16,14 +16,39 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_PULL_REQUEST_FORMATTING_VALUES,
   AGENT_STATUS_VALUES,
+  AUDIENCE_KIND_VALUES,
   AUTHORIZATION_OUTCOME_VALUES,
   AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
   type AuthorizationAction,
+  BINDING_LISTEN_VALUES,
   BINDING_MODE_VALUES,
+  BUDGET_LIMIT_SUBJECT_VALUES,
+  BUDGET_OWNER_KIND_VALUES,
+  BUDGET_RESERVATION_STATE_VALUES,
+  BUDGET_ROOT_KIND_VALUES,
+  type BudgetAccountId,
+  type BudgetLimitSubject,
+  type BudgetOwnerKind,
+  type BudgetReservationState,
+  type BudgetRootKind,
+  CHANNEL_SUMMARY_LINE_TEXT_MAX,
+  CONVERSATION_CALL_STATE_VALUES,
+  CONVERSATION_CHANNEL_STATE_VALUES,
+  CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
+  CONVERSATION_KIND_VALUES,
+  CONVERSATION_ROLLOUT_VALUES,
+  type ConversationCallId,
+  type ConversationCallState,
+  type ConversationChannelState,
+  type ConversationInputId,
+  type ConversationInputSlackMirror,
+  type ConversationKind,
   ENDED_ATTEMPT_STATES,
+  ENGAGEMENT_KIND_VALUES,
   ENV_VARIABLE_KIND_VALUES,
   ENV_VARIABLE_NAME_PATTERN,
   ENV_VARIABLE_VALUE_MAX_BYTES,
+  type EngagementKind,
   GITHUB_APP_ROLE_VALUES,
   GITHUB_POLICY_SOURCE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
@@ -56,6 +81,9 @@ import {
   PUSH_REQUEST_ORIGIN_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
+  REPORT_MODE_CHOICES,
+  type ReportModeChoice,
+  SESSION_LINK_REPORT_MODE_VALUES,
   SESSION_LINK_ROLE_VALUES,
   SESSION_LINK_VISIBILITY_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
@@ -63,19 +91,24 @@ import {
   SESSION_SCOPE_VALUES,
   SESSION_SHARE_SCOPE_VALUES,
   SESSION_STATUS_VALUES,
+  type SessionLinkReportMode,
   type SessionOutcome,
   type SessionOutcomeCheckError,
   type SessionOutcomeType,
   SLACK_APP_KIND_VALUES,
   SLACK_APP_STATE_VALUES,
+  SLACK_CHANNEL_MEMBER_LIMIT,
+  SLACK_CHANNEL_NAME_MAX,
   SLACK_INBOUND_DROP_REASON_VALUES,
   SLACK_INBOUND_EVENT_STATUS_VALUES,
   SLACK_SURFACE_ACTION_VALUES,
   type SlackAppKind,
   type SlackAppState,
+  type SlackInboundDropFields,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
   type SlackMessageRef,
+  type SlackMirrorCorrelationId,
   SURFACE_BINDING_STATUS_VALUES,
   SURFACE_CHANNEL_KIND_VALUES,
   SURFACE_DISCLOSURE_VALUES,
@@ -100,6 +133,7 @@ import type {
   SlackOutboxBody,
   SlackOutboxKind,
   SlackOutboxStatus,
+  StoredSourceSet,
   WorkspaceMcpOAuthPin,
   WorkspaceMcpTool,
 } from "@werft-ai/platform";
@@ -162,6 +196,8 @@ export const GRANT_ACTION_VALUES = [
   "artifact.read",
   "delivery.send",
 ] as const satisfies readonly AuthorizationAction[];
+// Still exported from here, as before the contracts held it.
+export { AUDIENCE_KIND_VALUES };
 export const RESOURCE_KIND_VALUES = [
   "workspace",
   "session",
@@ -174,12 +210,6 @@ export const RESOURCE_KIND_VALUES = [
   "memory",
   "routine",
   "artifact",
-] as const;
-export const AUDIENCE_KIND_VALUES = [
-  "workspace",
-  "surface_binding",
-  "session_link",
-  "session",
 ] as const;
 // Which resource kinds each action may be granted on: `session.read` on a
 // workspace would be a workspace-wide read smuggled in through the resource.
@@ -227,9 +257,8 @@ const oneDimensional = (column: unknown) =>
 
 // Identity. One workspace per installation for now; every row added by the
 // interface track carries a workspace_id. Vocabularies are CHECK constraints
-// rather than pg enums so that widening one is a plain additive migration. Most
-// take their values from the contracts; RESOURCE_KIND_VALUES and
-// AUDIENCE_KIND_VALUES above are still hand copies.
+// rather than pg enums so that widening one is a plain additive migration. They
+// take their values from the contracts, RESOURCE_KIND_VALUES above a subset.
 export const workspaces = pgTable("workspaces", {
   id: uuid().primaryKey(),
   slug: text().notNull().unique(),
@@ -1200,6 +1229,12 @@ export const slackInboundEvents = pgTable(
     status: text().$type<SlackInboundEventStatus>().notNull(),
     dropReason: text("drop_reason").$type<SlackInboundDropReason>(),
     payload: jsonb().$type<Record<string, unknown>>(),
+    /**
+     * A row dropped at the door: who posted it (bot_id, app_id, user) and its
+     * subtypes, never its text, blocks or files. Null on rows that predate
+     * it and on rows the `slack` role dropped.
+     */
+    dropFields: jsonb("drop_fields").$type<SlackInboundDropFields>(),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1233,9 +1268,16 @@ export const slackInboundEvents = pgTable(
       "slack_inbound_events_drop_reason_check",
       sql`${table.dropReason} IS NULL OR ${table.dropReason} IN (${sql.raw(sqlList(SLACK_INBOUND_DROP_REASON_VALUES))})`,
     ),
+    // A received row keeps its payload for the handler; a settled one may
+    // have it cleared (processed at once, failed after
+    // SLACK_INBOUND_FAILED_PAYLOAD_RETENTION_MS); a dropped one never has it.
     check(
-      "slack_inbound_events_dropped_check",
-      sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} = 'dropped') = (${table.payload} IS NULL)`,
+      "slack_inbound_events_payload_check",
+      sql`(${table.status} = 'dropped') = (${table.dropReason} IS NOT NULL) AND (${table.status} <> 'received' OR ${table.payload} IS NOT NULL) AND (${table.status} <> 'dropped' OR ${table.payload} IS NULL)`,
+    ),
+    check(
+      "slack_inbound_events_drop_fields_check",
+      sql`${table.status} = 'dropped' OR ${table.dropFields} IS NULL`,
     ),
     check(
       "slack_inbound_events_conversation_check",
@@ -1251,6 +1293,59 @@ export const slackInboundEvents = pgTable(
     index("slack_inbound_events_conversation_idx")
       .on(table.conversationKey, table.eventTime, table.receivedAt)
       .where(sql`${table.status} = 'received'`),
+    index("slack_inbound_events_failed_payload_idx")
+      .on(table.receivedAt)
+      .where(sql`${table.status} = 'failed' AND ${table.payload} IS NOT NULL`),
+  ],
+);
+
+// A Slack message someone deleted: where it was and when, never its text. A
+// mark of a message nothing Werft keeps points at (knownSlackSource) is
+// removed SLACK_SOURCE_MARK_UNKNOWN_RETENTION_MS after `marked_at`, long
+// enough for the message itself to arrive after its delete.
+export const deletedSources = pgTable(
+  "deleted_sources",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    ts: text().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull(),
+    markedAt: timestamp("marked_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.teamId, table.channelId, table.ts],
+    }),
+    index("deleted_sources_marked_idx").on(table.markedAt),
+  ],
+);
+
+// A Slack message someone edited, kept like a delete mark; a delete of the
+// same message replaces it. Each edit moves both times on.
+export const editedSources = pgTable(
+  "edited_sources",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    ts: text().notNull(),
+    editedAt: timestamp("edited_at", { withTimezone: true }).notNull(),
+    markedAt: timestamp("marked_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.teamId, table.channelId, table.ts],
+    }),
+    index("edited_sources_marked_idx").on(table.markedAt),
   ],
 );
 
@@ -1540,6 +1635,13 @@ export const sessions = pgTable(
     // The surface the creating request came from. Rows from before it got
     // it from their creator columns where those prove it (0158), else null.
     channel: text().$type<SurfaceKind>(),
+    // The main conversation a Slack session belongs to: its channel's, or
+    // for a DM its person's. Null on a session with no link (a standalone
+    // one) and on one whose DM person cannot be found. Rows from before it
+    // are filled by fillSessionParents at host start.
+    parentConversationId: uuid("parent_conversation_id").references(
+      (): AnyPgColumn => conversations.id,
+    ),
     takeoverRequiredAt: timestamp("takeover_required_at", {
       withTimezone: true,
     }),
@@ -1593,6 +1695,12 @@ export const sessions = pgTable(
       withTimezone: true,
     }),
     executionRevokedReason: text("execution_revoked_reason"),
+    // A Slack message among the sources of one of the session's turns was
+    // deleted (stopOnDeletedSource). Like executionRevokedAt it is apart
+    // from admission_state: the session stops, and resume, start_fresh and
+    // every new message refuse while it is set. Nothing clears it; a close
+    // ends the session.
+    sourceDeletedAt: timestamp("source_deleted_at", { withTimezone: true }),
     // Startups that failed before their worker was ready for input: a
     // restore not reported ready, or any claim that never asked
     // for input. The attempt is the one claimed and not yet ready
@@ -1828,10 +1936,21 @@ export const turns = pgTable(
     requesterKind: text("requester_kind"),
     // Opaque text, as a principal's ids are elsewhere on the row.
     requesterId: text("requester_id"),
+    // The credential the requester came in on (`requesterAuthSchema`),
+    // written with the turn and never changed. Null before 0315. A reader
+    // takes a shape it cannot parse as no record.
+    requesterAuth: jsonb("requester_auth").$type<unknown>(),
     callerChannel: text("caller_channel"),
     callerLimitDigest: text("caller_limit_digest"),
+    // What the turn came from (`StoredSourceSet`): Slack places and input
+    // ids, never text. Null for none and before 0324.
+    sources: jsonb().$type<StoredSourceSet>(),
   },
   (table) => [
+    // Which turns a delete mark's place is in, direct or inherited.
+    index("turns_sources_idx")
+      .using("gin", table.sources.op("jsonb_path_ops"))
+      .where(sql`${table.sources} IS NOT NULL`),
     uniqueIndex("turns_session_sequence_uniq").on(
       table.sessionId,
       table.sequence,
@@ -2386,6 +2505,10 @@ export const toolCallAudits = pgTable(
     actorUserId: uuid("actor_user_id"),
     principalKind: text("principal_kind"),
     principalId: text("principal_id"),
+    // The running turn's requester (turns.requester_kind/id). Null on rows
+    // from before it was recorded.
+    requesterKind: text("requester_kind"),
+    requesterId: text("requester_id"),
     surface: text().$type<SurfaceKind>(),
     pendingRequestId: text("pending_request_id"),
     answeredBy: jsonb("answered_by"),
@@ -3323,12 +3446,294 @@ export const providerExchanges = pgTable(
     // stays so a late open cannot count the reserve again, and no judgment
     // counts it.
     releasedAt: timestamp("released_at", { withTimezone: true }),
+    // The budget account the call is held on beside its session, and the
+    // root kind it was charged as; the budget_reservations row of the same
+    // call id holds the amounts. No kind: an open that named no account, held
+    // by the session limit alone. A kind with no account: a key or an agent
+    // with no team to charge. No foreign key, as above: the open already
+    // holds the account row.
+    budgetRootKind: text("budget_root_kind").$type<BudgetRootKind>(),
+    budgetAccountId: uuid("budget_account_id").$type<BudgetAccountId>(),
   },
   (table) => [
     index("provider_exchanges_lease_idx").on(table.leaseExpiresAt),
     index("provider_exchanges_session_held_idx")
       .on(table.sessionId)
       .where(sql`${table.releasedAt} IS NULL`),
+    check(
+      "provider_exchanges_budget_root_kind_check",
+      sql`${table.budgetRootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
+    ),
+    check(
+      "provider_exchanges_budget_account_check",
+      sql`${table.budgetAccountId} IS NULL OR ${table.budgetRootKind} IS NOT NULL`,
+    ),
+  ],
+);
+
+// A NaN cost passes `>= 0` (PostgreSQL sorts it above every number) and
+// would turn a limit off; tokens past 2^53 lose precision where the limits
+// are judged. Null passes both, as in any CHECK.
+const budgetCostOk = (column: AnyPgColumn) =>
+  sql`(${column} >= 0 AND ${column} <> 'NaN')`;
+const budgetTokensOk = (column: AnyPgColumn) =>
+  sql`${column} BETWEEN 0 AND ${sql.raw(String(Number.MAX_SAFE_INTEGER))}`;
+
+// Budget limits an organization admin sets (94S-1995): one for every person
+// in the workspace, one person's own in its place, one per agent team. An
+// absent row is no limit, and so is a row with neither limit. Nothing sets
+// them yet but the store.
+export const budgetLimits = pgTable(
+  "budget_limits",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    subject: text().$type<BudgetLimitSubject>().notNull(),
+    // The user or the member team; null for `person_default`. No foreign
+    // key: the two kinds are different tables.
+    subjectId: uuid("subject_id"),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" }),
+    tokens: bigint({ mode: "number" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("budget_limits_subject_key")
+      .on(table.workspaceId, table.subject, table.subjectId)
+      .nullsNotDistinct(),
+    check(
+      "budget_limits_subject_check",
+      sql`${table.subject} IN (${sql.raw(sqlList(BUDGET_LIMIT_SUBJECT_VALUES))})`,
+    ),
+    check(
+      "budget_limits_subject_id_check",
+      sql`(${table.subject} = 'person_default') = (${table.subjectId} IS NULL)`,
+    ),
+    check(
+      "budget_limits_nonneg_check",
+      sql`${budgetCostOk(table.costUsd)} AND ${budgetTokensOk(table.tokens)}`,
+    ),
+  ],
+);
+
+// One account's month: a person's in a workspace, or an agent team's. Rows
+// are made by the first reservation of the month (UTC), so a new month
+// starts at zero. Spent and reserved are counted here alone, apart from
+// provider_usage and its rollups.
+export const budgetAccounts = pgTable(
+  "budget_accounts",
+  {
+    id: uuid().$type<BudgetAccountId>().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    ownerKind: text("owner_kind").$type<BudgetOwnerKind>().notNull(),
+    // The user or the member team. No foreign key, as above.
+    ownerId: uuid("owner_id").notNull(),
+    // The first day of the month, UTC.
+    periodStart: date("period_start", { mode: "string" }).notNull(),
+    spentCostUsd: numeric("spent_cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    spentTokens: bigint("spent_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
+    reservedCostUsd: numeric("reserved_cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    reservedTokens: bigint("reserved_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("budget_accounts_owner_period_key").on(
+      table.workspaceId,
+      table.ownerKind,
+      table.ownerId,
+      table.periodStart,
+    ),
+    check(
+      "budget_accounts_owner_kind_check",
+      sql`${table.ownerKind} IN (${sql.raw(sqlList(BUDGET_OWNER_KIND_VALUES))})`,
+    ),
+    check(
+      "budget_accounts_period_check",
+      sql`extract(day from ${table.periodStart}) = 1`,
+    ),
+    check(
+      "budget_accounts_nonneg_check",
+      sql`${budgetCostOk(table.spentCostUsd)} AND ${budgetTokensOk(table.spentTokens)} AND ${budgetCostOk(table.reservedCostUsd)} AND ${budgetTokensOk(table.reservedTokens)}`,
+    ),
+  ],
+);
+
+// One call's reservation, by the call's id. A call with no account to
+// charge (a key of an agent with no team) is kept all the same, with its
+// root kind. A settled or released row stays, so the same id does not
+// count twice. unknown_at marks a reserved row whose call was used and not
+// reported within its lease: still held. Older images ignore the column and
+// settle or release the row as reserved.
+export const budgetReservations = pgTable(
+  "budget_reservations",
+  {
+    callId: text("call_id").primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    accountId: uuid("account_id")
+      .$type<BudgetAccountId>()
+      .references(() => budgetAccounts.id),
+    rootKind: text("root_kind").$type<BudgetRootKind>().notNull(),
+    // The connection bills nothing: the costs stay 0 and only tokens count.
+    unmetered: boolean().notNull(),
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+    tokens: bigint({ mode: "number" }).notNull(),
+    state: text().$type<BudgetReservationState>().notNull().default("reserved"),
+    settledCostUsd: numeric("settled_cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }),
+    settledTokens: bigint("settled_tokens", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    unknownAt: timestamp("unknown_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("budget_reservations_account_idx").on(table.accountId),
+    index("budget_reservations_unknown_idx")
+      .on(table.accountId)
+      .where(
+        sql`${table.state} = 'reserved' AND ${table.unknownAt} IS NOT NULL`,
+      ),
+    check(
+      "budget_reservations_root_kind_check",
+      sql`${table.rootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
+    ),
+    check(
+      "budget_reservations_state_check",
+      sql`${table.state} IN (${sql.raw(sqlList(BUDGET_RESERVATION_STATE_VALUES))})`,
+    ),
+    check(
+      "budget_reservations_ended_check",
+      sql`(${table.state} = 'reserved') = (${table.endedAt} IS NULL)`,
+    ),
+    check(
+      "budget_reservations_settled_check",
+      sql`CASE WHEN ${table.state} = 'settled' THEN ${table.settledCostUsd} IS NOT NULL AND ${table.settledTokens} IS NOT NULL ELSE ${table.settledCostUsd} IS NULL AND ${table.settledTokens} IS NULL END`,
+    ),
+    check(
+      "budget_reservations_nonneg_check",
+      sql`${budgetCostOk(table.costUsd)} AND ${budgetTokensOk(table.tokens)} AND ${budgetCostOk(table.settledCostUsd)} AND ${budgetTokensOk(table.settledTokens)}`,
+    ),
+    check(
+      "budget_reservations_unmetered_check",
+      sql`NOT ${table.unmetered} OR (${table.costUsd} = 0 AND coalesce(${table.settledCostUsd}, 0) = 0)`,
+    ),
+  ],
+);
+
+// A provider call that serves no session (a conversation's), from the
+// token's issue to its usage report. Only what the reservation needs: the
+// account side is the budget_reservations row whose call_id is this id.
+// The token is kept as its hash alone.
+export const conversationCalls = pgTable(
+  "conversation_calls",
+  {
+    id: uuid().$type<ConversationCallId>().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    tokenHash: bytea("token_hash").notNull(),
+    // Whose request it serves, as the reservation was charged; the person
+    // when there is one (a personal key's maker for a key).
+    rootKind: text("root_kind").$type<BudgetRootKind>().notNull(),
+    requesterUserId: uuid("requester_user_id"),
+    // The one request the token covers.
+    connectionId: text("connection_id").notNull(),
+    path: text().notNull(),
+    model: text().notNull(),
+    maxTokens: integer("max_tokens").notNull(),
+    maxRequestBytes: integer("max_request_bytes").notNull(),
+    state: text().$type<ConversationCallState>().notNull().default("reserved"),
+    // The exchange the first grant bound the token to.
+    exchangeId: text("exchange_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // What the report said and what it was settled at.
+    usage: jsonb().$type<ProviderUsage>(),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" }),
+    tokens: bigint({ mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    // In flight past the lease with no report: its end is unknown, still
+    // held. Older images ignore it and treat the row as in flight.
+    unknownAt: timestamp("unknown_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("conversation_calls_token_uniq").on(table.tokenHash),
+    uniqueIndex("conversation_calls_exchange_uniq").on(table.exchangeId),
+    index("conversation_calls_reserved_expiry_idx")
+      .on(table.expiresAt)
+      .where(sql`${table.state} = 'reserved'`),
+    index("conversation_calls_in_flight_started_idx")
+      .on(table.startedAt)
+      .where(sql`${table.state} = 'in_flight' AND ${table.unknownAt} IS NULL`),
+    check(
+      "conversation_calls_root_kind_check",
+      sql`${table.rootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
+    ),
+    check(
+      "conversation_calls_state_check",
+      sql`${table.state} IN (${sql.raw(sqlList(CONVERSATION_CALL_STATE_VALUES))})`,
+    ),
+    check(
+      "conversation_calls_limits_check",
+      sql`${table.maxTokens} > 0 AND ${table.maxRequestBytes} > 0`,
+    ),
+    // Each state with exactly the columns it has reached: bound once used,
+    // ended once settled or released, priced once settled.
+    check(
+      "conversation_calls_state_columns_check",
+      sql`CASE ${table.state}
+        WHEN 'reserved' THEN ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
+        WHEN 'in_flight' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
+        WHEN 'settled' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NOT NULL
+        ELSE ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
+      END`,
+    ),
+    check(
+      "conversation_calls_settled_check",
+      sql`(${table.state} = 'settled') = (${table.costUsd} IS NOT NULL AND ${table.tokens} IS NOT NULL)`,
+    ),
+    check(
+      "conversation_calls_nonneg_check",
+      sql`${budgetCostOk(table.costUsd)} AND ${budgetTokensOk(table.tokens)}`,
+    ),
   ],
 );
 
@@ -3704,6 +4109,11 @@ export const agents = pgTable(
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
     slackMentionOnly: boolean("slack_mention_only").notNull().default(true),
+    /** `CONVERSATION_ROLLOUT_VALUES`; `off` until the layer is switched on. */
+    conversationRollout: text("conversation_rollout")
+      .$type<"off" | "shadow" | "on">()
+      .notNull()
+      .default("off"),
     /** Slack bot users whose direct mention the agent answers; empty for none. */
     slackAllowedBotUserIds: text("slack_allowed_bot_user_ids")
       .array()
@@ -3780,6 +4190,10 @@ export const agents = pgTable(
     check(
       "agents_status_check",
       sql`${table.status} IN (${sql.raw(sqlList(AGENT_STATUS_VALUES))})`,
+    ),
+    check(
+      "agents_conversation_rollout_check",
+      sql`${table.conversationRollout} IN (${sql.raw(sqlList(CONVERSATION_ROLLOUT_VALUES))})`,
     ),
     check(
       "agents_slug_check",
@@ -4635,19 +5049,35 @@ export const surfaceBindings = pgTable(
       "public_channel" | "private_channel" | "dm"
     >(),
     mode: text().$type<"off" | "on">().notNull(),
+    /** `BINDING_LISTEN_VALUES`: a new channel listens to every message. */
+    listen: text()
+      .$type<"free" | "mention" | "off">()
+      .notNull()
+      .default("free"),
     /** The channel's ceiling; `surfaceCeilingSchema` split in two columns. */
     ceilingActions: text("ceiling_actions").array().notNull(),
     ceilingDisclosure: text("ceiling_disclosure")
       .$type<"full" | "summary">()
       .notNull(),
     home: boolean().notNull().default(false),
+    /** How the channel's threads hear of their turns, unless a link says. */
+    reportMode: text("report_mode")
+      .$type<ReportModeChoice>()
+      .notNull()
+      .default("per_step"),
     memoryWritePolicy: text("memory_write_policy")
       .$type<"deny" | "allow_explicit">()
       .notNull()
       .default("deny"),
     status: text()
       .$type<
-        "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked"
+        | "ready"
+        | "pending_approval"
+        | "left"
+        | "gone"
+        | "partial"
+        | "failed"
+        | "revoked"
       >()
       .notNull()
       .default("ready"),
@@ -4708,6 +5138,15 @@ export const surfaceBindings = pgTable(
       sql`${table.mode} IN (${sql.raw(sqlList(BINDING_MODE_VALUES))})`,
     ),
     check(
+      "surface_bindings_listen_check",
+      sql`${table.listen} IN (${sql.raw(sqlList(BINDING_LISTEN_VALUES))})`,
+    ),
+    // `none` is a moved link's value only: no channel picks it.
+    check(
+      "surface_bindings_report_mode_check",
+      sql`${table.reportMode} IN (${sql.raw(sqlList(REPORT_MODE_CHOICES))})`,
+    ),
+    check(
       "surface_bindings_ceiling_check",
       sql`${table.ceilingActions} <@ ${textArrayLiteral(SLACK_SURFACE_ACTION_VALUES)} AND ${table.ceilingDisclosure} IN (${sql.raw(sqlList(SURFACE_DISCLOSURE_VALUES))})`,
     ),
@@ -4740,6 +5179,12 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_pending_check",
       sql`${table.status} <> 'pending_approval' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND ${table.surfaceKind} = 'private_channel' AND NOT ${table.home})`,
+    ),
+    // A channel Slack deleted is inactive and holds no approval or home; it
+    // keeps its kind, which a join that brings it back reads.
+    check(
+      "surface_bindings_gone_check",
+      sql`${table.status} <> 'gone' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND COALESCE(${table.surfaceKind} IN ('public_channel', 'private_channel'), false) AND NOT ${table.home} AND ${table.approvedAt} IS NULL AND ${table.approvedLifecycleUs} IS NULL)`,
     ),
     // A channel the bot left is inactive and holds no approval; COALESCE keeps
     // a NULL kind from passing the check as an unknown.
@@ -4778,6 +5223,513 @@ export const slackChannelLifecycle = pgTable(
       columns: [table.installationId],
       foreignColumns: [slackInstallations.id],
     }),
+  ],
+);
+
+/**
+ * Temporary cache for the channel member check, kept 5 minutes
+ * (`SLACK_MEMBER_CACHE_TTL_MS`): the Slack user ids `conversations.members`
+ * answered and when, nothing a member wrote. A member event voids the list
+ * (`invalidated_at`), and a read that began before that cannot write it back.
+ */
+export const slackChannelMemberCache = pgTable(
+  "slack_channel_member_cache",
+  {
+    installationId: uuid("installation_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    memberIds: text("member_ids").array().notNull().default(sql`'{}'`),
+    /** When the read that wrote `member_ids` began; null after a void alone. */
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      name: "slack_channel_member_cache_pk",
+      columns: [table.installationId, table.channelId],
+    }),
+    foreignKey({
+      name: "slack_channel_member_cache_installation_fk",
+      columns: [table.installationId],
+      foreignColumns: [slackInstallations.id],
+    }).onDelete("cascade"),
+    check(
+      "slack_channel_member_cache_size_check",
+      sql`cardinality(${table.memberIds}) <= ${sql.raw(String(SLACK_CHANNEL_MEMBER_LIMIT))}`,
+    ),
+    check(
+      "slack_channel_member_cache_time_check",
+      sql`${table.fetchedAt} IS NOT NULL OR ${table.invalidatedAt} IS NOT NULL`,
+    ),
+  ],
+);
+
+// The conversation layer's scope objects. A channel holds one context every
+// agent in it shares; an agent holds one main conversation per channel and
+// one per person it talks to in DMs. Keys are these columns and their
+// uniques; `channel:{W}:{T}:{C}`-style scope keys are derived, never stored.
+// A conversation is found or made on its first input, not when the bot joins.
+export const channelContexts = pgTable(
+  "channel_contexts",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    /** Slack team id. */
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("channel_contexts_channel_uniq").on(
+      table.workspaceId,
+      table.teamId,
+      table.channelId,
+    ),
+    // Scope keys join these with ":"; contracts SLACK_SCOPE_SEGMENT_PATTERN.
+    check(
+      "channel_contexts_ids_check",
+      sql`${table.teamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.channelId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
+    ),
+  ],
+);
+
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    kind: text().$type<ConversationKind>().notNull(),
+    teamId: text("team_id"),
+    channelId: text("channel_id"),
+    /** A Werft user, not a Slack one. A DM's D… channel is not kept here. */
+    personUserId: uuid("person_user_id"),
+    /** `CONVERSATION_CHANNEL_STATE_VALUES`: archived or deleted, as Slack said. */
+    channelState: text("channel_state")
+      .$type<ConversationChannelState>()
+      .notNull()
+      .default("active"),
+    /** The newest Slack time (µs) of the archive, unarchive or delete applied. */
+    channelStateUs: bigint("channel_state_us", { mode: "number" }),
+    /** The name of the last rename seen; null until a channel is renamed. */
+    channelName: text("channel_name"),
+    channelNameUs: bigint("channel_name_us", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "conversations_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // Null in a DM row, so it holds for channel rows only.
+    foreignKey({
+      name: "conversations_channel_fk",
+      columns: [table.workspaceId, table.teamId, table.channelId],
+      foreignColumns: [
+        channelContexts.workspaceId,
+        channelContexts.teamId,
+        channelContexts.channelId,
+      ],
+    }),
+    foreignKey({
+      name: "conversations_person_fk",
+      columns: [table.workspaceId, table.personUserId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    // Nulls are distinct, so each unique holds only for its own kind.
+    unique("conversations_channel_uniq").on(
+      table.agentId,
+      table.teamId,
+      table.channelId,
+    ),
+    unique("conversations_dm_uniq").on(table.agentId, table.personUserId),
+    // What conversation_topics references: its agent and kind, and for a
+    // channel conversation its channel.
+    unique("conversations_agent_kind_key").on(
+      table.workspaceId,
+      table.agentId,
+      table.id,
+      table.kind,
+    ),
+    unique("conversations_channel_key").on(
+      table.id,
+      table.teamId,
+      table.channelId,
+    ),
+    check(
+      "conversations_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(CONVERSATION_KIND_VALUES))})`,
+    ),
+    check(
+      "conversations_channel_state_check",
+      sql`${table.channelState} IN (${sql.raw(sqlList(CONVERSATION_CHANNEL_STATE_VALUES))}) AND (${table.kind} = 'channel' OR (${table.channelState} = 'active' AND ${table.channelStateUs} IS NULL AND ${table.channelName} IS NULL AND ${table.channelNameUs} IS NULL))`,
+    ),
+    check(
+      "conversations_channel_name_check",
+      sql`${table.channelName} IS NULL OR char_length(${table.channelName}) BETWEEN 1 AND ${sql.raw(String(SLACK_CHANNEL_NAME_MAX))}`,
+    ),
+    // A row is a channel's or a person's, never both.
+    check(
+      "conversations_place_check",
+      sql`(${table.kind} = 'channel' AND ${table.teamId} IS NOT NULL AND ${table.channelId} IS NOT NULL AND ${table.personUserId} IS NULL) OR (${table.kind} = 'dm' AND ${table.personUserId} IS NOT NULL AND ${table.teamId} IS NULL AND ${table.channelId} IS NULL)`,
+    ),
+  ],
+);
+
+// One top-level message and its thread is one topic. The id is the server's;
+// the Slack thread is its alias, empty for a web topic until Slack places it.
+// A channel topic's alias is in its conversation's channel; a DM topic's
+// names the D… channel as Slack sent it.
+export const conversationTopics = pgTable(
+  "conversation_topics",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
+    /** The conversation's, held to it by the FK below. */
+    conversationKind: text("conversation_kind")
+      .$type<ConversationKind>()
+      .notNull(),
+    slackTeamId: text("slack_team_id"),
+    slackChannelId: text("slack_channel_id"),
+    slackThreadTs: text("slack_thread_ts"),
+    // The alias's channel when the conversation is a channel's, else null:
+    // the FK they feed holds a channel topic to its conversation's channel
+    // and skips DM and web topics, as a FK skips a row with a null.
+    channelTeamId: text("channel_team_id").generatedAlwaysAs(
+      sql`CASE WHEN "conversation_kind" = 'channel' THEN "slack_team_id" END`,
+    ),
+    channelChannelId: text("channel_channel_id").generatedAlwaysAs(
+      sql`CASE WHEN "conversation_kind" = 'channel' THEN "slack_channel_id" END`,
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "conversation_topics_conversation_fk",
+      columns: [
+        table.workspaceId,
+        table.agentId,
+        table.conversationId,
+        table.conversationKind,
+      ],
+      foreignColumns: [
+        conversations.workspaceId,
+        conversations.agentId,
+        conversations.id,
+        conversations.kind,
+      ],
+    }),
+    foreignKey({
+      name: "conversation_topics_channel_fk",
+      columns: [
+        table.conversationId,
+        table.channelTeamId,
+        table.channelChannelId,
+      ],
+      foreignColumns: [
+        conversations.id,
+        conversations.teamId,
+        conversations.channelId,
+      ],
+    }),
+    // Unique per agent, as an input alias is: two agents in one thread each
+    // have a topic of their own.
+    unique("conversation_topics_slack_uniq").on(
+      table.agentId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.slackThreadTs,
+    ),
+    index("conversation_topics_conversation_idx").on(table.conversationId),
+    // A NULL operand makes "~" NULL, which a CHECK passes; hence IS NOT NULL.
+    check(
+      "conversation_topics_slack_check",
+      sql`(${table.slackTeamId} IS NULL AND ${table.slackChannelId} IS NULL AND ${table.slackThreadTs} IS NULL) OR (${table.slackTeamId} IS NOT NULL AND ${table.slackChannelId} IS NOT NULL AND ${table.slackThreadTs} IS NOT NULL AND ${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackThreadTs} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')`,
+    ),
+  ],
+);
+
+/**
+ * One input an agent took into a topic, numbered in the order the server took
+ * it. The Slack (team, channel, ts) is an alias, not the input's id. Holds no
+ * message text.
+ */
+export const conversationInputs = pgTable(
+  "conversation_inputs",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    // Of the same agent and workspace, which the receipt's insert checks.
+    topicId: uuid("topic_id")
+      .notNull()
+      .references(() => conversationTopics.id),
+    /** From 1 within the topic, in the order of receipt, never Slack's ts. */
+    seq: integer().notNull(),
+    slackTeamId: text("slack_team_id"),
+    slackChannelId: text("slack_channel_id"),
+    slackTs: text("slack_ts"),
+    // As on turns: `user` names a Werft user, `slack_bot` a Slack bot user.
+    requesterKind: text("requester_kind").notNull(),
+    requesterId: text("requester_id").notNull(),
+    /**
+     * The turn the input became. A web input is taken before it has one;
+     * a Slack input always names one.
+     */
+    turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
+    /** Set on a web input only: the client's key for its retries. */
+    clientMessageId: text("client_message_id"),
+    /**
+     * A web input's text, which no other row holds yet, or a buffered Slack
+     * message's text, held until `buffer_expires_at`.
+     */
+    body: text(),
+    slackMirror: text("slack_mirror").$type<ConversationInputSlackMirror>(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /**
+     * Set on a buffered Slack message only: an unmentioned message held for
+     * the judgment, with no turn, and removed whole at this time.
+     */
+    bufferExpiresAt: timestamp("buffer_expires_at", { withTimezone: true }),
+  },
+  (table) => [
+    unique("conversation_inputs_seq_uniq").on(table.topicId, table.seq),
+    uniqueIndex("conversation_inputs_client_message_uniq")
+      .on(
+        table.agentId,
+        table.requesterKind,
+        table.requesterId,
+        table.clientMessageId,
+      )
+      .where(sql`${table.clientMessageId} IS NOT NULL`),
+    // A Slack input has a turn and no web fields; a web input is a user's,
+    // with its text and whether Slack is to mirror it; a buffered Slack
+    // message has its text, its poster and its end, and no turn. A NULL
+    // operand makes "IN" NULL, which a CHECK passes; hence IS NOT NULL.
+    check(
+      "conversation_inputs_origin_check",
+      sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL AND ${table.bufferExpiresAt} IS NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.body} IS NOT NULL AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}) AND ${table.bufferExpiresAt} IS NULL) OR (${table.bufferExpiresAt} IS NOT NULL AND ${table.clientMessageId} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NULL AND ${table.body} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.requesterKind} = 'slack_user')`,
+    ),
+    // The web inputs still owed their Slack mirror, which the outbox walks.
+    index("conversation_inputs_mirror_due_idx")
+      .on(table.receivedAt)
+      .where(
+        sql`${table.slackMirror} = 'pending' AND ${table.slackTs} IS NULL`,
+      ),
+    // The buffer's expiry pass walks this.
+    index("conversation_inputs_buffer_expiry_idx")
+      .on(table.bufferExpiresAt)
+      .where(sql`${table.bufferExpiresAt} IS NOT NULL`),
+    // Unique per agent: two agents in one channel each take the message.
+    unique("conversation_inputs_slack_uniq").on(
+      table.agentId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.slackTs,
+    ),
+    // For the delete marks, which name a message by workspace, not agent.
+    index("conversation_inputs_slack_message_idx").on(
+      table.workspaceId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.slackTs,
+    ),
+    check("conversation_inputs_seq_check", sql`${table.seq} > 0`),
+    check(
+      "conversation_inputs_slack_check",
+      sql`(${table.slackTeamId} IS NULL AND ${table.slackChannelId} IS NULL AND ${table.slackTs} IS NULL) OR (${table.slackTeamId} IS NOT NULL AND ${table.slackChannelId} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackTs} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')`,
+    ),
+  ],
+);
+
+/**
+ * That an agent took part in a Slack message: no text, no thread, no link.
+ * The thread is held once, by the session's link or the conversation turn the
+ * row points at, exactly one of the two.
+ */
+export const conversationEngagements = pgTable(
+  "conversation_engagements",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    ts: text().notNull(),
+    kind: text().$type<EngagementKind>().notNull(),
+    sessionId: uuid("session_id").references(() => sessions.id),
+    /** A conversation turn of a1, whose table brings the foreign key. */
+    conversationTurnId: uuid("conversation_turn_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // One row per agent and message, so taking a message again adds none.
+    primaryKey({
+      columns: [table.agentId, table.teamId, table.channelId, table.ts],
+    }),
+    foreignKey({
+      name: "conversation_engagements_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // For the delete marks, which name a message by workspace, not agent.
+    index("conversation_engagements_message_idx").on(
+      table.workspaceId,
+      table.teamId,
+      table.channelId,
+      table.ts,
+    ),
+    // The engaged-thread lookup comes from the session's link.
+    index("conversation_engagements_session_idx").on(table.sessionId),
+    check(
+      "conversation_engagements_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(ENGAGEMENT_KIND_VALUES))})`,
+    ),
+    check(
+      "conversation_engagements_target_check",
+      sql`num_nonnulls(${table.sessionId}, ${table.conversationTurnId}) = 1`,
+    ),
+    check(
+      "conversation_engagements_slack_check",
+      sql`${table.teamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.channelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.ts} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$'`,
+    ),
+  ],
+);
+
+// One channel's summary, shared by every agent in the channel. `version`
+// goes one up on every change: a line added, folded or reverted, or one
+// removed because its source message was deleted or edited. Version 0 is
+// the empty summary a channel starts at.
+export const channelSummaries = pgTable(
+  "channel_summaries",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    version: bigint({ mode: "number" }).notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.teamId, table.channelId],
+    }),
+    foreignKey({
+      name: "channel_summaries_channel_fk",
+      columns: [table.workspaceId, table.teamId, table.channelId],
+      foreignColumns: [
+        channelContexts.workspaceId,
+        channelContexts.teamId,
+        channelContexts.channelId,
+      ],
+    }),
+    check("channel_summaries_version_check", sql`${table.version} >= 0`),
+  ],
+);
+
+// A line of a channel summary: the agent's own words, never a message's
+// text. It is in every version from `from_version` up to, not including,
+// `to_version` (null: the current one too). A revert brings a line back as
+// a copy, so a row's versions are one run; a copy keeps its original's
+// origin_id (a new line's is its own id), by which a revert knows a line it
+// would bring back is there already.
+export const channelSummaryLines = pgTable(
+  "channel_summary_lines",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    originId: uuid("origin_id").notNull(),
+    text: text().notNull(),
+    writtenByAgentId: uuid("written_by_agent_id").notNull(),
+    writtenAt: timestamp("written_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Orders lines written at the same time. A copy keeps its original's
+    // written_at and ordinal, so a revert keeps the lines' order.
+    ordinal: bigint({ mode: "number" }).generatedByDefaultAsIdentity(),
+    fromVersion: bigint("from_version", { mode: "number" }).notNull(),
+    toVersion: bigint("to_version", { mode: "number" }),
+  },
+  (table) => [
+    foreignKey({
+      name: "channel_summary_lines_summary_fk",
+      columns: [table.workspaceId, table.teamId, table.channelId],
+      foreignColumns: [
+        channelSummaries.workspaceId,
+        channelSummaries.teamId,
+        channelSummaries.channelId,
+      ],
+    }),
+    foreignKey({
+      name: "channel_summary_lines_agent_fk",
+      columns: [table.workspaceId, table.writtenByAgentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    index("channel_summary_lines_summary_idx").on(
+      table.workspaceId,
+      table.teamId,
+      table.channelId,
+      table.fromVersion,
+    ),
+    check(
+      "channel_summary_lines_text_check",
+      sql`char_length(${table.text}) BETWEEN 1 AND ${sql.raw(String(CHANNEL_SUMMARY_LINE_TEXT_MAX))}`,
+    ),
+    check(
+      "channel_summary_lines_versions_check",
+      sql`${table.fromVersion} >= 1 AND (${table.toVersion} IS NULL OR ${table.toVersion} > ${table.fromVersion})`,
+    ),
+  ],
+);
+
+// The Slack messages a summary line came from, and who said each, as the
+// server read them off the input rows (G8). No foreign key to the input: an
+// input row may go before the line does. A delete or edit mark of the
+// message removes the line.
+export const channelSummaryLineSources = pgTable(
+  "channel_summary_line_sources",
+  {
+    lineId: uuid("line_id")
+      .notNull()
+      .references(() => channelSummaryLines.id, { onDelete: "cascade" }),
+    inputId: uuid("input_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    ts: text().notNull(),
+    // As on conversation_inputs: requester_kind and requester_id.
+    speakerKind: text("speaker_kind").notNull(),
+    speakerId: text("speaker_id").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.lineId, table.inputId] }),
+    // For the delete and edit marks, which name a message by workspace.
+    index("channel_summary_line_sources_message_idx").on(
+      table.workspaceId,
+      table.teamId,
+      table.channelId,
+      table.ts,
+    ),
+    check(
+      "channel_summary_line_sources_slack_check",
+      sql`${table.teamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.channelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.ts} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$'`,
+    ),
   ],
 );
 
@@ -4864,6 +5816,16 @@ export const agentReleases = pgTable(
   ],
 );
 
+/** Why a session link closed: done, cancelled, failed, or left idle. */
+export const SESSION_LINK_CLOSED_REASONS = [
+  "completed",
+  "cancelled",
+  "failed",
+  "abandoned",
+] as const;
+export type SessionLinkClosedReason =
+  (typeof SESSION_LINK_CLOSED_REASONS)[number];
+
 export const sessionLinks = pgTable(
   "session_links",
   {
@@ -4887,7 +5849,17 @@ export const sessionLinks = pgTable(
     agentId: uuid("agent_id").notNull(),
     releaseId: text("release_id").notNull(),
     role: text().$type<"primary" | "mirror">().notNull().default("primary"),
+    /**
+     * Read by hosts from before the three columns below. This release reads it
+     * only to keep a `summary` link the start pass has not moved silent.
+     */
     visibility: text().$type<"full" | "summary">().notNull().default("full"),
+    /** Null: the binding's `report_mode`. Gates replies, failures and notices. */
+    reportMode: text("report_mode").$type<SessionLinkReportMode>(),
+    /** Whether an input asked from the web or the API shows in the thread. */
+    mirrorInstructions: boolean("mirror_instructions").notNull().default(true),
+    /** Whether approval cards and questions go to the thread. */
+    postPrompts: boolean("post_prompts").notNull().default(true),
     muted: boolean().notNull().default(false),
     revision: integer().notNull().default(1),
     /**
@@ -4900,6 +5872,12 @@ export const sessionLinks = pgTable(
       .notNull()
       .defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /**
+     * Set when the link's work ends; the row stays as the thread's history.
+     * Null while open. `revoked_at` is not a close: it keeps the thread blocked.
+     */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedReason: text("closed_reason").$type<SessionLinkClosedReason>(),
   },
   (table) => [
     foreignKey({
@@ -4917,13 +5895,21 @@ export const sessionLinks = pgTable(
       columns: [table.workspaceId, table.installationId],
       foreignColumns: [slackInstallations.workspaceId, slackInstallations.id],
     }),
-    unique("session_links_surface_ref_key").on(
-      table.installationId,
-      table.surfaceRef,
-    ),
-    uniqueIndex("session_links_session_uniq")
+    // One open link per thread and per session; closed ones are history.
+    uniqueIndex("session_links_open_surface_ref_uniq")
+      .on(table.installationId, table.surfaceRef)
+      .where(sql`${table.closedAt} IS NULL`),
+    uniqueIndex("session_links_open_session_uniq")
       .on(table.sessionId)
-      .where(sql`${table.sessionId} IS NOT NULL`),
+      .where(sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL`),
+    check(
+      "session_links_closed_check",
+      sql`(${table.closedAt} IS NULL) = (${table.closedReason} IS NULL)`,
+    ),
+    check(
+      "session_links_closed_reason_check",
+      sql`${table.closedReason} IN (${sqlLiterals(SESSION_LINK_CLOSED_REASONS)})`,
+    ),
     check("session_links_surface_check", sql`${table.surface} = 'slack'`),
     check(
       "session_links_role_check",
@@ -4932,6 +5918,10 @@ export const sessionLinks = pgTable(
     check(
       "session_links_visibility_check",
       sql`${table.visibility} IN (${sqlLiterals(SESSION_LINK_VISIBILITY_VALUES)})`,
+    ),
+    check(
+      "session_links_report_mode_check",
+      sql`${table.reportMode} IS NULL OR ${table.reportMode} IN (${sqlLiterals(SESSION_LINK_REPORT_MODE_VALUES)})`,
     ),
     check("session_links_revision_check", sql`${table.revision} >= 1`),
   ],
@@ -4957,6 +5947,8 @@ export const slackOutbox = pgTable(
     threadTs: text("thread_ts").notNull(),
     slackUserId: text("slack_user_id"),
     sessionId: uuid("session_id").references(() => sessions.id),
+    /** The session link this row reports to; null on rows written before it. */
+    sessionLinkId: uuid("session_link_id"),
     /** The text before Slack controls are escaped, and the link it carries. */
     body: jsonb().$type<SlackOutboxBody>().notNull(),
     dedupeKey: text("dedupe_key").notNull(),
@@ -4992,9 +5984,29 @@ export const slackOutbox = pgTable(
     settleAttempts: integer("settle_attempts").notNull().default(0),
     settleNextAt: timestamp("settle_next_at", { withTimezone: true }),
     settleError: text("settle_error"),
+    /** The sources of the turn the row answers or tells of; null for none. */
+    sources: jsonb().$type<StoredSourceSet>(),
+    /** That turn's public id; null for none, and on rows written before it. */
+    sourcesTurn: integer("sources_turn"),
+    /** The web input an `input_mirror` row shows in Slack; set on it alone. */
+    inputId: uuid("input_id").$type<ConversationInputId>(),
+    /**
+     * An `input_mirror` row's own value, sent as its post's message
+     * metadata; a send again is a new row with a new one.
+     */
+    correlationId: uuid("correlation_id").$type<SlackMirrorCorrelationId>(),
+    /**
+     * Set while the row waits for this web input's Slack post: it goes into
+     * the thread that post is in, which has no ts yet. Cleared when the post
+     * is known, the thread written in; left on a row closed unsent.
+     */
+    heldForInputId: uuid("held_for_input_id").$type<ConversationInputId>(),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
+    index("slack_outbox_sources_idx")
+      .using("gin", table.sources.op("jsonb_path_ops"))
+      .where(sql`${table.sources} IS NOT NULL`),
     check(
       "slack_outbox_settle_state_check",
       sql`${table.settleState} IN ('due', 'settled', 'abandoned')`,
@@ -5010,17 +6022,57 @@ export const slackOutbox = pgTable(
         sql`${table.kind} = 'input_notice' AND ${table.status} = 'sent' AND ${table.settleState} IS DISTINCT FROM 'abandoned' AND (${table.settleState} IS DISTINCT FROM 'settled' OR ${table.settleUncertainLatestAt} IS NOT NULL)`,
       ),
     foreignKey({
+      name: "slack_outbox_session_link_fk",
+      columns: [table.sessionLinkId],
+      foreignColumns: [sessionLinks.id],
+    }),
+    foreignKey({
+      name: "slack_outbox_input_fk",
+      columns: [table.inputId],
+      foreignColumns: [conversationInputs.id],
+    }),
+    check(
+      "slack_outbox_input_check",
+      sql`(${table.kind} = 'input_mirror') = (${table.inputId} IS NOT NULL)`,
+    ),
+    foreignKey({
+      name: "slack_outbox_held_for_input_fk",
+      columns: [table.heldForInputId],
+      foreignColumns: [conversationInputs.id],
+    }),
+    // A mirror is never held for itself or another input.
+    check(
+      "slack_outbox_correlation_check",
+      sql`(${table.correlationId} IS NULL OR ${table.kind} = 'input_mirror') AND (${table.heldForInputId} IS NULL OR ${table.kind} <> 'input_mirror')`,
+    ),
+    // The rows waiting for an input's post, which its settle releases.
+    index("slack_outbox_held_idx")
+      .on(table.heldForInputId)
+      .where(sql`${table.heldForInputId} IS NOT NULL`),
+    // The mirrors in flight or uncertain a post Slack sends back may name.
+    index("slack_outbox_correlation_idx")
+      .on(table.correlationId)
+      .where(
+        sql`${table.correlationId} IS NOT NULL AND ${table.status} IN ('sending', 'uncertain')`,
+      ),
+    foreignKey({
       name: "slack_outbox_agent_fk",
       columns: [table.workspaceId, table.agentId],
       foreignColumns: [agents.workspaceId, agents.id],
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror')`,
     ),
     check(
       "slack_outbox_status_check",
-      sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain')`,
+      sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain', 'voided_by_delete')`,
+    ),
+    // slackOutboxChannelRefused: no row names a Slack user as its channel
+    // but a model notice's direct message.
+    check(
+      "slack_outbox_channel_check",
+      sql`${table.channelId} !~ '^[UW]' OR ${table.kind} = 'model_notice'`,
     ),
     check(
       "slack_outbox_user_check",
@@ -5038,6 +6090,11 @@ export const slackOutbox = pgTable(
       .on(table.leaseExpiresAt)
       .where(sql`${table.status} = 'sending'`),
     index("slack_outbox_session_idx").on(table.sessionId),
+    // The input_fk check on every conversation_inputs delete (the judgment
+    // buffer's purge) reads this rather than the whole outbox.
+    index("slack_outbox_input_idx")
+      .on(table.inputId)
+      .where(sql`${table.inputId} IS NOT NULL`),
     index("slack_outbox_uncertain_idx")
       .on(table.seq)
       .where(sql`${table.status} = 'uncertain' AND ${table.kind} = 'reply'`),
@@ -5129,6 +6186,7 @@ export const EXTENSION_BUNDLE_REVIEWS = [
   "pending",
   "approved",
   "rejected",
+  "superseded",
 ] as const;
 export const EXTENSION_BUNDLE_SOURCES = ["upload", "github"] as const;
 
@@ -5216,10 +6274,11 @@ export const extensionBundles = pgTable(
       "extension_bundles_review_actor_check",
       sql`(${table.review} = 'pending') = (${table.reviewedAt} IS NULL) AND (${table.reviewedBy} IS NULL OR ${table.reviewedAt} IS NOT NULL)`,
     ),
-    // Only the sync approves without a person: under auto-approve.
+    // Only the sync approves without a person: under auto-approve. A version
+    // the sync's approval superseded has no person either.
     check(
       "extension_bundles_auto_review_check",
-      sql`${table.reviewedAt} IS NULL OR ${table.reviewedBy} IS NOT NULL OR (${table.review} = 'approved' AND ${table.git} IS NOT NULL)`,
+      sql`${table.reviewedAt} IS NULL OR ${table.reviewedBy} IS NOT NULL OR (${table.review} = 'approved' AND ${table.git} IS NOT NULL) OR ${table.review} = 'superseded'`,
     ),
     check("extension_bundles_size_check", sql`${table.sizeBytes} > 0`),
     check(
@@ -5263,8 +6322,8 @@ export const skillGitSources = pgTable(
     checkingToken: uuid("checking_token"),
     // The trigger that arrived while a check ran: it runs once more after.
     checkAgain: jsonb("check_again"),
-    // Protected-branch auto-approve: one manager requests, another
-    // consents (or the sole manager, the receipt says so).
+    // Auto-approve: one manager turns it on and fills both user columns;
+    // `requested` is from when a second manager consented.
     autoApprove: text("auto_approve").notNull().default("off"),
     autoApproveRequestedBy: uuid("auto_approve_requested_by").references(
       () => users.id,
@@ -5272,9 +6331,13 @@ export const skillGitSources = pgTable(
     autoApproveConsentedBy: uuid("auto_approve_consented_by").references(
       () => users.id,
     ),
-    // The receipt that last changed settings while on (the consent, a pause,
-    // a resume): evidence a check read under another approves nothing.
+    // The receipt that last changed settings while on (turning it on, a
+    // pause, a resume): a check that read them under another approves nothing.
     autoApproveGrantId: uuid("auto_approve_grant_id"),
+    // The grant again, written only by a host that approves on the fixed-rule
+    // checks alone. A host from before writes the grant and not this, so
+    // what it turned on, or paused and resumed, reads as off.
+    autoApproveChecksGrantId: uuid("auto_approve_checks_grant_id"),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id),

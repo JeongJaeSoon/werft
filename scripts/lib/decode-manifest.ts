@@ -10,6 +10,7 @@
 
 import { readFile } from "node:fs/promises";
 import { claudeCheckpointCodec } from "@werft-ai/runtime-claude-codec";
+import { messageOf } from "@werft-ai/runtime-core";
 
 const path = process.argv[2];
 if (!path) {
@@ -19,6 +20,6 @@ if (!path) {
 try {
   claudeCheckpointCodec.decode(new Uint8Array(await readFile(path)));
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(messageOf(error));
   process.exit(1);
 }

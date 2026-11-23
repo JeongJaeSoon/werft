@@ -13,8 +13,12 @@ import type {
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
-import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { findPgError, UUID } from "../control-shared.ts";
+import {
+  deleteChannelSummary,
+  dropUnlistenedBuffer,
+} from "../conversations/index.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -46,6 +50,7 @@ const columns = {
   channelId: surfaceBindings.externalSurfaceId,
   channelKind: surfaceBindings.surfaceKind,
   mode: surfaceBindings.mode,
+  listen: surfaceBindings.listen,
   ceilingActions: surfaceBindings.ceilingActions,
   ceilingDisclosure: surfaceBindings.ceilingDisclosure,
   home: surfaceBindings.home,
@@ -146,6 +151,7 @@ async function writeReceipt(
       channel_id: binding.channelId,
       channel_kind: binding.channelKind,
       mode: binding.mode,
+      listen: binding.listen,
       home: binding.home,
       ceiling: binding.ceiling,
       status: binding.status,
@@ -219,16 +225,20 @@ async function set(
         return { outcome: "conflict" };
       }
       const isLeft = current?.status === "left";
+      // A channel Slack deleted stays inactive through any save: only a join
+      // of the bot shows it is there after all.
+      const isGone = current?.status === "gone";
       // A channel the bot left stays inactive through a save of its private
       // kind; found public, the bot can join it itself, so it is in use.
       const reopens = isLeft && input.channelKind === "public_channel";
       const waits =
+        !isGone &&
         input.channelKind === "private_channel" &&
         (!current ||
           current.status === "pending_approval" ||
           current.surfaceKind !== "private_channel");
       const startsWaiting = waits && current?.status !== "pending_approval";
-      if ((waits || (isLeft && !reopens)) && input.home) {
+      if ((waits || isGone || (isLeft && !reopens)) && input.home) {
         return { outcome: "pending_home" };
       }
       if (input.home) {
@@ -251,6 +261,8 @@ async function set(
       const values = {
         surfaceKind: input.channelKind,
         mode: input.mode,
+        // Absent, an update keeps the channel's and an insert takes the default.
+        ...(input.listen === undefined ? {} : { listen: input.listen }),
         home: input.home,
         ceilingActions: [...input.ceiling.actions],
         ceilingDisclosure: input.ceiling.disclosure,
@@ -284,6 +296,14 @@ async function set(
       if (!row) throw new Error(`surface binding ${id} vanished in its tx`);
       const binding = recordOf(row);
       const receiptId = await writeReceipt(tx, input.principal, binding);
+      // A channel saved as off, listening to less, or waiting for approval
+      // holds no unmentioned message from now on.
+      if (binding.channelId !== null) {
+        await dropUnlistenedBuffer(tx, {
+          agentId: binding.agentId,
+          channelId: binding.channelId,
+        });
+      }
       if (startsWaiting) {
         await writeReceipt(
           tx,
@@ -439,8 +459,12 @@ export function createPostgresSurfaceBindingStore(
         ? ((await noteOf(db, installationId.toLowerCase(), channelId))?.leave ??
           null)
         : null,
-    recordJoin: (installationId, channelId, bindingId, at) =>
-      recordJoin(db, installationId, channelId, bindingId, at),
+    recordJoin: (installationId, channelId, bindingId, at, kind) =>
+      recordJoin(db, installationId, channelId, bindingId, at, kind),
+    channelDeleted: (installationId, channelId, at) =>
+      channelDeleted(db, installationId, channelId, at),
+    channelNotFound: (installationId, channelId, askedAt) =>
+      channelNotFound(db, installationId, channelId, askedAt),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
     async setMembership(bindingId, membership, expected, leaveNoted) {
@@ -484,9 +508,10 @@ export function createPostgresSurfaceBindingStore(
             and(
               eq(surfaceBindings.id, id),
               isNull(surfaceBindings.revokedAt),
-              // A channel the bot left is known to hold no bot; a Slack answer
-              // that was in flight when it left must not write over that.
-              ne(surfaceBindings.status, "left"),
+              // A channel the bot left is known to hold no bot, and one Slack
+              // deleted holds nothing; a Slack answer that was in flight then
+              // must not write over that.
+              notInArray(surfaceBindings.status, ["left", "gone"]),
               expected === undefined
                 ? undefined
                 : and(
@@ -718,6 +743,7 @@ async function recordJoin(
   channelId: string,
   bindingId: string,
   at: number | null,
+  kind?: "public_channel" | "private_channel",
 ): Promise<boolean> {
   if (!UUID.test(installationId) || !UUID.test(bindingId)) return false;
   return db.transaction(async (tx) => {
@@ -739,9 +765,11 @@ async function recordJoin(
     ) {
       return false;
     }
-    if (current?.status === "left") {
+    if (current?.status === "left" || current?.status === "gone") {
       // Back in: only a join stamped strictly after the last leave brings the
-      // channel back, and then it waits for approval. A tie or a join with no
+      // channel back, and then it waits for approval. A deletion is noted as
+      // a leave, so a gone channel comes back the same way; a public one is
+      // in use again at once, as a public channel's join always is. A tie or a join with no
       // time cannot be told from the leave's own retry, so the channel stays
       // `left` until a join that can be ordered arrives.
       const [noted] = await tx
@@ -759,7 +787,23 @@ async function recordJoin(
       if (at === null || (noted?.leave != null && at <= noted.leave)) {
         return false;
       }
-      await sendBackToApproval(tx, id, "rejoined_channel");
+      const nowPrivate =
+        current.channelKind === "public_channel" && kind === "private_channel";
+      if (current.channelKind === "public_channel" && !nowPrivate) {
+        await reopenGone(tx, current);
+      } else {
+        if (nowPrivate) {
+          await tx
+            .update(surfaceBindings)
+            .set({ surfaceKind: "private_channel" })
+            .where(eq(surfaceBindings.id, id));
+        }
+        await sendBackToApproval(
+          tx,
+          id,
+          nowPrivate ? "channel_now_private" : "rejoined_channel",
+        );
+      }
     }
     await tx
       .update(surfaceBindings)
@@ -913,6 +957,7 @@ async function markLeft(
   tx: Database,
   current: LockedBinding,
   at: number | null,
+  reason: "bot_left_channel" | "channel_not_found" = "bot_left_channel",
 ): Promise<void> {
   await tx
     .update(surfaceBindings)
@@ -934,9 +979,176 @@ async function markLeft(
   if (!after)
     throw new Error(`surface binding ${current.id} vanished in its tx`);
   await writeReceipt(tx, null, recordOf(after), "set_surface_binding", {
-    reason: "bot_left_channel",
+    reason,
     previous_status: current.status,
     lifecycle_us: at,
+  });
+  if (current.channelId !== null) {
+    await dropUnlistenedBuffer(tx, {
+      agentId: current.agentId,
+      channelId: current.channelId,
+    });
+  }
+}
+
+// Slack deleted the channel: inactive, no home, no approval. The mode,
+// ceiling and kind stay, so a join that shows it was not deleted after all
+// brings it back as it was set.
+async function markGone(
+  tx: Database,
+  current: LockedBinding,
+  reason: "channel_deleted" | "channel_not_found",
+  at: number | null,
+): Promise<void> {
+  await tx
+    .update(surfaceBindings)
+    .set({
+      status: "gone",
+      home: false,
+      approvedAt: null,
+      approvedLifecycleUs: null,
+      revision: sql`${surfaceBindings.revision} + 1`,
+      updatedAt: DB_NOW,
+    })
+    .where(eq(surfaceBindings.id, current.id));
+  const [after] = await tx
+    .select(columns)
+    .from(surfaceBindings)
+    .where(eq(surfaceBindings.id, current.id));
+  if (!after)
+    throw new Error(`surface binding ${current.id} vanished in its tx`);
+  await writeReceipt(tx, null, recordOf(after), "set_surface_binding", {
+    reason,
+    previous_status: current.status,
+    lifecycle_us: at,
+  });
+  if (current.channelId !== null) {
+    await dropUnlistenedBuffer(tx, {
+      agentId: current.agentId,
+      channelId: current.channelId,
+    });
+  }
+}
+
+// A public channel Slack was thought to have deleted has the bot in it
+// again: in use, as before.
+async function reopenGone(tx: Database, current: LockedBinding): Promise<void> {
+  await tx
+    .update(surfaceBindings)
+    .set({
+      status: "ready",
+      revision: sql`${surfaceBindings.revision} + 1`,
+      updatedAt: DB_NOW,
+    })
+    .where(eq(surfaceBindings.id, current.id));
+  const [after] = await tx
+    .select(columns)
+    .from(surfaceBindings)
+    .where(eq(surfaceBindings.id, current.id));
+  if (!after)
+    throw new Error(`surface binding ${current.id} vanished in its tx`);
+  await writeReceipt(tx, null, recordOf(after), "set_surface_binding", {
+    reason: "rejoined_channel",
+    previous_status: current.status,
+  });
+}
+
+// The statuses a deletion or a lost channel changes: a binding in use, one
+// waiting, one the bot left. A revoked, gone or legacy row stays.
+const ACTIVE_OR_LEFT = new Set(["ready", "pending_approval", "left"]);
+
+async function channelDeleted(
+  db: Database,
+  installationId: string,
+  channelId: string,
+  at: number | null,
+): Promise<boolean> {
+  if (!UUID.test(installationId)) return false;
+  const installation = installationId.toLowerCase();
+  return db.transaction(async (tx) => {
+    // Noted as a leave whatever its order, since a deleted channel is never
+    // joined again: a join stamped before it, arriving late, revives nothing.
+    if (at === null) await noteUntimedLeave(tx, installation, channelId);
+    else {
+      const [noted] = rowsOf<{ last_join_us: string | number | null }>(
+        await tx.execute(sql`
+        INSERT INTO ${slackChannelLifecycle} (installation_id, channel_id,
+          last_event_us, last_leave_us)
+        VALUES (${installation}, ${channelId}, ${at}::bigint, ${at}::bigint)
+        ON CONFLICT (installation_id, channel_id) DO UPDATE
+          SET last_event_us = GREATEST(${slackChannelLifecycle.lastEventUs},
+                EXCLUDED.last_event_us),
+              last_leave_us = GREATEST(
+                COALESCE(${slackChannelLifecycle.lastLeaveUs}, 0),
+                EXCLUDED.last_leave_us)
+        RETURNING last_join_us`),
+      );
+      // A join noted after the deletion (this one retried, arriving late)
+      // brought the channel back: the binding stays as that join left it.
+      if (noted?.last_join_us != null && Number(noted.last_join_us) > at) {
+        return false;
+      }
+    }
+    // The summary is the channel's, one for every agent in it: each agent's
+    // event deletes it whatever its binding, and the later ones find none.
+    // A channel_not_found never does, as a join can still prove it wrong.
+    const [install] = await tx
+      .select({
+        workspaceId: slackInstallations.workspaceId,
+        teamId: slackInstallations.teamId,
+      })
+      .from(slackInstallations)
+      .where(eq(slackInstallations.id, installation));
+    if (install) await deleteChannelSummary(tx, { ...install, channelId });
+    const current = await lockBinding(tx, channelOf(installation, channelId));
+    if (!current || !ACTIVE_OR_LEFT.has(current.status)) return false;
+    await markGone(tx, current, "channel_deleted", at);
+    return true;
+  });
+}
+
+async function channelNotFound(
+  db: Database,
+  installationId: string,
+  channelId: string,
+  askedAt?: number,
+): Promise<"gone" | "left" | "unchanged" | "stale"> {
+  if (!UUID.test(installationId)) return "unchanged";
+  const installation = installationId.toLowerCase();
+  return db.transaction(async (tx) => {
+    // The channel's event record first, then the binding, as joins and
+    // deletions take them.
+    const noted = await noteOf(tx, installation, channelId, { lock: true });
+    // The bot joined after Slack was asked: the answer is out of date.
+    if (askedAt !== undefined && noted?.join != null && noted.join > askedAt) {
+      return "stale";
+    }
+    const current = await lockBinding(tx, channelOf(installation, channelId));
+    if (!current) return "unchanged";
+    // Slack shows a public channel to a bot outside it, so not finding one
+    // means it was deleted.
+    if (
+      current.channelKind === "public_channel" &&
+      ACTIVE_OR_LEFT.has(current.status)
+    ) {
+      await noteUntimedLeave(tx, installation, channelId);
+      await markGone(tx, current, "channel_not_found", null);
+      return "gone";
+    }
+    // A private channel hides from a bot outside it: deleted, or the bot was
+    // removed and its group_left lost. Only a channel the bot was in can be
+    // either, and the cleanup a deletion starts cannot be undone, so it is
+    // taken as the removal.
+    if (
+      current.channelKind === "private_channel" &&
+      current.status === "ready" &&
+      current.membership?.state === "joined"
+    ) {
+      await noteUntimedLeave(tx, installation, channelId);
+      await markLeft(tx, current, null, "channel_not_found");
+      return "left";
+    }
+    return "unchanged";
   });
 }
 

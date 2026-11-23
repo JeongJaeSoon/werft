@@ -3,11 +3,16 @@
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
+  ChannelMemberStore,
+  JudgmentBufferStore,
+  SlackCardSettleStore,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import {
   createRowDelivery,
   createSlackBotApi,
+  createSlackChannelLifecycleHandler,
+  createSlackMemberCacheInvalidator,
   createSlackMemberJoinedHandler,
   createSlackMemberLeftHandler,
   createSlackSessionHandler,
@@ -29,9 +34,12 @@ export interface SlackInboundDeps {
   identities: AgentIdentityStore;
   links: Param<typeof createSlackSessionHandler>["links"];
   bindings: SurfaceBindingStore;
+  members: Pick<ChannelMemberStore, "forget">;
+  cards: Pick<SlackCardSettleStore, "markPushCardsDueIn"> | undefined;
   settings: Param<typeof createSlackSessionHandler>["settings"];
   botTurns: Param<typeof createSlackSessionHandler>["botTurns"];
   sessionLinks: Param<typeof createSlackSessionHandler>["sessionLinks"];
+  conversations: Param<typeof createSlackSessionHandler>["conversations"];
   sessions: Param<typeof createSlackSessionHandler>["sessions"];
   agentDetails: Param<typeof createSlackSessionHandler>["agentDetails"];
   releaseRepositoryUnusable: Param<
@@ -40,10 +48,15 @@ export interface SlackInboundDeps {
   welcomeAgents: Param<typeof createSlackWelcome>["agents"];
   welcomeApps: Param<typeof createSlackWelcome>["apps"];
   welcomeOutbox: Param<typeof createSlackWelcome>["outbox"];
+  buffer: JudgmentBufferStore;
   logger: StructuredLogger;
 }
 
-/** Left-handler wraps joined-handler wraps the session handler. */
+/**
+ * The member-cache void wraps the channel lifecycle handler, which wraps the
+ * left-handler, which wraps the joined-handler, which wraps the session
+ * handler.
+ */
 export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
   const { secrets } = deps;
   const botToken = (workspaceId: string, slackAppId: string) =>
@@ -59,6 +72,8 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     settings: deps.settings,
     botTurns: deps.botTurns,
     sessionLinks: deps.sessionLinks,
+    conversations: deps.conversations,
+    buffer: deps.buffer,
     sessions: deps.sessions,
     agentDetails: deps.agentDetails,
     releaseRepositoryUnusable: deps.releaseRepositoryUnusable,
@@ -83,10 +98,20 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     botToken,
     next: sessionHandler,
   });
-  return createSlackMemberLeftHandler({
+  return createSlackMemberCacheInvalidator({
     agents: deps.identities,
-    bindings: deps.bindings,
-    next: memberJoined,
+    members: deps.members,
+    ...(deps.cards === undefined ? {} : { cards: deps.cards }),
+    next: createSlackChannelLifecycleHandler({
+      agents: deps.identities,
+      bindings: deps.bindings,
+      conversations: deps.conversations,
+      next: createSlackMemberLeftHandler({
+        agents: deps.identities,
+        bindings: deps.bindings,
+        next: memberJoined,
+      }),
+    }),
   });
 }
 
@@ -94,6 +119,7 @@ export interface SlackOutboundDeps {
   apiUrl: string;
   secrets: Parameters<typeof slackBotToken>[0];
   consoleOrigin: string | null;
+  readerOutside?: Param<typeof createRowDelivery>["readerOutside"];
 }
 
 export interface SlackOutbound {
@@ -111,6 +137,9 @@ export function wireSlackOutbound(deps: SlackOutboundDeps): SlackOutbound {
     botToken,
     delivery: createRowDelivery({
       slack: api,
+      ...(deps.readerOutside === undefined
+        ? {}
+        : { readerOutside: deps.readerOutside }),
       botToken,
       consoleOrigin: deps.consoleOrigin,
     }),

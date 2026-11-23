@@ -4,6 +4,7 @@ import {
   ADMISSION_STATE_VALUES,
   AUTHORIZATION_ACTION_VALUES,
   CREDENTIAL_REF_PATTERN as CONTRACT_CREDENTIAL_REF_PATTERN,
+  RESOURCE_KIND_VALUES as CONTRACT_RESOURCE_KIND_VALUES,
   CREDENTIAL_BINDING_TARGET_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
@@ -19,6 +20,7 @@ import {
   events,
   GRANT_ACTION_VALUES,
   idempotencyKeys,
+  RESOURCE_KIND_VALUES,
   receiptStatus,
   receipts,
   sessionStatus,
@@ -57,6 +59,13 @@ describe("database schema", () => {
     const contract: readonly string[] = AUTHORIZATION_ACTION_VALUES;
     expect(
       GRANT_ACTION_VALUES.filter((action) => !contract.includes(action)),
+    ).toEqual([]);
+  });
+
+  test("grants name only resource kinds the contract defines", () => {
+    const known: readonly string[] = CONTRACT_RESOURCE_KIND_VALUES;
+    expect(
+      RESOURCE_KIND_VALUES.filter((kind) => !known.includes(kind)),
     ).toEqual([]);
   });
 
@@ -157,15 +166,29 @@ describe("database schema", () => {
       "attempts",
       "authz_decisions",
       "bootstrap_token_uses",
+      "budget_accounts",
+      "budget_limits",
+      "budget_reservations",
       "catalog_repositories",
       "catalog_repository_github_apps",
+      "channel_contexts",
+      "channel_summaries",
+      "channel_summary_line_sources",
+      "channel_summary_lines",
       "checkpoint_output_objects",
       "checkpoint_output_totals",
       "checkpoint_outputs",
       "checkpoint_restore_check",
       "checkpoints",
       "control_intents",
+      "conversation_calls",
+      "conversation_engagements",
+      "conversation_inputs",
+      "conversation_topics",
+      "conversations",
       "credential_bindings",
+      "deleted_sources",
+      "edited_sources",
       "env_variable_grants",
       "env_variables",
       "events",
@@ -236,6 +259,7 @@ describe("database schema", () => {
       "skill_git_sources",
       "slack_apps",
       "slack_channel_lifecycle",
+      "slack_channel_member_cache",
       "slack_config_tokens",
       "slack_inbound_events",
       "slack_install_states",

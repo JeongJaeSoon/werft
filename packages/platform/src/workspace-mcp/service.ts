@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   type CompleteWorkspaceMcpOAuthRequest,
   type CreateWorkspaceMcpServerRequest,
@@ -23,6 +23,7 @@ import {
   SECRET_STORE_OFF,
   SessionServiceError,
 } from "../musterrolle/index.ts";
+import { hashToken } from "../token-hash.ts";
 import type {
   ManagerCheck,
   WorkspaceMcpCredential,
@@ -32,7 +33,7 @@ import type {
   WorkspaceMcpRevocation,
   WorkspaceMcpServerRecord,
   WorkspaceMcpStore,
-} from "./ports.ts";
+} from "./ports/workspace-mcp-store.ts";
 import {
   authorizationUrl,
   discover,
@@ -160,8 +161,6 @@ export function workspaceMcpServerViewOf(
     created_at: record.createdAt.toISOString(),
   };
 }
-
-const sha256 = (value: string) => createHash("sha256").update(value).digest();
 
 export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
   const { authorization, store, remote } = deps;
@@ -584,7 +583,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         workspaceId: caller.ownerId,
         serverId,
         flowId: newId(),
-        stateSha256: sha256(state),
+        stateSha256: hashToken(state),
         expiresAt,
         verifier,
         expectedClientId: pin.client?.clientId ?? null,
@@ -617,7 +616,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         );
       const flow = await store.readFlow(caller.ownerId, serverId);
       if (flow === null) throw flowGone();
-      const sent = sha256(body.state);
+      const sent = hashToken(body.state);
       if (
         sent.length !== flow.stateSha256.length ||
         !timingSafeEqual(sent, flow.stateSha256)

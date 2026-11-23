@@ -10,6 +10,7 @@ import {
   putSlackAppBotsRequestSchema,
   putSlackSecretRequestSchema,
   putSlackSecretResponseSchema,
+  recheckSlackAppEventsResponseSchema,
   slackAppParamsSchema,
   slackAppSecretParamsSchema,
   slackAppSettingsSchema,
@@ -105,7 +106,7 @@ export function registerSlackAppRoutes(
     const found = await mapped(() =>
       apps.recheckAgentAppEvents(context.get("caller"), params.id),
     );
-    return jsonWithSchema(context, getSlackAppResponseSchema, found);
+    return jsonWithSchema(context, recheckSlackAppEventsResponseSchema, found);
   });
 
   apiRoute(router, "createSlackApp", async (context) => {

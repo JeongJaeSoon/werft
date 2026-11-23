@@ -3,6 +3,8 @@ import {
   type SlackInboundDropReason,
 } from "@werft-ai/contracts";
 import type {
+  BufferedInputReceipt,
+  InboundInputReceipt,
   SlackInboundClaim,
   SlackInboundEventStore,
 } from "@werft-ai/platform";
@@ -36,9 +38,12 @@ export function slackConversationKey(
 
 /**
  * Acts on one claimed event. Throwing gives it back for a later attempt;
- * returning marks it processed.
+ * returning marks it processed, taking the input it returns with it.
  */
-export type SlackInboundHandler = (event: SlackInboundClaim) => Promise<void>;
+export type SlackInboundHandler = (
+  event: SlackInboundClaim,
+  // biome-ignore lint/suspicious/noConfusingVoidType: most handlers take no input and return nothing.
+) => Promise<InboundInputReceipt | BufferedInputReceipt | void>;
 
 /** Thrown by a handler to end the event `dropped` instead of retrying it. */
 export class SlackInboundDropped extends Error {
@@ -121,8 +126,9 @@ export async function drainSlackInbox(deps: {
         continue;
       }
       let failure: { error: unknown } | undefined;
+      let input: InboundInputReceipt | BufferedInputReceipt | undefined;
       try {
-        await deps.handler(event);
+        input = (await deps.handler(event)) ?? undefined;
       } catch (error) {
         failure = { error };
       }
@@ -133,7 +139,7 @@ export async function drainSlackInbox(deps: {
         continue;
       }
       if (failure === undefined) {
-        if (await deps.inbox.complete(event)) drain.processed += 1;
+        if (await deps.inbox.complete(event, input)) drain.processed += 1;
         else lost();
         continue;
       }

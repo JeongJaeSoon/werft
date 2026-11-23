@@ -9,7 +9,6 @@ import type { BundleInputFile } from "./bundle-validator.ts";
 import type {
   SkillGitSource,
   SkillGitSourceStore,
-  SkillProtectionEvidence,
   SkillSyncCheck,
   SkillSyncTrigger,
 } from "./ports/skill-git-source-store.ts";
@@ -17,7 +16,6 @@ import {
   createSkillGitSync,
   type GitHubSkillReader,
   type GitHubSkillTree,
-  githubSignatureMatches,
 } from "./skill-git-sync.ts";
 
 // The store's locking, coalescing across replicas and version writes are in
@@ -138,30 +136,16 @@ function memorySources(initial: SkillGitSource[]) {
       const key = `${input.workspaceId}/${input.name}`;
       const row = rows.get(key);
       if (!row) return { outcome: "not_found" };
-      const userId = input.principal.actor?.userId ?? null;
       const source: SkillGitSource = {
         ...row,
         autoApprove:
           input.action === "off"
-            ? {
-                state: "off",
-                requestedBy: null,
-                consentedBy: null,
-                grantId: null,
-              }
-            : input.action === "request"
-              ? {
-                  state: "requested",
-                  requestedBy: userId,
-                  consentedBy: null,
-                  grantId: null,
-                }
-              : {
-                  ...row.autoApprove,
-                  state: "on",
-                  consentedBy: userId,
-                  grantId: input.receiptId,
-                },
+            ? { state: "off", enabledBy: null, grantId: null }
+            : {
+                state: "on",
+                enabledBy: input.principal.actor?.userId ?? null,
+                grantId: input.receiptId,
+              },
       };
       rows.set(key, source);
       return { outcome: "updated", source, receiptId: input.receiptId };
@@ -180,12 +164,7 @@ const source = (overrides: Partial<SkillGitSource> = {}): SkillGitSource => ({
   path: "skills/research",
   ref: "main",
   syncEnabled: true,
-  autoApprove: {
-    state: "off",
-    requestedBy: null,
-    consentedBy: null,
-    grantId: null,
-  },
+  autoApprove: { state: "off", enabledBy: null, grantId: null },
   lastCheck: null,
   ...overrides,
 });
@@ -215,18 +194,14 @@ function fakeReader() {
       id: number;
       fullName: string;
     } | null,
-    protection: {
-      met: true,
-      rule: { kind: "ruleset", requiredReviews: 1 },
-      pullRequest: 12,
-    } as SkillProtectionEvidence | Error,
-    protected: [] as Array<string | null>,
+    branch: true as boolean | Error,
+    branches: [] as string[],
   };
   const reader: GitHubSkillReader = {
-    async protection(_app, _installation, _repository, _ref, commit) {
-      state.protected.push(commit);
-      if (state.protection instanceof Error) throw state.protection;
-      return state.protection;
+    async isBranch(_app, _installation, _repository, ref) {
+      state.branches.push(ref);
+      if (state.branch instanceof Error) throw state.branch;
+      return state.branch;
     },
     async repository() {
       if (state.fail) throw state.fail;
@@ -265,7 +240,7 @@ function setup(
     commit: string;
     trigger: SkillSyncTrigger;
     newSource: boolean;
-    protection?: { grantId: string; evidence: SkillProtectionEvidence };
+    auto?: { grantId: string };
   }> = [];
   const failed: unknown[] = [];
   const sync = createSkillGitSync({
@@ -281,10 +256,7 @@ function setup(
           checkedAt: Date;
           newSource?: object;
           leaseToken?: string;
-          protection?: {
-            grantId: string;
-            evidence: SkillProtectionEvidence;
-          };
+          auto?: { grantId: string };
         };
         principal: { ownerId: string };
       }) {
@@ -295,9 +267,7 @@ function setup(
           commit: git.location.commit,
           trigger: git.trigger,
           newSource: git.newSource !== undefined,
-          ...(git.protection === undefined
-            ? {}
-            : { protection: git.protection }),
+          ...(git.auto === undefined ? {} : { auto: git.auto }),
         });
         await sources.store.recordCheck(
           input.principal.ownerId,
@@ -383,20 +353,6 @@ const deliver = (
     signature: headers.signature ?? sign(body),
     body: new TextEncoder().encode(body),
   });
-
-describe("the webhook signature", () => {
-  test("is HMAC-SHA256 of the raw body under the secret", () => {
-    const body = new TextEncoder().encode("{}");
-    expect(githubSignatureMatches(SECRET, body, sign("{}"))).toBe(true);
-    expect(
-      githubSignatureMatches(SECRET, body, sign("{}", "x".repeat(32))),
-    ).toBe(false);
-    expect(githubSignatureMatches(SECRET, body, sign("{ }"))).toBe(false);
-    for (const malformed of ["", "sha1=abc", `sha256=${"0".repeat(63)}`]) {
-      expect(githubSignatureMatches(SECRET, body, malformed)).toBe(false);
-    }
-  });
-});
 
 describe("a push delivery", () => {
   test("no App id, no stored secret or a wrong signature is unauthorized and checks nothing", async () => {
@@ -592,12 +548,14 @@ describe("the console", () => {
     const paused = await sync.setSync(caller(), "research", false);
     expect(paused.git.sync_enabled).toBe(false);
     expect(paused.receipt_id).not.toBeNull();
+    expect(paused.check).toBeNull();
     expect(registered).toEqual([]);
     const again = await sync.setSync(caller(), "research", false);
     expect(again.receipt_id).toBeNull();
     const resumed = await sync.setSync(caller(), "research", true);
     expect(resumed.git.sync_enabled).toBe(true);
     expect(resumed.git.last_check?.trigger.kind).toBe("resume");
+    expect(resumed.check).toBe("checked");
     expect(registered.map((one) => one.trigger.kind)).toEqual(["resume"]);
   });
 
@@ -605,7 +563,13 @@ describe("the console", () => {
     const { sync, state, registered } = setup({
       sources: [source({ syncEnabled: false })],
     });
-    for (const kind of ["resume", "webhook", "daily", "register"] as const) {
+    for (const kind of [
+      "resume",
+      "auto_approve",
+      "webhook",
+      "daily",
+      "register",
+    ] as const) {
       expect(
         await sync.check(WORKSPACE, "research", {
           kind,
@@ -635,106 +599,90 @@ describe("the console", () => {
 });
 
 describe("auto-approve", () => {
-  const on = {
-    state: "on" as const,
-    requestedBy: USER,
-    consentedBy: "u-2",
-    grantId: "c-1",
-  };
+  const on = { state: "on" as const, enabledBy: USER, grantId: "c-1" };
 
-  test("a check reads what GitHub shows only while auto-approve and sync are on, and hands it to the write", async () => {
-    for (const [overrides, read] of [
-      [{}, false],
-      [{ autoApprove: on, syncEnabled: false }, false],
-      [{ autoApprove: on }, true],
+  test("a check hands the write the grant it read only while auto-approve and sync are on, and reads nothing more on GitHub", async () => {
+    for (const [overrides, auto] of [
+      [{}, undefined],
+      [{ autoApprove: on, syncEnabled: false }, undefined],
+      [{ autoApprove: on }, { grantId: "c-1" }],
     ] as const) {
       const { sync, state, registered } = setup({
         sources: [source(overrides)],
       });
       await sync.checkNow(caller(), "research");
-      expect(state.protected).toEqual(read ? [COMMIT_A] : []);
-      // With the consent it was read under, for the write to compare.
-      expect(registered[0]?.protection).toEqual(
-        read
-          ? {
-              grantId: "c-1",
-              evidence: state.protection as SkillProtectionEvidence,
-            }
-          : undefined,
-      );
+      expect(registered[0]?.auto).toEqual(auto);
+      expect(state.branches).toEqual([]);
     }
   });
 
-  test("GitHub failing on the protection read leaves the version pending as github_unreachable", async () => {
-    const { sync, state, registered } = setup({
-      sources: [source({ autoApprove: on })],
-    });
-    state.protection = new GitHubAppCheckError("github_unreachable");
-    expect((await sync.checkNow(caller(), "research")).outcome).toBe("checked");
-    expect(registered[0]?.protection).toEqual({
-      grantId: "c-1",
-      evidence: { met: false, reason: "github_unreachable" },
-    });
-  });
-
-  test("turning it on needs a branch with a rule; the store's refusals keep their codes", async () => {
-    const { sync, state, sources } = setup();
-    for (const reason of ["not_branch", "protection_missing"] as const) {
-      state.protection = { met: false, reason };
-      await expect(
-        sync.setAutoApprove(caller(), "research", "request"),
-      ).rejects.toMatchObject({
-        code: "BAD_REQUEST",
-        details: { reason_code: reason },
-      });
-    }
-    state.protection = new GitHubAppCheckError("github_unreachable");
+  test("one manager turns it on for a branch and it checks once; a tag, a commit or GitHub not answering turns nothing on", async () => {
+    const { sync, state, sources, registered } = setup();
+    state.branch = false;
     await expect(
-      sync.setAutoApprove(caller(), "research", "consent"),
+      sync.setAutoApprove(caller(), "research", "on"),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      details: { reason_code: "not_branch" },
+    });
+    state.branch = new GitHubAppCheckError("github_unreachable");
+    await expect(
+      sync.setAutoApprove(caller(), "research", "on"),
     ).rejects.toMatchObject({ code: "GITHUB_UNAVAILABLE" });
-    expect(state.protected).toEqual([null, null, null]);
+    state.branch = true;
+    await expect(
+      sync.setAutoApprove(caller("member"), "research", "on"),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(sources.rows.get(`${WORKSPACE}/research`)?.autoApprove.state).toBe(
       "off",
     );
+    expect(registered).toEqual([]);
 
-    state.protection = {
-      met: true,
-      rule: { kind: "ruleset", requiredReviews: 1 },
-      pullRequest: null,
-    };
-    const requested = await sync.setAutoApprove(
+    const turnedOn = await sync.setAutoApprove(caller(), "research", "on");
+    expect(turnedOn.git.auto_approve).toEqual({
+      state: "on",
+      enabled_by: USER,
+    });
+    if (turnedOn.receipt_id === null) throw new Error("no receipt");
+    expect(turnedOn.check).toBe("checked");
+    expect(turnedOn.git.last_check?.trigger).toEqual({
+      kind: "auto_approve",
+      delivery_id: null,
+      user_id: USER,
+    });
+    // Under the grant turning it on wrote, for the write to compare.
+    expect(registered.map((one) => [one.trigger.kind, one.auto])).toEqual([
+      ["auto_approve", { grantId: turnedOn.receipt_id }],
+    ]);
+    expect(state.branches).toEqual(["main", "main", "main"]);
+
+    // Off reads nothing on GitHub and checks nothing.
+    state.branch = false;
+    const off = await sync.setAutoApprove(caller(), "research", "off");
+    expect(off.git.auto_approve).toEqual({ state: "off", enabled_by: null });
+    expect(off.check).toBeNull();
+    expect(state.branches).toHaveLength(3);
+    expect(registered).toHaveLength(1);
+  });
+
+  test("turning it on while sync is paused, or when it is on already, checks nothing", async () => {
+    const paused = setup({ sources: [source({ syncEnabled: false })] });
+    const turnedOn = await paused.sync.setAutoApprove(
       caller(),
       "research",
-      "request",
+      "on",
     );
-    expect(requested.git.auto_approve).toEqual({
-      state: "requested",
-      requested_by: USER,
-      consented_by: null,
+    expect(turnedOn.git.auto_approve.state).toBe("on");
+    expect(paused.registered).toEqual([]);
+
+    const already = setup({ sources: [source({ autoApprove: on })] });
+    already.sources.store.setAutoApprove = async () => ({
+      outcome: "unchanged",
+      source: source({ autoApprove: on }),
     });
-    await expect(
-      sync.setAutoApprove(caller("member"), "research", "request"),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
-
-    state.protection = { met: false, reason: "protection_missing" };
-    const off = await sync.setAutoApprove(caller(), "research", "off");
-    expect(off.git.auto_approve.state).toBe("off");
-    expect(state.protected).toEqual([null, null, null, null]);
-
-    for (const [outcome, code, reason] of [
-      ["self_consent", "FORBIDDEN", "self_consent"],
-      ["not_requested", "BAD_REQUEST", "auto_approve_not_requested"],
-    ] as const) {
-      sources.store.setAutoApprove = async () => ({ outcome });
-      state.protection = {
-        met: true,
-        rule: { kind: "ruleset", requiredReviews: 1 },
-        pullRequest: null,
-      };
-      await expect(
-        sync.setAutoApprove(caller(), "research", "consent"),
-      ).rejects.toMatchObject({ code, details: { reason_code: reason } });
-    }
+    const same = await already.sync.setAutoApprove(caller(), "research", "on");
+    expect(same.receipt_id).toBeNull();
+    expect(already.registered).toEqual([]);
   });
 });
 

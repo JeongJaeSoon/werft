@@ -10,6 +10,7 @@ import {
   createMemorySlackAppStore,
   createMemorySlackInboundEventStore,
   createMemorySlackInstallStore,
+  createMemorySlackSourceMarkStore,
   fakeSlackValue,
 } from "@werft-ai/chat-slack/testing/slack";
 import { scopesForRole, slackEventsResponseSchema } from "@werft-ai/contracts";
@@ -103,6 +104,8 @@ const service = createSlackEventsService({
     wasRejected: async () => false,
   },
   installs: installs.store,
+  sourceMarks: createMemorySlackSourceMarkStore().store,
+  mirrorEchoes: { matchMirrorEcho: async () => "no_candidate" },
 });
 const receives = { count: 0 };
 const counted: SlackEventsService = {

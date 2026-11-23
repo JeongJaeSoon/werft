@@ -170,6 +170,7 @@ export function awaitingLaunch(db: Database, budget: SessionBudget): SQL {
   return and(
     inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
     isNull(sessions.executionRevokedAt),
+    isNull(sessions.sourceDeletedAt),
     isNull(sessions.takeoverRequiredAt),
     // Before the LIMIT, so a backlog of spent sessions cannot crowd
     // out the ones that can still run, nor sessions waiting out a
@@ -316,6 +317,7 @@ export function createPostgresSchedulerStore(
             costUsd: sessions.costUsd,
             providerTokens: sessions.providerTokens,
             executionRevokedAt: sessions.executionRevokedAt,
+            sourceDeletedAt: sessions.sourceDeletedAt,
             takeoverRequiredAt: sessions.takeoverRequiredAt,
             partition: sessions.partition,
             restoreRetryAt: sessions.restoreRetryAt,
@@ -328,6 +330,7 @@ export function createPostgresSchedulerStore(
           !session ||
           !LAUNCHABLE_ADMISSION_STATES.includes(session.admissionState) ||
           session.executionRevokedAt !== null ||
+          session.sourceDeletedAt !== null ||
           session.takeoverRequiredAt !== null ||
           (session.restoreRetryAt !== null &&
             session.restoreRetryAt > (await dbNow(tx)))
@@ -981,31 +984,6 @@ export function createPostgresSchedulerStore(
           ),
         );
       return [...unjudgeable, ...rows.map((row) => row.id)];
-    },
-
-    async filterClosedLegacySessions(sessionIds) {
-      const judgeable = sessionIds.filter((id) => UUID.test(id));
-      if (judgeable.length === 0) return [];
-      // `closed` is final, so no lock is needed: nothing moves a session out
-      // of it, and a launch cannot reserve a slot for a closed session.
-      const rows = await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(
-          and(
-            inArray(sessions.id, judgeable),
-            inArray(sessions.admissionState, FINAL_ADMISSION_STATES),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(workerLaunches)
-                .where(
-                  and(eq(workerLaunches.sessionId, sessions.id), holdsSlot()),
-                ),
-            ),
-          ),
-        );
-      return rows.map((row) => row.id);
     },
 
     async claimWorkspaceReclaim({

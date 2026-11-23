@@ -81,7 +81,7 @@ fstab 검사와 mount 확인이 성공한 뒤에만 Docker를 시작한다.
 
 ## 확인
 
-첫 단계의 quota probe를 다시 실행한다. `xfs`·`prjquota`와 probe 성공이 모두 필요하다. `df -h`, `df -i`, `xfs_quota -x -c 'report -p'`로 여유를 확인한다. fstab과 기존 데이터를 rsync로 이전하는 전체 절차는 실제 운영 디스크에서 실행 확인하지 않았다.
+첫 단계의 quota probe를 다시 실행한다. `xfs`·`prjquota`와 probe 성공이 모두 필요하다. `df -h`, `df -i`, `xfs_quota -x -c 'report -p'`로 여유를 확인한다.
 
 ## 자주 막히는 곳
 

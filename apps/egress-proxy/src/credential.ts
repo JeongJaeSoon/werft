@@ -698,12 +698,26 @@ export function tokenOf(
   return null;
 }
 
+/** Who a grant's use is charged to, as the API's usage report names it. */
+function chargedOf(grant: EgressGrant): Record<string, string | null> {
+  if (grant.judgmentId !== null) return { judgment_id: grant.judgmentId };
+  if (grant.conversationCallId !== null) {
+    return { conversation_call_id: grant.conversationCallId };
+  }
+  return { session_id: grant.sessionId, attempt_id: grant.attemptId };
+}
+
 export type EgressGrant = {
   /** A session route's grant: the attempt its use is charged to. */
   sessionId: string | null;
   attemptId: string | null;
   /** The judgment route's grant: the judgment its use is charged to. */
   judgmentId: string | null;
+  /**
+   * A conversation call's grant: the call its use is charged to, which no
+   * session or judgment pays. Always with the request's limits.
+   */
+  conversationCallId: string | null;
   upstream: URL;
   headers: Array<[string, string]>;
   /**
@@ -713,27 +727,48 @@ export type EgressGrant = {
   target: string | null;
   /** The upstream was a `/mcp/<name>` path on the authorizer's listener. */
   builtin: boolean;
-  /** The one request the grant covers (a session title call), when it says. */
+  /**
+   * The one request the grant covers (a session title call or a
+   * conversation call), when it says.
+   */
   requestLimits?: RequestLimits;
 };
 
-type RequestLimits = { path: string; model: string; maxTokens: number };
+type RequestLimits = {
+  path: string;
+  model: string;
+  maxTokens: number;
+  /** The body's size the call's reservation was priced at; absent, any. */
+  maxRequestBytes?: number;
+};
+
+const positiveInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 
 function requestLimitsOf(value: unknown): RequestLimits | null {
   if (typeof value !== "object" || value === null) return null;
-  const { path, model, max_tokens } = value as Record<string, unknown>;
+  const { path, model, max_tokens, max_request_bytes } = value as Record<
+    string,
+    unknown
+  >;
   if (
     typeof path !== "string" ||
     !PROVIDER_PATHS.has(path) ||
     typeof model !== "string" ||
     model === "" ||
-    typeof max_tokens !== "number" ||
-    !Number.isSafeInteger(max_tokens) ||
-    max_tokens < 1
+    !positiveInteger(max_tokens) ||
+    (max_request_bytes !== undefined && !positiveInteger(max_request_bytes))
   ) {
     return null;
   }
-  return { path, model, maxTokens: max_tokens };
+  return {
+    path,
+    model,
+    maxTokens: max_tokens,
+    ...(max_request_bytes === undefined
+      ? {}
+      : { maxRequestBytes: max_request_bytes }),
+  };
 }
 
 /**
@@ -748,6 +783,12 @@ function outsideLimits(
 ): string | null {
   if (route.path !== limits.path || route.search !== "") {
     return "this grant covers one provider path";
+  }
+  if (
+    limits.maxRequestBytes !== undefined &&
+    (body?.byteLength ?? 0) > limits.maxRequestBytes
+  ) {
+    return `this grant allows a request body up to ${limits.maxRequestBytes} bytes`;
   }
   let parsed: unknown;
   try {
@@ -789,8 +830,14 @@ export function parseGrant(
   authorizer?: URL,
 ): EgressGrant | null {
   if (typeof body !== "object" || body === null) return null;
-  const { session_id, attempt_id, judgment_id, upstream, request_limits } =
-    body as Record<string, unknown>;
+  const {
+    session_id,
+    attempt_id,
+    judgment_id,
+    conversation_call_id,
+    upstream,
+    request_limits,
+  } = body as Record<string, unknown>;
   const requestLimits =
     request_limits === undefined ? undefined : requestLimitsOf(request_limits);
   // A limit it cannot read is a grant it cannot keep to.
@@ -798,12 +845,21 @@ export function parseGrant(
   const session =
     typeof session_id === "string" &&
     typeof attempt_id === "string" &&
-    judgment_id === undefined;
+    judgment_id === undefined &&
+    conversation_call_id === undefined;
   const judgment =
     typeof judgment_id === "string" &&
     session_id === undefined &&
-    attempt_id === undefined;
-  if (!session && !judgment) return null;
+    attempt_id === undefined &&
+    conversation_call_id === undefined;
+  // A call no one but its account pays is held to its one request.
+  const conversationCall =
+    typeof conversation_call_id === "string" &&
+    session_id === undefined &&
+    attempt_id === undefined &&
+    judgment_id === undefined &&
+    requestLimits?.maxRequestBytes !== undefined;
+  if (!session && !judgment && !conversationCall) return null;
   if (typeof upstream !== "object" || upstream === null) return null;
   const { url, headers, target } = upstream as Record<string, unknown>;
   if (typeof url !== "string" || !Array.isArray(headers)) return null;
@@ -847,6 +903,9 @@ export function parseGrant(
     sessionId: session ? (session_id as string) : null,
     attemptId: session ? (attempt_id as string) : null,
     judgmentId: judgment ? (judgment_id as string) : null,
+    conversationCallId: conversationCall
+      ? (conversation_call_id as string)
+      : null,
     upstream: parsed,
     headers: pairs,
     target: target ?? null,
@@ -1237,6 +1296,9 @@ export function startCredentialProxy(
     token: string,
     purpose: EgressPurpose,
     question: Record<string, unknown>,
+    // The exchange asking, which a conversation call's token is bound to.
+    // A header: an authorizer before it ignores one, and refuses a field.
+    exchangeId: string,
   ): Promise<Authorized> {
     let response: Response;
     try {
@@ -1245,6 +1307,9 @@ export function startCredentialProxy(
         headers: {
           authorization: `Bearer ${options.authorizer.token}`,
           "content-type": "application/json",
+          ...(purpose === "provider"
+            ? { "x-werft-exchange-id": exchangeId }
+            : {}),
         },
         body: JSON.stringify({ token, purpose, ...question }),
         redirect: "error",
@@ -1299,10 +1364,7 @@ export function startCredentialProxy(
     exchangeId: string,
     usage: MessagesUsage,
   ): Promise<void> {
-    const charged =
-      grant.judgmentId === null
-        ? { session_id: grant.sessionId, attempt_id: grant.attemptId }
-        : { judgment_id: grant.judgmentId };
+    const charged = chargedOf(grant);
     const fields = { ...charged, exchange_id: exchangeId, model: usage.model };
     const body = JSON.stringify({ exchange_id: exchangeId, ...charged, usage });
     for (let tried = 0; ; tried++) {
@@ -1342,6 +1404,7 @@ export function startCredentialProxy(
   async function openLedger(
     body: Readonly<Record<string, unknown>>,
     signal: AbortSignal,
+    title: boolean,
   ): Promise<"open" | "budget" | "failed"> {
     try {
       const response = await fetch(exchangesUrl, {
@@ -1349,6 +1412,10 @@ export function startCredentialProxy(
         headers: {
           authorization: `Bearer ${options.authorizer.token}`,
           "content-type": "application/json",
+          // The API holds a title call on the account of the session's
+          // first turn, not the running one's; one before this header
+          // ignores it.
+          ...(title ? { "x-werft-exchange-call": "title" } : {}),
         },
         body: JSON.stringify({ op: "open", ...body }),
         redirect: "error",
@@ -1715,9 +1782,7 @@ export function startCredentialProxy(
       ...(route.repository === undefined
         ? {}
         : { repository_id: route.repository }),
-      ...(grant.judgmentId === null
-        ? { session_id: grant.sessionId, attempt_id: grant.attemptId }
-        : { judgment_id: grant.judgmentId }),
+      ...chargedOf(grant),
       client,
     };
     // The upstream is the catalog's, not the worker's, and it is still held
@@ -2226,6 +2291,7 @@ export function startCredentialProxy(
             route.purpose === "mcp" || route.purpose === "packages"
               ? { ...question, regrant: true }
               : question,
+            exchangeId,
           );
           if (ended) return;
           if (again.kind === "granted") {
@@ -2242,6 +2308,7 @@ export function startCredentialProxy(
               session_id: grant.sessionId,
               attempt_id: grant.attemptId,
               judgment_id: grant.judgmentId,
+              conversation_call_id: grant.conversationCallId,
               status: again.kind === "refused" ? again.status : 200,
               stale,
               client,
@@ -2298,7 +2365,12 @@ export function startCredentialProxy(
             return reply(400, unmeterable, route.purpose);
           }
         }
-        const authorized = await authorize(token, route.purpose, question);
+        const authorized = await authorize(
+          token,
+          route.purpose,
+          question,
+          exchangeId,
+        );
         if (authorized.kind === "refused") {
           release();
           if (authorized.budgetExceeded && route.purpose === "provider") {
@@ -2314,9 +2386,12 @@ export function startCredentialProxy(
         }
         // A judgment's grant charges no session, and a session's no
         // judgment: either on the other's route is an authorizer fault.
+        // A conversation call's is for the provider route alone.
         if (
           (route.purpose === "judgment") !==
-          (authorized.grant.judgmentId !== null)
+            (authorized.grant.judgmentId !== null) ||
+          (authorized.grant.conversationCallId !== null &&
+            route.purpose !== "provider")
         ) {
           release();
           logger.error("Egress authorizer granted for another route", {
@@ -2335,7 +2410,7 @@ export function startCredentialProxy(
           if (outside !== null) {
             release();
             logger.warn("Provider call refused: outside its grant's limits", {
-              session_id: authorized.grant.sessionId,
+              ...chargedOf(authorized.grant),
               path: route.path,
             });
             return reply(403, outside, route.purpose);
@@ -2365,7 +2440,12 @@ export function startCredentialProxy(
                   reserve: requestEstimate(sent, route.path === RESPONSES_PATH),
                 };
                 entry = asked;
-                const answer = await openLedger(asked, signal);
+                // A session's grant for one request is its title call's.
+                const answer = await openLedger(
+                  asked,
+                  signal,
+                  authorized.grant.requestLimits !== undefined,
+                );
                 if (answer === "open") {
                   opened = true;
                   return null;

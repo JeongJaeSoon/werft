@@ -52,6 +52,23 @@ export const surfaceChannelKindSchema = z.enum(SURFACE_CHANNEL_KIND_VALUES);
 export const BINDING_MODE_VALUES = ["off", "on"] as const;
 export const bindingModeSchema = z.enum(BINDING_MODE_VALUES);
 
+/**
+ * What the conversation layer listens to in an `on` channel: `free` every
+ * message, `mention` mentions and threads the agent is part of, `off`
+ * nothing. Read only while the agent's `CONVERSATION_ROLLOUT_VALUES` switch
+ * is on; until then the agent's `mention_only` decides, as before.
+ */
+export const BINDING_LISTEN_VALUES = ["free", "mention", "off"] as const;
+export const bindingListenSchema = z.enum(BINDING_LISTEN_VALUES);
+
+/**
+ * The agent's switch for the conversation layer. `off`: input takes the
+ * path it always took. `shadow`: the same path, the layer's answer only
+ * recorded. `on`: the layer decides.
+ */
+export const CONVERSATION_ROLLOUT_VALUES = ["off", "shadow", "on"] as const;
+export const conversationRolloutSchema = z.enum(CONVERSATION_ROLLOUT_VALUES);
+
 export const MEMORY_WRITE_POLICY_VALUES = ["deny", "allow_explicit"] as const;
 export const memoryWritePolicySchema = z.enum(MEMORY_WRITE_POLICY_VALUES);
 
@@ -61,11 +78,17 @@ export const memoryWritePolicySchema = z.enum(MEMORY_WRITE_POLICY_VALUES);
  * `left`: a private channel the bot was removed from or left. Inactive: no
  * input is taken and nothing is sent there. The mode and ceiling are kept,
  * the approval is not; the bot coming back makes it `pending_approval`.
+ * `gone`: a channel Slack deleted (`channel_deleted`, `group_deleted`, or a
+ * public channel Slack no longer finds). Inactive like `left`, kept, never
+ * home and holding no approval. A join of the bot (so the channel was not
+ * deleted after all) brings it back as it does a `left` one; a public one
+ * goes to `ready`.
  */
 export const SURFACE_BINDING_STATUS_VALUES = [
   "ready",
   "pending_approval",
   "left",
+  "gone",
   "partial",
   "failed",
   "revoked",
@@ -149,6 +172,7 @@ export const surfaceBindingSchema = z
     surface_kind: surfaceChannelKindSchema.nullable(),
     agent_id: agentIdSchema,
     mode: bindingModeSchema,
+    listen: bindingListenSchema,
     ceiling: surfaceCeilingSchema,
     /** The agent's home channel; an agent has one at most, never a DM. */
     home: z.boolean(),
@@ -263,6 +287,28 @@ export const sessionLinkVisibilitySchema = z.enum(
 );
 
 /**
+ * How a thread hears of a session's turns. `none` is what a `summary` link
+ * moved to: it stays readable on such links, and no writer may pick it.
+ */
+export const SESSION_LINK_REPORT_MODE_VALUES = [
+  "notify_only",
+  "progress",
+  "per_step",
+  "none",
+] as const;
+export type SessionLinkReportMode =
+  (typeof SESSION_LINK_REPORT_MODE_VALUES)[number];
+export const REPORT_MODE_CHOICES = [
+  "notify_only",
+  "progress",
+  "per_step",
+] as const satisfies readonly SessionLinkReportMode[];
+export type ReportModeChoice = (typeof REPORT_MODE_CHOICES)[number];
+export const reportModeChoiceSchema = z.enum(REPORT_MODE_CHOICES);
+/** A channel's report mode until it picks one: one post per turn, as before. */
+export const DEFAULT_REPORT_MODE: ReportModeChoice = "per_step";
+
+/**
  * `(installation_id, surface_ref)` is the natural key and stays reserved after
  * revocation: a new message on a revoked thread needs an explicit rebind, it
  * does not quietly open a new session.
@@ -299,6 +345,8 @@ export function formatSurfaceRef(channelId: string, threadId: string): string {
 export type SurfaceKind = z.infer<typeof surfaceKindSchema>;
 export type SurfaceChannelKind = z.infer<typeof surfaceChannelKindSchema>;
 export type BindingMode = z.infer<typeof bindingModeSchema>;
+export type BindingListen = z.infer<typeof bindingListenSchema>;
+export type ConversationRollout = z.infer<typeof conversationRolloutSchema>;
 export type MemoryWritePolicy = z.infer<typeof memoryWritePolicySchema>;
 export type SurfaceBindingStatus = z.infer<typeof surfaceBindingStatusSchema>;
 export type SurfaceMembership = z.infer<typeof surfaceMembershipSchema>;

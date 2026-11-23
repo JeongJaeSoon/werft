@@ -32,16 +32,13 @@ describe("slack role startup", () => {
     expect(secretKey).toBeInstanceOf(SecretKey);
   });
 
-  test("refuses a leftover file catalog until it is unset", () => {
-    expect(
-      failure(() => slackRoleStartup({ ...base, PLATFORM_CONFIG_DIR: "/c" })),
-    ).toContain("PLATFORM_CONFIG_DIR no longer read");
-    expect(
-      failure(() => slackRoleStartup({ ...base, SESSION_CATALOG_JSON: "{}" })),
-    ).toContain("SESSION_CATALOG_JSON no longer read");
-    expect(
-      slackRoleStartup({ ...base, PLATFORM_CONFIG_DIR: "" }),
-    ).toBeDefined();
+  test("reads no file catalog setting: a leftover one no longer stops it", () => {
+    const { secretKey } = slackRoleStartup({
+      ...base,
+      PLATFORM_CONFIG_DIR: "/c",
+      SESSION_CATALOG_JSON: "{}",
+    });
+    expect(secretKey).toBeInstanceOf(SecretKey);
   });
 
   test("a bad master key or setting stops it before any pass", () => {
@@ -98,12 +95,16 @@ describe("slack role startup", () => {
     expect(started.length).toBe(0);
   });
 
-  test("settings default to a 60s lease, batches of 10 and half the pass timeout", () => {
+  test("settings default to a 60s lease, batches of 10, half the pass timeout and an hour's hold", () => {
     expect(slackRoleSettings({})).toEqual({
       batchSize: 10,
       leaseMs: 60_000,
       passBudgetMs: 30_000,
+      inputHoldMs: 3_600_000,
     });
+    expect(
+      slackRoleSettings({ SLACK_ROLE_INPUT_HOLD_SEC: "120" }).inputHoldMs,
+    ).toBe(120_000);
   });
 });
 

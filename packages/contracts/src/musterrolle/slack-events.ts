@@ -42,10 +42,13 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   "bot_allowlist_empty",
   // Posted by a bot that is not on the agent's allow list.
   "bot_not_allowed",
-  // Posted as this app's bot user.
+  // Posted by this app: as its bot user, or under another name (an
+  // instruction the outbox posted for its sender) with this app's `app_id`.
   "own_bot_user",
   // Posted by another agent's bot of this Werft install, allowed or not.
   "werft_agent_bot",
+  // Posted by Slackbot (`USLACK`), in a DM or a channel: never a person.
+  "slackbot",
   // A message subtype the channel does not take.
   "message_subtype",
   // An event type the app never subscribes to.
@@ -58,6 +61,9 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   // An event of a private channel the bot left (binding `left`); its text is
   // not kept and nobody is answered.
   "channel_left",
+  // An event of a channel Slack deleted (binding `gone`); its text is not
+  // kept and nobody is answered.
+  "channel_gone",
 ] as const;
 
 /** Message subtypes kept besides a plain message (no subtype). */
@@ -71,8 +77,28 @@ export const SLACK_INBOUND_EVENT_TYPES = [
   "member_left_channel",
   "channel_left",
   "group_left",
+  "channel_archive",
+  "channel_unarchive",
+  "group_archive",
+  "group_unarchive",
+  "channel_rename",
+  "group_rename",
+  "channel_deleted",
+  "group_deleted",
   "app_uninstalled",
   "tokens_revoked",
+] as const;
+
+/** The events that say a channel was archived, unarchived, renamed or deleted. */
+export const SLACK_CHANNEL_LIFECYCLE_EVENT_TYPES = [
+  "channel_archive",
+  "channel_unarchive",
+  "group_archive",
+  "group_unarchive",
+  "channel_rename",
+  "group_rename",
+  "channel_deleted",
+  "group_deleted",
 ] as const;
 
 export const slackEventsParamsSchema = z
@@ -125,3 +151,20 @@ export type SlackInboundEventStatus =
 export type SlackInboundDropReason =
   (typeof SLACK_INBOUND_DROP_REASON_VALUES)[number];
 export type SlackEventCallback = z.infer<typeof slackEventCallbackSchema>;
+
+/**
+ * Who posted a dropped event and what kind it was, so a drop can be told
+ * apart afterwards. Never text, blocks, attachments or files.
+ */
+export type SlackInboundDropFields = {
+  bot_id?: string;
+  app_id?: string;
+  user?: string;
+  subtype?: string;
+  message?: { subtype: string };
+  /**
+   * The message metadata's `event_type`, and the correlation id of a web
+   * input's mirror; never the rest of `event_payload`.
+   */
+  metadata?: { event_type: string; correlation_id?: string };
+};

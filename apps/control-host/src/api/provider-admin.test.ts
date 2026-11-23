@@ -1,17 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  type Principal,
-  scopesForRole,
-  type WorkspaceRole,
-} from "@werft-ai/contracts";
+import { type Principal, scopesForRole } from "@werft-ai/contracts";
 import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
   type LoginProviderAdminStore,
   type LoginProviderRecord,
-  SessionServiceError,
 } from "@werft-ai/platform";
+import { refusal } from "@werft-ai/platform/testing/refusal";
+import { userPrincipal } from "@werft-ai/testkit/callers";
 import {
   type MockOidcServer,
   startMockOidcServer,
@@ -34,15 +31,11 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function caller(who: keyof typeof USERS): Caller {
-  const role: WorkspaceRole = who;
-  const principal: Principal = {
-    kind: "user",
-    id: USERS[who],
-    workspace_id: WORKSPACE,
-    role,
-    scopes: [...scopesForRole(role)],
-  };
-  return callerFor(principal, { kind: "web" }, crypto.randomUUID());
+  return callerFor(
+    userPrincipal(USERS[who], WORKSPACE, who),
+    { kind: "web" },
+    crypto.randomUUID(),
+  );
 }
 
 const apiKey = callerFor(
@@ -164,18 +157,6 @@ function service(
         : options.consoleOrigin,
   });
   return { admin, asked, started };
-}
-
-async function refusal(work: Promise<unknown>) {
-  try {
-    await work;
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return { code: error.code, details: error.details };
-    }
-    throw error;
-  }
-  throw new Error("expected a refusal");
 }
 
 describe("sign-in provider settings service", () => {

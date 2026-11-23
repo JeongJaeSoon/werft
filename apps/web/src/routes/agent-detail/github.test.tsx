@@ -793,7 +793,179 @@ describe("에이전트 GitHub 탭", () => {
     );
   });
 
-  test("설정이 없는 릴리스는 첫 저장을 push 승인 꺼짐에서 시작해도 지금은 승인이 켜졌다고 보인다", async () => {
+  test("저장하지 않은 변경이 있는 동안 저장 상자는 탭 끝에서 화면 아래에 붙고, 이름과 키보드로 닿는다", async () => {
+    const { server } = await activeAgent();
+    const sent: unknown[] = [];
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push(await request.json());
+          return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    // Each section says how it saves: the push section in the bar, the
+    // repository switches at once, with the push approval on the first one.
+    expect(
+      screen.getByText(/화면 아래에 붙는 저장 막대에서 함께 저장/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /처음 켜면 아래 push 승인도 지금 적용 중인 값으로 함께 저장됩니다/,
+      ),
+    ).toBeTruthy();
+
+    const push = switchNamed("push 전 사람 승인");
+    await user.click(push);
+    const region = await screen.findByRole("region", {
+      name: "저장하지 않은 변경 1건",
+    });
+    const bar = region.parentElement as HTMLElement;
+    expect(bar.className.split(" ")).toEqual(
+      expect.arrayContaining(["sticky", "bottom-0", "bg-background"]),
+    );
+    // Below every section, the push section included, so it is in view there.
+    expect(
+      push.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("heading", { name: "최근 기록" })
+        .compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // From the switch, Tab reaches the bar's save and Enter saves.
+    const save = within(region).getByRole("button", { name: "저장" });
+    push.focus();
+    for (let step = 0; step < 80 && document.activeElement !== save; step++)
+      await user.tab();
+    expect(document.activeElement === save).toBe(true);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ settings: { push_approval: false } });
+  });
+
+  test("저장 막대가 있는 동안만 문서가 막대 높이만큼 아래 scroll 여백을 두어, 초점이 막대 뒤로 숨지 않는다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    const root = document.documentElement;
+    expect(root.style.scrollPaddingBottom).toBe("");
+
+    await user.click(switchNamed("push 전 사람 승인"));
+    await screen.findByRole("region", { name: "저장하지 않은 변경 1건" });
+    expect(root.style.scrollPaddingBottom).toMatch(/^\d+px$/);
+
+    await user.click(screen.getByRole("button", { name: "되돌리기" }));
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
+    expect(root.style.scrollPaddingBottom).toBe("");
+  });
+
+  test("첫 변경을 만든 스위치가 새로 뜬 저장 막대 아래에 있으면 화면이 겹친 만큼 올라간다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    const push = switchNamed("push 전 사람 승인");
+    // happy-dom lays nothing out: put the switch 30px into where the bar
+    // starts, as at the foot of a phone screen.
+    const rect = (top: number, bottom: number) =>
+      ({
+        top,
+        bottom,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: bottom - top,
+        x: 0,
+        y: top,
+      }) as DOMRect;
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    const scrolled: number[] = [];
+    const originalScrollBy = window.scrollBy;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this === push) return rect(700, 730);
+      if (this.className.includes("sticky")) return rect(700, 850);
+      return original.call(this);
+    };
+    window.scrollBy = ((_x: number, y: number) => {
+      scrolled.push(y);
+    }) as typeof window.scrollBy;
+    try {
+      await user.click(push);
+      await screen.findByRole("region", { name: "저장하지 않은 변경 1건" });
+      expect(document.activeElement === push).toBe(true);
+      expect(scrolled).toEqual([30]);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+      window.scrollBy = originalScrollBy;
+    }
+  });
+
+  test("저장 막대가 뜰 때 초점이 탭 밖(다이얼로그 등)이면 화면을 움직이지 않고, 큰 초점 영역은 제 위쪽 끝까지만 올린다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    const push = switchNamed("push 전 사람 승인");
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    const rect = (top: number, bottom: number) =>
+      ({
+        top,
+        bottom,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: bottom - top,
+        x: 0,
+        y: top,
+      }) as DOMRect;
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    const scrolled: number[] = [];
+    const originalScrollBy = window.scrollBy;
+    let pushTop = 700;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this === push) return rect(pushTop, 1400);
+      if (this === outside) return rect(900, 930);
+      if (this.className.includes("sticky")) return rect(700, 850);
+      return original.call(this);
+    };
+    window.scrollBy = ((_x: number, y: number) => {
+      scrolled.push(y);
+    }) as typeof window.scrollBy;
+    try {
+      // A change made while focus stays outside the tab: click() moves no focus.
+      outside.focus();
+      push.click();
+      expect(document.activeElement === outside).toBe(true);
+      await screen.findByRole("region", { name: "저장하지 않은 변경 1건" });
+      await user.click(screen.getByRole("button", { name: "되돌리기" }));
+      await waitFor(() =>
+        expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+      );
+      expect(scrolled).toEqual([]);
+
+      // A focused box taller than the room above the bar keeps its top.
+      pushTop = 200;
+      push.focus();
+      await user.keyboard(" ");
+      await screen.findByRole("region", { name: "저장하지 않은 변경 1건" });
+      expect(scrolled).toEqual([200]);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+      window.scrollBy = originalScrollBy;
+      outside.remove();
+    }
+  });
+
+  test("설정이 없는 에이전트는 저장 전에도 머리글과 스위치가 같이 push 승인 꺼짐이다", async () => {
     const { server, release } = await activeAgent();
     release.policy_pins = {};
     renderAt(
@@ -809,6 +981,25 @@ describe("에이전트 GitHub 탭", () => {
       "false",
     );
     // The GitHub header's summary line.
+    expect(screen.getByText(/push 전 승인 꺼짐/)).toBeTruthy();
+    expect(screen.queryByText(/push 전 승인 켜짐/)).toBeNull();
+  });
+
+  test("릴리스 핀이 push 승인을 켰으면 머리글과 스위치가 같이 켜짐이다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        github: { ...SETTINGS, push_approval: true },
+        settings_revision: null,
+        legacy_defaults: null,
+      }),
+    );
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
+    expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
+      "true",
+    );
     expect(screen.getByText(/push 전 승인 켜짐/)).toBeTruthy();
     expect(screen.queryByText(/push 전 승인 꺼짐/)).toBeNull();
   });
@@ -1172,6 +1363,52 @@ describe("에이전트 GitHub 탭", () => {
       /저장소를 바꾸지 못했습니다/,
     );
     expect(repoSwitch("werft-sandbox").getAttribute("aria-invalid")).toBeNull();
+  });
+
+  test("게시 전이라 저장된 설정이 없으면 게시를 안내하고 충돌 문구는 쓰지 않는다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [ACCESS]: () =>
+          apiError(409, "REVISION_CONFLICT", "no seed", false, {
+            reason_code: "settings_seed_unavailable",
+          }),
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    await user.click(repoSwitch("docs-site"));
+    const row = repoSwitch("docs-site").closest(
+      '[role="row"], li',
+    ) as HTMLElement;
+    expect(
+      await within(row).findByText(
+        "저장소를 바꾸지 못했습니다: 먼저 에이전트를 게시해야 GitHub 저장소를 켤 수 있습니다.",
+      ),
+    ).toBeTruthy();
+    expect(within(row).queryByText(/다른 곳에서 먼저 바꿨습니다/)).toBeNull();
+  });
+
+  test("진짜 revision 충돌은 그대로 다른 곳에서 먼저 바꿨다고 알린다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [ACCESS]: () => apiError(409, "REVISION_CONFLICT", "stale"),
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    await user.click(repoSwitch("docs-site"));
+    const row = repoSwitch("docs-site").closest(
+      '[role="row"], li',
+    ) as HTMLElement;
+    expect(
+      await within(row).findByText(
+        "저장소를 바꾸지 못했습니다: 다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
+      ),
+    ).toBeTruthy();
   });
 
   test("연속한 스위치는 겹치지 않고 클릭한 값 그대로 차례로 보낸다", async () => {

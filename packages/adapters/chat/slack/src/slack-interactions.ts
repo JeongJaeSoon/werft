@@ -34,11 +34,13 @@ import {
   type AuthorizationPolicy,
   agentForSlackEvent,
   type Caller,
+  messageOf,
   type SessionService,
   SessionServiceError,
 } from "@werft-ai/platform";
 import {
   SLACK_CARD_SETTLE_TIMING,
+  type SlackPushRequesterLeft,
   settleSlackCards,
 } from "./slack-card-settle.ts";
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
@@ -48,8 +50,9 @@ import {
   slackCallerOf,
 } from "./slack-decision.ts";
 import {
+  type SlackSignedRequest,
   type SlackSigningSecrets,
-  verifySlackSignature,
+  verifySlackRequest,
 } from "./slack-events-service.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import { slackOutboxText } from "./slack-outbox-render.ts";
@@ -67,8 +70,6 @@ import {
 
 /** Redraws the card; `via` is "slack" when this press settled it. */
 type SettleCard = () => Promise<void>;
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * What the session reads once a push it asked for is decided in Slack.
@@ -101,7 +102,7 @@ export type SlackInteractionDeps = {
     "answer" | "listPendingRequests" | "outcome"
   >;
   pushes: Pick<PushRequestService, "decide" | "get">;
-  sessions: Pick<SessionService, "appendMessage">;
+  sessions: Pick<SessionService, "queuePushFollowUp">;
   followUps: PushFollowUpStore;
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
@@ -121,6 +122,7 @@ export type SlackInteractionDeps = {
   defer?: (work: () => Promise<void>) => void;
   /** How long a submitted form waits on its checks before asking again. */
   submitDeadlineMs?: number;
+  requesterLeft?: SlackPushRequesterLeft;
 };
 
 const OK: SlackInteractionResponse = { ok: true };
@@ -171,7 +173,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     ((work: () => Promise<void>) => {
       void work().catch((error: unknown) => {
         deps.logger.warn("Slack interaction failed after its answer", {
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         });
       });
     });
@@ -200,7 +202,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     } catch (error) {
       deps.logger.warn("Slack ephemeral for a press failed", {
         agent_id: pressed.agentId,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
     }
   }
@@ -233,6 +235,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           batchSize: 1,
           deadline: Date.now() + SLACK_CARD_SETTLE_TIMING.leaseMs,
           only,
+          ...(deps.requesterLeft === undefined
+            ? {}
+            : { requesterLeft: deps.requesterLeft }),
         });
         return;
       }
@@ -260,12 +265,15 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     } catch (error) {
       deps.logger.warn("Slack card update failed", {
         agent_id: pressed.agentId,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
     }
   }
 
-  /** Whether the pressed card's channel is one the bot was removed from. */
+  /**
+   * Whether the pressed card's channel is one the bot was removed from, or
+   * one Slack deleted.
+   */
   async function channelLeftFor(
     agentId: string,
     app: { appId: string },
@@ -282,7 +290,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       agent.installationId,
       input.channelId,
     );
-    return live?.status === "left";
+    return live?.status === "left" || live?.status === "gone";
   }
 
   /** Who pressed and how to answer them; null when the app has no bot. */
@@ -319,7 +327,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     } catch (error) {
       deps.logger.warn("Slack presser language unreadable; using the default", {
         agent_id: agentId,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
       return DEFAULT_USER_LOCALE;
     }
@@ -328,6 +336,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   async function admit(
     pressed: Pressed,
     sessionId: string,
+    pushRequestId?: string,
   ): Promise<Allowed | { refused: string }> {
     const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
@@ -340,7 +349,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       user,
       action: "session.approve",
       channel: { id: pressed.channelId, dm: pressed.channelId.startsWith("D") },
-      resource: { kind: "session", id: sessionId },
+      resource: {
+        kind: "session",
+        id: sessionId,
+        ...(pushRequestId === undefined ? {} : { pushRequestId }),
+      },
       requestId,
       connectUrl: deps.connectUrl,
     });
@@ -518,7 +531,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     } catch (error) {
       deps.logger.warn("Slack push flow not read", {
         agent_id: pressed.agentId,
-        code: error instanceof Error ? error.message : String(error),
+        code: messageOf(error),
       });
       await notice(pressed, "failed");
       return "failed";
@@ -554,18 +567,19 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       await card();
       return decision === "approve" ? "approved" : "rejected";
     }
-    // The decision stands; the session only learns of it from this turn.
-    // The key makes a retry a no-op once one attempt has landed.
+    // The decision stands; the session only learns of it from this turn,
+    // which is the agent's: the platform queues it, whoever pressed. The key
+    // makes a retry a no-op once one attempt has landed.
     const followUp = {
       idempotencyKey: `slack-push:${value.r}`,
-      body: {
-        message: slackPushFollowUp(decision, {
-          id: request.id,
-          repositoryId: request.repository_id,
-          targetBranch: request.target_branch,
-        }),
-        mode: "enqueue" as const,
-      },
+      message: slackPushFollowUp(decision, {
+        id: request.id,
+        repositoryId: request.repository_id,
+        targetBranch: request.target_branch,
+      }),
+      pushRequestId: request.id,
+      decision,
+      requestId: caller.requestId,
     };
     // A turn running now may open the pull request itself; a second turn
     // asking for it only repeats the request and the reply.
@@ -575,7 +589,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         const hold = await deps.followUps.hold({
           sessionId: value.s,
           pushRequestId: request.id,
-          message: followUp.body.message,
+          message: followUp.message,
         });
         if (hold !== "now") {
           queued = true;
@@ -587,7 +601,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       } catch (error) {
         deps.logger.warn("Slack push follow-up hold failed", {
           agent_id: pressed.agentId,
-          code: error instanceof Error ? error.message : String(error),
+          code: messageOf(error),
         });
       }
     }
@@ -597,7 +611,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       attempt += 1
     ) {
       try {
-        await deps.sessions.appendMessage(caller, value.s, followUp);
+        await deps.sessions.queuePushFollowUp(
+          caller.ownerId,
+          value.s,
+          followUp,
+        );
         queued = true;
       } catch (error) {
         deps.logger.warn("Slack push follow-up turn not queued", {
@@ -638,7 +656,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       agent_id: pressed.agentId,
       session_id: value?.s ?? null,
       request_id: value?.r ?? null,
-      error: error instanceof Error ? error.message : String(error),
+      error: messageOf(error),
     });
   }
 
@@ -809,7 +827,16 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     value: SlackInteractionValue,
   ): Promise<SlackInteractionOutcome> {
     try {
-      const admitted = await admit(pressed, value.s);
+      // A push card's press names its request, which the policy reads for
+      // a requester who left a private channel.
+      const push =
+        actionId === SLACK_INTERACTION_ACTIONS.pushApprove ||
+        actionId === SLACK_INTERACTION_ACTIONS.pushReject;
+      const admitted = await admit(
+        pressed,
+        value.s,
+        push ? value.r : undefined,
+      );
       if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
       const card = cardOf(pressed, payload)(value);
       // Option buttons share a block, where Slack wants each id once.
@@ -999,24 +1026,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   }
 
   return {
-    async receive(request: {
-      agentId: string;
-      rawBody: Uint8Array;
-      timestamp: string | null;
-      signature: string | null;
-    }): Promise<SlackInteractionOutcome> {
-      if (!UUID.test(request.agentId)) return { kind: "unauthorized" };
-      const agentId = request.agentId.toLowerCase();
-      const app = await deps.signingSecrets.forAgent(agentId);
-      if (app === null) return { kind: "unauthorized" };
-      const check = verifySlackSignature({
-        signingSecret: app.signingSecret,
-        timestamp: request.timestamp,
-        signature: request.signature,
-        rawBody: request.rawBody,
-        nowSeconds: Math.floor(now().getTime() / 1000),
-      });
-      if (check !== "ok") return { kind: "unauthorized" };
+    async receive(
+      request: SlackSignedRequest,
+    ): Promise<SlackInteractionOutcome> {
+      const verified = await verifySlackRequest(deps, request, now);
+      if (verified === null) return { kind: "unauthorized" };
+      const { agentId, app } = verified;
 
       let body: unknown;
       try {

@@ -51,6 +51,7 @@ import type {
 } from "@werft-ai/contracts";
 import {
   canonicalJsonOfJson,
+  conversationCallIdSchema,
   DEFAULT_WORKSPACE_ENFORCE,
   ENGINE_COAUTHOR_EMAILS,
   GITHUB_MCP_SERVER,
@@ -62,6 +63,7 @@ import {
   sanitizeToolDecision,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
+import { messageOf } from "@werft-ai/runtime-core";
 import type { CommitAttributionLedger } from "../action/ports/commit-attributions.ts";
 import { repoRefOf } from "../action/ports/forge.ts";
 import type {
@@ -92,19 +94,19 @@ import {
 } from "../catalog/index.ts";
 import {
   type CheckpointRequestDecision,
+  checkpointPendingReason,
+  own,
   type RestoreFallback,
   type RestorePlan,
   type RestorePlanResult,
   sessionObjectPrefix,
-} from "../checkpoints/checkpoint-service.ts";
-import { own } from "../checkpoints/checkpoint-support.ts";
-import { checkpointPendingReason } from "../checkpoints/durability.ts";
+} from "../checkpoints/index.ts";
 import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
 import type {
   CheckpointOutputObject,
   CheckpointVerifier,
 } from "../checkpoints/ports/checkpoint-verifier.ts";
-import { BundleIntegrityError } from "../extensions/bundle-service.ts";
+import { BundleIntegrityError } from "../extensions/index.ts";
 import type { GitHubConnectionResolver } from "../github/index.ts";
 import {
   allowedOwners,
@@ -120,6 +122,9 @@ import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import type { GitHubPackagesStore } from "../github/ports/github-packages.ts";
 import {
   budgetExceeded,
+  CONVERSATION_CALL_TOKEN_PREFIX,
+  type ConversationCallStore,
+  hashConversationCallToken,
   type PricedBy,
   type ProviderUsage,
   priceJudgmentUsage,
@@ -144,34 +149,29 @@ import type {
   WorkerFence,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import type { JudgmentEgressStore } from "../sessions/achievements/achievement-judgment-store.ts";
-import type { JudgeConnections } from "../sessions/achievements/judge-connections.ts";
-import {
-  hashJudgmentToken,
-  JUDGMENT_TOKEN_PREFIX,
-} from "../sessions/achievements/judgment-token.ts";
-import {
-  type NeutralizeEvent,
-  neutralFieldsOf,
-} from "../sessions/event-codecs.ts";
 import {
   appBotAuthor,
   claimGitOf,
   coAuthorOfLink,
-} from "../sessions/git-attribution.ts";
-import type {
-  ApprovalCheckpointCommit,
-  WorkerPendingStore,
-} from "../sessions/ports/pending-requests.ts";
-import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
-import {
+  hashJudgmentToken,
   hashTitleToken,
+  JUDGMENT_TOKEN_PREFIX,
+  type JudgeConnections,
+  type JudgmentEgressStore,
+  type NeutralizeEvent,
+  neutralFieldsOf,
   type SessionTitler,
   TITLE_MAX_TOKENS,
   TITLE_PROVIDER_PATH,
   TITLE_TOKEN_PREFIX,
   titleRun,
-} from "../sessions/session-titler.ts";
+} from "../sessions/index.ts";
+import type {
+  ApprovalCheckpointCommit,
+  WorkerPendingStore,
+} from "../sessions/ports/pending-requests.ts";
+import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
+import { hashToken } from "../token-hash.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import {
   appendNew,
@@ -310,9 +310,7 @@ export const DEFAULT_PENDING_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_WAIT_MS = 25_000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
 
-export function hashWorkerToken(value: string): Uint8Array {
-  return createHash("sha256").update(value, "utf8").digest();
-}
+export const hashWorkerToken = hashToken;
 
 /**
  * What a launched resource is labelled with so a later pass can tell which
@@ -368,6 +366,22 @@ export type EgressGrant = {
 export type JudgmentEgressGrant = {
   judgment_id: string;
   upstream: EgressUpstream;
+};
+
+/**
+ * A conversation call's grant: no session or attempt either, so a proxy from
+ * before it refuses it. Its one request's limits, the request's bytes among
+ * them, are what the call's reservation was priced at.
+ */
+export type ConversationCallEgressGrant = {
+  conversation_call_id: string;
+  upstream: EgressUpstream;
+  request_limits: {
+    path: string;
+    model: string;
+    max_tokens: number;
+    max_request_bytes: number;
+  };
 };
 
 function claimedExtensionsOf(
@@ -516,7 +530,7 @@ async function checkpointInfrastructure<T>(call: () => Promise<T>): Promise<T> {
     throw new WorkerGatewayError(
       503,
       "BACKEND_UNAVAILABLE",
-      `Checkpoint storage could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      `Checkpoint storage could not be read: ${messageOf(error)}`,
       true,
     );
   }
@@ -730,6 +744,8 @@ export function createWorkerGateway(deps: {
   };
   // Absent, a session keeps the title cut from its first message.
   titles?: { store: SessionTitleStore; titler: SessionTitler };
+  // Absent, a conversation call's token is refused like any unknown one.
+  conversationCalls?: { store: ConversationCallStore };
   // Absent, the judgment route is refused. `upstream` reaches the judge a
   // connection names; absent, or null for that connection, the route is
   // unavailable.
@@ -1078,7 +1094,7 @@ export function createWorkerGateway(deps: {
     new WorkerGatewayError(
       503,
       "BACKEND_UNAVAILABLE",
-      `${what} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      `${what} could not be read: ${messageOf(error)}`,
       true,
     );
   const budgetNow = async (): Promise<SessionBudget> => {
@@ -1231,15 +1247,27 @@ export function createWorkerGateway(deps: {
     mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
-    const kept = legacyConfigsFromRow(binding.legacyRuntimeConfigs).map(
-      (config) => servedLegacyConfig(config, providerToken),
-    );
     // First, ahead of the cap: what the session ran before its limit removed
     // a tool is the config its own checkpoints carry.
     const unlimited = specConfigOf(
       { ...binding, callerToolsDeny: [] },
       providerToken,
     );
+    // A checkpoint sealed under digest scheme 1 hashed the mode the session
+    // ran then: the one its spec recorded, before a claim decided it again.
+    const recordedOf = (config: RuntimeConfig): RuntimeConfig[] =>
+      binding.spec.permission_mode === config.permission_mode
+        ? []
+        : [{ ...config, permission_mode: binding.spec.permission_mode }];
+    const kept = [
+      ...recordedOf(current),
+      ...(unlimited.tools.length === current.tools.length
+        ? []
+        : recordedOf(unlimited)),
+      ...legacyConfigsFromRow(binding.legacyRuntimeConfigs).map((config) =>
+        servedLegacyConfig(config, providerToken),
+      ),
+    ];
     // Every config a claim offers for the session's servers `mcp`; `running`
     // leaves out the current config with them, the one the engine runs.
     const offeredFor = (
@@ -1516,6 +1544,44 @@ export function createWorkerGateway(deps: {
         path: TITLE_PROVIDER_PATH,
         model: run.model,
         max_tokens: TITLE_MAX_TOKENS,
+      },
+    };
+  }
+
+  // A conversation call's token, bound to the exchange that first presents
+  // it; null for any other token, and for one that is unknown, expired,
+  // used up or bound to another exchange, which the session route then
+  // refuses as any token it does not know. Its account was held when it was
+  // issued, so nothing is judged here but the token.
+  async function authorizedConversationEgress(
+    token: string,
+    path: string | undefined,
+    exchangeId: string | undefined,
+  ): Promise<ConversationCallEgressGrant | null> {
+    // A proxy from before names no exchange: there is none to bind.
+    if (
+      deps.conversationCalls === undefined ||
+      !token.startsWith(CONVERSATION_CALL_TOKEN_PREFIX) ||
+      exchangeId === undefined
+    ) {
+      return null;
+    }
+    const result = await deps.conversationCalls.store.authorizeAtomic({
+      tokenHash: hashConversationCallToken(token),
+      exchangeId,
+    });
+    if (result.outcome !== "ok") return null;
+    const connection = connectionOf(catalog, result.connectionId);
+    if (!connection) moved("call's connection");
+    requireProviderPath(connection.provider.kind, path);
+    return {
+      conversation_call_id: result.callId,
+      upstream: providerUpstreamOf(connection.provider),
+      request_limits: {
+        path: result.path,
+        model: result.model,
+        max_tokens: result.maxTokens,
+        max_request_bytes: result.maxRequestBytes,
       },
     };
   }
@@ -2368,6 +2434,56 @@ export function createWorkerGateway(deps: {
         pricedBy: result.pricedBy,
         ...(result.ledgerForeignRow ? { ledgerForeignRow: true } : {}),
       };
+    },
+
+    // A provider request's grant when its token is a conversation call's;
+    // null for any other token, which authorizeEgress then judges.
+    authorizeConversationCallEgress(request: {
+      token: string;
+      path?: string | undefined;
+      /** The proxy's exchange, which the call's token is bound to. */
+      exchange_id?: string | undefined;
+    }): Promise<ConversationCallEgressGrant | null> {
+      return authorizedConversationEgress(
+        request.token,
+        request.path,
+        request.exchange_id,
+      );
+    },
+
+    // What a conversation call used, from the exchange its token is bound
+    // to: settled on the account it was reserved on, never on a session.
+    async recordConversationCallUsage(report: {
+      exchangeId: string;
+      callId: string;
+      usage: ProviderUsage;
+    }): Promise<{ costUsd: number; pricedBy: PricedBy }> {
+      const callId = conversationCallIdSchema.safeParse(report.callId);
+      if (deps.conversationCalls === undefined || !callId.success) {
+        throw new WorkerGatewayError(404, "NOT_FOUND", "No such call");
+      }
+      const priced = priceProviderUsage(report.usage);
+      const result = await deps.conversationCalls.store.settleAtomic({
+        callId: callId.data,
+        exchangeId: report.exchangeId,
+        usage: report.usage,
+        priceFor: (call) => (call.unmetered ? { costUsd: 0 } : priced),
+      });
+      switch (result.outcome) {
+        case "unknown_call":
+          throw new WorkerGatewayError(404, "NOT_FOUND", "No such call");
+        case "conflict":
+          throw new WorkerGatewayError(
+            409,
+            "IDEMPOTENCY_CONFLICT",
+            "That call is another exchange's or was reported with other usage",
+          );
+        default:
+          return {
+            costUsd: result.costUsd,
+            pricedBy: result.unmetered ? "unmetered" : priced.pricedBy,
+          };
+      }
     },
 
     async nextInput(

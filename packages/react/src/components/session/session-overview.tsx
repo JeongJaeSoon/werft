@@ -138,12 +138,20 @@ export interface SessionOverviewRowMessages {
   readonly channel: (channel: SurfaceKind) => string;
   /** The duration of a session still at work: "진행 중". */
   readonly inProgress: string;
-  /** Stands in for a value the session does not have: agent, channel, time. */
+  /** Stands in for a value the session does not have: channel, time. */
   readonly unknown: string;
+  /** The agent cell of a session made without an agent: "에이전트 없음". */
+  readonly agentNone: string;
+  /** The agent cell when the server hid the agent from the viewer: "볼 수 없는 에이전트". */
+  readonly agentHidden: string;
+  /** The mark beside an archived agent's name: "보관됨". */
+  readonly agentArchived: string;
   /** Names the row's opener, e.g. "세션 열기: 배포 점검"; the name alone if unset. */
   readonly open?: ((name: string) => string) | undefined;
   /** The mark beside a preview session's title: "미리보기"; none if unset. */
   readonly preview?: string | undefined;
+  /** In place of a title withheld for its deleted Slack message. */
+  readonly sourceDeleted?: string | undefined;
 }
 
 export interface SessionOverviewRowProps {
@@ -229,7 +237,11 @@ export function SessionOverviewRow({
 }: SessionOverviewRowProps): JSX.Element {
   const shortId = shortSessionId(session.id);
   // Untitled, the row shows the id's head; the opener's name keeps it whole.
-  const name = session.title ?? session.id;
+  const withheld =
+    session.title === null && session.title_deleted_at !== null
+      ? messages.sourceDeleted
+      : undefined;
+  const name = session.title ?? withheld ?? session.id;
   const admission = QUIET_ADMISSION.has(session.admission_state)
     ? null
     : session.admission_state;
@@ -259,10 +271,14 @@ export function SessionOverviewRow({
             as="span"
             className={cn(
               "min-w-0 truncate font-medium",
-              session.title ? null : "font-mono",
+              session.title
+                ? null
+                : withheld
+                  ? "text-muted-foreground"
+                  : "font-mono",
             )}
           >
-            {session.title ?? shortId}
+            {session.title ?? withheld ?? shortId}
           </Text>
           {session.preview && messages.preview ? (
             <Badge variant="violet" className="shrink-0">
@@ -270,7 +286,7 @@ export function SessionOverviewRow({
             </Badge>
           ) : null}
         </Text>
-        {session.title ? (
+        {session.title || withheld ? (
           // Above the opener, so hovering shows the whole id.
           <Code className="relative text-subtle-foreground" title={session.id}>
             {shortId}
@@ -278,9 +294,20 @@ export function SessionOverviewRow({
         ) : null}
       </GridTableCell>
       <GridTableCell>
-        <span className="min-w-0 truncate">
-          {session.agent?.name ?? messages.unknown}
-        </span>
+        {session.agent ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate">{session.agent.name}</span>
+            {session.agent.archived ? (
+              <Badge variant="gray" className="shrink-0 text-muted-foreground">
+                {messages.agentArchived}
+              </Badge>
+            ) : null}
+          </span>
+        ) : (
+          <span className="min-w-0 truncate text-subtle-foreground">
+            {session.agent_hidden ? messages.agentHidden : messages.agentNone}
+          </span>
+        )}
       </GridTableCell>
       <GridTableCell hideNarrow={true}>
         {session.channel ? (

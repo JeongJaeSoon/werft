@@ -1,4 +1,7 @@
+import type { BudgetAccountId } from "@werft-ai/contracts";
 import type {
+  BudgetChoice,
+  BudgetReserveInput,
   HeldSpend,
   ProviderExchangeInput,
   ProviderExchangeLedger,
@@ -6,11 +9,20 @@ import type {
   ProviderExchangeReleaseResult,
   ProviderUsage,
 } from "@werft-ai/platform";
+import { reservationCostUsd, reservationTokens } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import {
+  lockBudgetCall,
+  markBudgetUnknownIn,
+  releaseBudgetIn,
+  reserveBudgetIn,
+  settleBudgetIn,
+} from "./budget-accounts.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
+  budgetReservations,
   providerExchanges,
   providerUsage,
   sessions,
@@ -19,10 +31,12 @@ import { rowsOf } from "./statement-rows.ts";
 
 /**
  * How long an open row stands without a renewal or a report before the
- * reconciler logs it. Covers the proxy's slowest normal path: an authorizer
- * outage cuts the exchange about 120 seconds after the last good regrant,
- * and the report's retries take up to about 61 seconds more. A row past it
- * still counts as a reservation until a report or a release.
+ * reconciler logs it and marks its reservation's end unknown (unknown_at);
+ * a conversation call in flight this long is marked too. Covers the proxy's slowest
+ * normal path: an authorizer outage cuts the exchange about 120 seconds
+ * after the last good regrant, and the report's retries take up to about
+ * 61 seconds more. A row past it still counts as a reservation until a
+ * report or a release.
  */
 export const PROVIDER_EXCHANGE_LEASE_MS = 300_000;
 
@@ -61,7 +75,13 @@ export async function lockProviderExchange(
  */
 export async function settleProviderExchange(
   tx: Database,
-  input: { exchangeId: string; sessionId: string; attemptId: string },
+  input: {
+    exchangeId: string;
+    sessionId: string;
+    attemptId: string;
+    /** What the report charged, settled on the account the open held. */
+    actual: { costUsd: number; tokens: number };
+  },
 ): Promise<{ foreignRow: boolean }> {
   const deleted = await tx
     .delete(providerExchanges)
@@ -73,13 +93,22 @@ export async function settleProviderExchange(
       ),
     )
     .returning({ exchangeId: providerExchanges.exchangeId });
-  if (deleted.length > 0) return { foreignRow: false };
-  const [other] = await tx
-    .select({ exchangeId: providerExchanges.exchangeId })
-    .from(providerExchanges)
-    .where(eq(providerExchanges.exchangeId, input.exchangeId))
-    .limit(1);
-  return { foreignRow: other !== undefined };
+  const [other] =
+    deleted.length > 0
+      ? []
+      : await tx
+          .select({ exchangeId: providerExchanges.exchangeId })
+          .from(providerExchanges)
+          .where(eq(providerExchanges.exchangeId, input.exchangeId))
+          .limit(1);
+  if (other !== undefined) return { foreignRow: true };
+  // Settled by the call id, not by the row: the row that held the account may
+  // be gone, its release mark deleted after PROVIDER_EXCHANGE_KEEP_DAYS, or
+  // replaced by a later release's mark that names no account. A call that
+  // never named one has no reservation, and nothing changes. After the
+  // session and attempt rows the report holds: the account row comes last.
+  await settleBudgetIn(tx, { callId: input.exchangeId, actual: input.actual });
+  return { foreignRow: false };
 }
 
 /**
@@ -112,7 +141,13 @@ async function standingOf(
   input: ProviderExchangeInput,
 ): Promise<
   | { kind: "unknown_attempt" | "settled" | "conflict" | "none" }
-  | { kind: "row"; sameOwner: boolean; sameReserve: boolean; released: boolean }
+  | {
+      kind: "row";
+      sameOwner: boolean;
+      sameReserve: boolean;
+      released: boolean;
+      budgeted: boolean;
+    }
 > {
   const [pair] = await tx
     .select({ id: attempts.id })
@@ -142,6 +177,7 @@ async function standingOf(
       sameOwner: sameOwnerOf(providerExchanges),
       sameReserve: sql<boolean>`${providerExchanges.reserve} = ${JSON.stringify(input.reserve)}::jsonb`,
       released: sql<boolean>`${providerExchanges.releasedAt} IS NOT NULL`,
+      budgeted: sql<boolean>`${providerExchanges.budgetRootKind} IS NOT NULL`,
     })
     .from(providerExchanges)
     .where(eq(providerExchanges.exchangeId, input.exchangeId))
@@ -149,6 +185,41 @@ async function standingOf(
   return row ? { kind: "row", ...row } : { kind: "none" };
 }
 
+/**
+ * The account side of an open: the call id is the exchange's, and the
+ * reserve is priced as admitsReservations prices the session's side, so the
+ * two judges hold the same amount.
+ */
+function budgetReserveOf(
+  input: ProviderExchangeInput,
+  choice: BudgetChoice,
+  session: { workspaceId: string | null; unmetered: boolean },
+): BudgetReserveInput {
+  if (session.workspaceId === null) {
+    throw new Error(
+      `provider exchange ${input.exchangeId}: a budget account named for a session with no workspace`,
+    );
+  }
+  return {
+    callId: input.exchangeId,
+    workspaceId: session.workspaceId,
+    choice,
+    reserve: {
+      costUsd: reservationCostUsd(input.reserve),
+      tokens: reservationTokens(input.reserve),
+    },
+    unmetered: session.unmetered,
+  };
+}
+
+/**
+ * Locks, in the one order every writer of a budgeted call takes them: the
+ * exchange's advisory lock; then the open's session advisory lock, or the
+ * report's session and attempt rows; then budget-accounts.ts's call lock,
+ * the reservation row and the account row, last. The open takes no session
+ * or attempt row, and nothing holding an account row waits on one, so the
+ * account row closes no cycle.
+ */
 export function createProviderExchangeLedger(
   db: Database,
   options: {
@@ -179,6 +250,30 @@ export function createProviderExchangeLedger(
           // The same open again was judged when it first came: its lease is
           // extended and its opened_at kept; another reserve changes nothing.
           if (!standing.sameReserve) return { outcome: "conflict" };
+          if (standing.budgeted !== (input.budget !== undefined)) {
+            return { outcome: "conflict" };
+          }
+          if (input.budget !== undefined) {
+            const [session] = await tx
+              .select({
+                workspaceId: sessions.workspaceId,
+                unmetered: sessions.unmetered,
+              })
+              .from(sessions)
+              .where(eq(sessions.id, input.sessionId));
+            if (!session) return { outcome: "unknown_attempt" };
+            // The row's reservation exists, so this only compares.
+            const replay = await reserveBudgetIn(
+              tx,
+              budgetReserveOf(input, input.budget, session),
+            );
+            if (replay.outcome === "conflict") return { outcome: "conflict" };
+            if (replay.outcome !== "replayed") {
+              throw new Error(
+                `provider exchange ${input.exchangeId}: an open row with no budget reservation`,
+              );
+            }
+          }
           await tx
             .update(providerExchanges)
             .set({
@@ -186,6 +281,10 @@ export function createProviderExchangeLedger(
               noticedAt: null,
             })
             .where(eq(providerExchanges.exchangeId, input.exchangeId));
+          // The lease is alive again, so its end is no longer unknown.
+          if (input.budget !== undefined) {
+            await markBudgetUnknownIn(tx, input.exchangeId, false);
+          }
           return { outcome: "open" };
         }
         if (standing.kind !== "none") return { outcome: standing.kind };
@@ -196,6 +295,7 @@ export function createProviderExchangeLedger(
             costUsd: sessions.costUsd,
             providerTokens: sessions.providerTokens,
             unmetered: sessions.unmetered,
+            workspaceId: sessions.workspaceId,
             reserves: sql<ProviderUsage[]>`COALESCE((
               SELECT json_agg(${providerExchanges.reserve})
               FROM ${providerExchanges}
@@ -214,7 +314,44 @@ export function createProviderExchangeLedger(
             reserves: [...held.reserves, input.reserve],
           })
         ) {
-          return { outcome: "budget_exceeded" };
+          return {
+            outcome: "budget_exceeded",
+            by: "session",
+            accountId: null,
+          };
+        }
+        // The session admitted it; the account judges it next, in this
+        // transaction, so a refusal there leaves nothing on either side.
+        let budget: {
+          budgetRootKind: BudgetChoice["rootKind"];
+          budgetAccountId: BudgetAccountId | null;
+        } | null = null;
+        if (input.budget !== undefined) {
+          const reserved = await reserveBudgetIn(
+            tx,
+            budgetReserveOf(input, input.budget, held),
+          );
+          switch (reserved.outcome) {
+            case "refused":
+              return {
+                outcome: "budget_exceeded",
+                by: "account",
+                accountId: reserved.accountId,
+              };
+            case "conflict":
+              return { outcome: "conflict" };
+            case "replayed":
+              // A reservation that outlived its exchange row, whose release
+              // mark the reconciler deleted: what became of it stands.
+              return reserved.state === "reserved"
+                ? { outcome: "conflict" }
+                : { outcome: reserved.state };
+            case "reserved":
+              budget = {
+                budgetRootKind: reserved.rootKind,
+                budgetAccountId: reserved.accountId,
+              };
+          }
         }
         await tx.insert(providerExchanges).values({
           exchangeId: input.exchangeId,
@@ -222,26 +359,38 @@ export function createProviderExchangeLedger(
           attemptId: input.attemptId,
           reserve: input.reserve,
           leaseExpiresAt: fromDbNow(PROVIDER_EXCHANGE_LEASE_MS),
+          ...budget,
         });
         return { outcome: "created" };
       });
     },
 
-    async renew(exchangeId) {
-      const [renewed] = await db
-        .update(providerExchanges)
-        .set({
-          leaseExpiresAt: fromDbNow(PROVIDER_EXCHANGE_LEASE_MS),
-          noticedAt: null,
-        })
-        .where(
-          and(
-            eq(providerExchanges.exchangeId, exchangeId),
-            isNull(providerExchanges.releasedAt),
-          ),
-        )
-        .returning({ exchangeId: providerExchanges.exchangeId });
-      return renewed ? "open" : "gone";
+    renew(exchangeId) {
+      return db.transaction(async (tx) => {
+        // Under the exchange's lock, as the open and the report: the call's
+        // lock comes after the row here, as it does in the report.
+        await lockProviderExchange(tx, exchangeId);
+        const [renewed] = await tx
+          .update(providerExchanges)
+          .set({
+            leaseExpiresAt: fromDbNow(PROVIDER_EXCHANGE_LEASE_MS),
+            noticedAt: null,
+          })
+          .where(
+            and(
+              eq(providerExchanges.exchangeId, exchangeId),
+              isNull(providerExchanges.releasedAt),
+            ),
+          )
+          .returning({
+            budgeted: sql<boolean>`${providerExchanges.budgetRootKind} IS NOT NULL`,
+          });
+        if (!renewed) return "gone";
+        if (renewed.budgeted) {
+          await markBudgetUnknownIn(tx, exchangeId, false);
+        }
+        return "open";
+      });
     },
 
     release(input): Promise<ProviderExchangeReleaseResult> {
@@ -252,6 +401,9 @@ export function createProviderExchangeLedger(
         const standing = await standingOf(tx, input);
         if (standing.kind === "row") {
           if (!standing.sameOwner) return "conflict";
+          if (standing.budgeted && !standing.released) {
+            await releaseBudgetIn(tx, input.exchangeId);
+          }
           await tx
             .update(providerExchanges)
             .set({
@@ -303,6 +455,12 @@ export async function reconcileProviderExchanges(
   noticed: ExpiredProviderExchange[];
   /** Rows released more than PROVIDER_EXCHANGE_KEEP_DAYS ago, deleted. */
   deleted: number;
+  /**
+   * Budgeted rows past their lease (noticed now or in an earlier pass) whose
+   * reservation's end was marked unknown: still held until a report, a
+   * release or a renewal clears it.
+   */
+  unknown: number;
 }> {
   const expired = sql`${providerExchanges.leaseExpiresAt} < clock_timestamp()`;
   const reportedBySameOwner = sql`EXISTS (
@@ -354,7 +512,10 @@ export async function reconcileProviderExchanges(
         ),
       ),
     ).length;
-    return { settled: settledIds.length, noticed, deleted };
+    const unknown = rowsOf<{ exchange_id: string }>(
+      await db.execute(unknownCandidates(input.limit)),
+    ).length;
+    return { settled: settledIds.length, noticed, deleted, unknown };
   }
 
   const settled = await db
@@ -375,9 +536,42 @@ export async function reconcileProviderExchanges(
     .delete(providerExchanges)
     .where(picked(old))
     .returning({ exchangeId: providerExchanges.exchangeId });
+  let unknown = 0;
+  for (const { exchange_id: id } of rowsOf<{ exchange_id: string }>(
+    await db.execute(unknownCandidates(input.limit)),
+  )) {
+    const marked = await db.transaction(async (tx) => {
+      // Takes the call's lock first, so a renewal or a report that holds it
+      // is seen whole by the read below.
+      await lockBudgetCall(tx, id);
+      const [still] = rowsOf<{ exchange_id: string }>(
+        await tx.execute(unknownCandidates(1, id)),
+      );
+      return still ? markBudgetUnknownIn(tx, id, true) : false;
+    });
+    if (marked) unknown++;
+  }
   return {
     settled: settled.length,
     noticed,
     deleted: deleted.length,
+    unknown,
   };
+}
+
+// Rows past their lease and not released whose reservation is reserved and
+// not yet marked: noticed in this pass or an earlier one, so a dry run
+// counts what the writes would mark.
+function unknownCandidates(limit: number, exchangeId?: string) {
+  return sql`
+    SELECT ${providerExchanges.exchangeId} FROM ${providerExchanges}
+    JOIN ${budgetReservations}
+      ON ${budgetReservations.callId} = ${providerExchanges.exchangeId}
+    WHERE ${providerExchanges.releasedAt} IS NULL
+      AND ${providerExchanges.leaseExpiresAt} < clock_timestamp()
+      AND ${budgetReservations.state} = 'reserved'
+      AND ${budgetReservations.unknownAt} IS NULL
+      ${exchangeId === undefined ? sql`` : sql`AND ${providerExchanges.exchangeId} = ${exchangeId}`}
+    ORDER BY ${providerExchanges.leaseExpiresAt}
+    LIMIT ${limit}`;
 }

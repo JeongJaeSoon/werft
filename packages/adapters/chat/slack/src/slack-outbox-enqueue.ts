@@ -3,6 +3,7 @@ import {
   eventText,
   eventToolCall,
   SLACK_NOTICE_MESSAGES,
+  slackMirrorCorrelationIdSchema,
 } from "@werft-ai/contracts";
 import type {
   SlackOutboxStore,
@@ -39,6 +40,7 @@ export async function enqueueSlackInstructions(deps: {
       threadTs: turn.threadTs,
       slackUserId: null,
       sessionId: turn.sessionId,
+      sessionLinkId: turn.sessionLinkId,
       body: {
         text: turn.message,
         sender:
@@ -47,9 +49,53 @@ export async function enqueueSlackInstructions(deps: {
             : { username, slack_user_id: turn.senderSlackUserId },
       },
       dedupeKey: `instruction:${turn.sessionLinkId}:${turn.turnId}`,
+      sources: turn.sources,
+      sourcesTurn: turn.turnId,
     });
   }
   return turns.length;
+}
+
+/**
+ * Enqueues each web input owed a Slack mirror, once: shown as an instruction
+ * from the web is, its sources the input itself.
+ */
+export async function enqueueSlackInputMirrors(deps: {
+  outbox: Pick<SlackOutboxStore, "unmirroredInputs" | "enqueue">;
+  limit: number;
+}): Promise<number> {
+  const inputs = await deps.outbox.unmirroredInputs(deps.limit);
+  for (const input of inputs) {
+    const username = slackInstructionSender(
+      "web",
+      input.senderName,
+      input.locale ?? DEFAULT_USER_LOCALE,
+    );
+    await deps.outbox.enqueue({
+      workspaceId: input.workspaceId,
+      agentId: input.agentId,
+      slackAppId: input.slackAppId,
+      installationId: input.installationId,
+      kind: "input_mirror",
+      channelId: input.channelId,
+      threadTs: input.threadTs,
+      slackUserId: null,
+      sessionId: null,
+      sessionLinkId: null,
+      body: {
+        text: input.body,
+        sender:
+          input.senderSlackUserId === null
+            ? { username }
+            : { username, slack_user_id: input.senderSlackUserId },
+      },
+      dedupeKey: `input_mirror:${input.inputId}`,
+      sources: { direct: [{ input_id: input.inputId }], inherited: [] },
+      inputId: input.inputId,
+      correlationId: slackMirrorCorrelationIdSchema.parse(crypto.randomUUID()),
+    });
+  }
+  return inputs.length;
 }
 
 /** One outbox row per turn and kind: what makes a turn answered. */
@@ -111,6 +157,7 @@ export function createOutboxSlackNoticeSink(
         threadTs: notice.threadTs,
         slackUserId: notice.slackUserId,
         sessionId: null,
+        sessionLinkId: null,
         body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale, ...link },
         dedupeKey: `notice:${notice.onceKey}`,
       });
@@ -130,6 +177,7 @@ export function createOutboxSlackNoticeSink(
         threadTs: notice.threadTs,
         slackUserId: null,
         sessionId: notice.sessionId,
+        sessionLinkId: notice.sessionLinkId,
         body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale, ...link },
         dedupeKey: `thread_notice:${notice.onceKey}`,
       });
@@ -162,6 +210,7 @@ export async function enqueueSlackTurnAnswers(deps: {
       threadTs: turn.threadTs,
       slackUserId: null,
       sessionId: turn.sessionId,
+      sessionLinkId: turn.sessionLinkId,
       body: {
         text,
         locale,
@@ -175,6 +224,8 @@ export async function enqueueSlackTurnAnswers(deps: {
         turn.sessionLinkId,
         turn.turnId,
       ),
+      sources: turn.sources,
+      sourcesTurn: turn.turnId,
     });
   }
   return turns.length;
@@ -207,6 +258,7 @@ export async function enqueueSlackPrompts(deps: {
       threadTs: row.threadTs,
       slackUserId: null,
       sessionId: row.sessionId,
+      sessionLinkId: row.sessionLinkId,
       body: {
         text: message.text,
         locale,
@@ -221,6 +273,8 @@ export async function enqueueSlackPrompts(deps: {
         row.sessionLinkId,
         row.prompt.requestId,
       ),
+      sources: row.sources,
+      sourcesTurn: row.sourcesTurn,
     });
   }
   return pending.length;

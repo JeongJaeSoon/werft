@@ -309,6 +309,11 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     code: z.literal("VARIABLE_REFUSED"),
     reason: envRefusalSchema,
   }),
+  // A Slack message among the sources of one of the session's turns, its
+  // own or one it inherited, was deleted. The turn running then finishes
+  // and the session stops: it takes no message and does not resume, and
+  // close is the only control left. It outranks every other attention.
+  z.object({ code: z.literal("SOURCE_DELETED") }),
 ]);
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),
@@ -471,6 +476,10 @@ export const sessionSummarySchema = z.object({
     .meta({
       description: `The session's name: the \`title\` it was created or renamed with, or else one derived from its first message (whitespace collapsed, cut to ${SESSION_TITLE_MAX_GRAPHEMES} characters with a trailing ellipsis). Null for sessions created before titles existed and for a first message with no text.`,
     }),
+  title_deleted_at: timestampSchema.nullable().default(null).meta({
+    description:
+      "When Slack deleted the message a derived or generated `title` came from (the first turn's instruction). Set, `title` is null and the session is not found by its words. A title a person gave is kept. Null otherwise, and from a server before the field.",
+  }),
   // The three below default to null for the same rollout reason as title.
   agent: z
     .object({
@@ -481,12 +490,14 @@ export const sessionSummarySchema = z.object({
       release_label: releaseLabelSchema.nullable().default(null),
       // Null from a server before the field, for the same rollout reason.
       release_is_active: z.boolean().nullable().default(null),
+      // Null from a server before the field, for the same rollout reason.
+      archived: z.boolean().nullable().default(null),
     })
     .nullable()
     .default(null)
     .meta({
       description:
-        "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
+        "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
     }),
   preview: z.boolean().default(false).meta({
     description:
@@ -494,7 +505,7 @@ export const sessionSummarySchema = z.object({
   }),
   agent_hidden: z.boolean().default(false).meta({
     description:
-      "True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.",
+      "True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.",
   }),
   created_by: z
     .object({ user_id: userIdSchema, display_name: z.string() })

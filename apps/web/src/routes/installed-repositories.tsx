@@ -7,6 +7,7 @@ import {
   NativeSelectOption,
 } from "@werft-ai/ui";
 import { useId } from "react";
+import { retriedByClient } from "../api/retry.ts";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 type AgentPage = components["schemas"]["ListAgentGitHubRepositoriesResponse"];
@@ -33,7 +34,7 @@ export const installationUnusable = (error: unknown) =>
 
 /** react-query's default three retries, none for an unusable installation. */
 export const retryUnlessUnusable = (failures: number, error: unknown) =>
-  !installationUnusable(error) && failures < 3;
+  !installationUnusable(error) && !retriedByClient(error) && failures < 3;
 
 export function installedUnavailableKey(
   unavailable: string | null,

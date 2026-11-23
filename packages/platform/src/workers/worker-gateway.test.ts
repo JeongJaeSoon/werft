@@ -22,6 +22,7 @@ import {
 } from "../github/ports/github-gate.ts";
 import type { GitHubConnectionResolver } from "../github/service/github-connection-resolver.ts";
 import { createGitHubGate } from "../github/service/github-gate.ts";
+import type { ConversationCallStore } from "../limits/ports/conversation-call-store.ts";
 import type {
   ClaimInput,
   EgressAuthorization,
@@ -2852,6 +2853,70 @@ describe("authorizeEgress through a forge", () => {
       });
     }
     expect(failing.asked).toHaveLength(1);
+  });
+});
+
+describe("a conversation call's usage report", () => {
+  const usage = {
+    model: "claude-sonnet-5",
+    inputTokens: 1_000_000,
+    outputTokens: 1_000,
+    cacheCreationInputTokens: 0,
+    cacheCreation1hInputTokens: 0,
+    cacheReadInputTokens: 0,
+    speed: "standard",
+    inferenceGeo: "global",
+    webSearchRequests: 0,
+    webFetchRequests: 0,
+    codeExecutionRequests: 0,
+    estimated: false,
+  };
+
+  // The store decides from the reservation whether the call is priced; a
+  // replay of an unmetered call never asks for a price at all.
+  function reported(unmetered: boolean, replay = false) {
+    const unused = async (): Promise<never> => {
+      throw new Error("not under test");
+    };
+    const store: ConversationCallStore = {
+      issueAtomic: unused,
+      authorizeAtomic: unused,
+      releaseExpired: unused,
+      markUnknown: unused,
+      settleAtomic: async (input) => ({
+        outcome: replay ? "already_settled" : "settled",
+        costUsd: replay ? 0 : input.priceFor({ unmetered }).costUsd,
+        unmetered,
+      }),
+    };
+    const instance = createWorkerGateway({
+      work: work({}),
+      catalog: { connections: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      conversationCalls: { store },
+      options: {
+        sessionBudget: { costUsd: 1, tokens: null },
+        leaseTtlMs: 30_000,
+      },
+    });
+    return instance.recordConversationCallUsage({
+      exchangeId: "ex_1",
+      callId: crypto.randomUUID(),
+      usage,
+    });
+  }
+
+  // Before: an unmetered call answered "table", the price it never paid.
+  test("an unmetered call is priced by nothing, first report or replay", async () => {
+    expect(await reported(true)).toEqual({ costUsd: 0, pricedBy: "unmetered" });
+    expect(await reported(true, true)).toEqual({
+      costUsd: 0,
+      pricedBy: "unmetered",
+    });
+  });
+
+  test("a billed call is priced from the table", async () => {
+    expect((await reported(false)).pricedBy).toBe("table");
   });
 });
 

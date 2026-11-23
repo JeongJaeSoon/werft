@@ -10,6 +10,7 @@ import {
   accessAxisOf,
   actionAppliesTo,
   authorizationRequestSchema,
+  conversationIdSchema,
   type DeciderKey,
   ownerScopeOf,
   type PrincipalRef,
@@ -17,15 +18,22 @@ import {
   type SessionScope,
   SLACK_SURFACE_ACTION_VALUES,
   scopesForRole,
+  type WebSessionId,
   WORKSPACE_MANAGER_ROLES,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
+  PrivateChannelPlace,
   SessionOrigin,
   SessionShareStore,
   SessionViewer,
 } from "../sessions/ports/session-share-store.ts";
+import type {
+  ChannelMemberCheckable,
+  ChannelMembership,
+} from "../surface/ports/channel-member-checkable.ts";
 import type { UsageDecision } from "./agent-usage-decision.ts";
+import type { ConversationAccess } from "./ports/conversation-access.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
 
 export type RecordedActor = {
@@ -40,6 +48,8 @@ export type RecordedActor = {
   apiKeyKind?: DeciderKey["kind"] | null;
   /** The Slack link a person spoke through; a write re-reads it. */
   linkedAccount?: { id: string; revision: number };
+  /** The console login this request came in on; a write does not re-read it. */
+  webSessionId?: WebSessionId;
   /**
    * The allowed Slack bot whose mention this is, for `agentId`; no person.
    * A write re-reads the agent's allow list.
@@ -105,6 +115,7 @@ export function callerFor(
     issuerId?: string | null;
     kind?: DeciderKey["kind"];
   },
+  webSessionId?: WebSessionId,
 ): Caller {
   const userId =
     principal.kind === "user"
@@ -125,6 +136,7 @@ export function callerFor(
         principal.kind === "api_key" ? (storedKey?.issuerId ?? null) : null,
       apiKeyKind:
         principal.kind === "api_key" ? (storedKey?.kind ?? null) : null,
+      ...(webSessionId === undefined ? {} : { webSessionId }),
     },
     subject: {
       principal,
@@ -263,7 +275,12 @@ export const slackGuestsDisabled: SlackGuestSetting = {
 };
 
 /** Who made a session and whom it is shared with, read for every decision. */
-export type SessionAccess = Pick<SessionShareStore, "visibleTo" | "originOf">;
+export type SessionAccess = Pick<SessionShareStore, "visibleTo" | "originOf"> &
+  Partial<Pick<SessionShareStore, "privateChannels" | "pushRequesterOf">>;
+
+// Member checks run at once per decision; more would spend the Slack
+// install's rate limit on one list.
+const PRIVATE_CHANNEL_CHECKS_AT_ONCE = 8;
 
 // Without a store no session was ever re-shared, so each reads workspace;
 // whose session it is cannot be read, so nobody may change that.
@@ -275,6 +292,109 @@ export const workspaceWideSessions: SessionAccess = {
     throw new Error("no session share store");
   },
 };
+
+/**
+ * Answer 15, second part (94S-2000): whether a push request's requester has
+ * left the private channel its session belongs to, so the channel's members
+ * decide it. Only a confirmed absence counts; a check that cannot tell, or
+ * a session that is no private channel's, keeps the usual rule.
+ */
+export async function pushRequesterLeft(
+  deps: {
+    sessions: SessionAccess;
+    channelMembers?: ChannelMemberCheckable | undefined;
+    logger?:
+      | {
+          warn(
+            message: string,
+            fields?: Readonly<Record<string, unknown>>,
+          ): void;
+        }
+      | undefined;
+  },
+  input: {
+    workspaceId: string;
+    sessionId: string;
+    pushRequestId: string;
+    /** The session's private channels, when the caller read them already. */
+    places?: readonly PrivateChannelPlace[];
+  },
+): Promise<boolean> {
+  const { sessions, channelMembers } = deps;
+  const membership = channelMembers?.membership.bind(channelMembers);
+  if (membership === undefined || sessions.pushRequesterOf === undefined) {
+    return false;
+  }
+  try {
+    const places =
+      input.places ??
+      (await sessions.privateChannels?.(input.workspaceId, input.sessionId)) ??
+      [];
+    if (places.length === 0) return false;
+    const requester = await sessions.pushRequesterOf(
+      input.workspaceId,
+      input.sessionId,
+      input.pushRequestId,
+    );
+    if (requester === null) return false;
+    const answers = await Promise.all(
+      places.map((place) =>
+        membership({
+          workspaceId: input.workspaceId,
+          agentId: place.agentId.toLowerCase(),
+          channelId: place.channelId,
+          userId: requester,
+        }),
+      ),
+    );
+    if (answers.includes("unconfirmed")) {
+      deps.logger?.warn("Push requester's channel membership unconfirmed", {
+        event: "push.requester_left.unconfirmed",
+        session_id: input.sessionId,
+        push_request_id: input.pushRequestId,
+      });
+      return false;
+    }
+    return answers.every((answer) => answer === "not_member");
+  } catch (error) {
+    deps.logger?.warn("Push requester's channel membership unconfirmed", {
+      event: "push.requester_left.unconfirmed",
+      session_id: input.sessionId,
+      push_request_id: input.pushRequestId,
+      error_name: error instanceof Error ? error.name : typeof error,
+    });
+    return false;
+  }
+}
+
+/**
+ * Whether a direct message about a `private_channel` session would reach
+ * someone who cannot see it: the account it is addressed to is a member of
+ * none of the session's channels, or that cannot be told (answer 15, PR2).
+ * `membership` asks about that account itself, not whoever links it now. A
+ * notice leaks on a guess, so the unknown counts as outside, unlike
+ * `pushRequesterLeft`, where the guess would widen an approval.
+ */
+export async function readerOutsideChannels(
+  deps: { sessions: Pick<SessionShareStore, "privateChannels"> },
+  input: {
+    workspaceId: string;
+    sessionId: string;
+    membership: (place: PrivateChannelPlace) => Promise<ChannelMembership>;
+  },
+): Promise<boolean> {
+  try {
+    const places = await deps.sessions.privateChannels(
+      input.workspaceId,
+      input.sessionId,
+    );
+    if (places.length === 0) return false;
+    const answers = await Promise.all(places.map(input.membership));
+    return !answers.includes("member");
+  } catch {
+    return true;
+  }
+}
 
 export const POLICY_VERSION = "m17";
 
@@ -301,6 +421,15 @@ export interface AuthorizationPolicy {
     request: AuthorizationRequest,
     options?: { record?: false | "deny" },
   ): Promise<AuthorizationDecision>;
+  /**
+   * The conversations of the private channels whose `private_channel`
+   * sessions this subject sees now (SessionViewer.privateChannels), for a
+   * read across sessions. Records nothing.
+   */
+  privateChannelsOf?(
+    subject: AuthorizationSubject,
+    ownerScope: string,
+  ): Promise<string[]>;
 }
 
 // The scope each session action needs. Actions with no scope have no rule
@@ -439,9 +568,19 @@ function claimedActorMatches(
   return subject.actor_user_id === expected;
 }
 
+// Design 9-3: each judged on its own, so seeing a conversation never lets
+// anyone write to it. No role or scope grants them, so they stay out of
+// MANAGEMENT_ROLES and the console's permission list.
+export const CONVERSATION_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
+  "conversation.view",
+  "conversation.post",
+  "task.spawn",
+]);
+
 export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
   [
     ...(Object.keys(MANAGEMENT_ROLES) as AuthorizationAction[]),
+    ...CONVERSATION_ACTIONS,
     "routine.manage",
     "session.approve",
     "session.share",
@@ -476,6 +615,10 @@ export function createAuthorizationPolicy(
     credentials?: CredentialCheck;
     slackGuests?: SlackGuestSetting;
     sessions?: SessionAccess;
+    /** Without it no one sees a private_channel session. */
+    channelMembers?: ChannelMemberCheckable;
+    /** Without it every conversation decision is refused. */
+    conversations?: ConversationAccess;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
     /** Hears the failures that end in a refusal instead of an error. */
@@ -619,6 +762,133 @@ export function createAuthorizationPolicy(
       keyAgentId: reading.keyAgentId ?? null,
     });
   }
+  // Design 9-3. View: a DM is its person's; a public channel is whoever
+  // may use the agent; a private channel adds a live Slack link and current
+  // membership, and hides whatever cannot be confirmed. Post: view, and on a
+  // channel a live link (the post goes out under the person), not archived,
+  // listening not off; a web DM needs none of those. Spawn: post, and the
+  // start a session on that agent would need.
+  async function conversationReason(
+    action: AuthorizationAction,
+    reading: Extract<IdentityReading, { status: "ok" }>,
+    workspaceId: string,
+    resourceId: string | null,
+    justified: boolean,
+  ): Promise<AuthorizationReason> {
+    const { principal } = reading;
+    // Decision 44: no key reaches a conversation, audit reads included.
+    if (principal.kind !== "user") return "role";
+    const id = conversationIdSchema.safeParse(resourceId);
+    if (!id.success || deps.conversations === undefined) return "error";
+    const conversations = deps.conversations;
+    if (action === "session.audit_read") {
+      if (!WORKSPACE_MANAGERS.includes(principal.role)) return "role";
+      if (!justified) return "justification_required";
+      return (await conversations.placeOf(workspaceId, id.data)) === null
+        ? "not_found"
+        : "ok";
+    }
+    const place = await conversations.placeOf(workspaceId, id.data);
+    if (place === null) return "not_found";
+    const agentId = place.agentId.toLowerCase();
+    const self = (userId: string) =>
+      userId.toLowerCase() === principal.id.toLowerCase();
+    if (place.kind === "dm") {
+      if (!self(place.personUserId)) return "not_found";
+      if (action === "conversation.view") return "ok";
+    }
+    const usable = (await usageFor(reading, workspaceId, agentId)).allowed;
+    const linked = () =>
+      conversations.slackLinked(workspaceId, agentId, principal.id);
+    if (place.kind === "channel" && place.private) {
+      // Every refusal reads the same, so a non-member learns nothing of it.
+      if (
+        !usable ||
+        !(await linked()) ||
+        !(await conversations.isMember({
+          workspaceId,
+          agentId,
+          channelId: place.channelId,
+          userId: principal.id,
+        }))
+      ) {
+        return "not_found";
+      }
+    } else if (!usable) {
+      return "agent_private";
+    }
+    if (place.kind === "channel") {
+      if (action === "conversation.view") return "ok";
+      if (!place.private && !(await linked())) return "unlinked";
+      if (await conversations.archived(workspaceId, id.data)) {
+        return "conversation_archived";
+      }
+      if ((await conversations.listening(workspaceId, id.data)) === "off") {
+        return "listening_off";
+      }
+    }
+    if (action === "conversation.post") return "ok";
+    return (await startsInside(reading, workspaceId, agentId)) ? "ok" : "role";
+  }
+
+  // Design 9-3 for a private channel's sessions: a person who may use the
+  // agent and is a member of the channel now; never a key. An event or a
+  // click from that very channel (its channel read from the signed Slack
+  // payload) is a member's, so Slack is not asked. Whatever cannot be
+  // confirmed hides the channel.
+  async function privateChannelsFor(
+    reading: Extract<IdentityReading, { status: "ok" }>,
+    surface: AuthorizationSurface,
+    workspaceId: string,
+    places: readonly PrivateChannelPlace[],
+  ): Promise<string[]> {
+    const { principal } = reading;
+    if (places.length === 0 || principal.kind === "api_key") return [];
+    const same = (a: string | undefined, b: string) =>
+      a !== undefined && a.toLowerCase() === b.toLowerCase();
+    if (principal.kind !== "user") return [];
+    const members = deps.channelMembers;
+    // The signed payload stands in for the member check only; the agent
+    // access is checked all the same.
+    const fromChannel = (place: PrivateChannelPlace) =>
+      surface.kind === "slack" &&
+      surface.channel_id === place.channelId &&
+      same(surface.agent_id, place.agentId);
+    const ask = places.filter(
+      (place) => fromChannel(place) || members !== undefined,
+    );
+    const seen: string[] = [];
+    const sees = async (place: PrivateChannelPlace) => {
+      try {
+        const agentId = place.agentId.toLowerCase();
+        return (
+          (await usageFor(reading, workspaceId, agentId)).allowed &&
+          (fromChannel(place) ||
+            (members !== undefined &&
+              (await members.isMember({
+                workspaceId,
+                agentId,
+                channelId: place.channelId,
+                userId: principal.id,
+              }))))
+        );
+      } catch (error) {
+        deps.logger?.warn("Private channel access unconfirmed; hidden", {
+          error_name: errorName(error),
+        });
+        return false;
+      }
+    };
+    for (let at = 0; at < ask.length; at += PRIVATE_CHANNEL_CHECKS_AT_ONCE) {
+      const batch = ask.slice(at, at + PRIVATE_CHANNEL_CHECKS_AT_ONCE);
+      const answers = await Promise.all(batch.map(sees));
+      batch.forEach((place, i) => {
+        if (answers[i]) seen.push(place.conversationId);
+      });
+    }
+    return seen;
+  }
+
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
 
@@ -633,7 +903,8 @@ export function createAuthorizationPolicy(
         roles === undefined &&
         action !== "session.share" &&
         action !== "workspace.read" &&
-        !AGENT_READ_ACTIONS.has(action)) ||
+        !AGENT_READ_ACTIONS.has(action) &&
+        !CONVERSATION_ACTIONS.has(action)) ||
       !actionAppliesTo(action, resource.kind)
     ) {
       return ["error", []];
@@ -691,19 +962,55 @@ export function createAuthorizationPolicy(
     const manager =
       principal.kind === "user" && WORKSPACE_MANAGERS.includes(principal.role);
     const justified = (subject.justification?.trim() ?? "") !== "";
+    if (resource.kind === "conversation") {
+      // a0 judges conversations on the web and the API only (v1-b opens Slack).
+      if (surface.kind === "slack") return ["surface_ceiling", []];
+      if (subject.agent !== undefined) return ["agent_ceiling", []];
+      const reason = await conversationReason(
+        action,
+        reading,
+        resource.owner_scope,
+        resource.id,
+        justified,
+      );
+      return [reason, reason === "error" ? [] : authorityScopes(reading)];
+    }
     // Step 2 goes on to the share: a session outside it does not exist for
     // this subject, save for what a manager does with a reason.
+    let places: PrivateChannelPlace[] = [];
     if (resource.kind === "session" && resource.id !== null) {
+      places =
+        (await sessions.privateChannels?.(resource.owner_scope, resource.id)) ??
+        [];
       const visible = await sessions.visibleTo(
         resource.owner_scope,
         resource.id,
-        viewerOf(reading),
+        {
+          ...viewerOf(reading),
+          privateChannels: await privateChannelsFor(
+            reading,
+            surface,
+            resource.owner_scope,
+            places,
+          ),
+        },
       );
+      // The reason a key is refused is kept apart from not_found, though
+      // it answers the same.
+      const hidden: AuthorizationReason =
+        principal.kind === "api_key" && places.length > 0
+          ? "private_channel_key"
+          : "not_found";
       if (action === "session.share") {
         if (!(await mayShare(principal, resource.owner_scope, resource.id))) {
-          return [visible ? "role" : "not_found", []];
+          return [visible ? "role" : hidden, []];
         }
-      } else if (manager && OUT_OF_SHARE_ACTIONS.has(action)) {
+      } else if (
+        manager &&
+        OUT_OF_SHARE_ACTIONS.has(action) &&
+        // A private channel's policy leaves a manager its audit read alone.
+        (places.length === 0 || action === "session.audit_read")
+      ) {
         // Audit reads and takeovers are management screens only, so asking
         // for the reason there reveals nothing; a control without one is as
         // blind as anyone's (owner and admin see not_found on the ordinary
@@ -712,10 +1019,10 @@ export function createAuthorizationPolicy(
           if (action === "session.audit_read" || action === "member.manage") {
             return ["justification_required", []];
           }
-          return ["not_found", []];
+          return [hidden, []];
         }
       } else if (!visible) {
-        return ["not_found", []];
+        return [hidden, []];
       }
     }
 
@@ -821,7 +1128,28 @@ export function createAuthorizationPolicy(
               resource.id,
               action === "session.approve",
             );
-      if (answer !== "ok") return [answer, scopes];
+      // A private channel's member, who sees the session, decides a push
+      // whose requester left the channel; the requester no longer sees it.
+      // Only the role refusal is lifted: every check below still runs.
+      const requesterLeft =
+        answer === "role" &&
+        action === "session.approve" &&
+        resource.id !== null &&
+        resource.push_request_id !== undefined &&
+        (await pushRequesterLeft(
+          {
+            sessions,
+            channelMembers: deps.channelMembers,
+            logger: deps.logger,
+          },
+          {
+            workspaceId: resource.owner_scope,
+            sessionId: resource.id,
+            pushRequestId: resource.push_request_id,
+            places,
+          },
+        ));
+      if (answer !== "ok" && !requesterLeft) return [answer, scopes];
     }
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
@@ -886,6 +1214,26 @@ export function createAuthorizationPolicy(
   }
 
   return {
+    async privateChannelsOf(subject, ownerScope) {
+      if (subject.principal === null || !sessions.privateChannels) return [];
+      const reading = await identity.reread({
+        ...subject,
+        principal: subject.principal,
+      });
+      if (
+        reading.status !== "ok" ||
+        ownerScope !== ownerScopeOf(reading.principal)
+      ) {
+        return [];
+      }
+      return privateChannelsFor(
+        reading,
+        subject.surface,
+        ownerScope,
+        await sessions.privateChannels(ownerScope, null),
+      );
+    },
+
     async usageOfRelease(subject, ownerScope, releaseId) {
       if (
         subject.principal === null ||

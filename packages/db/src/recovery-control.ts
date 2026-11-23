@@ -337,7 +337,7 @@ export function decideRecoveryAtomic(
           admissionState: session.admissionState,
         };
       }
-      await close(tx, session, now);
+      await closeSessionRow(tx, session, now);
     } else {
       // The exit that made the turn unknown must be observed before its
       // outcome is decided: until then the executions row is the only
@@ -411,6 +411,7 @@ export function decideRecoveryAtomic(
       checkpoint_revision: reset === null ? restoreBaseRevision(after) : null,
       resumable:
         after.admissionState === "stopped" &&
+        after.sourceDeletedAt === null &&
         (await resumableFromStopped(tx, after)),
     };
     // Every control decision leaves its audit record on the session's event
@@ -503,6 +504,7 @@ async function startFresh(
   if (session.executionRevokedAt !== null) {
     return { outcome: "execution_revoked" };
   }
+  if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
   const unknown = await earliestUnknownTurn(tx, session.id);
   if (unknown !== null) {
     return { outcome: "unknown_turn_left", turnId: unknown };
@@ -593,6 +595,7 @@ async function retryRestore(
   if (session.executionRevokedAt !== null) {
     return { outcome: "execution_revoked" };
   }
+  if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
   const unknown = await earliestUnknownTurn(tx, session.id);
   if (unknown !== null) {
     return { outcome: "unknown_turn_left", turnId: unknown };
@@ -725,8 +728,13 @@ async function confirmCompleted(
 // same kill outbox, and whatever control receipt was waiting on that kill
 // or on a resume is closed as superseded so nothing stays `accepted`.
 // outcome_unknown turns keep that status: closing does not answer them.
-async function close(tx: Database, session: SessionRow, now: Date) {
-  await cancelQueuedInput(tx, {
+export async function closeSessionRow(
+  tx: Database,
+  session: SessionRow,
+  now: Date,
+  supersededBy = "superseded by an operator close decision",
+): Promise<{ cancelledTurnCount: number }> {
+  const cancelled = await cancelQueuedInput(tx, {
     sessionId: session.id,
     terminalReason: "closed",
     error: {
@@ -772,7 +780,7 @@ async function close(tx: Database, session: SessionRow, now: Date) {
       status: "failed",
       error: {
         code: "CONTROL_SUPERSEDED",
-        message: "superseded by an operator close decision",
+        message: supersededBy,
       },
       updatedAt: now,
     })
@@ -795,6 +803,7 @@ async function close(tx: Database, session: SessionRow, now: Date) {
       updatedAt: now,
     })
     .where(eq(sessions.id, session.id));
+  return { cancelledTurnCount: cancelled.length };
 }
 
 /**
@@ -868,6 +877,8 @@ export function resumeAtomic(
     if (session.executionRevokedAt !== null) {
       return { outcome: "execution_revoked" };
     }
+    // Stopped for a deleted source: nothing brings it back, close ends it.
+    if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
     // stopping: the kill is not yet observed. recovery_required: a turn is
     // unknown. Both are RECOVERY_REQUIRED to the caller.
     if (

@@ -140,6 +140,7 @@ import {
   putSlackSecretResponseSchema,
   readyResponseSchema,
   receiptAcceptedResponseSchema,
+  recheckSlackAppEventsResponseSchema,
   registerSkillResponseSchema,
   rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
@@ -299,7 +300,8 @@ export const responseSchemas = {
   "GET /v1/agents/{id}/slack/app": getSlackAppResponseSchema,
   "GET /v1/agents/{id}/slack/app/bots": getSlackAppBotsResponseSchema,
   "PUT /v1/agents/{id}/slack/app/bots": getSlackAppBotsResponseSchema,
-  "POST /v1/agents/{id}/slack/app/events/recheck": getSlackAppResponseSchema,
+  "POST /v1/agents/{id}/slack/app/events/recheck":
+    recheckSlackAppEventsResponseSchema,
   "GET /v1/agents/{id}/slack/app/manifest": getSlackAppManifestResponseSchema,
   "GET /v1/agents/{id}/slack/app/settings": slackAppSettingsSchema,
   "PUT /v1/agents/{id}/slack/app/settings": slackAppSettingsSchema,

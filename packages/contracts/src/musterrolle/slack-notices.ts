@@ -136,12 +136,17 @@ const NOTICE_FOR: Record<
   justification_required: "noRight",
   credential_unbound: "credentialUnbound",
   self_approval: "noRight",
+  // A key's refusal: no key acts on Slack, and it reads as not_found.
+  private_channel_key: "outOfShare",
   // Member and key rules: decided on the web, never for a Slack action.
   owner_protected: "noRight",
   self_protected: "noRight",
   last_owner: "noRight",
   emergency_admin: "noRight",
   scope_not_grantable: "noRight",
+  // Conversation posts: judged on the web only until Slack opens them.
+  conversation_archived: "noRight",
+  listening_off: "noRight",
   // Access decisions: a person whose basis is missing or no longer valid
   // gets it back by linking again; the rest read as a missing right, and a
   // policy or membership that could not be read as a passing failure.

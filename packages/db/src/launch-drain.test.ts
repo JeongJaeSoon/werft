@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import {
-  createWorkerGateway,
-  type SessionCatalog,
-  type WorkerGateway,
-  type WorkerPrincipal,
-} from "@werft-ai/platform";
+import type { SessionCatalog, WorkerGateway } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
@@ -14,13 +9,9 @@ import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { executions, sessions, workerLaunches } from "./schema.ts";
-import { launchSession } from "./testing/launches.ts";
-import {
-  fixtureRelease,
-  TEST_MODEL,
-  testSessionCatalog,
-} from "./testing/spec-pins.ts";
-import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+import { testWorkerGateway } from "./testing/gateway.ts";
+import { claimedSession as claimedTestSession } from "./testing/sessions.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
 
 /**
  * a claimed worker whose resource an isolation contract bump made
@@ -57,20 +48,7 @@ let gateway: WorkerGateway;
 beforeEach(async () => {
   client = await migratedPGlite();
   db = drizzle(client, { schema });
-  gateway = createWorkerGateway({
-    work: createPostgresWorkerUnitOfWork(db),
-    catalog: CATALOG,
-    checkpoints: {
-      async verify() {
-        return { status: "verified" };
-      },
-    },
-    options: {
-      sessionBudget: { costUsd: 1_000, tokens: null },
-      leaseTtlMs: 60_000,
-      sleep: async () => {},
-    },
-  });
+  gateway = testWorkerGateway(db, CATALOG);
 });
 
 afterEach(async () => {
@@ -88,49 +66,11 @@ function schedulerStore() {
 
 /** A session with its first input, bound to a claimed, pinned launch. */
 async function claimedSession() {
-  const created = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
-    principal: OWNER,
-    idempotencyKey: crypto.randomUUID(),
-    payloadHash: crypto.randomUUID(),
-    repository: {
-      id: "sample-app",
-      url: "https://example.invalid/app.git",
-      branch: "main",
-    },
-    agentReleaseId: await fixtureRelease(db),
-    model: TEST_MODEL,
-    message: "first input",
-    limits: LIMITS,
-  });
-  if (created.outcome !== "accepted") throw new Error(created.outcome);
-  const sessionId = created.response.session_id;
-  const { executionId, generation, nonce } = await launchSession(db, {
-    sessionId,
-  });
-  const claimed = await gateway.bootstrapClaim(
-    { kind: "bootstrap" },
-    {
-      execution_id: executionId,
-      execution_generation: generation,
-      credential: { kind: "launch_nonce", nonce },
-    },
+  const { sessionId, executionId, principal, scope } = await claimedTestSession(
+    db,
+    gateway,
+    OWNER,
   );
-  const principal: WorkerPrincipal = {
-    kind: "session",
-    attemptId: claimed.attempt_id,
-    sessionId,
-    leaseEpoch: claimed.lease_epoch,
-    executionGeneration: claimed.execution_generation,
-    authRevision: claimed.auth_revision,
-  };
-  const scope = {
-    session_id: sessionId,
-    turn_id: null,
-    attempt_id: claimed.attempt_id,
-    lease_epoch: claimed.lease_epoch,
-    execution_generation: claimed.execution_generation,
-    auth_revision: claimed.auth_revision,
-  };
   return { sessionId, ref: { executionId, generation: 1 }, principal, scope };
 }
 

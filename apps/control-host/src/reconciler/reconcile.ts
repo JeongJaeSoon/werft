@@ -33,6 +33,13 @@ export type ReconcilerRun = {
   webSessionsDeleted: number;
   // Sessions whose copied variable values this pass dropped.
   envStartsPurged: number;
+  // Failed Slack inbox rows whose payload this pass cleared.
+  slackInboundPayloadsPurged: number;
+  // Buffered Slack messages past their time, or of a channel no longer heard.
+  judgmentBufferPurged: { expired: number; unlistened: number };
+  // Marks of deleted and edited Slack messages nothing points at.
+  slackSourceMarksPurged: { deleted: number; edited: number };
+  slackMembersPurged: number;
   ownership: OwnershipReconciled;
   // null on a dry run, which projects nothing.
   toolCalls: ToolCallProjection | null;
@@ -123,6 +130,29 @@ export async function runReconciler(input: {
   }): Promise<number>;
   // Variable values an open session copied at accept and kept past retention.
   purgeExpiredEnvStart(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<number>;
+  // Payloads of Slack inbox rows that failed and were received 7 days ago.
+  purgeFailedSlackInboundPayloads(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<number>;
+  // Unmentioned Slack messages held for the judgment, whole, once their 10
+  // minutes are up or the agent stopped hearing their channel. Before the
+  // marks below, which a buffered message keeps.
+  purgeJudgmentBuffer(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<{ expired: number; unlistened: number }>;
+  // Delete and edit marks of Slack messages nothing points at, made more
+  // than the judgment buffer's lifetime and an hour ago.
+  purgeSlackSourceMarks(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<{ deleted: number; edited: number }>;
+  // Slack channel member lists and voids past their TTL.
+  purgeSlackChannelMembers(options: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
@@ -226,6 +256,38 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     purged_count: envStartsPurged,
   });
+  const slackInboundPayloadsPurged =
+    await input.purgeFailedSlackInboundPayloads({ dryRun, limit });
+  input.logger.info("Failed Slack inbound payloads purged", {
+    dry_run: dryRun,
+    purged_count: slackInboundPayloadsPurged,
+  });
+  const judgmentBufferPurged = await input.purgeJudgmentBuffer({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Judgment buffer purged", {
+    dry_run: dryRun,
+    expired_count: judgmentBufferPurged.expired,
+    unlistened_count: judgmentBufferPurged.unlistened,
+  });
+  const slackSourceMarksPurged = await input.purgeSlackSourceMarks({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Unknown Slack source marks purged", {
+    dry_run: dryRun,
+    deleted_count: slackSourceMarksPurged.deleted,
+    edited_count: slackSourceMarksPurged.edited,
+  });
+  const slackMembersPurged = await input.purgeSlackChannelMembers({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Expired Slack channel member lists deleted", {
+    dry_run: dryRun,
+    deleted_count: slackMembersPurged,
+  });
   const ownership = await input.reconcileOwnership({ dryRun, limit });
   input.logger.info("Agent ownership reconciled", {
     dry_run: dryRun,
@@ -268,6 +330,10 @@ export async function runReconciler(input: {
     toolAuditsExpired,
     webSessionsDeleted,
     envStartsPurged,
+    slackInboundPayloadsPurged,
+    judgmentBufferPurged,
+    slackSourceMarksPurged,
+    slackMembersPurged,
     ownership,
     toolCalls,
   };

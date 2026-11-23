@@ -2,10 +2,6 @@
 # api, scheduler and reconciler pod starts on the migrated schema. As a hook
 # it cannot use the chart's ServiceAccounts, which do not exist yet on a first
 # install; it needs no API token, so the namespace default is enough.
-#
-# An upgrade from a chart with the file catalog still finds its ConfigMap
-# here, since a pre-upgrade hook runs before Helm deletes it, and imports it
-# into the database.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -39,8 +35,7 @@ spec:
             - -c
             - >-
               bun run --cwd packages/db db:migrate &&
-              bun run apps/control-host/src/wiring/installation-config-carry.ts &&
-              bun run apps/control-host/src/api/settings.ts seed --from-dir /legacy-config
+              bun run apps/control-host/src/wiring/installation-config-carry.ts
           env:
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
             {{- include "ap.carriedSettingsEnv" . | nindent 12 }}
@@ -50,12 +45,5 @@ spec:
             {{- include "ap.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "ap.tmpMount" . | nindent 12 }}
-            - name: legacy-config
-              mountPath: /legacy-config
-              readOnly: true
       volumes:
         {{- include "ap.tmpVolume" . | nindent 8 }}
-        - name: legacy-config
-          configMap:
-            name: {{ include "ap.fullname" . }}-catalog
-            optional: true

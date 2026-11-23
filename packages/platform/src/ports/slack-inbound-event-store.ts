@@ -1,8 +1,14 @@
-import type { SlackInboundDropReason } from "@werft-ai/contracts";
+import type {
+  ConversationTopicId,
+  EngagementKind,
+  SlackInboundDropFields,
+  SlackInboundDropReason,
+} from "@werft-ai/contracts";
 
 /**
- * One event as the events route stored it. A `dropped` row has a reason and
- * no payload; the others keep the envelope as Slack sent it.
+ * One event as the events route stored it. A `dropped` row has a reason,
+ * the sender fields and no payload; the others keep the envelope as Slack
+ * sent it, but an edit or a delete, which keeps none.
  */
 export type SlackInboundEventInput = {
   workspaceId: string;
@@ -16,12 +22,23 @@ export type SlackInboundEventInput = {
   eventSubtype: string | null;
   eventTime: Date | null;
 } & (
-  | { status: "dropped"; dropReason: SlackInboundDropReason }
+  | {
+      status: "dropped";
+      dropReason: SlackInboundDropReason;
+      dropFields: SlackInboundDropFields;
+    }
   | {
       status: "received" | "processed";
       payload: Record<string, unknown>;
       /** slackConversationKey of the event; null outside a channel message. */
       conversationKey: string | null;
+    }
+  | {
+      // Handled where it arrived, and nothing of it is kept: an edit or a
+      // delete, which leaves only its mark.
+      status: "processed";
+      payload: null;
+      conversationKey: null;
     }
 );
 
@@ -44,6 +61,36 @@ export type SlackInboundClaim = {
   payload: Record<string, unknown>;
   /** The app's install in the team as of the claim; null when there is none. */
   installationStatus: "pending" | "verified" | "revoked" | null;
+};
+
+/**
+ * A message the handler made a turn of, taken as an input of its topic when
+ * its row completes. The row gives the workspace, agent and team.
+ */
+export type InboundInputReceipt = {
+  topicId: ConversationTopicId;
+  channelId: string;
+  ts: string;
+  /**
+   * The turn the message became: its session and its number there. The
+   * input's requester is the turn's.
+   */
+  turn: { sessionId: string; sequence: number };
+  /** How the agent took the message, kept beside the input for the session. */
+  engagement: EngagementKind;
+};
+
+/**
+ * An unmentioned message the receive path holds for the judgment (a0/D2):
+ * its text and poster, kept in its topic until the buffer's lifetime ends.
+ * Its row completes without it when a delete or edit mark of the message
+ * came first, or the channel stopped listening meanwhile.
+ */
+export type BufferedInputReceipt = {
+  topicId: ConversationTopicId;
+  channelId: string;
+  ts: string;
+  buffered: { body: string; slackUserId: string };
 };
 
 /** What a write after a claim is fenced on. */
@@ -83,8 +130,17 @@ export interface SlackInboundEventStore {
   ): Promise<{
     installationStatus: SlackInboundClaim["installationStatus"];
   } | null>;
-  /** Marks the row `processed`. */
-  complete(fence: SlackInboundFence): Promise<boolean>;
+  /**
+   * Marks the row `processed`, its payload cleared, and in the same
+   * transaction takes `input`: next in its topic, or nothing when the
+   * agent took that message already, and records the agent's engagement in
+   * it, once per message. A buffered message is held instead, with no
+   * engagement.
+   */
+  complete(
+    fence: SlackInboundFence,
+    input?: InboundInputReceipt | BufferedInputReceipt,
+  ): Promise<boolean>;
   /** Ends the row `dropped` for `reason`, its payload and key cleared. */
   drop(
     fence: SlackInboundFence,

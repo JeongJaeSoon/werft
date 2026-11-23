@@ -13,6 +13,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   type SQL,
   sql,
@@ -22,7 +23,10 @@ import type { Database } from "../queries.ts";
 import {
   agentReleases,
   agents,
+  conversations,
   memberTeams,
+  pushIntents,
+  pushRequests,
   receipts,
   sessionShares,
   sessionShareTargets,
@@ -127,10 +131,24 @@ export function sessionVisibleTo(db: Database, viewer: SessionViewer): SQL {
     sql`NOT ${managedAgentSession}`,
     ...insideSessionAgent(db, viewer),
   ]);
+  const scope = sql`coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace')`;
+  // The channel goes before whoever made or was named on the session; a
+  // key never sees one (no key is a channel member).
+  const channels = (viewer.privateChannels ?? []).flatMap((id) => {
+    const value = uuidOrNull(id);
+    return value === null ? [] : [value];
+  });
   return anyOf([
-    sql`(coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace') = 'workspace' AND ${workspaceWide})`,
-    ...ownedBy(viewer),
-    ...sharedWith(viewer),
+    sql`(${scope} = 'workspace' AND ${workspaceWide})`,
+    sql`(${scope} <> 'private_channel' AND ${anyOf([...ownedBy(viewer), ...sharedWith(viewer)])})`,
+    ...(viewer.apiKeyId !== null || channels.length === 0
+      ? []
+      : [
+          sql`(${scope} = 'private_channel' AND ${sessions}.parent_conversation_id IN (${sql.join(
+            channels.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )}))`,
+        ]),
   ]);
 }
 
@@ -253,6 +271,11 @@ async function setShare(
     if (session.preview && input.scope !== "private") {
       return { outcome: "preview_fixed" };
     }
+    const [fixed] = await tx
+      .select({ scope: sessionShares.scope })
+      .from(sessionShares)
+      .where(eq(sessionShares.sessionId, sessionId));
+    if (fixed?.scope === "private_channel") return { outcome: "channel_fixed" };
     if (teamIds.length > 0) {
       const teams = await tx
         .select({ id: memberTeams.id })
@@ -352,6 +375,56 @@ async function setShare(
   });
 }
 
+const objectOf = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+/**
+ * SessionShareStore.pushRequesterOf: the person of the turn that asked for
+ * the push (its root for a push follow-up, as pushFollowUpRequester has it),
+ * else the person who asked over the API, else the session's starter.
+ */
+export async function pushRequesterOf(
+  db: Database,
+  ownerId: string,
+  sessionId: string,
+  pushRequestId: string,
+): Promise<string | null> {
+  if (!UUID.test(sessionId) || !UUID.test(pushRequestId)) return null;
+  const [row] = await db
+    .select({
+      requestedBy: pushRequests.requestedBy,
+      starter: sessions.createdByUserId,
+      turnKind: turns.requesterKind,
+      turnRequester: turns.requesterId,
+      turnAuth: turns.requesterAuth,
+    })
+    .from(pushRequests)
+    .innerJoin(sessions, eq(sessions.id, pushRequests.sessionId))
+    .leftJoin(pushIntents, eq(pushIntents.pushRequestId, pushRequests.id))
+    .leftJoin(turns, eq(turns.id, pushIntents.turnId))
+    .where(
+      and(
+        eq(pushRequests.id, pushRequestId.toLowerCase()),
+        eq(pushRequests.sessionId, sessionId.toLowerCase()),
+        eq(sessions.ownerId, ownerId),
+      ),
+    )
+    .limit(1);
+  if (row === undefined) return null;
+  const auth = objectOf(row.turnAuth);
+  const root = auth?.method === "push_decision" ? objectOf(auth.root) : null;
+  const [kind, id] =
+    root !== null
+      ? [root.requester_kind, root.requester_id]
+      : [row.turnKind, row.turnRequester];
+  if (kind === "user" && typeof id === "string") return id;
+  const asked = objectOf(row.requestedBy)?.actor_user_id;
+  if (row.turnKind === null && typeof asked === "string") return asked;
+  return row.starter;
+}
+
 export function createPostgresSessionShareStore(
   db: Database,
 ): SessionShareStore {
@@ -371,6 +444,36 @@ export function createPostgresSessionShareStore(
         .limit(1);
       return row !== undefined;
     },
+
+    async privateChannels(ownerId, sessionId) {
+      if (sessionId !== null && !UUID.test(sessionId)) return [];
+      return db
+        .selectDistinct({
+          conversationId: conversations.id,
+          agentId: conversations.agentId,
+          channelId: sql<string>`${conversations.channelId}`,
+        })
+        .from(sessionShares)
+        .innerJoin(sessions, eq(sessions.id, sessionShares.sessionId))
+        .innerJoin(
+          conversations,
+          eq(conversations.id, sessions.parentConversationId),
+        )
+        .where(
+          and(
+            eq(sessionShares.ownerId, ownerId),
+            eq(sessionShares.scope, "private_channel"),
+            eq(conversations.kind, "channel"),
+            isNotNull(conversations.channelId),
+            ...(sessionId === null
+              ? []
+              : [eq(sessionShares.sessionId, sessionId.toLowerCase())]),
+          ),
+        );
+    },
+
+    pushRequesterOf: (ownerId, sessionId, pushRequestId) =>
+      pushRequesterOf(db, ownerId, sessionId, pushRequestId),
 
     async originOf(ownerId, sessionId) {
       if (!UUID.test(sessionId)) return null;

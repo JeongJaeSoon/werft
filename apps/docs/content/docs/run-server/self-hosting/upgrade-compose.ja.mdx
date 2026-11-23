@@ -17,9 +17,9 @@ outcome: "互換性とバックアップを確認して新 release を適用し�
 
 [変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)で対象バージョンの運用者向け作業を先に読みます。
 
-現在・対象の source commit、release 入力、settings digest、イメージ digest が必要です。直近の成功バックアップと復元訓練を確認し、利用者に停止を知らせます。この Compose アップグレード全体は公開イメージで実行確認していません。
+現在・対象の source commit、release 入力、settings digest、イメージ digest が必要です。直近の成功バックアップと復元訓練を確認し、利用者に停止を知らせます。
 
-先に[共通の実行前ゲート](#실행-전-게이트)を確認します。LocalStack 試験環境は、最初の restart ポリシー変更でコンテナを再作成すると checkpoint object を失う場合があります。`status` の未回収 checkpoint が 0 件と確認できない、または 0 でなければ更新を延期します。API が起動失敗し `pending.json` まで残ると、reseed では迂回できません。その場合に残る手段の `reset` は全データを破棄するため、先にバックアップから復元可能か判断します。`backup --stop` も遮断を解除しません。
+先に[共通の実行前ゲート](#실행-전-게이트)を確認します。
 
 <a id="단계" />
 ## 手順
@@ -80,36 +80,11 @@ pending.json が残ると start と以前の release への upgrade は拒否さ
 <a id="실행-전-게이트" />
 ## 実行前ゲート
 
-incremental checkpoint と release ツール復元候補の下限を両方含む最初のタグは `v0.1.0` です。このタグが rollback の下限で、最新の公開リリースは `v0.1.2` です。リリース設置者は `v0.1.0` より前のイメージへ戻しません。正式リリース前の `main-<12>` 環境は、この下限を満たすか別途確認する必要があります。デプロイ時は [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)の commit と三つの digest を一緒に確認します。
+アップグレードの前に、デプロイ済みのバージョンと対象バージョンの間の[変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)をすべて読みます。その間のリリースの手順が下の[リリースごとの作業](#릴리스별-작업)にあれば、その手順にも従います。デプロイ時は [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) の commit と三つの digest をあわせて確認します。
 
-対象の変更履歴と現在のデプロイバージョンを照合します。次に該当する場合、機能の有効化や worker 変更前にすべてを満たします。
-
-| 変更 | 先に完了する作業 | 戻せない境界 |
-| --- | --- | --- |
-| provider usage の `inference_geo` | migration を含め API を先に更新し、ready 確認後に egress proxy を更新 | 以前の API は新 proxy 報告を 400 で拒否し、費用計測が欠落します |
-| `openai_responses` 接続と `/v1/responses` | egress proxy を先に更新します。上記 2 の順序で API を先に更新した場合は、proxy を更新するまで `openai_responses` 接続を作成しません | 以前の proxy は `/v1/responses` を 404 で拒否するため、その接続のセッションはモデルを呼び出せず失敗します。`v0.1.3` の proxy は `/v1/messages` 呼び出しに `v0.1.2` の API が知らないフィールドを送らないため、`v0.1.2` の API とそのまま動作します |
-| `billing: none` | 全 API replica と全 scheduler の WORKER_IMAGE を更新してから新 none セッションを作成 | unmetered セッションが残る間、以前の API・worker への rollback 禁止 |
-| チェックポイントのローカルブランチ（`workspace.sources`、`refs/checkpoint/source/*`） | API・検証器・GC・セッション保管 CronJob をすべて → worker | 以前の API・検証器はこのフィールドと ref を拒否する。順序が逆だと、新 worker のチェックポイントが拒否される間 push だけが止まり、データは失われない |
-| transcript 上限/reason | migration → API 全部 → worker。API finalize と worker capture/restore 上限を同じ release に揃える | transcript reason を知らないビルドへの rollback 禁止 |
-| manifest の `outputs` | API 全部 → worker | api・worker の両方が outputs を知るビルドまでだけ rollback 可能 |
-| モデルブロックの Slack DM（migration 0248） | migration を含む API をすべて更新し、その後 slack ロール | 0248 の後にイメージを戻しても安全です。古い slack ロールは `model_notice` 行を送るスレッドがないため `not_addressed` で閉じ、DM は送りません。スキーマを 0248 より下げるには、先に `model_notice` 行を削除し、`slack_outbox_kind_check` を以前の一覧に戻します |
-| 担当チームの必須化（migration 0243） | migration を含む API をすべて更新 | 0243 の後に、すでに担当チームを必須にしていた直前のイメージへ戻すと、作成はできますが保管チームのエージェントのセッションが再び隠れます。チームなしで INSERT する古いイメージはエージェントを作れません（`NOT NULL` 違反）。それより下げるには書き込みを止めて `NOT NULL` を外す必要があり、バックフィルも以前の可視性も元に戻りません |
-| Slack 非公開チャンネルの退出処理（migration 0250） | migration を含む API をすべて更新 → slack ロールを更新 → 作成済みのエージェントアプリごとに events の再確認で manifest を再送 | 古いイメージは新しい `slack_channel_lifecycle` テーブルを無視するので、戻してもデータは残る。ただし `member_left_channel` を処理しないイメージへ戻すと、bot が非公開チャンネルから出て再招待されたときに古い承認がそのまま復活する |
-| bot が非公開チャンネルから出たら `left`（非アクティブ）にする（migration 0252） | migration を含む API をすべて更新 → slack ロールと、outbox・カード・スレッド状態を動かすロールまで同じイメージで更新 | `status` の CHECK と `slack_inbound_events` の drop 理由の CHECK が `left`・`channel_left` を受け付けるようになる。`left` を知らない古いイメージは、そのチャンネルの入力は受け付けないが、outbox はそのチャンネルへ送ってしまう。最初の `left` 行ができた後は、このイメージより前に戻さない。戻す場合は先に書き込みと送信を止め、`left` 行を `pending_approval` に変える必要があるが、そうすると「非アクティブ」という意味は失われる |
-| bot がチャンネルから抜けたことを `channel_left`・`group_left` で知る（migration なし） | API をすべて更新 → slack ロールを更新 → 作成済みのエージェントアプリごとに events の再確認で manifest を再送（bot イベントが 2 つ増え、scope は変わらない） | 戻してもデータは残る。古いイメージは 2 つのイベントを `unsupported_event` として捨てるので、その後に bot がチャンネルから外されてもコンソールは参加中のまま表示される |
-| 拡張バンドルの attach とセッション解決（migration 0251） | migration を含む API をすべて更新 | 0251 の後にイメージを戻しても安全です。古いイメージは `extension_attachments` テーブルも `sessions.extensions` 列も読まないため、セッションに固定されたバンドル一覧は無視されます。スキーマを 0251 より下げるには、`extension_attachments` テーブルを削除し、`sessions.extensions` 列を外します。セッションに固定済みのバンドル一覧は元に戻りません |
+現在のロールバック下限は `v0.2.0` です。このリリースの migration `0270` がプロファイルのデータを消すため、それより前のイメージには戻しません([プロファイル削除のロールバック下限](#프로필-제거의-롤백-하한))。その後に変更履歴が戻せないと書いたリリースがあれば、そのリリースが下限です。下限より前に戻す必要があれば、アップグレード前のバックアップから DB を復元します。rollback を考える前に影響セッションを読み取り SQL で数え、データを失わずに roll-forward できるかを先に判断します。
 
 新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。まず turn 1 の完了を見ます。直前の worker が新しい control-host の応答を読めない場合、API は 200 を返し、worker は起動直後に終了するため、400 がないことだけではこの失敗を捕まえられません。プロファイル削除リリースはこの組み合わせをサポートしません。そのリリースへ更新するときは、新しい control-host と新しい worker で turn 1 の完了を確認します（[プロファイル削除リリースのアップグレード順序](#프로필-제거-릴리스의-업그레이드-순서)）。
-
-<a id="v010-이후-변경을-처음-적용할-때" />
-### v0.1.0 以降の変更を初めて適用する場合
-
-- `v0.1.0` より後、対象バージョンまでの全 migration（`v0.1.2` は `0262` まで）を migrate で適用します。`0239_connection_replaces_auth` の新しい列は以前のイメージが無視しますが、それだけで他の checkpoint・protocol の rollback が安全という意味ではありません。
-- `v0.1.0` タグの compose は `ANTHROPIC_API_KEY` が空だと描画を拒否します。`v0.1.0` から上げるとき、env ファイルに残ったキーはそのままで構いません。`v0.1.2` タグはキーの有無を問いません。`v0.1.0` のソースを再適用するときだけ、キーを空にしないでください。
-- control-host を先、worker を後に更新します。`platform_tool_trust` fallback があっても、更新の間は以前の権限経路を使うため順序を守ります。
-- API、Compose maintenance、Kubernetes の checkpointGc・sessionArchive CronJob を先に対象イメージにし、**以前のイメージで開始した Job が終了したこと**を確認してから worker を更新します。以前の GC は固定 revision を削除する場合があり、以前の API・検証器は worker が常に載せるローカルブランチを拒否します。`AGENT_ACTION_FLOWS` と `SESSION_PROMPT_REVISION` はなくなり、値を渡しても読みません。`v0.1.1` タグには公開された成果物がないため使わず、`v0.1.0` の次のリリースは `v0.1.2` です。
-
-次の条件は、現在の環境に該当変更が既に含まれるか照合して適用します。rollback が必要なら、先に影響セッションを読み取り SQL で数えます。データ損失を承認せず roll-forward できるか先に判断します。
 
 <a id="compose-전용-checkpoint-검사" />
 ### Compose 専用 checkpoint 検査
@@ -118,29 +93,20 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 
 worker イメージが変わると、upgrade は変更前イメージを直前イメージとして残します（upgrade スクリプトの状態ディレクトリの `previous-worker`）。scheduler はセッションごとに checkpoint ポインターの組み合わせ（engine・SDK・CLI・profile digest scheme）に合うイメージを現在・直前から選び、両方合えば現在を使います（[設定レファレンスの scheduler・worker コンテナ・egress 設定](/run-server/self-hosting/reference/configuration)）。そのためゲートは、新イメージで復元できず直前イメージでも復元できないセッションだけを影響一覧に入れます。新・直前いずれかの検査が fail-closed なら、新イメージ基準の一覧をそのまま使います。同じ組み合わせで再ビルドしたイメージなら scheduler は新イメージで起動するため、新イメージで復元可能と確認できないセッションは、直前で復元できても一覧から外しません。どちらかが自分の組み合わせを出力できない以前のイメージなら（組み合わせを出力する機能がないビルド）、直前イメージを使わず、ゲートも新イメージ基準の一覧を維持します。サポート範囲は一リリースです。もう一度更新すると、それより前のイメージに残るセッションは再び影響一覧に入ります。プロファイル削除リリースでは、直前のイメージで起動するセッションはありません（[プロファイル削除リリースのアップグレード順序](#프로필-제거-릴리스의-업그레이드-순서)）。
 
-二つのエンジンを一緒に動かすスタック（`infra/compose.two-engines.yml`）には、この upgrade を使いません。そのスタックは直前イメージの位置にもう一つのエンジン（Claude）のイメージを置いていますが、upgrade はその位置を変更前のイメージで書き換えるため、Claude イメージが外れます。二つのエンジンのスタックの worker イメージを変える compose の手順はまだありません。
-
-<a id="runtime-프로필의-공통-준비" />
 <a id="runtime-버전의-공통-준비" />
 ### runtime バージョンの共通準備
 
-SDK を上げるリリースでは、イメージが載せるランタイムのバージョンが変わり、設定文書例（`tests/fixtures/settings/`）の接続のモデル一覧もあわせて確認します。リリースは作成時にイメージが載せていたランタイムのバージョンを固定し、セッションはそのリリースのバージョンで動きます。現在・直前のどちらのイメージも載せていないバージョンのリリースでは新規セッションが `UNSUPPORTED_CAPABILITY` で拒否されるので、そのエージェントをリリースし直します。チェックポイントはこの判定とは関係なく、作成したビルドと同じエンジン・SDK・CLI の組み合わせのイメージでのみ再開します。同じリリースに新しいエンジンの組み合わせの組み込みツール対応一覧も入れます。Kubernetes（helm）設置の戻し方と注意点は [Kubernetes のアップグレード § 戻す](/run-server/self-hosting/upgrade-kubernetes#되돌리기) にあります。
+SDK を上げるリリースでは、イメージが載せるランタイムのバージョンが変わります。リリースは作成時にイメージが載せていたランタイムのバージョンを固定し、セッションはそのリリースのバージョンで動きます。現在・直前のどちらのイメージも載せていないバージョンのリリースでは新規セッションが `UNSUPPORTED_CAPABILITY` で拒否されるので、そのエージェントをリリースし直します。チェックポイントはこの判定とは関係なく、作成したビルドと同じエンジン・SDK・CLI の組み合わせのイメージでのみ再開します。Kubernetes（helm）設置の戻し方と注意点は [Kubernetes のアップグレード § 戻す](/run-server/self-hosting/upgrade-kubernetes#되돌리기) にあります。
 
-<a id="workercontrol-host-롤백과-incremental-checkpoint" />
-### worker・control-host の rollback と incremental checkpoint
+<a id="릴리스별-작업" />
+## リリースごとの作業
 
-`v0.1.0` の worker は、直前 checkpoint の bundle の鎖に、新 object だけを含む incremental bundle を追加します。鎖は manifest の `workspace.baseBundles` に記録します。manifest の `version` は 2 のままで、incremental かどうかはこのフィールドの有無だけで区別します。**それ以前のビルドへ rollback すると、このフィールドのある checkpoint を復元できません。** 以前の manifest schema は未知の key を拒否するためです。
+変更履歴が指すリリースごとの手順です。デプロイ済みのバージョンと対象バージョンの間のリリースの節だけに従います。
 
-- **以前の worker イメージ。** 復元時に manifest decode が `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"` で失敗します。workspace を空にしたり bundle を取得したりする前に失敗するため、途中まで復元した workspace は残りません。ただし manifest は固定なので、再 launch しても同じ理由で `worker.failed` になります。
-- **以前の control-host。** 復元計画が `CHECKPOINT_UNAVAILABLE` で拒否され、前 revision へは戻りません。finalize も incremental manifest を拒否し、pointer が進みません。新 worker と混在すると最初の checkpoint のような単独 bundle だけが commit されます。以前の GC は decode できないセッションを省略するため、base bundle は削除しません。
-- **影響セッションの特定。** DB に manifest 本文はありません。`sessions.checkpoint_revision` が指す `checkpoints` 行（`collected_at IS NULL`）の `manifest_ref`・`manifest_version` で object store から manifest を取得し、`jq -e '.workspace.baseBundles | length > 0'` で分類します。復元は `parent_revision` をたどって戻る場合があるため、親行も確認します。worker ログ `worker.checkpoint.published` の `base_bundles` が 0 より大きければ incremental で公開したものです。
-- **rollback 前の作業。** 影響セッションがあれば rollback せず roll-forward します。新しい full bundle で checkpoint を取り直す運用手段（環境変数・設定・CLI）はまだありません。worker は鎖がない、切れている、長さ 32（`MAX_WORKSPACE_BUNDLE_CHAIN`）または bundle 上限に達した場合だけ、自ら full bundle を upload します。そのため rollback が必須なら影響セッションはその間復元されません。roll-forward すればそのまま復元できます。
-
-<a id="control-host-롤백-하한-release-도구로-실행" />
 <a id="프로필-제거의-롤백-하한" />
 ### プロファイル削除の rollback 下限
 
-実行プロファイルを削除したリリースでは、migration `0270_remove_profiles` がプロファイルの表と列を削除し、プロファイルで作ったリリースとそのセッション、セッションに付く記録（turn・イベント・checkpoint 行など、45 表）を削除します。セッションを持たない `slack_outbox` の行（ウェルカム通知など）は残ります。使用量の表では、セッションに付く `provider_usage` だけが空になり、`agent_usage` は残ります。この変更の以前の草案（`0269_remove_profiles`）を適用した開発・verify 用の DB は作り直してください。エージェントとカードのバージョン、チーム、キー、設置の設定は残ります。以後すべてのセッションはリリースが固定した spec（接続・モデル・ランタイム・ツール）で動き、エージェントは接続を選んでリリースし直すと動きます。接続には、エージェントが選ぶモデル一覧（`models`）が必要で、一覧にないモデルでは release を作れません。`0270` は一覧が空の接続にだけ、その接続に対応していたプロファイルのモデルを入れます。対応していたプロファイルがなければ一覧は空のまま残り、一覧がすでにあった接続には何も足しません。アップグレード後、接続ごとにエージェントが使うモデルがすべて一覧にあるかを確認し、足りないモデルを入れます。設定文書では、最上位の `profiles` キーとリポジトリ項目の `profiles` を削除します。最上位のキーがあると `settings import`（CLI と API）が文書を拒否します。リポジトリ項目の `profiles` は CLI が捨てますが、API は拒否します。**このリリースより前のビルドへは rollback できません。** 戻すには、アップグレード前のバックアップから DB を復元します。
+実行プロファイルを削除したリリースでは、migration `0270_remove_profiles` がプロファイルの表と列を削除し、プロファイルで作ったリリースとそのセッション、セッションに付く記録（turn・イベント・checkpoint 行など、45 表）を削除します。セッションを持たない `slack_outbox` の行（ウェルカム通知など）は残ります。使用量の表では、セッションに付く `provider_usage` だけが空になり、`agent_usage` は残ります。エージェントとカードのバージョン、チーム、キー、設置の設定は残ります。以後すべてのセッションはリリースが固定した spec（接続・モデル・ランタイム・ツール）で動き、エージェントは接続を選んでリリースし直すと動きます。接続には、エージェントが選ぶモデル一覧（`models`）が必要で、一覧にないモデルでは release を作れません。`0270` は一覧が空の接続にだけ、その接続に対応していたプロファイルのモデルを入れます。対応していたプロファイルがなければ一覧は空のまま残り、一覧がすでにあった接続には何も足しません。アップグレード後、接続ごとにエージェントが使うモデルがすべて一覧にあるかを確認し、足りないモデルを入れます。設定文書では、最上位の `profiles` キーとリポジトリ項目の `profiles` を削除します。最上位のキーがあると `settings import`（CLI と API）が文書を拒否します。リポジトリ項目の `profiles` は CLI が捨てますが、API は拒否します。**このリリースより前のビルドへは rollback できません。** 戻すには、アップグレード前のバックアップから DB を復元します。
 
 <a id="프로필-제거-릴리스의-업그레이드-순서" />
 ### プロファイル削除リリースのアップグレード順序
@@ -150,8 +116,6 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 - このリリースでは、上の [2. API → proxy → worker の順序](#2-api--proxy--worker-순서)の中間 release と、[Kubernetes アップグレードの手順 1](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체)を行いません。新しい control-host と以前の worker が一緒に動く間は、新しいセッションが一つも起動しないためです。Compose は最終 release へ直接 `upgrade` し、Kubernetes は手順 2 のコマンドで直接更新します。
 - プロファイル削除前にビルドした worker イメージは、このリリースのサポート範囲に入りません。そのようなイメージを `images.workerPrevious` にわざわざ入れません。ただし Kubernetes の[アップグレード前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)は、worker イメージが変わる upgrade では `images.workerPrevious` が現在デプロイ済みのイメージであることを要求し、承認でも続行できません。そのため、この upgrade には手順 2 のスクリプトが作った `worker-previous.json`（現在デプロイ済みの worker イメージ）をそのまま渡します。Compose の `upgrade` が残す `previous-worker` ファイルも同じです。そのイメージで起動するセッションはありません。`0270` がセッションを空にし、新しいセッションは常に現在のイメージで起動し、その後の checkpoint は現在のイメージが残すためです。次に worker イメージを変える upgrade で、直前のイメージはこのリリースのイメージに変わります。
 - 更新後、新しいセッション一つが turn 1 を完了するかを確認します。
-
-次のリリースからは、現在・直前のイメージのサポート範囲に戻ります。このリリースの worker が次のリリースの直前のイメージです。worker が読む応答フィールドを外すときは、下の順序を守ります。まず worker がそのフィールドなしでも応答を受け付けるように変えます。その worker がサポート範囲で最も古いイメージになるリリースで、control-host がフィールドを外します。プロファイル削除リリースはこの順序を守りませんでした。
 
 <a id="지운-slack-연결-env" />
 ### 削除した Slack 連携の環境変数
@@ -171,6 +135,11 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 - 移したあと env の行を削除します。残っていると、起動のたびに `Ignored removed settings: SLACK_EVENTS_PUBLIC_URL` の警告が出ます。https でない値や query のある値は移さず、その旨を警告します。以前のリリースと違い、起動は止まりません。
 - 保存したアドレスを変えても、作成済みのアプリにはすぐには送りません。エージェントの Slack タブで「再確認」を押すか、`slack-app finalize` を実行します。
 - ロールバックするときも `slack_settings` テーブルは削除しません。以前のビルドはこのテーブルを読みません。
+
+<a id="slack-채널-이벤트와-manifest-다시-보내기" />
+### Slack チャンネルのイベントと manifest の送り直し
+
+アップグレードしたあと、エージェントごとにコンソールの Slack タブで「再確認」を一度押すか、API コンテナーで `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` を一度実行します。そうして初めて、作成済みのアプリがチャンネルの削除・アーカイブ・名前変更のイベントを受け取ります。実行しないと、削除されたチャンネルの処理は投稿やチャンネルの照会が `channel_not_found` を受けたときにしか動きません。送り直した manifest がインストールにない scope を求めると、「再確認」の案内とコマンドの `warnings`(`reinstall_required`)がアプリの再インストールを求めます。
 
 <a id="웹으로-옮긴-실행-한도" />
 ### Web に移した実行の上限
@@ -202,13 +171,12 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 <a id="설정-문서는-빈-설치에-한-번만-들어간다" />
 ### 設定文書は空のインストールに一度だけ入る
 
-このリリースから、migrate は設定文書(`SETTINGS_DOCUMENT`、test-ops では `PLATFORM_SETTINGS_DOCUMENT`)と旧設定ディレクトリ(`/legacy-config`)を、空のインストールにだけ一度入れます(`settings seed`)。その後、接続・リポジトリ・MCP サーバーはコンソール(設定 > エージェント接続)で変更します。文書を直して再デプロイしても取り込まれません。
+このリリースから、migrate は設定文書(`SETTINGS_DOCUMENT`、test-ops では `PLATFORM_SETTINGS_DOCUMENT`)を、空のインストールにだけ一度入れます(`settings seed`)。その後、接続・リポジトリ・MCP サーバーはコンソール(設定 > エージェント接続)で変更します。文書を直して再デプロイしても取り込まれません。
 
-- migration `0282_settings_seed_decided` が `settings_generation.seed_decided_at` 列を追加します。アップグレード後の最初の migrate がこの時刻を記録します。接続や MCP サーバーがすでにあるインストール(使用停止したものを含む)は何も取り込まず、時刻だけを記録します。リポジトリ行だけがあるインストールは空とみなし、一度入れます。
-- 取り込まないとき、migrate のログに値を含まない一行が出ます: `note: <ディレクトリと文書> not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`。時刻を記録した後は `the automatic seed ran on <時刻>` と表示されます。この行は失敗ではありません。
+- migration `0282_settings_seed_decided` が `settings_generation.seed_decided_at` 列を追加します。アップグレード後、設定文書を受け取った最初の migrate がこの時刻を記録します。`SETTINGS_DOCUMENT` がなければ migrate は seed を実行しないため、時刻もログも残りません。接続や MCP サーバーがすでにあるインストール(使用停止したものを含む)は何も取り込まず、時刻だけを記録します。リポジトリ行だけがあるインストールは空とみなし、一度入れます。
+- 取り込まないとき、migrate のログに値を含まない一行が出ます: `note: the settings document <ファイル> (SETTINGS_DOCUMENT) not imported: the installation already holds settings. It seeds an empty installation only; change settings in the console`。時刻を記録した後は `the automatic seed ran on <時刻>` と表示されます。この行は失敗ではありません。
 - 文書の内容を意図して入れ直すときは、owner が手で `settings import` を実行します。このコマンドは変わっていません。
 - test-ops の `upgrade` は、変わった文書を取り込まず、DB と比較もしません。文書の digest が変わると `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console` を記録します。`deploy` の確認はそのままです。
-- `scripts/local.sh down --keep-volumes` で残した開発 volume には、fixture(`tests/fixtures/settings/`)の変更が入りません。volume を作り直すか、`settings import` を実行します。
 - ロールバックすると、以前のリリースの migrate がデプロイのたびに文書を再び取り込みます。コンソールで変えた項目が文書の同じ id と異なると、その取り込みが拒否されて migrate が失敗し、API が起動しません。ロールバックの前に、そうした項目を文書から外すか、コンソールの値に合わせます。`seed_decided_at` 列は削除しません。以前のビルドはこの列を読みません。
 
 <a id="env로-가리키던-자격-증명은-db로-한-번-옮긴다" />
@@ -223,7 +191,7 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 - 実行経路が拒否する値（8 バイトより短いキーや前後の空白・制御文字を含むキー、RSA 秘密鍵 PEM でない App のキー）と 8 文字より短いキー（保存値は末尾の四文字を表示します）は移しません。その行は外され、`<kind>:<id> is left out and not carried into the database: <理由>. Correct <名前> and restart the API` が一度出ます。理由には変数名だけが出ます。
 - 明示的な App のリポジトリを移すと資格情報の参照が変わり、リポジトリの binding も変わります。同じトランザクションで、そのリポジトリの古い binding をそのまま持つ push 要求と実行中のセッションのリポジトリトークンを新しい binding に移します。そのため、移す前の push からも PR を開いてマージでき、実行中のセッションもトークンを受け取り直せます。移した行数はログ（`… (N push requests and M worker credentials moved to its new binding)`）と receipt の `rebound` に残ります。まだ移したことを読んでいない replica（10 秒ごとに読み直します）や以前のビルドがそのあと古い binding で書く行は、DB が書き込む時点で新しい binding にします（上の trigger）。ロールバックの SQL が `carried_binding` を空にすると、trigger は何も変えません。移すトランザクションは二つの表をロックするため、その間 push 要求と worker トークンを書く要求は待ちます。5 秒以内にロックできなければ移さず、次の読み込みでやり直します。移したあと、その App のキーは `POST /v1/installation/settings/repositories/{id}/credential`（owner・admin、RSA 秘密鍵 PEM）で変えます。env を変えても読みません。
 - **このリリースへ上げるときは、api を一つに減らすか、以前の replica をすべて止めてから新しいビルドを起動します。** replica はそれぞれ 10 秒ごとに設定を読み直すため、まだ移したことを読んでいない replica がその間に、移した push 要求を `catalog_changed` で失敗させたり、実行中のセッションのトークン再発行を拒否したりすることがあります。Compose の api は一つなので、そのまま上げます。Helm は [Kubernetes のアップグレード](/run-server/self-hosting/upgrade-kubernetes)の手順 1 に従います。そうして失敗した push は、もう一度要求すれば新しい binding で push されます。
-- 移したあと古い文書を手で `settings import` すると、移した項目は同じ id で内容が違うため `conflicts` で止まります（`--from-dir` のリポジトリは `kept` で残ります）。その項目を文書から外すか、`settings export` で受け取った文書を使います。
+- 移したあと古い文書を手で `settings import` すると、移した項目は同じ id で内容が違うため `conflicts` で止まります。その項目を文書から外すか、`settings export` で受け取った文書を使います。
 - URL リポジトリ（`auth` が `basic`・`bearer`）は実行に使われないので移しません。
 - ロールバック: 以前のビルドは接続・MCP サーバーの保存値は読みますが、明示的な App のリポジトリの保存値は拒否し、そのリポジトリは `invalid` として外れます。ロールバックはこの順序で行います。
   1. このリリースの api replica をすべて止めます。一つでも動いていると、次の設定読み込み（10 秒以内）で戻した行をまた移します。
@@ -250,10 +218,38 @@ COMMIT;
 - アップグレードの前に、env か Secrets Manager を指すモデル接続ごとに、今のリリースのコンソールの**画面でキーを入れる**でキーを入れておきます。そうすればアップグレード後もその接続のセッションは止まりません。アップグレード後に入れてもかまいません。MCP サーバーとリポジトリの App key は今のリリースでは移す方法がないので、アップグレード直後に入れます（下記）。
 - 使用を停止した接続や MCP サーバーが env か Secrets Manager を指していると、アップグレード後は再び有効にできません。コンソールは停止した行にキーを受け付けず、キーのない行を有効にしません。その接続を使い続けるなら、アップグレード前に有効にして**画面でキーを入れる**でキーを入れます。MCP サーバーはアップグレード前に有効にしておき、アップグレード後にキーを入れます。そうしなかった場合は、アップグレード後に新しい id で接続やサーバーを作ります。id は再利用しません。
 - migration `0288_remove_external_credentials` は、env か Secrets Manager を指していた行を値のない保存型の行に変えます。その行はキーが入るまで `needs_value`（画面では**値が必要**）で、その行を使うセッションは動きません。接続は**API キーを設定**、MCP サーバーは**値を変える**、リポジトリの App key は上の API で入れます。古い `auth` は `carried_auth` に記録としてだけ残り、読まれません。明示的な App のリポジトリは binding が変わるため、同じ migration がそのリポジトリの worker 資格情報の binding を新しい値に移します。push リクエストの binding はそのリポジトリの App key を入れたときに移すため、それまでは上げる前に作った push から PR を開けません。以前の api replica が受け取ったキーでは push は移らないので、リポジトリの App key はすべての api が新しいビルドになってから入れます（先に入れたならもう一度入れます）。
-- 設定文書の `value_env`・`secret_id` の項目は `"stored": true` に変えてから import します。残っていると `settings import`（API、CLI、`--from-dir`）が 400 `invalid_document` で拒否し、CLI はそのフィールド名をエラーに出します。
+- 設定文書の `value_env`・`secret_id` の項目は `"stored": true` に変えてから import します。残っていると `settings import`（API、CLI）が 400 `invalid_document` で拒否し、CLI はそのフィールド名をエラーに出します。
 - アップグレード後、接続が指していたキーの変数（例: `ANTHROPIC_API_KEY`）と `AWS_ENDPOINT_URL_SECRETS_MANAGER` を api の env から消します。api はこれらを読みません。Helm は [Kubernetes のアップグレード](/run-server/self-hosting/upgrade-kubernetes)に従います。
 - コンソールで作る接続と MCP サーバーは、キーがあるときだけ保存されます。Web は 8 文字以上入れるまで保存ボタンを押せないようにし、API はキーがない、8 バイトより短い、制御文字や前後の空白を含むときに 400 で拒否し、DB は値なしでコンソールから作った行を同じトランザクションで拒否します。外部の出所の接続を保存型に変えていたコンソールの「画面でキーを入れる」ボタンと `POST …/connections/{id}/convert` の経路はなくなりました。
 - 上の 0285 のロールバック SQL は、このリリースの後では使えません。`credential_source` は `stored` だけを許します。
+
+<a id="처리를-마친-slack-이벤트의-옛-원문을-지우는-릴리스" />
+### 処理を終えた Slack イベントの古い原文を消すリリース
+
+migration はない。migration 0308 より前の slack ロールは、イベントの処理を終えても inbox の行に原文(`payload`)を残していた。運用者コマンド `slack-inbound-payloads.ts` がその原文を消す。実行するまでは原文が残っているだけで、動作は変わらない。
+
+- 実行するとき: すべての slack ロールが処理後に原文を消すイメージ(0308 以降)で動くようになってから、一度実行する。前のイメージの slack ロールが残っていると、処理した行に原文をまた残す。
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/slack-inbound-payloads.ts
+```
+
+- 処理を終えた行(`processed`)の原文だけを消す。処理中の行(`received`)と失敗した行(`failed`、受け取ってから 7 日を過ぎると reconciler が消す)はそのままである。行そのもの(イベントの種類・状態・試行回数)は残る。
+- 主キーの順に 1 文で 1000 行ずつ消し、文ごとに別々にコミットする。行ロックはそのまとまりの処理済みの行にだけ掛かり、テーブルには通常の書き込みと同じ `ROW EXCLUSIVE` ロックだけが掛かるので、読み書きを止めない。`--batch-size <n>`(1〜10000)でまとまりの大きさを変える。
+- 結果は 1 行の JSON である。状態ごとの原文がある行数(`before`・`after`)、消した行数 `cleared`、まとまりの数 `batches`、`batch_size`、かかった時間 `duration_ms` が出る。もう一度実行しても、それ以上消すものはない(`cleared: 0`)。
+- 終わった後も原文が残る処理済みの行があれば、`outcome: incomplete`、終了コード `3` になる。前のイメージの slack ロールがまだ動いているということである。そのコンテナを止めてから、もう一度実行する。数はまとまりごとに別々に読んだ値なので、終了コード `0` は前のイメージがないことの証拠にはならない。実行する前にすべてのコンテナのイメージを確かめる。
+- 消した原文は戻らない。空いた場所は autovacuum の後に新しい行が使い、ファイルの大きさは減らない。rollback の下限は 0308 のままである。
+
+<a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
+### 削除された Slack メッセージを含むセッションを止めるリリース
+
+migration `0333_source_deleted` が `sessions` に `source_deleted_at`(timestamptz、nullable)を追加する。アップグレード時に行うことはない。削除されたメッセージのないセッションの動作は変わらない。
+
+- Slack でメッセージが削除されると(返信のある親メッセージの墓標を含む)、そのメッセージを出典に持つターンが一つでもある開いたセッションを止める。ターンの直接の出典でも、前のターンから引き継いだ出典でも同じである。メッセージの編集では止めない。
+- 実行中のターンは切らない。worker はそのターンを終え、pause と同じく checkpoint を残して終了し、セッションは `paused` になる。待機中の入力は送らない。この pause の receipt は依頼した人がいないため `actor` が空である。
+- 止まったセッションは `GET /v1/sessions/{id}` の `attention.code` が `SOURCE_DELETED` になる。メッセージの送信、再開、復旧判断の `start_fresh`・`retry_restore` は `409 SOURCE_DELETED` で拒否される。閉じることだけができる。
+- 止めた理由はセッションのイベント stream に `system` イベント `source_deleted`(削除されたメッセージの場所と移った admission)として残る。閉じたセッションには触れない。
+- 列は既定値なしで追加するため、表を書き直さない。サポート期間内のイメージに戻してもよい。古いイメージは列を読まないため、止まったセッションを再開できるようになる。
 
 <a id="쓰지-않는-표-셋을-지운-릴리스" />
 ### 使っていない三つの表を削除したリリース
@@ -262,6 +258,268 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 
 - 表に行が残っている場合がある。`catalog_authority` には設定ファイルのカタログ時代に有効にした revision の一行、`owner_workspace_map` には運用者が手で入れた owner とワークスペースの対応、`push_continuations` には `v0.1.1` 以前が作った続きのターンの記録が残っている場合がある。行があれば、migrate のログ `db.migrate.notice` に表ごとの削除した行数が残る(`0305: dropped rows: …`)。行の値はログに残らない。
 - その行が必要なら、上げる前にバックアップする。0305 より下にスキーマを戻しても行は戻らない。
+
+<a id="slack-글의-관여-기록을-남기는-릴리스" />
+### Slack の投稿への関与を記録するリリース
+
+migration `0323_conversation_engagements` が関与記録の表 `conversation_engagements` を追加する。slack ロールはメンション・DM・紐づいたスレッドの投稿をこれまでどおりセッションのターンにし、入力受付の行を記録する同じ transaction で、エージェントがその投稿に関与したことを一行記録する。上げるときにすることはなく、Slack とセッションの動作も変わらない。
+
+- 関与記録に残るのはエージェント、投稿の場所(team、チャンネル、ts)、種類、その投稿が入ったセッションだけで、本文・スレッドの ts・Slack のリンクは残らない。スレッドはセッションの link が持つ。
+- 種類は、セッションを開いた投稿が `mention`(メンションか DM)、メンションのないトップレベルの投稿で開いたセッションなら `reply`、すでに開いているセッションに入った投稿が `bound`(メンションがあっても `bound`)。
+- 一つの投稿が二つのイベントで届いても、処理し直しても、エージェントごとに一行。ターンにならなかった投稿(拒否・無視)は記録しない。既存のセッションは埋めない。
+- 関与記録がある投稿の削除・編集の印は、70 分を過ぎても reconciler が消さない。
+- 新しい表を作るだけなので、サポート期間内のイメージに戻してもよい。その間の投稿には関与記録ができない。
+
+<a id="세션에-부모-대화를-채우는-릴리스" />
+### セッションに親の会話を埋めるリリース
+
+migration `0320_session_parent_conversation` が `sessions.parent_conversation_id`(nullable、`conversations` への外部キー)を追加する。外部キーは `NOT VALID` で追加してから別に検証するので、表を長くロックしない。上げるときにすることはなく、Slack・Web・セッション API の動作も変わらない。
+
+- 新しい Slack セッションは作るときに親の会話を受ける。チャンネルのスレッドのセッションはそのチャンネルのメインの会話、DM のセッションはその人の DM の会話になる。link のないセッション(Web の「新しいセッション」、セッション API)は空のままになる。
+- 既存のセッションは、api が起動するたびに動く整理がまとめて埋める。閉じた link や廃止された link のセッションも埋める。セッションごとに空のときだけ埋めるので、何度起動しても、複数の api が同時に起動しても結果は同じで、途中で止まれば次の起動が残りから続ける。
+- DM のセッションの人はそのセッションを開いた人で(新しいセッションが作るときに選ぶ人と同じ)、いないかワークスペースのメンバーでなければ link を作った人になる。どちらもいなければ親は空のままで、そのセッションは link のないセッションと同じに動く。その数は理由ごとにログ `Linked DM sessions left without a parent conversation`(`no_person`・`no_membership`)に残る。その人がまたメンバーになれば次の起動が埋める。
+- 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
+- サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
+
+<a id="웹-입력의-slack-글-위치를-기다리는-줄을-보류하는-릴리스" />
+### Web 入力の Slack 投稿の場所を待つ行を保留するリリース
+
+migration `0335_input_hold` が `slack_outbox` に列 `correlation_id` と `held_for_input_id` を追加し、`conversation_inputs.slack_mirror` に値 `unconfirmed` を追加する。上げるときにすることはない。このリリースには Web 入力を記録する route がないため新しい列が埋まる行は作られず、Slack のメンションと返信、Web・API セッションの動作は変わらない。
+
+- Web 入力の Slack 投稿がまだ場所（ts）を持たない間、その投稿のスレッドへ行く Slack の行は種類にかかわらず保留する。投稿されると、場所を記録する同じトランザクションでそのスレッドへ送られる。すでに場所のあるスレッドへ行く行はそのままだ。
+- Web 入力の Slack 投稿には、リクエストごとに新しく作った相関値を message metadata（`event_type` `werft_input_mirror`）として載せる。ほかの行の投稿には metadata がない。
+- 投稿が `uncertain` で終わると再送せず、新しいスレッドやチャンネル最上位の投稿も作らない。入力は `unconfirmed`（「Slack への反映を確認できませんでした」）になり、同じ話題の次の入力も待つ。
+- Slack が送り返した自分のアプリの投稿が、metadata の相関値で `uncertain` のミラーをちょうど一つ指すとき、その投稿をミラーの投稿とみなし入力の別名としてつなぐ。候補がない、または二つ以上ならつながない。本文が同じことではつながない。
+- 入口で捨てたイベントの記録（`drop_fields`）に `metadata`（`event_type` とミラーの `correlation_id`）を追加する。`event_payload` の残りは残さない。
+- 「もう一度送る」は、人が呼んだときだけ同じ入力のミラーを新しい相関値で送る。入力の行は一つのままだ。自動では再送しない。このリリースにはそのボタンや route はまだない。
+- ミラーの投稿が最終的に失敗すると、保留した行は送らずに `failed`（`input_unplaced`）で閉じる。場所が決まらないまま `SLACK_ROLE_INPUT_HOLD_SEC`（既定 3600 秒、Helm `slack.inputHoldSec`）が過ぎても同じく閉じ、入力を `unconfirmed` のままにする。slack ロールが `warn` ログ `Slack rows held for a web input's post closed unsent; Slack never confirmed the post` を残す。
+- CHECK と外部キーは `NOT VALID` で追加して別の文で検証し、索引は `CONCURRENTLY` で作る。既存の行は変更しない。このリリースには保留した行を作る経路がないため、サポート期間内のイメージに戻しても問題ない。
+
+<a id="slack에서-지운-글이-든-턴을-가리는-릴리스" />
+### Slack で削除されたメッセージを含むターンを隠すリリース
+
+migration はなく、アップグレード時にやることもない。保存された内容は消さず、API が読むときに隠す。削除されたメッセージのないセッションはこれまでどおり読める。
+
+- Slack で削除されたメッセージ（返信のある親メッセージの墓標を含む）が入力のターンは、ターン一覧・詳細（`GET /v1/sessions/{id}/turns`、`…/turns/{turn_id}`）と監査閲覧（`POST /v1/sessions/{id}/audit-read`）で `message` が空文字列、`result` が null になり、新しいフィールド `source_deleted_at` に削除された時刻が入る。`usage` はそのまま残る。
+- そのターンのイベント（`GET /v1/sessions/{id}/events` と SSE、アーカイブに移したイベントを含む）は envelope に `source_deleted_at` が付き、文が抜ける。返答の文と思考、ツール呼び出しの入力、ツール結果の文、質問の入力、result の返答が抜け、ツールの名前と id、ターンの終わり方とトークン数は残る。すでにストリームで受け取ったクライアントは、読み直すと隠れる。
+- そのターンの待機中のリクエストは `GET /v1/sessions/{id}/pending-requests` に出ない。
+- 最初のメッセージから切り出した・生成したタイトル（`title_source` が `derived`・`generated`）は、最初のターンが隠れるとセッション一覧・詳細で `title` が null になり、新しいフィールド `title_deleted_at` に削除された時刻が入る。そのタイトルの語では検索されない。使用量画面のツール呼び出しと成果一覧でもセッションのタイトルが空になる。人が付けたタイトルはそのまま残る。
+- Web の入力は、その入力を Slack に映したメッセージが削除されると同じように隠す。
+- 同じセッションの後のターンのように、そのメッセージを引き継いだだけのターンは隠さない。
+- Web コンソールは隠した場所に「Slack で削除済み」を表示する。
+- サポート期間内のイメージに戻すと、保存された値はそのままなので、隠した文がまた読める。
+
+<a id="웹-입력을-slack-거울과-잇는-릴리스" />
+### Web 入力を Slack のミラーとつなぐリリース
+
+migration `0334_input_mirror` が、`slack_outbox` に種類 `input_mirror` と、その行が映す Web 入力の列 `input_id` を追加し、まだ Slack に映っていない Web 入力を探す部分索引を `conversation_inputs` に `CONCURRENTLY` で作る。上げるときにすることはない。このリリースには Web 入力を記録する route がないため新しい種類の行は作られず、Slack のメンションと返信、Web・API セッションの動作は変わらない。
+
+- Web 入力は `instruction` と同じ形（送信者名の後に「(Webコンソール)」）で Slack に投稿される。新しい話題の最初の入力はチャンネル（DM ならその人の DM）の最上位の投稿になり、残りはその話題のスレッドに投稿される。
+- 投稿に成功すると、同じトランザクションでその投稿の (team、チャンネル、ts) が入力の Slack 別名になり、新しい話題なら話題の Slack の場所にもなる。同じスレッドへの人の返信は、その話題の次の番号として受け付けられる。
+- Slack が送り返すその投稿のイベントは、これまでどおり自分のアプリの投稿（`own_bot_user`）として入口で捨て、新しい入力やターンを作らない。
+- 別名ができた後でその Slack 投稿を削除すると、その Web 入力を出典に持つ outbox の行が `voided_by_delete` で止まる。別名より先に届いた削除の印も、別名ができた時点でその入力のものになる。
+- 人の返信が投稿結果の記録より先に処理され、そのスレッドがすでに別の話題になっているまれな場合、二つの話題はまとめない。slack ロールが `warn` ログ `Slack mirror opened a thread another topic already holds; the topics stay apart` を残す。
+- DM の新しい話題は、その人の DM チャンネルを知っている話題があるときだけ投稿される。なければ入力は Slack に映らないまま待つ。
+- CHECK と外部キーは `NOT VALID` で追加し、別の文で検証する。サポート期間内のイメージに戻しても問題ない。
+
+<a id="끝을-모르는-호출을-표시하고-에이전트-스스로-하는-일을-먼저-멈추는-릴리스" />
+### 終わりのわからない呼び出しを示し、エージェント自身の仕事を先に止めるリリース
+
+migration `0332_unknown_budget_end` が `budget_reservations` と `conversation_calls` に、終わりのわからない呼び出しを示す列 `unknown_at`(nullable)を追加し、reconciler が読む部分インデックスを二つ作る。上げるときにすることはない。予算の上限がないインストールでは、人、key、エージェントの呼び出しはこれまでどおり動く。
+
+- 使われた provider 呼び出しに lease(5 分)以内に使用量の報告が来なければ、reconciler がその予約の `unknown_at` を書く。状態は `reserved`(会話呼び出しは `in_flight`)のままである。予約は解放せず、上限の計算では使ったものとして数え続ける。遅れて報告が来れば実際の値で精算し、予約を外す。lease がまた更新されるか呼び出しが解放されれば印を消す。セッションの呼び出しとセッションのない呼び出し(会話呼び出し)が同じ規則に従う。
+- reconciler は終わりのわからない予約の多い口座からバッチの大きさまで、その数と押さえている金額を `warn` ログ `Budget reservations of unknown end held`(`unknown_count`、`held_cost_usd`、`held_tokens`)に、すべての口座の合計をログ `Budget reservations of unknown end reported` に残す。ログ `Provider exchange ledger reconciled` と `Conversation call reservations reconciled` に `unknown_count` が加わる。このリリースには押さえられた予約を運用者が解放するコマンドはない。
+- 上限のある予算口座では、人も key もいない実行(root の種類 `none`)の予約は上限の 80% で拒否される。人の依頼と key、Slack ボットの依頼は 100% まで動き、100% ではすべて拒否される。上限のない口座には 80% の判定はかからない。
+- 状態の値と CHECK は変わらず、インデックスは `CONCURRENTLY` で作る。サポート期間内のイメージに戻してもよい。古いイメージは `unknown_at` を無視し、予約を `reserved` として精算する。
+
+<a id="판단-버퍼를-더하는-릴리스" />
+### 判断バッファを追加するリリース
+
+migration `0330_judgment_buffer` が、入力受付の表 `conversation_inputs` に有効期限の列 `buffer_expires_at` とその索引を追加し、行の種類を分ける CHECK に「判断バッファに入った Slack メッセージ」を加える。行は書き換えず、索引は `CONCURRENTLY` で作る。上げるときにすることはなく、Slack の動作も変わらない。
+
+- バッファがメンションのないメッセージを入れるのは、エージェントの会話層スイッチ `conversation_rollout` が `shadow`・`on` で、チャンネルが `free` で聞いているときだけである。既定値は `off` で、このリリースにはスイッチを変える API がない。
+- 入った行はメッセージの本文と投稿者の Slack id を持ち、10 分後に reconciler が行ごと消す。ログ `Judgment buffer purged` の `expired_count` が期限切れで、`unlistened_count` がもう聞かないチャンネルとして消した数である。
+- Slack でそのメッセージが削除されればすぐ消し、編集されれば入っている本文だけを新しい本文に替える。削除・編集の後に遅れて届いたメッセージは入れない。チャンネルのアーカイブ・削除、bot の退出、binding の `off`、エージェントのアーカイブでもすぐ消す。
+- サポート期間内のイメージに戻してもよい。古い reconciler はバッファの行を消さないが、スイッチを入れたことがなければバッファの行はない。
+
+<a id="지운-slack-글에-걸린-답과-턴을-막는-릴리스" />
+### 削除された Slack メッセージにかかる返信とターンを止めるリリース
+
+migration `0329_slack_outbox_voided_by_delete` が `slack_outbox` の状態に `voided_by_delete` を、その行がどのターンのものかを示す列 `sources_turn` を追加する。上げるときにすることはない。削除されたメッセージのないスレッドのメンションと返信、Web・API のセッションの動作は変わらない。
+
+- Slack で削除されたメッセージ(返信のついた親メッセージの墓標を含む)が出典にある outbox の行は、送信の直前で止まる。返信、失敗の通知、承認カード、Web の指示のミラーがすべて対象で、そのセッションの前のターンから引き継いだ出典も見る。行は状態 `voided_by_delete`、`error_code` `source_deleted` で終わり、二度と送らない。slack ロールが `warn` ログ `Slack send voided: a source was deleted` を残す。
+- 送信が始まった後に届いた削除は、すでに出たメッセージを消さない。印の確認と送信の開始は同じメッセージのロックで分かれる。
+- メッセージの編集は何も止めない。
+- 削除されたメッセージからはセッションもターンも作らない。そのメッセージのメンションと、前のメッセージが削除されたスレッドの次の投稿が対象である。Slack には案内を投稿せず、slack ロールが `warn` ログ `Slack input refused by the session`(`code` `SOURCE_DELETED`)を残す。
+- そのようなセッションに Web や API からメッセージを送ると、新たに 409 `SOURCE_DELETED` で拒否される。このリリースはセッションを止めない。
+- CHECK は `NOT VALID` で追加し別の文で検証するので、書き込みを長く止めない。サポート期間内のイメージに戻してもよい。古いイメージは `voided_by_delete` の行を読まず、送りもしない。
+
+<a id="세션-없는-호출의-예약-표를-만드는-릴리스" />
+### セッションのない呼び出しの予約表を作るリリース
+
+migration `0328_conversation_calls` が、セッションのない provider 呼び出し(会話呼び出し)の表 `conversation_calls` を追加する。このリリースには会話呼び出しを出す経路がないので、表は空のままである。上げるときにすることはない。
+
+- 会話呼び出しは、トークンを出す前に、誰の依頼か(root)で選んだ予算口座にその呼び出しの最大コストを予約する。最大コストは、リクエスト本文のバイト上限を入力トークン、`max_tokens` を出力トークンとして数える。口座に収まらなければ、トークンも表の行も作られない。
+- トークンはハッシュだけを保存し、egress proxy を通る Messages 呼び出し一回に結び付く。その呼び出しのパス、モデル、`max_tokens`、本文バイト上限を超えるリクエストは proxy が拒否する。同じトークンの二回目の呼び出しも拒否する。
+- 使われた呼び出しは proxy の使用量報告で口座に精算される。セッションの使用量(`provider_usage`)には書かない。
+- 2 分以内に使われなかったトークンの予約は reconciler が解放し、ログ `Conversation call reservations reconciled`(`released_count`)を残す。使われたのに報告が来ない呼び出しの予約は解放しない。
+- セッションのタイトル付け呼び出しと、実行中のターンがないセッションの呼び出しは、そのセッションを作った最初のターンの口座で押さえるようになる。上限のない設置では今までどおり動く。上限を入れると、超えたタイトル付け呼び出しは拒否され、最初のメッセージから切ったタイトルが残る。
+- egress proxy が provider の許可リクエストにヘッダー `x-werft-exchange-id` を付ける。前の API はこのヘッダーを無視する。会話呼び出しのトークンはこのヘッダーがあるときだけ許可されるので、api と egress proxy を一緒に上げる。
+- 表を追加するだけなので、サポート期間内のイメージに戻してもよい。
+
+<a id="채널-요약-표를-만드는-릴리스" />
+### チャンネル要約の表を作るリリース
+
+migration `0325_channel_summaries` がチャンネル要約の表を三つ(`channel_summaries`、`channel_summary_lines`、`channel_summary_line_sources`)追加する。このリリースには要約を書く経路がないので、表は空のままである。上げるときにすることはなく、Slack とセッションの動作も変わらない。
+
+- 要約はチャンネルごとに一つで、そのチャンネルのエージェントが共有する。行にはエージェントが書いた文、書いたエージェント、時刻があり、出典の行にはその行のもとになった Slack メッセージの場所(team、チャンネル、ts)、入力受付の行の id、話者(その入力の依頼者)がある。Slack メッセージの本文は保存しない。話者と出典はサーバーが入力受付の行から読む。
+- 変わるたびにバージョンが一つ上がり、古いバージョンは戻すための履歴として残る。
+- 出典のメッセージが Slack で削除または編集されると、その行を今のバージョンとすべての古いバージョンから削除し、バージョンを上げる。戻しても復活しない。
+- 要約の行が出典に持つメッセージの削除・編集の印は、70 分を過ぎても reconciler が削除しない。
+- 新しい表を作るだけなので、サポート期間内のイメージに戻してもよい。
+
+<a id="턴과-outbox-줄에-출처-집합을-적는-릴리스" />
+### ターンと outbox の行に出典の集合を記録するリリース
+
+migration `0324_source_sets` が `turns` と `slack_outbox` に出典の集合の列 `sources`(jsonb、nullable)を追加し、それぞれに GIN インデックス(`turns_sources_idx`、`slack_outbox_sources_idx`)を作る。上げるときにすることはなく、Slack のメンションへの返答と Web・API のセッションの動作も変わらない。
+
+- 出典の集合は、そのターンがどの Slack メッセージから来たかを、メッセージの場所(team、チャンネル、ts)と入力受付の行の id だけで記録する。本文は含まない。そのターンの入力は直接の出典(`direct`)、同じセッションの前のターンが来たメッセージは引き継いだ出典(`inherited`)として分けて記録する。
+- Slack メッセージから生まれたターンは、そのメッセージを直接の出典に持つ。同じセッションの後のターン(続きのターン、push の後続ターン、Web・API から送った指示)は前のターンの出典を引き継ぐ。Slack と関係のない Web・API セッションのターンは空になる。
+- ターンの返答、失敗の通知、承認カード、Web の指示のミラー、送信を確認できなかったという通知の行は、そのターンの出典をそのまま受け取る。ほかの通知の行は空になる。
+- 一つの集合は 256 件まで記録する。超えると先のものから残し、`overflow` を付ける。
+- 出典の集合に入ったメッセージの削除・編集の印(`deleted_sources`・`edited_sources`)は、70 分を過ぎても reconciler が削除しない。
+- このリリースは出典を記録するだけである。削除された出典を理由に返答を止めたりセッションを止めたりする動作はまだない。
+- 列はデフォルトなしで追加し、インデックスは `CONCURRENTLY` で作るので、表を書き直さず書き込みを長く止めない。既存のターンと行は空のまま残る。サポート期間内のイメージに戻してもよい。古いイメージは列を読まず、その間に作ったターンは出典なしで生まれる。
+
+<a id="slack-스레드의-게시-설정을-칸-셋으로-나눈-릴리스" />
+### Slack スレッドの投稿設定を三つの列に分けたリリース
+
+migration `0326_link_posting` が `session_links` に投稿の列を三つ、チャンネル binding に `report_mode` の既定値を加える。スレッドに何が投稿されるかは、`visibility` ではなくこれらの列で決まる。アップグレード時の作業はなく、Slack に投稿されるメッセージの種類と回数は変わらない。
+
+- `report_mode`(nullable)は回答・失敗・push と PR の結果通知を、`mirror_instructions` は Web・API から送った指示をスレッドに映すことを、`post_prompts` は承認カードと質問を決める。link の `report_mode` が空なら、そのチャンネル binding の値を使う。binding の既定値は `per_step`(今と同じくターンごとに投稿)だ。
+- `visibility = 'full'` の link はそのままにする。新しい列の既定値が `full` と同じ意味になる。`summary` の link は、api の起動ごとに走る整理が `report_mode = 'none'`、残り二つを `false` にまとめて移す(今と同じく何も投稿しない)。移す前でも outbox は `summary` の link に何も投稿しない。移した数はログ `Summary session links moved` に残る。このリリースまで `summary` の link を作る経路はなかったので、ふつうは 0 だ。
+- `none` は移した link にだけある値だ。binding の CHECK は `notify_only`・`progress`・`per_step` だけを受け付ける。このリリースには三つの列を変える画面・API はない。
+- `session_links` の CHECK は `NOT VALID` で加えてから別に検証するので、書き込みを長く止めない。`visibility` 列は後のリリースが削除するまで残る。
+- サポート期間内のイメージに戻してもよい。古いイメージは `visibility` だけを読み、新しいイメージが作った link も `visibility` が `full` なので今と同じく投稿する。
+
+<a id="slack-글을-입력-접수-표에-적는-릴리스" />
+### Slack の投稿を入力受付の表に記録するリリース
+
+migration `0316_conversation_inputs` が入力受付の表 `conversation_inputs` を追加する。slack ロールはメンション・DM・紐づいたスレッドの投稿をこれまでどおりセッションのターンにし、inbox の行を処理済みにする同じ transaction で、その投稿を受付の行一つとして記録する。0310 が作った `conversations`・`conversation_topics` もこのリリースから埋める。上げるときにすることはなく、Slack とセッションの動作も変わらない。
+
+- 受付の行には投稿の場所(team、チャンネル、ts)、話題(スレッド)の中の番号、依頼者(Werft のユーザー id、許可したボットならそのボットの Slack ユーザー id)、その投稿がなったターンだけが残る。本文は残らない。
+- 一つの投稿が `message` と `app_mention` の二つのイベントで届いても、Slack が同じイベントを送り直しても、エージェントごとに一行になる。ターンにならなかった投稿(拒否、無視)は記録しない。
+- 番号はサーバーが受け付けた順になる。遅れて届いたイベントは、Slack の ts が先でも後の番号を受ける。
+- 受付の行がある投稿の削除・編集の印(`deleted_sources`・`edited_sources`)は、70 分が過ぎても reconciler が消さない。
+- サポート期間内のイメージに戻すと、その間の投稿は受付の行なしで、これまでどおりターンだけができる。
+
+<a id="웹-입력-칸을-입력-접수-표에-더하는-릴리스" />
+### Web 入力の列を入力受付の表に追加するリリース
+
+migration `0319_web_inputs` が入力受付の表 `conversation_inputs` に Web 入力の列三つ(`client_message_id`、`body`、`slack_mirror`)を追加し、`turn_id` を空にできるようにする。Web から届いた入力をサーバーが受け取った時点で入力 id・話題・依頼者・番号を決めて記録する受付サービスも入るが、このリリースにはそのサービスを呼ぶ route がない。上げるときにすることはなく、Web コンソールと Slack の動作も変わらない。
+
+- Web 入力の行は本文を持ち、ターンになる前に受け付けるので `turn_id` が空のことがある。Slack の受付の行はこれまでどおり本文なしでターンを指す。CHECK `conversation_inputs_origin_check` が両者を分ける。
+- 同じ人が同じエージェントに同じ `client_message_id` で送り直すと、前の受付結果が返る。同じキーで本文が違えば拒否する。
+- インデックスは `CONCURRENTLY` で作り、CHECK は `NOT VALID` で追加してから別に検証するので、書き込みを長く止めない。既存の行はすべて Slack の受付の行なので検証を通る。
+- サポート期間内のイメージに戻してもよい。古いイメージは新しい列を読まず、Slack の受付の行をこれまでどおり記録する。
+
+<a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
+### ターンに依頼者の認証の根拠を残すリリース
+
+migration `0315_turn_requester_auth` が `turns.requester_auth`(jsonb)と `tool_call_audits.requester_kind`・`requester_id`(text)を加える。三つとも nullable で、既定値・インデックス・backfill がないため、表を書き直さない。上げるときにすることはない。
+
+- このリリースから、新しいターンに依頼者が入ってきた資格が残る。コンソールのログインセッション id、個人 key の id、エージェント key のエージェント、Slack のインストールと連携アカウントである。key の秘密、cookie、Slack のユーザー id は入れない。
+- 古いターンは直さない。ターン読み取り API の `requester` が null、または `auth_method` が null に見える。`tool_call_audits` の二つの列はこのリリースでは空のままである。
+- サポート期間内のイメージに戻すと、新しい列は読みも書きもしない。そのイメージが入れたターンは根拠が空になるだけである。
+
+<a id="대화-층의-빈-표-셋을-더한-릴리스" />
+### 会話層の空の表を三つ追加したリリース
+
+migration `0310_conversation_scopes` が `channel_contexts`(チャンネルの単位)・`conversations`(エージェントのメイン会話)・`conversation_topics`(会話の話題)の表を空のまま作る。このリリースのコードはまだこれらの表を読み書きしないので、上げるときにすることはなく、Slack とセッションの動作も変わらない。
+
+- サポート期間内のイメージに戻しても影響はない。古いコードはこれらの表を知らない。
+
+<a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
+### 処理した Slack イベントの原文を消すリリース
+
+migration `0308_slack_inbound_payload_check` が `slack_inbound_events` の CHECK を変える。処理を終えた行と失敗した行は原文(`payload`)がなくてもよくなる。このリリースの slack ロールは処理を終えると原文を消し、reconciler は受け取ってから 7 日を過ぎた失敗行の原文を消す。保持期間は[データごとの保持](/run-server/self-hosting/reference/storage#데이터별-보존)にある。
+
+- 新しい CHECK は古い CHECK より緩い。原文を残す前の slack ロールの書き込みも受け付けるので、サポート期間内のイメージに戻してもよい。
+- 原文を消した行が一つでもできると、古い CHECK(`slack_inbound_events_dropped_check`)は戻せない。スキーマを 0308 より下げない。消した原文は戻らない。
+
+<a id="사람에게-바로-가는-slack-글을-막는-릴리스" />
+### 人に直接届く Slack 投稿を止めるリリース
+
+migration `0309_slack_outbox_channel` が `slack_outbox` に CHECK `slack_outbox_channel_check` を加える。Slack のユーザー id(`U…`、Enterprise Grid では `W…`)を channel に持つ行は、モデルの案内(`model_notice`)だけが入れられる。エージェントが人との DM を先に開かないための防御である。これまでどのリリースもそのような行を書いていないので、通常はすることはない。
+
+- そのような行が残っていると、migrate のログ `db.migrate.notice` にその数が残り(`0309: … slack_outbox rows name a Slack user as their channel`)、migrate は `VALIDATE CONSTRAINT` で止まる。そのときも制約は `NOT VALID` のまま残り、新しい行を拒む。上げる前に次のクエリで確かめられる。
+
+```sql
+SELECT kind, status, count(*) FROM slack_outbox
+WHERE channel_id ~ '^[UW]' AND kind <> 'model_notice'
+GROUP BY 1, 2;
+```
+
+- 見つかった行は送ってはならない行である。削除してから migrate をもう一度実行する。どの文も再実行してよい。
+- 送る側もそのような行を Slack に送らず、`failed`(`error_code` `user_channel`)で終える。
+- 以前のイメージもそのような行を書かないので、制約を残したまま戻してもよい。
+
+<a id="호출을-턴의-예산-계정에-매기는-릴리스" />
+### 呼び出しをターンの予算アカウントに課金するリリース
+
+このリリースから、provider 呼び出しの open はセッション上限と一緒に予算アカウントでもその呼び出しを押さえる。アカウントは、実行中のターンが誰の依頼か(root)で選ぶ。migration `0322_budget_root_slack_bot` は台帳の root の種類に `slack_bot` を加える(`provider_exchanges.budget_root_kind` と `budget_reservations.root_kind` の CHECK を置き換える)。することはない。
+
+- 上限を決めていないインストール(`budget_limits` の行がない)では、人・キー・Slack ボットのターンはこれまでどおり動く。台帳には呼び出しごとに root の種類とアカウントが残る。誰も頼んでいないエージェント自身の仕事(root `none`)は上限がなければ拒否されるが、このリリースにはそのようなターンを作る経路はない(push のフォローアップターンは前のターンの依頼者を引き継ぐ)。
+- アカウントの選び方: 人のターンと、その後の継続ターン・push のフォローアップターンはその人のアカウント(`user`)だ。個人キーのターンはキーを作った人のアカウント(`key`)、人のいないキーのターンはエージェントを管理するチームのアカウント(`key`)、許可した Slack ボットのターンもそのチームのアカウント(`slack_bot`)だ。チームがアーカイブされていれば、アカウントなしで root の種類だけが残る。
+- 依頼者を読めないターン(依頼者の記録がない古いターンなど)、セッションのタイトル付けの呼び出し、実行中のターンがない呼び出し(ターンの間など)、ワークスペースのないセッションはアカウントを押さえず、セッション上限だけを見る。これまでと同じだ。
+- `budget_limits` に上限を入れると、そのアカウントで超える呼び出しはセッション上限を超えたときと同じ `BUDGET_EXCEEDED` で拒否される。アカウントが拒否したターンは provider のエラーで終わり(Claude Code エンジンでは `api_error`)、セッションの注意表示(`BUDGET_EXCEEDED`)はセッション上限にだけ出る。アカウントの拒否かどうかは下のログの `turn_id` でつなぐ。このリリースには上限を決める画面も API もない。
+- 拒否された open ごとに API は `info` ログ `Provider exchange refused for the budget` を残す。項目は `session_id`、`attempt_id`、`turn_id`(実行中のターン)、`refused_by`(`session` か `account`)、`budget_root_kind`、`budget_account_id` だ。
+- CHECK は値を広げるだけなので、サポート期間内のイメージに戻してもよい。すでに開いている呼び出しは、最初の open が選んだアカウント(またはセッション上限だけ)で終わる。
+- タイトル付けの呼び出しは、egress proxy が open にヘッダーで知らせる。api だけがこのリリースで egress proxy が以前のリリースのあいだは、タイトル付けの呼び出しも実行中のターンのアカウントで押さえられる。上限を決めていないインストールでは違いはなく、二つを一緒に上げればよい。
+
+<a id="원장에-예산-계정-칸을-더하는-릴리스" />
+### 台帳に予算アカウントの列を加えるリリース
+
+migration `0318_provider_exchange_budget` が provider 呼び出しの台帳 `provider_exchanges` に nullable の列を二つ加える。`budget_root_kind`(その呼び出しを課金した root の種類 `user`・`key`・`none`)と `budget_account_id`(その呼び出しを一緒に押さえた予算アカウント)だ。することはない。
+
+- このリリースではどの呼び出しもアカウントを渡さないので、二つの列は空のままで、セッションのコスト上限とトークン上限はこれまでどおり動く。台帳がアカウントとセッション上限を一度に押さえるコードは入るが、呼び出し経路につなぐのは後のリリースだ。
+- 列を加えるだけなので、サポート期間内のイメージに戻してもよい。
+
+<a id="예산-계정-표를-더하는-릴리스" />
+### 予算アカウントの表を加えるリリース
+
+migration `0314_budget_accounts` が空の表を三つ作る。`budget_limits`(組織全体の一人あたりの既定の上限、人ごとの上限、エージェントチームの上限)、`budget_accounts`(人・チームのアカウントが月ごとに使った分と予約した分。月は UTC で区切る)、`budget_reservations`(呼び出しごとの予約と精算の記録)だ。することはない。
+
+- このリリースでは、どの呼び出しもこれらの表を読み書きしない。セッションのコスト上限とトークン上限はこれまでどおりで、上限を決める画面・API・運用者コマンドもまだない。
+- 新しい表を作るだけなので、サポート期間内のイメージに戻してもよい。
+
+<a id="slack-글의-수정삭제-표식" />
+### Slack メッセージの編集・削除の印
+
+migration `0312_slack_source_marks` が新しいテーブル `deleted_sources` と `edited_sources` を作る。このリリースから、Slack でメッセージを削除または編集したイベント（`message_deleted`、返信のあるメッセージを削除したときに届く墓標の `message_changed`、人が編集した `message_changed`）を捨てずに、そのメッセージの場所（team、チャンネル、ts）と時刻だけを印として残す。メッセージの本文とイベントの原文はどこにも保存せず、inbox の行は原文なしで `processed` になる。特にやることはない。
+
+- 今は Werft がそのメッセージを指す記録を持たないため、すべての印は作ってから 70 分（判断バッファの 10 分と 1 時間）を過ぎると reconciler が消す。ログ `Unknown Slack source marks purged` に消した数が残る。保持期間は[データごとの保持](/run-server/self-hosting/reference/storage#데이터별-보존)にある。
+- 捨てた理由 `message_subtype` で集計していたクエリは、編集・削除イベントがなくなった分だけ数が減る。リンクのプレビューのように人が編集していない `message_changed` は今までどおり捨てる。
+- テーブルを足すだけなので、サポート期間内のイメージに戻してもよい。前のイメージはこのテーブルを使わず、編集・削除イベントをまた捨てる。
+
+<a id="slack-스레드의-옛-link-unique를-지운-릴리스" />
+### Slack スレッドの古い link unique を削除したリリース
+
+migration `0336_session_link_old_uniques` が `session_links` の古い unique 二つ(`session_links_surface_ref_key`、`session_links_session_uniq`)を削除する。残る unique は閉じていない link だけを見る二つ(`session_links_open_surface_ref_uniq`、`session_links_open_session_uniq`)だ。スレッドとセッションごとに開いた link はこれまでどおり一つだけで、閉じた link はその横に履歴として残せる。アップグレード時にすることはなく、Slack スレッドの動作も変わらない。
+
+- **`v0.3.0` 以前のイメージには戻せない。** そのイメージは Slack スレッドの link を古い unique `(installation_id, surface_ref)` を指す `ON CONFLICT` で予約するので、この migration の後はその予約がエラーで終わり、スレッドにセッションができない。予約を開いた link だけの unique に移したリリース以降のイメージには戻してもよい。それより前に戻すときは、アップグレード前のバックアップから DB を復元する。
+- `v0.3.0` から直接上げると、migrate が終わってから古い slack ロールが止まるまで、そのロールが受けたスレッドの予約が失敗する。失敗したイベントはほかの予約の失敗と同じく再試行され、新しい slack ロールが処理する。
+- 行は変更しない。制約は表を読まない一文で削除し(短くロックを取る)、インデックスは `CONCURRENTLY` で削除する。どの文も再実行してよい。
+
+<a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
+### Slack スレッドの link 履歴の列を加えたリリース
+
+migration `0313_session_link_history` が `session_links` に `closed_at`・`closed_reason` 列と、閉じていない link だけを見る部分 unique 二つ(`session_links_open_surface_ref_uniq`、`session_links_open_session_uniq`)を加え、`slack_outbox` に `session_link_id` 列を加える。このリリースのコードは新しい列をまだ読み書きしないので、することはなく動作も変わらない。既存の行はすべて閉じていない link のまま残る。
+
+- 古い unique 二つ(`session_links_surface_ref_key`、`session_links_session_uniq`)はそのまま残る。後のリリースが削除する。
+- インデックスは `CONCURRENTLY` で作り、CHECK と外部キーは `NOT VALID` で加えてから別に検証する。そのため検証とインデックスの作成のあいだ書き込みを止めない(列と制約を加えるときだけ短くロックを取る)。
+- どの文も再実行してよい。インデックスの作成が途中で切れたら migrate をもう一度実行する。残った INVALID インデックスを削除して作り直す。
+- 以前のイメージは新しい列なしで書き、古い unique で重なりを判定するので、そのまま動く。サポート期間内のイメージへ戻してもよい。
 
 <a id="mock-slack-env-이름" />
 ### mock Slack の環境変数名
@@ -278,42 +536,3 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 ```
 
 保存したキーの値は残ります。判定設定に保存した接続 id も残り、戻したビルドでは Luna ルールを判定しません。再度アップグレードした後、接続を作り直して判定設定で選びます。アップグレード前の DB バックアップから復元して戻す場合は、追加の作業はありません。
-
-<a id="worker-protocol-필드를-걷어내는-순서" />
-### worker protocol フィールドを削除する順序
-
-API 更新後も起動済み worker コンテナは以前のイメージで動き続けます。入力のない worker も `WORKER_IDLE_TIMEOUT_SEC`（既定 1800 秒）残ります。そのため worker protocol フィールドは、先に受信側がそのフィールドなしでも受け付けるよう変更し、そのリリースへの全更新後に送信側が削除します。一つのリリースで両側を同時に変えません。
-
-| フィールド | 手順 1：受信側が必須にしない | 手順 2：送信側が削除（手順 1 の更新完了後） |
-|---|---|---|
-| heartbeat 応答の `auth_revision` | worker がフィールドのない応答も受け付ける。`v0.1.0` 以降のすべてのリリースの worker イメージに入っています | `v0.1.3` の次のリリースから API が送信しません。公開された worker イメージはすべて手順 1 以降なので、確認することはありません |
-| append-events 要求の `batch_key` | `v0.1.3` の次のリリースから API がフィールドのない要求も受け付ける | worker が送信しません（まだ未実施）。その前に、デプロイ済みの control-host イメージのタグまたは digest を手順 1 のリリースノートと照合します |
-
-手順 2 を早くデプロイし過ぎると、以前の側が相手の要求・応答を契約違反で拒否します。worker は不正な heartbeat 応答を再試行不能の失敗と扱うため、最初の heartbeat で lease を失ったと判断して止まります。
-
-checkpoint manifest にフィールドを追加する場合は、逆に読み手が先です。control-host（commit 前検証・復元計画・GC）と worker（復元）はどちらも未知の key を拒否します。そのため control-host を先に、または同じリリースで更新し、その後 worker を更新します。そのフィールドを使う checkpoint ができてから worker を rollback すると、上記 `baseBundles` と同じ理由でそのセッションは復元できません。
-
-| フィールド | 先：読み手 | 後：書き手 |
-|---|---|---|
-| `workerState`（承認待ち park） | control-host・worker がこの key のある manifest を受け付ける | worker が承認待ち turn を park するときだけ書く |
-
-worker が送る worker protocol フィールドを追加する場合も API が先です。API の要求 schema は strict なので、以前の API は未知フィールドのある要求全体を 400 `BAD_REQUEST` で拒否します。
-
-| フィールド | 先にデプロイ | 以前の API に接続した新 worker |
-|---|---|---|
-| bootstrap-claim・pending-control 要求の `capabilities`、register-pending 要求の `remember_offer` | API | 互換再試行はありません。最初の要求 bootstrap-claim が 400 `BAD_REQUEST`（再試行不可）で拒否されると、worker はエラー終了し、turn を一つも実行しません。API だけ戻しても同じです。API を戻す前に、新 worker イメージを使うセッションがないことを確認します |
-
-<a id="db-스키마를-바꾸는-순서" />
-### DB schema を変更する順序
-
-migration は rollout より前に実行します。そのため新 schema 上で以前の control-host が一時動作し、以前の worker イメージもサポート期間中は動き続けます。以前のコードが読み書きする列・表は、そのコードがすべてなくなるまで残す必要があります。そのため schema 変更は三つのリリースに分け、一つのリリースで追加と削除を同時に行いません。
-
-| 段階 | 作業 | 以前のコードからの見え方 |
-|---|---|---|
-| 1. 拡張（expand） | 列・表を追加します。新列は null 許可または既定値を設定します。既定値があれば既存行でもその値が読み取れ、INSERT がその列を省略すると既定値が入ります。明示的 NULL に既定値は適用されず、null 許可列なら NULL、NOT NULL 列なら INSERT 失敗になります。そのため既存行に合う値か、以前のコードの INSERT がどう扱うかを確認して選びます | 未知の列が増えるだけで、以前のコードの書き込みはその列を省きます |
-| 2. 切り替え | 新コードが新列にも書き始めます。以前のコードが旧列へ書く間は旧列が基準です。新コードは両列に書き、旧列を読みます。旧コードの書き込みを新列へ移す仕組み（trigger など）がなければ、旧 writer がすべて消えた後に既存行を最後に backfill してから、新列の読み取りへ切り替えます | 旧列が残り、読み書きを続けられます |
-| 3. 整理（contract） | 旧列・表を削除、または NOT NULL・CHECK で制約を強化します。使用イメージがサポート範囲外になり、その worker・control-host が実際に一つも残らないと確認した次のリリースで行います。制約強化前に、既存行と現在動く全 writer が新制約を満たすか確認します | その列を使う旧コードがありません |
-
-列名変更も旧名を即座に消すため同じ順序です。新列の追加、データ移行・コード変更、旧列削除の順にします。`WORKER_IDLE_TIMEOUT_SEC` は最後の turn 後の idle 時間であり、worker 寿命の上限ではありません。稼働中 worker はそれより長く残り得るため、整理時点は時間ではなく実際に残るコンテナで判断します。
-
-例：checkpoint ポインターの runtime 組み合わせ `checkpoints.runtime_*`（migration `0196_checkpoint_runtime`）は段階 1 で、既定値なしの null 許可列だけを追加しました。それ以前の commit 済み行は null のままです。`0199_worker_image_runtime`（launch の組み合わせ、checkpoint の digest scheme、`worker_image_refusals` 表）も段階 1 です。scheme が null の checkpoint は最初の scheme（1）として読みます。

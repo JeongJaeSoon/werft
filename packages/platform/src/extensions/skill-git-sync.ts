@@ -1,10 +1,10 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   CheckSkillResponse,
   RegisterGitHubSkillRequest,
   RegisterSkillResponse,
   SkillSyncResponse,
 } from "@werft-ai/contracts";
+import { githubSignatureMatches } from "../github/index.ts";
 import type { GitHubAppCredential } from "../github/ports/github-app-store.ts";
 import {
   GitHubAppCheckError,
@@ -24,11 +24,9 @@ import {
   EXTENSION_MANAGER_ROLES,
 } from "./bundle-service.ts";
 import type { BundleInputFile, BundleIssue } from "./bundle-validator.ts";
-import type { GitVersionInput } from "./ports/extension-bundle-store.ts";
 import type {
   SkillGitSource,
   SkillGitSourceStore,
-  SkillProtectionEvidence,
   SkillSyncCheck,
   SkillSyncIssue,
   SkillSyncTrigger,
@@ -75,18 +73,13 @@ export interface GitHubSkillReader {
     commit: string,
     path: string,
   ): Promise<GitHubSkillTree>;
-  /**
-   * Whether `ref` is a branch whose rules require a pull request with an
-   * approving review, and, given `commit`, whether it came in by a merged
-   * pull request whose reviews approve it.
-   */
-  protection(
+  /** Whether `ref` names a branch, and not a tag or a commit. */
+  isBranch(
     app: AppKey,
     installationId: number,
     repositoryId: number,
     ref: string,
-    commit: string | null,
-  ): Promise<SkillProtectionEvidence>;
+  ): Promise<boolean>;
 }
 
 /** A connection that may receive webhooks, with its stored secret. */
@@ -143,18 +136,6 @@ const unavailable = (error: unknown) =>
     { reason_code: githubUnavailableOf(error) },
   );
 
-/** `sha256=<hex>` of the body under `secret`, compared in constant time. */
-export function githubSignatureMatches(
-  secret: string,
-  body: Uint8Array,
-  header: string,
-): boolean {
-  const sent = /^sha256=([0-9a-f]{64})$/.exec(header)?.[1];
-  if (sent === undefined) return false;
-  const expected = createHmac("sha256", secret).update(body).digest();
-  return timingSafeEqual(expected, Buffer.from(sent, "hex"));
-}
-
 const asNumber = (value: unknown): number | null =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0
     ? value
@@ -201,8 +182,7 @@ export function skillGitSourceView(
     webhook,
     auto_approve: {
       state: source.autoApprove.state,
-      requested_by: source.autoApprove.requestedBy,
-      consented_by: source.autoApprove.consentedBy,
+      enabled_by: source.autoApprove.enabledBy,
     },
     last_check:
       check === null
@@ -224,15 +204,7 @@ export function skillGitSourceView(
                 : {
                     result: check.autoApproval.result,
                     reason: check.autoApproval.reason,
-                    rule:
-                      check.autoApproval.rule === null
-                        ? null
-                        : {
-                            kind: check.autoApproval.rule.kind,
-                            required_reviews:
-                              check.autoApproval.rule.requiredReviews,
-                          },
-                    pull_request: check.autoApproval.pullRequest,
+                    checks: check.autoApproval.checks,
                   },
           },
   };
@@ -269,26 +241,6 @@ export function createSkillGitSync(
         (app) => app.id === source.connectionId,
       ) ?? null
     );
-  }
-
-  /** The auto-approve conditions on GitHub; a GitHub failure fails them. */
-  async function protectionOf(
-    app: GitHubAppCredential,
-    source: SkillGitSource,
-    commit: string | null,
-  ): Promise<SkillProtectionEvidence> {
-    try {
-      return await reader.protection(
-        app,
-        source.installationId,
-        source.repositoryId,
-        source.ref,
-        commit,
-      );
-    } catch (error) {
-      if (!(error instanceof GitHubAppCheckError)) throw error;
-      return { met: false, reason: "github_unreachable" };
-    }
   }
 
   /** One run of the check; records its outcome, throws only off GitHub. */
@@ -353,20 +305,15 @@ export function createSkillGitSync(
     }
     if (tree.kind === "missing") return record("source_missing", commit);
     if (tree.kind === "refused") return record("rejected", commit, tree.issues);
-    // Read only while auto-approve is on; the write reads the settings
-    // again under the source row's lock before it approves anything.
-    let protection: GitVersionInput["protection"];
+    // The write reads the settings again under the source row's lock
+    // before it approves anything.
     const grantId = source.autoApprove.grantId;
-    if (
+    const auto =
       source.autoApprove.state === "on" &&
       source.syncEnabled &&
       grantId !== null
-    ) {
-      protection = {
-        grantId,
-        evidence: await protectionOf(app, source, commit),
-      };
-    }
+        ? { grantId }
+        : undefined;
     const result = await deps.bundles.register({
       principal: { ownerId: workspaceId },
       slug: name,
@@ -383,7 +330,7 @@ export function createSkillGitSync(
         },
         trigger,
         checkedAt: at,
-        ...(protection === undefined ? {} : { protection }),
+        ...(auto === undefined ? {} : { auto }),
         leaseToken: token,
       },
     });
@@ -743,12 +690,14 @@ export function createSkillGitSync(
             name,
             git: await sourceView(result.source),
             receipt_id: null,
+            check: null,
           };
         case "updated": {
           let source = result.source;
+          let ran: Awaited<ReturnType<typeof check>> | null = null;
           if (enabled) {
             // Turning sync back on checks once, right away.
-            await check(caller.ownerId, name, {
+            ran = await check(caller.ownerId, name, {
               kind: "resume",
               deliveryId: null,
               userId,
@@ -759,39 +708,46 @@ export function createSkillGitSync(
             name,
             git: await sourceView(source),
             receipt_id: result.receiptId,
+            check: ran === "not_found" ? null : ran,
           };
         }
       }
     },
 
     /**
-     * Protected-branch auto-approve: a
-     * request and a consent each check the branch and its rule on GitHub
-     * first, and neither passes while they fail; turning it off needs none.
+     * Auto-approve: one manager turns it on or off. Turning it on reads
+     * GitHub first for whether the ref is a branch, and then checks once,
+     * so a version already waiting is judged too.
      */
     async setAutoApprove(
       caller: Caller,
       name: string,
-      action: "request" | "consent" | "off",
+      action: "on" | "off",
     ): Promise<SkillSyncResponse> {
-      await manager(caller);
-      if (action !== "off") {
+      const userId = await manager(caller);
+      if (action === "on") {
         const source = await sources.get(caller.ownerId, name);
         if (source === null) throw NOT_FOUND();
         const app = await credentialOf(source);
         if (app === null) {
           throw unavailable(new GitHubAppCheckError("github_rejected"));
         }
-        const conditions = await protectionOf(app, source, null);
-        if (!conditions.met) {
-          if (conditions.reason === "github_unreachable") {
-            throw unavailable(new GitHubAppCheckError("github_unreachable"));
-          }
+        let branch: boolean;
+        try {
+          branch = await reader.isBranch(
+            app,
+            source.installationId,
+            source.repositoryId,
+            source.ref,
+          );
+        } catch (error) {
+          if (!(error instanceof GitHubAppCheckError)) throw error;
+          throw unavailable(error);
+        }
+        if (!branch) {
           throw refused(
-            conditions.reason,
-            conditions.reason === "not_branch"
-              ? "Auto-approve is for a branch; a tag or a commit is never auto-approved"
-              : "No rule on the branch requires a pull request with an approving review",
+            "not_branch",
+            "Auto-approve is for a branch; a tag or a commit is never auto-approved",
           );
         }
       }
@@ -810,30 +766,32 @@ export function createSkillGitSync(
           throw ACTOR_INACTIVE();
         case "outranked":
           throw OUTRANKED();
-        case "self_consent":
-          throw new SessionServiceError(
-            "FORBIDDEN",
-            "Another workspace manager consents to the auto-approve you requested",
-            undefined,
-            { reason_code: "self_consent" },
-          );
-        case "not_requested":
-          throw refused(
-            "auto_approve_not_requested",
-            "Auto-approve is consented to once another manager requested it",
-          );
         case "unchanged":
           return {
             name,
             git: await sourceView(result.source),
             receipt_id: null,
+            check: null,
           };
-        case "updated":
+        case "updated": {
+          let source = result.source;
+          let ran: Awaited<ReturnType<typeof check>> | null = null;
+          // Paused sync approves nothing; its resume checks instead.
+          if (action === "on" && source.syncEnabled) {
+            ran = await check(caller.ownerId, name, {
+              kind: "auto_approve",
+              deliveryId: null,
+              userId,
+            });
+            source = (await sources.get(caller.ownerId, name)) ?? source;
+          }
           return {
             name,
-            git: await sourceView(result.source),
+            git: await sourceView(source),
             receipt_id: result.receiptId,
+            check: ran === "not_found" ? null : ran,
           };
+        }
       }
     },
   };

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, open, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { digestParts } from "@werft-ai/runtime-codec-kit";
@@ -6,6 +5,7 @@ import {
   type CheckpointObjectStore,
   type CheckpointTranscripts,
   type ObjectRef,
+  sha256Hex,
   TRANSCRIPT_LIMITS,
   type TranscriptCapture,
   type TranscriptLimits,
@@ -28,10 +28,6 @@ export const ROLLOUT_PART_BYTES = 4 * 1024 * 1024;
 
 const ROLLOUT_DIRECTORY = "rollout";
 const RELATIVE_PATH = /^\d{4}\/\d{2}\/\d{2}\/rollout-[0-9A-Za-z-]+\.jsonl$/;
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
 
 /**
  * The transcript of a Codex thread is its rollout file, kept as the bytes the
@@ -218,7 +214,7 @@ export class CodexRolloutStore implements TranscriptStore, TranscriptCapture {
   }
 
   async #store(body: Uint8Array, relativePath: string): Promise<ObjectRef> {
-    const digest = sha256(body);
+    const digest = sha256Hex(body);
     const known = this.#known.get(`${body.byteLength}:${digest}`);
     if (known !== undefined) return known;
     const key = `${this.#prefix}/${ROLLOUT_DIRECTORY}/${relativePath}/${digest}`;
@@ -269,7 +265,7 @@ export class CodexRolloutStore implements TranscriptStore, TranscriptCapture {
     const body = await this.#objects.get(part.key, part.version);
     if (body === undefined)
       throw new Error(`Transcript part ${part.key} is gone`);
-    if (body.byteLength !== part.bytes || sha256(body) !== part.sha256) {
+    if (body.byteLength !== part.bytes || sha256Hex(body) !== part.sha256) {
       throw new Error(
         `Transcript part ${part.key} does not match what was pinned`,
       );

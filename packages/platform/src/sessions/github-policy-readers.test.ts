@@ -5,6 +5,7 @@ import {
   GITHUB_FEATURES_NONE,
   GITHUB_POLICY_CLOSED,
   newSessionGitHubPolicy,
+  pushDecisionOf,
   type RepositoryCeiling,
   startRepositoryOf,
 } from "@werft-ai/contracts";
@@ -94,8 +95,12 @@ describe("with no settings row, every reader answers as before", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
-      pushAttached: "ask",
+      // Nobody chose to be asked: a push goes without a person.
+      pushAttached: "allow",
     });
+    expect(pushDecisionOf(newSessionGitHubPolicy(null, undefined))).toBe(
+      "allow",
+    );
     expect(newSessionGitHubPolicy(null, SETTINGS)).toMatchObject({
       source: "release",
       settings: SETTINGS,

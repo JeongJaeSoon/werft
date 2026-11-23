@@ -1072,6 +1072,22 @@ test("a container started under another inode limit, or before one, is stale", (
   ).toBe(isolationStampFor(base));
 });
 
+// Every running container carries one of these; a different value marks them
+// all stale at once.
+test("the isolation stamps of this config are pinned", () => {
+  const base = configFor("unix:///fake.sock");
+  const got = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+  expect([
+    isolationStampFor(base),
+    legacyIsolationStampFor(base, got),
+    legacyIsolationStampFor(base, null),
+  ]).toEqual([
+    "7:fb5e57a1b912665c",
+    "7:fffbdeddc7b2ee40",
+    "7:9a3522d0af15ca6a",
+  ]);
+});
+
 test("the isolation stamp leaves the worker limits to the launch", () => {
   const base = configFor("unix:///fake.sock");
   const limited = {
@@ -1795,14 +1811,23 @@ describe("LocalDockerBackend.inspect", () => {
   });
 
   test("a replacement is refused while the workspace cannot be reused", async () => {
-    // The volume an implicit `Mounts` create left behind on the old contract.
-    // The scheduler asks this before the teardown, so the refusal is what
-    // keeps the running worker alive.
+    // A workspace made under another ceiling, which cannot be changed in
+    // place. The scheduler asks this before the teardown, so the refusal is
+    // what keeps the running worker alive.
     const intent = intentFor();
-    docker.addVolume(legacyWorkspaceName(intent.sessionId, "test-a"), {});
+    docker.addVolume(
+      legacyWorkspaceName(intent.sessionId, "test-a"),
+      {
+        [LABELS.installation]: "test-a",
+        [LABELS.managed]: "true",
+        [LABELS.sessionId]: intent.sessionId,
+        [VOLUME_LABELS.workspaceQuota]: "enforced:123",
+      },
+      { size: "123" },
+    );
 
     await expect(backend.assertReplaceable(intent)).rejects.toThrow(
-      "was created under quota <none>",
+      "was created under quota enforced:123",
     );
   });
 
@@ -2447,61 +2472,32 @@ describe("LocalDockerBackend worker networks", () => {
     }
   });
 
-  test("a pre-contract-6 network whose worker is gone is made again with the host kept off it", async () => {
+  test("a pre-contract-6 network whose worker is gone is refused, not made again", async () => {
     const intent = intentFor();
     const { worker } = await legacyWorker(intent);
     docker.containers.delete(worker.name);
 
-    await backend.ensureExecution(intent);
-
-    expect(networkOf(intent)).toMatchObject({
-      gateway: "",
-      options: { [GATEWAY_MODE_OPTION]: "isolated" },
-    });
-    expect(
-      docker.requests
-        .filter((r) => r.path.startsWith("/networks/"))
-        .map((r) => `${r.method} ${r.path}`),
-    ).toContain(`DELETE /networks/net-${networkNameFor(intent, "test-a")}`);
-    expect(docker.containers.size).toBe(1);
-  });
-
-  test("a pre-contract-6 network with a stranger on it is refused, not removed", async () => {
-    const intent = intentFor();
-    const { network, worker } = await legacyWorker(intent);
-    docker.containers.delete(worker.name);
-    const stranger = docker.addOther("snooper", {});
-    network.attached.set(stranger.id, { aliases: [] });
-
+    // It used to be removed and made again with the host kept off it.
     await expect(backend.ensureExecution(intent)).rejects.toThrow(
-      "still has members other than the egress proxy (snooper)",
+      "gives the host an address on it",
     );
+    expect(
+      docker.requests.some(
+        (r) => r.method === "DELETE" && r.path.startsWith("/networks/"),
+      ),
+    ).toBe(false);
     expect(networkOf(intent)?.gateway).toBe("10.9.0.1");
-    expect(network.attached.has(PROXY)).toBe(false);
-    expect(docker.containers.size).toBe(0);
   });
 
-  test("a contract-5 worker's replacement keeps its network until the teardown takes both", async () => {
+  test("a contract-5 worker's replacement is refused on the network it holds", async () => {
     const intent = intentFor();
     const { worker } = await legacyWorker(intent);
 
-    // The scheduler's order: check, tear down, create.
-    await backend.assertReplaceable(intent);
-    expect(networkOf(intent)?.gateway).toBe("10.9.0.1");
-    expect(docker.containers.get(worker.name)?.id).toBe(worker.id);
-    await backend.terminate(intent);
-    expect(networkOf(intent)).toBeUndefined();
-    await backend.ensureExecution(intent);
-
-    expect(networkOf(intent)).toMatchObject({
-      gateway: "",
-      options: { [GATEWAY_MODE_OPTION]: "isolated" },
-    });
-    const replaced = docker.containers.get(worker.name);
-    expect(replaced?.id).not.toBe(worker.id);
-    expect(replaced?.body.Labels[LABELS.isolation]).toBe(
-      isolationStampFor(configFor(docker.host)),
+    // It used to keep the network until the teardown took both.
+    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
+      "gives the host an address on it",
     );
+    expect(docker.containers.get(worker.name)?.id).toBe(worker.id);
   });
 
   test("a launch never lands on a pre-contract-6 network its old worker still holds", async () => {
@@ -2514,16 +2510,13 @@ describe("LocalDockerBackend worker networks", () => {
     expect(docker.containers.get(worker.name)?.id).toBe(worker.id);
   });
 
-  test("only a contract-5 worker on that very network earns it the grace", async () => {
+  test("no worker earns a network that gives the host an address any grace", async () => {
     for (const setUp of [
-      // Newer than 5 but on a network without the mode: not how this host
-      // made it.
+      async (intent: LaunchIntent) => legacyWorker(intent),
       async (intent: LaunchIntent) =>
         legacyWorker(intent, "6:0000000000000000"),
-      // Older than 5 belongs on the shared network, handled apart.
       async (intent: LaunchIntent) =>
         legacyWorker(intent, "4:0000000000000000"),
-      // A contract-5 worker, but attached to another network than this one.
       async (intent: LaunchIntent) => {
         const made = await legacyWorker(intent);
         made.worker.body.HostConfig.NetworkMode = "net-elsewhere";
@@ -2537,24 +2530,6 @@ describe("LocalDockerBackend worker networks", () => {
       await expect(backend.assertReplaceable(intent)).rejects.toThrow(
         "gives the host an address on it",
       );
-    }
-  });
-
-  test("an endpoint without this network's id earns the grace only before the worker ever ran", async () => {
-    for (const [status, allowed] of [
-      ["created", true],
-      ["running", false],
-      ["exited", false],
-    ] as const) {
-      docker.networks.clear();
-      docker.containers.clear();
-      const intent = intentFor();
-      const { worker } = await legacyWorker(intent);
-      worker.status = status;
-      docker.nameOnlyEndpoints.add(worker.id);
-      const attempt = backend.assertReplaceable(intent);
-      if (allowed) await expect(attempt).resolves.toBeUndefined();
-      else await expect(attempt).rejects.toThrow("gives the host an address");
     }
   });
 
@@ -2716,34 +2691,8 @@ describe("LocalDockerBackend worker networks", () => {
     );
   });
 
-  test("a refused replacement takes a pre-contract-5 worker off the shared network", async () => {
+  test("a refused replacement leaves a pre-contract-5 worker on its networks", async () => {
     const intent = intentFor();
-    const body = await createBodyOf(intent);
-    docker.addNetwork("werft-worker");
-    body.HostConfig.NetworkMode = "werft-worker";
-    body.Labels[LABELS.isolation] = "4:0000000000000000";
-    const old = docker.add(containerNameFor(intent, "test-a"), body);
-    docker.images.delete("worker:test");
-
-    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
-      /is not on this daemon.*taken off its networks/,
-    );
-    // Still there for the next pass to replace, but reaching no one.
-    expect(docker.containers.get(old.name)?.id).toBe(old.id);
-    expect(
-      docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
-    ).toEqual({});
-  });
-
-  test("a refused replacement leaves a claimed pre-contract-5 worker connected", async () => {
-    // The scheduler tears a claimed one down itself; cutting it off here
-    // would only race that.
-    const intent = intentFor({
-      bootstrapCredentialState: async () => ({
-        claimed: true,
-        fingerprint: fingerprintOf("nonce-abc"),
-      }),
-    });
     const body = await createBodyOf(intent);
     docker.addNetwork("werft-worker");
     body.HostConfig.NetworkMode = "werft-worker";
@@ -2753,59 +2702,13 @@ describe("LocalDockerBackend worker networks", () => {
 
     const refusal = await backend.assertReplaceable(intent).catch((e) => e);
     expect(String(refusal)).toContain("is not on this daemon");
+    // It used to be taken off the shared network.
     expect(String(refusal)).not.toContain("taken off");
     expect(
       Object.keys(
         docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
       ),
     ).toEqual(["werft-worker"]);
-  });
-
-  test("a pre-contract-5 worker that claims while being cut off gets its network back", async () => {
-    let reads = 0;
-    const intent = intentFor({
-      // Unclaimed when first asked, claimed by the time it is asked again.
-      bootstrapCredentialState: async () => {
-        reads += 1;
-        return { claimed: reads > 1, fingerprint: fingerprintOf("nonce-abc") };
-      },
-    });
-    const body = await createBodyOf(intent);
-    docker.addNetwork("werft-worker");
-    body.HostConfig.NetworkMode = "werft-worker";
-    body.Labels[LABELS.isolation] = "4:0000000000000000";
-    const old = docker.add(containerNameFor(intent, "test-a"), body);
-    docker.images.delete("worker:test");
-
-    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
-      "was claimed while being taken off its networks and was put back",
-    );
-    expect(
-      Object.keys(
-        docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
-      ),
-    ).toEqual(["werft-worker"]);
-  });
-
-  test("a claimed worker that could not be put back says so", async () => {
-    let reads = 0;
-    const intent = intentFor({
-      bootstrapCredentialState: async () => {
-        reads += 1;
-        return { claimed: reads > 1, fingerprint: fingerprintOf("nonce-abc") };
-      },
-    });
-    const body = await createBodyOf(intent);
-    docker.addNetwork("werft-worker");
-    body.HostConfig.NetworkMode = "werft-worker";
-    body.Labels[LABELS.isolation] = "4:0000000000000000";
-    docker.add(containerNameFor(intent, "test-a"), body);
-    docker.images.delete("worker:test");
-    docker.refuseConnects = true;
-
-    await expect(backend.assertReplaceable(intent)).rejects.toThrow(
-      "could NOT be put back on werft-worker",
-    );
   });
 
   test("a refused replacement leaves a worker on its own network where it is", async () => {
@@ -3039,34 +2942,6 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
       removed: [],
       repaired: [],
     });
-  });
-
-  test("a contract-5 worker's network keeps the proxy until the worker goes", async () => {
-    // A claimed worker is drained without a replacement check; the reconcile
-    // must not cut its egress first.
-    const intent = intentFor();
-    const network = docker.addNetwork(networkNameFor(intent, "test-a"), {
-      gateway: "10.9.0.1",
-      labels: {
-        [LABELS.executionId]: intent.executionId,
-        [LABELS.generation]: "1",
-        [LABELS.installation]: "test-a",
-        [LABELS.workerNetwork]: "true",
-      },
-      options: {},
-    });
-    network.attached.set(PROXY, { aliases: ["egress-proxy"] });
-    const body = await createBodyOf(intent);
-    body.HostConfig.NetworkMode = network.id;
-    body.Labels[LABELS.isolation] = "5:0000000000000000";
-    docker.add(containerNameFor(intent, "test-a"), body);
-
-    expect(await backend.reconcileNetworks()).toEqual({
-      failed: [],
-      removed: [],
-      repaired: [],
-    });
-    expect(network.attached.has(PROXY)).toBe(true);
   });
 
   test("a current worker's network that gives the host an address loses the proxy", async () => {
@@ -3446,14 +3321,16 @@ describe("LocalDockerBackend workspace volumes", () => {
     );
   });
 
-  test("an unlabelled volume from before the quota refuses the launch", async () => {
-    // Exactly what an implicit `Mounts` create leaves behind: no labels, no
-    // size, and no way to put one on it now.
+  test("an unlabelled volume under the old derived name is not the session's workspace", async () => {
+    // It used to be found by that name and refused for its missing ceiling.
     docker.addVolume(legacyName, {});
-    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
-      "was created under quota <none>",
-    );
-    expect(docker.containers.size).toBe(0);
+    await backend.ensureExecution(intentFor());
+    expect(
+      mountedWorkspaceOf(
+        docker.containers.values().next().value?.body as ContainerCreateBody,
+      ),
+    ).not.toBe(legacyName);
+    expect(docker.volumes.get(legacyName)?.labels).toEqual({});
   });
 
   test("a volume created under another ceiling refuses the launch", async () => {
@@ -3484,52 +3361,6 @@ describe("LocalDockerBackend workspace volumes", () => {
     );
   });
 
-  test("another installation's volume under our name refuses the launch", async () => {
-    docker.addVolume(legacyName, {
-      [LABELS.installation]: "test-b",
-      [LABELS.managed]: "true",
-      [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
-    });
-    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
-      "belongs to installation test-b",
-    );
-  });
-
-  test("the right ceiling on the wrong session's volume refuses the launch", async () => {
-    // Mounting it would hand this session someone else's working tree, and
-    // GC reads the same label, so the mislabelled volume would also outlive
-    // the session it actually belongs to.
-    docker.addVolume(
-      legacyName,
-      {
-        [LABELS.installation]: "test-a",
-        [LABELS.managed]: "true",
-        [LABELS.sessionId]: "some-other-session",
-        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
-      },
-      { size: String(QUOTA_BYTES) },
-    );
-    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
-      "is not this session's workspace",
-    );
-    expect(docker.containers.size).toBe(0);
-  });
-
-  test("a volume that is not managed refuses the launch", async () => {
-    docker.addVolume(
-      legacyName,
-      {
-        [LABELS.installation]: "test-a",
-        [LABELS.sessionId]: intentFor().sessionId,
-        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
-      },
-      { size: String(QUOTA_BYTES) },
-    );
-    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
-      "managed=<none>",
-    );
-  });
-
   test("with the quota off the volume is created without a size", async () => {
     const off = backendWith({ workspaceQuota: { mode: "off" } });
     await off.ensureExecution(intentFor());
@@ -3538,39 +3369,6 @@ describe("LocalDockerBackend workspace volumes", () => {
     );
     expect(volume?.options).toBeNull();
     expect(volume?.labels[VOLUME_LABELS.workspaceQuota]).toBe("off");
-  });
-
-  test("a labelled workspace beside the legacy one refuses the launch", async () => {
-    // An unfinished migration: the copy exists, the source was never
-    // removed, so nothing says the copy is whole.
-    docker.addVolume(legacyName, {});
-    docker.addVolume(
-      ourName,
-      {
-        [LABELS.installation]: "test-a",
-        [LABELS.managed]: "true",
-        [VOLUME_LABELS.migratedFrom]: legacyName,
-        [LABELS.sessionId]: intentFor().sessionId,
-        [VOLUME_LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
-      },
-      { size: String(QUOTA_BYTES) },
-    );
-    await expect(backend.ensureExecution(intentFor())).rejects.toThrow(
-      "finish the migration",
-    );
-    await expect(backend.assertReplaceable(intentFor())).rejects.toThrow(
-      "finish the migration",
-    );
-    expect(docker.containers.size).toBe(0);
-
-    // Once the source is gone the copy is the session's workspace.
-    docker.volumes.delete(legacyName);
-    await backend.ensureExecution(intentFor());
-    expect(
-      mountedWorkspaceOf(
-        docker.containers.values().next().value?.body as ContainerCreateBody,
-      ),
-    ).toBe(ourName);
   });
 
   test("turning the quota on over an opted-out volume refuses the launch", async () => {
@@ -3983,68 +3781,44 @@ describe("LocalDockerBackend workspace GC", () => {
   const legacySession = "0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9";
   const legacyVolume = `werft-ws-test-a-${legacySession}`;
 
-  test("lists a legacy volume by the session its name derives from", async () => {
+  test("lists only labelled volumes, not an unlabelled one under a session's old name", async () => {
     docker.addVolume(legacyVolume, {});
     docker.addVolume("werft-ws-test-a-session-1", ours);
-    // Not legacy: another installation's, a single-use name, not a uuid,
-    // or labelled for another session.
-    docker.addVolume(`werft-ws-test-b-${legacySession}`, {});
-    docker.addVolume(`werft-ws-test-a-${legacySession}-0f1e2d3c`, {});
-    docker.addVolume("werft-ws-test-a-not-a-session", {});
-    docker.addVolume(`werft-ws-test-a-${legacySession.replace("0b", "1b")}`, {
-      [LABELS.sessionId]: "someone-else",
-    });
 
-    const listed = await backend.listWorkspaces();
-
+    // The unlabelled one used to be listed by the session its name derives from.
     expect(
-      listed.map((w) => [w.id, w.sessionId, w.sessionFrom ?? "label"]).sort(),
-    ).toEqual([
-      [legacyVolume, legacySession, "name"],
-      ["werft-ws-test-a-session-1", "session-1", "label"],
-    ]);
+      (await backend.listWorkspaces()).map((w) => [w.id, w.sessionId]),
+    ).toEqual([["werft-ws-test-a-session-1", "session-1"]]);
   });
 
   test("neither side of an unfinished migration is listed for GC", async () => {
-    const copy = `werft-ws-test-a-${legacySession}-0f1e2d3c`;
-    docker.addVolume(legacyVolume, {});
-    docker.addVolume(copy, {
+    const labels = {
       [LABELS.installation]: "test-a",
       [LABELS.managed]: "true",
-      [VOLUME_LABELS.migratedFrom]: legacyVolume,
       [LABELS.sessionId]: legacySession,
-    });
+    };
+    const source = `werft-ws-test-a-${legacySession}-00000000`;
+    const copy = `werft-ws-test-a-${legacySession}-0f1e2d3c`;
+    docker.addVolume(source, labels);
+    docker.addVolume(copy, { ...labels, [VOLUME_LABELS.migratedFrom]: source });
     docker.addVolume("werft-ws-test-a-session-1", ours);
     expect((await backend.listWorkspaces()).map((w) => w.id)).toEqual([
       "werft-ws-test-a-session-1",
     ]);
 
     // Finished: the source is gone, and the copy is an ordinary workspace.
-    docker.volumes.delete(legacyVolume);
+    docker.volumes.delete(source);
     expect((await backend.listWorkspaces()).map((w) => w.id).sort()).toEqual(
       [copy, "werft-ws-test-a-session-1"].sort(),
     );
   });
 
-  test("a legacy volume is removed only for the session its name derives from", async () => {
+  test("an unlabelled volume is never removed, whatever session asks", async () => {
     docker.addVolume(legacyVolume, {});
-    // No owner: nothing proves an unlabelled volume ours.
     expect(await backend.removeWorkspace(legacyVolume)).toEqual({
       outcome: "not_ours",
     });
-    expect(
-      await backend.removeWorkspace(legacyVolume, {
-        sessionId: "11111111-2222-4333-8444-555555555555",
-      }),
-    ).toEqual({ outcome: "not_ours" });
-    expect(docker.volumes.has(legacyVolume)).toBe(true);
-    expect(
-      await backend.removeWorkspace(legacyVolume, { sessionId: legacySession }),
-    ).toEqual({ outcome: "removed" });
-  });
-
-  test("a legacy name that came to carry another installation's volume is left", async () => {
-    docker.addVolume(legacyVolume, { [LABELS.installation]: "test-b" });
+    // It used to be removed for the session its name derives from.
     expect(
       await backend.removeWorkspace(legacyVolume, { sessionId: legacySession }),
     ).toEqual({ outcome: "not_ours" });

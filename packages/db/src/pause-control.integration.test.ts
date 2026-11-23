@@ -1,11 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { type SseEvent, sessionEventVariants } from "@werft-ai/contracts";
 import {
-  type SseEvent,
-  sessionEventVariants,
-  type WorkerScope,
-} from "@werft-ai/contracts";
-import {
-  createWorkerGateway,
   type SessionCatalog,
   type WorkerGateway,
   WorkerGatewayError,
@@ -34,19 +29,22 @@ import {
   receipts,
   sessions,
   turns,
-  unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { recordEvent } from "./sessions/session-events.ts";
+import {
+  testWorkerGateway,
+  type TestWorker as Worker,
+  workerOf,
+} from "./testing/gateway.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import {
-  fixtureRelease,
-  TEST_MODEL,
-  testSessionCatalog,
-} from "./testing/spec-pins.ts";
-import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+  newPartitionedSession,
+  type PartitionedSession as Session,
+} from "./testing/sessions.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -83,20 +81,8 @@ integration("pause on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "pause_it" });
     pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
-    gateway = createWorkerGateway({
-      work: createPostgresWorkerUnitOfWork(db),
-      catalog,
-      checkpoints: {
-        async verify() {
-          return { status: "verified" };
-        },
-      },
+    gateway = testWorkerGateway(db, catalog, {
       pending: createPostgresWorkerPendingStore(db),
-      options: {
-        sessionBudget: { costUsd: 1_000, tokens: null },
-        leaseTtlMs: 60_000,
-        sleep: async () => {},
-      },
     });
   }, 60_000);
 
@@ -109,42 +95,7 @@ integration("pause on PostgreSQL", () => {
   const inputs = () => createPostgresSessionUnitOfWork(db);
   const reader = () => createPostgresSessionReader(db);
 
-  type Worker = {
-    principal: WorkerPrincipal;
-    scope: WorkerScope;
-    executionId: string;
-  };
-  type Session = { sessionId: string; ownerId: string; partition: string };
-
-  async function newSession(name: string): Promise<Session> {
-    const partition = `${name}-${crypto.randomUUID()}`;
-    const ownerId = crypto.randomUUID();
-    const accepted = await inputs().acceptInputAtomic({
-      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId },
-      idempotencyKey: crypto.randomUUID(),
-      payloadHash: crypto.randomUUID(),
-      agentReleaseId: await fixtureRelease(db),
-      model: TEST_MODEL,
-      repository: {
-        id: "sample-app",
-        url: "https://example.invalid/app.git",
-        branch: "main",
-      },
-      message: "first input",
-    });
-    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
-    const sessionId = accepted.response.session_id;
-    await db
-      .update(sessions)
-      .set({ partition })
-      .where(eq(sessions.id, sessionId));
-    await db
-      .update(unassignedSessions)
-      .set({ partition })
-      .where(eq(unassignedSessions.sessionId, sessionId));
-    return { sessionId, ownerId, partition };
-  }
+  const newSession = (name: string) => newPartitionedSession(db, name);
 
   async function claim(session: Session): Promise<Worker> {
     const { executionId, generation, nonce } = await launchSession(db, {
@@ -156,25 +107,7 @@ integration("pause on PostgreSQL", () => {
       credential: { kind: "launch_nonce", nonce },
     });
     expect(claimed.session_id).toBe(session.sessionId);
-    return {
-      principal: {
-        kind: "session",
-        attemptId: claimed.attempt_id,
-        sessionId: claimed.session_id,
-        leaseEpoch: claimed.lease_epoch,
-        executionGeneration: claimed.execution_generation,
-        authRevision: claimed.auth_revision,
-      },
-      scope: {
-        session_id: claimed.session_id,
-        turn_id: null,
-        attempt_id: claimed.attempt_id,
-        lease_epoch: claimed.lease_epoch,
-        execution_generation: claimed.execution_generation,
-        auth_revision: claimed.auth_revision,
-      },
-      executionId,
-    };
+    return workerOf(claimed, executionId);
   }
 
   async function deliver(worker: Worker): Promise<string> {

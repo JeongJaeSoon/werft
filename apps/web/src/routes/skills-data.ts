@@ -4,6 +4,8 @@ import type {
   AgentSkillList,
   PutSkillAttachmentRequest,
   Skill,
+  SkillAutoApprovalReason,
+  SkillCheckRule,
   SkillList,
   SkillVersion,
   SkillVersionFiles,
@@ -118,13 +120,38 @@ export const REVIEW_LABEL = {
   pending: "skills.review.pending",
   approved: "skills.review.approved",
   rejected: "skills.review.rejected",
+  superseded: "skills.review.superseded",
 } as const satisfies Record<SkillVersion["review"], MessageKey>;
 
 export const REVIEW_BADGE = {
   pending: "amber",
   approved: "green",
   rejected: "red",
+  superseded: "gray",
 } as const satisfies Record<SkillVersion["review"], string>;
+
+export const CHECK_RULE_LABEL = {
+  scripts_added: "skills.checks.rule.scripts_added",
+  large_change: "skills.checks.rule.large_change",
+  new_url: "skills.checks.rule.new_url",
+  hidden_unicode: "skills.checks.rule.hidden_unicode",
+  instruction_like: "skills.checks.rule.instruction_like",
+  description_changed: "skills.checks.rule.description_changed",
+} as const satisfies Record<SkillCheckRule, MessageKey>;
+
+export const CHECK_RULE_WHY = {
+  scripts_added: "skills.checks.why.scripts_added",
+  large_change: "skills.checks.why.large_change",
+  new_url: "skills.checks.why.new_url",
+  hidden_unicode: "skills.checks.why.hidden_unicode",
+  instruction_like: "skills.checks.why.instruction_like",
+  description_changed: "skills.checks.why.description_changed",
+} as const satisfies Record<SkillCheckRule, MessageKey>;
+
+export const AUTO_APPROVAL_REASON = {
+  checks_failed: "skills.sync.autoApproval.reason.checks_failed",
+  baseline_changed: "skills.sync.autoApproval.reason.baseline_changed",
+} as const satisfies Record<SkillAutoApprovalReason, MessageKey>;
 
 const REFUSALS = {
   self_review: "skills.refused.self_review",
@@ -137,6 +164,7 @@ const REFUSALS = {
   connection_not_found: "skills.refused.connection_not_found",
   repository_not_installed: "skills.refused.repository_not_installed",
   path_not_found: "skills.refused.path_not_found",
+  not_branch: "skills.refused.not_branch",
   github_unreachable: "skills.refused.github_unreachable",
   github_rejected: "skills.refused.github_rejected",
   not_approved: "skills.refused.not_approved",

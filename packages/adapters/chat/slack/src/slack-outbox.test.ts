@@ -3,6 +3,7 @@ import type { UserLocale } from "@werft-ai/contracts";
 import type {
   PushSource,
   SlackCardClaim,
+  SlackCardRendered,
   SlackCardSettleStore,
   SlackOpenPushCard,
   SlackOutboxEntry,
@@ -119,6 +120,211 @@ describe("settleSlackCards", () => {
     });
     expect(marked).toEqual(["card-3"]);
     expect(pass.due).toBe(1);
+  });
+
+  // Answer 15 (94S-2000): a private channel push whose requester left shows
+  // it; the label follows the requester out and back in.
+  describe("a push card whose requester left the private channel", () => {
+    const stalePushSource = {
+      readPushSource: async () => ({
+        status: "ready",
+        revision: 2,
+        gitCommit: "b".repeat(40),
+      }),
+    } as unknown as PushSource;
+
+    async function redraw(input: {
+      rendered: SlackCardRendered;
+      kind?: "push" | "prompt";
+      stale?: boolean;
+      left?: boolean;
+    }) {
+      const kind = input.kind ?? "push";
+      const asked: unknown[] = [];
+      const calls: unknown[] = [];
+      const batches = [
+        [
+          {
+            id: "card-1",
+            claimToken: "fence",
+            workspaceId: "w",
+            slackAppId: "A",
+            sessionId: "s",
+            channelId: "C0PRIV",
+            slackTs: "1.1",
+            dedupeKey: `${kind}:s:push-1`,
+            body: {
+              text: "push card",
+              blocks: [{ type: "section" }, { type: "actions" }],
+              locale: "ko",
+            },
+            rendered: input.rendered,
+            uncertainRev: 0,
+            uncertain: false,
+            inherited: false,
+            attempts: 0,
+          } as SlackCardClaim,
+        ],
+        [],
+      ];
+      const display =
+        kind === "push"
+          ? {
+              kind: "push",
+              state: "requested",
+              repositoryId: "repo",
+              repositoryName: "sandbox",
+              gitCommit: "a".repeat(40),
+              targetBranch: "agent/s",
+            }
+          : { kind: "question", state: "open" };
+      const store = {
+        markDue: async () => 0,
+        openPushCards: async () => [],
+        expireInflight: async () => 0,
+        claim: async () => batches.shift() ?? [],
+        card: async () => ({
+          locale: "ko",
+          linkUrl: null,
+          display,
+          ...(input.stale
+            ? { pushRevisions: { session: 2, request: 1, origin: "direct" } }
+            : {}),
+        }),
+        beginSend: async () => new Date(0),
+        finish: async (_fence: unknown, sent: { rendered: string }) => {
+          calls.push(["finish", sent.rendered]);
+          return true;
+        },
+        skip: async () => {
+          calls.push(["skip"]);
+          return true;
+        },
+      } as unknown as SlackCardSettleStore;
+      await settleSlackCards({
+        store,
+        slack: {
+          updateMessage: async (_token, edit) => {
+            calls.push(["edit", edit.blocks, edit.text]);
+          },
+        },
+        botToken: async () => "xoxb-test",
+        logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+        ...(input.stale ? { pushSource: stalePushSource } : {}),
+        ...(input.left === undefined
+          ? {}
+          : {
+              requesterLeft: async (push) => {
+                asked.push(push);
+                return input.left === true;
+              },
+            }),
+        batchSize: 1,
+        deadline: Date.now() + 60_000,
+      });
+      return { calls, asked };
+    }
+
+    const label = {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: ":information_source: 요청자가 채널을 나갔어요",
+        },
+      ],
+    };
+
+    test.each([
+      // [shown now, requester left, stale] → drawn
+      ["open", false, false, "open"],
+      ["open", true, false, "open_requester_left"],
+      ["open_requester_left", true, false, "open_requester_left"],
+      ["open_requester_left", false, false, "open"],
+      ["reject_only", true, true, "reject_only_requester_left"],
+      ["reject_only_requester_left", true, true, "reject_only_requester_left"],
+      ["reject_only_requester_left", false, true, "reject_only"],
+      ["open_requester_left", true, true, "reject_only_requester_left"],
+    ] as const)(
+      "%s, left %p, stale %p → %s",
+      async (shown, left, stale, drawn) => {
+        const { calls, asked } = await redraw({ rendered: shown, left, stale });
+        expect(asked).toEqual([
+          { workspaceId: "w", sessionId: "s", pushRequestId: "push-1" },
+        ]);
+        expect(calls.at(-1)).toEqual(
+          drawn === shown ? ["skip"] : ["finish", drawn],
+        );
+        if (drawn === shown) return;
+        const blocks = calls[0] as [string, unknown[], string];
+        const hasLabel = JSON.stringify(blocks[1]).includes(
+          "요청자가 채널을 나갔어요",
+        );
+        expect(hasLabel).toBe(drawn.endsWith("_requester_left"));
+        expect(blocks[2].includes("요청자가 채널을 나갔어요")).toBe(hasLabel);
+      },
+    );
+
+    test("the label goes above the buttons", async () => {
+      const { calls } = await redraw({ rendered: "open", left: true });
+      expect(calls[0]).toEqual([
+        "edit",
+        [{ type: "section" }, label, { type: "actions" }],
+        "push card\n요청자가 채널을 나갔어요",
+      ]);
+    });
+
+    test("as before: no requester check wired, or not a push card", async () => {
+      expect((await redraw({ rendered: "open" })).calls).toEqual([["skip"]]);
+      const prompt = await redraw({
+        rendered: "open",
+        kind: "prompt",
+        left: true,
+      });
+      expect(prompt.asked).toEqual([]);
+      expect(prompt.calls).toEqual([["skip"]]);
+    });
+
+    test("a labelled card is compared as its choice when its push goes stale", async () => {
+      const marked: string[] = [];
+      const card = (id: string, rendered: SlackOpenPushCard["rendered"]) =>
+        ({
+          id,
+          seq: Number(id),
+          sessionId: "s",
+          rendered,
+          sessionCheckpointRevision: 2,
+          checkpointRevision: 1,
+          gitCommit: "a".repeat(40),
+          origin: "direct",
+        }) satisfies SlackOpenPushCard;
+      const store = {
+        expireInflight: async () => 0,
+        markDue: async () => 0,
+        openPushCards: async ({ afterSeq }: { afterSeq: number | null }) =>
+          afterSeq === null
+            ? [
+                card("1", "reject_only_requester_left"),
+                card("2", "open_requester_left"),
+              ]
+            : [],
+        markDueById: async (id: string) => {
+          marked.push(id);
+          return true;
+        },
+        claim: async () => [],
+      } as unknown as SlackCardSettleStore;
+      await settleSlackCards({
+        store,
+        slack: { updateMessage: async () => {} },
+        botToken: async () => null,
+        logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+        pushSource: stalePushSource,
+        batchSize: 20,
+        deadline: Date.now() + 60_000,
+      });
+      expect(marked).toEqual(["2"]);
+    });
   });
 });
 

@@ -99,6 +99,8 @@ export const slackKo = {
   "slack.eventsUrl.unsent": "아직 보내지 않음",
   "slack.eventsUrl.recheck": "다시 확인",
   "slack.eventsUrl.done": "Slack이 Request URL을 확인했습니다.",
+  "slack.eventsUrl.reinstall":
+    "manifest를 Slack에 다시 보냈습니다. 앱에 새 권한이 더해져, 앱을 다시 설치해야 적용됩니다.",
   "slack.eventsUrl.sent":
     "Request URL을 Slack에 다시 보냈습니다. 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다. 확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Retry를 누르세요.",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
@@ -221,6 +223,9 @@ export const slackKo = {
   "slack.approved": "채널을 승인했습니다.",
   "slack.left": "나감",
   "slack.inactive": "비활성",
+  "slack.gone": "삭제됨",
+  "slack.goneHint":
+    "Slack에서 채널이 삭제되어 메시지를 받지도 보내지도 않습니다.",
   "slack.leftHint":
     "봇이 채널에서 나가 메시지를 받지도 보내지도 않습니다. 채널에 다시 초대하면 승인 대기로 돌아옵니다.",
   "slack.add": "연결",

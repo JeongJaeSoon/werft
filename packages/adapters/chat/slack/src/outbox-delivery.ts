@@ -1,3 +1,8 @@
+import {
+  SLACK_INPUT_MIRROR_EVENT_TYPE,
+  SLACK_USER_CHANNEL_CODE,
+  slackOutboxChannelRefused,
+} from "@werft-ai/contracts";
 import type {
   Approvable,
   DeliveryInput,
@@ -83,6 +88,11 @@ export type RowDelivery = {
 
 export type RowDeliveryDeps = {
   slack: Pick<SlackBotSender, "postMessage" | "postEphemeral" | "userImage">;
+  /**
+   * Whether a session's direct message would reach someone outside its
+   * private channels (`readerOutsideChannels`); such a row never goes out.
+   */
+  readerOutside?: (claim: SlackOutboxClaim) => Promise<boolean>;
   /** Null when the app has no readable token: the row waits, unsent. */
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   consoleOrigin: string | null;
@@ -106,13 +116,16 @@ function outcomeOf(settle: SlackOutboxSettle): DeliveryOutcome {
   }
 }
 
+/** A session's direct message held back from someone who cannot see it. */
+export const SLACK_READER_OUTSIDE_CODE = "reader_outside_channel";
+
 export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
   // An instruction goes under its sender's name and profile image. An app
   // installed before chat:write.customize may be refused the name; Slack
   // posted nothing then, so it goes once more as the app.
   // Read before begin, so a slow users.info spends no send lease.
   const senderImage = (botToken: string, claim: SlackOutboxClaim) =>
-    claim.kind !== "instruction" ||
+    (claim.kind !== "instruction" && claim.kind !== "input_mirror") ||
     claim.body.sender?.slack_user_id === undefined
       ? Promise.resolve(null)
       : deps.slack
@@ -150,8 +163,19 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
         : response;
     }
     const { sender } = presentation;
+    // A mirror's post names its request, so the post Slack sends back can.
+    const metadata =
+      claim.kind === "input_mirror" && claim.correlationId != null
+        ? {
+            metadata: {
+              event_type: SLACK_INPUT_MIRROR_EVENT_TYPE,
+              event_payload: { correlation_id: claim.correlationId },
+            },
+          }
+        : {};
     const response = await deps.slack.postMessage(botToken, {
       ...target,
+      ...metadata,
       username: sender.username,
       ...(iconUrl === null ? {} : { iconUrl }),
     });
@@ -164,6 +188,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     // before the name left the text has it there already.
     return deps.slack.postMessage(botToken, {
       ...target,
+      ...metadata,
       text: slackInstructionFallbackText(claim.body, text, sender.username),
     });
   };
@@ -172,6 +197,17 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     input: DeliveryInput<SlackOutboxClaim>,
   ): Promise<DeliveryOutcome> => {
     const { row: claim, attempts } = input;
+    // Before the token and any Slack call: such a row never goes out.
+    if (slackOutboxChannelRefused(claim.kind, claim.channelId)) {
+      return { kind: "failed", code: SLACK_USER_CHANNEL_CODE };
+    }
+    if (
+      claim.kind === "model_notice" &&
+      claim.sessionId !== null &&
+      (await deps.readerOutside?.(claim))
+    ) {
+      return { kind: "failed", code: SLACK_READER_OUTSIDE_CODE };
+    }
     let botToken: string | null;
     try {
       botToken = await deps.botToken(claim.workspaceId, claim.slackAppId);

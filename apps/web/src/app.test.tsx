@@ -20,11 +20,17 @@ const { WerftProvider } = await import("@werft-ai/react");
 
 type Routes = Parameters<typeof fakeApi>[0];
 
-function renderAt(path: string, routes: Routes, locale: "ko" | "en" = "ko") {
+function renderAt(
+  path: string,
+  routes: Routes,
+  locale: "ko" | "en" = "ko",
+  readRetryDelaysMs: readonly number[] = [],
+) {
   const api = fakeApi(routes);
   const services = createServices({
     baseUrl: "https://console.test",
     fetch: api.fetch,
+    readRetryDelaysMs,
   });
   const history = createMemoryHistory({ initialEntries: [path] });
   render(<App services={services} history={history} locale={locale} />);
@@ -152,6 +158,79 @@ describe("workspace shell", () => {
     expect(logout?.headers.get("x-requested-with")).toBe("werft-web");
     expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
   });
+  describe("게이트웨이 실패", () => {
+    const gateway = () =>
+      new Response("<html>502 Bad Gateway</html>", {
+        status: 502,
+        headers: { "content-type": "text/html" },
+      });
+    const retrying = [1, 1, 1];
+
+    test("읽기가 502를 받으면 저절로 다시 물어 화면을 채운다", async () => {
+      let failures = 2;
+      const { api } = renderAt(
+        "/",
+        {
+          ...meOk,
+          "GET /v1/auth/me": () =>
+            failures-- > 0 ? gateway() : json(200, me()),
+        },
+        "ko",
+        retrying,
+      );
+      expect(
+        await screen.findByRole("button", {
+          name: "Owner owner@example.com · 오너",
+        }),
+      ).toBeDefined();
+      expect(callsTo(api.calls, "/v1/auth/me").length).toBe(3);
+    });
+
+    test("다시 물어도 502면 잠시 뒤 다시 시도하라고 말한다", async () => {
+      const { api } = renderAt(
+        "/",
+        { ...meOk, "GET /v1/sessions": gateway },
+        "ko",
+        retrying,
+      );
+      expect(
+        (
+          await screen.findAllByText(
+            /서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요/,
+          )
+        ).length,
+      ).toBeGreaterThan(0);
+      // Home reads several lists of sessions; each is asked exactly so often.
+      const perList = new Map<string, number>();
+      for (const { search } of callsTo(api.calls, "/v1/sessions"))
+        perList.set(search, (perList.get(search) ?? 0) + 1);
+      expect(perList.size).toBeGreaterThan(0);
+      for (const count of perList.values())
+        expect(count).toBe(retrying.length + 1);
+    });
+
+    test("502를 받은 로그아웃은 다시 보내지 않는다", async () => {
+      const { api, history } = renderAt(
+        "/",
+        { ...meOk, "POST /v1/auth/logout": gateway },
+        "ko",
+        retrying,
+      );
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", {
+          name: "Owner owner@example.com · 오너",
+        }),
+      );
+      await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
+      expect((await screen.findByRole("alert")).textContent).toContain(
+        "로그아웃하지 못해 아직 로그인된 상태입니다.",
+      );
+      expect(callsTo(api.calls, "/v1/auth/logout").length).toBe(1);
+      expect(history.location.pathname).toBe("/");
+    });
+  });
+
   test("로그아웃이 실패하면 로그인된 채로 남고 그렇게 말한다", async () => {
     const { history } = renderAt("/", {
       ...meOk,

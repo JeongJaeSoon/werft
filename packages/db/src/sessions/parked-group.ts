@@ -1,4 +1,5 @@
 import {
+  type CarriedFrom,
   MESSAGE_MAX_BYTES,
   type ParkedDelivery,
   type PendingQuestion,
@@ -21,6 +22,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { newTurnSources } from "../conversations/index.ts";
 import { dbNow } from "../db-clock.ts";
 import { enqueueEndedIntentNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
@@ -279,7 +281,13 @@ async function continueParkedTurn(
   });
   const message = continuationMessage(group.rows);
   const [parkedTurn] = await tx
-    .select({ sequence: turns.sequence, actorId: turns.actorId })
+    .select({
+      sequence: turns.sequence,
+      actorId: turns.actorId,
+      requesterKind: turns.requesterKind,
+      requesterId: turns.requesterId,
+      requesterAuth: turns.requesterAuth,
+    })
     .from(turns)
     .where(eq(turns.id, group.turnRowId));
   const parkedSequence = parkedTurn?.sequence ?? 0;
@@ -318,6 +326,19 @@ async function continueParkedTurn(
       // The continuation is the parked turn going on, so it keeps whoever
       // made that request; the person who answered did not.
       actorId: parkedTurn?.actorId ?? null,
+      requesterKind: parkedTurn?.requesterKind ?? null,
+      requesterId: parkedTurn?.requesterId ?? null,
+      requesterAuth:
+        parkedTurn === undefined
+          ? null
+          : carriedAuth(parkedTurn.requesterAuth, {
+              turn: String(parkedTurn.sequence),
+              reason: "continuation",
+            }),
+      sources: await newTurnSources(tx, {
+        sessionId: session.id,
+        slackMessage: null,
+      }),
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert the continuing turn");
@@ -396,6 +417,19 @@ function isAllow(answer: unknown): boolean {
 type StoredPayload =
   | { kind: "permission"; tool: string }
   | { kind: "question"; questions: PendingQuestion[] };
+
+/**
+ * The parked turn's credential record as it is, so a method this build does
+ * not know is kept too, with `carried_from` written anew. A parked turn with
+ * none leaves only `carried_from`, which reads as no record.
+ */
+function carriedAuth(stored: unknown, from: CarriedFrom): object {
+  const base =
+    stored !== null && typeof stored === "object" && !Array.isArray(stored)
+      ? stored
+      : {};
+  return { ...base, carried_from: from };
+}
 
 /**
  * What the turn that carries on is told. The engine's own wait was cut, so

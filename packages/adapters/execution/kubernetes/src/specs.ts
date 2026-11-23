@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import {
   ENV,
@@ -9,9 +8,11 @@ import {
 import {
   type ExecutionRef,
   hashWorkerToken,
+  isolationStampOf,
   type LaunchIntent,
   launchNonceFingerprint,
   sessionObjectPrefix,
+  WORKER_LIMITS_PINNED,
   type WorkerLimits,
   workerLimitsOf,
 } from "@werft-ai/platform";
@@ -111,7 +112,7 @@ export function isolationStampFor(
   config: KubernetesBackendConfig,
   proxyAddress: string,
 ): string {
-  return stampOf(config, proxyAddress, "worker-limits:pinned");
+  return stampOf(config, proxyAddress, WORKER_LIMITS_PINNED);
 }
 
 /**
@@ -133,7 +134,7 @@ function stampOf(
   proxyAddress: string,
   limits: unknown,
 ): string {
-  const shape = JSON.stringify([
+  return isolationStampOf(ISOLATION_CONTRACT, [
     config.egressProxyUrl,
     proxyAddress,
     config.egressCredentialPort,
@@ -158,8 +159,6 @@ function stampOf(
       ? ["codex-sandbox:disabled"]
       : []),
   ]);
-  const digest = createHash("sha256").update(shape).digest("hex").slice(0, 16);
-  return `${ISOLATION_CONTRACT}:${digest}`;
 }
 
 const NAME_PART = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;

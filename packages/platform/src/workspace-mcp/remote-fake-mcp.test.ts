@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import { type FakeMcp, startFakeMcp } from "@werft-ai/testkit/fake-mcp";
-import type { OutboundHttp } from "./ports.ts";
+import type { OutboundHttp } from "./ports/workspace-mcp-store.ts";
 import {
   authorizationUrl,
   discover,

@@ -118,9 +118,7 @@ services:
         # The first deploy of an empty installation only; the console keeps
         # the settings after.
         if [ -n "$$SETTINGS_DOCUMENT" ]; then
-          bun run apps/control-host/src/api/settings.ts seed --from-dir /legacy-config --document "$$SETTINGS_DOCUMENT"
-        else
-          bun run apps/control-host/src/api/settings.ts seed --from-dir /legacy-config
+          bun run apps/control-host/src/api/settings.ts seed --document "$$SETTINGS_DOCUMENT"
         fi
     environment:
       # Always the compose postgres, never an ambient DATABASE_URL: `up`
@@ -143,8 +141,6 @@ services:
       SESSION_ARCHIVE_DRY_RUN: ${SESSION_ARCHIVE_DRY_RUN:-}
       EXECUTION_WORKSPACE_STOPPED_TTL_SEC: ${EXECUTION_WORKSPACE_STOPPED_TTL_SEC:-}
       EXECUTION_WORKSPACE_PAUSED_TTL_SEC: ${EXECUTION_WORKSPACE_PAUSED_TTL_SEC:-}
-    volumes:
-      - ${PLATFORM_LEGACY_CONFIG_DIR:-./legacy-config}:/legacy-config:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -614,6 +610,7 @@ services:
       SLACK_ROLE_HEALTH_STALE_SEC: ${SLACK_ROLE_HEALTH_STALE_SEC:-90}
       SLACK_ROLE_BATCH_SIZE: ${SLACK_ROLE_BATCH_SIZE:-10}
       SLACK_ROLE_LEASE_SEC: ${SLACK_ROLE_LEASE_SEC:-60}
+      SLACK_ROLE_INPUT_HOLD_SEC: ${SLACK_ROLE_INPUT_HOLD_SEC:-3600}
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       WORKER_IMAGES: *worker-images

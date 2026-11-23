@@ -1,10 +1,13 @@
 import type {
   AdmissionState,
+  ConversationInputId,
   PendingQuestion,
   PushRequestOrigin,
+  SlackMirrorCorrelationId,
   UserLocale,
 } from "@werft-ai/contracts";
 import type { PushRequestDisplay } from "../action/ports/push-requests.ts";
+import type { StoredSourceSet } from "../conversations/index.ts";
 import type {
   PendingRequestDisplay,
   ToolSummaryContext,
@@ -21,7 +24,9 @@ import type {
  * `instruction`: an input sent from the web or the API, shown in the thread
  * ahead of its answer. `model_notice`: a direct message to one person (their
  * Slack user id is the `channelId`, `threadTs` is "") that a session's model
- * left the agent's allowed list.
+ * left the agent's allowed list. `input_mirror`: a web input shown in Slack
+ * as an `instruction` is, with no session; its post's ts becomes the input's
+ * Slack alias, and its topic's when the topic had none (`threadTs` "" then).
  */
 export type SlackOutboxKind =
   | "instruction"
@@ -31,18 +36,22 @@ export type SlackOutboxKind =
   | "input_notice"
   | "welcome"
   | "action_notice"
-  | "model_notice";
+  | "model_notice"
+  | "input_mirror";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
  * never came, so Slack may hold the message; it is never sent again.
+ * `voided_by_delete`: one of its sources was deleted in Slack before its
+ * send began, so it was never sent (`error_code` `source_deleted`).
  */
 export type SlackOutboxStatus =
   | "pending"
   | "sending"
   | "sent"
   | "failed"
-  | "uncertain";
+  | "uncertain"
+  | "voided_by_delete";
 
 /**
  * What goes out, before Slack controls are escaped. `mention_user_ids`: the
@@ -71,11 +80,40 @@ export type SlackOutboxEntry = {
   threadTs: string;
   /** The ephemeral's reader; set exactly for `notice`. */
   slackUserId: string | null;
+  /**
+   * The link whose thread the row reports to, fixed when it is enqueued;
+   * null for a row outside a linked thread.
+   */
+  sessionLinkId: string | null;
   /** The session the console link opens; null for a refusal. */
   sessionId: string | null;
   body: SlackOutboxBody;
   /** The same key twice enqueues once. */
   dedupeKey: string;
+  /**
+   * The sources of the turn the row answers or tells of, as that turn holds
+   * them; absent or null for none, and for a row of no one turn.
+   */
+  sources?: StoredSourceSet | null;
+  /**
+   * That turn's public id. An overflowed set is judged by the direct sources
+   * of it and the turns before it, not of turns that came later.
+   */
+  sourcesTurn?: number | null;
+  /** The web input an `input_mirror` row shows; absent or null otherwise. */
+  inputId?: ConversationInputId | null;
+  /**
+   * An `input_mirror` row's value for this one request, sent as the post's
+   * message metadata so the post Slack sends back can name it.
+   */
+  correlationId?: SlackMirrorCorrelationId | null;
+  /**
+   * A row bound for this web input's mirror thread. Until the mirror's post
+   * is known the row is held, unsent, and its `channelId` and `threadTs`
+   * are placeholders; the post's settle writes the thread in and frees it.
+   * A row enqueued once the thread is known goes there at once.
+   */
+  heldForInputId?: ConversationInputId | null;
 };
 
 export type SlackOutboxFence = { id: string; claimToken: string };
@@ -112,6 +150,8 @@ export type SlackLinkedTurnTarget = {
 export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
   /** The public turn id, 1-based within the session. */
   turnId: number;
+  /** The turn's sources, which its reply or failure notice carries on. */
+  sources: StoredSourceSet | null;
   state: "completed" | "failed";
   /** The Slack account linked to whoever asked for the turn, if any. */
   requesterSlackUserId: string | null;
@@ -128,6 +168,7 @@ export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
  */
 export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
   turnId: number;
+  sources: StoredSourceSet | null;
   channel: "web" | "api";
   message: string;
   /** Who sent it; null for an API key no person created. */
@@ -137,11 +178,35 @@ export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
 };
 
 /**
+ * A web input still owed its Slack mirror, and where the mirror goes: its
+ * topic's thread, or, for a topic Slack has not placed (`threadTs` ""), the
+ * top of its channel, or of the person's DM a placed topic of theirs names.
+ */
+export type UnmirroredWebInput = {
+  inputId: ConversationInputId;
+  workspaceId: string;
+  agentId: string;
+  slackAppId: string;
+  installationId: string;
+  channelId: string;
+  threadTs: string;
+  body: string;
+  senderName: string | null;
+  /** The sender's Slack account in the installation's team, if linked. */
+  senderSlackUserId: string | null;
+  locale: UserLocale | null;
+};
+
+/**
  * A request of a live linked session that a person can still settle, with
  * no outbox row yet: a permission or question a client can answer, or a
  * push request waiting for its decision.
  */
 export type SlackPendingPrompt = SlackLinkedTurnTarget & {
+  /** The sources of the turn that asked. */
+  sources: StoredSourceSet | null;
+  /** That turn's public id; null with no sources. */
+  sourcesTurn: number | null;
   /** The Slack account linked to whoever asked for the turn, if any. */
   requesterSlackUserId: string | null;
   prompt:
@@ -330,12 +395,13 @@ export interface SlackThreadStatusStore {
 
 /**
  * What a posted card shows: its buttons (`open`), only Reject for a push
- * that can no longer be approved (`reject_only`), or how it ended (`done`
- * for a turn's notice from before the cards).
+ * that can no longer be approved (`reject_only`), either one with a
+ * private channel push's requester gone from the channel
+ * (`*_requester_left`), or how it ended (`done` for a turn's notice from
+ * before the cards).
  */
 export type SlackCardRendered =
-  | "open"
-  | "reject_only"
+  | CardChoice
   | "allowed"
   | "allowedSession"
   | "denied"
@@ -366,12 +432,19 @@ export type SlackCardClaim = SlackCardFence & {
   attempts: number;
 };
 
+/** A card still waiting on its request. */
+type CardChoice =
+  | "open"
+  | "reject_only"
+  | "open_requester_left"
+  | "reject_only_requester_left";
+
 /** A push card still showing a choice, for `pushApprovability`. */
 export type SlackOpenPushCard = {
   id: string;
   seq: number;
   sessionId: string;
-  rendered: "open" | "reject_only";
+  rendered: CardChoice;
   sessionCheckpointRevision: number | null;
   checkpointRevision: number;
   gitCommit: string;
@@ -393,6 +466,16 @@ export interface SlackCardSettleStore {
   /** Marks one card `due` (its press), unless abandoned. */
   markDueAt(card: { channelId: string; slackTs: string }): Promise<boolean>;
   /** Marks one card `due` by its row (a push whose approvability moved). */
+  /**
+   * Marks `due` the push cards still showing a choice in one channel of an
+   * install, whose requester may have joined or left it; one being drawn
+   * now is drawn again `windowMs` later. Returns how many.
+   */
+  markPushCardsDueIn(input: {
+    installationId: string;
+    channelId: string;
+    windowMs: number;
+  }): Promise<number>;
   markDueById(id: string): Promise<boolean>;
   /**
    * Push cards still showing a choice whose session has moved on since, in
@@ -487,6 +570,32 @@ export interface SlackOutboxStore {
    */
   unpostedInstructions(limit: number): Promise<SlackUnpostedInstruction[]>;
   /**
+   * Web inputs owed a Slack mirror with no `input_mirror` row yet, oldest
+   * first. A topic Slack has not placed has only its earliest such input
+   * mirrored: that post places it, and the rest go into its thread after.
+   */
+  unmirroredInputs(limit: number): Promise<UnmirroredWebInput[]>;
+  /**
+   * Closes, unsent, the rows held for a web input's thread longer than
+   * `holdMs` (`failed`, `input_unplaced`); an input still unplaced is
+   * marked `unconfirmed`. No new thread is opened for them.
+   */
+  closeOverdueHeld(holdMs: number): Promise<number>;
+  /**
+   * A post of this app Slack sent back whose message metadata names a
+   * mirror's correlation id: when exactly one `uncertain` mirror of that
+   * app and channel has it, that row is `sent` with the post's ts, its
+   * input takes the post as its alias and the rows held for it go. No
+   * candidate, or more than one, links nothing. Text is never compared.
+   */
+  matchMirrorEcho(echo: {
+    workspaceId: string;
+    slackAppId: string;
+    correlationId: SlackMirrorCorrelationId;
+    channelId: string;
+    ts: string;
+  }): Promise<"linked" | "no_candidate" | "ambiguous">;
+  /**
    * Linked turns past the link's mark that ended without their outbox
    * row. A turn that owes an `instruction` row waits for it,
    * so the answer never goes ahead of what it answers.
@@ -520,8 +629,21 @@ export interface SlackOutboxStore {
    * `pending` until beginSend, so a crash before the send is claimed again.
    */
   claim(input: { limit: number; leaseMs: number }): Promise<SlackOutboxClaim[]>;
-  /** `sending` from here on: a lease that runs out now leaves it `uncertain`. */
-  beginSend(fence: SlackOutboxFence): Promise<boolean>;
+  /**
+   * `sending` from here on: a lease that runs out now leaves it `uncertain`.
+   * `voided_by_delete`: a source of the row was deleted in Slack, and the
+   * row is settled so; nothing may go out.
+   */
+  beginSend(fence: SlackOutboxFence): Promise<boolean | "voided_by_delete">;
   /** False when the lease was lost: the row is someone else's now. */
-  settle(fence: SlackOutboxFence, outcome: SlackOutboxSettle): Promise<boolean>;
+  /**
+   * False when the lease was lost. A sent `input_mirror` row gives its input
+   * the post as its Slack alias in the same transaction, and its topic too
+   * when the topic had none; `topic_alias_taken` when another topic already
+   * holds that thread (a reply taken before this), which is left as it is.
+   */
+  settle(
+    fence: SlackOutboxFence,
+    outcome: SlackOutboxSettle,
+  ): Promise<boolean | "topic_alias_taken">;
 }

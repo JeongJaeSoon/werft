@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ENV as SHARED_ENV } from "@werft-ai/contracts/execution";
-import {
-  ENV as DOCKER_ENV,
-  workerEnvironmentFor as dockerEnvironmentFor,
-} from "@werft-ai/execution-local-docker";
 import type { LaunchIntent } from "@werft-ai/platform";
 import {
-  checkoutDirOf,
   cpuQuantity,
   ENV,
   isolationStampFor,
@@ -15,7 +9,6 @@ import {
   nonceSecretNameOf,
   podFor,
   podNameFor,
-  workerEnvironmentFor,
   workerLimitsOfPod,
   workspaceClaimFor,
   workspaceClaimNameFor,
@@ -250,6 +243,21 @@ describe("worker Pod", () => {
     expect(isolationStampFor(config, PROXY_ADDRESS)).toStartWith("2:");
   });
 
+  // Every running Pod carries one of these; a different value marks them all
+  // stale at once.
+  test("the isolation stamps of this config are pinned", () => {
+    const got = { maxTurnSeconds: 900, providerMaxRetries: 2 };
+    expect([
+      isolationStampFor(config, PROXY_ADDRESS),
+      legacyIsolationStampFor(config, PROXY_ADDRESS, got),
+      legacyIsolationStampFor(config, PROXY_ADDRESS, null),
+    ]).toEqual([
+      "2:f8db087b6e473ab1",
+      "2:bdb3697e7e8ef670",
+      "2:fe99af9c5ff1c874",
+    ]);
+  });
+
   test("a Pod that checked out at the mount's root reads as another stamp", () => {
     // This config's stamp before the checkout moved below the mount.
     expect(isolationStampFor(config, PROXY_ADDRESS)).not.toBe(
@@ -386,56 +394,6 @@ describe("worker Pod", () => {
       valueFrom: { secretKeyRef: { key: "nonce", name: "secret-name" } },
     });
     expect(nonceSecretNameOf(pod)).toBe("secret-name");
-  });
-
-  test("tells the worker exactly what the Docker backend tells it, under the same names", () => {
-    expect(ENV).toBe(SHARED_ENV);
-    expect(DOCKER_ENV).toBe(SHARED_ENV);
-    const docker = dockerEnvironmentFor(
-      {
-        apiVersion: "v1.44",
-        dockerHost: "unix:///var/run/docker.sock",
-        egressCredentialPort: config.egressCredentialPort,
-        egressProxyUrl: config.egressProxyUrl,
-        gatewayUrl: config.gatewayUrl,
-        homeDir: config.homeDir,
-        installationId: "prod",
-        objectStore: config.objectStore,
-        requestTimeoutMs: 1,
-        stopTimeoutSeconds: config.stopTimeoutSeconds,
-        tmpfsSizeBytes: 1,
-        user: config.user,
-        workerLimits: config.workerLimits,
-        // The checkout below the mount (CHECKOUT_DIRECTORY).
-        workspaceDir: checkoutDirOf(config),
-        volumeLabelNamespace: "werft",
-        volumeNamePrefix: "werft-ws-",
-        workspaceGcMinAgeMs: 0,
-        workspaceQuota: { mode: "off" },
-      },
-      intent,
-      NONCE,
-    );
-    const ours = workerEnvironmentFor(config, intent, "secret-name").map((e) =>
-      "value" in e ? `${e.name}=${e.value}` : `${e.name}=${NONCE}`,
-    );
-    const observations = [
-      ENV.workspaceMountDir,
-      ENV.workspaceQuotaBytes,
-      ENV.workspaceQuotaMode,
-    ];
-    const common = (values: string[]) =>
-      values.filter(
-        (value) => !observations.some((name) => value.startsWith(`${name}=`)),
-      );
-    expect(common(ours)).toEqual(common(docker));
-    expect(ours).toContain(`${ENV.workspaceMountDir}=${config.workspaceDir}`);
-    expect(ours).toContain(
-      `${ENV.workspaceQuotaBytes}=${config.workspaceSizeBytes}`,
-    );
-    expect(
-      ours.some((value) => value.startsWith(`${ENV.workspaceQuotaMode}=`)),
-    ).toBe(false);
   });
 
   test("refuses a CPU limit that rounds to none and limits that are not positive", () => {

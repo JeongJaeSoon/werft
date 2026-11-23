@@ -1,6 +1,7 @@
 import type {
   AdmissionState,
   AuthorizationSubject,
+  ConversationId,
   CountSessionsQuery,
   CountSessionsResponse,
   CreateSessionResponse,
@@ -114,7 +115,10 @@ export type AcceptSessionInput = {
   envNames?: readonly string[];
   // A Slack DM's session starts seen by its creator alone (design 4.6);
   // left out, by the whole workspace.
-  shareScope?: "private";
+  shareScope?: "private" | "private_channel";
+  // The main conversation a Slack session belongs to; left out, none (a
+  // standalone session).
+  parentConversationId?: ConversationId;
   // A preview: the write refuses it unless the requester, a person, still
   // manages the release's agent over the locked rows.
   preview?: true;
@@ -147,6 +151,8 @@ export type AcceptSessionResult =
   | { outcome: "credential_unbound"; receiptId: string }
   /** A declared name has no value for this agent; no session was created. */
   | { outcome: "variables_refused"; reason: EnvRefusal; receiptId: string }
+  /** The Slack message it came from was deleted; no session was created. */
+  | { outcome: "source_deleted" }
   | InputLimitRefusal;
 
 export type AppendMessageInput = {
@@ -165,11 +171,19 @@ export type AppendMessageInput = {
   // As `AcceptSessionInput.agentPrivate`: only a replay goes through.
   agentPrivate?: true;
   callerSubject?: AuthorizationSubject;
+  /**
+   * The platform queues this input as the agent's own turn after a push
+   * decision: nothing about a person is judged or recorded, everything about
+   * the session is. One such turn per push request.
+   */
+  platform?: { pushRequestId: string; decision: "approve" | "reject" };
 };
 
 export type AppendMessageResult =
   | { outcome: "accepted" | "replayed"; response: PostSessionMessageResponse }
   | { outcome: "conflict" | "not_found" }
+  /** The push request's follow-up turn is already in the session. */
+  | { outcome: "already_queued" }
   /** A session the requester sees, of an agent they may not use. */
   | { outcome: "agent_private" }
   | { outcome: "caller_limited"; dimension: CallerLimitDimension }
@@ -187,6 +201,13 @@ export type AppendMessageResult =
   // The input would revive a failed session that has no spec pin on its own
   // model, which an authoritative pin refuses; nothing is recorded.
   | { outcome: "pin_required" }
+  /**
+   * The turn would carry a Slack message that was deleted: the input's own,
+   * or one an earlier turn of the session came from. sessionStopped when
+   * the session is stopped for it (source_deleted_at) and takes no input at
+   * all. Nothing is recorded.
+   */
+  | { outcome: "source_deleted"; sessionStopped?: true }
   | InputLimitRefusal;
 
 // Storage rows carry the session's spec source; the service turns it into

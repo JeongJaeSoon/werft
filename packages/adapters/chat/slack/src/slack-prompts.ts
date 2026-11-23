@@ -15,6 +15,7 @@ import type {
   SlackPromptCard,
   ToolSummaryContext,
 } from "@werft-ai/platform";
+import { isSafeLink } from "./slack-presentation.ts";
 import { summarizeToolRequest } from "./slack-prompt-summary.ts";
 
 /** A request a session waits on that a person can settle in its thread. */
@@ -133,6 +134,8 @@ type PromptCopy = {
   pushStale: string;
   /** An intent push whose pinned revision no longer verifies. */
   pushPinnedSourceInvalid: string;
+  /** A private channel push whose requester left the channel. */
+  pushRequesterLeft: string;
   /** A turn's notice from before the cards, once its turn waits no more. */
   done: string;
   answerOnWeb: string;
@@ -214,6 +217,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     pushStale: "새 커밋이 생겨 이 push는 승인할 수 없어요",
     pushPinnedSourceInvalid:
       "이 push가 가리키는 체크포인트를 더는 확인할 수 없어 승인할 수 없어요",
+    pushRequesterLeft: "요청자가 채널을 나갔어요",
     done: "처리됐어요",
     answerOnWeb: "이 요청은 웹에서 답해 주세요",
     openConsole: "웹 콘솔에서 확인해 주세요",
@@ -299,6 +303,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     pushStale: "新しいコミットがあるため、このpushは承認できません",
     pushPinnedSourceInvalid:
       "このpushが指すチェックポイントを確認できないため、承認できません",
+    pushRequesterLeft: "依頼者がチャンネルを退出しました",
     done: "対応済みです",
     answerOnWeb: "このリクエストはWebで回答してください",
     openConsole: "Webコンソールで確認してください",
@@ -384,6 +389,7 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     pushStale: "A newer commit means this push can no longer be approved",
     pushPinnedSourceInvalid:
       "The checkpoint this push points at can no longer be verified, so it cannot be approved",
+    pushRequesterLeft: "The requester left the channel",
     done: "Handled",
     answerOnWeb: "Please answer this request on the web",
     openConsole: "Check it in the web console",
@@ -431,16 +437,6 @@ const plain = (text: string, max = PLAIN_TEXT_MAX) => ({
 });
 const mention = (slackUserId: string) =>
   SLACK_ID.test(slackUserId) ? `<@${slackUserId}>` : "";
-
-function isSafeLink(url: string): boolean {
-  if (/[<>|\s]/.test(url)) return false;
-  try {
-    const protocol = new URL(url).protocol;
-    return protocol === "https:" || protocol === "http:";
-  } catch {
-    return false;
-  }
-}
 
 export function slackPromptValue(
   prompt: Pick<SlackPrompt, "sessionId" | "requestId">,
@@ -1140,6 +1136,29 @@ export function slackRejectOnlyCard(
       },
     ],
   };
+}
+
+/**
+ * A private channel push card whose requester left the channel: the card as
+ * it was, with a line saying so above its buttons.
+ */
+export function slackRequesterLeftCard(
+  card: SlackCard,
+  locale: UserLocale,
+): SlackCard {
+  const label = SLACK_PROMPT_MESSAGES[locale].pushRequesterLeft;
+  const note = {
+    type: "context",
+    elements: [
+      { type: "mrkdwn", text: `:information_source: ${escapeMrkdwn(label)}` },
+    ],
+  };
+  const blocks = [...card.blocks];
+  const actions = blocks
+    .map((block) => (block as { type?: unknown }).type)
+    .lastIndexOf("actions");
+  blocks.splice(actions === -1 ? blocks.length : actions, 0, note);
+  return { text: `${card.text}\n${escapeMrkdwn(label)}`, blocks };
 }
 
 /** A turn's notice from before the cards, once its turn waits no more. */

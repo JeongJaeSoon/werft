@@ -39,6 +39,7 @@ import {
   lockIdempotencyScope,
   UUID,
 } from "../control-shared.ts";
+import { directSourceDeletedAt } from "../conversations/index.ts";
 import { DB_NOW, dbNow } from "../db-clock.ts";
 import { toolSummaryContext } from "../push-requests.ts";
 import type { Database } from "../queries.ts";
@@ -651,7 +652,14 @@ export function createPostgresPendingRequests(
         .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
         .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
         .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
-        .where(actionablePendingWhere(sessionId))
+        .where(
+          and(
+            actionablePendingWhere(sessionId),
+            // A request of a turn whose instruction Slack deleted shows its
+            // input to no one, so it is not listed.
+            sql`${directSourceDeletedAt(sql`${turns.sources}`, sql`${sessions.workspaceId}`)} IS NULL`,
+          ),
+        )
         .orderBy(
           asc(pendingRequests.createdAt),
           asc(pendingRequests.requestId),
@@ -745,6 +753,12 @@ export function createPostgresPendingRequests(
           answer: !agentKey,
         });
         if (reach !== "ok") return { outcome: reach };
+        if (
+          session.sourceDeletedAt !== null &&
+          session.admissionState !== "pausing"
+        ) {
+          return { outcome: "source_deleted" };
+        }
         // A preview goes on only for a person who still manages its agent,
         // whoever started it.
         if (
@@ -766,6 +780,11 @@ export function createPostgresPendingRequests(
           .for("update");
         if (!pending) return { outcome: "not_found" };
         if (pending.answeredAt !== null) return { outcome: "expired" };
+        // Only the draining turn's own question is still answered: a park
+        // left by an earlier turn would wait for a resume that never comes.
+        if (session.sourceDeletedAt !== null && pending.parkedAt !== null) {
+          return { outcome: "source_deleted" };
+        }
 
         const [last] = await tx
           .select({ sequence: max(pendingRequests.answerSequence) })

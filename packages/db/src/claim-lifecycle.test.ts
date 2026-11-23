@@ -333,13 +333,13 @@ describe("claim lifecycle", () => {
     expect(own.binding.spec.connection.id).toBe(TEST_CONNECTION_ID);
     expect(own.binding.model).toBe(TEST_MODEL);
     expect(own.binding.specDigest).toBe(releaseSpecColumns().specDigest);
-    // The session's spec, not the release's: the mode is the pin's.
+    // The session's spec, not the release's.
     await client.query("DELETE FROM unassigned_sessions");
-    const bypass = await bindingOf(
-      sessionPinColumns(TEST_MODEL, { permission_mode: "bypassPermissions" }),
+    const auto = await bindingOf(
+      sessionPinColumns(TEST_MODEL, { permission_mode: "auto" }),
     );
-    if (bypass.outcome !== "claimed") throw new Error(bypass.outcome);
-    expect(bypass.binding.spec.permission_mode).toBe("bypassPermissions");
+    if (auto.outcome !== "claimed") throw new Error(auto.outcome);
+    expect(auto.binding.spec.permission_mode).toBe("auto");
     // A pin whose digest does not hold is a broken row, not a spec.
     await client.query("DELETE FROM unassigned_sessions");
     await expect(

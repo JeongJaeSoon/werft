@@ -406,11 +406,14 @@ function AgentSessionRow({
 }) {
   const { t } = useI18n();
   const shortId = shortSessionId(session.id);
+  const title =
+    session.title ??
+    (session.title_deleted_at ? t("session.sourceDeleted") : null);
   return (
     <GridTableRow data-status={session.status}>
       <GridTableCell lines={true}>
         <SessionRowOpener
-          name={t("agent.sessions.open", { name: session.title ?? shortId })}
+          name={t("agent.sessions.open", { name: title ?? shortId })}
           title={session.id}
           renderLink={({ children, ...link }) => (
             <RouterLink
@@ -424,11 +427,11 @@ function AgentSessionRow({
         />
         <span
           className="max-w-full truncate font-medium text-link"
-          title={session.title ?? session.id}
+          title={title ?? session.id}
         >
-          {session.title ?? shortId}
+          {title ?? shortId}
         </span>
-        {session.title ? (
+        {title ? (
           <Code className="text-muted-foreground">{shortId}</Code>
         ) : null}
       </GridTableCell>

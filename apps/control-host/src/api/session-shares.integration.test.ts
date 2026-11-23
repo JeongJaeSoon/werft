@@ -28,11 +28,13 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresTurnInterrupts,
   createPostgresUsageReader,
+  deletedSources,
   memberships,
   memberTeamMembers,
   memberTeams,
   receipts,
   sessions,
+  turns,
   users,
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
@@ -171,6 +173,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
           createMemberService({
             authorization,
             store: createPostgresMemberStore(db),
+            sessions: createPostgresSessionShareStore(db),
           }),
           createInviteService({
             authorization,
@@ -920,6 +923,70 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     expect(inside.status).toBe(403);
     expect((await codeOf(inside)).details).toEqual({ reason_code: "role" });
     await shareOver("creator", { scope: "private" });
+  });
+
+  test("an audit read withholds a turn whose Slack message was deleted before it, and says when", async () => {
+    const path = `/v1/sessions/${sessionId}/audit-read`;
+    const place = {
+      team_id: "T0AUDIT",
+      channel_id: "C0AUDIT",
+      ts: "1792800000.000200",
+    };
+    const [first] = await db
+      .select({ id: turns.id, message: turns.message })
+      .from(turns)
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    if (!first) throw new Error("turn 1 missing");
+    await db
+      .update(turns)
+      .set({ sources: { direct: [place], inherited: [] } })
+      .where(eq(turns.id, first.id));
+    const turnOne = async (justification: string) => {
+      const read = await send("POST", path, asCookie(cookies.owner), {
+        justification,
+      });
+      expect(read.status).toBe(200);
+      const item = auditReadResponseSchema
+        .parse(await read.json())
+        .turns.items.find((turn) => turn.turn_id === "1");
+      return [item?.message, item?.source_deleted_at];
+    };
+    try {
+      expect(await turnOne("before the delete")).toEqual([first.message, null]);
+      const deletedAt = new Date(Date.now() - 1_000);
+      await db.insert(deletedSources).values({
+        workspaceId,
+        teamId: place.team_id,
+        channelId: place.channel_id,
+        ts: place.ts,
+        deletedAt,
+      });
+      expect(await turnOne("after the delete")).toEqual([
+        "",
+        deletedAt.toISOString(),
+      ]);
+      // What the read withheld is read back from the record and the mark:
+      // the decision is later than the message's deleted_at.
+      const [decision] = await db
+        .select({ at: authzDecisions.at })
+        .from(authzDecisions)
+        .where(
+          and(
+            eq(authzDecisions.resourceId, sessionId),
+            eq(authzDecisions.action, "session.audit_read"),
+            eq(authzDecisions.justification, "after the delete"),
+          ),
+        );
+      expect(decision?.at.getTime()).toBeGreaterThan(deletedAt.getTime());
+    } finally {
+      await db
+        .delete(deletedSources)
+        .where(eq(deletedSources.workspaceId, workspaceId));
+      await db
+        .update(turns)
+        .set({ sources: null })
+        .where(eq(turns.id, first.id));
+    }
   });
 
   test("the admin list shows every session's metadata and no content", async () => {

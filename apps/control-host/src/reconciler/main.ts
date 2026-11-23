@@ -1,6 +1,7 @@
 import type * as schema from "@werft-ai/db";
 import {
   announceLapsedInputWaits,
+  createPostgresConversationCalls,
   deleteExpiredWebSessions,
   expireAuthzDecisions,
   expireOverdueInterrupts,
@@ -9,11 +10,16 @@ import {
   expireToolCallAudits,
   projectToolCalls,
   purgeExpiredEnvStart,
+  purgeExpiredSlackChannelMembers,
+  purgeFailedSlackInboundPayloads,
+  purgeJudgmentBuffer,
+  purgeUnknownSlackSourceMarks,
   reconcileAgentOwnership,
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
   reconcileProviderExchanges,
+  unknownBudgetByAccount,
 } from "@werft-ai/db";
 import { SEQUENTIAL_ROLE_POOL_MAX } from "@werft-ai/db/pool";
 import { createLogger, logLevelFromEnv } from "@werft-ai/observability";
@@ -25,6 +31,8 @@ import {
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { queueDatabaseUrl } from "../database-url.ts";
 import { withJobDatabase } from "../job-database.ts";
+import { runUnknownBudgetReport } from "./budget-unknown.ts";
+import { runConversationCallReconciler } from "./conversation-calls.ts";
 import { runProviderExchangeReconciler } from "./provider-exchanges.ts";
 import {
   type ReconcilerLogger,
@@ -63,6 +71,29 @@ export async function main(
         },
         logger,
         reconcile: (options) => reconcileProviderExchanges(db, options),
+      });
+      const conversationCalls = createPostgresConversationCalls(db);
+      await runConversationCallReconciler({
+        environment: {
+          ...(environment.RECONCILER_BATCH_SIZE === undefined
+            ? {}
+            : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
+          ...(environment.RECONCILER_DRY_RUN === undefined
+            ? {}
+            : { RECONCILER_DRY_RUN: environment.RECONCILER_DRY_RUN }),
+        },
+        logger,
+        releaseExpired: (options) => conversationCalls.releaseExpired(options),
+        markUnknown: (options) => conversationCalls.markUnknown(options),
+      });
+      await runUnknownBudgetReport({
+        environment: {
+          ...(environment.RECONCILER_BATCH_SIZE === undefined
+            ? {}
+            : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
+        },
+        logger,
+        unknownByAccount: (limit) => unknownBudgetByAccount(db, limit),
       });
     },
     { max: SEQUENTIAL_ROLE_POOL_MAX },
@@ -114,6 +145,13 @@ export function reconcileOnce(
     deleteExpiredWebSessions: (options) =>
       deleteExpiredWebSessions(db, options),
     purgeExpiredEnvStart: (options) => purgeExpiredEnvStart(db, options),
+    purgeFailedSlackInboundPayloads: (options) =>
+      purgeFailedSlackInboundPayloads(db, options),
+    purgeJudgmentBuffer: (options) => purgeJudgmentBuffer(db, options),
+    purgeSlackSourceMarks: (options) =>
+      purgeUnknownSlackSourceMarks(db, options),
+    purgeSlackChannelMembers: (options) =>
+      purgeExpiredSlackChannelMembers(db, options),
     reconcileOwnership: (options) => reconcileAgentOwnership(db, options),
     projectToolCalls: () =>
       projectToolCalls(db, {

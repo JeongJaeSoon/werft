@@ -428,7 +428,7 @@ describe("bootstrap checklist", () => {
 });
 
 describe("최근 세션 표", () => {
-  test("에이전트 칸은 세션이 붙은 에이전트의 이름을, 에이전트 없는 세션은 —를 보인다", async () => {
+  test("에이전트 칸은 세션이 붙은 에이전트의 이름을, 에이전트 없는 세션은 '에이전트 없음'을, 가려진 에이전트는 '볼 수 없는 에이전트'를 보인다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
@@ -447,6 +447,12 @@ describe("최근 세션 표", () => {
               },
             },
             { ...oneSession, id: USER_ID },
+            {
+              ...oneSession,
+              id: "7a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8e",
+              agent: null,
+              agent_hidden: true,
+            },
           ],
           next_cursor: null,
         }),
@@ -459,7 +465,11 @@ describe("최근 세션 표", () => {
       .getAllByRole("row")
       .slice(1)
       .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
-    expect(agents).toEqual(["배포 도우미", "—"]);
+    expect(agents).toEqual([
+      "배포 도우미",
+      "에이전트 없음",
+      "볼 수 없는 에이전트",
+    ]);
   });
   test("좁은 표(820px 이하)에서는 채널과 시작 시각 열이 머리와 칸이 함께 빠지고 남는 네 열이 좁은 열 틀과 맞는다", async () => {
     renderAt("/", {
@@ -1024,7 +1034,7 @@ describe("홈 요약", () => {
       ["제목", "에이전트", "채널", "상태", "시작 시각", "소요 시간"],
       [
         `${waitingSession.title}${waitingSession.id.slice(0, 8)}`,
-        "—",
+        "에이전트 없음",
         "—",
         expect.stringMatching(/^작업 상태: 답변 대기\d+(분|시간|일)$/),
         expect.stringMatching(/^\d+월 \d+일 (오전|오후) \d{2}:\d{2}$/),
@@ -1032,7 +1042,7 @@ describe("홈 요약", () => {
       ],
       [
         oneSession.id.slice(0, 8),
-        "—",
+        "에이전트 없음",
         "—",
         "작업 상태: 쉬는 중",
         expect.stringMatching(/^\d+월 \d+일 (오전|오후) \d{2}:\d{2}$/),

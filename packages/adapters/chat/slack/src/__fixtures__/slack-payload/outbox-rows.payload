@@ -14,8 +14,20 @@
     "installationId": "installation-1",
     "kind": "reply",
     "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": {
+      "direct": [
+        {
+          "channel_id": "C0OPS",
+          "team_id": "T0OPS",
+          "ts": "100.000100"
+        }
+      ],
+      "inherited": []
+    },
+    "sourcesTurn": 1,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -31,8 +43,11 @@
     "installationId": "installation-1",
     "kind": "reply",
     "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
+    "sourcesTurn": 2,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -51,8 +66,11 @@
     "installationId": "installation-1",
     "kind": "failure_notice",
     "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
+    "sourcesTurn": 3,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -70,8 +88,11 @@
     "installationId": "installation-1",
     "kind": "instruction",
     "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
+    "sourcesTurn": 4,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -88,8 +109,11 @@
     "installationId": "installation-1",
     "kind": "instruction",
     "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
+    "sourcesTurn": 5,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -198,8 +222,11 @@
     "installationId": "installation-1",
     "kind": "input_notice",
     "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
+    "sourcesTurn": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -344,8 +371,11 @@
     "installationId": "installation-1",
     "kind": "input_notice",
     "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
+    "sourcesTurn": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   }

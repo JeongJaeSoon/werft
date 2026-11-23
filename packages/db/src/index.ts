@@ -6,6 +6,7 @@ export * from "./action/push-intents.ts";
 export * from "./agents/agent-workspace-mcp.ts";
 export * from "./agents/retired-catalog-drafts.ts";
 export * from "./agents.ts";
+export * from "./budget-accounts.ts";
 export {
   listUnreleasedLaunchImages,
   listUpgradeSessions,
@@ -13,7 +14,20 @@ export {
 } from "./checkpoints/checkpoint-runtime.ts";
 export * from "./checkpoints/checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
+export * from "./conversation-calls.ts";
+export * from "./conversations/channel-summaries.ts";
+export * from "./conversations/context-fragments.ts";
+export * from "./conversations/conversation-inputs.ts";
+export * from "./conversations/conversation-store.ts";
+export * from "./conversations/engagements.ts";
+export {
+  createPostgresJudgmentBufferStore,
+  JUDGMENT_BUFFER_TTL_MS,
+  purgeJudgmentBuffer,
+} from "./conversations/judgment-buffer.ts";
+export * from "./conversations/session-parents.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
+export { budgetChoiceOfCall } from "./exchange-budget.ts";
 export * from "./extensions/extension-bundles.ts";
 export { createPostgresSkillGitSourceStore } from "./extensions/skill-git-sources.ts";
 export * from "./github/agent-github.ts";
@@ -28,6 +42,7 @@ export * from "./github/github-settings.ts";
 export * from "./github/mcp-egress.ts";
 export * from "./installation-config.ts";
 export * from "./installation-settings.ts";
+export * from "./link-posting.ts";
 export * from "./migration-head.ts";
 export * from "./musterrolle/agent-admins.ts";
 export * from "./musterrolle/agent-authority.ts";
@@ -73,6 +88,7 @@ export * from "./session-links.ts";
 export * from "./session-titles.ts";
 export * from "./sessions/achievement-judgments.ts";
 export * from "./sessions/achievement-rules.ts";
+export * from "./sessions/agentless-close.ts";
 export * from "./sessions/commit-attributions.ts";
 export * from "./sessions/execution-revocation.ts";
 export * from "./sessions/interrupt-control.ts";
@@ -98,11 +114,13 @@ export * from "./sessions/workspace-mcp-egress.ts";
 export * from "./settings-document.ts";
 export { notDeleted } from "./soft-delete.ts";
 export * from "./surface/slack-apps.ts";
+export * from "./surface/slack-channel-members.ts";
 export * from "./surface/slack-config-tokens.ts";
 export * from "./surface/slack-inbound-events.ts";
 export * from "./surface/slack-install-states.ts";
 export * from "./surface/slack-installations.ts";
 export * from "./surface/slack-outbox.ts";
+export * from "./surface/slack-source-marks.ts";
 export * from "./surface/slack-thread-bot-turns.ts";
 export * from "./telemetry-ingest-store.ts";
 export * from "./usage/agent-usage.ts";

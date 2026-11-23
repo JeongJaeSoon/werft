@@ -1,8 +1,7 @@
+import { messageOf } from "@werft-ai/platform";
 import {
   LABELS,
   LocalDockerBackend,
-  legacySessionOf,
-  legacyWorkspaceVolumeName,
   quotaStampOf,
   volumeLabelsOf,
   workspaceVolumePrefixFor,
@@ -79,9 +78,8 @@ export type MigrationPlan =
   | { kind: "refused"; reason: string };
 
 /**
- * What to move, judged from the volumes alone. The source is either the
- * legacy volume under the session's derived name, or the one labelled
- * workspace made under another quota. `leftovers` are copies an earlier run
+ * What to move, judged from the volumes alone. The source is the one
+ * labelled workspace made under another quota. `leftovers` are copies an earlier run
  * made of that very source and did not finish: while the source exists no
  * copy of it is known to be whole, so they are discarded and made again.
  * Anything else beside the source is not ours to guess about.
@@ -91,53 +89,36 @@ export function planWorkspaceMigration(input: {
   sessionId: string;
   /** This session's labelled workspaces. */
   labelled: VolumeInspect[];
-  /** Whatever sits under the session's derived name, or null. */
-  derived: VolumeInspect | null;
 }): MigrationPlan {
-  const { config, sessionId, labelled, derived } = input;
+  const { config, sessionId, labelled } = input;
   const keys = volumeLabelsOf(config);
-  const listed = new Set(labelled.map((volume) => volume.Name));
-  let source: VolumeInspect | null = null;
-  if (derived !== null && !listed.has(derived.Name)) {
-    if (legacySessionOf(derived, config) !== sessionId) {
+  const stale = labelled.filter(
+    (volume) => workspaceVolumeProblem(volume, sessionId, config) !== null,
+  );
+  if (stale.length === 0) {
+    if (labelled.length > 1) {
       return {
         kind: "refused",
-        reason: `${derived.Name} carries labels that say it is not this session's`,
+        reason: `${names(labelled)} are all current workspaces of this session; compare them by hand`,
       };
     }
-    source = derived;
+    return { kind: "current", workspace: labelled[0]?.Name ?? null };
   }
-  if (source === null) {
-    const stale = labelled.filter(
-      (volume) => workspaceVolumeProblem(volume, sessionId, config) !== null,
-    );
-    if (stale.length === 0) {
-      if (labelled.length > 1) {
-        return {
-          kind: "refused",
-          reason: `${names(labelled)} are all current workspaces of this session; compare them by hand`,
-        };
-      }
-      return { kind: "current", workspace: labelled[0]?.Name ?? null };
-    }
-    // The migration-source label marks an unfinished copy only while its source still
-    // exists; once that is gone the label is history, and a volume a past
-    // migration made can itself be moved when the quota changes again.
-    const present = new Set(listed);
-    if (derived !== null) present.add(derived.Name);
-    const sources = stale.filter((volume) => {
-      const from = volume.Labels?.[keys.migratedFrom];
-      return from === undefined || !present.has(from);
-    });
-    if (sources.length !== 1) {
-      return {
-        kind: "refused",
-        reason: `cannot tell which of ${names(stale)} holds the session's work`,
-      };
-    }
-    source = sources[0] ?? null;
+  // The migration-source label marks an unfinished copy only while its source still
+  // exists; once that is gone the label is history, and a volume a past
+  // migration made can itself be moved when the quota changes again.
+  const present = new Set(labelled.map((volume) => volume.Name));
+  const sources = stale.filter((volume) => {
+    const from = volume.Labels?.[keys.migratedFrom];
+    return from === undefined || !present.has(from);
+  });
+  const [source] = sources;
+  if (sources.length !== 1 || source === undefined) {
+    return {
+      kind: "refused",
+      reason: `cannot tell which of ${names(stale)} holds the session's work`,
+    };
   }
-  if (source === null) return { kind: "current", workspace: null };
   const from = source.Name;
   const copies = labelled.filter(
     (volume) => volume.Labels?.[keys.migratedFrom] === from,
@@ -179,9 +160,8 @@ export function planWorkspaceMigration(input: {
  * workspaces are found by label, so the copy simply becomes the session's
  * workspace once the source is gone.
  *
- * Until then the backend refuses to launch the session: a labelled
- * workspace beside the legacy one, or two labelled ones, is exactly what
- * `findWorkspaceVolume` will not choose between. So a run that dies at any
+ * Until then the backend refuses to launch the session: two labelled
+ * workspaces are exactly what `findWorkspaceVolume` will not choose between. So a run that dies at any
  * step leaves a session that cannot start on a half-made copy, and running
  * it again picks up from whatever is left.
  *
@@ -236,19 +216,13 @@ export class WorkspaceMigrator {
     const helper = `werft-ws-migrate-${this.config.installationId}-${sessionId}-${attempt}`;
     const pin = `werft-ws-migrate-pin-${this.config.installationId}-${sessionId}-${attempt}`;
 
-    const [labelled, derived] = await Promise.all([
-      this.client.listVolumes([
-        `${keys.managed}=true`,
-        `${keys.installation}=${this.config.installationId}`,
-        `${keys.sessionId}=${sessionId}`,
-      ]),
-      this.client.inspectVolume(
-        legacyWorkspaceVolumeName(sessionId, this.config),
-      ),
+    const labelled = await this.client.listVolumes([
+      `${keys.managed}=true`,
+      `${keys.installation}=${this.config.installationId}`,
+      `${keys.sessionId}=${sessionId}`,
     ]);
     const plan = planWorkspaceMigration({
       config: this.config,
-      derived,
       labelled,
       sessionId,
     });
@@ -270,7 +244,7 @@ export class WorkspaceMigrator {
     // after it, and a run that resumes late must leave them alone.
     await this.assertUnused(source, fail, sessionId);
     const earlier = await this.toolContainers(sessionId);
-    const plannedCreatedAt = [...labelled, ...(derived ? [derived] : [])].find(
+    const plannedCreatedAt = labelled.find(
       (volume) => volume.Name === source,
     )?.CreatedAt;
     signal?.throwIfAborted();
@@ -305,9 +279,7 @@ export class WorkspaceMigrator {
       );
     } catch (error) {
       await this.client.removeVolume(target).catch(() => undefined);
-      throw fail(
-        `${error instanceof Error ? error.message : String(error)}; ${source} is untouched`,
-      );
+      throw fail(`${messageOf(error)}; ${source} is untouched`);
     }
 
     signal?.throwIfAborted();

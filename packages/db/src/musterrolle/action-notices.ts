@@ -7,6 +7,7 @@ import {
   intentNoticeDedupeKey,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { reportsTurns } from "../link-posting.ts";
 import type { Database } from "../queries.ts";
 import {
   pushIntents,
@@ -84,6 +85,7 @@ async function enqueueNotice(
 ): Promise<"enqueued" | "duplicate" | "no_thread"> {
   const [link] = await tx
     .select({
+      id: sessionLinks.id,
       workspaceId: sessionLinks.workspaceId,
       agentId: sessionLinks.agentId,
       slackAppId: slackApps.id,
@@ -111,7 +113,8 @@ async function enqueueNotice(
         eq(sessionLinks.role, "primary"),
         isNull(sessionLinks.revokedAt),
         eq(sessionLinks.muted, false),
-        eq(sessionLinks.visibility, "full"),
+        reportsTurns(sql.raw('"session_links"')),
+        isNull(sessionLinks.closedAt),
         ne(slackInstallations.status, "revoked"),
       ),
     )
@@ -131,6 +134,7 @@ async function enqueueNotice(
       threadTs: link.threadTs,
       slackUserId: null,
       sessionId: input.sessionId,
+      sessionLinkId: link.id,
       body: {
         text: actionNoticeText(link.locale, input.notice),
         ...(input.notice.url === undefined

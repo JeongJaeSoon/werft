@@ -90,7 +90,7 @@ chart は DB を作らないため、サーバー設定も変更しません。�
 
 続いてプラットフォームの DB で `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` を一度実行します。拡張を作る権限（RDS では `rds_superuser`）が必要です。migration は拡張を作りません。権限がない環境でも migrate が失敗しないようにするためです。
 
-ログは DB の出力先（RDS では CloudWatch Logs の `postgresql` ログ）で `duration:` と `still waiting` を検索します。kind 確認環境（`deploy/kind/deps.yaml`）の Postgres はこの表の値で起動します。
+ログは DB の出力先（RDS では CloudWatch Logs の `postgresql` ログ）で `duration:` と `still waiting` を検索します。
 
 <a id="확인" />
 ## 確認

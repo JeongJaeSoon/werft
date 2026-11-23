@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import {
+  CLIENT_ID,
+  CLIENT_SECRET,
+  type FakeProvider,
+  fakeProvider,
+  ISSUER,
+  makeSigner,
+  REDIRECT_URI,
+} from "../../testing/oidc-fake-provider.ts";
 import { discover, type OidcEndpoints } from "./discovery.ts";
 import {
   OidcRejectedError,
@@ -9,15 +18,6 @@ import {
 import { finishFlow, type OidcClient, startFlow } from "./flow.ts";
 import { authorizationParams, tokenIssuers } from "./issuer-rules.ts";
 import type { NetworkPolicy } from "./provider-http.ts";
-import {
-  CLIENT_ID,
-  CLIENT_SECRET,
-  type FakeProvider,
-  fakeProvider,
-  ISSUER,
-  makeSigner,
-  REDIRECT_URI,
-} from "./test-support/fake-provider.ts";
 
 const POLICY: NetworkPolicy = { plainHttp: "refuse" };
 const NOW = 1_800_000_000_000;

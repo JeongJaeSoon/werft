@@ -16,7 +16,7 @@
 //   web-user.mjs <run> demo-login <owner|member>  source-defined demo credentials
 //   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
-//   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request (join|leave: the bot enters or leaves channel, leave as group_left/channel_left, leave-member as member_left_channel; a higher seq is later)
+//   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request (join|leave: the bot enters or leaves channel, leave as group_left/channel_left, leave-member as member_left_channel; archive|unarchive|rename|channel-delete: Slack's channel_* or group_* (G channel) lifecycle event, rename to the last word; a higher seq is later; edit|delete|delete-bot|tombstone change post seq, parent 0 for none, the last word tags the event id)
 //   web-user.mjs <run> slack-cards <agent>           the mock's cards: ts, buttons, updates so far
 //   web-user.mjs <run> slack-click <agent> <allow|allow-session|allow-note|deny|push-approve|push-reject>  press that button on the newest card, signed by the mock
 //   web-user.mjs <run> slack-submit-note <agent> <text>  submit the newest filled note modal with that instruction, signed by the mock
@@ -273,24 +273,40 @@ switch (cmd) {
         "bot",
         "mention",
         "bot-mention",
+        "own-reply",
+        "own-mirror",
+        "slackbot",
         "plain",
         "reply",
         "join",
         "leave",
         "leave-member",
+        "archive",
+        "unarchive",
+        "rename",
+        "channel-delete",
         "uninstall",
         "uninstall-late",
+        "edit",
+        "delete",
+        "delete-bot",
+        "tombstone",
       ].includes(mode)
     )
       throw new Error("agent UUID and event mode required");
+    // A sequence number, or a full ts of a post the outbox made.
+    const SLACK_EVENT_SEQ = /^(?:[0-9]{1,6}|[0-9]{1,12}\.[0-9]{6})$/;
     // mention|plain take a channel id and a sequence number for new ids;
     // reply also takes the sequence number of the post it answers.
     // The optional last word is the post's text, e.g. a GATE-SPEC script.
     const [channel = "C0VERIFY", seq = "1", parent, text] = rest.slice(1);
-    if (!/^[A-Z0-9]{1,20}$/.test(channel) || !/^[0-9]{1,6}$/.test(seq))
+    if (!/^[A-Z0-9]{1,20}$/.test(channel) || !SLACK_EVENT_SEQ.test(seq))
       throw new Error("channel id and sequence number required");
-    if (mode === "reply" && !/^[0-9]{1,6}$/.test(parent ?? ""))
-      throw new Error("reply needs the parent post's sequence number");
+    if (
+      (mode === "reply" || mode === "own-reply" || mode === "own-mirror") &&
+      !SLACK_EVENT_SEQ.test(parent ?? "")
+    )
+      throw new Error(`${mode} needs the parent post's sequence number`);
     console.log(
       composeBun(
         readFileSync(new URL("./slack-event.ts", import.meta.url), "utf8"),

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   drainSlackInbox,
+  SlackInboundDropped,
   type SlackInboxLogger,
   slackConversationKey,
   slackInboundBackoffMs,
@@ -133,6 +134,33 @@ describe("drainSlackInbox", () => {
       state: "dropped",
       dropped: "installation_revoked",
     });
+  });
+
+  test("the input a handler returns completes with its row; a failed or dropped event takes none", async () => {
+    const inbox = createMemorySlackInboundEventStore();
+    for (const id of ["Ev1", "Ev2", "Ev3"]) await received(inbox, id);
+    const input = {
+      topicId: "019a0000-0000-7000-8000-0000000000c1",
+      channelId: "C1",
+      ts: "100.000100",
+      turn: { sessionId: "019a0000-0000-7000-8000-0000000000c2", sequence: 7 },
+      engagement: "mention",
+    } as const;
+    const drain = await drainSlackInbox({
+      inbox: inbox.store,
+      handler: async (event) => {
+        if (event.eventId === "Ev2") throw new Error("boom");
+        if (event.eventId === "Ev3")
+          throw new SlackInboundDropped("channel_left");
+        return input as never;
+      },
+      logger: recorder().logger,
+      batchSize: 5,
+      leaseMs: 60_000,
+      deadline: Number.POSITIVE_INFINITY,
+    });
+    expect(drain).toMatchObject({ processed: 1, retried: 1, dropped: 1 });
+    expect(inbox.inputs).toEqual([input as never]);
   });
 
   test("the no-op handler marks every claimed event processed", async () => {

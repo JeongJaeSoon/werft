@@ -25,6 +25,7 @@ import {
   parseSettingsDocument,
 } from "@werft-ai/platform";
 import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
+import { messageOf } from "@werft-ai/runtime-core";
 import {
   createCheckpointObjectCollector,
   createCheckpointObjectStore,
@@ -35,7 +36,6 @@ import {
   assertCheckpointBucketProtection,
   checkpointStorageConfigFromEnv,
 } from "../../apps/control-host/src/api/checkpoints.ts";
-import { withoutLegacyRepositories } from "../../apps/control-host/src/api/settings-from-dir.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");
 const EXIT_REFUSED = 3;
@@ -80,15 +80,8 @@ export type ReleaseManifest = {
  * A release as test-ops deploys it: the commit its compose files come from,
  * the three app images by digest, and the settings by content. A tag can be
  * moved after the fact; none of these can.
- *
- * `deployed` reads the manifest of the running release, which an installation
- * from before settings documents wrote with `catalog_revision`. That release
- * has no digest: `settingsDigest` is empty, and an upgrade off it migrates.
  */
-export function parseReleaseManifest(
-  value: unknown,
-  { deployed = false }: { deployed?: boolean } = {},
-): ReleaseManifest {
+export function parseReleaseManifest(value: unknown): ReleaseManifest {
   const problems: string[] = [];
   const object = (found: unknown, where: string, keys: readonly string[]) => {
     if (typeof found !== "object" || found === null || Array.isArray(found)) {
@@ -113,12 +106,7 @@ export function parseReleaseManifest(
     "source_commit",
     "images",
     "settings_digest",
-    ...(deployed ? ["catalog_revision"] : []),
   ]);
-  const beforeSettings =
-    deployed &&
-    top.settings_digest === undefined &&
-    typeof top.catalog_revision === "string";
   const images = object(top.images, "images", [
     "control_host",
     "worker",
@@ -127,14 +115,12 @@ export function parseReleaseManifest(
   const image = (key: string) =>
     text(images[key], `images.${key}`, PINNED_IMAGE, "<name>@sha256:<64 hex>");
   const manifest = {
-    settingsDigest: beforeSettings
-      ? ""
-      : text(
-          top.settings_digest,
-          "settings_digest",
-          /^sha256:[0-9a-f]{64}$/,
-          "sha256:<64 hex>",
-        ),
+    settingsDigest: text(
+      top.settings_digest,
+      "settings_digest",
+      /^sha256:[0-9a-f]{64}$/,
+      "sha256:<64 hex>",
+    ),
     images: {
       controlHost: image("control_host"),
       egressProxy: image("egress_proxy"),
@@ -152,43 +138,23 @@ export function parseReleaseManifest(
 }
 
 /**
- * The import leaves out a repository with no GitHub App and adds nothing for
- * it, so the run would end with no repository after the images are up. This
- * is the import's own rule applied before anything starts. A document that is
+ * migrate parses the document the same way; a refusal there only shows up
+ * after the images are pulled and the stack is half up. A document that is
  * not JSON is the import's to refuse.
  */
-async function repositoriesWithoutGitHubApp(file: string): Promise<string[]> {
+async function settingsDocumentProblems(file: string): Promise<string[]> {
   let document: unknown;
   try {
     document = JSON.parse(await readFile(file, "utf8"));
   } catch {
     return [];
   }
-  if (document === null || typeof document !== "object") return [];
-  const skipped: string[] = [];
-  const notes: string[] = [];
-  const repositories = withoutLegacyRepositories(
-    (document as { repositories?: unknown }).repositories,
-    notes,
-    skipped,
-  );
-  // migrate parses the document the same way; a refusal there only shows up
-  // after the images are pulled and the stack is half up.
   try {
-    parseSettingsDocument(
-      Array.isArray(document) || !("repositories" in document)
-        ? document
-        : { ...document, repositories },
-    );
+    parseSettingsDocument(document);
   } catch (error) {
-    return [
-      `settings document ${file}: ${error instanceof Error ? error.message : String(error)}`,
-    ];
+    return [`settings document ${file}: ${messageOf(error)}`];
   }
-  return skipped.map(
-    (id) =>
-      `settings document ${file}: repository ${id} names no GitHub App, so the import would leave it out; add "auth": {"kind": "github_app"}. If the database already holds a repository ${id}, that edit conflicts with the row: remove the entry or give it a new id. If a run already stopped with pending.json left behind, copy the fixed manifest over it (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/single-server/#자주-막히는-곳)`,
-  );
+  return [];
 }
 
 export async function settingsDigest(file: string): Promise<string> {
@@ -406,7 +372,7 @@ export async function checkRender(
       problems.push(
         `settings document ${document} is ${digest}, the manifest says ${options.settingsDigest}`,
       );
-    problems.push(...(await repositoriesWithoutGitHubApp(document)));
+    problems.push(...(await settingsDocumentProblems(document)));
   }
   if (problems.length > 0) throw new Error(problems.join("\n"));
   return digest;
@@ -429,9 +395,7 @@ export async function probeRoundTrip(input: {
     try {
       return await run();
     } catch (error) {
-      throw new Error(
-        `${action} on ${key} failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new Error(`${action} on ${key} failed: ${messageOf(error)}`);
     }
   };
   const body = new TextEncoder().encode(`test-ops preflight ${key}\n`);
@@ -642,16 +606,10 @@ async function main(argv: readonly string[]): Promise<number> {
   const [command, ...args] = argv;
   switch (command) {
     case "manifest": {
-      const [file, mode] = args;
-      if (
-        !file ||
-        args.length > 2 ||
-        (mode !== undefined && mode !== "--deployed")
-      )
-        return usage();
+      const [file] = args;
+      if (!file || args.length > 1) return usage();
       const manifest = parseReleaseManifest(
         JSON.parse(await readFile(file, "utf8")),
-        { deployed: mode === "--deployed" },
       );
       console.log(
         [
@@ -789,7 +747,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: test-ops.ts manifest <file> [--deployed] | settings-digest <file> | render-refusal <stderr-file> | check-render --store <localstack|s3> [--settings-digest <digest> [--localstack-port <running>]] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
+    "usage: test-ops.ts manifest <file> | settings-digest <file> | render-refusal <stderr-file> | check-render --store <localstack|s3> [--settings-digest <digest> [--localstack-port <running>]] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
   );
   return 2;
 }
@@ -799,9 +757,7 @@ if (import.meta.main) {
   try {
     code = await main(process.argv.slice(2));
   } catch (error) {
-    console.error(
-      `${process.argv[2]}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`${process.argv[2]}: ${messageOf(error)}`);
     code = 1;
   }
   process.exit(code);

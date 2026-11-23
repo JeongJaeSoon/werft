@@ -1,8 +1,14 @@
-import type { PushRequestFlow } from "@werft-ai/contracts";
+import type {
+  PushRequestFlow,
+  PushRoot,
+  RequesterAuth,
+} from "@werft-ai/contracts";
 import type { PushFollowUpStore } from "@werft-ai/platform";
 import { and, eq, max, or, sql } from "drizzle-orm";
+import { newTurnSources } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import {
+  agentReleases,
   pullRequests,
   pushFollowUps,
   pushIntents,
@@ -12,7 +18,110 @@ import {
 } from "../schema.ts";
 import { enqueueWithin } from "../sessions/index.ts";
 
-export type PushFollowUpHold = "now" | "held" | "pull_request";
+export type PushFollowUpHold = "now" | "held" | "pull_request" | "queued";
+
+/**
+ * Whether the session already has this push request's follow-up turn. The
+ * turn is its own mark: read under the session lock by every path that
+ * queues one, so a decision that comes in twice queues one turn.
+ */
+export async function pushFollowUpQueued(
+  tx: Database,
+  sessionId: string,
+  pushRequestId: string,
+): Promise<boolean> {
+  const [found] = await tx
+    .select({ id: turns.id })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, sessionId),
+        sql`${turns.requesterAuth}->>'method' = 'push_decision'`,
+        sql`${turns.requesterAuth}->>'push_request_id' = ${pushRequestId}`,
+      ),
+    )
+    .limit(1);
+  return found !== undefined;
+}
+
+const asObject = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+/**
+ * The requester a push follow-up turn records: the agent, no person. The
+ * root is whose request it came from (the turn that asked for the push, or
+ * that turn's own root), kept so later work traces back to that person.
+ */
+export async function pushFollowUpRequester(
+  tx: Database,
+  input: {
+    agentReleaseId: string | null;
+    pushRequestId: string;
+    decision: "approve" | "reject";
+  },
+): Promise<{
+  requesterKind: string | null;
+  requesterId: string | null;
+  requesterAuth: RequesterAuth;
+}> {
+  const [release] =
+    input.agentReleaseId === null
+      ? []
+      : await tx
+          .select({ agentId: agentReleases.agentId })
+          .from(agentReleases)
+          .where(eq(agentReleases.id, input.agentReleaseId))
+          .limit(1);
+  const [asked] = await tx
+    .select({
+      sequence: turns.sequence,
+      requesterKind: turns.requesterKind,
+      requesterId: turns.requesterId,
+      requesterAuth: turns.requesterAuth,
+    })
+    .from(pushIntents)
+    .innerJoin(turns, eq(turns.id, pushIntents.turnId))
+    .where(eq(pushIntents.pushRequestId, input.pushRequestId))
+    .limit(1);
+  let root: PushRoot | undefined;
+  if (asked !== undefined) {
+    const auth = asObject(asked.requesterAuth);
+    const inherited =
+      auth?.method === "push_decision" ? asObject(auth.root) : null;
+    if (inherited !== null) {
+      root = inherited as PushRoot;
+    } else {
+      const { carried_from: _carried, via, ...credential } = auth ?? {};
+      root = {
+        requester_kind: asked.requesterKind,
+        requester_id: asked.requesterId,
+        requester_auth: auth === null ? null : credential,
+        via: Array.isArray(via) ? via : [],
+      };
+    }
+  }
+  const agentId = release?.agentId ?? null;
+  return {
+    requesterKind: agentId === null ? null : "agent",
+    requesterId: agentId,
+    requesterAuth: {
+      method: "push_decision",
+      push_request_id: input.pushRequestId,
+      decision: input.decision,
+      ...(asked === undefined
+        ? {}
+        : {
+            root,
+            carried_from: {
+              turn: String(asked.sequence),
+              reason: "push_follow_up",
+            },
+          }),
+    },
+  };
+}
 
 async function pullRequestRecorded(
   tx: Database,
@@ -83,7 +192,8 @@ export function followUpFact(message: string): string {
  * approved push's follow-up turn: `pull_request` when the push's branch
  * already has one recorded (nothing to ask for), `held` when a turn is
  * running (it may open the pull request itself; the next turn end decides),
- * `now` when the caller should queue it at once.
+ * `queued` when the session already has this push's follow-up turn, `now`
+ * when the caller should queue it at once.
  */
 export function holdPushFollowUp(
   db: Database,
@@ -97,6 +207,9 @@ export function holdPushFollowUp(
       .for("update");
     if (await pullRequestRecorded(tx, input.sessionId, input.pushRequestId)) {
       return "pull_request";
+    }
+    if (await pushFollowUpQueued(tx, input.sessionId, input.pushRequestId)) {
+      return "queued";
     }
     const [running] = await tx
       .select({ id: turns.id })
@@ -124,7 +237,8 @@ export async function queuePushFollowUps(
   const { session } = input;
   if (
     session.admissionState !== "active" ||
-    session.takeoverRequiredAt !== null
+    session.takeoverRequiredAt !== null ||
+    session.sourceDeletedAt !== null
   ) {
     return 0;
   }
@@ -134,7 +248,10 @@ export async function queuePushFollowUps(
     .returning();
   let queued = 0;
   for (const hold of held) {
-    if (await pullRequestRecorded(tx, session.id, hold.pushRequestId)) {
+    if (
+      (await pullRequestRecorded(tx, session.id, hold.pushRequestId)) ||
+      (await pushFollowUpQueued(tx, session.id, hold.pushRequestId))
+    ) {
       continue;
     }
     const message = followUpFact(hold.message);
@@ -142,12 +259,12 @@ export async function queuePushFollowUps(
       .select({ sequence: max(turns.sequence) })
       .from(turns)
       .where(eq(turns.sessionId, session.id));
-    const [asked] = await tx
-      .select({ actorId: turns.actorId })
-      .from(pushIntents)
-      .innerJoin(turns, eq(turns.id, pushIntents.turnId))
-      .where(eq(pushIntents.pushRequestId, hold.pushRequestId))
-      .limit(1);
+    // Only an approval is held, so this is an approval's follow-up.
+    const requester = await pushFollowUpRequester(tx, {
+      agentReleaseId: session.agentReleaseId,
+      pushRequestId: hold.pushRequestId,
+      decision: "approve",
+    });
     const [turn] = await tx
       .insert(turns)
       .values({
@@ -156,7 +273,13 @@ export async function queuePushFollowUps(
         message,
         status: "queued",
         createdAt: sql`clock_timestamp()`,
-        actorId: asked?.actorId ?? null,
+        // The agent's turn: no person sent it.
+        actorId: null,
+        ...requester,
+        sources: await newTurnSources(tx, {
+          sessionId: session.id,
+          slackMessage: null,
+        }),
       })
       .returning({ id: turns.id });
     if (!turn) throw new Error("Failed to insert the push follow-up turn");

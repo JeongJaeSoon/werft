@@ -303,6 +303,7 @@ const ROW_MESSAGES: SessionRowMessages = {
 const SESSION: SessionSummary = {
   id: "0192f0c4-7d3a-7b4e-9f00-000000000001",
   title: null,
+  title_deleted_at: null,
   agent: null,
   preview: false,
   agent_hidden: false,
@@ -409,6 +410,9 @@ const OVERVIEW_MESSAGES = {
   channel: (channel: string) => `channel:${channel}`,
   inProgress: "in progress",
   unknown: "—",
+  agentNone: "에이전트 없음",
+  agentHidden: "볼 수 없는 에이전트",
+  agentArchived: "보관됨",
 };
 
 const HEAD = {
@@ -426,6 +430,7 @@ const AGENT = {
   release_version_no: 3,
   release_label: "2026-10-30_14:30:28",
   release_is_active: true,
+  archived: false,
 };
 
 function overviewRow(session: SessionSummary, extra: object = {}) {
@@ -501,14 +506,57 @@ describe("SessionOverviewRow", () => {
     );
   });
 
-  test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID이며, 에이전트가 없으면 —다", () => {
+  test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID이며, 에이전트가 없으면 '에이전트 없음'이다", () => {
     const { getByRole, getByText } = overviewRow(SESSION);
     const link = getByRole("link", { name: SESSION.id });
     expect(getByText(SESSION.id.slice(0, 8)).className).toContain("font-mono");
     const cells = cellsOf(link.closest('[role="row"]'));
-    expect(cells[1]?.textContent).toBe("—");
+    expect(cells[1]?.textContent).toBe("에이전트 없음");
     // An older session without a channel: a dash, not a guessed icon.
     expect(cells[2]?.textContent).toBe("—");
+  });
+
+  test("서버가 에이전트를 가린 세션은 '에이전트 없음'이 아니라 '볼 수 없는 에이전트'를 흐린 글자로 쓴다", () => {
+    const { getAllByRole, getByText } = overviewRow({
+      ...SESSION,
+      agent: null,
+      agent_hidden: true,
+    });
+    expect(cellsOf(getAllByRole("row")[1])[1]?.textContent).toBe(
+      "볼 수 없는 에이전트",
+    );
+    expect(getByText("볼 수 없는 에이전트").className).toContain(
+      "text-subtle-foreground",
+    );
+  });
+
+  test.each([
+    [true, "Release helper보관됨", ["보관됨"]],
+    [false, "Release helper", []],
+    [null, "Release helper", []],
+  ])(
+    "보관된 에이전트만 이름 옆에 '보관됨' 배지를 붙인다: archived=%p",
+    (archived, text, badges) => {
+      const { getAllByRole } = overviewRow({
+        ...SESSION,
+        agent: { ...AGENT, archived },
+      });
+      const cell = cellsOf(getAllByRole("row")[1])[1];
+      expect(cell?.textContent).toBe(text);
+      const marks = [...(cell?.querySelectorAll("[data-slot=badge]") ?? [])];
+      expect(marks.map((mark) => mark.textContent)).toEqual(badges);
+      // The name still truncates on its own; the badge never shrinks away.
+      for (const mark of marks) {
+        expect(mark.classList.contains("shrink-0")).toBe(true);
+      }
+    },
+  );
+
+  test("에이전트 이름은 흐리지 않는다", () => {
+    const { getByText } = overviewRow({ ...SESSION, agent: AGENT });
+    expect(getByText("Release helper").className).not.toContain(
+      "text-subtle-foreground",
+    );
   });
 
   test("채널은 Slack 로고·웹·API 아이콘이고 이름은 스크린 리더와 툴팁으로 읽는다", () => {

@@ -38,6 +38,7 @@ import {
 } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 import {
+  autoApproveOn,
   gitVersionJson,
   gitVersionOf,
   lockedManagers,
@@ -119,6 +120,35 @@ async function previousApproved(
     .orderBy(desc(extensionBundles.version))
     .limit(1);
   return row;
+}
+
+/**
+ * Closes the skill's not archived versions below `version` still awaiting
+ * review: a newer one is approved or current, so they leave the review list.
+ * `by` is who approved or moved it; null under the sync's auto-approve.
+ */
+async function supersedeBelow(
+  tx: Database,
+  workspaceId: string,
+  name: string,
+  version: number,
+  by: string | null,
+): Promise<{ id: string; version: number }[]> {
+  const rows = await tx
+    .update(extensionBundles)
+    .set({ review: "superseded", reviewedBy: by, reviewedAt: DB_NOW })
+    .where(
+      and(
+        ofSkill(workspaceId, name),
+        eq(extensionBundles.review, "pending"),
+        isNull(extensionBundles.archivedAt),
+        lt(extensionBundles.version, version),
+      ),
+    )
+    .returning({ id: extensionBundles.id, version: extensionBundles.version });
+  return rows
+    .map((row) => ({ id: row.id, version: row.version as number }))
+    .sort((a, b) => a.version - b.version);
 }
 
 /** Makes `id` the skill's current version, or leaves it none on null. */
@@ -356,6 +386,91 @@ export function createPostgresExtensionBundleStore(
           });
         };
         let source: Awaited<ReturnType<typeof lockSkill>>;
+        // Auto-approve of a pending version of this skill: only for the
+        // sync, only while sync and auto-approve are both still on under the
+        // source row's lock, with no settings change since the check read
+        // them. The fixed-rule checks hold it back, and so does a baseline
+        // other than the one they ran against: their findings are then
+        // about another version and are not kept.
+        const judge = async (
+          version: number,
+        ): Promise<SkillAutoApproval | null> => {
+          const auto = git?.auto;
+          if (
+            !synced ||
+            auto === undefined ||
+            source?.syncEnabled !== true ||
+            !autoApproveOn(source) ||
+            source.autoApproveGrantId !== auto.grantId
+          ) {
+            return null;
+          }
+          const [baseline] = await tx
+            .select({ id: extensionBundles.id })
+            .from(extensionBundles)
+            .where(
+              and(
+                ofSkill(input.workspaceId, input.name),
+                eq(extensionBundles.review, "approved"),
+                lt(extensionBundles.version, version),
+              ),
+            )
+            .orderBy(desc(extensionBundles.version))
+            .limit(1);
+          if ((baseline?.id ?? null) !== auto.checks.baselineId) {
+            return {
+              result: "pending",
+              reason: "baseline_changed",
+              checks: [],
+            };
+          }
+          return auto.checks.findings.length > 0
+            ? {
+                result: "pending",
+                reason: "checks_failed",
+                checks: auto.checks.findings,
+              }
+            : { result: "approved", reason: null, checks: [] };
+        };
+        const approveBySync = async (row: Row, version: number) => {
+          await tx
+            .update(extensionBundles)
+            .set({ review: "approved", reviewedAt: DB_NOW })
+            .where(eq(extensionBundles.id, row.id));
+          const before = await currentOf(tx, input.workspaceId, input.name);
+          const advances =
+            before === undefined || (before.version ?? 0) < version;
+          if (advances) {
+            await makeCurrent(tx, input.workspaceId, input.name, row.id);
+          }
+          const superseded = await supersedeBelow(
+            tx,
+            input.workspaceId,
+            input.name,
+            version,
+            null,
+          );
+          await writeReceipt(tx, input.principal, {
+            id: randomUUID(),
+            operation: "approve_extension",
+            target: { kind: "extension_bundle", id: row.id },
+            result: {
+              digest: row.digest,
+              from: "pending",
+              review: "approved",
+              by: "sync",
+              auto_approve: {
+                enabled_by: source?.autoApproveConsentedBy ?? null,
+              },
+              commit: git?.location.commit,
+              ...(advances
+                ? { current: { from: before?.version ?? null, to: version } }
+                : {}),
+              ...(superseded.length > 0 ? { superseded } : {}),
+            },
+          });
+          return reread(tx, row.id);
+        };
         const sameDigest = async () => {
           const [existing] = await tx
             .select()
@@ -410,10 +525,22 @@ export function createPostgresExtensionBundleStore(
           }
           const existing = await sameDigest();
           if (existing) {
-            await checked("unchanged", existing.id);
+            // A version still waiting is judged as a new one would be.
+            const waiting =
+              existing.name === input.name &&
+              existing.review === "pending" &&
+              existing.archivedAt === null
+                ? existing.version
+                : null;
+            const approval = waiting === null ? null : await judge(waiting);
+            await checked("unchanged", existing.id, approval);
             return {
               outcome: "already_registered",
-              bundle: bundleOf(existing),
+              bundle: bundleOf(
+                waiting !== null && approval?.result === "approved"
+                  ? await approveBySync(existing, waiting)
+                  : existing,
+              ),
             };
           }
           version =
@@ -458,40 +585,8 @@ export function createPostgresExtensionBundleStore(
           await checked("unchanged", existing.id);
           return { outcome: "already_registered", bundle: bundleOf(existing) };
         }
-        // Auto-approve: only a version the
-        // sync made, only while sync and auto-approve are both still on
-        // under the source row's lock, with no settings change since GitHub
-        // was read, and only on what GitHub showed.
-        const auto =
-          synced &&
-          source?.syncEnabled === true &&
-          source.autoApprove === "on" &&
-          git?.protection !== undefined &&
-          source.autoApproveGrantId === git.protection.grantId
-            ? git.protection.evidence
-            : null;
-        let autoApproval: SkillAutoApproval | null = null;
-        let registered = inserted;
-        if (auto !== null && !auto.met) {
-          autoApproval = {
-            result: "pending",
-            reason: auto.reason,
-            rule: null,
-            pullRequest: null,
-          };
-        }
-        await checked(
-          "created",
-          inserted.id,
-          auto?.met === true
-            ? {
-                result: "approved",
-                reason: null,
-                rule: auto.rule,
-                pullRequest: auto.pullRequest,
-              }
-            : autoApproval,
-        );
+        const approval = version === null ? null : await judge(version);
+        await checked("created", inserted.id, approval);
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "register_extension",
@@ -514,46 +609,13 @@ export function createPostgresExtensionBundleStore(
                 }),
           },
         });
-        if (auto?.met === true && source && version !== null) {
-          await tx
-            .update(extensionBundles)
-            .set({ review: "approved", reviewedAt: DB_NOW })
-            .where(eq(extensionBundles.id, inserted.id));
-          const before = await currentOf(tx, input.workspaceId, input.name);
-          const advances =
-            before === undefined || (before.version ?? 0) < version;
-          if (advances) {
-            await makeCurrent(tx, input.workspaceId, input.name, inserted.id);
-          }
-          registered = await reread(tx, inserted.id);
-          await writeReceipt(tx, input.principal, {
-            id: randomUUID(),
-            operation: "approve_extension",
-            target: { kind: "extension_bundle", id: inserted.id },
-            result: {
-              digest: inserted.digest,
-              from: "pending",
-              review: "approved",
-              by: "sync",
-              auto_approve: {
-                requested_by: source.autoApproveRequestedBy,
-                consented_by: source.autoApproveConsentedBy,
-              },
-              commit: git?.location.commit,
-              pull_request: auto.pullRequest,
-              rule: {
-                kind: auto.rule.kind,
-                required_reviews: auto.rule.requiredReviews,
-              },
-              ...(advances
-                ? { current: { from: before?.version ?? null, to: version } }
-                : {}),
-            },
-          });
-        }
         return {
           outcome: "registered",
-          bundle: bundleOf(registered),
+          bundle: bundleOf(
+            version !== null && approval?.result === "approved"
+              ? await approveBySync(inserted, version)
+              : inserted,
+          ),
           receiptId: input.receiptId,
         };
       });
@@ -587,6 +649,13 @@ export function createPostgresExtensionBundleStore(
               );
         if (!from || !to) return { outcome: "no_previous_version" };
         await makeCurrent(tx, input.workspaceId, input.name, to.id);
+        const superseded = await supersedeBelow(
+          tx,
+          input.workspaceId,
+          input.name,
+          to.version as number,
+          actor.userId,
+        );
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "revert_extension",
@@ -595,6 +664,7 @@ export function createPostgresExtensionBundleStore(
             name: input.name,
             from: { id: from.id, version: from.version, digest: from.digest },
             to: { id: to.id, version: to.version, digest: to.digest },
+            ...(superseded.length > 0 ? { superseded } : {}),
           },
         });
         return {
@@ -660,6 +730,16 @@ export function createPostgresExtensionBundleStore(
           }
         }
         const moved = after !== null;
+        const superseded =
+          input.review === "approved" && row.version !== null
+            ? await supersedeBelow(
+                tx,
+                input.workspaceId,
+                row.name,
+                row.version,
+                actor.userId,
+              )
+            : [];
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "approve_extension",
@@ -677,6 +757,7 @@ export function createPostgresExtensionBundleStore(
                   },
                 }
               : {}),
+            ...(superseded.length > 0 ? { superseded } : {}),
           },
         });
         return {

@@ -99,7 +99,6 @@ const tree: Root = {
     folder("UI", [page("/en/ui/theme")]),
     folder("Reference", [page("/en/reference/api-guide")]),
     page("/en/sdk"),
-    page("/en/contributing"),
   ],
 };
 
@@ -107,13 +106,12 @@ const out = buildSidebarTree(tree, sidebarLabels.en);
 const names = (n: Node[]) => n.map((c) => ("name" in c ? c.name : ""));
 const separatorAt = (id: string) =>
   out.children.findIndex((c) => c.type === "separator" && c.$id === id);
-// Everything between the two separators, then everything after the second
-// up to the trailing contributing page.
+// Everything between the two separators, then everything after the second.
 const useNodes = out.children.slice(
   separatorAt(SECTION_USE) + 1,
   separatorAt(SECTION_DEPLOY),
 );
-const deployNodes = out.children.slice(separatorAt(SECTION_DEPLOY) + 1, -1);
+const deployNodes = out.children.slice(separatorAt(SECTION_DEPLOY) + 1);
 const all = (nodes: Node[]) => nodes.flatMap(urls);
 
 function urls(node: Node): string[] {
@@ -126,7 +124,7 @@ function urls(node: Node): string[] {
 }
 
 describe("buildSidebarTree", () => {
-  test("one sidebar: a use section, a deploy section, then contributing", () => {
+  test("one sidebar: a use section, then a deploy section", () => {
     expect(out.children[0]).toEqual({
       type: "separator",
       $id: SECTION_USE,
@@ -138,10 +136,6 @@ describe("buildSidebarTree", () => {
       name: "Self-hosting",
     });
     expect(separatorAt(SECTION_DEPLOY)).toBeGreaterThan(1);
-    expect(out.children.at(-1)).toMatchObject({
-      type: "page",
-      url: "/en/contributing",
-    });
     // No root folder: a root folder would bring the tab dropdown back.
     const roots: Node[] = [];
     const walk = (n: Node) => {
@@ -216,7 +210,7 @@ describe("buildSidebarTree", () => {
 
   test("every page the root meta lists reaches the sidebar", () => {
     const slugs = pageSlots(join(docsRoot, "meta.json")).filter(
-      (s) => s !== "index" && s !== "contributing",
+      (s) => s !== "index",
     );
     const listed: Root = {
       name: "docs",
@@ -235,13 +229,12 @@ describe("buildSidebarTree", () => {
     for (const s of slugs) expect(shown).toContain(`/en/${s}`);
   });
 
-  test("each page sits in exactly one section and contributing in none", () => {
+  test("each page sits in exactly one section", () => {
     const use = all(useNodes);
     const deploy = all(deployNodes);
     // The only shared URL is the deploy section's link to observability.
     expect(use.filter((u) => deploy.includes(u))).toEqual([
       "/en/observability",
     ]);
-    expect([...use, ...deploy]).not.toContain("/en/contributing");
   });
 });

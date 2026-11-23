@@ -1,31 +1,23 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import type { WorkerScope } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
   createPendingRequestService,
-  createWorkerGateway,
   type SessionCatalog,
   SessionServiceError,
   type WorkerGateway,
-  type WorkerPrincipal,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { pendingRequests } from "./schema.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
-import { launchSession } from "./testing/launches.ts";
-import {
-  fixtureRelease,
-  TEST_MODEL,
-  testSessionCatalog,
-} from "./testing/spec-pins.ts";
-import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+import { testWorkerGateway } from "./testing/gateway.ts";
+import { claimedSession } from "./testing/sessions.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
 
 /**
  * an answer that comes after the request expired is late, whatever
@@ -53,7 +45,6 @@ const CATALOG: SessionCatalog = testSessionCatalog({
     },
   },
 });
-const LIMITS = { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 };
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -62,20 +53,8 @@ let gateway: WorkerGateway;
 beforeEach(async () => {
   client = await migratedPGlite();
   db = drizzle(client, { schema });
-  gateway = createWorkerGateway({
-    work: createPostgresWorkerUnitOfWork(db),
-    catalog: CATALOG,
-    checkpoints: {
-      async verify() {
-        return { status: "verified" };
-      },
-    },
+  gateway = testWorkerGateway(db, CATALOG, {
     pending: createPostgresWorkerPendingStore(db),
-    options: {
-      sessionBudget: { costUsd: 1_000, tokens: null },
-      leaseTtlMs: 60_000,
-      sleep: async () => {},
-    },
   });
 });
 
@@ -85,49 +64,11 @@ afterEach(async () => {
 
 /** A session whose first turn has a permission request open on its worker. */
 async function askingSession() {
-  const created = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
-    principal: OWNER,
-    idempotencyKey: crypto.randomUUID(),
-    payloadHash: crypto.randomUUID(),
-    repository: {
-      id: "sample-app",
-      url: "https://example.invalid/app.git",
-      branch: "main",
-    },
-    agentReleaseId: await fixtureRelease(db),
-    model: TEST_MODEL,
-    message: "first input",
-    limits: LIMITS,
-  });
-  if (created.outcome !== "accepted") throw new Error(created.outcome);
-  const sessionId = created.response.session_id;
-  const { executionId, generation, nonce } = await launchSession(db, {
-    sessionId,
-  });
-  const claimed = await gateway.bootstrapClaim(
-    { kind: "bootstrap" },
-    {
-      execution_id: executionId,
-      execution_generation: generation,
-      credential: { kind: "launch_nonce", nonce },
-    },
+  const { sessionId, principal, scope } = await claimedSession(
+    db,
+    gateway,
+    OWNER,
   );
-  const principal: WorkerPrincipal = {
-    kind: "session",
-    attemptId: claimed.attempt_id,
-    sessionId,
-    leaseEpoch: claimed.lease_epoch,
-    executionGeneration: claimed.execution_generation,
-    authRevision: claimed.auth_revision,
-  };
-  const scope: WorkerScope = {
-    session_id: sessionId,
-    turn_id: null,
-    attempt_id: claimed.attempt_id,
-    lease_epoch: claimed.lease_epoch,
-    execution_generation: claimed.execution_generation,
-    auth_revision: claimed.auth_revision,
-  };
   const next = await gateway.nextInput(principal, scope);
   if (!next.input) throw new Error("no input delivered");
   const requestId = `req_${crypto.randomUUID()}`;

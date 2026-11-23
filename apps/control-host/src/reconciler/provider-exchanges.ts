@@ -13,13 +13,14 @@ export type ProviderExchangesReconciled = {
     openedAt: Date;
   }[];
   deleted: number;
+  unknown: number;
 };
 
 /**
  * The provider exchange ledger's pass: rows a
  * report already settled are deleted, the rest whose lease ran out are
- * logged once each, and those long expired are deleted. Observation only;
- * it changes no cost and no limit.
+ * logged once each and their reservations marked unknown (still held), and
+ * those long expired are deleted. It changes no cost and no limit.
  */
 export async function runProviderExchangeReconciler(input: {
   environment?: ReconcilerEnvironment;
@@ -49,6 +50,7 @@ export async function runProviderExchangeReconciler(input: {
     settled_count: result.settled,
     noticed_count: result.noticed.length,
     deleted_count: result.deleted,
+    unknown_count: result.unknown,
   });
   return result;
 }

@@ -1,10 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { WorkerScope } from "@werft-ai/contracts";
-import {
-  createWorkerGateway,
-  type SessionCatalog,
-  type WorkerGateway,
-  type WorkerPrincipal,
+import type {
+  SessionCatalog,
+  WorkerGateway,
+  WorkerPrincipal,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -34,13 +32,13 @@ import {
   RESTORE_FAILURE_LIMIT,
   RUNTIME_RETIRED_REASON,
 } from "./sessions/restore-failures.ts";
+import { testWorkerGateway, workerOf } from "./testing/gateway.ts";
 import { confirmExecutionGone } from "./testing/launches.ts";
 import {
-  fixtureRelease,
-  TEST_MODEL,
-  testSessionCatalog,
-} from "./testing/spec-pins.ts";
-import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+  newPartitionedSession,
+  type PartitionedSession as Session,
+} from "./testing/sessions.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -82,14 +80,7 @@ integration("startup failures before ready on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "restore_fail_it" });
     pool = new Pool({ connectionString: database.url, max: 12 });
     db = drizzle(pool, { schema });
-    gateway = createWorkerGateway({
-      work: createPostgresWorkerUnitOfWork(db),
-      catalog,
-      checkpoints: {
-        async verify() {
-          return { status: "verified" };
-        },
-      },
+    gateway = testWorkerGateway(db, catalog, {
       checkpointProtocol: {
         async requestCheckpoint() {
           throw new Error("not used");
@@ -99,11 +90,6 @@ integration("startup failures before ready on PostgreSQL", () => {
         },
       },
       pending: createPostgresWorkerPendingStore(db),
-      options: {
-        sessionBudget: { costUsd: 1_000, tokens: null },
-        leaseTtlMs: 60_000,
-        sleep: async () => {},
-      },
     });
   }, 60_000);
 
@@ -121,67 +107,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       sessionBudget: { costUsd: 1_000, tokens: null },
     });
 
-  type Worker = {
-    principal: WorkerPrincipal;
-    scope: WorkerScope;
-    executionId: string;
-  };
-  type Session = { sessionId: string; ownerId: string; partition: string };
-
-  async function newSession(name: string): Promise<Session> {
-    const partition = `${name}-${crypto.randomUUID()}`;
-    const ownerId = crypto.randomUUID();
-    const accepted = await inputs().acceptInputAtomic({
-      principal: { ownerId },
-      idempotencyKey: crypto.randomUUID(),
-      payloadHash: crypto.randomUUID(),
-      agentReleaseId: await fixtureRelease(db),
-      model: TEST_MODEL,
-      repository: {
-        id: "sample-app",
-        url: "https://example.invalid/app.git",
-        branch: "main",
-      },
-      message: "first input",
-      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    });
-    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
-    const sessionId = accepted.response.session_id;
-    await db
-      .update(sessions)
-      .set({ partition })
-      .where(eq(sessions.id, sessionId));
-    await db
-      .update(unassignedSessions)
-      .set({ partition })
-      .where(eq(unassignedSessions.sessionId, sessionId));
-    return { sessionId, ownerId, partition };
-  }
-
-  function workerOf(
-    claimed: Awaited<ReturnType<WorkerGateway["bootstrapClaim"]>>,
-    executionId: string,
-  ): Worker {
-    return {
-      principal: {
-        kind: "session",
-        attemptId: claimed.attempt_id,
-        sessionId: claimed.session_id,
-        leaseEpoch: claimed.lease_epoch,
-        executionGeneration: claimed.execution_generation,
-        authRevision: claimed.auth_revision,
-      },
-      scope: {
-        session_id: claimed.session_id,
-        turn_id: null,
-        attempt_id: claimed.attempt_id,
-        lease_epoch: claimed.lease_epoch,
-        execution_generation: claimed.execution_generation,
-        auth_revision: claimed.auth_revision,
-      },
-      executionId,
-    };
-  }
+  const newSession = (name: string) => newPartitionedSession(db, name);
 
   // The scheduler's own path: demand, reservation, nonce, claim.
   async function claimReserved(session: Session) {

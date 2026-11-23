@@ -264,6 +264,7 @@ import {
   readyResponseSchema,
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
+  recheckSlackAppEventsResponseSchema,
   recoveryDecisionRequestSchema,
   registerGitHubSkillRequestSchema,
   registerSkillRequestSchema,
@@ -644,6 +645,7 @@ const responseComponents = {
     listAgentGitHubRepositoriesResponseSchema,
   PickAgentGitHubRepositoryResponse: pickAgentGitHubRepositoryResponseSchema,
   GetSlackAppResponse: getSlackAppResponseSchema,
+  RecheckSlackAppEventsResponse: recheckSlackAppEventsResponseSchema,
   GetSlackAppManifestResponse: getSlackAppManifestResponseSchema,
   SlackAppSettings: slackAppSettingsSchema,
   GetSlackAppBotsResponse: getSlackAppBotsResponseSchema,
@@ -1007,6 +1009,24 @@ const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
   503: ["BACKEND_UNAVAILABLE"],
 };
 
+// What an approval and a rejection of a push request are refused with.
+const PUSH_RESOLVE_REFUSALS: Pick<
+  RouteDeclaration,
+  "errors" | "errorCodes" | "errorNotes"
+> = {
+  errors: [...CONFLICTS, 413, 503],
+  errorCodes: {
+    403: ["FORBIDDEN"],
+    409: ["IDEMPOTENCY_CONFLICT", "PUSH_REQUEST_RESOLVED", "CHECKPOINT_MOVED"],
+  },
+  errorNotes: {
+    FORBIDDEN:
+      "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
+    CHECKPOINT_MOVED:
+      "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
+  },
+};
+
 // Example values shared across declarations, so the examples read as one
 // session's story.
 const EXAMPLE_SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
@@ -1083,6 +1103,26 @@ const EXAMPLE_ENV_VARIABLE = {
   engine_delivery: false,
   updated_by: EXAMPLE_USER_ID,
   updated_at: "2026-11-09T01:00:00.000Z",
+};
+const VARIABLE_PUT_REQUEST = { kind: "plain", value: "ap-northeast-1" };
+const VARIABLE_PUT_SUCCESS: RouteDeclaration["success"] = {
+  status: 200,
+  schema: "PutEnvVariableResponse",
+  description: "The variable's new `version` and its `grant_version`.",
+  example: { name: "REGION", version: 44, grant_version: 42 },
+};
+const VARIABLE_PUT_ERROR_CODES: RouteDeclaration["errorCodes"] = {
+  400: [
+    "BAD_REQUEST",
+    "VARIABLE_NAME_INVALID",
+    "VARIABLE_NAME_RESERVED",
+    "VARIABLE_VALUE_INVALID",
+    "VARIABLE_VALUE_TOO_LARGE",
+    "SECRET_ENV_UNSUPPORTED",
+  ],
+  409: ["VARIABLE_QUOTA_EXCEEDED"],
+  412: ["VERSION_MISMATCH"],
+  428: ["PRECONDITION_REQUIRED"],
 };
 const EXAMPLE_WORKSPACE_MCP_SERVER_ID = "6a1f0c2e-9b4d-4e7a-8c3f-1d5e7b9a2c40";
 const EXAMPLE_WORKSPACE_MCP_SERVER = {
@@ -1172,7 +1212,7 @@ const EXAMPLE_SKILL_GIT_SOURCE = {
   path: "skills/release-notes",
   ref: "main",
   sync_enabled: true,
-  auto_approve: { state: "off", requested_by: null, consented_by: null },
+  auto_approve: { state: "off", enabled_by: null },
   webhook: "no_public_url",
   last_check: EXAMPLE_SKILL_LAST_CHECK,
 };
@@ -1186,6 +1226,51 @@ const EXAMPLE_SKILL_ATTACHMENT = {
     mode: "required",
   },
   receipt_id: EXAMPLE_RECEIPT_ID,
+};
+const EXAMPLE_SLACK_CONFIG_TOKEN_SUMMARY = {
+  configured: true,
+  last4: "a9f3",
+  updated_at: "2026-10-23T09:00:00Z",
+  updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+  urls: {
+    redirect_url: "https://werft.example.com/settings/linked-accounts/slack",
+    events_url_template: "https://werft.example.com/v1/slack/events/{agent_id}",
+  },
+  state: "active",
+  expires_at: "2026-10-23T21:00:00Z",
+  issuer: { user_id: "U0ISSUER", team_id: "T0TEAM" },
+};
+const EXAMPLE_AUTHOR_GITHUB_APP = {
+  app_id: 123456,
+  slug: "acme-agents",
+  name: "Acme agents",
+  html_url: "https://github.com/apps/acme-agents",
+  private_key: {
+    updated_at: "2026-10-30T09:00:00Z",
+    updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+  },
+  created_at: "2026-10-30T09:00:00Z",
+  updated_at: "2026-10-30T09:00:00Z",
+};
+const EXAMPLE_REVIEWER_GITHUB_APP = {
+  role: "reviewer",
+  app_id: 234567,
+  slug: "acme-reviewer",
+  name: "Acme reviewer",
+  html_url: "https://github.com/apps/acme-reviewer",
+  private_key: {
+    updated_at: "2026-10-30T09:00:00Z",
+    updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
+  },
+  created_at: "2026-10-30T09:00:00Z",
+  updated_at: "2026-10-30T09:00:00Z",
+  permissions: {
+    contents: "read",
+    metadata: "read",
+    pull_requests: "write",
+  },
+  permissions_checked_at: "2026-10-30T09:00:00Z",
+  warnings: [],
 };
 const EXAMPLE_SLACK_APP_REDIRECT = `https://console.example.ts.net/agents/${EXAMPLE_AGENT_ID}/slack/callback`;
 const EXAMPLE_SLACK_APP = {
@@ -1475,6 +1560,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     release_version_no: 3,
     release_label: "2026-10-11_17:00:00",
     release_is_active: true,
+    archived: false,
   },
   preview: false,
   agent_hidden: false,
@@ -2011,21 +2097,7 @@ export const API_ROUTE_DECLARATIONS = [
       status: 200,
       schema: "SlackConfigTokenSummary",
       description: "The token's state; never its value.",
-      example: {
-        configured: true,
-        last4: "a9f3",
-        updated_at: "2026-10-23T09:00:00Z",
-        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-        urls: {
-          redirect_url:
-            "https://werft.example.com/settings/linked-accounts/slack",
-          events_url_template:
-            "https://werft.example.com/v1/slack/events/{agent_id}",
-        },
-        state: "active",
-        expires_at: "2026-10-23T21:00:00Z",
-        issuer: { user_id: "U0ISSUER", team_id: "T0TEAM" },
-      },
+      example: EXAMPLE_SLACK_CONFIG_TOKEN_SUMMARY,
     },
     errors: [401, 403, 404, 503],
   },
@@ -2047,19 +2119,7 @@ export const API_ROUTE_DECLARATIONS = [
       description:
         "Stored; the summary as GET now answers it, the receipt and any warnings.",
       example: {
-        configured: true,
-        last4: "a9f3",
-        updated_at: "2026-10-23T09:00:00Z",
-        updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-        urls: {
-          redirect_url:
-            "https://werft.example.com/settings/linked-accounts/slack",
-          events_url_template:
-            "https://werft.example.com/v1/slack/events/{agent_id}",
-        },
-        state: "active",
-        expires_at: "2026-10-23T21:00:00Z",
-        issuer: { user_id: "U0ISSUER", team_id: "T0TEAM" },
+        ...EXAMPLE_SLACK_CONFIG_TOKEN_SUMMARY,
         receipt_id: EXAMPLE_RECEIPT_ID,
         warnings: [],
       },
@@ -2105,18 +2165,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "GetGitHubAppResponse",
       description: "The App and its installations; never the private key.",
       example: {
-        github_app: {
-          app_id: 123456,
-          slug: "acme-agents",
-          name: "Acme agents",
-          html_url: "https://github.com/apps/acme-agents",
-          private_key: {
-            updated_at: "2026-10-30T09:00:00Z",
-            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-          },
-          created_at: "2026-10-30T09:00:00Z",
-          updated_at: "2026-10-30T09:00:00Z",
-        },
+        github_app: EXAMPLE_AUTHOR_GITHUB_APP,
         check: { state: "ok" },
         installations: [
           {
@@ -2157,18 +2206,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "PutGitHubAppResponse",
       description: "Stored; the App as GET now answers it, and the receipt.",
       example: {
-        github_app: {
-          app_id: 123456,
-          slug: "acme-agents",
-          name: "Acme agents",
-          html_url: "https://github.com/apps/acme-agents",
-          private_key: {
-            updated_at: "2026-10-30T09:00:00Z",
-            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-          },
-          created_at: "2026-10-30T09:00:00Z",
-          updated_at: "2026-10-30T09:00:00Z",
-        },
+        github_app: EXAMPLE_AUTHOR_GITHUB_APP,
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
@@ -2214,26 +2252,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "GetGitHubAppResponse",
       description: "The App and its installations; never the private key.",
       example: {
-        github_app: {
-          role: "reviewer",
-          app_id: 234567,
-          slug: "acme-reviewer",
-          name: "Acme reviewer",
-          html_url: "https://github.com/apps/acme-reviewer",
-          private_key: {
-            updated_at: "2026-10-30T09:00:00Z",
-            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-          },
-          created_at: "2026-10-30T09:00:00Z",
-          updated_at: "2026-10-30T09:00:00Z",
-          permissions: {
-            contents: "read",
-            metadata: "read",
-            pull_requests: "write",
-          },
-          permissions_checked_at: "2026-10-30T09:00:00Z",
-          warnings: [],
-        },
+        github_app: EXAMPLE_REVIEWER_GITHUB_APP,
         check: { state: "ok" },
         installations: [
           {
@@ -2281,26 +2300,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "PutGitHubAppResponse",
       description: "Stored; the App as GET now answers it, and the receipt.",
       example: {
-        github_app: {
-          role: "reviewer",
-          app_id: 234567,
-          slug: "acme-reviewer",
-          name: "Acme reviewer",
-          html_url: "https://github.com/apps/acme-reviewer",
-          private_key: {
-            updated_at: "2026-10-30T09:00:00Z",
-            updated_by: { user_id: EXAMPLE_USER_ID, display_name: "Jae" },
-          },
-          created_at: "2026-10-30T09:00:00Z",
-          updated_at: "2026-10-30T09:00:00Z",
-          permissions: {
-            contents: "read",
-            metadata: "read",
-            pull_requests: "write",
-          },
-          permissions_checked_at: "2026-10-30T09:00:00Z",
-          warnings: [],
-        },
+        github_app: EXAMPLE_REVIEWER_GITHUB_APP,
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
@@ -4042,6 +4042,7 @@ export const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
   },
@@ -4179,6 +4180,7 @@ export const API_ROUTE_DECLARATIONS = [
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
         "TAKEOVER_REQUIRED",
+        "SOURCE_DELETED",
       ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
@@ -4269,7 +4271,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Events",
     summary: "Durable event replay and live stream (SSE)",
     description:
-      "Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. Frames arrive in `id` order, the order to rely on; a new event's `occurred_at` is no earlier than the one before it. An event the engine emits after its turn's terminal belongs to no turn (`turn_id` null). `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers, and `approval_checkpoint_failed` once for a pending request registered without the checkpoint the worker tried to take for it, with its `request_id` and `reason` (`capture_failed`, `capture_timed_out`, or `verification_failed` when the control plane could not verify the one taken): unless a later approval-wait checkpoint of the turn covers the request, a crash before it is answered leaves the turn `outcome_unknown`. The event records the registration and stays after later checkpoints clear `durability.checkpoint_pending_reason`. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.\n\nReconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
+      "Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. Frames arrive in `id` order, the order to rely on; a new event's `occurred_at` is no earlier than the one before it. An event the engine emits after its turn's terminal belongs to no turn (`turn_id` null). `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers, and `approval_checkpoint_failed` once for a pending request registered without the checkpoint the worker tried to take for it, with its `request_id` and `reason` (`capture_failed`, `capture_timed_out`, or `verification_failed` when the control plane could not verify the one taken): unless a later approval-wait checkpoint of the turn covers the request, a crash before it is answered leaves the turn `outcome_unknown`. The event records the registration and stays after later checkpoints clear `durability.checkpoint_pending_reason`. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, the session's share stops covering the caller (the reconnect then answers 404), or the server starts shutting down. Reading changes nothing.\n\nReconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.",
     scope: "read",
     lastEventId: true,
     success: {
@@ -4374,9 +4376,12 @@ export const API_ROUTE_DECLARATIONS = [
         "REQUEST_STALE",
         "RECOVERY_REQUIRED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
     errorNotes: {
+      SOURCE_DELETED:
+        "A Slack message among the sources of one of the session's turns was deleted and its last turn has ended: the answer is not kept. While the turn still runs, its own question takes the answer.",
       RECOVERY_REQUIRED:
         "A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.",
       CHECKPOINT_UNAVAILABLE:
@@ -4489,21 +4494,7 @@ export const API_ROUTE_DECLARATIONS = [
         resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
       },
     },
-    errors: [...CONFLICTS, 413, 503],
-    errorCodes: {
-      403: ["FORBIDDEN"],
-      409: [
-        "IDEMPOTENCY_CONFLICT",
-        "PUSH_REQUEST_RESOLVED",
-        "CHECKPOINT_MOVED",
-      ],
-    },
-    errorNotes: {
-      FORBIDDEN:
-        "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
-      CHECKPOINT_MOVED:
-        "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
-    },
+    ...PUSH_RESOLVE_REFUSALS,
   },
   {
     method: "post",
@@ -4531,21 +4522,7 @@ export const API_ROUTE_DECLARATIONS = [
         resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
       },
     },
-    errors: [...CONFLICTS, 413, 503],
-    errorCodes: {
-      403: ["FORBIDDEN"],
-      409: [
-        "IDEMPOTENCY_CONFLICT",
-        "PUSH_REQUEST_RESOLVED",
-        "CHECKPOINT_MOVED",
-      ],
-    },
-    errorNotes: {
-      FORBIDDEN:
-        "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
-      CHECKPOINT_MOVED:
-        "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
-    },
+    ...PUSH_RESOLVE_REFUSALS,
   },
   {
     method: "post",
@@ -5218,9 +5195,12 @@ export const API_ROUTE_DECLARATIONS = [
         "CHECKPOINT_UNAVAILABLE",
         "PAUSE_COMMITTING",
         "PENDING_REQUESTS_OPEN",
+        "SOURCE_DELETED",
       ],
     },
     errorNotes: {
+      SOURCE_DELETED:
+        "A Slack message among the sources of one of the session's turns was deleted. The session cannot resume; close it.",
       PENDING_REQUESTS_OPEN:
         "The session's parked turn still has a request that is neither answered nor expired: answer it, or wait for its `expires_at`. Its answer then resumes the session.",
       FORBIDDEN:
@@ -5262,6 +5242,8 @@ export const API_ROUTE_DECLARATIONS = [
     // 422: a legacy pod binding, as for terminate.
     errors: [...CONFLICTS, 413, 422, 503],
     errorNotes: {
+      SOURCE_DELETED:
+        "`start_fresh` or `retry_restore` on a session stopped because a source of one of its turns was deleted in Slack; `close` is the decision left.",
       FORBIDDEN:
         "Also when an operator revoked the session's execution authority.",
       NOT_FOUND: "Also when `target_turn_id` names no turn of the session.",
@@ -5290,6 +5272,7 @@ export const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
   },
@@ -5412,7 +5395,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Disable a member of the workspace",
     description:
-      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover (a `private_channel` session's, for a current member of its channel). Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
@@ -5500,7 +5483,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Admin",
     summary: "Become the requester of an offboarded member's session",
     description:
-      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.",
+      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. A `private_channel` session is taken over instead by a current member of its channel who may write to it, with no justification asked; anyone else, an owner included, gets 404. The body may be empty. API keys are refused.",
     auth: "session",
     body: "TakeOverSessionRequest",
     success: { status: 200, schema: "ReceiptAcceptedResponse" },
@@ -5851,27 +5834,10 @@ export const API_ROUTE_DECLARATIONS = [
       "Owners and admins, signed in as a person; never an API key. `If-None-Match: *` creates, `If-Match: <version>` replaces the value. A new variable reaches no agent until it is granted. Only `kind: plain` is accepted for now: a secret answers 400 SECRET_ENV_UNSUPPORTED. The value is text of at most 48 KB without NUL bytes. Writes a `set_env_variable` receipt that names the variable and its version, never the value.",
     auth: "session",
     body: "PutEnvVariableRequest",
-    requestExample: { kind: "plain", value: "ap-northeast-1" },
-    success: {
-      status: 200,
-      schema: "PutEnvVariableResponse",
-      description: "The variable's new `version` and its `grant_version`.",
-      example: { name: "REGION", version: 44, grant_version: 42 },
-    },
+    requestExample: VARIABLE_PUT_REQUEST,
+    success: VARIABLE_PUT_SUCCESS,
     errors: [400, 401, 403, 409, 412, 413, 428, 503],
-    errorCodes: {
-      400: [
-        "BAD_REQUEST",
-        "VARIABLE_NAME_INVALID",
-        "VARIABLE_NAME_RESERVED",
-        "VARIABLE_VALUE_INVALID",
-        "VARIABLE_VALUE_TOO_LARGE",
-        "SECRET_ENV_UNSUPPORTED",
-      ],
-      409: ["VARIABLE_QUOTA_EXCEEDED"],
-      412: ["VERSION_MISMATCH"],
-      428: ["PRECONDITION_REQUIRED"],
-    },
+    errorCodes: VARIABLE_PUT_ERROR_CODES,
     ifMatch: "version",
     ifNoneMatch: true,
     idempotent: false,
@@ -6312,7 +6278,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "putSkillSync",
     tag: "Workspace settings",
     summary: "Pause or resume a GitHub skill's sync",
-    description: `${SKILL_MANAGERS} While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away. Each change writes an \`update_extension_sync\` receipt; the state it already has answers \`receipt_id: null\`. A skill that is not from GitHub is 404.`,
+    description: `${SKILL_MANAGERS} While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away, and \`check\` says whether that check ended (\`checked\`) or waits behind a running one (\`queued\`). Each change writes an \`update_extension_sync\` receipt; the state it already has answers \`receipt_id: null\`. A skill that is not from GitHub is 404.`,
     auth: "session",
     body: "PutSkillSyncRequest",
     requestExample: { enabled: false },
@@ -6324,6 +6290,7 @@ export const API_ROUTE_DECLARATIONS = [
         name: "release-notes",
         git: { ...EXAMPLE_SKILL_GIT_SOURCE, sync_enabled: false },
         receipt_id: EXAMPLE_RECEIPT_ID,
+        check: null,
       },
     },
     errors: [400, 401, 403, 404, 503],
@@ -6333,11 +6300,11 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/workspace/skills/{name}/sync/auto-approve",
     operationId: "putSkillAutoApprove",
     tag: "Workspace settings",
-    summary: "Request, consent to or turn off a GitHub skill's auto-approve",
-    description: `${SKILL_MANAGERS} Auto-approve lets the sync approve a new version itself when its commit came in through a reviewed pull request on a protected branch. One manager \`request\`s it and another \`consent\`s (403 \`self_consent\` for the requester while another manager can; a workspace's only manager may, and the receipt says so); \`off\` turns it off at once. A request and a consent each check GitHub first: the ref must be a branch (400 \`not_branch\` for a tag or a commit) and a ruleset or classic branch protection on it must require a pull request with at least one approving review (400 \`protection_missing\`; classic protection is read only when the App may read administration, so without it the rule counts as missing); GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`. A consent with nothing requested is 400 \`auto_approve_not_requested\`. While on, every check that makes a version reads the branch's rule and the pull requests of the commit: a merged pull request into that branch whose reviewers' last reviews include an approval by someone other than its author and no request for changes. The version is approved by the sync (an \`approve_extension\` receipt with who enabled and consented, the commit, the pull request and the rule); otherwise it stays \`pending\` and \`last_check.auto_approval.reason\` says why (\`not_branch\`, \`protection_missing\`, \`no_reviewed_pull_request\`, \`github_unreachable\`). Paused sync never auto-approves, not even POST …/sync/check. Each change writes an \`update_extension_sync\` receipt with the action; the state it already has answers \`receipt_id: null\`. A skill that is not from GitHub is 404.`,
+    summary: "Turn a GitHub skill's auto-approve on or off",
+    description: `${SKILL_MANAGERS} Auto-approve lets the sync approve a version itself once it passes the fixed-rule checks: no person, second manager or GitHub review takes part. One manager turns it \`on\` or \`off\`, at once. Turning it on reads GitHub first: the ref must be a branch (400 \`not_branch\` for a tag or a commit), and GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`. It then checks once (\`last_check.trigger.kind\` \`auto_approve\`), so a version already \`pending\` is judged too; \`check\` says whether that check ended (\`checked\`) or waits behind a running one (\`queued\`). While on, every check judges the version the ref's content is, a new one or one still \`pending\`, by the fixed-rule checks against the approved version before it (with none, every file counts as added). With no finding the sync approves it and makes it current when it is the highest (an \`approve_extension\` receipt with who turned auto-approve on and the commit). A finding leaves it \`pending\` with \`checks_failed\` and the rules in \`last_check.auto_approval.checks\` (a script added, a large change, a new URL host, hidden Unicode, an instruction-like sentence, a changed description), and another version approved while the checks ran leaves it \`pending\` with \`baseline_changed\` until the next check. Only that skill stops; the other skills a push reaches go on. A version a person rejected is not judged again. Paused sync never auto-approves, not even POST …/sync/check; turning sync back on checks once. Each change writes an \`update_extension_sync\` receipt with the action (\`auto_approve_on\`, \`auto_approve_off\`); the state it already has answers \`receipt_id: null\`. A skill that is not from GitHub is 404.`,
     auth: "session",
     body: "PutSkillAutoApproveRequest",
-    requestExample: { action: "request" },
+    requestExample: { action: "on" },
     success: {
       status: 200,
       schema: "SkillSyncResponse",
@@ -6346,13 +6313,10 @@ export const API_ROUTE_DECLARATIONS = [
         name: "release-notes",
         git: {
           ...EXAMPLE_SKILL_GIT_SOURCE,
-          auto_approve: {
-            state: "requested",
-            requested_by: EXAMPLE_USER_ID,
-            consented_by: null,
-          },
+          auto_approve: { state: "on", enabled_by: EXAMPLE_USER_ID },
         },
         receipt_id: EXAMPLE_RECEIPT_ID,
+        check: "checked",
       },
     },
     errors: [400, 401, 403, 404, 502, 503],
@@ -6388,7 +6352,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Read a skill version's files and its diff from the last approved one",
     description:
-      "Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.",
+      "Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. `checks` holds the fixed-rule checks the version fails against that same version, one per rule (the ones that hold back protected-branch auto-approve); they never approve or reject. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.",
     auth: "session",
     success: {
       status: 200,
@@ -6415,6 +6379,7 @@ export const API_ROUTE_DECLARATIONS = [
           },
         ],
         removed: [],
+        checks: [],
       },
     },
     errors: [401, 403, 404, 503],
@@ -6619,27 +6584,10 @@ export const API_ROUTE_DECLARATIONS = [
       "Owners, admins and that agent's admins, signed in as a person; never an API key. Preconditions, limits and receipt as for the workspace's variables; an agent holds 50. The agent's value wins over a workspace value of the same name.",
     auth: "session",
     body: "PutEnvVariableRequest",
-    requestExample: { kind: "plain", value: "ap-northeast-1" },
-    success: {
-      status: 200,
-      schema: "PutEnvVariableResponse",
-      description: "The variable's new `version` and its `grant_version`.",
-      example: { name: "REGION", version: 44, grant_version: 42 },
-    },
+    requestExample: VARIABLE_PUT_REQUEST,
+    success: VARIABLE_PUT_SUCCESS,
     errors: [400, 401, 403, 404, 409, 412, 413, 428, 503],
-    errorCodes: {
-      400: [
-        "BAD_REQUEST",
-        "VARIABLE_NAME_INVALID",
-        "VARIABLE_NAME_RESERVED",
-        "VARIABLE_VALUE_INVALID",
-        "VARIABLE_VALUE_TOO_LARGE",
-        "SECRET_ENV_UNSUPPORTED",
-      ],
-      409: ["VARIABLE_QUOTA_EXCEEDED"],
-      412: ["VERSION_MISMATCH"],
-      428: ["PRECONDITION_REQUIRED"],
-    },
+    errorCodes: VARIABLE_PUT_ERROR_CODES,
     ifMatch: "version",
     ifNoneMatch: true,
     idempotent: false,
@@ -6953,7 +6901,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's GitHub switch, settings and what may be turned on",
     description:
-      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved). `settings_revision` is the row's revision (null without a row) and `start_repository_id` a repository kept for compatibility: once the agent has a settings row, a session naming none starts without a repository whatever this holds, and attaches what the task needs. `push_attached` (`allow`, `ask` or `deny`) says whether a push to a repository the session attached needs a person: the row's value, `ask` for a row saved before the field existed, and `allow` while there is no row (what a first save writes). Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling; `repository_ceiling_unset` is true while the workspace has none yet, and the list is then judged against the default the first save writes, without writing it on this read), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.",
+      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; until settings are saved the release pushes without a person unless its own pin turns approval on). `settings_revision` is the row's revision (null without a row) and `start_repository_id` a repository kept for compatibility: once the agent has a settings row, a session naming none starts without a repository whatever this holds, and attaches what the task needs. `push_attached` (`allow`, `ask` or `deny`) says whether a push to a repository the session attached needs a person: the row's value, and `allow` for a row saved before the field existed or while there is no row (nobody chose to be asked). Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling; `repository_ceiling_unset` is true while the workspace has none yet, and the list is then judged against the default the first save writes, without writing it on this read), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.",
     auth: "session",
     success: {
       status: 200,
@@ -7308,13 +7256,14 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
     summary: "Send the agent app's Request URL to Slack again",
     description:
-      "Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
+      "Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. `reinstall_required: true` means Slack answered that the manifest asks for a scope the install lacks: the app must be installed again before the new scopes apply. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
-      schema: "GetSlackAppResponse",
+      schema: "RecheckSlackAppEventsResponse",
       description: "The agent's app after the manifest was sent.",
       example: {
+        reinstall_required: false,
         slack_app: EXAMPLE_SLACK_APP,
         event_url:
           "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",

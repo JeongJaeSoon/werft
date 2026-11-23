@@ -83,6 +83,7 @@ const BINDING: components["schemas"]["ListSlackBindingsResponse"]["items"][numbe
     surface_kind: "public_channel",
     agent_id: AGENT_ID,
     mode: "on",
+    listen: "free",
     ceiling: { actions: ["session.read"], disclosure: "summary" },
     home: true,
     memory_write_policy: "deny",
@@ -1809,6 +1810,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: read,
+          reinstall_required: false,
         });
       },
     });
@@ -1853,6 +1855,7 @@ describe("Slack management", () => {
               ...appResponse(APP),
               event_url: SENT,
               events: { state: "pending", checked_at: AT, url: SENT },
+              reinstall_required: false,
             }),
     });
     const user = await setupUser();
@@ -1875,6 +1878,33 @@ describe("Slack management", () => {
     expect(app.textContent).not.toContain("다시 보냈습니다");
   });
 
+  test("says a reinstall is needed when the recheck's manifest adds permissions", async () => {
+    const events = { state: "verified", checked_at: AT, url: SENT } as const;
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, { ...appResponse(APP), event_url: SENT, events }),
+      [`POST ${PATH}/slack/app/events/recheck`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events,
+          reinstall_required: true,
+        }),
+    });
+    const user = await setupUser();
+    const addresses = await screen.findByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    await user.click(
+      within(addresses).getByRole("button", { name: "다시 확인" }),
+    );
+    await within(addresses).findByText(
+      "manifest를 Slack에 다시 보냈습니다. 앱에 새 권한이 더해져, 앱을 다시 설치해야 적용됩니다.",
+    );
+    expect(addresses.textContent).not.toContain("Request URL을 확인했습니다");
+  });
+
   test("locks picking the home until Slack checks the Request URL", async () => {
     let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
       state: "pending",
@@ -1894,6 +1924,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: read,
+          reinstall_required: false,
         });
       },
     });
@@ -1955,6 +1986,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: { state: "pending", checked_at: AT, url: SENT },
+          reinstall_required: false,
         });
       },
     });
@@ -3257,6 +3289,36 @@ describe("Slack private channel states", () => {
       within(list).queryByRole("button", { name: /^채널 승인/ }),
     ).toBeNull();
     expect(within(list).queryByRole("switch", { name: /C2/ })).toBeNull();
+  });
+
+  test("shows a binding whose channel Slack deleted as inactive, with no invite or switch", async () => {
+    const gone: typeof BINDING = {
+      ...BINDING,
+      id: PRIVATE_ID,
+      external_surface_id: "C3",
+      home: false,
+      status: "gone",
+      revision: 5,
+    };
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, gone] }),
+    });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    await within(list).findByText("삭제됨");
+    expect(within(list).getByText("비활성")).toBeDefined();
+    expect(
+      within(list).getByText(
+        "Slack에서 채널이 삭제되어 메시지를 받지도 보내지도 않습니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      within(list).queryByRole("button", { name: "/invite 명령 복사" }),
+    ).toBeNull();
+    expect(within(list).queryByRole("switch", { name: /C3/ })).toBeNull();
+    // The live channel keeps its switch.
+    expect(within(list).getAllByRole("switch")).toHaveLength(1);
   });
 
   test("leaves an active binding as it was", async () => {

@@ -79,6 +79,8 @@ export interface SessionEventFrame {
   readonly occurredAt: string;
   readonly turnId: string | null;
   readonly attemptId: string | null;
+  /** Set when the event's turn was withheld: its Slack message was deleted. */
+  readonly sourceDeletedAt?: string;
   readonly payload: SessionEventPayload;
 }
 
@@ -144,6 +146,9 @@ export function readFrame(raw: RawFrame, sessionId: string): FrameReading {
       occurredAt: fields.occurred_at,
       turnId: fields.turn_id as string | null,
       attemptId: fields.attempt_id as string | null,
+      ...(typeof fields.source_deleted_at === "string"
+        ? { sourceDeletedAt: fields.source_deleted_at }
+        : {}),
       payload: { event: raw.event, data: fields.data } as SessionEventPayload,
     },
     wire: { id: raw.id, event: raw.event, data: envelope },

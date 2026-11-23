@@ -1,9 +1,4 @@
-import {
-  createHash,
-  createHmac,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   ADDITIONAL_REPOSITORY_ID_PATTERN,
   mcpServerIdSchema,
@@ -11,8 +6,10 @@ import {
 import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
+  type BudgetChoice,
   GITHUB_MCP_UPSTREAM_PATH,
   type GitHubMcpGrant,
+  hashToken,
   type JsonRpcResponse,
   PACKAGE_REGISTRY_NAMES,
   type ProviderExchangeLedger,
@@ -46,6 +43,14 @@ export const EGRESS_USAGE_PATH = "/usage";
 // ledger before its usage is known; an open the
 // session's budget cannot hold is refused.
 export const EGRESS_EXCHANGES_PATH = "/exchanges";
+// On an open, `title`: a session title call, which serves no turn and so is
+// held on the account of the session's first turn, whichever turn runs now.
+// A header, not the body: the open's body is strict, and an API before it
+// ignores a header it does not know.
+export const EGRESS_EXCHANGE_CALL_HEADER = "x-werft-exchange-call";
+// On a provider authorize, the proxy's id for the exchange asking, which a
+// conversation call's token is bound to. A header for the reason above.
+export const EGRESS_EXCHANGE_ID_HEADER = "x-werft-exchange-id";
 // A token, a purpose and, for the object store, one S3 request line and its
 // headers; anything bigger is not a request from the proxy.
 const MAX_BODY_BYTES = 16 * 1024;
@@ -196,7 +201,8 @@ const usageSchema = z
   })
   .strict();
 
-// A session's call, or one achievement judgment's, which no session pays.
+// A session's call, one achievement judgment's, which no session pays, or a
+// conversation call's, which its budget account pays.
 const usageReportSchema = z.union([
   z
     .object({
@@ -210,6 +216,13 @@ const usageReportSchema = z.union([
     .object({
       exchange_id: z.string().uuid(),
       judgment_id: z.string().uuid(),
+      usage: usageSchema,
+    })
+    .strict(),
+  z
+    .object({
+      exchange_id: z.string().uuid(),
+      conversation_call_id: z.string().uuid(),
       usage: usageSchema,
     })
     .strict(),
@@ -287,10 +300,6 @@ async function readAtMost(
   return Buffer.concat(chunks, total);
 }
 
-function digest(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
-}
-
 function problem(status: number, code: string, message: string): Response {
   return Response.json({ code, message }, { status });
 }
@@ -305,10 +314,22 @@ export function createEgressAuthorizer(deps: {
     | "recordProviderUsage"
     | "authorizeJudgmentEgress"
     | "recordJudgmentUsage"
+    | "authorizeConversationCallEgress"
+    | "recordConversationCallUsage"
   >;
   logger: StructuredLogger;
   /** Absent, the exchanges route answers 404 as an older API does. */
   exchanges?: ProviderExchangeLedger;
+  /**
+   * The budget account an open also holds its call on; undefined, or this
+   * absent, the session's limit alone. A release frees what the open held.
+   */
+  budgetOf?: (call: {
+    exchangeId: string;
+    sessionId: string;
+    attemptId: string;
+    title?: boolean;
+  }) => Promise<{ choice: BudgetChoice | undefined; turnId: string | null }>;
   /** Absent when the API runs without an object store: the route refuses. */
   objectStore?: ObjectRouteSigner;
   /**
@@ -358,7 +379,7 @@ export function createEgressAuthorizer(deps: {
       },
     };
   }
-  const expected = digest(`Bearer ${deps.token}`);
+  const expected = hashToken(`Bearer ${deps.token}`);
   const deadlineMs = deps.deadlineMs ?? AUTHORIZE_DEADLINE_MS;
   return async (request) => {
     const url = new URL(request.url);
@@ -378,7 +399,7 @@ export function createEgressAuthorizer(deps: {
     // leaks through timing.
     if (
       !timingSafeEqual(
-        digest(request.headers.get("authorization") ?? ""),
+        hashToken(request.headers.get("authorization") ?? ""),
         expected,
       )
     ) {
@@ -401,7 +422,7 @@ export function createEgressAuthorizer(deps: {
         return problem(
           400,
           "BAD_REQUEST",
-          "Expected {exchange_id, session_id, attempt_id, usage} or {exchange_id, judgment_id, usage}",
+          "Expected {exchange_id, session_id, attempt_id, usage}, {exchange_id, judgment_id, usage} or {exchange_id, conversation_call_id, usage}",
         );
       }
       return answerWithin(() => recordUsage(report), { purpose: "usage" });
@@ -417,7 +438,9 @@ export function createEgressAuthorizer(deps: {
           "Expected {op: open | release, exchange_id, session_id, attempt_id, reserve} or {op: renew, exchange_id}",
         );
       }
-      return answerWithin(() => recordExchange(exchanges, body), {
+      const title =
+        request.headers.get(EGRESS_EXCHANGE_CALL_HEADER) === "title";
+      return answerWithin(() => recordExchange(exchanges, body, title), {
         purpose: "exchange",
       });
     }
@@ -443,7 +466,9 @@ export function createEgressAuthorizer(deps: {
           case "judgment":
             return deps.gateway.authorizeJudgmentEgress(body);
           default:
-            return deps.gateway.authorizeEgress(body);
+            return body.purpose === "provider"
+              ? authorizeProvider(body, request)
+              : deps.gateway.authorizeEgress(body);
         }
       },
       {
@@ -466,6 +491,25 @@ export function createEgressAuthorizer(deps: {
       },
     );
   };
+
+  // A conversation call's token first, then a session's.
+  async function authorizeProvider(
+    body: Extract<
+      z.infer<typeof authorizeRequestSchema>,
+      { purpose: "provider" | "repository" }
+    >,
+    request: Request,
+  ) {
+    const exchangeId = z
+      .uuid()
+      .safeParse(request.headers.get(EGRESS_EXCHANGE_ID_HEADER));
+    const called = await deps.gateway.authorizeConversationCallEgress({
+      token: body.token,
+      path: body.path,
+      exchange_id: exchangeId.success ? exchangeId.data : undefined,
+    });
+    return called ?? deps.gateway.authorizeEgress(body);
+  }
 
   // Streamable HTTP without sessions or streams: one message in, one JSON
   // answer out. The grant alone names the session.
@@ -523,6 +567,24 @@ export function createEgressAuthorizer(deps: {
   async function recordUsage(report: z.infer<typeof usageReportSchema>) {
     const { usage } = report;
     const counted = countedOf(usage);
+    if ("conversation_call_id" in report) {
+      const priced = await deps.gateway.recordConversationCallUsage({
+        exchangeId: report.exchange_id,
+        callId: report.conversation_call_id,
+        usage: counted,
+      });
+      if (priced.pricedBy === "fallback") {
+        deps.logger.warn(
+          "Conversation call usage priced at the fallback rate",
+          {
+            conversation_call_id: report.conversation_call_id,
+            model: usage.model,
+            cost_usd: priced.costUsd,
+          },
+        );
+      }
+      return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
+    }
     if ("judgment_id" in report) {
       const priced = await deps.gateway.recordJudgmentUsage({
         exchangeId: report.exchange_id,
@@ -568,6 +630,7 @@ export function createEgressAuthorizer(deps: {
   async function recordExchange(
     ledger: ProviderExchangeLedger,
     body: z.infer<typeof exchangeRequestSchema>,
+    title: boolean,
   ): Promise<Response> {
     if (body.op === "renew") {
       return Response.json({ state: await ledger.renew(body.exchange_id) });
@@ -596,7 +659,16 @@ export function createEgressAuthorizer(deps: {
       if (released === "conflict") throw conflict();
       return Response.json({ state: released });
     }
-    const opened = await ledger.open(call);
+    const chosen = await deps.budgetOf?.({
+      exchangeId: call.exchangeId,
+      sessionId: call.sessionId,
+      attemptId: call.attemptId,
+      ...(title ? { title: true } : {}),
+    });
+    const budget = chosen?.choice;
+    const opened = await ledger.open(
+      budget === undefined ? call : { ...call, budget },
+    );
     switch (opened.outcome) {
       case "created":
         return Response.json({ state: "open" }, { status: 201 });
@@ -605,6 +677,14 @@ export function createEgressAuthorizer(deps: {
       case "released":
         return Response.json({ state: opened.outcome });
       case "budget_exceeded":
+        deps.logger.info("Provider exchange refused for the budget", {
+          session_id: body.session_id,
+          attempt_id: body.attempt_id,
+          turn_id: chosen?.turnId ?? undefined,
+          refused_by: opened.by,
+          budget_root_kind: budget?.rootKind,
+          budget_account_id: opened.accountId ?? undefined,
+        });
         throw new WorkerGatewayError(
           403,
           "BUDGET_EXCEEDED",

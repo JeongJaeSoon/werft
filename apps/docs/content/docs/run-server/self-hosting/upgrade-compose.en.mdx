@@ -17,9 +17,9 @@ Upgrade Compose after backup and compatibility checks. Approve checkpoint loss o
 
 Read the target version's operator actions in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md).
 
-You need current/target source commits, release inputs, settings digests, and image digests. Check a recent successful backup and restoration drill, and notify users of downtime. This full Compose upgrade has not been verified with published images.
+You need current/target source commits, release inputs, settings digests, and image digests. Check a recent successful backup and restoration drill, and notify users of downtime.
 
-Check the [shared pre-upgrade gates](#실행-전-게이트) first. On LocalStack trials, the first restart-policy change can recreate the container and lose checkpoint objects. Postpone unless `status` confirms 0 uncollected checkpoints. API startup failure with `pending.json` cannot be bypassed through reseed. The remaining escape, `reset`, discards all data: assess backup restoration first. `backup --stop` does not remove this block.
+Check the [shared pre-upgrade gates](#실행-전-게이트) first.
 
 <a id="단계" />
 ## Steps
@@ -80,36 +80,11 @@ Applying a previous release still follows upgrade checks and [gate](#실행-전-
 <a id="실행-전-게이트" />
 ## Pre-upgrade gates
 
-The first tag including both incremental checkpoints and release-tool restoration candidates is `v0.1.0`. That tag is the rollback floor, and the latest published release is `v0.1.2`. Release installations must not revert to images earlier than `v0.1.0`. Pre-release `main-<12>` installations must check this floor separately. Verify the commit and all three digests in the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
+Before upgrading, read every [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) entry between the deployed version and the target. When a release in that range has steps under [Per-release tasks](#릴리스별-작업) below, follow them too. When deploying, check the commit and the three digests of the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
 
-Compare target changelog actions with your deployed version. Meet every applicable condition before enabling features or changing workers.
-
-| Change | Complete first | Rollback boundary |
-| --- | --- | --- |
-| Provider usage `inference_geo` | Replace API including migration, verify ready, then replace egress proxy | Old API rejects new proxy reports with 400, losing cost metering |
-| `openai_responses` connections and `/v1/responses` | Replace the egress proxy first. If you replaced the API first as in step 2, do not create an `openai_responses` connection until the proxy is replaced | The old proxy rejects `/v1/responses` with 404, so a session on that connection cannot call its model and fails. The `v0.1.3` proxy sends no field on `/v1/messages` calls that the `v0.1.2` API does not know, so it works with the `v0.1.2` API unchanged |
-| `billing: none` | Update all API replicas and all schedulers' WORKER_IMAGE before creating none sessions | No rollback to old API/workers while unmetered sessions remain |
-| Local branches in checkpoints (`workspace.sources`, `refs/checkpoint/source/*`) | All APIs, verifiers, GC and session-archive CronJobs → workers | Old APIs and verifiers reject the field and the refs. Out of order, only pushes are blocked while the new workers' checkpoints are rejected; no data is lost |
-| Transcript limits/reasons | Migration → all APIs → workers; align API finalize and worker capture/restore limits in the same release | No rollback to builds unaware of transcript reasons |
-| Manifest `outputs` | All APIs → workers | Both api and workers must remain on outputs-aware builds |
-| Model-blocked Slack DM (migration 0248) | Update every API that includes the migration, then the slack role | Rolling the image back after 0248 is safe: an old slack role finds no thread for a `model_notice` row, closes it as `not_addressed`, and sends no DM. To roll the schema below 0248, delete the `model_notice` rows first and restore the previous `slack_outbox_kind_check` list |
-| Required managing team (migration 0243) | Update every API that includes the migration | Rolling back after 0243 to the previous image, which already required a team, still creates agents but hides the holding team's agents' sessions again. Older images that insert without a team cannot create agents (`NOT NULL` violation). Going lower means stopping writes and dropping `NOT NULL`, and neither the backfill nor the earlier visibility is restored |
-| Slack private-channel removal handling (migration 0250) | Update every API that includes the migration → the slack role → send the manifest again for each existing agent app (events recheck) | An older image ignores the new `slack_channel_lifecycle` table, so rolling back keeps the data. An image that does not handle `member_left_channel` lets the old approval live again when the bot leaves a private channel and is invited back |
-| A bot that leaves a private channel leaves it `left` (inactive) (migration 0252) | Update every API that includes the migration → the slack role and the roles that run the outbox, cards and thread status, all with the same image | The `status` CHECK and the drop-reason CHECK of `slack_inbound_events` now accept `left` and `channel_left`. An older image that does not know `left` takes no input from that channel, but its outbox still sends there. Once the first `left` row exists, do not go below this image. If you must, stop writes and sends first and change the `left` rows to `pending_approval`, which loses the meaning of "inactive" |
-| Knowing the bot left a channel from `channel_left` and `group_left` (no migration) | Update every API → the slack role → send the manifest again for each existing agent app (events recheck): two more bot events, the same scopes | Rolling back keeps the data. An older image drops both events as `unsupported_event`, so a bot removed from a channel after that still shows as joined in the console |
-| Extension bundle attachments and session resolution (migration 0251) | Update every API that includes the migration | Rolling the image back after 0251 is safe: an old image does not read the `extension_attachments` table or the `sessions.extensions` column, so it ignores the bundle list a session was created with. To roll the schema below 0251, drop the `extension_attachments` table and the `sessions.extensions` column; the bundle lists already fixed on sessions are not restored |
+The current rollback floor is `v0.2.0`. Its migration `0270` deletes the profile data, so do not go back to older images ([Rollback floor of profile removal](#프로필-제거의-롤백-하한)). If the changelog marks a later release as irreversible, that release is the floor. To go back further than the floor, restore the database from the backup taken before the upgrade. Before considering a rollback, count the affected sessions with read-only SQL and decide first whether you can roll forward without losing data.
 
 Test new control-host with the previous worker before deployment: complete session turn 1 → remove worker → complete turn 2 from checkpoint, with no 400 BAD_REQUEST in API worker requests. Empty-installation ready 200 does not substitute. Look at turn 1 first. When the previous worker cannot read the new control-host's answer, the API answers 200 and the worker exits right after it starts, so the absence of 400s does not catch this failure. The profile removal release does not support this combination. When you upgrade to it, check that turn 1 completes with the new control-host and the new worker ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
-
-<a id="v010-이후-변경을-처음-적용할-때" />
-### First applying changes after v0.1.0
-
-- Apply every migration from `v0.1.0` through the target version (through `0262` for `v0.1.2`) with migrate. Old images ignore new `0239_connection_replaces_auth` columns, but this alone does not make other checkpoint/protocol rollback safe.
-- Compose at the `v0.1.0` tag refuses to render when `ANTHROPIC_API_KEY` is empty. When upgrading from `v0.1.0`, a key left in the env file can stay. The `v0.1.2` tag accepts it set or unset. Only re-applying `v0.1.0` sources requires a non-empty key.
-- Replace control-host before worker. Even with `platform_tool_trust` fallback, the transition uses old permission paths; keep the order.
-- Update API, Compose maintenance, and Kubernetes checkpointGc/sessionArchive CronJobs first, **confirm Jobs started from old images have finished**, then update workers. Old GC can delete pinned revisions, and old APIs and verifiers reject the local branches workers now always carry. `AGENT_ACTION_FLOWS` and `SESSION_PROMPT_REVISION` no longer exist and their values are ignored. The `v0.1.1` tag has no published artifacts, so do not use it; the release after `v0.1.0` is `v0.1.2`.
-
-Apply the conditions below after checking whether your installation already includes them. Before rollback, count affected sessions through read-only SQL. Prefer roll-forward without approving data loss where possible.
 
 <a id="compose-전용-checkpoint-검사" />
 ### Compose checkpoint checks
@@ -118,29 +93,20 @@ When worker images change, Compose upgrade checks calculate restoration plans fo
 
 On a worker image change, upgrade retains the old image in the state directory's `previous-worker` file. For each session, the scheduler matches checkpoint engine/SDK/CLI/profile digest scheme against current/previous images, preferring current if both match ([configuration](/run-server/self-hosting/reference/configuration)). The affected list therefore includes sessions restorable by neither image. If either image check fails closed, retain the new-image list unchanged. For rebuilt images with the same combination, the scheduler selects current: do not remove sessions unverified on current merely because previous can restore them. If either is too old to report its combination (a build without combination reporting), previous is not used and the gate retains the new-image list. The support window is one release: another upgrade can affect sessions left on the older image. In the profile removal release, no session launches on the previous image ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
 
-Do not use this upgrade on a stack that runs both engines (`infra/compose.two-engines.yml`). That stack keeps the other engine's (Claude) image in the previous image's place, and the upgrade rewrites that place with the image it replaces, dropping the Claude image. There is no compose procedure yet for changing a two-engine stack's worker images.
-
-<a id="runtime-프로필의-공통-준비" />
 <a id="runtime-버전의-공통-준비" />
 ### Shared runtime version preparation
 
-An SDK upgrade release changes the runtime version the image ships, and reviews the connection model lists in the example settings (`tests/fixtures/settings/`) with it. A release pins the runtime version its image shipped when it was made, and its sessions run that version. A new session on a release whose version neither the current nor the previous image ships is refused with `UNSUPPORTED_CAPABILITY`; release that agent again. Checkpoints resume only on images with the same engine/SDK/CLI combination they were made with, regardless of this check. The same release includes the built-in tool catalog of the new engine combination. For Kubernetes (helm) rollback steps and cautions, see [Kubernetes upgrade § Rollback](/run-server/self-hosting/upgrade-kubernetes#되돌리기).
+An SDK upgrade release changes the runtime version the image ships. A release pins the runtime version its image shipped when it was made, and its sessions run that version. A new session on a release whose version neither the current nor the previous image ships is refused with `UNSUPPORTED_CAPABILITY`; release that agent again. Checkpoints resume only on images with the same engine/SDK/CLI combination they were made with, regardless of this check. For Kubernetes (helm) rollback steps and cautions, see [Kubernetes upgrade § Rollback](/run-server/self-hosting/upgrade-kubernetes#되돌리기).
 
-<a id="workercontrol-host-롤백과-incremental-checkpoint" />
-### Worker/control-host rollback and incremental checkpoints
+<a id="릴리스별-작업" />
+## Per-release tasks
 
-Workers included in `v0.1.0` upload incremental bundles containing only new objects over the previous checkpoint chain. The manifest records this in `workspace.baseBundles`. Manifest `version` remains 2; only this field distinguishes incremental checkpoints. **Earlier builds cannot restore checkpoints containing it** because their manifest schemas reject unknown keys.
+Steps for particular releases that the changelog points to. Follow only the sections for releases between the deployed version and the target.
 
-- **Old worker images:** manifest decoding fails with `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"` before clearing the workspace or downloading bundles, so no partially restored workspace remains. The fixed manifest makes relaunch fail again with `worker.failed`.
-- **Old control-host:** restoration plans reject with `CHECKPOINT_UNAVAILABLE` without retreating to older revisions. Finalize also rejects incremental manifests and does not advance pointers. With new workers, only standalone bundles like initial checkpoints commit. Old GC skips undecodable sessions rather than deleting base bundles.
-- **Find affected sessions:** manifest contents are not in the database. Fetch manifests using `manifest_ref`/`manifest_version` from uncollected `checkpoints` rows (`collected_at IS NULL`) referenced by `sessions.checkpoint_revision`, then test `jq -e '.workspace.baseBundles | length > 0'`. Inspect parent rows too because restoration can retreat through `parent_revision`. Worker `worker.checkpoint.published` with `base_bundles` above 0 indicates incremental publication.
-- **Before rollback:** roll forward if affected sessions exist. No operator env/setting/CLI forces a new full bundle. Workers produce full bundles only when chains are absent/broken or reach length 32 (`MAX_WORKSPACE_BUNDLE_CHAIN`) or bundle limits. If rollback is unavoidable, affected sessions cannot restore during it; roll-forward restores them unchanged.
-
-<a id="control-host-롤백-하한-release-도구로-실행" />
 <a id="프로필-제거의-롤백-하한" />
 ### Rollback floor of the profile removal
 
-The release that removes run profiles runs migration `0270_remove_profiles`, which drops the profile tables and columns and deletes the releases made on profiles, their sessions, and the records under those sessions (turns, events, checkpoint rows and so on; 45 tables). Slack outbox rows that name no session (welcome notices and the like) are kept. Of the usage tables only `provider_usage`, which hangs off sessions, is emptied; `agent_usage` stays. A development or verify database that applied an earlier draft of this change (`0269_remove_profiles`) must be created again. Agents and their card versions, teams, keys and the installation settings stay. From then on every session runs the spec its release pinned (connection, model, runtime, tools), and an agent runs again once it is released on a connection. Each connection needs the model list (`models`) agents may pick from, and a release cannot use a model its connection does not list. `0270` fills only connections whose list is empty, with the models of the profiles that mapped to that connection. A connection no profile mapped to keeps an empty list, and a connection that already had a list gets nothing added. After the upgrade, check that every connection lists all the models its agents use, and add the missing ones. In the settings document, delete the top-level `profiles` key and the `profiles` of each repository entry. `settings import` (CLI and API) refuses a document with the top-level key. The CLI drops a repository entry's `profiles`, but the API refuses it. **You cannot roll back to a build older than this release.** To go back, restore the database from the backup taken before the upgrade.
+The release that removes run profiles runs migration `0270_remove_profiles`, which drops the profile tables and columns and deletes the releases made on profiles, their sessions, and the records under those sessions (turns, events, checkpoint rows and so on; 45 tables). Slack outbox rows that name no session (welcome notices and the like) are kept. Of the usage tables only `provider_usage`, which hangs off sessions, is emptied; `agent_usage` stays. Agents and their card versions, teams, keys and the installation settings stay. From then on every session runs the spec its release pinned (connection, model, runtime, tools), and an agent runs again once it is released on a connection. Each connection needs the model list (`models`) agents may pick from, and a release cannot use a model its connection does not list. `0270` fills only connections whose list is empty, with the models of the profiles that mapped to that connection. A connection no profile mapped to keeps an empty list, and a connection that already had a list gets nothing added. After the upgrade, check that every connection lists all the models its agents use, and add the missing ones. In the settings document, delete the top-level `profiles` key and the `profiles` of each repository entry. `settings import` (CLI and API) refuses a document with the top-level key. The CLI drops a repository entry's `profiles`, but the API refuses it. **You cannot roll back to a build older than this release.** To go back, restore the database from the backup taken before the upgrade.
 
 <a id="프로필-제거-릴리스의-업그레이드-순서" />
 ### Upgrade order of the profile removal release
@@ -150,8 +116,6 @@ Upgrade the control-host and worker images together, in one upgrade, to the prof
 - Do not do the intermediate release of [2. API → proxy → worker order](#2-api--proxy--worker-순서) or [step 1 of the Kubernetes upgrade](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체) for this release. While the new control-host runs with old workers, no new session starts. On Compose, `upgrade` straight to the final release. On Kubernetes, upgrade straight with the step 2 commands.
 - A worker image built before the profile removal is outside this release's support window. Do not put such an image in `images.workerPrevious` on purpose. But the Kubernetes [pre-upgrade check](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외) requires `images.workerPrevious` to be the deployed image in an upgrade that changes the worker image, and approval cannot bypass this. So pass the `worker-previous.json` that the step 2 script makes (the deployed worker image) unchanged in this upgrade. The `previous-worker` file that the Compose `upgrade` keeps is the same. No session launches on that image: `0270` empties the sessions, new sessions always start on the current image, and the current image seals the checkpoints after that. The next upgrade that changes the worker image replaces the previous image with this release's image.
 - After the upgrade, check that one new session completes turn 1.
-
-From the next release on, the support window of the current and previous images applies again. This release's worker is the previous image of the next release. When you remove a response field that the worker reads, follow the order below. First change the worker so that it accepts the answer without the field. Remove the field from the control-host only in a later release, when that worker is the oldest image in the support window. The profile removal release did not follow this order.
 
 <a id="지운-slack-연결-env" />
 ### Removed Slack linking variables
@@ -171,6 +135,11 @@ From this release on, the API no longer reads `SLACK_EVENTS_PUBLIC_URL`. When ev
 - After the carry-over, delete the line from your env. While it stays, every start logs `Ignored removed settings: SLACK_EVENTS_PUBLIC_URL`. A value that is not https or has a query is not carried in, and the warning says so. Unlike earlier releases, startup does not stop.
 - Changing the saved address does not send it to apps already made. Press Recheck on the agent's Slack tab, or run `slack-app finalize`.
 - Keep the `slack_settings` table when rolling back. Earlier builds do not read it.
+
+<a id="slack-채널-이벤트와-manifest-다시-보내기" />
+### Slack channel events and sending the manifest again
+
+After upgrading, press Recheck on each agent's Slack tab once, or run `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` in the API container once per agent. Only then does an app made earlier receive channel deletion, archive and rename events. Without it, a deleted channel is handled only when a post or a channel lookup gets `channel_not_found`. When the manifest sent again asks for a scope the install lacks, Recheck's notice and the command's `warnings` (`reinstall_required`) say to install the app again.
 
 <a id="웹으로-옮긴-실행-한도" />
 ### Execution limits moved to the web
@@ -202,13 +171,12 @@ An owner saves twelve installation-wide settings (execution limits, session even
 <a id="설정-문서는-빈-설치에-한-번만-들어간다" />
 ### The settings document seeds an empty installation once
 
-From this release on, migrate imports the settings document (`SETTINGS_DOCUMENT`, `PLATFORM_SETTINGS_DOCUMENT` in test-ops) and the legacy config directory (`/legacy-config`) only into an empty installation, once (`settings seed`). After that, connections, repositories and MCP servers are changed in the console (Settings > Agent connections). Editing the document and deploying again does not import it.
+From this release on, migrate imports the settings document (`SETTINGS_DOCUMENT`, `PLATFORM_SETTINGS_DOCUMENT` in test-ops) only into an empty installation, once (`settings seed`). After that, connections, repositories and MCP servers are changed in the console (Settings > Agent connections). Editing the document and deploying again does not import it.
 
-- Migration `0282_settings_seed_decided` adds the column `settings_generation.seed_decided_at`. The first migrate after the upgrade records that time. An installation that already holds a connection or an MCP server (disabled ones included) imports nothing and only records the time. An installation holding repository rows alone counts as empty and is seeded once.
-- When nothing is imported, migrate logs one line without values: `note: <directory and document> not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`. Once the time is recorded, it reads `the automatic seed ran on <time>`. This line is not a failure.
+- Migration `0282_settings_seed_decided` adds the column `settings_generation.seed_decided_at`. The first migrate after the upgrade that is given a settings document records that time. Without `SETTINGS_DOCUMENT`, migrate runs no seed, so neither the time nor the log line appears. An installation that already holds a connection or an MCP server (disabled ones included) imports nothing and only records the time. An installation holding repository rows alone counts as empty and is seeded once.
+- When nothing is imported, migrate logs one line without values: `note: the settings document <file> (SETTINGS_DOCUMENT) not imported: the installation already holds settings. It seeds an empty installation only; change settings in the console`. Once the time is recorded, it reads `the automatic seed ran on <time>`. This line is not a failure.
 - To import the document's content again on purpose, an owner runs `settings import` by hand. That command is unchanged.
 - test-ops `upgrade` neither imports a changed document nor compares it with the database. When the document's digest changes, it logs `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console`. The check in `deploy` is unchanged.
-- A development volume kept with `scripts/local.sh down --keep-volumes` does not get changes to the fixtures (`tests/fixtures/settings/`). Recreate the volume or run `settings import`.
 - After a rollback, the earlier release's migrate imports the document on every deploy again. When an item changed in the console differs from the same id in the document, that import is refused, migrate fails and the API does not start. Before rolling back, remove such items from the document or match them to the console. Keep the `seed_decided_at` column. Earlier builds do not read it.
 
 <a id="env로-가리키던-자격-증명은-db로-한-번-옮긴다" />
@@ -223,7 +191,7 @@ From this release the api no longer reads a setting's `value_env` (a connection,
 - A value the run path would refuse (a key shorter than 8 bytes or with surrounding whitespace or a control character, an App key that is not an RSA private key PEM), and a key shorter than 8 characters (a stored value shows its last four), is not moved. The row is left out, with one warning: `<kind>:<id> is left out and not carried into the database: <reason>. Correct <name> and restart the API`. The reason names the variable only.
 - Moving an explicit App repository changes its credential reference and so its repository binding. In the same transaction, the push requests and running sessions' repository tokens that hold exactly the old binding move to the new one. So a push made before the move still opens and merges a pull request, and a running session gets its token again. The counts are in the log (`… (N push requests and M worker credentials moved to its new binding)`) and in the receipt's `rebound`. A row written later with the old binding, by a replica that has not read the move yet (each reads again every 10 seconds) or by a previous build, is stored with the new binding as it is written (the trigger above). Once the rollback SQL clears `carried_binding`, the trigger changes nothing. The moving transaction locks both tables, so requests that write push requests or worker tokens wait meanwhile. When it cannot lock them within 5 seconds it moves nothing and tries again on the next read. Afterwards change that App's key with `POST /v1/installation/settings/repositories/{id}/credential` (owners and admins, an RSA private key PEM). Changing env is no longer read.
 - **Upgrade to this release with one api, or start the new build only after every old replica is down.** Each replica reads the settings again every 10 seconds on its own, so one that has not read the move yet may meanwhile fail a moved push request with `catalog_changed` or refuse a running session's token reissue. Compose runs one api, so upgrade it as usual. With Helm, follow step 1 of the [Kubernetes upgrade](/run-server/self-hosting/upgrade-kubernetes). A push failed that way is pushed with the new binding when requested again.
-- Importing the old document by hand with `settings import` after the move stops at `conflicts` for the moved items: same id, other content (a `--from-dir` repository is `kept`). Remove them from the document, or use one from `settings export`.
+- Importing the old document by hand with `settings import` after the move stops at `conflicts` for the moved items: same id, other content. Remove them from the document, or use one from `settings export`.
 - A URL repository (`auth` `basic` or `bearer`) is not used to run anything, so it is not moved.
 - Rollback: earlier builds read a stored value on connections and MCP servers, but refuse one on an explicit App repository, which drops out as `invalid`. Roll back in this order:
   1. Stop every api replica of this release. One left running moves the rows back on its next settings read (within 10 seconds).
@@ -250,10 +218,38 @@ From this release model connections, MCP servers and repository GitHub App keys 
 - Before upgrading, enter the key of each model connection that names env or Secrets Manager with **Enter key on screen** in the current release's console. Its sessions then keep running after the upgrade. You can also enter it after the upgrade. The current release has no way to move an MCP server's key or a repository App key, so enter those right after the upgrade (below).
 - A disabled connection or MCP server that still names env or Secrets Manager cannot be enabled again after the upgrade: the console takes no key for a disabled row and does not enable a row without a key. To keep such a connection, enable it and enter its key with **Enter key on screen** before upgrading. Enable such an MCP server before upgrading and enter its key after. Otherwise, after the upgrade, make a new connection or server under a new id; ids are never reused.
 - Migration `0288_remove_external_credentials` turns each row that named env or Secrets Manager into a stored row without a value. It is `needs_value` (**Needs a value** on screen) until its key is entered, and sessions that use it do not run. Enter a connection's key with **Set API key**, an MCP server's with **Replace value**, and a repository App key through the API above. The old `auth` stays in `carried_auth` as history only and is never read. An explicit App repository's binding changes, so the same migration moves that repository's worker credential bindings to the new value. Its push requests' binding moves when its App key is entered, so a pull request cannot be opened from a push made before the upgrade until then. A key taken by an older api replica moves no push, so enter repository App keys after every api runs the new build (enter one again if it went in earlier).
-- Change the settings document's `value_env` and `secret_id` entries to `"stored": true` before importing it again. Otherwise `settings import` (API, CLI, `--from-dir`) refuses it with 400 `invalid_document`, and the CLI names the field.
+- Change the settings document's `value_env` and `secret_id` entries to `"stored": true` before importing it again. Otherwise `settings import` (API, CLI) refuses it with 400 `invalid_document`, and the CLI names the field.
 - After the upgrade, remove the key variables connections named (for example `ANTHROPIC_API_KEY`) and `AWS_ENDPOINT_URL_SECRETS_MANAGER` from the api's env; the api reads none of them. For Helm, follow the [Kubernetes upgrade](/run-server/self-hosting/upgrade-kubernetes).
 - A connection or MCP server made in the console is saved only with its key. The web keeps the save button off until 8 or more characters are typed; the API refuses with 400 a missing key, one shorter than 8 bytes, or one with control characters or surrounding whitespace; the database refuses a console-made row without its value in the same transaction. The console's "Enter key on screen" button, which turned an external connection into a stored one, and the `POST …/connections/{id}/convert` route are gone.
 - The 0285 rollback SQL above no longer applies after this release: `credential_source` allows `stored` only.
+
+<a id="처리를-마친-slack-이벤트의-옛-원문을-지우는-릴리스" />
+### The release that clears the old body of processed Slack events
+
+There is no migration. The slack role before migration 0308 kept the body (`payload`) on an inbox row even after it finished processing the event. The operator command `slack-inbound-payloads.ts` clears those bodies. Until you run it, they only stay where they are; nothing behaves differently.
+
+- When to run it: once, after every slack role runs an image that clears the body after processing (0308 or later). A slack role on an earlier image left running writes bodies onto processed rows again.
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/slack-inbound-payloads.ts
+```
+
+- It clears the body of processed rows (`processed`) only. Rows still being processed (`received`) and failed rows (`failed`, which the reconciler clears 7 days after receipt) stay as they are. The rows themselves (event type, status, attempts) stay.
+- It clears 1000 rows per statement in primary key order and commits each statement on its own. Row locks fall only on the batch's processed rows; the table gets only the `ROW EXCLUSIVE` lock any write takes, which blocks no reads or writes. `--batch-size <n>` (1 to 10000) changes the batch size.
+- The result is one line of JSON: rows holding a body by status (`before`, `after`), rows cleared `cleared`, batches `batches`, `batch_size`, and the time taken `duration_ms`. Running it again clears nothing more (`cleared: 0`).
+- If processed rows still hold a body when it ends, it reports `outcome: incomplete` and exits `3`. A slack role on an earlier image is still running. Stop that container and run the command again. The counts are read batch by batch, so exit `0` does not prove no earlier image is running; check every container's image before you run it.
+- A cleared body does not come back. New rows reuse the freed space after autovacuum; the files do not shrink. The rollback floor stays at 0308.
+
+<a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
+### The release that stops sessions holding a deleted Slack message
+
+Migration `0333_source_deleted` adds `source_deleted_at` (timestamptz, nullable) to `sessions`. Nothing to do when upgrading. Sessions with no deleted message behave as before.
+
+- When a Slack message is deleted (including the tombstone of a parent with replies), every open session with a turn that has that message among its sources stops, whether the turn holds it directly or inherited it from an earlier turn. An edit stops nothing.
+- A running turn is not cut. The worker finishes it, leaves a checkpoint as for a pause, and goes; the session ends `paused`. Queued input is not sent. This pause's receipt has no `actor`, since no person asked for it.
+- A stopped session reads `attention.code: SOURCE_DELETED` on `GET /v1/sessions/{id}`. Sending a message, resuming, and the recovery decisions `start_fresh` and `retry_restore` are refused with `409 SOURCE_DELETED`. Only close works.
+- Why it stopped is recorded as a `system` event `source_deleted` on the session's event stream, with the deleted message's place and the admission it moved to. Closed sessions are left alone.
+- The column is added without a default, so the table is not rewritten. Rolling back to an image within the support window is fine; an older image does not read the column, so a stopped session can be resumed again.
 
 <a id="쓰지-않는-표-셋을-지운-릴리스" />
 ### The release that drops three unused tables
@@ -262,6 +258,268 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
+
+<a id="slack-글의-관여-기록을-남기는-릴리스" />
+### The release that records engagements with Slack messages
+
+Migration `0323_conversation_engagements` adds the engagement table `conversation_engagements`. The slack role still turns a mention, a DM or a post in a linked thread into a session turn as before, and in the transaction that records its input row it records one row saying the agent took part in that post. The upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- An engagement row keeps only the agent, where the post was (team, channel, ts), its kind and the session the post went into. It keeps no text, thread ts or Slack link; the thread is the session's link to hold.
+- The kind is `mention` for the post that opened a session (a mention or a DM), `reply` when an unmentioned top-level post opened it, and `bound` for a post that went into a session already open, mentioned or not.
+- A post that arrives as two events, or is processed again, is still one row per agent. A post that became no turn (refused or ignored) gets none. Existing sessions are not filled in.
+- The reconciler keeps the delete and edit marks of a post with an engagement row past their 70 minutes.
+- Only a new table is made, so rolling back to an image in the support window is safe. Posts in the meantime get no engagement row.
+
+<a id="세션에-부모-대화를-채우는-릴리스" />
+### The release that fills each session's parent conversation
+
+Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_id` (nullable, a foreign key to `conversations`). The key is added `NOT VALID` and validated on its own, so the table is not locked for long. The upgrade needs nothing from you, and Slack, the web console and the session API behave as before.
+
+- A new Slack session gets its parent conversation when it is made: a channel thread's session the channel's main conversation, a DM session that person's DM conversation. A session with no link (the web's "New session", the session API) has none.
+- Existing sessions are filled in batches by a pass that runs each time the api starts, sessions of closed or revoked links included. A session is filled only while it is empty, so starting again, or several api replicas starting at once, gives the same result, and a pass cut short is picked up by the next start.
+- A DM session's person is the one who opened the session, as a new session picks it, else the link's creator when that person is missing or no longer a workspace member. With neither, the parent stays empty and the session behaves as one with no link. The log `Linked DM sessions left without a parent conversation` counts them by reason (`no_person`, `no_membership`); the next start fills one whose person became a member again.
+- The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
+- Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
+
+<a id="웹-입력의-slack-글-위치를-기다리는-줄을-보류하는-릴리스" />
+### The release that holds rows waiting for a web input's Slack post
+
+Migration `0335_input_hold` adds the columns `correlation_id` and `held_for_input_id` to `slack_outbox`, and the value `unconfirmed` to `conversation_inputs.slack_mirror`. The upgrade needs nothing from you. No route records web inputs in this release, so no row fills the new columns, and Slack mentions and replies and web and API sessions behave as before.
+
+- Until a web input's Slack post has its place (ts), any Slack row bound for that post's thread is held, whatever its kind. Once the post goes, the same transaction that records its place releases them into that thread. Rows bound for a thread that already has its place are unchanged.
+- A web input's Slack post carries a correlation id made anew for each request, as message metadata (`event_type` `werft_input_mirror`). No other row's post carries metadata.
+- A post that ends `uncertain` is not sent again, and no new thread or top-level post is made. The input becomes `unconfirmed` ("Slack reflection could not be confirmed"), and the topic's next input waits too.
+- When a post of the app's own that Slack sends back names, by its metadata's correlation id, exactly one `uncertain` mirror, that post is taken as the mirror's and becomes the input's alias. No candidate, or more than one, links nothing. Equal text never links.
+- The record of an event dropped at the gate (`drop_fields`) adds `metadata`: its `event_type` and a mirror's `correlation_id`. The rest of `event_payload` is not kept.
+- "Send again" posts the same input's mirror with a new correlation id only when a person asks. The input stays one row. Nothing sends it again on its own. This release has no button or route for it yet.
+- If the mirror's post fails for good, the held rows are closed unsent as `failed` (`input_unplaced`). If the place is still unknown after `SLACK_ROLE_INPUT_HOLD_SEC` (3600 seconds by default, Helm `slack.inputHoldSec`), they close the same way and the input stays `unconfirmed`. The slack role logs the warning `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`.
+- The CHECKs and the foreign key are added `NOT VALID` and validated in their own statements, and the indexes are built `CONCURRENTLY`. No existing row is changed. Nothing in this release makes a held row, so rolling back to an image in the support window is safe.
+
+<a id="slack에서-지운-글이-든-턴을-가리는-릴리스" />
+### The release that withholds turns of deleted Slack messages
+
+There is no migration and nothing to do on upgrade. Nothing stored is erased: the API withholds it when read. A session with no deleted message reads as before.
+
+- A turn whose instruction is a Slack message that was deleted (including the tombstone of a parent with replies) reads with an empty `message` and a null `result` in the turn list and detail (`GET /v1/sessions/{id}/turns`, `…/turns/{turn_id}`) and in an audit read (`POST /v1/sessions/{id}/audit-read`), with the new field `source_deleted_at` holding when it was deleted. `usage` is kept.
+- Its events (`GET /v1/sessions/{id}/events` and SSE, archived events included) carry `source_deleted_at` in the envelope and leave out their text: the reply's text and thinking, a tool call's input, a tool result's text, a question's input and the result's answer. Tool names and ids, how the turn ended and its token count are kept. A client that already streamed them reads them again to see them withheld.
+- That turn's pending requests are not listed by `GET /v1/sessions/{id}/pending-requests`.
+- A title cut or made from the first message (`title_source` `derived` or `generated`) reads as a null `title` in the session list and detail once the first turn is withheld, with the new field `title_deleted_at` holding when it was deleted, and its words find nothing in a search. The session title is empty in the usage screen's tool calls and the achievements list too. A title a person gave is kept.
+- A web input is withheld the same way once the Slack message mirroring it is deleted.
+- A turn that only inherited the message, such as a later turn of the same session, is not withheld.
+- The web console shows "Deleted in Slack" in each withheld place.
+- Rolling back to an image in the support window reads the withheld text again, as what is stored is unchanged.
+
+<a id="웹-입력을-slack-거울과-잇는-릴리스" />
+### The release that ties web inputs to their Slack mirror
+
+Migration `0334_input_mirror` adds the kind `input_mirror` to `slack_outbox` with the column `input_id`, the web input such a row shows, and builds a partial index on `conversation_inputs` `CONCURRENTLY` to find web inputs not yet shown in Slack. The upgrade needs nothing from you. No route records web inputs in this release, so no row of the new kind is made, and Slack mentions and replies and web and API sessions behave as before.
+
+- A web input is posted to Slack as an `instruction` is: under its sender's name with "(Web console)" after it. A new topic's first input becomes a top-level post in the channel (for a DM, the person's DM); the rest go into that topic's thread.
+- Once the post succeeds, the same transaction makes its (team, channel, ts) the input's Slack alias, and the topic's Slack place for a new topic. A person's reply in that thread is taken as the topic's next input.
+- The event Slack sends back for the post is dropped at the gate as the app's own (`own_bot_user`), as before, and makes no input or turn.
+- Once the input has its alias, deleting that Slack post voids the outbox rows that have the web input among their sources (`voided_by_delete`). A delete mark that came before the alias is the input's as soon as the alias is written.
+- In the rare case a person's reply is handled before the post is recorded, so the thread is already another topic, the two topics are not merged. The slack role logs the warning `Slack mirror opened a thread another topic already holds; the topics stay apart`.
+- A new DM topic is posted only when a topic of the same person names their DM channel. Otherwise the input waits, not shown in Slack.
+- The CHECKs and the foreign key are added `NOT VALID` and validated in their own statements. Rolling back to an image in the support window is safe.
+
+<a id="끝을-모르는-호출을-표시하고-에이전트-스스로-하는-일을-먼저-멈추는-릴리스" />
+### The release that marks calls of unknown end and stops the agent's own work first
+
+Migration `0332_unknown_budget_end` adds `unknown_at` (nullable), the column that marks a call of unknown end, to `budget_reservations` and `conversation_calls`, and two partial indexes the reconciler reads. The upgrade needs nothing from you. With no budget limit set, calls of people, keys and agents run as before.
+
+- When a provider call was used and no usage report came within its lease (5 minutes), the reconciler sets its reservation's `unknown_at`. The state stays `reserved` (`in_flight` for a conversation call). It is not released and still counts as spent against the limit. A late report settles it at the actual amount and takes the reservation off. A renewed lease or a release clears the mark. Session calls and calls with no session (conversation calls) follow the same rule.
+- For the accounts holding the most, up to the batch size, the reconciler logs how many reservations of unknown end each holds and what they hold in the warning `Budget reservations of unknown end held` (`unknown_count`, `held_cost_usd`, `held_tokens`), and the total over every account in the log `Budget reservations of unknown end reported`. The logs `Provider exchange ledger reconciled` and `Conversation call reservations reconciled` gain `unknown_count`. This release has no operator command to release them.
+- On a budget account with a limit, a reservation of a run with neither a person nor a key behind it (root kind `none`) is refused at 80% of the limit. Requests of people, keys and Slack bots run to 100%, where all are refused. An account with no limit has no 80% mark.
+- No state value or CHECK changes, and the indexes are built `CONCURRENTLY`. Rolling back to an image inside the support window is safe: an older image ignores `unknown_at` and settles the reservation as `reserved`.
+
+<a id="판단-버퍼를-더하는-릴리스" />
+### The release that adds the judgment buffer
+
+Migration `0330_judgment_buffer` adds an expiry column `buffer_expires_at` and its index to the input table `conversation_inputs`, and widens the CHECK on its kinds of row to a Slack message held in the judgment buffer. No row is changed, and the index is built `CONCURRENTLY`. The upgrade needs nothing from you, and Slack behaves as before.
+
+- The buffer holds unmentioned messages only for an agent whose conversation layer switch `conversation_rollout` is `shadow` or `on`, in a channel listening `free`. The switch defaults to `off`, and no API in this release changes it.
+- A held row has the message's text and its poster's Slack id, and the reconciler removes it whole after 10 minutes. In the log `Judgment buffer purged`, `expired_count` counts rows removed at expiry and `unlistened_count` rows of a channel no longer heard.
+- A message deleted in Slack goes at once; an edit only replaces the held text. A message that arrives after its own delete or edit is not held. Archiving or deleting the channel, the bot leaving it, the binding turned `off` or the agent archived remove its rows at once too.
+- You can roll back to an image within the support window. The old reconciler does not remove buffer rows, but there are none unless the switch was turned on.
+
+<a id="지운-slack-글에-걸린-답과-턴을-막는-릴리스" />
+### The release that holds back replies and turns of deleted Slack messages
+
+Migration `0329_slack_outbox_voided_by_delete` adds the status `voided_by_delete` to `slack_outbox`, and the column `sources_turn`, the turn a row belongs to. The upgrade needs nothing from you. Mentions and replies in threads with no deleted message, and web and API sessions, behave as before.
+
+- An outbox row whose sources hold a message deleted in Slack (a parent's tombstone included) stops right before its send. That covers replies, failure notices, approval cards and the mirror of a web instruction, and sources inherited from the session's earlier turns count. The row ends as `voided_by_delete` with `error_code` `source_deleted` and is never sent again. The slack role logs the warning `Slack send voided: a source was deleted`.
+- A delete that comes after a send began leaves what went out. Checking the marks and starting the send take the same message's lock.
+- An edit of a message holds back nothing.
+- A deleted message makes no session and no turn: its own mention, and the next post of a thread whose earlier message was deleted. Nothing is posted in Slack; the slack role logs the warning `Slack input refused by the session` (`code` `SOURCE_DELETED`).
+- A message sent from the web or the API to such a session is now refused with 409 `SOURCE_DELETED`. This release does not stop the session.
+- The CHECK is added `NOT VALID` and validated in its own statement, so writes are not held for long. Rolling back to an image in the support window is safe: an older image neither reads nor sends a `voided_by_delete` row.
+
+<a id="세션-없는-호출의-예약-표를-만드는-릴리스" />
+### The release that adds the table of calls with no session
+
+Migration `0328_conversation_calls` adds `conversation_calls`, the table of provider calls that serve no session (conversation calls). Nothing in this release issues one yet, so it stays empty. The upgrade needs nothing from you.
+
+- Before a conversation call's token is issued, the call's most it may cost is reserved on the budget account chosen by whose request it serves (its root). That most counts the request body's byte cap as input tokens and `max_tokens` as output tokens. When the account cannot hold it, neither a token nor a row is made.
+- The token is stored only as its hash and is bound to one Messages call through the egress proxy. The proxy refuses a request outside that call's path, model, `max_tokens` or body byte cap, and a second call with the same token.
+- A used call is settled on the account by the proxy's usage report. Nothing is written to a session's usage (`provider_usage`).
+- The reconciler releases the reservation of a token not used within 2 minutes and logs `Conversation call reservations reconciled` (`released_count`). A call that was used and never reported is not released.
+- A session's title call, and a session's call no running turn serves, are now held on the account of the session's first turn, the one that created it. An installation with no limits runs them as before. With a limit, a title call past it is refused and the title cut from the first message stays.
+- The egress proxy adds the header `x-werft-exchange-id` to its provider authorize requests; an earlier API ignores it. A conversation call's token is granted only with it, so upgrade the api and the egress proxy together.
+- It only adds a table, so rolling back to an image inside the support window is safe.
+
+<a id="채널-요약-표를-만드는-릴리스" />
+### The release that adds channel summary tables
+
+Migration `0325_channel_summaries` adds three channel summary tables (`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`). Nothing in this release writes a summary yet, so they stay empty. The upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- A channel has one summary, shared by the agents in it. A line keeps the agent's own words, the agent that wrote it and when; its source rows keep where the Slack message it came from was (team, channel, ts), the input row's id and the speaker (that input's requester). No Slack message text is stored. The server reads the speaker and the source off the input row.
+- Every change moves the version up by one, and older versions stay as history to revert to.
+- When a source message is deleted or edited in Slack, its lines are removed from the current version and every older one, and the version moves up. A revert does not bring them back.
+- The reconciler keeps the delete and edit marks of a message a summary line came from past their 70 minutes.
+- Only new tables are made, so rolling back to an image in the support window is safe.
+
+<a id="턴과-outbox-줄에-출처-집합을-적는-릴리스" />
+### The release that records source sets on turns and outbox rows
+
+Migration `0324_source_sets` adds a source set column `sources` (jsonb, nullable) to `turns` and `slack_outbox`, with a GIN index on each (`turns_sources_idx`, `slack_outbox_sources_idx`). The upgrade needs nothing from you, and replies to Slack mentions and web or API sessions behave as before.
+
+- A source set records which Slack messages a turn came from, only as each message's place (team, channel, ts) and its input row id. It never holds text. The turn's own input is a direct source (`direct`); the messages earlier turns of the same session came from are inherited sources (`inherited`).
+- A turn made from a Slack message has that message as its direct source. Later turns of the same session (a turn carrying a park on, a push follow-up, an instruction sent from the web or the API) inherit the sources of the turns before them. Turns of web or API sessions with no Slack in them have none.
+- A turn's reply, its failure notice, its approval cards, the mirror of a web instruction and the notice that a send could not be confirmed carry the turn's sources as they are. Other notice rows have none.
+- One set lists up to 256 keys. Past that it keeps the first ones and says `overflow`.
+- Delete and edit marks (`deleted_sources`, `edited_sources`) of a message in a source set are not removed by the reconciler after 70 minutes.
+- This release only records sources. Nothing yet holds a reply back or stops a session because a source was deleted.
+- The columns are added with no default and the indexes are built `CONCURRENTLY`, so no table is rewritten and writes are not held for long. Existing turns and rows stay empty. Rolling back to an image inside the support window is fine. The older image does not read the column, and turns made meanwhile have no sources.
+
+<a id="slack-스레드의-게시-설정을-칸-셋으로-나눈-릴리스" />
+### The release that splits a Slack thread's posting into three columns
+
+Migration `0326_link_posting` adds three posting columns to `session_links` and a `report_mode` default to each channel binding. What a thread receives is now decided by these columns instead of `visibility`. Nothing to do when you upgrade: the kinds and number of posts that reach Slack stay the same.
+
+- `report_mode` (nullable) covers answers, failures and push or pull request result notices; `mirror_instructions` covers mirroring inputs sent from the web or the API; `post_prompts` covers approval cards and questions. A link whose `report_mode` is empty uses its channel binding's value. A binding defaults to `per_step` (one post per turn, as now).
+- Links with `visibility = 'full'` are left as they are: the new columns' defaults mean the same. Links with `summary` are moved in batches by a pass that runs at every api start, to `report_mode = 'none'` and `false` for the other two (nothing posted, as now). Before it is moved, the outbox posts nothing to a `summary` link either. The count goes to the log `Summary session links moved`. No path made a `summary` link up to this release, so it is usually 0.
+- `none` exists only on moved links. The binding CHECK accepts only `notify_only`, `progress` and `per_step`. This release has no screen or API that changes the three columns.
+- The `session_links` CHECK is added `NOT VALID` and validated separately, so writes are not blocked for long. The `visibility` column stays until a later release drops it.
+- Rolling back to an image inside the support window is safe. The old image reads only `visibility`, and links the new image made still have `visibility` `full`, so they post as now.
+
+<a id="slack-글을-입력-접수-표에-적는-릴리스" />
+### The release that records Slack posts in the input table
+
+Migration `0316_conversation_inputs` adds the input table `conversation_inputs`. The slack role still turns a mention, a DM or a post in a linked thread into a session turn as before, and in the transaction that marks its inbox row processed it records the post as one input row. From this release it also fills `conversations` and `conversation_topics` from 0310. The upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- An input row keeps the post's place (team, channel, ts), its number within the topic (the thread), the requester (a Werft user id, or the Slack user id of an allowed bot) and the turn it became. It keeps no message text.
+- A post that arrives as both a `message` and an `app_mention` event, or that Slack sends again, is one row per agent. A post that became no turn (refused or ignored) is not recorded.
+- Numbers follow the order the server took the posts in. A late event gets the later number even when its Slack ts is earlier.
+- The reconciler no longer removes the delete and edit marks (`deleted_sources`, `edited_sources`) of a post with an input row after 70 minutes.
+- Rolling back to an image inside the support window makes turns as before, with no input rows for the posts in between.
+
+<a id="웹-입력-칸을-입력-접수-표에-더하는-릴리스" />
+### The release that adds web input columns to the input table
+
+Migration `0319_web_inputs` adds three columns for web inputs to the input table `conversation_inputs` (`client_message_id`, `body`, `slack_mirror`) and lets `turn_id` be empty. A receipt service comes with it that, the moment the server takes a web input, settles its input id, topic, requester and number, but no route calls it in this release. The upgrade needs nothing from you, and the web console and Slack behave as before.
+
+- A web input row keeps its text, and its `turn_id` may be empty because it is taken before it becomes a turn. A Slack input row still points at its turn and keeps no text. The check `conversation_inputs_origin_check` tells them apart.
+- When the same person sends to the same agent again with the same `client_message_id`, the earlier receipt comes back. Other text under the same key is refused.
+- The index is built `CONCURRENTLY`, and the check is added `NOT VALID` and validated on its own, so writes are not held for long. Every existing row is a Slack input row and passes the check.
+- Rolling back to an image inside the support window is fine. The older image does not read the new columns and records Slack input rows as before.
+
+<a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
+### The release that records each turn's requester credential
+
+Migration `0315_turn_requester_auth` adds `turns.requester_auth` (jsonb) and `tool_call_audits.requester_kind` and `requester_id` (text). All three are nullable with no default, index or backfill, so no table is rewritten. Nothing needs doing for the upgrade.
+
+- From this release a new turn records the credential its requester came in on: the console login session id, the personal key id, the agent of an agent key, the Slack installation and linked account. It holds no key secret, no cookie and no Slack user id.
+- Older turns are left as they are. The turn read API shows them with `requester` null or `auth_method` null. The two `tool_call_audits` columns stay empty in this release.
+- Rolling back to an image inside the support window neither reads nor writes the new columns. Turns that image queues simply have no credential recorded.
+
+<a id="대화-층의-빈-표-셋을-더한-릴리스" />
+### The release that adds three empty conversation tables
+
+Migration `0310_conversation_scopes` creates the `channel_contexts` (channel objects), `conversations` (an agent's main conversations) and `conversation_topics` (a conversation's topics) tables, empty. No code in this release reads or writes them yet, so the upgrade needs nothing from you, and Slack and sessions behave as before.
+
+- Rolling back to an image inside the support window is unaffected. Older code does not know these tables.
+
+<a id="처리한-slack-이벤트-원문을-지우는-릴리스" />
+### The release that clears the body of processed Slack events
+
+Migration `0308_slack_inbound_payload_check` changes the CHECK on `slack_inbound_events`: a processed or failed row may go without its body (`payload`). This release's slack role clears the body when it finishes processing, and the reconciler clears it on failed rows received more than 7 days ago. The retention is in [Retention by data](/run-server/self-hosting/reference/storage#데이터별-보존).
+
+- The new CHECK is looser than the old one. It accepts an earlier slack role that keeps the body, so rolling back to an image inside the support window is fine.
+- Once any row has lost its body, the old CHECK (`slack_inbound_events_dropped_check`) cannot be put back. Do not roll the schema below 0308. A cleared body does not come back.
+
+<a id="사람에게-바로-가는-slack-글을-막는-릴리스" />
+### The release that stops Slack posts aimed straight at a person
+
+Migration `0309_slack_outbox_channel` adds the CHECK `slack_outbox_channel_check` to `slack_outbox`. Only a model notice (`model_notice`) may have a Slack user id (`U…`, or `W…` on Enterprise Grid) as its channel. This keeps the agent from opening a direct message with a person first. No release so far wrote such a row, so there is usually nothing to do.
+
+- If such rows remain, the migrate log `db.migrate.notice` records how many (`0309: … slack_outbox rows name a Slack user as their channel`) and migrate stops at `VALIDATE CONSTRAINT`. The constraint then stays `NOT VALID` and still refuses new rows. You can check before the upgrade with this query:
+
+```sql
+SELECT kind, status, count(*) FROM slack_outbox
+WHERE channel_id ~ '^[UW]' AND kind <> 'model_notice'
+GROUP BY 1, 2;
+```
+
+- Rows it finds are rows that must not be sent. Delete them and run migrate again; every statement may run again.
+- The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
+- Earlier images write no such row either, so rolling back with the constraint in place is safe.
+
+<a id="호출을-턴의-예산-계정에-매기는-릴리스" />
+### The release that charges calls to the turn's budget account
+
+From this release a provider call's open holds the call on a budget account as well as on the session limit. The account is chosen by whose request the running turn serves (its root). Migration `0322_budget_root_slack_bot` adds `slack_bot` to the ledger's root kinds (it replaces the CHECK on `provider_exchanges.budget_root_kind` and `budget_reservations.root_kind`). Nothing to do.
+
+- On an installation with no limits set (no `budget_limits` rows), turns of people, keys and Slack bots run as before. The ledger keeps each call's root kind and account. The agent's own work that no one asked for (root `none`) is refused while no limit is set, but nothing in this release makes such a turn (a push follow-up takes the requester of the turn before it).
+- How the account is chosen: a person's turn, and the continuations and push follow-ups after it, go to that person's account (`user`). A personal key's turn goes to the account of the person who made the key (`key`), a key with no person to the account of the team that manages the agent (`key`), and an allowed Slack bot's turn to that team's account as well (`slack_bot`). With the team archived, only the root kind is kept, with no account.
+- A turn whose requester cannot be read (such as an old turn with no requester recorded), a session title call, a call with no running turn (such as one between turns), and a session with no workspace hold no account and see only the session limit, as before.
+- With a limit in `budget_limits`, a call past it on that account is refused with the same `BUDGET_EXCEEDED` as a session over its limit. A turn the account refused ends as a provider error (`api_error` on the Claude Code engine), and the session's attention (`BUDGET_EXCEEDED`) still comes only from the session limit; the log below ties the turn to the refusal by `turn_id`. This release has no screen or API that sets limits.
+- For every refused open the API logs `Provider exchange refused for the budget` at `info`, with `session_id`, `attempt_id`, `turn_id` (the running turn), `refused_by` (`session` or `account`), `budget_root_kind` and `budget_account_id`.
+- The CHECK only widens, so rolling back to an image inside the support window is fine. A call already open ends on the account its first open chose (or on the session limit alone).
+- The egress proxy marks a title call in its open with a header. While the api runs this release and the egress proxy an earlier one, title calls are held on the running turn's account too. On an installation with no limits set this makes no difference; upgrade the two together.
+
+<a id="원장에-예산-계정-칸을-더하는-릴리스" />
+### The release that adds budget account columns to the ledger
+
+Migration `0318_provider_exchange_budget` adds two nullable columns to the provider call ledger `provider_exchanges`: `budget_root_kind` (the root kind the call was charged as, `user`, `key` or `none`) and `budget_account_id` (the budget account the call was also held on). Nothing to do.
+
+- In this release no call names an account, so both columns stay empty and the session cost and token limits work as before. The code that holds a call on an account and the session limit at once ships now; wiring it into the call path comes in a later release.
+- The migration only adds columns, so rolling back to an image inside the support window is fine.
+
+<a id="예산-계정-표를-더하는-릴리스" />
+### The release that adds the budget account tables
+
+Migration `0314_budget_accounts` creates three empty tables: `budget_limits` (the workspace's limit for every person, a person's own limit, an agent team's limit), `budget_accounts` (what a person's or a team's account spent and holds reserved each month, months cut in UTC), and `budget_reservations` (the reservation and settlement of each call). Nothing to do.
+
+- In this release no call reads or writes these tables. The session cost and token limits work as before, and there is no screen, API or operator command that sets a budget limit yet.
+- The migration only adds tables, so rolling back to an image inside the support window is fine.
+
+<a id="slack-글의-수정삭제-표식" />
+### Marks of edited and deleted Slack messages
+
+Migration `0312_slack_source_marks` creates two tables, `deleted_sources` and `edited_sources`. From this release, an event for a deleted or edited Slack message (`message_deleted`, the tombstone `message_changed` that comes when a message with replies is deleted, and a `message_changed` for a person's edit) is no longer dropped: it leaves a mark with only where the message was (team, channel, ts) and when. Neither the message text nor the event body is stored anywhere, and the inbox row stays `processed` without its body. There is nothing to do.
+
+- Werft keeps no record that points at a message yet, so the reconciler removes every mark 70 minutes after it was made (the 10-minute judgment buffer and an hour). The log `Unknown Slack source marks purged` records how many it removed. The retention is in [Retention by data](/run-server/self-hosting/reference/storage#데이터별-보존).
+- Queries that count the drop reason `message_subtype` see fewer rows, without the edits and deletes. A `message_changed` no person made, such as a link preview, is still dropped.
+- The migration only adds tables, so rolling back to an image inside the support window is fine. The earlier image does not use them and drops edits and deletes again.
+
+<a id="slack-스레드의-옛-link-unique를-지운-릴리스" />
+### The release that drops the old link uniques of Slack threads
+
+Migration `0336_session_link_old_uniques` drops the two old uniques of `session_links` (`session_links_surface_ref_key`, `session_links_session_uniq`). The uniques left are the two that cover only links not closed (`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`). Each thread and each session still has at most one open link, and closed links may stay beside it as history. There is nothing to do on upgrade, and Slack threads behave as before.
+
+- **You cannot roll back to an image of `v0.3.0` or earlier.** Those images reserve a Slack thread's link with an `ON CONFLICT` naming the old unique `(installation_id, surface_ref)`, so after this migration the reservation ends in an error and the thread gets no session. Rolling back to an image from the release that moved reservations to the open-only uniques onward is fine. To go back further, restore the database from the backup taken before the upgrade.
+- If you upgrade straight from `v0.3.0`, thread reservations taken by the old slack role fail from the end of migrate until that role stops. Failed events are retried like any failed reservation, and the new slack role handles them.
+- No row is changed. The constraint is dropped in one statement that reads no table (it takes a brief lock), and the index is dropped `CONCURRENTLY`. Every statement may run again.
+
+<a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
+### The release that adds link history columns for Slack threads
+
+Migration `0313_session_link_history` adds the columns `closed_at` and `closed_reason` to `session_links`, with two partial uniques that cover only links not closed (`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`), and adds the column `session_link_id` to `slack_outbox`. Code in this release does not read or write the new columns yet, so there is nothing to do and behavior is unchanged. Every existing row stays an open link.
+
+- The two old uniques (`session_links_surface_ref_key`, `session_links_session_uniq`) stay. A later release drops them.
+- Indexes are built `CONCURRENTLY`, and the CHECKs and the foreign key are added `NOT VALID` and validated on their own, so writes are not blocked while they validate or build (adding the columns and constraints takes a brief lock).
+- Every statement may run again. If an index build is cut short, run migrate again: it drops the leftover INVALID index and builds it again.
+- Earlier images write without the new columns and resolve conflicts on the old uniques, so they keep working. Rolling back to an image in the support window is safe.
 
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names
@@ -278,42 +536,3 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 ```
 
 The stored key value stays. The connection id saved in the judge settings stays too, and the rolled-back build does not judge Luna rules. After upgrading again, create the connection again and pick it in the judge settings. Rolling back by restoring the pre-upgrade database backup needs no extra step.
-
-<a id="worker-protocol-필드를-걷어내는-순서" />
-### Removing worker protocol fields
-
-Existing worker containers keep running old images after API upgrades. Even idle workers remain for `WORKER_IDLE_TIMEOUT_SEC` (default 1800 seconds). First make receivers accept messages without a field; remove it from senders only after every receiver is updated. Do not change both in one release.
-
-| Field | Phase 1: receiver stops requiring it | Phase 2: sender removes it after phase 1 rollout |
-|---|---|---|
-| Heartbeat response `auth_revision` | Worker accepts responses without it. Every release's worker image since `v0.1.0` has this | The API stops sending it from the release after `v0.1.3`. Every published worker image is past phase 1, so there is nothing to check |
-| Append-events request `batch_key` | The API accepts requests without it from the release after `v0.1.3` | Worker stops sending it (not yet done). Before that, compare the deployed control-host image's tag or digest with the phase-1 release notes |
-
-Premature phase 2 makes old peers reject requests/responses as contract violations. Workers treat invalid heartbeat responses as nonretryable, assume lease loss at the first heartbeat, and stop.
-
-For adding checkpoint manifest fields, readers go first. Both control-host (precommit validation, restore planning, GC) and worker (restore) reject unknown keys. Update control-host first or within the same release, then workers. Once checkpoints use the field, old workers cannot restore them for the same reason as `baseBundles`.
-
-| Field | First: readers | Then: writers |
-|---|---|---|
-| `workerState` (approval-wait parking) | Control-host and worker accept manifests containing it | Worker writes it only when parking an approval-wait turn |
-
-API also goes first when adding worker-sent protocol fields. Its request schemas are strict: old APIs reject entire requests containing unknown fields with 400 `BAD_REQUEST`.
-
-| Field | Deploy first | New worker against old API |
-|---|---|---|
-| Bootstrap-claim/pending-control `capabilities`, register-pending `remember_offer` | API | No compatibility retry. A 400 `BAD_REQUEST` (nonretryable) on the first bootstrap-claim ends the worker without any turns. API-only rollback has the same effect: first confirm no sessions use new worker images |
-
-<a id="db-스키마를-바꾸는-순서" />
-### Database schema change order
-
-Migrations precede rollout, so old control-host runs briefly on new schemas and old workers remain during the support window. Keep every column/table they use until all old code is gone. Spread changes across three releases; never add and delete in one.
-
-| Phase | Action | What old code sees |
-|---|---|---|
-| 1. Expand | Add columns/tables. New columns must be nullable or have defaults. Defaults appear on existing rows and INSERTs omitting the column. Explicit NULL bypasses defaults: nullable columns store NULL, NOT NULL columns reject the INSERT. Choose based on existing rows and old INSERT behavior | Unknown columns appear; old writes omit them |
-| 2. Switch | New code starts writing new columns. While old code writes old columns, old columns remain authoritative. Dual-write but read old columns. Without a trigger or equivalent copying old writes, wait until all old writers disappear, perform a final backfill, then switch reads | Old columns remain readable/writable |
-| 3. Contract | Delete old columns/tables or strengthen NOT NULL/CHECK constraints only in a release after their images leave the support window and no such worker/control-host remains. Check existing rows and all current writers satisfy stronger constraints first | No remaining code uses those columns |
-
-Renaming also removes the old name, so use the same add/migrate/switch/delete order. `WORKER_IDLE_TIMEOUT_SEC` is idle time after the last turn, not maximum worker lifetime. Busy workers can survive longer: decide cleanup from actual remaining containers, not elapsed time.
-
-For example, checkpoint runtime combination columns `checkpoints.runtime_*` (migration `0196_checkpoint_runtime`) were phase 1: nullable without defaults, leaving older rows null. `0199_worker_image_runtime` (launch combinations, checkpoint digest scheme, `worker_image_refusals`) is also phase 1. A null checkpoint scheme reads as the first scheme (1).

@@ -1641,7 +1641,7 @@ export interface paths {
         };
         /**
          * Durable event replay and live stream (SSE)
-         * @description Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. Frames arrive in `id` order, the order to rely on; a new event's `occurred_at` is no earlier than the one before it. An event the engine emits after its turn's terminal belongs to no turn (`turn_id` null). `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers, and `approval_checkpoint_failed` once for a pending request registered without the checkpoint the worker tried to take for it, with its `request_id` and `reason` (`capture_failed`, `capture_timed_out`, or `verification_failed` when the control plane could not verify the one taken): unless a later approval-wait checkpoint of the turn covers the request, a crash before it is answered leaves the turn `outcome_unknown`. The event records the registration and stays after later checkpoints clear `durability.checkpoint_pending_reason`. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, or the session's share stops covering the caller (the reconnect then answers 404). Reading changes nothing.
+         * @description Streams the session's events as Server-Sent Events: first the stored events after `Last-Event-ID` (all of them without it), then new ones as they are written. Each frame's `id` is its cursor, `event` its kind (`system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status`, `error`), and `data` a versioned envelope naming the session, turn and attempt. Frames arrive in `id` order, the order to rely on; a new event's `occurred_at` is no earlier than the one before it. An event the engine emits after its turn's terminal belongs to no turn (`turn_id` null). `question` events announce pending requests; `status` events report the session's status and, after a pause, resume, terminate or recovery decision, its `admission_state`. `system` events with a platform `subtype` are the control plane's own: `session_closed` when a close commits, and `input_wait` with `stage` (`parked` when a turn parks on its unanswered requests, `expired` when a parked turn's requests expire, `lost` when the worker holding them went away unanswered) and the `request_ids` it covers, and `approval_checkpoint_failed` once for a pending request registered without the checkpoint the worker tried to take for it, with its `request_id` and `reason` (`capture_failed`, `capture_timed_out`, or `verification_failed` when the control plane could not verify the one taken): unless a later approval-wait checkpoint of the turn covers the request, a crash before it is answered leaves the turn `outcome_unknown`. The event records the registration and stays after later checkpoints clear `durability.checkpoint_pending_reason`. The stream does not end with a turn or the session: it stays open until the client disconnects, the credential is revoked, the session's share stops covering the caller (the reconnect then answers 404), or the server starts shutting down. Reading changes nothing.
          *
          *     Reconnect after backoff with the last complete event id in `Last-Event-ID`; replay resumes strictly after that event. The stream sends a comment keepalive every 15 seconds. `410 CURSOR_EXPIRED` means the cursor fell outside retained history and the client must resynchronize from resource state; alpha does not trim events, so this response is reserved. A `result` event is engine output, not durable completion: confirm the turn with `GET /v1/sessions/{id}/turns/{turn_id}` and treat only `completed`, `failed`, `interrupted`, `cancelled`, or `outcome_unknown` as terminal.
          *
@@ -2370,7 +2370,7 @@ export interface paths {
         put?: never;
         /**
          * Disable a member of the workspace
-         * @description In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).
+         * @description In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover (a `private_channel` session's, for a current member of its channel). Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2480,7 +2480,7 @@ export interface paths {
         put?: never;
         /**
          * Become the requester of an offboarded member's session
-         * @description The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.
+         * @description The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. A `private_channel` session is taken over instead by a current member of its channel who may write to it, with no justification asked; anyone else, an owner included, gets 404. The body may be empty. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3159,7 +3159,7 @@ export interface paths {
         get?: never;
         /**
          * Pause or resume a GitHub skill's sync
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away. Each change writes an `update_extension_sync` receipt; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. While paused, push webhooks and the daily check skip the skill; POST …/sync/check still runs. Resuming checks once right away, and `check` says whether that check ended (`checked`) or waits behind a running one (`queued`). Each change writes an `update_extension_sync` receipt; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
          */
@@ -3180,8 +3180,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Request, consent to or turn off a GitHub skill's auto-approve
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a new version itself when its commit came in through a reviewed pull request on a protected branch. One manager `request`s it and another `consent`s (403 `self_consent` for the requester while another manager can; a workspace's only manager may, and the receipt says so); `off` turns it off at once. A request and a consent each check GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit) and a ruleset or classic branch protection on it must require a pull request with at least one approving review (400 `protection_missing`; classic protection is read only when the App may read administration, so without it the rule counts as missing); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. A consent with nothing requested is 400 `auto_approve_not_requested`. While on, every check that makes a version reads the branch's rule and the pull requests of the commit: a merged pull request into that branch whose reviewers' last reviews include an approval by someone other than its author and no request for changes. The version is approved by the sync (an `approve_extension` receipt with who enabled and consented, the commit, the pull request and the rule); otherwise it stays `pending` and `last_check.auto_approval.reason` says why (`not_branch`, `protection_missing`, `no_reviewed_pull_request`, `github_unreachable`). Paused sync never auto-approves, not even POST …/sync/check. Each change writes an `update_extension_sync` receipt with the action; the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
+         * Turn a GitHub skill's auto-approve on or off
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Auto-approve lets the sync approve a version itself once it passes the fixed-rule checks: no person, second manager or GitHub review takes part. One manager turns it `on` or `off`, at once. Turning it on reads GitHub first: the ref must be a branch (400 `not_branch` for a tag or a commit), and GitHub not answering is 502 `GITHUB_UNAVAILABLE`. It then checks once (`last_check.trigger.kind` `auto_approve`), so a version already `pending` is judged too; `check` says whether that check ended (`checked`) or waits behind a running one (`queued`). While on, every check judges the version the ref's content is, a new one or one still `pending`, by the fixed-rule checks against the approved version before it (with none, every file counts as added). With no finding the sync approves it and makes it current when it is the highest (an `approve_extension` receipt with who turned auto-approve on and the commit). A finding leaves it `pending` with `checks_failed` and the rules in `last_check.auto_approval.checks` (a script added, a large change, a new URL host, hidden Unicode, an instruction-like sentence, a changed description), and another version approved while the checks ran leaves it `pending` with `baseline_changed` until the next check. Only that skill stops; the other skills a push reaches go on. A version a person rejected is not judged again. Paused sync never auto-approves, not even POST …/sync/check; turning sync back on checks once. Each change writes an `update_extension_sync` receipt with the action (`auto_approve_on`, `auto_approve_off`); the state it already has answers `receipt_id: null`. A skill that is not from GitHub is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
          */
@@ -3224,7 +3224,7 @@ export interface paths {
         };
         /**
          * Read a skill version's files and its diff from the last approved one
-         * @description Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.
+         * @description Every file of the stored tree with its text (null for a binary file), its hash, and how it differs from the previous approved version of the name: `added`, `changed` with a unified line diff, or `unchanged`; `removed` lists what that version had and this one drops. `checks` holds the fixed-rule checks the version fails against that same version, one per rule (the ones that hold back protected-branch auto-approve); they never approve or reject. Owners and admins read it from a signed-in console session, where they review it; an API key is refused with 403 `web_session_required`.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3662,7 +3662,7 @@ export interface paths {
         };
         /**
          * The agent's GitHub switch, settings and what may be turned on
-         * @description `enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved). `settings_revision` is the row's revision (null without a row) and `start_repository_id` a repository kept for compatibility: once the agent has a settings row, a session naming none starts without a repository whatever this holds, and attaches what the task needs. `push_attached` (`allow`, `ask` or `deny`) says whether a push to a repository the session attached needs a person: the row's value, `ask` for a row saved before the field existed, and `allow` while there is no row (what a first save writes). Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling; `repository_ceiling_unset` is true while the workspace has none yet, and the list is then judged against the default the first save writes, without writing it on this read), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.
+         * @description `enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the agent's own GitHub settings, or the active release's pin while the agent has none; null when neither exists, when `legacy_defaults` is what a first save starts from (no repository, push approval off, nothing optional; until settings are saved the release pushes without a person unless its own pin turns approval on). `settings_revision` is the row's revision (null without a row) and `start_repository_id` a repository kept for compatibility: once the agent has a settings row, a session naming none starts without a repository whatever this holds, and attaches what the task needs. `push_attached` (`allow`, `ask` or `deny`) says whether a push to a repository the session attached needs a person: the row's value, and `allow` for a row saved before the field existed or while there is no row (nobody chose to be asked). Settings are saved with `PUT …/github/settings`, never as a release. `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the workspace's repository ceiling; `repository_ceiling_unset` is true while the workspace has none yet, and the list is then judged against the default the first save writes, without writing it on this read), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3886,7 +3886,7 @@ export interface paths {
         put?: never;
         /**
          * Send the agent app's Request URL to Slack again
-         * @description Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
+         * @description Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. `reinstall_required: true` means Slack answered that the manifest asks for a scope the install lacks: the app must be installed again before the new scopes apply. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -6086,6 +6086,8 @@ export interface components {
             channel_kind?: "public_channel" | "private_channel" | "dm";
             /** @enum {string} */
             mode: "off" | "on";
+            /** @enum {string} */
+            listen?: "free" | "mention" | "off";
             /** @default false */
             home: boolean;
             ceiling?: {
@@ -6100,7 +6102,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SOURCE_DELETED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -6172,7 +6174,12 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description When Slack deleted the message a derived or generated `title` came from (the first turn's instruction). Set, `title` is null and the session is not found by its words. A title a person gave is kept. Null otherwise, and from a server before the field.
+             * @default null
+             */
+            title_deleted_at: string | null;
+            /**
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -6184,6 +6191,8 @@ export interface components {
                 release_label: string | null;
                 /** @default null */
                 release_is_active: boolean | null;
+                /** @default null */
+                archived: boolean | null;
             } | null;
             /**
              * @description True for a preview session: started with `preview: true` by an agent's admin to try a release before publishing it. Fixed at create. False from a server older than the field.
@@ -6191,7 +6200,7 @@ export interface components {
              */
             preview: boolean;
             /**
-             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @description True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.
              * @default false
              */
             agent_hidden: boolean;
@@ -6301,7 +6310,12 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description When Slack deleted the message a derived or generated `title` came from (the first turn's instruction). Set, `title` is null and the session is not found by its words. A title a person gave is kept. Null otherwise, and from a server before the field.
+             * @default null
+             */
+            title_deleted_at: string | null;
+            /**
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -6313,6 +6327,8 @@ export interface components {
                 release_label: string | null;
                 /** @default null */
                 release_is_active: boolean | null;
+                /** @default null */
+                archived: boolean | null;
             } | null;
             /**
              * @description True for a preview session: started with `preview: true` by an agent's admin to try a release before publishing it. Fixed at create. False from a server older than the field.
@@ -6320,7 +6336,7 @@ export interface components {
              */
             preview: boolean;
             /**
-             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @description True when the session has an agent the caller is outside of (not an owner or admin, one of the agent's admins or a member of its managing team) or may not use: `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. An agent still held by the holding team of migration 0243 is named to every live member who can read the session (its `workspace` scope reaches them all); a private, people or team share still decides who reads it, and the agent's own page stays `404` to those outside. False otherwise, including a session with no agent.
              * @default false
              */
             agent_hidden: boolean;
@@ -6498,6 +6514,9 @@ export interface components {
                 code: "VARIABLE_REFUSED";
                 /** @enum {string} */
                 reason: "unresolved" | "not_granted" | "reserved_name" | "too_large" | "runtime_unsupported";
+            } | {
+                /** @constant */
+                code: "SOURCE_DELETED";
             }) | null;
             durability: components["schemas"]["SessionDurability"];
             /** @description What the session's worker images ran, as recorded at launch and checkpoint; `runtime.version` is instead the version its agent release pinned. Absent from a server older than the field. */
@@ -6568,10 +6587,25 @@ export interface components {
                 display_name: string;
             } | null;
             /**
+             * @description Who the instruction is recorded as coming from, as stored. `kind` is `user` (a person: console, linked Slack account or personal key), `api_key` (a key no person holds, `id` the key), `slack_bot` (an allowed Slack bot, `id` its Slack user id) or `agent` (work the platform queued as the agent's own, such as the follow-up to a push decision, `id` the agent); a client takes any other kind as unknown. `auth_method` is the credential it came in on: `web_session`, `personal_key`, `agent_key`, `service_key`, `slack_link`, `slack_bot`, `unauthenticated` or `push_decision` (not a credential: the push decision an `agent` turn follows), any other value read as unknown; null when none was recorded. `carried` is true for a turn that took its requester from an earlier one, such as the continuation after an approval. Null for a turn with no requester recorded: one from before it was, or one the platform queued itself.
+             * @default null
+             */
+            requester: {
+                kind: string;
+                id: string;
+                auth_method: string | null;
+                carried: boolean;
+            } | null;
+            /**
              * @description The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.
              * @default null
              */
             slack_permalink: string | null;
+            /**
+             * @description When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` and `terminal_reason` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.
+             * @default null
+             */
+            source_deleted_at: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
@@ -6605,10 +6639,25 @@ export interface components {
                 display_name: string;
             } | null;
             /**
+             * @description Who the instruction is recorded as coming from, as stored. `kind` is `user` (a person: console, linked Slack account or personal key), `api_key` (a key no person holds, `id` the key), `slack_bot` (an allowed Slack bot, `id` its Slack user id) or `agent` (work the platform queued as the agent's own, such as the follow-up to a push decision, `id` the agent); a client takes any other kind as unknown. `auth_method` is the credential it came in on: `web_session`, `personal_key`, `agent_key`, `service_key`, `slack_link`, `slack_bot`, `unauthenticated` or `push_decision` (not a credential: the push decision an `agent` turn follows), any other value read as unknown; null when none was recorded. `carried` is true for a turn that took its requester from an earlier one, such as the continuation after an approval. Null for a turn with no requester recorded: one from before it was, or one the platform queued itself.
+             * @default null
+             */
+            requester: {
+                kind: string;
+                id: string;
+                auth_method: string | null;
+                carried: boolean;
+            } | null;
+            /**
              * @description The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.
              * @default null
              */
             slack_permalink: string | null;
+            /**
+             * @description When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` and `terminal_reason` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.
+             * @default null
+             */
+            source_deleted_at: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
@@ -6639,6 +6688,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6677,6 +6731,11 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
+                /**
+                 * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
                  */
                 occurred_at: string;
@@ -6706,6 +6765,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6739,6 +6803,11 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
+                /**
+                 * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
                  */
                 occurred_at: string;
@@ -6756,6 +6825,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6783,6 +6857,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6824,6 +6903,11 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
+                /**
+                 * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
                  */
                 occurred_at: string;
@@ -6848,6 +6932,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6950,7 +7039,7 @@ export interface components {
             /** Format: uuid */
             session_id: string;
             /** @enum {string} */
-            scope: "private" | "people" | "team" | "workspace";
+            scope: "private" | "people" | "team" | "workspace" | "private_channel";
             user_ids: string[];
             team_ids: string[];
             revision: number;
@@ -6979,7 +7068,7 @@ export interface components {
                 /** @enum {string} */
                 admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
                 /** @enum {string} */
-                share_scope: "private" | "people" | "team" | "workspace";
+                share_scope: "private" | "people" | "team" | "workspace" | "private_channel";
                 /** Format: date-time */
                 created_at: string;
                 takeover_required_at: string | null;
@@ -8024,7 +8113,7 @@ export interface components {
             } | {
                 resource: {
                     /** @enum {string} */
-                    kind: "workspace" | "session" | "invite" | "agent" | "agent_release" | "surface_binding" | "session_link" | "dispatch" | "memory" | "routine" | "artifact" | "mcp_server" | "api_key" | "team" | "extension_bundle";
+                    kind: "workspace" | "session" | "invite" | "agent" | "agent_release" | "surface_binding" | "session_link" | "dispatch" | "memory" | "routine" | "artifact" | "mcp_server" | "api_key" | "team" | "extension_bundle" | "conversation";
                     id: string;
                 };
                 workspace_id: string | null;
@@ -8049,7 +8138,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SOURCE_DELETED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -9178,6 +9267,59 @@ export interface components {
             /** @enum {string} */
             config_token: "unset" | "active" | "needs_reentry";
         };
+        RecheckSlackAppEventsResponse: {
+            slack_app: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "agent" | "link" | "manual";
+                agent_id: string | null;
+                /** @enum {string} */
+                state: "creating" | "created" | "failed" | "abandoned" | "deleting" | "deleted";
+                app_id: string | null;
+                client_id: string | null;
+                /** Format: uri */
+                redirect_url: string;
+                created_by_token_user: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+                secrets: {
+                    slack_signing_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_client_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_bot_token: components["schemas"]["SlackSecretSummary"];
+                };
+            } | null;
+            event_url: string | null;
+            events: {
+                /** @enum {string} */
+                state: "verified" | "pending" | "failed";
+                checked_at: string | null;
+                url: string | null;
+                error?: string;
+            };
+            warnings: ({
+                /** @constant */
+                code: "config_token_issuer_changed";
+                previous_user_id: string;
+                user_id: string;
+            } | {
+                /** @constant */
+                code: "repository_required";
+                release_id: string;
+            } | {
+                /** @constant */
+                code: "release_unavailable";
+                release_id: string;
+            } | {
+                /** @constant */
+                code: "no_active_release";
+            })[];
+            /** @enum {string} */
+            config_token: "unset" | "active" | "needs_reentry";
+            reinstall_required: boolean;
+        };
         GetSlackAppManifestResponse: {
             manifest_yaml: string;
         };
@@ -9471,7 +9613,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "conversation.view" | "conversation.post" | "task.spawn" | "usage.installation_read" | "usage.agent_read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
         };
         UpdateAuthMeRequest: {
             /** @enum {string} */
@@ -11140,19 +11282,18 @@ export interface components {
                     sync_enabled: boolean;
                     /** @enum {string} */
                     webhook: "ready" | "no_public_url" | "no_secret";
-                    /** @description Protected-branch auto-approve: one manager requests, another consents. */
+                    /** @description Auto-approve: while on, the sync approves a version that passes the fixed-rule checks, with no person's review. */
                     auto_approve: {
                         /** @enum {string} */
-                        state: "off" | "requested" | "on";
-                        requested_by: string | null;
-                        consented_by: string | null;
+                        state: "off" | "on";
+                        enabled_by: string | null;
                     };
                     last_check: {
                         /** Format: date-time */
                         at: string;
                         trigger: {
                             /** @enum {string} */
-                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                             delivery_id: string | null;
                             user_id: string | null;
                         };
@@ -11166,17 +11307,18 @@ export interface components {
                             code: string;
                             message: string;
                         }[];
-                        /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                        /** @description How auto-approve judged the version this content is, while it is on: a new version (`created`) or one still `pending` (`unchanged`); null otherwise. */
                         auto_approval: {
                             /** @enum {string} */
                             result: "approved" | "pending";
-                            reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
-                            rule: {
+                            reason: ("checks_failed" | "baseline_changed") | null;
+                            /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
+                            checks: {
                                 /** @enum {string} */
-                                kind: "ruleset" | "branch_protection";
-                                required_reviews: number;
-                            } | null;
-                            pull_request: number | null;
+                                rule: "scripts_added" | "large_change" | "new_url" | "hidden_unicode" | "instruction_like" | "description_changed";
+                                paths: string[];
+                                samples: string[];
+                            }[];
                         } | null;
                     } | null;
                 } | null;
@@ -11198,20 +11340,23 @@ export interface components {
                         commit: string;
                         trigger: {
                             /** @enum {string} */
-                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                             delivery_id: string | null;
                             user_id: string | null;
                         };
                     } | null;
                     size_bytes: number;
                     has_scripts: boolean;
-                    /** @enum {string} */
-                    review: "pending" | "approved" | "rejected";
+                    /**
+                     * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                     * @enum {string}
+                     */
+                    review: "pending" | "approved" | "rejected" | "superseded";
                     /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
-                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;
@@ -11257,20 +11402,23 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11305,7 +11453,7 @@ export interface components {
                 at: string;
                 trigger: {
                     /** @enum {string} */
-                    kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                    kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                     delivery_id: string | null;
                     user_id: string | null;
                 };
@@ -11319,17 +11467,18 @@ export interface components {
                     code: string;
                     message: string;
                 }[];
-                /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                /** @description How auto-approve judged the version this content is, while it is on: a new version (`created`) or one still `pending` (`unchanged`); null otherwise. */
                 auto_approval: {
                     /** @enum {string} */
                     result: "approved" | "pending";
-                    reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
-                    rule: {
+                    reason: ("checks_failed" | "baseline_changed") | null;
+                    /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
+                    checks: {
                         /** @enum {string} */
-                        kind: "ruleset" | "branch_protection";
-                        required_reviews: number;
-                    } | null;
-                    pull_request: number | null;
+                        rule: "scripts_added" | "large_change" | "new_url" | "hidden_unicode" | "instruction_like" | "description_changed";
+                        paths: string[];
+                        samples: string[];
+                    }[];
                 } | null;
             } | null;
         };
@@ -11349,19 +11498,18 @@ export interface components {
                 sync_enabled: boolean;
                 /** @enum {string} */
                 webhook: "ready" | "no_public_url" | "no_secret";
-                /** @description Protected-branch auto-approve: one manager requests, another consents. */
+                /** @description Auto-approve: while on, the sync approves a version that passes the fixed-rule checks, with no person's review. */
                 auto_approve: {
                     /** @enum {string} */
-                    state: "off" | "requested" | "on";
-                    requested_by: string | null;
-                    consented_by: string | null;
+                    state: "off" | "on";
+                    enabled_by: string | null;
                 };
                 last_check: {
                     /** Format: date-time */
                     at: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
@@ -11375,29 +11523,32 @@ export interface components {
                         code: string;
                         message: string;
                     }[];
-                    /** @description How the new version's auto-approval went (`created` with auto-approve on); null otherwise. */
+                    /** @description How auto-approve judged the version this content is, while it is on: a new version (`created`) or one still `pending` (`unchanged`); null otherwise. */
                     auto_approval: {
                         /** @enum {string} */
                         result: "approved" | "pending";
-                        reason: ("not_branch" | "protection_missing" | "no_reviewed_pull_request" | "github_unreachable") | null;
-                        rule: {
+                        reason: ("checks_failed" | "baseline_changed") | null;
+                        /** @description The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked. */
+                        checks: {
                             /** @enum {string} */
-                            kind: "ruleset" | "branch_protection";
-                            required_reviews: number;
-                        } | null;
-                        pull_request: number | null;
+                            rule: "scripts_added" | "large_change" | "new_url" | "hidden_unicode" | "instruction_like" | "description_changed";
+                            paths: string[];
+                            samples: string[];
+                        }[];
                     } | null;
                 } | null;
             };
             /** @description Null when sync already was in that state. */
             receipt_id: string | null;
+            /** @description The check this call ran, on a resume or on turning auto-approve on. `queued`: a check of the skill was running, and it runs once more when it ends. Null when the call ran none. */
+            check: ("checked" | "queued") | null;
         };
         PutSkillAutoApproveRequest: {
             /**
-             * @description `request` and `consent` are by two managers (one, when the workspace has one); `off` turns it off at once.
+             * @description One manager turns it on or off, at once.
              * @enum {string}
              */
-            action: "request" | "consent" | "off";
+            action: "on" | "off";
         };
         RevertSkillResponse: {
             name: string;
@@ -11417,20 +11568,23 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11453,20 +11607,23 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11497,20 +11654,23 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11533,20 +11693,23 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11560,7 +11723,7 @@ export interface components {
                 executable: boolean;
                 size_bytes: number;
                 sha256: string;
-                /** @description The file as UTF-8 text; null for a binary file. */
+                /** @description The file as UTF-8 text; null for a binary file. A document (`.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`) that is not clean UTF-8 is still text: bad bytes as U+FFFD and control characters as their visible symbols (U+2400 to U+2421), as the fixed-rule checks read it. */
                 text: string | null;
                 /**
                  * @description Against the previous approved version; every file is `added` when there is none.
@@ -11575,6 +11738,13 @@ export interface components {
                 path: string;
                 size_bytes: number;
                 sha256: string;
+            }[];
+            /** @description The fixed-rule checks this version fails against `previous_approved`, one per rule; empty when it fails none. Shown to the reviewer; they never approve or reject. */
+            checks: {
+                /** @enum {string} */
+                rule: "scripts_added" | "large_change" | "new_url" | "hidden_unicode" | "instruction_like" | "description_changed";
+                paths: string[];
+                samples: string[];
             }[];
         };
         ReviewSkillVersionRequest: {
@@ -11598,20 +11768,23 @@ export interface components {
                     commit: string;
                     trigger: {
                         /** @enum {string} */
-                        kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                        kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                         delivery_id: string | null;
                         user_id: string | null;
                     };
                 } | null;
                 size_bytes: number;
                 has_scripts: boolean;
-                /** @enum {string} */
-                review: "pending" | "approved" | "rejected";
+                /**
+                 * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                 * @enum {string}
+                 */
+                review: "pending" | "approved" | "rejected" | "superseded";
                 /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                 registered_by: string | null;
                 /** Format: date-time */
                 registered_at: string;
-                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                 reviewed_by: string | null;
                 reviewed_at: string | null;
                 archived_at: string | null;
@@ -11676,20 +11849,23 @@ export interface components {
                         commit: string;
                         trigger: {
                             /** @enum {string} */
-                            kind: "register" | "webhook" | "daily" | "manual" | "resume";
+                            kind: "register" | "webhook" | "daily" | "manual" | "resume" | "auto_approve";
                             delivery_id: string | null;
                             user_id: string | null;
                         };
                     } | null;
                     size_bytes: number;
                     has_scripts: boolean;
-                    /** @enum {string} */
-                    review: "pending" | "approved" | "rejected";
+                    /**
+                     * @description `superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.
+                     * @enum {string}
+                     */
+                    review: "pending" | "approved" | "rejected" | "superseded";
                     /** @description Who registered it; null for a version the Git sync made (`git.trigger` says what started it). */
                     registered_by: string | null;
                     /** Format: date-time */
                     registered_at: string;
-                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. */
+                    /** @description Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed. */
                     reviewed_by: string | null;
                     reviewed_at: string | null;
                     archived_at: string | null;
@@ -11819,6 +11995,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -11828,7 +12006,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "gone" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
@@ -11858,6 +12036,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -11867,7 +12047,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "gone" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
@@ -11899,6 +12079,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -11908,7 +12090,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "gone" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
@@ -21568,7 +21750,8 @@ export interface operations {
                      *             "name": "Checkout fixer",
                      *             "release_version_no": 3,
                      *             "release_label": "2026-10-11_17:00:00",
-                     *             "release_is_active": true
+                     *             "release_is_active": true,
+                     *             "archived": false
                      *           },
                      *           "preview": false,
                      *           "agent_hidden": false,
@@ -22012,7 +22195,8 @@ export interface operations {
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
                      *         "release_label": "2026-10-11_17:00:00",
-                     *         "release_is_active": true
+                     *         "release_is_active": true,
+                     *         "archived": false
                      *       },
                      *       "preview": false,
                      *       "agent_hidden": false,
@@ -22171,7 +22355,8 @@ export interface operations {
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
                      *         "release_label": "2026-10-11_17:00:00",
-                     *         "release_is_active": true
+                     *         "release_is_active": true,
+                     *         "archived": false
                      *       },
                      *       "preview": false,
                      *       "agent_hidden": false,
@@ -23074,6 +23259,7 @@ export interface operations {
              *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).
              *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request.
+             *     - `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left.
              */
             409: {
                 headers: {
@@ -23084,7 +23270,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT" | "REVISION_CONFLICT" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "SESSION_CLOSED" | "CHECKPOINT_UNAVAILABLE";
+                            code?: "IDEMPOTENCY_CONFLICT" | "REVISION_CONFLICT" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "SESSION_CLOSED" | "CHECKPOINT_UNAVAILABLE" | "SOURCE_DELETED";
                         };
                     };
                 };
@@ -23603,6 +23789,7 @@ export interface operations {
              *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.
              *     - `TAKEOVER_REQUIRED`: The person who asked for the session was offboarded; it takes no input until an owner takes it over.
+             *     - `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left.
              */
             409: {
                 headers: {
@@ -23613,7 +23800,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "SESSION_CLOSING" | "SESSION_CLOSED" | "CHECKPOINT_UNAVAILABLE" | "TAKEOVER_REQUIRED";
+                            code?: "IDEMPOTENCY_CONFLICT" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "SESSION_CLOSING" | "SESSION_CLOSED" | "CHECKPOINT_UNAVAILABLE" | "TAKEOVER_REQUIRED" | "SOURCE_DELETED";
                         };
                     };
                 };
@@ -24356,6 +24543,7 @@ export interface operations {
              *     - `REQUEST_STALE`: The request was made against state that has since moved on. The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on. A parked request can be answered whatever happened to the attempt that asked.
              *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A parked request whose session has no checkpoint to resume from: the answer is not kept.
+             *     - `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left. A Slack message among the sources of one of the session's turns was deleted and its last turn has ended: the answer is not kept. While the turn still runs, its own question takes the answer.
              */
             409: {
                 headers: {
@@ -24366,7 +24554,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE";
+                            code?: "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "SOURCE_DELETED";
                         };
                     };
                 };
@@ -27928,6 +28116,7 @@ export interface operations {
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. The stopped or paused session has no restore point it can resume from.
              *     - `PAUSE_COMMITTING`: The pause has already committed its stop and can no longer be cancelled; wait for it, then resume.
              *     - `PENDING_REQUESTS_OPEN`: A request the parked turn waits on is neither answered nor expired yet. The session's parked turn still has a request that is neither answered nor expired: answer it, or wait for its `expires_at`. Its answer then resumes the session.
+             *     - `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left. A Slack message among the sources of one of the session's turns was deleted. The session cannot resume; close it.
              */
             409: {
                 headers: {
@@ -27938,7 +28127,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT" | "REVISION_CONFLICT" | "REQUEST_STALE" | "SESSION_RESUMING" | "SESSION_CLOSING" | "SESSION_CLOSED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PENDING_REQUESTS_OPEN";
+                            code?: "IDEMPOTENCY_CONFLICT" | "REVISION_CONFLICT" | "REQUEST_STALE" | "SESSION_RESUMING" | "SESSION_CLOSING" | "SESSION_CLOSED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PENDING_REQUESTS_OPEN" | "SOURCE_DELETED";
                         };
                     };
                 };
@@ -28122,6 +28311,7 @@ export interface operations {
              *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.
              *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. `confirm_completed` with no committed checkpoint that reaches the target turn.
+             *     - `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left. `start_fresh` or `retry_restore` on a session stopped because a source of one of its turns was deleted in Slack; `close` is the decision left.
              */
             409: {
                 headers: {
@@ -28132,7 +28322,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "IDEMPOTENCY_CONFLICT" | "REVISION_CONFLICT" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "SESSION_CLOSED" | "CHECKPOINT_UNAVAILABLE";
+                            code?: "IDEMPOTENCY_CONFLICT" | "REVISION_CONFLICT" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "SESSION_CLOSED" | "CHECKPOINT_UNAVAILABLE" | "SOURCE_DELETED";
                         };
                     };
                 };
@@ -34604,8 +34794,7 @@ export interface operations {
                      *         "sync_enabled": false,
                      *         "auto_approve": {
                      *           "state": "off",
-                     *           "requested_by": null,
-                     *           "consented_by": null
+                     *           "enabled_by": null
                      *         },
                      *         "webhook": "no_public_url",
                      *         "last_check": {
@@ -34622,7 +34811,8 @@ export interface operations {
                      *           "auto_approval": null
                      *         }
                      *       },
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "check": null
                      *     }
                      */
                     "application/json": components["schemas"]["SkillSyncResponse"];
@@ -34741,7 +34931,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "action": "request"
+                 *       "action": "on"
                  *     }
                  */
                 "application/json": components["schemas"]["PutSkillAutoApproveRequest"];
@@ -34767,9 +34957,8 @@ export interface operations {
                      *         "ref": "main",
                      *         "sync_enabled": true,
                      *         "auto_approve": {
-                     *           "state": "requested",
-                     *           "requested_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
-                     *           "consented_by": null
+                     *           "state": "on",
+                     *           "enabled_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
                      *         },
                      *         "webhook": "no_public_url",
                      *         "last_check": {
@@ -34786,7 +34975,8 @@ export interface operations {
                      *           "auto_approval": null
                      *         }
                      *       },
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "check": "checked"
                      *     }
                      */
                     "application/json": components["schemas"]["SkillSyncResponse"];
@@ -35110,7 +35300,8 @@ export interface operations {
                      *           "diff": null
                      *         }
                      *       ],
-                     *       "removed": []
+                     *       "removed": [],
+                     *       "checks": []
                      *     }
                      */
                     "application/json": components["schemas"]["SkillVersionFiles"];
@@ -40397,6 +40588,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "reinstall_required": false,
                      *       "slack_app": {
                      *         "id": "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
                      *         "kind": "agent",
@@ -40439,7 +40631,7 @@ export interface operations {
                      *       "config_token": "active"
                      *     }
                      */
-                    "application/json": components["schemas"]["GetSlackAppResponse"];
+                    "application/json": components["schemas"]["RecheckSlackAppEventsResponse"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

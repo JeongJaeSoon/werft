@@ -51,7 +51,7 @@ import type {
   RuntimeFingerprint,
   TranscriptRevision,
 } from "@werft-ai/runtime-core";
-import { storedOutputs } from "@werft-ai/runtime-core";
+import { sha256Hex, storedOutputs } from "@werft-ai/runtime-core";
 
 /** One `checkpoints` row, as far as its objects are concerned. */
 export type CheckpointRow = {
@@ -435,9 +435,7 @@ export function describeMismatches(
     .join(", ");
 }
 
-export function sha256Hex(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
+export { sha256Hex };
 
 /**
  * Why the bytes read for a checkpoint are not the manifest its row records,

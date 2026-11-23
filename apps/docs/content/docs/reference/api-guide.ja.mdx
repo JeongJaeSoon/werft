@@ -8,7 +8,7 @@ api-guide.mdx の翻訳です。コードブロックは韓国語ページと同
 tests/docs-i18n-code.test.ts が比較します。CI が実行するのは韓国語ページだけです。
 */}
 
-「どのエンドポイントをどの順で呼べばよいか」をすばやく知りたい API 利用者向けの、動かせるガイドです。リクエストとレスポンスのスキーマの正本は `docs/openapi.json` で、デプロイしたサーバーの認証不要な `GET /docs` が、同じオリジンの `/docs/scalar.js` とあわせて読み取り専用のリファレンスを返します。このサイトの [HTTP API ページ](/reference/http-api/auth/getApiRoot)も同じ仕様から生成されています。このガイドはスキーマを写さず、operation 名でリンクします。CI は下の `bash` ブロックを、compose の偽の Messages API に対して書かれたとおりに実行するので、Anthropic アカウントは要らず、費用もかかりません。
+「どのエンドポイントをどの順で呼べばよいか」をすばやく知りたい API 利用者向けの、動かせるガイドです。リクエストとレスポンスのスキーマの正本は `docs/openapi.json` で、デプロイしたサーバーの認証不要な `GET /docs` が、同じオリジンの `/docs/scalar.js` とあわせて読み取り専用のリファレンスを返します。このサイトの [HTTP API ページ](/reference/http-api/auth/getApiRoot)も同じ仕様から生成されています。このガイドはスキーマを写さず、operation 名でリンクします。下の `bash` ブロックは compose の偽の Messages API に対して書かれたとおりに動くので、Anthropic アカウントは要らず、費用もかかりません。
 
 例ではローカルの既定アドレス `http://127.0.0.1:3000` を使います。デプロイしたサーバーでは `API` だけを変えます。
 
@@ -286,6 +286,8 @@ OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession)、[`
 
 close は pause と同じように drain します。worker が付いた `active` のセッションは `closing` になり、進行中の turn が終わり、チェックポイントが確定し、実行が消えたのを確認してから `closed` になります。そのとき receipt が `succeeded` になります。worker のないセッション、`paused`、resume できる `stopped` のセッションは、リクエストの中でそのまま閉じます。drain が 60 秒を超えると、セッションの `attention` に `CLOSE_BLOCKED` と理由(`long_turn`、`pending_request`、`mirror_error`、`checkpoint_unavailable`、`execution_pending`)が出ます。開いている承認や質問は close を塞ぎます。答えるか interrupt すると解けます。それでも閉じなければ receipt は失敗し、セッションは `active` に戻ります。キューの入力はそのままです。その状態から抜けるには terminate を使います。進行中の close は `CONTROL_SUPERSEDED` で失敗します。
 
+エージェントの release がないセッション(release が必須になる前に受け付けたセッション)は、どの worker も引き受けられません。API は起動するたびに、そうしたセッションのうち閉じていないものを recovery close と同じやり方で閉じます。このとき receipt は作られません。ストリームには `status` イベント(`admission_state: "closed"`)と `system` `subtype: session_closed`(`closed_by: "agentless_cleanup"`、`reason: "no_agent_release"`)が残り、待っていた制御 receipt は `CONTROL_SUPERSEDED` で失敗します。
+
 自分の turn の中で自分のセッションを close するエージェントは、receipt を待ちません。drain はその turn が終わるのを待つので、`accepted` のレスポンスが、その turn の見る最後の答えです。結果を push するには、close が `succeeded` になってから、最後のチェックポイントから push を要求します。最後の turn の中で要求した push は、要求のあとにその turn がさらにコミットした場合、close が確定したチェックポイントのコミットと違うので、承認は `CHECKPOINT_MOVED` で拒否されます。close は push リクエストには触れません。
 
 次の例は、別のセッションを作り、その turn を終えて close します。
@@ -410,7 +412,7 @@ wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
 
 OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushRequest)、[`listPushRequests`](/reference/http-api/push-requests/listPushRequests)、[`getPushRequest`](/reference/http-api/push-requests/getPushRequest)、[`approvePushRequest`](/reference/http-api/push-requests/approvePushRequest)、[`rejectPushRequest`](/reference/http-api/push-requests/rejectPushRequest)、[`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
 
-**目標.** セッションが作ったコミットを、リポジトリの `agent/<session-id>` ブランチに push するよう求め、`sessions:approve` を持つ人にそのコミットを承認または拒否してもらいます。push は worker ではなくプラットフォーム(API)が、承認の数秒後までに行います。
+**目標.** セッションが作ったコミットを、リポジトリの `agent/<session-id>` ブランチに push するよう求めます。push 前の人の承認がオフ(既定値、この例のデモエージェント)で、追加リポジトリへの push ポリシーが `allow` なら、リクエストはすぐに承認されます。どちらかが違えばすぐには承認されません。人の承認がオンか、ポリシーが `ask` なら `sessions:approve` を持つ人がそのコミットを承認または拒否し、ポリシーが `deny` ならリクエストは拒否されます。push は worker ではなくプラットフォーム(API)が、承認の数秒後までに行います。コンソールでは次の順になります。新しいエージェント(リリースにも GitHub 設定がないエージェント)は、GitHub タブで最初に保存するまでセッションに GitHub ツールがありません。ふつうはリポジトリのスイッチをオンにすることが最初の保存です(スイッチは切り替えるとすぐ保存されます)。リポジトリをオンにすることが最初の保存なら、push 承認の既定値(push 前の人の承認はオフ、追加リポジトリへの push は許可)も一緒に保存されるため、その後に始まるセッションから承認なしで push します。
 
 **手順.** ボディなし(`{}`)でリクエストを送ります。プラットフォームは、セッションの最新のチェックポイントの revision とその `git_commit`、セッションの `repository_id`、ブランチ `agent/<session-id>` を固定します。見た revision を固定するには `checkpoint_revision` も送ります。それより新しい revision が保存済みなら `checkpoint_moved` で拒否されます。どちらの場合も、その revision のあとにセッションが行った作業は含まれていないことがあります。承認または拒否する人は、固定された `git_commit` を確認し、同じ値を `/approve` か `/reject` のボディに入れます。別のコミットを指す承認は拒否されます。1 つのセッションが持てる開いたリクエストは 1 つだけ(`requested`、`approved`、`pushing`)なので、拒否のあとに改めて要求します。
 
@@ -418,16 +420,11 @@ OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushReque
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{}')
 echo "$push_request" | jq -e --arg branch "agent/$SID" \
-  '.state == "requested" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
+  '.state == "approved" and .resolved_by.kind == "policy" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
 PUSH_ID=$(echo "$push_request" | jq -r .id)
 PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
-
-rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
-echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
-curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
-  | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
+curl -sS "$API/v1/receipts/$(echo "$push_request" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
+  | jq -e '.operation == "resolve_push" and .result.verdict == "allow"'
 
 again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -437,25 +434,27 @@ echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
 curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${APPROVE[@]}" \
   | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
 
-push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" --data '{}')
-PUSH_ID=$(echo "$push_request" | jq -r .id)
-approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
-echo "$approved" | jq -e '.state == "approved"'
-curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" | jq -e '.items[1].state == "rejected"'
-
 for _ in $(seq 1 30); do
   pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" "${AUTH[@]}")
   echo "$pushed" | jq -e '.state == "pushed" or .state == "failed"' >/dev/null && break
   sleep 1
 done
 curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${APPROVE[@]}" \
-  | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
+  | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by}'
 ```
 
-**期待するレスポンス.** リクエストは 201 で、`state: "requested"` と固定された値を返します。判断は 200 で、`approved` か `rejected` と `resolved_by` を返します。リクエスト、判断、拒否された試行のすべてに receipt(`request_push`、`resolve_push`)が残り、拒否の場合はエラーの `error.details.receipt_id` がその receipt を指します。receipt の `result` には、判定(`verdict`)、拒否の理由(`refusal`)、リクエスト id、チェックポイントの revision、コミット、対象ブランチがあり、`actor` が誰が行ったかを示します。承認されたリクエストは `pushing` を経て `pushed` か `failed` になり、`push_receipt_id` が指す `push` receipt には、リモート URL、ref(`refs/heads/agent/<session-id>`)、直前のコミット、承認者、失敗時の `refusal` があります。各理由の意味は [push が拒否される場合](/integrations/github#push가-거절되는-경우)にあります。
+エージェントが **push 前の人の承認**をオンにしていれば、リクエストは `requested` のまま人を待ちます。承認または拒否する人は、そのリクエストの `git_commit` を確かめて次のどちらか一方を送ります(リクエストの判断は一度だけです)。
+
+```sh
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')"
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')"
+```
+
+**期待するレスポンス.** リクエストは 201 で固定された値を返します。push 前の人の承認がオフで追加リポジトリへの push ポリシーが `allow` なら `state: "approved"`、`resolved_by.kind: "policy"` で、すでに判断済みなので再び承認すると 409 `PUSH_REQUEST_RESOLVED` です。人の承認がオンか、ポリシーが `ask` なら `state: "requested"` で人を待ち、人の判断は 200 で `approved` か `rejected` と `resolved_by` を返します。リクエスト、判断、拒否された試行のすべてに receipt(`request_push`、`resolve_push`)が残り、拒否の場合はエラーの `error.details.receipt_id` がその receipt を指します。receipt の `result` には、判定(`verdict`)、拒否の理由(`refusal`)、リクエスト id、チェックポイントの revision、コミット、対象ブランチがあり、`actor` が誰が行ったかを示します。承認されたリクエストは `pushing` を経て `pushed` か `failed` になり、`push_receipt_id` が指す `push` receipt には、リモート URL、ref(`refs/heads/agent/<session-id>`)、直前のコミット、承認者、失敗時の `refusal` があります。ポリシーが `deny` ならリクエストは拒否され、receipt に `repository_not_allowed` が残ります。各理由の意味は [push が拒否される場合](/integrations/github#push가-거절되는-경우)にあります。
 
 **よくあるエラー.** 409 `PUSH_SOURCE_MISSING` は、セッションにリポジトリかチェックポイントがまだありません。409 `PUSH_REQUEST_OPEN` は、開いたリクエストがあります。409 `PUSH_REQUEST_RESOLVED` は、リクエストがすでに判断済みです。409 `CHECKPOINT_MOVED` は、承認ボディの `git_commit` が固定されたコミットと違うか、リクエストのあとにセッションが別のコミットのチェックポイントを残しました。リクエストのあとにチェックポイントがまた現れても、コミットが同じなら承認は通ります。このリクエストを拒否して、改めて要求します。`sessions:approve` のない key で判断すると 403 `FORBIDDEN` になり、receipt が残ります。worker の資格情報(起動ノンスとセッショントークン)は `/v1` で認証されないので、401 になります。
 

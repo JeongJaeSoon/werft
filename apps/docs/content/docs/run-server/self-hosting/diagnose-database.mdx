@@ -84,7 +84,7 @@ chart는 DB를 만들지 않으므로 서버 설정도 바꾸지 않는다. 운�
 
 그다음 플랫폼 DB에서 `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`를 한 번 실행한다. 확장을 만들 권한(RDS는 `rds_superuser`)이 필요하다. migration은 확장을 만들지 않는다. 권한이 없는 설치에서도 migrate가 실패하지 않게 하기 위해서다.
 
-로그는 DB가 남기는 곳(RDS는 CloudWatch Logs의 `postgresql` 로그)에서 `duration:`과 `still waiting`으로 찾는다. kind 확인 환경(`deploy/kind/deps.yaml`)의 Postgres는 이 표의 값으로 뜬다.
+로그는 DB가 남기는 곳(RDS는 CloudWatch Logs의 `postgresql` 로그)에서 `duration:`과 `still waiting`으로 찾는다.
 
 ## 확인
 

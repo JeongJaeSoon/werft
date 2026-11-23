@@ -25,7 +25,7 @@ GitHub와 하는 일은 셋이다. 시작 저장소가 있는 세션은 시작�
 
 ### App의 Setup URL
 
-콘솔에서 만든 App은 Setup URL이 `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`로 채워진다. 이미 있던 App을 연결했다면 GitHub의 App 설정(Developer settings > GitHub Apps > 그 App > General)에서 **Setup URL**을 이 주소에 맞춘다. 조직을 추가하고 나면 GitHub가 브라우저를 이 주소로 돌려보내고, 콘솔은 돌아온 값으로 설치를 기록한다. Setup URL이 옛 `/settings/workspace/github`를 가리키는 App은 새 주소로 바꾼다. 그 경로는 없어졌다. 이미 설치한 계정에서 설치 설정을 저장한 뒤 콘솔로 돌아오는 것은 App의 **Redirect on update**가 켜져 있을 때만이다.
+콘솔에서 만든 App은 Setup URL이 `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`로 채워진다. 이미 있던 App을 연결했다면 GitHub의 App 설정(Developer settings > GitHub Apps > 그 App > General)에서 **Setup URL**을 이 주소에 맞춘다. 조직을 추가하고 나면 GitHub가 브라우저를 이 주소로 돌려보내고, 콘솔은 돌아온 값으로 설치를 기록한다. 이미 설치한 계정에서 설치 설정을 저장한 뒤 콘솔로 돌아오는 것은 App의 **Redirect on update**가 켜져 있을 때만이다.
 
 ### 기본 브랜치 보호
 
@@ -37,7 +37,8 @@ GitHub와 하는 일은 셋이다. 시작 저장소가 있는 세션은 시작�
 
 - `agent/*` 브랜치에 **Block force pushes**만 거는 ruleset을 따로 두면, 플랫폼이 아닌 누군가가 그 브랜치를 되돌리는 일도 막는다.
 - `agent/*` push에 CI가 필요 없으면 workflow의 `on.push.branches-ignore`에 `agent/**`를 넣는다. 바뀌지 않은 workflow에만 효과가 있으므로 `Workflows` 권한을 주지 않는 것과 함께 쓴다.
-- 보호된 브랜치 자동 승인은 브랜치의 ruleset(**Require a pull request before merging**, 승인 리뷰 1개 이상)을 작성용 App으로 읽는다. 옛 branch protection rule은 **Administration: Read-only** 권한이 있는 App만 읽으므로, 그 권한 없이 branch protection만 둔 저장소에서는 자동 승인을 켤 수 없다(`protection_missing`).
+- 스킬의 자동 연동은 GitHub의 브랜치 보호 규칙이나 PR 리뷰를 보지 않는다. 연동 대상이 브랜치이기만 하면 오너나 어드민 한 명이 스킬 상세의 GitHub 동기화 구역에서 켠다(태그와 커밋은 `not_branch`로 거절한다). 켜면 고정 규칙 검사를 통과한 버전은 사람의 승인 없이 승인되어 현재 버전이 된다. 그래서 그 브랜치에 push할 수 있는 사람과 App이 곧 스킬을 바꿀 수 있는 사람이다. 누가 push할 수 있는지는 GitHub의 ruleset으로 정한다. 이전 버전에서 켠 자동 승인은 업그레이드할 때 꺼지므로, 쓰려면 스킬마다 다시 켠다.
+- 자동 연동이 켜져 있으면 버전을 앞 승인 버전과 비교해 고정 규칙으로 검사한다. 승인된 버전이 없으면 모든 파일을 추가된 것으로 본다. scripts·실행 파일 추가, 300줄 넘는 변경, 새 URL 호스트, 보이지 않는 유니코드, 지시처럼 보이는 문장, `description` 변경 중 하나라도 걸리면 그 스킬의 버전만 승인 대기(`checks_failed`)로 남고 사람이 승인한다. 같은 push의 다른 스킬은 그대로 승인된다. 켜는 순간에도 한 번 확인해, 승인 대기로 있던 버전이 규칙을 통과하면 승인한다. 걸린 규칙과 파일은 스킬 상세와 검토 화면에 보인다. 새 URL 호스트는 Markdown 파일은 CommonMark로 렌더링한 결과에서, HTML 파일은 브라우저처럼 파싱한 결과에서 읽는다(모든 속성값의 URL과 본문·주석의 URL, 쓰이지 않은 링크 정의 포함). 그 밖의 파일은 적힌 그대로 읽는다. 256 KiB를 넘거나 렌더링하지 못한 Markdown·HTML 파일은 판정하지 못하므로 새 URL 규칙에 걸린다. 스크립트가 조합하는 URL, base64 같은 인코딩, 줄 끝으로 끊긴 평문 URL은 읽지 못하고, 평문 URL은 공백에서 끝난 것으로 읽는다. 이런 내용은 검사에 걸리지 않고 승인되므로, 자동 연동은 push할 수 있는 사람을 믿는 브랜치에만 켠다.
 
 ### Git 스킬 webhook
 
@@ -94,6 +95,8 @@ clone·push·PR은 API가 App 키로 받은 설치 토큰을 쓴다. 발급이 �
 - API에서 `<ghes-host>:443`으로 나가는 길을 열고, proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에 `<ghes-host>:443`을 더한다.
 
 ## 사용자가 할 일
+
+GitHub를 쓰려면 먼저 관리자가 에이전트의 GitHub 탭에서 저장소를 켠다. 스위치는 켜는 즉시 저장된다. 새 에이전트(release에도 GitHub 설정이 없는 에이전트)는 이 탭에서 처음 저장하기 전에는 세션에 GitHub 도구가 없고, 보통은 저장소를 켜는 것이 첫 저장이다. 저장소를 켜는 것이 첫 저장이면 push 승인 기본값(push 전 사람 승인 꺼짐, 첨부 저장소 push 허용)도 함께 저장되므로, 그 뒤 새로 시작하는 세션부터 에이전트는 사람 승인 없이 push한다. 승인을 받게 하려면 같은 탭의 push 승인 구역에서 바꾸고 저장 막대에서 저장한다.
 
 1. 그 저장소의 `repository_id`로 세션을 만든다([시작](/sessions/start)).
 2. 결과를 [요청](/approvals/request)하고 [승인](/approvals/approve)한다. 요청이 `pushed`가 되면 저장소에 `agent/<session-id>` 브랜치가 생긴다.
@@ -162,7 +165,7 @@ PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit
 
 `get_pull_request`는 이 세션의 push 요청이 연 PR의 제목·본문·상태·head를 읽는다. 플랫폼 꼬리는 빼고, 비밀값 모양의 줄은 `[REDACTED]`로 가린다. 꼬리를 빼고 가린 본문이 64 KiB를 넘으면 앞부분만 주고 `body_truncated: true`와 `body_sha256: null`로 알린다. 본문은 사람이 쓴 글이므로 `untrusted: true`가 붙는다. 함께 오는 `body_sha256`을 `update_pull_request`의 `expected_body_sha256`으로 넘기면, 읽은 뒤 누가 본문을 고쳤을 때 아무것도 쓰지 않고 `body_changed`로 거절한다. 이 값과 함께 보낸 본문이 길어 잘리게 되면 자르지 않고 `body_too_long`으로 거절한다. 잘려 읽힌 본문에는 해시가 없으므로 에이전트가 다시 쓸 수 없다(`body_unverified`). 제목만 고치는 것은 된다. 읽기도 GitHub 사용 스위치와 저장소 범위를 따른다.
 
-워크스페이스가 허용하면 `merge_pull_request`로 그 PR을 squash로 머지한다. 허용하지 않았으면 GitHub를 부르기 전에 `GITHUB_REFUSED`(`merge_off`)로 거절한다. 머지는 push 요청이 푸시한 commit에 고정한다. PR의 head가 그 commit이 아니면 `head_moved`로 거절하고, 필수 check 대기·리뷰 필요·대화 미해결·충돌처럼 GitHub가 지금은 머지하지 않는 PR은 `merge_blocked`로 거절한다. 이 거절의 `details`에는 GitHub가 알려 준 상태(`mergeable_state`, `mergeable`, `draft`)와 어떤 조건이 맞지 않았는지 적은 `reason` 문장이 실린다. `reason`은 상태를 말할 뿐 어느 필수 check나 리뷰인지는 말하지 않는다. 열 때와 다른 base로 옮겨졌거나 base가 다른 열린 PR의 head인 PR(쌓인 PR)도 `merge_blocked`다. GitHub의 비동기 머지는 그 PR이 쌓인 아래 PR까지 함께 머지하기 때문이다. 머지 요청을 GitHub가 받았지만 기다리는 동안 끝나지 않으면 `forge_failed`로 답한다. 머지가 뒤늦게 끝날 수 있으니 PR을 확인하고 다시 부르면 된다. 이미 머지된 PR은 같은 commit이면 `changed: false`로 답하고, 다른 commit이면 `head_moved`로 거절한다. 머지되지 않고 닫힌 PR은 `pull_request_closed`로 거절한다. 관리자 우회, 자동 머지, 다른 머지 방식은 쓰지 않는다. 권한 확인이 없는 모드(`bypassPermissions`)의 세션은 켜져 있으면 지시 없이도 머지할 수 있다. 머지 요청은 규칙 우회를 끄고(`bypass_rules: false`) GitHub의 비동기 머지 API로 보내므로, 작성용 App이 저장소·조직 ruleset의 우회 대상이어도 그 권한으로 필수 check와 리뷰를 건너뛰지 못한다. 그래도 머지용 App은 우회 대상에 넣지 않는 편이 안전하다. 에이전트의 Actions 허용 목록에 PR을 머지하는 워크플로를 넣으면 이 스위치가 그 머지를 막지 못한다.
+워크스페이스가 허용하면 `merge_pull_request`로 그 PR을 squash로 머지한다. 허용하지 않았으면 GitHub를 부르기 전에 `GITHUB_REFUSED`(`merge_off`)로 거절한다. 머지는 push 요청이 푸시한 commit에 고정한다. PR의 head가 그 commit이 아니면 `head_moved`로 거절하고, 필수 check 대기·리뷰 필요·대화 미해결·충돌처럼 GitHub가 지금은 머지하지 않는 PR은 `merge_blocked`로 거절한다. 이 거절의 `details`에는 GitHub가 알려 준 상태(`mergeable_state`, `mergeable`, `draft`)와 어떤 조건이 맞지 않았는지 적은 `reason` 문장이 실린다. `reason`은 상태를 말할 뿐 어느 필수 check나 리뷰인지는 말하지 않는다. 열 때와 다른 base로 옮겨졌거나 base가 다른 열린 PR의 head인 PR(쌓인 PR)도 `merge_blocked`다. GitHub의 비동기 머지는 그 PR이 쌓인 아래 PR까지 함께 머지하기 때문이다. 머지 요청을 GitHub가 받았지만 기다리는 동안 끝나지 않으면 `forge_failed`로 답한다. 머지가 뒤늦게 끝날 수 있으니 PR을 확인하고 다시 부르면 된다. 이미 머지된 PR은 같은 commit이면 `changed: false`로 답하고, 다른 commit이면 `head_moved`로 거절한다. 머지되지 않고 닫힌 PR은 `pull_request_closed`로 거절한다. 관리자 우회, 자동 머지, 다른 머지 방식은 쓰지 않는다. 머지 요청은 규칙 우회를 끄고(`bypass_rules: false`) GitHub의 비동기 머지 API로 보내므로, 작성용 App이 저장소·조직 ruleset의 우회 대상이어도 그 권한으로 필수 check와 리뷰를 건너뛰지 못한다. 그래도 머지용 App은 우회 대상에 넣지 않는 편이 안전하다. 에이전트의 Actions 허용 목록에 PR을 머지하는 워크플로를 넣으면 이 스위치가 그 머지를 막지 못한다.
 
 ## push가 거절되는 경우
 
@@ -183,35 +186,36 @@ PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit
 
 ## push가 끝난 뒤 PR이 열리는 방식
 
-push 요청에 PR 요청이 붙어 있으면, push가 `pushed`로 끝난 뒤에 control-host 안의 action-broker가 PR을 연다. 에이전트가 이어 턴에서 `open_pull_request`를 다시 부르지 않아도 된다. 이 일은 control-host가 뜰 때 같이 시작하고, 다시 띄워도 이미 시작된 PR 단계는 끝까지 처리된다. REST로는 push가 끝나기 전에 `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true`를 부르면 409 `PUSH_NOT_PUSHED` 대신 202와 `status: "scheduled"`를 받고, push가 끝나는 대로 PR이 열린다. `schedule` query가 없거나, 예전 흐름(`flow = legacy`)으로 만든 push 요청이면 전과 같이 409다.
+push 요청에 PR 요청이 붙어 있으면, push가 `pushed`로 끝난 뒤에 control-host가 PR을 연다. 에이전트가 이어 턴에서 `open_pull_request`를 다시 부르지 않아도 된다. control-host를 다시 띄워도 이미 시작된 PR 단계는 끝까지 처리된다. REST로는 push가 끝나기 전에 `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true`를 부르면 409 `PUSH_NOT_PUSHED` 대신 202와 `status: "scheduled"`를 받고, push가 끝나는 대로 PR이 열린다. `schedule` query가 없거나 `flow = legacy`로 만든 push 요청이면 409다.
 
 PR 단계는 push 요청마다 하나이고, 상태가 아래처럼 바뀐다.
 
 | 상태 | 뜻 |
 | --- | --- |
 | `due` | push가 끝나 PR을 열 차례다. 열기에 실패하면 간격을 두고 다시 시도한다(최대 3번) |
-| `opening` | action-broker 한 곳이 PR을 열고 있다. 그 처리가 멈추면 다른 replica가 이어받는다 |
+| `opening` | control-host 한 곳이 PR을 열고 있다. 그 처리가 멈추면 다른 replica가 이어받는다 |
 | `opened` | PR이 열렸고 기록됐다. 번호와 링크는 PR 행에 있다 |
 | `closed_unrecorded` | 이 push 요청의 PR이 기록되기 전에 닫히거나 머지됐다. 새 PR을 만들지 않는다 |
 | `uncertain` | GitHub에 PR이 있는지 확인하지 못했다(조회가 세 번 실패했거나, 첫 조회가 한도인 10건을 가득 채워 다음 쪽에 더 있을 수 있다). 또는 맞는 PR이 둘 이상이다. 플랫폼이 고르지 않는다 |
 | `failed` | PR을 열지 못했다. 사유가 `pr_error`에 남는다 |
 | `cancelled` | push가 실패해서 열 PR이 없다. 사유가 `pr_error`에 남는다 |
 
-열기 전에 플랫폼은 브랜치를 모든 상태(열림·닫힘·머지됨)로 먼저 찾는다. 응답을 잃은 뒤 다시 시도해도 PR이 하나 더 생기지 않는 이유다. 이미 열린 PR이 있으면 그 PR을 쓰고 꼬리만 새 commit으로 바꾼다. 찾은 PR이나 새로 만든 PR의 head가 push한 commit과 다르면 기록하지 않고 `head_moved`로 끝낸다. 다만 GitHub가 push 직후 잠깐 이전 head를 보여 주는 경우가 있어, 그 head가 push한 commit의 조상이면 끝내지 않고 다음 시도까지 기다린다(마지막 시도 전까지, 비교 요청 1회). 조상이 아니거나 비교가 실패하면 바로 끝낸다. 만들어진 PR은 닫지 않으니 사람이 확인한다. PR 본문의 표시는 누구나 쓸 수 있으므로, 같은 저장소·head·base인 PR만 후보로 본다.
+열기 전에 플랫폼은 브랜치를 모든 상태(열림·닫힘·머지됨)로 먼저 찾는다. 응답을 잃은 뒤 다시 시도해도 PR이 하나 더 생기지 않는 이유다. 이미 열린 PR이 있으면 그 PR을 쓰고 꼬리만 새 commit으로 바꾼다. 찾은 PR이나 새로 만든 PR의 head가 push한 commit과 다르면 기록하지 않고 `head_moved`로 끝낸다. 다만 GitHub가 push 직후 잠깐 이전 head를 보여 주는 경우가 있어, 그 head가 push한 commit의 조상이면 끝내지 않고 다음 시도까지 기다린다. 조상이 아니거나 비교가 실패하면 바로 끝낸다. 만들어진 PR은 닫지 않으니 사람이 확인한다. PR 본문의 표시는 누구나 쓸 수 있으므로, 같은 저장소·head·base인 PR만 후보로 본다.
 
-결과는 세션 스레드에 알림으로 온다(PR 열림, 열지 못함, 이미 닫힘, 확인하지 못함). 알림 문구는 세션을 시작한 사람의 언어를 따르고(요청한 사람이 아니다), 결과마다 한 번만 만들어진다. 알림은 세션에 Slack 스레드가 이어져 있고 음소거·권한 제한이 없을 때만 만들어진다. 그렇지 않으면 상태만 바뀌고 알림 행은 생기지 않는다. 알림이 만들어지는 경우에는 상태를 바꾸는 트랜잭션에 함께 기록되므로 상태만 바뀌고 알림이 빠지는 일은 없다.
+결과는 세션 스레드에 알림으로 온다(PR 열림, 열지 못함, 이미 닫힘, 확인하지 못함). 알림 문구는 세션을 시작한 사람의 언어를 따르고(요청한 사람이 아니다), 결과마다 한 번만 만들어진다. 알림은 세션에 Slack 스레드가 이어져 있고 음소거·권한 제한이 없을 때만 만들어진다. 그렇지 않으면 상태만 바뀌고 알림은 오지 않는다.
 
 알려진 한계가 있다. 프로세스가 호출 직전에 오래 멈췄다가 깨어나 이미 보낸 요청이 늦게 도착하면, 같은 브랜치에 PR이 하나 더 생길 수 있고 플랫폼은 PR을 연 뒤에 이를 다시 찾지 않는다. GitHub에는 조건부 생성이 없어서, 플랫폼은 호출 직전에 다시 확인하고 열기 전에 브랜치를 찾아보는 것까지만 한다. 열 때 맞는 PR이 둘 이상이면 새로 만들지 않고 `uncertain`으로 두며 알린다. 자동으로 닫지 않으니 GitHub에서 사람이 고른다.
 
 ## 세션 도중 저장소 붙이기
 
-GitHub 설정이 있는 에이전트의 세션은 저장소 없이 시작한다(설정이 없는 옛 에이전트는 release의 저장소로 시작한다). 에이전트는 작업이 읽거나 바꾸는 저장소만, 일하는 도중에 내장 MCP 도구 `attach_repository({ repository_id })`로 붙인다. 붙일 수 있는 것은 에이전트 release의 GitHub 설정(`github.repositories`)에 있고 워크스페이스 상한이 허용하는 저장소뿐이다. 사람 승인은 받지 않는다. 그 저장소에 쓰는 일은 지금처럼 push 요청 승인을 거치고, 부착 저장소의 push는 push 승인을 끄고 첨부 저장소 push 정책도 `allow`로 둔 에이전트만 사람 승인 없이 간다(모든 저장소에 같은 규칙). 붙일 수 있는 저장소는 에이전트가 `list_repositories`로 본다(붙인 것 `attached`, 받아 오는 중이거나 실패한 것 `pending`·`failed`, 아직 붙이지 않은 것 `not_attached`. 세션을 만들 때 `repository_id`로 지정한 저장소는 `attached`로 나온다). 세션은 시작할 때의 release를 계속 쓴다. 그래서 그 뒤 활성 release에만 더한 저장소는 `allowed_in_newer_release`로 따로 보이고, `attach_repository`도 `repository_not_allowed` 대신 `allowed_in_newer_release`로 거절한다. 다시 허용할 필요는 없고, 새 세션(Slack에서는 새 스레드)에서 붙일 수 있다. 에이전트 설정으로 도는 세션(붙인 저장소 목록을 가진 세션)은 다르다. 시작한 뒤에 에이전트가 목록에 켠 저장소를 바로 붙일 수 있고, 목록에서 빼거나 GitHub를 끄면 붙였던 저장소(세션을 만들 때 지정한 저장소 포함)가 `revoked`로 보이며, 플랫폼이 에이전트의 그 저장소 GitHub 작업과 다른 저장소의 새 attach를 거절한다. 세션을 만들 때 지정한 저장소에 대한 attach는 아무것도 하지 않고 이미 붙은 것으로 답하고, 플랫폼이 기록된 PR을 읽는 일은 계속된다. 작업 공간의 사본은 지우지 않고, 다시 켜면 그대로 쓴다.
+GitHub 설정이 있는 에이전트의 세션은 저장소 없이 시작한다(GitHub 설정이 없는 에이전트는 release의 저장소로 시작한다). 에이전트는 작업이 읽거나 바꾸는 저장소만, 일하는 도중에 내장 MCP 도구 `attach_repository({ repository_id })`로 붙인다. 붙일 수 있는 것은 에이전트 release의 GitHub 설정(`github.repositories`)에 있고 워크스페이스 상한이 허용하는 저장소뿐이다. 사람 승인은 받지 않는다. 그 저장소에 쓰는 일은 push 요청 승인을 거치고, 부착 저장소의 push는 push 승인을 끄고 첨부 저장소 push 정책도 `allow`로 둔 에이전트만 사람 승인 없이 간다(모든 저장소에 같은 규칙). 붙일 수 있는 저장소는 에이전트가 `list_repositories`로 본다(붙인 것 `attached`, 받아 오는 중이거나 실패한 것 `pending`·`failed`, 아직 붙이지 않은 것 `not_attached`. 세션을 만들 때 `repository_id`로 지정한 저장소는 `attached`로 나온다). 세션은 시작할 때의 release를 계속 쓴다. 그래서 그 뒤 활성 release에만 더한 저장소는 `allowed_in_newer_release`로 따로 보이고, `attach_repository`도 `repository_not_allowed` 대신 `allowed_in_newer_release`로 거절한다. 다시 허용할 필요는 없고, 새 세션(Slack에서는 새 스레드)에서 붙일 수 있다. 에이전트 설정으로 도는 세션(붙인 저장소 목록을 가진 세션)은 다르다. 시작한 뒤에 에이전트가 목록에 켠 저장소를 바로 붙일 수 있고, 목록에서 빼거나 GitHub를 끄면 붙였던 저장소(세션을 만들 때 지정한 저장소 포함)가 `revoked`로 보이며, 플랫폼이 에이전트의 그 저장소 GitHub 작업과 다른 저장소의 새 attach를 거절한다. 세션을 만들 때 지정한 저장소에 대한 attach는 아무것도 하지 않고 이미 붙은 것으로 답하고, 플랫폼이 기록된 PR을 읽는 일은 계속된다. 작업 공간의 사본은 지우지 않고, 다시 켜면 그대로 쓴다.
 
 세션을 만들 때 `attached_repository_ids`를 보내지 않으면 붙인 저장소 없이 시작한다(`repository_id`를 보낸 세션은 그 저장소만 있다). 처음부터 필요한 저장소는 그 목록에 넣고, 나머지는 에이전트가 필요할 때 붙인다. push 요청은 저장소 하나를 내보내므로, 저장소가 여럿이면 저장소마다 한 번씩 낸다.
 
 attach가 연결 오류(`upstream connection failed` 답이나 HTTP 502·503)로 실패하면 일시적인 실패이고 저장소에 대해 알려 주는 것이 없다. 같은 인자로 다시 시도해도 안전하다. `repository_not_allowed`는 연결 오류가 아니라 에이전트 설정의 거절이니 다시 시도해도 같다.
 
 - 붙인 저장소는 작업 공간에 이름이 `repository_id`인 git 원격이 되고, 기본 브랜치를 `<repository_id>/<branch>`로 받아 온다. 에이전트는 토큰을 보지 않는다.
+- 붙인 저장소를 고칠 때는 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 브랜치를 만들어 commit한다. `git worktree`는 작업 공간 안이든 밖이든, 묻는 권한 모드라면 사람에게 묻는다. 작업 공간 밖의 worktree나 clone은 checkpoint와 push에 담기지 않는다. 안에 만들고 git이 무시하지 않으면 checkpoint가 중첩 저장소로 보고 거절하고, 그 턴의 push는 `turn_ended_without_checkpoint`로 취소된다.
 - 같은 저장소를 다시 붙이면 아무것도 바꾸지 않고 성공한다. 받아 오는 중이면 `pending`과 `final: false`를 바로 돌려준다. `wait_seconds`(0~7초, 기본 0)를 주면 받아 오기가 끝나거나 그 시간이 지날 때까지 기다렸다 답하고, 끝났으면 `final: true`다.
 - 받아 오기에는 시간 상한 300초와 크기 상한 2 GiB가 있다. 넘으면 부착이 실패로 끝나고 `failure`에 이유(`fetch_timeout`, `fetch_too_large`)가 남는다.
 - 부착마다 `attach_repository` [receipt](/approvals/receipt)가 남는다. 요청한 사람·attempt, 저장소, release, 받아 온 commit, 거절 사유(`repository_not_allowed`·`allowed_in_newer_release`)가 들어간다.

@@ -428,6 +428,7 @@ jobs:
               - tests/e2e/fetch-retry.
               - tests/e2e/local-model.
               - tests/e2e/real-model.
+              - tests/execution-backend-env.
               - tests/fetch-pinned.
               - tests/forbidden-terms.
               - tests/soak/

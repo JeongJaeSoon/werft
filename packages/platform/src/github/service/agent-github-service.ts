@@ -38,7 +38,7 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
-import { viewerOf } from "../../sessions/index.ts";
+import { viewerFor } from "../../sessions/index.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type {
   GitHubAppStore,
@@ -287,9 +287,8 @@ export function createAgentGitHubService(deps: {
         github === null
           ? {
               repositories: [],
-              // What a first save starts from (owner decision d123,
-              // 2026-11-02). Until then the release still asks a person:
-              // only an explicit false turns approval off.
+              // What a first save starts from and what applies until then
+              // (owner decision d123, 2026-11-02; Orchestrator item 147).
               push_approval: false,
               features: { ...GITHUB_FEATURES_NONE },
               actions_allow: [],
@@ -367,11 +366,9 @@ export function createAgentGitHubService(deps: {
         settings_revision: agentRow?.revision ?? null,
         selected_repositories: selected,
         start_repository_id: agentRow?.startRepositoryId ?? null,
-        // No row: what a first save writes. A row: its value, `ask` for one
-        // from before the column. A value this image cannot read shows as
-        // `deny`, as the gate would treat it.
-        push_attached:
-          agentRow === null ? "allow" : pushAttachedOf(agentRow.pushAttached),
+        // No row, or one from before the column: `allow`. A value this image
+        // cannot read shows as `deny`, as the gate would treat it.
+        push_attached: pushAttachedOf(agentRow?.pushAttached),
         legacy_defaults: legacyDefaults,
         options: {
           repositories,
@@ -693,7 +690,7 @@ export function createAgentGitHubService(deps: {
       const receipts = await store.activity(
         caller.ownerId,
         agentId,
-        viewerOf(caller),
+        await viewerFor(authorization, caller),
         AGENT_GITHUB_ACTIVITY_LIMIT,
       );
       // New receipts carry `owner/repo`; the older ones only a catalog id,

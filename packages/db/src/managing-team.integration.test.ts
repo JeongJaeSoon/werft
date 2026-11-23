@@ -18,7 +18,6 @@ import {
   createSurfaceBindingService,
   type SessionCatalog,
   SessionServiceError,
-  type TeamActor,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -46,6 +45,7 @@ import { agents, receipts } from "./schema.ts";
 import { lockSessionReach } from "./sessions/requester-locks.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { migrationsThrough } from "./testing/migrations-through.ts";
+import { acting, idOf, joinTeam, newTeam, person } from "./testing/people.ts";
 import {
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,
@@ -335,59 +335,6 @@ integration("the managing team on PostgreSQL", () => {
       credentials: createPostgresCredentialBindingStore(db),
     });
 
-  async function person(workspaceId: string, role: WorkspaceRole) {
-    const userId = randomUUID();
-    await db.insert(schema.users).values({
-      id: userId,
-      email: `${userId}@example.invalid`,
-      passwordHash: "argon2id$placeholder",
-      displayName: role,
-    });
-    await db.insert(schema.memberships).values({ workspaceId, userId, role });
-    return callerFor(
-      {
-        kind: "user",
-        id: userId,
-        workspace_id: workspaceId,
-        role,
-        scopes: [...scopesForRole(role)],
-      },
-      { kind: "web" },
-      randomUUID(),
-    );
-  }
-
-  const idOf = (caller: Caller) => caller.actor?.userId ?? "";
-  const acting = (caller: Caller): TeamActor => ({
-    principal: caller,
-    workspaceId: caller.ownerId,
-    userId: idOf(caller),
-  });
-
-  async function newTeam(by: Caller) {
-    const result = await teams().create({
-      actor: acting(by),
-      receiptId: randomUUID(),
-      teamId: randomUUID(),
-      name: `team-${randomUUID()}`,
-    });
-    if (result.outcome !== "created") throw new Error(result.outcome);
-    return result.team.id;
-  }
-
-  async function join(by: Caller, teamId: string, who: Caller, role?: "lead") {
-    const write = { actor: acting(by), teamId, userId: idOf(who) };
-    await teams().addMember({ ...write, receiptId: randomUUID() });
-    if (role) {
-      const set = await teams().setMemberRole({
-        ...write,
-        receiptId: randomUUID(),
-        role,
-      });
-      if (set.outcome !== "changed") throw new Error(set.outcome);
-    }
-  }
-
   const setRole = (
     by: Caller,
     teamId: string,
@@ -421,13 +368,13 @@ integration("the managing team on PostgreSQL", () => {
       slug: `ws-${workspaceId.slice(0, 8)}`,
       name: "ws",
     });
-    const owner = await person(workspaceId, "owner");
-    const lead = await person(workspaceId, "member");
-    const member = await person(workspaceId, "member");
-    const outsider = await person(workspaceId, "member");
-    const teamId = await newTeam(owner);
-    await join(owner, teamId, lead, "lead");
-    await join(owner, teamId, member);
+    const owner = await person(db, workspaceId, "owner");
+    const lead = await person(db, workspaceId, "member");
+    const member = await person(db, workspaceId, "member");
+    const outsider = await person(db, workspaceId, "member");
+    const teamId = await newTeam(db, owner);
+    await joinTeam(db, owner, teamId, lead, "lead");
+    await joinTeam(db, owner, teamId, member);
     const created = await service().createAgent(owner, {
       slug: `agent-${randomUUID().slice(0, 8)}`,
       name: "재무 분석가",
@@ -718,7 +665,7 @@ integration("the managing team on PostgreSQL", () => {
     });
     expect(await cards(member)).toEqual([]);
     expect(await byConnection(member)).toBe(0);
-    await join(owner, teamId, member);
+    await joinTeam(db, owner, teamId, member);
     expect(await cards(member)).toEqual([agentId]);
     // So it does with an archived team, or a disabled member.
     await pool.query(
@@ -781,9 +728,9 @@ integration("the managing team on PostgreSQL", () => {
   test("who may name the managing team, at creation and after", async () => {
     const { workspaceId, owner, lead, member, outsider, teamId, agentId } =
       await cast({ published: true });
-    const otherTeam = await newTeam(owner);
-    const outsiderTeam = await newTeam(owner);
-    await join(owner, outsiderTeam, outsider);
+    const otherTeam = await newTeam(db, owner);
+    const outsiderTeam = await newTeam(db, owner);
+    await joinTeam(db, owner, outsiderTeam, outsider);
     const create = (by: Caller, team: string) =>
       codeOf(
         service().createAgent(by, {
@@ -823,8 +770,8 @@ integration("the managing team on PostgreSQL", () => {
       { kind: "web" },
       randomUUID(),
     );
-    const foreignTeam = await newTeam(foreignOwner);
-    await join(foreignOwner, foreignTeam, foreignOwner, "lead");
+    const foreignTeam = await newTeam(db, foreignOwner);
+    await joinTeam(db, foreignOwner, foreignTeam, foreignOwner, "lead");
     expect(await create(member, foreignTeam)).toBe(
       "FORBIDDEN:team_not_allowed",
     );
@@ -925,7 +872,7 @@ integration("the managing team on PostgreSQL", () => {
     });
 
     // Leaving it is one way: coming back is a move into it, and refused.
-    const real = await newTeam(owner);
+    const real = await newTeam(db, owner);
     expect(await name(owner, agentId, real)).toMatchObject({ outcome: "set" });
     expect(await name(owner, agentId, holding)).toMatchObject({
       outcome: "team_holding",
@@ -941,7 +888,7 @@ integration("the managing team on PostgreSQL", () => {
       name: "Unassigned agents",
       holdsUnassigned: true,
     });
-    const ordinary = await newTeam(owner);
+    const ordinary = await newTeam(db, owner);
     const create = (by: Caller, team: string) =>
       codeOf(
         service().createAgent(by, {
@@ -970,7 +917,7 @@ integration("the managing team on PostgreSQL", () => {
     });
     // An archived holding team is as gone as any archived team, on a create
     // and on a move alike.
-    const gone = await newTeam(owner);
+    const gone = await newTeam(db, owner);
     for (const id of [holding, gone]) {
       await db
         .update(schema.memberTeams)
@@ -989,7 +936,7 @@ integration("the managing team on PostgreSQL", () => {
 
   test("a team joins an agent's admins only by a manager, never by its lead (94S-837)", async () => {
     const { workspaceId, owner, member, agentId } = await cast();
-    const direct = await person(workspaceId, "member");
+    const direct = await person(db, workspaceId, "member");
     await admins().add({
       actor: acting(owner),
       receiptId: randomUUID(),
@@ -997,8 +944,8 @@ integration("the managing team on PostgreSQL", () => {
       subject: { kind: "user", id: idOf(direct) },
       managerRoles: MANAGERS,
     });
-    const extra = await newTeam(owner);
-    await join(owner, extra, direct);
+    const extra = await newTeam(db, owner);
+    await joinTeam(db, owner, extra, direct);
     const add = (by: Caller, teamId: string) =>
       admins().add({
         actor: acting(by),
@@ -1012,8 +959,8 @@ integration("the managing team on PostgreSQL", () => {
     await setRole(owner, extra, direct, "lead");
     expect(await add(direct, extra)).toEqual({ outcome: "team_not_allowed" });
     // An owner adds a team, led or not.
-    const plain = await newTeam(owner);
-    await join(owner, plain, member);
+    const plain = await newTeam(db, owner);
+    await joinTeam(db, owner, plain, member);
     expect(await add(owner, extra)).toMatchObject({ outcome: "added" });
     expect(await add(owner, plain)).toMatchObject({ outcome: "added" });
     await setRole(owner, extra, direct, "member");
@@ -1047,7 +994,7 @@ integration("the managing team on PostgreSQL", () => {
     // finds no live team.
     {
       const { owner, agentId } = await cast();
-      const target = await newTeam(owner);
+      const target = await newTeam(db, owner);
       const deleter = await pool.connect();
       try {
         await deleter.query("BEGIN");
@@ -1073,7 +1020,7 @@ integration("the managing team on PostgreSQL", () => {
     // waits on the team row, then sees the agent it manages.
     {
       const { owner, agentId } = await cast();
-      const target = await newTeam(owner);
+      const target = await newTeam(db, owner);
       const namer = await pool.connect();
       try {
         await namer.query("BEGIN");
@@ -1279,7 +1226,7 @@ integration("the managing team on PostgreSQL", () => {
       ];
       for (const [what, write] of writes) {
         const s = await cast();
-        const other = await newTeam(s.owner);
+        const other = await newTeam(db, s.owner);
         expect(
           `${label}:${what}:${await raced(change(s, other), () => write(s))}`,
         ).toBe(
@@ -1292,7 +1239,7 @@ integration("the managing team on PostgreSQL", () => {
   test("activation by the lead loses to a managing-team move or a demotion that committed while it waited", async () => {
     for (const label of ["move", "demote"] as const) {
       const s = await cast();
-      const other = await newTeam(s.owner);
+      const other = await newTeam(db, s.owner);
       const version = s.created.versions[0];
       if (!version) throw new Error("no version");
       const { release } = await service().createRelease(s.owner, s.agentId, {

@@ -1,83 +1,26 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as platform from "@werft-ai/platform";
 import {
   parseSettingsDocument,
   type SettingsDocumentStore,
-  type SettingsEntries,
   type SettingsImportResult,
   type SettingsSeedDecision,
   type SettingsSeedResult,
   type SettingsSeedStep,
 } from "@werft-ai/platform";
 import {
-  documentFromDir,
   inputRefusal,
   parseSettingsCommand,
   runSettingsCommand,
 } from "./settings.ts";
 
-const OLD_CATALOG = {
-  "connections.yaml": `connections:
-  fake-messages:
-    kind: anthropic
-    endpoint: http://fake-messages:4010
-    auth:
-      kind: api_key
-      stored: connection:fake-messages
-`,
-  "repositories.yaml": `repositories:
-  sample-app:
-    url: http://fake-git:3000/agent/sample-app.git
-    branch: main
-    profiles: [coding]
-    auth:
-      kind: github_app
-      app_id: 1
-      installation_id: 1
-      api_base: http://fake-git:3000
-      stored: repository:sample-app
-  bare:
-    url: http://fake-git:3000/agent/bare.git
-    branch: main
-    auth:
-      kind: github_app
-      app_id: 1
-      installation_id: 1
-      api_base: http://fake-git:3000
-      stored: repository:bare
-`,
-  "profiles.yaml": `profiles:
-  coding:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: http://fake-messages:4010
-      auth:
-        kind: api_key
-        secret_id: werft/local/fake-messages
-`,
-  "platform.yaml": `secret_key:
-  value_env: UNREAD
-`,
-};
-
 let root: string;
-let oldCatalog: string;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "settings-cli-"));
-  oldCatalog = join(root, "catalog");
-  await mkdir(oldCatalog);
-  for (const [name, text] of Object.entries(OLD_CATALOG)) {
-    await writeFile(join(oldCatalog, name), text);
-  }
 });
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
@@ -91,14 +34,22 @@ const PLAN = {
   conflicts: [],
 };
 
-type Stranded = Awaited<
-  ReturnType<SettingsDocumentStore["sessionsOnRepositories"]>
->;
+const DOCUMENT = {
+  version: 1,
+  connections: {},
+  repositories: {
+    open: {
+      url: "https://github.com/a/b.git",
+      branch: "main",
+      auth: { kind: "github_app" },
+    },
+  },
+  // An older export's empty field is still taken.
+  mcp_servers: {},
+};
 
 function fakeStore(
   result: SettingsImportResult,
-  /** The sessions a given list of left-out ids would find. */
-  stranded: (ids: readonly string[]) => Stranded = () => [],
   seed: { decision?: SettingsSeedDecision; result?: SettingsSeedResult } = {},
 ) {
   const asked: Array<Parameters<SettingsDocumentStore["importEntries"]>> = [];
@@ -106,11 +57,7 @@ function fakeStore(
   let decided = 0;
   const store: Pick<
     SettingsDocumentStore,
-    | "exportEntries"
-    | "importEntries"
-    | "sessionsOnRepositories"
-    | "decideSeed"
-    | "seedEntries"
+    "exportEntries" | "importEntries" | "decideSeed" | "seedEntries"
   > = {
     decideSeed: async () => {
       decided++;
@@ -126,7 +73,6 @@ function fakeStore(
         }
       );
     },
-    sessionsOnRepositories: async (ids) => stranded(ids),
     exportEntries: async () => ({
       entries: {
         connections: {
@@ -162,70 +108,41 @@ function captured() {
 }
 
 describe("settings CLI arguments", () => {
-  test("export takes nothing; import takes one source and --dry-run", () => {
+  test("export takes nothing; import takes the document and --dry-run; seed the document", () => {
     expect(parseSettingsCommand(["export"])).toEqual({ command: "export" });
     expect(
       parseSettingsCommand(["import", "--document", "s.json", "--dry-run"]),
-    ).toEqual({
-      command: "import",
-      source: { document: "s.json" },
-      dryRun: true,
-    });
+    ).toEqual({ command: "import", document: "s.json", dryRun: true });
     expect(
-      parseSettingsCommand(["import", "--from-dir", "/app/config"]),
-    ).toEqual({
-      command: "import",
-      source: { dir: "/app/config", ifPresent: false },
-      dryRun: false,
-    });
-    expect(
-      parseSettingsCommand([
-        "import",
-        "--from-dir",
-        "/legacy-config",
-        "--if-present",
-      ]),
-    ).toMatchObject({
-      source: { dir: "/legacy-config", ifPresent: true },
-    });
+      parseSettingsCommand(["seed", "--document", "/settings/s.json"]),
+    ).toEqual({ command: "seed", document: "/settings/s.json" });
   });
 
-  test("no source, two sources, an unknown command or option is refused", () => {
+  test("no document, an unknown command or option is refused", () => {
     for (const argv of [
       ["import"],
-      ["import", "--document", "a", "--from-dir", "b"],
       ["export", "--dry-run"],
+      ["export", "--document", "a"],
       ["export", "extra"],
       ["apply"],
       ["import", "--document", "a", "--force"],
-      ["import", "--document", "a", "--if-present"],
-      ["export", "--if-present"],
       ["seed"],
       ["seed", "--document", "a", "--dry-run"],
-      ["seed", "--from-dir", "b", "--if-present"],
     ]) {
       expect(() => parseSettingsCommand(argv)).toThrow("Usage:");
     }
   });
 
-  test("seed takes the directory, the document or both", () => {
-    expect(
-      parseSettingsCommand([
-        "seed",
-        "--from-dir",
-        "/legacy-config",
-        "--document",
-        "/settings/s.json",
-      ]),
-    ).toEqual({
-      command: "seed",
-      dir: "/legacy-config",
-      document: "/settings/s.json",
-    });
-    expect(parseSettingsCommand(["seed", "--from-dir", "/l"])).toEqual({
-      command: "seed",
-      dir: "/l",
-    });
+  // The old catalog directory was the only thing they read.
+  test("--from-dir and --if-present are unknown options now", () => {
+    for (const argv of [
+      ["import", "--from-dir", "/app/config"],
+      ["import", "--from-dir", "/legacy-config", "--if-present"],
+      ["seed", "--from-dir", "/legacy-config"],
+      ["seed", "--from-dir", "/l", "--document", "/settings/s.json"],
+    ]) {
+      expect(() => parseSettingsCommand(argv)).toThrow("Unknown option");
+    }
   });
 
   // Unreachable: a refusal that still connected would hang until the kill.
@@ -277,81 +194,70 @@ describe("settings CLI arguments", () => {
 
   test("the CLI prints a refusal as a message and exits 1, without a stack trace", async () => {
     await expectRefusedAsMessage([
-      [["import"], unreachable, "name one of --document or --from-dir"],
+      [["import"], unreachable, "name --document"],
       [["import", "--document", "a", "--force"], unreachable, "Unknown option"],
       [["export"], undefined, "DATABASE_URL"],
     ]);
     // Three cold spawns, each killed at 10 s: above that sum, not the 5 s default.
   }, 35_000);
 
-  test("only a named input error becomes a message; a fault on the --from-dir path keeps its stack", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "settings-input-"));
-    const repositories = join(dir, "repositories.yaml");
-    try {
-      for (const [text, message] of [
-        [undefined, `${repositories} is missing`],
-        ["a: [b", `${repositories} is not valid YAML`],
-        [
-          "repositories: {}\nextra: {}\n",
-          `${repositories} must hold exactly one top-level key`,
-        ],
-        ["repositories: 3\n", `Catalog config in ${dir} is invalid`],
-      ] as const) {
-        await rm(repositories, { force: true });
-        if (text !== undefined) await writeFile(repositories, text);
-        const refusal = await documentFromDir(dir).then(
-          () => "resolved",
-          inputRefusal,
-        );
-        expect(refusal?.startsWith(message), refusal).toBe(true);
-      }
-      expect(
-        inputRefusal(
-          (() => {
-            try {
-              parseSettingsDocument({ profiles: {} });
-            } catch (error) {
-              return error;
-            }
-          })(),
-        )?.startsWith("The settings document is invalid"),
-      ).toBe(true);
-
-      // A defect past the files: the command rejects with it untouched.
-      const fault = new TypeError("not an input error");
-      const spy = spyOn(platform, "settingsDocumentOf").mockImplementation(
-        () => {
-          throw fault;
+  test("only a named input error becomes a message; a fault past the document keeps its stack", async () => {
+    const missing = join(root, "missing-input.json");
+    const broken = join(root, "broken-input.json");
+    await writeFile(broken, "{ not json");
+    for (const [path, message] of [
+      [missing, `${missing} is missing`],
+      [broken, `${broken} is not valid JSON`],
+    ] as const) {
+      const refusal = await runSettingsCommand(
+        { command: "import", document: path, dryRun: false },
+        {
+          settings: fakeStore({ ...PLAN, outcome: "applied", receipt_ids: [] })
+            .store,
         },
-      );
-      try {
-        const rejected = await runSettingsCommand(
-          {
-            command: "import",
-            source: { dir: oldCatalog, ifPresent: false },
-            dryRun: false,
-          },
-          {
-            settings: fakeStore({
-              ...PLAN,
-              outcome: "applied",
-              receipt_ids: [],
-            }).store,
-          },
-          captured().output,
-        ).then(
-          () => undefined,
-          (error: unknown) => error,
-        );
-        expect(rejected).toBe(fault);
-        expect(inputRefusal(rejected)).toBeUndefined();
-      } finally {
-        spy.mockRestore();
-      }
-      expect(inputRefusal(new Error("connect ECONNREFUSED"))).toBeUndefined();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
+        captured().output,
+      ).then(() => "resolved", inputRefusal);
+      expect(refusal?.startsWith(message), refusal).toBe(true);
     }
+    expect(
+      inputRefusal(
+        (() => {
+          try {
+            parseSettingsDocument({ profiles: {} });
+          } catch (error) {
+            return error;
+          }
+        })(),
+      )?.startsWith("The settings document is invalid"),
+    ).toBe(true);
+
+    // A defect past the file: the command rejects with it untouched.
+    const path = join(root, "fault.json");
+    await writeFile(path, JSON.stringify(DOCUMENT));
+    const fault = new TypeError("not an input error");
+    const spy = spyOn(platform, "parseSettingsDocument").mockImplementation(
+      () => {
+        throw fault;
+      },
+    );
+    try {
+      const rejected = await runSettingsCommand(
+        { command: "import", document: path, dryRun: false },
+        {
+          settings: fakeStore({ ...PLAN, outcome: "applied", receipt_ids: [] })
+            .store,
+        },
+        captured().output,
+      ).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(rejected).toBe(fault);
+      expect(inputRefusal(rejected)).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(inputRefusal(new Error("connect ECONNREFUSED"))).toBeUndefined();
   });
 
   test("an import file that is missing, malformed or invalid ends as a message, not a stack trace", async () => {
@@ -359,8 +265,6 @@ describe("settings CLI arguments", () => {
     try {
       await writeFile(join(inputs, "broken.json"), "{ not json");
       await writeFile(join(inputs, "profiles.json"), '{ "profiles": {} }');
-      await mkdir(join(inputs, "catalog"));
-      await writeFile(join(inputs, "catalog", "repositories.yaml"), "a: [b");
       const missing = join(inputs, "missing.json");
       await expectRefusedAsMessage([
         [
@@ -378,24 +282,18 @@ describe("settings CLI arguments", () => {
           unreachable,
           "The settings document is invalid",
         ],
-        [
-          ["import", "--from-dir", join(inputs, "catalog")],
-          unreachable,
-          `${join(inputs, "catalog", "repositories.yaml")} is not valid YAML`,
-        ],
       ]);
     } finally {
       await rm(inputs, { recursive: true, force: true });
     }
-    // Four cold spawns, each killed at 10 s: above that sum, not the 5 s default.
-  }, 45_000);
+    // Three cold spawns, each killed at 10 s: above that sum, not the 5 s default.
+  }, 35_000);
 });
 
 describe("settings seed", () => {
-  const seedCommand = (document?: string, dir?: string) => ({
+  const seedCommand = (document: string) => ({
     command: "seed" as const,
-    ...(dir === undefined ? {} : { dir }),
-    ...(document === undefined ? {} : { document }),
+    document,
   });
   const appliedImport = {
     ...PLAN,
@@ -412,108 +310,54 @@ describe("settings seed", () => {
   ] as const)(
     "once decided (%o) it reads no file and imports nothing",
     async (decision, why) => {
-      const fake = fakeStore(appliedImport, () => [], { decision });
+      const fake = fakeStore(appliedImport, { decision });
       const { output, err, out } = captured();
-      // Neither can be read: nothing is touched once the seed is decided.
+      // It cannot be read: nothing is touched once the seed is decided.
       const document = join(root, "no-such-document.json");
-      const notADirectory = join(root, "not-a-directory");
-      await writeFile(notADirectory, "");
       expect(
         await runSettingsCommand(
-          seedCommand(document, notADirectory),
+          seedCommand(document),
           { settings: fake.store },
           output,
         ),
       ).toBe(true);
+      expect(fake.decisions()).toBe(1);
       expect(fake.seeded).toEqual([]);
       expect(out).toEqual([]);
       expect(err).toEqual([
-        `note: ${notADirectory} and the settings document ${document} (SETTINGS_DOCUMENT) not imported: ${why}. They seed an empty installation only; change settings in the console`,
+        `note: the settings document ${document} (SETTINGS_DOCUMENT) not imported: ${why}. It seeds an empty installation only; change settings in the console`,
       ]);
     },
   );
 
-  test("an empty installation is seeded from the directory, then the document, in one call", async () => {
+  test("an empty installation is seeded from the document in one step", async () => {
     const path = join(root, "seed.json");
-    await writeFile(
-      path,
-      JSON.stringify({
-        version: 1,
-        connections: {},
-        repositories: {
-          open: {
-            url: "https://github.com/a/b.git",
-            branch: "main",
-            auth: { kind: "github_app" },
-          },
-        },
-        // An older export's empty field is still taken.
-        mcp_servers: {},
-      }),
-    );
+    await writeFile(path, JSON.stringify(DOCUMENT));
     const fake = fakeStore(appliedImport);
     const { output, err } = captured();
     expect(
       await runSettingsCommand(
-        seedCommand(path, oldCatalog),
+        seedCommand(path),
         { settings: fake.store },
         output,
       ),
     ).toBe(true);
     expect(fake.seeded).toHaveLength(1);
-    const [fromDir, fromDocument] = fake.seeded[0] ?? [];
-    expect(fromDir?.databaseOwnsRepositories).toBe(true);
-    expect(Object.keys(fromDir?.entries.connections ?? {})).toEqual([
-      "fake-messages",
-    ]);
-    expect(fromDocument?.databaseOwnsRepositories).toBe(false);
-    expect(Object.keys(fromDocument?.entries.repositories ?? {})).toEqual([
-      "open",
-    ]);
+    const steps = fake.seeded[0] ?? [];
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toEqual({ entries: parseSettingsDocument(DOCUMENT) });
     expect(err.at(-1)).toBe(
-      `seeded from ${oldCatalog} and the settings document ${path} (SETTINGS_DOCUMENT); from here on settings are changed in the console`,
+      `seeded from the settings document ${path} (SETTINGS_DOCUMENT); from here on settings are changed in the console`,
     );
   });
 
-  test("an empty installation with a missing directory and no document is nothing to seed", async () => {
-    const fake = fakeStore(appliedImport);
-    const { output, err } = captured();
-    expect(
-      await runSettingsCommand(
-        seedCommand(undefined, join(root, "absent")),
-        { settings: fake.store },
-        output,
-      ),
-    ).toBe(true);
-    expect(err).toEqual(["nothing to seed"]);
-    expect(fake.seeded).toEqual([]);
-  });
-
-  // Asking is what records the marker on an installation that holds settings.
-  test("an installation that holds settings is decided even with no input", async () => {
-    const fake = fakeStore(appliedImport, () => [], {
-      decision: { outcome: "not_empty" },
-    });
-    const { output, err } = captured();
-    const absent = join(root, "absent");
-    expect(
-      await runSettingsCommand(
-        seedCommand(undefined, absent),
-        { settings: fake.store },
-        output,
-      ),
-    ).toBe(true);
-    expect(fake.decisions()).toBe(1);
-    expect(err).toEqual([
-      `note: ${absent} not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`,
-    ]);
-  });
-
-  test("a refused step exits non-zero and names its source and conflicts", async () => {
-    const fake = fakeStore(appliedImport, () => [], {
+  test("a refused seed exits non-zero and names the conflicts", async () => {
+    const path = join(root, "seed-refused.json");
+    await writeFile(path, JSON.stringify(DOCUMENT));
+    const fake = fakeStore(appliedImport, {
       result: {
         ...PLAN,
-        conflicts: ["connection:fake-messages"],
+        conflicts: ["repository:open"],
         outcome: "refused",
         step: 0,
       },
@@ -521,24 +365,26 @@ describe("settings seed", () => {
     const { output, err } = captured();
     expect(
       await runSettingsCommand(
-        seedCommand(undefined, oldCatalog),
+        seedCommand(path),
         { settings: fake.store },
         output,
       ),
     ).toBe(false);
     expect(err.at(-1)).toBe(
-      `refused: nothing changed (${oldCatalog} conflicts: connection:fake-messages)`,
+      "refused: nothing changed (the settings document conflicts: repository:open)",
     );
   });
 
   test("another migrate that decided first while this one read is a note, not a failure", async () => {
-    const fake = fakeStore(appliedImport, () => [], {
+    const path = join(root, "seed-raced.json");
+    await writeFile(path, JSON.stringify(DOCUMENT));
+    const fake = fakeStore(appliedImport, {
       result: { outcome: "not_empty" },
     });
     const { output, err } = captured();
     expect(
       await runSettingsCommand(
-        seedCommand(undefined, oldCatalog),
+        seedCommand(path),
         { settings: fake.store },
         output,
       ),
@@ -549,186 +395,28 @@ describe("settings seed", () => {
 });
 
 describe("settings CLI", () => {
-  test("--from-dir turns the old files into the document, the fake-messages connection included, and says what it leaves out", async () => {
-    const { document, notes } = await documentFromDir(oldCatalog);
-    const entries = parseSettingsDocument(document);
-    expect(Object.keys(entries.connections)).toEqual(["fake-messages"]);
-    expect(entries.connections["fake-messages"]).toMatchObject({
-      kind: "anthropic",
-      endpoint: "http://fake-messages:4010",
-    });
-    expect(Object.keys(entries.repositories).sort()).toEqual([
-      "bare",
-      "sample-app",
-    ]);
-    expect(document).not.toHaveProperty("mcp_servers");
-    expect(notes).toEqual([
-      "platform.yaml is not imported: set the master key in PLATFORM_SECRET_KEY",
-      "profiles.yaml is not imported: profiles are removed; list each connection's models in the console or under connections.<id>.models",
-    ]);
-    expect(document).not.toHaveProperty("profiles");
-    expect(entries.repositories["sample-app"]).not.toHaveProperty("profiles");
-  });
-
-  test("--from-dir refuses an entry that names an env or Secrets Manager reference, naming the field", async () => {
-    for (const [file, from, to, field] of [
-      [
-        "connections.yaml",
-        "stored: connection:fake-messages",
-        "value_env: FAKE_KEY",
-        "value_env",
-      ],
-    ] as const) {
-      const dir = join(root, `external-${file}`);
-      await mkdir(dir, { recursive: true });
-      for (const [name, text] of Object.entries(OLD_CATALOG)) {
-        await writeFile(
-          join(dir, name),
-          name === file ? text.replace(from, to) : text,
-        );
-      }
-      const refused = await documentFromDir(dir).then(
-        () => "",
-        (error: Error) => error.message,
-      );
-      expect(refused).toContain(`.auth.${field} is no longer supported`);
-    }
-  });
-
-  test("--from-dir refuses a directory whose mcp-servers.yaml names a server, naming only the server", async () => {
-    const dir = join(root, "catalog-mcp");
-    await mkdir(dir, { recursive: true });
-    for (const [name, text] of Object.entries(OLD_CATALOG)) {
-      await writeFile(join(dir, name), text);
-    }
-    await writeFile(
-      join(dir, "mcp-servers.yaml"),
-      `mcp_servers:
-  fake:
-    url: http://fake-mcp:4020/mcp
-    credential_ref: mcp/fake
-    auth:
-      kind: bearer
-      stored: mcp:fake
-    workspaces: [verify]
-`,
-    );
-    const refused = await documentFromDir(dir).then(
-      () => "",
-      (error: Error) => error.message,
-    );
-    expect(refused).toBe(
-      "The settings document is invalid: mcp_servers (fake): 설치 카탈로그 MCP는 없어졌다. 워크스페이스 MCP 서버로 등록해 고른다",
-    );
-    expect(refused).not.toContain("fake-mcp");
-  });
-
-  test("import --from-dir hands the operator's import every entry", async () => {
+  test("import hands the operator's import the document's entries, with no rule of its own", async () => {
+    const path = join(root, "import.json");
+    await writeFile(path, JSON.stringify(DOCUMENT));
     const { store, asked } = fakeStore({
       ...PLAN,
       outcome: "applied",
       receipt_ids: [],
     });
-    const { output, out, err } = captured();
-    const ok = await runSettingsCommand(
-      {
-        command: "import",
-        source: { dir: oldCatalog, ifPresent: false },
-        dryRun: false,
-      },
-      { settings: store },
-      output,
-    );
-    expect(ok).toBe(true);
-    const [entries, options] = asked[0] ?? [];
-    expect(Object.keys((entries as SettingsEntries).connections)).toEqual([
-      "fake-messages",
-    ]);
-    expect(options).toEqual({
-      dryRun: false,
-      databaseOwnsRepositories: true,
-      actor: null,
-    });
-    expect(err.some((line) => line.includes("platform.yaml"))).toBe(true);
-    expect(err.some((line) => line.includes("profiles.yaml"))).toBe(true);
-    expect(JSON.parse(out.join("\n"))).not.toHaveProperty("profiles");
-  });
-
-  test("a kept repository is named on stderr, and a document import keeps none", async () => {
-    const { store, asked } = fakeStore({
-      ...PLAN,
-      kept: ["repository:app"],
-      outcome: "applied",
-      receipt_ids: [],
-    });
-    const { output, err } = captured();
-    await runSettingsCommand(
-      {
-        command: "import",
-        source: { dir: oldCatalog, ifPresent: false },
-        dryRun: true,
-      },
-      { settings: store },
-      output,
-    );
-    expect(err).toContain(
-      "note: repository:app from the file is not applied; the database keeps its row",
-    );
-    expect(asked[0]?.[1]).toHaveProperty("databaseOwnsRepositories", true);
-  });
-
-  test("a repository without a GitHub App is left out with a note, in a directory and in a document, and the rest imports", async () => {
-    const legacy = `  old-url:
-    url: https://git.example.invalid/team/old.git
-    branch: main
-  old-basic:
-    url: https://git.example.invalid/team/basic.git
-    branch: main
-    auth:
-      kind: basic
-      username: bot
-      value_env: OLD_TOKEN
-  old-bearer:
-    url: https://git.example.invalid/team/bearer.git
-    branch: main
-    auth:
-      kind: bearer
-      value_env: OLD_TOKEN
-`;
-    const dir = join(root, "with-legacy");
-    await mkdir(dir, { recursive: true });
-    for (const [name, text] of Object.entries(OLD_CATALOG)) {
-      await writeFile(
-        join(dir, name),
-        name === "repositories.yaml" ? `${text}${legacy}` : text,
-      );
-    }
-    const { document, notes } = await documentFromDir(dir);
-    expect(
-      Object.keys(parseSettingsDocument(document).repositories).sort(),
-    ).toEqual(["bare", "sample-app"]);
-    expect(notes.filter((note) => note.startsWith("repository "))).toHaveLength(
-      3,
-    );
-    expect(notes.join("\n")).toContain("repository old-basic is not imported");
-
-    const planned = { ...PLAN, outcome: "applied" as const, receipt_ids: [] };
-    const { store, asked } = fakeStore(planned);
-    const fromDir = captured();
     expect(
       await runSettingsCommand(
-        { command: "import", source: { dir, ifPresent: false }, dryRun: false },
+        { command: "import", document: path, dryRun: false },
         { settings: store },
-        fromDir.output,
+        captured().output,
       ),
     ).toBe(true);
-    expect(
-      Object.keys((asked[0]?.[0] as SettingsEntries).repositories).sort(),
-    ).toEqual(["bare", "sample-app"]);
-    expect(fromDir.err.filter((line) => line.includes("old-url"))).toHaveLength(
-      1,
-    );
+    const [entries, options] = asked[0] ?? [];
+    expect(entries).toEqual(parseSettingsDocument(DOCUMENT));
+    expect(options).toEqual({ dryRun: false, actor: null });
+  });
 
+  // It used to be left out with a note and the rest imported.
+  test("a repository without a GitHub App refuses the whole document, and nothing is imported", async () => {
     const file = join(root, "legacy-document.json");
     await writeFile(
       file,
@@ -747,79 +435,19 @@ describe("settings CLI", () => {
         },
       }),
     );
-    const fromDocument = captured();
-    expect(
-      await runSettingsCommand(
-        { command: "import", source: { document: file }, dryRun: false },
-        { settings: store },
-        fromDocument.output,
-      ),
-    ).toBe(true);
-    expect(
-      Object.keys((asked[1]?.[0] as SettingsEntries).repositories),
-    ).toEqual(["kept"]);
-    expect(fromDocument.err.some((line) => line.includes("old-url"))).toBe(
-      true,
-    );
-  });
-
-  test("a session still on a repository the file alone knew stops the import before anything is written; others do not", async () => {
-    const dir = join(root, "stranded");
-    await mkdir(dir, { recursive: true });
-    for (const [name, text] of Object.entries(OLD_CATALOG)) {
-      await writeFile(
-        join(dir, name),
-        name === "repositories.yaml"
-          ? `${text}  old-url:\n    url: https://git.example.invalid/team/old.git\n    branch: main\n`
-          : text,
-      );
-    }
-    const planned = { ...PLAN, outcome: "applied" as const, receipt_ids: [] };
-    const command = {
-      command: "import" as const,
-      source: { dir, ifPresent: false },
-      dryRun: false,
-    };
-
-    const asked: string[][] = [];
-    const held = fakeStore(planned, (ids) => {
-      asked.push([...ids]);
-      return [{ session_id: "ses_1", repository_id: "old-url", via: "policy" }];
+    const { store, asked } = fakeStore({
+      ...PLAN,
+      outcome: "applied",
+      receipt_ids: [],
     });
-    const refused = captured();
-    expect(
-      await runSettingsCommand(
-        command,
-        { settings: held.store },
-        refused.output,
-      ),
-    ).toBe(false);
-    expect(asked).toEqual([["old-url"]]);
-    expect(held.asked).toHaveLength(0);
-    expect(refused.err.join("\n")).toContain("ses_1 (old-url, policy)");
-
-    // The same files with no session on it: the import goes on, as before.
-    const free = fakeStore(planned);
-    expect(
-      await runSettingsCommand(
-        command,
-        { settings: free.store },
-        captured().output,
-      ),
-    ).toBe(true);
-    expect(free.asked).toHaveLength(1);
-
-    // A dry run is refused too, so the operator sees it before the window.
-    const dry = fakeStore(planned, () => [
-      { session_id: "ses_2", repository_id: "old-url", via: "primary" },
-    ]);
-    expect(
-      await runSettingsCommand(
-        { ...command, dryRun: true },
-        { settings: dry.store },
-        captured().output,
-      ),
-    ).toBe(false);
+    const refusal = await runSettingsCommand(
+      { command: "import", document: file, dryRun: false },
+      { settings: store },
+      captured().output,
+    ).then(() => "resolved", inputRefusal);
+    expect(refusal).toStartWith("The settings document is invalid");
+    expect(refusal).toContain("old-url");
+    expect(asked).toEqual([]);
   });
 
   test("the verify GitHub sandbox document is one migrate accepts", async () => {
@@ -832,51 +460,6 @@ describe("settings CLI", () => {
       "sample-app",
       "sandbox",
     ]);
-  });
-
-  test("--if-present skips a missing or empty directory, and only that", async () => {
-    const { store, asked } = fakeStore({
-      ...PLAN,
-      outcome: "applied",
-      receipt_ids: [],
-    });
-    const empty = join(root, "empty");
-    await mkdir(empty, { recursive: true });
-    for (const dir of [empty, join(root, "absent")]) {
-      const { output, err } = captured();
-      expect(
-        await runSettingsCommand(
-          {
-            command: "import",
-            source: { dir, ifPresent: true },
-            dryRun: false,
-          },
-          { settings: store },
-          output,
-        ),
-      ).toBe(true);
-      expect(err).toEqual([`nothing to import from ${dir}`]);
-    }
-    expect(asked).toEqual([]);
-
-    const partial = join(root, "partial");
-    await mkdir(partial, { recursive: true });
-    await writeFile(
-      join(partial, "repositories.yaml"),
-      OLD_CATALOG["repositories.yaml"],
-    );
-    await expect(
-      runSettingsCommand(
-        {
-          command: "import",
-          source: { dir: partial, ifPresent: true },
-          dryRun: false,
-        },
-        { settings: store },
-        captured().output,
-      ),
-    ).rejects.toThrow("connections.yaml is missing");
-    expect(asked).toEqual([]);
   });
 
   test("a refused import exits non-zero, and names the conflicts", async () => {
@@ -904,7 +487,7 @@ describe("settings CLI", () => {
     });
     const { output, err, out } = captured();
     const ok = await runSettingsCommand(
-      { command: "import", source: { document: path }, dryRun: true },
+      { command: "import", document: path, dryRun: true },
       { settings: store },
       output,
     );

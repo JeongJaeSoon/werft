@@ -7,6 +7,7 @@
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
+  ChannelMemberStore,
   SecretStore,
   SlackAppStore,
   SlackInstallStore,
@@ -19,6 +20,7 @@ import {
   createSlackBotApi,
   createSlackChannelJoiner,
   createSlackChannelKinds,
+  createSlackChannelMembers,
   createSlackChannelSearchService,
   createSlackConfigApi,
   createSlackConfigTokens,
@@ -31,6 +33,7 @@ import {
   createSlackSigningSecrets,
   createSlackTokenRevoked,
   createSlackWelcome,
+  type SlackChannelMembers,
   slackBotToken,
   slackPublicUrlsOf,
 } from "./chat-slack.ts";
@@ -80,6 +83,30 @@ export function wireSlackBot(deps: SlackBotStageDeps): SlackBotStage {
     logger: deps.logger,
   });
   return { api, join, welcome };
+}
+
+/**
+ * Whether a person is a member of a channel now, for the policy's private
+ * channel decisions; its own bot API, as no stage needs to come first.
+ */
+export function wireSlackChannelMembers(deps: {
+  apiUrl: string;
+  appStore: SlackAppStore;
+  secrets: SecretStoreSource;
+  store: ChannelMemberStore;
+  logger: StructuredLogger;
+}): SlackChannelMembers {
+  return createSlackChannelMembers({
+    store: deps.store,
+    slack: createSlackBotApi({ apiUrl: deps.apiUrl }),
+    botToken: (workspaceId, agentId) =>
+      agentSlackBotToken(
+        { apps: deps.appStore, secrets: deps.secrets() },
+        workspaceId,
+        agentId,
+      ),
+    logger: deps.logger,
+  });
 }
 
 export interface SlackChannelsStageDeps {
@@ -145,6 +172,8 @@ export interface SlackServicesStageDeps {
   tokenRevoked: SlackChannelsStage["tokenRevoked"];
   agentAuthority: Param<typeof createSlackChannelSearchService>["agents"];
   inbox: Param<typeof createSlackEventsService>["inbox"];
+  sourceMarks: Param<typeof createSlackEventsService>["sourceMarks"];
+  mirrorEchoes: Param<typeof createSlackEventsService>["mirrorEchoes"];
   identities: AgentIdentityStore;
   installs: SlackInstallStore;
   bindings: SurfaceBindingStore;
@@ -208,6 +237,8 @@ export function wireSlackServices(
   const events = createSlackEventsService({
     signingSecrets,
     inbox: deps.inbox,
+    sourceMarks: deps.sourceMarks,
+    mirrorEchoes: deps.mirrorEchoes,
     apps: appStore,
     identities: deps.identities,
     installs: deps.installs,
@@ -261,6 +292,9 @@ export interface SlackInteractionsStageDeps {
   sessions: Param<typeof createSlackInteractionService>["sessions"];
   followUps: Param<typeof createSlackInteractionService>["followUps"];
   outbox: Param<typeof createSlackInteractionService>["outbox"];
+  requesterLeft: NonNullable<
+    Param<typeof createSlackInteractionService>["requesterLeft"]
+  >;
   consoleOrigin: string | null;
   logger: StructuredLogger;
 }
@@ -281,6 +315,7 @@ export function wireSlackInteractions(deps: SlackInteractionsStageDeps) {
     botToken: async (workspaceId, slackAppId) =>
       slackBotToken(secrets(), workspaceId, slackAppId),
     outbox: deps.outbox,
+    requesterLeft: deps.requesterLeft,
     connectUrl: slackConnectUrl(deps.consoleOrigin),
     logger: deps.logger,
   });

@@ -248,13 +248,8 @@ export class TurnLedger {
     point: CheckpointPoint = "turn_end",
   ): CheckpointPreparation {
     if (point === "approval_wait") return this.prepareApprovalCheckpoint();
-    if (this.mirrorError !== undefined) {
-      return {
-        status: "rejected",
-        reason: "mirror_error",
-        detail: this.mirrorError,
-      };
-    }
+    const mirror = this.mirrorRefusal();
+    if (mirror !== undefined) return mirror;
     if (this.streaming || this.pending.size > 0) {
       return {
         status: "rejected",
@@ -262,13 +257,8 @@ export class TurnLedger {
         detail: "A turn is still running",
       };
     }
-    if (this.lease !== undefined) {
-      return {
-        status: "rejected",
-        reason: "checkpoint_lease_held",
-        detail: "Another checkpoint holds the lease",
-      };
-    }
+    const lease = this.leaseRefusal();
+    if (lease !== undefined) return lease;
     const tools = this.toolsInFlight.size + this.asking.length;
     if (tools > 0) {
       return {
@@ -277,28 +267,7 @@ export class TurnLedger {
         detail: `${tools} tool call(s) still running`,
       };
     }
-    if (this.backgroundTasks.length > 0) {
-      return {
-        status: "rejected",
-        reason: "background_writer",
-        detail: `Background task(s) still running: ${this.backgroundTasks.join(", ")}`,
-      };
-    }
-    if (this.sessionId === undefined) {
-      return {
-        status: "rejected",
-        reason: "no_engine_session",
-        detail: "No SDK session has started",
-      };
-    }
-    return {
-      status: "ready",
-      checkpoint: {
-        engine: "claude",
-        resume: this.sessionId,
-        sdkVersion: CLAUDE_AGENT_SDK_VERSION,
-      },
-    };
+    return this.readyOrBackground();
   }
 
   /**
@@ -307,20 +276,10 @@ export class TurnLedger {
    * already holds their transcript is the caller's barrier.
    */
   private prepareApprovalCheckpoint(): CheckpointPreparation {
-    if (this.mirrorError !== undefined) {
-      return {
-        status: "rejected",
-        reason: "mirror_error",
-        detail: this.mirrorError,
-      };
-    }
-    if (this.lease !== undefined) {
-      return {
-        status: "rejected",
-        reason: "checkpoint_lease_held",
-        detail: "Another checkpoint holds the lease",
-      };
-    }
+    const mirror = this.mirrorRefusal();
+    if (mirror !== undefined) return mirror;
+    const lease = this.leaseRefusal();
+    if (lease !== undefined) return lease;
     if (this.asking.length === 0) {
       return {
         status: "rejected",
@@ -338,6 +297,28 @@ export class TurnLedger {
         detail: `${executing.length} tool call(s) still running`,
       };
     }
+    return this.readyOrBackground();
+  }
+
+  private mirrorRefusal(): CheckpointPreparation | undefined {
+    if (this.mirrorError === undefined) return undefined;
+    return {
+      status: "rejected",
+      reason: "mirror_error",
+      detail: this.mirrorError,
+    };
+  }
+
+  private leaseRefusal(): CheckpointPreparation | undefined {
+    if (this.lease === undefined) return undefined;
+    return {
+      status: "rejected",
+      reason: "checkpoint_lease_held",
+      detail: "Another checkpoint holds the lease",
+    };
+  }
+
+  private readyOrBackground(): CheckpointPreparation {
     if (this.backgroundTasks.length > 0) {
       return {
         status: "rejected",

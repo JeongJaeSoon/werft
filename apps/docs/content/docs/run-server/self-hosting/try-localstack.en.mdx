@@ -75,7 +75,7 @@ Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools suc
 
 Use `EXECUTION_INSTALLATION_ID=test-ops`, `PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`, and `EXECUTION_WORKSPACE_QUOTA=on`. Set the credential allowlist to `api.anthropic.com:443,github.com:443` and the private credential allowlist to `localstack:4566`. Leave AWS key, region, and bucket variables empty as in the example. LocalStack uses fixed test keys and the `claude-sessions` bucket.
 
-Put the settings document in `/etc/werft/settings.json` and list the GitHub repositories sessions will use. The first `deploy` puts it into the empty installation once; after that, edits to the document are not imported, so change settings in the console. It contains no secrets. Replace only the repository URL with your actual value. This example assumes a public repository. Each repository entry must contain `"auth": { "kind": "github_app" }`; otherwise import omits it and `preflight` blocks installation. For a private repository, install the GitHub App on it ([GitHub](/integrations/github)).
+Put the settings document in `/etc/werft/settings.json` and list the GitHub repositories sessions will use. The first `deploy` puts it into the empty installation once; after that, edits to the document are not imported, so change settings in the console. It contains no secrets. Replace only the repository URL with your actual value. This example assumes a public repository. Each repository entry must contain `"auth": { "kind": "github_app" }`; otherwise `preflight` refuses the whole document and blocks installation. For a private repository, install the GitHub App on it ([GitHub](/integrations/github)).
 
 The migrate container must read this file, so use `0644`. Create an empty file first, then fill it with the following content using an editor.
 
@@ -142,7 +142,7 @@ sudo reboot
 scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
-This sequence and rebooting with checkpoints have not been verified by execution. `reseed` checks the source project/bucket/checksum, an empty bucket, and absence of checkpoint changes since the last backup. It rejects unmet conditions. After object loss, with API startup failure and a pending upgrade, `reseed` is rejected. Even a backup made with `backup --stop` does not remove that block. Choosing `reset` in this state discards the database, sessions, and checkpoints. Do not use it as a routine reboot recovery command.
+`reseed` checks the source project/bucket/checksum, an empty bucket, and absence of checkpoint changes since the last backup. It rejects unmet conditions. After object loss, with API startup failure and a pending upgrade, `reseed` is rejected. Even a backup made with `backup --stop` does not remove that block. Choosing `reset` in this state discards the database, sessions, and checkpoints. Do not use it as a routine reboot recovery command.
 
 <a id="되돌리기" />
 ## Roll back

@@ -81,7 +81,7 @@ function gitSource(over: Partial<SkillGitSource> = {}): SkillGitSource {
     ref: "main",
     sync_enabled: true,
     webhook: "ready",
-    auto_approve: { state: "off", requested_by: null, consented_by: null },
+    auto_approve: { state: "off", enabled_by: null },
     last_check: check(),
     ...over,
   };
@@ -275,7 +275,12 @@ describe("Git 스킬 상세의 동기화", () => {
               }),
             }
           : { ...git, sync_enabled: false };
-        return json(200, { name: "triage", git, receipt_id: RECEIPT_ID });
+        return json(200, {
+          name: "triage",
+          git,
+          receipt_id: RECEIPT_ID,
+          check: git.sync_enabled ? "checked" : null,
+        });
       },
     });
     const user = await setupUser();
@@ -300,10 +305,9 @@ describe("Git 스킬 상세의 동기화", () => {
     const before = within(sync).getByText(/push · 바뀐 내용 없음/).textContent;
 
     await user.click(within(sync).getByRole("button", { name: "다시 켬" }));
-    await within(sync).findByText(/다시 켬 · 새 버전을 승인 대기로 만듦/);
+    await within(sync).findByText(/다시 켬 · 새 버전을 만듦/);
     expect(
-      within(sync).getByText(/다시 켬 · 새 버전을 승인 대기로 만듦/)
-        .textContent === before,
+      within(sync).getByText(/다시 켬 · 새 버전을 만듦/).textContent === before,
     ).toBe(false);
     expect(within(sync).getByText("켜짐")).toBeDefined();
     expect(
@@ -311,6 +315,120 @@ describe("Git 스킬 상세의 동기화", () => {
         .filter((call) => call.method === "PUT")
         .map((call) => call.body),
     ).toEqual([{ enabled: false }, { enabled: true }]);
+  });
+
+  test("자동 연동은 관리자 한 명이 켜고 끈다: 브랜치가 아니면 이유가 보이고, 켜면 한 번 확인한 결과가 보인다", async () => {
+    let git = gitSource();
+    let refuse = true;
+    const { api } = renderAt("/settings/workspace/skills/triage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [SKILLS]: () =>
+        json(200, { items: [{ ...gitSkill(), git }] satisfies Skill[] }),
+      "PUT /v1/workspace/skills/triage/sync/auto-approve": async (request) => {
+        const { action } = (await request.json()) as { action: "on" | "off" };
+        if (refuse) {
+          refuse = false;
+          return apiError(400, "BAD_REQUEST", "not a branch", false, {
+            reason_code: "not_branch",
+          });
+        }
+        git =
+          action === "on"
+            ? {
+                ...git,
+                auto_approve: { state: "on", enabled_by: USER_ID },
+                last_check: check({
+                  at: "2026-11-21T04:00:00.000Z",
+                  trigger: {
+                    kind: "auto_approve",
+                    delivery_id: null,
+                    user_id: USER_ID,
+                  },
+                  auto_approval: {
+                    result: "approved",
+                    reason: null,
+                    checks: [],
+                  },
+                }),
+              }
+            : { ...git, auto_approve: { state: "off", enabled_by: null } };
+        return json(200, {
+          name: "triage",
+          git,
+          receipt_id: RECEIPT_ID,
+          check: git.auto_approve.state === "on" ? "checked" : null,
+        });
+      },
+    });
+    const user = await setupUser();
+    const sync = (
+      await screen.findByRole("heading", { name: "GitHub 동기화" })
+    ).closest("section") as HTMLElement;
+    expect(within(sync).getByText("자동 연동")).toBeDefined();
+    expect(within(sync).getByText("꺼짐")).toBeDefined();
+    expect(
+      within(sync).getByText(/업그레이드 전에 켠 자동 승인은 꺼졌으니/),
+    ).toBeDefined();
+
+    await user.click(within(sync).getByRole("button", { name: "켬" }));
+    expect(
+      await within(sync).findByText(
+        "자동 연동은 브랜치에서만 켤 수 있습니다. 태그와 커밋은 자동으로 승인하지 않습니다.",
+      ),
+    ).toBeDefined();
+    expect(within(sync).getByText("꺼짐")).toBeDefined();
+
+    await user.click(within(sync).getByRole("button", { name: "켬" }));
+    expect(
+      await within(sync).findByText("자동 연동을 켰습니다."),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(within(sync).getByRole("button", { name: "끔" })).toBeDefined(),
+    );
+    expect(within(sync).queryByText("꺼짐")).toBeNull();
+    expect(
+      within(sync).getByText(/자동 연동 켬 · 바뀐 내용 없음/),
+    ).toBeDefined();
+    expect(within(sync).getByText("자동 승인함")).toBeDefined();
+    expect(
+      within(sync).getByText(/규칙에 걸린 버전만 승인 대기로 남습니다/),
+    ).toBeDefined();
+
+    await user.click(within(sync).getByRole("button", { name: "끔" }));
+    expect(
+      await within(sync).findByText("자동 연동을 껐습니다."),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(within(sync).getByRole("button", { name: "켬" })).toBeDefined(),
+    );
+    expect(
+      api.calls
+        .filter((call) => call.method === "PUT")
+        .map((call) => call.body),
+    ).toEqual([{ action: "on" }, { action: "on" }, { action: "off" }]);
+  });
+
+  test("구성원에게는 자동 연동의 상태만 보이고, 동기화가 멈춰 있으면 승인하지 않는다고 말한다", async () => {
+    renderAt("/settings/workspace/skills/triage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...listed(
+        gitSkill({
+          sync_enabled: false,
+          auto_approve: { state: "on", enabled_by: USER_ID },
+        }),
+      ),
+    });
+    const sync = (
+      await screen.findByRole("heading", { name: "GitHub 동기화" })
+    ).closest("section") as HTMLElement;
+    expect(within(sync).getByText("켜짐")).toBeDefined();
+    expect(
+      within(sync).getByText(
+        "켜져 있지만 동기화가 멈춰 있어 아무것도 승인하지 않습니다. 동기화를 다시 켜면 한 번 확인합니다.",
+      ),
+    ).toBeDefined();
+    expect(within(sync).queryByRole("button", { name: "끔" })).toBeNull();
+    expect(within(sync).queryByRole("button", { name: "켬" })).toBeNull();
   });
 
   test("다시 켠 확인이 앞 확인 뒤로 밀리면 끝날 때까지 다시 읽는다", async () => {
@@ -348,7 +466,12 @@ describe("Git 스킬 상세의 동기화", () => {
         "PUT /v1/workspace/skills/triage/sync": () => {
           git = { ...git, sync_enabled: true };
           readsAfterResume = 0;
-          return json(200, { name: "triage", git, receipt_id: RECEIPT_ID });
+          return json(200, {
+            name: "triage",
+            git,
+            receipt_id: RECEIPT_ID,
+            check: "queued",
+          });
         },
       });
       const settle = async (until: () => boolean) => {
@@ -362,11 +485,80 @@ describe("Git 스킬 상세의 동기화", () => {
       );
       fireEvent.click(screen.getByRole("button", { name: "다시 켬" }));
       await settle(() => readsAfterResume === 1);
-      const resumed = /다시 켬 · 새 버전을 승인 대기로 만듦/;
+      const resumed = /다시 켬 · 새 버전을 만듦/;
       expect(screen.queryByText(resumed)).toBeNull();
 
       await settle(() => screen.queryByText(resumed) !== null);
       expect(screen.getByText(resumed)).toBeDefined();
+    } finally {
+      jest.useRealTimers();
+      environmentManager.setIsServer(() => server);
+    }
+  });
+
+  test("자동 연동을 켠 확인이 밀리면, 화면이 읽은 뒤에 끝난 확인이 있어도 끝날 때까지 다시 읽는다", async () => {
+    const pushed = (hour: number) =>
+      check({ at: `2026-11-21T0${hour}:00:00.000Z` });
+    // The screen read the check of 01:00. One ended at 02:00 since and
+    // another runs, so the check that turning it on asks for comes third.
+    let git = gitSource({ last_check: pushed(1) });
+    let readsAfterOn: number | null = null;
+    const server = environmentManager.isServer();
+    environmentManager.setIsServer(() => false);
+    jest.useFakeTimers();
+    try {
+      renderAt("/settings/workspace/skills/triage", {
+        "GET /v1/auth/me": () => json(200, me()),
+        [SKILLS]: () => {
+          if (readsAfterOn !== null) readsAfterOn++;
+          if (readsAfterOn === 2) git = { ...git, last_check: pushed(3) };
+          if (readsAfterOn === 3)
+            git = {
+              ...git,
+              last_check: {
+                ...pushed(4),
+                trigger: {
+                  kind: "auto_approve",
+                  delivery_id: null,
+                  user_id: USER_ID,
+                },
+                auto_approval: { result: "approved", reason: null, checks: [] },
+              },
+            };
+          return json(200, {
+            items: [{ ...gitSkill(), git }] satisfies Skill[],
+          });
+        },
+        "PUT /v1/workspace/skills/triage/sync/auto-approve": () => {
+          git = {
+            ...git,
+            auto_approve: { state: "on", enabled_by: USER_ID },
+            last_check: pushed(2),
+          };
+          readsAfterOn = 0;
+          return json(200, {
+            name: "triage",
+            git,
+            receipt_id: RECEIPT_ID,
+            check: "queued",
+          });
+        },
+      });
+      const settle = async (until: () => boolean) => {
+        for (let step = 0; step < 100 && !until(); step++)
+          await act(async () => {
+            jest.advanceTimersByTime(50);
+          });
+      };
+      await settle(() => screen.queryByRole("button", { name: "켬" }) !== null);
+      fireEvent.click(screen.getByRole("button", { name: "켬" }));
+      await settle(() => readsAfterOn === 2);
+      const judged = /자동 연동 켬 · 바뀐 내용 없음/;
+      expect(screen.queryByText(judged)).toBeNull();
+
+      await settle(() => screen.queryByText(judged) !== null);
+      expect(screen.getByText(judged)).toBeDefined();
+      expect<number | null>(readsAfterOn).toBe(3);
     } finally {
       jest.useRealTimers();
       environmentManager.setIsServer(() => server);
@@ -551,6 +743,46 @@ describe("Git 스킬 상세의 동기화", () => {
     ).toBe("required");
   });
 
+  test("자동 승인이 고정 규칙 검사에 걸려 멈추면 승인 대기와 걸린 규칙, 검토 화면 링크가 보인다", async () => {
+    renderAt("/settings/workspace/skills/triage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(
+        gitSkill({
+          last_check: check({
+            result: "created",
+            auto_approval: {
+              result: "pending",
+              reason: "checks_failed",
+              checks: [
+                {
+                  rule: "scripts_added",
+                  paths: ["skills/triage/run.py"],
+                  samples: [],
+                },
+                {
+                  rule: "description_changed",
+                  paths: ["skills/triage/SKILL.md"],
+                  samples: [],
+                },
+              ],
+            },
+          }),
+        }),
+      ),
+    });
+    expect(await screen.findByText("승인 대기")).toBeDefined();
+    expect(
+      screen.getByText(
+        "고정 규칙 검사에 걸려 자동 승인하지 않았습니다: 스크립트 추가, description 변경",
+      ),
+    ).toBeDefined();
+    expect(
+      screen
+        .getByRole("link", { name: "검토 화면에서 보기" })
+        .getAttribute("href"),
+    ).toBe(`/settings/workspace/skills/triage/versions/${versionId(1)}`);
+  });
+
   test("버전의 파일 보기는 관리자에게만 보인다", async () => {
     renderAt("/settings/workspace/skills/triage", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -559,6 +791,29 @@ describe("Git 스킬 상세의 동기화", () => {
     const table = await screen.findByRole("table", { name: "버전 기록" });
     expect(within(table).getAllByRole("row")).toHaveLength(2);
     expect(within(table).queryByRole("link")).toBe(null);
+  });
+
+  test("대체된 버전은 대체됨으로 보이고, 검토 대신 파일 보기로 간다", async () => {
+    renderAt("/settings/workspace/skills/release-notes", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(
+        skill({
+          versions: [
+            version(1, { review: "superseded", reviewed_by: USER_ID }),
+            version(2),
+          ],
+        }),
+      ),
+    });
+    const table = await screen.findByRole("table", { name: "버전 기록" });
+    const superseded = within(table)
+      .getAllByRole("row")
+      .find((row) => row.textContent?.includes("v1 "));
+    if (!superseded) throw new Error("no v1 row");
+    const row = within(superseded);
+    expect(row.getAllByText("대체됨").length).toBeGreaterThan(0);
+    expect(row.queryByText("승인 대기")).toBe(null);
+    expect(row.getByRole("link").textContent).toBe("파일 보기");
   });
 
   test("webhook을 받는 설치에는 그 안내가 없다", async () => {
@@ -597,7 +852,77 @@ describe("승인 대기 화면", () => {
       },
     ],
     removed: [],
+    checks: [],
   };
+
+  test("고정 규칙 검사에 걸리면 파일보다 먼저 규칙마다 이유·파일·값을 에러로 보인다", async () => {
+    const flagged: SkillVersionFiles = {
+      ...files,
+      checks: [
+        {
+          rule: "large_change",
+          paths: ["skills/release-notes/scripts/collect.sh"],
+          samples: ["too_large"],
+        },
+        {
+          rule: "new_url",
+          paths: ["skills/release-notes/scripts/collect.sh"],
+          samples: ["example.test", "unreadable"],
+        },
+      ],
+    };
+    renderAt(
+      `/settings/workspace/skills/release-notes/versions/${pending.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
+          json(200, flagged),
+      },
+    );
+    const checks = await screen.findByRole("list", { name: "고정 규칙 검사" });
+    expect(
+      screen.getByText(
+        "규칙 2개에 걸렸습니다. 규칙에 걸린 버전은 자동 연동이 켜져 있어도 자동으로 승인되지 않고, 사람이 승인해야 합니다.",
+      ),
+    ).toBeDefined();
+    const [large, url] = within(checks).getAllByRole(
+      "listitem",
+    ) as HTMLElement[];
+    expect(within(large as HTMLElement).getByText("큰 변경")).toBeDefined();
+    expect(
+      within(large as HTMLElement).getByText(
+        "걸린 값: 너무 커서 비교하지 못함",
+      ),
+    ).toBeDefined();
+    expect(within(url as HTMLElement).getByText("새 URL")).toBeDefined();
+    expect(
+      within(url as HTMLElement).getByText("파일: scripts/collect.sh"),
+    ).toBeDefined();
+    expect(
+      within(url as HTMLElement).getByText(
+        "걸린 값: example.test, 너무 크거나 렌더링하지 못해 읽지 못함",
+      ),
+    ).toBeDefined();
+    // Above the file cards it points into.
+    const fileList = screen.getByRole("list", { name: "파일 2개" });
+    expect(
+      checks.compareDocumentPosition(fileList) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("고정 규칙 검사에 걸린 것이 없으면 그렇게만 말하고 에러 목록은 없다", async () => {
+    renderAt(
+      `/settings/workspace/skills/release-notes/versions/${pending.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${pending.id}/files`]: () =>
+          json(200, files),
+      },
+    );
+    expect(await screen.findByText("걸린 규칙이 없습니다.")).toBeDefined();
+    expect(screen.queryByRole("list", { name: "고정 규칙 검사" })).toBe(null);
+  });
 
   test("scripts/ 파일이 먼저 보이고 그 바뀐 줄이 추가·삭제로 보인다", async () => {
     renderAt(
@@ -649,6 +974,23 @@ describe("승인 대기 화면", () => {
     );
     expect(await screen.findByRole("button", { name: "거절" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "승인" })).toBe(null);
+  });
+
+  test("대체된 버전도 승인하거나 거절할 수 있다", async () => {
+    const superseded = version(1, {
+      review: "superseded",
+      reviewed_by: USER_ID,
+    });
+    renderAt(
+      `/settings/workspace/skills/release-notes/versions/${superseded.id}`,
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET /v1/workspace/skills/versions/${superseded.id}/files`]: () =>
+          json(200, { ...files, version: superseded, previous_approved: null }),
+      },
+    );
+    expect(await screen.findByRole("button", { name: "승인" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "거절" })).toBeDefined();
   });
 
   test("승인하면 승인을 보내고, 다시 읽은 화면에는 승인 버튼 대신 거절만 남는다", async () => {

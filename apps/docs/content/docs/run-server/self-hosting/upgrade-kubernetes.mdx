@@ -15,11 +15,11 @@ outcome: "지원 창과 worker pin을 보존하며 chart를 교체한다"
 
 [변경 기록](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)에서 대상 버전의 운영자 작업을 먼저 읽는다.
 
-설치별 values, jq·helm·kubectl, 현재 deployed revision과 worker-previous.json, DB·S3 백업이 필요하다. kind에서 승인을 기다리는 세션과 checkpoint를 남기고 멈춘 세션을 둔 채, 이미지와 schema는 그대로 두고 `extraEnv`만 바꿔 Pod를 다시 띄우는 `helm upgrade`와 `helm rollback`(migrate는 할 일이 없었다)을 실행해 hook 순서와 세션 상태·이벤트·checkpoint 이어짐을 확인했다(`deploy/kind/upgrade.sh`). 이 페이지의 1·2단계도 kind에서 그대로 따라 했다. 직전 릴리스 커밋의 schema에서 control-host 이미지를 바꾸는 upgrade(migrate Job이 끝났고 새 build의 `/readyz`가 `schema: ok`였다), worker 이미지가 바뀌는 upgrade, 직전 이미지로 재개되는 세션, 영향 세션을 승인하는 흐름이다. chart는 게시 chart와 같은 꼴로 패키징한 파일을 썼다. control-host 이미지를 되돌리거나 조합이 다른 worker 이미지로 되돌리는 `helm rollback`(rollback 뒤의 새 schema와 옛 코드)은 실행 확인하지 않았다. rollback 전의 직접 검사만 실행했다. 이미지 목록에서 조합이 같은 단일 이미지로 되돌리는 rollback은 [이미지 목록 설치의 upgrade](#이미지-목록-설치의-upgrade)에 적었다. [프로필 제거 릴리스의 순서](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)(1단계 없이 2단계 한 번)도 kind에서 게시 `v0.1.3` chart 설치부터 따라 했다. 업그레이드 전 검사는 `proceed`였고, `0270`이 `v0.1.3`의 세션을 비웠으며, 새 control-host와 새 worker로 새 세션의 turn 1이 끝났다. 같은 설치에서 worker만 `v0.1.3` 이미지로 되돌리면 새 세션은 launch 세 번 뒤 `STARTUP_FAILED`로 멈췄다. 게시 chart의 기본값이 두 이미지 목록으로 바뀐 뒤, 단일 이미지 설치의 1·2단계 명령(`next_workers control`, `worker.json`)을 다시 썼다. 바뀐 명령이 만드는 values는 패키지 render 검사(`deploy/helm/render-check.ts`)로 확인했다. 위 kind 실행은 바뀌기 전의 명령으로 한 것이다. fixture chart render와 게시 chart 설치를 구분한다.
+설치별 values, jq·helm·kubectl, 현재 deployed revision과 worker-previous.json, DB·S3 백업이 필요하다.
 
 [공통 실행 전 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)의 활성화 순서와 롤백 하한을 먼저 대조한다. Compose 전용 검사 명령 대신 아래 Helm hook과 직접 검사를 사용한다.
 
-[설치의 context·namespace·fullname](/run-server/self-hosting/kubernetes#준비물)을 확인한다. 새 control-host·직전 worker 조합은 시험 설치에서 turn 1 완료 → worker Pod 제거 → checkpoint에서 turn 2 완료와 API의 worker 요청 400 부재를 확인한다. turn 1이 끝나는지를 먼저 본다. 직전 worker가 새 API의 응답을 읽지 못하는 경우에는 API가 400을 내지 않고 worker가 시작 직후 끝나며, 세션은 `STARTUP_FAILED`로 멈춘다. 프로필 제거 릴리스로 올릴 때는 이 조합을 지원하지 않으므로, 새 control-host와 새 worker로 turn 1 완료를 본다([프로필 제거 릴리스의 업그레이드 순서](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)). `deploy/kind/up.sh`는 `images.worker`를 `--set`으로 덮으므로 `EXTRA_VALUES`로 직전 worker 이미지를 시험하지 말고 직접 `helm upgrade`한다.
+[설치의 context·namespace·fullname](/run-server/self-hosting/kubernetes#준비물)을 확인한다. 새 control-host·직전 worker 조합은 시험 설치에서 turn 1 완료 → worker Pod 제거 → checkpoint에서 turn 2 완료와 API의 worker 요청 400 부재를 확인한다. turn 1이 끝나는지를 먼저 본다. 직전 worker가 새 API의 응답을 읽지 못하는 경우에는 API가 400을 내지 않고 worker가 시작 직후 끝나며, 세션은 `STARTUP_FAILED`로 멈춘다. 프로필 제거 릴리스로 올릴 때는 이 조합을 지원하지 않으므로, 새 control-host와 새 worker로 turn 1 완료를 본다([프로필 제거 릴리스의 업그레이드 순서](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)).
 
 ## 단계
 
@@ -61,8 +61,6 @@ kubectl -n werft create job "werft-archive-restore-$N" --from=cronjob/werft-sess
 ```
 
 4. values의 이름을 위대로 옮기고 이 단계의 `helm upgrade`를 한다. 그 뒤 `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":false}}'`로 CronJob을 다시 켠다. Helm은 `suspend`를 다루지 않으므로 upgrade 뒤에도 멈춘 채 남는다. 되돌린 이벤트는 다음 보관 실행이 api의 저장소로 다시 옮긴다.
-
-이 절차는 실행 확인하지 않았다. render 검사는 갈라지는 values를 거절하는 것까지만 본다.
 
 대상 chart를 받아 두고, 2단계까지 쓰는 두 함수를 정의한다. 대상 릴리스의 두 worker 이미지 항목은 chart의 `files/release-images.json`에, 다음 values 파일을 만드는 프로그램은 `files/next-workers.jq`에 있다.
 
@@ -174,8 +172,6 @@ mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" \
 
 명령은 `&&`로 이어져 있어, 프로그램이 실패하면 `helm upgrade`는 돌지 않는다. upgrade가 실패해도 다시 돌리면 같은 deployed revision에서 같은 파일이 나오므로 따로 보관할 파일은 없다. 승인 목록은 위처럼 매번 비운다. 쓰지 않는 엔진은 `workers.json`에서 그 엔진의 항목을 지우고 넘겨도 된다. 배포된 이미지에 있던 엔진을 지우면 그 upgrade는 엔진을 빼는 upgrade로 판정된다(아래 "엔진을 빼는 upgrade").
 
-kind에서 이 절차를 그대로 따라 했다(`deploy/kind/upgrade.sh`의 `list`·`next-list` 단계). runtime 없이 설치한 단일 이미지 A를 [B, A, C]로 바꿨다(B는 A를 다시 빌드한 이미지, C는 Codex 이미지). A에서 승인을 기다리던 세션은 같은 Pod에서 이어졌다. 이어 control phase를 거친 목록을 [D, B, C]로 바꿨다. 지난 승인(`stale-approval`)을 남긴 첫 시도는 그 승인 때문에만 `refused`였다. 실패한 revision 뒤에 절차를 다시 돌리면 같은 파일이 나왔다. 승인 목록을 비운 같은 파일은 그 세션의 launch가 A에서 slot을 쥔 채로 `proceed`였다. 목록이 A의 runtime을 선언했고 B가 A의 checkpoint를 복원하기 때문이다. 그 세션은 A의 같은 Pod에서 turn을 마치고 멈췄다. 멈춘 두 세션은 D에서 checkpoint로 재개했다. 하나는 B에서, 하나는 A에서 멈춘 세션이다. 이어 `list-rollback` 단계에서 [D, B, C]를 배포한 채 rollback 전 직접 검사(`env -u WORKER_IMAGES`)를 돌려 `proceed`를 받고, A만 둔 단일 이미지 revision으로 `helm rollback`했다. hook은 돌지 않았다. scheduler는 `WORKER_IMAGE`로 돌아갔고, api와 scheduler 어디에도 `WORKER_IMAGES`가 남지 않았다. D에서 멈춘 세션은 A에서 checkpoint로 재개해 turn을 마쳤고, 새 세션은 A로 떴다. 그 새 세션의 worker는 A를 남기는 목록 [A, C]로 다시 upgrade한 뒤에도 같은 Pod에서 다음 turn을 마쳤다. Codex 세션은 kind에서 돌리지 않았다.
-
 ### 3. 검사 결과와 예외
 
 #### 업그레이드 전 검사
@@ -228,7 +224,7 @@ helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", 
 
 **되돌리는 방법.** 뺀 엔진의 세션을 다시 돌리려면 그 엔진의 철회되지 않은 이미지를 목록에 다시 넣는 upgrade를 한다. 그 이미지는 세션의 runtime 버전을 실어야 한다. 승인 목록은 비운다. 그러면 기다리던 세션은 다음 pass에서 그 이미지로 뜬다. `incompatible_checkpoint`로 멈춘 세션은 `retry_restore`로 다시 시도한다.
 
-Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로, 배포된 직전 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`(없으면 빈 값)로, 각각의 runtime을 `UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME`·`UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS_RUNTIME`으로 받는다. 배포된 scheduler가 이미지 목록(`WORKER_IMAGES`)으로 돌면 그 목록을 `UPGRADE_DEPLOYED_WORKER_IMAGES`로 받는다. chart가 지금 scheduler Deployment의 이 값들을 `lookup`으로 읽어 이름 앞에 `UPGRADE_DEPLOYED_`를 붙여 넘긴다. 배포된 runtime이 없으면 그 이미지는 digest로만 비교한다. kind에서 실제 `helm upgrade`로 다음을 실행해 확인했다. `lookup`이 배포된 worker 이미지와 직전 이미지를 읽는다. 직전 이미지를 빼는 upgrade는 그 이미지로 봉인된 세션을 `no_image`로 골라 `refused`로 멈추고, 그 목록을 정확히 승인하면 `proceed`다. worker 이미지를 바꾸면서 직전 이미지를 지금 worker 이미지로 바꾸는 upgrade는 `proceed`다. worker 이미지를 그대로 두고 직전 이미지만 다른 이미지로 바꾸는 upgrade, 이미지 목록, slot을 쥔 launch의 이미지 판정은 실행 확인하지 않았다(시험으로만 확인했다). runtime 표의 예외를 열 수 있는 것은 chart가 함께 넘기는 `UPGRADE_DEPLOYED_STATE`뿐이다. `absent`는 scheduler Deployment가 없고 namespace의 `default` ServiceAccount는 읽혔다는 뜻이다(그래서 이 경로에는 그 ServiceAccount의 `get` 권한이 필요하다). `unpinned`는 Deployment가 runtime·직전 이미지 없이 도는 상태다. `helm template`과 클라이언트 `--dry-run`에서는 `lookup`이 아무것도 읽지 않아 배포된 값이 모두 비므로 그 렌더로 돌린 Job은 `check_failed`가 된다. `--dry-run=server`는 클러스터를 읽지만 hook을 실행하지 않으므로 판정을 대신하지 않는다. 검사는 `DATABASE_URL`이 이 설치의 DB라고 믿는다. 다른 빈 DB를 가리키면 `absent` 경로가 통과한다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
+Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로, 배포된 직전 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`(없으면 빈 값)로, 각각의 runtime을 `UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME`·`UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS_RUNTIME`으로 받는다. 배포된 scheduler가 이미지 목록(`WORKER_IMAGES`)으로 돌면 그 목록을 `UPGRADE_DEPLOYED_WORKER_IMAGES`로 받는다. chart가 지금 scheduler Deployment의 이 값들을 `lookup`으로 읽어 이름 앞에 `UPGRADE_DEPLOYED_`를 붙여 넘긴다. 배포된 runtime이 없으면 그 이미지는 digest로만 비교한다. runtime 표의 예외를 열 수 있는 것은 chart가 함께 넘기는 `UPGRADE_DEPLOYED_STATE`뿐이다. `absent`는 scheduler Deployment가 없고 namespace의 `default` ServiceAccount는 읽혔다는 뜻이다(그래서 이 경로에는 그 ServiceAccount의 `get` 권한이 필요하다). `unpinned`는 Deployment가 runtime·직전 이미지 없이 도는 상태다. `helm template`과 클라이언트 `--dry-run`에서는 `lookup`이 아무것도 읽지 않아 배포된 값이 모두 비므로 그 렌더로 돌린 Job은 `check_failed`가 된다. `--dry-run=server`는 클러스터를 읽지만 hook을 실행하지 않으므로 판정을 대신하지 않는다. 검사는 `DATABASE_URL`이 이 설치의 DB라고 믿는다. 다른 빈 DB를 가리키면 `absent` 경로가 통과한다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
 
 **`helm rollback` 전.** rollback은 hook을 돌리지 않으므로 같은 명령을 api Pod에서 직접 돌린다. 값은 되돌릴 revision의 것(`helm get values --revision <revision>`)을 넣는다.
 
@@ -243,7 +239,7 @@ kubectl -n werft exec deploy/werft-api -- env \
   bun run apps/control-host/src/api/upgrade-check.ts
 ```
 
-배포된 scheduler가 이미지 목록으로 돌면 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 시작하는 네 값 대신 그 scheduler의 `WORKER_IMAGES`를 `UPGRADE_DEPLOYED_WORKER_IMAGES`로 넣는다. 그 설치의 api Pod도 `WORKER_IMAGES`를 가지므로, 단일 이미지 revision으로 되돌리는 검사는 `env -u WORKER_IMAGES`로 그 값을 빼고 돌린다. 빼지 않으면 `WORKER_IMAGES replaces WORKER_IMAGE`로 `check_failed`다. 되돌릴 revision을 runtime 없이 배포했다면 `WORKER_IMAGE_RUNTIME`은 그 릴리스 manifest의 `workerRuntime`에서 얻는다([이미지 목록 설치의 upgrade](#이미지-목록-설치의-upgrade)의 `KNOWN`과 같다). 비우면 `check_failed`다. 되돌릴 revision도 목록이면 `WORKER_IMAGE`로 시작하는 네 값 대신 그 revision의 scheduler가 받은 `WORKER_IMAGES`를 넣는다(`helm get manifest --revision <revision>`에 있다). 단일 이미지 revision으로 되돌리는 검사만 kind에서 실행 확인했다.
+배포된 scheduler가 이미지 목록으로 돌면 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 시작하는 네 값 대신 그 scheduler의 `WORKER_IMAGES`를 `UPGRADE_DEPLOYED_WORKER_IMAGES`로 넣는다. 그 설치의 api Pod도 `WORKER_IMAGES`를 가지므로, 단일 이미지 revision으로 되돌리는 검사는 `env -u WORKER_IMAGES`로 그 값을 빼고 돌린다. 빼지 않으면 `WORKER_IMAGES replaces WORKER_IMAGE`로 `check_failed`다. 되돌릴 revision을 runtime 없이 배포했다면 `WORKER_IMAGE_RUNTIME`은 그 릴리스 manifest의 `workerRuntime`에서 얻는다([이미지 목록 설치의 upgrade](#이미지-목록-설치의-upgrade)의 `KNOWN`과 같다). 비우면 `check_failed`다. 되돌릴 revision도 목록이면 `WORKER_IMAGE`로 시작하는 네 값 대신 그 revision의 scheduler가 받은 `WORKER_IMAGES`를 넣는다(`helm get manifest --revision <revision>`에 있다).
 
 worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 지금 이미지가 새 SDK·CLI를 실었다면 되돌릴 revision의 이미지 어느 것도 지금 이미지가 봉인하는 checkpoint를 복원하지 못하기 때문이다. 조합이 같은 재빌드로 되돌리는 rollback은 세션을 비교한다. 설정이나 DB를 읽지 못하면 `check_failed`다. 지금 이미지로 도는 worker는 rollback 뒤에도 끝날 때까지 그 이미지의 조합으로 checkpoint를 남기는데, 검사는 그 checkpoint를 보지 못한다. 출력의 `affected`는 검사 시점에 이미 고른 세션이다. 롤포워드가 우선이다. 그래도 되돌리면 재개할 때 scheduler가 조합으로 이미지를 고른다. 되돌린 revision의 worker 이미지와 직전 이미지(있다면) 어느 쪽과도 조합이 맞지 않는 세션(지금 이미지가 새 SDK·CLI를 실었다면 rollback 동안 지금 이미지로 checkpoint를 남긴 세션)은 `recovery_required`로 멈춘다. `images.worker`를 그대로 두는 rollback은 지금 배포된 직전 이미지가 되돌릴 revision에도 그대로 있으면 승인 목록이 비어 있을 때 `proceed`이고(남은 승인은 `refused`), 빠지거나 바뀌면 이 페이지의 upgrade 검사처럼 세션을 비교한다. 이 명령은 hook이 아니어서 rollback을 막아 주지 않는다. `refused`가 나오면 `affected`를 읽고 되돌릴지 정한다. 배포된 worker 이미지가 있는데 `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`를 빼면 `check_failed`다.
 
@@ -251,11 +247,7 @@ worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 지금 이�
 
 ### 4. 파일 카탈로그 설치에서 오는 경우
 
-`catalog` 값을 쓰던 chart의 ConfigMap은 지금 chart에 없다. Helm은 hook이 끝난 뒤에 옛 리소스를 지우므로, pre-upgrade migrate Job이 같은 ConfigMap을 `/legacy-config`에 선택 마운트해 `settings seed --from-dir /legacy-config`로 가져온다. DB에 연결이나 MCP 서버가 이미 있으면 가져오지 않고, 한 번 정한 뒤로는 ConfigMap이 남아 있어도 다시 가져오지 않는다. 그 뒤 설정은 콘솔에서 바꾼다. 일부 파일만 있거나 값이 깨졌으면 Job이 실패하고 Deployment는 바뀌지 않는다.
-
-1. `PLATFORM_SECRET_KEY`를 Secret에 먼저 넣는다. 이미 있으면 같은 값을 그대로 둔다.
-2. values에서 `catalog` 절을 지우고 `helm upgrade`한다. `api.extraEnv`에 `PLATFORM_CONFIG_DIR`을 두었다면 지운다.
-3. 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 준비한 뒤 `bun run settings:k8s export`로 더해진 항목을 본다. 절차와 되돌리기 하한은 [설정 문서 가져오기·내보내기](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)에 있다.
+지금 chart는 옛 `catalog` ConfigMap을 가져오지 않고, migrate Job은 seed를 돌지 않는다. 파일 카탈로그로 돌던 설치는 이 판보다 앞선 release로 먼저 올려 설정을 DB로 옮긴 뒤 올린다([설정 문서 가져오기·내보내기](/run-server/self-hosting/reference/configuration#설정-문서-가져오기내보내기)). `api.extraEnv`에 남은 `PLATFORM_CONFIG_DIR`은 읽지 않으므로 기동을 막지 않는다. 정리하려면 지운다.
 
 ## 확인
 
@@ -295,7 +287,7 @@ workerPrevious가 현재 배포 이미지가 아니면 승인으로 넘길 수 �
 
 upgrade 뒤 새 세션이 `queued`에 머물고 scheduler 로그에 `Worker image refused: a worker on it claimed under another runtime than configured`가 나오면 `images.worker.runtime`이 그 worker 이미지의 값이 아니다. runtime을 다시 빼는 upgrade는 `check_failed`(`WORKER_IMAGE_RUNTIME is not set`)로 막힌다. 그 이미지가 출력하는 runtime([설정 레퍼런스의 API 설정](/run-server/self-hosting/reference/configuration))을 `images.worker.runtime`에 그대로 넣어 다시 upgrade한다. 단일 이미지 절차의 `worker.json`은 이 값을 대상 릴리스의 `files/release-images.json`에서 가져온다. 기다리던 세션은 그 뒤에 launch된다.
 
-`refused`나 `check_failed`로 멈춘 upgrade도 Helm revision을 하나씩 쓴다. Helm은 기본으로 revision을 10개만 남기므로, 여러 번 멈추면 되돌릴 revision이 history에서 사라진다. kind에서는 멈춘 upgrade 여덟 번과 성공한 upgrade 두 번 뒤에, 그 앞의 배포 revision이 `release: not found`가 됐다. history에서 사라진 revision으로는 `helm rollback`할 수 없고, 값을 따로 보관해도 마찬가지다. 여러 번 시도할 것 같으면 `helm upgrade`에 `--history-max`를 더 크게 준다(`0`은 제한 없음). 이 옵션을 준 upgrade는 실행 확인하지 않았다.
+`refused`나 `check_failed`로 멈춘 upgrade도 Helm revision을 하나씩 쓴다. Helm은 기본으로 revision을 10개만 남기므로, 여러 번 멈추면 되돌릴 revision이 history에서 사라진다. history에서 사라진 revision으로는 `helm rollback`할 수 없고, 값을 따로 보관해도 마찬가지다. 여러 번 시도할 것 같으면 `helm upgrade`에 `--history-max`를 더 크게 준다(`0`은 제한 없음).
 
 ## 되돌리기
 
@@ -304,7 +296,7 @@ helm -n werft history werft
 helm -n werft rollback werft <revision> --wait --timeout 10m
 ```
 
-롤백은 migrate hook을 돌리지 않는다(`pre-rollback`이 아니다). DB는 새 schema에 남고, 옛 빌드는 자기보다 앞선 schema에서도 ready가 된다(`/readyz`의 schema 검사는 자기 migration 목록이 적용된 목록의 앞부분과 같은지만 본다). 그래서 롤백할 수 없는 migration은 배포하지 않는다. 어느 이미지까지만 되돌릴 수 있는 migration(예: `0243`)은 그 하한을 [Compose 업그레이드 표](/run-server/self-hosting/upgrade-compose)에 이미지별로 적고, 하한 아래로는 롤백하지 않는다. worker 이미지를 되돌릴 때 checkpoint 호환은 [worker·control-host 롤백과 incremental checkpoint](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint)를 먼저 본다.
+롤백은 migrate hook을 돌리지 않는다(`pre-rollback`이 아니다). DB는 새 schema에 남고, 옛 빌드는 자기보다 앞선 schema에서도 ready가 된다(`/readyz`의 schema 검사는 자기 migration 목록이 적용된 목록의 앞부분과 같은지만 본다). [변경 기록](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)이 되돌릴 수 없다고 적은 릴리스 아래로는 롤백하지 않는다([실행 전 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)).
 
 링크한 공통 실행 전 게이트와 직접 검사에서 rollback 가능성을 확인한 뒤에만 되돌린다. hook이 없으므로 rollback 명령이 검사를 자동으로 막아 주지 않는다. 롤포워드가 우선이다.
 
@@ -323,7 +315,7 @@ WHERE image = '<repository>@sha256:<digest>'
   AND slot_released_at IS NULL;
 ```
 
-세 가지가 모두 맞으면 registry에서 지운다. 지운 뒤 그 이미지를 목록에 담은 Helm revision으로 rollback하면, 그 revision의 scheduler가 그 이미지로 launch할 때 이미지가 캐시되지 않은 노드에서는 pull에 실패한다(worker Pod는 `IfNotPresent`로 받는다). 되돌릴 수 있게 남겨 둘 revision이 담은 이미지는 지우지 않는다. 이 절차를 처음부터 끝까지 실행 확인하지는 않았다.
+세 가지가 모두 맞으면 registry에서 지운다. 지운 뒤 그 이미지를 목록에 담은 Helm revision으로 rollback하면, 그 revision의 scheduler가 그 이미지로 launch할 때 이미지가 캐시되지 않은 노드에서는 pull에 실패한다(worker Pod는 `IfNotPresent`로 받는다). 되돌릴 수 있게 남겨 둘 revision이 담은 이미지는 지우지 않는다.
 
 ## 다음에 읽을 곳
 

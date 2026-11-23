@@ -8,6 +8,7 @@ import {
   type PushReasonCode,
   type PushRefusal,
 } from "@werft-ai/contracts";
+import { messageOf } from "@werft-ai/runtime-core";
 import {
   repositoryBinding,
   repositoryUpstreamOf,
@@ -226,7 +227,7 @@ export function createPushExecutor(deps: {
       // (ForgeCredentialError, the pusher's own wording).
       logger.warn("Push failed", {
         push_request_id: job.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
       outcome = { state: "failed", refusal: "push_failed" };
     }
@@ -255,7 +256,7 @@ export function createPushExecutor(deps: {
       },
       (error) =>
         logger.warn("Push executor could not claim", {
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         }),
     );
   }

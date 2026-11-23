@@ -68,6 +68,7 @@ import {
   type ResolvedCredential,
   type RestoreBaseInput,
   type RestoreBaseResult,
+  reservationTokens,
   runnableOfEngine,
   runtimeConfigOfSpec,
   runtimeShipped,
@@ -1213,6 +1214,7 @@ export async function moveSessionsToSuccessors(
           isNull(sessions.podId),
           inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
           isNull(sessions.executionRevokedAt),
+          isNull(sessions.sourceDeletedAt),
           isNull(sessions.takeoverRequiredAt),
           sql`NOT EXISTS (
             SELECT 1 FROM ${agentReleases} AS r
@@ -1312,12 +1314,18 @@ async function earlierConfigs(tx: Database, sessionId: string) {
       builtinToolsDenyOf(held.callerLimit),
     ),
   };
-  return withEarlierConfig(
-    held.legacy,
+  const ran =
     held.platformPrompt === null
       ? limited
-      : { ...limited, platform_prompt: held.platformPrompt },
-  );
+      : { ...limited, platform_prompt: held.platformPrompt };
+  // A digest scheme 1 checkpoint hashed the mode the spec recorded, which a
+  // claim no longer runs; it is kept next to the one the session runs.
+  const recorded = source.data.permission_mode;
+  const kept =
+    recorded === ran.permission_mode
+      ? held.legacy
+      : withEarlierConfig(held.legacy, { ...ran, permission_mode: recorded });
+  return withEarlierConfig(kept, ran);
 }
 
 function versionUnknownHere(
@@ -2174,6 +2182,7 @@ export function createPostgresWorkerUnitOfWork(
                 isNull(sessions.podId),
                 inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
                 isNull(sessions.executionRevokedAt),
+                isNull(sessions.sourceDeletedAt),
                 isNull(sessions.takeoverRequiredAt),
                 runnableCondition(runnable),
                 withinBudget(input.budget),
@@ -2231,6 +2240,7 @@ export function createPostgresWorkerUnitOfWork(
           locked.podId !== null ||
           !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
           locked.executionRevokedAt !== null ||
+          locked.sourceDeletedAt !== null ||
           locked.takeoverRequiredAt !== null ||
           (locked.restoreRetryAt !== null &&
             locked.restoreRetryAt > (await dbNow(tx)))
@@ -2592,7 +2602,10 @@ export function createPostgresWorkerUnitOfWork(
           if (payloadHash(was) !== payloadHash(call)) {
             return { outcome: "conflict" };
           }
-          const ledger = await settleProviderExchange(tx, input);
+          const ledger = await settleProviderExchange(tx, {
+            ...input,
+            actual: { costUsd, tokens: reservationTokens(input.usage) },
+          });
           return {
             outcome: "replayed",
             costUsd,
@@ -2606,7 +2619,13 @@ export function createPostgresWorkerUnitOfWork(
             costUsd: sql`LEAST(${sessions.costUsd} + ${inserted.costUsd}::numeric, ${MAX_SESSION_COST_USD})`,
           })
           .where(eq(sessions.id, input.sessionId));
-        const ledger = await settleProviderExchange(tx, input);
+        const ledger = await settleProviderExchange(tx, {
+          ...input,
+          actual: {
+            costUsd: inserted.costUsd,
+            tokens: reservationTokens(input.usage),
+          },
+        });
         return {
           outcome: "recorded",
           costUsd: inserted.costUsd,
@@ -2701,6 +2720,11 @@ export function createPostgresWorkerUnitOfWork(
         // only a new one is refused.
         if (overBudget && !redelivery) return none;
         if (fenced.session.takeoverRequiredAt !== null && !redelivery) {
+          return none;
+        }
+        // Nor one of a session a deleted source stopped: the turn this
+        // attempt holds finishes, and the session drains to paused.
+        if (fenced.session.sourceDeletedAt !== null && !redelivery) {
           return none;
         }
         // Nor a turn queued before the session stopped taking new ones (a
@@ -3901,11 +3925,14 @@ export function createPostgresWorkerUnitOfWork(
         const closedNow = drained && drain?.settlesInto === "closed";
         const pauseFailed =
           pauseBlockedBy !== undefined && pauseBlockedBy !== null;
-        const pauseFailedInto = storedPendingReasonHoldsWork(
-          session.checkpointPendingReason,
-        )
-          ? "recovery_required"
-          : "active";
+        // Nor does a session a deleted source stopped go back to active: it
+        // would sit there with nothing able to run or close it cleanly, so
+        // it waits for an operator's close.
+        const pauseFailedInto =
+          storedPendingReasonHoldsWork(session.checkpointPendingReason) ||
+          session.sourceDeletedAt !== null
+            ? "recovery_required"
+            : "active";
         // A worker that claimed a resuming session and ended before it
         // reported ready did not prove the checkpoint restores, nor that it
         // cannot: the session stays resuming and is signalled again until

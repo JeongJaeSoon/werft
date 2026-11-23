@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { UUID } from "./control-shared.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
-import { idempotencyKeys, receipts, sessionLinks } from "./schema.ts";
+import { idempotencyKeys, receipts, sessionLinks, turns } from "./schema.ts";
 
 const t = sessionLinks;
 
@@ -24,10 +24,13 @@ const columns = {
   revokedAt: t.revokedAt,
 };
 
-const byKey = (installationId: string, surfaceRef: string) =>
+// The thread's open link: closed ones stay as its history. A revoked link is
+// open, so its thread stays blocked.
+const openByKey = (installationId: string, surfaceRef: string) =>
   and(
     eq(t.installationId, installationId.toLowerCase()),
     eq(t.surfaceRef, surfaceRef),
+    isNull(t.closedAt),
   );
 
 export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
@@ -37,20 +40,36 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
       const [row] = await db
         .select(columns)
         .from(t)
-        .where(byKey(installationId, surfaceRef))
+        .where(openByKey(installationId, surfaceRef))
         .limit(1);
       return row ?? null;
     },
 
     reserve(input) {
       return db.transaction(async (tx) => {
+        const installationId = input.installationId.toLowerCase();
+        // No row lock covers a link that is not there yet; this lock lets one
+        // reservation of the thread at a time look and insert. Taken first,
+        // with nothing else held, so it orders after no other lock.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${`session_links:${installationId}:${input.surfaceRef}`}, 0))`,
+        );
+        const open = () =>
+          tx
+            .select(columns)
+            .from(t)
+            .where(openByKey(installationId, input.surfaceRef))
+            .limit(1)
+            .for("update");
+        const [held] = await open();
+        if (held) return { link: held, reserved: false };
         const [inserted] = await tx
           .insert(t)
           .values({
             id: randomUUID(),
             workspaceId: input.workspaceId,
             ownerId: input.workspaceId,
-            installationId: input.installationId.toLowerCase(),
+            installationId,
             surfaceBindingId: input.surfaceBindingId,
             surfaceRef: input.surfaceRef,
             channelId: input.channelId,
@@ -60,20 +79,17 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
             releaseId: input.releaseId,
             createdBy: input.createdBy,
           })
-          .onConflictDoNothing({ target: [t.installationId, t.surfaceRef] })
+          // No target, so the open-only unique is an arbiter: a writer that
+          // skipped the lock is a conflict here, not an error.
+          .onConflictDoNothing()
           .returning(columns);
         if (inserted) return { link: inserted, reserved: true };
-        // The other event's insert has committed: ON CONFLICT waited for it.
-        const [held] = await tx
-          .select(columns)
-          .from(t)
-          .where(byKey(input.installationId, input.surfaceRef))
-          .limit(1)
-          .for("update");
-        if (!held) {
+        // That writer's insert has committed: ON CONFLICT waited for it.
+        const [theirs] = await open();
+        if (!theirs) {
           throw new Error(`session link ${input.surfaceRef} vanished`);
         }
-        return { link: held, reserved: false };
+        return { link: theirs, reserved: false };
       });
     },
 
@@ -102,6 +118,22 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
       const made = (row?.result as { session_id?: unknown } | null | undefined)
         ?.session_id;
       return typeof made === "string" ? made : null;
+    },
+
+    async slackTurn(sessionId, message) {
+      const [row] = await db
+        .select({ sequence: turns.sequence, requesterId: turns.requesterId })
+        .from(turns)
+        .where(
+          and(
+            eq(turns.sessionId, sessionId.toLowerCase()),
+            sql`${turns.slackMessage}->>'team_id' = ${message.teamId}`,
+            sql`${turns.slackMessage}->>'channel_id' = ${message.channelId}`,
+            sql`${turns.slackMessage}->>'ts' = ${message.ts}`,
+          ),
+        )
+        .limit(1);
+      return row ?? null;
     },
 
     async reopen(linkId, openedByTs) {

@@ -17,6 +17,7 @@ import {
   type ObjectRef,
   type PutImmutableResult,
   type SavedCost,
+  sha256Hex,
   TRANSCRIPT_LIMITS,
   type TranscriptEntry,
   type TranscriptInheritance,
@@ -278,7 +279,7 @@ export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
       this.#known.add(key);
       this.#parts.set(key, Promise.resolve(bytes));
       this.#sizes.set(key, bytes.byteLength);
-      this.#digests.set(key, sha256(bytes));
+      this.#digests.set(key, sha256Hex(bytes));
       if (written.version !== undefined)
         this.#versions.set(key, written.version);
       return;
@@ -711,7 +712,7 @@ export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
           : [body, LINE_BREAK],
       ),
     );
-    const digest = sha256(bytes);
+    const digest = sha256Hex(bytes);
     const key = `${directory}merged-${digest}.jsonl`;
     const written = await this.#objects.putImmutable(key, bytes, {
       contentAddressed: true,
@@ -778,7 +779,7 @@ export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
     if (known !== undefined && this.#digests.has(key)) return known;
     const body = await this.#cached(key);
     this.#sizes.set(key, body.byteLength);
-    this.#digests.set(key, sha256(body));
+    this.#digests.set(key, sha256Hex(body));
     return body.byteLength;
   }
 
@@ -860,7 +861,7 @@ export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
     const bodies = await Promise.all(
       revision.parts.map(async (part) => {
         const body = await this.#read(part.key, part.version);
-        if (sha256(body) !== part.sha256) {
+        if (sha256Hex(body) !== part.sha256) {
           throw new Error(`Transcript revision integrity failure: ${part.key}`);
         }
         return body;
@@ -942,7 +943,7 @@ export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
    */
   async #adoptedBody(part: ObjectRef): Promise<Uint8Array> {
     const body = await this.#read(part.key, part.version);
-    if (body.byteLength !== part.bytes || sha256(body) !== part.sha256) {
+    if (body.byteLength !== part.bytes || sha256Hex(body) !== part.sha256) {
       throw new Error(`Inherited transcript part changed: ${part.key}`);
     }
     return body;
@@ -1357,10 +1358,6 @@ function parseEntries(bytes: Uint8Array): TranscriptEntry[] {
 function partIndex(key: string): number | undefined {
   const match = key.match(/\/part-(\d{10})\.jsonl$/);
   return match?.[1] === undefined ? undefined : Number(match[1]);
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function safeSegment(value: string): string {

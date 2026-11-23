@@ -35,7 +35,7 @@ import {
   SessionServiceError,
 } from "../musterrolle/index.ts";
 import type { WorkerLimits } from "../scheduler/ports/execution-backend.ts";
-import { viewerOf } from "../sessions/index.ts";
+import { viewerFor } from "../sessions/index.ts";
 import type {
   UsageAchievementCountsRecord,
   UsageBreakdownFiguresRecord,
@@ -380,7 +380,7 @@ export function createUsageService(deps: {
           : { categoryId: query.category_id }),
         recentLimit: USAGE_RECENT_ACHIEVEMENTS_LIMIT,
         ownerId: actor.ownerId,
-        viewer: viewerOf(actor),
+        viewer: await viewerFor(authorization, actor),
       });
       const counts = (row: UsageAchievementCountsRecord) => ({
         achievement_count: row.achievementCount,
@@ -546,7 +546,7 @@ export function createUsageService(deps: {
         limit: query.limit,
         ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
         ownerId: actor.ownerId,
-        viewer: viewerOf(actor),
+        viewer: await viewerFor(authorization, actor),
       });
       return {
         calls: page.calls.map((call) => ({

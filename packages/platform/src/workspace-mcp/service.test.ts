@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
+import { userPrincipal } from "@werft-ai/testkit/callers";
 import {
   type Caller,
   callerFor,
@@ -13,7 +14,7 @@ import {
   fakeRemote,
   memoryWorkspaceMcpStore,
 } from "../testing/workspace-mcp-fakes.ts";
-import type { OutboundRequest } from "./ports.ts";
+import type { OutboundRequest } from "./ports/workspace-mcp-store.ts";
 import { createWorkspaceMcpService } from "./service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
@@ -25,13 +26,7 @@ const FAKE_TOKEN = "example-token-not-real";
 
 function user(id: string, role: WorkspaceRole): Caller {
   return callerFor(
-    {
-      kind: "user",
-      id,
-      workspace_id: WORKSPACE,
-      role,
-      scopes: [...scopesForRole(role)],
-    },
+    userPrincipal(id, WORKSPACE, role),
     { kind: "web" },
     crypto.randomUUID(),
   );

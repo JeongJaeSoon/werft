@@ -8,7 +8,7 @@ import type {
   WorkspaceMcpRevocation,
   WorkspaceMcpServerRecord,
   WorkspaceMcpStore,
-} from "../workspace-mcp/ports.ts";
+} from "../workspace-mcp/ports/workspace-mcp-store.ts";
 
 export const FAKE_MCP_URL = "https://mcp.example.com/v1/mcp";
 export const FAKE_ISSUER = "https://auth.example.com";
@@ -365,7 +365,7 @@ export function memoryWorkspaceMcpStore(
       if (pinned === null) return { outcome: "not_found" };
       stored.flow = {
         flowId: input.flowId,
-        stateSha256: input.stateSha256,
+        stateSha256: Buffer.from(input.stateSha256),
         startedByUserId: input.actorUserId,
         expiresAt: input.expiresAt,
         verifier: input.verifier,

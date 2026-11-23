@@ -992,8 +992,9 @@ describe("sessions list", () => {
     expect(within(row).getByText(SESSION_ID.slice(0, 8))).toBeTruthy();
     const untitled = screen.getByRole("link", { name: opener(OTHER_ID) });
     const bare = untitled.closest('[role="row"]') as HTMLElement;
-    // No agent and no channel in the summary: placeholders, not guesses.
-    expect(within(bare).getAllByText("—")).toHaveLength(2);
+    // No agent and no channel in the summary: what is known, not guesses.
+    expect(within(bare).getByText("에이전트 없음")).toBeTruthy();
+    expect(within(bare).getAllByText("—")).toHaveLength(1);
   });
 
   test("a row shows its agent and its channel, not who started it", async () => {
@@ -1010,6 +1011,7 @@ describe("sessions list", () => {
                 release_version_no: 2,
                 release_label: "2026-10-30_14:30:28",
                 release_is_active: true,
+                archived: false,
               },
               created_by: { user_id: OTHER_ID, display_name: "김하나" },
               channel: "slack",
@@ -3803,6 +3805,7 @@ describe("세션 공유 범위", () => {
       "워크스페이스(담당 팀 밖 사람은 보지 못함)",
     ],
     [share({ scope: "private" }), "세션을 가진 사람만"],
+    [share({ scope: "private_channel" }), "비공개 채널의 지금 멤버"],
     [
       share({ scope: "people", user_ids: [USER(1), USER(2), USER(3)] }),
       "지정한 사람 3명",
@@ -4096,6 +4099,7 @@ describe("세션의 릴리스", () => {
     release_version_no: 3,
     release_label: "2026-10-30_14:30:28-2",
     release_is_active: true,
+    archived: false,
   };
   const withSession = (body: Record<string, unknown>) => ({
     ...detailRoutes,
@@ -4191,6 +4195,51 @@ describe("세션의 릴리스", () => {
     expectMetaParts(piece);
   });
 
+  test.each([
+    ["ko", "보관됨"],
+    ["en", "Archived"],
+    ["ja", "アーカイブ済み"],
+  ] as const)(
+    "보관된 에이전트는 이름 뒤, 릴리스 앞에 '보관됨' 배지를 붙이고 이름 링크는 그대로다: %s",
+    async (locale, word) => {
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        withSession({ agent: { ...AGENT, archived: true } }),
+        locale,
+      );
+      const meta = await sessionMeta();
+      const link = await within(meta).findByRole("link", {
+        name: "Release helper",
+      });
+      const piece = link.parentElement as HTMLElement;
+      const badge = within(piece).getByText(word);
+      expect(badge.getAttribute("data-slot")).toBe("badge");
+      expect(link.textContent).toBe("Release helper");
+      // Name, then the badge, then the release.
+      const order = [...piece.children].map(
+        (child) => child.getAttribute("data-slot") ?? child.tagName,
+      );
+      expect(order.indexOf("badge")).toBe(order.indexOf("A") + 1);
+      expect(
+        (piece.textContent ?? "").indexOf(word) <
+          (piece.textContent ?? "").indexOf("2026-10-30_14:30:28-2"),
+      ).toBe(true);
+    },
+  );
+
+  test.each([false, null])(
+    "보관되지 않은 에이전트에는 배지가 없다: archived=%p",
+    async (archived) => {
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        withSession({ agent: { ...AGENT, archived } }),
+      );
+      const { piece } = await agentPiece();
+      expect(piece.querySelector("[data-slot=badge]") === null).toBe(true);
+      expect((piece.textContent ?? "").includes("보관됨")).toBe(false);
+    },
+  );
+
   test("라벨도 버전도 없으면 릴리스를 그리지 않는다", async () => {
     // A server answering outside the contract; production only warns.
     renderAt(
@@ -4207,17 +4256,21 @@ describe("세션의 릴리스", () => {
   });
 
   test.each([
-    ["에이전트 없이 만든 세션", { agent: null }],
-    ["볼 수 없는 에이전트의 세션", { agent: null, agent_hidden: true }],
+    ["에이전트 없이 만든 세션", { agent: null }, "에이전트 없음"],
+    [
+      "볼 수 없는 에이전트의 세션",
+      { agent: null, agent_hidden: true },
+      "볼 수 없는 에이전트",
+    ],
   ])(
-    "%s의 에이전트 조각은 '에이전트 없음'뿐이고 릴리스를 그리지 않는다",
-    async (_, body) => {
+    "%s의 에이전트 조각은 '%s'뿐이고 릴리스를 그리지 않는다",
+    async (_, body, words) => {
       renderAt(`/sessions/${SESSION_ID}`, withSession(body));
       const meta = await sessionMeta();
       // The words stand alone, so their own element is the agent piece.
-      const piece = await within(meta).findByText("에이전트 없음");
-      expect(piece.textContent).toBe("에이전트: 에이전트 없음");
-      expect(spoken(piece)).toBe("에이전트: 에이전트 없음");
+      const piece = await within(meta).findByText(words);
+      expect(piece.textContent).toBe(`에이전트: ${words}`);
+      expect(spoken(piece)).toBe(`에이전트: ${words}`);
       expect(within(piece).queryByRole("link") === null).toBe(true);
       expect(piece.querySelectorAll("[data-slot=text]")).toHaveLength(0);
       // Nor anywhere else on the line, outside the piece.

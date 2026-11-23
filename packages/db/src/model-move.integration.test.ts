@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { SpecSource } from "@werft-ai/contracts";
 import {
   type CatalogConnection,
   createWorkerGateway,
@@ -118,7 +119,11 @@ integration("a model moved at the next turn's claim", () => {
     });
 
   /** A queued session of a new agent's release on `model`. */
-  async function waiting(partition: string, model: string) {
+  async function waiting(
+    partition: string,
+    model: string,
+    spec: Partial<SpecSource> | undefined = undefined,
+  ) {
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -126,7 +131,10 @@ integration("a model moved at the next turn's claim", () => {
       principal: { ownerId: crypto.randomUUID() },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      agentReleaseId: await makeFixtureRelease(db, { model }),
+      agentReleaseId: await makeFixtureRelease(db, {
+        model,
+        ...(spec === undefined ? {} : { spec }),
+      }),
       model,
       repository: {
         id: "app",
@@ -225,6 +233,36 @@ integration("a model moved at the next turn's claim", () => {
       expect(old).toHaveLength(1);
       expect(old[0]?.tools).not.toContain("Bash");
       expect(old[0]?.tools.length).toBeGreaterThan(0);
+    },
+    TIMEOUT_MS,
+  );
+
+  // Before, a move kept only the mode the spec recorded.
+  test(
+    "a session whose spec recorded default keeps its earlier config in both modes",
+    async () => {
+      const offer = offerOf(["sonnet-5-1", "haiku-5-0"], SERIES);
+      const id = await waiting(
+        `recorded-${crypto.randomUUID()}`,
+        "sonnet-5-0",
+        {
+          permission_mode: "default",
+        },
+      );
+      const launch = await launchSession(db, { sessionId: id });
+
+      const claimed = await claimOf(gatewayFor(offer), launch);
+
+      expect(claimed.runtime_config.permission_mode).toBe("auto");
+      const kept = ((await rowOf(id)).legacyRuntimeConfigs ?? []) as Array<{
+        model: string;
+        permission_mode: string;
+      }>;
+      expect(
+        kept
+          .filter((config) => config.model === "sonnet-5-0")
+          .map((config) => config.permission_mode),
+      ).toEqual(["auto", "default"]);
     },
     TIMEOUT_MS,
   );

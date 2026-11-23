@@ -2,6 +2,8 @@ import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
+  budgetChoiceOfCall,
+  closeAgentlessSessions,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAchievementJudgments,
@@ -17,7 +19,9 @@ import {
   createPostgresAuditRetention,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
+  createPostgresChannelMemberStore,
   createPostgresCommitAttributionLedger,
+  createPostgresConversationCalls,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresEnvVariableStore,
@@ -68,6 +72,7 @@ import {
   createPostgresSlackInstallStore,
   createPostgresSlackOutboxStore,
   createPostgresSlackSettingsStore,
+  createPostgresSlackSourceMarkStore,
   createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
@@ -78,7 +83,9 @@ import {
   createPostgresWorkspaceMcpEgressStore,
   createPostgresWorkspaceMcpStore,
   createProviderExchangeLedger,
+  fillSessionParents,
   hasUncollectedCheckpoint,
+  moveSummaryLinks,
   newSessionGitHubReaders,
   reconcileRetiredCatalogDrafts,
   slackAppKind,
@@ -157,6 +164,7 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   messageOf,
+  pushRequesterLeft,
   registryCatalog,
   resolveAgentRelease,
   SessionServiceError,
@@ -177,9 +185,11 @@ import {
 } from "../wiring/github-api.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
+import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
   type SlackServicesStageDeps,
   wireSlackBot,
+  wireSlackChannelMembers,
   wireSlackChannels,
   wireSlackConfig,
   wireSlackInteractions,
@@ -198,7 +208,6 @@ import {
   installedRuntimeVersions,
   launchableKindsFromEnv,
   loadSecretKey,
-  refuseFileCatalog,
   runtimeVersionsFromEnv,
 } from "./catalog-config.ts";
 import {
@@ -386,7 +395,6 @@ const settings = (() => {
     throw error;
   }
 })();
-refuseFileCatalog(process.env);
 const secretKey = loadSecretKey(process.env);
 
 // Checked before the pool exists: a bucket that is missing is a startup
@@ -497,6 +505,75 @@ reconcileRetiredCatalogDrafts(db).then(
     );
   },
 );
+// Sessions accepted before a release was required; each start closes what
+// is left, so a session that failed here is tried again on the next.
+closeAgentlessSessions(db).then(
+  (sessions) => {
+    if (sessions.closed.length > 0) {
+      logger.info("Sessions without an agent release closed", {
+        sessions: sessions.closed.length,
+      });
+    }
+    for (const { sessionId, error } of sessions.failed) {
+      logger.warn(
+        "A session without an agent release could not be closed; the next start tries again",
+        {
+          session_id: sessionId,
+          error_name: error instanceof Error ? error.name : typeof error,
+        },
+      );
+    }
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Sessions without an agent release could not be read; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
+// Links from before the posting columns: each start moves the `summary` ones
+// left, so a failed start tries again on the next.
+moveSummaryLinks(db).then(
+  (moved) => {
+    if (moved > 0) logger.info("Summary session links moved", { links: moved });
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Summary session links could not be moved; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
+// Linked sessions from before their parent conversation was kept; each start
+// fills what is left, so one that failed or had no person is tried again.
+fillSessionParents(db).then(
+  ({ filled, skipped, failed }) => {
+    if (filled > 0) {
+      logger.info("Parent conversations filled", { sessions: filled });
+    }
+    if (skipped.no_person + skipped.no_membership > 0) {
+      logger.info("Linked DM sessions left without a parent conversation", {
+        no_person: skipped.no_person,
+        no_membership: skipped.no_membership,
+      });
+    }
+    for (const { sessionId, error } of failed) {
+      logger.warn(
+        "A session's parent conversation could not be filled; the next start tries again",
+        {
+          session_id: sessionId,
+          error_name: error instanceof Error ? error.name : typeof error,
+        },
+      );
+    }
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Sessions without a parent conversation could not be read; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
 if (checkpointStorage !== "disabled") {
   await assertCheckpointObjectsPresent(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
@@ -510,6 +587,15 @@ const checkpoints = createApiCheckpoints(
 const credentialBindings = createPostgresCredentialBindingStore(db);
 const slackGuests = createPostgresSlackGuestSetting(db);
 const sessionShares = createPostgresSessionShareStore(db);
+const slackSecretStore = () => createPostgresSecretStore(db, secretKey);
+const slackAppStore = createPostgresSlackAppStore(db, secretKey);
+const slackChannelMembers = wireSlackChannelMembers({
+  apiUrl: slackApiUrlFrom(process.env),
+  appStore: slackAppStore,
+  secrets: slackSecretStore,
+  store: createPostgresChannelMemberStore(db),
+  logger,
+});
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
@@ -518,13 +604,12 @@ const authorization = createAuthorizationPolicy({
   credentials: credentialBindings,
   slackGuests,
   sessions: sessionShares,
+  channelMembers: slackChannelMembers,
   decisions: createPostgresDecisionLog(db),
   logger,
 });
 const agentStore = createPostgresAgentStore(db);
 const surfaceBindingStore = createPostgresSurfaceBindingStore(db);
-const slackSecretStore = () => createPostgresSecretStore(db, secretKey);
-const slackAppStore = createPostgresSlackAppStore(db, secretKey);
 const {
   api: slackBotApi,
   join: slackJoin,
@@ -596,6 +681,7 @@ const pendingRequests = createPendingRequestService({
 const members = createMemberService({
   authorization,
   store: createPostgresMemberStore(db),
+  sessions: sessionShares,
 });
 const slackInstallStore = createPostgresSlackInstallStore(db);
 const slackIdentityStore = createPostgresAgentIdentityStore(db);
@@ -698,6 +784,8 @@ const {
   tokenRevoked: slackTokenRevoked,
   agentAuthority: createDatabaseAgentAuthority(db),
   inbox: createPostgresSlackInboundEventStore(db),
+  sourceMarks: createPostgresSlackSourceMarkStore(db),
+  mirrorEchoes: createPostgresSlackOutboxStore(db),
   identities: slackIdentityStore,
   installs: slackInstallStore,
   bindings: surfaceBindingStore,
@@ -1087,6 +1175,8 @@ const githubMcpGrantKey =
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
 // Skill trees live in the checkpoint bucket; without one the routes are absent.
 const skillObjects = extensionBundleObjects(checkpointStorage);
+// One host reader for auto-approve and the review screen, so they agree.
+const skillHosts = renderedHostExtractor;
 const skillGitSync =
   skillObjects === undefined
     ? undefined
@@ -1096,6 +1186,7 @@ const skillGitSync =
         bundles: createExtensionBundleService({
           store: createPostgresExtensionBundleStore(db),
           objects: skillObjects,
+          hosts: skillHosts,
         }),
         reader: wireGitHubSkillReader({ logger }),
         apps: (workspaceId) =>
@@ -1127,6 +1218,7 @@ const skills =
         authorization,
         store: createPostgresExtensionBundleStore(db),
         objects: skillObjects,
+        hosts: skillHosts,
         ...(skillGitSync === undefined
           ? {}
           : { gitSources: (workspaceId) => skillGitSync.views(workspaceId) }),
@@ -1204,6 +1296,7 @@ const workers = createWorkerGateway({
     store: judgmentEgress,
     upstream: judgeConnections.upstream,
   },
+  conversationCalls: { store: createPostgresConversationCalls(db) },
   ...(titleEgressUrl === null
     ? {}
     : {
@@ -1249,6 +1342,7 @@ const authorizerListener =
             admits: async () =>
               admitsReservations(await installationConfig.sessionBudget()),
           }),
+          budgetOf: (call) => budgetChoiceOfCall(db, call),
           ...(githubMcpGrantKey === null
             ? {}
             : {
@@ -1321,6 +1415,12 @@ const slackInteractions = wireSlackInteractions({
   sessions,
   followUps: createPostgresPushFollowUpStore(db),
   outbox: createPostgresSlackOutboxStore(db),
+  // The card's label asks what the policy asks a press (answer 15).
+  requesterLeft: (push) =>
+    pushRequesterLeft(
+      { sessions: sessionShares, channelMembers: slackChannelMembers, logger },
+      push,
+    ),
   consoleOrigin,
   logger,
 });
@@ -1468,6 +1568,7 @@ const app = createApiApp({
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
+      stopWaiting: shutdown.stopWaiting,
       ...settings.sse,
     });
   },

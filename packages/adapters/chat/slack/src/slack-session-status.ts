@@ -2,7 +2,11 @@ import type {
   SlackThreadStatusFacts,
   SlackThreadStatusStore,
 } from "@werft-ai/platform";
-import { type PushSource, pushApprovability } from "@werft-ai/platform";
+import {
+  messageOf,
+  type PushSource,
+  pushApprovability,
+} from "@werft-ai/platform";
 import {
   SlackApiError,
   type SlackBotApi,
@@ -295,7 +299,7 @@ export async function writeSlackThreadStatuses(deps: {
         // One thread's failure leaves the others, and the outbox, going.
         deps.logger.warn("Slack status step failed for a thread", {
           ...ids,
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         });
       }
     }

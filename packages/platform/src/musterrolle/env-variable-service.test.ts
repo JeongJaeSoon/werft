@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   ENV_VARIABLE_VALUE_MAX_BYTES,
-  scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import { userPrincipal } from "@werft-ai/testkit/callers";
 import {
   createEnvVariableService,
   envVariableViewOf,
@@ -44,13 +44,7 @@ const agents: AgentAuthority = {
 
 function user(id: string, role: WorkspaceRole): Caller {
   return callerFor(
-    {
-      kind: "user",
-      id,
-      workspace_id: WORKSPACE,
-      role,
-      scopes: [...scopesForRole(role)],
-    },
+    userPrincipal(id, WORKSPACE, role),
     { kind: "web" },
     crypto.randomUUID(),
   );

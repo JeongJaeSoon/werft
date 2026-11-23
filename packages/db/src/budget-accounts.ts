@@ -1,0 +1,465 @@
+import type { BudgetAccountId } from "@werft-ai/contracts";
+import {
+  admitsBudgetReserve,
+  assertBudgetAmount,
+  type BudgetAmount,
+  type BudgetLedger,
+  type BudgetLimit,
+  type BudgetOwner,
+  type BudgetReleaseResult,
+  type BudgetReserveInput,
+  type BudgetReserveResult,
+  type BudgetSettleResult,
+  personLimitOf,
+} from "@werft-ai/platform";
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { DB_NOW } from "./db-clock.ts";
+import type { Database } from "./queries.ts";
+import { budgetAccounts, budgetLimits, budgetReservations } from "./schema.ts";
+
+/** What a budget limit row is for. */
+export type BudgetLimitTarget =
+  | { kind: "person_default" }
+  | { kind: "user"; userId: string }
+  | { kind: "team"; teamId: string };
+
+function subjectOf(target: BudgetLimitTarget) {
+  return {
+    subject: target.kind,
+    subjectId:
+      target.kind === "user"
+        ? target.userId
+        : target.kind === "team"
+          ? target.teamId
+          : null,
+  };
+}
+
+function subjectIs(workspaceId: string, target: BudgetLimitTarget) {
+  const { subject, subjectId } = subjectOf(target);
+  return and(
+    eq(budgetLimits.workspaceId, workspaceId),
+    eq(budgetLimits.subject, subject),
+    subjectId === null
+      ? isNull(budgetLimits.subjectId)
+      : eq(budgetLimits.subjectId, subjectId),
+  );
+}
+
+/** Sets one limit row; null removes it, which is no limit. */
+export async function saveBudgetLimit(
+  db: Database,
+  workspaceId: string,
+  target: BudgetLimitTarget,
+  limit: BudgetLimit | null,
+): Promise<void> {
+  if (limit !== null) assertBudgetAmount(limit);
+  if (limit === null) {
+    await db.delete(budgetLimits).where(subjectIs(workspaceId, target));
+    return;
+  }
+  await db
+    .insert(budgetLimits)
+    .values({ workspaceId, ...subjectOf(target), ...limit })
+    .onConflictDoUpdate({
+      target: [
+        budgetLimits.workspaceId,
+        budgetLimits.subject,
+        budgetLimits.subjectId,
+      ],
+      set: { ...limit, updatedAt: DB_NOW },
+    });
+}
+
+/** The limit an owner's account is held to; null is none. */
+export async function budgetLimitOf(
+  db: Database,
+  workspaceId: string,
+  owner: BudgetOwner,
+): Promise<BudgetLimit | null> {
+  const rows = await db
+    .select({
+      subject: budgetLimits.subject,
+      costUsd: budgetLimits.costUsd,
+      tokens: budgetLimits.tokens,
+    })
+    .from(budgetLimits)
+    .where(
+      owner.kind === "team"
+        ? subjectIs(workspaceId, { kind: "team", teamId: owner.teamId })
+        : or(
+            subjectIs(workspaceId, { kind: "user", userId: owner.userId }),
+            subjectIs(workspaceId, { kind: "person_default" }),
+          ),
+    );
+  const of = (subject: string): BudgetLimit | null => {
+    const row = rows.find((candidate) => candidate.subject === subject);
+    return row ? { costUsd: row.costUsd, tokens: row.tokens } : null;
+  };
+  return owner.kind === "team"
+    ? of("team")
+    : personLimitOf(of("user"), of("person_default"));
+}
+
+// The month an account period covers, read once per reserve so the insert
+// and the lock name the same month across a boundary. a0 cuts months in UTC.
+async function currentPeriodStart(tx: Database): Promise<string> {
+  const [row] = await tx
+    .select({
+      start: sql<string>`date_trunc('month', ${DB_NOW} AT TIME ZONE 'UTC')::date::text`,
+    })
+    .from(sql`(SELECT 1) AS one`);
+  if (!row) throw new Error("clock_timestamp() unreadable");
+  return row.start;
+}
+
+// The scale of the cost columns, so a replay compares what was stored.
+const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
+
+function ownerColumns(owner: BudgetOwner) {
+  return owner.kind === "user"
+    ? { ownerKind: "user" as const, ownerId: owner.userId }
+    : { ownerKind: "team" as const, ownerId: owner.teamId };
+}
+
+/** This month's account row of an owner, made if missing, locked. */
+async function lockCurrentAccount(
+  tx: Database,
+  workspaceId: string,
+  owner: BudgetOwner,
+) {
+  const columns = ownerColumns(owner);
+  const periodStart = await currentPeriodStart(tx);
+  await tx
+    .insert(budgetAccounts)
+    .values({
+      id: crypto.randomUUID() as BudgetAccountId,
+      workspaceId,
+      ...columns,
+      periodStart,
+    })
+    .onConflictDoNothing();
+  const [account] = await tx
+    .select()
+    .from(budgetAccounts)
+    .where(
+      and(
+        eq(budgetAccounts.workspaceId, workspaceId),
+        eq(budgetAccounts.ownerKind, columns.ownerKind),
+        eq(budgetAccounts.ownerId, columns.ownerId),
+        eq(budgetAccounts.periodStart, periodStart),
+      ),
+    )
+    .for("update");
+  if (!account) throw new Error("budget account row missing after insert");
+  return account;
+}
+
+/**
+ * The first key of the two-key advisory lock every reserve, settle and
+ * release of one call takes first, before any row lock: so the three of one
+ * call run one after the other, and each takes the account row after it.
+ * Apart from the provider exchange ledger's spaces (provider-exchanges.ts).
+ */
+export const BUDGET_CALL_LOCK_SPACE = 1_380_271_444;
+
+export async function lockBudgetCall(
+  tx: Database,
+  callId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(${BUDGET_CALL_LOCK_SPACE}::int, hashtext(${callId}))`,
+  );
+}
+/** The same reserve again, or another under its id; null when none. */
+async function replayOf(
+  tx: Database,
+  input: BudgetReserveInput,
+  costUsd: number,
+): Promise<BudgetReserveResult | null> {
+  const [row] = await tx
+    .select({
+      reservation: budgetReservations,
+      ownerKind: budgetAccounts.ownerKind,
+      ownerId: budgetAccounts.ownerId,
+    })
+    .from(budgetReservations)
+    .leftJoin(
+      budgetAccounts,
+      eq(budgetAccounts.id, budgetReservations.accountId),
+    )
+    .where(eq(budgetReservations.callId, input.callId));
+  if (!row) return null;
+  const owner = input.choice.owner;
+  const sameOwner =
+    owner === null
+      ? row.ownerKind === null
+      : row.ownerKind === ownerColumns(owner).ownerKind &&
+        row.ownerId === ownerColumns(owner).ownerId;
+  const same =
+    sameOwner &&
+    row.reservation.workspaceId === input.workspaceId &&
+    row.reservation.rootKind === input.choice.rootKind &&
+    row.reservation.unmetered === input.unmetered &&
+    row.reservation.costUsd === costUsd &&
+    row.reservation.tokens === input.reserve.tokens;
+  return same
+    ? { outcome: "replayed", state: row.reservation.state }
+    : { outcome: "conflict" };
+}
+
+/**
+ * The reserve in a transaction the caller holds. Takes the call's lock, then
+ * the account row: a caller may hold advisory locks of its own before it,
+ * but no row lock an account's holder could be waiting on.
+ */
+export async function reserveBudgetIn(
+  tx: Database,
+  input: BudgetReserveInput,
+): Promise<BudgetReserveResult> {
+  const costUsd = input.unmetered ? 0 : toStoredCost(input.reserve.costUsd);
+  const tokens = input.reserve.tokens;
+  // The amount as given, before an unmetered call's cost is dropped.
+  assertBudgetAmount(input.reserve);
+  await lockBudgetCall(tx, input.callId);
+  const replay = await replayOf(tx, input, costUsd);
+  if (replay) return replay;
+  const owner = input.choice.owner;
+  // The account row's lock is what makes two reserves of one account
+  // judge one after the other.
+  const account =
+    owner === null
+      ? null
+      : await lockCurrentAccount(tx, input.workspaceId, owner);
+  const limit =
+    owner === null ? null : await budgetLimitOf(tx, input.workspaceId, owner);
+  const admitted = admitsBudgetReserve({
+    rootKind: input.choice.rootKind,
+    limit,
+    held: account && {
+      spent: { costUsd: account.spentCostUsd, tokens: account.spentTokens },
+      reserved: {
+        costUsd: account.reservedCostUsd,
+        tokens: account.reservedTokens,
+      },
+    },
+    reserve: { costUsd, tokens },
+  });
+  const accountId = account?.id ?? null;
+  if (!admitted) return { outcome: "refused", accountId };
+  const inserted = await tx
+    .insert(budgetReservations)
+    .values({
+      callId: input.callId,
+      workspaceId: input.workspaceId,
+      accountId,
+      rootKind: input.choice.rootKind,
+      unmetered: input.unmetered,
+      costUsd,
+      tokens,
+    })
+    .onConflictDoNothing()
+    .returning({ callId: budgetReservations.callId });
+  // Under the call's lock no other reserve of the id gets in.
+  if (inserted.length === 0) return { outcome: "conflict" };
+  if (account) {
+    await tx
+      .update(budgetAccounts)
+      .set({
+        reservedCostUsd: sql`${budgetAccounts.reservedCostUsd} + ${costUsd}`,
+        reservedTokens: sql`${budgetAccounts.reservedTokens} + ${tokens}`,
+      })
+      .where(eq(budgetAccounts.id, account.id));
+  }
+  return { outcome: "reserved", accountId, rootKind: input.choice.rootKind };
+}
+
+/** The settle in a transaction the caller holds, locked as reserveBudgetIn. */
+export async function settleBudgetIn(
+  tx: Database,
+  input: { callId: string; actual: BudgetAmount },
+): Promise<BudgetSettleResult> {
+  const { callId, actual } = input;
+  assertBudgetAmount(actual);
+  await lockBudgetCall(tx, callId);
+  const [row] = await tx
+    .select()
+    .from(budgetReservations)
+    .where(eq(budgetReservations.callId, callId))
+    .for("update");
+  if (!row) return "unknown";
+  if (row.state === "settled") return "already_settled";
+  const costUsd = row.unmetered ? 0 : toStoredCost(actual.costUsd);
+  // A released reserve was already taken off; a call billed after its
+  // release still spent what the settlement says. A reserved one whose end
+  // was unknown is held all the same: a late report takes it off.
+  const held = row.state === "reserved";
+  await tx
+    .update(budgetReservations)
+    .set({
+      state: "settled",
+      settledCostUsd: costUsd,
+      settledTokens: actual.tokens,
+      endedAt: DB_NOW,
+      unknownAt: null,
+    })
+    .where(eq(budgetReservations.callId, callId));
+  if (row.accountId !== null) {
+    await tx
+      .update(budgetAccounts)
+      .set({
+        spentCostUsd: sql`${budgetAccounts.spentCostUsd} + ${costUsd}`,
+        spentTokens: sql`${budgetAccounts.spentTokens} + ${actual.tokens}`,
+        ...(held
+          ? {
+              reservedCostUsd: sql`${budgetAccounts.reservedCostUsd} - ${row.costUsd}`,
+              reservedTokens: sql`${budgetAccounts.reservedTokens} - ${row.tokens}`,
+            }
+          : {}),
+      })
+      .where(eq(budgetAccounts.id, row.accountId));
+  }
+  return "settled";
+}
+
+/** The release in a transaction the caller holds, locked as reserveBudgetIn. */
+export async function releaseBudgetIn(
+  tx: Database,
+  callId: string,
+): Promise<BudgetReleaseResult> {
+  await lockBudgetCall(tx, callId);
+  const [row] = await tx
+    .select()
+    .from(budgetReservations)
+    .where(eq(budgetReservations.callId, callId))
+    .for("update");
+  if (!row) return "unknown";
+  if (row.state === "settled") return "settled";
+  if (row.state === "released") return "already_released";
+  await tx
+    .update(budgetReservations)
+    .set({ state: "released", endedAt: DB_NOW, unknownAt: null })
+    .where(eq(budgetReservations.callId, callId));
+  if (row.accountId !== null) {
+    await tx
+      .update(budgetAccounts)
+      .set({
+        reservedCostUsd: sql`${budgetAccounts.reservedCostUsd} - ${row.costUsd}`,
+        reservedTokens: sql`${budgetAccounts.reservedTokens} - ${row.tokens}`,
+      })
+      .where(eq(budgetAccounts.id, row.accountId));
+  }
+  return "released";
+}
+
+/**
+ * Marks a reserved reservation's end unknown (`unknown_at`), or clears the
+ * mark, under the call's lock taken here. No amount changes: an unknown end
+ * stays held. False when the reservation is not reserved or already so.
+ */
+export async function markBudgetUnknownIn(
+  tx: Database,
+  callId: string,
+  unknown: boolean,
+): Promise<boolean> {
+  await lockBudgetCall(tx, callId);
+  const moved = await tx
+    .update(budgetReservations)
+    .set({ unknownAt: unknown ? DB_NOW : null })
+    .where(
+      and(
+        eq(budgetReservations.callId, callId),
+        eq(budgetReservations.state, "reserved"),
+        unknown
+          ? isNull(budgetReservations.unknownAt)
+          : isNotNull(budgetReservations.unknownAt),
+      ),
+    )
+    .returning({ callId: budgetReservations.callId });
+  return moved.length > 0;
+}
+
+/** Reserved reservations of unknown end, summed per account (null: none). */
+export type UnknownBudgetHeld = {
+  accountId: BudgetAccountId | null;
+  ownerKind: "user" | "team" | null;
+  ownerId: string | null;
+  count: number;
+  costUsd: number;
+  tokens: number;
+};
+
+/**
+ * What unknown ends hold, for the reconciler's log: the `limit` accounts
+ * holding the most, and the total over every account, so an account they
+ * pile up on can be seen. Releasing them is not a0's.
+ */
+export async function unknownBudgetByAccount(
+  db: Database,
+  limit: number,
+): Promise<{
+  accounts: UnknownBudgetHeld[];
+  total: {
+    accountCount: number;
+    count: number;
+    costUsd: number;
+    tokens: number;
+  };
+}> {
+  const unknown = and(
+    eq(budgetReservations.state, "reserved"),
+    isNotNull(budgetReservations.unknownAt),
+  );
+  const [total] = await db
+    .select({
+      accountCount: sql<number>`count(DISTINCT coalesce(${budgetReservations.accountId}::text, ''))::int`,
+      count: sql<number>`count(*)::int`,
+      costUsd: sql<string>`coalesce(sum(${budgetReservations.costUsd}), 0)::text`,
+      tokens: sql<string>`coalesce(sum(${budgetReservations.tokens}), 0)::text`,
+    })
+    .from(budgetReservations)
+    .where(unknown);
+  const rows = await db
+    .select({
+      accountId: budgetReservations.accountId,
+      ownerKind: budgetAccounts.ownerKind,
+      ownerId: budgetAccounts.ownerId,
+      count: sql<number>`count(*)::int`,
+      costUsd: sql<string>`sum(${budgetReservations.costUsd})::text`,
+      tokens: sql<string>`sum(${budgetReservations.tokens})::text`,
+    })
+    .from(budgetReservations)
+    .leftJoin(
+      budgetAccounts,
+      eq(budgetAccounts.id, budgetReservations.accountId),
+    )
+    .where(unknown)
+    .groupBy(
+      budgetReservations.accountId,
+      budgetAccounts.ownerKind,
+      budgetAccounts.ownerId,
+    )
+    .orderBy(sql`sum(${budgetReservations.costUsd}) DESC`)
+    .limit(limit);
+  return {
+    accounts: rows.map((row) => ({
+      ...row,
+      costUsd: Number(row.costUsd),
+      tokens: Number(row.tokens),
+    })),
+    total: {
+      accountCount: total?.accountCount ?? 0,
+      count: total?.count ?? 0,
+      costUsd: Number(total?.costUsd ?? 0),
+      tokens: Number(total?.tokens ?? 0),
+    },
+  };
+}
+
+export function createBudgetLedger(db: Database): BudgetLedger {
+  return {
+    reserve: (input) => db.transaction((tx) => reserveBudgetIn(tx, input)),
+    settle: (input) => db.transaction((tx) => settleBudgetIn(tx, input)),
+    release: (callId) => db.transaction((tx) => releaseBudgetIn(tx, callId)),
+  };
+}

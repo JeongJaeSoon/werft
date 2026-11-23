@@ -1,4 +1,5 @@
 import {
+  type EngagementKind,
   formatSurfaceRef,
   messageTextSchema,
   SLACK_BOT_TURN_LIMIT,
@@ -11,6 +12,11 @@ import type {
   AgentIdentityStore,
   AgentStore,
   BotTurnStore,
+  BufferedInputReceipt,
+  Conversation,
+  ConversationStore,
+  InboundInputReceipt,
+  JudgmentBufferStore,
   LinkedAccountStore,
   SessionLinkRecord,
   SessionLinkStore,
@@ -22,6 +28,8 @@ import {
   type AuthorizationPolicy,
   agentForSlackEvent,
   type Caller,
+  inboundHandling,
+  type LifecycleStop,
   type SessionService,
   SessionServiceError,
 } from "@werft-ai/platform";
@@ -123,6 +131,10 @@ export type SlackSessionHandlerDeps = {
   /** Bot-started turns in a row per thread, across the workspace's agents. */
   botTurns: BotTurnStore;
   sessionLinks: SessionLinkStore;
+  /** Where a message made a turn of is taken as its topic's input. */
+  conversations: ConversationStore;
+  /** The agent's switch and the channel's state, for the judgment buffer. */
+  buffer: JudgmentBufferStore;
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
@@ -212,17 +224,154 @@ export function createSlackSessionHandler(
       channelId: event.channel,
       threadTs,
     };
+    /**
+     * What becomes of an unmentioned post by the handling table (a0/D2):
+     * `current_path` when the switch is off, or in `shadow` when the
+     * current path takes the post itself; the post to hold in the buffer;
+     * or null when the table drops it. Shadow holds what the current path
+     * leaves, for a judgment that only records.
+     */
+    const bufferedInput = async (): Promise<
+      BufferedInputReceipt | null | "current_path"
+    > => {
+      const place = await deps.buffer.place({
+        kind: "channel",
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+      });
+      if (place.rollout === "off") return "current_path";
+      const live = await deps.bindings.findLiveSlackChannel(
+        agent.installationId,
+        event.channel,
+      );
+      // No binding: the agent is not in the channel, so nothing is heard.
+      if (live === null) {
+        return place.rollout === "on" ? null : "current_path";
+      }
+      // A binding not in use is one the bot is out of, as far as the table
+      // goes: left, gone, or never finished.
+      const lifecycleStop: LifecycleStop | null = !place.agentActive
+        ? "agent_inactive"
+        : place.channelState !== "active"
+          ? "channel_archived"
+          : live.status === "pending_approval"
+            ? "pending_approval"
+            : live.status !== "ready"
+              ? "bot_removed"
+              : null;
+      const handling = inboundHandling({
+        place: "channel",
+        work: "none",
+        engaged: false,
+        input: event.thread_ts === undefined ? "top_level" : "reply",
+        rollout: place.rollout,
+        mode: live.mode,
+        listen: live.listen,
+        lifecycleStop,
+      });
+      const judged =
+        handling.kind === "table" ? handling.handling : handling.shadow;
+      if (handling.kind === "current_path") {
+        if (judged !== "buffer_m1") return "current_path";
+        const currentPathTakes =
+          live.mode === "on" &&
+          event.thread_ts === undefined &&
+          (await deps.settings.getSettings(agent.workspaceId, agent.agentId))
+            ?.mention_only === false;
+        if (currentPathTakes) return "current_path";
+      }
+      if (judged !== "buffer_m1") {
+        deps.logger.info("Slack message not held for the judgment", {
+          ...ids,
+          handling: judged,
+        });
+        return null;
+      }
+      if (
+        live.approvedAt !== null &&
+        Number(event.ts) * 1000 < live.approvedAt.getTime()
+      ) {
+        return null;
+      }
+      if (!messageTextSchema.safeParse(event.text).success) return null;
+      const conversation = await conversationOf(
+        { dm: false, personUserId: null, channelId: event.channel },
+        claim.teamId,
+        agent,
+      );
+      if (conversation === null) {
+        throw new Error("A Slack channel has no conversation");
+      }
+      const topic = await deps.conversations.findOrCreateThreadTopic(
+        conversation.id,
+        { teamId: claim.teamId, channelId: event.channel, threadTs },
+      );
+      deps.logger.info("Slack message held for the judgment", {
+        ...ids,
+        rollout: place.rollout,
+      });
+      return {
+        topicId: topic.id,
+        channelId: event.channel,
+        ts: event.ts,
+        buffered: { body: event.text, slackUserId: event.user },
+      };
+    };
+
     // A person wrote in the thread, whatever becomes of it: the bots there
     // may go on again.
     if (!fromBot && event.thread_ts !== undefined) {
       await deps.botTurns.reset(thread, event.ts);
     }
     if (resetOnly) return;
+    const mentioned =
+      event.type === "app_mention" ||
+      new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);
+    // A DM calls the agent as a mention does; the text alone decides, so a
+    // retry or the post's other event judges the same.
+    const openedAs: EngagementKind = dm || mentioned ? "mention" : "reply";
     const found = await deps.sessionLinks.find(
       agent.installationId,
       surfaceRef,
     );
     if (found !== null && found.revokedAt !== null) return;
+    // A retry of a message whose turn was taken before the pass died: the
+    // turn stands, so its input is taken whatever this pass would judge now.
+    const sessionId =
+      found === null
+        ? null
+        : (found.sessionId ?? (await deps.sessionLinks.openedSession(found)));
+    const taken =
+      sessionId === null
+        ? null
+        : await deps.sessionLinks.slackTurn(sessionId, {
+            teamId: claim.teamId,
+            channelId: event.channel,
+            ts: event.ts,
+          });
+    if (found !== null && sessionId !== null && taken !== null) {
+      // The session was made but the pass died before the link learned it.
+      if (found.sessionId === null) {
+        const attached = await deps.sessionLinks.attachSession(
+          found.id,
+          sessionId,
+        );
+        if (attached.sessionId !== sessionId) {
+          throw new Error(`Slack thread ${found.id} holds another session`);
+        }
+      }
+      return inputOf(
+        { sessionId, sequence: taken.sequence },
+        { dm, personUserId: taken.requesterId, channelId: event.channel },
+        claim.teamId,
+        threadTs,
+        event.ts,
+        agent,
+        found.openedByTs === event.ts ? openedAs : "bound",
+      );
+    }
     // Before the early returns below, which let most unmentioned talk go:
     // the event itself says the channel is private, so a binding made for a
     // public one waits for approval now, whoever spoke and whatever was said.
@@ -235,14 +384,17 @@ export function createSlackSessionHandler(
         await deps.bindings.requireApproval(bound.id);
       }
     }
-    const mentioned =
-      event.type === "app_mention" ||
-      new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);
     if (
       fromBot &&
       (dm || !mentioned || !agent.allowedBotUserIds.includes(event.user))
     ) {
       return;
+    }
+    // A person's unmentioned post outside a bound thread: the handling
+    // table says whether the judgment buffer holds it.
+    if (found === null && !mentioned && !dm && !fromBot) {
+      const held = await bufferedInput();
+      if (held !== "current_path") return held ?? undefined;
     }
     // A stray reply is nobody's request in any mode; skip the lookup.
     if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
@@ -329,6 +481,8 @@ export function createSlackSessionHandler(
       );
       if (live?.status === "left")
         throw new SlackInboundDropped("channel_left");
+      if (live?.status === "gone")
+        throw new SlackInboundDropped("channel_gone");
     };
 
     // A channel whose kind Slack now reports otherwise than the binding was
@@ -412,8 +566,11 @@ export function createSlackSessionHandler(
     if (decision.status === "dropped") {
       // Queued while the channel was in use, taken after the bot left: the
       // receipt says why nothing happened.
-      if (decision.reason === "channel_left") {
-        throw new SlackInboundDropped("channel_left");
+      if (
+        decision.reason === "channel_left" ||
+        decision.reason === "channel_gone"
+      ) {
+        throw new SlackInboundDropped(decision.reason);
       }
       return;
     }
@@ -508,6 +665,7 @@ export function createSlackSessionHandler(
           channelId: event.channel,
           threadTs,
           sessionId: found?.sessionId ?? null,
+          sessionLinkId: found?.id ?? null,
           notice: { message: "botTurnLimit" },
           onceKey: `${claim.teamId}:${surfaceRef}:bot_turn_limit:${counted.stop}`,
         });
@@ -543,22 +701,51 @@ export function createSlackSessionHandler(
           })
       ).link;
     }
+    const place = {
+      dm,
+      personUserId: decision.actorUserId,
+      channelId: event.channel,
+    };
+    // Found once: the new session's parent and the input's topic share it.
+    let lookup: Promise<Conversation | null> | undefined;
+    const conversation = () => {
+      lookup ??= conversationOf(place, claim.teamId, agent);
+      return lookup;
+    };
     // Once the session took the turn it counts, whatever fails after.
     let accepted = false;
+    let turn: { sessionId: string; sequence: number };
+    let engagement: EngagementKind = "bound";
     try {
       if (link.sessionId === null && link.openedByTs !== event.ts) {
         link = await adoptOrReopen(link, event.ts);
       }
       if (link.sessionId === null || link.openedByTs === event.ts) {
-        await openSession(caller, link, message, dm, slackMessage, () => {
-          accepted = true;
-        });
+        turn = await openSession(
+          caller,
+          link,
+          message,
+          dm
+            ? "private"
+            : allowedOn?.channelKind === "private_channel"
+              ? "private_channel"
+              : undefined,
+          await conversation(),
+          slackMessage,
+          () => {
+            accepted = true;
+          },
+        );
+        engagement = openedAs;
       } else {
-        await deps.sessions.appendMessage(caller, link.sessionId, {
+        const sessionId = link.sessionId;
+        const appended = await deps.sessions.appendMessage(caller, sessionId, {
           idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
           body: { message, mode: "enqueue" },
           slackMessage,
         });
+        // A turn id is its number in the session.
+        turn = { sessionId, sequence: Number(appended.turn_id) };
       }
       // The turn's insert marks the thread's status due; the outbox pass
       // that follows this one sends it.
@@ -578,6 +765,9 @@ export function createSlackSessionHandler(
         code: error.code,
         reason_code: reasonCodeOf(error.details),
       });
+      // Slack deleted what the turn would come from: nothing is said there,
+      // the warning above is the record.
+      if (error.code === "SOURCE_DELETED") return;
       if (
         // GITHUB_REFUSED: unreadable GitHub settings or the workspace ceiling.
         (error.code === "UNSUPPORTED_CAPABILITY" ||
@@ -599,8 +789,73 @@ export function createSlackSessionHandler(
       } else {
         await notice(error.code, { message: "failed" });
       }
+      return;
     }
+    // Beside the turn, not before it: the inbox row's completion takes it.
+    return inputOf(
+      turn,
+      place,
+      claim.teamId,
+      threadTs,
+      event.ts,
+      agent,
+      engagement,
+      await conversation(),
+    );
   };
+
+  /** The input of a message its turn took, in the thread's topic. */
+  async function inputOf(
+    turn: InboundInputReceipt["turn"],
+    place: { dm: boolean; personUserId: string | null; channelId: string },
+    teamId: string,
+    threadTs: string,
+    ts: string,
+    agent: { workspaceId: string; agentId: string },
+    engagement: EngagementKind,
+    found?: Conversation | null,
+  ): Promise<InboundInputReceipt> {
+    const conversation = found ?? (await conversationOf(place, teamId, agent));
+    if (conversation === null) {
+      throw new Error("A Slack DM turn was taken with no person");
+    }
+    const topic = await deps.conversations.findOrCreateThreadTopic(
+      conversation.id,
+      { teamId, channelId: place.channelId, threadTs },
+    );
+    return {
+      topicId: topic.id,
+      channelId: place.channelId,
+      ts,
+      turn,
+      engagement,
+    };
+  }
+
+  /** The thread's main conversation; none for a DM with no person. */
+  async function conversationOf(
+    place: { dm: boolean; personUserId: string | null; channelId: string },
+    teamId: string,
+    agent: { workspaceId: string; agentId: string },
+  ): Promise<Conversation | null> {
+    if (place.dm && place.personUserId === null) return null;
+    return deps.conversations.findOrCreateConversation(
+      place.dm
+        ? {
+            kind: "dm",
+            workspaceId: agent.workspaceId,
+            agentId: agent.agentId,
+            personUserId: place.personUserId as string,
+          }
+        : {
+            kind: "channel",
+            workspaceId: agent.workspaceId,
+            agentId: agent.agentId,
+            teamId,
+            channelId: place.channelId,
+          },
+    );
+  }
 
   /**
    * The link's opening message gave out before the link learned its
@@ -622,17 +877,22 @@ export function createSlackSessionHandler(
     caller: Caller,
     link: SessionLinkRecord,
     message: string,
-    dm: boolean,
+    // A DM is its person's; a private channel's session is its current
+    // members', the channel's kind as the binding read it from Slack (its
+    // events say channel_type "C" too).
+    shareScope: "private" | "private_channel" | undefined,
+    parent: Conversation | null,
     slackMessage: SlackMessageRef,
     onCreated: () => void,
-  ): Promise<void> {
+  ): Promise<{ sessionId: string; sequence: number }> {
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
       body: {
         agent_release_id: link.releaseId,
         message,
       },
-      ...(dm ? { shareScope: "private" as const } : {}),
+      ...(shareScope === undefined ? {} : { shareScope }),
+      ...(parent === null ? {} : { parentConversationId: parent.id }),
       slackMessage,
     });
     onCreated();
@@ -643,6 +903,7 @@ export function createSlackSessionHandler(
     if (attached.sessionId !== created.session_id) {
       throw new Error(`Slack thread ${link.id} already holds another session`);
     }
+    return { sessionId: created.session_id, sequence: Number(created.turn_id) };
   }
 
   /** The message's link for the web; a turn goes on without one. */

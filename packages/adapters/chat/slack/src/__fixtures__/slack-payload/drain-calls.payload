@@ -1,4 +1,29 @@
 {
+  "input-mirror-sender": [
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "iconUrl": "https://images.example/owner.png",
+        "metadata": {
+          "event_payload": {
+            "correlation_id": "019a0000-0000-7000-8000-0000000000c1"
+          },
+          "event_type": "werft_input_mirror"
+        },
+        "text": "Add a test",
+        "threadTs": "",
+        "username": "Owner (Web console)"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
   "input-notice-blocks": [
     [
       "postMessage",
@@ -411,8 +436,11 @@
         "installationId": "installation-1",
         "kind": "failure_notice",
         "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+        "sessionLinkId": null,
         "slackAppId": "app-1",
         "slackUserId": null,
+        "sources": null,
+        "sourcesTurn": null,
         "threadTs": "100.000100",
         "workspaceId": "workspace-1"
       }

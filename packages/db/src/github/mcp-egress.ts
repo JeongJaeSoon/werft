@@ -17,6 +17,7 @@ import {
   type McpSessionState,
   mcpDenyOf,
   pinnedMcpTools,
+  type RefusalRecord,
   type RetiredSessionMcp,
   type SessionGitHubMcp,
   visibleMcpTools,
@@ -253,6 +254,55 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
   };
 }
 
+/**
+ * A refusal's receipt, in a transaction of its own: one that cannot be
+ * written must not turn the refusal into an outage. The same id twice is one
+ * receipt.
+ */
+export async function recordMcpRefusal(
+  db: Database,
+  record: RefusalRecord<unknown>,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(receipts)
+      .values({
+        id: record.id,
+        ownerId: record.ownerId,
+        operation: "call_mcp",
+        targetRef: {
+          session_id: record.sessionId,
+          turn_id: record.turnId,
+          request_id: null,
+        },
+        status: record.status,
+        result: record.result,
+        error: { code: "CREDENTIAL_UNBOUND", message: record.message },
+        actor: record.actor,
+      })
+      .onConflictDoNothing({ target: receipts.id });
+  });
+}
+
+/** The public id of the turn the attempt is running; null between turns. */
+export async function runningTurnId(
+  db: Database,
+  input: { sessionId: string; attemptId: string },
+): Promise<string | null> {
+  const [turn] = await db
+    .select({ sequence: turns.sequence })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, input.sessionId),
+        eq(turns.attemptId, input.attemptId),
+        eq(turns.status, "running"),
+      ),
+    )
+    .limit(1);
+  return turn === undefined ? null : String(turn.sequence);
+}
+
 export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
   return {
     async sessionState(input): Promise<McpSessionState | null> {
@@ -290,17 +340,7 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
                   isNull(credentialBindings.revokedAt),
                 ),
               );
-      const [turn] = await db
-        .select({ sequence: turns.sequence })
-        .from(turns)
-        .where(
-          and(
-            eq(turns.sessionId, input.sessionId),
-            eq(turns.attemptId, input.attemptId),
-            eq(turns.status, "running"),
-          ),
-        )
-        .limit(1);
+      const turnId = await runningTurnId(db, input);
       return {
         ownerId: session.ownerId,
         workspaceSlug: session.workspaceSlug,
@@ -312,31 +352,11 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
             ? []
             : visibleMcpTools(effective.server, effective.tools),
         boundRefs: bound.map((row) => row.ref),
-        turnId: turn === undefined ? null : String(turn.sequence),
+        turnId,
         actor: creatorOf(session, release.agentId),
       };
     },
 
-    async recordRefusal(record: McpRefusalRecord): Promise<void> {
-      await db.transaction(async (tx) => {
-        await tx
-          .insert(receipts)
-          .values({
-            id: record.id,
-            ownerId: record.ownerId,
-            operation: "call_mcp",
-            targetRef: {
-              session_id: record.sessionId,
-              turn_id: record.turnId,
-              request_id: null,
-            },
-            status: record.status,
-            result: record.result,
-            error: { code: "CREDENTIAL_UNBOUND", message: record.message },
-            actor: record.actor,
-          })
-          .onConflictDoNothing({ target: receipts.id });
-      });
-    },
+    recordRefusal: (record: McpRefusalRecord) => recordMcpRefusal(db, record),
   };
 }

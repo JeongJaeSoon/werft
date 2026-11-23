@@ -28,6 +28,8 @@ export type SlackThreadNoticeRecord = Omit<
 > & {
   /** The thread's session when the agent has one there; null for none. */
   sessionId: string | null;
+  /** The thread's link when it has one; null for none. */
+  sessionLinkId: string | null;
 };
 
 export interface SlackNoticeSink {

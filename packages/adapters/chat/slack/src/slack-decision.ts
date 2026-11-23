@@ -42,7 +42,12 @@ export type SlackInput = {
    */
   resource:
     | { kind: "surface_binding"; releaseId?: string }
-    | { kind: "session" | "session_link"; id: string };
+    | {
+        kind: "session" | "session_link";
+        id: string;
+        /** The push request a press on a push card decides. */
+        pushRequestId?: string;
+      };
   requestId: string;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
@@ -52,8 +57,12 @@ const NO_CEILING: SurfaceCeiling = { actions: [], disclosure: "summary" };
 
 export type SlackDecision =
   // Not this agent's app, or the app is gone: nothing runs and nobody is told.
-  // `channel_left`: the bot is out of the channel, so nobody is told either.
-  | { status: "dropped"; reason: SlackEventDropReason | "channel_left" }
+  // `channel_left`: the bot is out of the channel, so nobody is told either;
+  // `channel_gone`: Slack deleted it.
+  | {
+      status: "dropped";
+      reason: SlackEventDropReason | "channel_left" | "channel_gone";
+    }
   | {
       status: "decided";
       workspaceId: string;
@@ -135,8 +144,11 @@ export async function authorizeSlackInput(
       agent.installationId,
       input.channel.id,
     );
-    if (live?.status === "left") {
-      return { status: "dropped", reason: "channel_left" };
+    if (live?.status === "left" || live?.status === "gone") {
+      return {
+        status: "dropped",
+        reason: live.status === "left" ? "channel_left" : "channel_gone",
+      };
     }
   }
   // An unbound, switched-off or other agent's channel takes nothing. It is
@@ -200,7 +212,14 @@ export async function authorizeSlackInput(
     action: input.action,
     resource:
       resource.kind !== "surface_binding"
-        ? { kind: resource.kind, id: resource.id, owner_scope: workspaceId }
+        ? {
+            kind: resource.kind,
+            id: resource.id,
+            owner_scope: workspaceId,
+            ...(resource.pushRequestId === undefined
+              ? {}
+              : { push_request_id: resource.pushRequestId }),
+          }
         : {
             kind: "surface_binding",
             owner_scope: workspaceId,

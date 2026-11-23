@@ -11,6 +11,7 @@ import type {
   SurfaceBindingStore,
   WelcomeOutcome,
 } from "@werft-ai/platform";
+import { messageOf } from "@werft-ai/platform";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import type { SlackInstallFinalize } from "./slack-install-service.ts";
 
@@ -51,6 +52,7 @@ export function deploymentWelcome(input: {
     threadTs: "",
     slackUserId: null,
     sessionId: null,
+    sessionLinkId: null,
     body: { text: slackWelcomeText(input.agentName) },
     dedupeKey: deploymentWelcomeKey(input.agentId, input.homeBindingId),
   };
@@ -239,7 +241,7 @@ export function createSlackWelcome(deps: {
             deps.logger.warn("Deployment welcome failed", {
               agent_id: agentId,
               release_id: releaseId,
-              error: error instanceof Error ? error.message : String(error),
+              error: messageOf(error),
             }),
         );
         return outcome;
@@ -247,7 +249,7 @@ export function createSlackWelcome(deps: {
         deps.logger.warn("Deployment welcome failed", {
           agent_id: agentId,
           release_id: releaseId,
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         });
         return null;
       }

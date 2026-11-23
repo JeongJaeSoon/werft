@@ -27,7 +27,12 @@ export const skillNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, {
   message: "must be lowercase letters, digits and dashes, 1-64 characters",
 });
 export const skillVersionIdSchema = z.uuid();
-export const skillReviewSchema = z.enum(["pending", "approved", "rejected"]);
+export const skillReviewSchema = z.enum([
+  "pending",
+  "approved",
+  "rejected",
+  "superseded",
+]);
 export const skillAttachmentModeSchema = z.enum([
   "required",
   "optional",
@@ -69,6 +74,8 @@ export const SKILL_SYNC_TRIGGER_VALUES = [
   "manual",
   // Turning sync back on checks once, by a person.
   "resume",
+  // Turning auto-approve on checks once, by a person.
+  "auto_approve",
 ] as const;
 export const skillSyncTriggerKindSchema = z.enum(SKILL_SYNC_TRIGGER_VALUES);
 export type SkillSyncTriggerKind = z.infer<typeof skillSyncTriggerKindSchema>;
@@ -102,7 +109,10 @@ export const skillSyncTriggerSchema = z
     kind: skillSyncTriggerKindSchema,
     /** The webhook delivery (`X-GitHub-Delivery`); null for other kinds. */
     delivery_id: z.string().nullable(),
-    /** The person who registered, pressed or resumed; null for the sync. */
+    /**
+     * The person who registered, pressed, resumed or turned auto-approve on;
+     * null for the sync.
+     */
     user_id: userIdSchema.nullable(),
   })
   .strict();
@@ -123,14 +133,11 @@ export const skillIssueSchema = z
   .strict();
 
 export const SKILL_AUTO_APPROVAL_REASON_VALUES = [
-  // The ref is a tag or a commit.
-  "not_branch",
-  // No rule on the branch requires a pull request with an approving review.
-  "protection_missing",
-  // The commit came in by no merged pull request whose reviews approve it.
-  "no_reviewed_pull_request",
-  // GitHub did not answer.
-  "github_unreachable",
+  // The version failed a fixed-rule check; `checks` says which.
+  "checks_failed",
+  // Another version was approved while the checks ran; the next check
+  // judges it again.
+  "baseline_changed",
 ] as const;
 export const skillAutoApprovalReasonSchema = z.enum(
   SKILL_AUTO_APPROVAL_REASON_VALUES,
@@ -139,21 +146,46 @@ export type SkillAutoApprovalReason = z.infer<
   typeof skillAutoApprovalReasonSchema
 >;
 
-export const skillProtectionRuleSchema = z
+export const SKILL_CHECK_RULE_VALUES = [
+  // A file under `scripts/`, with the execute bit or not a document, that the approved version did not run.
+  "scripts_added",
+  // More than 300 changed text lines, or a change too large to diff.
+  "large_change",
+  // An added line names a URL host no file of the approved version does.
+  "new_url",
+  // Control (a NUL included), zero-width, bidi or tag characters in an added line or a new path.
+  "hidden_unicode",
+  // An added line reads as an instruction to the agent (ignore instructions, send credentials, hide from the user).
+  "instruction_like",
+  // The `SKILL.md` description, which decides when the skill is used, changed.
+  "description_changed",
+] as const;
+export const skillCheckRuleSchema = z.enum(SKILL_CHECK_RULE_VALUES);
+export type SkillCheckRule = z.infer<typeof skillCheckRuleSchema>;
+
+export const skillCheckFindingSchema = z
   .object({
-    kind: z.enum(["ruleset", "branch_protection"]),
-    required_reviews: z.number().int().positive(),
+    rule: skillCheckRuleSchema,
+    /** Up to 20 stored-tree paths that fail it. */
+    paths: z.array(z.string()),
+    /**
+     * Up to 20 values: the new hosts, the hidden code points (`U+200B`), the
+     * matched sentence ids, or the changed line count (`too_large`).
+     */
+    samples: z.array(z.string()),
   })
   .strict();
+export type SkillCheckFinding = z.infer<typeof skillCheckFindingSchema>;
 
 export const skillAutoApprovalSchema = z
   .object({
     result: z.enum(["approved", "pending"]),
     /** Why it stayed `pending`; null once approved. */
     reason: skillAutoApprovalReasonSchema.nullable(),
-    /** The rule that required review; null when none was found. */
-    rule: skillProtectionRuleSchema.nullable(),
-    pull_request: z.number().int().positive().nullable(),
+    checks: z.array(skillCheckFindingSchema).meta({
+      description:
+        "The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked.",
+    }),
   })
   .strict();
 
@@ -171,7 +203,7 @@ export const skillSyncCheckSchema = z
     }),
     auto_approval: skillAutoApprovalSchema.nullable().meta({
       description:
-        "How the new version's auto-approval went (`created` with auto-approve on); null otherwise.",
+        "How auto-approve judged the version this content is, while it is on: a new version (`created`) or one still `pending` (`unchanged`); null otherwise.",
     }),
   })
   .strict();
@@ -200,14 +232,14 @@ export const skillGitSourceSchema = z
     webhook: z.enum(SKILL_WEBHOOK_STATE_VALUES),
     auto_approve: z
       .object({
-        state: z.enum(["off", "requested", "on"]),
-        requested_by: userIdSchema.nullable(),
-        consented_by: userIdSchema.nullable(),
+        state: z.enum(["off", "on"]),
+        /** The manager who turned it on; null while off. */
+        enabled_by: userIdSchema.nullable(),
       })
       .strict()
       .meta({
         description:
-          "Protected-branch auto-approve: one manager requests, another consents.",
+          "Auto-approve: while on, the sync approves a version that passes the fixed-rule checks, with no person's review.",
       }),
     last_check: skillSyncCheckSchema.nullable(),
   })
@@ -228,7 +260,10 @@ export const skillVersionSchema = z
     git: skillGitVersionSchema.nullable(),
     size_bytes: z.number().int().positive(),
     has_scripts: z.boolean(),
-    review: skillReviewSchema,
+    review: skillReviewSchema.meta({
+      description:
+        "`superseded`: it was still `pending` when a newer version was approved or made current, so it no longer waits for review. A manager can still approve or reject it.",
+    }),
     registered_by: userIdSchema.nullable().meta({
       description:
         "Who registered it; null for a version the Git sync made (`git.trigger` says what started it).",
@@ -236,7 +271,7 @@ export const skillVersionSchema = z
     registered_at: timestampSchema,
     reviewed_by: userIdSchema.nullable().meta({
       description:
-        "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve.",
+        "Who reviewed it; null while `pending`, and on a version the sync approved under auto-approve. On a `superseded` version, who approved or made current the newer one; null when the sync's auto-approve did, and on one the upgrade to migration 0306 closed.",
     }),
     reviewed_at: timestampSchema.nullable(),
     archived_at: timestampSchema.nullable(),
@@ -334,6 +369,10 @@ export const skillSyncResponseSchema = z
     git: skillGitSourceSchema,
     receipt_id: receiptIdSchema.nullable().meta({
       description: "Null when sync already was in that state.",
+    }),
+    check: z.enum(["checked", "queued"]).nullable().meta({
+      description:
+        "The check this call ran, on a resume or on turning auto-approve on. `queued`: a check of the skill was running, and it runs once more when it ends. Null when the call ran none.",
     }),
   })
   .strict();
@@ -459,9 +498,8 @@ export type AgentSkillList = z.infer<typeof agentSkillListSchema>;
 
 export const putSkillAutoApproveRequestSchema = z
   .object({
-    action: z.enum(["request", "consent", "off"]).meta({
-      description:
-        "`request` and `consent` are by two managers (one, when the workspace has one); `off` turns it off at once.",
+    action: z.enum(["on", "off"]).meta({
+      description: "One manager turns it on or off, at once.",
     }),
   })
   .strict();
@@ -489,7 +527,8 @@ export const skillFileSchema = z
     size_bytes: z.number().int().nonnegative(),
     sha256: sha256HexSchema,
     text: z.string().nullable().meta({
-      description: "The file as UTF-8 text; null for a binary file.",
+      description:
+        "The file as UTF-8 text; null for a binary file. A document (`.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.csv`) that is not clean UTF-8 is still text: bad bytes as U+FFFD and control characters as their visible symbols (U+2400 to U+2421), as the fixed-rule checks read it.",
     }),
     change: z.enum(["added", "changed", "unchanged"]).meta({
       description:
@@ -522,6 +561,10 @@ export const skillVersionFilesSchema = z
       .meta({
         description: "Files of the previous approved version this one drops.",
       }),
+    checks: z.array(skillCheckFindingSchema).meta({
+      description:
+        "The fixed-rule checks this version fails against `previous_approved`, one per rule; empty when it fails none. Shown to the reviewer; they never approve or reject.",
+    }),
   })
   .strict();
 export type SkillVersionFiles = z.infer<typeof skillVersionFilesSchema>;

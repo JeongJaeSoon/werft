@@ -285,6 +285,24 @@ test("a recheck sends the Request URL to Slack again and needs the public events
   ).toMatchObject({ code: "NOT_FOUND" });
 });
 
+test("a recheck says when Slack answers that the app's permissions changed", async () => {
+  const { service, slack } = await setup({
+    eventsPublicUrl: "https://events.example.test/",
+  });
+  await service.createAgentApp(user("owner"), AGENT, {
+    replace_uncertain: false,
+  });
+  expect(
+    (await service.recheckAgentAppEvents(user("owner"), AGENT))
+      .reinstall_required,
+  ).toBe(false);
+  slack.state.permissionsUpdated = true;
+  expect(
+    (await service.recheckAgentAppEvents(user("owner"), AGENT))
+      .reinstall_required,
+  ).toBe(true);
+});
+
 test.each([
   ["answers", false],
   ["is lost", true],

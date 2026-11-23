@@ -1700,9 +1700,27 @@ integration("parked pending requests on PostgreSQL", () => {
         displayName: "requester",
       })
       .returning({ id: users.id });
+    // A method this build may not know is copied as it is; only
+    // carried_from is written anew.
+    const parkedAuth = {
+      method: "web_session",
+      web_session_id: crypto.randomUUID(),
+      via: [{ agent_id: "a" }],
+      carried_from: { turn: "0", reason: "older" },
+      later_field: true,
+    };
     await db
       .update(turns)
-      .set({ actorId: requester?.id ?? null })
+      .set({
+        actorId: requester?.id ?? null,
+        requesterKind: "user",
+        requesterId: requester?.id ?? null,
+        requesterAuth: parkedAuth,
+      })
+      .where(eq(turns.id, turnRowId));
+    const [parkedRow] = await db
+      .select({ sequence: turns.sequence })
+      .from(turns)
       .where(eq(turns.id, turnRowId));
 
     // Answered through a stored key, which a receipt names.
@@ -1733,6 +1751,17 @@ integration("parked pending requests on PostgreSQL", () => {
     // The answer came through a key with no user, yet the turn that carries
     // the parked one on stays the requester's.
     expect(carried?.actorId).toBe(requester?.id ?? null);
+    expect(carried).toMatchObject({
+      requesterKind: "user",
+      requesterId: requester?.id ?? null,
+      requesterAuth: {
+        ...parkedAuth,
+        carried_from: {
+          turn: String(parkedRow?.sequence),
+          reason: "continuation",
+        },
+      },
+    });
     expect(await sessionRow(sessionId)).toMatchObject({
       admissionState: "resuming",
       pauseReason: null,
@@ -1798,6 +1827,27 @@ integration("parked pending requests on PostgreSQL", () => {
       .from(permissionGrants)
       .where(eq(permissionGrants.requestId, allowed));
     expect(grant?.consumedAt).toBeNull();
+  });
+
+  test("the turn that carries a park on inherits the parked turn's sources, none of its own", async () => {
+    const { owner, sessionId, requestIds, turnRowId } = await parked(1);
+    const place = {
+      team_id: "T0SRC",
+      channel_id: "C0SRC",
+      ts: "1792800000.000100",
+    };
+    await db
+      .update(turns)
+      .set({ sources: { direct: [place], inherited: [] } })
+      .where(eq(turns.id, turnRowId));
+    const answered = await answerWith(owner, sessionId, {
+      request_id: requestIds[0] ?? "",
+      kind: "permission",
+      decision: "allow",
+    });
+    expect(answered).toMatchObject({ resumed: true });
+    const [carried] = await continuations(turnRowId);
+    expect(carried?.sources).toEqual({ direct: [], inherited: [place] });
   });
 
   test("answers kept before their turn parked still carry it on, cut to fit one message", async () => {

@@ -298,6 +298,9 @@ function useLeafTitle(pathname: string): string | undefined {
   // no separator left hanging before an empty name.
   if (session && sessionId !== undefined) {
     // A server from before titles sends none, as the page head shows.
+    if (!session.title && session.title_deleted_at) {
+      return t("session.sourceDeleted");
+    }
     return session.title || shortSessionId(sessionId);
   }
   if (agentId === "new") return t("agents.newTitle");

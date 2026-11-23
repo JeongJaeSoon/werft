@@ -42,6 +42,10 @@ export const API_ERROR_CODE_VALUES = [
   // The person who asked for the session was offboarded; it takes no input
   // until an owner takes it over.
   "TAKEOVER_REQUIRED",
+  // A Slack message the input or the session drew on was deleted there: no
+  // turn is made from it, and a session stopped for it takes no input and
+  // does not resume; only a close ends it.
+  "SOURCE_DELETED",
   // Linking a Slack account: the workspace has no verified Slack
   // install, the account is from another Slack team, it is linked to someone
   // else, or the caller already linked a different account in that team.

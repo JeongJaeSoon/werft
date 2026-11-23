@@ -188,12 +188,6 @@ export type ManagedWorkspace = {
   id: string;
   /** null when the resource carries no session label and cannot be judged. */
   sessionId: string | null;
-  /**
-   * `name`: a legacy resource with no label, whose session was read off its
-   * name. That is a nomination, not evidence, so GC takes it only for a
-   * session the database knows and has closed. Absent means the label.
-   */
-  sessionFrom?: "label" | "name";
   createdAt: Date;
 };
 
@@ -292,6 +286,28 @@ export function launchSpecFingerprint(
     shape.push(workerLimits.maxTurnSeconds, workerLimits.providerMaxRetries);
   }
   return createHash("sha256").update(JSON.stringify(shape)).digest("hex");
+}
+
+/**
+ * What a current isolation stamp holds where one from before the worker
+ * limits were pinned held those limits.
+ */
+export const WORKER_LIMITS_PINNED = "worker-limits:pinned";
+
+/**
+ * A backend's isolation stamp: its contract version and a fingerprint of the
+ * fields that shape its boundary. Every running worker whose stamp differs
+ * reads as stale, so neither part may change by accident.
+ */
+export function isolationStampOf(
+  contract: number,
+  fields: readonly unknown[],
+): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify(fields))
+    .digest("hex")
+    .slice(0, 16);
+  return `${contract}:${digest}`;
 }
 
 /**

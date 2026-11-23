@@ -57,7 +57,9 @@ export {
   gitEnvironment,
 } from "./git-environment.ts";
 export * from "./image-runtime.ts";
+export * from "./message-of.ts";
 export * from "./module.ts";
+export * from "./sha256.ts";
 export type * from "./tool-decision.ts";
 export * from "./transcript-store.ts";
 export * from "./user-environment.ts";

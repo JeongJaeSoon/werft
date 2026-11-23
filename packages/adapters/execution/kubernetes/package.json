@@ -6,7 +6,8 @@
   "license": "PolyForm-Small-Business-1.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -15,8 +16,5 @@
   "dependencies": {
     "@werft-ai/contracts": "workspace:*",
     "@werft-ai/platform": "workspace:*"
-  },
-  "devDependencies": {
-    "@werft-ai/execution-local-docker": "workspace:*"
   }
 }

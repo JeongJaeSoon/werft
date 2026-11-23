@@ -437,6 +437,20 @@ export type SlackChannelPage = {
   nextCursor: string | null;
 };
 
+/** One page of a channel's members, the bot's own user among them. */
+export type SlackChannelMemberPage = {
+  memberIds: string[];
+  nextCursor: string | null;
+};
+
+/** `conversations.members` (`channels:read`, `groups:read`): Slack's Tier 4. */
+export interface SlackChannelMemberApi {
+  channelMembers(
+    botToken: string,
+    input: { channelId: string; cursor: string | null },
+  ): Promise<SlackChannelMemberPage>;
+}
+
 export type SlackChannelMembership = {
   kind: SurfaceChannelKind;
   isMember: boolean;
@@ -536,6 +550,15 @@ export interface SlackBotSender {
       iconUrl?: string;
       /** Block Kit; `text` stays the notification and fallback. */
       blocks?: unknown[];
+      /**
+       * Message metadata, which Slack gives back on the post's own events:
+       * a web input's mirror names its correlation id here. No other row
+       * sends any.
+       */
+      metadata?: {
+        event_type: string;
+        event_payload: Record<string, string>;
+      };
     },
   ): Promise<SlackSendResponse>;
   /** `users.info`'s 48px profile image; null when Slack names none. */
@@ -635,12 +658,20 @@ const listChannelsAnswer = z.object({
     .optional(),
 });
 
+const channelMembersAnswer = z.object({
+  members: z.array(slackId).max(1000),
+  response_metadata: z
+    .object({ next_cursor: z.string().max(4096).optional() })
+    .optional(),
+});
+
 export function createSlackBotApi(
   options?: SlackApiOptions,
 ): SlackBotApi &
   Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
   SlackBotSender &
-  SlackBotDirectory {
+  SlackBotDirectory &
+  SlackChannelMemberApi {
   const call = slackCaller(options);
   const send = slackSender(options);
   return {
@@ -735,6 +766,25 @@ export function createSlackBotApi(
             : "public_channel",
         isMember: channel.is_member ?? false,
         isArchived: channel.is_archived ?? false,
+      };
+    },
+
+    async channelMembers(botToken, input) {
+      const answer = await call(
+        "conversations.members",
+        {
+          token: botToken,
+          body: new URLSearchParams({
+            channel: input.channelId,
+            limit: String(SLACK_CHANNEL_PAGE_SIZE),
+            ...(input.cursor === null ? {} : { cursor: input.cursor }),
+          }),
+        },
+        channelMembersAnswer,
+      );
+      return {
+        memberIds: answer.members,
+        nextCursor: answer.response_metadata?.next_cursor || null,
       };
     },
 
@@ -847,6 +897,7 @@ export function createSlackBotApi(
         ...(input.username === undefined ? {} : { username: input.username }),
         ...(input.iconUrl === undefined ? {} : { icon_url: input.iconUrl }),
         ...(input.blocks === undefined ? {} : { blocks: input.blocks }),
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
         link_names: false,
         unfurl_links: false,
         unfurl_media: false,

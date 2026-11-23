@@ -37,7 +37,7 @@ export function testSpecSource(
       billing: "per_token",
     },
     model: TEST_MODEL,
-    permission_mode: "default",
+    permission_mode: "auto",
     tools: ["Read", "Edit", "Bash"],
     repository_mode: "optional",
     ...overrides,
@@ -134,6 +134,8 @@ export async function makeFixtureRelease(
     status?: "active" | "paused" | "archived";
     /** Spec fields other than the model, e.g. a permission mode. */
     spec?: Partial<SpecSource>;
+    /** The release's policy pins; none by default. */
+    policyPins?: Record<string, unknown>;
   } = {},
 ): Promise<string> {
   const workspaceId = options.workspaceId ?? randomUUID();
@@ -181,6 +183,9 @@ export async function makeFixtureRelease(
     },
     effectiveTools: { tools: spec.specSource.tools, mcp: [] },
     ...spec,
+    ...(options.policyPins === undefined
+      ? {}
+      : { policyPins: options.policyPins }),
   });
   await db
     .update(agents)

@@ -7,14 +7,17 @@ import type {
   SlackOutboxSettle,
   SlackOutboxStore,
 } from "@werft-ai/platform";
+import { messageOf, type SurfaceBindingStore } from "@werft-ai/platform";
 import type { RowDelivery } from "./outbox-delivery.ts";
 import {
   SLACK_CARD_SETTLE_TIMING,
+  type SlackPushRequesterLeft,
   settleSlackCards,
 } from "./slack-card-settle.ts";
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import {
+  enqueueSlackInputMirrors,
   enqueueSlackInstructions,
   enqueueSlackPrompts,
   enqueueSlackTurnAnswers,
@@ -53,11 +56,26 @@ export type SlackOutboxDrain = {
   failed: number;
   uncertain: number;
   lost: number;
+  /** Rows never sent: a source was deleted in Slack before the send. */
+  voided: number;
   /** Thread statuses sent. */
   statuses: number;
   /** Posted cards redrawn. */
   cards: number;
+  /**
+   * Web input mirrors that opened a thread a reply had already made a topic
+   * of; the input took the post as its alias, its topic stayed unplaced.
+   */
+  topicAliasTaken: number;
+  /**
+   * Rows held for a web input's thread past `inputHoldMs`, closed unsent;
+   * the input reads `unconfirmed`.
+   */
+  heldClosed: number;
 };
+
+/** How long a row waits for its web input's Slack post before it closes. */
+export const SLACK_INPUT_HOLD_MS = 60 * 60_000;
 
 /**
  * One outbox pass of the `slack` role: rows whose send outlived its lease
@@ -77,6 +95,8 @@ export async function drainSlackOutbox(deps: {
     | null;
   /** How a claimed row reaches the channel; see `createRowDelivery`. */
   delivery: RowDelivery;
+  /** Told when Slack no longer finds a channel a row was sent to. */
+  bindings?: Pick<SurfaceBindingStore, "channelNotFound">;
   logger: SlackInboxLogger;
   consoleOrigin: string | null;
   batchSize: number;
@@ -84,6 +104,9 @@ export async function drainSlackOutbox(deps: {
   deadline: number;
   /** Statuses in the first third, then posts; otherwise posts in the first two thirds, then statuses. */
   statusesFirst?: boolean;
+  requesterLeft?: SlackPushRequesterLeft;
+  /** Defaults to `SLACK_INPUT_HOLD_MS`. */
+  inputHoldMs?: number;
   now?: () => number;
 }): Promise<SlackOutboxDrain> {
   const now = deps.now ?? Date.now;
@@ -96,8 +119,11 @@ export async function drainSlackOutbox(deps: {
     failed: 0,
     uncertain: 0,
     lost: 0,
+    voided: 0,
     statuses: 0,
     cards: 0,
+    topicAliasTaken: 0,
+    heldClosed: 0,
   };
   // A reply Slack may or may not hold: the thread hears so, once.
   const noticeUncertain = async (row: SlackOutboxLost) => {
@@ -115,9 +141,12 @@ export async function drainSlackOutbox(deps: {
       threadTs: row.threadTs,
       slackUserId: null,
       sessionId: row.sessionId,
+      sessionLinkId: row.sessionLinkId,
       body:
         link_url === undefined ? { text, locale } : { text, locale, link_url },
       dedupeKey: `uncertain:${row.id}`,
+      sources: row.sources ?? null,
+      sourcesTurn: row.sourcesTurn ?? null,
     });
   };
   // The notice kinds go through Notifiable, a decision request through
@@ -132,6 +161,7 @@ export async function drainSlackOutbox(deps: {
       case "input_notice":
         return deps.delivery.approvable.requestDecision(input);
       case "instruction":
+      case "input_mirror":
       case "reply":
       case "welcome":
         return deps.delivery.direct(input);
@@ -153,6 +183,15 @@ export async function drainSlackOutbox(deps: {
       channel_id: closed.channelId,
     });
   }
+  drain.heldClosed = await deps.outbox.closeOverdueHeld(
+    deps.inputHoldMs ?? SLACK_INPUT_HOLD_MS,
+  );
+  if (drain.heldClosed > 0) {
+    deps.logger.warn(
+      "Slack rows held for a web input's post closed unsent; Slack never confirmed the post",
+      { count: drain.heldClosed },
+    );
+  }
   // Also those a pass marked and died before telling, or told with a failed
   // enqueue: the notice is the dedupe key's, so it goes once.
   for (const row of await deps.outbox.untoldUncertain(deps.batchSize)) {
@@ -161,6 +200,10 @@ export async function drainSlackOutbox(deps: {
   await deps.outbox.advanceAnswered();
   // First, so an answer enqueued below is claimed after what it answers.
   drain.enqueued = await enqueueSlackInstructions({
+    outbox: deps.outbox,
+    limit: deps.batchSize,
+  });
+  drain.enqueued += await enqueueSlackInputMirrors({
     outbox: deps.outbox,
     limit: deps.batchSize,
   });
@@ -198,7 +241,7 @@ export async function drainSlackOutbox(deps: {
         drain.statuses = statuses.sent;
       } catch (error) {
         deps.logger.warn("Slack status step failed; going on", {
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         });
       }
     }
@@ -214,11 +257,14 @@ export async function drainSlackOutbox(deps: {
         batchSize: SLACK_CARD_SETTLE_TIMING.batchSize,
         deadline: until,
         now,
+        ...(deps.requesterLeft === undefined
+          ? {}
+          : { requesterLeft: deps.requesterLeft }),
       });
       drain.cards = settled.sent;
     } catch (error) {
       deps.logger.warn("Slack card step failed; going on", {
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
     }
   };
@@ -249,10 +295,18 @@ export async function drainSlackOutbox(deps: {
         attempts: claim.attempts,
       };
       const settle = async (outcome: SlackOutboxSettle) => {
-        if (!(await deps.outbox.settle(claim, outcome))) {
+        const settled = await deps.outbox.settle(claim, outcome);
+        if (!settled) {
           drain.lost += 1;
           deps.logger.warn("Slack outbox lease lost", ids);
           return false;
+        }
+        if (settled === "topic_alias_taken") {
+          drain.topicAliasTaken += 1;
+          deps.logger.warn(
+            "Slack mirror opened a thread another topic already holds; the topics stay apart",
+            ids,
+          );
         }
         drain[
           outcome.status === "pending"
@@ -271,11 +325,26 @@ export async function drainSlackOutbox(deps: {
         return true;
       };
 
+      // When Slack is asked, so a join noted after it outdates its answer.
+      const askedAt = Date.now() * 1000;
+      let voided = false;
       const outcome = await deliver({
         row: claim,
         attempts: claim.attempts,
-        begin: async () => deps.outbox.beginSend(claim),
+        begin: async () => {
+          const begun = await deps.outbox.beginSend(claim);
+          voided = begun === "voided_by_delete";
+          return begun === true;
+        },
       });
+      if (outcome.kind === "lease_lost" && voided) {
+        drain.voided += 1;
+        deps.logger.warn("Slack send voided: a source was deleted", {
+          ...ids,
+          error: "source_deleted",
+        });
+        continue;
+      }
       if (outcome.kind === "lease_lost") {
         drain.lost += 1;
         deps.logger.warn("Slack outbox lease lost before send", ids);
@@ -284,6 +353,21 @@ export async function drainSlackOutbox(deps: {
       const settled = await settle(settleOf(outcome));
       if (settled && outcome.kind === "uncertain") {
         await noticeUncertain(claim);
+      }
+      // The channel is gone, or a private one lost the bot: its binding says
+      // so, and no row goes there after this one. A DM or a user channel has
+      // no binding of its own and is left alone.
+      if (
+        settled &&
+        outcome.kind === "failed" &&
+        outcome.code === "channel_not_found" &&
+        !claim.channelId.startsWith("D")
+      ) {
+        await deps.bindings?.channelNotFound(
+          claim.installationId,
+          claim.channelId,
+          askedAt,
+        );
       }
     }
   }

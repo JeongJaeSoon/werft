@@ -36,12 +36,12 @@ scripts/test-ops.sh start
 
 env ファイルの値を変えた環境には、`scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で同じ release を再適用します。start が env の変更を反映するとは考えないでください。
 
-DB と workspace volume は残ります。LocalStack は volume を使わずメモリに保存するため、コンテナを削除すると `-v` がなくても checkpoint object が消えます。DB に未回収 checkpoint があるのに bucket が空なら、API は起動を拒否します。[試験環境の再起動](/run-server/self-hosting/try-localstack#자주-막히는-곳)で reseed の条件を確認してください。未回収 checkpoint がある LocalStack 環境の start と、運用 S3 環境の再起動全体は実行確認していません。
+DB と workspace volume は残ります。LocalStack は volume を使わずメモリに保存するため、コンテナを削除すると `-v` がなくても checkpoint object が消えます。DB に未回収 checkpoint があるのに bucket が空なら、API は起動を拒否します。[試験環境の再起動](/run-server/self-hosting/try-localstack#자주-막히는-곳)で reseed の条件を確認してください。
 
 <a id="호스트-재부팅" />
 ### ホストの再起動
 
-常駐サービスは `restart: unless-stopped` なので、Docker が自動起動し、コンテナが残っていれば再起動後に再び起動します。`stop` または `compose down` でコンテナを削除した場合は `scripts/test-ops.sh start` で起動します。以前の release で restart ポリシーが異なっていた環境は、新しいポリシーでコンテナを作り直すまで以前の動作を維持します。LocalStack コンテナの再作成では object を失うため、[試験環境の再起動に関する警告](/run-server/self-hosting/try-localstack#자주-막히는-곳)に従います。
+常駐サービスは `restart: unless-stopped` なので、Docker が自動起動し、コンテナが残っていれば再起動後に再び起動します。`stop` または `compose down` でコンテナを削除した場合は `scripts/test-ops.sh start` で起動します。LocalStack コンテナの再作成では object を失うため、[試験環境の再起動に関する警告](/run-server/self-hosting/try-localstack#자주-막히는-곳)に従います。
 
 再起動前に進行中の turn、status、ホスト外のバックアップを確認します。再起動後に NTP、XFS prjquota、Docker の自動起動、ディスクと inode、status、ready を確認し、既存セッションを再開して新しい worker が checkpoint を引き継ぐことを確認します。
 

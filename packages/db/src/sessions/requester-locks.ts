@@ -708,11 +708,18 @@ export async function lockSessionReach(
       agentId === null ||
       userId === null ||
       (await reachesBeforePublishNow(tx, workspaceId, userId, agentId)));
+  // Slack cannot be asked under the lock: a private channel's session is
+  // the policy's call, made just before for this person; never a key's.
   const sees =
-    owns ||
-    named ||
-    shareTeams.some((id) => memberOf.has(id)) ||
-    (scope === "workspace" && (!gated || inside));
+    scope === "private_channel"
+      ? userId !== null &&
+        apiKeyId === null &&
+        requester.keyAgentId === null &&
+        requester.slackBotUserId === null
+      : owns ||
+        named ||
+        shareTeams.some((id) => memberOf.has(id)) ||
+        (scope === "workspace" && (!gated || inside));
   if (!sees) return "not_found";
   if (answerer || directAdmin) return "ok";
   // The managing team's lead administers the agent, as administers() says.

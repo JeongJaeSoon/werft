@@ -1,11 +1,10 @@
-import type { WorkspaceRole } from "@werft-ai/contracts";
+import type { SkillCheckFinding, WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
 import type { BundleManifest } from "../bundle-validator.ts";
 import type { ExtensionMode } from "../resolve.ts";
 import type {
   SkillGitLocation,
   SkillGitSource,
-  SkillProtectionEvidence,
   SkillSyncTrigger,
 } from "./skill-git-source-store.ts";
 
@@ -27,18 +26,29 @@ export type GitVersionInput = {
   /** The sync's lease token; a check that lost its lease writes nothing. */
   leaseToken?: string;
   /**
-   * What GitHub showed about the commit, read for a source whose
-   * auto-approve was on, with the source's `grantId` then. It approves the
-   * version only when sync and auto-approve are still on with that same
-   * grant (no off, pause or resume since), under the source row's lock.
+   * Set for a source whose auto-approve was on when the check read it, with
+   * the source's `grantId` then. The version this content is (a new one,
+   * or one still `pending`) is approved only when sync and auto-approve
+   * are still on with that same grant (no off, pause or resume since),
+   * under the source row's lock.
    */
-  protection?: { grantId: string; evidence: SkillProtectionEvidence };
+  auto?: {
+    grantId: string;
+    /**
+     * The fixed-rule checks of the tree against `baselineId`, the approved
+     * version before it when they ran (null: none). Any finding, or another
+     * approved version before it under the lock, leaves it `pending`.
+     */
+    checks: { baselineId: string | null; findings: SkillCheckFinding[] };
+  };
 };
 
 export const EXTENSION_BUNDLE_REVIEWS = [
   "pending",
   "approved",
   "rejected",
+  // Closed while awaiting review: a newer version was approved or made current.
+  "superseded",
 ] as const;
 export type ExtensionBundleReview = (typeof EXTENSION_BUNDLE_REVIEWS)[number];
 
@@ -191,7 +201,7 @@ export interface ExtensionBundleStore {
     receiptId: string;
     workspaceId: string;
     bundleId: string;
-    review: Exclude<ExtensionBundleReview, "pending">;
+    review: "approved" | "rejected";
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];
   }): Promise<ReviewExtensionBundleResult>;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Api, e2eStack, poll } from "../e2e/client.ts";
+import { e2eEnv, poll } from "../e2e/client.ts";
+import { type PushAgent, pushAgent } from "./agent.ts";
 import { scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
 import { forgeBranch, forgeFile, forgePushRequests } from "./forge.ts";
@@ -10,11 +11,10 @@ import { forgeBranch, forgeFile, forgePushRequests } from "./forge.ts";
  * reject pushes nothing. The request is made over REST, so the path under test
  * is the platform's, the same for every engine; what an engine contributes is
  * the commit its turn leaves in the workspace and the checkpoint that holds it.
+ * The release turns push approval on: one without it pushes with no person.
  */
 const engine = engineFromEnv();
-const api = new Api(
-  await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
-);
+const env = e2eEnv({ needsMessages: false });
 const TIMEOUT = 600_000;
 const WATCH_LOOKS = 10;
 const WATCH_INTERVAL_MS = 500;
@@ -26,10 +26,16 @@ type PushRequest = {
   target_branch: string;
 };
 
-type Committed = { content: string; file: string; sessionId: string };
+type Committed = {
+  agent: PushAgent;
+  content: string;
+  file: string;
+  sessionId: string;
+};
 
 /** A session whose turn committed a file only this scenario writes. */
 async function sessionWithCommit(name: string): Promise<Committed> {
+  const agent = await pushAgent(engine, env, name);
   const id = scriptId(name);
   const file = `${id}.txt`;
   const commit = [
@@ -38,24 +44,32 @@ async function sessionWithCommit(name: string): Promise<Committed> {
     `git add ${file}`,
     "git -c user.name=conformance -c user.email=conformance@example.test commit -q -m conformance",
   ].join(" && ");
-  const created = await api.createSession(
-    engine.prompt({ id, commands: [commit], final: "committed" }),
-    undefined,
-    engine.repositoryId,
+  const created = await agent.starter.request<{ session_id: string }>(
+    "POST",
+    "/v1/sessions",
+    {
+      agent_release_id: agent.releaseId,
+      message: engine.prompt({ id, commands: [commit], final: "committed" }),
+    },
   );
   expect(created.status).toBe(201);
   const sessionId = created.body.session_id;
-  expect((await api.settleAllowing(sessionId, "1")).status).toBe("completed");
-  await api.sessionUntil(
+  expect((await agent.approver.settleAllowing(sessionId, "1")).status).toBe(
+    "completed",
+  );
+  await agent.starter.sessionUntil(
     sessionId,
     "has checkpointed turn 1",
     (s) => s.durability.last_checkpointed_turn_id === "1",
   );
-  return { content: id, file, sessionId };
+  return { agent, content: id, file, sessionId };
 }
 
-async function requestPush(sessionId: string): Promise<PushRequest> {
-  const made = await api.request<PushRequest>(
+async function requestPush(
+  agent: PushAgent,
+  sessionId: string,
+): Promise<PushRequest> {
+  const made = await agent.starter.request<PushRequest>(
     "POST",
     `/v1/sessions/${sessionId}/push-requests`,
     {},
@@ -66,8 +80,12 @@ async function requestPush(sessionId: string): Promise<PushRequest> {
   return made.body;
 }
 
-async function stateOf(sessionId: string, id: string): Promise<string> {
-  const list = await api.request<{ items: PushRequest[] }>(
+async function stateOf(
+  agent: PushAgent,
+  sessionId: string,
+  id: string,
+): Promise<string> {
+  const list = await agent.starter.request<{ items: PushRequest[] }>(
     "GET",
     `/v1/sessions/${sessionId}/push-requests`,
   );
@@ -80,17 +98,17 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
   test(
     "approving pushes the requested commit to the agent branch on the forge",
     async () => {
-      const { content, file, sessionId } =
+      const { agent, content, file, sessionId } =
         await sessionWithCommit("push-approve");
       expect(await forgeBranch(engine, sessionId)).toBeNull();
       const pushesBefore = await forgePushRequests(engine);
-      const request = await requestPush(sessionId);
+      const request = await requestPush(agent, sessionId);
 
       // Asking pushes nothing: the branch waits for a decision.
       expect(await forgeBranch(engine, sessionId)).toBeNull();
       expect(await forgePushRequests(engine)).toBe(pushesBefore);
 
-      const approved = await api.request<PushRequest>(
+      const approved = await agent.approver.request<PushRequest>(
         "POST",
         `/v1/sessions/${sessionId}/push-requests/${request.id}/approve`,
         { git_commit: request.git_commit },
@@ -101,7 +119,7 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
         `push ${request.id} to finish`,
         120_000,
         async () => {
-          const current = await stateOf(sessionId, request.id);
+          const current = await stateOf(agent, sessionId, request.id);
           return current === "pushed" || current === "failed" ? current : null;
         },
       );
@@ -119,11 +137,11 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
   test(
     "rejecting pushes nothing and the request stays rejected",
     async () => {
-      const { sessionId } = await sessionWithCommit("push-reject");
-      const request = await requestPush(sessionId);
+      const { agent, sessionId } = await sessionWithCommit("push-reject");
+      const request = await requestPush(agent, sessionId);
       const pushesBefore = await forgePushRequests(engine);
 
-      const rejected = await api.request<PushRequest>(
+      const rejected = await agent.approver.request<PushRequest>(
         "POST",
         `/v1/sessions/${sessionId}/push-requests/${request.id}/reject`,
         { git_commit: request.git_commit, reason: "conformance" },
@@ -135,7 +153,7 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
       // forge within a second, so a push wrongly queued by the rejection
       // would show inside this window.
       for (let look = 0; look < WATCH_LOOKS; look += 1) {
-        expect(await stateOf(sessionId, request.id)).toBe("rejected");
+        expect(await stateOf(agent, sessionId, request.id)).toBe("rejected");
         expect(await forgeBranch(engine, sessionId)).toBeNull();
         await Bun.sleep(WATCH_INTERVAL_MS);
       }

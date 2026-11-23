@@ -322,14 +322,17 @@ function WaitingSession({
     children: <code>{shortSessionId(session.id)}…</code>,
   });
   const short = shortSessionId(session.id);
+  const title =
+    session.title ??
+    (session.title_deleted_at ? t("session.sourceDeleted") : null);
   const summary = layout === "summary";
   const heading = summary
     ? renderLink({
         to: "session",
         id: session.id,
         className: "text-foreground hover:underline focus-visible:underline",
-        "aria-label": `${t("inbox.open")} ${session.title ?? session.id}`,
-        children: session.title ?? short,
+        "aria-label": `${t("inbox.open")} ${title ?? session.id}`,
+        children: title ?? short,
       })
     : undefined;
   const meta = (request: PendingRequest) => {
@@ -343,8 +346,17 @@ function WaitingSession({
     // why the request came to the reader. A long agent name or reason wraps;
     // the id and the wait stay whole.
     const parts = [
-      { key: "agent", text: session.agent?.name ?? t("session.agent.none") },
-      { key: "id", text: session.title ? short : undefined, whole: true },
+      {
+        key: "agent",
+        text:
+          session.agent?.name ??
+          t(
+            session.agent_hidden
+              ? "session.agent.hidden"
+              : "session.agent.none",
+          ),
+      },
+      { key: "id", text: title ? short : undefined, whole: true },
       { key: "waited", text: waited, whole: true },
       { key: "reason", text: reason && t(`inbox.why.${reason}`) },
     ].filter((part) => part.text !== undefined);

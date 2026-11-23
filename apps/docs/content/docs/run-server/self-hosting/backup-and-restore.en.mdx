@@ -60,7 +60,7 @@ Identify API_CONTAINER from this installation's status and project label. Review
 <a id="확인" />
 ## Verify
 
-Check the backup exit code and status. Keep the drill logs with the actual checkpoint count, version count, and checksum results. `nothing was compared` means the comparison was empty; it does not prove data restoration. The previous LocalStack run had 0 objects and 0 checkpoint rows. Restoration from AWS S3 and actual session resumption with a running API have not been verified. Verify that sessions resume with the restored API and workers in a separate, isolated environment.
+Check the backup exit code and status. Keep the drill logs with the actual checkpoint count, version count, and checksum results. `nothing was compared` means the comparison was empty; it does not prove data restoration. Verify that sessions resume with the restored API and workers in a separate, isolated environment.
 
 <a id="자주-막히는-곳" />
 ## Troubleshooting

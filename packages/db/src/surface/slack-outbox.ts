@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
+  type ConversationInputId,
   DEFAULT_USER_LOCALE,
   type PushRequestOrigin,
   pendingQuestionSchema,
   type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
+  SLACK_USER_CHANNEL_CODE,
+  slackOutboxChannelRefused,
   type UserLocale,
   withStoredNeutralFields,
 } from "@werft-ai/contracts";
@@ -15,12 +18,14 @@ import type {
   SlackCardFence,
   SlackCardRendered,
   SlackCardSettleStore,
+  SlackOpenPushCard,
   SlackOutboxFence,
   SlackOutboxStore,
   SlackPendingPrompt,
   SlackPromptCard,
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
+  StoredSourceSet,
 } from "@werft-ai/platform";
 import {
   and,
@@ -35,6 +40,12 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
+import { lockedDeletedSource, outboxSources } from "../conversations/index.ts";
+import {
+  mirrorsInstructions,
+  postsPrompts,
+  reportsTurns,
+} from "../link-posting.ts";
 import {
   catalogName,
   createPostgresPushRequests,
@@ -66,6 +77,13 @@ import {
 import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { channelLeft } from "./slack-channel-left.ts";
+import {
+  closeHeldOfFailedMirror,
+  inputMirrorThread,
+  markMirrorUnconfirmed,
+  mirrorFailed,
+  mirrorPosted,
+} from "./slack-input-holds.ts";
 import { ms, type Raw, released } from "./slack-shared.ts";
 import {
   createPostgresSlackThreadStatusStore,
@@ -73,6 +91,16 @@ import {
 } from "./slack-thread-status.ts";
 
 const t = slackOutbox;
+
+/** An outbox row that names a Slack user as its channel (slackOutboxChannelRefused). */
+export class SlackOutboxUserChannelError extends Error {
+  readonly code = SLACK_USER_CHANNEL_CODE;
+
+  constructor(readonly kind: string) {
+    super(`A ${kind} outbox row may not name a Slack user as its channel`);
+    this.name = "SlackOutboxUserChannelError";
+  }
+}
 
 // A turn stopped before it had anything to post.
 const STOPPED_TURNS = sqlLiterals(["interrupted", "cancelled"]);
@@ -91,8 +119,14 @@ const entry = {
   threadTs: t.threadTs,
   slackUserId: t.slackUserId,
   sessionId: t.sessionId,
+  sessionLinkId: t.sessionLinkId,
   body: t.body,
   dedupeKey: t.dedupeKey,
+  sources: t.sources,
+  sourcesTurn: t.sourcesTurn,
+  inputId: t.inputId,
+  correlationId: t.correlationId,
+  heldForInputId: t.heldForInputId,
 };
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
@@ -108,6 +142,7 @@ const fenced = (fence: SlackOutboxFence) =>
 const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
   coalesce(${turn}.channel IN ('web', 'api'), false)
   AND ${turn}.created_at >= ${link}.created_at
+  AND ${mirrorsInstructions(link)}
   AND NOT EXISTS (
     SELECT 1 FROM slack_outbox oi
     WHERE oi.dedupe_key = 'instruction:' || ${link}.id || ':' || ${turn}.sequence
@@ -178,7 +213,11 @@ const addressed = (db: Database, row: SQL) => sql`(
       AND l.thread_id = ${row}.thread_ts
       AND l.revoked_at IS NULL
       AND NOT l.muted
-      AND l.visibility = 'full'
+      AND CASE ${row}.kind
+        WHEN 'instruction' THEN ${mirrorsInstructions(sql.raw("l"))}
+        WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
+        ELSE ${reportsTurns(sql.raw("l"))}
+      END
   ))
 )`;
 
@@ -359,7 +398,12 @@ const SENT_CARD = sql`
   o.kind = 'input_notice' AND o.status = 'sent' AND o.slack_ts IS NOT NULL
   AND o.settle_state IS DISTINCT FROM 'abandoned'`;
 
-const SHOWS_CHOICE = sql`coalesce(o.settle_rendered, 'open') IN ('open', 'reject_only')`;
+// Every SlackCardChoice: the card still waits on its request.
+const CHOICES = sql.raw(
+  "('open', 'reject_only', 'open_requester_left', 'reject_only_requester_left')",
+);
+
+const SHOWS_CHOICE = sql`coalesce(o.settle_rendered, 'open') IN ${CHOICES}`;
 
 const cardFenced = (fence: SlackCardFence) =>
   sql`id = ${fence.id} AND settle_claim_token = ${fence.claimToken}`;
@@ -371,7 +415,7 @@ const CARD_RELEASED = sql`
 // What a drawn card leaves the row: open or reject-only waits for the next
 // change, an end state is final.
 const settledAs = (rendered: SQL) =>
-  sql`CASE WHEN coalesce(${rendered}, 'open') IN ('open', 'reject_only') THEN NULL ELSE 'settled' END`;
+  sql`CASE WHEN coalesce(${rendered}, 'open') IN ${CHOICES} THEN NULL ELSE 'settled' END`;
 
 /** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
 function createPostgresSlackCardSettleStore(
@@ -409,6 +453,36 @@ function createPostgresSlackCardSettleStore(
       );
     },
 
+    async markPushCardsDueIn({ installationId, channelId, windowMs }) {
+      const inChannel = sql`${SENT_CARD} AND ${SHOWS_CHOICE}
+        AND o.dedupe_key LIKE 'push:%'
+        AND o.installation_id = ${installationId}
+        AND o.channel_id = ${channelId}`;
+      // One statement, so a redraw's finish lands wholly before or after it.
+      // A card being drawn now may have read the membership before this
+      // change: its edit is taken as uncertain (as recordUncertain does), so
+      // finish keeps it owed and it is drawn again a window later.
+      const drawing = sql`o.settle_claim_token IS NOT NULL`;
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
+          UPDATE slack_outbox o SET
+            settle_state = 'due',
+            settle_uncertain_rev = settle_uncertain_rev
+              + CASE WHEN ${drawing} THEN 1 ELSE 0 END,
+            settle_uncertain_latest_at = CASE WHEN ${drawing}
+              THEN greatest(settle_uncertain_latest_at, now())
+              ELSE settle_uncertain_latest_at END,
+            settle_next_at = CASE WHEN ${drawing}
+              THEN greatest(settle_next_at,
+                greatest(settle_uncertain_latest_at, now()) + ${ms(windowMs)})
+              ELSE settle_next_at END
+          WHERE ${inChannel}
+            AND (o.settle_state IS NULL OR ${drawing})
+          RETURNING o.id`),
+      );
+      return rows.length;
+    },
+
     async markDueById(id) {
       return (
         (await markDueWhere(sql`o.id = ${id} AND o.settle_state IS NULL`)) > 0
@@ -430,7 +504,7 @@ function createPostgresSlackCardSettleStore(
             AND o.dedupe_key LIKE 'push:%' AND p.state = 'requested'
             AND ${SHOWS_CHOICE}
             AND (s.checkpoint_revision IS DISTINCT FROM p.checkpoint_revision
-              OR o.settle_rendered = 'reject_only')
+              OR o.settle_rendered LIKE 'reject_only%')
             AND (${afterSeq}::bigint IS NULL OR o.seq > ${afterSeq}::bigint)
           ORDER BY o.seq
           LIMIT ${limit}`),
@@ -439,7 +513,7 @@ function createPostgresSlackCardSettleStore(
         id: row.id as string,
         seq: Number(row.seq),
         sessionId: row.session_id as string,
-        rendered: row.rendered as "open" | "reject_only",
+        rendered: row.rendered as SlackOpenPushCard["rendered"],
         sessionCheckpointRevision:
           row.session_revision === null ? null : Number(row.session_revision),
         checkpointRevision: Number(row.checkpoint_revision),
@@ -641,6 +715,9 @@ export function createPostgresSlackOutboxStore(
     threadStatus: createPostgresSlackThreadStatusStore(db),
 
     async enqueue(input, whileHome) {
+      if (slackOutboxChannelRefused(input.kind, input.channelId)) {
+        throw new SlackOutboxUserChannelError(input.kind);
+      }
       return db.transaction(async (tx) => {
         if (whileHome) {
           const [home] = await tx
@@ -701,9 +778,31 @@ export function createPostgresSlackOutboxStore(
             if (heard) return "duplicate";
           }
         }
+        // A row of no session (an input's mirror) keeps its sources as given.
+        const sources =
+          input.sources == null
+            ? null
+            : input.sessionId === null
+              ? input.sources
+              : await outboxSources(tx, input.sessionId, input.sources);
+        // A row bound for a web input's thread waits for its post, unless
+        // the thread is known, or its mirror failed for good. The share
+        // lock orders this against a settle, which locks the input before
+        // it frees or closes the rows held for it.
+        let place = {};
+        if (input.heldForInputId != null) {
+          await tx.execute(sql`
+            SELECT 1 FROM conversation_inputs
+            WHERE id = ${input.heldForInputId}::uuid FOR SHARE`);
+          const thread = await inputMirrorThread(tx, input.heldForInputId);
+          if (thread !== null) place = { ...thread, heldForInputId: null };
+          else if (await mirrorFailed(tx, input.heldForInputId)) {
+            place = { status: "failed", errorCode: "input_unplaced" };
+          }
+        }
         const [row] = await tx
           .insert(t)
-          .values({ ...input, id: randomUUID() })
+          .values({ ...input, ...place, sources, id: randomUUID() })
           .onConflictDoNothing({ target: t.dedupeKey })
           .returning({ id: t.id });
         return row ? "enqueued" : "duplicate";
@@ -758,7 +857,8 @@ export function createPostgresSlackOutboxStore(
           WHERE l2.session_id IS NOT NULL
             AND l2.revoked_at IS NULL
             AND NOT l2.muted
-            AND l2.visibility = 'full'
+            AND ${reportsTurns(sql.raw("l2"))}
+            AND l2.closed_at IS NULL
         ) m
         WHERE l.id = m.id AND m.mark > l.answered_through
         RETURNING l.id
@@ -779,6 +879,7 @@ export function createPostgresSlackOutboxStore(
           channelId: sessionLinks.channelId,
           threadTs: sessionLinks.threadId,
           turnId: turns.sequence,
+          sources: turns.sources,
           channel: turns.channel,
           message: turns.message,
           senderName: users.displayName,
@@ -807,7 +908,8 @@ export function createPostgresSlackOutboxStore(
           and(
             isNull(sessionLinks.revokedAt),
             eq(sessionLinks.muted, false),
-            eq(sessionLinks.visibility, "full"),
+            mirrorsInstructions(sql.raw('"session_links"')),
+            isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             // By a range per link, as unansweredTurns finds its turns.
             sql`${turns.id} = ANY (ARRAY(
@@ -823,7 +925,8 @@ export function createPostgresSlackOutboxStore(
               ) open
               WHERE ol.revoked_at IS NULL
                 AND NOT ol.muted
-                AND ol.visibility = 'full'
+                AND ${mirrorsInstructions(sql.raw("ol"))}
+                AND ol.closed_at IS NULL
             ))`,
             sql`${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
           ),
@@ -837,6 +940,181 @@ export function createPostgresSlackOutboxStore(
       return rows.flatMap(({ channel, ...row }): SlackUnpostedInstruction[] =>
         channel === "web" || channel === "api" ? [{ ...row, channel }] : [],
       );
+    },
+
+    async unmirroredInputs(limit) {
+      // Where each goes: its topic's thread; else the top of its channel;
+      // else, in a DM, the person's D channel a placed topic of the same
+      // conversation (that person's and agent's alone) names.
+      const rows = rowsOf<{
+        input_id: ConversationInputId;
+        workspace_id: string;
+        agent_id: string;
+        slack_app_id: string;
+        installation_id: string;
+        channel_id: string;
+        thread_ts: string;
+        body: string;
+        sender_name: string | null;
+        sender_slack_user_id: string | null;
+        locale: UserLocale | null;
+      }>(
+        await db.execute(sql`
+        SELECT i.id AS input_id, i.workspace_id, i.agent_id,
+          a.id AS slack_app_id, inst.id AS installation_id,
+          p.channel_id, p.thread_ts, i.body,
+          u.display_name AS sender_name, la.external_user_id AS sender_slack_user_id,
+          u.locale
+        FROM conversation_inputs i
+        JOIN conversation_topics tp ON tp.id = i.topic_id
+        JOIN conversations c ON c.id = tp.conversation_id
+        CROSS JOIN LATERAL (
+          SELECT x.team_id, x.channel_id, x.thread_ts FROM (
+            SELECT 1 AS rank, tp.slack_team_id AS team_id,
+              tp.slack_channel_id AS channel_id, tp.slack_thread_ts AS thread_ts
+            WHERE tp.slack_thread_ts IS NOT NULL
+            UNION ALL
+            SELECT 2, c.team_id, c.channel_id, ''
+            WHERE c.kind = 'channel'
+            UNION ALL
+            (SELECT 3, o.slack_team_id, o.slack_channel_id, ''
+             FROM conversation_topics o
+             WHERE o.conversation_id = c.id AND o.agent_id = i.agent_id
+               AND c.kind = 'dm' AND c.person_user_id::text = i.requester_id
+               AND o.slack_channel_id IS NOT NULL
+             ORDER BY o.created_at DESC, o.id
+             LIMIT 1)
+          ) x ORDER BY x.rank LIMIT 1
+        ) p
+        JOIN slack_apps a ON a.workspace_id = i.workspace_id
+          AND a.agent_id = i.agent_id AND a.kind = 'agent' AND a.state = 'created'
+        JOIN slack_installations inst ON inst.app_id = a.app_id
+          AND inst.team_id = p.team_id AND inst.status <> 'revoked'
+        JOIN users u ON u.id::text = i.requester_id
+        LEFT JOIN linked_accounts la ON la.workspace_id = i.workspace_id
+          AND la.user_id = u.id AND la.provider = 'slack'
+          AND la.external_tenant = p.team_id AND la.status = 'active'
+        WHERE i.slack_mirror = 'pending' AND i.slack_ts IS NULL
+          AND i.requester_kind = 'user'
+          AND NOT EXISTS (
+            SELECT 1 FROM slack_outbox so
+            WHERE so.dedupe_key = 'input_mirror:' || i.id::text)
+          -- An unplaced topic waits on its first mirror, whose post places it.
+          AND (tp.slack_thread_ts IS NOT NULL OR NOT EXISTS (
+            SELECT 1 FROM conversation_inputs e
+            WHERE e.topic_id = i.topic_id AND e.seq < i.seq
+              AND e.slack_mirror IN ('pending', 'unconfirmed')
+              AND e.slack_ts IS NULL))
+        ORDER BY i.received_at, i.id
+        LIMIT ${limit}`),
+      );
+      return rows.map((row) => ({
+        inputId: row.input_id,
+        workspaceId: row.workspace_id,
+        agentId: row.agent_id,
+        slackAppId: row.slack_app_id,
+        installationId: row.installation_id,
+        channelId: row.channel_id,
+        threadTs: row.thread_ts,
+        body: row.body,
+        senderName: row.sender_name,
+        senderSlackUserId: row.sender_slack_user_id,
+        locale: row.locale,
+      }));
+    },
+
+    async closeOverdueHeld(holdMs) {
+      return db.transaction(async (tx) => {
+        const overdue = await tx
+          .select({ id: t.id, inputId: t.heldForInputId })
+          .from(t)
+          .where(
+            and(
+              sql`${t.heldForInputId} IS NOT NULL`,
+              eq(t.status, "pending"),
+              sql`${t.createdAt} <= now() - make_interval(secs => ${holdMs / 1000})`,
+            ),
+          );
+        if (overdue.length === 0) return 0;
+        // The inputs first, as a settle takes them, then only the rows read
+        // above: the other order, or a row committed since, deadlocks with
+        // a mirror's settle.
+        const inputIds = [
+          ...new Set(
+            overdue.flatMap((row) =>
+              row.inputId === null ? [] : [row.inputId],
+            ),
+          ),
+        ];
+        await tx.execute(sql`
+          SELECT 1 FROM conversation_inputs
+          WHERE id = ANY(${`{${inputIds.join(",")}}`}::uuid[])
+          ORDER BY id FOR UPDATE`);
+        const closed = await tx
+          .update(t)
+          .set({ status: "failed", errorCode: "input_unplaced", ...released })
+          .where(
+            and(
+              inArray(
+                t.id,
+                overdue.map((row) => row.id),
+              ),
+              sql`${t.heldForInputId} IS NOT NULL`,
+              eq(t.status, "pending"),
+            ),
+          )
+          .returning({ inputId: t.heldForInputId });
+        await markMirrorUnconfirmed(tx, [
+          ...new Set(
+            closed.flatMap((row) =>
+              row.inputId === null ? [] : [row.inputId],
+            ),
+          ),
+        ]);
+        return closed.length;
+      });
+    },
+
+    matchMirrorEcho(echo) {
+      return db.transaction(async (tx) => {
+        const candidates = await tx
+          .select({
+            id: t.id,
+            workspaceId: t.workspaceId,
+            inputId: t.inputId,
+            installationId: t.installationId,
+            channelId: t.channelId,
+            threadTs: t.threadTs,
+          })
+          .from(t)
+          .where(
+            and(
+              eq(t.correlationId, echo.correlationId),
+              // The echo may come before Slack's answer to the send.
+              inArray(t.status, ["sending", "uncertain"]),
+              eq(t.kind, "input_mirror"),
+              eq(t.workspaceId, echo.workspaceId),
+              eq(t.slackAppId, echo.slackAppId),
+              eq(t.channelId, echo.channelId),
+            ),
+          )
+          .limit(2)
+          .for("update");
+        const [only] = candidates;
+        if (only === undefined || only.inputId === null) return "no_candidate";
+        if (candidates.length > 1) return "ambiguous";
+        await tx
+          .update(t)
+          .set({
+            status: "sent",
+            slackTs: echo.ts,
+            errorCode: null,
+            ...released,
+          })
+          .where(eq(t.id, only.id));
+        await mirrorPosted(tx, { ...only, inputId: only.inputId }, echo.ts);
+        return "linked";
+      });
     },
 
     async unansweredTurns(limit) {
@@ -854,6 +1132,7 @@ export function createPostgresSlackOutboxStore(
           threadTs: sessionLinks.threadId,
           turnRowId: turns.id,
           turnId: turns.sequence,
+          sources: turns.sources,
           status: turns.status,
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
@@ -908,12 +1187,14 @@ export function createPostgresSlackOutboxStore(
               ) open
               WHERE ol.revoked_at IS NULL
                 AND NOT ol.muted
-                AND ol.visibility = 'full'
+                AND ${reportsTurns(sql.raw("ol"))}
+                AND ol.closed_at IS NULL
             ))`,
             isNull(sessionLinks.revokedAt),
-            // A muted or summary-only thread is not where a full answer goes.
+            // A muted thread, or one that hears of no turns, gets no answer.
             eq(sessionLinks.muted, false),
-            eq(sessionLinks.visibility, "full"),
+            reportsTurns(sql.raw('"session_links"')),
+            isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             inArray(turns.status, ENDED_WITH_POST),
             // A turn from before the thread is not the thread's to answer.
@@ -1003,7 +1284,8 @@ export function createPostgresSlackOutboxStore(
       const live = and(
         isNull(sessionLinks.revokedAt),
         eq(sessionLinks.muted, false),
-        eq(sessionLinks.visibility, "full"),
+        postsPrompts(sql.raw('"session_links"')),
+        isNull(sessionLinks.closedAt),
         ne(slackInstallations.status, "revoked"),
       );
       const requester = (actorId: SQL) =>
@@ -1022,6 +1304,8 @@ export function createPostgresSlackOutboxStore(
           ...target,
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pendingRequests.requestId,
+          sources: turns.sources,
+          sourcesTurn: turns.sequence,
           payload: pendingRequests.payload,
           expiresAt: pendingRequests.expiresAt,
         })
@@ -1053,6 +1337,35 @@ export function createPostgresSlackOutboxStore(
           ...target,
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pushRequests.id,
+          // The turn whose intent made the request; a request no intent
+          // made, the session's latest turn when it was asked, which holds
+          // every source before it.
+          // An intent's turn with no sources gives none.
+          sources: sql<StoredSourceSet | null>`CASE WHEN EXISTS (
+              SELECT 1 FROM push_intents pi
+              WHERE pi.push_request_id = ${pushRequests.id})
+            THEN (SELECT it.sources FROM push_intents pi
+              JOIN ${turns} it ON it.id = pi.turn_id
+              WHERE pi.push_request_id = ${pushRequests.id}
+              ORDER BY pi.turn_id LIMIT 1)
+            ELSE (SELECT lt.sources FROM ${turns} lt
+              WHERE lt.session_id = ${sessions.id}
+                AND lt.created_at <= ${pushRequests.createdAt}
+              ORDER BY lt.sequence DESC LIMIT 1)
+            END`,
+          // The sequence of that same turn.
+          sourcesTurn: sql<number | null>`CASE WHEN EXISTS (
+              SELECT 1 FROM push_intents pi
+              WHERE pi.push_request_id = ${pushRequests.id})
+            THEN (SELECT it.sequence FROM push_intents pi
+              JOIN ${turns} it ON it.id = pi.turn_id
+              WHERE pi.push_request_id = ${pushRequests.id}
+              ORDER BY pi.turn_id LIMIT 1)
+            ELSE (SELECT lt.sequence FROM ${turns} lt
+              WHERE lt.session_id = ${sessions.id}
+                AND lt.created_at <= ${pushRequests.createdAt}
+              ORDER BY lt.sequence DESC LIMIT 1)
+            END`,
           repositoryId: pushRequests.repositoryId,
           repositoryName: catalogName(sql`${pushRequests.repositoryId}`),
           targetBranch: pushRequests.targetBranch,
@@ -1182,24 +1495,54 @@ export function createPostgresSlackOutboxStore(
     cards: createPostgresSlackCardSettleStore(db),
 
     async expireSending() {
-      return db
-        .update(t)
-        .set({ status: "uncertain", errorCode: "lease_expired", ...released })
-        .where(and(eq(t.status, "sending"), sql`${t.leaseExpiresAt} <= now()`))
-        .returning({ id: t.id, ...entry });
+      return db.transaction(async (tx) => {
+        const lost = await tx
+          .update(t)
+          .set({ status: "uncertain", errorCode: "lease_expired", ...released })
+          .where(
+            and(eq(t.status, "sending"), sql`${t.leaseExpiresAt} <= now()`),
+          )
+          .returning({ id: t.id, ...entry });
+        await markMirrorUnconfirmed(
+          tx,
+          lost.flatMap((row) => (row.inputId === null ? [] : [row.inputId])),
+        );
+        return lost;
+      });
     },
 
     async closeUnaddressed() {
-      return db
-        .update(t)
-        .set({ status: "failed", errorCode: "not_addressed", ...released })
-        .where(
-          and(
-            eq(t.status, "pending"),
-            sql`NOT ${addressed(db, sql.raw('"slack_outbox"'))}`,
+      return db.transaction(async (tx) => {
+        const closed = await tx
+          .update(t)
+          .set({ status: "failed", errorCode: "not_addressed", ...released })
+          .where(
+            and(
+              eq(t.status, "pending"),
+              // A held row has no thread to check yet; its hold ends it.
+              sql`${t.heldForInputId} IS NULL`,
+              sql`NOT ${addressed(tx, sql.raw('"slack_outbox"'))}`,
+            ),
+          )
+          .returning({
+            id: t.id,
+            kind: t.kind,
+            channelId: t.channelId,
+            inputId: t.inputId,
+          });
+        // A mirror closed here never reached Slack: what it held closes too.
+        // In id order, as every path that takes several inputs does.
+        for (const inputId of [
+          ...new Set(
+            closed.flatMap((row) =>
+              row.inputId === null ? [] : [row.inputId],
+            ),
           ),
-        )
-        .returning({ id: t.id, kind: t.kind, channelId: t.channelId });
+        ].sort()) {
+          await closeHeldOfFailedMirror(tx, inputId as ConversationInputId);
+        }
+        return closed.map(({ inputId: _, ...row }) => row);
+      });
     },
 
     async untoldUncertain(limit) {
@@ -1234,6 +1577,7 @@ export function createPostgresSlackOutboxStore(
             WHERE c.status = 'pending'
               AND (c.claim_token IS NULL OR c.lease_expires_at <= now())
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
+              AND c.held_for_input_id IS NULL
               AND ${addressed(db, sql.raw("c"))}
             ORDER BY c.seq
             LIMIT ${limit}
@@ -1259,20 +1603,55 @@ export function createPostgresSlackOutboxStore(
         }));
     },
 
-    async beginSend(fence) {
-      const rows = await db
-        .update(t)
-        .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
-        .where(
-          and(
-            fenced(fence),
-            eq(t.status, "pending"),
-            sql`${t.leaseExpiresAt} > now()`,
-            channelNotWaiting(sql.raw('"slack_outbox"')),
-          ),
-        )
-        .returning({ id: t.id });
-      return rows.length > 0;
+    beginSend(fence) {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .select({
+            workspaceId: t.workspaceId,
+            sessionId: t.sessionId,
+            sources: t.sources,
+            throughTurn: t.sourcesTurn,
+          })
+          .from(t)
+          .where(
+            and(
+              fenced(fence),
+              eq(t.status, "pending"),
+              sql`${t.leaseExpiresAt} > now()`,
+            ),
+          )
+          .for("update");
+        if (row === undefined) return false;
+        // A row whose sources hold a message Slack deleted is never sent;
+        // a delete that comes once it is sending leaves what went out.
+        if (
+          row.sources !== null &&
+          (await lockedDeletedSource(tx, row)) !== null
+        ) {
+          await tx
+            .update(t)
+            .set({
+              status: "voided_by_delete",
+              errorCode: "source_deleted",
+              ...released,
+            })
+            .where(eq(t.id, fence.id));
+          return "voided_by_delete" as const;
+        }
+        const rows = await tx
+          .update(t)
+          .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
+          .where(
+            and(
+              eq(t.id, fence.id),
+              // The marks' locks may have been waited for.
+              sql`${t.leaseExpiresAt} > clock_timestamp()`,
+              channelNotWaiting(sql.raw('"slack_outbox"')),
+            ),
+          )
+          .returning({ id: t.id });
+        return rows.length > 0;
+      });
     },
 
     async settle(fence, outcome) {
@@ -1284,6 +1663,9 @@ export function createPostgresSlackOutboxStore(
               errorCode: null,
               // A posted card shows its buttons until its request moves on.
               settleRendered: sql`CASE WHEN ${t.kind} = 'input_notice' THEN 'open' ELSE ${t.settleRendered} END`,
+              // A push card is drawn once more at once: its requester may
+              // have left the channel before it was posted.
+              settleState: sql`CASE WHEN ${t.kind} = 'input_notice' AND ${t.dedupeKey} LIKE 'push:%' THEN 'due' ELSE ${t.settleState} END`,
             }
           : outcome.status === "pending"
             ? {
@@ -1292,22 +1674,48 @@ export function createPostgresSlackOutboxStore(
                 nextAttemptAt: sql`now() + make_interval(secs => ${outcome.retryInMs / 1000})`,
               }
             : { status: outcome.status, errorCode: outcome.errorCode };
-      const rows = await db
-        .update(t)
-        .set({
-          ...set,
-          ...released,
-          // SET reads the old status: still pending means beginSend never ran.
-          attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
-        })
-        .where(fenced(fence))
-        .returning({ id: t.id, sessionId: t.sessionId });
-      const [row] = rows;
-      // A post into the thread is a moment to show its status again soon.
-      if (outcome.status === "sent" && row?.sessionId) {
-        await touchSlackThreadStatus(db, row.sessionId);
-      }
-      return rows.length > 0;
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(t)
+          .set({
+            ...set,
+            ...released,
+            // SET reads the old status: still pending means beginSend never ran.
+            attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
+          })
+          .where(fenced(fence))
+          .returning({
+            sessionId: t.sessionId,
+            workspaceId: t.workspaceId,
+            inputId: t.inputId,
+            installationId: t.installationId,
+            channelId: t.channelId,
+            threadTs: t.threadTs,
+          });
+        if (row === undefined) return false;
+        // A post into the thread is a moment to show its status again soon.
+        if (outcome.status === "sent" && row.sessionId) {
+          await touchSlackThreadStatus(tx, row.sessionId);
+        }
+        if (row.inputId === null) return true;
+        const inputId = row.inputId as ConversationInputId;
+        // The post is the mirrored input's alias from the moment it is known,
+        // and the rows held for its thread go there.
+        if (outcome.status === "sent") {
+          const linked = await mirrorPosted(
+            tx,
+            { ...row, inputId },
+            outcome.slackTs,
+          );
+          if (linked === "topic_alias_taken") return linked;
+        } else if (outcome.status === "uncertain") {
+          await markMirrorUnconfirmed(tx, [inputId]);
+        } else if (outcome.status === "failed") {
+          // Never in Slack: what waited for its thread is not sent elsewhere.
+          await closeHeldOfFailedMirror(tx, inputId);
+        }
+        return true;
+      });
     },
   };
 }

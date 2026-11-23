@@ -7,9 +7,12 @@ import {
   createPostgresAgentStore,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
+  createPostgresChannelMemberStore,
+  createPostgresConversationStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationSettingsStore,
+  createPostgresJudgmentBufferStore,
   createPostgresLinkedAccountStore,
   createPostgresSecretStore,
   createPostgresSessionControl,
@@ -42,10 +45,13 @@ import {
   createAuthorizationPolicy,
   createCatalogRegistry,
   createSessionService,
+  pushRequesterLeft,
+  readerOutsideChannels,
   registryCatalog,
   repositoryView,
   type SecretKey,
   type SlackInboundEventStore,
+  type SlackOutboxClaim,
   settingsView,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -53,7 +59,6 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import {
   loadSecretKey,
-  refuseFileCatalog,
   runtimeVersionsFromEnv,
 } from "../api/catalog-config.ts";
 import { extensionDepsFor } from "../api/extension-deps.ts";
@@ -65,12 +70,14 @@ import {
   createOutboxSlackNoticeSink,
   drainSlackInbox,
   drainSlackOutbox,
+  SLACK_INPUT_HOLD_MS,
   type SlackInboundHandler,
   type SlackInboxDrain,
   type SlackNoticeSink,
 } from "../wiring/chat-slack.ts";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
+import { wireSlackChannelMembers } from "../wiring/slack-api.ts";
 import { wireSlackInbound, wireSlackOutbound } from "../wiring/slack-worker.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -79,6 +86,7 @@ export function slackRoleSettings(environment: Environment): {
   batchSize: number;
   leaseMs: number;
   passBudgetMs: number;
+  inputHoldMs: number;
 } {
   const { passTimeoutMs } = passLoopConfigFromEnv(
     environment,
@@ -95,6 +103,11 @@ export function slackRoleSettings(environment: Environment): {
         default: 60,
       }) * 1000,
     passBudgetMs: passTimeoutMs / 2,
+    inputHoldMs:
+      integerSetting(environment, "SLACK_ROLE_INPUT_HOLD_SEC", {
+        min: 1,
+        default: SLACK_INPUT_HOLD_MS / 1000,
+      }) * 1000,
   };
 }
 
@@ -103,7 +116,6 @@ export function slackRoleStartup(environment: Environment): {
 } {
   slackRoleSettings(environment);
   queueDatabaseUrl(environment);
-  refuseFileCatalog(environment);
   return { secretKey: loadSecretKey(environment) };
 }
 
@@ -168,6 +180,14 @@ export function slackSessionHandler(deps: {
     credentials,
     slackGuests: createPostgresSlackGuestSetting(db),
     sessions: createPostgresSessionShareStore(db),
+    // A press on a card outside the session's channel asks Slack.
+    channelMembers: wireSlackChannelMembers({
+      apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
+      appStore: createPostgresSlackAppStore(db, deps.secretKey),
+      secrets: () => createPostgresSecretStore(db, deps.secretKey),
+      store: createPostgresChannelMemberStore(db),
+      logger,
+    }),
     decisions: createPostgresDecisionLog(db),
     logger,
   });
@@ -208,12 +228,15 @@ export function slackSessionHandler(deps: {
     identities,
     links: createPostgresLinkedAccountStore(db),
     bindings,
+    members: createPostgresChannelMemberStore(db),
     settings: {
       getSettings: (workspaceId, agentId) =>
         getSlackAppSettings(db, workspaceId, agentId),
     },
     botTurns: createPostgresSlackThreadBotTurnStore(db),
     sessionLinks: createPostgresSessionLinkStore(db),
+    conversations: createPostgresConversationStore(db),
+    buffer: createPostgresJudgmentBufferStore(db),
     sessions,
     agentDetails: agentStore,
     releaseRepositoryUnusable: async (workspaceId, releaseId) => {
@@ -227,8 +250,67 @@ export function slackSessionHandler(deps: {
     welcomeAgents: agentStore,
     welcomeApps: createPostgresSlackAppStore(db, secretKey),
     welcomeOutbox: createPostgresSlackOutboxStore(db),
+    cards: createPostgresSlackOutboxStore(db).cards,
     logger,
   });
+}
+
+/** The card's label and the policy ask the same question (answer 15). */
+function slackPushRequesterLeft(
+  db: Database,
+  secretKey: SecretKey,
+  environment: Environment,
+  logger: StructuredLogger,
+) {
+  const deps = {
+    sessions: createPostgresSessionShareStore(db),
+    channelMembers: wireSlackChannelMembers({
+      apiUrl: slackApiUrlFrom(environment),
+      appStore: createPostgresSlackAppStore(db, secretKey),
+      secrets: () => createPostgresSecretStore(db, secretKey),
+      store: createPostgresChannelMemberStore(db),
+      logger,
+    }),
+    logger,
+  };
+  return (push: Parameters<typeof pushRequesterLeft>[1]) =>
+    pushRequesterLeft(deps, push);
+}
+
+/** A session's direct message goes only to someone who can see it. */
+function slackReaderOutside(
+  db: Database,
+  secretKey: SecretKey,
+  environment: Environment,
+  logger: StructuredLogger,
+) {
+  const sessions = createPostgresSessionShareStore(db);
+  const members = wireSlackChannelMembers({
+    apiUrl: slackApiUrlFrom(environment),
+    appStore: createPostgresSlackAppStore(db, secretKey),
+    secrets: () => createPostgresSecretStore(db, secretKey),
+    store: createPostgresChannelMemberStore(db),
+    logger,
+  });
+  // The account the row is addressed to, in the row's install: a person
+  // who relinked since is not asked about in its place.
+  return async (claim: SlackOutboxClaim) =>
+    claim.sessionId !== null &&
+    (await readerOutsideChannels(
+      { sessions },
+      {
+        workspaceId: claim.workspaceId,
+        sessionId: claim.sessionId,
+        membership: (place) =>
+          members.slackMembership({
+            workspaceId: claim.workspaceId,
+            agentId: place.agentId.toLowerCase(),
+            channelId: place.channelId,
+            installationId: claim.installationId,
+            slackUserId: claim.channelId,
+          }),
+      },
+    ));
 }
 
 // The pass child serves pass after pass, so this flips each pass: statuses
@@ -293,18 +375,22 @@ export async function main(
       apiUrl: slackApiUrlFrom(environment),
       secrets,
       consoleOrigin,
+      readerOutside: slackReaderOutside(db, secretKey, environment, logger),
     });
     const sent = await drainSlackOutbox({
       outbox,
       slack: slackApi,
       botToken,
       delivery,
+      bindings: createPostgresSurfaceBindingStore(db),
       logger,
       consoleOrigin,
       batchSize: settings.batchSize,
       leaseMs: settings.leaseMs,
       deadline,
       statusesFirst: nextStatusesFirst(),
+      requesterLeft: slackPushRequesterLeft(db, secretKey, environment, logger),
+      inputHoldMs: settings.inputHoldMs,
     });
     if (sent.enqueued + sent.claimed + sent.uncertain > 0) {
       logger.info("Slack outbox pass", sent);

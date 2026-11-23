@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import {
-  type Principal,
-  scopesForRole,
-  type WorkspaceRole,
-} from "@werft-ai/contracts";
+import { type Principal, scopesForRole } from "@werft-ai/contracts";
+import { userPrincipal } from "@werft-ai/testkit/callers";
 import type { CatalogConnection } from "../catalog/catalog.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
 import {
@@ -16,7 +13,7 @@ import {
   type OutboundHttp,
   type OutboundRequest,
   WorkspaceMcpOutboundError,
-} from "../workspace-mcp/ports.ts";
+} from "../workspace-mcp/ports/workspace-mcp-store.ts";
 import type {
   SettingsConsoleResult,
   SettingsDocumentStore,
@@ -34,15 +31,11 @@ const USERS = {
 const RECEIPT = "019a0000-0000-7000-8000-0000000000e1";
 
 function caller(who: keyof typeof USERS): Caller {
-  const role: WorkspaceRole = who;
-  const principal: Principal = {
-    kind: "user",
-    id: USERS[who],
-    workspace_id: WORKSPACE,
-    role,
-    scopes: [...scopesForRole(role)],
-  };
-  return callerFor(principal, { kind: "web" }, crypto.randomUUID());
+  return callerFor(
+    userPrincipal(USERS[who], WORKSPACE, who),
+    { kind: "web" },
+    crypto.randomUUID(),
+  );
 }
 
 const apiKey = callerFor(
@@ -131,7 +124,6 @@ function service(
     seedEntries: async () => {
       throw new Error("not used");
     },
-    sessionsOnRepositories: async () => [],
     connectionUse: async (input) => {
       uses.push(input);
       return options.use ?? { agents: 0, sessions: 0, judgeNamed: false };

@@ -53,9 +53,6 @@ require_tools docker jq bun
 
 STORES=(postgres)
 [ "$OBJECT_STORE" = env ] || STORES+=(localstack)
-if docker volume inspect "${PROJECT}_gitea-data" >/dev/null 2>&1; then
-  log "backup: warning — volume ${PROJECT}_gitea-data is left out of this backup; keep the volume if its repositories matter"
-fi
 for service in "${STORES[@]}"; do
   [ -n "$(compose "$PROJECT" ps -q --status running "$service")" ] \
     || die "service '$service' of project '$PROJECT' is not running"

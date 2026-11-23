@@ -1,0 +1,208 @@
+import { z } from "zod";
+
+import {
+  agentIdSchema,
+  userIdSchema,
+  workspaceIdSchema,
+} from "../shared/index.ts";
+
+export const conversationIdSchema = z.uuid().brand<"ConversationId">();
+export type ConversationId = z.infer<typeof conversationIdSchema>;
+export const channelContextIdSchema = z.uuid().brand<"ChannelContextId">();
+export type ChannelContextId = z.infer<typeof channelContextIdSchema>;
+export const conversationTopicIdSchema = z
+  .uuid()
+  .brand<"ConversationTopicId">();
+export type ConversationTopicId = z.infer<typeof conversationTopicIdSchema>;
+export const conversationInputIdSchema = z
+  .uuid()
+  .brand<"ConversationInputId">();
+export type ConversationInputId = z.infer<typeof conversationInputIdSchema>;
+/**
+ * A new value for each request that posts a web input's Slack mirror, sent
+ * in the post's message metadata, so the post Slack sends back names the one
+ * request that made it. Two posts of the same text are told apart by it.
+ */
+export const slackMirrorCorrelationIdSchema = z
+  .uuid()
+  .brand<"SlackMirrorCorrelationId">();
+export type SlackMirrorCorrelationId = z.infer<
+  typeof slackMirrorCorrelationIdSchema
+>;
+/** The message metadata `event_type` of a web input's Slack mirror. */
+export const SLACK_INPUT_MIRROR_EVENT_TYPE = "werft_input_mirror";
+export const channelSummaryLineIdSchema = z
+  .uuid()
+  .brand<"ChannelSummaryLineId">();
+export type ChannelSummaryLineId = z.infer<typeof channelSummaryLineIdSchema>;
+
+/** Most characters one channel summary line holds; the DB checks the same. */
+export const CHANNEL_SUMMARY_LINE_TEXT_MAX = 2000;
+
+/**
+ * The key a web client gives an input so a retry finds it again: unique per
+ * agent and person, with no expiry. The DB checks the same pattern.
+ */
+export const CLIENT_MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+export const clientMessageIdSchema = z
+  .string()
+  .regex(CLIENT_MESSAGE_ID_PATTERN)
+  .brand<"ClientMessageId">();
+export type ClientMessageId = z.infer<typeof clientMessageIdSchema>;
+
+/**
+ * Whether Slack is to mirror a web input: `not_target` when the person has
+ * no Slack account linked, which only a DM input can be, since a channel
+ * input from such a person is refused; `pending` until Slack places it;
+ * `unconfirmed` when its post may or may not be in Slack (the send went
+ * `uncertain`), or the rows held for its thread waited past their limit. A
+ * person may send it again; nothing sends it again on its own.
+ */
+export const CONVERSATION_INPUT_SLACK_MIRROR_VALUES = [
+  "not_target",
+  "pending",
+  "unconfirmed",
+] as const;
+export const conversationInputSlackMirrorSchema = z.enum(
+  CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
+);
+export type ConversationInputSlackMirror = z.infer<
+  typeof conversationInputSlackMirrorSchema
+>;
+
+/**
+ * How an agent took part in a Slack message, as its engagement row says:
+ * `mention` opened a session by calling the agent (a DM calls it too),
+ * `reply` opened one unmentioned, `bound` went into a session already open
+ * (mentioned or not), `proactive` is the agent speaking first, which nothing
+ * writes yet.
+ */
+export const ENGAGEMENT_KIND_VALUES = [
+  "mention",
+  "reply",
+  "bound",
+  "proactive",
+] as const;
+export const engagementKindSchema = z.enum(ENGAGEMENT_KIND_VALUES);
+export type EngagementKind = z.infer<typeof engagementKindSchema>;
+
+/**
+ * An agent's main conversation: one per channel it is in, one per person it
+ * talks to in DMs.
+ */
+export const CONVERSATION_KIND_VALUES = ["channel", "dm"] as const;
+export const conversationKindSchema = z.enum(CONVERSATION_KIND_VALUES);
+export type ConversationKind = z.infer<typeof conversationKindSchema>;
+
+/**
+ * What Slack last said of a channel conversation's channel. `deleted` is
+ * final; `archived` goes back to `active` when the channel is unarchived. A
+ * DM conversation stays `active`.
+ */
+export const CONVERSATION_CHANNEL_STATE_VALUES = [
+  "active",
+  "archived",
+  "deleted",
+] as const;
+export const conversationChannelStateSchema = z.enum(
+  CONVERSATION_CHANNEL_STATE_VALUES,
+);
+export type ConversationChannelState = z.infer<
+  typeof conversationChannelStateSchema
+>;
+
+/** A Slack channel name as `channel_rename` carries it; the DB checks the length. */
+export const SLACK_CHANNEL_NAME_MAX = 80;
+export const slackChannelNameSchema = z
+  .string()
+  .min(1)
+  .max(SLACK_CHANNEL_NAME_MAX)
+  .refine((name) =>
+    [...name].every((char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code >= 32 && code !== 127;
+    }),
+  );
+
+/**
+ * A Slack team or channel id. The scope key joins segments with ":", so a
+ * segment holding one would let two scopes share a key. The DB checks the
+ * same pattern.
+ */
+export const SLACK_SCOPE_SEGMENT_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+export const slackScopeSegmentSchema = z
+  .string()
+  .regex(SLACK_SCOPE_SEGMENT_PATTERN);
+/** A Slack message ts: seconds, a dot, the fraction. */
+export const SLACK_TS_PATTERN = /^[0-9]{1,20}\.[0-9]{1,20}$/;
+export const slackTsSchema = z.string().regex(SLACK_TS_PATTERN);
+
+/** What a piece of context may be read under. */
+export const scopeSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("channel"),
+    workspaceId: workspaceIdSchema,
+    teamId: slackScopeSegmentSchema,
+    channelId: slackScopeSegmentSchema,
+  }),
+  z.object({
+    kind: z.literal("person"),
+    workspaceId: workspaceIdSchema,
+    userId: userIdSchema,
+  }),
+  z.object({
+    kind: z.literal("agent"),
+    workspaceId: workspaceIdSchema,
+    agentId: agentIdSchema,
+  }),
+]);
+export type Scope = z.infer<typeof scopeSchema>;
+
+export const scopeKeySchema = z
+  .string()
+  .regex(
+    /^(channel:[0-9a-f-]{36}:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64}|person:[0-9a-f-]{36}:[0-9a-f-]{36}|agent:[0-9a-f-]{36}:[0-9a-f-]{36})$/,
+  )
+  .brand<"ScopeKey">();
+/**
+ * `channel:{W}:{T}:{C}` · `person:{W}:{U}` · `agent:{W}:{A}`. Every agent in
+ * a channel reads the one channel key; U is a Werft user id, not Slack's.
+ */
+export type ScopeKey = z.infer<typeof scopeKeySchema>;
+
+export function scopeKeyOf(input: Scope): ScopeKey {
+  const scope = scopeSchema.parse(input);
+  // Uuids may arrive in either case; one scope has one key.
+  const w = scope.workspaceId.toLowerCase();
+  const raw =
+    scope.kind === "channel"
+      ? `channel:${w}:${scope.teamId}:${scope.channelId}`
+      : scope.kind === "person"
+        ? `person:${w}:${scope.userId.toLowerCase()}`
+        : `agent:${w}:${scope.agentId.toLowerCase()}`;
+  return scopeKeySchema.parse(raw);
+}
+
+/** Where a main conversation is: a channel of a Slack team, or one person. */
+export type ConversationPlace =
+  | {
+      kind: "channel";
+      workspaceId: string;
+      teamId: string;
+      channelId: string;
+    }
+  | { kind: "dm"; workspaceId: string; personUserId: string };
+
+/**
+ * The scope a conversation reads: a channel conversation reads the channel's,
+ * shared by every agent there; a DM reads the person's.
+ */
+export function conversationScopeKey(place: ConversationPlace): ScopeKey {
+  return place.kind === "channel"
+    ? scopeKeyOf(place)
+    : scopeKeyOf({
+        kind: "person",
+        workspaceId: place.workspaceId,
+        userId: place.personUserId,
+      });
+}

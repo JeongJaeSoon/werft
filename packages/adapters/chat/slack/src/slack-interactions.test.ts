@@ -234,6 +234,7 @@ function deps(): SlackInteractionDeps {
           channelId: CHANNEL,
           channelKind: "public_channel",
           mode: "on",
+          listen: "free",
           ceiling: {
             actions: [
               "session.read",
@@ -305,7 +306,7 @@ function deps(): SlackInteractionDeps {
         return undefined as never;
       },
     },
-    sessions: { appendMessage: record("append") as never },
+    sessions: { queuePushFollowUp: record("append") as never },
     followUps: {
       async hold(input) {
         calls.push({ method: "hold", args: [input] });
@@ -717,7 +718,7 @@ describe("Slack interactions", () => {
     const service = createSlackInteractionService({
       ...base,
       sessions: {
-        appendMessage: (async (...args: unknown[]) => {
+        queuePushFollowUp: (async (...args: unknown[]) => {
           calls.push({ method: "append", args });
           if (fails-- > 0) throw new Error("queue unavailable");
         }) as never,
@@ -1305,7 +1306,8 @@ describe("Slack interactions", () => {
     expect(append?.args[1]).toBe(SESSION);
     expect(append?.args[2]).toMatchObject({
       idempotencyKey: "slack-push:push-1",
-      body: { mode: "enqueue" },
+      pushRequestId: "push-1",
+      decision: "approve",
     });
     expect(settledText()).toContain(`<@${LINKED}>`);
   });
@@ -1421,6 +1423,7 @@ describe("Slack interactions", () => {
     );
     expect(called("hold")).toEqual([]);
     expect(called("append")).toHaveLength(1);
+    expect(called("append")[0]?.args[2]).toMatchObject({ decision: "reject" });
   });
 
   test("a push already decided is not decided again and queues no turn", async () => {
@@ -1477,7 +1480,7 @@ describe("Slack interactions", () => {
     const service = createSlackInteractionService({
       ...base,
       sessions: {
-        appendMessage: (async () => {
+        queuePushFollowUp: (async () => {
           throw new Error("queue unavailable");
         }) as never,
       },

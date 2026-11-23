@@ -95,9 +95,11 @@ export function useSlackApp(agentId: string) {
     onSuccess: async (read, site) => {
       setNotice(
         t(
-          read.events.state === "verified"
-            ? "slack.eventsUrl.done"
-            : "slack.eventsUrl.sent",
+          read.reinstall_required
+            ? "slack.eventsUrl.reinstall"
+            : read.events.state === "verified"
+              ? "slack.eventsUrl.done"
+              : "slack.eventsUrl.sent",
         ),
         site,
       );

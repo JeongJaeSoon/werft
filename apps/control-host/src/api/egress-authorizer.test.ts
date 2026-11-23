@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
+import type { BudgetAccountId } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresJudgmentEgress,
@@ -11,6 +12,8 @@ import {
   admitsReservations,
   createWorkerGateway,
   hashJudgmentToken,
+  type ProviderExchangeInput,
+  type ProviderExchangeLedger,
   type SessionBudget,
   WorkerGatewayError,
 } from "@werft-ai/platform";
@@ -26,6 +29,7 @@ import { createApiApp } from "./app.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
+  EGRESS_EXCHANGE_CALL_HEADER,
   EGRESS_EXCHANGES_PATH,
   EGRESS_USAGE_PATH,
   egressAuthorizerConfigFromEnv,
@@ -988,6 +992,8 @@ describe("egress authorizer: remote MCP", () => {
       gateway: {
         authorizeEgress: refuse,
         authorizeObjectAccess: refuse,
+        authorizeConversationCallEgress: async () => null,
+        recordConversationCallUsage: refuse,
         authorizePackagesEgress: refuse,
         recordProviderUsage: refuse,
         authorizeJudgmentEgress: refuse,
@@ -1070,6 +1076,8 @@ describe("egress authorizer: remote MCP", () => {
           );
         },
         authorizeObjectAccess: refuse,
+        authorizeConversationCallEgress: async () => null,
+        recordConversationCallUsage: refuse,
         authorizePackagesEgress: refuse,
         recordProviderUsage: refuse,
         authorizeJudgmentEgress: refuse,
@@ -1098,5 +1106,176 @@ describe("egress authorizer: remote MCP", () => {
     ]) {
       expect((await ask(bad)).status).toBe(400);
     }
+  });
+});
+
+describe("the budget account an open holds its call on", () => {
+  const reserve = {
+    model: "claude-opus-5",
+    input_tokens: 900,
+    output_tokens: 4_096,
+    cache_creation_input_tokens: 0,
+    cache_creation_1h_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    estimated: true,
+  };
+  const PERSON = "11111111-1111-4111-8111-111111111111";
+  const ACCOUNT = "44444444-4444-4444-8444-444444444444";
+  const proxyAuth = "p".repeat(48);
+  const choice = {
+    rootKind: "user",
+    owner: { kind: "user", userId: PERSON },
+  } as const;
+
+  function authorizerWith(
+    open: ProviderExchangeLedger["open"],
+    records: LogRecord[] = [],
+  ) {
+    const seen: { op: string; input: ProviderExchangeInput }[] = [];
+    const asked: {
+      exchangeId: string;
+      sessionId: string;
+      attemptId: string;
+      title?: boolean;
+    }[] = [];
+    const handle = createEgressAuthorizer({
+      gateway,
+      logger: createLogger({
+        sinks: [{ write: (record) => void records.push(record) }],
+      }),
+      exchanges: {
+        open: async (input) => {
+          seen.push({ op: "open", input });
+          return open(input);
+        },
+        renew: async () => "open",
+        release: async (input) => {
+          seen.push({ op: "release", input });
+          return "released";
+        },
+      },
+      budgetOf: async (call) => {
+        asked.push(call);
+        return { choice, turnId: "3" };
+      },
+      token: proxyAuth,
+    });
+    const send = (body: unknown, extra: Record<string, string> = {}) =>
+      handle(
+        new Request(`http://authorizer.invalid${EGRESS_EXCHANGES_PATH}`, {
+          method: "POST",
+          headers: {
+            ...extra,
+            "content-type": "application/json",
+            authorization: `Bearer ${proxyAuth}`,
+          },
+          body: JSON.stringify(body),
+        }),
+      );
+    return { send, seen, asked };
+  }
+
+  const call = {
+    exchange_id: "55555555-5555-4555-8555-555555555555",
+    session_id: "66666666-6666-4666-8666-666666666666",
+    attempt_id: "att-1",
+    reserve,
+  };
+
+  test("an open passes the chosen account; a release asks for none", async () => {
+    const { send, seen, asked } = authorizerWith(async () => ({
+      outcome: "created",
+    }));
+    expect((await send({ op: "open", ...call })).status).toBe(201);
+    expect((await send({ op: "release", ...call })).status).toBe(200);
+    expect(asked).toEqual([
+      {
+        exchangeId: call.exchange_id,
+        sessionId: call.session_id,
+        attemptId: call.attempt_id,
+      },
+    ]);
+    expect(seen.map(({ op, input }) => [op, input.budget])).toEqual([
+      ["open", choice],
+      ["release", undefined],
+    ]);
+  });
+
+  // Before 94S-2019 a title call asked for no account and was held on the
+  // session's limit alone; it is now the session's, its first turn's account.
+  test("a title call's open asks for the session's account, not the running turn's", async () => {
+    const { send, seen, asked } = authorizerWith(async () => ({
+      outcome: "created",
+    }));
+    const title = { [EGRESS_EXCHANGE_CALL_HEADER]: "title" };
+    expect((await send({ op: "open", ...call }, title)).status).toBe(201);
+    expect(asked).toEqual([
+      {
+        exchangeId: call.exchange_id,
+        sessionId: call.session_id,
+        attemptId: call.attempt_id,
+        title: true,
+      },
+    ]);
+    expect(seen.map(({ op, input }) => [op, input.budget])).toEqual([
+      ["open", choice],
+    ]);
+    // Any other value is an engine call's open, charged to its turn.
+    const other = { [EGRESS_EXCHANGE_CALL_HEADER]: "engine" };
+    expect((await send({ op: "open", ...call }, other)).status).toBe(201);
+    expect(asked[1]).toEqual({
+      exchangeId: call.exchange_id,
+      sessionId: call.session_id,
+      attemptId: call.attempt_id,
+    });
+  });
+
+  test("an account's refusal is BUDGET_EXCEEDED, logged with the side, root kind and account", async () => {
+    const records: LogRecord[] = [];
+    const { send } = authorizerWith(
+      async () => ({
+        outcome: "budget_exceeded",
+        by: "account",
+        accountId: ACCOUNT as BudgetAccountId,
+      }),
+      records,
+    );
+    const refused = await send({ op: "open", ...call });
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { code: string }).code).toBe(
+      "BUDGET_EXCEEDED",
+    );
+    const logged = records.find(
+      (record) => record.message === "Provider exchange refused for the budget",
+    );
+    expect(logged?.fields).toEqual({
+      session_id: call.session_id,
+      attempt_id: call.attempt_id,
+      turn_id: "3",
+      refused_by: "account",
+      budget_root_kind: "user",
+      budget_account_id: ACCOUNT,
+    });
+  });
+
+  test("a session's refusal names the session and no account", async () => {
+    const records: LogRecord[] = [];
+    const { send } = authorizerWith(
+      async () => ({
+        outcome: "budget_exceeded",
+        by: "session",
+        accountId: null,
+      }),
+      records,
+    );
+    expect((await send({ op: "open", ...call })).status).toBe(403);
+    const logged = records.find(
+      (record) => record.message === "Provider exchange refused for the budget",
+    );
+    expect(logged?.fields).toMatchObject({
+      refused_by: "session",
+      budget_root_kind: "user",
+    });
+    expect(logged?.fields?.budget_account_id).toBeUndefined();
   });
 });

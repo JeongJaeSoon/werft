@@ -15,6 +15,8 @@ export * from "./workers/runtime-config-of-spec.ts";
 export * from "./checkpoints/checkpoint-collector.ts";
 export * from "./checkpoints/checkpoint-service.ts";
 export * from "./checkpoints/durability.ts";
+export * from "./limits/budget-accounts.ts";
+export * from "./limits/conversation-calls.ts";
 export * from "./limits/installation-limits.ts";
 export * from "./limits/model-prices.ts";
 export * from "./limits/reservations.ts";
@@ -44,6 +46,7 @@ export * from "./musterrolle/session-share-service.ts";
 export * from "./musterrolle/service-errors.ts";
 export * from "./decision/index.ts";
 export * from "./surface/action-notice.ts";
+export * from "./surface/inbound-handling.ts";
 export * from "./surface/model-cut-notice.ts";
 export * from "./surface/model-move-notice.ts";
 export * from "./surface/runtime-retired-notice.ts";
@@ -51,6 +54,7 @@ export * from "./surface/worker-image-replaced-notice.ts";
 export * from "./surface/ports/agent-welcomable.ts";
 export * from "./surface/ports/approvable.ts";
 export * from "./surface/ports/channel-joinable.ts";
+export * from "./surface/ports/channel-member-checkable.ts";
 export * from "./surface/ports/channel-kind-readable.ts";
 export * from "./surface/ports/delivery.ts";
 export * from "./surface/ports/notifiable.ts";
@@ -65,6 +69,14 @@ export * from "./musterrolle/ports/agent-identity-store.ts";
 export * from "./agents/ports/agent-store.ts";
 export * from "./ports/api-key-store.ts";
 export * from "./ports/catalog-repository-store.ts";
+export * from "./ports/channel-summary-store.ts";
+export * from "./conversations/context-assembler.ts";
+export * from "./ports/context-fragment-source.ts";
+export * from "./ports/conversation-input-store.ts";
+export * from "./ports/conversation-store.ts";
+export * from "./conversations/source-sets.ts";
+export * from "./ports/engagement-store.ts";
+export * from "./conversations/web-inputs.ts";
 export * from "./checkpoints/ports/checkpoint-collection.ts";
 export * from "./checkpoints/ports/checkpoint-store.ts";
 export * from "./checkpoints/ports/checkpoint-verifier.ts";
@@ -115,6 +127,8 @@ export * from "./ports/bot-turn-store.ts";
 export * from "./surface/ports/surface-binding-store.ts";
 export * from "./ports/team-store.ts";
 export * from "./sessions/ports/turn-interrupts.ts";
+export * from "./limits/ports/budget-ledger.ts";
+export * from "./limits/ports/conversation-call-store.ts";
 export * from "./limits/ports/provider-exchange-ledger.ts";
 export * from "./usage/ports/usage-reader.ts";
 export * from "./ports/worker-unit-of-work.ts";
@@ -122,6 +136,8 @@ export * from "./workers/ports/workspace-mcp-egress.ts";
 export * from "./checkpoints/ports/workspace-bundle-verifier.ts";
 export * from "./ports/workspace-settings.ts";
 export { messageOf } from "./scheduler/pass-context.ts";
+export * from "./token-hash.ts";
+export * from "./scheduler/execution-urls.ts";
 export * from "./scheduler/session-scheduler.ts";
 export * from "./scheduler/upgrade-check.ts";
 export * from "./scheduler/worker-images.ts";
@@ -183,8 +199,15 @@ export * from "./extensions/bundle-validator.ts";
 export * from "./extensions/resolve.ts";
 export * from "./extensions/session-extensions.ts";
 export * from "./extensions/skill-service.ts";
+export {
+  checkSkillVersion,
+  type HostExtractor,
+  plainTextHostExtractor,
+  plainTextHosts,
+  UNREADABLE,
+} from "./extensions/skill-checks.ts";
 export * from "./extensions/skill-git-sync.ts";
-export * from "./workspace-mcp/ports.ts";
+export * from "./workspace-mcp/ports/workspace-mcp-store.ts";
 export {
   type WorkspaceMcpRemoteDeps,
   WorkspaceMcpRemoteError,
