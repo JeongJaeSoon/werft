@@ -17,6 +17,8 @@ const api = new Api(
   await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
 );
 const TIMEOUT = 600_000;
+/** How long the slow session's provider call stays open. */
+const HELD_MS = 180_000;
 
 /**
  * How many provider egress authorizations this stack's gateway has refused
@@ -161,8 +163,9 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
       const [spent] = await sql(
         `select spent_tokens + reserved_tokens from budget_accounts where owner_kind = 'team' and owner_id = '${teamId}' order by period_start desc limit 1`,
       );
-      // Room for one more call's reserve, not for two.
-      const limit = Number(spent) + Math.floor(reserve * 1.5);
+      // Room for one more call's reserve and a little: a second call, even
+      // one the engine asks again with a smaller reserve, does not fit.
+      const limit = Number(spent) + reserve + 1_000;
       await sql(
         `insert into budget_limits (workspace_id, subject, subject_id, tokens) values ('${workspaceId}', 'team', '${teamId}', ${limit})`,
       );
@@ -173,7 +176,8 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
             id: slow,
             commands: [],
             final: "slow",
-            finalDelayMs: 20_000,
+            // Longer than the second session takes to fail; checked below.
+            finalDelayMs: HELD_MS,
           }),
           undefined,
           engine.repositoryId,
@@ -196,15 +200,27 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
         expect(second.status).toBe(201);
         const secondId = second.body.session_id;
         expect((await api.settleAllowing(secondId, "1")).status).toBe("failed");
-        expect((await api.session(secondId)).attention?.code).toBe(
-          "BUDGET_EXCEEDED",
+        // An account's refusal fails the turn as the provider's error and
+        // asks the session for no attention, in this release.
+        expect((await api.session(secondId)).attention).toBeNull();
+        const [ended] = await sql(
+          `select terminal_reason from turns where session_id = '${secondId}' and sequence = 1`,
         );
+        // Claude Code names it so; Codex's adapter keeps a reason of its own.
+        if (engine.runtimeKind === "claude_agent_sdk")
+          expect(ended).toBe("api_error");
         expect(await engine.modelCalls(late)).toEqual([]);
         expect(await accountRefusals(secondId)).toBeGreaterThan(0);
-
-        expect((await api.settleAllowing(firstId, "1")).status).toBe(
-          "completed",
+        // The first call was still held when the second was refused: the
+        // two were in flight together, as the scenario says.
+        const [stillOpen] = await sql(
+          `select count(*) from provider_exchanges where session_id = '${firstId}' and released_at is null and budget_root_kind = 'key'`,
         );
+        expect(Number(stillOpen)).toBe(1);
+
+        expect(
+          (await api.settleAllowing(firstId, "1", HELD_MS + 120_000)).status,
+        ).toBe("completed");
         // Settled: nothing of the slow call is held any more.
         const [after] = await sql(
           `select reserved_tokens from budget_accounts where owner_kind = 'team' and owner_id = '${teamId}' order by period_start desc limit 1`,

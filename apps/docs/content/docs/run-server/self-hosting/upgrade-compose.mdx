@@ -275,10 +275,11 @@ GROUP BY 1, 2;
 
 - 한도를 정하지 않은 설치(`budget_limits` 행이 없음)에서는 사람·key·Slack 봇의 턴이 지금처럼 돈다. 원장에는 호출마다 root 종류와 계정이 남는다.
 - 계정 고르기: 사람의 턴과 그 뒤의 이어 가는 턴·push 후속 턴은 그 사람의 계정(`user`)이다. 개인 key의 턴은 만든 사람의 계정(`key`), 사람 없는 key의 턴은 에이전트를 관리하는 팀의 계정(`key`), 허용한 Slack 봇의 턴도 그 팀의 계정(`slack_bot`)이다. 팀이 보관되었으면 계정 없이 root 종류만 남는다.
-- 요청자를 읽을 수 없는 턴(요청자 기록이 없는 옛 턴 등), 실행 중인 턴이 없는 호출(세션 제목 짓기 등), 워크스페이스가 없는 세션은 계정을 잡지 않고 세션 한도만 본다. 지금과 같다.
-- `budget_limits`에 한도를 넣으면 그 계정에서 넘는 호출은 세션 한도를 넘었을 때와 같은 `BUDGET_EXCEEDED`로 거절된다. 계정이 거절한 턴은 `api_error`로 끝나고 세션의 주의 표시(`BUDGET_EXCEEDED`)는 세션 한도에만 생긴다. 계정 거절인지는 아래 로그의 `turn_id`로 잇는다. 이 릴리스에는 한도를 정하는 화면이나 API가 없다.
+- 요청자를 읽을 수 없는 턴(요청자 기록이 없는 옛 턴 등), 세션 제목 짓기 호출, 실행 중인 턴이 없는 호출(턴 사이 등), 워크스페이스가 없는 세션은 계정을 잡지 않고 세션 한도만 본다. 지금과 같다.
+- `budget_limits`에 한도를 넣으면 그 계정에서 넘는 호출은 세션 한도를 넘었을 때와 같은 `BUDGET_EXCEEDED`로 거절된다. 계정이 거절한 턴은 provider 오류로 끝나고(Claude Code 엔진은 `api_error`) 세션의 주의 표시(`BUDGET_EXCEEDED`)는 세션 한도에만 생긴다. 계정 거절인지는 아래 로그의 `turn_id`로 잇는다. 이 릴리스에는 한도를 정하는 화면이나 API가 없다.
 - 거절된 open마다 API가 `info` 로그 `Provider exchange refused for the budget`을 남긴다. 칸은 `session_id`, `attempt_id`, `turn_id`(실행 중인 턴), `refused_by`(`session` 또는 `account`), `budget_root_kind`, `budget_account_id`다.
-- CHECK가 값을 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 올리거나 되돌리는 순간 열려 있던 호출이 다른 버전의 API에서 다시 open되면 `IDEMPOTENCY_CONFLICT`로 끝날 수 있다(호출 하나, 최대 5분).
+- CHECK가 값을 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 이미 열린 호출은 처음 open이 고른 계정(또는 세션 한도만)으로 끝난다.
+- 제목 짓기 호출은 egress proxy가 open에 헤더로 알린다. api만 이 버전이고 egress proxy가 앞선 버전인 동안에는 제목 짓기 호출도 실행 중인 턴의 계정에 잡힌다. 한도를 정하지 않은 설치에서는 차이가 없고, 둘을 함께 올리면 된다.
 
 ### 원장에 예산 계정 칸을 더하는 릴리스
 

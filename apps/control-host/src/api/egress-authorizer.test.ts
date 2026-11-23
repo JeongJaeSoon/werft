@@ -29,6 +29,7 @@ import { createApiApp } from "./app.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
+  EGRESS_EXCHANGE_CALL_HEADER,
   EGRESS_EXCHANGES_PATH,
   EGRESS_USAGE_PATH,
   egressAuthorizerConfigFromEnv,
@@ -1127,7 +1128,11 @@ describe("the budget account an open holds its call on", () => {
     records: LogRecord[] = [],
   ) {
     const seen: { op: string; input: ProviderExchangeInput }[] = [];
-    const asked: { sessionId: string; attemptId: string }[] = [];
+    const asked: {
+      exchangeId: string;
+      sessionId: string;
+      attemptId: string;
+    }[] = [];
     const handle = createEgressAuthorizer({
       gateway,
       logger: createLogger({
@@ -1150,11 +1155,12 @@ describe("the budget account an open holds its call on", () => {
       },
       token: proxyAuth,
     });
-    const send = (body: unknown) =>
+    const send = (body: unknown, extra: Record<string, string> = {}) =>
       handle(
         new Request(`http://authorizer.invalid${EGRESS_EXCHANGES_PATH}`, {
           method: "POST",
           headers: {
+            ...extra,
             "content-type": "application/json",
             authorization: `Bearer ${proxyAuth}`,
           },
@@ -1178,12 +1184,32 @@ describe("the budget account an open holds its call on", () => {
     expect((await send({ op: "open", ...call })).status).toBe(201);
     expect((await send({ op: "release", ...call })).status).toBe(200);
     expect(asked).toEqual([
-      { sessionId: call.session_id, attemptId: call.attempt_id },
+      {
+        exchangeId: call.exchange_id,
+        sessionId: call.session_id,
+        attemptId: call.attempt_id,
+      },
     ]);
     expect(seen.map(({ op, input }) => [op, input.budget])).toEqual([
       ["open", choice],
       ["release", undefined],
     ]);
+  });
+
+  test("a title call's open asks for no account, and is held on the session's limit alone", async () => {
+    const { send, seen, asked } = authorizerWith(async () => ({
+      outcome: "created",
+    }));
+    const title = { [EGRESS_EXCHANGE_CALL_HEADER]: "title" };
+    expect((await send({ op: "open", ...call }, title)).status).toBe(201);
+    expect(asked).toEqual([]);
+    expect(seen.map(({ op, input }) => [op, input.budget])).toEqual([
+      ["open", undefined],
+    ]);
+    // Any other value is an engine call's open, charged to its turn.
+    const other = { [EGRESS_EXCHANGE_CALL_HEADER]: "engine" };
+    expect((await send({ op: "open", ...call }, other)).status).toBe(201);
+    expect(asked).toHaveLength(1);
   });
 
   test("an account's refusal is BUDGET_EXCEEDED, logged with the side, root kind and account", async () => {

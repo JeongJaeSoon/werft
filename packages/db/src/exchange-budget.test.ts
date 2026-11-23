@@ -155,11 +155,18 @@ function ledger() {
   return createProviderExchangeLedger(db, { admits: async () => () => true });
 }
 
-/** The proxy's open as the authorizer passes it on. */
-async function open(who: { sessionId: string; attemptId: string }) {
-  const exchangeId = crypto.randomUUID();
-  const { choice: budget } = await budgetChoiceOfCall(db, who);
-  const call = { exchangeId, ...who, reserve: RESERVE };
+/** The proxy's open as the authorizer passes it on; a replay names its id. */
+async function open(
+  who: { sessionId: string; attemptId: string },
+  exchangeId: string = crypto.randomUUID(),
+) {
+  const ids = {
+    exchangeId,
+    sessionId: who.sessionId,
+    attemptId: who.attemptId,
+  };
+  const { choice: budget } = await budgetChoiceOfCall(db, ids);
+  const call = { ...ids, reserve: RESERVE };
   const opened = await ledger().open(
     budget === undefined ? call : { ...call, budget },
   );
@@ -249,9 +256,12 @@ describe("the account a running turn's calls are held on", () => {
       { costUsd: null, tokens: Math.floor(TOKENS / 2) },
     );
     await who.run(web(person));
-    const { choice } = await budgetChoiceOfCall(db, who);
-    if (choice === undefined) throw new Error("no account chosen");
     const ids = { sessionId: who.sessionId, attemptId: who.attemptId };
+    const { choice } = await budgetChoiceOfCall(db, {
+      exchangeId: crypto.randomUUID(),
+      ...ids,
+    });
+    if (choice === undefined) throw new Error("no account chosen");
     const full = { exchangeId: crypto.randomUUID(), ...ids, reserve: RESERVE };
     expect(await ledger().open({ ...full, budget: choice })).toMatchObject({
       outcome: "budget_exceeded",
@@ -278,13 +288,71 @@ describe("the account a running turn's calls are held on", () => {
 
   test("the running turn's id comes with the choice; none without a running turn", async () => {
     const who = await sessionOf();
-    expect(await budgetChoiceOfCall(db, who)).toEqual({
-      choice: undefined,
-      turnId: null,
-    });
+    const call = () =>
+      budgetChoiceOfCall(db, {
+        exchangeId: crypto.randomUUID(),
+        sessionId: who.sessionId,
+        attemptId: who.attemptId,
+      });
+    expect(await call()).toEqual({ choice: undefined, turnId: null });
     await who.run(web(crypto.randomUUID()));
     await who.run(web(crypto.randomUUID()));
-    expect((await budgetChoiceOfCall(db, who)).turnId).toBe("2");
+    expect((await call()).turnId).toBe("2");
+  });
+
+  test("an open's replay keeps the first open's account after its turn ends or the next one starts", async () => {
+    const who = await sessionOf();
+    const [ana, ben] = [crypto.randomUUID(), crypto.randomUUID()];
+    await who.run(web(ana));
+    const first = await open(who);
+    expect(first.opened).toEqual({ outcome: "created" });
+    // The turn ended: no running turn would choose no account.
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.sessionId, who.sessionId));
+    const ended = await open(who, first.exchangeId);
+    expect(ended.budget).toEqual(first.budget);
+    expect(ended.opened).toEqual({ outcome: "open" });
+    // The next turn is another person's.
+    await who.run(web(ben));
+    const next = await open(who, first.exchangeId);
+    expect(next.budget).toEqual(first.budget);
+    expect(next.opened).toEqual({ outcome: "open" });
+    expect((await reservationOf(first.exchangeId))?.accountId).toBe(
+      (await accountOf(ana))?.id,
+    );
+    expect(await accountOf(ben)).toBeUndefined();
+  });
+
+  test("an open held on the session's limit alone is replayed so after a turn starts", async () => {
+    const who = await sessionOf();
+    const first = await open(who);
+    expect(first.budget).toBeUndefined();
+    await who.run(web(crypto.randomUUID()));
+    const again = await open(who, first.exchangeId);
+    expect(again.budget).toBeUndefined();
+    expect(again.opened).toEqual({ outcome: "open" });
+  });
+
+  test("a team's reservation is replayed on the team, a team-less key's on no account", async () => {
+    for (const teamArchived of [false, true]) {
+      const who = await sessionOf({ teamArchived });
+      await who.run({
+        requesterKind: "api_key",
+        requesterId: crypto.randomUUID(),
+        requesterAuth: { method: "agent_key", agent_id: who.agentId },
+      });
+      const first = await open(who);
+      expect(first.budget).toEqual({
+        rootKind: "key",
+        owner: teamArchived ? null : { kind: "team", teamId: who.teamId },
+      });
+      await who.run(web(crypto.randomUUID()));
+      const again = await open(who, first.exchangeId);
+      expect(again.budget).toEqual(first.budget);
+      expect(again.opened).toEqual({ outcome: "open" });
+    }
   });
 
   test("two people's turns in one session are each charged to their own account", async () => {
