@@ -36,7 +36,6 @@ import {
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
-  agentReleases,
   attempts,
   authzDecisions,
   events,
@@ -822,26 +821,22 @@ integration("pending requests and answers on PostgreSQL", () => {
     // is the push request's own state, which a person decides.
     test("allowing request_push for the session leaves its push request waiting for a person", async () => {
       // A release with no push approval would push with no person at all.
-      const releaseId = await makeFixtureRelease(db);
-      await db
-        .update(agentReleases)
-        .set({
-          policyPins: {
-            github: {
-              repositories: ["sample-app"],
-              push_approval: true,
-              features: {
-                review: false,
-                actions: false,
-                workflows: false,
-                issues: false,
-                checks: false,
-              },
-              actions_allow: [],
+      const releaseId = await makeFixtureRelease(db, {
+        policyPins: {
+          github: {
+            repositories: ["sample-app"],
+            push_approval: true,
+            features: {
+              review: false,
+              actions: false,
+              workflows: false,
+              issues: false,
+              checks: false,
             },
+            actions_allow: [],
           },
-        })
-        .where(eq(agentReleases.id, releaseId));
+        },
+      });
       const { owner, sessionId, worker } = await runningSession(releaseId);
       const { requestId } = await register(worker, {
         kind: "permission",

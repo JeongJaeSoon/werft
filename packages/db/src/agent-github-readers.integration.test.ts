@@ -420,7 +420,7 @@ integration("the readers of an agent's GitHub settings", () => {
       return rows[0]?.push_attached;
     };
 
-    test("a row written without the column holds null and reads as ask, with no approval by policy", async () => {
+    test("a row written without the column holds null and reads as allow: nobody chose to be asked", async () => {
       const { workspaceId, agentId, sessionId } = await fixture({
         source: "agent",
       });
@@ -434,7 +434,7 @@ integration("the readers of an agent's GitHub settings", () => {
         pushAttached: null,
       });
       const found = await pushes.findSession(workspaceId, sessionId);
-      expect(found).toMatchObject({ push: "ask" });
+      expect(found).toMatchObject({ push: "allow" });
       // Reading it does not write the column.
       expect(await columnOf(agentId)).toBeNull();
     });
@@ -1021,7 +1021,7 @@ integration("the readers of an agent's GitHub settings", () => {
       for (const [stored, expected] of [
         ["allow", "allow"],
         ["deny", "deny"],
-        [undefined, "ask"],
+        [undefined, "allow"],
       ] as const) {
         await settingsRow(workspaceId, agentId, {
           updatedBy: PERSON,
