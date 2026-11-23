@@ -1499,8 +1499,8 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toEqual([]);
   });
 
-  // The conversation layer is not wired in yet: the channel's listen setting
-  // and the agent's switch change nothing on the receive path.
+  // The switch on, a mention and its thread go as before; other unmentioned
+  // posts open nothing (the judgment buffer block below holds them).
   for (const listen of ["off", "free"] as const) {
     test(`a channel listening ${listen}, its agent switched on, still answers a mention and its thread, and no other unmentioned post`, async () => {
       const fixture = await agentInSlack("main", { listen, rollout: "on" });
@@ -1528,11 +1528,11 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     });
   }
 
-  test("an agent not waiting for a mention still opens a session on an unmentioned top-level post in a channel listening off", async () => {
+  test("with the switch off, an agent not waiting for a mention still opens a session on an unmentioned top-level post in a channel listening off", async () => {
     const fixture = await agentInSlack("main", {
       mentionOnly: false,
       listen: "off",
-      rollout: "on",
+      rollout: "off",
     });
     const { handle } = handler();
     await deliver(fixture, message("100.000100"));
@@ -2409,6 +2409,311 @@ async function allowBots(fixture: Fixture, ids: string[]) {
     .set({ slackAllowedBotUserIds: ids })
     .where(eq(agents.id, fixture.agentId));
 }
+
+// The judgment buffer (a0/D2): an unmentioned post the switched-on agent
+// hears is held with its text, then removed whole. Each row of the table is
+// one path a held row takes: held, edited, deleted, dropped, expired.
+describe.each(ENGINES)("Slack judgment buffer on %s", (engine) => {
+  useDatabase(engine);
+
+  const bufferOf = (fixture: Fixture) =>
+    db
+      .select({
+        ts: schema.conversationInputs.slackTs,
+        body: schema.conversationInputs.body,
+        requesterKind: schema.conversationInputs.requesterKind,
+        requesterId: schema.conversationInputs.requesterId,
+        turnId: schema.conversationInputs.turnId,
+        expiresAt: schema.conversationInputs.bufferExpiresAt,
+      })
+      .from(schema.conversationInputs)
+      .where(eq(schema.conversationInputs.agentId, fixture.agentId))
+      .orderBy(asc(schema.conversationInputs.slackTs));
+  const heldTs = async (fixture: Fixture) =>
+    (await bufferOf(fixture))
+      .filter((row) => row.expiresAt !== null)
+      .map((row) => row.ts);
+  const topicCount = async () =>
+    (await db.select().from(schema.conversationTopics)).length;
+  const installationId = async () =>
+    (await db.select().from(slackInstallations))[0]?.id ?? "";
+  const mark = (fixture: Fixture, ts: string, at = new Date()) => ({
+    workspaceId: fixture.workspaceId,
+    teamId: TEAM,
+    channelId: CHANNEL,
+    ts,
+    at,
+  });
+  const purge = (now?: Date) =>
+    schema.purgeJudgmentBuffer(db, {
+      limit: 100,
+      dryRun: false,
+      ...(now === undefined ? {} : { now }),
+    });
+
+  for (const rollout of ["off", "shadow", "on"] as const) {
+    test(`with the switch ${rollout}, a top-level post and a reply in a thread the agent is not in are ${rollout === "off" ? "not held, as before" : "held"}`, async () => {
+      const fixture = await agentInSlack("main", { rollout });
+      const { handle, notices } = handler();
+      await deliver(fixture, message("100.000100"));
+      await deliver(
+        fixture,
+        message("200.000200", { thread_ts: "200.000100" }),
+      );
+      await drain(handle);
+      const held = await bufferOf(fixture);
+      if (rollout === "off") {
+        expect(held).toEqual([]);
+      } else {
+        expect(held.map((row) => row.ts)).toEqual(["100.000100", "200.000200"]);
+        for (const row of held) {
+          expect(row.body).toBe("and the next step");
+          expect(row.requesterKind).toBe("slack_user");
+          expect(row.requesterId).toBe(PERSON);
+          expect(row.turnId).toBeNull();
+          expect(row.expiresAt).not.toBeNull();
+        }
+      }
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(notices).toEqual([]);
+      // The inbox keeps no text of a held post either.
+      const payloads = await db
+        .select({ payload: slackInboundEvents.payload })
+        .from(slackInboundEvents);
+      expect(payloads.map((row) => row.payload)).toEqual([null, null]);
+    });
+  }
+
+  test("switched on, a mention is answered as before and its thread stays a session's; the mention is not held", async () => {
+    const fixture = await agentInSlack("main", { rollout: "on" });
+    const { handle } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    await drain(handle);
+    const [session, ...others] = await sessionsOf(fixture);
+    expect(others).toEqual([]);
+    expect((await turnsOf(session?.id)).map((turn) => turn.sequence)).toEqual([
+      1, 2,
+    ]);
+    expect(await heldTs(fixture)).toEqual([]);
+  });
+
+  // Where the switch is on, what the channel's binding says decides.
+  const heard: [string, Parameters<typeof agentInSlack>[1], boolean][] = [
+    ["free", { rollout: "on", listen: "free" }, true],
+    ["mention", { rollout: "on", listen: "mention" }, false],
+    ["listen off", { rollout: "on", listen: "off" }, false],
+    ["mode off", { rollout: "on", mode: "off" }, false],
+    // The current path does not take it, as the switch is off.
+    ["free, switch off", { rollout: "off", listen: "free" }, false],
+  ];
+  for (const [name, options, held] of heard) {
+    test(`a channel ${name}: an unmentioned top-level post is ${held ? "" : "not "}held`, async () => {
+      const fixture = await agentInSlack("main", options);
+      await deliver(fixture, message("100.000100"));
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual(held ? ["100.000100"] : []);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+  }
+
+  test("switched on, the table drops what the current path took: a top-level post where the agent waits for no mention, in a channel listening off", async () => {
+    // Before: rollout off opens a session on it (the test above this block).
+    const fixture = await agentInSlack("main", {
+      mentionOnly: false,
+      listen: "off",
+      rollout: "on",
+    });
+    await deliver(fixture, message("100.000100"));
+    await drain(handler().handle);
+    expect(await links()).toEqual([]);
+    expect(await heldTs(fixture)).toEqual([]);
+  });
+
+  test("in shadow, a post the current path takes is its session's turn, not held", async () => {
+    const fixture = await agentInSlack("main", {
+      mentionOnly: false,
+      rollout: "shadow",
+    });
+    await deliver(fixture, message("100.000100"));
+    await drain(handler().handle);
+    expect((await links()).map((link) => link.threadId)).toEqual([
+      "100.000100",
+    ]);
+    expect(await heldTs(fixture)).toEqual([]);
+  });
+
+  test("a bot's post is not held", async () => {
+    const fixture = await agentInSlack("main", { rollout: "on" });
+    await deliver(fixture, message("100.000100", { bot_id: "B0OTHER" }));
+    await drain(handler().handle);
+    expect(await heldTs(fixture)).toEqual([]);
+  });
+
+  // held → edited / deleted / dropped / expired, and marks that came first.
+  type Step =
+    | { post: string }
+    | { edit: string; text: string; at?: Date }
+    | { delete: string }
+    | { archive: true }
+    | { channelDeleted: true }
+    | { channelNotFound: true }
+    | { savedOff: true }
+    | { agentPaused: true }
+    | { purgeAt: number };
+  const transitions: [string, Step[], { ts: string; body: string }[]][] = [
+    [
+      "held",
+      [{ post: "100.000100" }],
+      [{ ts: "100.000100", body: "and the next step" }],
+    ],
+    [
+      "edited while held: the new text replaces it",
+      [{ post: "100.000100" }, { edit: "100.000100", text: "edited text" }],
+      [{ ts: "100.000100", body: "edited text" }],
+    ],
+    [
+      "an older edit after a newer one changes nothing",
+      [
+        { post: "100.000100" },
+        { edit: "100.000100", text: "newer", at: new Date(Date.now() + 2000) },
+        { edit: "100.000100", text: "older", at: new Date(Date.now() + 1000) },
+      ],
+      [{ ts: "100.000100", body: "newer" }],
+    ],
+    [
+      "deleted while held",
+      [{ post: "100.000100" }, { delete: "100.000100" }],
+      [],
+    ],
+    [
+      "deleted before it came",
+      [{ delete: "100.000100" }, { post: "100.000100" }],
+      [],
+    ],
+    [
+      "edited before it came",
+      [{ edit: "100.000100", text: "edited text" }, { post: "100.000100" }],
+      [],
+    ],
+    ["channel archived", [{ post: "100.000100" }, { archive: true }], []],
+    ["channel deleted", [{ post: "100.000100" }, { channelDeleted: true }], []],
+    [
+      "channel not found",
+      [{ post: "100.000100" }, { channelNotFound: true }],
+      [],
+    ],
+    ["channel saved off", [{ post: "100.000100" }, { savedOff: true }], []],
+    [
+      "agent no longer active, by the next pass",
+      [{ post: "100.000100" }, { agentPaused: true }, { purgeAt: 0 }],
+      [],
+    ],
+    [
+      "nine minutes on it stays",
+      [{ post: "100.000100" }, { purgeAt: 9 * 60_000 }],
+      [{ ts: "100.000100", body: "and the next step" }],
+    ],
+    [
+      "ten minutes on it is gone",
+      [{ post: "100.000100" }, { purgeAt: 10 * 60_000 + 1000 }],
+      [],
+    ],
+  ];
+  for (const [name, steps, left] of transitions) {
+    test(`buffer: ${name}`, async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const marks = schema.createPostgresSlackSourceMarkStore(db);
+      const bindings = createPostgresSurfaceBindingStore(db);
+      for (const step of steps) {
+        if ("post" in step) {
+          await deliver(fixture, message(step.post));
+          await drain(handler().handle);
+        } else if ("edit" in step) {
+          await marks.markEdited(mark(fixture, step.edit, step.at), step.text);
+        } else if ("delete" in step) {
+          await marks.markDeleted(mark(fixture, step.delete));
+        } else if ("archive" in step) {
+          await schema.createPostgresConversationStore(db).recordChannelState(
+            {
+              kind: "channel",
+              workspaceId: fixture.workspaceId,
+              agentId: fixture.agentId,
+              teamId: TEAM,
+              channelId: CHANNEL,
+            },
+            "archived",
+            null,
+          );
+        } else if ("channelDeleted" in step) {
+          await bindings.channelDeleted(await installationId(), CHANNEL, null);
+        } else if ("channelNotFound" in step) {
+          await bindings.channelNotFound(await installationId(), CHANNEL);
+        } else if ("savedOff" in step) {
+          const saved = await bindings.set({
+            principal: fixture.owner,
+            workspaceId: fixture.workspaceId,
+            agentId: fixture.agentId,
+            channelId: CHANNEL,
+            channelKind: "public_channel",
+            mode: "off",
+            home: false,
+            ceiling: DEFAULT_SURFACE_CEILING,
+            managerRoles: MANAGERS,
+          });
+          expect(saved.outcome).toBe("set");
+        } else if ("agentPaused" in step) {
+          await db
+            .update(agents)
+            .set({ status: "paused" })
+            .where(eq(agents.id, fixture.agentId));
+        } else {
+          await purge(new Date(Date.now() + step.purgeAt));
+        }
+      }
+      expect(
+        (await bufferOf(fixture)).map(({ ts, body }) => ({ ts, body })),
+      ).toEqual(left);
+      // A row removed whole leaves no empty topic behind.
+      expect(await topicCount()).toBe(left.length);
+    });
+  }
+
+  test("the pass counts what it removed, expired or unheard, and a dry run removes nothing", async () => {
+    const fixture = await agentInSlack("main", { rollout: "on" });
+    await deliver(fixture, message("100.000100"));
+    await deliver(fixture, message("100.000200"));
+    await drain(handler().handle);
+    const later = new Date(Date.now() + 11 * 60_000);
+    expect(
+      await schema.purgeJudgmentBuffer(db, {
+        limit: 100,
+        dryRun: true,
+        now: later,
+      }),
+    ).toEqual({ expired: 2, unlistened: 0 });
+    expect(await heldTs(fixture)).toHaveLength(2);
+    expect(await purge(later)).toEqual({ expired: 2, unlistened: 0 });
+    expect(await heldTs(fixture)).toEqual([]);
+  });
+
+  test("a delete mark of a held post outlives the unknown-mark purge while it is held, and goes once the post does", async () => {
+    const fixture = await agentInSlack("main", { rollout: "on" });
+    await deliver(fixture, message("100.000100"));
+    await drain(handler().handle);
+    const marks = schema.createPostgresSlackSourceMarkStore(db);
+    await marks.markEdited(mark(fixture, "100.000100"), "edited text");
+    const purgeMarks = () =>
+      schema.purgeUnknownSlackSourceMarks(db, {
+        limit: 100,
+        dryRun: false,
+        retentionMs: 0,
+      });
+    expect(await purgeMarks()).toEqual({ deleted: 0, edited: 0 });
+    await purge(new Date(Date.now() + 11 * 60_000));
+    expect(await purgeMarks()).toEqual({ deleted: 0, edited: 1 });
+  });
+});
 
 describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
   useDatabase(engine);

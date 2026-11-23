@@ -12,9 +12,11 @@ import type {
   AgentIdentityStore,
   AgentStore,
   BotTurnStore,
+  BufferedInputReceipt,
   Conversation,
   ConversationStore,
   InboundInputReceipt,
+  JudgmentBufferStore,
   LinkedAccountStore,
   SessionLinkRecord,
   SessionLinkStore,
@@ -26,6 +28,8 @@ import {
   type AuthorizationPolicy,
   agentForSlackEvent,
   type Caller,
+  inboundHandling,
+  type LifecycleStop,
   type SessionService,
   SessionServiceError,
 } from "@werft-ai/platform";
@@ -129,6 +133,8 @@ export type SlackSessionHandlerDeps = {
   sessionLinks: SessionLinkStore;
   /** Where a message made a turn of is taken as its topic's input. */
   conversations: ConversationStore;
+  /** The agent's switch and the channel's state, for the judgment buffer. */
+  buffer: JudgmentBufferStore;
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
@@ -218,6 +224,102 @@ export function createSlackSessionHandler(
       channelId: event.channel,
       threadTs,
     };
+    /**
+     * What becomes of an unmentioned post by the handling table (a0/D2):
+     * `current_path` when the switch is off, or in `shadow` when the
+     * current path takes the post itself; the post to hold in the buffer;
+     * or null when the table drops it. Shadow holds what the current path
+     * leaves, for a judgment that only records.
+     */
+    const bufferedInput = async (): Promise<
+      BufferedInputReceipt | null | "current_path"
+    > => {
+      const place = await deps.buffer.place({
+        kind: "channel",
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+      });
+      if (place.rollout === "off") return "current_path";
+      const live = await deps.bindings.findLiveSlackChannel(
+        agent.installationId,
+        event.channel,
+      );
+      // No binding: the agent is not in the channel, so nothing is heard.
+      if (live === null) {
+        return place.rollout === "on" ? null : "current_path";
+      }
+      // A binding not in use is one the bot is out of, as far as the table
+      // goes: left, gone, or never finished.
+      const lifecycleStop: LifecycleStop | null = !place.agentActive
+        ? "agent_inactive"
+        : place.channelState !== "active"
+          ? "channel_archived"
+          : live.status === "pending_approval"
+            ? "pending_approval"
+            : live.status !== "ready"
+              ? "bot_removed"
+              : null;
+      const handling = inboundHandling({
+        place: "channel",
+        work: "none",
+        engaged: false,
+        input: event.thread_ts === undefined ? "top_level" : "reply",
+        rollout: place.rollout,
+        mode: live.mode,
+        listen: live.listen,
+        lifecycleStop,
+      });
+      const judged =
+        handling.kind === "table" ? handling.handling : handling.shadow;
+      if (handling.kind === "current_path") {
+        if (judged !== "buffer_m1") return "current_path";
+        const currentPathTakes =
+          live.mode === "on" &&
+          event.thread_ts === undefined &&
+          (await deps.settings.getSettings(agent.workspaceId, agent.agentId))
+            ?.mention_only === false;
+        if (currentPathTakes) return "current_path";
+      }
+      if (judged !== "buffer_m1") {
+        deps.logger.info("Slack message not held for the judgment", {
+          ...ids,
+          handling: judged,
+        });
+        return null;
+      }
+      if (
+        live.approvedAt !== null &&
+        Number(event.ts) * 1000 < live.approvedAt.getTime()
+      ) {
+        return null;
+      }
+      if (!messageTextSchema.safeParse(event.text).success) return null;
+      const conversation = await conversationOf(
+        { dm: false, personUserId: null, channelId: event.channel },
+        claim.teamId,
+        agent,
+      );
+      if (conversation === null) {
+        throw new Error("A Slack channel has no conversation");
+      }
+      const topic = await deps.conversations.findOrCreateThreadTopic(
+        conversation.id,
+        { teamId: claim.teamId, channelId: event.channel, threadTs },
+      );
+      deps.logger.info("Slack message held for the judgment", {
+        ...ids,
+        rollout: place.rollout,
+      });
+      return {
+        topicId: topic.id,
+        channelId: event.channel,
+        ts: event.ts,
+        buffered: { body: event.text, slackUserId: event.user },
+      };
+    };
+
     // A person wrote in the thread, whatever becomes of it: the bots there
     // may go on again.
     if (!fromBot && event.thread_ts !== undefined) {
@@ -287,6 +389,12 @@ export function createSlackSessionHandler(
       (dm || !mentioned || !agent.allowedBotUserIds.includes(event.user))
     ) {
       return;
+    }
+    // A person's unmentioned post outside a bound thread: the handling
+    // table says whether the judgment buffer holds it.
+    if (found === null && !mentioned && !dm && !fromBot) {
+      const held = await bufferedInput();
+      if (held !== "current_path") return held ?? undefined;
     }
     // A stray reply is nobody's request in any mode; skip the lookup.
     if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
