@@ -20,7 +20,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 binding에 `listen`이 생긴다. `PUT`에서 `listen`을 빼면 그 채널의 값을 그대로 둔다.
   - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
 
-- **migration `0318_web_inputs`가 입력 접수 표 `conversation_inputs`에 웹 입력의 칸 셋(`client_message_id`·`body`·`slack_mirror`)을 더하고 `turn_id`를 비워 둘 수 있게 한다**(JeongJaeSoon/werft#PRNUM). 할 일은 없고 동작도 그대로다.
+- **migration `0318_web_inputs`가 입력 접수 표 `conversation_inputs`에 웹 입력의 칸 셋(`client_message_id`·`body`·`slack_mirror`)을 더하고 `turn_id`를 비워 둘 수 있게 한다**(JeongJaeSoon/werft#2046). 할 일은 없고 동작도 그대로다.
   - 웹에서 들어온 입력을 서버가 받는 즉시 입력 id·주제·요청자·순번을 정해 적는 접수 서비스가 생긴다. 이 릴리스에서는 이 서비스를 부르는 route가 없어 웹 입력 줄은 생기지 않는다. 웹 콘솔의 세션 시작과 메시지는 지금 길 그대로다.
   - 웹 입력 줄은 본문을 갖는다. Slack 접수 줄은 지금처럼 본문 없이 턴을 가리킨다. CHECK가 둘을 가른다.
   - 인덱스는 `CONCURRENTLY`로 만들고 CHECK는 `NOT VALID`로 더해 따로 검증하므로 쓰기를 오래 막지 않는다. 있던 줄은 모두 Slack 접수 줄이라 검증을 통과한다. 지원 창 안의 이미지로 되돌려도 된다.
