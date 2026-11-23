@@ -40,7 +40,7 @@ const uninstalled = mode === "uninstall" || mode === "uninstall-late";
 const lifecycle =
   mode === "join" || mode === "leave" || mode === "leave-member";
 const isPrivate = channel.startsWith("G");
-// `archive`, `unarchive`, `rename` and `delete` are Slack telling the bot that
+// `archive`, `unarchive`, `rename` and `channel-delete` are Slack telling the bot that
 // `channel` was archived, unarchived, renamed (to `text`, else "renamed") or
 // deleted: `group_*` for a private channel (G), `channel_*` for a public one.
 // `seq` seconds are added to event_ts as for `join`.
@@ -48,9 +48,9 @@ const channelEvent =
   mode === "archive" ||
   mode === "unarchive" ||
   mode === "rename" ||
-  mode === "delete";
+  mode === "channel-delete";
 const channelEventType = `${isPrivate ? "group" : "channel"}_${
-  mode === "delete" ? "deleted" : mode
+  mode === "channel-delete" ? "deleted" : mode
 }`;
 // `edit`, `delete`, `delete-bot` and `tombstone` change U0MOCK's post `seq`
 // in `channel` (a D… channel is a DM) the way Slack reports it: an edit, a
@@ -156,7 +156,7 @@ try {
               }
             : {}),
           event_id: channelEvent
-            ? `EvVerify${mode}${channel}${seq}`
+            ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
             : mode === "bot"
               ? "EvVerifyBot"
               : uninstalled
