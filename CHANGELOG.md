@@ -14,6 +14,9 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **Slack에서 채널이 삭제되면(`channel_deleted`·`group_deleted`) 그 채널의 채널 요약을 모든 버전의 이력과 함께 지운다**(JeongJaeSoon/werft#2075). migration은 없고 따로 할 일도 없다. 이 릴리스에는 요약을 쓰는 길이 없어서 지울 행도 아직 없다.
+  - 관여 기록, 대화, `channel_contexts` 행은 남는다. 보관과 `channel_not_found`(조회 실패로 정리한 채널)로는 지우지 않는다.
+
 - **Slack에서 지운 글을 직접 출처로 가진 턴은 API와 웹에서 가려진다**(JeongJaeSoon/werft#2071). migration은 없고 따로 할 일도 없다. 저장된 값은 지우지 않고 읽을 때만 가리며, 지운 글이 없는 세션의 응답은 그대로다.
   - 그 글이 입력인 턴의 입력, 그 턴의 답과 도구 결과를 가린다. 턴 응답은 `message`가 `""`, `result`가 `null`이 되고 `source_deleted_at`이 붙는다. `terminal_reason`도 `null`이다. 이벤트(SSE와 보관된 이벤트 포함)는 모양만 남기고 내용(엔진의 system 글, error의 `message`, 끝난 이유 포함)을 비우며 envelope에 `source_deleted_at`이 붙는다. 그 턴의 열린 요청은 목록에서 빠진다.
   - 물려받기만 한 뒤 턴은 가리지 않는다(세션은 지금처럼 멈춘다).
