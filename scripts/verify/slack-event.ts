@@ -36,10 +36,13 @@ const uninstalled = mode === "uninstall" || mode === "uninstall-late";
 // (private by the mock's G prefix, public by C). `leave` is what Slack sends
 // the bot itself: `group_left` for a private channel, `channel_left` for a
 // public one; `leave-member` is the `member_left_channel` naming the bot.
+// `person-join` and `person-leave` are the same two events naming the person
+// `text` (U0MOCK when empty) instead.
 // `seq` seconds are added to the current time for event_ts, so a higher seq
 // is a later event whatever order the requests arrive in.
+const person = mode === "person-join" || mode === "person-leave";
 const lifecycle =
-  mode === "join" || mode === "leave" || mode === "leave-member";
+  mode === "join" || mode === "leave" || mode === "leave-member" || person;
 const isPrivate = channel.startsWith("G");
 // `archive`, `unarchive`, `rename` and `channel-delete` are Slack telling the bot that
 // `channel` was archived, unarchived, renamed (to `text`, else "renamed") or
@@ -198,10 +201,12 @@ try {
                         ? { type: isPrivate ? "group_left" : "channel_left" }
                         : {
                             type:
-                              mode === "join"
+                              mode === "join" || mode === "person-join"
                                 ? "member_joined_channel"
                                 : "member_left_channel",
-                            user: `U${app.appId}BOT`,
+                            user: person
+                              ? text || "U0MOCK"
+                              : `U${app.appId}BOT`,
                             channel_type: isPrivate ? "G" : "C",
                           }),
                       channel,
