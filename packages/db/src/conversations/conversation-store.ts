@@ -21,6 +21,7 @@ import {
   conversations,
   conversationTopics,
 } from "../schema.ts";
+import { dropUnlistenedBuffer } from "./judgment-buffer.ts";
 
 type ConversationRow = typeof conversations.$inferSelect;
 
@@ -236,20 +237,33 @@ export function createPostgresConversationStore(
       at === null || state === "deleted"
         ? undefined
         : sql`(${conversations.channelStateUs} IS NULL OR ${conversations.channelStateUs} <= ${at})`;
-    const rows = await db
-      .update(conversations)
-      .set({
-        channelState: next,
-        channelStateUs:
-          at === null
-            ? sql`${conversations.channelStateUs}`
-            : sql`GREATEST(COALESCE(${conversations.channelStateUs}, 0), ${at}::bigint)`,
-      })
-      .where(
-        and(channelRow(key), ne(conversations.channelState, "deleted"), newer),
-      )
-      .returning({ id: conversations.id });
-    return rows.length > 0;
+    return db.transaction(async (tx) => {
+      const rows = await tx
+        .update(conversations)
+        .set({
+          channelState: next,
+          channelStateUs:
+            at === null
+              ? sql`${conversations.channelStateUs}`
+              : sql`GREATEST(COALESCE(${conversations.channelStateUs}, 0), ${at}::bigint)`,
+        })
+        .where(
+          and(
+            channelRow(key),
+            ne(conversations.channelState, "deleted"),
+            newer,
+          ),
+        )
+        .returning({ id: conversations.id });
+      // An archived or deleted channel holds no unmentioned message.
+      if (rows.length > 0 && next !== "active") {
+        await dropUnlistenedBuffer(tx, {
+          agentId: key.agentId.toLowerCase(),
+          channelId: key.channelId,
+        });
+      }
+      return rows.length > 0;
+    });
   }
 
   async function recordChannelName(

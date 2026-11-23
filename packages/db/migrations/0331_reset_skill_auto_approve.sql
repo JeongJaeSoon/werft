@@ -17,6 +17,6 @@ BEGIN
     WHERE "auto_approve" <> 'off';
   GET DIAGNOSTICS reset = ROW_COUNT;
   IF reset > 0 THEN
-    RAISE NOTICE '0330: auto-approve turned off on % GitHub skill sources; a manager turns it on again per skill', reset;
+    RAISE NOTICE '0331: auto-approve turned off on % GitHub skill sources; a manager turns it on again per skill', reset;
   END IF;
 END $$;

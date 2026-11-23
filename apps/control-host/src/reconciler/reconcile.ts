@@ -35,6 +35,8 @@ export type ReconcilerRun = {
   envStartsPurged: number;
   // Failed Slack inbox rows whose payload this pass cleared.
   slackInboundPayloadsPurged: number;
+  // Buffered Slack messages past their time, or of a channel no longer heard.
+  judgmentBufferPurged: { expired: number; unlistened: number };
   // Marks of deleted and edited Slack messages nothing points at.
   slackSourceMarksPurged: { deleted: number; edited: number };
   slackMembersPurged: number;
@@ -136,6 +138,13 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
+  // Unmentioned Slack messages held for the judgment, whole, once their 10
+  // minutes are up or the agent stopped hearing their channel. Before the
+  // marks below, which a buffered message keeps.
+  purgeJudgmentBuffer(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<{ expired: number; unlistened: number }>;
   // Delete and edit marks of Slack messages nothing points at, made more
   // than the judgment buffer's lifetime and an hour ago.
   purgeSlackSourceMarks(options: {
@@ -253,6 +262,15 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     purged_count: slackInboundPayloadsPurged,
   });
+  const judgmentBufferPurged = await input.purgeJudgmentBuffer({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Judgment buffer purged", {
+    dry_run: dryRun,
+    expired_count: judgmentBufferPurged.expired,
+    unlistened_count: judgmentBufferPurged.unlistened,
+  });
   const slackSourceMarksPurged = await input.purgeSlackSourceMarks({
     dryRun,
     limit,
@@ -313,6 +331,7 @@ export async function runReconciler(input: {
     webSessionsDeleted,
     envStartsPurged,
     slackInboundPayloadsPurged,
+    judgmentBufferPurged,
     slackSourceMarksPurged,
     slackMembersPurged,
     ownership,

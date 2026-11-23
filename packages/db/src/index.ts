@@ -19,6 +19,11 @@ export * from "./conversations/channel-summaries.ts";
 export * from "./conversations/conversation-inputs.ts";
 export * from "./conversations/conversation-store.ts";
 export * from "./conversations/engagements.ts";
+export {
+  createPostgresJudgmentBufferStore,
+  JUDGMENT_BUFFER_TTL_MS,
+  purgeJudgmentBuffer,
+} from "./conversations/judgment-buffer.ts";
 export * from "./conversations/session-parents.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export { budgetChoiceOfCall } from "./exchange-budget.ts";

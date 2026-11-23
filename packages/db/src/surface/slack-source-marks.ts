@@ -1,6 +1,9 @@
 import { type SQL, sql } from "drizzle-orm";
 import {
+  dropBufferedMessage,
   dropChannelSummaryLinesOf,
+  editBufferedMessage,
+  JUDGMENT_BUFFER_TTL_MS,
   lockSlackSourceMark,
   sourceSetHoldsMark,
 } from "../conversations/index.ts";
@@ -9,10 +12,11 @@ import { rowsOf } from "../statement-rows.ts";
 
 /**
  * How long a mark of a message nothing points at is kept: the judgment
- * buffer's lifetime (10 minutes) and an hour's grace, in which the message
- * itself may still arrive after its delete or edit.
+ * buffer's lifetime and an hour's grace, in which the message itself may
+ * still arrive after its delete or edit.
  */
-export const SLACK_SOURCE_MARK_UNKNOWN_RETENTION_MS = (10 + 60) * 60_000;
+export const SLACK_SOURCE_MARK_UNKNOWN_RETENTION_MS =
+  JUDGMENT_BUFFER_TTL_MS + 60 * 60_000;
 
 /** A Slack message in one workspace and the time Slack gives its change. */
 export type SlackSourceMark = {
@@ -62,7 +66,10 @@ export { lockSlackSourceMark };
 
 export function createPostgresSlackSourceMarkStore(db: Database): {
   markDeleted(mark: SlackSourceMark): Promise<"recorded" | "duplicate">;
-  markEdited(mark: SlackSourceMark): Promise<"recorded" | "deleted">;
+  markEdited(
+    mark: SlackSourceMark,
+    body?: string,
+  ): Promise<"recorded" | "deleted">;
 } {
   const key = (mark: SlackSourceMark) =>
     sql`${mark.workspaceId}::uuid, ${mark.teamId}, ${mark.channelId}, ${mark.ts}`;
@@ -79,10 +86,12 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
           DELETE FROM edited_sources
           WHERE (workspace_id, team_id, channel_id, ts) = (${key(mark)})`);
         await dropChannelSummaryLinesOf(tx, mark);
+        // Ahead of its lifetime: a deleted message leaves no buffered row.
+        await dropBufferedMessage(tx, mark);
         return rowsOf(inserted).length > 0 ? "recorded" : "duplicate";
       });
     },
-    markEdited(mark) {
+    markEdited(mark, body) {
       return db.transaction(async (tx) => {
         await tx.execute(lockSlackSourceMark(mark));
         const written = await tx.execute(sql`
@@ -98,6 +107,10 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
         RETURNING ts`);
         // An edited source leaves the summary as a deleted one does.
         await dropChannelSummaryLinesOf(tx, mark);
+        // A buffered message is judged by its latest text, kept only there.
+        if (body !== undefined && rowsOf(written).length > 0) {
+          await editBufferedMessage(tx, { ...mark, body });
+        }
         return rowsOf(written).length > 0 ? "recorded" : "deleted";
       });
     },

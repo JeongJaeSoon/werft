@@ -12,7 +12,6 @@ import { useWerft } from "@werft-ai/react";
 import { sessionRepositoriesOf } from "@werft-ai/react/components";
 import {
   Badge,
-  Button,
   Code,
   Link,
   RelativeTime,
@@ -23,8 +22,9 @@ import {
   Section,
   Text,
 } from "@werft-ai/ui";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { withNodes } from "../components/with-nodes.tsx";
 import {
   errorKey,
   isMessageKey,
@@ -99,6 +99,9 @@ function shortBranch(branch: string): string {
 
 type Names = ReadonlyMap<string, string | null>;
 
+const targetText = (repositoryId: string, names: Names, branch: string) =>
+  `${names.get(repositoryId) ?? repositoryId} ← ${shortBranch(branch)}`;
+
 function Target({
   repositoryId,
   names,
@@ -110,8 +113,74 @@ function Target({
 }) {
   return (
     <Code className="[overflow-wrap:anywhere]" title={branch}>
-      {names.get(repositoryId) ?? repositoryId} ← {shortBranch(branch)}
+      {targetText(repositoryId, names, branch)}
     </Code>
+  );
+}
+
+const MOMENT_KEY = {
+  requested: "session.github.at.requested",
+  approved: "session.github.at.approved",
+  rejected: "session.github.at.rejected",
+  pushed: "session.github.at.pushed",
+  failed: "session.github.at.failed",
+} as const satisfies Record<string, MessageKey>;
+
+type Moment = keyof typeof MOMENT_KEY;
+
+/**
+ * The time a row shows and what it is the time of: the latest step the API
+ * dates. The pull request has no time of its own, so an opened one shows its
+ * push. A step whose time is missing falls back to the request.
+ */
+function momentOf(request: PushRequestView): { moment: Moment; at: string } {
+  const step: [Moment, string | null] =
+    request.state === "approved" || request.state === "pushing"
+      ? ["approved", request.resolved_at]
+      : request.state === "rejected"
+        ? ["rejected", request.resolved_at]
+        : request.state === "pushed"
+          ? ["pushed", request.finished_at]
+          : request.state === "failed"
+            ? ["failed", request.finished_at]
+            : ["requested", request.requested_at];
+  return step[1] === null
+    ? { moment: "requested", at: request.requested_at }
+    : { moment: step[0], at: step[1] };
+}
+
+/** "요청 3분 전": the relative time after what it is the time of, exact on hover. */
+function MomentTime({
+  moment,
+  at,
+}: {
+  readonly moment: Moment;
+  readonly at: string;
+}) {
+  const { t, locale } = useI18n();
+  return withNodes((vars) => t(MOMENT_KEY[moment], vars), {
+    at: <RelativeTime value={at} locale={locale} />,
+  });
+}
+
+/** The second line: what the row carries, a dot, and its time. */
+function MetaLine({
+  lead,
+  children,
+}: {
+  readonly lead?: ReactNode;
+  readonly children: ReactNode;
+}) {
+  return (
+    <Text as="span" variant="meta" className="[overflow-wrap:anywhere]">
+      {lead === undefined ? null : (
+        <>
+          {lead}
+          <span aria-hidden="true"> · </span>
+        </>
+      )}
+      {children}
+    </Text>
   );
 }
 
@@ -187,19 +256,13 @@ const decisionErrorKey = (code: string): MessageKey =>
 /**
  * Approves or rejects a waiting push on the session. The approval names the
  * commit the reader saw, so a request that moved since is refused by the
- * server instead of pushing something else.
+ * server instead of pushing something else. The buttons sit at the row's
+ * end; anything they have to say goes under the row's text.
  */
-function Decision({
-  request,
-  sessionId,
-}: {
-  readonly request: PushRequestView;
-  readonly sessionId: string;
-}) {
-  const { t } = useI18n();
+function useDecision(request: PushRequestView, sessionId: string) {
   const { client } = useWerft();
   const queryClient = useQueryClient();
-  const decide = useMutation<PushRequest, ApiError, "approve" | "reject">({
+  return useMutation<PushRequest, ApiError, "approve" | "reject">({
     mutationFn: (action) =>
       unwrap(
         client.POST(
@@ -220,41 +283,6 @@ function Decision({
         queryKey: queryKeysOf(client).sessionGithubWork(sessionId),
       }),
   });
-  // Like Slack's reject-only card: a push that cannot be approved can still be rejected.
-  const unapprovable =
-    request.approvability?.approvable === false
-      ? request.approvability.reason
-      : null;
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        size="sm"
-        disabled={decide.isPending || unapprovable !== null}
-        onClick={() => decide.mutate("approve")}
-      >
-        {t("session.github.approve")}
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={decide.isPending}
-        onClick={() => decide.mutate("reject")}
-      >
-        {t("session.github.reject")}
-      </Button>
-      <Code title={request.git_commit}>{request.git_commit.slice(0, 7)}</Code>
-      {unapprovable === null ? null : (
-        <Text as="span" variant="meta">
-          {t(unapprovable.key)}
-        </Text>
-      )}
-      {decide.error ? (
-        <Text as="span" variant="meta" role="alert">
-          {t(decisionErrorKey(decide.error.code))}
-        </Text>
-      ) : null}
-    </div>
-  );
 }
 
 function RequestRow({
@@ -266,10 +294,24 @@ function RequestRow({
   readonly names: Names;
   readonly sessionId: string;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
+  const decide = useDecision(request, sessionId);
+  const waiting = request.state === "requested";
+  // Like Slack's reject-only card: a push that cannot be approved can still be rejected.
+  const unapprovable =
+    request.approvability?.approvable === false
+      ? request.approvability.reason
+      : null;
+  const pending = decide.isPending;
+  const target = targetText(
+    request.repository_id,
+    names,
+    request.target_branch,
+  );
+  const prError = prErrorKey(request.pr_error);
   return (
-    <RowListItem>
-      <RowLines>
+    <RowListItem className="justify-end">
+      <RowLines className="basis-60">
         <Text as="span" className="flex min-w-0 flex-wrap items-center gap-2">
           <Target
             repositoryId={request.repository_id}
@@ -295,21 +337,62 @@ function RequestRow({
             </Link>
           ) : null}
         </Text>
+        <MetaLine
+          lead={
+            <Code title={request.git_commit}>
+              {request.git_commit.slice(0, 7)}
+            </Code>
+          }
+        >
+          <MomentTime {...momentOf(request)} />
+        </MetaLine>
         {request.state === "failed" ? (
           <Text as="span" variant="meta" role="alert">
             {t("session.github.pushFailed")}
           </Text>
         ) : null}
-        <Text as="span" variant="meta">
-          {prErrorKey(request.pr_error) === null
-            ? null
-            : `${t(prErrorKey(request.pr_error) as MessageKey)} · `}
-          <RelativeTime value={request.requested_at} locale={locale} />
-        </Text>
-        {request.state === "requested" ? (
-          <Decision request={request} sessionId={sessionId} />
+        {prError === null ? null : (
+          <Text as="span" variant="meta">
+            {t(prError)}
+          </Text>
+        )}
+        {waiting && unapprovable !== null ? (
+          <Text as="span" variant="meta">
+            {t(unapprovable.key)}
+          </Text>
+        ) : null}
+        {waiting && decide.error ? (
+          <Text as="span" variant="meta" role="alert">
+            {t(decisionErrorKey(decide.error.code))}
+          </Text>
         ) : null}
       </RowLines>
+      {waiting ? (
+        <span className="flex shrink-0 gap-2">
+          {/* While sending, not `disabled`: Chrome takes focus off a
+              disabled button, and the keyboard would lose its place. */}
+          <RowAction
+            variant="default"
+            disabled={unapprovable !== null}
+            aria-disabled={pending || undefined}
+            aria-label={t("session.github.approveName", { target })}
+            onClick={() => {
+              if (!pending) decide.mutate("approve");
+            }}
+          >
+            {t("session.github.approve")}
+          </RowAction>
+          <RowAction
+            aria-disabled={pending || undefined}
+            aria-label={t("session.github.rejectName", { target })}
+            onClick={() => {
+              if (!pending) decide.mutate("reject");
+            }}
+          >
+            {t("session.github.reject")}
+          </RowAction>
+        </span>
+      ) : null}
     </RowListItem>
   );
 }
@@ -321,7 +404,7 @@ function IntentRow({
   readonly intent: PushIntent;
   readonly names: Names;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   return (
     <RowListItem>
       <RowLines>
@@ -335,12 +418,14 @@ function IntentRow({
             {t(`session.github.intent.${intent.status}`)}
           </Badge>
         </Text>
-        <Text as="span" variant="meta">
-          {intent.refusal_code === null
-            ? null
-            : `${t(`session.github.reason.${intent.refusal_code}`)} · `}
-          <RelativeTime value={intent.created_at} locale={locale} />
-        </Text>
+        <MetaLine>
+          <MomentTime moment="requested" at={intent.created_at} />
+        </MetaLine>
+        {intent.refusal_code === null ? null : (
+          <Text as="span" variant="meta">
+            {t(`session.github.reason.${intent.refusal_code}`)}
+          </Text>
+        )}
       </RowLines>
     </RowListItem>
   );
