@@ -127,9 +127,9 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 原因を直し、同じ release ファイルと同じ環境で `deploy` を再実行します。成功済みの環境を再起動するときは `start` を使います。
 
-`preflight` が `path(s) the containers mount cannot be read by the user their container runs as` で止まった場合、括弧内のコンテナユーザーが表示されたパスを読めません。postgres（uid 999）と migrate（uid 1000）はホストのユーザーとして実行されないため、制限的な umask（`077`、`027`）で作られたリポジトリの checkout やバンドル、または他のユーザーが読めない設定文書が原因です。checkout またはバンドルのディレクトリに `chmod -R o+rX`、設定文書に `chmod o+r` を実行するか、umask `022` で取得し直します。postgres volume が初期化済みの設置は初期 SQL を再度読まないため、これまで問題が出ていなくても、この検査がある版の `upgrade`・`start` で初めて止まることがあります。この検査がない以前のリリースでは、同じ原因が `deploy` での postgres unhealthy（ログの `Permission denied`）か migrate の失敗としてのみ現れます。
+`preflight` が `path(s) the containers mount cannot be read by the user their container runs as` で止まった場合、括弧内のコンテナユーザーが表示されたパスを読めません。postgres（uid 999）と migrate（uid 1000）はホストのユーザーとして実行されないため、制限的な umask（`077`、`027`）で作られたリポジトリの checkout やバンドル、または他のユーザーが読めない設定文書が原因です。checkout またはバンドルのディレクトリに `chmod -R o+rX`、設定文書に `chmod o+r` を実行するか、umask `022` で取得し直します。postgres volume が初期化済みの設置は初期 SQL を再度読まないため、これまで問題が出ていなくても、この検査がある版の `upgrade`・`start` で初めて止まることがあります。
 
-最初に restart ポリシーが変わるアップグレードで LocalStack コンテナを再作成すると、object を失う場合があります。`status` で未回収 checkpoint が 0 件と確認できなければアップグレードを延期します。API 起動失敗と `pending.json` が重なると `reseed` も拒否され、`reset` は全データを破棄します。`backup --stop` もこの遮断を解除しません。
+アップグレードで LocalStack コンテナが再作成されると、object を失う場合があります。`status` で未回収 checkpoint が 0 件と確認できなければアップグレードを延期します。API 起動失敗と `pending.json` が重なると `reseed` も拒否され、`reset` は全データを破棄します。`backup --stop` もこの遮断を解除しません。
 
 LocalStack はコンテナを再作成するとメモリの object を失います。DB に未回収 checkpoint が残り bucket が空なら、API は起動を拒否します。自動再起動と手動 start の条件は [Compose のライフサイクル](/run-server/self-hosting/stop-compose)に従います。
 
