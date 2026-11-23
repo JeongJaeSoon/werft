@@ -289,6 +289,20 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="웹-입력의-slack-글-위치를-기다리는-줄을-보류하는-릴리스" />
+### The release that holds rows waiting for a web input's Slack post
+
+Migration `0335_input_hold` adds the columns `correlation_id` and `held_for_input_id` to `slack_outbox`, and the value `unconfirmed` to `conversation_inputs.slack_mirror`. The upgrade needs nothing from you. No route records web inputs in this release, so no row fills the new columns, and Slack mentions and replies and web and API sessions behave as before.
+
+- Until a web input's Slack post has its place (ts), any Slack row bound for that post's thread is held, whatever its kind. Once the post goes, the same transaction that records its place releases them into that thread. Rows bound for a thread that already has its place are unchanged.
+- A web input's Slack post carries a correlation id made anew for each request, as message metadata (`event_type` `werft_input_mirror`). No other row's post carries metadata.
+- A post that ends `uncertain` is not sent again, and no new thread or top-level post is made. The input becomes `unconfirmed` ("Slack reflection could not be confirmed"), and the topic's next input waits too.
+- When a post of the app's own that Slack sends back names, by its metadata's correlation id, exactly one `uncertain` mirror, that post is taken as the mirror's and becomes the input's alias. No candidate, or more than one, links nothing. Equal text never links.
+- The record of an event dropped at the gate (`drop_fields`) adds `metadata`: its `event_type` and a mirror's `correlation_id`. The rest of `event_payload` is not kept.
+- "Send again" posts the same input's mirror with a new correlation id only when a person asks. The input stays one row. Nothing sends it again on its own. This release has no button or route for it yet.
+- If the mirror's post fails for good, the held rows are closed unsent as `failed` (`input_unplaced`). If the place is still unknown after `SLACK_ROLE_INPUT_HOLD_SEC` (3600 seconds by default, Helm `slack.inputHoldSec`), they close the same way and the input stays `unconfirmed`. The slack role logs the warning `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`.
+- The CHECKs and the foreign key are added `NOT VALID` and validated in their own statements, and the indexes are built `CONCURRENTLY`. No existing row is changed. Nothing in this release makes a held row, so rolling back to an image in the support window is safe.
+
 <a id="slack에서-지운-글이-든-턴을-가리는-릴리스" />
 ### The release that withholds turns of deleted Slack messages
 

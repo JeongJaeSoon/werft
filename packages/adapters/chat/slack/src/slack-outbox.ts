@@ -67,7 +67,15 @@ export type SlackOutboxDrain = {
    * of; the input took the post as its alias, its topic stayed unplaced.
    */
   topicAliasTaken: number;
+  /**
+   * Rows held for a web input's thread past `inputHoldMs`, closed unsent;
+   * the input reads `unconfirmed`.
+   */
+  heldClosed: number;
 };
+
+/** How long a row waits for its web input's Slack post before it closes. */
+export const SLACK_INPUT_HOLD_MS = 60 * 60_000;
 
 /**
  * One outbox pass of the `slack` role: rows whose send outlived its lease
@@ -97,6 +105,8 @@ export async function drainSlackOutbox(deps: {
   /** Statuses in the first third, then posts; otherwise posts in the first two thirds, then statuses. */
   statusesFirst?: boolean;
   requesterLeft?: SlackPushRequesterLeft;
+  /** Defaults to `SLACK_INPUT_HOLD_MS`. */
+  inputHoldMs?: number;
   now?: () => number;
 }): Promise<SlackOutboxDrain> {
   const now = deps.now ?? Date.now;
@@ -113,6 +123,7 @@ export async function drainSlackOutbox(deps: {
     statuses: 0,
     cards: 0,
     topicAliasTaken: 0,
+    heldClosed: 0,
   };
   // A reply Slack may or may not hold: the thread hears so, once.
   const noticeUncertain = async (row: SlackOutboxLost) => {
@@ -171,6 +182,15 @@ export async function drainSlackOutbox(deps: {
       kind: closed.kind,
       channel_id: closed.channelId,
     });
+  }
+  drain.heldClosed = await deps.outbox.closeOverdueHeld(
+    deps.inputHoldMs ?? SLACK_INPUT_HOLD_MS,
+  );
+  if (drain.heldClosed > 0) {
+    deps.logger.warn(
+      "Slack rows held for a web input's post closed unsent; Slack never confirmed the post",
+      { count: drain.heldClosed },
+    );
   }
   // Also those a pass marked and died before telling, or told with a failed
   // enqueue: the notice is the dedupe key's, so it goes once.

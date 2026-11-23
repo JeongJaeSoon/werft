@@ -289,6 +289,20 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 - 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
 - サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
 
+<a id="웹-입력의-slack-글-위치를-기다리는-줄을-보류하는-릴리스" />
+### Web 入力の Slack 投稿の場所を待つ行を保留するリリース
+
+migration `0335_input_hold` が `slack_outbox` に列 `correlation_id` と `held_for_input_id` を追加し、`conversation_inputs.slack_mirror` に値 `unconfirmed` を追加する。上げるときにすることはない。このリリースには Web 入力を記録する route がないため新しい列が埋まる行は作られず、Slack のメンションと返信、Web・API セッションの動作は変わらない。
+
+- Web 入力の Slack 投稿がまだ場所（ts）を持たない間、その投稿のスレッドへ行く Slack の行は種類にかかわらず保留する。投稿されると、場所を記録する同じトランザクションでそのスレッドへ送られる。すでに場所のあるスレッドへ行く行はそのままだ。
+- Web 入力の Slack 投稿には、リクエストごとに新しく作った相関値を message metadata（`event_type` `werft_input_mirror`）として載せる。ほかの行の投稿には metadata がない。
+- 投稿が `uncertain` で終わると再送せず、新しいスレッドやチャンネル最上位の投稿も作らない。入力は `unconfirmed`（「Slack への反映を確認できませんでした」）になり、同じ話題の次の入力も待つ。
+- Slack が送り返した自分のアプリの投稿が、metadata の相関値で `uncertain` のミラーをちょうど一つ指すとき、その投稿をミラーの投稿とみなし入力の別名としてつなぐ。候補がない、または二つ以上ならつながない。本文が同じことではつながない。
+- 入口で捨てたイベントの記録（`drop_fields`）に `metadata`（`event_type` とミラーの `correlation_id`）を追加する。`event_payload` の残りは残さない。
+- 「もう一度送る」は、人が呼んだときだけ同じ入力のミラーを新しい相関値で送る。入力の行は一つのままだ。自動では再送しない。このリリースにはそのボタンや route はまだない。
+- ミラーの投稿が最終的に失敗すると、保留した行は送らずに `failed`（`input_unplaced`）で閉じる。場所が決まらないまま `SLACK_ROLE_INPUT_HOLD_SEC`（既定 3600 秒、Helm `slack.inputHoldSec`）が過ぎても同じく閉じ、入力を `unconfirmed` のままにする。slack ロールが `warn` ログ `Slack rows held for a web input's post closed unsent; Slack never confirmed the post` を残す。
+- CHECK と外部キーは `NOT VALID` で追加して別の文で検証し、索引は `CONCURRENTLY` で作る。既存の行は変更しない。このリリースには保留した行を作る経路がないため、サポート期間内のイメージに戻しても問題ない。
+
 <a id="slack에서-지운-글이-든-턴을-가리는-릴리스" />
 ### Slack で削除されたメッセージを含むターンを隠すリリース
 

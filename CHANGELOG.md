@@ -23,6 +23,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 봇이 빠진 채널은 멤버 목록을 읽지 못해 `members_unconfirmed: true`이고, 옮기면 모두에게 숨는다. 남길 채널이면 명령 전에 봇을 다시 초대한다.
   - 전환: Slack이 채널에 올리는 `channel_convert_to_private`·`channel_convert_to_public` 글(본문은 남기지 않는다)을 받으면 binding과 그 채널의 세션을 한 transaction에서 옮긴다. 글이 늦게 올 수 있어서, 글이 말하는 종류가 아니라 Slack에 지금 물은 종류를 따른다. 다른 채널에서 시작해 이 채널에 이어진 세션은 그 채널을 따르고 넓히지 않는다. 비공개로 바꾸면 위와 같고, **비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다**(Slack에서 지난 글이 공개되는 것과 같다). 옛 `people`·`team` 범위는 되살리지 않는다.
   - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
+- **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#2074). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+  - 칸: `slack_outbox.correlation_id`(웹 입력의 Slack 글마다 새로 만드는 상관값), `slack_outbox.held_for_input_id`(그 입력의 글 스레드를 기다리는 줄), `conversation_inputs.slack_mirror`의 새 값 `unconfirmed`.
+  - 웹 입력의 Slack 글에는 상관값이 message metadata(`event_type` `werft_input_mirror`)로 실린다. 다른 줄의 `chat.postMessage`에는 지금처럼 metadata가 없다.
+  - `uncertain`이면 다시 보내지 않고 새 스레드도 만들지 않는다. 돌아온 자기 앱의 글이 그 상관값을 가진 `uncertain` 거울 하나를 정확히 가리킬 때만 그 글을 거울로 잇는다. 본문으로는 잇지 않는다.
+  - 문에서 버린 이벤트의 `drop_fields`에 `metadata`(`event_type`과 거울의 `correlation_id`)가 더해진다. `event_payload`의 나머지는 남기지 않는다.
+  - 보류된 줄은 거울이 끝내 실패하거나 `SLACK_ROLE_INPUT_HOLD_SEC`(기본 3600, Helm `slack.inputHoldSec`)가 지나면 보내지 않고 `failed`(`input_unplaced`)로 닫는다. 로그 `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`.
+  - "다시 보내기"는 사람이 부를 때만 같은 입력의 거울을 새 상관값으로 보낸다. 이 릴리스에는 그 버튼이나 route가 없다.
+  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
 - **Slack에서 지운 글을 직접 출처로 가진 턴은 API와 웹에서 가려진다**(JeongJaeSoon/werft#2071). migration은 없고 따로 할 일도 없다. 저장된 값은 지우지 않고 읽을 때만 가리며, 지운 글이 없는 세션의 응답은 그대로다.
   - 그 글이 입력인 턴의 입력, 그 턴의 답과 도구 결과를 가린다. 턴 응답은 `message`가 `""`, `result`가 `null`이 되고 `source_deleted_at`이 붙는다. `terminal_reason`도 `null`이다. 이벤트(SSE와 보관된 이벤트 포함)는 모양만 남기고 내용(엔진의 system 글, error의 `message`, 끝난 이유 포함)을 비우며 envelope에 `source_deleted_at`이 붙는다. 그 턴의 열린 요청은 목록에서 빠진다.
   - 물려받기만 한 뒤 턴은 가리지 않는다(세션은 지금처럼 멈춘다).

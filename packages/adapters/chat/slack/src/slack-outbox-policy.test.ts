@@ -278,6 +278,8 @@ async function drainFixture(
     unpromptedRequests: async () => [],
     expireSending: async () => [],
     closeUnaddressed: async () => [],
+    closeOverdueHeld: async () => 0,
+    matchMirrorEcho: async () => "no_candidate",
     untoldUncertain: async () => [],
     claim: async () => batches.shift() ?? [],
     beginSend: async (fence) => {

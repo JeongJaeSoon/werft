@@ -171,4 +171,9 @@ export type SlackInboundDropFields = {
   user?: string;
   subtype?: string;
   message?: { subtype: string };
+  /**
+   * The message metadata's `event_type`, and the correlation id of a web
+   * input's mirror; never the rest of `event_payload`.
+   */
+  metadata?: { event_type: string; correlation_id?: string };
 };
