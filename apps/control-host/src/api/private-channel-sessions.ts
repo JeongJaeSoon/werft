@@ -27,7 +27,7 @@ import {
   SecretDecryptError,
   type SecretKey,
   type SecretStore,
-  type SlackAppStore,
+  type SurfaceAppStore,
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -168,7 +168,7 @@ const KEY_MISMATCH = "master_key_mismatch";
 
 /** The Slack the command asks in production: the agent's own app. */
 export function slackOfAgents(deps: {
-  apps: Pick<SlackAppStore, "findForAgent">;
+  apps: Pick<SurfaceAppStore, "findForAgent">;
   secrets: Pick<SecretStore, "get">;
   api: ReturnType<typeof createSlackBotApi>;
 }): PrivateChannelSlack {
