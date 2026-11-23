@@ -259,6 +259,15 @@ export function createPostgresSlackInboundEventStore(
             },
           });
         }
+        await tx.execute(sql`
+          INSERT INTO conversation_engagements (
+            workspace_id, agent_id, team_id, channel_id, ts, kind, session_id
+          ) VALUES (
+            ${row.workspaceId}::uuid, ${row.agentId}::uuid, ${row.teamId},
+            ${input.channelId}, ${input.ts}, ${input.engagement},
+            ${input.turn.sessionId}::uuid
+          )
+          ON CONFLICT DO NOTHING`);
         return true;
       });
     },

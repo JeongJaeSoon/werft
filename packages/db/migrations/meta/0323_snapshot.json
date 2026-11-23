@@ -1,5 +1,5 @@
 {
-  "id": "0da9b386-5fe9-4f93-a1b8-85b9358216ae",
+  "id": "5df8dd33-9ba6-4ade-86dd-9be4fbf08541",
   "prevId": "9d86e3b4-85dd-4fc2-ad83-1fc44858d943",
   "version": "7",
   "dialect": "postgresql",
@@ -5003,6 +5003,160 @@
         "control_intents_interrupt_target_check": {
           "name": "control_intents_interrupt_target_check",
           "value": "\"control_intents\".\"kind\" <> 'interrupt' OR (\"control_intents\".\"target_turn_id\" IS NOT NULL AND \"control_intents\".\"attempt_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.conversation_engagements": {
+      "name": "conversation_engagements",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ts": {
+          "name": "ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conversation_turn_id": {
+          "name": "conversation_turn_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "conversation_engagements_message_idx": {
+          "name": "conversation_engagements_message_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_engagements_session_idx": {
+          "name": "conversation_engagements_session_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_engagements_session_id_sessions_id_fk": {
+          "name": "conversation_engagements_session_id_sessions_id_fk",
+          "tableFrom": "conversation_engagements",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_engagements_agent_fk": {
+          "name": "conversation_engagements_agent_fk",
+          "tableFrom": "conversation_engagements",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "conversation_engagements_agent_id_team_id_channel_id_ts_pk": {
+          "name": "conversation_engagements_agent_id_team_id_channel_id_ts_pk",
+          "columns": ["agent_id", "team_id", "channel_id", "ts"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "conversation_engagements_kind_check": {
+          "name": "conversation_engagements_kind_check",
+          "value": "\"conversation_engagements\".\"kind\" IN ('mention','reply','bound','proactive')"
+        },
+        "conversation_engagements_target_check": {
+          "name": "conversation_engagements_target_check",
+          "value": "num_nonnulls(\"conversation_engagements\".\"session_id\", \"conversation_engagements\".\"conversation_turn_id\") = 1"
+        },
+        "conversation_engagements_slack_check": {
+          "name": "conversation_engagements_slack_check",
+          "value": "\"conversation_engagements\".\"team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_engagements\".\"channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_engagements\".\"ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$'"
         }
       },
       "isRLSEnabled": false
@@ -16244,32 +16398,9 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "sources": {
-          "name": "sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "slack_outbox_sources_idx": {
-          "name": "slack_outbox_sources_idx",
-          "columns": [
-            {
-              "expression": "sources",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last",
-              "opclass": "jsonb_path_ops"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_outbox\".\"sources\" IS NOT NULL",
-          "concurrently": false,
-          "method": "gin",
-          "with": {}
-        },
         "slack_outbox_settle_idx": {
           "name": "slack_outbox_settle_idx",
           "columns": [
@@ -18069,32 +18200,9 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "sources": {
-          "name": "sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "turns_sources_idx": {
-          "name": "turns_sources_idx",
-          "columns": [
-            {
-              "expression": "sources",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last",
-              "opclass": "jsonb_path_ops"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"turns\".\"sources\" IS NOT NULL",
-          "concurrently": false,
-          "method": "gin",
-          "with": {}
-        },
         "turns_session_sequence_uniq": {
           "name": "turns_session_sequence_uniq",
           "columns": [

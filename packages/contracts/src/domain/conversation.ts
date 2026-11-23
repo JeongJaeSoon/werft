@@ -47,6 +47,22 @@ export type ConversationInputSlackMirror = z.infer<
 >;
 
 /**
+ * How an agent took part in a Slack message, as its engagement row says:
+ * `mention` opened a session by calling the agent (a DM calls it too),
+ * `reply` opened one unmentioned, `bound` went into a session already open
+ * (mentioned or not), `proactive` is the agent speaking first, which nothing
+ * writes yet.
+ */
+export const ENGAGEMENT_KIND_VALUES = [
+  "mention",
+  "reply",
+  "bound",
+  "proactive",
+] as const;
+export const engagementKindSchema = z.enum(ENGAGEMENT_KIND_VALUES);
+export type EngagementKind = z.infer<typeof engagementKindSchema>;
+
+/**
  * An agent's main conversation: one per channel it is in, one per person it
  * talks to in DMs.
  */

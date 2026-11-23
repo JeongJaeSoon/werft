@@ -178,6 +178,7 @@ describe("database schema", () => {
       "checkpoint_restore_check",
       "checkpoints",
       "control_intents",
+      "conversation_engagements",
       "conversation_inputs",
       "conversation_topics",
       "conversations",
