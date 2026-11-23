@@ -62,6 +62,8 @@ export type SlackOutboxBody = {
   mention_user_ids?: string[];
   /** Block Kit, shown in place of `text`, which stays the notification. */
   blocks?: unknown[];
+  /** A `model_notice`'s reader, the Werft user its direct message is for. */
+  reader_user_id?: string;
   sender?: { username: string; slack_user_id?: string };
 };
 

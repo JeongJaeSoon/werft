@@ -17,6 +17,7 @@ import {
   createPostgresInviteStore,
   createPostgresLoginSettingsStore,
   createPostgresMemberStore,
+  createPostgresSessionShareStore,
   invites,
   loginMethods,
   memberships,
@@ -103,6 +104,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
           createMemberService({
             authorization,
             store: createPostgresMemberStore(db),
+            sessions: createPostgresSessionShareStore(db),
           }),
           inviteService,
         );

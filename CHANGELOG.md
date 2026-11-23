@@ -14,6 +14,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **`private_channel` 세션의 DM 알림은 지금 채널 멤버에게만 가고, 인수는 채널 멤버가 한다**(JeongJaeSoon/werft#PR2). migration은 없고 따로 할 일도 없다.
+  - 세션에 관한 DM(모델이 허용 목록에서 빠짐, 다음 모델로 옮김, `runtime_retired`로 멈춤, worker 이미지 교체)은 보내기 직전에 받는 사람이 세션의 비공개 채널 중 하나의 지금 멤버인지 본다. 멤버가 아니거나 확인하지 못하면 보내지 않고 `failed`(`error_code` `reader_outside_channel`)로 끝난다. 에이전트 관리자도 같다. 에이전트 단위 알림(에이전트의 모델 이동)은 그대로다.
+  - 요청자가 비활성화되어 인수를 기다리는 `private_channel` 세션은 그 채널의 지금 멤버이고 세션에 쓸 수 있는(`session.submit`) 사람이 `POST /v1/sessions/{id}/takeover`로 인수한다. 사유는 받지 않는다. owner·admin도 채널 멤버가 아니면 `404`다. 다른 세션의 인수는 그대로다.
+  - 요청자가 채널을 나가도 세션은 멈추지 않는다. 보고와 카드는 지금처럼 그 채널의 스레드에만 가고, 봇이 채널에서 빠지면 어디에도 보내지 않는다.
+  - 이 릴리스 전에 쌓인 DM 줄에는 받는 사람이 적혀 있지 않아, `private_channel` 세션의 것이면 보내지 않는다.
 - **API key는 `private_channel` 세션에 쓰기·승인도 못 한다. 요청자가 채널을 나간 push는 지금 채널 멤버가 승인·거절한다**(JeongJaeSoon/werft#2062). migration은 없고 따로 할 일도 없다.
   - 보이는 변화: 개인 key·에이전트 key로 `private_channel` 세션에 메시지, 대기 요청 답, push 요청·승인·거절, PR 열기·댓글, workflow 실행, 중단·재개·종료·인계 등 `/v1/sessions/{id}` 아래 모든 경로를 부르면 `404`다(읽기는 JeongJaeSoon/werft#2053부터 `404`). 판정 기록의 이유는 `private_channel_key`다. 세션 안에서 에이전트가 요청하는 push, key로 만든 세션, 공개 채널 세션은 그대로다.
   - push를 요청한 사람(그 push를 요청한 턴의 사람. 사람이 없으면 세션을 맡은 사람, 곧 시작한 사람이나 넘겨받은 사람)이 세션의 비공개 채널을 모두 나가면, Slack 승인 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버 누구나 승인·거절할 수 있다. 결정 기록(`decided_by`)에는 누른 사람이 남는다. 나간 요청자는 결정할 수 없고, 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 카드는 채널 멤버 변화(`member_joined_channel`·`member_left_channel`) 때 다시 그려진다. 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Push requester's channel membership unconfirmed`를 남긴다.

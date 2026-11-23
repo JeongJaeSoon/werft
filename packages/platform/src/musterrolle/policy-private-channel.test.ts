@@ -16,13 +16,18 @@ import type {
   PrivateChannelPlace,
   SessionViewer,
 } from "../sessions/ports/session-share-store.ts";
-import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
+import type {
+  ChannelMemberCheckable,
+  ChannelMembership,
+} from "../surface/ports/channel-member-checkable.ts";
+import { createMemberService } from "./member-service.ts";
 import {
   type AgentAuthority,
   type Caller,
   callerFor,
   createAuthorizationPolicy,
   type IdentityReader,
+  readerOutsideChannels,
   type SessionAccess,
 } from "./policy.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
@@ -551,5 +556,208 @@ describe("Codex round 1 (94S-1999)", () => {
         }),
       ).toBe("not_found");
     }
+  });
+});
+// Answer 15 (PR2): an offboarded requester's session in a private channel
+// goes to whoever in the channel may write to it, never to an owner outside.
+describe("taking over a private channel's session", () => {
+  function takeovers(inChannel: readonly string[]) {
+    const taken: unknown[] = [];
+    const sessions = sessionsSeen();
+    const service = createMemberService({
+      authorization: policyFor(plain, {
+        check: members((userId) => inChannel.includes(userId)).check,
+      }),
+      store: {
+        setAccess: async () => {
+          throw new Error("not a takeover");
+        },
+        listAwaitingTakeover: async () => ({ items: [], total: 0 }),
+        takeOver: async (input) => {
+          taken.push({
+            sessionId: input.sessionId,
+            newRequesterId: input.newRequesterId,
+            justification: input.justification,
+          });
+          return { outcome: "taken_over", receiptId: "r" };
+        },
+      },
+      sessions: {
+        privateChannels: (ownerId, sessionId) =>
+          sessions.privateChannels?.(ownerId, sessionId) ?? Promise.resolve([]),
+      },
+    });
+    return { service, taken };
+  }
+
+  const WITH_OWNER = [...IN_CHANNEL, USERS.owner];
+  test.each([
+    [
+      "a member of the channel",
+      "member",
+      PRIVATE_SESSION,
+      IN_CHANNEL,
+      null,
+      "taken",
+    ],
+    [
+      "an owner in the channel",
+      "owner",
+      PRIVATE_SESSION,
+      WITH_OWNER,
+      null,
+      "taken",
+    ],
+    [
+      "an owner in the channel, the reason dropped",
+      "owner",
+      PRIVATE_SESSION,
+      WITH_OWNER,
+      "audit",
+      "taken",
+    ],
+    [
+      "an owner outside the channel",
+      "owner",
+      PRIVATE_SESSION,
+      IN_CHANNEL,
+      null,
+      "NOT_FOUND",
+    ],
+    [
+      "an owner outside the channel, with a reason",
+      "owner",
+      PRIVATE_SESSION,
+      IN_CHANNEL,
+      "audit",
+      "NOT_FOUND",
+    ],
+    [
+      "a member outside the channel",
+      "nonmember",
+      PRIVATE_SESSION,
+      IN_CHANNEL,
+      null,
+      "NOT_FOUND",
+    ],
+    [
+      "the requester who left",
+      "requester",
+      PRIVATE_SESSION,
+      IN_CHANNEL,
+      null,
+      "NOT_FOUND",
+    ],
+    [
+      "in the channel without the agent",
+      "outsider",
+      PRIVATE_SESSION,
+      IN_CHANNEL,
+      null,
+      "NOT_FOUND",
+    ],
+    [
+      "an owner, a session outside any channel (as before)",
+      "owner",
+      OPEN_SESSION,
+      IN_CHANNEL,
+      null,
+      "taken",
+    ],
+    [
+      "a member, a session outside any channel (as before)",
+      "member",
+      OPEN_SESSION,
+      IN_CHANNEL,
+      null,
+      "FORBIDDEN",
+    ],
+  ] as const)(
+    "%s",
+    async (_name, who, sessionId, inChannel, justification, expected) => {
+      const { service, taken } = takeovers(inChannel);
+      const outcome = await service
+        .takeOverSession(person(who), sessionId, justification)
+        .then(
+          () => "taken",
+          (error: unknown) =>
+            error instanceof SessionServiceError ? error.code : String(error),
+        );
+      expect(outcome).toBe(expected);
+      expect(taken).toEqual(
+        expected === "taken"
+          ? [
+              {
+                sessionId,
+                newRequesterId: USERS[who],
+                justification:
+                  sessionId === PRIVATE_SESSION ? null : justification,
+              },
+            ]
+          : [],
+      );
+    },
+  );
+});
+// Answer 15 (PR2): a session's direct message reaches only someone who can
+// see it; the unknown counts as outside, as a notice leaks on a guess.
+describe("a direct message about a private channel's session", () => {
+  const sessions = sessionsSeen();
+  const privateChannels = (ownerId: string, sessionId: string | null) =>
+    sessions.privateChannels?.(ownerId, sessionId) ?? Promise.resolve([]);
+  const answering = (answer: ChannelMembership) => ({
+    async membership() {
+      return answer;
+    },
+  });
+  test.each([
+    [
+      "a session outside any channel",
+      OPEN_SESSION,
+      USERS.nonmember,
+      "not_member",
+      false,
+    ],
+    ["a member of the channel", PRIVATE_SESSION, USERS.member, "member", false],
+    [
+      "someone who left the channel",
+      PRIVATE_SESSION,
+      USERS.requester,
+      "not_member",
+      true,
+    ],
+    [
+      "a membership not confirmed",
+      PRIVATE_SESSION,
+      USERS.member,
+      "unconfirmed",
+      true,
+    ],
+    ["a row naming no reader", PRIVATE_SESSION, undefined, "member", true],
+  ] as const)("%s", async (_name, sessionId, readerUserId, answer, outside) => {
+    expect(
+      await readerOutsideChannels(
+        { sessions: { privateChannels }, channelMembers: answering(answer) },
+        { workspaceId: WORKSPACE, sessionId, readerUserId },
+      ),
+    ).toBe(outside);
+  });
+
+  test("counts as outside when the channels cannot be read", async () => {
+    expect(
+      await readerOutsideChannels(
+        {
+          sessions: {
+            privateChannels: () => Promise.reject(new Error("db down")),
+          },
+          channelMembers: answering("member"),
+        },
+        {
+          workspaceId: WORKSPACE,
+          sessionId: PRIVATE_SESSION,
+          readerUserId: USERS.member,
+        },
+      ),
+    ).toBe(true);
   });
 });

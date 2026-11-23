@@ -5473,7 +5473,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Admin",
     summary: "Become the requester of an offboarded member's session",
     description:
-      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.",
+      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. A `private_channel` session is taken over instead by a current member of its channel who may write to it, with no justification asked; anyone else, an owner included, gets 404. The body may be empty. API keys are refused.",
     auth: "session",
     body: "TakeOverSessionRequest",
     success: { status: 200, schema: "ReceiptAcceptedResponse" },

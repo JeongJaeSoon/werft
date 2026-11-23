@@ -266,6 +266,7 @@ function app() {
         createMemberService({
           authorization,
           store: store("members"),
+          sessions,
         } as never),
         unreached("invites"),
       );

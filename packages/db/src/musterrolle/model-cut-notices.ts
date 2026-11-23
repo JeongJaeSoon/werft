@@ -121,6 +121,7 @@ export async function enqueueModelCutNotices(
         sessionId: input.sessionId,
         body: {
           text: modelCutNoticeText(person.locale, input.model, input.cause),
+          reader_user_id: person.userId,
           ...(person.locale === null ? {} : { locale: person.locale }),
         },
         dedupeKey: modelCutDedupeKey(
@@ -249,6 +250,7 @@ async function enqueueCreatorNotices(
         sessionId,
         body: {
           text: notice.text(person.locale, session.agentName),
+          reader_user_id: person.userId,
           ...(person.locale === null ? {} : { locale: person.locale }),
         },
         dedupeKey: notice.dedupeKey(
@@ -317,6 +319,7 @@ export async function slackRecipientsOf(
   const { workspaceId, agentId } = input;
   return await tx
     .select({
+      userId: linkedAccounts.userId,
       slackUserId: linkedAccounts.externalUserId,
       locale: users.locale,
       slackAppId: slackApps.id,

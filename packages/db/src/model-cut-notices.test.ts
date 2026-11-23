@@ -293,6 +293,13 @@ describe("enqueueModelCutNotices", () => {
     expect(textOf(direct)).toStartWith("セッションが止まりました。");
     // No locale on the account reads English.
     expect(textOf(lead)).toStartWith("The session stopped.");
+    // The sender asks whether this person still sees the session (answer 15).
+    for (const who of [creator, direct, lead, viaTeam]) {
+      expect(
+        rows.find((row) => row.channelId === who.slackUserId)?.body
+          .reader_user_id,
+      ).toBe(who.userId);
+    }
   });
 
   test("a second cut of the session, or a later administrator, adds nothing for the told", async () => {
@@ -548,6 +555,7 @@ describe("a session held as runtime_retired", () => {
     expect(row?.sessionId).toBe(w.sessionId);
     expect(row?.body.text).toContain("worker イメージが撤回され");
     expect(row?.body.locale).toBe("ja");
+    expect(row?.body.reader_user_id).toBe(creator.userId);
   });
 
   test("an incompatible checkpoint, or a hold that finds the session moved on, tells nobody", async () => {

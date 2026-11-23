@@ -364,6 +364,49 @@ export async function pushRequesterLeft(
   }
 }
 
+/**
+ * Whether a direct message about a `private_channel` session would reach
+ * someone who cannot see it: its reader is a member of none of the session's
+ * channels, or that cannot be told (answer 15, PR2). A notice leaks on a
+ * guess, so the unknown counts as outside, unlike `pushRequesterLeft`, where
+ * the guess would widen an approval.
+ */
+export async function readerOutsideChannels(
+  deps: {
+    sessions: Pick<SessionShareStore, "privateChannels">;
+    channelMembers: Pick<ChannelMemberCheckable, "membership">;
+  },
+  input: {
+    workspaceId: string;
+    sessionId: string;
+    /** The person the message is for; unknown for a row from before. */
+    readerUserId: string | undefined;
+  },
+): Promise<boolean> {
+  try {
+    const places = await deps.sessions.privateChannels(
+      input.workspaceId,
+      input.sessionId,
+    );
+    if (places.length === 0) return false;
+    const { readerUserId } = input;
+    if (readerUserId === undefined) return true;
+    const answers = await Promise.all(
+      places.map((place) =>
+        deps.channelMembers.membership({
+          workspaceId: input.workspaceId,
+          agentId: place.agentId.toLowerCase(),
+          channelId: place.channelId,
+          userId: readerUserId,
+        }),
+      ),
+    );
+    return !answers.includes("member");
+  } catch {
+    return true;
+  }
+}
+
 export const POLICY_VERSION = "m17";
 
 export interface AuthorizationPolicy {
