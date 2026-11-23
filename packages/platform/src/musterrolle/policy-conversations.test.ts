@@ -59,6 +59,7 @@ const MEMBERS_DM = "019a0000-0000-7000-8000-00000000b0a3";
 const ARCHIVED = "019a0000-0000-7000-8000-00000000b0a4";
 const NOT_LISTENING = "019a0000-0000-7000-8000-00000000b0a5";
 const PRIVATE_AGENTS = "019a0000-0000-7000-8000-00000000b0a6";
+const PRIVATE_AGENTS_PRIVATE = "019a0000-0000-7000-8000-00000000b0a7";
 const MISSING = "019a0000-0000-7000-8000-00000000b0ff";
 
 const channel = (
@@ -78,6 +79,8 @@ const PLACES: Record<string, ConversationPlaceFacts> = {
   [ARCHIVED]: channel("C0ARCHIVED"),
   [NOT_LISTENING]: channel("C0QUIET"),
   [PRIVATE_AGENTS]: channel("C0OTHER", false, PRIVATE_AGENT),
+  // The member is in it by Slack's list, but may not use its agent.
+  [PRIVATE_AGENTS_PRIVATE]: channel("C0PRIVATE", true, PRIVATE_AGENT),
 };
 const LINKED = new Set<string>([
   USERS.owner,
@@ -245,7 +248,30 @@ describe("conversation.view", () => {
       ["unlinked", PRIVATE, "not_found"],
       // A manager outside the channel does not see it either.
       ["owner", PRIVATE, "not_found"],
+      // Nor does someone who may not use its agent learn that it is there.
+      ["member", PRIVATE_AGENTS_PRIVATE, "not_found"],
     ]);
+    for (const action of NEW_ACTIONS) {
+      expect(await reason("member", action, PRIVATE_AGENTS_PRIVATE)).toBe(
+        "not_found",
+      );
+    }
+  });
+
+  test("a public channel never reads the Slack link to be seen", async () => {
+    const { port, reads } = access({
+      slackLinked: async () => {
+        throw new Error("link store down");
+      },
+    });
+    const decision = await decide(
+      userSubject("member"),
+      "conversation.view",
+      PUBLIC,
+      { conversations: port },
+    );
+    expect(decision.reason_code).toBe("ok");
+    expect(reads).toEqual(["place"]);
   });
 
   test("a membership that cannot be confirmed hides the channel", async () => {

@@ -673,31 +673,29 @@ export function createAuthorizationPolicy(
       if (!self(place.personUserId)) return "not_found";
       if (action === "conversation.view") return "ok";
     }
-    if (!(await usageFor(reading, workspaceId, agentId)).allowed) {
-      return "agent_private";
-    }
-    if (place.kind === "channel") {
-      const linked = await conversations.slackLinked(
-        workspaceId,
-        agentId,
-        principal.id,
-      );
+    const usable = (await usageFor(reading, workspaceId, agentId)).allowed;
+    const linked = () =>
+      conversations.slackLinked(workspaceId, agentId, principal.id);
+    if (place.kind === "channel" && place.private) {
+      // Every refusal reads the same, so a non-member learns nothing of it.
       if (
-        place.private &&
-        !(
-          linked &&
-          (await conversations.isMember({
-            workspaceId,
-            agentId,
-            channelId: place.channelId,
-            userId: principal.id,
-          }))
-        )
+        !usable ||
+        !(await linked()) ||
+        !(await conversations.isMember({
+          workspaceId,
+          agentId,
+          channelId: place.channelId,
+          userId: principal.id,
+        }))
       ) {
         return "not_found";
       }
+    } else if (!usable) {
+      return "agent_private";
+    }
+    if (place.kind === "channel") {
       if (action === "conversation.view") return "ok";
-      if (!linked) return "unlinked";
+      if (!place.private && !(await linked())) return "unlinked";
       if (await conversations.archived(workspaceId, id.data)) {
         return "conversation_archived";
       }
