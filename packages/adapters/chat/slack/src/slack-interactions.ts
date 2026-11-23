@@ -265,7 +265,10 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     }
   }
 
-  /** Whether the pressed card's channel is one the bot was removed from. */
+  /**
+   * Whether the pressed card's channel is one the bot was removed from, or
+   * one Slack deleted.
+   */
   async function channelLeftFor(
     agentId: string,
     app: { appId: string },
@@ -282,7 +285,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       agent.installationId,
       input.channelId,
     );
-    return live?.status === "left";
+    return live?.status === "left" || live?.status === "gone";
   }
 
   /** Who pressed and how to answer them; null when the app has no bot. */

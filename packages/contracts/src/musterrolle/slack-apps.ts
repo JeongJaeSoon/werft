@@ -37,7 +37,9 @@ export const BOT_SCOPES = [
  * is how an invite to a private channel is noticed. The bot being removed
  * from a channel comes to the bot itself as `channel_left` (public) or
  * `group_left` (private); real Slack sent no `member_left_channel` for it,
- * which is kept for what the mock and older apps send. An app made before
+ * which is kept for what the mock and older apps send. A channel being
+ * archived, renamed or deleted comes as `channel_*` (public) or `group_*`
+ * (private), on scopes the app already holds. An app made before
  * an event was added receives it only after its manifest is sent again
  * (events recheck).
  */
@@ -50,6 +52,14 @@ export const SLACK_AGENT_BOT_EVENTS = [
   "member_left_channel",
   "channel_left",
   "group_left",
+  "channel_archive",
+  "channel_unarchive",
+  "group_archive",
+  "group_unarchive",
+  "channel_rename",
+  "group_rename",
+  "channel_deleted",
+  "group_deleted",
   "app_uninstalled",
   "tokens_revoked",
 ] as const;

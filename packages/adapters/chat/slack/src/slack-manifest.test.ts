@@ -31,7 +31,7 @@ describe("agent app manifest", () => {
     ]);
   });
 
-  test("Finalize subscribes to these events, the bot's join and leave included", () => {
+  test("Finalize subscribes to these events, the bot's join and leave and the channel's archive, rename and delete included", () => {
     expect([...SLACK_AGENT_BOT_EVENTS]).toEqual([
       "app_mention",
       "message.im",
@@ -41,6 +41,14 @@ describe("agent app manifest", () => {
       "member_left_channel",
       "channel_left",
       "group_left",
+      "channel_archive",
+      "channel_unarchive",
+      "group_archive",
+      "group_unarchive",
+      "channel_rename",
+      "group_rename",
+      "channel_deleted",
+      "group_deleted",
       "app_uninstalled",
       "tokens_revoked",
     ]);

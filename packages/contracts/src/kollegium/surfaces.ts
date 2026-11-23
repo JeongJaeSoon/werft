@@ -78,11 +78,17 @@ export const memoryWritePolicySchema = z.enum(MEMORY_WRITE_POLICY_VALUES);
  * `left`: a private channel the bot was removed from or left. Inactive: no
  * input is taken and nothing is sent there. The mode and ceiling are kept,
  * the approval is not; the bot coming back makes it `pending_approval`.
+ * `gone`: a channel Slack deleted (`channel_deleted`, `group_deleted`, or a
+ * public channel Slack no longer finds). Inactive like `left`, kept, never
+ * home and holding no approval. A join of the bot (so the channel was not
+ * deleted after all) brings it back as it does a `left` one; a public one
+ * goes to `ready`.
  */
 export const SURFACE_BINDING_STATUS_VALUES = [
   "ready",
   "pending_approval",
   "left",
+  "gone",
   "partial",
   "failed",
   "revoked",

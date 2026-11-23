@@ -218,6 +218,9 @@ export const slackJa = {
   "slack.approved": "チャンネルを承認しました。",
   "slack.left": "退出",
   "slack.inactive": "無効",
+  "slack.gone": "削除済み",
+  "slack.goneHint":
+    "Slack でチャンネルが削除されたため、メッセージを受け取りも送りもしません。",
   "slack.leftHint":
     "ボットがチャンネルから退出したため、メッセージの受信も送信もしません。チャンネルに再度招待すると承認待ちに戻ります。",
   "slack.add": "接続",
