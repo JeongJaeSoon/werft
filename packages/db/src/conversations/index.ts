@@ -2,7 +2,14 @@
 // only the names other domains use, not a barrel over the directory.
 export { dropChannelSummaryLinesOf } from "./channel-summaries.ts";
 export { createPostgresConversationStore } from "./conversation-store.ts";
-export { lockedDeletedSource, sessionHoldsSource } from "./deleted-sources.ts";
+export {
+  directSourceDeletedAt,
+  firstTurnDeletedAt,
+  lockedDeletedSource,
+  servedTitle,
+  sessionHoldsSource,
+  titleDeletedAt,
+} from "./deleted-sources.ts";
 export { linkInputAlias } from "./input-aliases.ts";
 export {
   dropBufferedMessage,
