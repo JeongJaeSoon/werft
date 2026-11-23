@@ -145,80 +145,80 @@ export function createPostgresChannelSummaryStore(
   db: Database,
 ): ChannelSummaryStore {
   return {
-    read(place, version) {
-      // One snapshot: a delete committing between the statements would
-      // otherwise leave a line read without its sources.
-      return db.transaction(
-        async (tx) => {
-          const [summary] = rowsOf<{ version: string }>(
-            await tx.execute(sql`
-          SELECT version::text FROM channel_summaries
-          WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}`),
-          );
-          if (summary === undefined) return null;
-          const current = Number(summary.version);
-          const asOf = version ?? current;
-          if (!Number.isInteger(asOf) || asOf < 0 || asOf > current)
-            return null;
-          const lines = rowsOf<{
-            id: ChannelSummaryLineId;
-            text: string;
-            written_by_agent_id: string;
-            written_at: Date | string;
-          }>(
-            await tx.execute(sql`
-          SELECT l.id, l.text, l.written_by_agent_id, l.written_at
-          FROM channel_summary_lines l
-          WHERE (l.workspace_id, l.team_id, l.channel_id) = ${placeKey(place)}
-            AND ${liveAt(asOf)}
+    async read(place, version) {
+      // One statement, so one snapshot even inside a caller's transaction:
+      // a line is never read without the sources a delete took with it.
+      const asOf =
+        version === undefined ? sql`s.version` : sql`${version}::bigint`;
+      const rows = rowsOf<{
+        current: string;
+        as_of: string;
+        id: ChannelSummaryLineId | null;
+        text: string;
+        written_by_agent_id: string;
+        written_at: Date | string;
+        sources: {
+          input_id: ConversationInputId;
+          team_id: string;
+          channel_id: string;
+          ts: string;
+          speaker_kind: string;
+          speaker_id: string;
+        }[];
+      }>(
+        await db.execute(sql`
+          SELECT s.version::text AS current, (${asOf})::text AS as_of,
+            l.id, l.text, l.written_by_agent_id, l.written_at,
+            COALESCE((
+              SELECT jsonb_agg(jsonb_build_object(
+                'input_id', x.input_id, 'team_id', x.team_id,
+                'channel_id', x.channel_id, 'ts', x.ts,
+                'speaker_kind', x.speaker_kind, 'speaker_id', x.speaker_id)
+                ORDER BY x.ts, x.input_id)
+              FROM channel_summary_line_sources x WHERE x.line_id = l.id
+            ), '[]'::jsonb) AS sources
+          FROM channel_summaries s
+          LEFT JOIN channel_summary_lines l
+            ON (l.workspace_id, l.team_id, l.channel_id) =
+                 (s.workspace_id, s.team_id, s.channel_id)
+            AND l.from_version <= ${asOf}
+            AND (l.to_version IS NULL OR l.to_version > ${asOf})
+          WHERE (s.workspace_id, s.team_id, s.channel_id) = ${placeKey(place)}
           ORDER BY l.written_at, l.ordinal`),
-          );
-          const sources =
-            lines.length === 0
-              ? []
-              : rowsOf<{
-                  line_id: string;
-                  input_id: ConversationInputId;
-                  team_id: string;
-                  channel_id: string;
-                  ts: string;
-                  speaker_kind: string;
-                  speaker_id: string;
-                }>(
-                  await tx.execute(sql`
-                SELECT line_id, input_id, team_id, channel_id, ts,
-                  speaker_kind, speaker_id
-                FROM channel_summary_line_sources
-                WHERE line_id IN (${uuids(lines.map((line) => line.id))})
-                ORDER BY ts, input_id`),
-                );
-          const result: ChannelSummary = {
-            version: asOf,
-            lines: lines.map((line) => ({
-              id: line.id,
-              text: line.text,
-              writtenByAgentId: line.written_by_agent_id,
-              writtenAt: new Date(line.written_at),
-              sources: sources
-                .filter((source) => source.line_id === line.id)
-                .map(
-                  (source): ChannelSummarySource => ({
-                    inputId: source.input_id,
-                    teamId: source.team_id,
-                    channelId: source.channel_id,
-                    ts: source.ts,
-                    speaker: {
-                      kind: source.speaker_kind,
-                      id: source.speaker_id,
-                    },
-                  }),
-                ),
-            })),
-          };
-          return result;
-        },
-        { isolationLevel: "repeatable read", accessMode: "read only" },
       );
+      const [first] = rows;
+      if (first === undefined) return null;
+      const current = Number(first.current);
+      const at = Number(first.as_of);
+      if (!Number.isInteger(at) || at < 0 || at > current) return null;
+      const result: ChannelSummary = {
+        version: at,
+        lines: rows.flatMap((row) =>
+          row.id === null
+            ? []
+            : [
+                {
+                  id: row.id,
+                  text: row.text,
+                  writtenByAgentId: row.written_by_agent_id,
+                  writtenAt: new Date(row.written_at),
+                  sources: row.sources.map(
+                    (source): ChannelSummarySource => ({
+                      inputId: source.input_id,
+                      teamId: source.team_id,
+                      channelId: source.channel_id,
+                      ts: source.ts,
+                      speaker: {
+                        kind: source.speaker_kind,
+                        id: source.speaker_id,
+                      },
+                    }),
+                  ),
+                },
+              ],
+        ),
+      };
+      return result;
     },
 
     async append(request) {

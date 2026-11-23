@@ -511,6 +511,55 @@ integration("channel summaries (0325)", () => {
     expect(await everyVersion(channel)).toEqual([[], [], []]);
   });
 
+  test("a delete waits for a fold of its source in flight, then takes the folded line out", async () => {
+    const channel = newChannel();
+    const [a, b] = [await input(channel), await input(channel)];
+    if (!a || !b) throw new Error("inputs");
+    const first = await append(channel, 0, [
+      { text: "line a", inputId: a.id },
+      { text: "line b", inputId: b.id },
+    ]);
+    let deleting: Promise<string> | undefined;
+    await db.transaction(async (tx) => {
+      expect(
+        await createPostgresChannelSummaryStore(tx).fold({
+          place: placeOf(channel),
+          agentId,
+          expectedVersion: 1,
+          lineIds: first.lineIds,
+          text: "a and b",
+        }),
+      ).toMatchObject({ outcome: "written", version: 2 });
+      let settled = false;
+      deleting = marks()
+        .markDeleted(mark(channel, a.ts))
+        .then((result) => {
+          settled = true;
+          return result;
+        });
+      await Bun.sleep(300);
+      expect(settled).toBe(false);
+    });
+    expect(await deleting).toBe("recorded");
+    expect(await everyVersion(channel)).toEqual([[], ["line b"], [], []]);
+  });
+
+  test("a read in a caller's transaction gives each line its sources", async () => {
+    const channel = newChannel();
+    const a = await input(channel, "U0IN");
+    await append(channel, 0, [{ text: "line a", inputId: a.id }]);
+    await db.transaction(async (tx) => {
+      const summary = await createPostgresChannelSummaryStore(tx).read(
+        placeOf(channel),
+      );
+      expect(
+        summary?.lines.map((line) => line.sources.map((s) => s.speaker.id)),
+      ).toEqual([["U0IN"]]);
+    });
+    expect(await summaries.read(placeOf(channel), 2)).toBeNull();
+    expect(await summaries.read(placeOf(newChannel()))).toBeNull();
+  });
+
   test("a source must be an input of the writing agent in the channel", async () => {
     const channel = newChannel();
     const elsewhere = await input(newChannel());
