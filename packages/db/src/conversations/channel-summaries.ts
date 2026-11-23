@@ -452,7 +452,10 @@ export function createPostgresChannelSummaryStore(
     },
 
     async deleteChannel(place) {
-      return db.transaction((tx) => deleteChannelSummary(tx, place));
+      return db.transaction(async (tx) => {
+        const { lines } = await deleteChannelSummary(tx, place);
+        return { lines };
+      });
     },
   };
 }
