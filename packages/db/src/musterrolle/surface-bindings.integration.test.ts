@@ -1539,6 +1539,7 @@ integration("surface bindings on PostgreSQL", () => {
         for (const table of [
           ...SUMMARY_TABLES,
           "conversation_engagements",
+          "conversations",
           "channel_contexts",
         ]) {
           const { rows } = await pool.query(
@@ -1554,6 +1555,7 @@ integration("surface bindings on PostgreSQL", () => {
         channel_summary_lines: 2,
         channel_summary_line_sources: 2,
         conversation_engagements: 1,
+        conversations: 1,
         channel_contexts: 1,
       };
       const DELETED = {
@@ -1561,6 +1563,7 @@ integration("surface bindings on PostgreSQL", () => {
         channel_summary_lines: 0,
         channel_summary_line_sources: 0,
         conversation_engagements: 1,
+        conversations: 1,
         channel_contexts: 1,
       };
 
@@ -1609,6 +1612,16 @@ integration("surface bindings on PostgreSQL", () => {
         ).toBe(true);
         expect(
           await store().channelDeleted(installationId, "C0SHARED", at(2)),
+        ).toBe(false);
+        expect(await rowsOf(workspaceId, "C0SHARED")).toEqual(DELETED);
+
+        // A binding already gone changes nothing, and the summary goes still.
+        await pool.query(
+          "INSERT INTO channel_summaries (workspace_id, team_id, channel_id, version) VALUES ($1, $2, 'C0SHARED', 0)",
+          [workspaceId, key.teamId],
+        );
+        expect(
+          await store().channelDeleted(installationId, "C0SHARED", at(4)),
         ).toBe(false);
         expect(await rowsOf(workspaceId, "C0SHARED")).toEqual(DELETED);
 
