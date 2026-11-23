@@ -276,7 +276,7 @@ Migration `0324_source_sets` adds a source set column `sources` (jsonb, nullable
 <a id="slack-스레드의-게시-설정을-칸-셋으로-나눈-릴리스" />
 ### The release that splits a Slack thread's posting into three columns
 
-Migration `0325_link_posting` adds three posting columns to `session_links` and a `report_mode` default to each channel binding. What a thread receives is now decided by these columns instead of `visibility`. Nothing to do when you upgrade: the kinds and number of posts that reach Slack stay the same.
+Migration `0326_link_posting` adds three posting columns to `session_links` and a `report_mode` default to each channel binding. What a thread receives is now decided by these columns instead of `visibility`. Nothing to do when you upgrade: the kinds and number of posts that reach Slack stay the same.
 
 - `report_mode` (nullable) covers answers, failures and push or pull request result notices; `mirror_instructions` covers mirroring inputs sent from the web or the API; `post_prompts` covers approval cards and questions. A link whose `report_mode` is empty uses its channel binding's value. A binding defaults to `per_step` (one post per turn, as now).
 - Links with `visibility = 'full'` are left as they are: the new columns' defaults mean the same. Links with `summary` are moved in batches by a pass that runs at every api start, to `report_mode = 'none'` and `false` for the other two (nothing posted, as now). Before it is moved, the outbox posts nothing to a `summary` link either. The count goes to the log `Summary session links moved`. No path made a `summary` link up to this release, so it is usually 0.

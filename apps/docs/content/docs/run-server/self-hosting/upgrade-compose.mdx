@@ -225,7 +225,7 @@ migration `0320_session_parent_conversation`이 `sessions.parent_conversation_id
 
 ### Slack 스레드의 게시 설정을 칸 셋으로 나눈 릴리스
 
-migration `0325_link_posting`이 `session_links`에 게시 칸 셋을, 채널 binding에 `report_mode` 기본값을 더한다. 스레드에 무엇이 올라가는지는 이제 `visibility` 대신 이 칸들이 정한다. 올릴 때 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
+migration `0326_link_posting`이 `session_links`에 게시 칸 셋을, 채널 binding에 `report_mode` 기본값을 더한다. 스레드에 무엇이 올라가는지는 이제 `visibility` 대신 이 칸들이 정한다. 올릴 때 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
 
 - `report_mode`(nullable)는 답·실패·push와 PR 결과 알림을, `mirror_instructions`는 웹·API에서 보낸 지시를 스레드에 비추는 것을, `post_prompts`는 승인 카드와 질문을 정한다. link의 `report_mode`가 비어 있으면 그 채널 binding의 값을 쓴다. binding의 기본값은 `per_step`(지금처럼 턴마다 올림)이다.
 - `visibility = 'full'`인 link는 그대로 둔다. 새 칸의 기본값이 `full`과 같은 뜻이다. `summary`인 link는 api가 기동할 때마다 도는 정리가 `report_mode = 'none'`, 나머지 두 칸 `false`로 묶음으로 옮긴다(지금처럼 아무것도 올리지 않음). 옮기기 전에도 outbox는 `summary` link에 아무것도 올리지 않는다. 옮긴 수는 로그 `Summary session links moved`에 남는다. 이 릴리스까지 `summary` link를 만드는 길은 없었으므로 보통 0이다.
