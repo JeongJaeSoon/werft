@@ -347,9 +347,18 @@ integration("context assembler (G1, 9-2 leak table)", () => {
     expect(await ids(channelKey(two))).toEqual([`line:${lineTwo.lineId}`]);
   });
 
-  test("9-2 row 5 (channel summary -> agent memory): assembling promotes nothing and reads no memory", async () => {
+  test("9-2 row 5 (channel summary -> agent memory): assembling promotes nothing and reads no memory, the agent's or the requester's", async () => {
     const channel = newChannel();
-    await summed(channelKey(channel));
+    const line = await summed(channelKey(channel));
+    // Memory a reader could pick up: the agent's own and its requester's.
+    await pool.query(
+      "INSERT INTO memory_documents (id, workspace_id, scope, agent_id, state) VALUES ($1, $2, 'agent', $3, 'candidate')",
+      [randomUUID(), workspaceId, agentId],
+    );
+    await pool.query(
+      "INSERT INTO memory_documents (id, workspace_id, scope, subject_user_id, state) VALUES ($1, $2, 'personal', $3, 'candidate')",
+      [randomUUID(), workspaceId, requester],
+    );
     const count = async () =>
       (
         await pool.query(
@@ -359,7 +368,10 @@ integration("context assembler (G1, 9-2 leak table)", () => {
     const before = await count();
     const result = await expectContained(channelKey(channel));
     expect(await count()).toBe(before);
-    expect(result.filter((f) => f.scope.startsWith("agent:"))).toEqual([]);
+    expect(result.map(idOf)).toEqual([`line:${line.lineId}`]);
+    expect(await assemble(dmKey(requester))).not.toContainEqual(
+      expect.objectContaining({ scope: expect.stringMatching(/^agent:/) }),
+    );
   });
 
   test("9-2 row 6 (work started in a DM -> channel): a DM session's engagements stay in the DM", async () => {

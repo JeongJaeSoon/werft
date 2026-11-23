@@ -1243,10 +1243,11 @@ async function domainImportsIn(src: string, prefix: string): Promise<string[]> {
  * G1: what reads context fragments of any scope is reached only from the
  * context assembler. The fragment source and the channel summary store
  * (whose read takes any channel) are named, by any import form, namespace
- * access or type, only where they are declared and implemented, by the
- * assembler, by a composition root (an app's main.ts) and by tests; their
- * implementation files are imported by path only from their own directory
- * and the db package entry, so nothing goes around index.ts either.
+ * access or type, only in the files that declare and implement them, the
+ * assembler, a composition root (an app's main.ts) and test code. Their
+ * implementation files are imported by path, resolved, only from each
+ * other, the conversations entrance and the db package entry, so nothing
+ * goes around index.ts either. Every workspace package is scanned.
  */
 const fragmentReaderNames = new Set([
   "ContextFragmentSource",
@@ -1254,32 +1255,55 @@ const fragmentReaderNames = new Set([
   "ChannelSummaryStore",
   "createPostgresChannelSummaryStore",
 ]);
-const fragmentReaderFile =
-  /(?:^|\/)conversations\/(?:context-fragments|channel-summaries)(?:\.tsx?)?$/;
-const fragmentReaderAllowed = [
+const fragmentReaderFiles = [
+  "packages/db/src/conversations/context-fragments",
+  "packages/db/src/conversations/channel-summaries",
+];
+const fragmentReaderNamers = [
   /^packages\/platform\/src\/conversations\/context-assembler\.ts$/,
   /^packages\/platform\/src\/ports\/(?:context-fragment-source|channel-summary-store)\.ts$/,
-  /^packages\/db\/src\/conversations\/[^/]+\.ts$/,
-  /^packages\/db\/src\/index\.ts$/,
+  /^packages\/db\/src\/conversations\/(?:context-fragments|channel-summaries)\.ts$/,
   /^apps\/[^/]+\/src\/(?:.*\/)?main\.ts$/,
   /\/src\/testing\//,
 ];
+const fragmentReaderPathImporters = [
+  /^packages\/db\/src\/conversations\/(?:context-fragments|channel-summaries|index)\.ts$/,
+  /^packages\/db\/src\/index\.ts$/,
+  /\/src\/testing\//,
+];
+
+/** The repo-relative file a specifier names, extension dropped; null for a bare package. */
+function specifierTarget(
+  repo: string,
+  file: string,
+  specifier: string,
+): string | null {
+  let path: string;
+  if (specifier.startsWith(".")) {
+    path = slashed(relative(repo, resolve(dirname(file), specifier)));
+  } else {
+    const deep = /^@werft-ai\/db\/(.+)$/.exec(posix.normalize(specifier));
+    if (!deep) return null;
+    path = `packages/db/${deep[1]}`;
+  }
+  return path.replace(/\.tsx?$/, "");
+}
 
 export async function contextFragmentReaders(repo: string): Promise<string[]> {
   const found: string[] = [];
-  const sources: string[] = [];
-  for (const top of ["packages", "apps"]) {
-    if (!existsSync(join(repo, top))) continue;
-    for (const entry of await readdir(join(repo, top))) {
-      const src = join(repo, top, entry, "src");
-      if (existsSync(src)) sources.push(src);
-    }
-  }
-  for (const src of sources) {
+  for (const directory of await workspacePackages(repo)) {
+    const src = join(directory, "src");
+    if (!existsSync(src)) continue;
     for (const file of await typescriptFiles(src, () => true)) {
-      const path = slashed(relative(repo, file));
       if (isTestFile(file)) continue;
-      if (fragmentReaderAllowed.some((allowed) => allowed.test(path))) continue;
+      const path = slashed(relative(repo, file));
+      const mayName = fragmentReaderNamers.some((allowed) =>
+        allowed.test(path),
+      );
+      const mayImport = fragmentReaderPathImporters.some((allowed) =>
+        allowed.test(path),
+      );
+      if (mayName && mayImport) continue;
       const text = await readFile(file, "utf8");
       if (
         ![
@@ -1291,15 +1315,20 @@ export async function contextFragmentReaders(repo: string): Promise<string[]> {
         continue;
       const source = parseText(file, text);
       const hits = new Set<string>();
-      walk(source, (node) => {
-        if (
-          (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
-          fragmentReaderNames.has(node.text)
-        )
-          hits.add(node.text);
-      });
-      for (const { specifier } of moduleReferences(source))
-        if (fragmentReaderFile.test(specifier)) hits.add(specifier);
+      if (!mayName)
+        walk(source, (node) => {
+          if (
+            (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
+            fragmentReaderNames.has(node.text)
+          )
+            hits.add(node.text);
+        });
+      if (!mayImport)
+        for (const { specifier } of moduleReferences(source)) {
+          const target = specifierTarget(repo, file, specifier);
+          if (target !== null && fragmentReaderFiles.includes(target))
+            hits.add(specifier);
+        }
       for (const hit of hits) found.push(`${path} -> ${hit}`);
     }
   }
@@ -3564,7 +3593,6 @@ describe("architecture", () => {
   });
 
   test("G1: only the context assembler, a composition root and tests reach the fragment readers", async () => {
-    const started = performance.now();
     expect(await contextFragmentReaders(root)).toEqual([]);
     // The allowance is not vacuous: the assembler does read through the port.
     expect(
@@ -3573,20 +3601,34 @@ describe("architecture", () => {
         "utf8",
       ),
     ).toContain("ContextFragmentSource");
-    // A repository-wide scan; CI gives a test 5 s.
-    expect(performance.now() - started).toBeLessThan(2_500);
-  });
+    // Reads every workspace source: CI's integration (worker) job runs it
+    // several times slower than a dev machine, past bun's 5 s default.
+  }, 60_000);
 
-  test("G1 catches a reader named by import, namespace, type or deep path, and lets the assembler, declarations, implementations, a composition root, tests and comments through", async () => {
+  test("G1 catches a reader named by import, namespace, type or a deep path however written, in any workspace package or a sibling of the implementation, and lets the assembler, declarations, implementations, a composition root, tests and comments through", async () => {
     expect(
       await inFixture(
         {
+          "package.json": JSON.stringify({
+            workspaces: ["apps/*", "packages/*", "packages/adapters/chat/*"],
+          }),
+          "apps/api/package.json": manifestOf("@werft-ai/api"),
+          "apps/control-host/package.json": manifestOf(
+            "@werft-ai/control-host",
+          ),
+          "packages/db/package.json": manifestOf("@werft-ai/db"),
+          "packages/platform/package.json": manifestOf("@werft-ai/platform"),
+          "packages/adapters/chat/slack/package.json": manifestOf(
+            "@werft-ai/chat-slack",
+          ),
           "packages/platform/src/conversations/context-assembler.ts":
             'import type { ContextFragmentSource } from "../ports/context-fragment-source.ts";\nexport type S = ContextFragmentSource;\n',
           "packages/platform/src/ports/channel-summary-store.ts":
             "export interface ChannelSummaryStore { read(): void }\n",
           "packages/db/src/conversations/context-fragments.ts":
-            "export function createPostgresContextFragmentSource() {}\n",
+            'import { createPostgresChannelSummaryStore } from "./channel-summaries.ts";\nexport function createPostgresContextFragmentSource() { return createPostgresChannelSummaryStore; }\n',
+          "packages/db/src/conversations/index.ts":
+            'export { dropChannelSummaryLinesOf } from "./channel-summaries.ts";\n',
           "packages/db/src/index.ts":
             'export * from "./conversations/context-fragments.ts";\n',
           "apps/control-host/src/slack/main.ts":
@@ -3597,21 +3639,31 @@ describe("architecture", () => {
             'import type { ChannelSummaryStore } from "../ports/channel-summary-store.ts";\nexport type T = ChannelSummaryStore;\n',
           "packages/platform/src/sessions/reply.ts":
             'import type { ChannelSummaryStore } from "../ports/channel-summary-store.ts";\nexport type T = ChannelSummaryStore;\n',
+          "packages/db/src/conversations/sibling.ts":
+            'import { createPostgresContextFragmentSource } from "./context-fragments.ts";\nexport const again = createPostgresContextFragmentSource;\n',
+          "packages/adapters/chat/slack/src/peek.ts":
+            'import { createPostgresChannelSummaryStore } from "@werft-ai/db";\nexport const s = createPostgresChannelSummaryStore;\n',
           "apps/api/src/routes/summary.ts":
             'import * as db from "@werft-ai/db";\nexport const s = db.createPostgresContextFragmentSource;\n',
           "packages/db/src/surface/deep.ts":
-            'export * from "../conversations/context-fragments.ts";\n',
+            'export * from "../conversations/./context-fragments.ts";\n',
+          "packages/db/src/surface/up.ts":
+            'export * from "../surface/../conversations/channel-summaries";\n',
           "apps/api/src/routes/lazy.ts":
-            'export const load = () => import("@werft-ai/db/src/conversations/channel-summaries");\n',
+            'export const load = () => import("@werft-ai/db/src/conversations/channel-summaries.ts");\n',
           "apps/api/src/routes/clean.ts":
             "// ChannelSummaryStore is read by the assembler only.\nexport const note = 'context-fragments';\n",
         },
         contextFragmentReaders,
       ),
     ).toEqual([
-      "apps/api/src/routes/lazy.ts -> @werft-ai/db/src/conversations/channel-summaries",
+      "apps/api/src/routes/lazy.ts -> @werft-ai/db/src/conversations/channel-summaries.ts",
       "apps/api/src/routes/summary.ts -> createPostgresContextFragmentSource",
-      "packages/db/src/surface/deep.ts -> ../conversations/context-fragments.ts",
+      "packages/adapters/chat/slack/src/peek.ts -> createPostgresChannelSummaryStore",
+      "packages/db/src/conversations/sibling.ts -> ./context-fragments.ts",
+      "packages/db/src/conversations/sibling.ts -> createPostgresContextFragmentSource",
+      "packages/db/src/surface/deep.ts -> ../conversations/./context-fragments.ts",
+      "packages/db/src/surface/up.ts -> ../surface/../conversations/channel-summaries",
       "packages/platform/src/sessions/reply.ts -> ChannelSummaryStore",
     ]);
   });
