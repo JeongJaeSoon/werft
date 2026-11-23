@@ -101,10 +101,23 @@ describe("slack role startup", () => {
       leaseMs: 60_000,
       passBudgetMs: 30_000,
       inputHoldMs: 3_600_000,
+      closeLinks: false,
     });
     expect(
       slackRoleSettings({ SLACK_ROLE_INPUT_HOLD_SEC: "120" }).inputHoldMs,
     ).toBe(120_000);
+  });
+
+  test("link closing is off unless SLACK_ROLE_CLOSE_LINKS turns it on", () => {
+    expect(
+      slackRoleSettings({ SLACK_ROLE_CLOSE_LINKS: "true" }).closeLinks,
+    ).toBe(true);
+    expect(slackRoleSettings({ SLACK_ROLE_CLOSE_LINKS: "0" }).closeLinks).toBe(
+      false,
+    );
+    expect(() => slackRoleSettings({ SLACK_ROLE_CLOSE_LINKS: "on" })).toThrow(
+      "SLACK_ROLE_CLOSE_LINKS must be true, false, 1, or 0",
+    );
   });
 });
 

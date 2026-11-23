@@ -543,6 +543,8 @@ export interface SlackOutboxStore {
   /** Absent in stores without the card settle columns. */
   cards?: SlackCardSettleStore;
   /**
+   * `link_closed`: the entry's link is closed, and the entry is not the
+   * notice that one of that link's own rows went uncertain.
    * `whileHome`: insert only while that binding is the agent's live home
    * and that release is active, checked under share locks so a home move
    * or an activation committing meanwhile is waited for, not missed.
@@ -550,7 +552,7 @@ export interface SlackOutboxStore {
   enqueue(
     entry: SlackOutboxEntry,
     whileHome?: { bindingId: string; releaseId: string },
-  ): Promise<"enqueued" | "duplicate" | "not_home">;
+  ): Promise<"enqueued" | "duplicate" | "not_home" | "link_closed">;
   /** The language of the user that Slack account is linked to, if any. */
   readerLocale(reader: {
     workspaceId: string;
@@ -563,6 +565,13 @@ export interface SlackOutboxStore {
    * link. A turn still running or waiting stops it. Returns links moved.
    */
   advanceAnswered(): Promise<number>;
+  /**
+   * Closes, oldest first and at most `limit`, the open links of closed
+   * sessions that are owed nothing more (their last report is in), revoked
+   * ones aside: `completed` after the owner's close, else `abandoned`.
+   * Returns links closed.
+   */
+  closeFinishedLinks(limit: number): Promise<number>;
   /**
    * Linked turns past the link's mark, asked from the web or the API after
    * the link, with no `instruction` row yet; neither cancelled nor

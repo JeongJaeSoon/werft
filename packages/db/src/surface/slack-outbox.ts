@@ -72,6 +72,7 @@ import {
   actionableNow,
   actionableOfTurn,
   actionableRequest,
+  CLOSE,
   createPostgresPendingRequests,
 } from "../sessions/index.ts";
 import { sqlLiterals } from "../sql-literals.ts";
@@ -193,7 +194,8 @@ const channelNotWaiting = (row: SQL) => sql`(
 )`;
 
 // Where a row may still go: an installation not revoked, for a session's row
-// its thread's link still live, unmuted and showing full answers (a
+// the link it names (a row from before the column: its session's link in its
+// thread) still taking it (a
 // `model_notice` is a direct message with no thread, so it skips that), and for an
 // input notice its request still waiting: a card's own request, or, for a
 // turn's notice from before the cards, any of its turn's. Checked again at
@@ -207,18 +209,55 @@ const addressed = (db: Database, row: SQL) => sql`(
   AND ${channelNotWaiting(row)}
   AND (${row}.session_id IS NULL OR ${row}.kind = 'model_notice' OR EXISTS (
     SELECT 1 FROM session_links l
+    WHERE l.id = ${row}.session_link_id AND ${linkTakes(row)}
+  ) OR (${row}.session_link_id IS NULL AND EXISTS (
+    SELECT 1 FROM session_links l
     WHERE l.session_id = ${row}.session_id
       AND l.installation_id = ${row}.installation_id
       AND l.channel_id = ${row}.channel_id
       AND l.thread_id = ${row}.thread_ts
-      AND l.revoked_at IS NULL
-      AND NOT l.muted
-      AND CASE ${row}.kind
-        WHEN 'instruction' THEN ${mirrorsInstructions(sql.raw("l"))}
-        WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
-        ELSE ${reportsTurns(sql.raw("l"))}
-      END
-  ))
+      AND ${linkTakes(row)}
+  )))
+)`;
+
+// A closed link takes no new row but the notice that one of its own rows
+// went uncertain: its last report must not vanish unconfirmed. The share
+// lock orders this against closeFinishedLinks.
+async function linkTakesNew(
+  tx: Database,
+  linkId: string,
+  dedupeKey: string,
+): Promise<boolean> {
+  const [link] = await tx
+    .select({ closedAt: sessionLinks.closedAt })
+    .from(sessionLinks)
+    .where(eq(sessionLinks.id, linkId))
+    .for("share");
+  if (link === undefined || link.closedAt === null) return true;
+  const lost = dedupeKey.startsWith(UNCERTAIN_PREFIX)
+    ? dedupeKey.slice(UNCERTAIN_PREFIX.length)
+    : null;
+  if (lost === null || !UUID.test(lost)) return false;
+  const [own] = await tx
+    .select({ id: t.id })
+    .from(t)
+    .where(and(eq(t.id, lost), eq(t.sessionLinkId, linkId)))
+    .limit(1);
+  return own !== undefined;
+}
+
+const UNCERTAIN_PREFIX = "uncertain:";
+
+// Whether link `l` still takes the row: not revoked, unmuted, and posting
+// the row's kind. Not `closed_at`: a closed link's last report still goes.
+const linkTakes = (row: SQL) => sql`(
+  l.revoked_at IS NULL
+  AND NOT l.muted
+  AND CASE ${row}.kind
+    WHEN 'instruction' THEN ${mirrorsInstructions(sql.raw("l"))}
+    WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
+    ELSE ${reportsTurns(sql.raw("l"))}
+  END
 )`;
 
 // An input notice's request still waits on a person: a card's own request,
@@ -778,6 +817,12 @@ export function createPostgresSlackOutboxStore(
             if (heard) return "duplicate";
           }
         }
+        if (
+          input.sessionLinkId != null &&
+          !(await linkTakesNew(tx, input.sessionLinkId, input.dedupeKey))
+        ) {
+          return "link_closed";
+        }
         // A row of no session (an input's mirror) keeps its sources as given.
         const sources =
           input.sources == null
@@ -861,6 +906,50 @@ export function createPostgresSlackOutboxStore(
             AND l2.closed_at IS NULL
         ) m
         WHERE l.id = m.id AND m.mark > l.answered_through
+        RETURNING l.id
+      `),
+      );
+      return rows.length;
+    },
+
+    async closeFinishedLinks(limit) {
+      // Owed nothing more: a muted link; one that reports turns, once its
+      // mark is past the last turn (its last report is in); else no turn
+      // still owes its instruction. Under the row locks, so an enqueue that
+      // holds one is waited for.
+      const rows = rowsOf<unknown>(
+        await db.execute(sql`
+        UPDATE session_links l SET closed_at = now(), closed_reason = c.reason
+        FROM (
+          SELECT l2.id, CASE WHEN EXISTS (
+            SELECT 1 FROM idempotency_keys k
+            JOIN receipts r ON r.id = k.receipt_id
+            WHERE k.principal = s.owner_id::text
+              AND k.operation = ${CLOSE}
+              AND k.resource = s.id::text
+              AND r.status IN ('accepted', 'succeeded')
+          ) THEN 'completed' ELSE 'abandoned' END AS reason
+          FROM session_links l2
+          JOIN ${sessions} s ON s.id = l2.session_id
+          WHERE s.admission_state = 'closed'
+            AND l2.closed_at IS NULL
+            AND l2.revoked_at IS NULL
+            AND (l2.muted OR CASE WHEN ${reportsTurns(sql.raw("l2"))}
+              THEN l2.answered_through >= coalesce(
+                (SELECT max(t.sequence) FROM ${turns} t
+                 WHERE t.session_id = l2.session_id), 0)
+              ELSE NOT EXISTS (
+                SELECT 1 FROM ${turns} ot
+                WHERE ot.session_id = l2.session_id
+                  AND ot.sequence > l2.answered_through
+                  AND ot.status NOT IN (${STOPPED_TURNS})
+                  AND ${owesInstruction(sql.raw("ot"), sql.raw("l2"))}
+              ) END)
+          ORDER BY l2.created_at
+          LIMIT ${limit}
+          FOR UPDATE OF l2 SKIP LOCKED
+        ) c
+        WHERE l.id = c.id
         RETURNING l.id
       `),
       );

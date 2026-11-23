@@ -271,6 +271,7 @@ async function drainFixture(
     },
     readerLocale: async () => null,
     advanceAnswered: async () => 0,
+    closeFinishedLinks: async () => 0,
     unpostedInstructions: async () => [],
     unmirroredInputs: async () => [],
     unansweredTurns: async () => [],

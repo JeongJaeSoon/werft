@@ -72,6 +72,8 @@ export type SlackOutboxDrain = {
    * the input reads `unconfirmed`.
    */
   heldClosed: number;
+  /** Links of closed sessions closed, their last report in. */
+  linksClosed: number;
 };
 
 /** How long a row waits for its web input's Slack post before it closes. */
@@ -107,6 +109,11 @@ export async function drainSlackOutbox(deps: {
   requesterLeft?: SlackPushRequesterLeft;
   /** Defaults to `SLACK_INPUT_HOLD_MS`. */
   inputHoldMs?: number;
+  /**
+   * Closes the links of closed sessions once their last report is in, so the
+   * thread's next mention opens a new link. Off by default.
+   */
+  closeLinks?: boolean;
   now?: () => number;
 }): Promise<SlackOutboxDrain> {
   const now = deps.now ?? Date.now;
@@ -124,6 +131,7 @@ export async function drainSlackOutbox(deps: {
     cards: 0,
     topicAliasTaken: 0,
     heldClosed: 0,
+    linksClosed: 0,
   };
   // A reply Slack may or may not hold: the thread hears so, once.
   const noticeUncertain = async (row: SlackOutboxLost) => {
@@ -217,6 +225,12 @@ export async function drainSlackOutbox(deps: {
     consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,
   });
+  // After the enqueues, so a link closes only past its last report's row;
+  // the mark moves first past the rows just enqueued.
+  if (deps.closeLinks === true) {
+    await deps.outbox.advanceAnswered();
+    drain.linksClosed = await deps.outbox.closeFinishedLinks(deps.batchSize);
+  }
   if (deps.botToken === null) return drain;
 
   const botTokenOf = deps.botToken;

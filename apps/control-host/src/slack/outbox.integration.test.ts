@@ -5418,3 +5418,231 @@ describe.each(ENGINES)("model notices on %s", (engine) => {
     expect(posted()).toEqual([]);
   });
 });
+
+describe.each(ENGINES)("closing a closed session's link on %s", (engine) => {
+  useDatabase(engine);
+
+  const links = () =>
+    db
+      .select({
+        id: sessionLinks.id,
+        sessionId: sessionLinks.sessionId,
+        closedAt: sessionLinks.closedAt,
+        closedReason: sessionLinks.closedReason,
+      })
+      .from(sessionLinks)
+      .orderBy(asc(sessionLinks.createdAt));
+
+  // The state closeAtomic leaves; `byOwner` also writes its close receipt.
+  async function closeSession(sessionId: string, byOwner: boolean) {
+    const [session] = await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId))
+      .returning({ ownerId: sessions.ownerId });
+    if (!session) throw new Error("no session");
+    if (!byOwner) return;
+    const receiptId = randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: session.ownerId,
+      actor: null,
+      requestId: null,
+      operation: "close",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      status: "succeeded",
+      result: null,
+    });
+    await db.insert(schema.idempotencyKeys).values({
+      principal: session.ownerId,
+      operation: "close",
+      resource: sessionId,
+      key: randomUUID(),
+      payloadHash: "h",
+      receiptId,
+    });
+  }
+
+  test("off by default: a closed session's link stays open and its thread's next mention goes as before", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("done")]]);
+    await closeSession(sessionId, true);
+    expect(await outboxPass()).toMatchObject({ sent: 1, linksClosed: 0 });
+    expect(await outboxPass()).toMatchObject({ linksClosed: 0 });
+    const before = await rows();
+
+    await mention(fixture, "100.000300");
+    await outboxPass();
+    expect(await links()).toEqual([
+      expect.objectContaining({
+        sessionId,
+        closedAt: null,
+        closedReason: null,
+      }),
+    ]);
+    expect(
+      await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.workspaceId, fixture.workspaceId)),
+    ).toEqual([{ id: sessionId }]);
+    // As before: the person who asked hears the session takes no more.
+    const added = (await rows()).slice(before.length);
+    expect(
+      added.map((row) => [row.kind, row.threadTs, row.slackUserId]),
+    ).toEqual([["notice", THREAD, PERSON]]);
+    expect(added[0]?.body.text).toBe(SLACK_NOTICE_MESSAGES.ko.failed);
+  });
+
+  test("on: the link closes only once the last reply is enqueued, and that reply goes to its thread", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("the last report")]]);
+    await closeSession(sessionId, true);
+    const outbox = createPostgresSlackOutboxStore(db);
+    // Its reply is not in yet: nothing closes.
+    expect(await outbox.closeFinishedLinks(10)).toBe(0);
+    expect(
+      await outboxPass({ botToken: null, closeLinks: true }),
+    ).toMatchObject({ enqueued: 1, linksClosed: 1 });
+    const [link] = await links();
+    expect(link?.closedAt).toBeInstanceOf(Date);
+    expect(link?.closedReason).toBe("completed");
+    // The pending reply still goes: the send check does not read closed_at.
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      sent: 1,
+      linksClosed: 0,
+    });
+    expect(posted().map((message) => [message.text, message.threadTs])).toEqual(
+      [[expect.stringContaining("the last report"), THREAD]],
+    );
+  });
+
+  test("on: a session closed with no owner's close receipt closes its link abandoned", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    await closeSession(sessionId, false);
+    await outboxPass({ closeLinks: true });
+    expect((await links())[0]?.closedReason).toBe("abandoned");
+  });
+
+  test("on: the same thread's next mention opens a new session on a new link", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const first = await sessionOf(fixture);
+    await endTurn(first, 1, "completed", [[text("hi")]]);
+    await closeSession(first, true);
+    await outboxPass({ closeLinks: true });
+
+    await mention(fixture, "100.000300");
+    const all = await links();
+    expect(all).toHaveLength(2);
+    expect(all[0]).toMatchObject({
+      sessionId: first,
+      closedReason: "completed",
+    });
+    expect(all[1]).toMatchObject({ closedAt: null, closedReason: null });
+    expect(all[1]?.sessionId).not.toBeNull();
+    expect(all[1]?.sessionId).not.toBe(first);
+  });
+
+  test.each(["stopped", "paused", "recovery_required"] as const)(
+    "on: a %s session keeps its link open",
+    async (admissionState) => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+      await db
+        .update(sessions)
+        .set({ admissionState })
+        .where(eq(sessions.id, sessionId));
+      expect(await outboxPass({ closeLinks: true })).toMatchObject({
+        linksClosed: 0,
+      });
+      expect(await outboxPass({ closeLinks: true })).toMatchObject({
+        linksClosed: 0,
+      });
+      expect(await links()).toEqual([
+        expect.objectContaining({ closedAt: null, closedReason: null }),
+      ]);
+    },
+  );
+
+  test("on: a revoked link stays open, so its thread stays blocked", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    await outboxPass({ closeLinks: true });
+    await db.update(sessionLinks).set({ revokedAt: new Date() });
+    await closeSession(sessionId, true);
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      linksClosed: 0,
+    });
+    await mention(fixture, "100.000300");
+    expect(await links()).toEqual([
+      expect.objectContaining({ sessionId, closedAt: null }),
+    ]);
+  });
+
+  test("a closed link takes no new row but the notice of its own reply gone uncertain, once", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    await closeSession(sessionId, true);
+    await outboxPass({ botToken: null, closeLinks: true });
+    const [link] = await links();
+    const [reply] = await rows();
+    if (!link?.closedAt || !reply) throw new Error("no closed link or reply");
+    const outbox = createPostgresSlackOutboxStore(db);
+    const entry = {
+      workspaceId: reply.workspaceId,
+      agentId: reply.agentId,
+      slackAppId: reply.slackAppId,
+      installationId: reply.installationId,
+      kind: "failure_notice" as const,
+      channelId: reply.channelId,
+      threadTs: reply.threadTs,
+      slackUserId: null,
+      sessionId,
+      sessionLinkId: link.id,
+      body: { text: "late" },
+    };
+    expect(await outbox.enqueue({ ...entry, dedupeKey: "late:1" })).toBe(
+      "link_closed",
+    );
+    // Not another link's row, nor a key that names no row.
+    expect(
+      await outbox.enqueue({
+        ...entry,
+        dedupeKey: `uncertain:${randomUUID()}`,
+      }),
+    ).toBe("link_closed");
+    expect(
+      await outbox.enqueue({ ...entry, dedupeKey: "uncertain:not-a-uuid" }),
+    ).toBe("link_closed");
+
+    await db
+      .update(slackOutbox)
+      .set({ status: "uncertain" })
+      .where(eq(slackOutbox.id, reply.id));
+    await outboxPass({ closeLinks: true });
+    await outboxPass({ closeLinks: true });
+    const notices = (await rows()).filter(
+      (row) => row.dedupeKey === `uncertain:${reply.id}`,
+    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      sessionLinkId: link.id,
+      threadTs: THREAD,
+      status: "sent",
+    });
+  });
+});
