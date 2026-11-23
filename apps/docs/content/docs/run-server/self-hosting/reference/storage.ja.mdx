@@ -214,7 +214,7 @@ AWS での作成と最小権限は [bucket の準備](/run-server/self-hosting/p
 | Slack イベント inbox のイベント原文（payload） | PostgreSQL | 処理するまで。処理に失敗したイベントは受け取ってから 7 日。受け取るときに捨てたイベントの原文は保存せず、処理中に捨てたイベントの原文はそのときに削除します | 処理が終わると slack ロールがすぐに、失敗したイベントは 7 日を過ぎると reconciler が削除します。行（イベントの種類・状態・捨てた理由・試行回数）は残ります。migration 0308 より前に処理した行は原文が残っています | なし |
 | Slack メッセージと Web 入力の入力受付の行（`conversation_inputs`） | PostgreSQL | 無期限。Slack メッセージの行はメッセージの場所（team、チャンネル、ts）、話題の中の番号、依頼者、そのメッセージがなったターンだけで、本文はありません。Web 入力の行は番号、依頼者、クライアントのメッセージキーと本文を持ちます（Web 入力を記録する route はまだありません） | なし | なし |
 | エージェントが関与した Slack メッセージの関与記録（`conversation_engagements`） | PostgreSQL | 無期限。エージェント、メッセージの場所（team、チャンネル、ts）、種類（メンション・返信・作業に紐づく）、そのメッセージが入ったセッションだけで、本文・スレッド・リンクはありません | なし | なし |
-| Slack メッセージの削除・編集の印（`deleted_sources`、`edited_sources`） | PostgreSQL | 作ってから 70 分。メッセージの場所（team、チャンネル、ts）と時刻だけで、本文はありません。そのメッセージの入力受付の行があれば残ります | reconciler が削除します | なし |
+| Slack メッセージの削除・編集の印（`deleted_sources`、`edited_sources`） | PostgreSQL | 作ってから 70 分。メッセージの場所（team、チャンネル、ts）と時刻だけで、本文はありません。そのメッセージの入力受付の行か関与記録があれば残ります | reconciler が削除します | なし |
 | API key、利用者・メンバー・招待・連携アカウント | PostgreSQL | 無期限 | なし。key の失効と連携解除は記録を残すだけです | なし |
 | 保存した秘密値 | PostgreSQL（master key で暗号化） | 無期限 | 人がその接続や App を削除したときだけ | なし |
 | transcript と checkpoint の object | bucket の `sessions/<id>/` | pointer とその親 3 個、開いている push リクエストが固定した revision | [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc) だけが削除します | Helm `checkpointGc.*`、compose `CHECKPOINT_GC_DRY_RUN` |
