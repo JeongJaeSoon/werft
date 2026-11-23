@@ -190,14 +190,14 @@ COMMIT;
 
 ### 외부 자격 증명 출처를 없앤 릴리스
 
-이 릴리스부터 모델 연결, MCP 서버, 저장소의 GitHub App key는 DB에 저장된 값만 쓴다. 설정의 `value_env`(api의 env)와 `secret_id`(AWS Secrets Manager)는 없어졌고, api는 Secrets Manager를 어디서도 쓰지 않는다. 값은 콘솔(설정 > 모델 연결·MCP 서버)이나 owner 세션의 `POST /v1/installation/settings/{connections|mcp-servers|repositories}/{id}/credential`로 넣고, `PLATFORM_SECRET_KEY`로 암호화돼 DB에 저장된다. 저장소 App key는 웹 화면이 없어 이 API로만 넣는다(GitHub App RSA 개인 키 PEM). `PLATFORM_SECRET_KEY`, `DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, object store key, 이미 DB에 저장되는 Slack·IdP 비밀, 저장소 `auth` `none`은 그대로다.
+이 릴리스부터 모델 연결과 저장소의 GitHub App key는 DB에 저장된 값만 쓴다. 설정의 `value_env`(api의 env)와 `secret_id`(AWS Secrets Manager)는 없어졌고, api는 Secrets Manager를 어디서도 쓰지 않는다. 값은 콘솔(설정 > 모델 연결)이나 owner 세션의 `POST /v1/installation/settings/{connections|repositories}/{id}/credential`로 넣고, `PLATFORM_SECRET_KEY`로 암호화돼 DB에 저장된다. 저장소 App key는 웹 화면이 없어 이 API로만 넣는다(GitHub App RSA 개인 키 PEM). `PLATFORM_SECRET_KEY`, `DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, object store key, 이미 DB에 저장되는 Slack·IdP 비밀, 저장소 `auth` `none`은 그대로다. 설치 카탈로그 MCP 서버는 같은 릴리스의 migration `0304_retire_catalog_mcp`가 저장값과 함께 지우므로 넣을 key가 없다. 계속 쓸 서버는 올린 뒤 워크스페이스 MCP 서버로 등록한다.
 
-- 올리기 전에 env나 Secrets Manager를 가리키는 모델 연결마다 지금 릴리스 콘솔의 **화면에서 키 넣기**로 key를 넣어 둔다. 그러면 올린 뒤에도 그 연결의 세션이 멈추지 않는다. 올린 뒤에 넣어도 된다. MCP 서버와 저장소 App key는 지금 릴리스에서 옮길 길이 없으니 올린 뒤 바로 넣는다(아래).
-- 사용 중지한 연결이나 MCP 서버가 env나 Secrets Manager를 가리키면 올린 뒤에는 다시 켤 수 없다. 콘솔은 사용 중지한 행에 key를 받지 않고, key가 없는 행을 켜지 않는다. 그 연결을 계속 쓰려면 올리기 전에 켜고 **화면에서 키 넣기**로 key를 넣는다. MCP 서버는 올리기 전에 켜 두고 올린 뒤 key를 넣는다. 그러지 않았다면 올린 뒤 새 id로 연결이나 서버를 만든다. id는 다시 쓰지 않는다.
-- migration `0288_remove_external_credentials`는 env나 Secrets Manager를 가리키던 행을 값 없는 저장형 행으로 바꾼다. 그 행은 key가 들어갈 때까지 `needs_value`(화면에서 **값 필요**)이고, 그 행을 쓰는 세션은 돌지 않는다. 연결은 **API 키 설정**, MCP 서버는 **값 바꾸기**, 저장소 App key는 위 API로 넣는다. 옛 `auth`는 `carried_auth`에 기록으로만 남고 읽지 않는다. 명시적 App 저장소의 binding이 바뀌므로, 같은 migration이 그 저장소의 worker 자격 증명 binding을 새 값으로 옮긴다. push 요청의 binding은 그 저장소의 App key를 넣을 때 옮기므로, key를 넣기 전에는 올리기 전에 만든 push에서 PR을 열 수 없다. 앞선 api replica가 받은 key는 push를 옮기지 않으므로, 저장소 App key는 모든 api가 새 빌드로 바뀐 뒤 넣는다(먼저 넣었다면 한 번 더 넣는다).
+- 올리기 전에 env나 Secrets Manager를 가리키는 모델 연결마다 지금 릴리스 콘솔의 **화면에서 키 넣기**로 key를 넣어 둔다. 그러면 올린 뒤에도 그 연결의 세션이 멈추지 않는다. 올린 뒤에 넣어도 된다. 저장소 App key는 지금 릴리스에서 옮길 길이 없으니 올린 뒤 바로 넣는다(아래).
+- 사용 중지한 연결이 env나 Secrets Manager를 가리키면 올린 뒤에는 다시 켤 수 없다. 콘솔은 사용 중지한 행에 key를 받지 않고, key가 없는 행을 켜지 않는다. 그 연결을 계속 쓰려면 올리기 전에 켜고 **화면에서 키 넣기**로 key를 넣는다. 그러지 않았다면 올린 뒤 새 id로 연결을 만든다. id는 다시 쓰지 않는다.
+- migration `0288_remove_external_credentials`는 env나 Secrets Manager를 가리키던 행을 값 없는 저장형 행으로 바꾼다. 그 행은 key가 들어갈 때까지 `needs_value`(화면에서 **값 필요**)이고, 그 행을 쓰는 세션은 돌지 않는다. 연결은 **API 키 설정**, 저장소 App key는 위 API로 넣는다. 옛 `auth`는 `carried_auth`에 기록으로만 남고 읽지 않는다. 명시적 App 저장소의 binding이 바뀌므로, 같은 migration이 그 저장소의 worker 자격 증명 binding을 새 값으로 옮긴다. push 요청의 binding은 그 저장소의 App key를 넣을 때 옮기므로, key를 넣기 전에는 올리기 전에 만든 push에서 PR을 열 수 없다. 앞선 api replica가 받은 key는 push를 옮기지 않으므로, 저장소 App key는 모든 api가 새 빌드로 바뀐 뒤 넣는다(먼저 넣었다면 한 번 더 넣는다).
 - 설정 문서의 `value_env`·`secret_id` 항목은 `"stored": true`로 바꾼 뒤 가져온다. 남아 있으면 `settings import`(API, CLI)가 400 `invalid_document`로 거절하고, CLI는 그 필드 이름을 오류에 적는다.
 - 올린 뒤 api의 env에서 연결이 가리키던 key 변수(예: `ANTHROPIC_API_KEY`)와 `AWS_ENDPOINT_URL_SECRETS_MANAGER`를 지운다. api는 이 값을 읽지 않는다. Helm은 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)를 따른다.
-- 콘솔에서 만드는 연결과 MCP 서버는 key가 있어야 저장된다. 웹은 8자 이상을 넣기 전에 저장 버튼을 끄고, API는 key가 없거나 8바이트보다 짧거나 제어 문자·앞뒤 공백이 있으면 400으로 거절하며, DB는 값 없이 콘솔에서 만든 행을 같은 트랜잭션에서 거절한다. 외부 출처 연결을 저장형으로 바꾸던 콘솔의 "화면에서 키 넣기" 버튼과 `POST …/connections/{id}/convert` 경로는 없어졌다.
+- 콘솔에서 만드는 연결은 key가 있어야 저장된다. 웹은 8자 이상을 넣기 전에 저장 버튼을 끄고, API는 key가 없거나 8바이트보다 짧거나 제어 문자·앞뒤 공백이 있으면 400으로 거절하며, DB는 값 없이 콘솔에서 만든 행을 같은 트랜잭션에서 거절한다. 외부 출처 연결을 저장형으로 바꾸던 콘솔의 "화면에서 키 넣기" 버튼과 `POST …/connections/{id}/convert` 경로는 없어졌다.
 - 위 0285 되돌리기 SQL은 이 릴리스 뒤에는 쓸 수 없다. `credential_source`는 `stored`만 허용된다.
 
 ### 대화 기록의 관리자 삭제를 더하는 릴리스
