@@ -53,9 +53,7 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
         const installationId = input.installationId.toLowerCase();
         // No row lock covers a link that is not there yet; this lock lets one
         // reservation of the thread at a time look and insert. Taken first,
-        // with nothing else held, so it orders after no other lock. A host
-        // from before it takes none: the ON CONFLICT below still waits for
-        // its insert, which every unique on the thread conflicts with.
+        // with nothing else held, so it orders after no other lock.
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${`session_links:${installationId}:${input.surfaceRef}`}, 0))`,
         );
@@ -84,13 +82,12 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
             releaseId: input.releaseId,
             createdBy: input.createdBy,
           })
-          // No target, so every unique is an arbiter: an older host's row,
-          // racing in under the old (installation_id, surface_ref) key, is a
-          // conflict here, not an error from the open-only one.
+          // No target, so the open-only unique is an arbiter: a writer that
+          // skipped the lock is a conflict here, not an error.
           .onConflictDoNothing()
           .returning(columns);
         if (inserted) return { link: inserted, reserved: true };
-        // An older host's insert has committed: ON CONFLICT waited for it.
+        // That writer's insert has committed: ON CONFLICT waited for it.
         const [theirs] = await open();
         if (!theirs) {
           throw new Error(`session link ${input.surfaceRef} vanished`);

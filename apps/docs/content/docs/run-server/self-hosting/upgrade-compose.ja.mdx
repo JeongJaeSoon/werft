@@ -248,6 +248,23 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/priv
 - 上げたあとにチャンネルを公開↔プライベートに変えると、binding とそのチャンネルのセッションも一緒に移る。プライベートチャンネルを公開にすると、そのチャンネルの `private_channel` セッションはワークスペースに見える。
 - サポート期間内のイメージに戻してもよい。古いイメージは `private_channel` セッションを作成者にだけ見せる。
 
+<a id="처리를-마친-slack-이벤트의-옛-원문을-지우는-릴리스" />
+### 処理を終えた Slack イベントの古い原文を消すリリース
+
+migration はない。migration 0308 より前の slack ロールは、イベントの処理を終えても inbox の行に原文(`payload`)を残していた。運用者コマンド `slack-inbound-payloads.ts` がその原文を消す。実行するまでは原文が残っているだけで、動作は変わらない。
+
+- 実行するとき: すべての slack ロールが処理後に原文を消すイメージ(0308 以降)で動くようになってから、一度実行する。前のイメージの slack ロールが残っていると、処理した行に原文をまた残す。
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/slack-inbound-payloads.ts
+```
+
+- 処理を終えた行(`processed`)の原文だけを消す。処理中の行(`received`)と失敗した行(`failed`、受け取ってから 7 日を過ぎると reconciler が消す)はそのままである。行そのもの(イベントの種類・状態・試行回数)は残る。
+- 主キーの順に 1 文で 1000 行ずつ消し、文ごとに別々にコミットする。行ロックはそのまとまりの処理済みの行にだけ掛かり、テーブルには通常の書き込みと同じ `ROW EXCLUSIVE` ロックだけが掛かるので、読み書きを止めない。`--batch-size <n>`(1〜10000)でまとまりの大きさを変える。
+- 結果は 1 行の JSON である。状態ごとの原文がある行数(`before`・`after`)、消した行数 `cleared`、まとまりの数 `batches`、`batch_size`、かかった時間 `duration_ms` が出る。もう一度実行しても、それ以上消すものはない(`cleared: 0`)。
+- 終わった後も原文が残る処理済みの行があれば、`outcome: incomplete`、終了コード `3` になる。前のイメージの slack ロールがまだ動いているということである。そのコンテナを止めてから、もう一度実行する。数はまとまりごとに別々に読んだ値なので、終了コード `0` は前のイメージがないことの証拠にはならない。実行する前にすべてのコンテナのイメージを確かめる。
+- 消した原文は戻らない。空いた場所は autovacuum の後に新しい行が使い、ファイルの大きさは減らない。rollback の下限は 0308 のままである。
+
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
 ### 削除された Slack メッセージを含むセッションを止めるリリース
 
@@ -509,6 +526,15 @@ migration `0312_slack_source_marks` が新しいテーブル `deleted_sources` �
 - 今は Werft がそのメッセージを指す記録を持たないため、すべての印は作ってから 70 分（判断バッファの 10 分と 1 時間）を過ぎると reconciler が消す。ログ `Unknown Slack source marks purged` に消した数が残る。保持期間は[データごとの保持](/run-server/self-hosting/reference/storage#데이터별-보존)にある。
 - 捨てた理由 `message_subtype` で集計していたクエリは、編集・削除イベントがなくなった分だけ数が減る。リンクのプレビューのように人が編集していない `message_changed` は今までどおり捨てる。
 - テーブルを足すだけなので、サポート期間内のイメージに戻してもよい。前のイメージはこのテーブルを使わず、編集・削除イベントをまた捨てる。
+
+<a id="slack-스레드의-옛-link-unique를-지운-릴리스" />
+### Slack スレッドの古い link unique を削除したリリース
+
+migration `0336_session_link_old_uniques` が `session_links` の古い unique 二つ(`session_links_surface_ref_key`、`session_links_session_uniq`)を削除する。残る unique は閉じていない link だけを見る二つ(`session_links_open_surface_ref_uniq`、`session_links_open_session_uniq`)だ。スレッドとセッションごとに開いた link はこれまでどおり一つだけで、閉じた link はその横に履歴として残せる。アップグレード時にすることはなく、Slack スレッドの動作も変わらない。
+
+- **`v0.3.0` 以前のイメージには戻せない。** そのイメージは Slack スレッドの link を古い unique `(installation_id, surface_ref)` を指す `ON CONFLICT` で予約するので、この migration の後はその予約がエラーで終わり、スレッドにセッションができない。予約を開いた link だけの unique に移したリリース以降のイメージには戻してもよい。それより前に戻すときは、アップグレード前のバックアップから DB を復元する。
+- `v0.3.0` から直接上げると、migrate が終わってから古い slack ロールが止まるまで、そのロールが受けたスレッドの予約が失敗する。失敗したイベントはほかの予約の失敗と同じく再試行され、新しい slack ロールが処理する。
+- 行は変更しない。制約は表を読まない一文で削除し(短くロックを取る)、インデックスは `CONCURRENTLY` で削除する。どの文も再実行してよい。
 
 <a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
 ### Slack スレッドの link 履歴の列を加えたリリース

@@ -248,6 +248,23 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/priv
 - After the upgrade, making a channel private or public moves its binding and its sessions along. Making a private channel public makes its `private_channel` sessions visible to the workspace.
 - Rolling back to an image in the support window is fine. An old image shows a `private_channel` session to its creator only.
 
+<a id="처리를-마친-slack-이벤트의-옛-원문을-지우는-릴리스" />
+### The release that clears the old body of processed Slack events
+
+There is no migration. The slack role before migration 0308 kept the body (`payload`) on an inbox row even after it finished processing the event. The operator command `slack-inbound-payloads.ts` clears those bodies. Until you run it, they only stay where they are; nothing behaves differently.
+
+- When to run it: once, after every slack role runs an image that clears the body after processing (0308 or later). A slack role on an earlier image left running writes bodies onto processed rows again.
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/slack-inbound-payloads.ts
+```
+
+- It clears the body of processed rows (`processed`) only. Rows still being processed (`received`) and failed rows (`failed`, which the reconciler clears 7 days after receipt) stay as they are. The rows themselves (event type, status, attempts) stay.
+- It clears 1000 rows per statement in primary key order and commits each statement on its own. Row locks fall only on the batch's processed rows; the table gets only the `ROW EXCLUSIVE` lock any write takes, which blocks no reads or writes. `--batch-size <n>` (1 to 10000) changes the batch size.
+- The result is one line of JSON: rows holding a body by status (`before`, `after`), rows cleared `cleared`, batches `batches`, `batch_size`, and the time taken `duration_ms`. Running it again clears nothing more (`cleared: 0`).
+- If processed rows still hold a body when it ends, it reports `outcome: incomplete` and exits `3`. A slack role on an earlier image is still running. Stop that container and run the command again. The counts are read batch by batch, so exit `0` does not prove no earlier image is running; check every container's image before you run it.
+- A cleared body does not come back. New rows reuse the freed space after autovacuum; the files do not shrink. The rollback floor stays at 0308.
+
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
 ### The release that stops sessions holding a deleted Slack message
 
@@ -509,6 +526,15 @@ Migration `0312_slack_source_marks` creates two tables, `deleted_sources` and `e
 - Werft keeps no record that points at a message yet, so the reconciler removes every mark 70 minutes after it was made (the 10-minute judgment buffer and an hour). The log `Unknown Slack source marks purged` records how many it removed. The retention is in [Retention by data](/run-server/self-hosting/reference/storage#데이터별-보존).
 - Queries that count the drop reason `message_subtype` see fewer rows, without the edits and deletes. A `message_changed` no person made, such as a link preview, is still dropped.
 - The migration only adds tables, so rolling back to an image inside the support window is fine. The earlier image does not use them and drops edits and deletes again.
+
+<a id="slack-스레드의-옛-link-unique를-지운-릴리스" />
+### The release that drops the old link uniques of Slack threads
+
+Migration `0336_session_link_old_uniques` drops the two old uniques of `session_links` (`session_links_surface_ref_key`, `session_links_session_uniq`). The uniques left are the two that cover only links not closed (`session_links_open_surface_ref_uniq`, `session_links_open_session_uniq`). Each thread and each session still has at most one open link, and closed links may stay beside it as history. There is nothing to do on upgrade, and Slack threads behave as before.
+
+- **You cannot roll back to an image of `v0.3.0` or earlier.** Those images reserve a Slack thread's link with an `ON CONFLICT` naming the old unique `(installation_id, surface_ref)`, so after this migration the reservation ends in an error and the thread gets no session. Rolling back to an image from the release that moved reservations to the open-only uniques onward is fine. To go back further, restore the database from the backup taken before the upgrade.
+- If you upgrade straight from `v0.3.0`, thread reservations taken by the old slack role fail from the end of migrate until that role stops. Failed events are retried like any failed reservation, and the new slack role handles them.
+- No row is changed. The constraint is dropped in one statement that reads no table (it takes a brief lock), and the index is dropped `CONCURRENTLY`. Every statement may run again.
 
 <a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
 ### The release that adds link history columns for Slack threads
