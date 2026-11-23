@@ -256,7 +256,7 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 <a id="채널-요약-표를-만드는-릴리스" />
 ### セッションのない呼び出しの予約表を作るリリース
 
-migration `0326_conversation_calls` が、セッションのない provider 呼び出し(会話呼び出し)の表 `conversation_calls` を追加する。このリリースには会話呼び出しを出す経路がないので、表は空のままである。上げるときにすることはない。
+migration `0327_conversation_calls` が、セッションのない provider 呼び出し(会話呼び出し)の表 `conversation_calls` を追加する。このリリースには会話呼び出しを出す経路がないので、表は空のままである。上げるときにすることはない。
 
 - 会話呼び出しは、トークンを出す前に、誰の依頼か(root)で選んだ予算口座にその呼び出しの最大コストを予約する。最大コストは、リクエスト本文のバイト上限を入力トークン、`max_tokens` を出力トークンとして数える。口座に収まらなければ、トークンも表の行も作られない。
 - トークンはハッシュだけを保存し、egress proxy を通る Messages 呼び出し一回に結び付く。その呼び出しのパス、モデル、`max_tokens`、本文バイト上限を超えるリクエストは proxy が拒否する。同じトークンの二回目の呼び出しも拒否する。

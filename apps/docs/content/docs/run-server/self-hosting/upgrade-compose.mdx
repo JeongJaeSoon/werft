@@ -229,7 +229,7 @@ migration `0320_session_parent_conversation`이 `sessions.parent_conversation_id
 
 ### 세션 없는 호출의 예약 표를 만드는 릴리스
 
-migration `0326_conversation_calls`가 세션 없는 provider 호출(대화 호출)의 표 `conversation_calls`를 더한다. 이 릴리스에는 대화 호출을 내는 경로가 없어서 표는 비어 있다. 올릴 때 할 일은 없다.
+migration `0327_conversation_calls`가 세션 없는 provider 호출(대화 호출)의 표 `conversation_calls`를 더한다. 이 릴리스에는 대화 호출을 내는 경로가 없어서 표는 비어 있다. 올릴 때 할 일은 없다.
 
 - 대화 호출은 토큰을 내기 전에 누구의 요청인지(root)로 고른 예산 계정에 그 호출의 최대 비용을 예약한다. 최대 비용은 요청 본문의 바이트 상한을 입력 토큰으로, `max_tokens`를 출력 토큰으로 셈한다. 계정이 모자라면 토큰도 표의 줄도 생기지 않는다.
 - 토큰은 해시로만 저장하고, egress proxy를 지나는 Messages 호출 하나에 묶인다. 그 호출의 경로, 모델, `max_tokens`, 본문 바이트 상한을 넘는 요청은 proxy가 거절한다. 같은 토큰의 두 번째 호출도 거절한다.

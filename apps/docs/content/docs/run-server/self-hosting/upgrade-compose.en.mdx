@@ -256,7 +256,7 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 <a id="채널-요약-표를-만드는-릴리스" />
 ### The release that adds the table of calls with no session
 
-Migration `0326_conversation_calls` adds `conversation_calls`, the table of provider calls that serve no session (conversation calls). Nothing in this release issues one yet, so it stays empty. The upgrade needs nothing from you.
+Migration `0327_conversation_calls` adds `conversation_calls`, the table of provider calls that serve no session (conversation calls). Nothing in this release issues one yet, so it stays empty. The upgrade needs nothing from you.
 
 - Before a conversation call's token is issued, the call's most it may cost is reserved on the budget account chosen by whose request it serves (its root). That most counts the request body's byte cap as input tokens and `max_tokens` as output tokens. When the account cannot hold it, neither a token nor a row is made.
 - The token is stored only as its hash and is bound to one Messages call through the egress proxy. The proxy refuses a request outside that call's path, model, `max_tokens` or body byte cap, and a second call with the same token.
