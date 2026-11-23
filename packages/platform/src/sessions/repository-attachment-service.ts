@@ -15,17 +15,17 @@ import type {
   GitHubSessionContext,
 } from "../github/ports/github-gate.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
-import type {
-  RepositoryAttachmentRow,
-  RepositoryAttachmentStore,
-  RepositoryPinStore,
-} from "../ports/repository-attachments.ts";
 import {
   additionalContextOf,
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
   ownRepositoryRevoked,
 } from "./additional-repositories.ts";
+import type {
+  RepositoryAttachmentRow,
+  RepositoryAttachmentStore,
+  RepositoryPinStore,
+} from "./ports/repository-attachments.ts";
 import { pathNameOf } from "./session-repository.ts";
 
 const ATTACH_POLL_MS = 500;

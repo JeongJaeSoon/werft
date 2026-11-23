@@ -5,7 +5,7 @@ import { callerFor } from "../musterrolle/policy.ts";
 import type {
   CallerLimitDimension,
   CallerLimitGate,
-} from "../ports/agent-caller-limits-store.ts";
+} from "../musterrolle/ports/agent-caller-limits-store.ts";
 import { testCatalog } from "../testing/catalog-fakes.ts";
 import type {
   AcceptSessionInput,

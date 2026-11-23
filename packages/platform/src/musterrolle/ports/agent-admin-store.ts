@@ -1,5 +1,5 @@
 import type { Agent, WorkspaceRole } from "@werft-ai/contracts";
-import type { TeamActor } from "../../ports/team-store.ts";
+import type { TeamActor } from "./team-store.ts";
 
 export type AgentAdminSubject = { kind: "user" | "team"; id: string };
 

@@ -24,7 +24,7 @@ import {
   createAuthorizationPolicy,
   noAgentAuthority,
 } from "../musterrolle/policy.ts";
-import type { AgentContact } from "../ports/credential-binding-store.ts";
+import type { AgentContact } from "../musterrolle/ports/credential-binding-store.ts";
 import {
   testCatalog,
   testConnection,

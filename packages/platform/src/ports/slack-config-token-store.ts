@@ -2,7 +2,7 @@ import type {
   DeleteSecretResult,
   SecretAudit,
   SecretSummary,
-} from "./secret-store.ts";
+} from "../secrets/ports/secret-store.ts";
 
 /** What Slack answers to `tooling.tokens.rotate`; stored encrypted, never shown. */
 export type RotatedConfigToken = {
