@@ -83,6 +83,7 @@ import {
   createProviderExchangeLedger,
   fillSessionParents,
   hasUncollectedCheckpoint,
+  moveSummaryLinks,
   newSessionGitHubReaders,
   reconcileRetiredCatalogDrafts,
   slackAppKind,
@@ -522,6 +523,19 @@ closeAgentlessSessions(db).then(
   (error: unknown) => {
     logger.warn(
       "Sessions without an agent release could not be read; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
+// Links from before the posting columns: each start moves the `summary` ones
+// left, so a failed start tries again on the next.
+moveSummaryLinks(db).then(
+  (moved) => {
+    if (moved > 0) logger.info("Summary session links moved", { links: moved });
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Summary session links could not be moved; the next start tries again",
       { error_name: error instanceof Error ? error.name : typeof error },
     );
   },

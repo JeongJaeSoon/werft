@@ -34,6 +34,7 @@ export * from "./github/github-settings.ts";
 export * from "./github/mcp-egress.ts";
 export * from "./installation-config.ts";
 export * from "./installation-settings.ts";
+export * from "./link-posting.ts";
 export * from "./migration-head.ts";
 export * from "./musterrolle/agent-admins.ts";
 export * from "./musterrolle/agent-authority.ts";

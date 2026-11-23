@@ -76,6 +76,9 @@ import {
   PUSH_REQUEST_ORIGIN_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
+  REPORT_MODE_CHOICES,
+  type ReportModeChoice,
+  SESSION_LINK_REPORT_MODE_VALUES,
   SESSION_LINK_ROLE_VALUES,
   SESSION_LINK_VISIBILITY_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
@@ -83,6 +86,7 @@ import {
   SESSION_SCOPE_VALUES,
   SESSION_SHARE_SCOPE_VALUES,
   SESSION_STATUS_VALUES,
+  type SessionLinkReportMode,
   type SessionOutcome,
   type SessionOutcomeCheckError,
   type SessionOutcomeType,
@@ -4951,6 +4955,11 @@ export const surfaceBindings = pgTable(
       .$type<"full" | "summary">()
       .notNull(),
     home: boolean().notNull().default(false),
+    /** How the channel's threads hear of their turns, unless a link says. */
+    reportMode: text("report_mode")
+      .$type<ReportModeChoice>()
+      .notNull()
+      .default("per_step"),
     memoryWritePolicy: text("memory_write_policy")
       .$type<"deny" | "allow_explicit">()
       .notNull()
@@ -5026,6 +5035,11 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_listen_check",
       sql`${table.listen} IN (${sql.raw(sqlList(BINDING_LISTEN_VALUES))})`,
+    ),
+    // `none` is a moved link's value only: no channel picks it.
+    check(
+      "surface_bindings_report_mode_check",
+      sql`${table.reportMode} IN (${sql.raw(sqlList(REPORT_MODE_CHOICES))})`,
     ),
     check(
       "surface_bindings_ceiling_check",
@@ -5587,7 +5601,14 @@ export const sessionLinks = pgTable(
     agentId: uuid("agent_id").notNull(),
     releaseId: text("release_id").notNull(),
     role: text().$type<"primary" | "mirror">().notNull().default("primary"),
+    /** Read by hosts from before the three columns below; nothing reads it now. */
     visibility: text().$type<"full" | "summary">().notNull().default("full"),
+    /** Null: the binding's `report_mode`. Gates replies, failures and notices. */
+    reportMode: text("report_mode").$type<SessionLinkReportMode>(),
+    /** Whether an input asked from the web or the API shows in the thread. */
+    mirrorInstructions: boolean("mirror_instructions").notNull().default(true),
+    /** Whether approval cards and questions go to the thread. */
+    postPrompts: boolean("post_prompts").notNull().default(true),
     muted: boolean().notNull().default(false),
     revision: integer().notNull().default(1),
     /**
@@ -5653,6 +5674,10 @@ export const sessionLinks = pgTable(
     check(
       "session_links_visibility_check",
       sql`${table.visibility} IN (${sqlLiterals(SESSION_LINK_VISIBILITY_VALUES)})`,
+    ),
+    check(
+      "session_links_report_mode_check",
+      sql`${table.reportMode} IS NULL OR ${table.reportMode} IN (${sqlLiterals(SESSION_LINK_REPORT_MODE_VALUES)})`,
     ),
     check("session_links_revision_check", sql`${table.revision} >= 1`),
   ],
