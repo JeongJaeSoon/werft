@@ -11,6 +11,7 @@ import { messageOf, type SurfaceBindingStore } from "@werft-ai/platform";
 import type { RowDelivery } from "./outbox-delivery.ts";
 import {
   SLACK_CARD_SETTLE_TIMING,
+  type SlackPushRequesterLeft,
   settleSlackCards,
 } from "./slack-card-settle.ts";
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
@@ -95,6 +96,7 @@ export async function drainSlackOutbox(deps: {
   deadline: number;
   /** Statuses in the first third, then posts; otherwise posts in the first two thirds, then statuses. */
   statusesFirst?: boolean;
+  requesterLeft?: SlackPushRequesterLeft;
   now?: () => number;
 }): Promise<SlackOutboxDrain> {
   const now = deps.now ?? Date.now;
@@ -235,6 +237,9 @@ export async function drainSlackOutbox(deps: {
         batchSize: SLACK_CARD_SETTLE_TIMING.batchSize,
         deadline: until,
         now,
+        ...(deps.requesterLeft === undefined
+          ? {}
+          : { requesterLeft: deps.requesterLeft }),
       });
       drain.cards = settled.sent;
     } catch (error) {

@@ -405,7 +405,11 @@ export function createPullRequestService(deps: {
           : {}),
       });
     };
-    const session = { kind: "session", id: sessionId } as const;
+    const session = {
+      kind: "session",
+      id: sessionId,
+      push_request_id: String(pushRequestId),
+    } as const;
     const scopeRefusal = mayDecidePush(actor.principal);
     // As for a push decision, the session's share decides who may act on it;
     // a session the caller cannot see is NOT_FOUND.

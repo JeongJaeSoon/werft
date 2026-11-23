@@ -216,6 +216,7 @@ export function createPushDecision(deps: {
         await requirePermitted(authorization, actor.caller, "session.approve", {
           kind: "session",
           id: sessionId,
+          push_request_id: pushRequestId,
         });
       } catch (error) {
         if (selfApproval(error)) await refuseDecision("self_approval");

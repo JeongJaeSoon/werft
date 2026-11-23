@@ -42,7 +42,12 @@ export type SlackInput = {
    */
   resource:
     | { kind: "surface_binding"; releaseId?: string }
-    | { kind: "session" | "session_link"; id: string };
+    | {
+        kind: "session" | "session_link";
+        id: string;
+        /** The push request a press on a push card decides. */
+        pushRequestId?: string;
+      };
   requestId: string;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
@@ -207,7 +212,14 @@ export async function authorizeSlackInput(
     action: input.action,
     resource:
       resource.kind !== "surface_binding"
-        ? { kind: resource.kind, id: resource.id, owner_scope: workspaceId }
+        ? {
+            kind: resource.kind,
+            id: resource.id,
+            owner_scope: workspaceId,
+            ...(resource.pushRequestId === undefined
+              ? {}
+              : { push_request_id: resource.pushRequestId }),
+          }
         : {
             kind: "surface_binding",
             owner_scope: workspaceId,

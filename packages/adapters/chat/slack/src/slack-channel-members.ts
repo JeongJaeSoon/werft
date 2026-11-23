@@ -3,9 +3,13 @@ import {
   type AgentIdentityStore,
   agentForSlackEvent,
   type ChannelMemberCheckable,
+  type ChannelMemberQuestion,
   type ChannelMemberStore,
+  type ChannelMembership,
+  type SlackCardSettleStore,
 } from "@werft-ai/platform";
 import { z } from "zod";
+import { SLACK_CARD_SETTLE_TIMING } from "./slack-card-settle.ts";
 import { lifecycleChannelOf } from "./slack-channel-lifecycle.ts";
 import {
   SLACK_CHANNEL_PAGE_SIZE,
@@ -48,68 +52,74 @@ export function createSlackChannelMembers(deps: {
   botToken(workspaceId: string, agentId: string): Promise<string | null>;
   logger: Pick<SlackInboxLogger, "warn">;
 }): ChannelMemberCheckable {
-  return {
-    async isMember(input) {
-      const unconfirmed = (
-        reason: SlackMemberCheckUnconfirmed,
-        error?: unknown,
-      ) => {
-        deps.logger.warn("Slack channel members unconfirmed; not a member", {
-          event: "slack.member_check.unconfirmed",
-          reason,
-          workspace_id: input.workspaceId,
-          agent_id: input.agentId,
-          channel_id: input.channelId,
-          ...(error instanceof SlackApiError
-            ? { slack_error: error.code }
-            : {}),
+  async function membership(
+    input: ChannelMemberQuestion,
+  ): Promise<ChannelMembership> {
+    const unconfirmed = (
+      reason: SlackMemberCheckUnconfirmed,
+      error?: unknown,
+    ): ChannelMembership => {
+      deps.logger.warn("Slack channel members unconfirmed; not a member", {
+        event: "slack.member_check.unconfirmed",
+        reason,
+        workspace_id: input.workspaceId,
+        agent_id: input.agentId,
+        channel_id: input.channelId,
+        ...(error instanceof SlackApiError ? { slack_error: error.code } : {}),
+      });
+      return "unconfirmed";
+    };
+    const of = (member: boolean): ChannelMembership =>
+      member ? "member" : "not_member";
+    try {
+      const subject = await deps.store.subject(input);
+      if (subject === null) return "unconfirmed";
+      const read = await deps.store.cached(
+        subject.installationId,
+        input.channelId,
+      );
+      if (read.memberIds !== null) {
+        return of(read.memberIds.includes(subject.slackUserId));
+      }
+      const botToken = await deps.botToken(input.workspaceId, input.agentId);
+      if (botToken === null) return unconfirmed("no_bot_token");
+      const members = new Set<string>();
+      let cursor: string | null = null;
+      for (let page = 0; ; page += 1) {
+        if (page === PAGE_LIMIT) return unconfirmed("too_many_members");
+        const answer = await deps.slack.channelMembers(botToken, {
+          channelId: input.channelId,
+          cursor,
         });
-        return false;
-      };
-      try {
-        const subject = await deps.store.subject(input);
-        if (subject === null) return false;
-        const read = await deps.store.cached(
+        for (const id of answer.memberIds) members.add(id);
+        if (members.size > SLACK_CHANNEL_MEMBER_LIMIT) {
+          return unconfirmed("too_many_members");
+        }
+        cursor = answer.nextCursor;
+        if (cursor === null) break;
+      }
+      // A list the store refused was overtaken (a member event, a
+      // revoke): it answers nothing, and the next question reads again.
+      if (
+        !(await deps.store.remember(
           subject.installationId,
           input.channelId,
-        );
-        if (read.memberIds !== null) {
-          return read.memberIds.includes(subject.slackUserId);
-        }
-        const botToken = await deps.botToken(input.workspaceId, input.agentId);
-        if (botToken === null) return unconfirmed("no_bot_token");
-        const members = new Set<string>();
-        let cursor: string | null = null;
-        for (let page = 0; ; page += 1) {
-          if (page === PAGE_LIMIT) return unconfirmed("too_many_members");
-          const answer = await deps.slack.channelMembers(botToken, {
-            channelId: input.channelId,
-            cursor,
-          });
-          for (const id of answer.memberIds) members.add(id);
-          if (members.size > SLACK_CHANNEL_MEMBER_LIMIT) {
-            return unconfirmed("too_many_members");
-          }
-          cursor = answer.nextCursor;
-          if (cursor === null) break;
-        }
-        // A list the store refused was overtaken (a member event, a
-        // revoke): it answers nothing, and the next question reads again.
-        if (
-          !(await deps.store.remember(
-            subject.installationId,
-            input.channelId,
-            [...members],
-            read.checkedAt,
-          ))
-        ) {
-          return unconfirmed("overtaken");
-        }
-        return members.has(subject.slackUserId);
-      } catch (error) {
-        return unconfirmed(unconfirmedOf(error), error);
+          [...members],
+          read.checkedAt,
+        ))
+      ) {
+        return unconfirmed("overtaken");
       }
+      return of(members.has(subject.slackUserId));
+    } catch (error) {
+      return unconfirmed(unconfirmedOf(error), error);
+    }
+  }
+  return {
+    async isMember(input) {
+      return (await membership(input)) === "member";
     },
+    membership,
   };
 }
 
@@ -127,11 +137,13 @@ const memberChangeSchema = z.object({
  * The `slack` role's first handler: anyone joining or leaving a channel,
  * the bot included, or the channel being archived, unarchived, renamed or
  * deleted, voids that channel's member list for this app's install before
- * the event goes on to `next`.
+ * the event goes on to `next`. Someone joining or leaving also redraws the
+ * channel's push cards, whose requester may be the one.
  */
 export function createSlackMemberCacheInvalidator(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   members: Pick<ChannelMemberStore, "forget">;
+  cards?: Pick<SlackCardSettleStore, "markPushCardsDueIn">;
   next: SlackInboundHandler;
 }): SlackInboundHandler {
   return async (claim) => {
@@ -150,6 +162,13 @@ export function createSlackMemberCacheInvalidator(deps: {
       });
       if (agent.status === "resolved") {
         await deps.members.forget(agent.installationId, channel);
+        if (parsed.success) {
+          await deps.cards?.markPushCardsDueIn({
+            installationId: agent.installationId,
+            channelId: channel,
+            windowMs: SLACK_CARD_SETTLE_TIMING.windowMs,
+          });
+        }
       }
     }
     return deps.next(claim);
