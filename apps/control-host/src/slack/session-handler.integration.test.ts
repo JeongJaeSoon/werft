@@ -1011,7 +1011,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
     const again = message("100.000300", {
       thread_ts: "100.000100",
-      text: `<@$[BOT_USER}> more`,
+      text: `<@${BOT_USER}> more`,
     });
     await deliver(fixture, again);
     await deliver(fixture, { ...again, type: "app_mention" });
