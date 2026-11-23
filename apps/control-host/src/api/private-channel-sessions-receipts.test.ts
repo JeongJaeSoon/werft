@@ -75,7 +75,7 @@ const receiptRows = async () =>
     }>(
       `SELECT owner_id, operation, target_ref, actor, result FROM receipts
        WHERE operation IN ('share_session', 'request_surface_binding')
-       ORDER BY operation, target_ref->>'session_id'`,
+       ORDER BY operation, target_ref->>'session_id', created_at`,
     )
   ).rows;
 
@@ -257,9 +257,9 @@ describe("private-channel-sessions apply receipts", () => {
   });
 });
 
-describe("a Slack conversion to private", () => {
-  test("leaves one share_session receipt per session moved, naming the event", async () => {
-    const handle = createSlackChannelConversionHandler({
+describe("a Slack conversion", () => {
+  const handler = (kind: "private_channel" | "public_channel") =>
+    createSlackChannelConversionHandler({
       agents: {
         resolveSlackEvent: async () => ({
           status: "resolved",
@@ -271,52 +271,70 @@ describe("a Slack conversion to private", () => {
         }),
       } as never,
       bindings: createPostgresSurfaceBindingStore(db),
-      slack: { channelKind: async () => "private_channel" },
+      slack: { channelKind: async () => kind },
       botToken: async () => "bot-credential",
       logger: { info: () => {} },
       next: async () => {},
     });
-    await handle({
+  const conversion = (eventId: string, subtype: string) =>
+    ({
       id: randomUUID(),
       workspaceId,
       agentId,
       appId: "A1",
       slackAppId: "app-1",
       teamId: "T1",
-      eventId: "Ev0CONVERT",
+      eventId,
       eventType: "message",
       eventTime: null,
       payload: {
         event: {
           type: "message",
-          subtype: "channel_convert_to_private",
+          subtype,
           channel: "C2",
           user: "U0P",
           ts: "9.1",
         },
       },
-    } as unknown as SurfaceInboundClaim);
-    const rows = (await receiptRows()).filter(
-      (row) =>
-        row.result.event_id === "Ev0CONVERT" &&
-        row.operation === "share_session",
+    }) as unknown as SurfaceInboundClaim;
+  const receiptsOf = async (eventId: string) =>
+    (await receiptRows())
+      .filter(
+        (row) =>
+          row.result.event_id === eventId && row.operation === "share_session",
+      )
+      .map((row) => [row.owner_id, row.target_ref, row.actor, row.result]);
+  const expected = (eventId: string, scope: string, previous: string) =>
+    (sessionIds.C2 ?? []).map((sessionId) => [
+      workspaceId,
+      { session_id: sessionId, turn_id: null, request_id: null },
+      null,
+      {
+        scope,
+        previous_scope: previous,
+        reason: "slack_channel_converted",
+        no_install: false,
+        people_losing: null,
+        event_id: eventId,
+        by: "slack_event",
+      },
+    ]);
+
+  test("to private leaves one share_session receipt per session moved, naming the event", async () => {
+    await handler("private_channel")(
+      conversion("Ev0CONVERT", "channel_convert_to_private"),
     );
-    expect(rows).toEqual(
-      (sessionIds.C2 ?? []).map((sessionId) => ({
-        owner_id: workspaceId,
-        operation: "share_session",
-        target_ref: { session_id: sessionId, turn_id: null, request_id: null },
-        actor: null,
-        result: {
-          scope: "private_channel",
-          previous_scope: "workspace",
-          reason: "slack_channel_converted",
-          no_install: false,
-          people_losing: null,
-          event_id: "Ev0CONVERT",
-          by: "slack_event",
-        },
-      })),
+    expect(await receiptsOf("Ev0CONVERT")).toEqual(
+      expected("Ev0CONVERT", "private_channel", "workspace"),
+    );
+  });
+
+  test("back to public leaves the same receipt, people_losing null as it is not counted", async () => {
+    await handler("public_channel")(
+      conversion("Ev0BACK", "channel_convert_to_public"),
+    );
+    expect(await receiptsOf("Ev0BACK")).toEqual(
+      expected("Ev0BACK", "workspace", "private_channel"),
     );
   });
 });

@@ -362,11 +362,13 @@ export async function moveChannelSessionScope(
           previous_scope: move.from,
           reason: change.reason,
           no_install: change.noInstall(),
-          // Widening loses no one.
+          // Null where it is not counted; a counted widening loses no one.
           people_losing:
-            move.to === "private_channel"
-              ? (losing?.get(row.sessionId) ?? null)
-              : 0,
+            change.peopleLosing === undefined
+              ? null
+              : move.to === "private_channel"
+                ? (losing?.get(row.sessionId) ?? null)
+                : 0,
           ...change.ref,
           by: change.by,
         },

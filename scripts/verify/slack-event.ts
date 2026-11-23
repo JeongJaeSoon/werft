@@ -53,6 +53,10 @@ const channelEvent =
   mode === "unarchive" ||
   mode === "rename" ||
   mode === "channel-delete";
+// `convert-private` and `convert-public` are the message Slack posts in
+// `channel` when it is made private or public (`channel_convert_to_*`); the
+// handler asks Slack (the mock's /fake/conversions) what the channel is now.
+const conversion = mode === "convert-private" || mode === "convert-public";
 const channelEventType = `${isPrivate ? "group" : "channel"}_${
   mode === "channel-delete" ? "deleted" : mode
 }`;
@@ -168,17 +172,18 @@ try {
                   (mode === "uninstall-late" ? 3600 : 0),
               }
             : {}),
-          event_id: channelEvent
-            ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
-            : mode === "bot"
-              ? "EvVerifyBot"
-              : uninstalled
-                ? `EvVerifyUninstall${mode.replace("-", "")}${seq}`
-                : change
-                  ? `EvVerify${mode.replace("-", "")}${channel}${seq}${text ?? ""}`
-                  : posted || lifecycle
-                    ? `EvVerify${mode.replace("-", "")}${channel}${seq.replace(/\W/g, "")}`
-                    : "EvVerify1",
+          event_id:
+            channelEvent || conversion
+              ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
+              : mode === "bot"
+                ? "EvVerifyBot"
+                : uninstalled
+                  ? `EvVerifyUninstall${mode.replace("-", "")}${seq}`
+                  : change
+                    ? `EvVerify${mode.replace("-", "")}${channel}${seq}${text ?? ""}`
+                    : posted || lifecycle
+                      ? `EvVerify${mode.replace("-", "")}${channel}${seq.replace(/\W/g, "")}`
+                      : "EvVerify1",
           event: channelEvent
             ? {
                 type: channelEventType,
@@ -191,88 +196,97 @@ try {
                   : {}),
                 event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
               }
-            : change
-              ? changeEvent
-              : uninstalled
-                ? { type: "app_uninstalled" }
-                : lifecycle
-                  ? {
-                      ...(mode === "leave"
-                        ? { type: isPrivate ? "group_left" : "channel_left" }
+            : conversion
+              ? {
+                  type: "message",
+                  subtype: `channel_convert_to_${mode === "convert-private" ? "private" : "public"}`,
+                  channel,
+                  channel_type: "channel",
+                  user: "U0MOCK",
+                  ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
+                }
+              : change
+                ? changeEvent
+                : uninstalled
+                  ? { type: "app_uninstalled" }
+                  : lifecycle
+                    ? {
+                        ...(mode === "leave"
+                          ? { type: isPrivate ? "group_left" : "channel_left" }
+                          : {
+                              type:
+                                mode === "join" || mode === "person-join"
+                                  ? "member_joined_channel"
+                                  : "member_left_channel",
+                              user: person
+                                ? text || "U0MOCK"
+                                : `U${app.appId}BOT`,
+                              channel_type: isPrivate ? "G" : "C",
+                            }),
+                        channel,
+                        event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
+                      }
+                    : echo
+                      ? mode === "slackbot"
+                        ? {
+                            type: "message",
+                            channel_type: channel.startsWith("D")
+                              ? "im"
+                              : "channel",
+                            user: "USLACK",
+                            channel,
+                            ts,
+                            text: text || "You were removed from #verify.",
+                          }
                         : {
-                            type:
-                              mode === "join" || mode === "person-join"
-                                ? "member_joined_channel"
-                                : "member_left_channel",
-                            user: person
-                              ? text || "U0MOCK"
-                              : `U${app.appId}BOT`,
-                            channel_type: isPrivate ? "G" : "C",
-                          }),
-                      channel,
-                      event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
-                    }
-                  : echo
-                    ? mode === "slackbot"
-                      ? {
-                          type: "message",
-                          channel_type: channel.startsWith("D")
-                            ? "im"
-                            : "channel",
-                          user: "USLACK",
-                          channel,
-                          ts,
-                          text: text || "You were removed from #verify.",
-                        }
-                      : {
-                          type: "message",
-                          channel_type: "channel",
-                          channel,
-                          ts,
-                          thread_ts: slackTsOf(parent ?? ""),
-                          bot_id: "B0VERIFYOWN",
-                          app_id: app.appId,
-                          text: text || "verify echo",
-                          ...(mode === "own-mirror"
-                            ? {
-                                subtype: "bot_message",
-                                username: "Verify (웹 콘솔)",
-                              }
-                            : { user: `U${app.appId}BOT` }),
-                        }
-                    : mode === "plain" || mode === "reply"
-                      ? {
-                          type: "message",
-                          // A D… channel is U0MOCK's DM with the bot.
-                          channel_type: channel.startsWith("D")
-                            ? "im"
-                            : "channel",
-                          user: "U0MOCK",
-                          channel,
-                          ts,
-                          text: text || "verify plain post",
-                          ...(mode === "reply"
-                            ? {
-                                thread_ts: slackTsOf(parent ?? ""),
-                              }
-                            : {}),
-                        }
-                      : {
-                          type: "app_mention",
-                          user: botMention ? "U0REVIEWBOT" : "U0MOCK",
-                          channel: posted ? channel : "C0VERIFY",
-                          ts,
-                          text: text || "verify inbox",
-                          ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
-                          ...(botMention ? { bot_id: "B0REVIEW" } : {}),
-                          ...((botMention || mode === "mention") &&
-                          parent &&
-                          parent !== "0"
-                            ? {
-                                thread_ts: slackTsOf(parent ?? ""),
-                              }
-                            : {}),
-                        },
+                            type: "message",
+                            channel_type: "channel",
+                            channel,
+                            ts,
+                            thread_ts: slackTsOf(parent ?? ""),
+                            bot_id: "B0VERIFYOWN",
+                            app_id: app.appId,
+                            text: text || "verify echo",
+                            ...(mode === "own-mirror"
+                              ? {
+                                  subtype: "bot_message",
+                                  username: "Verify (웹 콘솔)",
+                                }
+                              : { user: `U${app.appId}BOT` }),
+                          }
+                      : mode === "plain" || mode === "reply"
+                        ? {
+                            type: "message",
+                            // A D… channel is U0MOCK's DM with the bot.
+                            channel_type: channel.startsWith("D")
+                              ? "im"
+                              : "channel",
+                            user: "U0MOCK",
+                            channel,
+                            ts,
+                            text: text || "verify plain post",
+                            ...(mode === "reply"
+                              ? {
+                                  thread_ts: slackTsOf(parent ?? ""),
+                                }
+                              : {}),
+                          }
+                        : {
+                            type: "app_mention",
+                            user: botMention ? "U0REVIEWBOT" : "U0MOCK",
+                            channel: posted ? channel : "C0VERIFY",
+                            ts,
+                            text: text || "verify inbox",
+                            ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
+                            ...(botMention ? { bot_id: "B0REVIEW" } : {}),
+                            ...((botMention || mode === "mention") &&
+                            parent &&
+                            parent !== "0"
+                              ? {
+                                  thread_ts: slackTsOf(parent ?? ""),
+                                }
+                              : {}),
+                          },
         };
   const body = mode === "malformed" ? "{" : JSON.stringify(payload);
   const timestamp = String(
