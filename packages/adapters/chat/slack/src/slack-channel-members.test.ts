@@ -226,9 +226,17 @@ describe("Slack channel member check", () => {
       allowedBotUserIds: [],
       werftBotUserIds: [],
     };
+    const redrawn: unknown[] = [];
     const invalidate = createSlackMemberCacheInvalidator({
       agents: { resolveSlackEvent: async () => resolved },
       members: t.memory.store,
+      // Answer 15 (94S-2000): a push card's requester may be the one.
+      cards: {
+        markPushCardsDueIn: async (input) => {
+          redrawn.push(input);
+          return 1;
+        },
+      },
       next: async (claim) => {
         forwarded.push((claim.payload.event as { type: string }).type);
       },
@@ -282,6 +290,12 @@ describe("Slack channel member check", () => {
       "member_joined_channel",
       "group_left",
     ]);
+    const here = {
+      installationId: INSTALL,
+      channelId: t.inside.id,
+      windowMs: 5 * 60_000,
+    };
+    expect(redrawn).toEqual([here, here, here]);
   });
 
   test("a list read before a void is not written back after it", async () => {
