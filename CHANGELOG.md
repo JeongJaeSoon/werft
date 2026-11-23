@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0321_source_sets`가 `turns`와 `slack_outbox`에 출처 집합 칸 `sources`(jsonb, nullable)와 GIN 색인 둘을 더한다**(JeongJaeSoon/werft#2048). 따로 할 일은 없고, Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
+  - 출처 집합은 그 턴이 나온 Slack 글을 자리(team, 채널, ts)와 입력 접수 줄 id로만 적는다. 본문은 없다. 그 턴의 입력은 `direct`, 같은 세션 앞 턴들의 것은 `inherited`로 가른다. 한 집합은 256개까지 적고, 넘으면 `overflow`를 표시한다.
+  - Slack 글로 생긴 턴과 그 세션의 뒤 턴(이어 가는 턴, push 후속 턴, 웹·API 지시), 그 턴의 답·실패 알림·승인 카드 줄이 출처를 갖는다. Slack과 무관한 웹·API 세션의 턴은 비어 있다.
+  - 출처에 든 글의 삭제·수정 표식은 70분이 지나도 지워지지 않는다. 지운 출처로 답을 막거나 세션을 멈추는 동작은 아직 없다.
+  - 칸은 기본값 없이 더하고 색인은 `CONCURRENTLY`로 만들어 표를 다시 쓰지 않는다. 있던 줄은 비어 있는 채로 남는다. 지원 창 안의 이미지로 되돌려도 된다.
+
 - **provider 호출이 세션 한도와 함께 실행 중인 턴의 root 예산 계정에서도 잡히고, migration `0322_budget_root_slack_bot`이 root 종류에 `slack_bot`을 더한다**(JeongJaeSoon/werft#2050). 따로 할 일은 없다.
   - 한도를 정하지 않은 설치(`budget_limits` 행 없음)에서는 지금처럼 돈다. 원장에 호출마다 root 종류(`user`·`key`·`slack_bot`·`none`)와 계정이 남는다. root `none`(사람이 시키지 않은 에이전트 스스로의 일)은 한도가 없으면 거절되지만, 이 릴리스에는 그런 턴을 만드는 경로가 없다.
   - `budget_limits`에 한도를 넣으면 넘는 호출은 지금과 같은 `BUDGET_EXCEEDED`로 거절된다. 거절마다 API가 `info` 로그 `Provider exchange refused for the budget`(`turn_id`, `refused_by` `session`/`account`, `budget_root_kind`, `budget_account_id`)을 남긴다.
