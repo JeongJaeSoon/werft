@@ -64,8 +64,9 @@ export type SlackInboundClaim = {
 };
 
 /**
- * A message the handler made a turn of, taken as an input of its topic when
- * its row completes. The row gives the workspace, agent and team.
+ * A message a turn took before the turn's transaction took its input too,
+ * taken as an input of its topic when its row completes. The row gives the
+ * workspace, agent and team. A turn made since takes its input itself.
  */
 export type InboundInputReceipt = {
   topicId: ConversationTopicId;

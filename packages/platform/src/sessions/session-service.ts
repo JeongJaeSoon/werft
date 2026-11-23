@@ -93,6 +93,7 @@ import type {
   ReadEventsQuery,
   SessionDetailRecord,
   SessionReader,
+  TurnInputTopic,
 } from "./ports/session-unit-of-work.ts";
 import {
   agentRefsOf,
@@ -795,6 +796,7 @@ export function createSessionService(deps: {
         shareScope?: "private" | "private_channel";
         parentConversationId?: ConversationId;
         slackMessage?: SlackMessageRef;
+        slackInput?: TurnInputTopic;
         traceContext?: string;
       },
     ): Promise<CreateSessionResponse> {
@@ -1066,7 +1068,12 @@ export function createSessionService(deps: {
           : { parentConversationId: input.parentConversationId }),
         ...(input.slackMessage === undefined
           ? {}
-          : { slackMessage: input.slackMessage }),
+          : {
+              slackMessage: input.slackMessage,
+              ...(input.slackInput === undefined
+                ? {}
+                : { slackInput: input.slackInput }),
+            }),
         ...(input.traceContext === undefined
           ? {}
           : { traceContext: input.traceContext }),
@@ -1138,6 +1145,7 @@ export function createSessionService(deps: {
         idempotencyKey: string;
         body: PostSessionMessageRequest;
         slackMessage?: SlackMessageRef;
+        slackInput?: TurnInputTopic;
         traceContext?: string;
       },
     ): Promise<PostSessionMessageResponse> {
@@ -1166,7 +1174,12 @@ export function createSessionService(deps: {
         channel: actor.subject.surface.kind,
         ...(input.slackMessage === undefined
           ? {}
-          : { slackMessage: input.slackMessage }),
+          : {
+              slackMessage: input.slackMessage,
+              ...(input.slackInput === undefined
+                ? {}
+                : { slackInput: input.slackInput }),
+            }),
         ...(input.traceContext === undefined
           ? {}
           : { traceContext: input.traceContext }),

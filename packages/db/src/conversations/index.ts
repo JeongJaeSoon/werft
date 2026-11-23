@@ -20,6 +20,7 @@ export {
   holdBufferedInput,
   JUDGMENT_BUFFER_TTL_MS,
 } from "./judgment-buffer.ts";
+export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 export { lockSlackSourceMark } from "./source-mark-lock.ts";
 export {
   lockSessionForSources,

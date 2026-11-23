@@ -2,9 +2,11 @@ import type {
   AdmissionState,
   AuthorizationSubject,
   ConversationId,
+  ConversationTopicId,
   CountSessionsQuery,
   CountSessionsResponse,
   CreateSessionResponse,
+  EngagementKind,
   EnvRefusal,
   GitHubPolicySource,
   ListSessionsQuery,
@@ -52,6 +54,16 @@ export function inputLimitsOf(source: InputLimitsSource): InputLimits {
 // installation's limit.
 export type InputLimitRefusal = { outcome: "queue_full" | "storage_exhausted" };
 
+/**
+ * The topic a Slack turn's message is taken into and how the agent took it:
+ * the transaction that inserts the turn takes the message as the topic's
+ * next input, so the turn and its input exist together or not at all.
+ */
+export type TurnInputTopic = {
+  topicId: ConversationTopicId;
+  engagement: EngagementKind;
+};
+
 export type AcceptSessionInput = {
   principal: Principal;
   idempotencyKey: string;
@@ -61,6 +73,8 @@ export type AcceptSessionInput = {
   channel?: SurfaceKind;
   // The Slack message the first input came from, kept on turn 1.
   slackMessage?: SlackMessageRef;
+  // Set with slackMessage alone.
+  slackInput?: TurnInputTopic;
   // The request span's traceparent for turn 1; see AppendMessageInput.
   traceContext?: string;
   // As given, or derived from the message; null when neither has text.
@@ -165,6 +179,8 @@ export type AppendMessageInput = {
   // Where the input came from; left out, the turn records none.
   channel?: SurfaceKind;
   slackMessage?: SlackMessageRef;
+  // Set with slackMessage alone.
+  slackInput?: TurnInputTopic;
   // The request span's W3C traceparent, stored with the turn as opaque text;
   // platform never parses it.
   traceContext?: string;

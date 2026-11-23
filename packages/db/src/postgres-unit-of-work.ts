@@ -55,6 +55,7 @@ import type {
   SessionUnitOfWork,
   SessionViewer,
   StoredSourceSet,
+  TurnInputTopic,
   UsageDecision,
 } from "@werft-ai/platform";
 import {
@@ -108,6 +109,7 @@ import {
   firstTurnDeletedAt,
   lockedDeletedSource,
   newTurnSources,
+  takeSlackTurnInput,
   titleDeletedAt,
 } from "./conversations/index.ts";
 import {
@@ -393,6 +395,43 @@ async function insertQueuedTurn(
     turnId: turn.id,
     payload: { message: input.message },
   });
+}
+
+/** Takes a Slack turn's message as its topic's input, beside the turn. */
+async function takeSlackInput(
+  tx: Database,
+  input: {
+    workspaceId: string | null | undefined;
+    releaseId: string | null;
+    sessionId: string;
+    sequence: number;
+    slackMessage: SlackMessageRef | undefined;
+    slackInput: TurnInputTopic | undefined;
+  },
+): Promise<void> {
+  if (input.slackInput === undefined || input.slackMessage === undefined) {
+    return;
+  }
+  const agentId =
+    input.releaseId === null ? null : await agentOfRelease(tx, input.releaseId);
+  if (!input.workspaceId || agentId === null) {
+    throw new Error("a Slack input needs its session's workspace and agent");
+  }
+  await takeSlackTurnInput(
+    tx,
+    {
+      workspaceId: input.workspaceId,
+      agentId,
+      teamId: input.slackMessage.team_id,
+    },
+    {
+      topicId: input.slackInput.topicId,
+      channelId: input.slackMessage.channel_id,
+      ts: input.slackMessage.ts,
+      turn: { sessionId: input.sessionId, sequence: input.sequence },
+      engagement: input.slackInput.engagement,
+    },
+  );
 }
 
 /**
@@ -744,6 +783,14 @@ export function createPostgresSessionUnitOfWork(
           requesterAuth: requesterAuthOf(actor, requester),
           ...callerRecord(callerLimit, input.callerSubject),
         });
+        await takeSlackInput(tx, {
+          workspaceId: actor?.workspaceId,
+          releaseId: input.agentReleaseId,
+          sessionId,
+          sequence: 1,
+          slackMessage: input.slackMessage,
+          slackInput: input.slackInput,
+        });
 
         if (envCapture.outcome === "resolved") {
           await recordEnvResolution(tx, {
@@ -1043,6 +1090,16 @@ export function createPostgresSessionUnitOfWork(
                 })),
               }),
         });
+        if (platform === undefined) {
+          await takeSlackInput(tx, {
+            workspaceId: session.workspaceId,
+            releaseId: session.agentReleaseId,
+            sessionId,
+            sequence,
+            slackMessage: input.slackMessage,
+            slackInput: input.slackInput,
+          });
+        }
         await tx
           .update(sessions)
           .set({
