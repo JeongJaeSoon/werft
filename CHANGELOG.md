@@ -14,6 +14,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0318_provider_exchange_budget`이 provider 호출 원장 `provider_exchanges`에 예산 계정 칸 `budget_root_kind`·`budget_account_id`를 nullable로 더한다**(JeongJaeSoon/werft#PRNUM). 따로 할 일은 없고 동작도 그대로다.
+  - 이 릴리스에서는 어떤 호출도 계정을 넘기지 않으므로 두 칸은 비어 있고, 세션 비용 한도와 토큰 한도는 지금처럼 동작한다.
+  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0317_binding_listen`이 채널 binding에 듣기 칸 `listen`(`free`·`mention`·`off`)을, 에이전트에 대화 층 스위치 `conversation_rollout`(`off`·`shadow`·`on`)을 더한다**(JeongJaeSoon/werft#2042). 따로 할 일은 없고 동작도 그대로다.
   - 있던 binding은 그 에이전트의 `slack_mention_only`가 `true`면 `mention`, `false`면 `free`로 채운다. 새로 만드는 binding은 `free`로 시작한다. `slack_mention_only`는 바꾸지 않고, 에이전트가 무엇에 반응하는지는 지금처럼 그 값과 binding의 `mode`가 정한다.
   - 모든 에이전트의 스위치는 `off`다. 이 릴리스의 받는 길은 두 칸을 읽지 않는다.

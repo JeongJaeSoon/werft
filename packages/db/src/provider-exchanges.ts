@@ -1,4 +1,7 @@
+import type { BudgetAccountId } from "@werft-ai/contracts";
 import type {
+  BudgetChoice,
+  BudgetReserveInput,
   HeldSpend,
   ProviderExchangeInput,
   ProviderExchangeLedger,
@@ -6,7 +9,13 @@ import type {
   ProviderExchangeReleaseResult,
   ProviderUsage,
 } from "@werft-ai/platform";
+import { reservationCostUsd, reservationTokens } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import {
+  releaseBudgetIn,
+  reserveBudgetIn,
+  settleBudgetIn,
+} from "./budget-accounts.ts";
 import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -61,7 +70,13 @@ export async function lockProviderExchange(
  */
 export async function settleProviderExchange(
   tx: Database,
-  input: { exchangeId: string; sessionId: string; attemptId: string },
+  input: {
+    exchangeId: string;
+    sessionId: string;
+    attemptId: string;
+    /** What the report charged, settled on the account the open held. */
+    actual: { costUsd: number; tokens: number };
+  },
 ): Promise<{ foreignRow: boolean }> {
   const deleted = await tx
     .delete(providerExchanges)
@@ -72,8 +87,18 @@ export async function settleProviderExchange(
         eq(providerExchanges.attemptId, input.attemptId),
       ),
     )
-    .returning({ exchangeId: providerExchanges.exchangeId });
-  if (deleted.length > 0) return { foreignRow: false };
+    .returning({ budgetRootKind: providerExchanges.budgetRootKind });
+  if (deleted.length > 0) {
+    // After the session and attempt rows the report holds: the account row
+    // comes last in every transaction that takes it.
+    if (deleted.some((row) => row.budgetRootKind !== null)) {
+      await settleBudgetIn(tx, {
+        callId: input.exchangeId,
+        actual: input.actual,
+      });
+    }
+    return { foreignRow: false };
+  }
   const [other] = await tx
     .select({ exchangeId: providerExchanges.exchangeId })
     .from(providerExchanges)
@@ -112,7 +137,13 @@ async function standingOf(
   input: ProviderExchangeInput,
 ): Promise<
   | { kind: "unknown_attempt" | "settled" | "conflict" | "none" }
-  | { kind: "row"; sameOwner: boolean; sameReserve: boolean; released: boolean }
+  | {
+      kind: "row";
+      sameOwner: boolean;
+      sameReserve: boolean;
+      released: boolean;
+      budgeted: boolean;
+    }
 > {
   const [pair] = await tx
     .select({ id: attempts.id })
@@ -142,6 +173,7 @@ async function standingOf(
       sameOwner: sameOwnerOf(providerExchanges),
       sameReserve: sql<boolean>`${providerExchanges.reserve} = ${JSON.stringify(input.reserve)}::jsonb`,
       released: sql<boolean>`${providerExchanges.releasedAt} IS NOT NULL`,
+      budgeted: sql<boolean>`${providerExchanges.budgetRootKind} IS NOT NULL`,
     })
     .from(providerExchanges)
     .where(eq(providerExchanges.exchangeId, input.exchangeId))
@@ -149,6 +181,41 @@ async function standingOf(
   return row ? { kind: "row", ...row } : { kind: "none" };
 }
 
+/**
+ * The account side of an open: the call id is the exchange's, and the
+ * reserve is priced as admitsReservations prices the session's side, so the
+ * two judges hold the same amount.
+ */
+function budgetReserveOf(
+  input: ProviderExchangeInput,
+  choice: BudgetChoice,
+  session: { workspaceId: string | null; unmetered: boolean },
+): BudgetReserveInput {
+  if (session.workspaceId === null) {
+    throw new Error(
+      `provider exchange ${input.exchangeId}: a budget account named for a session with no workspace`,
+    );
+  }
+  return {
+    callId: input.exchangeId,
+    workspaceId: session.workspaceId,
+    choice,
+    reserve: {
+      costUsd: reservationCostUsd(input.reserve),
+      tokens: reservationTokens(input.reserve),
+    },
+    unmetered: session.unmetered,
+  };
+}
+
+/**
+ * Locks, in the one order every writer of a budgeted call takes them: the
+ * exchange's advisory lock; then the open's session advisory lock, or the
+ * report's session and attempt rows; then budget-accounts.ts's call lock,
+ * the reservation row and the account row, last. The open takes no session
+ * or attempt row, and nothing holding an account row waits on one, so the
+ * account row closes no cycle.
+ */
 export function createProviderExchangeLedger(
   db: Database,
   options: {
@@ -179,6 +246,30 @@ export function createProviderExchangeLedger(
           // The same open again was judged when it first came: its lease is
           // extended and its opened_at kept; another reserve changes nothing.
           if (!standing.sameReserve) return { outcome: "conflict" };
+          if (standing.budgeted !== (input.budget !== undefined)) {
+            return { outcome: "conflict" };
+          }
+          if (input.budget !== undefined) {
+            const [session] = await tx
+              .select({
+                workspaceId: sessions.workspaceId,
+                unmetered: sessions.unmetered,
+              })
+              .from(sessions)
+              .where(eq(sessions.id, input.sessionId));
+            if (!session) return { outcome: "unknown_attempt" };
+            // The row's reservation exists, so this only compares.
+            const replay = await reserveBudgetIn(
+              tx,
+              budgetReserveOf(input, input.budget, session),
+            );
+            if (replay.outcome === "conflict") return { outcome: "conflict" };
+            if (replay.outcome !== "replayed") {
+              throw new Error(
+                `provider exchange ${input.exchangeId}: an open row with no budget reservation`,
+              );
+            }
+          }
           await tx
             .update(providerExchanges)
             .set({
@@ -196,6 +287,7 @@ export function createProviderExchangeLedger(
             costUsd: sessions.costUsd,
             providerTokens: sessions.providerTokens,
             unmetered: sessions.unmetered,
+            workspaceId: sessions.workspaceId,
             reserves: sql<ProviderUsage[]>`COALESCE((
               SELECT json_agg(${providerExchanges.reserve})
               FROM ${providerExchanges}
@@ -216,12 +308,42 @@ export function createProviderExchangeLedger(
         ) {
           return { outcome: "budget_exceeded" };
         }
+        // The session admitted it; the account judges it next, in this
+        // transaction, so a refusal there leaves nothing on either side.
+        let budget: {
+          budgetRootKind: BudgetChoice["rootKind"];
+          budgetAccountId: BudgetAccountId | null;
+        } | null = null;
+        if (input.budget !== undefined) {
+          const reserved = await reserveBudgetIn(
+            tx,
+            budgetReserveOf(input, input.budget, held),
+          );
+          switch (reserved.outcome) {
+            case "refused":
+              return { outcome: "budget_exceeded" };
+            case "conflict":
+              return { outcome: "conflict" };
+            case "replayed":
+              // A reservation that outlived its exchange row, whose release
+              // mark the reconciler deleted: what became of it stands.
+              return reserved.state === "reserved"
+                ? { outcome: "conflict" }
+                : { outcome: reserved.state };
+            case "reserved":
+              budget = {
+                budgetRootKind: reserved.rootKind,
+                budgetAccountId: reserved.accountId,
+              };
+          }
+        }
         await tx.insert(providerExchanges).values({
           exchangeId: input.exchangeId,
           sessionId: input.sessionId,
           attemptId: input.attemptId,
           reserve: input.reserve,
           leaseExpiresAt: fromDbNow(PROVIDER_EXCHANGE_LEASE_MS),
+          ...budget,
         });
         return { outcome: "created" };
       });
@@ -252,6 +374,9 @@ export function createProviderExchangeLedger(
         const standing = await standingOf(tx, input);
         if (standing.kind === "row") {
           if (!standing.sameOwner) return "conflict";
+          if (standing.budgeted && !standing.released) {
+            await releaseBudgetIn(tx, input.exchangeId);
+          }
           await tx
             .update(providerExchanges)
             .set({

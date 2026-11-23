@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import type { HeldSpend, ProviderUsage } from "@werft-ai/platform";
+import {
+  type BudgetChoice,
+  type HeldSpend,
+  type ProviderUsage,
+  reservationCostUsd,
+  reservationTokens,
+} from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
+import { saveBudgetLimit } from "./budget-accounts.ts";
 import {
   createProviderExchangeLedger,
   PROVIDER_EXCHANGE_KEEP_DAYS,
@@ -13,6 +20,8 @@ import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
+  budgetAccounts,
+  budgetReservations,
   providerExchanges,
   providerUsage,
   sessions,
@@ -680,5 +689,232 @@ describe("the reconciler's pass over the ledger", () => {
     });
     expect(result.noticed).toEqual([expect.objectContaining({ exchangeId })]);
     expect(await rows()).toEqual(before);
+  });
+});
+
+describe("holding a call on a budget account beside its session", () => {
+  const WORKSPACE = "00000000-0000-4000-8000-0000000000b1";
+  const COST = reservationCostUsd(RESERVE);
+  const TOKENS = reservationTokens(RESERVE);
+
+  async function budgeted() {
+    const who = await owner();
+    await db
+      .update(sessions)
+      .set({ workspaceId: WORKSPACE })
+      .where(eq(sessions.id, who.sessionId));
+    const userId = crypto.randomUUID();
+    const budget: BudgetChoice = {
+      rootKind: "user",
+      owner: { kind: "user", userId },
+    };
+    return { who, userId, budget };
+  }
+
+  async function accountOf(userId: string) {
+    const [account] = await db
+      .select()
+      .from(budgetAccounts)
+      .where(eq(budgetAccounts.ownerId, userId));
+    return account;
+  }
+
+  async function reservationOf(exchangeId: string) {
+    const [row] = await db
+      .select()
+      .from(budgetReservations)
+      .where(eq(budgetReservations.callId, exchangeId));
+    return row;
+  }
+
+  test("an open both admit holds the reserve on the session and on the account", async () => {
+    const { who, userId, budget } = await budgeted();
+    const exchangeId = crypto.randomUUID();
+    expect(
+      await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE, budget }),
+    ).toEqual({ outcome: "created" });
+    const account = await accountOf(userId);
+    expect(account).toMatchObject({
+      reservedCostUsd: Math.round(COST * 1e6) / 1e6,
+      reservedTokens: TOKENS,
+      spentCostUsd: 0,
+      spentTokens: 0,
+    });
+    const [row] = await rows();
+    expect(row).toMatchObject({
+      budgetRootKind: "user",
+      budgetAccountId: account?.id,
+    });
+    expect(await reservationOf(exchangeId)).toMatchObject({
+      state: "reserved",
+      rootKind: "user",
+      accountId: account?.id,
+    });
+  });
+
+  test("the session's limit refuses though the account has room: nothing held on either", async () => {
+    const { who, userId, budget } = await budgeted();
+    await saveBudgetLimit(
+      db,
+      WORKSPACE,
+      { kind: "user", userId },
+      {
+        costUsd: 1_000,
+        tokens: null,
+      },
+    );
+    const exchangeId = crypto.randomUUID();
+    expect(
+      await ledgerOf(() => false).open({
+        exchangeId,
+        ...who,
+        reserve: RESERVE,
+        budget,
+      }),
+    ).toEqual({ outcome: "budget_exceeded" });
+    expect(await rows()).toEqual([]);
+    expect(await reservationOf(exchangeId)).toBeUndefined();
+    expect(await accountOf(userId)).toBeUndefined();
+  });
+
+  test("the account's limit refuses though the session admits: nothing held on either", async () => {
+    const { who, userId, budget } = await budgeted();
+    await saveBudgetLimit(
+      db,
+      WORKSPACE,
+      { kind: "user", userId },
+      {
+        costUsd: COST / 2,
+        tokens: null,
+      },
+    );
+    const exchangeId = crypto.randomUUID();
+    expect(
+      await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE, budget }),
+    ).toEqual({ outcome: "budget_exceeded" });
+    expect(await rows()).toEqual([]);
+    expect(await reservationOf(exchangeId)).toBeUndefined();
+    expect(await accountOf(userId)).toMatchObject({
+      reservedCostUsd: 0,
+      reservedTokens: 0,
+    });
+  });
+
+  test("a report settles the account at what it charged, once however often it comes", async () => {
+    const { who, userId, budget } = await budgeted();
+    const exchangeId = crypto.randomUUID();
+    await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE, budget });
+    expect((await report(who, exchangeId)).outcome).toBe("recorded");
+    const settled = {
+      spentCostUsd: 0.0084,
+      spentTokens: reservationTokens(USED),
+      reservedCostUsd: 0,
+      reservedTokens: 0,
+    };
+    expect(await accountOf(userId)).toMatchObject(settled);
+    expect(await reservationOf(exchangeId)).toMatchObject({
+      state: "settled",
+      settledCostUsd: 0.0084,
+      settledTokens: reservationTokens(USED),
+    });
+    expect((await report(who, exchangeId)).outcome).toBe("replayed");
+    expect(await accountOf(userId)).toMatchObject(settled);
+  });
+
+  test("a release frees the account's reserve; a second release and a late report count once", async () => {
+    const { who, userId, budget } = await budgeted();
+    const exchangeId = crypto.randomUUID();
+    const ledger = ledgerOf();
+    await ledger.open({ exchangeId, ...who, reserve: RESERVE, budget });
+    expect(await ledger.release({ exchangeId, ...who, reserve: RESERVE })).toBe(
+      "released",
+    );
+    expect(await accountOf(userId)).toMatchObject({
+      reservedCostUsd: 0,
+      reservedTokens: 0,
+      spentCostUsd: 0,
+    });
+    expect(await reservationOf(exchangeId)).toMatchObject({
+      state: "released",
+    });
+    expect(await ledger.release({ exchangeId, ...who, reserve: RESERVE })).toBe(
+      "released",
+    );
+    expect(await accountOf(userId)).toMatchObject({ reservedCostUsd: 0 });
+    // Billed after all: the spend counts, the reserve is not taken off again.
+    expect((await report(who, exchangeId)).outcome).toBe("recorded");
+    expect(await accountOf(userId)).toMatchObject({
+      reservedCostUsd: 0,
+      reservedTokens: 0,
+      spentCostUsd: 0.0084,
+    });
+  });
+
+  test("an account with no limit never refuses, and still records the reserve and the settlement", async () => {
+    const { who, userId, budget } = await budgeted();
+    const exchangeId = crypto.randomUUID();
+    expect(
+      await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE, budget }),
+    ).toEqual({ outcome: "created" });
+    expect(await reservationOf(exchangeId)).toMatchObject({
+      state: "reserved",
+    });
+    await report(who, exchangeId);
+    expect(await reservationOf(exchangeId)).toMatchObject({ state: "settled" });
+    expect(await accountOf(userId)).toMatchObject({ spentCostUsd: 0.0084 });
+  });
+
+  test("an open with no account holds nothing on any account, as before accounts", async () => {
+    const { who } = await budgeted();
+    const exchangeId = crypto.randomUUID();
+    expect(
+      await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE }),
+    ).toEqual({ outcome: "created" });
+    const [row] = await rows();
+    expect(row?.budgetRootKind).toBeNull();
+    expect(row?.budgetAccountId).toBeNull();
+    await report(who, exchangeId);
+    expect(await db.select().from(budgetReservations)).toEqual([]);
+    expect(await db.select().from(budgetAccounts)).toEqual([]);
+  });
+
+  test("the same open again keeps its account; another account, or none, is a conflict", async () => {
+    const { who, userId, budget } = await budgeted();
+    const exchangeId = crypto.randomUUID();
+    const ledger = ledgerOf();
+    await ledger.open({ exchangeId, ...who, reserve: RESERVE, budget });
+    expect(
+      await ledger.open({ exchangeId, ...who, reserve: RESERVE, budget }),
+    ).toEqual({ outcome: "open" });
+    expect(
+      await ledger.open({
+        exchangeId,
+        ...who,
+        reserve: RESERVE,
+        budget: {
+          rootKind: "user",
+          owner: { kind: "user", userId: crypto.randomUUID() },
+        },
+      }),
+    ).toEqual({ outcome: "conflict" });
+    expect(await ledger.open({ exchangeId, ...who, reserve: RESERVE })).toEqual(
+      { outcome: "conflict" },
+    );
+    expect(await accountOf(userId)).toMatchObject({ reservedTokens: TOKENS });
+  });
+
+  test("the agent's own work with no team to charge is refused and holds nothing", async () => {
+    const { who } = await budgeted();
+    const exchangeId = crypto.randomUUID();
+    expect(
+      await ledgerOf().open({
+        exchangeId,
+        ...who,
+        reserve: RESERVE,
+        budget: { rootKind: "none", owner: null },
+      }),
+    ).toEqual({ outcome: "budget_exceeded" });
+    expect(await rows()).toEqual([]);
+    expect(await reservationOf(exchangeId)).toBeUndefined();
   });
 });

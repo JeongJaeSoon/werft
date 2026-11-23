@@ -68,6 +68,7 @@ import {
   type ResolvedCredential,
   type RestoreBaseInput,
   type RestoreBaseResult,
+  reservationTokens,
   runnableOfEngine,
   runtimeConfigOfSpec,
   runtimeShipped,
@@ -2592,7 +2593,10 @@ export function createPostgresWorkerUnitOfWork(
           if (payloadHash(was) !== payloadHash(call)) {
             return { outcome: "conflict" };
           }
-          const ledger = await settleProviderExchange(tx, input);
+          const ledger = await settleProviderExchange(tx, {
+            ...input,
+            actual: { costUsd, tokens: reservationTokens(input.usage) },
+          });
           return {
             outcome: "replayed",
             costUsd,
@@ -2606,7 +2610,13 @@ export function createPostgresWorkerUnitOfWork(
             costUsd: sql`LEAST(${sessions.costUsd} + ${inserted.costUsd}::numeric, ${MAX_SESSION_COST_USD})`,
           })
           .where(eq(sessions.id, input.sessionId));
-        const ledger = await settleProviderExchange(tx, input);
+        const ledger = await settleProviderExchange(tx, {
+          ...input,
+          actual: {
+            costUsd: inserted.costUsd,
+            tokens: reservationTokens(input.usage),
+          },
+        });
         return {
           outcome: "recorded",
           costUsd: inserted.costUsd,
