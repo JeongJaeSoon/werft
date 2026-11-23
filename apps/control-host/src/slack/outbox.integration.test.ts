@@ -1760,6 +1760,42 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         expect(await statusOf("from-input:2")).toBe("voided_by_delete");
       });
 
+      test("once the mirror gave the input its alias, deleting that post stops a session whose turn names only the input", async () => {
+        const fixture = await agentInSlack();
+        await installationOf();
+        await mention(fixture, THREAD);
+        const [turn] = await db.select().from(turns);
+        if (!turn) throw new Error("no turn");
+        const receipt = await webInput(fixture);
+        await db
+          .update(turns)
+          .set({
+            sources: { direct: [{ input_id: receipt.inputId }], inherited: [] },
+          })
+          .where(eq(turns.id, turn.id));
+        await outboxPass();
+        const [mirror] = await mirrors();
+        if (!mirror?.slackTs) throw new Error("no mirror sent");
+        const deletedAt = async () =>
+          (
+            await db
+              .select({ at: sessions.sourceDeletedAt })
+              .from(sessions)
+              .where(eq(sessions.id, turn.sessionId))
+          )[0]?.at ?? null;
+        expect(await deletedAt()).toBeNull();
+
+        await marks().markDeleted({
+          workspaceId: fixture.workspaceId,
+          teamId: TEAM,
+          channelId: CHANNEL,
+          ts: mirror.slackTs,
+          at: new Date(),
+        });
+
+        expect(await deletedAt()).not.toBeNull();
+      });
+
       test("a delete Slack sent before the post was recorded is the input's as soon as the alias is written", async () => {
         const fixture = await agentInSlack();
         await installationOf();
