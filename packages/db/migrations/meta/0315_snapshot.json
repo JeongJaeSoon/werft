@@ -1,5 +1,5 @@
 {
-  "id": "cb6b602e-3e96-4dbb-bc0c-ae3f93b85699",
+  "id": "38d2c783-bd44-4fa6-bc52-10515c4533a0",
   "prevId": "178bf3ab-9727-4cb6-b7d4-4c264ac7c689",
   "version": "7",
   "dialect": "postgresql",
@@ -4992,170 +4992,6 @@
         "control_intents_interrupt_target_check": {
           "name": "control_intents_interrupt_target_check",
           "value": "\"control_intents\".\"kind\" <> 'interrupt' OR (\"control_intents\".\"target_turn_id\" IS NOT NULL AND \"control_intents\".\"attempt_id\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.conversation_inputs": {
-      "name": "conversation_inputs",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "topic_id": {
-          "name": "topic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "seq": {
-          "name": "seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_team_id": {
-          "name": "slack_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_channel_id": {
-          "name": "slack_channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_ts": {
-          "name": "slack_ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_kind": {
-          "name": "requester_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requester_id": {
-          "name": "requester_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "turn_id": {
-          "name": "turn_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "received_at": {
-          "name": "received_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "conversation_inputs_slack_message_idx": {
-          "name": "conversation_inputs_slack_message_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_ts",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_inputs_topic_id_conversation_topics_id_fk": {
-          "name": "conversation_inputs_topic_id_conversation_topics_id_fk",
-          "tableFrom": "conversation_inputs",
-          "tableTo": "conversation_topics",
-          "columnsFrom": ["topic_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_inputs_turn_id_turns_id_fk": {
-          "name": "conversation_inputs_turn_id_turns_id_fk",
-          "tableFrom": "conversation_inputs",
-          "tableTo": "turns",
-          "columnsFrom": ["turn_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "conversation_inputs_seq_uniq": {
-          "name": "conversation_inputs_seq_uniq",
-          "nullsNotDistinct": false,
-          "columns": ["topic_id", "seq"]
-        },
-        "conversation_inputs_slack_uniq": {
-          "name": "conversation_inputs_slack_uniq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "agent_id",
-            "slack_team_id",
-            "slack_channel_id",
-            "slack_ts"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "conversation_inputs_seq_check": {
-          "name": "conversation_inputs_seq_check",
-          "value": "\"conversation_inputs\".\"seq\" > 0"
-        },
-        "conversation_inputs_slack_check": {
-          "name": "conversation_inputs_slack_check",
-          "value": "(\"conversation_inputs\".\"slack_team_id\" IS NULL AND \"conversation_inputs\".\"slack_channel_id\" IS NULL AND \"conversation_inputs\".\"slack_ts\" IS NULL) OR (\"conversation_inputs\".\"slack_team_id\" IS NOT NULL AND \"conversation_inputs\".\"slack_channel_id\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_inputs\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_inputs\".\"slack_ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')"
         }
       },
       "isRLSEnabled": false
@@ -17016,6 +16852,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "requester_kind": {
+          "name": "requester_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requester_id": {
+          "name": "requester_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "surface": {
           "name": "surface",
           "type": "text",
@@ -17863,6 +17711,12 @@
         "requester_id": {
           "name": "requester_id",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requester_auth": {
+          "name": "requester_auth",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

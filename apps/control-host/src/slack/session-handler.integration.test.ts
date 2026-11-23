@@ -555,6 +555,26 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(allowed.map((row) => row.linkedAccountId)).toEqual(
       Array(4).fill(account?.id ?? ""),
     );
+    const [installation] = await db.select().from(slackInstallations);
+    const slackLink = {
+      method: "slack_link",
+      installation_id: installation?.id,
+      linked_account_id: account?.id,
+      linked_account_revision: account?.revision,
+    };
+    expect(
+      await db
+        .select({
+          kind: turns.requesterKind,
+          id: turns.requesterId,
+          auth: turns.requesterAuth,
+        })
+        .from(turns)
+        .orderBy(turns.sequence),
+    ).toEqual([
+      { kind: "user", id: by, auth: slackLink },
+      { kind: "user", id: by, auth: slackLink },
+    ]);
     // The handler sends no status itself: each turn's insert marks the
     // thread due for the outbox pass's status writer.
     expect(slack.statuses).toEqual([]);
@@ -1967,12 +1987,26 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
       { sequence: 1, message: "review this", actorId: null },
     ]);
     const [turn] = await db
-      .select({ kind: turns.requesterKind, id: turns.requesterId })
+      .select({
+        kind: turns.requesterKind,
+        id: turns.requesterId,
+        auth: turns.requesterAuth,
+      })
       .from(turns);
-    expect(turn).toEqual({ kind: "slack_bot", id: REVIEW_BOT });
     expect(await inputsOf(fixture)).toMatchObject([
       { seq: 1, requesterKind: "slack_bot", requesterId: REVIEW_BOT },
     ]);
+
+    const [installation] = await db.select().from(slackInstallations);
+    expect(turn).toEqual({
+      kind: "slack_bot",
+      id: REVIEW_BOT,
+      auth: {
+        method: "slack_bot",
+        installation_id: installation?.id,
+        agent_id: fixture.agentId,
+      },
+    });
     const [link] = await links();
     expect(link).toMatchObject({ sessionId: session?.id, createdBy: null });
     expect(notices).toEqual([]);

@@ -237,6 +237,15 @@ migration `0315_conversation_inputs` が入力受付の表 `conversation_inputs`
 - 受付の行がある投稿の削除・編集の印(`deleted_sources`・`edited_sources`)は、70 分が過ぎても reconciler が消さない。
 - サポート期間内のイメージに戻すと、その間の投稿は受付の行なしで、これまでどおりターンだけができる。
 
+<a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
+### ターンに依頼者の認証の根拠を残すリリース
+
+migration `0315_turn_requester_auth` が `turns.requester_auth`(jsonb)と `tool_call_audits.requester_kind`・`requester_id`(text)を加える。三つとも nullable で、既定値・インデックス・backfill がないため、表を書き直さない。上げるときにすることはない。
+
+- このリリースから、新しいターンに依頼者が入ってきた資格が残る。コンソールのログインセッション id、個人 key の id、エージェント key のエージェント、Slack のインストールと連携アカウントである。key の秘密、cookie、Slack のユーザー id は入れない。
+- 古いターンは直さない。ターン読み取り API の `requester` が null、または `auth_method` が null に見える。`tool_call_audits` の二つの列はこのリリースでは空のままである。
+- サポート期間内のイメージに戻すと、新しい列は読みも書きもしない。そのイメージが入れたターンは根拠が空になるだけである。
+
 <a id="대화-층의-빈-표-셋을-더한-릴리스" />
 ### 会話層の空の表を三つ追加したリリース
 
