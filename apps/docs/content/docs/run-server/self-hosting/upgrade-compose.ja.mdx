@@ -226,7 +226,7 @@ COMMIT;
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
 ### 削除された Slack メッセージを含むセッションを止めるリリース
 
-migration `0331_source_deleted` が `sessions` に `source_deleted_at`(timestamptz、nullable)を追加する。アップグレード時に行うことはない。削除されたメッセージのないセッションの動作は変わらない。
+migration `0332_source_deleted` が `sessions` に `source_deleted_at`(timestamptz、nullable)を追加する。アップグレード時に行うことはない。削除されたメッセージのないセッションの動作は変わらない。
 
 - Slack でメッセージが削除されると(返信のある親メッセージの墓標を含む)、そのメッセージを出典に持つターンが一つでもある開いたセッションを止める。ターンの直接の出典でも、前のターンから引き継いだ出典でも同じである。メッセージの編集では止めない。
 - 実行中のターンは切らない。worker はそのターンを終え、pause と同じく checkpoint を残して終了し、セッションは `paused` になる。待機中の入力は送らない。この pause の receipt は依頼した人がいないため `actor` が空である。

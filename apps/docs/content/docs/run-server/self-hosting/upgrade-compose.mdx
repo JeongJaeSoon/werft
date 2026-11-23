@@ -202,7 +202,7 @@ COMMIT;
 
 ### 지운 Slack 글이 든 세션을 멈추는 릴리스
 
-migration `0331_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더한다. 올릴 때 할 일은 없다. 지운 글이 없는 세션의 동작은 그대로다.
+migration `0332_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더한다. 올릴 때 할 일은 없다. 지운 글이 없는 세션의 동작은 그대로다.
 
 - Slack에서 글이 삭제되면(답이 달린 부모 글의 묘비 포함), 그 글을 출처로 가진 턴이 하나라도 있는 열린 세션을 멈춘다. 그 턴의 직접 출처든 앞 턴에서 물려받은 출처든 같다. 글의 수정으로는 멈추지 않는다.
 - 실행 중인 턴은 끊지 않는다. worker가 그 턴을 끝내고 pause처럼 checkpoint를 남긴 뒤 내려가며, 세션은 `paused`가 된다. 대기 중인 입력은 내보내지 않는다. 이 pause의 receipt는 요청한 사람이 없어 `actor`가 비어 있다.

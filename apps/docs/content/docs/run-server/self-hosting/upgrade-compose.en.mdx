@@ -226,7 +226,7 @@ From this release model connections, MCP servers and repository GitHub App keys 
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
 ### The release that stops sessions holding a deleted Slack message
 
-Migration `0331_source_deleted` adds `source_deleted_at` (timestamptz, nullable) to `sessions`. Nothing to do when upgrading. Sessions with no deleted message behave as before.
+Migration `0332_source_deleted` adds `source_deleted_at` (timestamptz, nullable) to `sessions`. Nothing to do when upgrading. Sessions with no deleted message behave as before.
 
 - When a Slack message is deleted (including the tombstone of a parent with replies), every open session with a turn that has that message among its sources stops, whether the turn holds it directly or inherited it from an earlier turn. An edit stops nothing.
 - A running turn is not cut. The worker finishes it, leaves a checkpoint as for a pause, and goes; the session ends `paused`. Queued input is not sent. This pause's receipt has no `actor`, since no person asked for it.
