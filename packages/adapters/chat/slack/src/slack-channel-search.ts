@@ -15,7 +15,7 @@ import {
   requirePermitted,
   type SecretStore,
   SessionServiceError,
-  type SlackAppStore,
+  type SurfaceAppStore,
   type SurfaceBindingService,
 } from "@werft-ai/platform";
 import { z } from "zod";
@@ -308,7 +308,7 @@ export function createSlackChannelSearchService(deps: {
   authorization: AuthorizationPolicy;
   agents: Pick<AgentAuthority, "agentOf">;
   /** Null when the API runs without a master key. */
-  apps: Pick<SlackAppStore, "findForAgent"> | null;
+  apps: Pick<SurfaceAppStore, "findForAgent"> | null;
   secrets: Pick<SecretStore, "get"> | null;
   api: SlackChannelApi;
   cache?: SlackChannelCache;

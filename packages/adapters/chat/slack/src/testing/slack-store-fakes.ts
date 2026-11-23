@@ -16,7 +16,7 @@ import {
   type AgentIdentityStore,
   type BufferedInputReceipt,
   type ConfigTokenSummary,
-  type CreatedSlackApp,
+  type CreatedSurfaceApp,
   type InboundInputReceipt,
   lastFour,
   type RotatedConfigToken,
@@ -24,16 +24,16 @@ import {
   type SecretSlot,
   type SecretStore,
   type SecretSummary,
-  type SlackAppAgent,
-  type SlackAppRecord,
-  type SlackAppStore,
-  type SlackConfigTokenStore,
-  type SlackInboundClaim,
-  type SlackInboundEventInput,
-  type SlackInboundEventStore,
-  type SlackInboundFence,
-  type SlackInstallState,
-  type SlackInstallStore,
+  type SurfaceAppAgent,
+  type SurfaceAppRecord,
+  type SurfaceAppStore,
+  type SurfaceConfigTokenStore,
+  type SurfaceInboundClaim,
+  type SurfaceInboundEventInput,
+  type SurfaceInboundEventStore,
+  type SurfaceInboundFence,
+  type SurfaceInstallState,
+  type SurfaceInstallStore,
   secretOwnerRef,
 } from "@werft-ai/platform";
 import {
@@ -157,7 +157,7 @@ export function createMemoryConfigTokenStore(secrets: MemorySecrets) {
     secrets.values.delete(secrets.slotKey(configSlot(workspaceId)));
   };
 
-  const store: SlackConfigTokenStore = {
+  const store: SurfaceConfigTokenStore = {
     async claim(workspaceId, clock) {
       const row = meta.get(workspaceId);
       if (!row) return { outcome: "not_set" };
@@ -257,7 +257,10 @@ export function createMemoryConfigTokenStore(secrets: MemorySecrets) {
 
 export function createMemorySlackAppStore(input: {
   secrets: MemorySecrets;
-  agents: Map<string, SlackAppAgent & { workspaceId: string; active: boolean }>;
+  agents: Map<
+    string,
+    SurfaceAppAgent & { workspaceId: string; active: boolean }
+  >;
   /** Workspace names by id, for link apps. */
   workspaces?: Map<string, string>;
   /** Each agent's live install, by agent id. */
@@ -265,10 +268,10 @@ export function createMemorySlackAppStore(input: {
   now?: () => Date;
 }) {
   const clock = input.now ?? (() => new Date());
-  const rows = new Map<string, Omit<SlackAppRecord, "secrets">>();
+  const rows = new Map<string, Omit<SurfaceAppRecord, "secrets">>();
   const settings = new Map<
     string,
-    Parameters<SlackAppStore["putSettings"]>[0]["settings"]
+    Parameters<SurfaceAppStore["putSettings"]>[0]["settings"]
   >();
   const allowedBots = new Map<string, string[]>();
   const faults = { finishCreate: 0 };
@@ -284,7 +287,9 @@ export function createMemorySlackAppStore(input: {
       owner: { kind: "slack_app", id: row.id },
       purpose,
     }) as SecretSlot;
-  const record = (row: Omit<SlackAppRecord, "secrets">): SlackAppRecord => ({
+  const record = (
+    row: Omit<SurfaceAppRecord, "secrets">,
+  ): SurfaceAppRecord => ({
     ...row,
     secrets: Object.fromEntries(
       PURPOSES.map((purpose) => [
@@ -292,7 +297,7 @@ export function createMemorySlackAppStore(input: {
         input.secrets.values.get(input.secrets.slotKey(slot(row, purpose)))
           ?.summary ?? null,
       ]),
-    ) as SlackAppRecord["secrets"],
+    ) as SurfaceAppRecord["secrets"],
   });
   const live = (workspaceId: string, agentId: string) =>
     [...rows.values()].find(
@@ -301,10 +306,10 @@ export function createMemorySlackAppStore(input: {
         row.agentId === agentId &&
         LIVE.has(row.state),
     );
-  const touch = (row: Omit<SlackAppRecord, "secrets">, patch: object) =>
+  const touch = (row: Omit<SurfaceAppRecord, "secrets">, patch: object) =>
     Object.assign(row, patch, { updatedAt: clock() });
 
-  const store: SlackAppStore = {
+  const store: SurfaceAppStore = {
     async setEvents(workspaceId, slackAppId, events) {
       const row = rows.get(slackAppId);
       if (row?.workspaceId === workspaceId)
@@ -577,7 +582,7 @@ export function createMemorySlackAppStore(input: {
   };
 
   /** A row as a test needs it, e.g. a manual app. */
-  function seed(row: Omit<SlackAppRecord, "secrets">) {
+  function seed(row: Omit<SurfaceAppRecord, "secrets">) {
     rows.set(row.id, row);
   }
   return { store, rows, faults, seed };
@@ -611,7 +616,7 @@ export function createFakeSlackConfigApi(options?: {
     /** Replace one call's outcome, e.g. to throw a lost answer. */
     next: {} as {
       rotate?: Behaviour<RotatedConfigToken>;
-      create?: Behaviour<CreatedSlackApp>;
+      create?: Behaviour<CreatedSurfaceApp>;
       delete?: Behaviour<void>;
       export?: Behaviour<void>;
     },
@@ -776,7 +781,7 @@ export function createMemorySlackInstallStore(
   options: { now?: () => Date } = {},
 ) {
   const now = options.now ?? (() => new Date());
-  const states = new Map<string, SlackInstallState>();
+  const states = new Map<string, SurfaceInstallState>();
   const installations = new Map<
     string,
     {
@@ -788,7 +793,7 @@ export function createMemorySlackInstallStore(
     }
   >();
   const hex = (hash: Uint8Array) => Buffer.from(hash).toString("hex");
-  const store: SlackInstallStore = {
+  const store: SurfaceInstallStore = {
     async issueState(stateHash, state, now) {
       for (const [key, row] of states) {
         if (row.expiresAt < now) states.delete(key);
@@ -951,7 +956,7 @@ export function createMemoryAgentIdentityStore(
   return { store, identities, receipts, archived, allowedBots };
 }
 
-type MemoryInboundRow = SlackInboundEventInput & {
+type MemoryInboundRow = SurfaceInboundEventInput & {
   id: string;
   state: SlackInboundEventStatus;
   claimToken: string | null;
@@ -969,17 +974,17 @@ type MemoryInboundRow = SlackInboundEventInput & {
 export function createMemorySlackInboundEventStore(
   options: {
     now?: () => number;
-    installationStatus?: () => SlackInboundClaim["installationStatus"];
+    installationStatus?: () => SurfaceInboundClaim["installationStatus"];
   } = {},
 ) {
   const now = options.now ?? Date.now;
-  const rows = new Map<string, SlackInboundEventInput>();
+  const rows = new Map<string, SurfaceInboundEventInput>();
   const lease = new Map<string, MemoryInboundRow>();
   const calls = { seen: 0, record: 0 };
   /** What each completion took, in order. */
   const inputs: (InboundInputReceipt | BufferedInputReceipt)[] = [];
   const faults = { record: 0 };
-  const held = (fence: SlackInboundFence) => {
+  const held = (fence: SurfaceInboundFence) => {
     const row = [...lease.values()].find((r) => r.id === fence.id);
     return row !== undefined &&
       row.claimToken === fence.claimToken &&
@@ -992,7 +997,7 @@ export function createMemorySlackInboundEventStore(
     row.claimToken = null;
     row.leaseExpiresAt = null;
   };
-  const store: SlackInboundEventStore = {
+  const store: SurfaceInboundEventStore = {
     async seen(appId, eventId) {
       calls.seen += 1;
       return rows.has(`${appId}|${eventId}`);
@@ -1018,7 +1023,7 @@ export function createMemorySlackInboundEventStore(
       return "recorded";
     },
     async claim({ limit, leaseMs, maxAttempts }) {
-      const out: SlackInboundClaim[] = [];
+      const out: SurfaceInboundClaim[] = [];
       for (const row of lease.values()) {
         if (out.length >= limit) break;
         if (row.state !== "received" || row.status === "dropped") continue;

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  OutboundRefusedError,
   type OutboundRequest,
   type OutboundResponse,
-  WorkspaceMcpOutboundError,
 } from "../../ports/outbound-http.ts";
 import {
   DECISIONS_CHOICE_RESPONSE_FIXTURE,
@@ -92,7 +92,7 @@ describe("decisions client", () => {
       // The port throws on a 5xx, as the outbound policy does.
       const { decisions } = client(() => {
         if (status < 500) return answered(status, body);
-        throw new WorkspaceMcpOutboundError(
+        throw new OutboundRefusedError(
           "answered",
           `Provider answered ${status}`,
           { status },
@@ -107,7 +107,7 @@ describe("decisions client", () => {
 
   test("an answer slower than the timeout fails as a timeout", async () => {
     const { decisions, seen } = client(() => {
-      throw new WorkspaceMcpOutboundError("unreachable", "late", {
+      throw new OutboundRefusedError("unreachable", "late", {
         timedOut: true,
       });
     }, 20);
@@ -118,8 +118,8 @@ describe("decisions client", () => {
 
   test("an unreachable or refused proxy fails as unreachable", async () => {
     for (const thrown of [
-      new WorkspaceMcpOutboundError("unreachable", "refused"),
-      new WorkspaceMcpOutboundError("address_not_allowed", "not the proxy"),
+      new OutboundRefusedError("unreachable", "refused"),
+      new OutboundRefusedError("address_not_allowed", "not the proxy"),
       new TypeError("fetch failed"),
     ]) {
       const { decisions } = client(() => {

@@ -9,9 +9,9 @@ import type {
   AgentIdentityStore,
   ChannelMemberStore,
   SecretStore,
-  SlackAppStore,
-  SlackInstallStore,
+  SurfaceAppStore,
   SurfaceBindingStore,
+  SurfaceInstallStore,
 } from "@werft-ai/platform";
 import {
   agentSlackBotToken,
@@ -47,7 +47,7 @@ export type SecretStoreSource = () => SecretStore;
 
 export interface SlackBotStageDeps {
   apiUrl: string;
-  appStore: SlackAppStore;
+  appStore: SurfaceAppStore;
   secrets: SecretStoreSource;
   bindings: SurfaceBindingStore;
   agents: Param<typeof createSlackWelcome>["agents"];
@@ -91,7 +91,7 @@ export function wireSlackBot(deps: SlackBotStageDeps): SlackBotStage {
  */
 export function wireSlackChannelMembers(deps: {
   apiUrl: string;
-  appStore: SlackAppStore;
+  appStore: SurfaceAppStore;
   secrets: SecretStoreSource;
   store: ChannelMemberStore;
   logger: StructuredLogger;
@@ -114,7 +114,7 @@ export interface SlackChannelsStageDeps {
   appStore: SlackBotStageDeps["appStore"];
   secrets: SlackBotStageDeps["secrets"];
   identities: AgentIdentityStore;
-  installs: SlackInstallStore;
+  installs: SurfaceInstallStore;
   onTokenRevokedError: (error: unknown) => void;
 }
 
@@ -175,7 +175,7 @@ export interface SlackServicesStageDeps {
   sourceMarks: Param<typeof createSlackEventsService>["sourceMarks"];
   mirrorEchoes: Param<typeof createSlackEventsService>["mirrorEchoes"];
   identities: AgentIdentityStore;
-  installs: SlackInstallStore;
+  installs: SurfaceInstallStore;
   bindings: SurfaceBindingStore;
   installStates: NonNullable<Param<typeof createSlackInstallService>["states"]>;
   consoleOrigin: string | null;

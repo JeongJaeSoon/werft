@@ -11,13 +11,13 @@ import type {
   TeamView,
   UpdateTeamRequest,
 } from "@werft-ai/contracts";
+import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import type {
   Team,
   TeamActor,
   TeamDetail,
   TeamStore,
-} from "../ports/team-store.ts";
-import type { AuthorizationPolicy, Caller } from "./policy.ts";
+} from "./ports/team-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import { NOT_FOUND, SessionServiceError } from "./service-errors.ts";
 

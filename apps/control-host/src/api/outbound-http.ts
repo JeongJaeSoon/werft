@@ -1,7 +1,4 @@
-import {
-  type OutboundHttp,
-  WorkspaceMcpOutboundError,
-} from "@werft-ai/platform";
+import { type OutboundHttp, OutboundRefusedError } from "@werft-ai/platform";
 import { OidcUnavailableError } from "./oidc/errors.ts";
 import {
   createProviderRequest,
@@ -29,13 +26,9 @@ export function outboundUnder(
       );
     } catch (error) {
       if (error instanceof OidcUnavailableError) {
-        throw new WorkspaceMcpOutboundError(
-          error.kind,
-          error.message,
-          error.detail,
-        );
+        throw new OutboundRefusedError(error.kind, error.message, error.detail);
       }
-      throw new WorkspaceMcpOutboundError(
+      throw new OutboundRefusedError(
         "unreachable",
         `Request failed: ${error instanceof Error ? error.name : "error"}`,
       );
@@ -63,7 +56,7 @@ export function oneHostOutbound(
   return async (outbound) => {
     const url = URL.parse(outbound.url);
     if (url === null || hostPortOf(url) !== allowed) {
-      throw new WorkspaceMcpOutboundError(
+      throw new OutboundRefusedError(
         "address_not_allowed",
         "Request URL is not the configured host",
       );

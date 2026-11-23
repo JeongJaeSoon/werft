@@ -1,8 +1,8 @@
 import { type CatalogProvider, providerUpstreamOf } from "../catalog/index.ts";
 import {
   type OutboundHttp,
+  OutboundRefusedError,
   type OutboundResponse,
-  WorkspaceMcpOutboundError,
 } from "../ports/outbound-http.ts";
 
 // Asks a connection's provider which models it serves, with the connection's
@@ -61,7 +61,7 @@ async function get(
   try {
     response = await http({ url, method: "GET", headers });
   } catch (error) {
-    if (error instanceof WorkspaceMcpOutboundError) {
+    if (error instanceof OutboundRefusedError) {
       throw error.reason === "address_not_allowed"
         ? new ModelDiscoveryError(
             "address_not_allowed",

@@ -3,11 +3,11 @@ import type {
   PutAgentCallerLimitsRequest,
   PutAgentCallerLimitsResponse,
 } from "@werft-ai/contracts";
-import type { AgentCallerLimitsStore } from "../ports/agent-caller-limits-store.ts";
 import { personOf } from "./agent-admin-service.ts";
 import { ifMatchOf } from "./env-variable-service.ts";
 import type { Caller } from "./policy.ts";
 import { type AuthorizationPolicy, MANAGEMENT_ROLES } from "./policy.ts";
+import type { AgentCallerLimitsStore } from "./ports/agent-caller-limits-store.ts";
 import { requirePermitted } from "./require-permitted.ts";
 import {
   NO_LONGER_MANAGER,

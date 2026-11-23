@@ -56,8 +56,8 @@ import {
   createAuthorizationPolicy,
   SecretKey,
   type SessionCatalog,
-  type SlackInboundClaim,
-  type SlackInboundEventStore,
+  type SurfaceInboundClaim,
+  type SurfaceInboundEventStore,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
@@ -400,7 +400,7 @@ const rootMessage = (ts: string) =>
   message(ts, { text: `<@${BOT_USER}> summarize the thread` });
 
 function handler(
-  inbox?: Pick<SlackInboundEventStore, "renew">,
+  inbox?: Pick<SurfaceInboundEventStore, "renew">,
   log: typeof logger = logger,
 ) {
   const notices = createMemorySlackNoticeSink();
@@ -427,7 +427,7 @@ function handler(
     notices: notices.notices,
     threadNotices: notices.threadNotices,
     sink: notices.sink,
-    handle: async (claim: SlackInboundClaim) => {
+    handle: async (claim: SurfaceInboundClaim) => {
       await catalog.refresh();
       return handle(claim);
     },
@@ -445,7 +445,7 @@ async function drain(handle: ReturnType<typeof handler>["handle"]) {
   });
 }
 
-async function claimAll(leaseMs: number): Promise<SlackInboundClaim[]> {
+async function claimAll(leaseMs: number): Promise<SurfaceInboundClaim[]> {
   return createPostgresSlackInboundEventStore(db).claim({
     limit: 10,
     leaseMs,
@@ -474,7 +474,7 @@ const turnsOf = (sessionId: string | undefined) =>
 const links = () => db.select().from(sessionLinks);
 
 /** Renews the lease the handler holds for its effects to 50 ms only. */
-const shortLease: Pick<SlackInboundEventStore, "renew"> = {
+const shortLease: Pick<SurfaceInboundEventStore, "renew"> = {
   renew: (fence) => createPostgresSlackInboundEventStore(db).renew(fence, 50),
 };
 
@@ -2537,7 +2537,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     const [expired] = await claimAll(1);
     await Bun.sleep(20);
     await expect(
-      handler().handle(expired as SlackInboundClaim),
+      handler().handle(expired as SurfaceInboundClaim),
     ).rejects.toThrow("lease lost");
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(await links()).toEqual([]);
@@ -2554,7 +2554,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     });
     const [held] = await claimAll(30_000);
     await expect(
-      revoking.handle(held as SlackInboundClaim),
+      revoking.handle(held as SurfaceInboundClaim),
     ).rejects.toMatchObject({ reason: "installation_revoked" });
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(await links()).toEqual([]);

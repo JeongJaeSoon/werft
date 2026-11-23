@@ -25,7 +25,7 @@ import { errorOf } from "../../../testing/api-error.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSkillRoutes } from "./skills.ts";
 
-const createApiApp = recordRouteErrors("routes/musterrolle/skills.test.ts");
+const createApiApp = recordRouteErrors("routes/extensions/skills.test.ts");
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const VERSION_ID = "019a0000-0000-7000-8000-00000000e0a1";

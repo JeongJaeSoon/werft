@@ -8,11 +8,11 @@ import {
   type SecretOwner,
   type SecretSlot,
   type SecretSummary,
-  type SlackAppActor,
-  type SlackAppAgent,
-  type SlackAppRecord,
-  type SlackAppStore,
-  type SlackEventsCheck,
+  type SurfaceAppActor,
+  type SurfaceAppAgent,
+  type SurfaceAppRecord,
+  type SurfaceAppStore,
+  type SurfaceEventsCheck,
   secretOwnerRef,
 } from "@werft-ai/platform";
 import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
@@ -63,7 +63,7 @@ function slackAppSecretRef(
   return `${secretOwnerRef({ kind: "slack_app", id: slackAppId })}/${purpose}`;
 }
 
-async function recordOf(db: Database, row: Row): Promise<SlackAppRecord> {
+async function recordOf(db: Database, row: Row): Promise<SurfaceAppRecord> {
   return recordFrom(
     row,
     await describeSecrets(db, row.workspaceId, [appOwner(row)]),
@@ -82,7 +82,7 @@ const createdApp = (workspaceId: string, slackAppId: string) => [
   eq(slackApps.state, "created"),
 ];
 
-const eventsColumns = (events: SlackEventsCheck) => ({
+const eventsColumns = (events: SurfaceEventsCheck) => ({
   eventsState: events.state,
   eventsCheckedAt:
     events.checked_at === null ? null : new Date(events.checked_at),
@@ -122,7 +122,7 @@ async function standingApp(
 function recordFrom(
   row: Row,
   summaries: ReadonlyMap<string, SecretSummary>,
-): SlackAppRecord {
+): SurfaceAppRecord {
   const ownerRef = secretOwnerRef(appOwner(row));
   return {
     id: row.id,
@@ -147,7 +147,7 @@ function recordFrom(
         purpose,
         summaries.get(secretSummaryKey(ownerRef, purpose)) ?? null,
       ]),
-    ) as SlackAppRecord["secrets"],
+    ) as SurfaceAppRecord["secrets"],
   };
 }
 
@@ -157,7 +157,7 @@ async function actorRefusal(
   tx: Database,
   workspaceId: string,
   agentId: string | null,
-  actor: SlackAppActor,
+  actor: SurfaceAppActor,
 ): Promise<"actor_inactive" | "outranked" | null> {
   if (actor === null) return null;
   const userId = actor.principal.actor?.userId;
@@ -177,7 +177,7 @@ async function agentForApp(
   tx: Database,
   workspaceId: string,
   agentId: string,
-): Promise<(SlackAppAgent & { active: boolean }) | null> {
+): Promise<(SurfaceAppAgent & { active: boolean }) | null> {
   const [agent] = await tx
     .select({
       id: agents.id,
@@ -337,7 +337,7 @@ export async function getSlackAppSettings(
 export function createPostgresSlackAppStore(
   db: Database,
   key: SecretKey,
-): SlackAppStore {
+): SurfaceAppStore {
   return {
     async setEvents(workspaceId, slackAppId, events) {
       await db

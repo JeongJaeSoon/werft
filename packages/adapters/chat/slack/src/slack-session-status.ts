@@ -1,6 +1,6 @@
 import type {
-  SlackThreadStatusFacts,
-  SlackThreadStatusStore,
+  SurfaceThreadStatusFacts,
+  SurfaceThreadStatusStore,
 } from "@werft-ai/platform";
 import {
   messageOf,
@@ -96,7 +96,7 @@ const SET_STATUS_DISABLED = new Set([
 
 export async function slackStatusMaterial(
   sessionId: string,
-  facts: SlackThreadStatusFacts,
+  facts: SurfaceThreadStatusFacts,
   pushSource?: PushSource,
 ): Promise<SlackSessionStatusMaterial> {
   const session = {
@@ -163,7 +163,7 @@ export type SlackThreadStatusPass = {
  * delays the row; nothing else waits on it.
  */
 export async function writeSlackThreadStatuses(deps: {
-  store: SlackThreadStatusStore;
+  store: SurfaceThreadStatusStore;
   slack: Pick<SlackBotApi, "setStatus">;
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   logger: SlackInboxLogger;
@@ -313,7 +313,7 @@ export async function writeSlackThreadStatuses(deps: {
  * unreconciled first, so every one comes round in turn.
  */
 export async function reconcileSlackThreadStatuses(deps: {
-  store: SlackThreadStatusStore;
+  store: SurfaceThreadStatusStore;
   pushSource?: PushSource;
   limit?: number;
   now?: () => number;

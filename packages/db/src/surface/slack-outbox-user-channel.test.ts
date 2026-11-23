@@ -7,7 +7,7 @@ import {
   test,
 } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import type { SlackOutboxEntry, SlackOutboxKind } from "@werft-ai/platform";
+import type { SurfaceOutboxEntry, SurfaceOutboxKind } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import type { Database } from "../queries.ts";
@@ -36,7 +36,10 @@ afterAll(async () => {
   await client.close();
 });
 
-function entryOf(kind: SlackOutboxKind, channelId: string): SlackOutboxEntry {
+function entryOf(
+  kind: SurfaceOutboxKind,
+  channelId: string,
+): SurfaceOutboxEntry {
   return {
     workspaceId: crypto.randomUUID(),
     agentId: crypto.randomUUID(),

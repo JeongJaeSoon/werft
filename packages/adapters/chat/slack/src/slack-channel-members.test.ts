@@ -6,7 +6,7 @@ import {
 import type {
   ChannelMemberStore,
   SlackEventAgent,
-  SlackInboundClaim,
+  SurfaceInboundClaim,
 } from "@werft-ai/platform";
 import { createFakeSlackWebApi } from "@werft-ai/testkit/fake-slack-api";
 import {
@@ -251,7 +251,7 @@ describe("Slack channel member check", () => {
         workspaceId: WORKSPACE,
         slackAppId: "019a0000-0000-7000-8000-0000000000d1",
         payload: { event },
-      }) as unknown as SlackInboundClaim;
+      }) as unknown as SurfaceInboundClaim;
 
     // A message is not a member change: the list stays.
     await invalidate(claim({ type: "message", channel: t.inside.id }));

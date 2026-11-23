@@ -15,9 +15,9 @@ import type {
   GitHubSessionContext,
 } from "../github/ports/github-gate.ts";
 import { createGitHubGate } from "../github/service/github-gate.ts";
-import type { RepositoryPinStore } from "../ports/repository-attachments.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
+import type { RepositoryPinStore } from "../sessions/ports/repository-attachments.ts";
 import { createRepositoryAttachmentService } from "../sessions/repository-attachment-service.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";

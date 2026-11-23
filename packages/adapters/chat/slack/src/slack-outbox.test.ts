@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { UserLocale } from "@werft-ai/contracts";
 import type {
   PushSource,
-  SlackCardClaim,
-  SlackCardRendered,
-  SlackCardSettleStore,
-  SlackOpenPushCard,
-  SlackOutboxEntry,
+  SurfaceCardClaim,
+  SurfaceCardRendered,
+  SurfaceCardSettleStore,
+  SurfaceOpenPushCard,
+  SurfaceOutboxEntry,
 } from "@werft-ai/platform";
 import { settleSlackCards } from "./slack-card-settle.ts";
 import {
@@ -39,7 +39,7 @@ describe("settleSlackCards", () => {
         uncertain: false,
         inherited: false,
         attempts: 0,
-      }) as SlackCardClaim;
+      }) as SurfaceCardClaim;
     const deferred: unknown[] = [];
     let claims = 0;
     const store = {
@@ -50,7 +50,7 @@ describe("settleSlackCards", () => {
         deferred.push([fence.id, input]);
         return true;
       },
-    } as Partial<SlackCardSettleStore> as SlackCardSettleStore;
+    } as Partial<SurfaceCardSettleStore> as SurfaceCardSettleStore;
     let clock = 0;
     const sent: unknown[] = [];
     const pass = await settleSlackCards({
@@ -82,7 +82,7 @@ describe("settleSlackCards", () => {
         checkpointRevision: 1,
         gitCommit: "a".repeat(40),
         origin: "direct",
-      }) satisfies SlackOpenPushCard;
+      }) satisfies SurfaceOpenPushCard;
     const open = [
       push(1, "reject_only"),
       push(2, "reject_only"),
@@ -101,7 +101,7 @@ describe("settleSlackCards", () => {
         return true;
       },
       claim: async () => [],
-    } as Partial<SlackCardSettleStore> as SlackCardSettleStore;
+    } as Partial<SurfaceCardSettleStore> as SurfaceCardSettleStore;
     const pushSource = {
       readPushSource: async () => ({
         status: "ready",
@@ -134,7 +134,7 @@ describe("settleSlackCards", () => {
     } as unknown as PushSource;
 
     async function redraw(input: {
-      rendered: SlackCardRendered;
+      rendered: SurfaceCardRendered;
       kind?: "push" | "prompt";
       stale?: boolean;
       left?: boolean;
@@ -163,7 +163,7 @@ describe("settleSlackCards", () => {
             uncertain: false,
             inherited: false,
             attempts: 0,
-          } as SlackCardClaim,
+          } as SurfaceCardClaim,
         ],
         [],
       ];
@@ -200,7 +200,7 @@ describe("settleSlackCards", () => {
           calls.push(["skip"]);
           return true;
         },
-      } as unknown as SlackCardSettleStore;
+      } as unknown as SurfaceCardSettleStore;
       await settleSlackCards({
         store,
         slack: {
@@ -287,7 +287,7 @@ describe("settleSlackCards", () => {
 
     test("a labelled card is compared as its choice when its push goes stale", async () => {
       const marked: string[] = [];
-      const card = (id: string, rendered: SlackOpenPushCard["rendered"]) =>
+      const card = (id: string, rendered: SurfaceOpenPushCard["rendered"]) =>
         ({
           id,
           seq: Number(id),
@@ -297,7 +297,7 @@ describe("settleSlackCards", () => {
           checkpointRevision: 1,
           gitCommit: "a".repeat(40),
           origin: "direct",
-        }) satisfies SlackOpenPushCard;
+        }) satisfies SurfaceOpenPushCard;
       const store = {
         expireInflight: async () => 0,
         markDue: async () => 0,
@@ -313,7 +313,7 @@ describe("settleSlackCards", () => {
           return true;
         },
         claim: async () => [],
-      } as unknown as SlackCardSettleStore;
+      } as unknown as SurfaceCardSettleStore;
       await settleSlackCards({
         store,
         slack: { updateMessage: async () => {} },
@@ -330,7 +330,7 @@ describe("settleSlackCards", () => {
 
 describe("createOutboxSlackNoticeSink", () => {
   const record = async (locale: UserLocale | null) => {
-    const enqueued: SlackOutboxEntry[] = [];
+    const enqueued: SurfaceOutboxEntry[] = [];
     const asked: unknown[] = [];
     const sink = createOutboxSlackNoticeSink({
       async enqueue(entry) {

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { SlackOutboxClaim, SlackOutboxKind } from "@werft-ai/platform";
+import type { SurfaceOutboxClaim, SurfaceOutboxKind } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import { createRowDelivery } from "./outbox-delivery.ts";
 import { createSlackBotApi } from "./slack-config-api.ts";
@@ -20,7 +20,7 @@ beforeAll(() => {
 });
 afterAll(() => fakeSlack.stop());
 
-function rowOf(kind: SlackOutboxKind, channelId: string): SlackOutboxClaim {
+function rowOf(kind: SurfaceOutboxKind, channelId: string): SurfaceOutboxClaim {
   return {
     id: `row-${kind}-${channelId}`,
     claimToken: "claim-1",
@@ -40,7 +40,7 @@ function rowOf(kind: SlackOutboxKind, channelId: string): SlackOutboxClaim {
   };
 }
 
-async function deliver(row: SlackOutboxClaim) {
+async function deliver(row: SurfaceOutboxClaim) {
   fakeSlack.messages.length = 0;
   const before = fakeSlack.calls.length;
   let begun = false;
@@ -72,7 +72,7 @@ async function deliver(row: SlackOutboxClaim) {
 
 // Design v3 decision 45: the agent never opens a direct message first, and
 // chat.postMessage with a user id as the channel would do just that.
-const REFUSED_KINDS: SlackOutboxKind[] = [
+const REFUSED_KINDS: SurfaceOutboxKind[] = [
   "instruction",
   "reply",
   "notice",

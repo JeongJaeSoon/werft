@@ -1,4 +1,4 @@
-import type { SlackInstallStore } from "@werft-ai/platform";
+import type { SurfaceInstallStore } from "@werft-ai/platform";
 import { and, eq, lt } from "drizzle-orm";
 import { revokeInstallationIdentities } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
@@ -17,7 +17,7 @@ const verifiedAfter = (verifiedAt: Date | null, sentAt: Date) =>
 
 export function createPostgresSlackInstallStore(
   db: Database,
-): SlackInstallStore {
+): SurfaceInstallStore {
   return {
     async issueState(stateHash, state, now) {
       await db

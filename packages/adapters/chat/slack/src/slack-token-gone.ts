@@ -1,7 +1,7 @@
 import type {
   AgentIdentityStore,
   SecretStore,
-  SlackInstallStore,
+  SurfaceInstallStore,
 } from "@werft-ai/platform";
 import { SlackApiError } from "./slack-config-api.ts";
 
@@ -51,7 +51,7 @@ export type SlackTokenRevoked = (input: {
 
 export function createSlackTokenRevoked(deps: {
   identities: Pick<AgentIdentityStore, "list">;
-  installs: Pick<SlackInstallStore, "revokeInstallation">;
+  installs: Pick<SurfaceInstallStore, "revokeInstallation">;
   secrets: Pick<SecretStore, "get">;
   onError?: (error: unknown) => void;
 }): SlackTokenRevoked {

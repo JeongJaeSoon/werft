@@ -8,9 +8,9 @@ import {
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
-} from "../app.ts";
-import type { LoginSettingsAdmin } from "../login-settings.ts";
-import { mapped } from "./errors.ts";
+} from "../../app.ts";
+import type { LoginSettingsAdmin } from "../../login-settings.ts";
+import { mapped } from "../errors.ts";
 
 /** The owner's password switch and emergency admin. */
 export function registerLoginSettingsRoutes(

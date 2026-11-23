@@ -36,7 +36,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/auth/me/login-methods/{provider_id}/link/start",
     "DELETE /v1/auth/me/login-methods/{id}",
   ],
-  "routes/login-providers.test.ts": [
+  "routes/musterrolle/login-providers.test.ts": [
     "GET /v1/login-providers",
     "POST /v1/login-providers/discover",
     "POST /v1/login-providers",
@@ -48,11 +48,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/login-providers/{id}/disable",
     "DELETE /v1/login-providers/{id}",
   ],
-  "routes/login-settings.test.ts": [
+  "routes/musterrolle/login-settings.test.ts": [
     "GET /v1/login-settings",
     "PATCH /v1/login-settings",
   ],
-  "routes/installation-config.test.ts": [
+  "routes/limits/installation-config.test.ts": [
     "GET /v1/installation-config",
     "PATCH /v1/installation-config",
   ],
@@ -124,11 +124,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/sessions/{id}/outputs",
     "GET /v1/sessions/{id}/outputs/{path}",
   ],
-  "routes/musterrolle/installation-settings.test.ts": [
+  "routes/sessions/installation-settings.test.ts": [
     "GET /v1/installation/settings/export",
     "POST /v1/installation/settings/import",
   ],
-  "routes/settings-console.test.ts": [
+  "routes/sessions/settings-console.test.ts": [
     "GET /v1/installation/settings/connections",
     "POST /v1/installation/settings/connections",
     "GET /v1/installation/settings/connections/{id}/impact",
@@ -268,7 +268,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/workspace/mcp-servers/{id}/disconnect",
     "POST /v1/workspace/mcp-servers/{id}/tools/refresh",
   ],
-  "routes/musterrolle/skills.test.ts": [
+  "routes/extensions/skills.test.ts": [
     "GET /v1/workspace/skills",
     "POST /v1/workspace/skills",
     "POST /v1/workspace/skills/github",

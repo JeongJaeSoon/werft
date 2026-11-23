@@ -4,7 +4,7 @@ import {
   lastFour,
   type SecretKey,
   type SecretSlot,
-  type SlackConfigTokenStore,
+  type SurfaceConfigTokenStore,
 } from "@werft-ai/platform";
 import { and, eq } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
@@ -93,13 +93,13 @@ async function markNeedsReentry(tx: Database, workspaceId: string) {
 }
 
 /**
- * The App Configuration Token of each workspace (see SlackConfigTokenStore):
+ * The App Configuration Token of each workspace (see SurfaceConfigTokenStore):
  * every method is one short transaction and none waits on Slack.
  */
 export function createPostgresSlackConfigTokenStore(
   db: Database,
   key: SecretKey,
-): SlackConfigTokenStore {
+): SurfaceConfigTokenStore {
   return {
     claim(named, clock) {
       const workspaceId = named.toLowerCase();

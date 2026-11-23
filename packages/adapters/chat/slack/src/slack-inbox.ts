@@ -5,8 +5,8 @@ import {
 import type {
   BufferedInputReceipt,
   InboundInputReceipt,
-  SlackInboundClaim,
-  SlackInboundEventStore,
+  SurfaceInboundClaim,
+  SurfaceInboundEventStore,
 } from "@werft-ai/platform";
 
 /**
@@ -41,7 +41,7 @@ export function slackConversationKey(
  * returning marks it processed, taking the input it returns with it.
  */
 export type SlackInboundHandler = (
-  event: SlackInboundClaim,
+  event: SurfaceInboundClaim,
   // biome-ignore lint/suspicious/noConfusingVoidType: most handlers take no input and return nothing.
 ) => Promise<InboundInputReceipt | BufferedInputReceipt | void>;
 
@@ -81,7 +81,7 @@ export type SlackInboxDrain = {
  * database's.
  */
 export async function drainSlackInbox(deps: {
-  inbox: SlackInboundEventStore;
+  inbox: SurfaceInboundEventStore;
   handler: SlackInboundHandler;
   logger: SlackInboxLogger;
   batchSize: number;

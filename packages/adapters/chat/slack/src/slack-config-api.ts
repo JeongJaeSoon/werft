@@ -4,7 +4,7 @@ import {
   type SurfaceChannelKind,
   slackPermalinkSchema,
 } from "@werft-ai/contracts";
-import type { CreatedSlackApp, RotatedConfigToken } from "@werft-ai/platform";
+import type { CreatedSurfaceApp, RotatedConfigToken } from "@werft-ai/platform";
 import { z } from "zod";
 
 // The App Configuration API calls the platform makes with a workspace's
@@ -85,7 +85,7 @@ function retryAfterOf(response: Response): number {
 
 export interface SlackConfigApi {
   rotateConfigToken(refreshToken: string): Promise<RotatedConfigToken>;
-  createApp(configToken: string, manifest: object): Promise<CreatedSlackApp>;
+  createApp(configToken: string, manifest: object): Promise<CreatedSurfaceApp>;
   updateApp(
     configToken: string,
     appId: string,

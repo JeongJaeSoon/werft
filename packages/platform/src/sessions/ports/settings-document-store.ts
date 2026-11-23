@@ -1,5 +1,5 @@
 import type { ModelFamilies } from "../../catalog/index.ts";
-import type { TeamActor } from "../../ports/team-store.ts";
+import type { TeamActor } from "../../musterrolle/ports/team-store.ts";
 import type {
   SettingsEntries,
   SettingsImportAdd,

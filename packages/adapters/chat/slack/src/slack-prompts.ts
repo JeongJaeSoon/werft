@@ -12,7 +12,7 @@ import {
 } from "@werft-ai/contracts";
 import type {
   PushRequestDisplay,
-  SlackPromptCard,
+  SurfacePromptCard,
   ToolSummaryContext,
 } from "@werft-ai/platform";
 import { isSafeLink } from "./slack-presentation.ts";
@@ -905,7 +905,7 @@ const SETTLED_MARK: Record<SlackPromptResult, string> = {
 
 /** How a request ended, or null while a person can still settle it. */
 export function slackSettledResult(
-  display: SlackPromptCard["display"],
+  display: SurfacePromptCard["display"],
 ): SlackPromptResult | null {
   if (display.kind === "push") {
     if (display.state === "requested") return null;
@@ -922,7 +922,7 @@ export function slackSettledResult(
 
 /** A permission or push in one line, as a settled card keeps it. */
 function settledSummary(
-  display: Exclude<SlackPromptCard["display"], { kind: "question" }>,
+  display: Exclude<SurfacePromptCard["display"], { kind: "question" }>,
   locale: UserLocale,
 ): string {
   if (display.kind === "push") {
@@ -939,7 +939,7 @@ function settledSummary(
  * told one was given, never its words.
  */
 function chosenLabels(
-  display: Extract<SlackPromptCard["display"], { kind: "question" }>,
+  display: Extract<SurfacePromptCard["display"], { kind: "question" }>,
   question: PendingQuestion,
   locale: UserLocale,
 ): string | null {
@@ -979,7 +979,7 @@ const linkElements = (link: string | null, locale: UserLocale) =>
  * decider's mention, the request and the web link. A question keeps its
  * full text with the answer under it. Null while the request is open.
  */
-export function slackSettledCard(card: SlackPromptCard): SlackCard | null {
+export function slackSettledCard(card: SurfacePromptCard): SlackCard | null {
   const result = slackSettledResult(card.display);
   if (result === null) return null;
   const copy = SLACK_PROMPT_MESSAGES[card.locale];
@@ -1092,7 +1092,7 @@ export function slackSettledCard(card: SlackPromptCard): SlackCard | null {
  * rejected, never approved, so only Reject stays.
  */
 export function slackRejectOnlyCard(
-  card: SlackPromptCard & {
+  card: SurfacePromptCard & {
     display: { kind: "push" } & PushRequestDisplay;
   },
   ids: { sessionId: string; requestId: string },

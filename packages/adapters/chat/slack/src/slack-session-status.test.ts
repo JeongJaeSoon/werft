@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SlackThreadStatusFacts } from "@werft-ai/platform";
+import type { SurfaceThreadStatusFacts } from "@werft-ai/platform";
 import {
   type SlackSessionStatusMaterial,
   type SlackThreadStatus,
@@ -88,7 +88,7 @@ describe("slackSessionStatus", () => {
 });
 
 describe("slackStatusMaterial", () => {
-  const facts: SlackThreadStatusFacts = {
+  const facts: SurfaceThreadStatusFacts = {
     admissionState: "active",
     executionRevoked: false,
     unknownTurn: false,

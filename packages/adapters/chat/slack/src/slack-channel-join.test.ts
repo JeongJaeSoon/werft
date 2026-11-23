@@ -4,8 +4,8 @@ import type {
   SurfaceMembership,
 } from "@werft-ai/contracts";
 import type {
-  SlackInboundClaim,
   SurfaceBindingRecord,
+  SurfaceInboundClaim,
 } from "@werft-ai/platform";
 import {
   createSlackChannelJoiner,
@@ -541,7 +541,7 @@ describe("the bot's invite", () => {
       eventType: String(event.type),
       eventTime: null,
       payload: { event },
-    }) as unknown as SlackInboundClaim;
+    }) as unknown as SurfaceInboundClaim;
 
   test("the bot invited to its approved home: joined, then the welcome", async () => {
     const h = handler({
@@ -783,7 +783,7 @@ describe("the bot's removal", () => {
       eventType: String(event.type),
       eventTime,
       payload: { event },
-    }) as unknown as SlackInboundClaim;
+    }) as unknown as SurfaceInboundClaim;
 
   test("the bot leaving a channel sends the binding back to approval", async () => {
     const h = handler();

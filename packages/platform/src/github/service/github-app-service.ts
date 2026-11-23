@@ -34,7 +34,7 @@ import {
   SECRET_STORE_OFF,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
-import type { SecretAudit } from "../../ports/secret-store.ts";
+import type { SecretAudit } from "../../secrets/ports/secret-store.ts";
 import { hashToken } from "../../token-hash.ts";
 import {
   GitHubAppCheckError,

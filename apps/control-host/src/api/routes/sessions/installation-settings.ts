@@ -21,8 +21,8 @@ import {
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
-} from "../app.ts";
-import { mapped, requireParams, requireQuery } from "./errors.ts";
+} from "../../app.ts";
+import { mapped, requireParams, requireQuery } from "../errors.ts";
 
 export function registerInstallationSettingsRoutes(
   router: ApiRouter,
