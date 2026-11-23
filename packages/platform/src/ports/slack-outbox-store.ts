@@ -429,11 +429,13 @@ export interface SlackCardSettleStore {
   /** Marks one card `due` by its row (a push whose approvability moved). */
   /**
    * Marks `due` the push cards still showing a choice in one channel of an
-   * install, whose requester may have joined or left it. Returns how many.
+   * install, whose requester may have joined or left it; one being drawn
+   * now is drawn again `windowMs` later. Returns how many.
    */
   markPushCardsDueIn(input: {
     installationId: string;
     channelId: string;
+    windowMs: number;
   }): Promise<number>;
   markDueById(id: string): Promise<boolean>;
   /**

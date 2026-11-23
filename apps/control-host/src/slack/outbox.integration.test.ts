@@ -3572,24 +3572,20 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
       },
       requestReceiptId: receiptId,
     });
-    await outboxPass();
-    await outboxPass();
+    let left = true;
+    const requesterLeft = async () => left;
+    // The requester left before the card went out: the same pass draws it
+    // again at once.
+    await outboxPass({ requesterLeft });
+    await outboxPass({ requesterLeft });
     const [card] = posted();
     if (!card) throw new Error("no card");
     const row = await cardRow();
     const here = {
       installationId: row.installationId,
       channelId: row.channelId,
+      windowMs: W,
     };
-    let left = true;
-    const requesterLeft = async () => left;
-
-    // A member change elsewhere leaves the card; one in its channel redraws it.
-    expect(
-      await cards().markPushCardsDueIn({ ...here, channelId: "C0OTHER" }),
-    ).toBe(0);
-    expect(await cards().markPushCardsDueIn(here)).toBe(1);
-    await settler({ requesterLeft });
     const drawn = lines(updated()[0]?.blocks ?? []);
     const buttons = drawn.findIndex((line) => line?.includes("push.reject"));
     expect(drawn[buttons - 1]).toBe(
@@ -3601,13 +3597,44 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
       settleState: null,
     });
 
+    // Back in: a member change elsewhere leaves the card; one in its channel
+    // redraws it without the line.
     left = false;
+    expect(
+      await cards().markPushCardsDueIn({ ...here, channelId: "C0OTHER" }),
+    ).toBe(0);
     expect(await cards().markPushCardsDueIn(here)).toBe(1);
     await settler({ requesterLeft });
     expect(updated()[1]?.blocks).toEqual(
       JSON.parse(card.options.blocks ?? "[]"),
     );
-    expect(await cardRow()).toMatchObject({ settleRendered: "open" });
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "open",
+      settleState: null,
+    });
+
+    // A change while the card is being drawn: that edit may have read the
+    // old membership, so finishing it leaves the card owed a window later.
+    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    const [claim] = await cards().claim({
+      limit: 1,
+      leaseMs: LEASE,
+      graceMs: GRACE,
+      only: { channelId: row.channelId, slackTs: row.slackTs ?? "" },
+    });
+    if (!claim) throw new Error("no claim");
+    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    expect(await cards().beginSend(claim, 0)).not.toBeNull();
+    expect(
+      await cards().finish(claim, {
+        rendered: "open",
+        uncertainRev: claim.uncertainRev,
+        windowMs: W,
+      }),
+    ).toBe(true);
+    const after = await cardRow();
+    expect(after.settleUncertainLatestAt).not.toBeNull();
+    expect(after.settleNextAt).not.toBeNull();
   });
 
   test("a turn's notice from before the cards ends as one handled line once its turn waits no more", async () => {

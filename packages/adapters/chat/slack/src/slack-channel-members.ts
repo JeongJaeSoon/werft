@@ -9,6 +9,7 @@ import {
   type SlackCardSettleStore,
 } from "@werft-ai/platform";
 import { z } from "zod";
+import { SLACK_CARD_SETTLE_TIMING } from "./slack-card-settle.ts";
 import { lifecycleChannelOf } from "./slack-channel-lifecycle.ts";
 import {
   SLACK_CHANNEL_PAGE_SIZE,
@@ -165,6 +166,7 @@ export function createSlackMemberCacheInvalidator(deps: {
           await deps.cards?.markPushCardsDueIn({
             installationId: agent.installationId,
             channelId: channel,
+            windowMs: SLACK_CARD_SETTLE_TIMING.windowMs,
           });
         }
       }

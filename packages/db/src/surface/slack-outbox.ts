@@ -442,13 +442,24 @@ function createPostgresSlackCardSettleStore(
       );
     },
 
-    markPushCardsDueIn({ installationId, channelId }) {
-      return markDueWhere(
-        sql`o.settle_state IS NULL AND ${SHOWS_CHOICE}
-          AND o.dedupe_key LIKE 'push:%'
-          AND o.installation_id = ${installationId}
-          AND o.channel_id = ${channelId}`,
+    async markPushCardsDueIn({ installationId, channelId, windowMs }) {
+      const inChannel = sql`${SENT_CARD} AND ${SHOWS_CHOICE}
+        AND o.dedupe_key LIKE 'push:%'
+        AND o.installation_id = ${installationId}
+        AND o.channel_id = ${channelId}`;
+      const idle = await markDueWhere(
+        sql`o.settle_state IS NULL AND ${inChannel}`,
       );
+      // A card being drawn now may have read the membership before this
+      // change: its edit is taken as uncertain, so finish keeps it owed and
+      // it is drawn again a window later.
+      const drawing = await rowsOf<Raw>(
+        await db.execute(sql`
+          UPDATE slack_outbox o SET ${recordUncertain(sql`now()`, windowMs)}
+          WHERE o.settle_claim_token IS NOT NULL AND ${inChannel}
+          RETURNING o.id`),
+      );
+      return idle + drawing.length;
     },
 
     async markDueById(id) {
@@ -1407,6 +1418,9 @@ export function createPostgresSlackOutboxStore(
               errorCode: null,
               // A posted card shows its buttons until its request moves on.
               settleRendered: sql`CASE WHEN ${t.kind} = 'input_notice' THEN 'open' ELSE ${t.settleRendered} END`,
+              // A push card is drawn once more at once: its requester may
+              // have left the channel before it was posted.
+              settleState: sql`CASE WHEN ${t.kind} = 'input_notice' AND ${t.dedupeKey} LIKE 'push:%' THEN 'due' ELSE ${t.settleState} END`,
             }
           : outcome.status === "pending"
             ? {

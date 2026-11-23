@@ -1098,8 +1098,10 @@ export function createAuthorizationPolicy(
             );
       // A private channel's member, who sees the session, decides a push
       // whose requester left the channel; the requester no longer sees it.
-      if (
+      // Only the role refusal is lifted: every check below still runs.
+      const requesterLeft =
         answer === "role" &&
+        action === "session.approve" &&
         resource.id !== null &&
         resource.push_request_id !== undefined &&
         (await pushRequesterLeft(
@@ -1114,11 +1116,8 @@ export function createAuthorizationPolicy(
             pushRequestId: resource.push_request_id,
             places,
           },
-        ))
-      ) {
-        return ["ok", scopes];
-      }
-      if (answer !== "ok") return [answer, scopes];
+        ));
+      if (answer !== "ok" && !requesterLeft) return [answer, scopes];
     }
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];

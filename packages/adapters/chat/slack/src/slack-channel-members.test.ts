@@ -290,7 +290,11 @@ describe("Slack channel member check", () => {
       "member_joined_channel",
       "group_left",
     ]);
-    const here = { installationId: INSTALL, channelId: t.inside.id };
+    const here = {
+      installationId: INSTALL,
+      channelId: t.inside.id,
+      windowMs: 5 * 60_000,
+    };
     expect(redrawn).toEqual([here, here, here]);
   });
 

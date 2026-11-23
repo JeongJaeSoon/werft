@@ -450,6 +450,42 @@ describe("approving after the requester left the private channel", () => {
     expect(await decide(person("member"), { push: null })).toBe("role");
   });
 
+  test("only the role refusal is lifted: rename keeps its rule, and an agent acting for the member still meets its ceiling", async () => {
+    const authorize = (
+      subject: Caller["subject"],
+      action: "session.approve" | "session.rename",
+    ) =>
+      policyWith({})
+        .authorize({
+          subject,
+          action,
+          resource: {
+            kind: "session",
+            id: PRIVATE_SESSION,
+            owner_scope: WORKSPACE,
+            push_request_id: PUSH,
+          },
+          request_id: "r",
+        })
+        .then(
+          (decision) => authorizationDecisionSchema.parse(decision).reason_code,
+        );
+    const member = person("member");
+    expect(await authorize(member.subject, "session.rename")).toBe("role");
+    expect(
+      await authorize(
+        {
+          ...member.subject,
+          agent: {
+            agent_id: "019a0000-0000-7000-8000-0000000000f1",
+            release_id: "release-1",
+          },
+        },
+        "session.approve",
+      ),
+    ).toBe("agent_ceiling");
+  });
+
   test("a public channel's session keeps its rule though the requester left", async () => {
     expect(await decide(person("member"), { sessionId: PUBLIC_SESSION })).toBe(
       "role",
