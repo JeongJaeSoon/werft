@@ -27,10 +27,14 @@ const deferred = new Map([
   ],
 ]);
 
-/** Product files under apps/ and packages/ that name a deferred entry point outside its own file. */
+/**
+ * Product files under apps/, packages/ and scripts/ that name a deferred entry
+ * point outside its own file, as an identifier or a string (`ns["name"]`). A
+ * name assembled at run time is not seen.
+ */
 async function deferredCallers(): Promise<string[]> {
   const found: string[] = [];
-  for (const top of ["apps", "packages"]) {
+  for (const top of ["apps", "packages", "scripts"]) {
     const files = await typescriptFiles(
       join(root, top),
       (name) => !/\.test\.tsx?$/.test(name),
@@ -49,7 +53,7 @@ async function deferredCallers(): Promise<string[]> {
       );
       const visit = (node: ts.Node) => {
         if (
-          ts.isIdentifier(node) &&
+          (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
           deferred.has(node.text) &&
           deferred.get(node.text) !== path
         )

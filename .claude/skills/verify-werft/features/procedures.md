@@ -869,66 +869,85 @@ node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 
 ## P-A0 — a0 완료 조건 실제 출력
 
-a0(대화 단위 기록·비공개 채널·삭제) 완료 조건을 mock Slack run에서 다시 내는 절차다. P-SLACK-SETUP으로 설치를 끝낸 별도 run에서 위에서 아래로 실행한다. 사람은 owner, member(`mem`, `U0MEM1`), 채널 밖 member(`out`, `U0OUT`), 연결을 끊을 member(`unl`, `U0UNL`) 넷이다. 모두 P-API-MEMBERS로 초대·수락하고, 각자 아래 `a0_link`로 Slack 계정을 잇는다. mention 이벤트는 api 컨테이너 안에서 보낸다(`a0_event`). seq가 6자리를 넘으므로 `web-user.mjs`를 거치지 않는다. mention ts는 `1792800000+seq`이다. 비공개 채널 승인 당일의 seq 상한 때문에 큰 seq(2,660,000 이상)를 쓴다.
+a0(대화 단위 기록·비공개 채널·삭제) 완료 조건을 mock Slack run에서 다시 내는 절차다. P-SLACK-SETUP으로 설치를 끝낸 별도 run에서 위에서 아래로 실행한다(ids.sh의 `$AID`·`$APP`). 사람은 owner(`U0MOCK`), member `mem`(`U0MEM1`), 채널 밖 member `out`(`U0OUT`), 연결을 끊을 member `unl`(`U0UNL`) 넷이다. 모두 P-API-MEMBERS로 초대·수락한 뒤 아래 `a0_link`로 각자의 Slack 사람을 잇는다. 이벤트는 api 컨테이너 안에서 보낸다(`a0_event`). seq가 6자리를 넘으므로 `web-user.mjs`를 거치지 않는다. 글의 ts는 `1792800000+seq`이다. 비공개 채널은 승인한 시각보다 앞선 ts의 글을 받지 않으므로, seq는 지금 시각보다 20분 뒤를 기준(`S`)으로 잡고 그 위의 오프셋으로 쓴다. 이벤트마다 `{"ok":true}`와 200이 나와야 한다. 빈 출력이면 같은 줄을 다시 보낸다.
 
 ```sh
-# Actor: stack operator. 이후 블록은 이 함수들을 다시 정의하고 시작한다.
+# Actor: stack operator. 이후 블록은 새 셸이면 이 함수들을 다시 정의하고 시작한다.
 a0_event() { ap_compose exec -T -w /app api bun -e "$(cat scripts/verify/slack-event.ts)" "$@"; }
-a0_mock() { ap_compose exec -T api bun -e "const r = await fetch('http://mock-slack:4020'+process.argv[1], process.argv[2] ? {method:'POST', body: process.argv[2]} : {}); console.log(await r.text())" "$@"; }
+a0_mock() { ap_compose exec -T api bun -e 'const [path, body] = process.argv.slice(1); const r = await fetch("http://mock-slack:4020" + path, body ? { method: "POST", body } : {}); console.log(await r.text())' "$@"; }
 a0_sql() { ap_compose exec -T postgres psql -U postgres -d sessions -c "$1"; }
+a0_val() { ap_compose exec -T postgres psql -U postgres -d sessions -tA -c "$1"; }
+a0_settle() { # 받은 이벤트를 worker가 모두 처리할 때까지(최대 60초)
+  for i in $(seq 1 60); do
+    [ "$(a0_val "select count(*) from slack_inbound_events where status='received'")" = 0 ] && return 0
+    sleep 1
+  done
+  echo "inbox not settled"; return 1
+}
 a0_link() { # <who> <slack user>: mock IdP의 mock_user로 다른 Slack 사람을 잇는다
   ap_as "$1"
   START=$(ap_web POST /v1/linked-accounts/slack/start | head -1)
-  AP_COOKIE_EXTRA=$(sed -n 's/^[Ss]et-[Cc]ookie: (werft_slack_link=[^;]*).*//p' "$VERIFY_RUN/headers" | tr -d '')
+  AP_COOKIE_EXTRA=$(sed -n 's/^[Ss]et-[Cc]ookie: \(werft_slack_link=[^;]*\).*/\1/p' "$VERIFY_RUN/headers" | tr -d '\r')
   BODY=$(printf '%s' "$START" | jq -r --arg u "$2" '.authorize_url + "&mock_user=" + $u' | ap_compose exec -T api bun -e 'const r = await fetch((await Bun.stdin.text()).trim(), { redirect: "manual" }); const q = new URL(r.headers.get("location")).searchParams; console.log(JSON.stringify({code: q.get("code"), state: q.get("state")}));')
   ap_web POST /v1/linked-accounts/slack/callback "$BODY" | tail -1
   unset START BODY AP_COOKIE_EXTRA
 }
+a0_session() { # <channel> <seq>: 그 글이 연 세션 id
+  a0_val "select session_id from session_links where surface_ref='$1:$((1792800000 + $2)).000001'"
+}
 a0_matrix() { # <label> <session>: 사람마다 상세 상태 코드와 목록 포함 여부
   for w in owner mem out unl; do
     ap_as "$w" >/dev/null
-    printf '%s %s detail=%s list_has=%s
-' "$1" "$w" "$(ap_web GET "/v1/sessions/$2" | tail -1)"       "$(ap_web GET '/v1/sessions?limit=50' | head -1 | jq --arg s "$2" '[.items[]?|select(.id==$s)]|length')"
+    printf '%s %s detail=%s list_has=%s\n' "$1" "$w" "$(ap_web GET "/v1/sessions/$2" | tail -1)" \
+      "$(ap_web GET '/v1/sessions?limit=50' | head -1 | jq --arg s "$2" '[.items[]?|select(.id==$s)]|length')"
   done
 }
+S=$(( $(date +%s) - 1792800000 + 1200 ))
+printf 'S=%s\n' "$S"   # ids.sh에 적는다
+a0_link owner U0MOCK
+a0_link mem U0MEM1
+a0_link out U0OUT
+a0_link unl U0UNL
+a0_mock /fake/channels "$(jq -nc --arg app "$APP" '{app_id:$app, channels:[
+  {name:"a0-private", is_private:true, bot_member:true, user_ids:["U0MOCK","U0MEM1","U0UNL"]},
+  {name:"a0-public", bot_member:true, user_ids:["U0MOCK","U0MEM1","U0OUT","U0UNL"]},
+  {name:"a0-old", bot_member:true, user_ids:["U0MOCK","U0MEM1","U0UNL"]}]}')"
 ```
 
-기대: `a0_link` callback 200, `GET /v1/linked-accounts`의 `external_user_id`가 넘긴 Slack 사람이다.
+기대: `a0_link` callback 201 넷. 채널 응답의 id를 `PRIV`(G…)·`PUB`·`OLD`(C…)로 ids.sh에 적는다. 공개 두 채널은 P-SLACK-MENTION-ONLY처럼 `PUT` binding `mode:"on"`으로 켠다. `OLD`는 P-A0-PRIVATE-MOVE에서 비공개로 바꾸므로 다른 절차는 `PUB`을 쓴다.
 
 ## P-A0-PRIVATE — 비공개 채널 세션의 열람 범위(조건 2)
 
 ```sh
 # Actor: stack operator, then owner.
-a0_mock /fake/channels "{"app_id":"$APP","channels":[{"name":"a0-private","is_private":true,"bot_member":true,"user_ids":["U0MOCK","U0MEM1","U0UNL"]},{"name":"a0-public","bot_member":true,"user_ids":["U0MOCK","U0MEM1","U0OUT","U0UNL"]}]}"
-# 돌아온 id를 PRIV(G…)·PUB(C…)로 ids.sh에 적는다.
-a0_event "$AID" join "$PRIV" 2660001
+a0_event "$AID" join "$PRIV" $((S + 1))
+a0_settle
 ap_as owner
-BID=$(ap_web GET "/v1/agents/$AID/slack-bindings" | head -1 | jq -r --arg c "$PRIV" '.items[]|select(.external_surface_id==$c)|.id')
-REV=$(ap_web GET "/v1/agents/$AID/slack-bindings" | head -1 | jq -r --arg c "$PRIV" '.items[]|select(.external_surface_id==$c)|.revision')
-ap_web POST "/v1/agents/$AID/slack-bindings/$BID/approve" "{"revision":$REV}" | tail -1
-a0_event "$AID" mention "$PRIV" 2661100
-a0_sql "select s.id, sh.scope from sessions s join session_links l on l.session_id=s.id left join session_shares sh on sh.session_id=s.id where l.surface_ref like '$PRIV:%'"
-# 그 세션 id를 PS로 적는다.
+BIND=$(ap_web GET "/v1/agents/$AID/slack-bindings" | head -1 | jq -c --arg c "$PRIV" '.items[]|select(.external_surface_id==$c)|{id,revision,status}')
+echo "$BIND"
+ap_web POST "/v1/agents/$AID/slack-bindings/$(printf '%s' "$BIND" | jq -r .id)/approve" "$(printf '%s' "$BIND" | jq -c '{revision}')" | tail -1
+a0_event "$AID" mention "$PRIV" $((S + 100))
+a0_settle
+PS=$(a0_session "$PRIV" $((S + 100)))
+a0_sql "select scope from session_shares where session_id='$PS'"
 a0_matrix A1 "$PS"
 ```
 
-기대: join 200, binding `pending_approval` → approve 200 `ready`. 세션 PS의 share scope는 `private_channel`. A1: owner·mem·unl 200·`list_has=1`, out 404·`list_has=0`.
+기대: binding `status:"pending_approval"` → approve 200 `ready`. `PS`(ids.sh에 적는다)의 scope는 `private_channel`. A1: owner·mem·unl 200·`list_has=1`, out 404·`list_has=0`.
 
-에이전트 key와 개인 key(`sessions:read,sessions:write,sessions:approve`)는 사람의 채널 자격이 없으므로 PS를 읽지 못한다. P-API-KEYS로 두 key를 만든 뒤 각 key로 아래를 돌린다. 대조로 같은 개인 key가 자기 웹 세션을 읽으면 200이다.
+에이전트 key와 owner의 개인 key(`sessions:read,sessions:write,sessions:approve`)는 사람의 채널 자격이 없으므로 `PS`를 읽지 못한다. P-API-KEYS로 두 key를 만들고, 각 key를 `ap_get`·`ap_post`가 쓰도록 실린 셸에서 아래를 돌린다. 대조로 같은 개인 key로 만든 웹 세션(`ap_post /v1/sessions …`의 `session_id`)은 200이다. 대조 세션도 워커 슬롯을 쓰므로 확인한 뒤 닫는다(P-A0-DELETE의 close).
 
 ```sh
-# Actor: owner's personal key, then the agent key (ap_get/ap_post가 key를 쓴다).
-for p in "" /turns /pending-requests /outputs /usage; do printf '%s %s
-' "$p" "$(ap_get "/v1/sessions/$PS$p" | tail -1)"; done
+# Actor: owner's personal key, then the agent key.
+for p in "" /turns /pending-requests /outputs /usage; do printf '%s %s\n' "$p" "$(ap_get "/v1/sessions/$PS$p" | tail -1)"; done
 ap_post "/v1/sessions/$PS/messages" '{"message":"key write"}' | tail -1
 ap_post "/v1/sessions/$PS/answers" '{"request_id":"00000000-0000-4000-8000-000000000000","kind":"permission","action":"allow"}' | tail -1
 ap_post "/v1/sessions/$PS/push-requests" '{}' | tail -1
-ap_curl key -o /dev/null -w '%{http_code}
-' --max-time 3 "$API/v1/sessions/$PS/events"
+ap_curl key -o /dev/null -w '%{http_code}\n' --max-time 3 "$API/v1/sessions/$PS/events"
 ap_get '/v1/sessions?limit=50' | head -1 | jq --arg s "$PS" '[.items[]|select(.id==$s)]|length'
 ```
 
-기대: 모두 404, 목록 0.
+기대: 모두 404. 개인 key의 목록에는 없다(0). 에이전트 key의 목록은 403 `agent_ceiling`이다(사람의 자격 없이 세션 목록을 읽지 못한다).
 
 ```sh
 # A2: Slack 연결을 끊은 사람. Actor: unl.
@@ -936,16 +955,17 @@ ap_as unl
 LAID=$(ap_web GET /v1/linked-accounts | head -1 | jq -r '.items[0].id')
 ap_web DELETE "/v1/linked-accounts/$LAID" | tail -1
 a0_matrix A2 "$PS"
-# A3: 요청자(U0MOCK)가 채널을 나감. member cache는 person-leave 이벤트로 무효가 된다.
-a0_mock /fake/channel-members "{"channel_id":"$PRIV","remove":["U0MOCK"]}"
-a0_event "$AID" person-leave "$PRIV" 2661200 "" U0MOCK
-sleep 6
+# A3: 요청자(U0MOCK)가 채널을 나간다. member cache는 person-leave 이벤트로 무효가 된다.
+a0_mock /fake/channel-members "$(jq -nc --arg c "$PRIV" '{channel_id:$c, remove:["U0MOCK"]}')"
+a0_event "$AID" person-leave "$PRIV" $((S + 200)) "" U0MOCK
+a0_settle
 a0_matrix A3 "$PS"
 ap_as owner
 ap_web POST "/v1/sessions/$PS/messages" '{"message":"after leave"}' | tail -1
 # A4: Slack이 멤버를 답하지 못하면 닫힌다. A5: 돌아오면 다시 열린다.
-a0_mock /fake/channel-members "{"channel_id":"$PRIV","add":["U0MOCK"]}"
-a0_event "$AID" person-join "$PRIV" 2661300 "" U0MOCK
+a0_mock /fake/channel-members "$(jq -nc --arg c "$PRIV" '{channel_id:$c, add:["U0MOCK"]}')"
+a0_event "$AID" person-join "$PRIV" $((S + 300)) "" U0MOCK
+a0_settle
 ap_compose pause mock-slack
 a0_matrix A4 "$PS"
 ap_compose unpause mock-slack
@@ -953,57 +973,69 @@ a0_matrix A5 "$PS"
 a0_sql "select channel_id, status from slack_outbox where session_id='$PS'"
 ```
 
-기대: A2 unl 404(다른 사람은 그대로). A3 owner 404, owner messages 404, mem 200. A4 모두 404(fail closed). A5 mem·owner 200. mem의 answers는 403이다(mem은 `session.approve`가 없다. 범위 실패가 아니다). outbox는 PS 채널(G…) 한 행 `sent`, DM(U…/D…) 행 없음. `person-join`·`person-leave`는 `member_joined_channel`·`member_left_channel`에 bot 대신 `text`의 사람(비면 `U0MOCK`)을 넣는다.
+기대: A2 unl 404(다른 사람은 그대로). A3 owner 404·목록 0, owner messages 404, mem 200. A4 모두 404(fail closed). A5 owner·mem 200. mem의 answers는 403이다(mem에게 `session.approve`가 없다. 범위 실패가 아니다). outbox는 `$PRIV` 한 행 `sent`, DM(U…/D…) 행 없음. `person-join`·`person-leave`는 `member_joined_channel`·`member_left_channel`에 bot 대신 `text`의 사람(비면 `U0MOCK`)을 넣는다.
 
 ## P-A0-PRIVATE-MOVE — 공개였다 비공개가 된 채널의 옛 세션(조건 2, A7)
 
 ```sh
 # Actor: stack operator. 운영자 명령은 api 컨테이너에서만 돈다.
-a0_event "$AID" mention "$PUB" 2661400
-# 그 세션 id를 OS로 적는다.
-a0_mock /fake/conversions "{"channel_id":"$PUB","is_private":true}"
+a0_event "$AID" mention "$OLD" $((S + 400))
+a0_settle
+OS=$(a0_session "$OLD" $((S + 400)))
+a0_mock /fake/conversions "$(jq -nc --arg c "$OLD" '{channel_id:$c, is_private:true}')"
 ap_compose exec -T -w /app api bun run apps/control-host/src/api/private-channel-sessions.ts plan --agent "$AID"; echo "exit=$?"
 ap_compose exec -T -w /app api bun run apps/control-host/src/api/private-channel-sessions.ts apply --agent "$AID"; echo "exit=$?"
 ap_compose exec -T -w /app api bun run apps/control-host/src/api/private-channel-sessions.ts apply --agent "$AID"; echo "exit=$?"
 a0_sql "select scope from session_shares where session_id='$OS'"
+a0_sql "select surface_kind, status from surface_bindings where external_surface_id='$OLD'"
 a0_matrix A7 "$OS"
 ```
 
-기대: plan `{"outcome":"planned",…"from":"workspace","to":"private_channel","people_losing":0,…}` exit 0. 첫 apply는 그 세션을 `moved`에 넣고 exit 0, 두 번째는 `moved:[]`·`unchanged`만 늘고 exit 0. scope `private_channel`, binding은 `private_channel`·`pending_approval`로 바뀐다. A7: owner·mem 200, out 404, owner 개인 key 404. 옮기기 전에도 mem·out은 404다. share 행이 없는 공개 채널 세션은 만든 사람만 읽는다(plan의 `from:"workspace"`는 채널 종류를 말한다). Slack에서 채널 종류를 읽지 못한 채널은 `unconfirmed_channels`에 들고 exit 3으로 끝난다. 실제 Slack 설치에서 모든 채널이 `reason:"failed"`로 나오면 명령의 Slack 읽기 경로 문제다(mock run에서는 재현되지 않는다).
+기대: plan `{"outcome":"planned",…"from":"workspace","to":"private_channel","people_losing":0,…}` exit 0. 첫 apply는 그 세션을 `moved`에 넣고 exit 0, 두 번째는 `moved:[]`로 exit 0. scope `private_channel`, binding `private_channel`·`pending_approval`. A7: owner·mem 200, out(채널 밖)·unl(연결 끊음) 404, owner 개인 key(`ap_get`) 404. 옮기기 전에도 mem·out은 404다. share 행이 없는 공개 채널 세션은 만든 사람만 읽는다(plan의 `from:"workspace"`는 채널 종류를 말한다). Slack에서 채널 종류를 읽지 못한 채널은 `unconfirmed_channels`에 들고 exit 3으로 끝난다. 실제 Slack 설치에서 모든 채널이 `reason:"failed"`로 나오면 명령의 Slack 읽기 경로 문제다(mock run에서는 재현되지 않는다).
 
 ## P-A0-DELETE — 근거 메시지 삭제(조건 3)
 
+워커 슬롯이 차 있으면 턴이 줄에 선다. 앞 절차의 세션을 닫고 시작한다.
+
 ```sh
-# Actor: stack operator, then owner. 턴이 40초 걸리게 해서 도는 중에 지운다.
+# Actor: owner, then stack operator. 턴이 40초 걸리게 해서 도는 중에 지운다.
+ap_as owner
+for s in "$PS" "$OS"; do
+  ap_web POST "/v1/sessions/$s/close" "$(ap_web GET "/v1/sessions/$s" | head -1 | jq -c '{expected_revision:.revision}')" | tail -1
+done
 SPEC='GATE-SPEC {"id":"a0-del","steps":[],"final":"deleted-answer","finalDelayMs":40000}'
-a0_event "$AID" mention "$PUB" 2661500 "" "run $SPEC"
+a0_event "$AID" mention "$PUB" $((S + 500)) "" "run $SPEC"
+a0_settle
+DS=$(a0_session "$PUB" $((S + 500)))
 sleep 10
-a0_event "$AID" delete "$PUB" 2661501 2661500
+a0_event "$AID" delete "$PUB" $((S + 500)) 0
 sleep 45
 a0_sql "select channel_id, ts, reason from deleted_sources order by marked_at desc limit 1"
 a0_sql "select status, sources_turn from slack_outbox where session_id='$DS'"
 a0_mock /fake/messages | jq '[.messages[]|select((.text//"")|contains("deleted-answer"))]|length'
-ap_as owner
 ap_web GET "/v1/sessions/$DS" | head -1 | jq -c '{status,title,title_deleted_at,attention}'
 ap_web GET "/v1/sessions/$DS/turns" | head -1 | jq -c '[.items[]|{message,source_deleted_at}]'
-ap_web POST "/v1/sessions/$DS/resume" '{}' | tail -2
+ap_web POST "/v1/sessions/$DS/resume" "$(ap_web GET "/v1/sessions/$DS" | head -1 | jq -c '{expected_revision:.revision}')" | tail -2
 ap_web POST "/v1/sessions/$DS/messages" '{"message":"after delete"}' | tail -2
 ```
 
-기대: deleted_sources에 `$PUB`·`1795461500.000001` 한 행. outbox `voided_by_delete`(sources_turn 1), mock에 `deleted-answer` 글 0. 세션 idle·paused, title null·`title_deleted_at` 있음, `attention.code:"SOURCE_DELETED"`. turn message `""`·`source_deleted_at` 있음. resume·messages 409 `SOURCE_DELETED`. 줄 대기 중에 지우면(워커 슬롯이 찬 상태) 세션은 queued·paused로 끝난다. 채널 요약 줄 제거는 a0에 요약을 쓰는 경로가 없어 P-A0-DEFERRED의 통합 시험 출력으로 본다.
+기대: deleted_sources에 `$PUB`·`$((1792800000 + S + 500)).000001` 한 행. outbox `voided_by_delete`(sources_turn 1), mock에 `deleted-answer` 글 0. 세션 `status:"idle"`, title null·`title_deleted_at` 있음, `attention.code:"SOURCE_DELETED"`. turn message `""`·`source_deleted_at` 있음. resume·messages 409 `SOURCE_DELETED`. `delete`의 셋째 인자는 지울 글의 seq, 넷째는 그 글이 답글일 때의 부모 seq(최상위면 `0`)다. 턴이 줄에 선 채 지우면 세션은 queued·paused로 끝난다. 채널 요약 줄 제거는 a0에 요약을 쓰는 경로가 없어 P-A0-DEFERRED로 본다.
 
 ## P-A0-INPUT — 같은 글의 재전송과 같은 ts(조건 5, Slack 쪽)
 
 ```sh
 # Actor: stack operator.
-a0_event "$AID" plain "$PUB" 2661700
-a0_event "$AID" mention "$PUB" 2661700
-a0_event "$AID" mention "$PUB" 2661700
-a0_sql "select slack_ts, count(*) from conversation_inputs where slack_ts like '1795461700%' group by 1"
-a0_sql "select count(*) from session_links where surface_ref like '%:1795461700.000001'"
+a0_event "$AID" plain "$PUB" $((S + 700))
+a0_event "$AID" mention "$PUB" $((S + 700))
+a0_event "$AID" mention "$PUB" $((S + 700))
+a0_settle
+T=$((1792800000 + S + 700)).000001
+a0_sql "select event_type, status, count(*) from slack_inbound_events where received_at > now() - interval '1 minute' group by 1, 2"
+a0_sql "select slack_ts, count(*) from conversation_inputs where slack_ts='$T' group by 1"
+a0_sql "select count(*) from session_links where surface_ref='$PUB:$T'"
 ```
 
-기대: 같은 ts의 `message`와 `app_mention`, 그리고 재전송이 inbox 두 행(processed)·input 한 행·세션 하나를 남긴다. 웹 입력의 재시도와 echo는 공개 route가 없어 P-A0-DEFERRED로 본다.
+기대: 같은 ts의 `message`·`app_mention`과 재전송(같은 event id라 inbox 중복)이 processed 두 행·input 한 행·세션 하나를 남긴다. 웹 입력의 재시도와 echo는 공개 route가 없어 P-A0-DEFERRED로 본다.
 
 ## P-A0-TTL — inbox payload와 판정 버퍼(조건 6)
 
@@ -1015,7 +1047,7 @@ a0_sql "select count(buffer_expires_at) as buffered, count(*) from conversation_
 a0_sql "select conversation_rollout from agents where id='$AID'"
 ```
 
-기대: processed 행의 payload 0. 명령은 `{"outcome":"cleared",…,"cleared":0,"batches":1,…}` exit 0. buffered 0, `conversation_rollout`은 `off`(API 없음). 버퍼의 10분 TTL은 스위치가 꺼져 있어 P-A0-DEFERRED로 본다.
+기대: processed·dropped 행의 payload 0. 명령은 `{"outcome":"cleared",…,"cleared":0,…}` exit 0. buffered 0, `conversation_rollout`은 `off`(바꾸는 API 없음). 버퍼의 10분 TTL은 스위치가 꺼져 있어 P-A0-DEFERRED로 본다.
 
 ## P-A0-MODEL-CALLS — 예약과 대화 호출(조건 8)
 
@@ -1027,33 +1059,32 @@ a0_sql "select count(*) from turns where started_at is not null"
 a0_sql "select count(*) from provider_exchanges"
 ```
 
-기대: conversation_calls 0(세션 없는 호출 경로가 없다). 예약은 `state` `settled`뿐이고 시작한 turn마다 하나다(`root_kind` key·user). fake model run이라 provider_exchanges 0.
+기대: conversation_calls 0(세션 없는 호출 경로가 없다). 예약은 모두 `state` `settled`이고(`reserved`·`unknown` 없음) `root_kind`는 key·user다. 한 turn이 예약을 여러 개 남길 수 있어 turn 수와 같지 않다. fake model run이라 provider_exchanges 0.
 
 ## P-A0-CHANNEL-DELETE — 채널 삭제(조건 10)
 
 ```sh
 # Actor: stack operator.
-a0_event "$AID" channel-delete "$PUB" 2661800
-sleep 6
-a0_sql "select count(*) from surface_bindings where external_surface_id='$PUB'"
+a0_event "$AID" channel-delete "$PUB" $((S + 800))
+a0_settle
+a0_sql "select status from surface_bindings where external_surface_id='$PUB'"
 a0_sql "select channel_state from conversations where channel_id='$PUB'"
 a0_sql "select (select count(*) from channel_summaries) as summaries, (select count(*) from channel_summary_lines) as lines"
 ```
 
-기대: binding 0, `channel_state` `deleted`, 요약 0·줄 0(a0에서는 쓴 적이 없다). 요약이 있던 채널의 삭제는 P-A0-DEFERRED로 본다.
+기대: binding `gone`, `channel_state` `deleted`, 요약 0·줄 0(a0에서는 쓴 적이 없다). 요약이 있던 채널의 삭제는 P-A0-DEFERRED로 본다.
 
 ## P-A0-DEFERRED — 실행 경로가 없는 a0 경로
 
-route·운영자 명령·런타임 호출자가 없는 경로는 실제 postgres에서 돈 통합 시험 출력으로 실제 출력을 대신한다. mock DB 시험은 해당하지 않는다. 에이전트 lead 아래에서는 로컬 통합 시험이 막혀 있으므로 main CI의 integration job 로그를 쓴다.
+route·운영자 명령·런타임 호출자가 없는 경로는 실제 postgres에서 돈 통합 시험 출력으로 실제 출력을 대신한다. mock DB 시험은 해당하지 않는다. 에이전트 lead 아래에서는 로컬 통합 시험이 막혀 있으므로 main CI의 integration job 로그를 쓴다. 그 run의 `headSha`가 확인할 커밋이고, integration job이 `success`로 실제로 돌았는지(건너뛴 job이 아닌지) 본다.
 
 ```sh
 # Actor: anyone with gh. 호출자가 없다는 증거.
 bun test tests/a0-deferred-paths.test.ts
-# 그 main 커밋의 CI run과 integration job id.
-gh run list --workflow ci.yml --branch main --limit 1 --json databaseId,headSha
+gh run list --workflow ci.yml --branch main --commit <sha> --json databaseId,headSha,conclusion
 gh run view <run> --json jobs --jq '.jobs[]|select(.name|test("integration"))|{name,databaseId,conclusion}'
 gh run view --job <job> --log > "$EVIDENCE/ci-<job>.log"
-grep -E '((pass|fail|skip))' "$EVIDENCE/ci-<job>.log" | grep -E '<file or test name>'
+grep -E '\((pass|fail|skip)\)' "$EVIDENCE/ci-<job>.log" | grep -F '<test name>'
 ```
 
 기대: `tests/a0-deferred-paths.test.ts` 2 pass(호출자 `[]`). 아래 파일마다 fail 0·skip 0이다.
@@ -1066,7 +1097,7 @@ grep -E '((pass|fail|skip))' "$EVIDENCE/ci-<job>.log" | grep -E '<file or test n
 | 판정 버퍼 TTL | judgment-buffer(db) | "buffer: nine minutes on it stays", "buffer: ten minutes on it is gone" | 버퍼 스위치를 켜는 epic |
 | 요약 줄 삭제 | channel-summaries(db) | "deleting one of three sources takes its line out of every version…", "a deletion deletes the channel's summary with every version…" | 요약을 쓰는 epic |
 
-`tests/a0-deferred-paths.test.ts`가 실패하면 그 경로에 호출자가 생긴 것이다. 그 epic에서 위 행의 실제 출력을 verify stack으로 내고 시험의 목록에서 뺀다.
+`tests/a0-deferred-paths.test.ts`는 선언한 파일 밖의 제품 코드·`scripts/`에서 그 이름(식별자나 문자열)이 나오면 실패한다. 실패하면 그 경로에 호출자가 생긴 것이다. 그 epic에서 위 행의 실제 출력을 verify stack으로 내고 시험의 목록에서 뺀다.
 
 실제 Slack(개발 워크스페이스)에서만 보이는 것은 mock으로 대신하지 않는다. `conversations.members`의 실제 응답, metadata가 붙은 mirror 왕복, tombstone 원본 필드는 bot token을 여는 단계가 필요하므로 오너가 직접 돌린다.
 
