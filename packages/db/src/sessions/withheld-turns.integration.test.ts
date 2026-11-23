@@ -540,6 +540,7 @@ integration("turns withheld for a deleted Slack source on PostgreSQL", () => {
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
       title: "Secret ask from the web",
+      titleSource: "derived",
     });
     await db.insert(turns).values({
       sessionId,
