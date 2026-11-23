@@ -477,10 +477,11 @@ integration("turns withheld for a deleted Slack source on PostgreSQL", () => {
     expect(await titles(named)).toEqual(["Named by a person"]);
     const kept = await read(named.workspaceId, named.sessionId);
     expect(kept.title).toEqual(["Named by a person", null]);
-    // The person's title stays, and so does its status event's.
+    // The person's title stays; a title an event set may be the one made
+    // from the deleted message before the person renamed it, so it goes.
     expect(
       kept.events?.find((frame) => frame.event === "status")?.data,
-    ).toEqual({ phase: "idle", title: "Secret ask" });
+    ).toEqual({ phase: "idle" });
     expect(kept.turns?.[0]).toEqual({
       message: "",
       source_deleted_at: deleted,

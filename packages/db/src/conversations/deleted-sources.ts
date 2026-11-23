@@ -171,7 +171,8 @@ export function directSourceDeletedAt(sources: SQL, workspaceId: SQL): SQL {
     UNION ALL
     SELECT d.deleted_at FROM ${keys}
     JOIN conversation_inputs ci ON ci.workspace_id = ${workspaceId}
-      AND ci.id = CASE WHEN k.key ->> 'input_id' ~ '^[0-9a-fA-F-]{36}$'
+      AND ci.id = CASE WHEN k.key ->> 'input_id'
+        ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
         THEN (k.key ->> 'input_id')::uuid END
     JOIN deleted_sources d ON d.workspace_id = ci.workspace_id
       AND d.team_id = ci.slack_team_id
@@ -180,16 +181,25 @@ export function directSourceDeletedAt(sources: SQL, workspaceId: SQL): SQL {
 }
 
 /**
- * When Slack deleted the message a derived or generated title was cut or
- * made from, the first turn's instruction; null for a title a person gave.
- * `session` names a sessions row as the query calls it.
+ * When Slack deleted a direct source of the session's first turn, whose
+ * instruction a derived or generated title was cut or made from; null when
+ * none was. `session` names a sessions row as the query calls it.
+ */
+export function firstTurnDeletedAt(session: string): SQL {
+  const s = sql.raw(session);
+  return sql`(SELECT ${directSourceDeletedAt(sql.raw("tt.sources"), sql`${s}.workspace_id`)}
+    FROM turns tt WHERE tt.session_id = ${s}.id AND tt.sequence = 1
+      AND tt.sources IS NOT NULL)`;
+}
+
+/**
+ * firstTurnDeletedAt for a derived or generated title; null for a title a
+ * person gave.
  */
 export function titleDeletedAt(session: string): SQL {
   const s = sql.raw(session);
-  return sql`(CASE WHEN ${s}.title_source IN ('derived', 'generated') THEN (
-    SELECT ${directSourceDeletedAt(sql.raw("tt.sources"), sql`${s}.workspace_id`)}
-    FROM turns tt WHERE tt.session_id = ${s}.id AND tt.sequence = 1
-      AND tt.sources IS NOT NULL) END)`;
+  return sql`(CASE WHEN ${s}.title_source IN ('derived', 'generated')
+    THEN ${firstTurnDeletedAt(session)} END)`;
 }
 
 /** The session's title as a reader is served it: none once withheld. */

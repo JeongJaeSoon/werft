@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEventPayload } from "@werft-ai/contracts";
-import { withheldEventPayload } from "./withheld-events.ts";
+import {
+  WITHHELD_ERROR_MESSAGE,
+  withheldEventPayload,
+} from "./withheld-events.ts";
 
 describe("withheldEventPayload", () => {
   const cases: [SessionEventPayload, SessionEventPayload][] = [
@@ -87,6 +90,12 @@ describe("withheldEventPayload", () => {
           subtype: "success",
           result: "Secret answer",
           usage: { output_tokens: 3 },
+          turn: {
+            outcome: "failed",
+            is_error: true,
+            terminal_reason: "Secret path in a reason",
+            tokens: 3,
+          },
         },
       },
       {
@@ -95,8 +104,39 @@ describe("withheldEventPayload", () => {
           type: "result",
           subtype: "success",
           usage: { output_tokens: 3 },
+          turn: {
+            outcome: "failed",
+            is_error: true,
+            terminal_reason: null,
+            tokens: 3,
+          },
         },
       },
+    ],
+    [
+      {
+        event: "system",
+        data: {
+          type: "system",
+          engine_event: { name: "warning", category: "other" },
+          params: { message: "Secret warning" },
+        },
+      },
+      {
+        event: "system",
+        data: {
+          type: "system",
+          engine_event: { name: "warning", category: "other" },
+        },
+      },
+    ],
+    [
+      { event: "error", data: { message: "Secret failure", code: "X" } },
+      { event: "error", data: { message: WITHHELD_ERROR_MESSAGE, code: "X" } },
+    ],
+    [
+      { event: "status", data: { phase: "idle", title: "Secret title" } },
+      { event: "status", data: { phase: "idle" } },
     ],
   ];
 
@@ -104,11 +144,10 @@ describe("withheldEventPayload", () => {
     expect(withheldEventPayload(stored)).toEqual(served);
   });
 
-  test("status, system and error events carry no words and pass as they are", () => {
+  test("the platform's system events and an untitled status pass as they are", () => {
     const kept: SessionEventPayload[] = [
       { event: "status", data: { phase: "idle" } },
       { event: "system", data: { type: "system", subtype: "source_deleted" } },
-      { event: "error", data: { message: "The attempt failed", code: "X" } },
     ];
     for (const payload of kept) {
       expect(withheldEventPayload(payload)).toBe(payload);

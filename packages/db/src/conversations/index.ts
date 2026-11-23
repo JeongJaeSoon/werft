@@ -3,6 +3,7 @@
 export { dropChannelSummaryLinesOf } from "./channel-summaries.ts";
 export {
   directSourceDeletedAt,
+  firstTurnDeletedAt,
   lockedDeletedSource,
   servedTitle,
   sessionHoldsSource,

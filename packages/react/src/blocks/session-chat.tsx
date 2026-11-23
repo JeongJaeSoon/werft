@@ -85,7 +85,9 @@ export function chatItems(
     if (seen.has(frame.id)) continue;
     seen.add(frame.id);
     const { payload } = frame;
-    const withheld = frame.turnId !== null && withheldTurns.has(frame.turnId);
+    const withheld =
+      frame.sourceDeletedAt !== undefined ||
+      (frame.turnId !== null && withheldTurns.has(frame.turnId));
     if (payload.event === "tool_result") {
       const result = eventToolResult(payload.data);
       const index =
@@ -100,6 +102,17 @@ export function chatItems(
           error: result.is_error === true,
         },
       };
+      continue;
+    }
+    if (payload.event === "error" && withheld) {
+      items.push({
+        kind: "reply",
+        id: frame.id,
+        at: frame.occurredAt,
+        text: "",
+        error: true,
+        withheld: true,
+      });
       continue;
     }
     if (payload.event === "error") {
@@ -118,9 +131,10 @@ export function chatItems(
     }
     if (payload.event !== "assistant" && payload.event !== "tool_use") continue;
     const call = eventToolCall(payload.data);
-    if (withheld && frame.turnId !== null) {
-      if (call === null && !heldReplies.has(frame.turnId)) {
-        heldReplies.add(frame.turnId);
+    if (withheld) {
+      const held = frame.turnId ?? frame.id;
+      if (call === null && !heldReplies.has(held)) {
+        heldReplies.add(held);
         items.push({
           kind: "reply",
           id: frame.id,

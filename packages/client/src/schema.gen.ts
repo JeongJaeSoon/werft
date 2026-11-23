@@ -6602,7 +6602,7 @@ export interface components {
              */
             slack_permalink: string | null;
             /**
-             * @description When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.
+             * @description When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` and `terminal_reason` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.
              * @default null
              */
             source_deleted_at: string | null;
@@ -6654,7 +6654,7 @@ export interface components {
              */
             slack_permalink: string | null;
             /**
-             * @description When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.
+             * @description When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` and `terminal_reason` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.
              * @default null
              */
             source_deleted_at: string | null;
@@ -6690,7 +6690,7 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
-                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
                  */
                 source_deleted_at?: string;
                 /**
@@ -6731,7 +6731,7 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
-                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
                  */
                 source_deleted_at?: string;
                 /**
@@ -6767,7 +6767,7 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
-                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
                  */
                 source_deleted_at?: string;
                 /**
@@ -6803,7 +6803,7 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
-                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
                  */
                 source_deleted_at?: string;
                 /**
@@ -6827,7 +6827,7 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
-                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
                  */
                 source_deleted_at?: string;
                 /**
@@ -6859,7 +6859,7 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
-                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
                  */
                 source_deleted_at?: string;
                 /**
@@ -6903,7 +6903,7 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
-                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
                  */
                 source_deleted_at?: string;
                 /**
@@ -6934,7 +6934,7 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
-                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
                  */
                 source_deleted_at?: string;
                 /**

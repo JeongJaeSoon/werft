@@ -105,6 +105,7 @@ import {
 } from "./control-shared.ts";
 import {
   directSourceDeletedAt,
+  firstTurnDeletedAt,
   lockedDeletedSource,
   newTurnSources,
   titleDeletedAt,
@@ -1207,7 +1208,8 @@ function summarizeTurn(
         ? null
         : { user_id: row.actorId, display_name: creatorName },
     requester: requesterView(row),
-    terminal_reason: row.terminalReason,
+    // A reason an engine wrote may quote what the turn read.
+    terminal_reason: sourceDeletedAt === null ? row.terminalReason : null,
     checkpoint_revision: checkpointRevision,
     created_at: row.createdAt.toISOString(),
     started_at: row.startedAt?.toISOString() ?? null,
@@ -1374,7 +1376,9 @@ export function createPostgresSessionReader(
         runtimeKind: sql<RuntimeKind | null>`${sessions.runtimeSpec} -> 'runtime' ->> 'kind'`,
         retiredCheckpointRevision: sessions.contextResetCheckpointRevision,
         workspaceId: sessions.workspaceId,
-        titleDeleted: sql<boolean>`${titleDeletedAt("sessions")} IS NOT NULL`,
+        // Any title an event set may be one made from the first turn,
+        // even once a person renamed the session since.
+        titleDeleted: sql<boolean>`${firstTurnDeletedAt("sessions")} IS NOT NULL`,
       })
       .from(sessions)
       .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))

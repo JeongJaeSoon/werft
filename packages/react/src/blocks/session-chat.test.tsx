@@ -126,4 +126,18 @@ describe("chatItems for a turn whose Slack message was deleted", () => {
       ["reply", "Second answer", false],
     ]);
   });
+  test("frames marked withheld show placeholders without the turns read, an error too", () => {
+    const marked = [
+      ...EVENTS.slice(0, 3),
+      frame("5", "1", "1", {
+        event: "error",
+        data: { message: "Withheld: this turn's Slack message was deleted" },
+      }),
+    ].map((item) => ({ ...item, sourceDeletedAt: DELETED_AT }));
+    expect(shape(chatItems(marked, undefined, format))).toEqual([
+      ["reply", "", true],
+      ["tool", "Read", {}, { text: "", error: false }, true],
+      ["reply", "", true],
+    ]);
+  });
 });
