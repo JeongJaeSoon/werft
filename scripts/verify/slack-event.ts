@@ -63,7 +63,7 @@ const change =
   mode === "delete" ||
   mode === "delete-bot" ||
   mode === "tombstone";
-const target = `${1792800000 + Number(seq)}.000001`;
+const target = slackTsOf(seq) ?? "1792800000.000001";
 const changedAt = `${Math.floor(Date.now() / 1000)}.000002`;
 const changeChannelType = channel.startsWith("D")
   ? "im"
@@ -128,7 +128,16 @@ const changeEvent = {
               : original,
         }),
 };
-const ts = posted ? `${1792800000 + Number(seq)}.000001` : "1792800000.000001";
+// A sequence number stands for the ts 1792800000+n.000001; a full ts (a post
+// the outbox made, read from slack_outbox) is taken as it is, and a `parent`
+// of 0 is no thread.
+function slackTsOf(n: string): string | undefined {
+  if (n === "0") return undefined;
+  return n.includes(".") ? n : `${1792800000 + Number(n)}.000001`;
+}
+const ts = posted
+  ? (slackTsOf(seq) ?? "1792800000.000001")
+  : "1792800000.000001";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const db = drizzle(pool, { schema });
@@ -165,7 +174,7 @@ try {
                 : change
                   ? `EvVerify${mode.replace("-", "")}${channel}${seq}${text ?? ""}`
                   : posted || lifecycle
-                    ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
+                    ? `EvVerify${mode.replace("-", "")}${channel}${seq.replace(/\W/g, "")}`
                     : "EvVerify1",
           event: channelEvent
             ? {
@@ -215,7 +224,7 @@ try {
                           channel_type: "channel",
                           channel,
                           ts,
-                          thread_ts: `${1792800000 + Number(parent)}.000001`,
+                          thread_ts: slackTsOf(parent ?? ""),
                           bot_id: "B0VERIFYOWN",
                           app_id: app.appId,
                           text: text || "verify echo",
@@ -239,7 +248,7 @@ try {
                           text: text || "verify plain post",
                           ...(mode === "reply"
                             ? {
-                                thread_ts: `${1792800000 + Number(parent)}.000001`,
+                                thread_ts: slackTsOf(parent ?? ""),
                               }
                             : {}),
                         }
@@ -251,9 +260,11 @@ try {
                           text: text || "verify inbox",
                           ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
                           ...(botMention ? { bot_id: "B0REVIEW" } : {}),
-                          ...(botMention && parent
+                          ...((botMention || mode === "mention") &&
+                          parent &&
+                          parent !== "0"
                             ? {
-                                thread_ts: `${1792800000 + Number(parent)}.000001`,
+                                thread_ts: slackTsOf(parent ?? ""),
                               }
                             : {}),
                         },

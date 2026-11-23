@@ -264,6 +264,19 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="웹-입력을-slack-거울과-잇는-릴리스" />
+### The release that ties web inputs to their Slack mirror
+
+Migration `0334_input_mirror` adds the kind `input_mirror` to `slack_outbox` with the column `input_id`, the web input such a row shows, and builds a partial index on `conversation_inputs` `CONCURRENTLY` to find web inputs not yet shown in Slack. The upgrade needs nothing from you. No route records web inputs in this release, so no row of the new kind is made, and Slack mentions and replies and web and API sessions behave as before.
+
+- A web input is posted to Slack as an `instruction` is: under its sender's name with "(Web console)" after it. A new topic's first input becomes a top-level post in the channel (for a DM, the person's DM); the rest go into that topic's thread.
+- Once the post succeeds, the same transaction makes its (team, channel, ts) the input's Slack alias, and the topic's Slack place for a new topic. A person's reply in that thread is taken as the topic's next input.
+- The event Slack sends back for the post is dropped at the gate as the app's own (`own_bot_user`), as before, and makes no input or turn.
+- Once the input has its alias, deleting that Slack post voids the outbox rows that have the web input among their sources (`voided_by_delete`). A delete mark that came before the alias is the input's as soon as the alias is written.
+- In the rare case a person's reply is handled before the post is recorded, so the thread is already another topic, the two topics are not merged. The slack role logs the warning `Slack mirror opened a thread another topic already holds; the topics stay apart`.
+- A new DM topic is posted only when a topic of the same person names their DM channel. Otherwise the input waits, not shown in Slack.
+- The CHECKs and the foreign key are added `NOT VALID` and validated in their own statements. Rolling back to an image in the support window is safe.
+
 <a id="끝을-모르는-호출을-표시하고-에이전트-스스로-하는-일을-먼저-멈추는-릴리스" />
 ### The release that marks calls of unknown end and stops the agent's own work first
 

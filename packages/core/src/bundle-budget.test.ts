@@ -28,9 +28,11 @@ const BUDGET_BYTES: Record<string, number> = {
   // The turn requester and skill check finding schemas together put ./forms
   // 469 bytes over 145, so it moves to 146. The Slack channel lifecycle
   // events, the binding status gone and the conversation's channel state and
-  // name put ./schemas 65 bytes over 148, so it moves to 149.
+  // name put ./schemas 65 bytes over 148, so it moves to 149. The GitHub
+  // tool descriptions that name git switch -c put ./forms 223 bytes over 146,
+  // so it moves to 147.
   "./schemas": 149 * 1024,
-  "./forms": 146 * 1024,
+  "./forms": 147 * 1024,
 };
 
 test("every entry has a budget", () => {

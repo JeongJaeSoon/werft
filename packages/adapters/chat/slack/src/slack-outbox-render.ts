@@ -179,7 +179,10 @@ export function slackOutboxPresentation(
   | { kind: "blocks"; blocks: unknown[]; fallback: boolean }
   | { kind: "text" } {
   const sender = claim.body.sender;
-  if (claim.kind === "instruction" && sender !== undefined) {
+  if (
+    (claim.kind === "instruction" || claim.kind === "input_mirror") &&
+    sender !== undefined
+  ) {
     return { kind: "instruction", sender };
   }
   if (claim.body.blocks !== undefined) {

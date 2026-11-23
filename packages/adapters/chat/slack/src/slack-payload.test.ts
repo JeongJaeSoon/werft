@@ -700,6 +700,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
       readerLocale: async () => null,
       advanceAnswered: async () => 0,
       unpostedInstructions: async () => [],
+      unmirroredInputs: async () => [],
       unansweredTurns: async () => [],
       promptCard: async () => null,
       unpromptedRequests: async () => [],
@@ -769,6 +770,17 @@ describe("Slack payload fixtures: what the drain sends", () => {
       "instruction-sender": await sent(
         claim({
           kind: "instruction",
+          body: {
+            text: "Add a test",
+            sender: { username: "Owner (Web console)", slack_user_id: "U0O" },
+          },
+        }),
+        [],
+      ),
+      "input-mirror-sender": await sent(
+        claim({
+          kind: "input_mirror",
+          threadTs: "",
           body: {
             text: "Add a test",
             sender: { username: "Owner (Web console)", slack_user_id: "U0O" },

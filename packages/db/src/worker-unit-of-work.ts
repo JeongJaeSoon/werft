@@ -1314,12 +1314,18 @@ async function earlierConfigs(tx: Database, sessionId: string) {
       builtinToolsDenyOf(held.callerLimit),
     ),
   };
-  return withEarlierConfig(
-    held.legacy,
+  const ran =
     held.platformPrompt === null
       ? limited
-      : { ...limited, platform_prompt: held.platformPrompt },
-  );
+      : { ...limited, platform_prompt: held.platformPrompt };
+  // A digest scheme 1 checkpoint hashed the mode the spec recorded, which a
+  // claim no longer runs; it is kept next to the one the session runs.
+  const recorded = source.data.permission_mode;
+  const kept =
+    recorded === ran.permission_mode
+      ? held.legacy
+      : withEarlierConfig(held.legacy, { ...ran, permission_mode: recorded });
+  return withEarlierConfig(kept, ran);
 }
 
 function versionUnknownHere(

@@ -38,6 +38,7 @@ const bodies: Record<SlackOutboxKind, SlackOutboxClaim["body"]> = {
   welcome: { text: "Hello" },
   action_notice: { text: "Pushed to agent/1" },
   model_notice: { text: "The model is not on the list" },
+  input_mirror: { text: "From the web", sender: { username: "Ada (web)" } },
 };
 
 function rowOf(kind: SlackOutboxKind): SlackOutboxClaim {

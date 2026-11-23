@@ -70,6 +70,8 @@ describe("execRulesOf", () => {
     expect(prompts).toContain("git -C");
     expect(prompts).toContain("gh auth");
     expect(prompts).toContain("sed -i");
+    expect(prompts).toContain("git worktree");
+    expect(prompts).not.toContain("git switch");
     expect(new Set(prompts).size).toBe(prompts.length);
   });
 
