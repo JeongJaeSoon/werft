@@ -165,11 +165,19 @@ export type AppendMessageInput = {
   // As `AcceptSessionInput.agentPrivate`: only a replay goes through.
   agentPrivate?: true;
   callerSubject?: AuthorizationSubject;
+  /**
+   * The platform queues this input as the agent's own turn after a push
+   * decision: nothing about a person is judged or recorded, everything about
+   * the session is. One such turn per push request.
+   */
+  platform?: { pushRequestId: string; decision: "approve" | "reject" };
 };
 
 export type AppendMessageResult =
   | { outcome: "accepted" | "replayed"; response: PostSessionMessageResponse }
   | { outcome: "conflict" | "not_found" }
+  /** The push request's follow-up turn is already in the session. */
+  | { outcome: "already_queued" }
   /** A session the requester sees, of an agent they may not use. */
   | { outcome: "agent_private" }
   | { outcome: "caller_limited"; dimension: CallerLimitDimension }

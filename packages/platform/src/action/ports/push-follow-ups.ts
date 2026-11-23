@@ -4,14 +4,15 @@ import type { PushRequestFlow } from "@werft-ai/contracts";
  * Where a Slack push approval's follow-up turn goes: `now` asks the caller to
  * queue it, `held` keeps it for the end of the turn running now (queued then
  * only if no pull request is recorded), `pull_request` drops it because the
- * push's branch already has one.
+ * push's branch already has one, `queued` drops it because the session
+ * already has this push request's follow-up turn.
  */
 export interface PushFollowUpStore {
   hold(input: {
     sessionId: string;
     pushRequestId: string;
     message: string;
-  }): Promise<"now" | "held" | "pull_request">;
+  }): Promise<"now" | "held" | "pull_request" | "queued">;
   /**
    * The flow the push request was made under, as stored. The follow-up turn
    * belongs to `legacy` requests only: an `actions` request is finished by

@@ -101,7 +101,7 @@ export type SlackInteractionDeps = {
     "answer" | "listPendingRequests" | "outcome"
   >;
   pushes: Pick<PushRequestService, "decide" | "get">;
-  sessions: Pick<SessionService, "appendMessage">;
+  sessions: Pick<SessionService, "queuePushFollowUp">;
   followUps: PushFollowUpStore;
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
@@ -554,18 +554,19 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       await card();
       return decision === "approve" ? "approved" : "rejected";
     }
-    // The decision stands; the session only learns of it from this turn.
-    // The key makes a retry a no-op once one attempt has landed.
+    // The decision stands; the session only learns of it from this turn,
+    // which is the agent's: the platform queues it, whoever pressed. The key
+    // makes a retry a no-op once one attempt has landed.
     const followUp = {
       idempotencyKey: `slack-push:${value.r}`,
-      body: {
-        message: slackPushFollowUp(decision, {
-          id: request.id,
-          repositoryId: request.repository_id,
-          targetBranch: request.target_branch,
-        }),
-        mode: "enqueue" as const,
-      },
+      message: slackPushFollowUp(decision, {
+        id: request.id,
+        repositoryId: request.repository_id,
+        targetBranch: request.target_branch,
+      }),
+      pushRequestId: request.id,
+      decision,
+      requestId: caller.requestId,
     };
     // A turn running now may open the pull request itself; a second turn
     // asking for it only repeats the request and the reply.
@@ -575,7 +576,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         const hold = await deps.followUps.hold({
           sessionId: value.s,
           pushRequestId: request.id,
-          message: followUp.body.message,
+          message: followUp.message,
         });
         if (hold !== "now") {
           queued = true;
@@ -597,7 +598,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       attempt += 1
     ) {
       try {
-        await deps.sessions.appendMessage(caller, value.s, followUp);
+        await deps.sessions.queuePushFollowUp(
+          caller.ownerId,
+          value.s,
+          followUp,
+        );
         queued = true;
       } catch (error) {
         deps.logger.warn("Slack push follow-up turn not queued", {
