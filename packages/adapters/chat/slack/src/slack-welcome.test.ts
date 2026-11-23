@@ -154,6 +154,7 @@ function world(
         ...bindings,
         botRemovedFrom: async () => false,
         lastLeaveNoted: async () => null,
+        channelNotFound: async () => "unchanged" as const,
       },
       slack: fake.slack,
       botToken: async () => "bot-credential",

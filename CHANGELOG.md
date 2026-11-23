@@ -14,6 +14,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **에이전트 앱이 Slack 채널의 보관·보관 해제·이름 변경·삭제 이벤트 여덟 개를 받고, 삭제된 채널의 binding을 새 상태 `gone`으로 둔다**(JeongJaeSoon/werft#PR). migration `0319_channel_lifecycle`이 대화에 채널 상태·이름 칸을 더하고 binding 상태에 `gone`을, inbox 버림 이유에 `channel_gone`을 더한다.
+  - **이미 만든 에이전트 앱은 콘솔 Slack 탭의 "다시 확인"(`POST /v1/agents/{id}/slack/app/events/recheck`)으로 manifest를 다시 보내야** 새 이벤트를 받는다. 보내지 않으면 지금처럼 삭제된 채널의 binding이 `ready`로 남는다(게시가 `channel_not_found`를 받으면 그때 바뀐다). 새 scope는 없다.
+  - 삭제된 Slack 채널을 에이전트의 채널 목록에 "삭제됨"으로 보인다. `gone` 채널은 글을 받지도 보내지도 않는다. 살아 있는 채널의 멘션·세션·답은 그대로다.
+  - 이벤트를 놓친 채널도 게시나 채널 조회의 `channel_not_found`로 공개 채널은 `gone`, bot이 있던 비공개 채널은 `left`가 된다. 429·Slack 장애·token 오류로는 바뀌지 않는다.
+  - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 `status`에 `gone`이 생긴다.
+  - 칸과 값을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. 다만 되돌린 이미지는 `gone` binding을 `left`처럼 막지 못하고 보통 줄로 읽는다.
+
 - **migration `0318_provider_exchange_budget`이 provider 호출 원장 `provider_exchanges`에 예산 계정 칸 `budget_root_kind`·`budget_account_id`를 nullable로 더한다**(JeongJaeSoon/werft#2044). 따로 할 일은 없고 동작도 그대로다.
   - 이 릴리스에서는 어떤 호출도 계정을 넘기지 않으므로 두 칸은 비어 있고, 세션 비용 한도와 토큰 한도는 지금처럼 동작한다.
   - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다.

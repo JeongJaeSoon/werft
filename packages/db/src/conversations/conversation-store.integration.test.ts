@@ -86,6 +86,133 @@ integration("conversations and topics (0310)", () => {
     return rows[0]?.n as number;
   };
 
+  describe("the channel's archive, rename and delete", () => {
+    const US = 1_800_000_000_000_000;
+    async function channelConversation() {
+      const key = {
+        kind: "channel" as const,
+        workspaceId,
+        agentId,
+        teamId: "T0LIFE",
+        channelId: nextChannel(),
+      };
+      const conversation = await store.findOrCreateConversation(key);
+      return { key, conversation };
+    }
+    const row = async (id: string) =>
+      (
+        await pool.query(
+          "SELECT channel_state, channel_state_us, channel_name, channel_name_us FROM conversations WHERE id = $1",
+          [id],
+        )
+      ).rows[0];
+
+    test("a new conversation is active and unnamed; archive, unarchive and delete change it in Slack's order, and delete is final", async () => {
+      const { key, conversation } = await channelConversation();
+      expect(await row(conversation.id)).toEqual({
+        channel_state: "active",
+        channel_state_us: null,
+        channel_name: null,
+        channel_name_us: null,
+      });
+      expect(await store.recordChannelState(key, "archived", US + 2)).toBe(
+        true,
+      );
+      expect((await row(conversation.id)).channel_state).toBe("archived");
+      // An unarchive Slack stamped before the archive is old news.
+      expect(await store.recordChannelState(key, "unarchived", US + 1)).toBe(
+        false,
+      );
+      expect((await row(conversation.id)).channel_state).toBe("archived");
+      expect(await store.recordChannelState(key, "unarchived", US + 3)).toBe(
+        true,
+      );
+      expect(await row(conversation.id)).toMatchObject({
+        channel_state: "active",
+        channel_state_us: String(US + 3),
+      });
+      // A retry at the same time runs again.
+      expect(await store.recordChannelState(key, "unarchived", US + 3)).toBe(
+        true,
+      );
+      // A deletion applies whatever its time, and nothing undoes it.
+      expect(await store.recordChannelState(key, "deleted", US + 1)).toBe(true);
+      expect(await row(conversation.id)).toMatchObject({
+        channel_state: "deleted",
+        channel_state_us: String(US + 3),
+      });
+      expect(await store.recordChannelState(key, "unarchived", US + 9)).toBe(
+        false,
+      );
+      expect(await store.recordChannelState(key, "archived", null)).toBe(false);
+      expect((await row(conversation.id)).channel_state).toBe("deleted");
+    });
+
+    test("a rename keeps the newest name; an older one changes nothing", async () => {
+      const { key, conversation } = await channelConversation();
+      expect(await store.recordChannelName(key, "launch", US + 5)).toBe(true);
+      expect(await store.recordChannelName(key, "old-name", US + 4)).toBe(
+        false,
+      );
+      expect(await row(conversation.id)).toMatchObject({
+        channel_name: "launch",
+        channel_name_us: String(US + 5),
+      });
+      expect(await store.recordChannelName(key, "発表", null)).toBe(true);
+      expect(await row(conversation.id)).toMatchObject({
+        channel_name: "発表",
+        channel_name_us: String(US + 5),
+      });
+      await expect(store.recordChannelName(key, "", US + 6)).rejects.toThrow();
+      await expect(
+        store.recordChannelName(key, "x".repeat(81), US + 6),
+      ).rejects.toThrow();
+    });
+
+    test("no conversation is made, and another agent's or workspace's is not touched", async () => {
+      const { key, conversation } = await channelConversation();
+      const unseen = { ...key, channelId: nextChannel() };
+      expect(await store.recordChannelState(unseen, "deleted", US)).toBe(false);
+      expect(
+        await count("conversations", "channel_id = $1", [unseen.channelId]),
+      ).toBe(0);
+      expect(
+        await store.recordChannelState(
+          { ...key, agentId: secondAgentId },
+          "archived",
+          US,
+        ),
+      ).toBe(false);
+      expect(
+        await store.recordChannelState(
+          { ...key, workspaceId: otherWorkspaceId },
+          "archived",
+          US,
+        ),
+      ).toBe(false);
+      expect((await row(conversation.id)).channel_state).toBe("active");
+    });
+
+    test("a DM row cannot hold a channel state or name", async () => {
+      const dm = await store.findOrCreateConversation({
+        kind: "dm",
+        workspaceId,
+        agentId,
+        personUserId: member,
+      });
+      const refused = await pool
+        .query(
+          "UPDATE conversations SET channel_state = 'archived' WHERE id = $1",
+          [dm.id],
+        )
+        .then(
+          () => null,
+          (error: { constraint?: string }) => error.constraint,
+        );
+      expect(refused).toBe("conversations_channel_state_check");
+    });
+  });
+
   test("two racing find-or-creates of one channel conversation leave one row", async () => {
     for (let round = 0; round < 5; round += 1) {
       const channelId = nextChannel();

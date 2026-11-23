@@ -91,6 +91,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
   });
   const pendingChannels = new Set<string>();
   const leftChannels = new Set<string>();
+  const goneChannels = new Set<string>();
   const readyChannels = new Map<string, "public_channel" | "private_channel">();
   const rejectedChannels = new Set<string>();
   const service = createSlackEventsService({
@@ -107,6 +108,12 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
           return {
             status: "left",
             channelKind: "private_channel",
+          } as SurfaceBindingRecord;
+        }
+        if (goneChannels.has(channelId)) {
+          return {
+            status: "gone",
+            channelKind: "public_channel",
           } as SurfaceBindingRecord;
         }
         if (pendingChannels.has(channelId)) {
@@ -200,6 +207,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     lookups,
     pendingChannels,
     leftChannels,
+    goneChannels,
     readyChannels,
     rejectedChannels,
     install,
@@ -1049,7 +1057,7 @@ describe("Slack events service", () => {
     expect(JSON.stringify(kept[0])).not.toContain("1234");
   });
 
-  test("channel archive, rename and delete events are not subscribed: each is dropped unread", async () => {
+  test("channel archive, rename and delete events are received for the handler, whatever the binding", async () => {
     const w = world();
     await w.install();
     w.readyChannels.set("C0LIFE", "public_channel");
@@ -1075,8 +1083,48 @@ describe("Slack events service", () => {
             w.event(fields, { eventId: `Ev${fields.type.replace("_", "")}` }),
           ),
         ),
-      ).toMatchObject({ status: "dropped", reason: "unsupported_event" });
+      ).toMatchObject({ status: "received", result: "recorded" });
     }
+    // A deleted channel's own lifecycle events still reach the handler.
+    w.goneChannels.add("C0GONE");
+    expect(
+      await w.service.receive(
+        w.signed(
+          w.event(
+            { type: "channel_unarchive", channel: "C0GONE" },
+            { eventId: "EvUnarchiveGone" },
+          ),
+        ),
+      ),
+    ).toMatchObject({ status: "received" });
+  });
+
+  test("a channel Slack deleted drops every message and mention, with no text kept", async () => {
+    const w = world();
+    await w.install();
+    w.goneChannels.add("C0GONE");
+    for (const [type, channelType] of [
+      ["message", "channel"],
+      ["app_mention", undefined],
+    ] as const) {
+      const outcome = await w.service.receive(
+        w.signed(
+          w.event({
+            type,
+            user: "U0P",
+            text: `<@${BOT_USER}> the launch code is 1234`,
+            channel: "C0GONE",
+            ...(channelType === undefined ? {} : { channel_type: channelType }),
+            ts: "1.1",
+          }),
+        ),
+      );
+      expect(outcome).toMatchObject({
+        status: "dropped",
+        reason: "channel_gone",
+      });
+    }
+    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain("1234");
   });
 
   test("app_uninstalled and tokens_revoked revoke the install", async () => {

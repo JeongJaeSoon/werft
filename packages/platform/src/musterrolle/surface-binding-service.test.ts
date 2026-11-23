@@ -84,6 +84,8 @@ function service(
     reject: async () => ({ outcome: "not_found" }),
     observeLifecycle: async () => true,
     botLeft: async () => true,
+    channelDeleted: async () => true,
+    channelNotFound: async () => "unchanged",
     botRemovedFrom: async () => false,
     lastLeaveNoted: async () => null,
     recordJoin: async () => true,

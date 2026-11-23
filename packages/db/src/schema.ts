@@ -31,9 +31,11 @@ import {
   type BudgetOwnerKind,
   type BudgetReservationState,
   type BudgetRootKind,
+  CONVERSATION_CHANNEL_STATE_VALUES,
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
   CONVERSATION_ROLLOUT_VALUES,
+  type ConversationChannelState,
   type ConversationInputSlackMirror,
   type ConversationKind,
   ENDED_ATTEMPT_STATES,
@@ -85,6 +87,7 @@ import {
   SLACK_APP_KIND_VALUES,
   SLACK_APP_STATE_VALUES,
   SLACK_CHANNEL_MEMBER_LIMIT,
+  SLACK_CHANNEL_NAME_MAX,
   SLACK_INBOUND_DROP_REASON_VALUES,
   SLACK_INBOUND_EVENT_STATUS_VALUES,
   SLACK_SURFACE_ACTION_VALUES,
@@ -4937,7 +4940,13 @@ export const surfaceBindings = pgTable(
       .default("deny"),
     status: text()
       .$type<
-        "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked"
+        | "ready"
+        | "pending_approval"
+        | "left"
+        | "gone"
+        | "partial"
+        | "failed"
+        | "revoked"
       >()
       .notNull()
       .default("ready"),
@@ -5034,6 +5043,12 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_pending_check",
       sql`${table.status} <> 'pending_approval' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND ${table.surfaceKind} = 'private_channel' AND NOT ${table.home})`,
+    ),
+    // A channel Slack deleted is inactive and holds no approval or home; it
+    // keeps its kind, which a join that brings it back reads.
+    check(
+      "surface_bindings_gone_check",
+      sql`${table.status} <> 'gone' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND COALESCE(${table.surfaceKind} IN ('public_channel', 'private_channel'), false) AND NOT ${table.home} AND ${table.approvedAt} IS NULL AND ${table.approvedLifecycleUs} IS NULL)`,
     ),
     // A channel the bot left is inactive and holds no approval; COALESCE keeps
     // a NULL kind from passing the check as an unknown.
@@ -5156,6 +5171,16 @@ export const conversations = pgTable(
     channelId: text("channel_id"),
     /** A Werft user, not a Slack one. A DM's D… channel is not kept here. */
     personUserId: uuid("person_user_id"),
+    /** `CONVERSATION_CHANNEL_STATE_VALUES`: archived or deleted, as Slack said. */
+    channelState: text("channel_state")
+      .$type<ConversationChannelState>()
+      .notNull()
+      .default("active"),
+    /** The newest Slack time (µs) of the archive, unarchive or delete applied. */
+    channelStateUs: bigint("channel_state_us", { mode: "number" }),
+    /** The name of the last rename seen; null until a channel is renamed. */
+    channelName: text("channel_name"),
+    channelNameUs: bigint("channel_name_us", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -5204,6 +5229,14 @@ export const conversations = pgTable(
     check(
       "conversations_kind_check",
       sql`${table.kind} IN (${sql.raw(sqlList(CONVERSATION_KIND_VALUES))})`,
+    ),
+    check(
+      "conversations_channel_state_check",
+      sql`${table.channelState} IN (${sql.raw(sqlList(CONVERSATION_CHANNEL_STATE_VALUES))}) AND (${table.kind} = 'channel' OR (${table.channelState} = 'active' AND ${table.channelStateUs} IS NULL AND ${table.channelName} IS NULL AND ${table.channelNameUs} IS NULL))`,
+    ),
+    check(
+      "conversations_channel_name_check",
+      sql`${table.channelName} IS NULL OR char_length(${table.channelName}) BETWEEN 1 AND ${sql.raw(String(SLACK_CHANNEL_NAME_MAX))}`,
     ),
     // A row is a channel's or a person's, never both.
     check(

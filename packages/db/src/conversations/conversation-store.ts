@@ -2,17 +2,19 @@ import { randomUUID } from "node:crypto";
 import {
   type ConversationId,
   type ConversationTopicId,
+  slackChannelNameSchema,
   slackScopeSegmentSchema,
   slackTsSchema,
 } from "@werft-ai/contracts";
 import type {
+  ChannelConversationKey,
   Conversation,
   ConversationKey,
   ConversationStore,
   ConversationTopic,
   ThreadAlias,
 } from "@werft-ai/platform";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import {
   channelContexts,
@@ -212,5 +214,72 @@ export function createPostgresConversationStore(
     };
   }
 
-  return { findOrCreateConversation, findOrCreateThreadTopic };
+  const channelRow = (key: ChannelConversationKey) =>
+    and(
+      eq(conversations.workspaceId, key.workspaceId.toLowerCase()),
+      eq(conversations.agentId, key.agentId.toLowerCase()),
+      eq(conversations.kind, "channel"),
+      eq(conversations.teamId, slackScopeSegmentSchema.parse(key.teamId)),
+      eq(conversations.channelId, slackScopeSegmentSchema.parse(key.channelId)),
+    );
+
+  // A deletion is final, so it applies whatever its time; an archive or an
+  // unarchive applies only when no later one was noted. An equal time passes,
+  // since a retried event runs its effect again.
+  async function recordChannelState(
+    key: ChannelConversationKey,
+    state: "archived" | "deleted" | "unarchived",
+    at: number | null,
+  ): Promise<boolean> {
+    const next = state === "unarchived" ? "active" : state;
+    const newer =
+      at === null || state === "deleted"
+        ? undefined
+        : sql`(${conversations.channelStateUs} IS NULL OR ${conversations.channelStateUs} <= ${at})`;
+    const rows = await db
+      .update(conversations)
+      .set({
+        channelState: next,
+        channelStateUs:
+          at === null
+            ? sql`${conversations.channelStateUs}`
+            : sql`GREATEST(COALESCE(${conversations.channelStateUs}, 0), ${at}::bigint)`,
+      })
+      .where(
+        and(channelRow(key), ne(conversations.channelState, "deleted"), newer),
+      )
+      .returning({ id: conversations.id });
+    return rows.length > 0;
+  }
+
+  async function recordChannelName(
+    key: ChannelConversationKey,
+    name: string,
+    at: number | null,
+  ): Promise<boolean> {
+    const channelName = slackChannelNameSchema.parse(name);
+    const rows = await db
+      .update(conversations)
+      .set({
+        channelName,
+        channelNameUs: at === null ? sql`${conversations.channelNameUs}` : at,
+      })
+      .where(
+        and(
+          channelRow(key),
+          at === null
+            ? undefined
+            : sql`(${conversations.channelNameUs} IS NULL OR ${conversations.channelNameUs} <= ${at})`,
+        ),
+      )
+      .returning({ id: conversations.id });
+    return rows.length > 0;
+  }
+
+  return {
+    findOrCreateConversation,
+    findOrCreateThreadTopic,
+    recordChannelState,
+    recordChannelName,
+  };
 }

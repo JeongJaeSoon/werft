@@ -61,6 +61,9 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   // An event of a private channel the bot left (binding `left`); its text is
   // not kept and nobody is answered.
   "channel_left",
+  // An event of a channel Slack deleted (binding `gone`); its text is not
+  // kept and nobody is answered.
+  "channel_gone",
 ] as const;
 
 /** Message subtypes kept besides a plain message (no subtype). */
@@ -74,8 +77,28 @@ export const SLACK_INBOUND_EVENT_TYPES = [
   "member_left_channel",
   "channel_left",
   "group_left",
+  "channel_archive",
+  "channel_unarchive",
+  "group_archive",
+  "group_unarchive",
+  "channel_rename",
+  "group_rename",
+  "channel_deleted",
+  "group_deleted",
   "app_uninstalled",
   "tokens_revoked",
+] as const;
+
+/** The events that say a channel was archived, unarchived, renamed or deleted. */
+export const SLACK_CHANNEL_LIFECYCLE_EVENT_TYPES = [
+  "channel_archive",
+  "channel_unarchive",
+  "group_archive",
+  "group_unarchive",
+  "channel_rename",
+  "group_rename",
+  "channel_deleted",
+  "group_deleted",
 ] as const;
 
 export const slackEventsParamsSchema = z

@@ -439,7 +439,11 @@ export function SlackChannels({
                             id: row.external_surface_id ?? "",
                           });
                   const meta =
-                    row.status === "left" ? (
+                    row.status === "gone" ? (
+                      <Text as="span" variant="sub">
+                        {t("slack.goneHint")}
+                      </Text>
+                    ) : row.status === "left" ? (
                       <span className="flex flex-wrap items-center gap-1">
                         <Text as="span" variant="sub">
                           {t("slack.leftHint")}
@@ -480,6 +484,8 @@ export function SlackChannels({
                               </Badge>
                             ) : row.status === "left" ? (
                               <Badge variant="red">{t("slack.left")}</Badge>
+                            ) : row.status === "gone" ? (
+                              <Badge variant="red">{t("slack.gone")}</Badge>
                             ) : null}
                           </div>
                           {meta}
@@ -487,9 +493,9 @@ export function SlackChannels({
                       </GridTableCell>
                       <GridTableCell>
                         {
-                          // A left binding takes no input and sends nothing, so a
-                          // switch that reads "on" would be a lie.
-                          row.status === "left" ? (
+                          // A left or gone binding takes no input and sends
+                          // nothing, so a switch that reads "on" would be a lie.
+                          row.status === "left" || row.status === "gone" ? (
                             <Text as="span" variant="sub">
                               {t("slack.inactive")}
                             </Text>
@@ -618,12 +624,14 @@ export function SlackChannels({
                             !bindings.isSuccess ||
                             channels.isPlaceholderData ||
                             input.trim() !== query ||
-                            // The server refuses a home on a binding the bot left.
+                            // The server refuses a home on a binding the bot left
+                            // or one whose channel Slack deleted.
                             (pickHome &&
                               rows.some(
                                 (row) =>
                                   row.external_surface_id === channel.id &&
-                                  row.status === "left",
+                                  (row.status === "left" ||
+                                    row.status === "gone"),
                               )) ||
                             (!pickHome &&
                               rows.some(

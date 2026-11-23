@@ -52,8 +52,12 @@ const NO_CEILING: SurfaceCeiling = { actions: [], disclosure: "summary" };
 
 export type SlackDecision =
   // Not this agent's app, or the app is gone: nothing runs and nobody is told.
-  // `channel_left`: the bot is out of the channel, so nobody is told either.
-  | { status: "dropped"; reason: SlackEventDropReason | "channel_left" }
+  // `channel_left`: the bot is out of the channel, so nobody is told either;
+  // `channel_gone`: Slack deleted it.
+  | {
+      status: "dropped";
+      reason: SlackEventDropReason | "channel_left" | "channel_gone";
+    }
   | {
       status: "decided";
       workspaceId: string;
@@ -135,8 +139,11 @@ export async function authorizeSlackInput(
       agent.installationId,
       input.channel.id,
     );
-    if (live?.status === "left") {
-      return { status: "dropped", reason: "channel_left" };
+    if (live?.status === "left" || live?.status === "gone") {
+      return {
+        status: "dropped",
+        reason: live.status === "left" ? "channel_left" : "channel_gone",
+      };
     }
   }
   // An unbound, switched-off or other agent's channel takes nothing. It is

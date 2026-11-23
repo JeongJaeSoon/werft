@@ -215,6 +215,9 @@ export const slackEn = {
   "slack.approved": "Channel approved.",
   "slack.left": "Left",
   "slack.inactive": "Inactive",
+  "slack.gone": "Deleted",
+  "slack.goneHint":
+    "The channel was deleted in Slack, so the agent neither receives nor sends messages there.",
   "slack.leftHint":
     "The bot left the channel, so it neither receives nor sends messages there. Invite it again and the channel returns to awaiting approval.",
   "slack.add": "Connect",

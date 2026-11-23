@@ -183,6 +183,16 @@ Everyone in a channel reads what the agent posts there, including people outside
 
 When a release is first deployed, the home channel gets `안녕하세요, <agent name>입니다. 이 채널에 연결됐어요. 멘션하면 답할게요` (Korean by default). Each channel hears it once per agent. Deploying a new release, submitting the same definition again, rolling back to an earlier release, or disconnecting Slack and connecting it again posts nothing in a channel that already heard it. Moving the home to a channel that has not heard it yet posts once there. If the bot is not in the home yet, the message waits until it is. A welcome or join that fails never fails the deployment.
 
+## Channel archive, rename and delete
+
+The agent app receives a channel being archived (`channel_archive`, `group_archive`), unarchived (`channel_unarchive`, `group_unarchive`), renamed (`channel_rename`, `group_rename`) and deleted (`channel_deleted`, `group_deleted`). `channel_*` events are for public channels and `group_*` for private ones. They come on scopes the app already holds, so there is no new scope; by Slack's documentation, adding events on scopes an app holds needs no reinstall. An app made before these events were added receives them once its manifest is sent again with **Recheck** (`POST /v1/agents/{id}/slack/app/events/recheck`).
+
+- An archive, an unarchive or a rename only records the state (`active`, `archived`) or the new name on the channel's conversation. The channel's binding, and what it receives and answers, stay as they were.
+- When a channel is deleted, its binding becomes `gone`. The binding is kept, not removed; nothing from the channel is taken and nothing is sent there. A home loses its home, and an approval is cleared. The conversation records `deleted`. The console's channel list shows the row as "Deleted".
+- If the delete event is missed, a post or a channel lookup that Slack answers with `channel_not_found` makes a public channel's binding `gone`. Slack answers `channel_not_found` for a private channel the bot is not in as well, so a deletion cannot be told from the bot being removed: a private channel the bot was in becomes `left`, as if its `group_left` was lost. A private channel waiting for an invite or for approval stays as it is. A 429, a Slack outage or a token error changes no status.
+- When the bot joins a `gone` channel again (`member_joined_channel`), a public channel is in use again and a private one waits for approval.
+- All four kinds clear the channel's member check cache.
+
 ## Next steps
 
 - [API key](/api-keys)
