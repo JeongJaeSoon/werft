@@ -81,6 +81,7 @@ export function createSlackChannelConversionHandler(deps: {
         reason: "slack_channel_converted",
         by: "slack_event",
         noInstall: () => tokenless,
+        peopleLosing: null,
       },
     );
     if (changed === null) {

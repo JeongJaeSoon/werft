@@ -364,7 +364,7 @@ export async function moveChannelSessionScope(
           no_install: change.noInstall(),
           // Null where it is not counted; a counted widening loses no one.
           people_losing:
-            change.peopleLosing === undefined
+            change.peopleLosing === null
               ? null
               : move.to === "private_channel"
                 ? (losing?.get(row.sessionId) ?? null)

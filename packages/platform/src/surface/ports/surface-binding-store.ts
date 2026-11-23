@@ -78,12 +78,14 @@ export type ChannelScopeChange = {
    * How many people stop seeing each of the channel's sessions if narrowed,
    * read in the move's transaction (`tx`, the store's database handle) after
    * the sessions are locked and before the binding or a share is written.
-   * Null, or left out, when it is not checked.
+   * Null when it is not checked; the receipts then say null.
    */
-  peopleLosing?(
-    tx: unknown,
-    sessionIds: readonly string[],
-  ): Promise<ReadonlyMap<string, number> | null>;
+  peopleLosing:
+    | ((
+        tx: unknown,
+        sessionIds: readonly string[],
+      ) => Promise<ReadonlyMap<string, number> | null>)
+    | null;
 };
 
 export type SurfaceBindingRecord = {
