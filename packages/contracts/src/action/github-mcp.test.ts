@@ -369,17 +369,17 @@ describe("the tool envelope", () => {
       "`git switch -c <branch> <repository_id>/<branch>` (`origin/<branch>` for the session's own repository)",
     );
     expect(push).toContain(
-      "`git worktree` asks a person in a permission mode that asks at all, and a worktree or clone inside the workspace is a nested repository the checkpoint refuses, which ends the push as `turn_ended_without_checkpoint`",
+      "`git worktree` asks a person in a permission mode that asks at all, and a worktree or clone inside the workspace that git does not ignore is a nested repository the checkpoint refuses, which ends the push as `turn_ended_without_checkpoint`",
     );
     const attach = GITHUB_MCP_TOOL_DESCRIPTIONS.attach_repository;
     expect(attach).toContain(
       "on a branch such as one made with `git switch -c <branch> <repository_id>/<branch>`",
     );
     expect(attach).toContain(
-      "one outside the workspace is left out, and one inside it is a nested repository the checkpoint refuses",
+      "one outside the workspace is left out, and one inside it that git does not ignore is a nested repository the checkpoint refuses",
     );
     expect(GITHUB_MCP_TOOL_DESCRIPTIONS.get_push_request).toContain(
-      "`turn_ended_without_checkpoint` means the turn left no checkpoint to push from, as when a git worktree or clone inside the workspace made the checkpoint refuse it",
+      "`turn_ended_without_checkpoint` means the turn left no checkpoint to push from, as when a git worktree or clone inside the workspace made the checkpoint refuse it; a branch made in the workspace itself with `git switch -c <branch> <repository_id>/<branch>` is not refused",
     );
   });
 

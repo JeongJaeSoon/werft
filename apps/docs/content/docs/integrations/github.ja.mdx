@@ -218,7 +218,7 @@ GitHub 設定があるエージェントのセッションはリポジトリな�
 attach が接続エラー(`upstream connection failed` の応答、または HTTP 502・503)で失敗した場合、それは一時的な失敗で、リポジトリについては何も示していない。同じ引数でやり直しても安全である。`repository_not_allowed` は接続エラーではなくエージェント設定による拒否なので、やり直しても同じ答えになる。
 
 - 付けたリポジトリは、作業スペースで名前が `repository_id` の git リモートになり、デフォルトブランチを `<repository_id>/<branch>` に取得する。エージェントはトークンを見ない。
-- 付けたリポジトリを変更するときは、作業スペースで `git switch -c <ブランチ> <repository_id>/<branch>` でブランチを作って commit する。`git worktree` は作業スペースの中でも外でも、確認する権限モードなら人に確認する。作業スペースの外の worktree や clone は checkpoint にも push にも入らない。中に作ると checkpoint が入れ子のリポジトリとして拒否し、そのターンの push は `turn_ended_without_checkpoint` で取り消される。
+- 付けたリポジトリを変更するときは、作業スペースで `git switch -c <ブランチ> <repository_id>/<branch>` でブランチを作って commit する。`git worktree` は作業スペースの中でも外でも、確認する権限モードなら人に確認する。作業スペースの外の worktree や clone は checkpoint にも push にも入らない。中に作り git が無視しないと checkpoint が入れ子のリポジトリとして拒否し、そのターンの push は `turn_ended_without_checkpoint` で取り消される。
 - 同じリポジトリをもう一度付けても何も変えずに成功する。取得中なら `pending` と `final: false` をすぐ返す。`wait_seconds`（0〜7 秒、既定 0）を渡すと、取得が終わるかその秒数が過ぎるまで待ってから答え、終わっていれば `final: true` になる。
 - 取得には 300 秒と 2 GiB の上限がある。超えると付けるのは失敗で終わり、`failure` に理由（`fetch_timeout`、`fetch_too_large`）が残る。
 - 付けるたびに `attach_repository` の[レシート](/approvals/receipt)が残る。要求した人と attempt、リポジトリ、リリース、取得したコミット、拒否の理由（`repository_not_allowed`・`allowed_in_newer_release`）が入る。
