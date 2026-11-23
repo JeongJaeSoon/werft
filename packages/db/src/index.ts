@@ -16,6 +16,7 @@ export * from "./checkpoints/checkpoint-store.ts";
 export * from "./control-unit-of-work.ts";
 export * from "./conversations/conversation-inputs.ts";
 export * from "./conversations/conversation-store.ts";
+export * from "./conversations/engagements.ts";
 export * from "./conversations/session-parents.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./extensions/extension-bundles.ts";

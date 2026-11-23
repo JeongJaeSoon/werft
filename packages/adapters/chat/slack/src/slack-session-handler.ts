@@ -1,4 +1,5 @@
 import {
+  type EngagementKind,
   formatSurfaceRef,
   messageTextSchema,
   SLACK_BOT_TURN_LIMIT,
@@ -223,6 +224,12 @@ export function createSlackSessionHandler(
       await deps.botTurns.reset(thread, event.ts);
     }
     if (resetOnly) return;
+    const mentioned =
+      event.type === "app_mention" ||
+      new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);
+    // A DM calls the agent as a mention does; the text alone decides, so a
+    // retry or the post's other event judges the same.
+    const openedAs: EngagementKind = dm || mentioned ? "mention" : "reply";
     const found = await deps.sessionLinks.find(
       agent.installationId,
       surfaceRef,
@@ -260,6 +267,7 @@ export function createSlackSessionHandler(
         threadTs,
         event.ts,
         agent,
+        found.openedByTs === event.ts ? openedAs : "bound",
       );
     }
     // Before the early returns below, which let most unmentioned talk go:
@@ -274,9 +282,6 @@ export function createSlackSessionHandler(
         await deps.bindings.requireApproval(bound.id);
       }
     }
-    const mentioned =
-      event.type === "app_mention" ||
-      new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);
     if (
       fromBot &&
       (dm || !mentioned || !agent.allowedBotUserIds.includes(event.user))
@@ -597,6 +602,7 @@ export function createSlackSessionHandler(
     // Once the session took the turn it counts, whatever fails after.
     let accepted = false;
     let turn: { sessionId: string; sequence: number };
+    let engagement: EngagementKind = "bound";
     try {
       if (link.sessionId === null && link.openedByTs !== event.ts) {
         link = await adoptOrReopen(link, event.ts);
@@ -613,6 +619,7 @@ export function createSlackSessionHandler(
             accepted = true;
           },
         );
+        engagement = openedAs;
       } else {
         const sessionId = link.sessionId;
         const appended = await deps.sessions.appendMessage(caller, sessionId, {
@@ -672,6 +679,7 @@ export function createSlackSessionHandler(
       threadTs,
       event.ts,
       agent,
+      engagement,
       await conversation(),
     );
   };
@@ -684,6 +692,7 @@ export function createSlackSessionHandler(
     threadTs: string,
     ts: string,
     agent: { workspaceId: string; agentId: string },
+    engagement: EngagementKind,
     found?: Conversation | null,
   ): Promise<InboundInputReceipt> {
     const conversation = found ?? (await conversationOf(place, teamId, agent));
@@ -694,7 +703,13 @@ export function createSlackSessionHandler(
       conversation.id,
       { teamId, channelId: place.channelId, threadTs },
     );
-    return { topicId: topic.id, channelId: place.channelId, ts, turn };
+    return {
+      topicId: topic.id,
+      channelId: place.channelId,
+      ts,
+      turn,
+      engagement,
+    };
   }
 
   /** The thread's main conversation; none for a DM with no person. */

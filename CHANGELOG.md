@@ -14,6 +14,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0321_conversation_engagements`가 관여 기록 표 `conversation_engagements`를 더하고, Slack 글이 세션의 턴이 될 때 그 글에 에이전트가 관여했다는 줄을 하나 적는다**(JeongJaeSoon/werft#PRNUM). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다.
+  - 입력 접수 줄을 적는 같은 transaction에서 적는다. 줄에는 에이전트, 글의 자리(team, 채널, ts), 종류, 그 글이 든 세션만 남고 본문·스레드 ts·링크는 없다.
+  - 종류: 세션을 연 멘션이나 DM은 `mention`, 멘션 없는 맨 위 글로 연 세션은 `reply`, 이미 열린 세션에 들어간 글은 `bound`.
+  - 한 글이 두 이벤트로 와도, 다시 처리돼도 에이전트마다 한 줄이다. 있던 세션은 채우지 않는다.
+  - 관여 기록이 있는 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
+  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0320_session_parent_conversation`이 세션에 부모 대화 칸 `parent_conversation_id`(nullable)를 더하고, api가 기동할 때마다 Slack에 묶인 세션의 부모 대화를 채운다**(JeongJaeSoon/werft#2045). 따로 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
   - 새 Slack 세션은 만들 때 채운다. 채널 스레드의 세션은 그 채널의 메인 대화, DM 세션은 그 사람의 DM 메인 대화다. link가 없는 세션(웹의 "새 세션", 세션 API)은 비워 둔다.
   - 있던 세션은 api 기동 때 한 번씩 도는 정리가 묶음으로 채운다. 닫히거나 폐기된 link의 세션도 채운다. 세션마다 비어 있을 때만 채우므로 다시 기동해도, 여러 api가 함께 기동해도 결과가 같고, 중간에 멈추면 다음 기동이 남은 세션부터 잇는다.

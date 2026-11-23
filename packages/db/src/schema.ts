@@ -37,9 +37,11 @@ import {
   type ConversationInputSlackMirror,
   type ConversationKind,
   ENDED_ATTEMPT_STATES,
+  ENGAGEMENT_KIND_VALUES,
   ENV_VARIABLE_KIND_VALUES,
   ENV_VARIABLE_NAME_PATTERN,
   ENV_VARIABLE_VALUE_MAX_BYTES,
+  type EngagementKind,
   GITHUB_APP_ROLE_VALUES,
   GITHUB_POLICY_SOURCE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
@@ -5369,6 +5371,61 @@ export const conversationInputs = pgTable(
     check(
       "conversation_inputs_slack_check",
       sql`(${table.slackTeamId} IS NULL AND ${table.slackChannelId} IS NULL AND ${table.slackTs} IS NULL) OR (${table.slackTeamId} IS NOT NULL AND ${table.slackChannelId} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackTs} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')`,
+    ),
+  ],
+);
+
+/**
+ * That an agent took part in a Slack message: no text, no thread, no link.
+ * The thread is held once, by the session's link or the conversation turn the
+ * row points at, exactly one of the two.
+ */
+export const conversationEngagements = pgTable(
+  "conversation_engagements",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    ts: text().notNull(),
+    kind: text().$type<EngagementKind>().notNull(),
+    sessionId: uuid("session_id").references(() => sessions.id),
+    /** A conversation turn of a1, whose table brings the foreign key. */
+    conversationTurnId: uuid("conversation_turn_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // One row per agent and message, so taking a message again adds none.
+    primaryKey({
+      columns: [table.agentId, table.teamId, table.channelId, table.ts],
+    }),
+    foreignKey({
+      name: "conversation_engagements_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // For the delete marks, which name a message by workspace, not agent.
+    index("conversation_engagements_message_idx").on(
+      table.workspaceId,
+      table.teamId,
+      table.channelId,
+      table.ts,
+    ),
+    // The engaged-thread lookup comes from the session's link.
+    index("conversation_engagements_session_idx").on(table.sessionId),
+    check(
+      "conversation_engagements_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(ENGAGEMENT_KIND_VALUES))})`,
+    ),
+    check(
+      "conversation_engagements_target_check",
+      sql`num_nonnulls(${table.sessionId}, ${table.conversationTurnId}) = 1`,
+    ),
+    check(
+      "conversation_engagements_slack_check",
+      sql`${table.teamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.channelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.ts} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$'`,
     ),
   ],
 );

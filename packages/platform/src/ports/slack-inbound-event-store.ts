@@ -1,5 +1,6 @@
 import type {
   ConversationTopicId,
+  EngagementKind,
   SlackInboundDropFields,
   SlackInboundDropReason,
 } from "@werft-ai/contracts";
@@ -75,6 +76,8 @@ export type InboundInputReceipt = {
    * input's requester is the turn's.
    */
   turn: { sessionId: string; sequence: number };
+  /** How the agent took the message, kept beside the input for the session. */
+  engagement: EngagementKind;
 };
 
 /** What a write after a claim is fenced on. */
@@ -117,7 +120,8 @@ export interface SlackInboundEventStore {
   /**
    * Marks the row `processed`, its payload cleared, and in the same
    * transaction takes `input`: next in its topic, or nothing when the
-   * agent took that message already.
+   * agent took that message already, and records the agent's engagement in
+   * it, once per message.
    */
   complete(
     fence: SlackInboundFence,
