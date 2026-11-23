@@ -339,6 +339,43 @@ describe("a private channel waits for an owner or admin", () => {
     expect(t.joined).toEqual(["binding-1"]);
   });
 
+  test("a join Slack answers channel_not_found replies with the binding as stored, not the one it started from", async () => {
+    const withJoin = createSurfaceBindingService({
+      authorization: {
+        authorize: async () =>
+          ({ outcome: "allow", reason_code: "ok" }) as AuthorizationDecision,
+      },
+      store: {
+        ...({} as SurfaceBindingStore),
+        approve: async () => ({
+          outcome: "resolved",
+          receiptId: "receipt-2",
+          binding: recordOf({ revision: 2, home: true }),
+        }),
+        findLiveSlackChannel: async () =>
+          recordOf({ status: "gone", home: false, revision: 3 }),
+      },
+      channels: { kindOf: async () => "private_channel" },
+      join: async () => ({
+        state: "awaiting_invite",
+        error: "channel_not_found",
+      }),
+    });
+    const done = await withJoin.approveSlackBinding(
+      caller,
+      AGENT,
+      "binding-1",
+      { revision: 1 },
+    );
+    // Before: the reply merged Slack's answer into the binding it began
+    // with, ready and home, while the store had made it gone.
+    expect(done.slack_binding).toMatchObject({
+      status: "gone",
+      home: false,
+      revision: 3,
+    });
+  });
+
   test("rejecting does not join; the same decision again replays with no receipt", async () => {
     const rejected = approver({
       outcome: "resolved",
