@@ -6174,6 +6174,11 @@ export interface components {
              */
             title: string | null;
             /**
+             * @description When Slack deleted the message a derived or generated `title` came from (the first turn's instruction). Set, `title` is null and the session is not found by its words. A title a person gave is kept. Null otherwise, and from a server before the field.
+             * @default null
+             */
+            title_deleted_at: string | null;
+            /**
              * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
@@ -6304,6 +6309,11 @@ export interface components {
              * @default null
              */
             title: string | null;
+            /**
+             * @description When Slack deleted the message a derived or generated `title` came from (the first turn's instruction). Set, `title` is null and the session is not found by its words. A title a person gave is kept. Null otherwise, and from a server before the field.
+             * @default null
+             */
+            title_deleted_at: string | null;
             /**
              * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
@@ -6591,6 +6601,11 @@ export interface components {
              * @default null
              */
             slack_permalink: string | null;
+            /**
+             * @description When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.
+             * @default null
+             */
+            source_deleted_at: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
@@ -6638,6 +6653,11 @@ export interface components {
              * @default null
              */
             slack_permalink: string | null;
+            /**
+             * @description When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.
+             * @default null
+             */
+            source_deleted_at: string | null;
             terminal_reason: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
@@ -6668,6 +6688,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6706,6 +6731,11 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
+                /**
+                 * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
                  */
                 occurred_at: string;
@@ -6735,6 +6765,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6768,6 +6803,11 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
+                /**
+                 * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
                  */
                 occurred_at: string;
@@ -6785,6 +6825,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6812,6 +6857,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
@@ -6853,6 +6903,11 @@ export interface components {
                 attempt_id: string | null;
                 /**
                  * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
+                /**
+                 * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.
                  */
                 occurred_at: string;
@@ -6877,6 +6932,11 @@ export interface components {
                 session_id: string;
                 turn_id: string | null;
                 attempt_id: string | null;
+                /**
+                 * Format: date-time
+                 * @description Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.
+                 */
+                source_deleted_at?: string;
                 /**
                  * Format: date-time
                  * @description When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.

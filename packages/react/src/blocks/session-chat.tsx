@@ -36,6 +36,8 @@ export type ChatItem =
       /** Markdown as the model wrote it, or the error's words. */
       readonly text: string;
       readonly error: boolean;
+      /** The turn's instruction was deleted in Slack: its replies are held back. */
+      readonly withheld?: true;
     }
   | {
       readonly kind: "tool";
@@ -47,6 +49,7 @@ export type ChatItem =
         readonly text: string;
         readonly error: boolean;
       } | null;
+      readonly withheld?: true;
     };
 
 /**
@@ -54,6 +57,9 @@ export type ChatItem =
  * the agent's replies and errors as its messages, and each tool call as one
  * folded line holding its result. Status, thinking and engine bookkeeping
  * are left out; the head's status label says where the session stands.
+ * A turn whose instruction was deleted in Slack shows a placeholder for its
+ * instruction and one for its replies, and its tool calls by name alone,
+ * whatever text an event streamed before the turn was read so.
  */
 export function chatItems(
   events: readonly SessionEventFrame[],
@@ -66,6 +72,12 @@ export function chatItems(
     at: turn.created_at,
     turn,
   }));
+  const withheldTurns = new Set(
+    (turns ?? []).flatMap((turn) =>
+      turn.source_deleted_at ? [turn.turn_id] : [],
+    ),
+  );
+  const heldReplies = new Set<string>();
   const tools = new Map<string, number>();
   const seen = new Set<string>();
   for (const frame of events) {
@@ -73,6 +85,7 @@ export function chatItems(
     if (seen.has(frame.id)) continue;
     seen.add(frame.id);
     const { payload } = frame;
+    const withheld = frame.turnId !== null && withheldTurns.has(frame.turnId);
     if (payload.event === "tool_result") {
       const result = eventToolResult(payload.data);
       const index =
@@ -82,7 +95,10 @@ export function chatItems(
       if (call?.kind !== "tool") continue;
       items[index] = {
         ...call,
-        result: { text: result.text, error: result.is_error === true },
+        result: {
+          text: withheld ? "" : result.text,
+          error: result.is_error === true,
+        },
       };
       continue;
     }
@@ -101,6 +117,33 @@ export function chatItems(
       continue;
     }
     if (payload.event !== "assistant" && payload.event !== "tool_use") continue;
+    const call = eventToolCall(payload.data);
+    if (withheld && frame.turnId !== null) {
+      if (call === null && !heldReplies.has(frame.turnId)) {
+        heldReplies.add(frame.turnId);
+        items.push({
+          kind: "reply",
+          id: frame.id,
+          at: frame.occurredAt,
+          text: "",
+          error: false,
+          withheld: true,
+        });
+      }
+      if (call !== null && !tools.has(call.id)) {
+        tools.set(call.id, items.length);
+        items.push({
+          kind: "tool",
+          id: `tool:${call.id}`,
+          at: frame.occurredAt,
+          name: call.name,
+          input: {},
+          result: null,
+          withheld: true,
+        });
+      }
+      continue;
+    }
     const presentation = presentTurnEvent(payload);
     if (presentation.reply?.trim()) {
       items.push({
@@ -111,7 +154,6 @@ export function chatItems(
         error: presentation.error === true,
       });
     }
-    const call = eventToolCall(payload.data);
     if (call !== null && !tools.has(call.id)) {
       tools.set(call.id, items.length);
       items.push({
@@ -243,11 +285,17 @@ export function SessionChat({
                       ) : null
                     }
                   >
-                    <Text variant="meta">{t("session.chat.input")}</Text>
-                    <CodeBlock className="max-h-60 overflow-y-auto">
-                      {inputText(call.input)}
-                    </CodeBlock>
-                    {call.result === null ? null : (
+                    {call.withheld ? (
+                      <Text variant="meta">{t("session.sourceDeleted")}</Text>
+                    ) : (
+                      <>
+                        <Text variant="meta">{t("session.chat.input")}</Text>
+                        <CodeBlock className="max-h-60 overflow-y-auto">
+                          {inputText(call.input)}
+                        </CodeBlock>
+                      </>
+                    )}
+                    {call.result === null || call.withheld ? null : (
                       <>
                         <Text variant="meta">{t("session.chat.result")}</Text>
                         <CodeBlock className="max-h-60 overflow-y-auto">
@@ -275,7 +323,13 @@ export function SessionChat({
                     ) : null
                   }
                 >
-                  {item.turn.message}
+                  {item.turn.source_deleted_at ? (
+                    <span className="text-muted-foreground">
+                      {t("session.sourceDeleted")}
+                    </span>
+                  ) : (
+                    item.turn.message
+                  )}
                 </ChatMessage>
               ) : (
                 <ChatMessage
@@ -284,7 +338,11 @@ export function SessionChat({
                   time={time(item.at)}
                   tone={item.error ? "error" : "default"}
                 >
-                  {item.error ? (
+                  {item.withheld ? (
+                    <span className="text-muted-foreground">
+                      {t("session.sourceDeleted")}
+                    </span>
+                  ) : item.error ? (
                     <span className="whitespace-pre-wrap">{item.text}</span>
                   ) : (
                     <Markdown

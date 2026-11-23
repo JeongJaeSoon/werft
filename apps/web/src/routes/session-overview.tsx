@@ -51,6 +51,7 @@ export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
     agentArchived: t("sessionList.agentArchived"),
     open: (name) => t("sessionList.open", { name }),
     preview: t("session.preview"),
+    sourceDeleted: t("session.sourceDeleted"),
   };
 }
 

@@ -81,6 +81,10 @@ export const turnSummarySchema = z.object({
     description:
       "The Slack message the instruction came from, as the link Slack gave for it (`chat.getPermalink`); it opens only for someone who can read that message in Slack. Null for an instruction not from Slack, one from before links were kept, or when Slack did not give a link.",
   }),
+  source_deleted_at: timestampSchema.nullable().default(null).meta({
+    description:
+      "When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.",
+  }),
   terminal_reason: z.string().min(1).nullable(),
   checkpoint_revision: revisionSchema.nullable().meta({
     description:

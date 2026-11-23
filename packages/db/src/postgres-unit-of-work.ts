@@ -22,6 +22,7 @@ import {
   readStoredEvent,
   receiptSchema,
   SESSION_STATUS_VALUES,
+  type SessionEventPayload,
   type SessionExtension,
   type SessionStatus,
   type SlackMessageRef,
@@ -102,7 +103,12 @@ import {
   lockIdempotencyScope,
   parseTurnSequence,
 } from "./control-shared.ts";
-import { lockedDeletedSource, newTurnSources } from "./conversations/index.ts";
+import {
+  directSourceDeletedAt,
+  lockedDeletedSource,
+  newTurnSources,
+  titleDeletedAt,
+} from "./conversations/index.ts";
 import {
   decodeCreatedAtCursor,
   decodeEventCursor,
@@ -190,6 +196,7 @@ import {
   sameChunks,
 } from "./sessions/session-event-archives.ts";
 import { recordStatus } from "./sessions/session-events.ts";
+import { withheldEventPayload } from "./sessions/withheld-events.ts";
 
 export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -1129,7 +1136,16 @@ type TurnRead = {
   turn: TurnRow;
   awaitingInput: boolean;
   creatorName: string | null;
+  sourceDeletedAt: Date | null;
 };
+
+const turnWorkspace = sql`(SELECT ws.workspace_id FROM sessions ws WHERE ws.id = ${turns.sessionId})`;
+
+/** When Slack deleted the turn's instruction (directSourceDeletedAt). */
+const turnSourceDeletedAt =
+  sql<Date | null>`${directSourceDeletedAt(sql`${turns.sources}`, turnWorkspace)}`.mapWith(
+    (value: string | Date | null) => (value === null ? null : new Date(value)),
+  );
 
 // result_json holds the SDK result message: its `result` and `usage` when
 // present, otherwise the whole document is the result.
@@ -1174,14 +1190,16 @@ function requesterView(row: {
 }
 
 function summarizeTurn(
-  { turn: row, awaitingInput, creatorName }: TurnRead,
+  { turn: row, awaitingInput, creatorName, sourceDeletedAt }: TurnRead,
   checkpointRevision: number | null,
 ): TurnSummary {
   return {
     turn_id: String(row.sequence),
     session_id: row.sessionId,
     status: turnStatusSchema.parse(publicStatus(row.status, awaitingInput)),
-    message: row.message,
+    // Its instruction was deleted in Slack: withheld, not erased.
+    message: sourceDeletedAt === null ? row.message : "",
+    source_deleted_at: sourceDeletedAt?.toISOString() ?? null,
     channel: row.channel,
     slack_permalink: row.slackMessage?.permalink ?? null,
     created_by:
@@ -1195,6 +1213,26 @@ function summarizeTurn(
     started_at: row.startedAt?.toISOString() ?? null,
     ended_at: row.endedAt?.toISOString() ?? null,
   };
+}
+
+/** A title cut or made from a deleted first message reads as none. */
+function withheldTitle(
+  row: Pick<SessionRow, "title" | "titleSource">,
+  firstDeletedAt: Date | null,
+): { title: string | null; title_deleted_at: string | null } {
+  return firstDeletedAt !== null &&
+    (row.titleSource === "derived" || row.titleSource === "generated")
+    ? { title: null, title_deleted_at: firstDeletedAt.toISOString() }
+    : { title: row.title, title_deleted_at: null };
+}
+
+/** A status event without the title a withheld one would show. */
+function withoutTitle(payload: SessionEventPayload): SessionEventPayload {
+  if (payload.event !== "status" || payload.data.title === undefined) {
+    return payload;
+  }
+  const { title: _title, ...data } = payload.data;
+  return { event: "status", data };
 }
 
 const byteLength = (value: unknown) =>
@@ -1335,6 +1373,8 @@ export function createPostgresSessionReader(
         id: sessions.id,
         runtimeKind: sql<RuntimeKind | null>`${sessions.runtimeSpec} -> 'runtime' ->> 'kind'`,
         retiredCheckpointRevision: sessions.contextResetCheckpointRevision,
+        workspaceId: sessions.workspaceId,
+        titleDeleted: sql<boolean>`${titleDeletedAt("sessions")} IS NOT NULL`,
       })
       .from(sessions)
       .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
@@ -1382,6 +1422,7 @@ export function createPostgresSessionReader(
         turn: turns,
         awaitingInput: sql<boolean>`exists (${actionableOfTurn(db)})`,
         creatorName: users.displayName,
+        sourceDeletedAt: turnSourceDeletedAt,
       })
       .from(turns)
       .leftJoin(users, eq(users.id, turns.actorId));
@@ -1451,6 +1492,7 @@ export function createPostgresSessionReader(
         sessionId: turns.sessionId,
         actorId: turns.actorId,
         slackMessage: turns.slackMessage,
+        sourceDeletedAt: turnSourceDeletedAt,
       })
       .from(turns)
       .where(and(inArray(turns.sessionId, ids), eq(turns.sequence, 1)));
@@ -1564,7 +1606,7 @@ export function createPostgresSessionReader(
       );
       return {
         id: row.id,
-        title: row.title,
+        ...withheldTitle(row, firstTurnOf(row)?.sourceDeletedAt ?? null),
         preview: row.preview,
         agent_hidden:
           release !== undefined && usable?.has(release.id) === false,
@@ -1623,7 +1665,8 @@ export function createPostgresSessionReader(
       q === undefined
         ? undefined
         : or(
-            sql`${sessions.title} ILIKE ${containsPattern(q)}`,
+            // A title withheld for its deleted message finds nothing.
+            sql`(${sessions.title} ILIKE ${containsPattern(q)} AND ${titleDeletedAt("sessions")} IS NULL)`,
             ID_PREFIX.test(q)
               ? sql`${sessions.id}::text LIKE ${`${q}%`}`
               : undefined,
@@ -2038,7 +2081,10 @@ export function createPostgresSessionReader(
         [row.id],
         session.retiredCheckpointRevision,
       );
-      const parts = resultParts(row.resultJson);
+      const parts =
+        read.sourceDeletedAt === null
+          ? resultParts(row.resultJson)
+          : { result: null, usage: resultParts(row.resultJson).usage };
       const attemptRows = row.attemptId
         ? await db
             .select()
@@ -2186,6 +2232,36 @@ export function createPostgresSessionReader(
         }
       }
       const fetched = Number(rows[0]?.fetched ?? 0);
+      // The page's turns whose instruction Slack deleted; their events are
+      // served withheld, an archived one as one still stored.
+      const sequences = [
+        ...new Set(
+          rows.flatMap((row) =>
+            row.turn_sequence === null ? [] : [Number(row.turn_sequence)],
+          ),
+        ),
+      ];
+      const withheld = new Map(
+        sequences.length === 0
+          ? []
+          : (
+              await db
+                .select({
+                  sequence: turns.sequence,
+                  deletedAt: turnSourceDeletedAt,
+                })
+                .from(turns)
+                .where(
+                  and(
+                    eq(turns.sessionId, sessionId),
+                    inArray(turns.sequence, sequences),
+                    isNotNull(turns.sources),
+                  ),
+                )
+            ).flatMap(({ sequence, deletedAt }) =>
+              deletedAt === null ? [] : [[sequence, deletedAt] as const],
+            ),
+      );
       // Fields filled here on read count against the byte bound too: a page
       // stops before the row they would push past it.
       let filledBytes = 0;
@@ -2193,10 +2269,20 @@ export function createPostgresSessionReader(
       const items: SseEvent[] = [];
       for (const [index, row] of rows.entries()) {
         const stored = readStoredEvent(row.type, row.payload);
-        const payload =
+        const neutral =
           stored.readable && row.bare && options.neutralize
             ? options.neutralize(owned.runtimeKind, stored.payload)
             : stored.payload;
+        const deletedAt =
+          row.turn_sequence === null
+            ? undefined
+            : withheld.get(Number(row.turn_sequence));
+        const payload =
+          deletedAt !== undefined
+            ? withheldEventPayload(neutral)
+            : owned.titleDeleted && neutral.event === "status"
+              ? withoutTitle(neutral)
+              : neutral;
         if (payload !== stored.payload) {
           filledBytes +=
             byteLength(payload.data) - byteLength(stored.payload.data);
@@ -2225,6 +2311,9 @@ export function createPostgresSessionReader(
               turn_id:
                 row.turn_sequence === null ? null : String(row.turn_sequence),
               attempt_id: row.attempt_id,
+              ...(deletedAt === undefined
+                ? {}
+                : { source_deleted_at: deletedAt.toISOString() }),
               occurred_at: new Date(Number(row.occurred_ms)).toISOString(),
               data: payload.data,
             },

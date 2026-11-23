@@ -150,6 +150,8 @@ export interface SessionOverviewRowMessages {
   readonly open?: ((name: string) => string) | undefined;
   /** The mark beside a preview session's title: "미리보기"; none if unset. */
   readonly preview?: string | undefined;
+  /** In place of a title withheld for its deleted Slack message. */
+  readonly sourceDeleted?: string | undefined;
 }
 
 export interface SessionOverviewRowProps {
@@ -235,7 +237,11 @@ export function SessionOverviewRow({
 }: SessionOverviewRowProps): JSX.Element {
   const shortId = shortSessionId(session.id);
   // Untitled, the row shows the id's head; the opener's name keeps it whole.
-  const name = session.title ?? session.id;
+  const withheld =
+    session.title === null && session.title_deleted_at !== null
+      ? messages.sourceDeleted
+      : undefined;
+  const name = session.title ?? withheld ?? session.id;
   const admission = QUIET_ADMISSION.has(session.admission_state)
     ? null
     : session.admission_state;
@@ -265,10 +271,14 @@ export function SessionOverviewRow({
             as="span"
             className={cn(
               "min-w-0 truncate font-medium",
-              session.title ? null : "font-mono",
+              session.title
+                ? null
+                : withheld
+                  ? "text-muted-foreground"
+                  : "font-mono",
             )}
           >
-            {session.title ?? shortId}
+            {session.title ?? withheld ?? shortId}
           </Text>
           {session.preview && messages.preview ? (
             <Badge variant="violet" className="shrink-0">
@@ -276,7 +286,7 @@ export function SessionOverviewRow({
             </Badge>
           ) : null}
         </Text>
-        {session.title ? (
+        {session.title || withheld ? (
           // Above the opener, so hovering shows the whole id.
           <Code className="relative text-subtle-foreground" title={session.id}>
             {shortId}

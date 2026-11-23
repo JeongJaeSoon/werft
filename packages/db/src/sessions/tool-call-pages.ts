@@ -4,6 +4,7 @@ import type {
   UsageToolCallsFilter,
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
+import { servedTitle } from "../conversations/deleted-sources.ts";
 import {
   decodeToolCallCursor,
   encodeToolCallCursor,
@@ -62,7 +63,7 @@ export async function toolCallPage(
           WHERE sessions.id = c.session_id AND sessions.owner_id = ${options.ownerId}
             AND ${sessionVisibleTo(db, options.viewer)}
         ) THEN s.id END AS session_id,
-        s.title
+        ${servedTitle("s")} AS title
       FROM tool_calls c
       JOIN sessions s ON s.id = c.session_id
       LEFT JOIN agent_releases ar ON ar.id = s.agent_release_id

@@ -264,6 +264,10 @@ const sseEnvelopeSchema = z.object({
   session_id: sessionIdSchema,
   turn_id: turnIdSchema.nullable(),
   attempt_id: attemptIdSchema.nullable(),
+  source_deleted_at: timestampSchema.optional().meta({
+    description:
+      "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` and `runtime`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+  }),
   occurred_at: timestampSchema.meta({
     description:
       "When the event happened: for an engine event, when the worker published it; for a control-plane event, when the control plane recorded it. A new event is stamped no earlier than the one before it in `id` order; events stored before that rule may still go back. Order and resume by `id`, not by this time: events can share it.",
