@@ -518,6 +518,31 @@ integration(
       };
       const madeDuring = await attachLate(g3Binding, "G3");
       expect((await scopes())[madeDuring]).toBe("private_channel");
+
+      // Concurrent: an attach while a conversion holds the channel waits for
+      // it, then reads the binding it left.
+      const c2Binding = await binding("public_channel", "C2");
+      await session(c2Binding, "C2");
+      const c2Place = (await channelSessionPlaces(db, { agentId })).find(
+        (place) => place.channelId === "C2",
+      );
+      if (c2Place === undefined) throw new Error("no C2 place");
+      let answerC2: (kind: "private_channel") => void = () => {};
+      const c2Asked = new Promise<"private_channel">((resolve) => {
+        answerC2 = resolve;
+      });
+      const c2Converting = store.channelKindChanged(c2Place, () => c2Asked);
+      await Bun.sleep(200);
+      let attachDone = false;
+      const c2Attach = attachLate(c2Binding, "C2").then((id) => {
+        attachDone = true;
+        return id;
+      });
+      await Bun.sleep(300);
+      expect(attachDone).toBe(false);
+      answerC2("private_channel");
+      expect((await c2Converting)?.binding).toBe("now_private");
+      expect((await scopes())[await c2Attach]).toBe("private_channel");
       const madePublic = await attachLate(publicBinding, "C1");
       expect((await scopes())[madePublic]).toBe("workspace");
       const { rows: noShare } = await pool.query(
