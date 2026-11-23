@@ -1156,6 +1156,47 @@ describe("the session's GitHub work", () => {
     );
   });
 
+  test("while a decision is sent the buttons keep focus and send nothing more; a request that cannot be approved can still be rejected", async () => {
+    let release: (response: Response) => void = () => {};
+    const waiting = {
+      ...request,
+      state: "requested" as const,
+      finished_at: null,
+      pr_state: null,
+      approvability: {
+        approvable: false,
+        reason: { key: "action.push.unapprovable.checkpoint_moved" as const },
+      },
+    };
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({ items: [waiting], intents: [] }),
+      [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/reject`]:
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve;
+          }),
+    });
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    const approve = within(area).getByRole("button", { name: /^push 승인/ });
+    const reject = within(area).getByRole("button", { name: /^거절/ });
+    expect(approve.hasAttribute("disabled")).toBe(true);
+    const user = await setupUser();
+    await user.click(reject);
+    await waitFor(() =>
+      expect(reject.getAttribute("aria-disabled")).toBe("true"),
+    );
+    expect(reject.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement === reject).toBe(true);
+    await user.click(reject);
+    const posts = () => api.calls.filter((call) => call.method === "POST");
+    expect(posts()).toHaveLength(1);
+    release(json(200, { ...waiting, state: "rejected" }));
+    await waitFor(() =>
+      expect(reject.getAttribute("aria-disabled")).toBeNull(),
+    );
+    expect(posts()).toHaveLength(1);
+  });
+
   test("a decision the server refuses says so in words next to the buttons", async () => {
     const waiting = {
       ...request,
