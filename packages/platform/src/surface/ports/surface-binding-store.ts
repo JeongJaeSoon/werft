@@ -212,8 +212,9 @@ export interface SurfaceBindingStore {
    * receipt (reason `channel_deleted`); mode, ceiling and kind stay. The
    * deletion is noted as the channel's leave whatever its order, so a join
    * stamped before it changes nothing; a join noted after it (a retried
-   * deletion arriving late) keeps the binding as that join left it. False
-   * when no binding changed.
+   * deletion arriving late) keeps the binding as that join left it. Every
+   * deletion but that late one also deletes the channel's summary, with its
+   * history, whatever the binding. False when no binding changed.
    */
   channelDeleted(
     installationId: string,

@@ -142,12 +142,13 @@ export async function dropChannelSummaryLinesOf(
 }
 
 /**
- * Removes the channel's summary whole, every version of every line with it,
- * under the summary's lock. Returns how many line rows went and the Slack ts
+ * Deletes the channel's summary: every version's lines, their sources and
+ * the summary row, under the summary's lock. The channel's context row
+ * stays, as its conversations point at it. Returns how many line rows went and the Slack ts
  * of every source they had, so a caller that marked those messages first
  * can tell a line written since it looked.
  */
-export async function dropChannelSummary(
+export async function deleteChannelSummary(
   tx: Database,
   place: ChannelSummaryPlace,
 ): Promise<{ lines: number; sourceTs: string[] }> {
@@ -451,10 +452,7 @@ export function createPostgresChannelSummaryStore(
     },
 
     async deleteChannel(place) {
-      return db.transaction(async (tx) => {
-        const { lines } = await dropChannelSummary(tx, place);
-        return { lines };
-      });
+      return db.transaction((tx) => deleteChannelSummary(tx, place));
     },
   };
 }

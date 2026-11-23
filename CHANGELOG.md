@@ -19,6 +19,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 지우기 전에, 지울 기록이 가리키는 글 가운데 어느 턴의 입력도 아닌 글에 삭제 표식(`admin_deleted`)을 단다. 그 글을 출처로 가진 세션만 `SOURCE_DELETED`로 멈추고 보내지 않은 답은 나가지 않는다. 같은 채널의 다른 세션은 그대로 돈다.
   - `--by`는 그 워크스페이스의 owner나 admin이어야 하고, receipt `delete_conversation_records`의 행위자로 남는다. DM 대화는 `dm_not_supported`로 거절한다. 다시 불러도 결과가 같다. 사용법은 문서 사이트의 "데이터별 보존" 아래 "대화 기록의 관리자 삭제"에 있다.
   - 있던 표식은 `slack_deleted`가 된다. `conversations`의 CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
+- **Slack에서 채널이 삭제되면(`channel_deleted`·`group_deleted`) 그 채널의 채널 요약을 모든 버전의 이력과 함께 지운다**(JeongJaeSoon/werft#2075). migration은 없고 따로 할 일도 없다. 이 릴리스에는 요약을 쓰는 길이 없어서 지울 행도 아직 없다.
+  - 관여 기록, 대화, `channel_contexts` 행은 남는다. 보관과 `channel_not_found`(조회 실패로 정리한 채널)로는 지우지 않는다.
 - **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#2074). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
   - 칸: `slack_outbox.correlation_id`(웹 입력의 Slack 글마다 새로 만드는 상관값), `slack_outbox.held_for_input_id`(그 입력의 글 스레드를 기다리는 줄), `conversation_inputs.slack_mirror`의 새 값 `unconfirmed`.
   - 웹 입력의 Slack 글에는 상관값이 message metadata(`event_type` `werft_input_mirror`)로 실린다. 다른 줄의 `chat.postMessage`에는 지금처럼 metadata가 없다.

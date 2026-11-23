@@ -5,8 +5,8 @@ import {
 } from "@werft-ai/contracts";
 import { sql } from "drizzle-orm";
 import {
+  deleteChannelSummary,
   dropBufferedInputs,
-  dropChannelSummary,
   lockSlackSourceMark,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
@@ -265,7 +265,7 @@ export async function deleteConversationRecords(
           if (!within(engagementTs, seen.touched)) throw new RecordsMoved();
           const engagements = engagementTs.length;
           const buffered = await dropBufferedInputs(tx, records.bufferedIds);
-          const summary = await dropChannelSummary(tx, place);
+          const summary = await deleteChannelSummary(tx, place);
           if (!within(summary.sourceTs, seen.touched)) throw new RecordsMoved();
           const result = {
             engagements,

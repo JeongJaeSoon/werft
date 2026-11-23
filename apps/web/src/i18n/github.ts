@@ -212,6 +212,8 @@ export const githubKo = {
   "github.repo.pickNoApp": "작성용 App을 먼저 연결하세요.",
   "github.repo.pickNameHeld":
     "같은 이름을 쓰던 다른 저장소의 항목이 남아 있습니다. GitHub에서 이름이 바뀐 그 저장소를 먼저 한 번 고르면 항목이 새 이름으로 바뀝니다.",
+  "github.repo.notPublished":
+    "먼저 에이전트를 게시해야 GitHub 저장소를 켤 수 있습니다.",
   "github.repo.pickNoInstallation":
     "App이 아직 어디에도 설치되지 않았습니다. GitHub에서 App을 설치하세요.",
   "github.repo.installationReviewer": "{account} (리뷰 승인용 App)",
@@ -520,6 +522,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.repo.pickNoApp": "Connect an author App first.",
   "github.repo.pickNameHeld":
     "Another repository's entry still holds this name. Pick that repository, renamed on GitHub, once first and its entry takes the new name.",
+  "github.repo.notPublished":
+    "Publish the agent first to turn on a GitHub repository.",
   "github.repo.pickNoInstallation":
     "The App is not installed anywhere yet. Install it on GitHub.",
   "github.repo.installationReviewer": "{account} (reviewer App)",
@@ -832,6 +836,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.repo.pickNoApp": "先に作成用 App を接続してください。",
   "github.repo.pickNameHeld":
     "同じ名前を使っていた別のリポジトリの項目が残っています。GitHub で名前が変わったそのリポジトリを先に一度選ぶと、項目が新しい名前になります。",
+  "github.repo.notPublished":
+    "先にエージェントを公開しないと GitHub リポジトリをオンにできません。",
   "github.repo.pickNoInstallation":
     "App はまだどこにもインストールされていません。GitHub で App をインストールしてください。",
   "github.repo.installationReviewer": "{account}(レビュー承認用 App)",
