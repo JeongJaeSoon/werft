@@ -14,6 +14,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **slack 역할이 Slack 글의 접수 줄(`conversation_inputs`)을 inbox 행을 처리됨으로 바꿀 때가 아니라 그 글의 턴을 넣는 transaction에서 적는다**(JeongJaeSoon/werft#2084). migration은 없고 따로 할 일도 없다. Slack에서 보이는 동작은 그대로다.
+  - 턴을 넣은 직후 slack 역할이 죽고 그사이 설치가 해지되면, 예전에는 턴만 남고 접수 줄이 없었다. 이제 둘은 함께 생기거나 함께 생기지 않는다.
+  - 이 릴리스 전 이미지가 턴만 넣고 죽은 이벤트는 다시 돌 때 지금처럼 접수 줄을 채운다. 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0337_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#2077). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
   - 세션, 턴과 입력 원문, 입력 접수 줄, 이벤트, transcript, checkpoint는 지우지 않는다. 대화 행도 남는다.
   - 지우기 전에, 지울 기록이 가리키는 글 가운데 어느 턴의 입력도 아닌 글에 삭제 표식(`admin_deleted`)을 단다. 그 글을 출처로 가진 세션만 `SOURCE_DELETED`로 멈추고 보내지 않은 답은 나가지 않는다. 같은 채널의 다른 세션은 그대로 돈다.
