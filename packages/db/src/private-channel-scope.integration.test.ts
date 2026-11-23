@@ -14,6 +14,8 @@ import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   channelSessionPlaces,
+  lockChannelSessions,
+  moveChannelSessionScope,
   readChannelScopePlan,
 } from "./sessions/private-channel-scope.ts";
 import { makeFixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
@@ -429,6 +431,55 @@ integration(
       await input.query("COMMIT");
       input.release();
       expect((await converting)?.binding).toBe("now_public");
+
+      // A session with no parent needs its channel's conversation made, and
+      // that needs the agent (its foreign key): the move takes the agent
+      // before the binding, so an archive holding the agent and then taking
+      // the binding is waited for, not deadlocked.
+      const g3Binding = await binding("public_channel", "G3");
+      const orphan = await session(g3Binding, "G3");
+      const g3Place = (await channelSessionPlaces(db, { agentId })).find(
+        (place) => place.channelId === "G3",
+      );
+      if (g3Place === undefined) throw new Error("no G3 place");
+      const archive = await pool.connect();
+      await archive.query("BEGIN");
+      await archive.query("SELECT id FROM agents WHERE id = $1 FOR UPDATE", [
+        agentId,
+      ]);
+      const narrowing = store.channelKindChanged(
+        g3Place,
+        async () => "private_channel",
+      );
+      await Bun.sleep(300);
+      await archive.query(
+        "SELECT id FROM surface_bindings WHERE id = $1 FOR UPDATE",
+        [g3Binding],
+      );
+      await archive.query("COMMIT");
+      archive.release();
+      expect((await narrowing)?.moves.map((move) => move.sessionId)).toEqual([
+        orphan,
+      ]);
+      expect((await scopes())[orphan]).toBe("private_channel");
+
+      // A session linked after the caller took its locks is left for the
+      // next run, not locked late.
+      const late = await db.transaction(async (tx) => {
+        const held = await lockChannelSessions(tx, g3Place);
+        const linkedLate = await session(g3Binding, "G3");
+        const plan = await moveChannelSessionScope(
+          tx,
+          g3Place,
+          "private_channel",
+          held,
+        );
+        return { linkedLate, plan };
+      });
+      expect(late.plan.skipped).toEqual([
+        { sessionId: late.linkedLate, reason: "share_changed" },
+      ]);
+      expect((await scopes())[late.linkedLate]).toBe("workspace");
     });
   },
 );

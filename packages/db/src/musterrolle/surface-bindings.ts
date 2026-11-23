@@ -1077,9 +1077,15 @@ async function channelKindChanged(
       ${`channel_kind:${place.installationId.toLowerCase()}:${place.channelId}`}, 0))`);
     const kind = await kindNow();
     if (kind === null) return null;
-    // The session rows before the binding, as an input takes a session
-    // before what it reads, so no input or archive waits in a cycle on it.
-    await lockChannelSessions(tx, place);
+    // The session rows, then the agent, then the binding: an input takes its
+    // session before the agent, and an archive the agent before the binding.
+    // A conversation made below needs the agent too (its foreign key).
+    const held = await lockChannelSessions(tx, place);
+    if (UUID.test(place.agentId)) {
+      await tx.execute(sql`
+        SELECT id FROM agents WHERE id = ${place.agentId.toLowerCase()}::uuid
+        FOR SHARE`);
+    }
     let binding: ChannelKindChanged["binding"] = "unchanged";
     const current = UUID.test(place.installationId)
       ? await lockBinding(
@@ -1135,7 +1141,10 @@ async function channelKindChanged(
         binding = nowPrivate ? "now_private" : "now_public";
       }
     }
-    return { binding, ...(await moveChannelSessionScope(tx, place, kind)) };
+    return {
+      binding,
+      ...(await moveChannelSessionScope(tx, place, kind, held)),
+    };
   });
 }
 

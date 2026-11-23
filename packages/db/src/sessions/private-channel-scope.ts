@@ -82,10 +82,13 @@ const linkedSessionIds = (place: ChannelSessionPlace) => sql`
 export async function lockChannelSessions(
   tx: Database,
   place: ChannelSessionPlace,
-): Promise<void> {
-  await tx.execute(sql`
-    SELECT id FROM sessions WHERE id IN (${linkedSessionIds(place)})
-    ORDER BY id FOR UPDATE`);
+): Promise<ReadonlySet<string>> {
+  const rows = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      SELECT id FROM sessions WHERE id IN (${linkedSessionIds(place)})
+      ORDER BY id FOR UPDATE`),
+  );
+  return new Set(rows.map((row) => row.id));
 }
 
 /** The sessions linked from the place's channel threads, each once. */
@@ -234,17 +237,27 @@ export async function readChannelScopePlan(
  * first (found or made), so the channel's members find the session. Named
  * share rows stay; under `private_channel` they take no effect. Running it
  * again moves nothing more. Only what was written is reported as moved.
+ * `locked` is the session set the caller already holds; a session linked
+ * after it is left for the next run (`share_changed`), so no session is
+ * locked after what the caller took next.
  */
 export async function moveChannelSessionScope(
   tx: Database,
   place: ChannelSessionPlace,
   kind: ChannelKindNow,
+  locked?: ReadonlySet<string>,
 ): Promise<ChannelScopePlan> {
-  await lockChannelSessions(tx, place);
-  const rows = await channelSessions(tx, place);
+  const held = locked ?? (await lockChannelSessions(tx, place));
+  const linked = await channelSessions(tx, place);
+  const rows = linked.filter((row) => held.has(row.sessionId));
   const usable = usableChannel(place);
   let conversationId = usable ? await channelConversationId(tx, place) : null;
   const plan = planChannelScope(rows, kind, { usable, conversationId });
+  for (const row of linked) {
+    if (!held.has(row.sessionId)) {
+      plan.skipped.push({ sessionId: row.sessionId, reason: "share_changed" });
+    }
+  }
   if (kind === "private_channel" && usable && plan.moves.length > 0) {
     conversationId ??= (
       await createPostgresConversationStore(tx).findOrCreateConversation(
