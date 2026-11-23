@@ -574,68 +574,80 @@ describe("private_channel sessions on the reads", () => {
 
   // Codex (94S-2052): a live binding that knows no kind does not hide a
   // live public one.
-  test("a live binding of no kind leaves a live public one public", async () => {
-    const [publicInstall, partialInstall] = [randomUUID(), randomUUID()];
-    for (const [id, appId] of [
-      [publicInstall, "A0PCPUB"],
-      [partialInstall, "A0PCPART"],
-    ] as const) {
-      await db.insert(slackInstallations).values({
-        id,
-        workspaceId: ws,
-        appId,
-        teamId: "T0ACME",
-      });
-    }
-    for (const [installationId, surfaceKind, status] of [
-      [publicInstall, "public_channel", "ready"],
-      [partialInstall, null, "partial"],
-    ] as const) {
-      await db.insert(surfaceBindings).values({
+  test.each([
+    ["live", null, "C0MIXED"],
+    ["revoked", new Date(), "C0MIXEDOLD"],
+  ] as const)(
+    "a live binding of no kind leaves a %s public one public",
+    async (_, publicRevokedAt, channelId) => {
+      const [publicInstall, partialInstall] = [randomUUID(), randomUUID()];
+      for (const [id, appId] of [
+        [publicInstall, `A0PUB${channelId}`],
+        [partialInstall, `A0PART${channelId}`],
+      ] as const) {
+        await db.insert(slackInstallations).values({
+          id,
+          workspaceId: ws,
+          appId,
+          teamId: "T0ACME",
+        });
+      }
+      for (const [installationId, surfaceKind, status, revokedAt] of [
+        [
+          publicInstall,
+          "public_channel",
+          publicRevokedAt === null ? "ready" : "revoked",
+          publicRevokedAt,
+        ],
+        [partialInstall, null, "partial", null],
+      ] as const) {
+        await db.insert(surfaceBindings).values({
+          id: randomUUID(),
+          workspaceId: ws,
+          agentId,
+          surface: "slack",
+          installationId,
+          externalSurfaceId: channelId,
+          surfaceKind,
+          mode: "on",
+          status,
+          revokedAt,
+          ceilingActions: [],
+          ceilingDisclosure: "summary",
+        });
+      }
+      const mixed = randomUUID();
+      await db.insert(channelContexts).values({
         id: randomUUID(),
         workspaceId: ws,
-        agentId,
-        surface: "slack",
-        installationId,
-        externalSurfaceId: "C0MIXED",
-        surfaceKind,
-        mode: "on",
-        status,
-        ceilingActions: [],
-        ceilingDisclosure: "summary",
+        teamId: "T0ACME",
+        channelId,
       });
-    }
-    const mixed = randomUUID();
-    await db.insert(channelContexts).values({
-      id: randomUUID(),
-      workspaceId: ws,
-      teamId: "T0ACME",
-      channelId: "C0MIXED",
-    });
-    await db.insert(conversations).values({
-      id: mixed,
-      workspaceId: ws,
-      agentId,
-      kind: "channel",
-      teamId: "T0ACME",
-      channelId: "C0MIXED",
-    });
-    const session = randomUUID();
-    await db.insert(sessions).values({
-      id: session,
-      ownerId: ws,
-      workspaceId: ws,
-      repoUrl: "https://example.invalid/repo.git",
-      branch: "main",
-      createdByUserId: requester,
-      parentConversationId: mixed,
-    });
-    const shares = createPostgresSessionShareStore(db);
-    expect(
-      await shares.visibleTo(ws, session, { userId: member, apiKeyId: null }),
-    ).toBe(true);
-    expect(await shares.privateChannels(ws, session)).toEqual([]);
-  });
+      await db.insert(conversations).values({
+        id: mixed,
+        workspaceId: ws,
+        agentId,
+        kind: "channel",
+        teamId: "T0ACME",
+        channelId,
+      });
+      const session = randomUUID();
+      await db.insert(sessions).values({
+        id: session,
+        ownerId: ws,
+        workspaceId: ws,
+        repoUrl: "https://example.invalid/repo.git",
+        branch: "main",
+        createdByUserId: requester,
+        parentConversationId: mixed,
+      });
+      const shares = createPostgresSessionShareStore(db);
+      expect(
+        await shares.visibleTo(ws, session, { userId: member, apiKeyId: null }),
+      ).toBe(true);
+      expect(await shares.privateChannels(ws, session)).toEqual([]);
+    },
+  );
 
   test("a people share from a private channel reaches a named member only", async () => {
     const named = randomUUID();
