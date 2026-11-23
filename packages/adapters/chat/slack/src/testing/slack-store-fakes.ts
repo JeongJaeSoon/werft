@@ -14,6 +14,7 @@ import {
 import {
   type AgentIdentityRecord,
   type AgentIdentityStore,
+  type BufferedInputReceipt,
   type ConfigTokenSummary,
   type CreatedSlackApp,
   type InboundInputReceipt,
@@ -976,7 +977,7 @@ export function createMemorySlackInboundEventStore(
   const lease = new Map<string, MemoryInboundRow>();
   const calls = { seen: 0, record: 0 };
   /** What each completion took, in order. */
-  const inputs: InboundInputReceipt[] = [];
+  const inputs: (InboundInputReceipt | BufferedInputReceipt)[] = [];
   const faults = { record: 0 };
   const held = (fence: SlackInboundFence) => {
     const row = [...lease.values()].find((r) => r.id === fence.id);
@@ -1093,6 +1094,8 @@ export function createMemorySlackInboundEventStore(
 export function createMemorySlackSourceMarkStore() {
   const deleted = new Map<string, SlackSourceMark>();
   const edited = new Map<string, SlackSourceMark>();
+  /** The text each edit handed over for the judgment buffer, in order. */
+  const editedBodies: string[] = [];
   const keyOf = (mark: SlackSourceMark) =>
     [mark.workspaceId, mark.teamId, mark.channelId, mark.ts].join("|");
   const store: SlackSourceMarkStore = {
@@ -1103,9 +1106,10 @@ export function createMemorySlackSourceMarkStore() {
       deleted.set(key, mark);
       return "recorded";
     },
-    async markEdited(mark) {
+    async markEdited(mark, body) {
       const key = keyOf(mark);
       if (deleted.has(key)) return "deleted";
+      if (body !== undefined) editedBodies.push(body);
       const before = edited.get(key);
       edited.set(
         key,
@@ -1114,5 +1118,5 @@ export function createMemorySlackSourceMarkStore() {
       return "recorded";
     },
   };
-  return { store, deleted, edited };
+  return { store, deleted, edited, editedBodies };
 }

@@ -1135,7 +1135,7 @@ describe("the session's GitHub work", () => {
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     expect(within(area).getByText("승인 대기")).toBeDefined();
     const user = await setupUser();
-    await user.click(within(area).getByRole("button", { name: "push 승인" }));
+    await user.click(within(area).getByRole("button", { name: /^push 승인/ }));
     await waitFor(() =>
       expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
         git_commit: waiting.git_commit,
@@ -1146,7 +1146,79 @@ describe("the session's GitHub work", () => {
         .find((call) => call.method === "POST")
         ?.path.endsWith("/approve"),
     ).toBe(true);
-    await user.click(within(area).getByRole("button", { name: "거절" }));
+    await user.click(within(area).getByRole("button", { name: /^거절/ }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (call) => call.method === "POST" && call.path.endsWith("/reject"),
+        ),
+      ).toHaveLength(1),
+    );
+  });
+
+  test("while a decision is sent both buttons keep focus and send nothing more, and a refused one can be tried again; a request that cannot be approved can still be rejected", async () => {
+    let release: (response: Response) => void = () => {};
+    const waiting = {
+      ...request,
+      state: "requested" as const,
+      finished_at: null,
+      pr_state: null,
+    };
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({ items: [waiting], intents: [] }),
+      [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/approve`]:
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve;
+          }),
+    });
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    const approve = within(area).getByRole("button", { name: /^push 승인/ });
+    const reject = within(area).getByRole("button", { name: /^거절/ });
+    const posts = () => api.calls.filter((call) => call.method === "POST");
+    const user = await setupUser();
+    await user.click(approve);
+    await waitFor(() =>
+      expect(approve.getAttribute("aria-disabled")).toBe("true"),
+    );
+    expect(reject.getAttribute("aria-disabled")).toBe("true");
+    expect(approve.hasAttribute("disabled")).toBe(false);
+    expect(document.activeElement === approve).toBe(true);
+    await user.click(approve);
+    await user.click(reject);
+    expect(posts()).toHaveLength(1);
+    release(apiError(409, "CHECKPOINT_MOVED", "A newer checkpoint was saved"));
+    await within(area).findByRole("alert");
+    expect(approve.getAttribute("aria-disabled")).toBeNull();
+    await user.click(approve);
+    await waitFor(() => expect(posts()).toHaveLength(2));
+  });
+
+  test("a request that cannot be approved says why and can still be rejected", async () => {
+    const waiting = {
+      ...request,
+      state: "requested" as const,
+      finished_at: null,
+      pr_state: null,
+      approvability: {
+        approvable: false,
+        reason: { key: "action.push.unapprovable.checkpoint_moved" as const },
+      },
+    };
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({ items: [waiting], intents: [] }),
+      [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/reject`]:
+        () => json(200, { ...waiting, state: "rejected" }),
+    });
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    expect(
+      within(area)
+        .getByRole("button", { name: /^push 승인/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    await (await setupUser()).click(
+      within(area).getByRole("button", { name: /^거절/ }),
+    );
     await waitFor(() =>
       expect(
         api.calls.filter(
@@ -1170,7 +1242,7 @@ describe("the session's GitHub work", () => {
     });
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     await (await setupUser()).click(
-      within(area).getByRole("button", { name: "push 승인" }),
+      within(area).getByRole("button", { name: /^push 승인/ }),
     );
     // Waiting does not heal a moved checkpoint, so the sentence says to reject
     // and ask again instead of the generic "try again later".
@@ -1179,7 +1251,7 @@ describe("the session's GitHub work", () => {
     );
     // The buttons stay: the request is still open.
     expect(
-      within(area).getByRole("button", { name: "push 승인" }),
+      within(area).getByRole("button", { name: /^push 승인/ }),
     ).toBeDefined();
   });
 
@@ -1202,14 +1274,14 @@ describe("the session's GitHub work", () => {
         },
     });
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
-    const approve = within(area).getByRole("button", { name: "push 승인" });
+    const approve = within(area).getByRole("button", { name: /^push 승인/ });
     expect(
       within(area).getByText(waiting.git_commit.slice(0, 7)),
     ).toBeDefined();
     await (await setupUser()).click(approve);
     await waitFor(() =>
       expect(
-        within(area).queryByRole("button", { name: "push 승인" }),
+        within(area).queryByRole("button", { name: /^push 승인/ }),
       ).toBeNull(),
     );
     expect(within(area).getByText("승인됨")).toBeDefined();
@@ -1241,13 +1313,164 @@ describe("the session's GitHub work", () => {
       }),
     );
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
-    expect(within(area).getByText("push 실패")).toBeDefined();
+    expect(
+      within(area).getByText("push 실패", { selector: '[data-slot="badge"]' }),
+    ).toBeDefined();
     expect(
       within(area).getByText(/원격 저장소가 push를 받지 않았습니다/),
     ).toBeDefined();
     expect(
-      within(area).queryByRole("button", { name: "push 승인" }),
+      within(area).queryByRole("button", { name: /^push 승인/ }),
     ).toBeNull();
+  });
+
+  test("every row has the same lines: target and badges, then commit · what the time is of, with the exact time behind it; buttons sit at the row's end", async () => {
+    const RESOLVED = "2026-10-11T08:20:00.000Z";
+    const FINISHED = "2026-10-11T08:30:00.000Z";
+    const on = (
+      branch: string,
+      id: string,
+      fields: Partial<ListPushRequestsResponse["items"][number]>,
+    ) => ({
+      ...request,
+      id: `019a0000-0000-7000-8000-0000000000${id}`,
+      target_branch: branch,
+      ...fields,
+    });
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      working({
+        items: [
+          on("feature/wait", "d1", {
+            state: "requested",
+            finished_at: null,
+            pr_state: null,
+          }),
+          on("feature/approved", "d2", {
+            state: "pushing",
+            resolved_at: RESOLVED,
+            finished_at: null,
+            pr_state: null,
+          }),
+          on("feature/rejected", "d3", {
+            state: "rejected",
+            resolved_at: RESOLVED,
+            finished_at: null,
+            pr_state: null,
+          }),
+          on("feature/pr", "d4", {
+            state: "pushed",
+            resolved_at: RESOLVED,
+            finished_at: FINISHED,
+            pr_state: "opened",
+            pr_number: 9,
+            pr_url: "https://github.com/acme/demo/pull/9",
+          }),
+          on("feature/failed", "d5", {
+            state: "failed",
+            resolved_at: RESOLVED,
+            finished_at: FINISHED,
+            pr_state: null,
+          }),
+          // An approval written before its time was kept says the request's.
+          on("feature/old", "d6", {
+            state: "approved",
+            resolved_at: null,
+            finished_at: null,
+            pr_state: null,
+          }),
+        ],
+        intents: [
+          intent("e1", {
+            target_branch: "feature/ended",
+            status: "cancelled",
+            refusal_code: "session_closed",
+          }),
+        ],
+      }),
+    );
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    const rowOf = (branch: string) => {
+      const row = within(area).getByText(`acme/demo ← ${branch}`).closest("li");
+      if (row === null) throw new Error(`no row for ${branch}`);
+      return row;
+    };
+    const lines = (row: HTMLElement) =>
+      [...(row.querySelector('[data-slot="row-lines"]')?.children ?? [])].map(
+        (line) => line.textContent ?? "",
+      );
+    const timeOf = (row: HTMLElement) => {
+      const time = row.querySelector("time");
+      return {
+        at: time?.getAttribute("datetime"),
+        exact: document.getElementById(
+          time?.getAttribute("aria-describedby") ?? "",
+        )?.textContent,
+      };
+    };
+    const commit = request.git_commit.slice(0, 7);
+    const expected: [string, string, string, string][] = [
+      ["feature/wait", "요청 ", AT, "2026년 10월 11일 17:14:02 GMT+9"],
+      [
+        "feature/approved",
+        "승인 ",
+        RESOLVED,
+        "2026년 10월 11일 17:20:00 GMT+9",
+      ],
+      [
+        "feature/rejected",
+        "거절 ",
+        RESOLVED,
+        "2026년 10월 11일 17:20:00 GMT+9",
+      ],
+      ["feature/pr", "push ", FINISHED, "2026년 10월 11일 17:30:00 GMT+9"],
+      [
+        "feature/failed",
+        "push 실패 ",
+        FINISHED,
+        "2026년 10월 11일 17:30:00 GMT+9",
+      ],
+      ["feature/old", "요청 ", AT, "2026년 10월 11일 17:14:02 GMT+9"],
+    ];
+    for (const [branch, label, at, exact] of expected) {
+      const row = rowOf(branch);
+      const [first, second] = lines(row);
+      expect(first?.startsWith(`acme/demo ← ${branch}`)).toBe(true);
+      expect(second?.startsWith(`${commit} · ${label}`)).toBe(true);
+      expect(timeOf(row)).toEqual({ at, exact });
+    }
+    expect(lines(rowOf("feature/pr"))[0]).toContain("PR #9");
+    expect(lines(rowOf("feature/failed"))[2]).toMatch(
+      /원격 저장소가 push를 받지 않았습니다/,
+    );
+    // An intent has no commit: its second line is its time, then why it ended.
+    const ended = rowOf("feature/ended");
+    expect(lines(ended).slice(1, 2)[0]?.startsWith("요청 ")).toBe(true);
+    expect(lines(ended)[2]).toBe("세션이 닫혔습니다.");
+    expect(timeOf(ended).at).toBe(AT);
+
+    // Only the waiting row has buttons, after its lines, approve first.
+    const waiting = rowOf("feature/wait");
+    const buttons = within(waiting).getAllByRole("button");
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "push 승인: acme/demo ← feature/wait",
+      "거절: acme/demo ← feature/wait",
+    ]);
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "push 승인",
+      "거절",
+    ]);
+    const actions = waiting.lastElementChild;
+    expect(actions?.getAttribute("data-slot")).not.toBe("row-lines");
+    expect(buttons.every((button) => button.parentElement === actions)).toBe(
+      true,
+    );
+    // Reject is the quieter button beside the one next step.
+    expect(buttons[0]?.className).toContain("bg-primary");
+    expect(buttons[1]?.className).not.toContain("bg-primary");
+    expect(
+      within(area).getAllByRole("button", { name: /^push 승인/ }),
+    ).toHaveLength(1);
   });
 
   test("an older server's answer, with no intents and no pr_state, still lists the request without a stage", async () => {

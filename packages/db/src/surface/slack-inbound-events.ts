@@ -7,6 +7,7 @@ import type {
 } from "@werft-ai/platform";
 import { and, eq, gt, sql } from "drizzle-orm";
 import {
+  holdBufferedInput,
   lockSessionForSources,
   recordSourceInput,
 } from "../conversations/index.ts";
@@ -198,6 +199,10 @@ export function createPostgresSlackInboundEventStore(
           throw new Error(
             `topic ${input.topicId} is no topic of the event's agent`,
           );
+        }
+        if ("buffered" in input) {
+          await holdBufferedInput(tx, row, input);
+          return true;
         }
         const [turn] = rowsOf<{
           id: string;

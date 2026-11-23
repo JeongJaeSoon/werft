@@ -15,6 +15,7 @@ import type {
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { findPgError, UUID } from "../control-shared.ts";
+import { dropUnlistenedBuffer } from "../conversations/index.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -292,6 +293,14 @@ async function set(
       if (!row) throw new Error(`surface binding ${id} vanished in its tx`);
       const binding = recordOf(row);
       const receiptId = await writeReceipt(tx, input.principal, binding);
+      // A channel saved as off, listening to less, or waiting for approval
+      // holds no unmentioned message from now on.
+      if (binding.channelId !== null) {
+        await dropUnlistenedBuffer(tx, {
+          agentId: binding.agentId,
+          channelId: binding.channelId,
+        });
+      }
       if (startsWaiting) {
         await writeReceipt(
           tx,
@@ -971,6 +980,12 @@ async function markLeft(
     previous_status: current.status,
     lifecycle_us: at,
   });
+  if (current.channelId !== null) {
+    await dropUnlistenedBuffer(tx, {
+      agentId: current.agentId,
+      channelId: current.channelId,
+    });
+  }
 }
 
 // Slack deleted the channel: inactive, no home, no approval. The mode,
@@ -1004,6 +1019,12 @@ async function markGone(
     previous_status: current.status,
     lifecycle_us: at,
   });
+  if (current.channelId !== null) {
+    await dropUnlistenedBuffer(tx, {
+      agentId: current.agentId,
+      channelId: current.channelId,
+    });
+  }
 }
 
 // A public channel Slack was thought to have deleted has the bot in it
