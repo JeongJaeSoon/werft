@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { pushRequesterOf } from "./musterrolle/session-shares.ts";
 import type { Database } from "./queries.ts";
@@ -186,6 +187,45 @@ describe("pushRequesterOf", () => {
         }),
       ),
     ).toBe(starter);
+  });
+
+  test("after a takeover, a push with no person behind it is the new holder's", async () => {
+    const holder = randomUUID();
+    await db.insert(users).values({
+      id: holder,
+      email: `${holder}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "holder",
+    });
+    // takeOver moves created_by_user_id to whoever took the session over.
+    await db
+      .update(sessions)
+      .set({ createdByUserId: holder })
+      .where(eq(sessions.id, sessionId));
+    try {
+      expect(
+        await of(
+          await push(
+            { principal: { kind: "worker", id: "w" } },
+            { requesterKind: "api_key", requesterId: randomUUID() },
+          ),
+        ),
+      ).toBe(holder);
+      // A turn's person still comes first.
+      expect(
+        await of(
+          await push(
+            { principal: { kind: "worker", id: "w" } },
+            { requesterKind: "user", requesterId: people.turn },
+          ),
+        ),
+      ).toBe(people.turn);
+    } finally {
+      await db
+        .update(sessions)
+        .set({ createdByUserId: starter })
+        .where(eq(sessions.id, sessionId));
+    }
   });
 
   test("another session's request, or none, is no one's", async () => {
