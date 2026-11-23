@@ -14,6 +14,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0326_link_posting`이 Slack 스레드의 게시 설정을 `session_links`의 칸 셋(`report_mode`·`mirror_instructions`·`post_prompts`)으로 나누고, 채널 binding에 `report_mode` 기본값 `per_step`을 더한다**(JeongJaeSoon/werft#2052). 따로 할 일은 없고, Slack에 올라가는 글의 종류와 횟수는 그대로다.
+  - outbox는 이제 `visibility` 대신 새 칸을 본다(아직 옮기지 않은 `summary` link를 막을 때만 `visibility`를 읽는다). 답·실패·결과 알림은 `report_mode`(비면 채널 값), 웹·API 지시 거울은 `mirror_instructions`, 승인 카드·질문은 `post_prompts`다.
+  - `full` link는 그대로 두고(기본값이 같은 뜻), `summary` link는 api 기동 때 도는 정리가 `none`·`false`·`false`로 옮긴다. 로그 `Summary session links moved`. 이 릴리스까지 `summary` link를 만드는 길은 없었다.
+  - 칸을 더하기만 하므로 지원 창 안의 이미지로 되돌려도 된다. `visibility`는 뒤의 릴리스가 지운다.
+
 - **migration `0325_channel_summaries`가 채널 요약 표 셋(`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`)을 더한다**(JeongJaeSoon/werft#2054). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다. 요약을 쓰는 길은 아직 없어서 표는 비어 있다.
   - 줄에는 에이전트가 쓴 글만 있고 Slack 글의 본문은 없다. 출처(글의 자리와 입력 접수 줄 id)와 화자는 서버가 입력 접수 줄에서 읽는다.
   - 바뀔 때마다 버전이 오르고 옛 버전은 되돌리기용 이력으로 남는다. 출처 글이 지워지거나 고쳐지면 그 줄을 모든 버전에서 지운다.

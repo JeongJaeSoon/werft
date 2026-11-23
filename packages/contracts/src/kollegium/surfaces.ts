@@ -287,6 +287,28 @@ export const sessionLinkVisibilitySchema = z.enum(
 );
 
 /**
+ * How a thread hears of a session's turns. `none` is what a `summary` link
+ * moved to: it stays readable on such links, and no writer may pick it.
+ */
+export const SESSION_LINK_REPORT_MODE_VALUES = [
+  "notify_only",
+  "progress",
+  "per_step",
+  "none",
+] as const;
+export type SessionLinkReportMode =
+  (typeof SESSION_LINK_REPORT_MODE_VALUES)[number];
+export const REPORT_MODE_CHOICES = [
+  "notify_only",
+  "progress",
+  "per_step",
+] as const satisfies readonly SessionLinkReportMode[];
+export type ReportModeChoice = (typeof REPORT_MODE_CHOICES)[number];
+export const reportModeChoiceSchema = z.enum(REPORT_MODE_CHOICES);
+/** A channel's report mode until it picks one: one post per turn, as before. */
+export const DEFAULT_REPORT_MODE: ReportModeChoice = "per_step";
+
+/**
  * `(installation_id, surface_ref)` is the natural key and stays reserved after
  * revocation: a new message on a revoked thread needs an explicit rebind, it
  * does not quietly open a new session.

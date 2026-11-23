@@ -49,6 +49,7 @@ import {
   events,
   linkedAccounts,
   memberships,
+  moveSummaryLinks,
   pendingRequests,
   pushIntents,
   pushRequests,
@@ -3557,6 +3558,152 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
   });
 });
 
+describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
+  useDatabase(engine);
+
+  /** Turn `sequence` waits on one permission request, its card unsent. */
+  async function waitOnPermission(sessionId: string, sequence: number) {
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    const attemptId = `att-${randomUUID()}`;
+    await db.insert(attempts).values({
+      id: attemptId,
+      sessionId,
+      executionId: `exec-${attemptId}`,
+      leaseEpoch: session.leaseEpoch,
+      executionGeneration: session.executionGeneration,
+      authRevision: session.authRevision,
+      state: "running",
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    });
+    const [turn] = await db
+      .update(turns)
+      .set({ status: "needs_input", attemptId })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)))
+      .returning({ id: turns.id });
+    await db.insert(pendingRequests).values({
+      requestId: `toolu:${sequence}`,
+      sessionId,
+      turnId: turn?.id ?? 0,
+      attemptId,
+      kind: "permission",
+      payload: { kind: "permission", tool: "Bash", input: { command: "ls" } },
+      inputHash: "h",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+  }
+
+  const kinds = async () =>
+    [...new Set((await rows()).map((row) => row.kind))].sort();
+  // Each row as its kind and the turn or request it is of.
+  const sent = async () =>
+    (await rows())
+      .map((row) => `${row.kind}:${row.dedupeKey.split(":").at(-1)}`)
+      .sort();
+
+  // What `visibility` sent before the columns: `full` every kind, `summary`
+  // none. A moved link must send the same; each column gates its own kinds.
+  test.each([
+    [
+      "full, as an old host's link leaves it",
+      async () => {},
+      ["input_notice:2", "instruction:2", "reply:1", "reply:2"],
+    ],
+    [
+      "summary, moved by the start pass",
+      async () => {
+        await db.update(sessionLinks).set({ visibility: "summary" });
+        expect(await moveSummaryLinks(db)).toBe(1);
+      },
+      [],
+    ],
+    [
+      // The start pass may run late or fail: a link it has not moved yet
+      // still posts nothing.
+      "summary, not moved yet",
+      () => db.update(sessionLinks).set({ visibility: "summary" }),
+      [],
+    ],
+    [
+      "mirror_instructions off",
+      () => db.update(sessionLinks).set({ mirrorInstructions: false }),
+      ["input_notice:2", "reply:1", "reply:2"],
+    ],
+    [
+      "post_prompts off",
+      () => db.update(sessionLinks).set({ postPrompts: false }),
+      ["instruction:2", "reply:1", "reply:2"],
+    ],
+    // Until v1-b every mode but none posts once per turn, as full did.
+    [
+      "report_mode progress on the link",
+      () => db.update(sessionLinks).set({ reportMode: "progress" }),
+      ["input_notice:2", "instruction:2", "reply:1", "reply:2"],
+    ],
+    [
+      "report_mode notify_only on the channel, unset on the link",
+      () => db.update(surfaceBindings).set({ reportMode: "notify_only" }),
+      ["input_notice:2", "instruction:2", "reply:1", "reply:2"],
+    ],
+    [
+      "report_mode none",
+      () => db.update(sessionLinks).set({ reportMode: "none" }),
+      ["input_notice:2", "instruction:2"],
+    ],
+  ] as const)(
+    "%s: the thread gets what its columns allow",
+    async (_, set, expected) => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await set();
+      await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+      await outboxPass();
+      await askFrom(sessionId, 2, "web", "Add a test", true);
+      await outboxPass();
+      await waitOnPermission(sessionId, 2);
+      await outboxPass();
+      await endTurn(sessionId, 2, "completed", [[text("Added.")]]);
+      await outboxPass();
+
+      expect(await sent()).toEqual([...expected]);
+      expect(posted()).toHaveLength(expected.length);
+    },
+  );
+
+  test("a reply, an instruction or a card whose column was turned off while it waited is not sent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await askFrom(sessionId, 2, "web", "Add a test", true);
+    await waitOnPermission(sessionId, 2);
+    await outboxPass({ botToken: null });
+    await outboxPass({ botToken: null });
+    expect(await kinds()).toEqual(["input_notice", "instruction", "reply"]);
+
+    await db.update(sessionLinks).set({
+      reportMode: "none",
+      mirrorInstructions: false,
+      postPrompts: false,
+    });
+    await outboxPass();
+    expect(posted()).toEqual([]);
+    expect(
+      (await rows())
+        .map(({ kind, status, errorCode }) => [kind, status, errorCode])
+        .sort(),
+    ).toEqual([
+      ["input_notice", "failed", "not_addressed"],
+      ["instruction", "failed", "not_addressed"],
+      ["reply", "failed", "not_addressed"],
+    ]);
+  });
+});
+
 describe.each(ENGINES)("action notices on %s", (engine) => {
   useDatabase(engine);
 
@@ -3673,6 +3820,17 @@ describe.each(ENGINES)("action notices on %s", (engine) => {
     const keys = (await notices()).map((entry) => entry.dedupeKey);
     expect(keys).toContain(`action:${failed.id}:push_failed`);
     expect(keys).toContain(`action:${bare.id}:pushed`);
+  });
+
+  test("a thread that hears of no turns gets no notice, and its push still finishes", async () => {
+    const { id } = await pushing("actions");
+    await db.update(sessionLinks).set({ reportMode: "none" });
+    await createPostgresPushRequests(db).finish(
+      { id, attempt: 1 } as never,
+      pushed,
+    );
+    expect(await notices()).toEqual([]);
+    expect((await row(id))?.state).toBe("pushed");
   });
 
   test("a request of the legacy flow gets no notice", async () => {
