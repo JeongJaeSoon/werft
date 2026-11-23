@@ -440,10 +440,10 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${APPROVE[@]}" \
-  | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
+  | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by}'
 ```
 
-에이전트가 **push 전 사람 승인**을 켰으면 요청은 `requested`로 사람을 기다린다. 승인하거나 거부할 사람은 그 요청의 `git_commit`을 확인하고 이렇게 보낸다.
+에이전트가 **push 전 사람 승인**을 켰으면 요청은 `requested`로 사람을 기다린다. 승인하거나 거부할 사람은 그 요청의 `git_commit`을 확인하고 둘 중 하나만 보낸다(요청은 한 번만 결정된다).
 
 ```sh
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
