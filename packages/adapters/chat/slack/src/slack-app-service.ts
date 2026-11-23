@@ -6,6 +6,7 @@ import {
   type GetSlackAppResponse,
   type ListWorkspaceSlackAppsResponse,
   type PutSlackAppBotsRequest,
+  type RecheckSlackAppEventsResponse,
   SLACK_BINDING_MESSAGES,
   type SlackAgentWarning,
   type SlackApp,
@@ -741,7 +742,7 @@ export function createSlackAppService(deps: {
     async recheckAgentAppEvents(
       caller: Caller,
       agentId: string,
-    ): Promise<GetSlackAppResponse> {
+    ): Promise<RecheckSlackAppEventsResponse> {
       await permitAgent(caller, agentId);
       const { apps } = ready();
       const eventsUrl = await eventsUrlOf(agentId);
@@ -749,13 +750,20 @@ export function createSlackAppService(deps: {
       const record = await apps.findForAgent(caller.ownerId, agentId);
       const agent = await apps.manifestAgent(caller.ownerId, agentId);
       if (record === null || agent === null) throw NOT_FOUND();
-      await updateAgentAppManifest(caller.ownerId, record.id, {
-        name: agent.name,
-        botName: agent.slug,
-        description: agent.role,
-        eventsUrl,
-      });
-      return service.getAgentApp(caller, agentId);
+      const { permissionsUpdated } = await updateAgentAppManifest(
+        caller.ownerId,
+        record.id,
+        {
+          name: agent.name,
+          botName: agent.slug,
+          description: agent.role,
+          eventsUrl,
+        },
+      );
+      return {
+        ...(await service.getAgentApp(caller, agentId)),
+        reinstall_required: permissionsUpdated,
+      };
     },
   };
   return service;

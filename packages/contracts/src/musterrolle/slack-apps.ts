@@ -222,6 +222,15 @@ export const getSlackAppResponseSchema = z
   })
   .strict();
 
+/**
+ * `reinstall_required`: Slack answered the manifest update with
+ * `permissions_updated` (the manifest asks for a scope the install lacks),
+ * so the app must be installed again before the new scopes apply.
+ */
+export const recheckSlackAppEventsResponseSchema = getSlackAppResponseSchema
+  .extend({ reinstall_required: z.boolean() })
+  .strict();
+
 export const slackAppSettingsSchema = z
   .object({
     // Every channel in use, connected before or after, follows it; DMs do not.
@@ -435,6 +444,9 @@ export type CreateSlackAppResponse = z.infer<
   typeof createSlackAppResponseSchema
 >;
 export type GetSlackAppResponse = z.infer<typeof getSlackAppResponseSchema>;
+export type RecheckSlackAppEventsResponse = z.infer<
+  typeof recheckSlackAppEventsResponseSchema
+>;
 export type DeleteSlackAppResponse = z.infer<
   typeof deleteSlackAppResponseSchema
 >;

@@ -92,6 +92,8 @@ export const slackEn = {
   "slack.eventsUrl.unsent": "Not sent yet",
   "slack.eventsUrl.recheck": "Recheck",
   "slack.eventsUrl.done": "Slack has checked the Request URL.",
+  "slack.eventsUrl.reinstall":
+    "The manifest was sent to Slack again. It adds permissions to the app, which apply once the app is installed again.",
   "slack.eventsUrl.sent":
     "The Request URL was sent to Slack again. Slack may not check an unchanged URL again. If it keeps waiting, press Retry on the app's Event Subscriptions page.",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
