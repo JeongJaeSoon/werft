@@ -807,9 +807,13 @@ describe("에이전트 GitHub 탭", () => {
     );
     const user = await setupUser();
     await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
-    // The push section names where its changes are saved.
+    // Each section says how it saves: the push section in the bar, the
+    // repository switches at once, with the push defaults on the first one.
     expect(
       screen.getByText(/화면 아래에 붙는 저장 막대에서 함께 저장/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/처음 켜면 아래 push 승인 기본값도 함께 저장됩니다/),
     ).toBeTruthy();
 
     const push = switchNamed("push 전 사람 승인");

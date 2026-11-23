@@ -58,7 +58,7 @@ export const agentGitHubKo = {
   "agentGitHub.legacy":
     "이 에이전트에는 저장한 GitHub 설정이 아직 없습니다. 지금은 활성 릴리스의 설정(없으면 워크스페이스가 허용하는 저장소 전체)으로 동작하고, 저장하면 이후 세션부터 아래 설정을 씁니다.",
   "agentGitHub.repositoriesHint":
-    "이 에이전트가 쓸 GitHub 저장소를 켭니다. 켜고 끄는 즉시 저장됩니다. 켠 저장소는 새로 시작하는 세션부터 쓰고, 끈 저장소는 진행 중인 세션에서도 바로 쓸 수 없습니다. 토큰은 켠 저장소 하나로만 좁혀 발급합니다.",
+    "이 에이전트가 쓸 GitHub 저장소를 켭니다. 켜고 끄는 즉시 저장되고, 처음 켜면 아래 push 승인 기본값도 함께 저장됩니다. 켠 저장소는 새로 시작하는 세션부터 쓰고, 끈 저장소는 진행 중인 세션에서도 바로 쓸 수 없습니다. 토큰은 켠 저장소 하나로만 좁혀 발급합니다.",
   "agentGitHub.repositoriesNone":
     "이 App이 닿는 저장소가 없습니다. 워크스페이스 GitHub 설정에서 App 설치를 확인하세요.",
   "agentGitHub.ceilingUnset":
@@ -272,7 +272,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.legacy":
     "This agent has no saved GitHub settings yet. It runs on the active release's settings (every repository the workspace allows, if none). Saving makes later sessions use the settings below.",
   "agentGitHub.repositoriesHint":
-    "Turn on the GitHub repositories this agent may use. A switch saves as soon as you flip it. A repository you turn on is used from the next session that starts; one you turn off is refused in running sessions too. Each token is narrowed to a single enabled repository.",
+    "Turn on the GitHub repositories this agent may use. A switch saves as soon as you flip it, and the first one you turn on also saves the push approval defaults below. A repository you turn on is used from the next session that starts; one you turn off is refused in running sessions too. Each token is narrowed to a single enabled repository.",
   "agentGitHub.repositoriesNone":
     "The App reaches no repositories. Check its installation in the workspace GitHub settings.",
   "agentGitHub.ceilingUnset":
@@ -491,7 +491,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.legacy":
     "このエージェントにはまだ保存された GitHub の設定がありません。有効なリリースの設定(なければワークスペースが許可するすべてのリポジトリ)で動きます。保存すると、以降のセッションは以下の設定を使います。",
   "agentGitHub.repositoriesHint":
-    "このエージェントが使う GitHub リポジトリをオンにします。スイッチは切り替えるとすぐ保存されます。オンにしたリポジトリは次に始まるセッションから使われ、オフにしたリポジトリは実行中のセッションでもすぐ使えなくなります。トークンはオンのリポジトリ 1 つに絞って発行します。",
+    "このエージェントが使う GitHub リポジトリをオンにします。スイッチは切り替えるとすぐ保存され、最初にオンにしたときは下の push 承認の既定値も一緒に保存されます。オンにしたリポジトリは次に始まるセッションから使われ、オフにしたリポジトリは実行中のセッションでもすぐ使えなくなります。トークンはオンのリポジトリ 1 つに絞って発行します。",
   "agentGitHub.repositoriesNone":
     "この App が届くリポジトリがありません。ワークスペースの GitHub 設定で App のインストールを確認してください。",
   "agentGitHub.ceilingUnset":
