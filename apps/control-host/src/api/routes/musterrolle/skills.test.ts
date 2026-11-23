@@ -480,11 +480,7 @@ describe("GitHub skills", () => {
     path: "skills/research",
     ref: "v1.2.0",
     sync_enabled: false,
-    auto_approve: {
-      state: "off" as const,
-      requested_by: null,
-      consented_by: null,
-    },
+    auto_approve: { state: "off" as const, enabled_by: null },
     webhook: "no_public_url" as const,
     last_check: null,
   };
@@ -610,27 +606,28 @@ describe("GitHub skills", () => {
 
   test("auto-approve takes an action; its refusals keep their codes", async () => {
     const path = `${base}/research/sync/auto-approve`;
-    const requested = await sendSync(
+    const turnedOn = await sendSync(
       {
         setAutoApprove: async (_caller, name, action) => {
-          expect([name, action]).toEqual(["research", "request"]);
+          expect([name, action]).toEqual(["research", "on"]);
           return { name, git: SOURCE, receipt_id: VERSION_ID };
         },
       },
       "PUT",
       path,
-      JSON.stringify({ action: "request" }),
+      JSON.stringify({ action: "on" }),
     );
-    expect(requested.status).toBe(200);
-    skillSyncResponseSchema.parse(await requested.json());
-    expect(
-      (await sendSync({}, "PUT", path, JSON.stringify({ action: "on" })))
-        .status,
-    ).toBe(400);
+    expect(turnedOn.status).toBe(200);
+    skillSyncResponseSchema.parse(await turnedOn.json());
+    // The two-manager actions are gone with the consent they asked for.
+    for (const action of ["request", "consent"]) {
+      expect(
+        (await sendSync({}, "PUT", path, JSON.stringify({ action }))).status,
+      ).toBe(400);
+    }
     for (const [code, reason, expected] of [
-      ["FORBIDDEN", "self_consent", 403],
+      ["FORBIDDEN", undefined, 403],
       ["BAD_REQUEST", "not_branch", 400],
-      ["BAD_REQUEST", "protection_missing", 400],
       ["GITHUB_UNAVAILABLE", "github_unreachable", 502],
       ["NOT_FOUND", undefined, 404],
     ] as const) {
@@ -638,7 +635,7 @@ describe("GitHub skills", () => {
         { setAutoApprove: fail(code, reason) },
         "PUT",
         path,
-        JSON.stringify({ action: "consent" }),
+        JSON.stringify({ action: "on" }),
       );
       expect(answered.status).toBe(expected);
       if (reason !== undefined) {

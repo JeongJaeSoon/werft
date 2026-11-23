@@ -12,7 +12,7 @@ export type SkillSyncTrigger = {
   kind: SkillSyncTriggerKind;
   /** `X-GitHub-Delivery` of a webhook; null for the other kinds. */
   deliveryId: string | null;
-  /** The person who registered, pressed "지금 확인" or resumed. */
+  /** The person who registered, pressed "지금 확인", resumed or turned auto-approve on. */
   userId: string | null;
 };
 
@@ -25,40 +25,24 @@ export type SkillSyncCheck = {
   result: SkillSyncResult;
   versionId: string | null;
   issues: SkillSyncIssue[];
-  /** A new version's auto-approval; null when auto-approve was off. */
+  /** How auto-approve judged the version; null when it did not. */
   autoApproval: SkillAutoApproval | null;
 };
-
-/** The rule that requires a reviewed pull request on the branch. */
-export type SkillProtectionRule = {
-  kind: "ruleset" | "branch_protection";
-  requiredReviews: number;
-};
-
-/**
- * What GitHub showed about the ref and the commit, for auto-approve. Read
- * without a commit (when it is turned on), only the branch and its rule.
- */
-export type SkillProtectionEvidence =
-  | { met: true; rule: SkillProtectionRule; pullRequest: number | null }
-  | { met: false; reason: SkillAutoApprovalReason };
 
 export type SkillAutoApproval = {
   result: "approved" | "pending";
   reason: SkillAutoApprovalReason | null;
-  rule: SkillProtectionRule | null;
-  pullRequest: number | null;
   /** The fixed-rule checks the version failed; empty when none. */
   checks: SkillCheckFinding[];
 };
 
 export type SkillAutoApproveState = {
-  state: "off" | "requested" | "on";
-  requestedBy: string | null;
-  consentedBy: string | null;
+  state: "off" | "on";
+  /** The manager who turned it on; null while off. */
+  enabledBy: string | null;
   /**
-   * The receipt that last changed settings while on (the consent, a pause,
-   * a resume); null unless on.
+   * The receipt that last changed settings while on (turning it on, a
+   * pause, a resume); null unless on.
    */
   grantId: string | null;
 };
@@ -90,11 +74,7 @@ export type SkillGitSource = {
 export type SetAutoApproveResult =
   | { outcome: "updated"; source: SkillGitSource; receiptId: string }
   | { outcome: "unchanged"; source: SkillGitSource }
-  | { outcome: "not_found" | "actor_inactive" | "outranked" }
-  /** A consent by the manager who requested, while another could consent. */
-  | { outcome: "self_consent" }
-  /** A consent with nothing requested. */
-  | { outcome: "not_requested" };
+  | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
 export type SetSkillSyncResult =
   | { outcome: "updated"; source: SkillGitSource; receiptId: string }
@@ -172,15 +152,14 @@ export interface SkillGitSourceStore {
     managerRoles: readonly WorkspaceRole[];
   }): Promise<SetSkillSyncResult>;
   /**
-   * Requests, consents to or turns off auto-approve under the source row's
-   * lock, writing `update_extension_sync` with the action. A consent by
-   * the requester passes only while no other member holds a manager role.
-   * The caller checked the branch and its rule on GitHub just before.
+   * Turns auto-approve on or off under the source row's lock, writing
+   * `update_extension_sync` with the action. The caller checked on GitHub
+   * just before that the ref is a branch.
    */
   setAutoApprove(input: {
     workspaceId: string;
     name: string;
-    action: "request" | "consent" | "off";
+    action: "on" | "off";
     receiptId: string;
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];

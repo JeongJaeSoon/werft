@@ -1387,154 +1387,40 @@ export function createGitHubSkillReader(
         return { kind: "files", files };
       }),
 
-    protection: (app, installationId, repositoryId, ref, commit) =>
-      asking(
-        "skill protection",
-        app,
-        installationId,
-        async (request, headers) => {
-          const get = (route: string, parameters: Record<string, unknown>) =>
-            orNull(async () => {
-              const { data } = await request(route, {
-                id: repositoryId,
-                ...parameters,
-                headers,
-              });
-              return data;
+    isBranch: (app, installationId, repositoryId, ref) =>
+      asking("skill branch", app, installationId, async (request, headers) => {
+        const get = (route: string, parameters: Record<string, unknown>) =>
+          orNull(async () => {
+            const { data } = await request(route, {
+              id: repositoryId,
+              ...parameters,
+              headers,
             });
-          const branch = ref.startsWith("refs/heads/")
-            ? ref.slice("refs/heads/".length)
-            : ref.startsWith("refs/") || /^[0-9a-f]{40}$/.test(ref)
-              ? null
-              : ref;
-          if (branch === null) return { met: false, reason: "not_branch" };
-          if (
-            (await get("GET /repositories/{id}/branches/{branch}", {
-              branch,
-            })) === null
-          ) {
-            return { met: false, reason: "not_branch" };
-          }
-          // A short name a tag also has may be read as the tag.
-          if (
-            !ref.startsWith("refs/") &&
-            (await get("GET /repositories/{id}/git/ref/tags/{tag}", {
-              tag: branch,
-            })) !== null
-          ) {
-            return { met: false, reason: "not_branch" };
-          }
-          const rules = ((await get(
-            "GET /repositories/{id}/rules/branches/{branch}",
-            { branch, per_page: 100 },
-          )) ?? []) as Array<{
-            type?: unknown;
-            parameters?: { required_approving_review_count?: unknown };
-          }>;
-          const ruleset = Math.max(
-            0,
-            ...rules
-              .filter((rule) => rule.type === "pull_request")
-              .map((rule) =>
-                Number(rule.parameters?.required_approving_review_count ?? 0),
-              ),
-          );
-          // Classic protection needs `administration`, which the App does not
-          // ask for: a refusal is no rule, never a pass.
-          let classic = 0;
-          if (ruleset < 1) {
-            try {
-              const found = (await get(
-                "GET /repositories/{id}/branches/{branch}/protection",
-                { branch },
-              )) as {
-                required_pull_request_reviews?: {
-                  required_approving_review_count?: unknown;
-                };
-              } | null;
-              classic = Number(
-                found?.required_pull_request_reviews
-                  ?.required_approving_review_count ?? 0,
-              );
-            } catch (error) {
-              if (statusOf(error) !== 403) throw error;
-            }
-          }
-          const rule =
-            ruleset >= 1
-              ? { kind: "ruleset" as const, requiredReviews: ruleset }
-              : classic >= 1
-                ? {
-                    kind: "branch_protection" as const,
-                    requiredReviews: classic,
-                  }
-                : null;
-          if (rule === null)
-            return { met: false, reason: "protection_missing" };
-          if (commit === null) return { met: true, rule, pullRequest: null };
-          const pulls = ((await get(
-            "GET /repositories/{id}/commits/{sha}/pulls",
-            { sha: commit, per_page: 100 },
-          )) ?? []) as Array<{
-            number?: unknown;
-            user?: { id?: unknown };
-            base?: { ref?: unknown };
-            merged_at?: unknown;
-            merge_commit_sha?: unknown;
-          }>;
-          const pull = pulls.find(
-            (one) =>
-              typeof one.number === "number" &&
-              typeof one.merged_at === "string" &&
-              one.base?.ref === branch &&
-              one.merge_commit_sha === commit,
-          );
-          if (pull === undefined || typeof pull.number !== "number") {
-            return { met: false, reason: "no_reviewed_pull_request" };
-          }
-          // Each reviewer's last review that is not only a comment.
-          const last = new Map<unknown, unknown>();
-          let complete = false;
-          for (let page = 1; page <= SKILL_REVIEW_PAGES; page += 1) {
-            const listed = (await get(
-              "GET /repositories/{id}/pulls/{number}/reviews",
-              { number: pull.number, per_page: 100, page },
-            )) as Array<{ user?: { id?: unknown }; state?: unknown }> | null;
-            // A page that could not be read is not the end of the list.
-            if (listed === null) break;
-            for (const review of listed) {
-              if (review.state === "COMMENTED" || review.state === "PENDING") {
-                continue;
-              }
-              if (review.user?.id !== undefined) {
-                last.set(review.user.id, review.state);
-              }
-            }
-            if (listed.length < 100) {
-              complete = true;
-              break;
-            }
-          }
-          // Reviews past the last page read could still request changes.
-          if (!complete) {
-            return { met: false, reason: "no_reviewed_pull_request" };
-          }
-          const states = [...last];
-          const approved = states.some(
-            ([user, state]) => state === "APPROVED" && user !== pull.user?.id,
-          );
-          const changes = states.some(
-            ([, state]) => state === "CHANGES_REQUESTED",
-          );
-          return approved && !changes
-            ? { met: true, rule, pullRequest: pull.number }
-            : { met: false, reason: "no_reviewed_pull_request" };
-        },
-      ),
+            return data;
+          });
+        const branch = ref.startsWith("refs/heads/")
+          ? ref.slice("refs/heads/".length)
+          : ref.startsWith("refs/") || /^[0-9a-f]{40}$/.test(ref)
+            ? null
+            : ref;
+        if (
+          branch === null ||
+          (await get("GET /repositories/{id}/branches/{branch}", {
+            branch,
+          })) === null
+        ) {
+          return false;
+        }
+        // A short name a tag also has may be read as the tag.
+        return (
+          ref.startsWith("refs/") ||
+          (await get("GET /repositories/{id}/git/ref/tags/{tag}", {
+            tag: branch,
+          })) === null
+        );
+      }),
   };
 }
-
-const SKILL_REVIEW_PAGES = 10;
 
 /**
  * `POST /app-manifests/{code}/conversions`. The code is single-use: a retry

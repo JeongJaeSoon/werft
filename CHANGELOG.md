@@ -14,6 +14,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **스킬의 자동 승인이 화면의 '자동 연동' 스위치로 바뀌고, migration `0326_reset_skill_auto_approve`가 이미 켜졌거나 요청 중이던 자동 승인을 모두 끈다**(JeongJaeSoon/werft#2055). 업그레이드한 뒤 자동 연동을 쓸 스킬마다 스킬 상세의 GitHub 동기화 구역에서 다시 켜야 한다. 다시 켜지 않으면 새 버전이 승인 대기로 쌓인다. 끈 수는 migration 로그(`db.migrate.notice`)에 `0326: auto-approve turned off on N GitHub skill sources`로 남고, 끈 것이 없으면 아무 줄도 남지 않는다.
+  - 켜는 방법이 바뀌었다. 오너나 어드민 한 명이 화면에서 켜고 끈다. 다른 관리자의 동의는 필요 없다. 연동 대상이 브랜치이기만 하면 되고(태그와 커밋은 400 `not_branch`), GitHub의 브랜치 보호 규칙과 PR 리뷰는 보지 않는다.
+  - 켜 두면 고정 규칙 검사를 통과한 버전이 사람의 승인 없이 승인되어 현재 버전이 된다. 규칙에 걸린 버전만 승인 대기로 남는다. 켜는 순간에도 한 번 확인해, 승인 대기로 있던 버전(처음 등록한 v1 포함)이 규칙을 통과하면 승인한다.
+  - 그 브랜치에 push할 수 있는 사람과 App이 곧 스킬을 바꿀 수 있는 사람이 된다. 에이전트의 App이 그 저장소에 push할 수 있으면 에이전트도 포함된다. 누가 push할 수 있는지는 GitHub ruleset으로 정한다. 고정 규칙 검사는 스크립트가 조합하는 URL이나 base64 같은 내용을 걸러 내지 못한다.
+  - 자동 연동을 켜지 않은 스킬은 지금과 같다. 새 버전은 승인 대기로 들어오고 사람이 승인한다.
+  - API가 바뀐다. `PUT /v1/workspace/skills/{name}/sync/auto-approve`의 `action`은 `on`과 `off`만 받는다(`request`와 `consent`는 400). 응답의 `git.auto_approve`는 `{ state, enabled_by }`이고 `state`는 `off`나 `on`이다. `last_check.auto_approval`에서 `rule`과 `pull_request`가 빠지고, `reason`은 `checks_failed`와 `baseline_changed`만 남는다. `last_check.trigger.kind`에 `auto_approve`(자동 연동을 켤 때의 확인)가 더해진다.
+  - 표는 그대로 두고 값만 바꾸는 migration이라 지원 창 안의 이미지로 되돌려도 된다. 되돌린 이미지는 옛 방식(두 관리자의 요청과 동의, 리뷰된 PR)으로 동작하고, 꺼진 설정은 꺼진 채로 남는다.
+
 - **migration `0325_channel_summaries`가 채널 요약 표 셋(`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`)을 더한다**(JeongJaeSoon/werft#2054). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다. 요약을 쓰는 길은 아직 없어서 표는 비어 있다.
   - 줄에는 에이전트가 쓴 글만 있고 Slack 글의 본문은 없다. 출처(글의 자리와 입력 접수 줄 id)와 화자는 서버가 입력 접수 줄에서 읽는다.
   - 바뀔 때마다 버전이 오르고 옛 버전은 되돌리기용 이력으로 남는다. 출처 글이 지워지거나 고쳐지면 그 줄을 모든 버전에서 지운다.
