@@ -1810,6 +1810,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: read,
+          reinstall_required: false,
         });
       },
     });
@@ -1854,6 +1855,7 @@ describe("Slack management", () => {
               ...appResponse(APP),
               event_url: SENT,
               events: { state: "pending", checked_at: AT, url: SENT },
+              reinstall_required: false,
             }),
     });
     const user = await setupUser();
@@ -1922,6 +1924,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: read,
+          reinstall_required: false,
         });
       },
     });
@@ -1983,6 +1986,7 @@ describe("Slack management", () => {
           ...appResponse(APP),
           event_url: SENT,
           events: { state: "pending", checked_at: AT, url: SENT },
+          reinstall_required: false,
         });
       },
     });
