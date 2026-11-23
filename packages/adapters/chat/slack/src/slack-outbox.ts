@@ -122,6 +122,7 @@ export async function drainSlackOutbox(deps: {
       body:
         link_url === undefined ? { text, locale } : { text, locale, link_url },
       dedupeKey: `uncertain:${row.id}`,
+      sources: row.sources ?? null,
     });
   };
   // The notice kinds go through Notifiable, a decision request through

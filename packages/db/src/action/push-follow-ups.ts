@@ -5,6 +5,7 @@ import type {
 } from "@werft-ai/contracts";
 import type { PushFollowUpStore } from "@werft-ai/platform";
 import { and, eq, max, or, sql } from "drizzle-orm";
+import { newTurnSources } from "../conversations/turn-sources.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,
@@ -274,6 +275,10 @@ export async function queuePushFollowUps(
         // The agent's turn: no person sent it.
         actorId: null,
         ...requester,
+        sources: await newTurnSources(tx, {
+          sessionId: session.id,
+          slackMessage: null,
+        }),
       })
       .returning({ id: turns.id });
     if (!turn) throw new Error("Failed to insert the push follow-up turn");

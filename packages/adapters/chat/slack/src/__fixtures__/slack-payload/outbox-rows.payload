@@ -17,6 +17,16 @@
     "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": {
+      "direct": [
+        {
+          "channel_id": "C0OPS",
+          "team_id": "T0OPS",
+          "ts": "100.000100"
+        }
+      ],
+      "inherited": []
+    },
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -35,6 +45,7 @@
     "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -56,6 +67,7 @@
     "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -76,6 +88,7 @@
     "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -95,6 +108,7 @@
     "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -206,6 +220,7 @@
     "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   },
@@ -353,6 +368,7 @@
     "sessionLinkId": "link-1",
     "slackAppId": "app-1",
     "slackUserId": null,
+    "sources": null,
     "threadTs": "100.000100",
     "workspaceId": "workspace-1"
   }

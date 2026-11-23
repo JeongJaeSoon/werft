@@ -484,6 +484,7 @@ describe("Slack payload fixtures: replies, instructions, notices", () => {
     installationId: "installation-1",
     channelId: "C0OPS",
     threadTs: "100.000100",
+    sources: null,
   };
 
   test("rows the enqueue paths write", async () => {
@@ -499,6 +500,13 @@ describe("Slack payload fixtures: replies, instructions, notices", () => {
             ...target,
             locale: "ko",
             turnId: 1,
+            // The turn's sources go on to its reply as they are.
+            sources: {
+              direct: [
+                { team_id: "T0OPS", channel_id: "C0OPS", ts: "100.000100" },
+              ],
+              inherited: [],
+            },
             state: "completed",
             requesterSlackUserId: "U0ASKER",
             events: [

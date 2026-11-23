@@ -22,6 +22,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { newTurnSources } from "../conversations/turn-sources.ts";
 import { dbNow } from "../db-clock.ts";
 import { enqueueEndedIntentNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
@@ -334,6 +335,10 @@ async function continueParkedTurn(
               turn: String(parkedTurn.sequence),
               reason: "continuation",
             }),
+      sources: await newTurnSources(tx, {
+        sessionId: session.id,
+        slackMessage: null,
+      }),
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert the continuing turn");

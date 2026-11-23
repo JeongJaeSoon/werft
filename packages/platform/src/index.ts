@@ -70,6 +70,7 @@ export * from "./ports/api-key-store.ts";
 export * from "./ports/catalog-repository-store.ts";
 export * from "./ports/conversation-input-store.ts";
 export * from "./ports/conversation-store.ts";
+export * from "./conversations/source-sets.ts";
 export * from "./conversations/web-inputs.ts";
 export * from "./checkpoints/ports/checkpoint-collection.ts";
 export * from "./checkpoints/ports/checkpoint-store.ts";

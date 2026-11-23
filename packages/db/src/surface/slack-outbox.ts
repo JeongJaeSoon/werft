@@ -23,6 +23,7 @@ import type {
   SlackPromptCard,
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
+  StoredSourceSet,
 } from "@werft-ai/platform";
 import {
   and,
@@ -106,6 +107,7 @@ const entry = {
   sessionLinkId: t.sessionLinkId,
   body: t.body,
   dedupeKey: t.dedupeKey,
+  sources: t.sources,
 };
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
@@ -796,6 +798,7 @@ export function createPostgresSlackOutboxStore(
           channelId: sessionLinks.channelId,
           threadTs: sessionLinks.threadId,
           turnId: turns.sequence,
+          sources: turns.sources,
           channel: turns.channel,
           message: turns.message,
           senderName: users.displayName,
@@ -873,6 +876,7 @@ export function createPostgresSlackOutboxStore(
           threadTs: sessionLinks.threadId,
           turnRowId: turns.id,
           turnId: turns.sequence,
+          sources: turns.sources,
           status: turns.status,
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
@@ -1044,6 +1048,7 @@ export function createPostgresSlackOutboxStore(
           ...target,
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pendingRequests.requestId,
+          sources: turns.sources,
           payload: pendingRequests.payload,
           expiresAt: pendingRequests.expiresAt,
         })
@@ -1075,6 +1080,12 @@ export function createPostgresSlackOutboxStore(
           ...target,
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pushRequests.id,
+          // A push request names no turn: the session's latest, which holds
+          // every source before it.
+          sources: sql<StoredSourceSet | null>`(
+            SELECT lt.sources FROM ${turns} lt
+            WHERE lt.session_id = ${sessions.id}
+            ORDER BY lt.sequence DESC LIMIT 1)`,
           repositoryId: pushRequests.repositoryId,
           repositoryName: catalogName(sql`${pushRequests.repositoryId}`),
           targetBranch: pushRequests.targetBranch,

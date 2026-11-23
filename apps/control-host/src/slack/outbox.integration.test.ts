@@ -1677,6 +1677,36 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
+  test("a reply, and the notice that its send went uncertain, carry the sources of the turn they answer", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    const [turn] = await db
+      .select({ sources: turns.sources })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    expect(turn?.sources).toMatchObject({
+      direct: [{ team_id: TEAM, channel_id: CHANNEL, ts: THREAD }],
+      inherited: [],
+    });
+    const live = createSlackBotApi({ apiUrl: slack.url });
+    await outboxPass({
+      slack: {
+        ...live,
+        postMessage: async () => ({
+          httpStatus: 200,
+          retryAfterHeader: null,
+          body: null,
+        }),
+      },
+    });
+    expect((await rows()).map((row) => [row.kind, row.sources])).toEqual([
+      ["reply", turn?.sources ?? null],
+      ["failure_notice", turn?.sources ?? null],
+    ]);
+  });
+
   test("a refusal reaches only the person who typed, once per thread", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD, STRANGER);

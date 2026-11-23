@@ -101,6 +101,7 @@ import {
   lockIdempotencyScope,
   parseTurnSequence,
 } from "./control-shared.ts";
+import { newTurnSources } from "./conversations/turn-sources.ts";
 import {
   decodeCreatedAtCursor,
   decodeEventCursor,
@@ -366,6 +367,10 @@ async function insertQueuedTurn(
       requesterAuth: input.requesterAuth ?? null,
       callerChannel: input.callerChannel ?? null,
       callerLimitDigest: input.callerLimitDigest ?? null,
+      sources: await newTurnSources(tx, {
+        sessionId: input.sessionId,
+        slackMessage: input.slackMessage,
+      }),
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
