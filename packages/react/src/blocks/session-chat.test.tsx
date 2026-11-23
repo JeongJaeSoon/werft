@@ -141,6 +141,30 @@ describe("chatItems for a turn whose Slack message was deleted", () => {
     ]);
   });
 
+  test("a frame marked withheld hides the instruction of turns read before the delete", () => {
+    const later = {
+      ...frame("5", "1", "2", {
+        event: "tool_result",
+        data: {
+          tool_result: { tool_call_id: "tu-1", is_error: false, text: "" },
+        },
+      }),
+      sourceDeletedAt: DELETED_AT,
+    };
+    expect(
+      shape(
+        chatItems(
+          [later],
+          [turn("1", "Secret ask", null), turn("2", "Follow-up", null)],
+          format,
+        ),
+      ),
+    ).toEqual([
+      ["user", "", DELETED_AT],
+      ["user", "Follow-up", null],
+    ]);
+  });
+
   test("one frame marked withheld hides the frames of its turn streamed before it", () => {
     const later = {
       ...frame("5", "1", "2", {

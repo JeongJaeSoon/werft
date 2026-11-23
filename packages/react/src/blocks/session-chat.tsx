@@ -66,24 +66,33 @@ export function chatItems(
   turns: readonly TurnSummary[] | undefined,
   formatMessage: Parameters<typeof turnSummaryText>[1],
 ): ChatItem[] {
-  const items: ChatItem[] = (turns ?? []).map((turn) => ({
-    kind: "user",
-    id: `turn:${turn.turn_id}`,
-    at: turn.created_at,
-    turn,
-  }));
-  // A frame marked withheld withholds its whole turn, the frames streamed
-  // before the delete too.
-  const withheldTurns = new Set([
-    ...(turns ?? []).flatMap((turn) =>
-      turn.source_deleted_at ? [turn.turn_id] : [],
-    ),
+  // A frame marked withheld withholds its whole turn, its instruction and
+  // the frames streamed before the delete too, whatever turns were read.
+  const withheldAt = new Map<string, string>([
     ...events.flatMap((frame) =>
       frame.sourceDeletedAt !== undefined && frame.turnId !== null
-        ? [frame.turnId]
+        ? [[frame.turnId, frame.sourceDeletedAt] as const]
+        : [],
+    ),
+    ...(turns ?? []).flatMap((turn) =>
+      turn.source_deleted_at
+        ? [[turn.turn_id, turn.source_deleted_at] as const]
         : [],
     ),
   ]);
+  const withheldTurns = new Set(withheldAt.keys());
+  const items: ChatItem[] = (turns ?? []).map((turn) => {
+    const deletedAt = withheldAt.get(turn.turn_id);
+    return {
+      kind: "user",
+      id: `turn:${turn.turn_id}`,
+      at: turn.created_at,
+      turn:
+        deletedAt === undefined || turn.source_deleted_at
+          ? turn
+          : { ...turn, message: "", source_deleted_at: deletedAt },
+    };
+  });
   const heldReplies = new Set<string>();
   const tools = new Map<string, number>();
   const seen = new Set<string>();
