@@ -10,6 +10,7 @@ export {
   createSlackBotApi,
   createSlackChannelJoiner,
   createSlackChannelKinds,
+  createSlackChannelLifecycleHandler,
   createSlackChannelSearchService,
   createSlackConfigApi,
   createSlackConfigTokens,

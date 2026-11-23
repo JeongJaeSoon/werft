@@ -450,6 +450,10 @@ export function createSlackEventsService(deps: {
         if (bound?.status === "left") {
           return { status: "dropped", dropReason: "channel_left" };
         }
+        // Slack deleted this channel: nothing in it is taken or answered.
+        if (bound?.status === "gone") {
+          return { status: "dropped", dropReason: "channel_gone" };
+        }
         // A private channel without an approved, ready binding keeps no
         // text: waiting, rejected, or flipped from public since it was bound.
         const unapproved =

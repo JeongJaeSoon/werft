@@ -71,6 +71,36 @@ export const conversationKindSchema = z.enum(CONVERSATION_KIND_VALUES);
 export type ConversationKind = z.infer<typeof conversationKindSchema>;
 
 /**
+ * What Slack last said of a channel conversation's channel. `deleted` is
+ * final; `archived` goes back to `active` when the channel is unarchived. A
+ * DM conversation stays `active`.
+ */
+export const CONVERSATION_CHANNEL_STATE_VALUES = [
+  "active",
+  "archived",
+  "deleted",
+] as const;
+export const conversationChannelStateSchema = z.enum(
+  CONVERSATION_CHANNEL_STATE_VALUES,
+);
+export type ConversationChannelState = z.infer<
+  typeof conversationChannelStateSchema
+>;
+
+/** A Slack channel name as `channel_rename` carries it; the DB checks the length. */
+export const SLACK_CHANNEL_NAME_MAX = 80;
+export const slackChannelNameSchema = z
+  .string()
+  .min(1)
+  .max(SLACK_CHANNEL_NAME_MAX)
+  .refine((name) =>
+    [...name].every((char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code >= 32 && code !== 127;
+    }),
+  );
+
+/**
  * A Slack team or channel id. The scope key joins segments with ":", so a
  * segment holding one would let two scopes share a key. The DB checks the
  * same pattern.

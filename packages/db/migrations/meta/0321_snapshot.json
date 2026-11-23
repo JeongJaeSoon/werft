@@ -1,5 +1,5 @@
 {
-  "id": "a042ac62-1e1d-46a0-9b41-63742dbc6d64",
+  "id": "5ce99681-ae06-44ab-b58f-3b271eb6d05c",
   "prevId": "d0bb266d-f79f-4f7f-99ee-f6c91b04a040",
   "version": "7",
   "dialect": "postgresql",
@@ -5007,160 +5007,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.conversation_engagements": {
-      "name": "conversation_engagements",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ts": {
-          "name": "ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "conversation_turn_id": {
-          "name": "conversation_turn_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "conversation_engagements_message_idx": {
-          "name": "conversation_engagements_message_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "ts",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_engagements_session_idx": {
-          "name": "conversation_engagements_session_idx",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_engagements_session_id_sessions_id_fk": {
-          "name": "conversation_engagements_session_id_sessions_id_fk",
-          "tableFrom": "conversation_engagements",
-          "tableTo": "sessions",
-          "columnsFrom": ["session_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_engagements_agent_fk": {
-          "name": "conversation_engagements_agent_fk",
-          "tableFrom": "conversation_engagements",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "conversation_engagements_agent_id_team_id_channel_id_ts_pk": {
-          "name": "conversation_engagements_agent_id_team_id_channel_id_ts_pk",
-          "columns": ["agent_id", "team_id", "channel_id", "ts"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "conversation_engagements_kind_check": {
-          "name": "conversation_engagements_kind_check",
-          "value": "\"conversation_engagements\".\"kind\" IN ('mention','reply','bound','proactive')"
-        },
-        "conversation_engagements_target_check": {
-          "name": "conversation_engagements_target_check",
-          "value": "num_nonnulls(\"conversation_engagements\".\"session_id\", \"conversation_engagements\".\"conversation_turn_id\") = 1"
-        },
-        "conversation_engagements_slack_check": {
-          "name": "conversation_engagements_slack_check",
-          "value": "\"conversation_engagements\".\"team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_engagements\".\"channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_engagements\".\"ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.conversation_inputs": {
       "name": "conversation_inputs",
       "schema": "",
@@ -5575,6 +5421,31 @@
           "primaryKey": false,
           "notNull": false
         },
+        "channel_state": {
+          "name": "channel_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "channel_state_us": {
+          "name": "channel_state_us",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "channel_name": {
+          "name": "channel_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "channel_name_us": {
+          "name": "channel_name_us",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5641,6 +5512,14 @@
         "conversations_kind_check": {
           "name": "conversations_kind_check",
           "value": "\"conversations\".\"kind\" IN ('channel','dm')"
+        },
+        "conversations_channel_state_check": {
+          "name": "conversations_channel_state_check",
+          "value": "\"conversations\".\"channel_state\" IN ('active','archived','deleted') AND (\"conversations\".\"kind\" = 'channel' OR (\"conversations\".\"channel_state\" = 'active' AND \"conversations\".\"channel_state_us\" IS NULL AND \"conversations\".\"channel_name\" IS NULL AND \"conversations\".\"channel_name_us\" IS NULL))"
+        },
+        "conversations_channel_name_check": {
+          "name": "conversations_channel_name_check",
+          "value": "\"conversations\".\"channel_name\" IS NULL OR char_length(\"conversations\".\"channel_name\") BETWEEN 1 AND 80"
         },
         "conversations_place_check": {
           "name": "conversations_place_check",
@@ -15938,7 +15817,7 @@
         },
         "slack_inbound_events_drop_reason_check": {
           "name": "slack_inbound_events_drop_reason_check",
-          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left')"
+          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left','channel_gone')"
         },
         "slack_inbound_events_payload_check": {
           "name": "slack_inbound_events_payload_check",
@@ -17113,7 +16992,7 @@
         },
         "surface_bindings_status_check": {
           "name": "surface_bindings_status_check",
-          "value": "\"surface_bindings\".\"status\" IN ('ready','pending_approval','left','partial','failed','revoked')"
+          "value": "\"surface_bindings\".\"status\" IN ('ready','pending_approval','left','gone','partial','failed','revoked')"
         },
         "surface_bindings_membership_check": {
           "name": "surface_bindings_membership_check",
@@ -17134,6 +17013,10 @@
         "surface_bindings_pending_check": {
           "name": "surface_bindings_pending_check",
           "value": "\"surface_bindings\".\"status\" <> 'pending_approval' OR (\"surface_bindings\".\"surface\" = 'slack' AND \"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"external_surface_id\" IS NOT NULL AND \"surface_bindings\".\"surface_kind\" = 'private_channel' AND NOT \"surface_bindings\".\"home\")"
+        },
+        "surface_bindings_gone_check": {
+          "name": "surface_bindings_gone_check",
+          "value": "\"surface_bindings\".\"status\" <> 'gone' OR (\"surface_bindings\".\"surface\" = 'slack' AND \"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"external_surface_id\" IS NOT NULL AND COALESCE(\"surface_bindings\".\"surface_kind\" IN ('public_channel', 'private_channel'), false) AND NOT \"surface_bindings\".\"home\" AND \"surface_bindings\".\"approved_at\" IS NULL AND \"surface_bindings\".\"approved_lifecycle_us\" IS NULL)"
         },
         "surface_bindings_left_check": {
           "name": "surface_bindings_left_check",

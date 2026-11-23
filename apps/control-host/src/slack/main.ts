@@ -301,6 +301,7 @@ export async function main(
       slack: slackApi,
       botToken,
       delivery,
+      bindings: createPostgresSurfaceBindingStore(db),
       logger,
       consoleOrigin,
       batchSize: settings.batchSize,

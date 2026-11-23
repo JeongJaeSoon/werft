@@ -41,6 +41,18 @@ const uninstalled = mode === "uninstall" || mode === "uninstall-late";
 const lifecycle =
   mode === "join" || mode === "leave" || mode === "leave-member";
 const isPrivate = channel.startsWith("G");
+// `archive`, `unarchive`, `rename` and `channel-delete` are Slack telling the bot that
+// `channel` was archived, unarchived, renamed (to `text`, else "renamed") or
+// deleted: `group_*` for a private channel (G), `channel_*` for a public one.
+// `seq` seconds are added to event_ts as for `join`.
+const channelEvent =
+  mode === "archive" ||
+  mode === "unarchive" ||
+  mode === "rename" ||
+  mode === "channel-delete";
+const channelEventType = `${isPrivate ? "group" : "channel"}_${
+  mode === "channel-delete" ? "deleted" : mode
+}`;
 // `edit`, `delete`, `delete-bot` and `tombstone` change U0MOCK's post `seq`
 // in `channel` (a D… channel is a DM) the way Slack reports it: an edit, a
 // delete (of a reply in thread `parent` unless it is 0; of another app's bot
@@ -144,8 +156,9 @@ try {
                   (mode === "uninstall-late" ? 3600 : 0),
               }
             : {}),
-          event_id:
-            mode === "bot"
+          event_id: channelEvent
+            ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
+            : mode === "bot"
               ? "EvVerifyBot"
               : uninstalled
                 ? `EvVerifyUninstall${mode.replace("-", "")}${seq}`
@@ -154,84 +167,96 @@ try {
                   : posted || lifecycle
                     ? `EvVerify${mode.replace("-", "")}${channel}${seq}`
                     : "EvVerify1",
-          event: change
-            ? changeEvent
-            : uninstalled
-              ? { type: "app_uninstalled" }
-              : lifecycle
-                ? {
-                    ...(mode === "leave"
-                      ? { type: isPrivate ? "group_left" : "channel_left" }
+          event: channelEvent
+            ? {
+                type: channelEventType,
+                channel:
+                  mode === "rename"
+                    ? { id: channel, name: text || "renamed", created: 1 }
+                    : channel,
+                ...(mode === "archive" || mode === "unarchive"
+                  ? { user: "U0MOCK" }
+                  : {}),
+                event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
+              }
+            : change
+              ? changeEvent
+              : uninstalled
+                ? { type: "app_uninstalled" }
+                : lifecycle
+                  ? {
+                      ...(mode === "leave"
+                        ? { type: isPrivate ? "group_left" : "channel_left" }
+                        : {
+                            type:
+                              mode === "join"
+                                ? "member_joined_channel"
+                                : "member_left_channel",
+                            user: `U${app.appId}BOT`,
+                            channel_type: isPrivate ? "G" : "C",
+                          }),
+                      channel,
+                      event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
+                    }
+                  : echo
+                    ? mode === "slackbot"
+                      ? {
+                          type: "message",
+                          channel_type: channel.startsWith("D")
+                            ? "im"
+                            : "channel",
+                          user: "USLACK",
+                          channel,
+                          ts,
+                          text: text || "You were removed from #verify.",
+                        }
                       : {
-                          type:
-                            mode === "join"
-                              ? "member_joined_channel"
-                              : "member_left_channel",
-                          user: `U${app.appId}BOT`,
-                          channel_type: isPrivate ? "G" : "C",
-                        }),
-                    channel,
-                    event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
-                  }
-                : echo
-                  ? mode === "slackbot"
-                    ? {
-                        type: "message",
-                        channel_type: channel.startsWith("D")
-                          ? "im"
-                          : "channel",
-                        user: "USLACK",
-                        channel,
-                        ts,
-                        text: text || "You were removed from #verify.",
-                      }
-                    : {
-                        type: "message",
-                        channel_type: "channel",
-                        channel,
-                        ts,
-                        thread_ts: `${1792800000 + Number(parent)}.000001`,
-                        bot_id: "B0VERIFYOWN",
-                        app_id: app.appId,
-                        text: text || "verify echo",
-                        ...(mode === "own-mirror"
-                          ? {
-                              subtype: "bot_message",
-                              username: "Verify (웹 콘솔)",
-                            }
-                          : { user: `U${app.appId}BOT` }),
-                      }
-                  : mode === "plain" || mode === "reply"
-                    ? {
-                        type: "message",
-                        // A D… channel is U0MOCK's DM with the bot.
-                        channel_type: channel.startsWith("D")
-                          ? "im"
-                          : "channel",
-                        user: "U0MOCK",
-                        channel,
-                        ts,
-                        text: text || "verify plain post",
-                        ...(mode === "reply"
-                          ? {
-                              thread_ts: `${1792800000 + Number(parent)}.000001`,
-                            }
-                          : {}),
-                      }
-                    : {
-                        type: "app_mention",
-                        user: botMention ? "U0REVIEWBOT" : "U0MOCK",
-                        channel: posted ? channel : "C0VERIFY",
-                        ts,
-                        text: text || "verify inbox",
-                        ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
-                        ...(botMention ? { bot_id: "B0REVIEW" } : {}),
-                        ...(botMention && parent
-                          ? {
-                              thread_ts: `${1792800000 + Number(parent)}.000001`,
-                            }
-                          : {}),
-                      },
+                          type: "message",
+                          channel_type: "channel",
+                          channel,
+                          ts,
+                          thread_ts: `${1792800000 + Number(parent)}.000001`,
+                          bot_id: "B0VERIFYOWN",
+                          app_id: app.appId,
+                          text: text || "verify echo",
+                          ...(mode === "own-mirror"
+                            ? {
+                                subtype: "bot_message",
+                                username: "Verify (웹 콘솔)",
+                              }
+                            : { user: `U${app.appId}BOT` }),
+                        }
+                    : mode === "plain" || mode === "reply"
+                      ? {
+                          type: "message",
+                          // A D… channel is U0MOCK's DM with the bot.
+                          channel_type: channel.startsWith("D")
+                            ? "im"
+                            : "channel",
+                          user: "U0MOCK",
+                          channel,
+                          ts,
+                          text: text || "verify plain post",
+                          ...(mode === "reply"
+                            ? {
+                                thread_ts: `${1792800000 + Number(parent)}.000001`,
+                              }
+                            : {}),
+                        }
+                      : {
+                          type: "app_mention",
+                          user: botMention ? "U0REVIEWBOT" : "U0MOCK",
+                          channel: posted ? channel : "C0VERIFY",
+                          ts,
+                          text: text || "verify inbox",
+                          ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
+                          ...(botMention ? { bot_id: "B0REVIEW" } : {}),
+                          ...(botMention && parent
+                            ? {
+                                thread_ts: `${1792800000 + Number(parent)}.000001`,
+                              }
+                            : {}),
+                        },
         };
   const body = mode === "malformed" ? "{" : JSON.stringify(payload);
   const timestamp = String(

@@ -3260,6 +3260,36 @@ describe("Slack private channel states", () => {
     expect(within(list).queryByRole("switch", { name: /C2/ })).toBeNull();
   });
 
+  test("shows a binding whose channel Slack deleted as inactive, with no invite or switch", async () => {
+    const gone: typeof BINDING = {
+      ...BINDING,
+      id: PRIVATE_ID,
+      external_surface_id: "C3",
+      home: false,
+      status: "gone",
+      revision: 5,
+    };
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, gone] }),
+    });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    await within(list).findByText("삭제됨");
+    expect(within(list).getByText("비활성")).toBeDefined();
+    expect(
+      within(list).getByText(
+        "Slack에서 채널이 삭제되어 메시지를 받지도 보내지도 않습니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      within(list).queryByRole("button", { name: "/invite 명령 복사" }),
+    ).toBeNull();
+    expect(within(list).queryByRole("switch", { name: /C3/ })).toBeNull();
+    // The live channel keeps its switch.
+    expect(within(list).getAllByRole("switch")).toHaveLength(1);
+  });
+
   test("leaves an active binding as it was", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),

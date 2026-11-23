@@ -221,6 +221,9 @@ export const slackKo = {
   "slack.approved": "채널을 승인했습니다.",
   "slack.left": "나감",
   "slack.inactive": "비활성",
+  "slack.gone": "삭제됨",
+  "slack.goneHint":
+    "Slack에서 채널이 삭제되어 메시지를 받지도 보내지도 않습니다.",
   "slack.leftHint":
     "봇이 채널에서 나가 메시지를 받지도 보내지도 않습니다. 채널에 다시 초대하면 승인 대기로 돌아옵니다.",
   "slack.add": "연결",

@@ -9,6 +9,7 @@ import type {
 import {
   createRowDelivery,
   createSlackBotApi,
+  createSlackChannelLifecycleHandler,
   createSlackMemberCacheInvalidator,
   createSlackMemberJoinedHandler,
   createSlackMemberLeftHandler,
@@ -48,8 +49,9 @@ export interface SlackInboundDeps {
 }
 
 /**
- * The member-cache void wraps the left-handler, which wraps the
- * joined-handler, which wraps the session handler.
+ * The member-cache void wraps the channel lifecycle handler, which wraps the
+ * left-handler, which wraps the joined-handler, which wraps the session
+ * handler.
  */
 export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
   const { secrets } = deps;
@@ -94,10 +96,15 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
   return createSlackMemberCacheInvalidator({
     agents: deps.identities,
     members: deps.members,
-    next: createSlackMemberLeftHandler({
+    next: createSlackChannelLifecycleHandler({
       agents: deps.identities,
       bindings: deps.bindings,
-      next: memberJoined,
+      conversations: deps.conversations,
+      next: createSlackMemberLeftHandler({
+        agents: deps.identities,
+        bindings: deps.bindings,
+        next: memberJoined,
+      }),
     }),
   });
 }

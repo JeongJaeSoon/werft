@@ -261,6 +261,8 @@ async function drainFixture(
   const effects: unknown[] = [];
   const messages: Parameters<SlackBotSender["postMessage"]>[1][] = [];
   const settlements: SlackOutboxSettle[] = [];
+  const notFound: string[] = [];
+  const askedAt: (number | undefined)[] = [];
   const batches = [[row], []];
   const outbox: SlackOutboxStore = {
     enqueue: async (entry) => {
@@ -311,6 +313,13 @@ async function drainFixture(
     slack,
     botToken,
     delivery: createRowDelivery({ slack, botToken, consoleOrigin }),
+    bindings: {
+      channelNotFound: async (installationId, channelId, asked) => {
+        notFound.push(`${installationId}:${channelId}`);
+        askedAt.push(asked);
+        return "gone";
+      },
+    },
     logger: { info: () => {}, warn: () => {} },
     consoleOrigin,
     batchSize: 10,
@@ -318,7 +327,7 @@ async function drainFixture(
     deadline: 1_000,
     now: () => 0,
   });
-  return { pass, effects, messages, settlements };
+  return { pass, effects, messages, settlements, notFound, askedAt };
 }
 
 describe("outbox policy wiring without SQL", () => {
@@ -419,6 +428,37 @@ describe("outbox policy wiring without SQL", () => {
       ]);
     },
   );
+
+  test("a send Slack answers channel_not_found fails and tells the binding store; 429, an outage or a token error does not", async () => {
+    const before = Date.now() * 1000;
+    const lost = await drainFixture(claim(), [
+      response({ body: { ok: false, error: "channel_not_found" } }),
+    ]);
+    expect(lost.settlements).toEqual([
+      { status: "failed", errorCode: "channel_not_found" },
+    ]);
+    expect(lost.notFound).toEqual(["installation-1:C0OPS"]);
+    // When Slack was asked, so the store can tell a join noted since.
+    expect(lost.askedAt[0]).toBeGreaterThanOrEqual(before);
+    expect(lost.askedAt[0]).toBeLessThanOrEqual(Date.now() * 1000);
+    // A DM has no binding of its own to change.
+    const dm = await drainFixture(claim({ channelId: "D0PERSON" }), [
+      response({ body: { ok: false, error: "channel_not_found" } }),
+    ]);
+    expect(dm.notFound).toEqual([]);
+    for (const answer of [
+      response({ httpStatus: 429, retryAfterHeader: "3", body: null }),
+      response({ httpStatus: 503, body: null }),
+      response({ body: { ok: false, error: "fatal_error" } }),
+      response({ body: { ok: false, error: "invalid_auth" } }),
+      response({ body: { ok: false, error: "token_revoked" } }),
+      response({ body: { ok: false, error: "not_in_channel" } }),
+    ]) {
+      const other = await drainFixture(claim(), [answer]);
+      expect(other.settlements).toHaveLength(1);
+      expect(other.notFound).toEqual([]);
+    }
+  });
 
   test("an unreadable 429 defers with Retry-After; a later claim sends", async () => {
     const api = createSlackBotApi({

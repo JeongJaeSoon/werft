@@ -373,6 +373,8 @@ export function createSlackSessionHandler(
       );
       if (live?.status === "left")
         throw new SlackInboundDropped("channel_left");
+      if (live?.status === "gone")
+        throw new SlackInboundDropped("channel_gone");
     };
 
     // A channel whose kind Slack now reports otherwise than the binding was
@@ -456,8 +458,11 @@ export function createSlackSessionHandler(
     if (decision.status === "dropped") {
       // Queued while the channel was in use, taken after the bot left: the
       // receipt says why nothing happened.
-      if (decision.reason === "channel_left") {
-        throw new SlackInboundDropped("channel_left");
+      if (
+        decision.reason === "channel_left" ||
+        decision.reason === "channel_gone"
+      ) {
+        throw new SlackInboundDropped(decision.reason);
       }
       return;
     }

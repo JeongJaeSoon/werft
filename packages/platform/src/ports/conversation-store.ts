@@ -1,4 +1,8 @@
-import type { ConversationId, ConversationTopicId } from "@werft-ai/contracts";
+import type {
+  ConversationChannelState,
+  ConversationId,
+  ConversationTopicId,
+} from "@werft-ai/contracts";
 
 /** What names one main conversation of one agent. */
 export type ConversationKey =
@@ -34,6 +38,12 @@ export type ConversationTopic = {
   thread: ThreadAlias | null;
 };
 
+/** An agent's channel conversation, by the channel Slack names. */
+export type ChannelConversationKey = Extract<
+  ConversationKey,
+  { kind: "channel" }
+>;
+
 /**
  * Main conversations and their topics. Each find-or-create gives every caller
  * one row however many race for it.
@@ -51,4 +61,23 @@ export interface ConversationStore {
     conversationId: ConversationId,
     thread: ThreadAlias,
   ): Promise<ConversationTopic>;
+  /**
+   * Notes Slack archiving, unarchiving or deleting the channel at `at`
+   * (microseconds since the epoch) on its conversation, when the agent has
+   * one there; none is made. An archive or unarchive older than the state
+   * already noted changes nothing, nor does anything after `deleted`, which
+   * is final. A null `at` cannot be ordered and applies. False when the row
+   * did not change.
+   */
+  recordChannelState(
+    key: ChannelConversationKey,
+    state: Exclude<ConversationChannelState, "active"> | "unarchived",
+    at: number | null,
+  ): Promise<boolean>;
+  /** The channel's new name from a rename at `at`, by the same rules. */
+  recordChannelName(
+    key: ChannelConversationKey,
+    name: string,
+    at: number | null,
+  ): Promise<boolean>;
 }

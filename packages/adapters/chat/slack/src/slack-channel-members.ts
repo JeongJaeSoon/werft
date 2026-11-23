@@ -6,6 +6,7 @@ import {
   type ChannelMemberStore,
 } from "@werft-ai/platform";
 import { z } from "zod";
+import { lifecycleChannelOf } from "./slack-channel-lifecycle.ts";
 import {
   SLACK_CHANNEL_PAGE_SIZE,
   SlackApiError,
@@ -124,8 +125,9 @@ const memberChangeSchema = z.object({
 
 /**
  * The `slack` role's first handler: anyone joining or leaving a channel,
- * the bot included, voids that channel's member list for this app's install
- * before the event goes on to `next`.
+ * the bot included, or the channel being archived, unarchived, renamed or
+ * deleted, voids that channel's member list for this app's install before
+ * the event goes on to `next`.
  */
 export function createSlackMemberCacheInvalidator(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
@@ -133,17 +135,21 @@ export function createSlackMemberCacheInvalidator(deps: {
   next: SlackInboundHandler;
 }): SlackInboundHandler {
   return async (claim) => {
-    const parsed = memberChangeSchema.safeParse(
-      (claim.payload as { event?: unknown }).event,
-    );
-    if (parsed.success) {
+    const event = (claim.payload as { event?: unknown }).event;
+    const parsed = memberChangeSchema.safeParse(event);
+    // An archive, a rename or a delete voids the list too: who may read the
+    // channel is asked again.
+    const channel = parsed.success
+      ? parsed.data.channel
+      : lifecycleChannelOf(event);
+    if (channel !== null) {
       const agent = await agentForSlackEvent(deps.agents, {
         appId: claim.appId,
         teamId: claim.teamId,
         agentId: claim.agentId,
       });
       if (agent.status === "resolved") {
-        await deps.members.forget(agent.installationId, parsed.data.channel);
+        await deps.members.forget(agent.installationId, channel);
       }
     }
     return deps.next(claim);
