@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0336_session_link_old_uniques`가 `session_links`의 옛 unique 둘(`session_links_surface_ref_key`, `session_links_session_uniq`)을 지운다. 이 릴리스를 올린 뒤에는 `v0.3.0` 이하의 이미지로 되돌릴 수 없다**(JeongJaeSoon/werft#PR). 따로 할 일은 없고, Slack 스레드의 동작은 그대로다.
+- **migration `0336_session_link_old_uniques`가 `session_links`의 옛 unique 둘(`session_links_surface_ref_key`, `session_links_session_uniq`)을 지운다. 이 릴리스를 올린 뒤에는 `v0.3.0` 이하의 이미지로 되돌릴 수 없다**(JeongJaeSoon/werft#2079). 따로 할 일은 없고, Slack 스레드의 동작은 그대로다.
   - 남는 unique는 닫히지 않은 link만 보는 둘이다. 스레드와 세션마다 열린 link는 하나뿐이고, 닫힌 link는 그 옆에 이력으로 남을 수 있다. 이 릴리스에는 link를 닫는 길이 없다.
   - `v0.3.0` 이하의 이미지는 옛 unique를 가리키는 `ON CONFLICT`로 스레드를 예약하므로, 되돌리면 Slack 스레드에 세션이 생기지 않는다. 열린 link만 보는 예약으로 옮긴 JeongJaeSoon/werft#2041부터의 이미지로는 되돌려도 된다. 더 앞으로 가야 하면 업그레이드 전 백업으로 DB를 복원한다.
   - `v0.3.0`에서 바로 올리면 migrate가 끝난 뒤 옛 slack 역할이 내려갈 때까지 그 역할이 받은 스레드 예약이 실패하고, 그 이벤트는 다시 시도된다.
