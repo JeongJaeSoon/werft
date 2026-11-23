@@ -273,7 +273,7 @@ export const slackGuestsDisabled: SlackGuestSetting = {
 
 /** Who made a session and whom it is shared with, read for every decision. */
 export type SessionAccess = Pick<SessionShareStore, "visibleTo" | "originOf"> &
-  Partial<Pick<SessionShareStore, "privateChannels">>;
+  Partial<Pick<SessionShareStore, "privateChannels" | "pushRequesterOf">>;
 
 // Member checks run at once per decision; more would spend the Slack
 // install's rate limit on one list.
@@ -289,6 +289,80 @@ export const workspaceWideSessions: SessionAccess = {
     throw new Error("no session share store");
   },
 };
+
+/**
+ * Answer 15, second part (94S-2000): whether a push request's requester has
+ * left the private channel its session belongs to, so the channel's members
+ * decide it. Only a confirmed absence counts; a check that cannot tell, or
+ * a session that is no private channel's, keeps the usual rule.
+ */
+export async function pushRequesterLeft(
+  deps: {
+    sessions: SessionAccess;
+    channelMembers?: ChannelMemberCheckable | undefined;
+    logger?:
+      | {
+          warn(
+            message: string,
+            fields?: Readonly<Record<string, unknown>>,
+          ): void;
+        }
+      | undefined;
+  },
+  input: {
+    workspaceId: string;
+    sessionId: string;
+    pushRequestId: string;
+    /** The session's private channels, when the caller read them already. */
+    places?: readonly PrivateChannelPlace[];
+  },
+): Promise<boolean> {
+  const { sessions, channelMembers } = deps;
+  const membership = channelMembers?.membership?.bind(channelMembers);
+  if (membership === undefined || sessions.pushRequesterOf === undefined) {
+    return false;
+  }
+  try {
+    const places =
+      input.places ??
+      (await sessions.privateChannels?.(input.workspaceId, input.sessionId)) ??
+      [];
+    if (places.length === 0) return false;
+    const requester = await sessions.pushRequesterOf(
+      input.workspaceId,
+      input.sessionId,
+      input.pushRequestId,
+    );
+    if (requester === null) return false;
+    const answers = await Promise.all(
+      places.map((place) =>
+        membership({
+          workspaceId: input.workspaceId,
+          agentId: place.agentId.toLowerCase(),
+          channelId: place.channelId,
+          userId: requester,
+        }),
+      ),
+    );
+    if (answers.includes("unconfirmed")) {
+      deps.logger?.warn("Push requester's channel membership unconfirmed", {
+        event: "push.requester_left.unconfirmed",
+        session_id: input.sessionId,
+        push_request_id: input.pushRequestId,
+      });
+      return false;
+    }
+    return answers.every((answer) => answer === "not_member");
+  } catch (error) {
+    deps.logger?.warn("Push requester's channel membership unconfirmed", {
+      event: "push.requester_left.unconfirmed",
+      session_id: input.sessionId,
+      push_request_id: input.pushRequestId,
+      error_name: error instanceof Error ? error.name : typeof error,
+    });
+    return false;
+  }
+}
 
 export const POLICY_VERSION = "m17";
 
@@ -871,8 +945,9 @@ export function createAuthorizationPolicy(
     }
     // Step 2 goes on to the share: a session outside it does not exist for
     // this subject, save for what a manager does with a reason.
+    let places: PrivateChannelPlace[] = [];
     if (resource.kind === "session" && resource.id !== null) {
-      const places =
+      places =
         (await sessions.privateChannels?.(resource.owner_scope, resource.id)) ??
         [];
       const visible = await sessions.visibleTo(
@@ -1021,6 +1096,28 @@ export function createAuthorizationPolicy(
               resource.id,
               action === "session.approve",
             );
+      // A private channel's member, who sees the session, decides a push
+      // whose requester left the channel; the requester no longer sees it.
+      if (
+        answer === "role" &&
+        resource.id !== null &&
+        resource.push_request_id !== undefined &&
+        (await pushRequesterLeft(
+          {
+            sessions,
+            channelMembers: deps.channelMembers,
+            logger: deps.logger,
+          },
+          {
+            workspaceId: resource.owner_scope,
+            sessionId: resource.id,
+            pushRequestId: resource.push_request_id,
+            places,
+          },
+        ))
+      ) {
+        return ["ok", scopes];
+      }
       if (answer !== "ok") return [answer, scopes];
     }
     // No agent identity has a ceiling to multiply by yet.

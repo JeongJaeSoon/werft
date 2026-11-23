@@ -164,6 +164,7 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   messageOf,
+  pushRequesterLeft,
   registryCatalog,
   resolveAgentRelease,
   SessionServiceError,
@@ -588,6 +589,13 @@ const slackGuests = createPostgresSlackGuestSetting(db);
 const sessionShares = createPostgresSessionShareStore(db);
 const slackSecretStore = () => createPostgresSecretStore(db, secretKey);
 const slackAppStore = createPostgresSlackAppStore(db, secretKey);
+const slackChannelMembers = wireSlackChannelMembers({
+  apiUrl: slackApiUrlFrom(process.env),
+  appStore: slackAppStore,
+  secrets: slackSecretStore,
+  store: createPostgresChannelMemberStore(db),
+  logger,
+});
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
@@ -596,13 +604,7 @@ const authorization = createAuthorizationPolicy({
   credentials: credentialBindings,
   slackGuests,
   sessions: sessionShares,
-  channelMembers: wireSlackChannelMembers({
-    apiUrl: slackApiUrlFrom(process.env),
-    appStore: slackAppStore,
-    secrets: slackSecretStore,
-    store: createPostgresChannelMemberStore(db),
-    logger,
-  }),
+  channelMembers: slackChannelMembers,
   decisions: createPostgresDecisionLog(db),
   logger,
 });
@@ -1411,6 +1413,12 @@ const slackInteractions = wireSlackInteractions({
   sessions,
   followUps: createPostgresPushFollowUpStore(db),
   outbox: createPostgresSlackOutboxStore(db),
+  // The card's label asks what the policy asks a press (answer 15).
+  requesterLeft: (push) =>
+    pushRequesterLeft(
+      { sessions: sessionShares, channelMembers: slackChannelMembers, logger },
+      push,
+    ),
   consoleOrigin,
   logger,
 });

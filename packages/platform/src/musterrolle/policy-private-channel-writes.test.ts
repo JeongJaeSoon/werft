@@ -295,8 +295,103 @@ describe("a key on a private channel's session", () => {
   });
 });
 
+describe("a push the agent asks for inside a turn", () => {
+  test("is judged by its session-bound check, never as a key", async () => {
+    const { sessionBoundAuthorization } = await import(
+      "../action/tools/session-bound.ts"
+    );
+    const decision = await sessionBoundAuthorization(PRIVATE_SESSION).authorize(
+      {
+        subject: KEYS.agent.caller.subject,
+        action: "session.submit",
+        resource: {
+          kind: "session",
+          id: PRIVATE_SESSION,
+          owner_scope: WORKSPACE,
+        },
+        request_id: "r",
+      },
+    );
+    expect(decision.outcome).toBe("allow");
+    // The same request over the API, as the agent's key, is refused.
+    expect(
+      await reason(
+        KEYS.agent.caller,
+        KEYS.agent.identity,
+        "session.submit",
+        session(PRIVATE_SESSION),
+      ),
+    ).toBe("private_channel_key");
+  });
+});
+
 describe("approving after the requester left the private channel", () => {
-  test("before 94S-2000: a member of the channel who did not start the session may not approve", async () => {
+  // Answer 15, second part: who decides a push whose requester (the person
+  // of the turn that asked for it) is no longer in the private channel.
+  const PUSH = "019a0000-0000-7000-8000-00000000d0a1";
+  const B = "019a0000-0000-7000-8000-0000000000c7";
+
+  function policyWith(options: {
+    pushRequester?: string | null;
+    inChannel?: (userId: string) => "member" | "not_member" | "unconfirmed";
+    warned?: string[];
+  }) {
+    const answer =
+      options.inChannel ??
+      ((userId: string) => (inChannel(userId) ? "member" : "not_member"));
+    return createAuthorizationPolicy({
+      identity: plain,
+      agents,
+      sessions: {
+        ...sessionsSeen(),
+        async pushRequesterOf(_ownerId, sessionId, pushRequestId) {
+          return sessionId === PRIVATE_SESSION && pushRequestId === PUSH
+            ? options.pushRequester === undefined
+              ? USERS.requester
+              : options.pushRequester
+            : null;
+        },
+      },
+      channelMembers: {
+        async isMember(input) {
+          return answer(input.userId) === "member";
+        },
+        async membership(input) {
+          return answer(input.userId);
+        },
+      },
+      logger: {
+        warn(message) {
+          options.warned?.push(message);
+        },
+      },
+    });
+  }
+
+  async function decide(
+    who: Caller,
+    options: Parameters<typeof policyWith>[0] & {
+      sessionId?: string;
+      push?: string | null;
+    } = {},
+  ): Promise<AuthorizationReason> {
+    const push = options.push === undefined ? PUSH : options.push;
+    const decision = await policyWith(options).authorize({
+      subject: who.subject,
+      action: "session.approve",
+      resource: {
+        kind: "session",
+        id: options.sessionId ?? PRIVATE_SESSION,
+        owner_scope: WORKSPACE,
+        ...(push === null ? {} : { push_request_id: push }),
+      },
+      request_id: who.requestId,
+    });
+    return authorizationDecisionSchema.parse(decision).reason_code;
+  }
+
+  test("before 94S-2000 a member who did not start the session got role; now a member decides the push of a requester who left", async () => {
+    // Before: the rule had no push in it, so the member was refused.
     expect(
       await reason(
         person("member"),
@@ -305,14 +400,82 @@ describe("approving after the requester left the private channel", () => {
         session(PRIVATE_SESSION),
       ),
     ).toBe("role");
-    // The requester who left does not see it at all.
+    // After: a push request whose requester left the channel.
+    expect(await decide(person("member"))).toBe("ok");
+  });
+
+  test("the requester who left, and a person outside the channel, still do not see the session", async () => {
+    expect(await decide(person("requester"))).toBe("not_found");
+    expect(await decide(person("nonmember"))).toBe("not_found");
+  });
+
+  test("a member without sessions:approve is refused", async () => {
+    const noApprove = callerFor(
+      {
+        kind: "user",
+        id: USERS.member,
+        workspace_id: WORKSPACE,
+        role: "member",
+        scopes: ["sessions:read", "sessions:write"],
+      },
+      { kind: "web" },
+      "r",
+    );
+    expect(await decide(noApprove)).toBe("role");
+  });
+
+  test("the rule stays as it was while the requester is in the channel, or when no one can tell", async () => {
+    // R still a member.
     expect(
-      await reason(
-        person("requester"),
-        plain,
-        "session.approve",
-        session(PRIVATE_SESSION),
-      ),
-    ).toBe("not_found");
+      await decide(person("member"), {
+        inChannel: (userId) =>
+          userId === USERS.member || userId === USERS.requester
+            ? "member"
+            : "not_member",
+      }),
+    ).toBe("role");
+    // Slack could not answer for R: nothing widens on a guess, and it is logged.
+    const warned: string[] = [];
+    expect(
+      await decide(person("member"), {
+        inChannel: (userId) =>
+          userId === USERS.member ? "member" : "unconfirmed",
+        warned,
+      }),
+    ).toBe("role");
+    expect(warned).toEqual(["Push requester's channel membership unconfirmed"]);
+  });
+
+  test("only a push decision: a permission or question answer keeps its rule", async () => {
+    expect(await decide(person("member"), { push: null })).toBe("role");
+  });
+
+  test("a public channel's session keeps its rule though the requester left", async () => {
+    expect(await decide(person("member"), { sessionId: PUBLIC_SESSION })).toBe(
+      "role",
+    );
+  });
+
+  test("the requester is the push's, not the session's starter (answer 15, Architect)", async () => {
+    // A (R here) started the session and stays; B asked for the push and left.
+    const stays = (userId: string) =>
+      userId === USERS.member || userId === USERS.requester
+        ? ("member" as const)
+        : ("not_member" as const);
+    expect(
+      await decide(person("member"), { pushRequester: B, inChannel: stays }),
+    ).toBe("ok");
+    // B stays and A left: B's push keeps the usual rule.
+    const bStays = (userId: string) =>
+      userId === USERS.member || userId === B
+        ? ("member" as const)
+        : ("not_member" as const);
+    expect(
+      await decide(person("member"), { pushRequester: B, inChannel: bStays }),
+    ).toBe("role");
+    // No person behind the push: nothing to have left.
+    expect(await decide(person("member"), { pushRequester: null })).toBe(
+      "role",
+    );
   });
 });

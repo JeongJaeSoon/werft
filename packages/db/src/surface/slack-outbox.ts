@@ -13,6 +13,7 @@ import {
 } from "@werft-ai/contracts";
 import type {
   NeutralizeEvent,
+  SlackCardChoice,
   SlackCardClaim,
   SlackCardFence,
   SlackCardRendered,
@@ -386,7 +387,12 @@ const SENT_CARD = sql`
   o.kind = 'input_notice' AND o.status = 'sent' AND o.slack_ts IS NOT NULL
   AND o.settle_state IS DISTINCT FROM 'abandoned'`;
 
-const SHOWS_CHOICE = sql`coalesce(o.settle_rendered, 'open') IN ('open', 'reject_only')`;
+// Every SlackCardChoice: the card still waits on its request.
+const CHOICES = sql.raw(
+  "('open', 'reject_only', 'open_requester_left', 'reject_only_requester_left')",
+);
+
+const SHOWS_CHOICE = sql`coalesce(o.settle_rendered, 'open') IN ${CHOICES}`;
 
 const cardFenced = (fence: SlackCardFence) =>
   sql`id = ${fence.id} AND settle_claim_token = ${fence.claimToken}`;
@@ -398,7 +404,7 @@ const CARD_RELEASED = sql`
 // What a drawn card leaves the row: open or reject-only waits for the next
 // change, an end state is final.
 const settledAs = (rendered: SQL) =>
-  sql`CASE WHEN coalesce(${rendered}, 'open') IN ('open', 'reject_only') THEN NULL ELSE 'settled' END`;
+  sql`CASE WHEN coalesce(${rendered}, 'open') IN ${CHOICES} THEN NULL ELSE 'settled' END`;
 
 /** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
 function createPostgresSlackCardSettleStore(
@@ -436,6 +442,15 @@ function createPostgresSlackCardSettleStore(
       );
     },
 
+    markPushCardsDueIn({ installationId, channelId }) {
+      return markDueWhere(
+        sql`o.settle_state IS NULL AND ${SHOWS_CHOICE}
+          AND o.dedupe_key LIKE 'push:%'
+          AND o.installation_id = ${installationId}
+          AND o.channel_id = ${channelId}`,
+      );
+    },
+
     async markDueById(id) {
       return (
         (await markDueWhere(sql`o.id = ${id} AND o.settle_state IS NULL`)) > 0
@@ -457,7 +472,7 @@ function createPostgresSlackCardSettleStore(
             AND o.dedupe_key LIKE 'push:%' AND p.state = 'requested'
             AND ${SHOWS_CHOICE}
             AND (s.checkpoint_revision IS DISTINCT FROM p.checkpoint_revision
-              OR o.settle_rendered = 'reject_only')
+              OR o.settle_rendered LIKE 'reject_only%')
             AND (${afterSeq}::bigint IS NULL OR o.seq > ${afterSeq}::bigint)
           ORDER BY o.seq
           LIMIT ${limit}`),
@@ -466,7 +481,7 @@ function createPostgresSlackCardSettleStore(
         id: row.id as string,
         seq: Number(row.seq),
         sessionId: row.session_id as string,
-        rendered: row.rendered as "open" | "reject_only",
+        rendered: row.rendered as SlackCardChoice,
         sessionCheckpointRevision:
           row.session_revision === null ? null : Number(row.session_revision),
         checkpointRevision: Number(row.checkpoint_revision),

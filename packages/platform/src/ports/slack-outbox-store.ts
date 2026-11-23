@@ -356,12 +356,13 @@ export interface SlackThreadStatusStore {
 
 /**
  * What a posted card shows: its buttons (`open`), only Reject for a push
- * that can no longer be approved (`reject_only`), or how it ended (`done`
- * for a turn's notice from before the cards).
+ * that can no longer be approved (`reject_only`), either one with a
+ * private channel push's requester gone from the channel
+ * (`*_requester_left`), or how it ended (`done` for a turn's notice from
+ * before the cards).
  */
 export type SlackCardRendered =
-  | "open"
-  | "reject_only"
+  | SlackCardChoice
   | "allowed"
   | "allowedSession"
   | "denied"
@@ -392,12 +393,19 @@ export type SlackCardClaim = SlackCardFence & {
   attempts: number;
 };
 
+/** A card still waiting on its request. */
+export type SlackCardChoice =
+  | "open"
+  | "reject_only"
+  | "open_requester_left"
+  | "reject_only_requester_left";
+
 /** A push card still showing a choice, for `pushApprovability`. */
 export type SlackOpenPushCard = {
   id: string;
   seq: number;
   sessionId: string;
-  rendered: "open" | "reject_only";
+  rendered: SlackCardChoice;
   sessionCheckpointRevision: number | null;
   checkpointRevision: number;
   gitCommit: string;
@@ -419,6 +427,14 @@ export interface SlackCardSettleStore {
   /** Marks one card `due` (its press), unless abandoned. */
   markDueAt(card: { channelId: string; slackTs: string }): Promise<boolean>;
   /** Marks one card `due` by its row (a push whose approvability moved). */
+  /**
+   * Marks `due` the push cards still showing a choice in one channel of an
+   * install, whose requester may have joined or left it. Returns how many.
+   */
+  markPushCardsDueIn(input: {
+    installationId: string;
+    channelId: string;
+  }): Promise<number>;
   markDueById(id: string): Promise<boolean>;
   /**
    * Push cards still showing a choice whose session has moved on since, in

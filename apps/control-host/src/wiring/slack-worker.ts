@@ -4,6 +4,7 @@ import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
   ChannelMemberStore,
+  SlackCardSettleStore,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import {
@@ -33,6 +34,7 @@ export interface SlackInboundDeps {
   links: Param<typeof createSlackSessionHandler>["links"];
   bindings: SurfaceBindingStore;
   members: Pick<ChannelMemberStore, "forget">;
+  cards: Pick<SlackCardSettleStore, "markPushCardsDueIn"> | undefined;
   settings: Param<typeof createSlackSessionHandler>["settings"];
   botTurns: Param<typeof createSlackSessionHandler>["botTurns"];
   sessionLinks: Param<typeof createSlackSessionHandler>["sessionLinks"];
@@ -96,6 +98,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
   return createSlackMemberCacheInvalidator({
     agents: deps.identities,
     members: deps.members,
+    ...(deps.cards === undefined ? {} : { cards: deps.cards }),
     next: createSlackChannelLifecycleHandler({
       agents: deps.identities,
       bindings: deps.bindings,
