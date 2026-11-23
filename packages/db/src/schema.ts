@@ -5467,12 +5467,20 @@ export const conversationInputs = pgTable(
     turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
     /** Set on a web input only: the client's key for its retries. */
     clientMessageId: text("client_message_id"),
-    /** A web input's text, which no other row holds yet. */
+    /**
+     * A web input's text, which no other row holds yet, or a buffered Slack
+     * message's text, held until `buffer_expires_at`.
+     */
     body: text(),
     slackMirror: text("slack_mirror").$type<ConversationInputSlackMirror>(),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * Set on a buffered Slack message only: an unmentioned message held for
+     * the judgment, with no turn, and removed whole at this time.
+     */
+    bufferExpiresAt: timestamp("buffer_expires_at", { withTimezone: true }),
   },
   (table) => [
     unique("conversation_inputs_seq_uniq").on(table.topicId, table.seq),
@@ -5485,12 +5493,17 @@ export const conversationInputs = pgTable(
       )
       .where(sql`${table.clientMessageId} IS NOT NULL`),
     // A Slack input has a turn and no web fields; a web input is a user's,
-    // with its text and whether Slack is to mirror it. A NULL operand makes
-    // "IN" NULL, which a CHECK passes; hence IS NOT NULL.
+    // with its text and whether Slack is to mirror it; a buffered Slack
+    // message has its text, its poster and its end, and no turn. A NULL
+    // operand makes "IN" NULL, which a CHECK passes; hence IS NOT NULL.
     check(
       "conversation_inputs_origin_check",
-      sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.body} IS NOT NULL AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}))`,
+      sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL AND ${table.bufferExpiresAt} IS NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.body} IS NOT NULL AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}) AND ${table.bufferExpiresAt} IS NULL) OR (${table.bufferExpiresAt} IS NOT NULL AND ${table.clientMessageId} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NULL AND ${table.body} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.requesterKind} = 'slack_user')`,
     ),
+    // The buffer's expiry pass walks this.
+    index("conversation_inputs_buffer_expiry_idx")
+      .on(table.bufferExpiresAt)
+      .where(sql`${table.bufferExpiresAt} IS NOT NULL`),
     // Unique per agent: two agents in one channel each take the message.
     unique("conversation_inputs_slack_uniq").on(
       table.agentId,
