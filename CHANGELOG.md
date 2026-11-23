@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **provider 호출이 세션 한도와 함께 실행 중인 턴의 root 예산 계정에서도 잡히고, migration `0321_budget_root_slack_bot`이 root 종류에 `slack_bot`을 더한다**(JeongJaeSoon/werft#2050). 따로 할 일은 없다.
+- **provider 호출이 세션 한도와 함께 실행 중인 턴의 root 예산 계정에서도 잡히고, migration `0322_budget_root_slack_bot`이 root 종류에 `slack_bot`을 더한다**(JeongJaeSoon/werft#2050). 따로 할 일은 없다.
   - 한도를 정하지 않은 설치(`budget_limits` 행 없음)에서는 지금처럼 돈다. 원장에 호출마다 root 종류(`user`·`key`·`slack_bot`·`none`)와 계정이 남는다. root `none`(사람이 시키지 않은 에이전트 스스로의 일)은 한도가 없으면 거절되지만, 이 릴리스에는 그런 턴을 만드는 경로가 없다.
   - `budget_limits`에 한도를 넣으면 넘는 호출은 지금과 같은 `BUDGET_EXCEEDED`로 거절된다. 거절마다 API가 `info` 로그 `Provider exchange refused for the budget`(`turn_id`, `refused_by` `session`/`account`, `budget_root_kind`, `budget_account_id`)을 남긴다.
   - 요청자를 읽을 수 없는 턴, 세션 제목 짓기 호출, 실행 중인 턴이 없는 호출은 세션 한도만 본다. 제목 짓기 호출은 egress proxy가 open에 헤더로 알리므로 api와 egress proxy를 함께 올린다(proxy만 앞선 버전이면 그동안 제목 호출도 턴의 계정에 잡힌다). CHECK를 넓히기만 하므로 지원 창 안의 이미지로 되돌려도 된다.

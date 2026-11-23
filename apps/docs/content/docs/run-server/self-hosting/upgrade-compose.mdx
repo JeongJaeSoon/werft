@@ -271,7 +271,7 @@ GROUP BY 1, 2;
 
 ### 호출을 턴의 예산 계정에 매기는 릴리스
 
-이 릴리스부터 provider 호출의 open이 세션 한도와 함께 예산 계정에서도 그 호출을 잡는다. 계정은 실행 중인 턴이 누구의 요청인지(root)로 고른다. migration `0321_budget_root_slack_bot`은 원장의 root 종류에 `slack_bot`을 더한다(`provider_exchanges.budget_root_kind`, `budget_reservations.root_kind`의 CHECK 교체). 따로 할 일은 없다.
+이 릴리스부터 provider 호출의 open이 세션 한도와 함께 예산 계정에서도 그 호출을 잡는다. 계정은 실행 중인 턴이 누구의 요청인지(root)로 고른다. migration `0322_budget_root_slack_bot`은 원장의 root 종류에 `slack_bot`을 더한다(`provider_exchanges.budget_root_kind`, `budget_reservations.root_kind`의 CHECK 교체). 따로 할 일은 없다.
 
 - 한도를 정하지 않은 설치(`budget_limits` 행이 없음)에서는 사람·key·Slack 봇의 턴이 지금처럼 돈다. 원장에는 호출마다 root 종류와 계정이 남는다. 사람이 시키지 않은 에이전트 스스로의 일(root `none`)은 한도가 없으면 거절되지만, 이 릴리스에는 그런 턴을 만드는 경로가 없다(push 후속 턴은 앞 턴의 요청자를 따른다).
 - 계정 고르기: 사람의 턴과 그 뒤의 이어 가는 턴·push 후속 턴은 그 사람의 계정(`user`)이다. 개인 key의 턴은 만든 사람의 계정(`key`), 사람 없는 key의 턴은 에이전트를 관리하는 팀의 계정(`key`), 허용한 Slack 봇의 턴도 그 팀의 계정(`slack_bot`)이다. 팀이 보관되었으면 계정 없이 root 종류만 남는다.

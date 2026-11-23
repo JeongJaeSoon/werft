@@ -302,7 +302,7 @@ GROUP BY 1, 2;
 <a id="호출을-턴의-예산-계정에-매기는-릴리스" />
 ### The release that charges calls to the turn's budget account
 
-From this release a provider call's open holds the call on a budget account as well as on the session limit. The account is chosen by whose request the running turn serves (its root). Migration `0321_budget_root_slack_bot` adds `slack_bot` to the ledger's root kinds (it replaces the CHECK on `provider_exchanges.budget_root_kind` and `budget_reservations.root_kind`). Nothing to do.
+From this release a provider call's open holds the call on a budget account as well as on the session limit. The account is chosen by whose request the running turn serves (its root). Migration `0322_budget_root_slack_bot` adds `slack_bot` to the ledger's root kinds (it replaces the CHECK on `provider_exchanges.budget_root_kind` and `budget_reservations.root_kind`). Nothing to do.
 
 - On an installation with no limits set (no `budget_limits` rows), turns of people, keys and Slack bots run as before. The ledger keeps each call's root kind and account. The agent's own work that no one asked for (root `none`) is refused while no limit is set, but nothing in this release makes such a turn (a push follow-up takes the requester of the turn before it).
 - How the account is chosen: a person's turn, and the continuations and push follow-ups after it, go to that person's account (`user`). A personal key's turn goes to the account of the person who made the key (`key`), a key with no person to the account of the team that manages the agent (`key`), and an allowed Slack bot's turn to that team's account as well (`slack_bot`). With the team archived, only the root kind is kept, with no account.

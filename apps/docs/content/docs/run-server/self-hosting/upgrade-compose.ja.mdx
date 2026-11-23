@@ -302,7 +302,7 @@ GROUP BY 1, 2;
 <a id="호출을-턴의-예산-계정에-매기는-릴리스" />
 ### 呼び出しをターンの予算アカウントに課金するリリース
 
-このリリースから、provider 呼び出しの open はセッション上限と一緒に予算アカウントでもその呼び出しを押さえる。アカウントは、実行中のターンが誰の依頼か(root)で選ぶ。migration `0321_budget_root_slack_bot` は台帳の root の種類に `slack_bot` を加える(`provider_exchanges.budget_root_kind` と `budget_reservations.root_kind` の CHECK を置き換える)。することはない。
+このリリースから、provider 呼び出しの open はセッション上限と一緒に予算アカウントでもその呼び出しを押さえる。アカウントは、実行中のターンが誰の依頼か(root)で選ぶ。migration `0322_budget_root_slack_bot` は台帳の root の種類に `slack_bot` を加える(`provider_exchanges.budget_root_kind` と `budget_reservations.root_kind` の CHECK を置き換える)。することはない。
 
 - 上限を決めていないインストール(`budget_limits` の行がない)では、人・キー・Slack ボットのターンはこれまでどおり動く。台帳には呼び出しごとに root の種類とアカウントが残る。誰も頼んでいないエージェント自身の仕事(root `none`)は上限がなければ拒否されるが、このリリースにはそのようなターンを作る経路はない(push のフォローアップターンは前のターンの依頼者を引き継ぐ)。
 - アカウントの選び方: 人のターンと、その後の継続ターン・push のフォローアップターンはその人のアカウント(`user`)だ。個人キーのターンはキーを作った人のアカウント(`key`)、人のいないキーのターンはエージェントを管理するチームのアカウント(`key`)、許可した Slack ボットのターンもそのチームのアカウント(`slack_bot`)だ。チームがアーカイブされていれば、アカウントなしで root の種類だけが残る。
