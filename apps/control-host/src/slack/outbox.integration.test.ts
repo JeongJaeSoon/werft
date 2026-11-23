@@ -1224,6 +1224,35 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       expect(await statuses()).toEqual([["sent", null]]);
     });
 
+    test("an overflowed set is still judged by an earlier turn's message it no longer lists", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      await mention(fixture, "100.000200");
+      await endTurn(sessionId, 2, "completed", [[text("second")]]);
+      await outboxPass({ botToken: null });
+      // Past the key limit the set keeps its first keys: here, none of turn 1.
+      await db.execute(sql`
+        UPDATE slack_outbox
+        SET sources = jsonb_build_object('direct', sources->'direct',
+          'inherited', '[]'::jsonb, 'overflow', true)`);
+      await marks().markDeleted({
+        workspaceId: await workspaceOf(sessionId),
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: THREAD,
+        at: new Date(),
+      });
+
+      expect(await outboxPass()).toMatchObject({ voided: 2, sent: 0 });
+      expect(posted()).toEqual([]);
+      expect(await statuses()).toEqual([
+        ["voided_by_delete", "source_deleted"],
+        ["voided_by_delete", "source_deleted"],
+      ]);
+    });
+
     test("an edit of the message holds back no reply", async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);
