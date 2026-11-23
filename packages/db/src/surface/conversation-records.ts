@@ -62,6 +62,14 @@ type Records = {
 /** A record written between the first look and the locks: start again. */
 class RecordsMoved extends Error {}
 
+/** PostgreSQL chose this transaction to end a deadlock (40P01). */
+const deadlocked = (error: unknown): boolean => {
+  for (let e = error; e instanceof Error; e = e.cause) {
+    if ((e as { code?: unknown }).code === "40P01") return true;
+  }
+  return false;
+};
+
 const ATTEMPTS = 3;
 
 const texts = (values: readonly string[]) =>
@@ -324,7 +332,10 @@ export async function deleteConversationRecords(
         })) ?? undefined;
       if (counts === undefined) return { outcome: "not_admin" };
     } catch (error) {
-      if (!(error instanceof RecordsMoved) || attempt >= ATTEMPTS) throw error;
+      // Each attempt rolls back whole, so a deadlock with a write that takes
+      // the same rows in another order (an archive's buffer purge) retries.
+      const retry = error instanceof RecordsMoved || deadlocked(error);
+      if (!retry || attempt >= ATTEMPTS) throw error;
     }
   }
 

@@ -16,6 +16,7 @@ import { createPostgresChannelSummaryStore } from "../conversations/channel-summ
 import { createPostgresContextFragmentSource } from "../conversations/context-fragments.ts";
 import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
 import { lockedDeletedSource } from "../conversations/deleted-sources.ts";
+import { lockSlackSourceMark } from "../conversations/index.ts";
 import * as schema from "../schema.ts";
 import { fixtureTeamSql } from "../testing/fixture-team.ts";
 import { newPartitionedSession } from "../testing/sessions.ts";
@@ -385,6 +386,46 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     expect(await stoppedAt(taker.sessionId)).toBeNull();
     expect(await sendRefused(taker.sessionId, takerSources)).toBeNull();
   });
+
+  test("starts again when PostgreSQL ends a deadlock by rolling it back", async () => {
+    const place = await channel();
+    const held = await buffered(place);
+    // B holds the conversation, which the delete waits on with the
+    // message's mark lock held; B then asks for that mark lock. The delete
+    // waited first, so its deadlock check runs first and ends it.
+    const b = await pool.connect();
+    await b.query("BEGIN");
+    await b.query("SELECT 1 FROM conversations WHERE id = $1 FOR SHARE", [
+      place.conversationId,
+    ]);
+    const deleting = deleteConversationRecords(db, {
+      conversationId: idOf(place.conversationId),
+      by: adminEmail,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const bLock = await drizzle(b, { schema })
+      .execute(
+        lockSlackSourceMark({
+          workspaceId,
+          teamId: TEAM,
+          channelId: place.channelId,
+          ts: held.ts,
+        }),
+      )
+      .then(
+        () => "locked",
+        () => "victim",
+      );
+    await b.query(bLock === "locked" ? "COMMIT" : "ROLLBACK");
+    b.release();
+
+    expect(bLock).toBe("locked");
+    expect(await deleting).toMatchObject({
+      outcome: "deleted",
+      counts: { engagements: 0, summaryLines: 0, buffered: 1, marked: 1 },
+    });
+    expect((await recordsLeft(place)).buffered).toBe(0);
+  }, 30_000);
 
   test("a dry run counts and changes nothing", async () => {
     const place = await channel();
