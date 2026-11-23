@@ -64,6 +64,7 @@ import {
 import { extensionDepsFor } from "../api/extension-deps.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
+import { booleanFlag } from "../boolean-flag.ts";
 import { queueDatabaseUrl } from "../database-url.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 import {
@@ -87,6 +88,7 @@ export function slackRoleSettings(environment: Environment): {
   leaseMs: number;
   passBudgetMs: number;
   inputHoldMs: number;
+  closeLinks: boolean;
 } {
   const { passTimeoutMs } = passLoopConfigFromEnv(
     environment,
@@ -108,6 +110,10 @@ export function slackRoleSettings(environment: Environment): {
         min: 1,
         default: SLACK_INPUT_HOLD_MS / 1000,
       }) * 1000,
+    closeLinks: booleanFlag(
+      environment.SLACK_ROLE_CLOSE_LINKS ?? "false",
+      "SLACK_ROLE_CLOSE_LINKS",
+    ),
   };
 }
 
@@ -391,8 +397,9 @@ export async function main(
       statusesFirst: nextStatusesFirst(),
       requesterLeft: slackPushRequesterLeft(db, secretKey, environment, logger),
       inputHoldMs: settings.inputHoldMs,
+      closeLinks: settings.closeLinks,
     });
-    if (sent.enqueued + sent.claimed + sent.uncertain > 0) {
+    if (sent.enqueued + sent.claimed + sent.uncertain + sent.linksClosed > 0) {
       logger.info("Slack outbox pass", sent);
     }
     return drain;

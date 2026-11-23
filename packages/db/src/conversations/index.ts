@@ -4,6 +4,7 @@ export {
   deleteChannelSummary,
   dropChannelSummaryLinesOf,
 } from "./channel-summaries.ts";
+export { createPostgresConversationStore } from "./conversation-store.ts";
 export {
   directSourceDeletedAt,
   firstTurnDeletedAt,

@@ -119,7 +119,9 @@ async function enqueueNotice(
       ),
     )
     .orderBy(asc(sessionLinks.createdAt))
-    .limit(1);
+    .limit(1)
+    // Ordered against closeFinishedLinks: a closed link takes no new row.
+    .for("share", { of: sessionLinks });
   if (!link) return "no_thread";
   const [row] = await tx
     .insert(slackOutbox)

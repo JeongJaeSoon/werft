@@ -223,6 +223,31 @@ From this release model connections, MCP servers and repository GitHub App keys 
 - A connection or MCP server made in the console is saved only with its key. The web keeps the save button off until 8 or more characters are typed; the API refuses with 400 a missing key, one shorter than 8 bytes, or one with control characters or surrounding whitespace; the database refuses a console-made row without its value in the same transaction. The console's "Enter key on screen" button, which turned an external connection into a stored one, and the `POST …/connections/{id}/convert` route are gone.
 - The 0285 rollback SQL above no longer applies after this release: `credential_source` allows `stored` only.
 
+<a id="비공개-채널의-옛-세션을-옮기는-릴리스" />
+### The release that moves old private channel sessions
+
+There is no migration. Sessions made in a private Slack channel before this release have no share row and are visible to the workspace. The operator command `private-channel-sessions.ts` moves them to `private_channel`. Until it runs, the old sessions stay visible to the workspace and only new ones are limited to the channel's current members.
+
+- When to run it: after upgrading to the release that also puts the channel check first on a private channel's sessions whose creator narrowed them to `private`. Run before that, such sessions stay reachable by a creator who left the channel and by that person's keys.
+- Look first with `plan`. It changes nothing.
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/private-channel-sessions.ts plan
+```
+
+Each session shows `from`, `to`, how many people would stop seeing it (`people_losing`) and how many of its turns an API key asked for (`key_turns`). Those who stop seeing it are people outside the channel (owners, admins and agent admins included), members without a Slack link, a creator who left the channel, and people it was shared with by name. An integration polling a session with `key_turns` above 0 gets `404` after the move.
+- Then move them with `apply`. Running it again moves nothing more. `--workspace <id>` or `--agent <id>` picks one.
+
+```sh
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/private-channel-sessions.ts apply --agent <agent_id>
+```
+
+- The result is one line of JSON. A session its creator narrowed to `private` is not widened and counts in `kept_private`. Public channel sessions stay as they are (`unchanged`).
+- For each channel the command asks Slack what the channel is, with the agent's bot token. A channel whose kind it cannot read goes in `unconfirmed_channels` and a session it cannot move in `skipped` (`no_channel_conversation`, `no_workspace`, or `share_changed` when its share changed during the move); both are left as they were, and any of them ends with exit code `3`. Fix them and run it again. The binding of a channel bound as public but private now becomes `private_channel` and waits for approval again (`now_private` in `bindings`).
+- A channel the bot left cannot list its members, so its sessions show `members_unconfirmed: true`; once moved, they are hidden from everyone. Invite the bot back first for a channel you keep.
+- After the upgrade, making a channel private or public moves its binding and its sessions along. Making a private channel public makes its `private_channel` sessions visible to the workspace.
+- Rolling back to an image in the support window is fine. An old image shows a `private_channel` session to its creator only.
+
 <a id="처리를-마친-slack-이벤트의-옛-원문을-지우는-릴리스" />
 ### The release that clears the old body of processed Slack events
 

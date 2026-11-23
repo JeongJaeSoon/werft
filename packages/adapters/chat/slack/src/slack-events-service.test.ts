@@ -1006,6 +1006,46 @@ describe("Slack events service", () => {
     expect(event.text).toBe(`<@${BOT_USER}>`);
   });
 
+  test("a channel made private or public is kept without its text, even while its binding waits for approval", async () => {
+    // Before 94S-2001 both were dropped as message_subtype, so the binding
+    // and the channel's sessions never heard of the change.
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    w.pendingChannels.add("G0WAIT");
+    for (const [subtype, channel, channelType, ts] of [
+      ["channel_convert_to_private", "C0CHAN", "group", "1.1"],
+      ["channel_convert_to_public", "G0WAIT", "channel", "1.2"],
+    ] as const) {
+      const outcome = await w.service.receive(
+        w.signed(
+          w.event({
+            type: "message",
+            subtype,
+            user: "U0P",
+            text: "made this channel private: the launch code is 1234",
+            channel,
+            channel_type: channelType,
+            ts,
+          }),
+        ),
+      );
+      expect(outcome).toMatchObject({ status: "received" });
+    }
+    const kept = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received"
+        ? [(row.payload as { event: Record<string, unknown> }).event]
+        : [],
+    );
+    expect(
+      kept.map((event) => [event.channel, event.subtype, event.text]),
+    ).toEqual([
+      ["C0CHAN", "channel_convert_to_private", ""],
+      ["G0WAIT", "channel_convert_to_public", ""],
+    ]);
+    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain("1234");
+  });
+
   test("a pending channel changes nothing for a DM, another channel, or once it is approved", async () => {
     const w = world();
     await w.install();

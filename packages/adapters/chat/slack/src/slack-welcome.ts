@@ -168,6 +168,9 @@ export function createSlackWelcome(deps: {
       { bindingId: home.id, releaseId: found.releaseId },
     );
     if (status === "not_home") return { status: "no_home" };
+    if (status === "link_closed") {
+      throw new Error("A welcome row names no session link");
+    }
     return { status, channelId };
   }
 
