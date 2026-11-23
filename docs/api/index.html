@@ -4689,6 +4689,20 @@
               }
             ]
           },
+          "title_deleted_at": {
+            "default": null,
+            "description": "When Slack deleted the message a derived or generated `title` came from (the first turn's instruction). Set, `title` is null and the session is not found by its words. A title a person gave is kept. Null otherwise, and from a server before the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "agent": {
             "default": null,
             "description": "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on), `archived` whether the agent is archived when read (an archived agent runs no new session; its past sessions keep their agent). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
@@ -5106,6 +5120,7 @@
         "required": [
           "id",
           "title",
+          "title_deleted_at",
           "agent",
           "preview",
           "agent_hidden",
@@ -5183,6 +5198,20 @@
               {
                 "type": "string",
                 "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title_deleted_at": {
+            "default": null,
+            "description": "When Slack deleted the message a derived or generated `title` came from (the first turn's instruction). Set, `title` is null and the session is not found by its words. A title a person gave is kept. Null otherwise, and from a server before the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
               },
               {
                 "type": "null"
@@ -6171,6 +6200,7 @@
         "required": [
           "id",
           "title",
+          "title_deleted_at",
           "agent",
           "preview",
           "agent_hidden",
@@ -6491,6 +6521,20 @@
               }
             ]
           },
+          "source_deleted_at": {
+            "default": null,
+            "description": "When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` and `terminal_reason` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "terminal_reason": {
             "anyOf": [
               {
@@ -6554,6 +6598,7 @@
           "created_by",
           "requester",
           "slack_permalink",
+          "source_deleted_at",
           "terminal_reason",
           "checkpoint_revision",
           "created_at",
@@ -6685,6 +6730,20 @@
               {
                 "type": "string",
                 "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_deleted_at": {
+            "default": null,
+            "description": "When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` and `terminal_reason` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
               },
               {
                 "type": "null"
@@ -6836,6 +6895,7 @@
           "created_by",
           "requester",
           "slack_permalink",
+          "source_deleted_at",
           "terminal_reason",
           "checkpoint_revision",
           "created_at",
@@ -6893,6 +6953,12 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "source_deleted_at": {
+                    "description": "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                   },
                   "occurred_at": {
                     "type": "string",
@@ -7011,6 +7077,12 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "source_deleted_at": {
+                    "description": "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                   },
                   "occurred_at": {
                     "type": "string",
@@ -7134,6 +7206,12 @@
                       }
                     ]
                   },
+                  "source_deleted_at": {
+                    "description": "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
                   "occurred_at": {
                     "type": "string",
                     "format": "date-time",
@@ -7256,6 +7334,12 @@
                       }
                     ]
                   },
+                  "source_deleted_at": {
+                    "description": "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
                   "occurred_at": {
                     "type": "string",
                     "format": "date-time",
@@ -7328,6 +7412,12 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "source_deleted_at": {
+                    "description": "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                   },
                   "occurred_at": {
                     "type": "string",
@@ -7435,6 +7525,12 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "source_deleted_at": {
+                    "description": "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                   },
                   "occurred_at": {
                     "type": "string",
@@ -7598,6 +7694,12 @@
                       }
                     ]
                   },
+                  "source_deleted_at": {
+                    "description": "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
                   "occurred_at": {
                     "type": "string",
                     "format": "date-time",
@@ -7707,6 +7809,12 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "source_deleted_at": {
+                    "description": "Present on an event of a turn whose instruction Slack deleted (the turn's `source_deleted_at`): its text is left out. An `assistant` or `tool_use` keeps its `type` and the tool call's `id` and `name`, with an empty `input`; a `tool_result` keeps `tool_result.tool_call_id` and `is_error` with an empty `text`; a `question` an empty `input`; a `result` its `type`, `subtype`, `usage`, `turn` (with a null `terminal_reason`) and `runtime`; an engine's `system` event its `type` and `engine_event`, the platform's own as it is; an `error` its `code`, with a fixed `message`; a `status` event no `title`. Absent otherwise. A client that already streamed the event reads it again to see it withheld.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                   },
                   "occurred_at": {
                     "type": "string",

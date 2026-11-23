@@ -38,6 +38,7 @@ import {
   CREDENTIAL_UNBOUND_GUIDANCE,
   newSessionGitHubPolicy,
   normalizeSessionTitle,
+  permissionModeOf,
   releaseModel,
   startRepositoryOf,
 } from "@werft-ai/contracts";
@@ -446,7 +447,7 @@ export function createSessionService(deps: {
       version: spec.runtime.version,
       connection_id: spec.connection.id,
       model: spec.model,
-      permission_mode: spec.permission_mode,
+      permission_mode: permissionModeOf(spec),
     };
   }
 

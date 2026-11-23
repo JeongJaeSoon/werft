@@ -6,6 +6,7 @@ import type {
 } from "@werft-ai/contracts";
 import type {
   ConversationInputStore,
+  ResendMirrorRequest,
   TakeWebInputRequest,
   TakeWebInputResult,
   WebInputReceipt,
@@ -167,5 +168,79 @@ export function createPostgresConversationInputStore(
     });
   }
 
-  return { isMember, takeWebInput };
+  function resendMirror(
+    request: ResendMirrorRequest,
+  ): ReturnType<ConversationInputStore["resendMirror"]> {
+    const userId = request.requesterUserId.toLowerCase();
+    return db.transaction(async (tx) => {
+      // FOR SHARE, as takeWebInput takes them: a suspension or offboarding
+      // waits, and one committed first leaves nothing to send.
+      const [user] = rowsOf(
+        await tx.execute(sql`
+          SELECT 1 FROM users
+          WHERE id = ${userId}::uuid AND disabled_at IS NULL
+          FOR SHARE`),
+      );
+      if (user === undefined) return "not_found";
+      const [membership] = rowsOf(
+        await tx.execute(sql`
+          SELECT 1 FROM memberships
+          WHERE workspace_id = ${request.workspaceId}::uuid
+            AND user_id = ${userId}::uuid AND disabled_at IS NULL
+          FOR SHARE`),
+      );
+      if (membership === undefined) return "not_found";
+      // FOR UPDATE: two presses at once send one mirror.
+      const [input] = rowsOf<{
+        slack_mirror: ConversationInputSlackMirror;
+        slack_ts: string | null;
+      }>(
+        await tx.execute(sql`
+          SELECT i.slack_mirror, i.slack_ts
+          FROM conversation_inputs i
+          JOIN conversation_topics tp ON tp.id = i.topic_id
+          WHERE i.id = ${request.inputId}::uuid
+            AND i.workspace_id = ${request.workspaceId}::uuid
+            AND i.agent_id = ${request.agentId.toLowerCase()}::uuid
+            AND i.requester_kind = 'user'
+            AND i.requester_id = ${userId}
+            AND tp.conversation_id = ${request.conversationId}::uuid
+          FOR UPDATE OF i`),
+      );
+      if (input === undefined) return "not_found";
+      if (input.slack_mirror !== "unconfirmed" || input.slack_ts !== null) {
+        return "not_unconfirmed";
+      }
+      const live = rowsOf(
+        await tx.execute(sql`
+          SELECT 1 FROM slack_outbox
+          WHERE input_id = ${request.inputId}::uuid
+            AND status IN ('pending', 'sending')`),
+      );
+      if (live.length > 0) return "not_unconfirmed";
+      // The same post as the last one, under a new correlation id. With no
+      // mirror row yet the outbox enqueues the input's first once pending.
+      const correlationId = randomUUID();
+      await tx.execute(sql`
+        INSERT INTO slack_outbox (
+          id, workspace_id, agent_id, slack_app_id, installation_id, kind,
+          channel_id, thread_ts, body, dedupe_key, sources, input_id,
+          correlation_id
+        )
+        SELECT ${randomUUID()}::uuid, so.workspace_id, so.agent_id,
+          so.slack_app_id, so.installation_id, so.kind, so.channel_id,
+          so.thread_ts, so.body,
+          'input_mirror:' || so.input_id::text || ':' || ${correlationId},
+          so.sources, so.input_id, ${correlationId}::uuid
+        FROM slack_outbox so
+        WHERE so.input_id = ${request.inputId}::uuid
+        ORDER BY so.seq DESC LIMIT 1`);
+      await tx.execute(sql`
+        UPDATE conversation_inputs SET slack_mirror = 'pending'
+        WHERE id = ${request.inputId}::uuid`);
+      return "enqueued";
+    });
+  }
+
+  return { isMember, takeWebInput, resendMirror };
 }

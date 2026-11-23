@@ -37,7 +37,7 @@ export function testSpecSource(
       billing: "per_token",
     },
     model: TEST_MODEL,
-    permission_mode: "default",
+    permission_mode: "auto",
     tools: ["Read", "Edit", "Bash"],
     repository_mode: "optional",
     ...overrides,

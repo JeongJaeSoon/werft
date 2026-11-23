@@ -14,11 +14,34 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0335_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#PRNUM). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
+- **migration `0336_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#PRNUM). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
   - 세션, 턴과 입력 원문, 입력 접수 줄, 이벤트, transcript, checkpoint는 지우지 않는다. 대화 행도 남는다.
   - 지우기 전에, 지울 기록이 가리키는 글 가운데 어느 턴의 입력도 아닌 글에 삭제 표식(`admin_deleted`)을 단다. 그 글을 출처로 가진 세션만 `SOURCE_DELETED`로 멈추고 보내지 않은 답은 나가지 않는다. 같은 채널의 다른 세션은 그대로 돈다.
   - `--by`는 그 워크스페이스의 owner나 admin이어야 하고, receipt `delete_conversation_records`의 행위자로 남는다. DM 대화는 `dm_not_supported`로 거절한다. 다시 불러도 결과가 같다. 사용법은 문서 사이트의 "데이터별 보존" 아래 "대화 기록의 관리자 삭제"에 있다.
   - 있던 표식은 `slack_deleted`가 된다. `conversations`의 CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
+- **migration `0335_input_hold`가 웹 입력의 Slack 글 위치(ts)를 기다리는 Slack 줄을 보류하고, 게시가 `uncertain`으로 끝난 입력을 "Slack 반영을 확인하지 못했어요"(`unconfirmed`)로 남긴다**(JeongJaeSoon/werft#2074). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+  - 칸: `slack_outbox.correlation_id`(웹 입력의 Slack 글마다 새로 만드는 상관값), `slack_outbox.held_for_input_id`(그 입력의 글 스레드를 기다리는 줄), `conversation_inputs.slack_mirror`의 새 값 `unconfirmed`.
+  - 웹 입력의 Slack 글에는 상관값이 message metadata(`event_type` `werft_input_mirror`)로 실린다. 다른 줄의 `chat.postMessage`에는 지금처럼 metadata가 없다.
+  - `uncertain`이면 다시 보내지 않고 새 스레드도 만들지 않는다. 돌아온 자기 앱의 글이 그 상관값을 가진 `uncertain` 거울 하나를 정확히 가리킬 때만 그 글을 거울로 잇는다. 본문으로는 잇지 않는다.
+  - 문에서 버린 이벤트의 `drop_fields`에 `metadata`(`event_type`과 거울의 `correlation_id`)가 더해진다. `event_payload`의 나머지는 남기지 않는다.
+  - 보류된 줄은 거울이 끝내 실패하거나 `SLACK_ROLE_INPUT_HOLD_SEC`(기본 3600, Helm `slack.inputHoldSec`)가 지나면 보내지 않고 `failed`(`input_unplaced`)로 닫는다. 로그 `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`.
+  - "다시 보내기"는 사람이 부를 때만 같은 입력의 거울을 새 상관값으로 보낸다. 이 릴리스에는 그 버튼이나 route가 없다.
+  - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
+
+- **Slack에서 지운 글을 직접 출처로 가진 턴은 API와 웹에서 가려진다**(JeongJaeSoon/werft#2071). migration은 없고 따로 할 일도 없다. 저장된 값은 지우지 않고 읽을 때만 가리며, 지운 글이 없는 세션의 응답은 그대로다.
+  - 그 글이 입력인 턴의 입력, 그 턴의 답과 도구 결과를 가린다. 턴 응답은 `message`가 `""`, `result`가 `null`이 되고 `source_deleted_at`이 붙는다. `terminal_reason`도 `null`이다. 이벤트(SSE와 보관된 이벤트 포함)는 모양만 남기고 내용(엔진의 system 글, error의 `message`, 끝난 이유 포함)을 비우며 envelope에 `source_deleted_at`이 붙는다. 그 턴의 열린 요청은 목록에서 빠진다.
+  - 물려받기만 한 뒤 턴은 가리지 않는다(세션은 지금처럼 멈춘다).
+  - 첫 턴에서 만든 제목(`derived`·`generated`)은 세션 목록·상세·검색·도구 호출·사용량 목록에서 `null`이 되고 `title_deleted_at`이 붙는다. 사람이 준 제목은 그대로이고, status 이벤트에 남은 예전 제목은 가린다.
+  - 감사 읽기도 같이 가린다. 무엇을 가렸는지는 결정 행의 시각과 `deleted_sources.deleted_at`으로 알 수 있다.
+  - 웹은 가린 곳에 "Slack에서 삭제됨"을 보여 준다.
+
+- **세션의 권한 모드를 release에 적힌 값이 아니라 지금 규칙(연결과 모델)으로 정한다. 그래서 `default`로 만든 옛 Claude 모델 release의 세션이 `auto`로 바뀐다**(JeongJaeSoon/werft#2070). migration은 없고, release를 다시 만들 필요도 없다. release id는 그대로다.
+  - Claude 모델(`anthropic` 연결, 또는 `litellm` 연결의 Claude 모델 id)은 `auto`, Codex(`openai_responses`)와 Claude가 아닌 모델은 `default`로 돈다. 이미 도는 세션은 다음에 worker가 세션을 받을 때 바뀐다. 세션 상세의 `runtime.permission_mode`도 이 값을 보인다.
+  - 그 세션은 사람에게 묻던 호출을 이제 분류기가 판정한다. 묻기 목록에 걸린 호출과 push 승인은 지금처럼 사람에게 간다.
+  - 모드를 고르는 설정은 없다. 연결, 에이전트, 설치 설정 어디에도 없고, `default`로 되돌리는 스위치도 없다.
+  - release의 `spec_source.permission_mode`는 `default`와 `auto`만 읽는다. `acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`가 적힌 release(지금 서버는 만들지 않는다)는 spec을 읽지 못해 새 세션을 시작하지 못한다.
+  - 지원 창 안의 이미지로 되돌리면 옛 release의 세션은 다시 `default`로 돈다.
+
 - **migration `0334_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#2067). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
   - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
   - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.

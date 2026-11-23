@@ -226,7 +226,7 @@ COMMIT;
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
 ### 会話記録の管理者削除を追加するリリース
 
-migration `0335_conversation_records_deleted` が `conversations` に `records_deleted_at`・`records_deleted_by_user_id`(nullable)を、`deleted_sources` に `reason`(既定値 `slack_deleted`)を追加する。アップグレード時に行うことはなく、Slack とセッションの動作は変わらない。
+migration `0336_conversation_records_deleted` が `conversations` に `records_deleted_at`・`records_deleted_by_user_id`(nullable)を、`deleted_sources` に `reason`(既定値 `slack_deleted`)を追加する。アップグレード時に行うことはなく、Slack とセッションの動作は変わらない。
 
 - 運用者コマンド `conversation-records.ts delete` が入る([会話記録の管理者削除](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제))。実行しなければ何も変わらない。
 - 既存の削除の印はすべて `slack_deleted` になる。管理者削除が付ける印は `admin_deleted` で、そのメッセージが後で Slack で削除されると `slack_deleted` に変わる。検査は両方を同じに扱う。
@@ -272,6 +272,34 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 - DM のセッションの人はそのセッションを開いた人で(新しいセッションが作るときに選ぶ人と同じ)、いないかワークスペースのメンバーでなければ link を作った人になる。どちらもいなければ親は空のままで、そのセッションは link のないセッションと同じに動く。その数は理由ごとにログ `Linked DM sessions left without a parent conversation`(`no_person`・`no_membership`)に残る。その人がまたメンバーになれば次の起動が埋める。
 - 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
 - サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
+
+<a id="웹-입력의-slack-글-위치를-기다리는-줄을-보류하는-릴리스" />
+### Web 入力の Slack 投稿の場所を待つ行を保留するリリース
+
+migration `0335_input_hold` が `slack_outbox` に列 `correlation_id` と `held_for_input_id` を追加し、`conversation_inputs.slack_mirror` に値 `unconfirmed` を追加する。上げるときにすることはない。このリリースには Web 入力を記録する route がないため新しい列が埋まる行は作られず、Slack のメンションと返信、Web・API セッションの動作は変わらない。
+
+- Web 入力の Slack 投稿がまだ場所（ts）を持たない間、その投稿のスレッドへ行く Slack の行は種類にかかわらず保留する。投稿されると、場所を記録する同じトランザクションでそのスレッドへ送られる。すでに場所のあるスレッドへ行く行はそのままだ。
+- Web 入力の Slack 投稿には、リクエストごとに新しく作った相関値を message metadata（`event_type` `werft_input_mirror`）として載せる。ほかの行の投稿には metadata がない。
+- 投稿が `uncertain` で終わると再送せず、新しいスレッドやチャンネル最上位の投稿も作らない。入力は `unconfirmed`（「Slack への反映を確認できませんでした」）になり、同じ話題の次の入力も待つ。
+- Slack が送り返した自分のアプリの投稿が、metadata の相関値で `uncertain` のミラーをちょうど一つ指すとき、その投稿をミラーの投稿とみなし入力の別名としてつなぐ。候補がない、または二つ以上ならつながない。本文が同じことではつながない。
+- 入口で捨てたイベントの記録（`drop_fields`）に `metadata`（`event_type` とミラーの `correlation_id`）を追加する。`event_payload` の残りは残さない。
+- 「もう一度送る」は、人が呼んだときだけ同じ入力のミラーを新しい相関値で送る。入力の行は一つのままだ。自動では再送しない。このリリースにはそのボタンや route はまだない。
+- ミラーの投稿が最終的に失敗すると、保留した行は送らずに `failed`（`input_unplaced`）で閉じる。場所が決まらないまま `SLACK_ROLE_INPUT_HOLD_SEC`（既定 3600 秒、Helm `slack.inputHoldSec`）が過ぎても同じく閉じ、入力を `unconfirmed` のままにする。slack ロールが `warn` ログ `Slack rows held for a web input's post closed unsent; Slack never confirmed the post` を残す。
+- CHECK と外部キーは `NOT VALID` で追加して別の文で検証し、索引は `CONCURRENTLY` で作る。既存の行は変更しない。このリリースには保留した行を作る経路がないため、サポート期間内のイメージに戻しても問題ない。
+
+<a id="slack에서-지운-글이-든-턴을-가리는-릴리스" />
+### Slack で削除されたメッセージを含むターンを隠すリリース
+
+migration はなく、アップグレード時にやることもない。保存された内容は消さず、API が読むときに隠す。削除されたメッセージのないセッションはこれまでどおり読める。
+
+- Slack で削除されたメッセージ（返信のある親メッセージの墓標を含む）が入力のターンは、ターン一覧・詳細（`GET /v1/sessions/{id}/turns`、`…/turns/{turn_id}`）と監査閲覧（`POST /v1/sessions/{id}/audit-read`）で `message` が空文字列、`result` が null になり、新しいフィールド `source_deleted_at` に削除された時刻が入る。`usage` はそのまま残る。
+- そのターンのイベント（`GET /v1/sessions/{id}/events` と SSE、アーカイブに移したイベントを含む）は envelope に `source_deleted_at` が付き、文が抜ける。返答の文と思考、ツール呼び出しの入力、ツール結果の文、質問の入力、result の返答が抜け、ツールの名前と id、ターンの終わり方とトークン数は残る。すでにストリームで受け取ったクライアントは、読み直すと隠れる。
+- そのターンの待機中のリクエストは `GET /v1/sessions/{id}/pending-requests` に出ない。
+- 最初のメッセージから切り出した・生成したタイトル（`title_source` が `derived`・`generated`）は、最初のターンが隠れるとセッション一覧・詳細で `title` が null になり、新しいフィールド `title_deleted_at` に削除された時刻が入る。そのタイトルの語では検索されない。使用量画面のツール呼び出しと成果一覧でもセッションのタイトルが空になる。人が付けたタイトルはそのまま残る。
+- Web の入力は、その入力を Slack に映したメッセージが削除されると同じように隠す。
+- 同じセッションの後のターンのように、そのメッセージを引き継いだだけのターンは隠さない。
+- Web コンソールは隠した場所に「Slack で削除済み」を表示する。
+- サポート期間内のイメージに戻すと、保存された値はそのままなので、隠した文がまた読める。
 
 <a id="웹-입력을-slack-거울과-잇는-릴리스" />
 ### Web 入力を Slack のミラーとつなぐリリース

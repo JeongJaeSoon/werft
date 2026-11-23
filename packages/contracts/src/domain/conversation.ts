@@ -18,6 +18,19 @@ export const conversationInputIdSchema = z
   .uuid()
   .brand<"ConversationInputId">();
 export type ConversationInputId = z.infer<typeof conversationInputIdSchema>;
+/**
+ * A new value for each request that posts a web input's Slack mirror, sent
+ * in the post's message metadata, so the post Slack sends back names the one
+ * request that made it. Two posts of the same text are told apart by it.
+ */
+export const slackMirrorCorrelationIdSchema = z
+  .uuid()
+  .brand<"SlackMirrorCorrelationId">();
+export type SlackMirrorCorrelationId = z.infer<
+  typeof slackMirrorCorrelationIdSchema
+>;
+/** The message metadata `event_type` of a web input's Slack mirror. */
+export const SLACK_INPUT_MIRROR_EVENT_TYPE = "werft_input_mirror";
 export const channelSummaryLineIdSchema = z
   .uuid()
   .brand<"ChannelSummaryLineId">();
@@ -40,11 +53,15 @@ export type ClientMessageId = z.infer<typeof clientMessageIdSchema>;
 /**
  * Whether Slack is to mirror a web input: `not_target` when the person has
  * no Slack account linked, which only a DM input can be, since a channel
- * input from such a person is refused; `pending` until Slack places it.
+ * input from such a person is refused; `pending` until Slack places it;
+ * `unconfirmed` when its post may or may not be in Slack (the send went
+ * `uncertain`), or the rows held for its thread waited past their limit. A
+ * person may send it again; nothing sends it again on its own.
  */
 export const CONVERSATION_INPUT_SLACK_MIRROR_VALUES = [
   "not_target",
   "pending",
+  "unconfirmed",
 ] as const;
 export const conversationInputSlackMirrorSchema = z.enum(
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,

@@ -202,7 +202,7 @@ COMMIT;
 
 ### 대화 기록의 관리자 삭제를 더하는 릴리스
 
-migration `0335_conversation_records_deleted`가 `conversations`에 `records_deleted_at`·`records_deleted_by_user_id`(nullable)를, `deleted_sources`에 `reason`(기본값 `slack_deleted`)을 더한다. 올릴 때 할 일은 없고, Slack과 세션의 동작은 그대로다.
+migration `0336_conversation_records_deleted`가 `conversations`에 `records_deleted_at`·`records_deleted_by_user_id`(nullable)를, `deleted_sources`에 `reason`(기본값 `slack_deleted`)을 더한다. 올릴 때 할 일은 없고, Slack과 세션의 동작은 그대로다.
 
 - 운영자 명령 `conversation-records.ts delete`가 들어온다([대화 기록의 관리자 삭제](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)). 부르지 않으면 아무것도 바뀌지 않는다.
 - 있던 삭제 표식은 모두 `slack_deleted`가 된다. 관리자 삭제가 다는 표식은 `admin_deleted`이고, 그 글이 나중에 Slack에서 지워지면 `slack_deleted`로 바뀐다. 검사는 둘을 똑같이 본다.
@@ -245,6 +245,32 @@ migration `0320_session_parent_conversation`이 `sessions.parent_conversation_id
 - DM 세션의 사람은 그 세션을 연 사람이고, 없거나 워크스페이스 멤버가 아니면 link를 만든 사람이다. 새 세션이 만들 때 고르는 사람과 같다. 둘 다 없으면 부모를 비워 두고, 그 세션은 link가 없는 세션처럼 동작한다. 그 수는 이유별로 로그 `Linked DM sessions left without a parent conversation`(`no_person`·`no_membership`)에 남는다. 그 사람이 다시 멤버가 되면 다음 기동이 채운다.
 - 채운 수는 로그 `Parent conversations filled`에 남는다. 채우지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다.
 - 지원 창 안의 이미지로 되돌려도 된다. 그동안 만든 Slack 세션은 부모 없이 생기고, 다시 올리면 기동 때 채워진다.
+
+### 웹 입력의 Slack 글 위치를 기다리는 줄을 보류하는 릴리스
+
+migration `0335_input_hold`가 `slack_outbox`에 칸 `correlation_id`와 `held_for_input_id`를 더하고, `conversation_inputs.slack_mirror`에 값 `unconfirmed`를 더한다. 올릴 때 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+
+- 웹 입력의 Slack 글이 아직 위치(ts)를 받기 전에는, 그 글의 스레드로 가야 할 Slack 줄을 종류와 상관없이 보류한다. 글이 올라가면 위치를 적는 같은 트랜잭션에서 그 스레드로 풀려 나간다. 이미 위치가 있는 스레드로 가는 줄은 그대로다.
+- 웹 입력의 Slack 글에는 요청마다 새로 만든 상관값을 message metadata(`event_type` `werft_input_mirror`)로 싣는다. 다른 줄의 글에는 metadata가 없다.
+- 게시가 `uncertain`으로 끝나면 다시 보내지 않고, 새 스레드나 채널 맨 위 글을 만들지 않는다. 입력은 `unconfirmed`("Slack 반영을 확인하지 못했어요")가 되고, 같은 주제의 다음 입력도 기다린다.
+- Slack이 돌려보낸 자기 앱의 글이 metadata의 상관값으로 `uncertain`인 거울 하나를 정확히 가리키면, 그 글을 거울의 게시로 보고 입력의 별칭으로 잇는다. 후보가 없거나 둘 이상이면 잇지 않는다. 본문이 같다는 것으로는 잇지 않는다.
+- 문에서 버린 이벤트의 기록(`drop_fields`)에 `metadata`(`event_type`과 거울의 `correlation_id`)를 더한다. `event_payload`의 나머지는 남기지 않는다.
+- "다시 보내기"는 사람이 부를 때만 같은 입력의 거울을 새 상관값으로 보낸다. 입력 줄은 하나 그대로다. 자동으로 다시 보내지 않는다. 이 릴리스에는 그 버튼이나 route가 없다.
+- 거울 게시가 끝내 실패하면 보류된 줄은 보내지 않고 `failed`(`input_unplaced`)로 닫는다. 위치가 정해지지 않은 채 `SLACK_ROLE_INPUT_HOLD_SEC`(기본 3600초, Helm `slack.inputHoldSec`)가 지나도 같이 닫고 입력을 `unconfirmed`로 둔다. slack 역할이 `warn` 로그 `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`를 남긴다.
+- CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 기존 줄은 고치지 않는다. 이 릴리스에는 보류된 줄을 만드는 길이 없어서 지원 창 안의 이미지로 되돌려도 된다.
+
+### Slack에서 지운 글이 든 턴을 가리는 릴리스
+
+migration은 없고 올릴 때 할 일도 없다. 저장된 글은 지우지 않고 API가 읽을 때 가린다. 지운 글이 없는 세션은 지금처럼 읽힌다.
+
+- Slack에서 지운 글(답이 달린 부모 글의 묘비 포함)이 입력인 턴은 턴 목록·상세(`GET /v1/sessions/{id}/turns`, `…/turns/{turn_id}`)와 감사 열람(`POST /v1/sessions/{id}/audit-read`)에서 `message`가 빈 문자열, `result`가 null이 되고, 새 칸 `source_deleted_at`에 지운 시각이 담긴다. `usage`는 그대로다.
+- 그 턴의 이벤트(`GET /v1/sessions/{id}/events`와 SSE, 보관소로 옮긴 이벤트 포함)는 envelope에 `source_deleted_at`이 붙고 글이 빠진다. 답의 글과 생각, 도구 호출의 입력, 도구 결과의 글, 질문의 입력, result의 답이 빠지고, 도구의 이름과 id, 턴의 끝과 토큰 수는 남는다. 이미 스트림으로 받은 클라이언트는 다시 읽어야 가려진다.
+- 그 턴의 대기 요청은 `GET /v1/sessions/{id}/pending-requests`에 나오지 않는다.
+- 첫 글에서 따오거나 만든 제목(`title_source`가 `derived`·`generated`)은 첫 턴이 가려지면 세션 목록·상세에서 `title`이 null이 되고 새 칸 `title_deleted_at`에 지운 시각이 담긴다. 그 제목의 글로는 검색되지 않는다. 사용량 화면의 도구 호출과 성과 목록에서도 세션 제목이 비어 보인다. 사람이 붙인 제목은 그대로다.
+- 웹 입력은 그 입력이 Slack에 비친 글이 지워지면 같은 방식으로 가린다.
+- 같은 세션의 뒤 턴처럼 그 글을 물려받기만 한 턴은 가리지 않는다.
+- 웹 콘솔은 가려진 자리에 "Slack에서 삭제됨"을 보인다.
+- 지원 창 안의 이미지로 되돌리면 저장된 값이 그대로라 가린 글이 다시 읽힌다.
 
 ### 웹 입력을 Slack 거울과 잇는 릴리스
 

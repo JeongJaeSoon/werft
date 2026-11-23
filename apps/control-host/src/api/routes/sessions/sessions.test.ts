@@ -1284,6 +1284,7 @@ describe("session titles (94S-804)", () => {
   const record: SessionDetailRecord = {
     id: sessionId,
     title: "Renamed",
+    title_deleted_at: null,
     agent: null,
     preview: false,
     agent_hidden: false,

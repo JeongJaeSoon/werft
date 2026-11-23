@@ -1,5 +1,5 @@
 {
-  "id": "76459fd8-df97-4fb7-9aab-9ec71a0f9a90",
+  "id": "34616e56-5f69-463b-a9c2-8589d268d052",
   "prevId": "d5075dfc-87e8-4408-8a11-0d91aea58ca4",
   "version": "7",
   "dialect": "postgresql",
@@ -6009,7 +6009,7 @@
       "checkConstraints": {
         "conversation_inputs_origin_check": {
           "name": "conversation_inputs_origin_check",
-          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user')"
+          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending','unconfirmed') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user')"
         },
         "conversation_inputs_seq_check": {
           "name": "conversation_inputs_seq_check",
@@ -6241,18 +6241,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "records_deleted_at": {
-          "name": "records_deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "records_deleted_by_user_id": {
-          "name": "records_deleted_by_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6289,15 +6277,6 @@
           "columnsTo": ["workspace_id", "user_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "conversations_records_deleted_by_fk": {
-          "name": "conversations_records_deleted_by_fk",
-          "tableFrom": "conversations",
-          "tableTo": "memberships",
-          "columnsFrom": ["workspace_id", "records_deleted_by_user_id"],
-          "columnsTo": ["workspace_id", "user_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -6325,10 +6304,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "conversations_records_deleted_check": {
-          "name": "conversations_records_deleted_check",
-          "value": "(\"conversations\".\"records_deleted_at\" IS NULL) = (\"conversations\".\"records_deleted_by_user_id\" IS NULL)"
-        },
         "conversations_kind_check": {
           "name": "conversations_kind_check",
           "value": "\"conversations\".\"kind\" IN ('channel','dm')"
@@ -6529,13 +6504,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'slack_deleted'"
         }
       },
       "indexes": {
@@ -6574,12 +6542,7 @@
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "deleted_sources_reason_check": {
-          "name": "deleted_sources_reason_check",
-          "value": "\"deleted_sources\".\"reason\" IN ('slack_deleted','admin_deleted')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.edited_sources": {
@@ -17130,6 +17093,18 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "held_for_input_id": {
+          "name": "held_for_input_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -17162,6 +17137,38 @@
           ],
           "isUnique": false,
           "where": "\"slack_outbox\".\"kind\" = 'input_notice' AND \"slack_outbox\".\"status\" = 'sent' AND \"slack_outbox\".\"settle_state\" IS DISTINCT FROM 'abandoned' AND (\"slack_outbox\".\"settle_state\" IS DISTINCT FROM 'settled' OR \"slack_outbox\".\"settle_uncertain_latest_at\" IS NOT NULL)",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "slack_outbox_held_idx": {
+          "name": "slack_outbox_held_idx",
+          "columns": [
+            {
+              "expression": "held_for_input_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_outbox\".\"held_for_input_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "slack_outbox_correlation_idx": {
+          "name": "slack_outbox_correlation_idx",
+          "columns": [
+            {
+              "expression": "correlation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_outbox\".\"correlation_id\" IS NOT NULL AND \"slack_outbox\".\"status\" IN ('sending', 'uncertain')",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -17292,6 +17299,15 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
+        "slack_outbox_held_for_input_fk": {
+          "name": "slack_outbox_held_for_input_fk",
+          "tableFrom": "slack_outbox",
+          "tableTo": "conversation_inputs",
+          "columnsFrom": ["held_for_input_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "slack_outbox_agent_fk": {
           "name": "slack_outbox_agent_fk",
           "tableFrom": "slack_outbox",
@@ -17323,6 +17339,10 @@
         "slack_outbox_input_check": {
           "name": "slack_outbox_input_check",
           "value": "(\"slack_outbox\".\"kind\" = 'input_mirror') = (\"slack_outbox\".\"input_id\" IS NOT NULL)"
+        },
+        "slack_outbox_correlation_check": {
+          "name": "slack_outbox_correlation_check",
+          "value": "(\"slack_outbox\".\"correlation_id\" IS NULL OR \"slack_outbox\".\"kind\" = 'input_mirror') AND (\"slack_outbox\".\"held_for_input_id\" IS NULL OR \"slack_outbox\".\"kind\" <> 'input_mirror')"
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",

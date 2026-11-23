@@ -147,3 +147,62 @@ export function sessionHoldsSource(session: SQL, place: SourcePlace): SQL {
             AND ci.slack_ts = ${place.ts}
             AND (${holdsInput("direct")} OR ${holdsInput("inherited")}))))`;
 }
+
+/**
+ * When Slack deleted a direct source of a turn: the earliest deleted_at of
+ * the messages its `sources` column lists as direct, by their place or, for
+ * a key naming only a web input, by the place its input took as its Slack
+ * alias (as sessionHoldsSource reads it); null when none was. The read side
+ * of lockedDeletedSource, for what a reader withholds: no lock, since a read
+ * that misses a delete under way withholds on the next one, and no
+ * inherited source, which stops a session and a send but hides nothing (a
+ * later turn only inherited it).
+ */
+export function directSourceDeletedAt(sources: SQL, workspaceId: SQL): SQL {
+  const keys = sql`jsonb_array_elements(
+      CASE WHEN jsonb_typeof(${sources} -> 'direct') = 'array'
+        THEN ${sources} -> 'direct' ELSE '[]'::jsonb END) AS k(key)`;
+  return sql`(SELECT min(deleted_at) FROM (
+    SELECT d.deleted_at FROM ${keys}
+    JOIN deleted_sources d ON d.workspace_id = ${workspaceId}
+      AND d.team_id = k.key ->> 'team_id'
+      AND d.channel_id = k.key ->> 'channel_id'
+      AND d.ts = k.key ->> 'ts'
+    UNION ALL
+    SELECT d.deleted_at FROM ${keys}
+    JOIN conversation_inputs ci ON ci.workspace_id = ${workspaceId}
+      AND ci.id = CASE WHEN k.key ->> 'input_id'
+        ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        THEN (k.key ->> 'input_id')::uuid END
+    JOIN deleted_sources d ON d.workspace_id = ci.workspace_id
+      AND d.team_id = ci.slack_team_id
+      AND d.channel_id = ci.slack_channel_id
+      AND d.ts = ci.slack_ts) AS deleted)`;
+}
+
+/**
+ * When Slack deleted a direct source of the session's first turn, whose
+ * instruction a derived or generated title was cut or made from; null when
+ * none was. `session` names a sessions row as the query calls it.
+ */
+export function firstTurnDeletedAt(session: string): SQL {
+  const s = sql.raw(session);
+  return sql`(SELECT ${directSourceDeletedAt(sql.raw("tt.sources"), sql`${s}.workspace_id`)}
+    FROM turns tt WHERE tt.session_id = ${s}.id AND tt.sequence = 1
+      AND tt.sources IS NOT NULL)`;
+}
+
+/**
+ * firstTurnDeletedAt for a derived or generated title; null for a title a
+ * person gave.
+ */
+export function titleDeletedAt(session: string): SQL {
+  const s = sql.raw(session);
+  return sql`(CASE WHEN ${s}.title_source IN ('derived', 'generated')
+    THEN ${firstTurnDeletedAt(session)} END)`;
+}
+
+/** The session's title as a reader is served it: none once withheld. */
+export function servedTitle(session: string): SQL {
+  return sql`(CASE WHEN ${titleDeletedAt(session)} IS NULL THEN ${sql.raw(session)}.title END)`;
+}

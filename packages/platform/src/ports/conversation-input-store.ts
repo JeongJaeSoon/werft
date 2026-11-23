@@ -51,4 +51,23 @@ export interface ConversationInputStore {
    * none is `not_target`.
    */
   takeWebInput(request: TakeWebInputRequest): Promise<TakeWebInputResult>;
+  /**
+   * Sends an `unconfirmed` web input's Slack mirror again, as a person
+   * asked: the input stays the one row it is, and a new mirror row with a
+   * new correlation id goes, the input `pending` again. Only the input's
+   * own person, in the conversation the grant was for; nothing else ever
+   * calls it. `not_unconfirmed`: Slack has the post, or a mirror of it is
+   * still on its way.
+   */
+  resendMirror(
+    request: ResendMirrorRequest,
+  ): Promise<"enqueued" | "not_found" | "not_unconfirmed">;
 }
+
+export type ResendMirrorRequest = {
+  workspaceId: string;
+  agentId: string;
+  requesterUserId: string;
+  conversationId: ConversationId;
+  inputId: ConversationInputId;
+};

@@ -1258,6 +1258,7 @@ function sessionOn(): SessionDetailRecord {
   return {
     id: SESSION,
     title: "On a ceiling",
+    title_deleted_at: null,
     agent: null,
     preview: false,
     agent_hidden: false,

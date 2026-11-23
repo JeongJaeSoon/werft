@@ -45,6 +45,7 @@ const SHARE: SessionShareView = {
 const DETAIL: SessionDetail = {
   id: SESSION,
   title: null,
+  title_deleted_at: null,
   agent: null,
   preview: false,
   agent_hidden: false,

@@ -4,7 +4,14 @@ export {
   dropChannelSummary,
   dropChannelSummaryLinesOf,
 } from "./channel-summaries.ts";
-export { lockedDeletedSource, sessionHoldsSource } from "./deleted-sources.ts";
+export {
+  directSourceDeletedAt,
+  firstTurnDeletedAt,
+  lockedDeletedSource,
+  servedTitle,
+  sessionHoldsSource,
+  titleDeletedAt,
+} from "./deleted-sources.ts";
 export { linkInputAlias } from "./input-aliases.ts";
 export {
   dropBufferedInputs,
