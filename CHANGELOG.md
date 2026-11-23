@@ -14,6 +14,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **운영자 명령 `private-channel-sessions.ts apply`가 바꾼 것이 없으면 `outcome: "unchanged"`(exit 0)로 끝나고, 세션의 공유 범위를 바꿀 때마다 그 세션에 `share_session` receipt를 남긴다**(JeongJaeSoon/werft#2091). migration은 없다. 출력을 `moved`로 분기하던 스크립트는 `unchanged`도 성공으로 읽는다. 출력에 `run_id`·`sessions_moved`·`bindings_changed`가 더해진다.
+  - receipt에는 이전·새 범위, 사유, 못 보게 된 사람 수(`people_losing`, 명단 없음), 실행 id(`run_id`) 또는 Slack 이벤트 id(`event_id`)가 들고 세션 본문은 없다. Slack의 채널 공개↔비공개 전환도 같은 receipt를 남긴다(`reason: "slack_channel_converted"`).
+  - receipt를 쓰지 못하면 그 채널의 옮기기도 되돌리고 exit 1로 멈춘다. 이 릴리스 전 명령으로 옮긴 세션에는 receipt가 없다.
+
 - **운영자 명령 `private-channel-sessions.ts`가 Slack 앱 설치가 없는 에이전트(`SLACK_NOT_INSTALLED`)의 채널을 `no_install`로 따로 세고, 그런 채널만 남으면 exit 0으로 끝난다**(JeongJaeSoon/werft#2089). 비공개 binding이거나 종류를 모르는 채널의 세션은 `private_channel`로 옮기고 공개 binding은 넓히지 않는다. 재설치하면 지금 채널 멤버에게 다시 보인다. 그 밖의 읽지 못한 채널은 지금처럼 exit 3이다.
 
 - **slack 역할이 Slack 글의 접수 줄(`conversation_inputs`)을 inbox 행을 처리됨으로 바꿀 때가 아니라 그 글의 턴을 넣는 transaction에서 적는다**(JeongJaeSoon/werft#2084). migration은 없고 따로 할 일도 없다. Slack에서 보이는 동작은 그대로다.
