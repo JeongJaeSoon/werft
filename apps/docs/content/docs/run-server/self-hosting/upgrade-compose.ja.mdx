@@ -226,6 +226,17 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 - 表に行が残っている場合がある。`catalog_authority` には設定ファイルのカタログ時代に有効にした revision の一行、`owner_workspace_map` には運用者が手で入れた owner とワークスペースの対応、`push_continuations` には `v0.1.1` 以前が作った続きのターンの記録が残っている場合がある。行があれば、migrate のログ `db.migrate.notice` に表ごとの削除した行数が残る(`0305: dropped rows: …`)。行の値はログに残らない。
 - その行が必要なら、上げる前にバックアップする。0305 より下にスキーマを戻しても行は戻らない。
 
+<a id="세션에-부모-대화를-채우는-릴리스" />
+### セッションに親の会話を埋めるリリース
+
+migration `0318_session_parent_conversation` が `sessions.parent_conversation_id`(nullable、`conversations` への外部キー)を追加する。外部キーは `NOT VALID` で追加してから別に検証するので、表を長くロックしない。上げるときにすることはなく、Slack・Web・セッション API の動作も変わらない。
+
+- 新しい Slack セッションは作るときに親の会話を受ける。チャンネルのスレッドのセッションはそのチャンネルのメインの会話、DM のセッションはその人の DM の会話になる。link のないセッション(Web の「新しいセッション」、セッション API)は空のままになる。
+- 既存のセッションは、api が起動するたびに動く整理がまとめて埋める。閉じた link や廃止された link のセッションも埋める。セッションごとに空のときだけ埋めるので、何度起動しても、複数の api が同時に起動しても結果は同じで、途中で止まれば次の起動が残りから続ける。
+- DM のセッションの人は link を作った人で、いないかワークスペースのメンバーでなければセッションを作った人になる。どちらもいなければ親は空のままで、そのセッションは link のないセッションと同じに動く。その数は理由ごとにログ `Linked DM sessions left without a parent conversation`(`no_person`・`no_membership`)に残る。その人がまたメンバーになれば次の起動が埋める。
+- 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
+- サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
+
 <a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### Slack の投稿を入力受付の表に記録するリリース
 

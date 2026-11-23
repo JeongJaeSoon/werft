@@ -14,6 +14,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0318_session_parent_conversation`이 세션에 부모 대화 칸 `parent_conversation_id`(nullable)를 더하고, api가 기동할 때마다 Slack에 묶인 세션의 부모 대화를 채운다**(JeongJaeSoon/werft#TBD). 따로 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
+  - 새 Slack 세션은 만들 때 채운다. 채널 스레드의 세션은 그 채널의 메인 대화, DM 세션은 그 사람의 DM 메인 대화다. link가 없는 세션(웹의 "새 세션", 세션 API)은 비워 둔다.
+  - 있던 세션은 api 기동 때 한 번씩 도는 정리가 묶음으로 채운다. 닫히거나 폐기된 link의 세션도 채운다. 세션마다 비어 있을 때만 채우므로 다시 기동해도, 여러 api가 함께 기동해도 결과가 같고, 중간에 멈추면 다음 기동이 남은 세션부터 잇는다.
+  - DM 세션의 사람은 link를 만든 사람, 없거나 워크스페이스 멤버가 아니면 세션을 만든 사람이다. 둘 다 없으면 부모를 비워 두고 로그 `Linked DM sessions left without a parent conversation`에 이유별 수(`no_person`·`no_membership`)를 남긴다. 채운 수는 `Parent conversations filled`, 채우지 못한 세션은 경고 로그에 세션 id와 함께 남고 다음 기동에서 다시 시도한다.
+  - 세션의 요청자 칸(`requester_kind`)은 채우지 않는다.
+  - 칸은 `NOT VALID`로 더한 외래 키를 따로 검증하므로 `sessions`를 오래 잠그지 않는다. 지원 창 안의 이미지로 되돌려도 되고, 그동안 만든 Slack 세션은 부모 없이 생겼다가 다시 올리면 채워진다.
+
 - **migration `0317_binding_listen`이 채널 binding에 듣기 칸 `listen`(`free`·`mention`·`off`)을, 에이전트에 대화 층 스위치 `conversation_rollout`(`off`·`shadow`·`on`)을 더한다**(JeongJaeSoon/werft#2042). 따로 할 일은 없고 동작도 그대로다.
   - 있던 binding은 그 에이전트의 `slack_mention_only`가 `true`면 `mention`, `false`면 `free`로 채운다. 새로 만드는 binding은 `free`로 시작한다. `slack_mention_only`는 바꾸지 않고, 에이전트가 무엇에 반응하는지는 지금처럼 그 값과 binding의 `mode`가 정한다.
   - 모든 에이전트의 스위치는 `off`다. 이 릴리스의 받는 길은 두 칸을 읽지 않는다.
