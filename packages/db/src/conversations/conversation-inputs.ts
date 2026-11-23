@@ -171,7 +171,25 @@ export function createPostgresConversationInputStore(
   function resendMirror(
     request: ResendMirrorRequest,
   ): ReturnType<ConversationInputStore["resendMirror"]> {
+    const userId = request.requesterUserId.toLowerCase();
     return db.transaction(async (tx) => {
+      // FOR SHARE, as takeWebInput takes them: a suspension or offboarding
+      // waits, and one committed first leaves nothing to send.
+      const [user] = rowsOf(
+        await tx.execute(sql`
+          SELECT 1 FROM users
+          WHERE id = ${userId}::uuid AND disabled_at IS NULL
+          FOR SHARE`),
+      );
+      if (user === undefined) return "not_found";
+      const [membership] = rowsOf(
+        await tx.execute(sql`
+          SELECT 1 FROM memberships
+          WHERE workspace_id = ${request.workspaceId}::uuid
+            AND user_id = ${userId}::uuid AND disabled_at IS NULL
+          FOR SHARE`),
+      );
+      if (membership === undefined) return "not_found";
       // FOR UPDATE: two presses at once send one mirror.
       const [input] = rowsOf<{
         slack_mirror: ConversationInputSlackMirror;
@@ -185,7 +203,7 @@ export function createPostgresConversationInputStore(
             AND i.workspace_id = ${request.workspaceId}::uuid
             AND i.agent_id = ${request.agentId.toLowerCase()}::uuid
             AND i.requester_kind = 'user'
-            AND i.requester_id = ${request.requesterUserId.toLowerCase()}
+            AND i.requester_id = ${userId}
             AND tp.conversation_id = ${request.conversationId}::uuid
           FOR UPDATE OF i`),
       );

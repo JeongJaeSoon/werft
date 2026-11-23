@@ -1512,18 +1512,32 @@ export function createPostgresSlackOutboxStore(
     },
 
     async closeUnaddressed() {
-      return db
-        .update(t)
-        .set({ status: "failed", errorCode: "not_addressed", ...released })
-        .where(
-          and(
-            eq(t.status, "pending"),
-            // A held row has no thread to check yet; its hold ends it.
-            sql`${t.heldForInputId} IS NULL`,
-            sql`NOT ${addressed(db, sql.raw('"slack_outbox"'))}`,
-          ),
-        )
-        .returning({ id: t.id, kind: t.kind, channelId: t.channelId });
+      return db.transaction(async (tx) => {
+        const closed = await tx
+          .update(t)
+          .set({ status: "failed", errorCode: "not_addressed", ...released })
+          .where(
+            and(
+              eq(t.status, "pending"),
+              // A held row has no thread to check yet; its hold ends it.
+              sql`${t.heldForInputId} IS NULL`,
+              sql`NOT ${addressed(tx, sql.raw('"slack_outbox"'))}`,
+            ),
+          )
+          .returning({
+            id: t.id,
+            kind: t.kind,
+            channelId: t.channelId,
+            inputId: t.inputId,
+          });
+        // A mirror closed here never reached Slack: what it held closes too.
+        for (const inputId of new Set(
+          closed.flatMap((row) => (row.inputId === null ? [] : [row.inputId])),
+        )) {
+          await closeHeldOfFailedMirror(tx, inputId as ConversationInputId);
+        }
+        return closed.map(({ inputId: _, ...row }) => row);
+      });
     },
 
     async untoldUncertain(limit) {

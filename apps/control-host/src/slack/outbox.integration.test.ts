@@ -2229,6 +2229,14 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
             inputId: receipt.inputId,
           });
         expect(await resend(randomUUID())).toBe("not_found");
+        // A suspended account sends nothing again.
+        await db.execute(
+          sql`UPDATE users SET disabled_at = now() WHERE id = ${owner}::uuid`,
+        );
+        expect(await resend(owner)).toBe("not_found");
+        await db.execute(
+          sql`UPDATE users SET disabled_at = NULL WHERE id = ${owner}::uuid`,
+        );
         expect(await resend(owner)).toBe("enqueued");
         expect(await resend(owner)).toBe("not_unconfirmed");
         const [lost, again] = await mirrors();
@@ -2324,6 +2332,29 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         });
         slack.failures.clear();
         await outboxPass();
+        expect(posted()).toEqual([]);
+      });
+
+      test("a mirror closed as no longer addressed closes its held rows too", async () => {
+        const fixture = await agentInSlack();
+        await installed();
+        const receipt = await webInput(fixture);
+        await outboxPass({ botToken: null });
+        await held(fixture, receipt.inputId, "held:10");
+        await db.execute(
+          sql`UPDATE slack_installations SET status = 'revoked', revoked_at = now()`,
+        );
+        await outboxPass();
+        expect(await mirrors()).toEqual([
+          expect.objectContaining({
+            status: "failed",
+            errorCode: "not_addressed",
+          }),
+        ]);
+        expect(await rowOf("held:10")).toMatchObject({
+          status: "failed",
+          errorCode: "input_unplaced",
+        });
         expect(posted()).toEqual([]);
       });
 
