@@ -291,6 +291,7 @@ describe("parseGrant", () => {
       sessionId: "s",
       attemptId: "a",
       judgmentId: null,
+      conversationCallId: null,
       upstream: new URL("https://api.test"),
       headers: [["x-api-key", "k"]],
       target: null,
@@ -328,6 +329,49 @@ describe("parseGrant", () => {
     ]) {
       expect(parseGrant({ ...good, request_limits }) === null).toBe(true);
     }
+  });
+
+  test("a conversation call's grant names its call, and is read only with a body cap", () => {
+    const limits = {
+      path: "/v1/messages",
+      model: "m",
+      max_tokens: 64,
+      max_request_bytes: 4_096,
+    };
+    const called = {
+      conversation_call_id: "c",
+      upstream: good.upstream,
+      request_limits: limits,
+    };
+    expect(parseGrant(called)).toMatchObject({
+      sessionId: null,
+      attemptId: null,
+      judgmentId: null,
+      conversationCallId: "c",
+      requestLimits: {
+        path: "/v1/messages",
+        model: "m",
+        maxTokens: 64,
+        maxRequestBytes: 4_096,
+      },
+    });
+    for (const bad of [
+      { conversation_call_id: "c", upstream: good.upstream },
+      {
+        ...called,
+        request_limits: { ...limits, max_request_bytes: undefined },
+      },
+      { ...called, request_limits: { ...limits, max_request_bytes: 0 } },
+      { ...called, session_id: "s", attempt_id: "a" },
+      { ...called, judgment_id: "j" },
+    ]) {
+      expect(parseGrant(bad)).toBeNull();
+    }
+    // A session's title grant with a cap is still the session's.
+    expect(
+      parseGrant({ ...good, request_limits: limits })?.requestLimits
+        ?.maxRequestBytes,
+    ).toBe(4_096);
   });
 
   test("a judgment grant names its judgment and no session; one naming both is refused", () => {
@@ -525,6 +569,7 @@ type UsageReport = {
   session_id: string;
   attempt_id: string;
   judgment_id?: string;
+  conversation_call_id?: string;
   usage: Record<string, unknown>;
 };
 
@@ -593,10 +638,13 @@ describe("startCredentialProxy", () => {
   ): {
     url: string;
     asked: Array<{ token: string; purpose: string; path?: string }>;
+    /** Each authorize's x-werft-exchange-id header, null when not sent. */
+    exchanges: Array<string | null>;
     reported: UsageReport[];
     ledgered: LedgerRequest[];
   } {
     const asked: Array<{ token: string; purpose: string; path?: string }> = [];
+    const exchanges: Array<string | null> = [];
     const reported: UsageReport[] = [];
     const ledgered: LedgerRequest[] = [];
     const server = Bun.serve({
@@ -625,6 +673,7 @@ describe("startCredentialProxy", () => {
           purpose: string;
         };
         asked.push(body);
+        exchanges.push(request.headers.get("x-werft-exchange-id"));
         return answer(body);
       },
     });
@@ -632,6 +681,7 @@ describe("startCredentialProxy", () => {
     return {
       url: `http://127.0.0.1:${server.port}`,
       asked,
+      exchanges,
       reported,
       ledgered,
     };
@@ -763,6 +813,87 @@ describe("startCredentialProxy", () => {
     expect(withPort.ledgered.map((sent) => [sent.op, sent.call])).toEqual([
       ["open", "title"],
     ]);
+  });
+
+  test("a conversation call's grant: one exchange, its limits and body size, no ledger, its use reported to the call", async () => {
+    const up = upstream(() =>
+      Response.json({
+        id: "msg_1",
+        model: "m-call",
+        usage: { input_tokens: 9, output_tokens: 3 },
+      }),
+    );
+    const auth = authorizer((body) =>
+      body.token === WORKER_TOKEN
+        ? Response.json({
+            conversation_call_id: "call-1",
+            upstream: {
+              url: `http://upstream.test:${up.port}/base`,
+              headers: [["x-api-key", PROVIDER_KEY]],
+            },
+            request_limits: {
+              path: "/v1/messages",
+              model: "m-call",
+              max_tokens: 64,
+              max_request_bytes: 80,
+            },
+          })
+        : new Response("unknown", { status: 401 }),
+    );
+    const server = proxy(auth.url, up.port);
+    const status = async (body: string) =>
+      (await messages(server.port, { path: "/provider/v1/messages", body }))
+        .status;
+    const fits = '{"model":"m-call","max_tokens":64,"messages":[]}';
+    expect(await status(fits)).toBe(200);
+    await until(() => auth.reported.length === 1);
+    for (const body of [
+      // Over the bytes the call's reservation was priced at.
+      `{"model":"m-call","max_tokens":64,"messages":[],"pad":"${"x".repeat(40)}"}`,
+      '{"model":"m-other","max_tokens":64}',
+      '{"model":"m-call","max_tokens":65}',
+    ]) {
+      expect({ body, status: await status(body) }).toEqual({
+        body,
+        status: 403,
+      });
+    }
+    expect(up.seen).toHaveLength(1);
+    // Every authorize named its exchange; none of them repeat one.
+    const { exchanges } = auth;
+    expect(exchanges.every((id) => typeof id === "string")).toBe(true);
+    expect(new Set(exchanges).size).toBe(exchanges.length);
+    // Its account was held when the token was issued: no ledger open.
+    expect(auth.ledgered).toEqual([]);
+    expect(auth.reported).toHaveLength(1);
+    const [report] = auth.reported;
+    expect(report?.conversation_call_id).toBe("call-1");
+    expect(report?.exchange_id).toBe(exchanges[0] as string);
+    expect(report?.session_id).toBeUndefined();
+    expect(report?.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
+  });
+
+  test("a conversation call's grant is refused on any route but the provider's", async () => {
+    const auth = authorizer(() =>
+      Response.json({
+        conversation_call_id: "call-1",
+        upstream: { url: "https://upstream.test", headers: [] },
+        request_limits: {
+          path: "/v1/messages",
+          model: "m-call",
+          max_tokens: 64,
+          max_request_bytes: 80,
+        },
+      }),
+    );
+    const server = proxy(auth.url, 1);
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/repository/app/info/refs?service=git-upload-pack`,
+      { headers: { authorization: `Bearer ${WORKER_TOKEN}` } },
+    );
+    expect(response.status).toBe(503);
+    // A repository's authorize names no exchange.
+    expect(auth.exchanges).toEqual([null]);
   });
 
   test("streams a response body as it arrives", async () => {

@@ -38,5 +38,23 @@ export const BUDGET_RESERVATION_STATE_VALUES = [
 export type BudgetReservationState =
   (typeof BUDGET_RESERVATION_STATE_VALUES)[number];
 
+/**
+ * A provider call that serves no session (a conversation call): held on a
+ * budget account when its token is issued, `in_flight` once the proxy used
+ * the token, `settled` by the usage report. An unused token's reservation
+ * is `released` when it expires.
+ */
+export const CONVERSATION_CALL_STATE_VALUES = [
+  "reserved",
+  "in_flight",
+  "settled",
+  "released",
+] as const;
+export type ConversationCallState =
+  (typeof CONVERSATION_CALL_STATE_VALUES)[number];
+
+export const conversationCallIdSchema = z.uuid().brand<"ConversationCallId">();
+export type ConversationCallId = z.infer<typeof conversationCallIdSchema>;
+
 export const budgetAccountIdSchema = z.uuid().brand<"BudgetAccountId">();
 export type BudgetAccountId = z.infer<typeof budgetAccountIdSchema>;

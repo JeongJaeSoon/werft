@@ -32,10 +32,13 @@ import {
   type BudgetReservationState,
   type BudgetRootKind,
   CHANNEL_SUMMARY_LINE_TEXT_MAX,
+  CONVERSATION_CALL_STATE_VALUES,
   CONVERSATION_CHANNEL_STATE_VALUES,
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
   CONVERSATION_ROLLOUT_VALUES,
+  type ConversationCallId,
+  type ConversationCallState,
   type ConversationChannelState,
   type ConversationInputSlackMirror,
   type ConversationKind,
@@ -3629,6 +3632,85 @@ export const budgetReservations = pgTable(
     check(
       "budget_reservations_unmetered_check",
       sql`NOT ${table.unmetered} OR (${table.costUsd} = 0 AND coalesce(${table.settledCostUsd}, 0) = 0)`,
+    ),
+  ],
+);
+
+// A provider call that serves no session (a conversation's), from the
+// token's issue to its usage report. Only what the reservation needs: the
+// account side is the budget_reservations row whose call_id is this id.
+// The token is kept as its hash alone.
+export const conversationCalls = pgTable(
+  "conversation_calls",
+  {
+    id: uuid().$type<ConversationCallId>().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    tokenHash: bytea("token_hash").notNull(),
+    // Whose request it serves, as the reservation was charged; the person
+    // when there is one (a personal key's maker for a key).
+    rootKind: text("root_kind").$type<BudgetRootKind>().notNull(),
+    requesterUserId: uuid("requester_user_id"),
+    // The one request the token covers.
+    connectionId: text("connection_id").notNull(),
+    path: text().notNull(),
+    model: text().notNull(),
+    maxTokens: integer("max_tokens").notNull(),
+    maxRequestBytes: integer("max_request_bytes").notNull(),
+    state: text().$type<ConversationCallState>().notNull().default("reserved"),
+    // The exchange the first grant bound the token to.
+    exchangeId: text("exchange_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // What the report said and what it was settled at.
+    usage: jsonb().$type<ProviderUsage>(),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 6, mode: "number" }),
+    tokens: bigint({ mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("conversation_calls_token_uniq").on(table.tokenHash),
+    uniqueIndex("conversation_calls_exchange_uniq").on(table.exchangeId),
+    index("conversation_calls_reserved_expiry_idx")
+      .on(table.expiresAt)
+      .where(sql`${table.state} = 'reserved'`),
+    check(
+      "conversation_calls_root_kind_check",
+      sql`${table.rootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
+    ),
+    check(
+      "conversation_calls_state_check",
+      sql`${table.state} IN (${sql.raw(sqlList(CONVERSATION_CALL_STATE_VALUES))})`,
+    ),
+    check(
+      "conversation_calls_limits_check",
+      sql`${table.maxTokens} > 0 AND ${table.maxRequestBytes} > 0`,
+    ),
+    // Each state with exactly the columns it has reached: bound once used,
+    // ended once settled or released, priced once settled.
+    check(
+      "conversation_calls_state_columns_check",
+      sql`CASE ${table.state}
+        WHEN 'reserved' THEN ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
+        WHEN 'in_flight' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
+        WHEN 'settled' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NOT NULL
+        ELSE ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
+      END`,
+    ),
+    check(
+      "conversation_calls_settled_check",
+      sql`(${table.state} = 'settled') = (${table.costUsd} IS NOT NULL AND ${table.tokens} IS NOT NULL)`,
+    ),
+    check(
+      "conversation_calls_nonneg_check",
+      sql`${budgetCostOk(table.costUsd)} AND ${budgetTokensOk(table.tokens)}`,
     ),
   ],
 );

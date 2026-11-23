@@ -992,6 +992,8 @@ describe("egress authorizer: remote MCP", () => {
       gateway: {
         authorizeEgress: refuse,
         authorizeObjectAccess: refuse,
+        authorizeConversationCallEgress: async () => null,
+        recordConversationCallUsage: refuse,
         authorizePackagesEgress: refuse,
         recordProviderUsage: refuse,
         authorizeJudgmentEgress: refuse,
@@ -1074,6 +1076,8 @@ describe("egress authorizer: remote MCP", () => {
           );
         },
         authorizeObjectAccess: refuse,
+        authorizeConversationCallEgress: async () => null,
+        recordConversationCallUsage: refuse,
         authorizePackagesEgress: refuse,
         recordProviderUsage: refuse,
         authorizeJudgmentEgress: refuse,
@@ -1132,6 +1136,7 @@ describe("the budget account an open holds its call on", () => {
       exchangeId: string;
       sessionId: string;
       attemptId: string;
+      title?: boolean;
     }[] = [];
     const handle = createEgressAuthorizer({
       gateway,
@@ -1196,20 +1201,33 @@ describe("the budget account an open holds its call on", () => {
     ]);
   });
 
-  test("a title call's open asks for no account, and is held on the session's limit alone", async () => {
+  // Before 94S-2019 a title call asked for no account and was held on the
+  // session's limit alone; it is now the session's, its first turn's account.
+  test("a title call's open asks for the session's account, not the running turn's", async () => {
     const { send, seen, asked } = authorizerWith(async () => ({
       outcome: "created",
     }));
     const title = { [EGRESS_EXCHANGE_CALL_HEADER]: "title" };
     expect((await send({ op: "open", ...call }, title)).status).toBe(201);
-    expect(asked).toEqual([]);
+    expect(asked).toEqual([
+      {
+        exchangeId: call.exchange_id,
+        sessionId: call.session_id,
+        attemptId: call.attempt_id,
+        title: true,
+      },
+    ]);
     expect(seen.map(({ op, input }) => [op, input.budget])).toEqual([
-      ["open", undefined],
+      ["open", choice],
     ]);
     // Any other value is an engine call's open, charged to its turn.
     const other = { [EGRESS_EXCHANGE_CALL_HEADER]: "engine" };
     expect((await send({ op: "open", ...call }, other)).status).toBe(201);
-    expect(asked).toHaveLength(1);
+    expect(asked[1]).toEqual({
+      exchangeId: call.exchange_id,
+      sessionId: call.session_id,
+      attemptId: call.attempt_id,
+    });
   });
 
   test("an account's refusal is BUDGET_EXCEEDED, logged with the side, root kind and account", async () => {

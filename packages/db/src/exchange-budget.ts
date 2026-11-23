@@ -1,9 +1,10 @@
 import {
   type BudgetChoice,
+  type BudgetRoot,
   budgetRootOfTurn,
   chooseBudgetAccount,
 } from "@werft-ai/platform";
-import { and, eq, sql } from "drizzle-orm";
+import { type AnyColumn, and, eq, type SQL, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -20,10 +21,12 @@ import {
  * The running turn a provider call of this attempt serves (its public
  * turn_id, for the log of a refusal), and the budget account it is held on: chosen by
  * the root of the turn the attempt is running, the team being the agent's
- * managing team while it is not archived. Undefined, the call is held on
- * the session's limit alone, as before accounts: no running turn (a title
- * call, a call between turns), a session with no workspace, or a turn whose
- * requester says nothing budgetRootOfTurn can read. An exchange already
+ * managing team while it is not archived. A call no running turn serves (a
+ * title call, a call between turns) is the session's, charged as the
+ * session's first turn, the one that created it. Undefined, the call is held
+ * on the session's limit alone, as before accounts: a session with no
+ * workspace, more than one running turn, or a turn whose requester says
+ * nothing budgetRootOfTurn can read. An exchange already
  * opened keeps the account its first open chose, whichever turn runs now.
  * A replay read before the first open commits chooses from the turn as
  * this snapshot has it; the ledger's lock then compares, and a turn changed
@@ -32,7 +35,13 @@ import {
  */
 export async function budgetChoiceOfCall(
   db: Database,
-  call: { exchangeId: string; sessionId: string; attemptId: string },
+  call: {
+    exchangeId: string;
+    sessionId: string;
+    attemptId: string;
+    /** A session title call: the session's, whichever turn runs now. */
+    title?: boolean;
+  },
 ): Promise<{ choice: BudgetChoice | undefined; turnId: string | null }> {
   // One statement, so one snapshot: an open commits its exchange row and
   // its reservation together, and this sees both or neither.
@@ -57,6 +66,7 @@ export async function budgetChoiceOfCall(
       requesterKind: turns.requesterKind,
       requesterId: turns.requesterId,
       requesterAuth: turns.requesterAuth,
+      ...firstTurnColumns(call.sessionId),
       workspaceId: sessions.workspaceId,
       teamId: sql<
         string | null
@@ -94,13 +104,35 @@ export async function budgetChoiceOfCall(
   }
   // Opened on the session's limit alone: so its replays are too.
   if (first.opened) return { choice: undefined, turnId };
+  if (first.workspaceId === null) return { choice: undefined, turnId };
+  const ofRoot = (root: BudgetRoot | null) =>
+    root === null ? undefined : chooseBudgetAccount(root, first.teamId);
+  if (call.title === true || running.length === 0) {
+    return {
+      choice: ofRoot(
+        budgetRootOfTurn({
+          requesterKind: first.firstRequesterKind,
+          requesterId: first.firstRequesterId,
+          requesterAuth: first.firstRequesterAuth,
+        }),
+      ),
+      turnId: null,
+    };
+  }
   if (turnId === null || turn === undefined) {
     return { choice: undefined, turnId: null };
   }
-  if (turn.workspaceId === null) return { choice: undefined, turnId };
-  const root = budgetRootOfTurn(turn);
+  return { choice: ofRoot(budgetRootOfTurn(turn)), turnId };
+}
+
+// The requester of the session's first turn: who created it.
+function firstTurnColumns(sessionId: string) {
+  const first = (column: AnyColumn) => sql`(
+    SELECT ${column} FROM ${turns}
+    WHERE ${turns.sessionId} = ${sessionId}::uuid AND ${turns.sequence} = 1)`;
   return {
-    choice: root === null ? undefined : chooseBudgetAccount(root, turn.teamId),
-    turnId,
+    firstRequesterKind: first(turns.requesterKind) as SQL<string | null>,
+    firstRequesterId: first(turns.requesterId) as SQL<string | null>,
+    firstRequesterAuth: first(turns.requesterAuth) as SQL<unknown>,
   };
 }
