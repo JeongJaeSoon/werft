@@ -236,7 +236,21 @@ describe("fillSessionParents", () => {
     expect(await parentOf(first)).toBe(await parentOf(second));
   });
 
-  test("a DM's person is the link's creator, else the session's, else none", async () => {
+  test("a DM's person is the session's opener, else the link's creator, else none", async () => {
+    // Ada's link, whose first post gave out, opened by Bea: Bea's DM, as the
+    // session's first input is.
+    const reopened = await addSession(bea);
+    await addLink(reopened, {
+      binding: dmBinding,
+      channelId: "D0006",
+      createdBy: ada,
+    });
+    const byLink = await addSession(null);
+    await addLink(byLink, {
+      binding: dmBinding,
+      channelId: "D0007",
+      createdBy: ada,
+    });
     const bySession = await addSession(bea);
     await addLink(bySession, { binding: dmBinding, channelId: "D0002" });
     const notMember = await addSession(bea);
@@ -255,10 +269,12 @@ describe("fillSessionParents", () => {
     });
 
     expect(await fillSessionParents(db)).toEqual({
-      filled: 2,
+      filled: 4,
       skipped: { no_person: 1, no_membership: 1 },
       failed: [],
     });
+    expect((await conversationOf(reopened))?.person_user_id).toBe(bea);
+    expect((await conversationOf(byLink))?.person_user_id).toBe(ada);
     expect((await conversationOf(bySession))?.person_user_id).toBe(bea);
     expect((await conversationOf(notMember))?.person_user_id).toBe(bea);
     expect(await parentOf(noOne)).toBeNull();

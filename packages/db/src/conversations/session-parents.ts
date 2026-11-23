@@ -29,7 +29,8 @@ const isMember = (workspaceId: unknown, userId: unknown) =>
  * Fills the parent conversation of every linked session that has none: a
  * channel thread's session gets its channel's main conversation, a DM's
  * session its person's, a revoked or closed link's session too. The person
- * is the link's creator, else the session's; one who is not a member of the
+ * is the one who opened the session, as at creation, else the link's
+ * creator; one who is not a member of the
  * workspace cannot own a conversation, so the next is tried, and with none
  * the session stays a standalone one. Each session is filled on its own and
  * only while still empty, so a run cut short goes on where it stopped and
@@ -89,10 +90,10 @@ export async function fillSessionParents(
     for (const row of rows) {
       let key: ConversationKey;
       if (row.dm) {
-        const person = row.linkCreatorMember
-          ? row.linkCreator
-          : row.sessionCreatorMember
-            ? row.sessionCreator
+        const person = row.sessionCreatorMember
+          ? row.sessionCreator
+          : row.linkCreatorMember
+            ? row.linkCreator
             : null;
         if (person === null) {
           const none = row.linkCreator === null && row.sessionCreator === null;
