@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration 0308 전에 처리를 마친 Slack inbox 행에 남은 원문(`payload`)을 지우는 운영자 명령 `slack-inbound-payloads.ts`가 생긴다**(JeongJaeSoon/werft#PR). migration은 없다. 돌리기 전에는 그 원문이 남아 있을 뿐이고 동작은 같다.
+- **migration 0308 전에 처리를 마친 Slack inbox 행에 남은 원문(`payload`)을 지우는 운영자 명령 `slack-inbound-payloads.ts`가 생긴다**(JeongJaeSoon/werft#2080). migration은 없다. 돌리기 전에는 그 원문이 남아 있을 뿐이고 동작은 같다.
   - **모든 slack 역할이 0308 이후 이미지로 돈 뒤에 한 번 돌린다.** 앞선 이미지의 slack 역할이 남아 있으면 처리한 행에 원문을 다시 남긴다.
   - api 컨테이너에서 `bun run apps/control-host/src/api/slack-inbound-payloads.ts`를 돌린다. 처리를 마친 행(`processed`)의 원문만 지우고, 처리 중인 행과 실패한 행(받은 지 7일 뒤 reconciler가 지운다)은 그대로다.
   - 기본키 순서로 1000행씩(`--batch-size`, 1~10000) 문장마다 따로 커밋한다. 행 잠금은 그 묶음의 처리된 행에만 잡히고 표의 읽기·쓰기는 막지 않는다. 결과는 한 줄 JSON(상태별 원문 있는 행 수 전후, 지운 수, 묶음 수와 크기, 걸린 시간)이고, 다시 돌려도 더 지우는 것이 없다.
