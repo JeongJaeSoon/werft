@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0322_conversation_engagements`가 관여 기록 표 `conversation_engagements`를 더하고, Slack 글이 세션의 턴이 될 때 그 글에 에이전트가 관여했다는 줄을 하나 적는다**(JeongJaeSoon/werft#2049). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다.
+- **migration `0323_conversation_engagements`가 관여 기록 표 `conversation_engagements`를 더하고, Slack 글이 세션의 턴이 될 때 그 글에 에이전트가 관여했다는 줄을 하나 적는다**(JeongJaeSoon/werft#2049). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다.
   - 입력 접수 줄을 적는 같은 transaction에서 적는다. 줄에는 에이전트, 글의 자리(team, 채널, ts), 종류, 그 글이 든 세션만 남고 본문·스레드 ts·링크는 없다.
   - 종류: 세션을 연 멘션이나 DM은 `mention`, 멘션 없는 맨 위 글로 연 세션은 `reply`, 이미 열린 세션에 들어간 글은 `bound`.
   - 한 글이 두 이벤트로 와도, 다시 처리돼도 에이전트마다 한 줄이다. 있던 세션은 채우지 않는다.
