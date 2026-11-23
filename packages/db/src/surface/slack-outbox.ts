@@ -38,6 +38,7 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
+import { outboxSources } from "../conversations/turn-sources.ts";
 import {
   catalogName,
   createPostgresPushRequests,
@@ -719,9 +720,13 @@ export function createPostgresSlackOutboxStore(
             if (heard) return "duplicate";
           }
         }
+        const sources =
+          input.sessionId === null || input.sources == null
+            ? null
+            : await outboxSources(tx, input.sessionId, input.sources);
         const [row] = await tx
           .insert(t)
-          .values({ ...input, id: randomUUID() })
+          .values({ ...input, sources, id: randomUUID() })
           .onConflictDoNothing({ target: t.dedupeKey })
           .returning({ id: t.id });
         return row ? "enqueued" : "duplicate";
@@ -1080,12 +1085,18 @@ export function createPostgresSlackOutboxStore(
           ...target,
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pushRequests.id,
-          // A push request names no turn: the session's latest, which holds
+          // The turn whose intent made the request; a request no intent
+          // made, the session's latest turn when it was asked, which holds
           // every source before it.
-          sources: sql<StoredSourceSet | null>`(
-            SELECT lt.sources FROM ${turns} lt
-            WHERE lt.session_id = ${sessions.id}
-            ORDER BY lt.sequence DESC LIMIT 1)`,
+          sources: sql<StoredSourceSet | null>`coalesce(
+            (SELECT it.sources FROM push_intents pi
+             JOIN ${turns} it ON it.id = pi.turn_id
+             WHERE pi.push_request_id = ${pushRequests.id}
+             ORDER BY pi.turn_id LIMIT 1),
+            (SELECT lt.sources FROM ${turns} lt
+             WHERE lt.session_id = ${sessions.id}
+               AND lt.created_at <= ${pushRequests.createdAt}
+             ORDER BY lt.sequence DESC LIMIT 1))`,
           repositoryId: pushRequests.repositoryId,
           repositoryName: catalogName(sql`${pushRequests.repositoryId}`),
           targetBranch: pushRequests.targetBranch,

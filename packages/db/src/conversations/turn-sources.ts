@@ -2,6 +2,7 @@ import type { ConversationInputId, SlackMessageRef } from "@werft-ai/contracts";
 import {
   type SourceKey,
   type SourcePlace,
+  type SourceSet,
   type StoredSourceSet,
   sameSource,
   slackSource,
@@ -9,27 +10,84 @@ import {
   storedSourceSet,
   turnSources,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { turns } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 /**
+ * Gives each key the input row it lacks, of the inputs that became turns of
+ * the session: complete() may have written one after the set was read.
+ */
+async function withInputIds(
+  tx: Database,
+  sessionId: string,
+  set: SourceSet,
+): Promise<SourceSet> {
+  const unnamed = [...set.direct, ...set.inherited].filter(
+    (key) => key.inputId === null && key.slack !== null,
+  );
+  if (unnamed.length === 0) return set;
+  const found = rowsOf<{
+    id: ConversationInputId;
+    slack_team_id: string;
+    slack_channel_id: string;
+    slack_ts: string;
+  }>(
+    await tx.execute(sql`
+      SELECT i.id, i.slack_team_id, i.slack_channel_id, i.slack_ts
+      FROM conversation_inputs i
+      JOIN turns t ON t.id = i.turn_id
+      JOIN sessions s ON s.id = t.session_id
+      WHERE t.session_id = ${sessionId}::uuid
+        AND i.workspace_id = s.workspace_id
+        AND (i.slack_team_id, i.slack_channel_id, i.slack_ts) IN (${sql.join(
+          unnamed.map(
+            (key) =>
+              sql`(${key.slack?.teamId}::text, ${key.slack?.channelId}::text, ${key.slack?.ts}::text)`,
+          ),
+          sql`, `,
+        )})`),
+  );
+  const name = (key: SourceKey): SourceKey => {
+    if (key.inputId !== null) return key;
+    const row = found.find((input) =>
+      sameSource(
+        key,
+        slackSource({
+          teamId: input.slack_team_id,
+          channelId: input.slack_channel_id,
+          ts: input.slack_ts,
+        }),
+      ),
+    );
+    return row === undefined ? key : { ...key, inputId: row.id };
+  };
+  return {
+    ...set,
+    direct: set.direct.map(name),
+    inherited: set.inherited.map(name),
+  };
+}
+
+/**
  * The sources of a turn about to be inserted in the session: the Slack
- * message it came from, if any, and every source of the turns before it.
- * A continuation, a push follow-up and a web or API input inherit alike.
- * The Slack input's row is written after the turn; recordSourceInput adds
- * its id, and the place alone is what a delete mark is matched on.
+ * message it came from, if any, and every source of the turns before it,
+ * all of which the latest turn with sources already holds. A continuation,
+ * a push follow-up and a web or API input inherit alike. The Slack input's
+ * row is written after the turn; recordSourceInput adds its id, and the
+ * place alone is what a delete mark is matched on.
  */
 export async function newTurnSources(
   tx: Database,
   input: { sessionId: string; slackMessage: SlackMessageRef | null },
 ): Promise<StoredSourceSet | null> {
-  const earlier = await tx
+  const [latest] = await tx
     .select({ sources: turns.sources })
     .from(turns)
     .where(and(eq(turns.sessionId, input.sessionId), isNotNull(turns.sources)))
-    .orderBy(asc(turns.sequence));
+    .orderBy(desc(turns.sequence))
+    .limit(1);
   const direct =
     input.slackMessage === null
       ? []
@@ -40,11 +98,28 @@ export async function newTurnSources(
             ts: input.slackMessage.ts,
           }),
         ];
+  const set = turnSources({
+    direct,
+    earlier: latest === undefined ? [] : [sourceSetOf(latest.sources)],
+  });
+  return storedSourceSet(await withInputIds(tx, input.sessionId, set));
+}
+
+/**
+ * An outbox row's copy of its turn's sources as of now. Under a share lock
+ * on the session, which complete() takes for update before it names an
+ * input, so the row is either named here or there.
+ */
+export async function outboxSources(
+  tx: Database,
+  sessionId: string,
+  stored: StoredSourceSet,
+): Promise<StoredSourceSet | null> {
+  await tx.execute(
+    sql`SELECT 1 FROM sessions WHERE id = ${sessionId}::uuid FOR SHARE`,
+  );
   return storedSourceSet(
-    turnSources({
-      direct,
-      earlier: earlier.map((row) => sourceSetOf(row.sources)),
-    }),
+    await withInputIds(tx, sessionId, sourceSetOf(stored)),
   );
 }
 
@@ -92,8 +167,6 @@ export function sourceSetHoldsMark(mark: {
 /**
  * Names the input row in every source key of the session at the message's
  * place, on its turns and its outbox rows. Keys already naming a row stay.
- * A turn inserted while this runs may keep a key without the id; the place
- * still finds it.
  */
 export async function recordSourceInput(
   tx: Database,
@@ -115,6 +188,11 @@ export async function recordSourceInput(
       inherited: set.inherited.map(fill),
     });
   };
+  // Waits for a turn insert or an outbox copy of this session under way,
+  // which then reads this input; one after this sees it named.
+  await tx.execute(
+    sql`SELECT 1 FROM sessions WHERE id = ${input.sessionId}::uuid FOR UPDATE`,
+  );
   for (const table of ["turns", "slack_outbox"] as const) {
     const t = sql.raw(table);
     const rows = rowsOf<{ id: string; sources: unknown }>(

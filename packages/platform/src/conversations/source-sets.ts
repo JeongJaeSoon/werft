@@ -185,7 +185,8 @@ export function turnSources(input: {
   const limit = input.limit ?? SOURCE_SET_LIMIT;
   const direct = mergeSources([input.direct], limit);
   const inherited = mergeSources(
-    input.earlier.flatMap((set) => [set.direct, set.inherited]),
+    // Inherited keys came before a set's direct ones.
+    input.earlier.flatMap((set) => [set.inherited, set.direct]),
     limit,
   );
   const kept = inherited.keys.filter(

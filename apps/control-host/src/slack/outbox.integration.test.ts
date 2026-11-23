@@ -1570,6 +1570,63 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
+  test("a push card carries the sources the session had when the push was asked, not a later turn's", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    const [asked] = await db
+      .select({ sources: turns.sources })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    const receiptId = randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: session.ownerId,
+      operation: "request_push",
+      targetRef: { kind: "session", id: sessionId },
+    });
+    await db.insert(pushRequests).values({
+      id: randomUUID(),
+      ownerId: session.ownerId,
+      sessionId,
+      repositoryId: "sandbox",
+      checkpointRevision: 1,
+      gitCommit: "a".repeat(40),
+      targetBranch: `agent/${sessionId}`,
+      state: "requested",
+      requestedBy: {
+        principal: { kind: "installation", id: "i" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requestReceiptId: receiptId,
+      createdAt: new Date(Date.now() - 60_000),
+    });
+    // A later post of the thread, after the push was asked.
+    await db.insert(turns).values({
+      sessionId,
+      sequence: 2,
+      message: "later",
+      status: "queued",
+      sources: {
+        direct: [{ team_id: TEAM, channel_id: CHANNEL, ts: "100.000900" }],
+        inherited: asked?.sources?.direct ?? [],
+      },
+    });
+    await db
+      .update(turns)
+      .set({ createdAt: new Date(Date.now() - 120_000) })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    await outboxPass();
+    const cards = (await rows()).filter((row) => row.kind === "input_notice");
+    expect(cards.map((row) => row.sources)).toEqual([asked?.sources ?? null]);
+  });
+
   test("a push request waiting for its decision gets one card, and none once decided", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

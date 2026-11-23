@@ -15,12 +15,14 @@ import {
   turns,
   workspaces,
 } from "../schema.ts";
+import { createPostgresSlackOutboxStore } from "../surface/slack-outbox.ts";
 import {
   createPostgresSlackSourceMarkStore,
   purgeUnknownSlackSourceMarks,
 } from "../surface/slack-source-marks.ts";
 import { fixtureRelease, TEST_MODEL } from "../testing/spec-pins.ts";
 import {
+  newTurnSources,
   recordSourceInput,
   sourceSetHoldsMark,
   sourcesHoldPlace,
@@ -160,6 +162,92 @@ describe("turn sources", () => {
     ]);
     expect(await sourcesOf(other)).toEqual([
       { direct: [place(A)], inherited: [] },
+    ]);
+  });
+});
+
+describe("input ids written after a set was read", () => {
+  async function inputFor(sessionId: string, ts: string) {
+    const [turn] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId))
+      .orderBy(asc(turns.sequence))
+      .limit(1);
+    const workspaceId = crypto.randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "ws" });
+    await db
+      .update(sessions)
+      .set({ workspaceId })
+      .where(eq(sessions.id, sessionId));
+    const session = { workspaceId };
+    const id = crypto.randomUUID() as ConversationInputId;
+    await client.query("SET session_replication_role = replica");
+    await client.query(
+      `INSERT INTO conversation_inputs (id, workspace_id, agent_id, topic_id, seq, slack_team_id, slack_channel_id, slack_ts, requester_kind, requester_id, turn_id)
+       VALUES ($1, $2, $3, $4, 1, $5, $6, $7, 'user', 'u', $8)`,
+      [
+        id,
+        session?.workspaceId ?? crypto.randomUUID(),
+        crypto.randomUUID(),
+        crypto.randomUUID(),
+        TEAM,
+        CHANNEL,
+        ts,
+        turn?.id,
+      ],
+    );
+    await client.query("SET session_replication_role = origin");
+    return id;
+  }
+
+  test("a turn inserted after its session's input was taken, but before the id reached the earlier turn, still names it", async () => {
+    // complete() took A's input; the first turn's key is not named yet.
+    const sessionId = await create(slackMessage(A));
+    const inputId = await inputFor(sessionId, A);
+    expect(await newTurnSources(db, { sessionId, slackMessage: null })).toEqual(
+      {
+        direct: [],
+        inherited: [{ input_id: inputId, ...place(A) }],
+      },
+    );
+  });
+
+  test("an outbox row copied from a turn read before the id was written names it", async () => {
+    const sessionId = await create(slackMessage(A));
+    const inputId = await inputFor(sessionId, A);
+    const [session] = await db
+      .select({ workspaceId: sessions.workspaceId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    await client.query("SET session_replication_role = replica");
+    await createPostgresSlackOutboxStore(db).enqueue({
+      workspaceId: session?.workspaceId ?? crypto.randomUUID(),
+      agentId: crypto.randomUUID(),
+      slackAppId: crypto.randomUUID(),
+      installationId: crypto.randomUUID(),
+      kind: "reply",
+      channelId: CHANNEL,
+      threadTs: A,
+      slackUserId: null,
+      sessionId,
+      sessionLinkId: null,
+      body: { text: "done" },
+      dedupeKey: crypto.randomUUID(),
+      sources: { direct: [place(A)], inherited: [] },
+    });
+    await client.query("SET session_replication_role = origin");
+    expect(
+      (
+        await db
+          .select({ sources: slackOutbox.sources })
+          .from(slackOutbox)
+          .where(eq(slackOutbox.sessionId, sessionId))
+      ).map((row) => row.sources),
+    ).toEqual([
+      { direct: [{ input_id: inputId, ...place(A) }], inherited: [] },
     ]);
   });
 });
