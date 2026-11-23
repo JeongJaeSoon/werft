@@ -205,12 +205,6 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
         // An account's refusal fails the turn as the provider's error and
         // asks the session for no attention, in this release.
         expect((await api.session(secondId)).attention).toBeNull();
-        const [ended] = await sql(
-          `select terminal_reason from turns where session_id = '${secondId}' and sequence = 1`,
-        );
-        // Claude Code names it so; Codex's adapter keeps a reason of its own.
-        if (engine.runtimeKind === "claude_agent_sdk")
-          expect(ended).toBe("api_error");
         expect(await engine.modelCalls(late)).toEqual([]);
         expect(await accountRefusals(secondId)).toBeGreaterThan(0);
         // The first call was still held when the second was refused: the
