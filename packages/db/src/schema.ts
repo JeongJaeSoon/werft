@@ -31,6 +31,7 @@ import {
   type BudgetOwnerKind,
   type BudgetReservationState,
   type BudgetRootKind,
+  CHANNEL_SUMMARY_LINE_TEXT_MAX,
   CONVERSATION_CHANNEL_STATE_VALUES,
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
@@ -5466,6 +5467,130 @@ export const conversationEngagements = pgTable(
     ),
     check(
       "conversation_engagements_slack_check",
+      sql`${table.teamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.channelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.ts} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$'`,
+    ),
+  ],
+);
+
+// One channel's summary, shared by every agent in the channel. `version`
+// goes one up on every change: a line added, folded or reverted, or one
+// removed because its source message was deleted or edited. Version 0 is
+// the empty summary a channel starts at.
+export const channelSummaries = pgTable(
+  "channel_summaries",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    version: bigint({ mode: "number" }).notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workspaceId, table.teamId, table.channelId],
+    }),
+    foreignKey({
+      name: "channel_summaries_channel_fk",
+      columns: [table.workspaceId, table.teamId, table.channelId],
+      foreignColumns: [
+        channelContexts.workspaceId,
+        channelContexts.teamId,
+        channelContexts.channelId,
+      ],
+    }),
+    check("channel_summaries_version_check", sql`${table.version} >= 0`),
+  ],
+);
+
+// A line of a channel summary: the agent's own words, never a message's
+// text. It is in every version from `from_version` up to, not including,
+// `to_version` (null: the current one too). A revert brings a line back as
+// a copy, so a row's versions are one run; a copy keeps its original's
+// origin_id (a new line's is its own id), by which a revert knows a line it
+// would bring back is there already.
+export const channelSummaryLines = pgTable(
+  "channel_summary_lines",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    originId: uuid("origin_id").notNull(),
+    text: text().notNull(),
+    writtenByAgentId: uuid("written_by_agent_id").notNull(),
+    writtenAt: timestamp("written_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Orders lines written at the same time. A copy keeps its original's
+    // written_at and ordinal, so a revert keeps the lines' order.
+    ordinal: bigint({ mode: "number" }).generatedByDefaultAsIdentity(),
+    fromVersion: bigint("from_version", { mode: "number" }).notNull(),
+    toVersion: bigint("to_version", { mode: "number" }),
+  },
+  (table) => [
+    foreignKey({
+      name: "channel_summary_lines_summary_fk",
+      columns: [table.workspaceId, table.teamId, table.channelId],
+      foreignColumns: [
+        channelSummaries.workspaceId,
+        channelSummaries.teamId,
+        channelSummaries.channelId,
+      ],
+    }),
+    foreignKey({
+      name: "channel_summary_lines_agent_fk",
+      columns: [table.workspaceId, table.writtenByAgentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    index("channel_summary_lines_summary_idx").on(
+      table.workspaceId,
+      table.teamId,
+      table.channelId,
+      table.fromVersion,
+    ),
+    check(
+      "channel_summary_lines_text_check",
+      sql`char_length(${table.text}) BETWEEN 1 AND ${sql.raw(String(CHANNEL_SUMMARY_LINE_TEXT_MAX))}`,
+    ),
+    check(
+      "channel_summary_lines_versions_check",
+      sql`${table.fromVersion} >= 1 AND (${table.toVersion} IS NULL OR ${table.toVersion} > ${table.fromVersion})`,
+    ),
+  ],
+);
+
+// The Slack messages a summary line came from, and who said each, as the
+// server read them off the input rows (G8). No foreign key to the input: an
+// input row may go before the line does. A delete or edit mark of the
+// message removes the line.
+export const channelSummaryLineSources = pgTable(
+  "channel_summary_line_sources",
+  {
+    lineId: uuid("line_id")
+      .notNull()
+      .references(() => channelSummaryLines.id, { onDelete: "cascade" }),
+    inputId: uuid("input_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    ts: text().notNull(),
+    // As on conversation_inputs: requester_kind and requester_id.
+    speakerKind: text("speaker_kind").notNull(),
+    speakerId: text("speaker_id").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.lineId, table.inputId] }),
+    // For the delete and edit marks, which name a message by workspace.
+    index("channel_summary_line_sources_message_idx").on(
+      table.workspaceId,
+      table.teamId,
+      table.channelId,
+      table.ts,
+    ),
+    check(
+      "channel_summary_line_sources_slack_check",
       sql`${table.teamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.channelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.ts} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$'`,
     ),
   ],
