@@ -229,7 +229,7 @@ migration `0320_session_parent_conversation`이 `sessions.parent_conversation_id
 
 ### 끝을 모르는 호출을 표시하고 에이전트 스스로 하는 일을 먼저 멈추는 릴리스
 
-migration `0331_unknown_budget_end`가 `budget_reservations`와 `conversation_calls`에 끝을 모르는 호출을 적는 칸 `unknown_at`(nullable)을 더하고, reconciler가 읽는 부분 인덱스 둘을 만든다. 올릴 때 할 일은 없다. 예산 한도가 없는 설치에서는 사람, key, 에이전트의 호출이 지금처럼 돈다.
+migration `0332_unknown_budget_end`가 `budget_reservations`와 `conversation_calls`에 끝을 모르는 호출을 적는 칸 `unknown_at`(nullable)을 더하고, reconciler가 읽는 부분 인덱스 둘을 만든다. 올릴 때 할 일은 없다. 예산 한도가 없는 설치에서는 사람, key, 에이전트의 호출이 지금처럼 돈다.
 
 - 쓰인 provider 호출에 lease(5분) 안에 사용량 보고가 오지 않으면 reconciler가 그 예약의 `unknown_at`을 적는다. 상태는 `reserved`(대화 호출은 `in_flight`) 그대로다. 예약은 풀지 않고, 한도 계산에서 계속 쓴 것으로 센다. 늦게 보고가 오면 실제 값으로 정산하고 예약을 뺀다. lease가 다시 갱신되거나 호출이 해제되면 표시를 지운다. 세션의 호출과 세션 없는 호출(대화 호출)이 같은 규칙을 따른다.
 - reconciler가 끝을 모르는 예약이 많은 계정부터 배치 크기만큼 그 수와 묶인 금액을 `warn` 로그 `Budget reservations of unknown end held`(`unknown_count`, `held_cost_usd`, `held_tokens`)로, 모든 계정의 합계를 로그 `Budget reservations of unknown end reported`로 남긴다. 로그 `Provider exchange ledger reconciled`와 `Conversation call reservations reconciled`에 `unknown_count`가 더해진다. 이 릴리스에는 묶인 예약을 운영자가 푸는 명령이 없다.
