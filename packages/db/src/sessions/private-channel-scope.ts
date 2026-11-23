@@ -75,6 +75,20 @@ const linkedSessionIds = (place: ChannelSessionPlace) => sql`
     AND b.surface_kind IN ('public_channel', 'private_channel')`;
 
 /**
+ * One change of a channel's kind at a time, and a session attached to one
+ * of its threads waits for it: the transaction's advisory lock on
+ * (installation, channel).
+ */
+export async function lockChannelKind(
+  tx: Database,
+  installationId: string,
+  channelId: string,
+): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
+    ${`channel_kind:${installationId.toLowerCase()}:${channelId}`}, 0))`);
+}
+
+/**
  * Locks the sessions linked from the place's channel threads, in id order.
  * The session row comes before its share, as a share change takes them
  * (setShare), so scopes read after this see any change that held them.

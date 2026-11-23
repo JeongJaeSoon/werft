@@ -12,6 +12,7 @@ export {
   awaitingInputAt,
 } from "./pending-status.ts";
 export {
+  lockChannelKind,
   lockChannelSessions,
   moveChannelSessionScope,
 } from "./private-channel-scope.ts";

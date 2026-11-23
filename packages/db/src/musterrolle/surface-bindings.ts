@@ -30,6 +30,7 @@ import {
   surfaceBindings,
 } from "../schema.ts";
 import {
+  lockChannelKind,
   lockChannelSessions,
   moveChannelSessionScope,
 } from "../sessions/index.ts";
@@ -1073,8 +1074,7 @@ async function channelKindChanged(
   return db.transaction(async (tx) => {
     // One change of a channel at a time, Slack asked after the lock: of two
     // racing, the later read is written. Nothing else is held while asking.
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
-      ${`channel_kind:${place.installationId.toLowerCase()}:${place.channelId}`}, 0))`);
+    await lockChannelKind(tx, place.installationId, place.channelId);
     const kind = await kindNow();
     if (kind === null) return null;
     // The session rows, then the agent, then the binding: an input takes its

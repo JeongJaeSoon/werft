@@ -12,6 +12,7 @@ import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
 import { createPostgresSurfaceBindingStore } from "./musterrolle/surface-bindings.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
+import { createPostgresSessionLinkStore } from "./session-links.ts";
 import {
   channelSessionPlaces,
   lockChannelSessions,
@@ -480,6 +481,50 @@ integration(
         { sessionId: late.linkedLate, reason: "share_changed" },
       ]);
       expect((await scopes())[late.linkedLate]).toBe("workspace");
+
+      // A session made while its channel turned private (its link attached
+      // after the conversion committed) is narrowed as it is attached; one in
+      // a public channel is attached as it was made.
+      const attachLate = async (bindingId: string, channel: string) => {
+        const sessionId = randomUUID();
+        const linkId = randomUUID();
+        await pool.query(
+          `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, created_by_user_id)
+         VALUES ($1, $2::text, 'https://example.invalid/repo.git', $3, $2::uuid, $4)`,
+          [sessionId, workspaceId, `session/${sessionId}`, creator],
+        );
+        await pool.query(
+          `INSERT INTO session_links (id, workspace_id, owner_id, installation_id,
+           surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id,
+           release_id)
+         VALUES ($1, $2::uuid, $2::text, $3, $4, $5, $6, '2000.000100', '2000.000100', $7, $8)`,
+          [
+            linkId,
+            workspaceId,
+            installationId,
+            bindingId,
+            `${channel}:${linkId}`,
+            channel,
+            agentId,
+            releaseId,
+          ],
+        );
+        const attached = await createPostgresSessionLinkStore(db).attachSession(
+          linkId,
+          sessionId,
+        );
+        expect(attached.sessionId).toBe(sessionId);
+        return sessionId;
+      };
+      const madeDuring = await attachLate(g3Binding, "G3");
+      expect((await scopes())[madeDuring]).toBe("private_channel");
+      const madePublic = await attachLate(publicBinding, "C1");
+      expect((await scopes())[madePublic]).toBe("workspace");
+      const { rows: noShare } = await pool.query(
+        "SELECT 1 FROM session_shares WHERE session_id = $1",
+        [madePublic],
+      );
+      expect(noShare).toEqual([]);
     });
   },
 );
