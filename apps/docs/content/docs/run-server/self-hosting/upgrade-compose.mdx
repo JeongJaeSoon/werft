@@ -205,7 +205,7 @@ migration `0305_drop_unused_tables`가 `catalog_authority`·`owner_workspace_map
 
 ### 세션에 부모 대화를 채우는 릴리스
 
-migration `0318_session_parent_conversation`이 `sessions.parent_conversation_id`(nullable, `conversations`의 외래 키)를 더한다. 외래 키는 `NOT VALID`로 더한 뒤 따로 검증하므로 표를 오래 잠그지 않는다. 올릴 때 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
+migration `0319_session_parent_conversation`이 `sessions.parent_conversation_id`(nullable, `conversations`의 외래 키)를 더한다. 외래 키는 `NOT VALID`로 더한 뒤 따로 검증하므로 표를 오래 잠그지 않는다. 올릴 때 할 일은 없고, Slack·웹·세션 API의 동작은 그대로다.
 
 - 새 Slack 세션은 만들 때 부모 대화를 받는다. 채널 스레드의 세션은 그 채널의 메인 대화, DM 세션은 그 사람의 DM 메인 대화다. link가 없는 세션(웹의 "새 세션", 세션 API)은 비어 있다.
 - 있던 세션은 api가 기동할 때마다 도는 정리가 묶음으로 채운다. 닫히거나 폐기된 link의 세션도 채운다. 세션마다 비어 있을 때만 채우므로 여러 번 기동해도, 여러 api가 함께 기동해도 결과가 같고, 중간에 멈추면 다음 기동이 남은 세션부터 잇는다.
