@@ -6056,11 +6056,11 @@ export const slackOutbox = pgTable(
     index("slack_outbox_held_idx")
       .on(table.heldForInputId)
       .where(sql`${table.heldForInputId} IS NOT NULL`),
-    // The uncertain mirrors a post Slack sends back may name.
+    // The mirrors in flight or uncertain a post Slack sends back may name.
     index("slack_outbox_correlation_idx")
       .on(table.correlationId)
       .where(
-        sql`${table.correlationId} IS NOT NULL AND ${table.status} = 'uncertain'`,
+        sql`${table.correlationId} IS NOT NULL AND ${table.status} IN ('sending', 'uncertain')`,
       ),
     foreignKey({
       name: "slack_outbox_agent_fk",

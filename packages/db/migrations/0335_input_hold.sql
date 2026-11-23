@@ -17,4 +17,4 @@ ALTER TABLE "slack_outbox" VALIDATE CONSTRAINT "slack_outbox_held_for_input_fk";
 DROP INDEX CONCURRENTLY IF EXISTS "slack_outbox_held_idx";--> statement-breakpoint
 CREATE INDEX CONCURRENTLY "slack_outbox_held_idx" ON "slack_outbox" USING btree ("held_for_input_id") WHERE "slack_outbox"."held_for_input_id" IS NOT NULL;--> statement-breakpoint
 DROP INDEX CONCURRENTLY IF EXISTS "slack_outbox_correlation_idx";--> statement-breakpoint
-CREATE INDEX CONCURRENTLY "slack_outbox_correlation_idx" ON "slack_outbox" USING btree ("correlation_id") WHERE "slack_outbox"."correlation_id" IS NOT NULL AND "slack_outbox"."status" = 'uncertain';
+CREATE INDEX CONCURRENTLY "slack_outbox_correlation_idx" ON "slack_outbox" USING btree ("correlation_id") WHERE "slack_outbox"."correlation_id" IS NOT NULL AND "slack_outbox"."status" IN ('sending', 'uncertain');

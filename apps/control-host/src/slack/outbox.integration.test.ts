@@ -2313,9 +2313,59 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
           status: "failed",
           errorCode: "input_unplaced",
         });
+        // A row enqueued after the failure closes at once; it does not
+        // wait out the limit.
+        expect(await held(fixture, receipt.inputId, "held:8b")).toBe(
+          "enqueued",
+        );
+        expect(await rowOf("held:8b")).toMatchObject({
+          status: "failed",
+          errorCode: "input_unplaced",
+        });
         slack.failures.clear();
         await outboxPass();
         expect(posted()).toEqual([]);
+      });
+
+      test("an echo that comes before Slack's answer to the send still links its mirror", async () => {
+        const fixture = await agentInSlack();
+        await installed();
+        const receipt = await webInput(fixture);
+        await held(fixture, receipt.inputId, "held:9");
+        const echoes: string[] = [];
+        const pass = await outboxPass({
+          slack: {
+            ...createSlackBotApi({ apiUrl: slack.url }),
+            // The mirror is still sending when its echo reaches the gate.
+            postMessage: async (_token, input) => {
+              const correlationId =
+                input.metadata?.event_payload.correlation_id;
+              if (correlationId === undefined) throw new Error("no metadata");
+              echoes.push(correlationId);
+              await viaGate(fixture, echoNaming("100.000900", correlationId));
+              return unreadable();
+            },
+          },
+        });
+        expect(echoes).toHaveLength(1);
+        // Its own settle finds the row already taken by the echo.
+        expect(pass).toMatchObject({ lost: 1, uncertain: 0 });
+        expect(await mirrors()).toEqual([
+          expect.objectContaining({
+            status: "sent",
+            slackTs: "100.000900",
+            correlationId: echoes[0],
+          }),
+        ]);
+        expect(await mirrorState(receipt.inputId)).toBe("pending");
+        expect(await rowOf("held:9")).toMatchObject({
+          threadTs: "100.000900",
+          heldForInputId: null,
+        });
+        await outboxPass();
+        expect(
+          posted().map((message) => [message.text, message.threadTs]),
+        ).toEqual([["held answer", "100.000900"]]);
       });
     });
   });

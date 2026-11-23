@@ -17168,7 +17168,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"slack_outbox\".\"correlation_id\" IS NOT NULL AND \"slack_outbox\".\"status\" = 'uncertain'",
+          "where": "\"slack_outbox\".\"correlation_id\" IS NOT NULL AND \"slack_outbox\".\"status\" IN ('sending', 'uncertain')",
           "concurrently": false,
           "method": "btree",
           "with": {}

@@ -54,6 +54,10 @@ export async function closeHeldOfFailedMirror(
   tx: Database,
   inputId: ConversationInputId,
 ) {
+  // Waits for an enqueue holding the input, so its row is closed too.
+  await tx.execute(sql`
+    SELECT 1 FROM conversation_inputs
+    WHERE id = ${inputId}::uuid FOR UPDATE`);
   await tx.execute(sql`
     UPDATE slack_outbox SET status = 'failed', error_code = 'input_unplaced',
       claim_token = NULL, lease_expires_at = NULL
@@ -62,6 +66,27 @@ export async function closeHeldOfFailedMirror(
         SELECT 1 FROM slack_outbox m
         WHERE m.input_id = ${inputId}::uuid
           AND m.status IN ('pending', 'sending', 'uncertain'))`);
+}
+
+/**
+ * A mirror of the input was tried and none is in Slack or on its way: a
+ * row enqueued for its thread after it failed closes at once.
+ */
+export async function mirrorFailed(
+  tx: Database,
+  inputId: ConversationInputId,
+): Promise<boolean> {
+  const [row] = rowsOf<{ failed: boolean }>(
+    await tx.execute(sql`
+      SELECT EXISTS (
+        SELECT 1 FROM slack_outbox WHERE input_id = ${inputId}::uuid
+      ) AND NOT EXISTS (
+        SELECT 1 FROM slack_outbox
+        WHERE input_id = ${inputId}::uuid
+          AND status IN ('pending', 'sending', 'uncertain', 'sent')
+      ) AS failed`),
+  );
+  return row?.failed === true;
 }
 
 /** Slack may or may not hold the input's post: a person may send it again. */

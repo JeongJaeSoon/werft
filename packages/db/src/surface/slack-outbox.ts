@@ -81,6 +81,7 @@ import {
   closeHeldOfFailedMirror,
   inputMirrorThread,
   markMirrorUnconfirmed,
+  mirrorFailed,
   mirrorPosted,
 } from "./slack-input-holds.ts";
 import { ms, type Raw, released } from "./slack-shared.ts";
@@ -785,8 +786,9 @@ export function createPostgresSlackOutboxStore(
               ? input.sources
               : await outboxSources(tx, input.sessionId, input.sources);
         // A row bound for a web input's thread waits for its post, unless
-        // the thread is known. The share lock orders this after a settle
-        // writing the input's alias, which then frees a row it held.
+        // the thread is known, or its mirror failed for good. The share
+        // lock orders this against a settle, which locks the input before
+        // it frees or closes the rows held for it.
         let place = {};
         if (input.heldForInputId != null) {
           await tx.execute(sql`
@@ -794,6 +796,9 @@ export function createPostgresSlackOutboxStore(
             WHERE id = ${input.heldForInputId}::uuid FOR SHARE`);
           const thread = await inputMirrorThread(tx, input.heldForInputId);
           if (thread !== null) place = { ...thread, heldForInputId: null };
+          else if (await mirrorFailed(tx, input.heldForInputId)) {
+            place = { status: "failed", errorCode: "input_unplaced" };
+          }
         }
         const [row] = await tx
           .insert(t)
@@ -1020,6 +1025,15 @@ export function createPostgresSlackOutboxStore(
 
     async closeOverdueHeld(holdMs) {
       return db.transaction(async (tx) => {
+        // The inputs first, as a settle takes them, then the rows held for
+        // them: the other order deadlocks with a mirror's settle.
+        await tx.execute(sql`
+          SELECT 1 FROM conversation_inputs
+          WHERE id IN (
+            SELECT held_for_input_id FROM slack_outbox
+            WHERE held_for_input_id IS NOT NULL AND status = 'pending'
+              AND created_at <= now() - make_interval(secs => ${holdMs / 1000}))
+          ORDER BY id FOR UPDATE`);
         const closed = await tx
           .update(t)
           .set({ status: "failed", errorCode: "input_unplaced", ...released })
@@ -1057,7 +1071,8 @@ export function createPostgresSlackOutboxStore(
           .where(
             and(
               eq(t.correlationId, echo.correlationId),
-              eq(t.status, "uncertain"),
+              // The echo may come before Slack's answer to the send.
+              inArray(t.status, ["sending", "uncertain"]),
               eq(t.kind, "input_mirror"),
               eq(t.workspaceId, echo.workspaceId),
               eq(t.slackAppId, echo.slackAppId),
@@ -1071,7 +1086,12 @@ export function createPostgresSlackOutboxStore(
         if (candidates.length > 1) return "ambiguous";
         await tx
           .update(t)
-          .set({ status: "sent", slackTs: echo.ts, errorCode: null })
+          .set({
+            status: "sent",
+            slackTs: echo.ts,
+            errorCode: null,
+            ...released,
+          })
           .where(eq(t.id, only.id));
         await mirrorPosted(tx, { ...only, inputId: only.inputId }, echo.ts);
         return "linked";
