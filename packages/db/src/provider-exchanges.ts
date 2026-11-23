@@ -104,6 +104,15 @@ export async function settleProviderExchange(
     .from(providerExchanges)
     .where(eq(providerExchanges.exchangeId, input.exchangeId))
     .limit(1);
+  if (other === undefined) {
+    // No row, yet the call may still hold an account: its release mark was
+    // deleted after PROVIDER_EXCHANGE_KEEP_DAYS and the bill came later. A
+    // call that never named an account has no reservation to find.
+    await settleBudgetIn(tx, {
+      callId: input.exchangeId,
+      actual: input.actual,
+    });
+  }
   return { foreignRow: other !== undefined };
 }
 

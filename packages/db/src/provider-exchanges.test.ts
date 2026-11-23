@@ -917,4 +917,61 @@ describe("holding a call on a budget account beside its session", () => {
     expect(await rows()).toEqual([]);
     expect(await reservationOf(exchangeId)).toBeUndefined();
   });
+
+  test("a bill after the release mark was cleaned away still settles the account, once", async () => {
+    const { who, userId, budget } = await budgeted();
+    const exchangeId = crypto.randomUUID();
+    const ledger = ledgerOf();
+    await ledger.open({ exchangeId, ...who, reserve: RESERVE, budget });
+    await ledger.release({ exchangeId, ...who, reserve: RESERVE });
+    await releasedAgo(
+      exchangeId,
+      (PROVIDER_EXCHANGE_KEEP_DAYS + 1) * 86_400_000,
+    );
+    expect(
+      (await reconcileProviderExchanges(db, { limit: 10, dryRun: false }))
+        .deleted,
+    ).toBe(1);
+    expect(await rows()).toEqual([]);
+    expect((await report(who, exchangeId)).outcome).toBe("recorded");
+    const billed = {
+      spentCostUsd: 0.0084,
+      spentTokens: reservationTokens(USED),
+      reservedCostUsd: 0,
+      reservedTokens: 0,
+    };
+    expect(await accountOf(userId)).toMatchObject(billed);
+    expect((await report(who, exchangeId)).outcome).toBe("replayed");
+    expect(await accountOf(userId)).toMatchObject(billed);
+  });
+
+  test("a team account with no limit lets a key's call through and refuses the agent's own", async () => {
+    const { who } = await budgeted();
+    const teamId = crypto.randomUUID();
+    const key = crypto.randomUUID();
+    expect(
+      await ledgerOf().open({
+        exchangeId: key,
+        ...who,
+        reserve: RESERVE,
+        budget: { rootKind: "key", owner: { kind: "team", teamId } },
+      }),
+    ).toEqual({ outcome: "created" });
+    expect(await reservationOf(key)).toMatchObject({
+      state: "reserved",
+      rootKind: "key",
+    });
+    // Sayings 10 and 5th round: the agent's own work runs only on a set limit.
+    const own = crypto.randomUUID();
+    expect(
+      await ledgerOf().open({
+        exchangeId: own,
+        ...who,
+        reserve: RESERVE,
+        budget: { rootKind: "none", owner: { kind: "team", teamId } },
+      }),
+    ).toEqual({ outcome: "budget_exceeded" });
+    expect(await reservationOf(own)).toBeUndefined();
+    expect((await rows()).map((row) => row.exchangeId)).toEqual([key]);
+  });
 });
