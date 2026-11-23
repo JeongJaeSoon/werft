@@ -3,7 +3,7 @@ import { repositoryModeSchema } from "../api/repository-ceiling.ts";
 import { PERMISSION_MODE_VALUES, RUNTIME_KIND_VALUES } from "../api/session.ts";
 import {
   deriveRuntimeSpec,
-  executionModeOf,
+  permissionModeOf,
   runtimeSpecSchema,
   type SpecSource,
   specSourceSchema,
@@ -29,7 +29,6 @@ describe("runtime spec contract", () => {
   // the original and not here would make a valid release underivable.
   test("the repeated enums match the originals", () => {
     const shape = specSourceSchema.shape;
-    expect(shape.permission_mode.options).toEqual([...PERMISSION_MODE_VALUES]);
     expect(shape.repository_mode.options).toEqual(repositoryModeSchema.options);
   });
 
@@ -55,13 +54,78 @@ describe("runtime spec contract", () => {
     }
   });
 
-  test("only bypassPermissions stays bypass; every other mode is auto", () => {
+  test("a source records default or auto; the engine's other modes are refused", () => {
     for (const mode of PERMISSION_MODE_VALUES) {
-      expect([mode, executionModeOf(mode)]).toEqual([
+      expect([
         mode,
-        mode === "bypassPermissions" ? "bypass" : "auto",
-      ]);
+        specSourceSchema.safeParse({ ...source, permission_mode: mode })
+          .success,
+      ]).toEqual([mode, mode === "default" || mode === "auto"]);
     }
+  });
+
+  // Before: the worker ran the mode the release recorded. After: the mode
+  // is decided again from runtime, connection and model.
+  test.each([
+    [
+      "a Claude release made with default",
+      {
+        kind: "claude_agent_sdk",
+        connection: "anthropic",
+        model: "claude-sonnet-5",
+        recorded: "default",
+      },
+      "auto",
+    ],
+    [
+      "a Claude release made with auto",
+      {
+        kind: "claude_agent_sdk",
+        connection: "anthropic",
+        model: "claude-sonnet-5",
+        recorded: "auto",
+      },
+      "auto",
+    ],
+    [
+      "a Codex release",
+      {
+        kind: "codex_app_server",
+        connection: "openai_responses",
+        model: "gpt-5",
+        recorded: "default",
+      },
+      "default",
+    ],
+    [
+      "a non-Claude model on litellm",
+      {
+        kind: "claude_agent_sdk",
+        connection: "litellm",
+        model: "gpt-5",
+        recorded: "default",
+      },
+      "default",
+    ],
+    [
+      "a Claude model on litellm",
+      {
+        kind: "claude_agent_sdk",
+        connection: "litellm",
+        model: "anthropic/claude-sonnet-5",
+        recorded: "default",
+      },
+      "auto",
+    ],
+  ] as const)("%s runs %p", (_name, release, mode) => {
+    const spec: SpecSource = {
+      ...source,
+      runtime: { ...source.runtime, kind: release.kind },
+      connection: { ...source.connection, kind: release.connection },
+      model: release.model,
+      permission_mode: release.recorded,
+    };
+    expect(permissionModeOf(spec)).toBe(mode);
   });
 
   test("a spec is a pure function of its source and parses", () => {
@@ -76,11 +140,11 @@ describe("runtime spec contract", () => {
   test("optional inputs reach the spec, an empty mcp_deny does not", () => {
     const spec = deriveRuntimeSpec({
       ...source,
-      permission_mode: "bypassPermissions",
+      permission_mode: "auto",
       project_settings: { claude_md: true },
       mcp_deny: ["mcp__docs__write"],
     });
-    expect(spec.execution_mode).toBe("bypass");
+    expect(spec.execution_mode).toBe("auto");
     expect(spec.project_settings).toEqual({ claude_md: true });
     expect(spec.mcp_deny).toEqual(["mcp__docs__write"]);
     expect(deriveRuntimeSpec({ ...source, mcp_deny: [] })).not.toHaveProperty(

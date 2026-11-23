@@ -601,7 +601,7 @@ integration("sessions API on PostgreSQL", () => {
         kind: "claude_agent_sdk",
         version: TEST_RUNTIME_VERSION,
         model: "claude-sonnet-5",
-        permission_mode: "default",
+        permission_mode: "auto",
       },
       model: "claude-sonnet-5",
       repository_id: "sample-app",

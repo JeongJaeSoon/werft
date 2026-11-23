@@ -14,6 +14,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **세션의 권한 모드를 release에 적힌 값이 아니라 지금 규칙(연결과 모델)으로 정한다. 그래서 `default`로 만든 옛 Claude 모델 release의 세션이 `auto`로 바뀐다**(JeongJaeSoon/werft#2070). migration은 없고, release를 다시 만들 필요도 없다. release id는 그대로다.
+  - Claude 모델(`anthropic` 연결, 또는 `litellm` 연결의 Claude 모델 id)은 `auto`, Codex(`openai_responses`)와 Claude가 아닌 모델은 `default`로 돈다. 이미 도는 세션은 다음에 worker가 세션을 받을 때 바뀐다. 세션 상세의 `runtime.permission_mode`도 이 값을 보인다.
+  - 그 세션은 사람에게 묻던 호출을 이제 분류기가 판정한다. 묻기 목록에 걸린 호출과 push 승인은 지금처럼 사람에게 간다.
+  - 모드를 고르는 설정은 없다. 연결, 에이전트, 설치 설정 어디에도 없고, `default`로 되돌리는 스위치도 없다.
+  - release의 `spec_source.permission_mode`는 `default`와 `auto`만 읽는다. `acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`가 적힌 release(지금 서버는 만들지 않는다)는 spec을 읽지 못해 새 세션을 시작하지 못한다.
+  - 지원 창 안의 이미지로 되돌리면 옛 release의 세션은 다시 `default`로 돈다.
+
 - **migration `0334_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#2067). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
   - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
   - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.

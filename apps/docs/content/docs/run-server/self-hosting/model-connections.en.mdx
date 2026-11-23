@@ -32,7 +32,7 @@ A session calls its model through the model connection its agent release chose. 
    - A saved model the provider no longer lists stays checked and is marked **Not listed**. Nothing drops it on its own; uncheck it and save.
    - The server sends the key only to hosts on the egress credential allowlist (`EGRESS_CREDENTIAL_ALLOWLIST`, or `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` for a private server). When the allowlist is empty, the host is not on it, or the provider refuses the key or cannot be reached, the dialog says which. The saved list can still be saved when the list cannot be read. Neither the key nor the provider's answer body appears in a response or a log.
    - When a model taken off the list has a later version of its series on the list, agents and sessions on it move to that one (`model_families`).
-3. When you create an agent, choose this connection in the **Release** step ([Create](/agents/create)). New releases on this connection run the `auto` permission mode.
+3. When you create an agent, choose this connection in the **Release** step ([Create](/agents/create)). Releases on this connection run the `auto` permission mode.
 
 Choose repositories in the agent's **GitHub** tab, within the workspace's allowed scope, not on the connection. What a session asks a person about is in [Permissions](/agents/permissions).
 
