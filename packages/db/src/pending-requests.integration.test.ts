@@ -36,6 +36,7 @@ import {
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
+  agentReleases,
   attempts,
   authzDecisions,
   events,
@@ -54,6 +55,7 @@ import { announceLapsedInputWaits } from "./sessions/session-events.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import {
   fixtureRelease,
+  makeFixtureRelease,
   TEST_MODEL,
   testSessionCatalog,
 } from "./testing/spec-pins.ts";
@@ -190,7 +192,7 @@ integration("pending requests and answers on PostgreSQL", () => {
   }
 
   // A session whose first turn is running on a worker.
-  async function runningSession() {
+  async function runningSession(agentReleaseId?: string) {
     const partition = partitionFor("pending");
     const owner = testCaller(crypto.randomUUID());
     const accepted = await createPostgresSessionUnitOfWork(
@@ -200,7 +202,7 @@ integration("pending requests and answers on PostgreSQL", () => {
       principal: owner,
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      agentReleaseId: await fixtureRelease(db),
+      agentReleaseId: agentReleaseId ?? (await fixtureRelease(db)),
       model: TEST_MODEL,
       repository: {
         id: "sample-app",
@@ -819,7 +821,28 @@ integration("pending requests and answers on PostgreSQL", () => {
     // The engine's rule only lets the tool call start. Whether the push runs
     // is the push request's own state, which a person decides.
     test("allowing request_push for the session leaves its push request waiting for a person", async () => {
-      const { owner, sessionId, worker } = await runningSession();
+      // A release with no push approval would push with no person at all.
+      const releaseId = await makeFixtureRelease(db);
+      await db
+        .update(agentReleases)
+        .set({
+          policyPins: {
+            github: {
+              repositories: ["sample-app"],
+              push_approval: true,
+              features: {
+                review: false,
+                actions: false,
+                workflows: false,
+                issues: false,
+                checks: false,
+              },
+              actions_allow: [],
+            },
+          },
+        })
+        .where(eq(agentReleases.id, releaseId));
+      const { owner, sessionId, worker } = await runningSession(releaseId);
       const { requestId } = await register(worker, {
         kind: "permission",
         tool: "mcp__github__request_push",

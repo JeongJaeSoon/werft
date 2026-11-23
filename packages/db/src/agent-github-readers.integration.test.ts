@@ -1176,7 +1176,8 @@ integration("the readers of an agent's GitHub settings", () => {
         currentRepositories: ["sample-app", "docs"],
         startActionsAllow: null,
         enabledAtStart: true,
-        pushAttached: "allow",
+        // The person's row turned push approval on.
+        pushAttached: "ask",
       });
       expect(
         await createPostgresGitHubMcpStore(db).sessionState(sessionId),

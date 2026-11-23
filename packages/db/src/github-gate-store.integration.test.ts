@@ -441,7 +441,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     expect(rows).toEqual([]);
   });
 
-  test("a release with push_approval false still asks under the one rule; a policy approval handed to create writes approved", async () => {
+  test("a release with push_approval false pushes with no person; a policy approval handed to create writes approved", async () => {
     const { workspaceId, userId } = await workspace();
     const { releaseId } = await agent(workspaceId, { github: GITHUB });
     const sessionId = await session(workspaceId, releaseId, userId);
@@ -462,7 +462,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       repositoryCeiling: null,
       githubEnabled: true,
       policyApproval: { releaseId, source: "release", settingsRevision: null },
-      push: "ask",
+      push: "allow",
       policyFields: RELEASE_RECEIPT_FIELDS,
     });
     const created = await pushes.create({
@@ -496,7 +496,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       github: null,
       repositoryCeiling: null,
       githubEnabled: true,
-      push: "ask",
+      push: "allow",
       policyApproval: {
         releaseId: plain.releaseId,
         source: "release",
