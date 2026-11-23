@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **migration `0317_binding_listen`이 채널 binding에 듣기 칸 `listen`(`free`·`mention`·`off`)을, 에이전트에 대화 층 스위치 `conversation_rollout`(`off`·`shadow`·`on`)을 더한다**(JeongJaeSoon/werft#PR). 따로 할 일은 없고 동작도 그대로다.
+- **migration `0317_binding_listen`이 채널 binding에 듣기 칸 `listen`(`free`·`mention`·`off`)을, 에이전트에 대화 층 스위치 `conversation_rollout`(`off`·`shadow`·`on`)을 더한다**(JeongJaeSoon/werft#2042). 따로 할 일은 없고 동작도 그대로다.
   - 있던 binding은 그 에이전트의 `slack_mention_only`가 `true`면 `mention`, `false`면 `free`로 채운다. 새로 만드는 binding은 `free`로 시작한다. `slack_mention_only`는 바꾸지 않고, 에이전트가 무엇에 반응하는지는 지금처럼 그 값과 binding의 `mode`가 정한다.
   - 모든 에이전트의 스위치는 `off`다. 이 릴리스의 받는 길은 두 칸을 읽지 않는다.
   - `GET`·`PUT /v1/agents/{id}/slack-bindings`의 binding에 `listen`이 생긴다. `PUT`에서 `listen`을 빼면 그 채널의 값을 그대로 둔다.
