@@ -988,6 +988,30 @@ export function createFakeSlackWebApi(
         listed.members = listed.members.filter((member) => member !== appId);
         return Response.json({ ok: true, bot_user_id: `U${appId}BOT` });
       }
+      // For curl on the local stack: the channel is converted to private or
+      // public, keeping its id as Slack does. The channel_convert_to_* message
+      // is sent with /fake/events.
+      if (url.pathname === "/fake/conversions" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          channel_id?: unknown;
+          is_private?: unknown;
+        } | null;
+        const listed = conversations.find(
+          (candidate) => candidate.id === input?.channel_id,
+        );
+        if (!listed || typeof input?.is_private !== "boolean") {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        listed.isPrivate = input.is_private;
+        channels.set(listed.id, {
+          ...channels.get(listed.id),
+          isPrivate: listed.isPrivate,
+        });
+        return Response.json({ ok: true, is_private: listed.isPrivate });
+      }
       // For curl on the local stack: people join or leave a channel. The
       // member_joined_channel or member_left_channel event is sent with
       // /fake/events.
