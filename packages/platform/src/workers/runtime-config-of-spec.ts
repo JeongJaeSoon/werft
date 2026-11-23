@@ -1,13 +1,14 @@
-import type {
-  PermissionMode,
-  RuntimeConfig,
-  SpecSource,
+import {
+  permissionModeOf,
+  type RuntimeConfig,
+  type SpecSource,
 } from "@werft-ai/contracts";
 
 /**
- * The runtime config a spec source means. The engine's own permission mode is
- * the source's: `bypassPermissions`, `auto`, or `default` on a connection
- * whose classifier does not work. The tools are the release's list.
+ * The runtime config a spec source means. The engine's permission mode is
+ * decided again from the source's runtime, connection and model
+ * (`permissionModeOf`), not read from the mode it pinned. The tools are the
+ * release's list.
  */
 export function runtimeConfigOfSpec(
   source: SpecSource,
@@ -17,7 +18,7 @@ export function runtimeConfigOfSpec(
   return {
     model: source.model,
     tools: [...source.tools],
-    permission_mode: source.permission_mode as PermissionMode,
+    permission_mode: permissionModeOf(source),
     provider: {
       kind: source.connection.kind,
       endpoint: source.connection.endpoint,

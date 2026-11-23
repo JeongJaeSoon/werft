@@ -588,7 +588,7 @@ async function captureWorkspaceOnce(
     const nested = paths.find((path) => path.endsWith("/"));
     if (nested !== undefined) {
       return refused(
-        `untracked ${nested} is a nested repository, which a checkpoint cannot carry`,
+        `untracked ${nested} is a nested repository, which a checkpoint cannot carry (a git worktree or clone inside the workspace is one; a branch made with git switch -c in the workspace itself is not)`,
       );
     }
     if (paths.length > limits.maxUntrackedFiles) {
@@ -1029,7 +1029,9 @@ async function unrepresentable(
     const [meta = "", path = ""] = entry.split("\t");
     const [mode, , stageNumber] = meta.split(" ");
     if (stageNumber !== "0") return `${path} has unresolved merge conflicts`;
-    if (mode === "160000") return `${path} is a submodule`;
+    if (mode === "160000") {
+      return `${path} is a submodule (a git worktree or clone inside the workspace, once added, is one; a branch made with git switch -c in the workspace itself is not)`;
+    }
   }
   const tagged = await required(git(["ls-files", "-z", "-v"]), "ls-files");
   for (const entry of tagged.split("\0")) {

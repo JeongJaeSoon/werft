@@ -34,7 +34,6 @@ const run: ReleaseRun = {
   connection,
   runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
   tools: ["Read", "Grep", "Edit", "Bash"],
-  permission_mode: "auto",
   project_settings: { claude_md: true },
 };
 
@@ -179,6 +178,41 @@ describe("verifyReleaseSpec", () => {
   });
 });
 
+// Taken from main before the recorded mode stopped deciding the run: a
+// release stored then keeps its digests, so its id still verifies.
+test.each([
+  [
+    "default",
+    "sha256:6e4e13ebded73e6a9c31e1e9b20f6703b3806d6d978022c42e9410e7b513d602",
+  ],
+  [
+    "auto",
+    "sha256:67dabe603561db93e80a851c3309d123691f9bc43fc71add8ddc9680ba16a13b",
+  ],
+] as const)(
+  "a source recorded as %s keeps its stored digests",
+  (mode, digest) => {
+    const record = releaseSpecRecord({
+      derivation_version: 2,
+      runtime: { kind: "claude_agent_sdk", version: "0.3.319" },
+      connection: {
+        id: "fake-messages",
+        kind: "anthropic",
+        endpoint: "http://fake-messages:4010",
+        billing: "per_token",
+      },
+      model: "claude-sonnet-5",
+      permission_mode: mode,
+      tools: ["Read"],
+      repository_mode: "optional",
+    });
+    expect(record.spec_source_digest).toBe(digest);
+    expect(record.spec_digest).toBe(
+      "sha256:2ec63de7beebee3fd8d85bf82d926ca8dddf27e0d4e2ad437aef9a2cb436f322",
+    );
+  },
+);
+
 describe("runtimeConfigOfSpec", () => {
   test("runs the source's model, tools and mode over its connection", () => {
     const config = runtimeConfigOfSpec(sourceOf(), "egress-token", true);
@@ -193,6 +227,32 @@ describe("runtimeConfigOfSpec", () => {
       },
       project_settings: { claude_md: true },
     });
+  });
+
+  // Before: the engine ran the mode the release recorded (the first value).
+  // After: the mode is decided again from runtime, connection and model.
+  test.each([
+    ["an old Claude release", "default", {}, "auto"],
+    ["a new Claude release", "auto", {}, "auto"],
+    [
+      "a Codex release",
+      "default",
+      {
+        runtime: { kind: "codex_app_server", version: "0.167.0" },
+        connection: {
+          id: "conn-1",
+          kind: "openai_responses",
+          endpoint: "https://api.openai.invalid",
+          billing: "per_token",
+        },
+        model: "gpt-5",
+      },
+      "default",
+    ],
+    ["a non-Claude litellm release", "default", { model: "gpt-5" }, "default"],
+  ] as const)("%s recorded %p and runs %p", (_name, recorded, edit, mode) => {
+    const source = { ...sourceOf(), ...edit, permission_mode: recorded };
+    expect(runtimeConfigOfSpec(source, "t", true).permission_mode).toBe(mode);
   });
 
   test("a session without a repository reads no CLAUDE.md", () => {
