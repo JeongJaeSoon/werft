@@ -57,6 +57,15 @@ const catalog = {
       },
       models: [MODEL],
     },
+    "conn-local": {
+      provider: {
+        kind: "anthropic",
+        endpoint: "http://litellm:4000",
+        billing: "none",
+        auth: { kind: "api_key", value: "k", ref: { stored: "c" } },
+      },
+      models: [MODEL],
+    },
     "conn-responses": {
       provider: {
         kind: "openai_responses",
@@ -220,6 +229,7 @@ describe("a conversation call's reservation", () => {
     expect(await settle(call.callId, exchange)).toEqual({
       outcome: "settled",
       costUsd: BILLED,
+      unmetered: false,
     });
     expect(await callOf(call.callId)).toMatchObject({
       state: "settled",
@@ -253,6 +263,7 @@ describe("a conversation call's reservation", () => {
     expect(await settle(call.callId, exchange)).toEqual({
       outcome: "already_settled",
       costUsd: BILLED,
+      unmetered: false,
     });
     expect(
       await settle(call.callId, exchange, { ...USED, outputTokens: 41 }),
@@ -262,6 +273,28 @@ describe("a conversation call's reservation", () => {
     });
     expect(await settle(crypto.randomUUID() as never, exchange)).toEqual({
       outcome: "unknown_call",
+    });
+  });
+
+  test("an unmetered connection's call costs nothing, and says so on a replay", async () => {
+    const { agentId } = await agentOf();
+    const result = await issue(
+      agentId,
+      person(crypto.randomUUID()),
+      "conn-local",
+    );
+    if (result.outcome !== "issued") throw new Error(result.outcome);
+    const exchange = crypto.randomUUID();
+    await grant(result.token, exchange);
+    expect(await settle(result.callId, exchange)).toEqual({
+      outcome: "settled",
+      costUsd: 0,
+      unmetered: true,
+    });
+    expect(await settle(result.callId, exchange)).toEqual({
+      outcome: "already_settled",
+      costUsd: 0,
+      unmetered: true,
     });
   });
 

@@ -89,7 +89,12 @@ export type ConversationCallAuthorization =
   | { outcome: "invalid_token" };
 
 export type ConversationCallSettle =
-  | { outcome: "settled" | "already_settled"; costUsd: number }
+  | {
+      outcome: "settled" | "already_settled";
+      costUsd: number;
+      // The reservation was on an unmetered connection, so nothing was priced.
+      unmetered: boolean;
+    }
   | { outcome: "unknown_call" }
   // Another exchange's call, or the same exchange reported other usage.
   | { outcome: "conflict" };

@@ -2451,16 +2451,11 @@ export function createWorkerGateway(deps: {
         throw new WorkerGatewayError(404, "NOT_FOUND", "No such call");
       }
       const priced = priceProviderUsage(report.usage);
-      let pricedBy: PricedBy = priced.pricedBy;
       const result = await deps.conversationCalls.store.settleAtomic({
         callId: callId.data,
         exchangeId: report.exchangeId,
         usage: report.usage,
-        priceFor: (call) => {
-          if (!call.unmetered) return priced;
-          pricedBy = "unmetered";
-          return { costUsd: 0 };
-        },
+        priceFor: (call) => (call.unmetered ? { costUsd: 0 } : priced),
       });
       switch (result.outcome) {
         case "unknown_call":
@@ -2472,7 +2467,10 @@ export function createWorkerGateway(deps: {
             "That call is another exchange's or was reported with other usage",
           );
         default:
-          return { costUsd: result.costUsd, pricedBy };
+          return {
+            costUsd: result.costUsd,
+            pricedBy: result.unmetered ? "unmetered" : priced.pricedBy,
+          };
       }
     },
 

@@ -167,18 +167,22 @@ export function createPostgresConversationCalls(
         if (!call) return { outcome: "unknown_call" };
         if (call.exchangeId !== input.exchangeId)
           return { outcome: "conflict" };
-        if (call.state === "settled") {
-          return Bun.deepEquals(call.usage, input.usage)
-            ? { outcome: "already_settled", costUsd: call.costUsd ?? 0 }
-            : { outcome: "conflict" };
-        }
-        // Bound and not settled is in flight: a release takes only an
-        // unbound row.
         const [reservation] = await tx
           .select({ unmetered: budgetReservations.unmetered })
           .from(budgetReservations)
           .where(eq(budgetReservations.callId, input.callId));
         const unmetered = reservation?.unmetered ?? false;
+        if (call.state === "settled") {
+          return Bun.deepEquals(call.usage, input.usage)
+            ? {
+                outcome: "already_settled",
+                costUsd: call.costUsd ?? 0,
+                unmetered,
+              }
+            : { outcome: "conflict" };
+        }
+        // Bound and not settled is in flight: a release takes only an
+        // unbound row.
         const costUsd = unmetered
           ? 0
           : toStoredCost(input.priceFor({ unmetered }).costUsd);
@@ -202,7 +206,7 @@ export function createPostgresConversationCalls(
             endedAt: DB_NOW,
           })
           .where(eq(conversationCalls.id, input.callId));
-        return { outcome: "settled", costUsd };
+        return { outcome: "settled", costUsd, unmetered };
       });
     },
 
