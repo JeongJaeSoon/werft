@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
+import type { ConversationInputId } from "@werft-ai/contracts";
 import type {
   SlackInboundClaim,
   SlackInboundEventStore,
   SlackInboundFence,
 } from "@werft-ai/platform";
 import { and, eq, gt, sql } from "drizzle-orm";
+import {
+  lockSessionForSources,
+  recordSourceInput,
+} from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { slackInboundEvents, slackInstallations } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -218,6 +223,7 @@ export function createPostgresSlackInboundEventStore(
         ) {
           throw new Error(`turn ${turn.id} has no Slack requester`);
         }
+        await lockSessionForSources(tx, input.turn.sessionId);
         await tx.execute(sql`
           INSERT INTO conversation_inputs (
             id, workspace_id, agent_id, topic_id, seq,
@@ -233,6 +239,26 @@ export function createPostgresSlackInboundEventStore(
           FROM conversation_inputs i WHERE i.topic_id = ${input.topicId}::uuid
           ON CONFLICT (agent_id, slack_team_id, slack_channel_id, slack_ts)
             DO NOTHING`);
+        // The row this insert or an earlier take of the message wrote.
+        const [taken] = rowsOf<{ id: ConversationInputId }>(
+          await tx.execute(sql`
+            SELECT id FROM conversation_inputs
+            WHERE agent_id = ${row.agentId}::uuid
+              AND slack_team_id = ${row.teamId}
+              AND slack_channel_id = ${input.channelId}
+              AND slack_ts = ${input.ts}`),
+        );
+        if (taken !== undefined) {
+          await recordSourceInput(tx, {
+            sessionId: input.turn.sessionId,
+            inputId: taken.id,
+            place: {
+              teamId: row.teamId,
+              channelId: input.channelId,
+              ts: input.ts,
+            },
+          });
+        }
         await tx.execute(sql`
           INSERT INTO conversation_engagements (
             workspace_id, agent_id, team_id, channel_id, ts, kind, session_id

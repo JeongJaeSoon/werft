@@ -23,6 +23,7 @@ import type {
   SlackPromptCard,
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
+  StoredSourceSet,
 } from "@werft-ai/platform";
 import {
   and,
@@ -37,6 +38,7 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
+import { outboxSources } from "../conversations/index.ts";
 import {
   catalogName,
   createPostgresPushRequests,
@@ -106,6 +108,7 @@ const entry = {
   sessionLinkId: t.sessionLinkId,
   body: t.body,
   dedupeKey: t.dedupeKey,
+  sources: t.sources,
 };
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
@@ -717,9 +720,13 @@ export function createPostgresSlackOutboxStore(
             if (heard) return "duplicate";
           }
         }
+        const sources =
+          input.sessionId === null || input.sources == null
+            ? null
+            : await outboxSources(tx, input.sessionId, input.sources);
         const [row] = await tx
           .insert(t)
-          .values({ ...input, id: randomUUID() })
+          .values({ ...input, sources, id: randomUUID() })
           .onConflictDoNothing({ target: t.dedupeKey })
           .returning({ id: t.id });
         return row ? "enqueued" : "duplicate";
@@ -796,6 +803,7 @@ export function createPostgresSlackOutboxStore(
           channelId: sessionLinks.channelId,
           threadTs: sessionLinks.threadId,
           turnId: turns.sequence,
+          sources: turns.sources,
           channel: turns.channel,
           message: turns.message,
           senderName: users.displayName,
@@ -873,6 +881,7 @@ export function createPostgresSlackOutboxStore(
           threadTs: sessionLinks.threadId,
           turnRowId: turns.id,
           turnId: turns.sequence,
+          sources: turns.sources,
           status: turns.status,
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
@@ -1044,6 +1053,7 @@ export function createPostgresSlackOutboxStore(
           ...target,
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pendingRequests.requestId,
+          sources: turns.sources,
           payload: pendingRequests.payload,
           expiresAt: pendingRequests.expiresAt,
         })
@@ -1075,6 +1085,22 @@ export function createPostgresSlackOutboxStore(
           ...target,
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pushRequests.id,
+          // The turn whose intent made the request; a request no intent
+          // made, the session's latest turn when it was asked, which holds
+          // every source before it.
+          // An intent's turn with no sources gives none.
+          sources: sql<StoredSourceSet | null>`CASE WHEN EXISTS (
+              SELECT 1 FROM push_intents pi
+              WHERE pi.push_request_id = ${pushRequests.id})
+            THEN (SELECT it.sources FROM push_intents pi
+              JOIN ${turns} it ON it.id = pi.turn_id
+              WHERE pi.push_request_id = ${pushRequests.id}
+              ORDER BY pi.turn_id LIMIT 1)
+            ELSE (SELECT lt.sources FROM ${turns} lt
+              WHERE lt.session_id = ${sessions.id}
+                AND lt.created_at <= ${pushRequests.createdAt}
+              ORDER BY lt.sequence DESC LIMIT 1)
+            END`,
           repositoryId: pushRequests.repositoryId,
           repositoryName: catalogName(sql`${pushRequests.repositoryId}`),
           targetBranch: pushRequests.targetBranch,

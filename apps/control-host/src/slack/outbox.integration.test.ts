@@ -1570,6 +1570,109 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
+  test("a push card carries the sources the session had when the push was asked, not a later turn's", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    const [asked] = await db
+      .select({ sources: turns.sources })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    const receiptId = randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: session.ownerId,
+      operation: "request_push",
+      targetRef: { kind: "session", id: sessionId },
+    });
+    await db.insert(pushRequests).values({
+      id: randomUUID(),
+      ownerId: session.ownerId,
+      sessionId,
+      repositoryId: "sandbox",
+      checkpointRevision: 1,
+      gitCommit: "a".repeat(40),
+      targetBranch: `agent/${sessionId}`,
+      state: "requested",
+      requestedBy: {
+        principal: { kind: "installation", id: "i" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requestReceiptId: receiptId,
+      createdAt: new Date(Date.now() - 60_000),
+    });
+    // A later post of the thread, after the push was asked.
+    await db.insert(turns).values({
+      sessionId,
+      sequence: 2,
+      message: "later",
+      status: "queued",
+      sources: {
+        direct: [{ team_id: TEAM, channel_id: CHANNEL, ts: "100.000900" }],
+        inherited: asked?.sources?.direct ?? [],
+      },
+    });
+    await db
+      .update(turns)
+      .set({ createdAt: new Date(Date.now() - 120_000) })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    // A request an intent made takes its turn's sources, none included,
+    // though a later turn with sources was there when it was asked.
+    const [noSources] = await db
+      .insert(turns)
+      .values({ sessionId, sequence: 3, message: "quiet", status: "completed" })
+      .returning({ id: turns.id });
+    const intentReceipt = randomUUID();
+    await db.insert(receipts).values({
+      id: intentReceipt,
+      ownerId: session.ownerId,
+      operation: "request_push",
+      targetRef: { kind: "session", id: sessionId },
+    });
+    const byIntent = randomUUID();
+    await db.insert(pushRequests).values({
+      id: byIntent,
+      ownerId: session.ownerId,
+      sessionId,
+      repositoryId: "sandbox",
+      checkpointRevision: 1,
+      gitCommit: "b".repeat(40),
+      targetBranch: `agent/${sessionId}-intent`,
+      state: "requested",
+      requestedBy: {
+        principal: { kind: "installation", id: "i" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requestReceiptId: intentReceipt,
+    });
+    await db.insert(pushIntents).values({
+      id: randomUUID(),
+      ownerId: session.ownerId,
+      sessionId,
+      turnId: noSources?.id ?? 0,
+      attemptId: "attempt",
+      repositoryId: "sandbox",
+      targetBranch: `agent/${sessionId}-intent`,
+      status: "requested",
+      pinnedRevision: 1,
+      pushRequestId: byIntent,
+      actor: {},
+    });
+    await outboxPass();
+    const cards = (await rows()).filter((row) => row.kind === "input_notice");
+    expect(cards.map((row) => row.sources)).toEqual([
+      asked?.sources ?? null,
+      null,
+    ]);
+  });
+
   test("a push request waiting for its decision gets one card, and none once decided", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -1674,6 +1777,36 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ).toEqual([
       ["reply", "uncertain", "unreadable_answer"],
       ["failure_notice", "uncertain", "unreadable_answer"],
+    ]);
+  });
+
+  test("a reply, and the notice that its send went uncertain, carry the sources of the turn they answer", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    const [turn] = await db
+      .select({ sources: turns.sources })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    expect(turn?.sources).toMatchObject({
+      direct: [{ team_id: TEAM, channel_id: CHANNEL, ts: THREAD }],
+      inherited: [],
+    });
+    const live = createSlackBotApi({ apiUrl: slack.url });
+    await outboxPass({
+      slack: {
+        ...live,
+        postMessage: async () => ({
+          httpStatus: 200,
+          retryAfterHeader: null,
+          body: null,
+        }),
+      },
+    });
+    expect((await rows()).map((row) => [row.kind, row.sources])).toEqual([
+      ["reply", turn?.sources ?? null],
+      ["failure_notice", turn?.sources ?? null],
     ]);
   });
 

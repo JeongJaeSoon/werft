@@ -123,6 +123,7 @@ import type {
   SlackOutboxBody,
   SlackOutboxKind,
   SlackOutboxStatus,
+  StoredSourceSet,
   WorkspaceMcpOAuthPin,
   WorkspaceMcpTool,
 } from "@werft-ai/platform";
@@ -1925,8 +1926,15 @@ export const turns = pgTable(
     requesterAuth: jsonb("requester_auth").$type<unknown>(),
     callerChannel: text("caller_channel"),
     callerLimitDigest: text("caller_limit_digest"),
+    // What the turn came from (`StoredSourceSet`): Slack places and input
+    // ids, never text. Null for none and before 0324.
+    sources: jsonb().$type<StoredSourceSet>(),
   },
   (table) => [
+    // Which turns a delete mark's place is in, direct or inherited.
+    index("turns_sources_idx")
+      .using("gin", table.sources.op("jsonb_path_ops"))
+      .where(sql`${table.sources} IS NOT NULL`),
     uniqueIndex("turns_session_sequence_uniq").on(
       table.sessionId,
       table.sequence,
@@ -5707,9 +5715,14 @@ export const slackOutbox = pgTable(
     settleAttempts: integer("settle_attempts").notNull().default(0),
     settleNextAt: timestamp("settle_next_at", { withTimezone: true }),
     settleError: text("settle_error"),
+    /** The sources of the turn the row answers or tells of; null for none. */
+    sources: jsonb().$type<StoredSourceSet>(),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
+    index("slack_outbox_sources_idx")
+      .using("gin", table.sources.op("jsonb_path_ops"))
+      .where(sql`${table.sources} IS NOT NULL`),
     check(
       "slack_outbox_settle_state_check",
       sql`${table.settleState} IN ('due', 'settled', 'abandoned')`,

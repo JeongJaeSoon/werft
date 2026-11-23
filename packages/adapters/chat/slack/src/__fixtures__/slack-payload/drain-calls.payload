@@ -414,6 +414,7 @@
         "sessionLinkId": null,
         "slackAppId": "app-1",
         "slackUserId": null,
+        "sources": null,
         "threadTs": "100.000100",
         "workspaceId": "workspace-1"
       }

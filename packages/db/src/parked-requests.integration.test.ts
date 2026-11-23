@@ -1829,6 +1829,27 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(grant?.consumedAt).toBeNull();
   });
 
+  test("the turn that carries a park on inherits the parked turn's sources, none of its own", async () => {
+    const { owner, sessionId, requestIds, turnRowId } = await parked(1);
+    const place = {
+      team_id: "T0SRC",
+      channel_id: "C0SRC",
+      ts: "1792800000.000100",
+    };
+    await db
+      .update(turns)
+      .set({ sources: { direct: [place], inherited: [] } })
+      .where(eq(turns.id, turnRowId));
+    const answered = await answerWith(owner, sessionId, {
+      request_id: requestIds[0] ?? "",
+      kind: "permission",
+      decision: "allow",
+    });
+    expect(answered).toMatchObject({ resumed: true });
+    const [carried] = await continuations(turnRowId);
+    expect(carried?.sources).toEqual({ direct: [], inherited: [place] });
+  });
+
   test("answers kept before their turn parked still carry it on, cut to fit one message", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const requestIds: string[] = [];

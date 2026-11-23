@@ -5,6 +5,7 @@ import type {
   UserLocale,
 } from "@werft-ai/contracts";
 import type { PushRequestDisplay } from "../action/ports/push-requests.ts";
+import type { StoredSourceSet } from "../conversations/index.ts";
 import type {
   PendingRequestDisplay,
   ToolSummaryContext,
@@ -81,6 +82,11 @@ export type SlackOutboxEntry = {
   body: SlackOutboxBody;
   /** The same key twice enqueues once. */
   dedupeKey: string;
+  /**
+   * The sources of the turn the row answers or tells of, as that turn holds
+   * them; absent or null for none, and for a row of no one turn.
+   */
+  sources?: StoredSourceSet | null;
 };
 
 export type SlackOutboxFence = { id: string; claimToken: string };
@@ -117,6 +123,8 @@ export type SlackLinkedTurnTarget = {
 export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
   /** The public turn id, 1-based within the session. */
   turnId: number;
+  /** The turn's sources, which its reply or failure notice carries on. */
+  sources: StoredSourceSet | null;
   state: "completed" | "failed";
   /** The Slack account linked to whoever asked for the turn, if any. */
   requesterSlackUserId: string | null;
@@ -133,6 +141,7 @@ export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
  */
 export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
   turnId: number;
+  sources: StoredSourceSet | null;
   channel: "web" | "api";
   message: string;
   /** Who sent it; null for an API key no person created. */
@@ -147,6 +156,8 @@ export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
  * push request waiting for its decision.
  */
 export type SlackPendingPrompt = SlackLinkedTurnTarget & {
+  /** The sources of the turn that asked. */
+  sources: StoredSourceSet | null;
   /** The Slack account linked to whoever asked for the turn, if any. */
   requesterSlackUserId: string | null;
   prompt:

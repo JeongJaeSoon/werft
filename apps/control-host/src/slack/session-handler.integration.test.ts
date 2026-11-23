@@ -11,6 +11,7 @@ import { drainSlackInbox, slackConversationKey } from "@werft-ai/chat-slack";
 import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
+  type ConversationInputId,
   DEFAULT_SURFACE_CEILING,
   GITHUB_CEILING_NONE,
   SESSION_SCOPE_VALUES,
@@ -971,6 +972,37 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       .from(schema.conversationTopics)
       .where(eq(schema.conversationTopics.slackThreadTs, "200.000100"));
     expect(topic?.conversationId).toBe(parent?.id ?? "");
+  });
+
+  test("a mention's turn and its thread's next one hold their inputs as sources, the next inheriting the first", async () => {
+    const fixture = await agentInSlack();
+    await deliver(fixture, mention("100.000100"));
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    expect(await drain(handler().handle)).toMatchObject({ processed: 2 });
+    const { rows: inputs } = (await db.execute(
+      sql`SELECT id, slack_ts FROM conversation_inputs ORDER BY seq`,
+    )) as unknown as { rows: { id: ConversationInputId; slack_ts: string }[] };
+    const key = (index: number) => ({
+      input_id: inputs[index]?.id,
+      team_id: TEAM,
+      channel_id: CHANNEL,
+      ts: inputs[index]?.slack_ts,
+    });
+    expect(inputs.map((row) => row.slack_ts)).toEqual([
+      "100.000100",
+      "100.000200",
+    ]);
+    const [session] = await sessionsOf(fixture);
+    expect(
+      await db
+        .select({ sources: turns.sources })
+        .from(turns)
+        .where(eq(turns.sessionId, session?.id ?? ""))
+        .orderBy(turns.sequence),
+    ).toEqual([
+      { sources: { direct: [key(0)], inherited: [] } },
+      { sources: { direct: [key(1)], inherited: [key(0)] } },
+    ]);
   });
 
   test("a delete mark of a message taken as an input outlives the unknown-mark purge", async () => {
