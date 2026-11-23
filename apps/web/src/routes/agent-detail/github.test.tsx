@@ -1365,6 +1365,52 @@ describe("에이전트 GitHub 탭", () => {
     expect(repoSwitch("werft-sandbox").getAttribute("aria-invalid")).toBeNull();
   });
 
+  test("게시 전이라 저장된 설정이 없으면 게시를 안내하고 충돌 문구는 쓰지 않는다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [ACCESS]: () =>
+          apiError(409, "REVISION_CONFLICT", "no seed", false, {
+            reason_code: "settings_seed_unavailable",
+          }),
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    await user.click(repoSwitch("docs-site"));
+    const row = repoSwitch("docs-site").closest(
+      '[role="row"], li',
+    ) as HTMLElement;
+    expect(
+      await within(row).findByText(
+        "저장소를 바꾸지 못했습니다: 먼저 에이전트를 게시해야 GitHub 저장소를 켤 수 있습니다.",
+      ),
+    ).toBeTruthy();
+    expect(within(row).queryByText(/다른 곳에서 먼저 바꿨습니다/)).toBeNull();
+  });
+
+  test("진짜 revision 충돌은 그대로 다른 곳에서 먼저 바꿨다고 알린다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [ACCESS]: () => apiError(409, "REVISION_CONFLICT", "stale"),
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    await user.click(repoSwitch("docs-site"));
+    const row = repoSwitch("docs-site").closest(
+      '[role="row"], li',
+    ) as HTMLElement;
+    expect(
+      await within(row).findByText(
+        "저장소를 바꾸지 못했습니다: 다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
+      ),
+    ).toBeTruthy();
+  });
+
   test("연속한 스위치는 겹치지 않고 클릭한 값 그대로 차례로 보낸다", async () => {
     const { server } = await activeAgent();
     const bodies: unknown[] = [];

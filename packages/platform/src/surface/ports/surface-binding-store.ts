@@ -249,21 +249,11 @@ export interface SurfaceBindingStore {
     at: number | null,
   ): Promise<boolean>;
   /**
-   * Slack deleted the channel (`channel_deleted`, `group_deleted`) at `at`.
-   * Its `ready`, `pending_approval` or `left` binding becomes `gone`:
-   * inactive, no longer home, its approval cleared, a `set_surface_binding`
-   * receipt (reason `channel_deleted`); mode, ceiling and kind stay. The
-   * deletion is noted as the channel's leave whatever its order, so a join
-   * stamped before it changes nothing; a join noted after it (a retried
-   * deletion arriving late) keeps the binding as that join left it. False
-   * when no binding changed.
-   */
-  /**
    * What the channel is now, as `kindNow` asks Slack inside the transaction
    * after a lock on the channel, so of two conversions racing the later read
    * is the one written (a conversion event, or the operator command). Null
-   * when `kindNow` cannot tell: nothing changes. In one transaction: a live binding still
-   * of the other kind follows, a public one turned private waiting for
+   * when `kindNow` cannot tell: nothing changes. In one transaction: a live
+   * binding still of the other kind follows, a public one turned private waiting for
    * approval (reason `channel_now_private`), a private one turned public
    * ready (a `left` one stays, its kind checked by the table); then the
    * channel's sessions follow (`ChannelScopePlan`). Running it again with
@@ -273,6 +263,17 @@ export interface SurfaceBindingStore {
     place: ChannelSessionPlace,
     kindNow: () => Promise<ChannelKindNow | null>,
   ): Promise<ChannelKindChanged | null>;
+  /**
+   * Slack deleted the channel (`channel_deleted`, `group_deleted`) at `at`.
+   * Its `ready`, `pending_approval` or `left` binding becomes `gone`:
+   * inactive, no longer home, its approval cleared, a `set_surface_binding`
+   * receipt (reason `channel_deleted`); mode, ceiling and kind stay. The
+   * deletion is noted as the channel's leave whatever its order, so a join
+   * stamped before it changes nothing; a join noted after it (a retried
+   * deletion arriving late) keeps the binding as that join left it. Every
+   * deletion but that late one also deletes the channel's summary, with its
+   * history, whatever the binding. False when no binding changed.
+   */
   channelDeleted(
     installationId: string,
     channelId: string,

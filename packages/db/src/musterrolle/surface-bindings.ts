@@ -18,7 +18,10 @@ import type {
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { findPgError, UUID } from "../control-shared.ts";
-import { dropUnlistenedBuffer } from "../conversations/index.ts";
+import {
+  deleteChannelSummary,
+  dropUnlistenedBuffer,
+} from "../conversations/index.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -1180,6 +1183,17 @@ async function channelDeleted(
         return false;
       }
     }
+    // The summary is the channel's, one for every agent in it: each agent's
+    // event deletes it whatever its binding, and the later ones find none.
+    // A channel_not_found never does, as a join can still prove it wrong.
+    const [install] = await tx
+      .select({
+        workspaceId: slackInstallations.workspaceId,
+        teamId: slackInstallations.teamId,
+      })
+      .from(slackInstallations)
+      .where(eq(slackInstallations.id, installation));
+    if (install) await deleteChannelSummary(tx, { ...install, channelId });
     const current = await lockBinding(tx, channelOf(installation, channelId));
     if (!current || !ACTIVE_OR_LEFT.has(current.status)) return false;
     await markGone(tx, current, "channel_deleted", at);
