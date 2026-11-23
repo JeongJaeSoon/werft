@@ -119,7 +119,7 @@ describe("private_channel sessions on the reads", () => {
       )
     ).items
       .map((item) => item.id)
-      .filter((id) => Object.values(ids).includes(id))
+      .filter((id) => (Object.values(ids) as string[]).includes(id))
       .sort();
   const counted = async (viewer: SessionViewer) => {
     const counts = await createPostgresSessionReader(db).countSessions(
