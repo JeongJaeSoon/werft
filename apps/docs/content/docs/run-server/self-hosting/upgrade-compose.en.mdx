@@ -272,7 +272,6 @@ Migration `0324_source_sets` adds a source set column `sources` (jsonb, nullable
 - This release only records sources. Nothing yet holds a reply back or stops a session because a source was deleted.
 - The columns are added with no default and the indexes are built `CONCURRENTLY`, so no table is rewritten and writes are not held for long. Existing turns and rows stay empty. Rolling back to an image inside the support window is fine. The older image does not read the column, and turns made meanwhile have no sources.
 
-<a id="slack-글을-입력-접수-표에-적는-릴리스" />
 <a id="slack-스레드의-게시-설정을-칸-셋으로-나눈-릴리스" />
 ### The release that splits a Slack thread's posting into three columns
 
@@ -284,6 +283,7 @@ Migration `0326_link_posting` adds three posting columns to `session_links` and 
 - The `session_links` CHECK is added `NOT VALID` and validated separately, so writes are not blocked for long. The `visibility` column stays until a later release drops it.
 - Rolling back to an image inside the support window is safe. The old image reads only `visibility`, and links the new image made still have `visibility` `full`, so they post as now.
 
+<a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### The release that records Slack posts in the input table
 
 Migration `0316_conversation_inputs` adds the input table `conversation_inputs`. The slack role still turns a mention, a DM or a post in a linked thread into a session turn as before, and in the transaction that marks its inbox row processed it records the post as one input row. From this release it also fills `conversations` and `conversation_topics` from 0310. The upgrade needs nothing from you, and Slack and sessions behave as before.
