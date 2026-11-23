@@ -309,7 +309,11 @@ integration("budget accounts on PostgreSQL", () => {
     );
     expect((await reserveFor(choice, 6)).outcome).toBe("reserved");
     expect((await reserveFor(choice, 6)).outcome).toBe("refused");
+    // 6 + 3 is past 80% of 10: before the 80% mark this none reserve got in.
     expect((await reserveFor({ ...choice, rootKind: "none" }, 3)).outcome).toBe(
+      "refused",
+    );
+    expect((await reserveFor({ ...choice, rootKind: "none" }, 1)).outcome).toBe(
       "reserved",
     );
   });
@@ -426,6 +430,117 @@ integration("budget accounts on PostgreSQL", () => {
         ),
       ),
     ).rejects.toThrow();
+  });
+
+  describe("the 80% and 100% marks on a limited account", () => {
+    // An account of each owner the root kind charges, used to a share of
+    // its limit of 100, then a reserve of 0.5. Root kind none runs to 80%,
+    // a key's and a person's to 100%.
+    const table: [number, Record<"user" | "key" | "none", string>][] = [
+      [79, { user: "reserved", key: "reserved", none: "reserved" }],
+      [80, { user: "reserved", key: "reserved", none: "refused" }],
+      [99, { user: "reserved", key: "reserved", none: "refused" }],
+      [100, { user: "refused", key: "refused", none: "refused" }],
+    ];
+    async function usedTo(choice: BudgetChoice, percent: number) {
+      const owner = choice.owner;
+      if (owner === null) throw new Error("no owner");
+      await saveBudgetLimit(
+        db,
+        workspaceId,
+        owner.kind === "user"
+          ? { kind: "user", userId: owner.userId }
+          : { kind: "team", teamId: owner.teamId },
+        { costUsd: 100, tokens: null },
+      );
+      // A key's reserve of 10 makes the month's row and stays held.
+      const warm = await reserveFor({ ...choice, rootKind: "key" }, 10);
+      if (warm.outcome !== "reserved") throw new Error(warm.outcome);
+      await db
+        .update(budgetAccounts)
+        .set({ spentCostUsd: percent - 10 })
+        .where(eq(budgetAccounts.id, warm.accountId as never));
+    }
+    for (const [percent, expected] of table) {
+      test(`${percent}% used`, async () => {
+        const outcomes: Record<string, string> = {};
+        for (const rootKind of ["user", "key", "none"] as const) {
+          const choice =
+            rootKind === "user"
+              ? person()
+              : rootKind === "key"
+                ? team("key")
+                : team("none");
+          await usedTo(choice, percent);
+          outcomes[rootKind] = (await reserveFor(choice, 0.5)).outcome;
+        }
+        expect(outcomes).toEqual(expected);
+      });
+    }
+  });
+
+  test("two reserves of root kind none at once across the 80% mark: both wait on the account row, one gets in", async () => {
+    const choice = team("none");
+    if (choice.owner?.kind !== "team") throw new Error("team");
+    await saveBudgetLimit(
+      db,
+      workspaceId,
+      { kind: "team", teamId: choice.owner.teamId },
+      { costUsd: 10, tokens: null },
+    );
+    // The month's row exists, at 2 spent, so only its lock orders the two.
+    const warm = await reserveFor({ ...choice, rootKind: "key" }, 1);
+    if (warm.outcome !== "reserved") throw new Error(warm.outcome);
+    await db
+      .update(budgetReservations)
+      .set({ state: "released", endedAt: sql`now()` })
+      .where(eq(budgetReservations.accountId, warm.accountId as never));
+    await db
+      .update(budgetAccounts)
+      .set({ reservedCostUsd: 0, reservedTokens: 0, spentCostUsd: 2 })
+      .where(eq(budgetAccounts.id, warm.accountId as never));
+    // Another transaction holds the account row, as a reserve in flight
+    // does: both reserves must queue on it, so neither judges a sum the
+    // other has not added to yet. 2 + 3 is under 8; 2 + 3 + 3 reaches it.
+    const holder = await pool.connect();
+    await holder.query("BEGIN");
+    await holder.query(
+      "SELECT 1 FROM budget_accounts WHERE id = $1 FOR UPDATE",
+      [warm.accountId],
+    );
+    let reserving: Promise<{ outcome: string }>[] = [];
+    try {
+      reserving = [reserveFor(choice, 3), reserveFor(choice, 3)];
+      for (const one of reserving) {
+        expect(
+          await Promise.race([
+            one.then(() => "done"),
+            Bun.sleep(400).then(() => "waited"),
+          ]),
+        ).toBe("waited");
+      }
+    } finally {
+      await holder.query("COMMIT");
+      holder.release();
+    }
+    const results = await Promise.all(reserving);
+    expect(results.map((result) => result.outcome).sort()).toEqual([
+      "refused",
+      "reserved",
+    ]);
+    expect(await accountOf(warm.accountId)).toMatchObject({
+      reservedCostUsd: 3,
+    });
+  });
+
+  test("an installation with no limit: a person's reserve always gets in, as before", async () => {
+    const choice = person();
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => reserveFor(choice, 1_000)),
+    );
+    expect(results.map((result) => result.outcome)).toEqual(
+      Array(5).fill("reserved"),
+    );
   });
 
   test("an installation with no team limit: an agent key's reserve always gets in", async () => {

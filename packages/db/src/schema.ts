@@ -3576,7 +3576,9 @@ export const budgetAccounts = pgTable(
 // One call's reservation, by the call's id. A call with no account to
 // charge (a key of an agent with no team) is kept all the same, with its
 // root kind. A settled or released row stays, so the same id does not
-// count twice.
+// count twice. unknown_at marks a reserved row whose call was used and not
+// reported within its lease: still held. Older images ignore the column and
+// settle or release the row as reserved.
 export const budgetReservations = pgTable(
   "budget_reservations",
   {
@@ -3607,9 +3609,15 @@ export const budgetReservations = pgTable(
       .notNull()
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    unknownAt: timestamp("unknown_at", { withTimezone: true }),
   },
   (table) => [
     index("budget_reservations_account_idx").on(table.accountId),
+    index("budget_reservations_unknown_idx")
+      .on(table.accountId)
+      .where(
+        sql`${table.state} = 'reserved' AND ${table.unknownAt} IS NOT NULL`,
+      ),
     check(
       "budget_reservations_root_kind_check",
       sql`${table.rootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
@@ -3675,6 +3683,9 @@ export const conversationCalls = pgTable(
       .defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    // In flight past the lease with no report: its end is unknown, still
+    // held. Older images ignore it and treat the row as in flight.
+    unknownAt: timestamp("unknown_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("conversation_calls_token_uniq").on(table.tokenHash),
@@ -3682,6 +3693,9 @@ export const conversationCalls = pgTable(
     index("conversation_calls_reserved_expiry_idx")
       .on(table.expiresAt)
       .where(sql`${table.state} = 'reserved'`),
+    index("conversation_calls_in_flight_started_idx")
+      .on(table.startedAt)
+      .where(sql`${table.state} = 'in_flight' AND ${table.unknownAt} IS NULL`),
     check(
       "conversation_calls_root_kind_check",
       sql`${table.rootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,

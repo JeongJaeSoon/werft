@@ -1,5 +1,5 @@
 {
-  "id": "eda8bbe6-12ff-4738-8b2d-4922dc0634f3",
+  "id": "b2c43d54-c7cf-43aa-aff7-882a88500b7a",
   "prevId": "a35323ff-c07f-43d7-8c97-030dc8aadba2",
   "version": "7",
   "dialect": "postgresql",
@@ -3916,6 +3916,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "unknown_at": {
+          "name": "unknown_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -3930,6 +3936,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "budget_reservations_unknown_idx": {
+          "name": "budget_reservations_unknown_idx",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"budget_reservations\".\"state\" = 'reserved' AND \"budget_reservations\".\"unknown_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5465,6 +5487,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "unknown_at": {
+          "name": "unknown_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5510,6 +5538,22 @@
           ],
           "isUnique": false,
           "where": "\"conversation_calls\".\"state\" = 'reserved'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_calls_in_flight_started_idx": {
+          "name": "conversation_calls_in_flight_started_idx",
+          "columns": [
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"state\" = 'in_flight' AND \"conversation_calls\".\"unknown_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5853,22 +5897,6 @@
           ],
           "isUnique": true,
           "where": "\"conversation_inputs\".\"client_message_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_inputs_mirror_due_idx": {
-          "name": "conversation_inputs_mirror_due_idx",
-          "columns": [
-            {
-              "expression": "received_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_inputs\".\"slack_mirror\" = 'pending' AND \"conversation_inputs\".\"slack_ts\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -17037,12 +17065,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
-        },
-        "input_id": {
-          "name": "input_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -17126,22 +17148,6 @@
           "method": "btree",
           "with": {}
         },
-        "slack_outbox_input_idx": {
-          "name": "slack_outbox_input_idx",
-          "columns": [
-            {
-              "expression": "input_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_outbox\".\"input_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "slack_outbox_uncertain_idx": {
           "name": "slack_outbox_uncertain_idx",
           "columns": [
@@ -17196,15 +17202,6 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "slack_outbox_input_fk": {
-          "name": "slack_outbox_input_fk",
-          "tableFrom": "slack_outbox",
-          "tableTo": "conversation_inputs",
-          "columnsFrom": ["input_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "slack_outbox_agent_fk": {
           "name": "slack_outbox_agent_fk",
           "tableFrom": "slack_outbox",
@@ -17233,13 +17230,9 @@
           "name": "slack_outbox_settle_claim_check",
           "value": "(\"slack_outbox\".\"settle_claim_token\" IS NULL) = (\"slack_outbox\".\"settle_lease_expires_at\" IS NULL)"
         },
-        "slack_outbox_input_check": {
-          "name": "slack_outbox_input_check",
-          "value": "(\"slack_outbox\".\"kind\" = 'input_mirror') = (\"slack_outbox\".\"input_id\" IS NOT NULL)"
-        },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",

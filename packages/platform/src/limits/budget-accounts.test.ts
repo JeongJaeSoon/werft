@@ -309,6 +309,65 @@ describe("admitsBudgetReserve", () => {
       );
     }
   });
+  // Decision 31 at 80% and 100%: an account at each use, then a reserve of
+  // 0.5% of its limit. Before, every root kind ran to 100%; now root kind
+  // none stops at 80%, and slack_bot runs to 100% as a key does.
+  describe("the 80% and 100% marks", () => {
+    const roots = ["user", "key", "slack_bot", "none"] as const;
+    // use (%) → admitted, for each of roots in order. Before, the none
+    // column read as the others: true, true, true, false.
+    const table: [number, boolean[]][] = [
+      [79, [true, true, true, true]],
+      [80, [true, true, true, false]],
+      [99, [true, true, true, false]],
+      [100, [false, false, false, false]],
+    ];
+    const cases = [
+      ["cost", { costUsd: 200, tokens: null }],
+      ["tokens", { costUsd: null, tokens: 200_000 }],
+    ] as const;
+    for (const [unit, limit] of cases) {
+      for (const [use, after] of table) {
+        test(`${unit} limit, ${use}% used`, () => {
+          const share = (percent: number) => ({
+            costUsd: ((limit.costUsd ?? 0) * percent) / 100,
+            tokens: ((limit.tokens ?? 0) * percent) / 100,
+          });
+          expect(
+            roots.map((rootKind) =>
+              admitsBudgetReserve({
+                rootKind,
+                limit,
+                held: {
+                  spent: share(use - 10),
+                  reserved: share(10),
+                },
+                reserve: share(0.5),
+              }),
+            ),
+          ).toEqual(after);
+        });
+      }
+    }
+    test("without a limit there is no 80% mark", () => {
+      const held = {
+        spent: { costUsd: 1_000_000, tokens: 1_000_000 },
+        reserved: { costUsd: 0, tokens: 0 },
+      };
+      for (const limit of [null, { costUsd: null, tokens: null }]) {
+        expect(
+          roots.map((rootKind) =>
+            admitsBudgetReserve({
+              rootKind,
+              limit,
+              held,
+              reserve: { costUsd: 1, tokens: 1 },
+            }),
+          ),
+        ).toEqual([true, true, true, false]);
+      }
+    });
+  });
   test("a cost sum that reaches the limit exactly is reached, whatever floats say", () => {
     // 0.7 + 0.1 + 0.1 is 0.8999999999999999 in floating point.
     expect(

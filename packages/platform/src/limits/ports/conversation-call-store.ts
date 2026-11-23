@@ -45,6 +45,16 @@ export interface ConversationCallStore {
     /** Counts what it would release, and writes nothing. */
     dryRun: boolean;
   }): Promise<{ released: number }>;
+  /**
+   * Marks up to `limit` calls in flight past the provider exchange lease
+   * with no report `unknown`, the call and its reservation both: still
+   * held, until a late report settles them.
+   */
+  markUnknown(input: {
+    limit: number;
+    /** Counts what it would mark, and writes nothing. */
+    dryRun: boolean;
+  }): Promise<{ unknown: number }>;
 }
 
 export type ConversationCallIssueInput = {
