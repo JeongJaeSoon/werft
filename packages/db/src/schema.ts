@@ -6045,6 +6045,11 @@ export const slackOutbox = pgTable(
       .on(table.leaseExpiresAt)
       .where(sql`${table.status} = 'sending'`),
     index("slack_outbox_session_idx").on(table.sessionId),
+    // The input_fk check on every conversation_inputs delete (the judgment
+    // buffer's purge) reads this rather than the whole outbox.
+    index("slack_outbox_input_idx")
+      .on(table.inputId)
+      .where(sql`${table.inputId} IS NOT NULL`),
     index("slack_outbox_uncertain_idx")
       .on(table.seq)
       .where(sql`${table.status} = 'uncertain' AND ${table.kind} = 'reply'`),
