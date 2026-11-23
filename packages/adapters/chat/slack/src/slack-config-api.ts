@@ -550,6 +550,15 @@ export interface SlackBotSender {
       iconUrl?: string;
       /** Block Kit; `text` stays the notification and fallback. */
       blocks?: unknown[];
+      /**
+       * Message metadata, which Slack gives back on the post's own events:
+       * a web input's mirror names its correlation id here. No other row
+       * sends any.
+       */
+      metadata?: {
+        event_type: string;
+        event_payload: Record<string, string>;
+      };
     },
   ): Promise<SlackSendResponse>;
   /** `users.info`'s 48px profile image; null when Slack names none. */
@@ -888,6 +897,7 @@ export function createSlackBotApi(
         ...(input.username === undefined ? {} : { username: input.username }),
         ...(input.iconUrl === undefined ? {} : { icon_url: input.iconUrl }),
         ...(input.blocks === undefined ? {} : { blocks: input.blocks }),
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
         link_names: false,
         unfurl_links: false,
         unfurl_media: false,

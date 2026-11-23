@@ -70,6 +70,7 @@ import {
   createOutboxSlackNoticeSink,
   drainSlackInbox,
   drainSlackOutbox,
+  SLACK_INPUT_HOLD_MS,
   type SlackInboundHandler,
   type SlackInboxDrain,
   type SlackNoticeSink,
@@ -85,6 +86,7 @@ export function slackRoleSettings(environment: Environment): {
   batchSize: number;
   leaseMs: number;
   passBudgetMs: number;
+  inputHoldMs: number;
 } {
   const { passTimeoutMs } = passLoopConfigFromEnv(
     environment,
@@ -101,6 +103,11 @@ export function slackRoleSettings(environment: Environment): {
         default: 60,
       }) * 1000,
     passBudgetMs: passTimeoutMs / 2,
+    inputHoldMs:
+      integerSetting(environment, "SLACK_ROLE_INPUT_HOLD_SEC", {
+        min: 1,
+        default: SLACK_INPUT_HOLD_MS / 1000,
+      }) * 1000,
   };
 }
 
@@ -383,6 +390,7 @@ export async function main(
       deadline,
       statusesFirst: nextStatusesFirst(),
       requesterLeft: slackPushRequesterLeft(db, secretKey, environment, logger),
+      inputHoldMs: settings.inputHoldMs,
     });
     if (sent.enqueued + sent.claimed + sent.uncertain > 0) {
       logger.info("Slack outbox pass", sent);

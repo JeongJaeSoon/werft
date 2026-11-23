@@ -237,6 +237,19 @@ migration `0320_session_parent_conversation`이 `sessions.parent_conversation_id
 - 채운 수는 로그 `Parent conversations filled`에 남는다. 채우지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다.
 - 지원 창 안의 이미지로 되돌려도 된다. 그동안 만든 Slack 세션은 부모 없이 생기고, 다시 올리면 기동 때 채워진다.
 
+### 웹 입력의 Slack 글 위치를 기다리는 줄을 보류하는 릴리스
+
+migration `0335_input_hold`가 `slack_outbox`에 칸 `correlation_id`와 `held_for_input_id`를 더하고, `conversation_inputs.slack_mirror`에 값 `unconfirmed`를 더한다. 올릴 때 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 칸이 채워지는 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
+
+- 웹 입력의 Slack 글이 아직 위치(ts)를 받기 전에는, 그 글의 스레드로 가야 할 Slack 줄을 종류와 상관없이 보류한다. 글이 올라가면 위치를 적는 같은 트랜잭션에서 그 스레드로 풀려 나간다. 이미 위치가 있는 스레드로 가는 줄은 그대로다.
+- 웹 입력의 Slack 글에는 요청마다 새로 만든 상관값을 message metadata(`event_type` `werft_input_mirror`)로 싣는다. 다른 줄의 글에는 metadata가 없다.
+- 게시가 `uncertain`으로 끝나면 다시 보내지 않고, 새 스레드나 채널 맨 위 글을 만들지 않는다. 입력은 `unconfirmed`("Slack 반영을 확인하지 못했어요")가 되고, 같은 주제의 다음 입력도 기다린다.
+- Slack이 돌려보낸 자기 앱의 글이 metadata의 상관값으로 `uncertain`인 거울 하나를 정확히 가리키면, 그 글을 거울의 게시로 보고 입력의 별칭으로 잇는다. 후보가 없거나 둘 이상이면 잇지 않는다. 본문이 같다는 것으로는 잇지 않는다.
+- 문에서 버린 이벤트의 기록(`drop_fields`)에 `metadata`(`event_type`과 거울의 `correlation_id`)를 더한다. `event_payload`의 나머지는 남기지 않는다.
+- "다시 보내기"는 사람이 부를 때만 같은 입력의 거울을 새 상관값으로 보낸다. 입력 줄은 하나 그대로다. 자동으로 다시 보내지 않는다. 이 릴리스에는 그 버튼이나 route가 없다.
+- 거울 게시가 끝내 실패하면 보류된 줄은 보내지 않고 `failed`(`input_unplaced`)로 닫는다. 위치가 정해지지 않은 채 `SLACK_ROLE_INPUT_HOLD_SEC`(기본 3600초, Helm `slack.inputHoldSec`)가 지나도 같이 닫고 입력을 `unconfirmed`로 둔다. slack 역할이 `warn` 로그 `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`를 남긴다.
+- CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 기존 줄은 고치지 않는다. 이 릴리스에는 보류된 줄을 만드는 길이 없어서 지원 창 안의 이미지로 되돌려도 된다.
+
 ### Slack에서 지운 글이 든 턴을 가리는 릴리스
 
 migration은 없고 올릴 때 할 일도 없다. 저장된 글은 지우지 않고 API가 읽을 때 가린다. 지운 글이 없는 세션은 지금처럼 읽힌다.

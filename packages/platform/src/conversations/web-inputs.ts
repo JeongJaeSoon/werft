@@ -2,6 +2,7 @@ import {
   type AuthorizationAction,
   type AuthorizationDecision,
   type ConversationId,
+  type ConversationInputId,
   type ConversationTopicId,
   clientMessageIdSchema,
 } from "@werft-ai/contracts";
@@ -124,7 +125,37 @@ export function createWebInputService(deps: {
     }
   }
 
-  return { receive };
+  /** "다시 보내기": a person's own call, never a retry of the server's. */
+  async function resendMirror(input: {
+    grant: ConversationPostGrant | null;
+    workspaceId: string;
+    agentId: string;
+    requesterUserId: string;
+    inputId: ConversationInputId;
+  }): Promise<
+    | { outcome: "enqueued" }
+    | { outcome: "refused"; reason: "not_allowed" | "not_found" }
+    | { outcome: "not_unconfirmed" }
+  > {
+    if (
+      input.grant?.action !== "conversation.post" ||
+      input.grant.decision.outcome !== "allow"
+    ) {
+      return { outcome: "refused", reason: "not_allowed" };
+    }
+    const resent = await deps.inputs.resendMirror({
+      workspaceId: input.workspaceId,
+      agentId: input.agentId,
+      requesterUserId: input.requesterUserId,
+      conversationId: input.grant.conversationId,
+      inputId: input.inputId,
+    });
+    return resent === "not_found"
+      ? { outcome: "refused", reason: "not_found" }
+      : { outcome: resent };
+  }
+
+  return { receive, resendMirror };
 }
 
 export type WebInputService = ReturnType<typeof createWebInputService>;

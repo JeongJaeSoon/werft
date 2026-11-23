@@ -509,6 +509,7 @@ integration(
         installs: createPostgresSlackInstallStore(db),
         bindings: createPostgresSurfaceBindingStore(db),
         sourceMarks: createPostgresSlackSourceMarkStore(db),
+        mirrorEchoes: { matchMirrorEcho: async () => "no_candidate" },
       });
       const listener = Bun.serve({
         hostname: "127.0.0.1",

@@ -5,6 +5,12 @@
       {
         "channelId": "C0OPS",
         "iconUrl": "https://images.example/owner.png",
+        "metadata": {
+          "event_payload": {
+            "correlation_id": "019a0000-0000-7000-8000-0000000000c1"
+          },
+          "event_type": "werft_input_mirror"
+        },
         "text": "Add a test",
         "threadTs": "",
         "username": "Owner (Web console)"

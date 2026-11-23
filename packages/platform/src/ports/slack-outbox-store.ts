@@ -3,6 +3,7 @@ import type {
   ConversationInputId,
   PendingQuestion,
   PushRequestOrigin,
+  SlackMirrorCorrelationId,
   UserLocale,
 } from "@werft-ai/contracts";
 import type { PushRequestDisplay } from "../action/ports/push-requests.ts";
@@ -101,6 +102,18 @@ export type SlackOutboxEntry = {
   sourcesTurn?: number | null;
   /** The web input an `input_mirror` row shows; absent or null otherwise. */
   inputId?: ConversationInputId | null;
+  /**
+   * An `input_mirror` row's value for this one request, sent as the post's
+   * message metadata so the post Slack sends back can name it.
+   */
+  correlationId?: SlackMirrorCorrelationId | null;
+  /**
+   * A row bound for this web input's mirror thread. Until the mirror's post
+   * is known the row is held, unsent, and its `channelId` and `threadTs`
+   * are placeholders; the post's settle writes the thread in and frees it.
+   * A row enqueued once the thread is known goes there at once.
+   */
+  heldForInputId?: ConversationInputId | null;
 };
 
 export type SlackOutboxFence = { id: string; claimToken: string };
@@ -562,6 +575,26 @@ export interface SlackOutboxStore {
    * mirrored: that post places it, and the rest go into its thread after.
    */
   unmirroredInputs(limit: number): Promise<UnmirroredWebInput[]>;
+  /**
+   * Closes, unsent, the rows held for a web input's thread longer than
+   * `holdMs` (`failed`, `input_unplaced`); an input still unplaced is
+   * marked `unconfirmed`. No new thread is opened for them.
+   */
+  closeOverdueHeld(holdMs: number): Promise<number>;
+  /**
+   * A post of this app Slack sent back whose message metadata names a
+   * mirror's correlation id: when exactly one `uncertain` mirror of that
+   * app and channel has it, that row is `sent` with the post's ts, its
+   * input takes the post as its alias and the rows held for it go. No
+   * candidate, or more than one, links nothing. Text is never compared.
+   */
+  matchMirrorEcho(echo: {
+    workspaceId: string;
+    slackAppId: string;
+    correlationId: SlackMirrorCorrelationId;
+    channelId: string;
+    ts: string;
+  }): Promise<"linked" | "no_candidate" | "ambiguous">;
   /**
    * Linked turns past the link's mark that ended without their outbox
    * row. A turn that owes an `instruction` row waits for it,

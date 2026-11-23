@@ -785,6 +785,7 @@ const {
   agentAuthority: createDatabaseAgentAuthority(db),
   inbox: createPostgresSlackInboundEventStore(db),
   sourceMarks: createPostgresSlackSourceMarkStore(db),
+  mirrorEchoes: createPostgresSlackOutboxStore(db),
   identities: slackIdentityStore,
   installs: slackInstallStore,
   bindings: surfaceBindingStore,

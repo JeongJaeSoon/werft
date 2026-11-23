@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { ConversationId, ConversationTopicId } from "@werft-ai/contracts";
+import type {
+  ConversationId,
+  ConversationInputId,
+  ConversationTopicId,
+} from "@werft-ai/contracts";
 import type {
   ConversationInputStore,
+  ResendMirrorRequest,
   TakeWebInputRequest,
   TakeWebInputResult,
 } from "../ports/conversation-input-store.ts";
@@ -21,11 +26,17 @@ const allow: ConversationPostGrant = {
 function harness(options: {
   member?: boolean;
   taken?: TakeWebInputResult["outcome"];
+  resent?: Awaited<ReturnType<ConversationInputStore["resendMirror"]>>;
 }) {
   const keys: ConversationKey[] = [];
   const takes: TakeWebInputRequest[] = [];
+  const resends: ResendMirrorRequest[] = [];
   const inputs: ConversationInputStore = {
     isMember: async () => options.member ?? true,
+    resendMirror: async (request) => {
+      resends.push(request);
+      return options.resent ?? "enqueued";
+    },
     takeWebInput: async (request) => {
       takes.push(request);
       const outcome = options.taken ?? "taken";
@@ -52,7 +63,7 @@ function harness(options: {
     },
     inputs,
   });
-  return { service, keys, takes };
+  return { service, keys, takes, resends };
 }
 
 const dmInput = (
@@ -177,5 +188,60 @@ describe("web input receipt", () => {
         await harness({ taken: reason }).service.receive(dmInput()),
       ).toEqual({ outcome: "refused", reason });
     }
+  });
+});
+
+describe("sending a web input's Slack mirror again", () => {
+  const inputId = "00000000-0000-4000-8000-0000000000aa" as ConversationInputId;
+  const resend = (grant: ConversationPostGrant | null) => ({
+    grant,
+    workspaceId: "ws",
+    agentId: "a1",
+    requesterUserId: "u1",
+    inputId,
+  });
+
+  test("asks the store for the person's own input, in the conversation the grant was for", async () => {
+    const { service, resends } = harness({});
+    expect(await service.resendMirror(resend(allow))).toEqual({
+      outcome: "enqueued",
+    });
+    expect(resends).toEqual([
+      {
+        workspaceId: "ws",
+        agentId: "a1",
+        requesterUserId: "u1",
+        conversationId: "c1" as ConversationId,
+        inputId,
+      },
+    ]);
+  });
+
+  test("sends nothing without an allowing conversation.post decision", async () => {
+    for (const grant of [
+      null,
+      { ...allow, decision: { outcome: "deny", reason_code: "role" } },
+      { ...allow, action: "session.submit" },
+    ] as (ConversationPostGrant | null)[]) {
+      const { service, resends } = harness({});
+      expect(await service.resendMirror(resend(grant))).toEqual({
+        outcome: "refused",
+        reason: "not_allowed",
+      });
+      expect(resends).toEqual([]);
+    }
+  });
+
+  test("an input not found, or not unconfirmed, says so", async () => {
+    expect(
+      await harness({ resent: "not_found" }).service.resendMirror(
+        resend(allow),
+      ),
+    ).toEqual({ outcome: "refused", reason: "not_found" });
+    expect(
+      await harness({ resent: "not_unconfirmed" }).service.resendMirror(
+        resend(allow),
+      ),
+    ).toEqual({ outcome: "not_unconfirmed" });
   });
 });
