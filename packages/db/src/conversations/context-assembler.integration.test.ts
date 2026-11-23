@@ -350,15 +350,26 @@ integration("context assembler (G1, 9-2 leak table)", () => {
   test("9-2 row 5 (channel summary -> agent memory): assembling promotes nothing and reads no memory, the agent's or the requester's", async () => {
     const channel = newChannel();
     const line = await summed(channelKey(channel));
-    // Memory a reader could pick up: the agent's own and its requester's.
-    await pool.query(
-      "INSERT INTO memory_documents (id, workspace_id, scope, agent_id, state) VALUES ($1, $2, 'agent', $3, 'candidate')",
-      [randomUUID(), workspaceId, agentId],
-    );
-    await pool.query(
-      "INSERT INTO memory_documents (id, workspace_id, scope, subject_user_id, state) VALUES ($1, $2, 'personal', $3, 'candidate')",
-      [randomUUID(), workspaceId, requester],
-    );
+    // Memory a reader could pick up: active with a clean revision, the
+    // agent's own and its requester's.
+    for (const [scope, column, owner] of [
+      ["agent", "agent_id", agentId],
+      ["personal", "subject_user_id", requester],
+    ] as const) {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO memory_documents (id, workspace_id, scope, ${column}, state) VALUES ($1, $2, $3, $4, 'candidate')`,
+        [id, workspaceId, scope, owner],
+      );
+      await pool.query(
+        "INSERT INTO memory_revisions (document_id, revision, title, body, body_sha256, scan_status, author_user_id) VALUES ($1, 1, 'deploy notes', 'deploys go out on Friday', $2, 'clean', $3)",
+        [id, "a".repeat(64), requester],
+      );
+      await pool.query(
+        "UPDATE memory_documents SET state = 'active', current_revision = 1 WHERE id = $1",
+        [id],
+      );
+    }
     const count = async () =>
       (
         await pool.query(
