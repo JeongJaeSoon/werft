@@ -1639,6 +1639,13 @@
       "when": 1795406439958,
       "tag": "0324_source_sets",
       "breakpoints": true
+    },
+    {
+      "idx": 325,
+      "version": "7",
+      "when": 1795407605367,
+      "tag": "0325_private_channel_share_scope",
+      "breakpoints": true
     }
   ]
 }
