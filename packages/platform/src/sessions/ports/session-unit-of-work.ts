@@ -203,10 +203,11 @@ export type AppendMessageResult =
   | { outcome: "pin_required" }
   /**
    * The turn would carry a Slack message that was deleted: the input's own,
-   * or one an earlier turn of the session came from, which also stopped the
-   * session (source_deleted_at). Nothing is recorded.
+   * or one an earlier turn of the session came from. sessionStopped when
+   * the session is stopped for it (source_deleted_at) and takes no input at
+   * all. Nothing is recorded.
    */
-  | { outcome: "source_deleted" }
+  | { outcome: "source_deleted"; sessionStopped?: true }
   | InputLimitRefusal;
 
 // Storage rows carry the session's spec source; the service turns it into

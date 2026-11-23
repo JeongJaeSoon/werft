@@ -43,7 +43,7 @@ export const API_ERROR_CODE_VALUES = [
   // until an owner takes it over.
   "TAKEOVER_REQUIRED",
   // A Slack message the input or the session drew on was deleted there: no
-  // turn is made from it, and the session that holds it takes no input and
+  // turn is made from it, and a session stopped for it takes no input and
   // does not resume; only a close ends it.
   "SOURCE_DELETED",
   // Linking a Slack account: the workspace has no verified Slack

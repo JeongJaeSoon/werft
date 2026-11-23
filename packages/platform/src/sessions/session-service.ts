@@ -758,7 +758,8 @@ export function createSessionService(deps: {
           "The person who asked for this session has left; it takes no messages until an owner takes it over",
         );
       case "source_deleted":
-        return sessionSourceDeleted();
+        if (result.sessionStopped) return sessionSourceDeleted();
+        throw sourceDeleted();
       case "actor_inactive":
         throw new SessionServiceError(
           "FORBIDDEN",

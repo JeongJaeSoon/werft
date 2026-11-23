@@ -933,7 +933,7 @@ export function createPostgresSessionUnitOfWork(
         // Before the admission: a session stopped for a deleted source says
         // why, whether it is pausing, paused or stopped by now.
         if (session.sourceDeletedAt !== null) {
-          return { outcome: "source_deleted" };
+          return { outcome: "source_deleted", sessionStopped: true };
         }
         if (session.admissionState !== "active") {
           return {
