@@ -861,6 +861,47 @@ describe("에이전트 GitHub 탭", () => {
     expect(root.style.scrollPaddingBottom).toBe("");
   });
 
+  test("첫 변경을 만든 스위치가 새로 뜬 저장 막대 아래에 있으면 화면이 겹친 만큼 올라간다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    const push = switchNamed("push 전 사람 승인");
+    // happy-dom lays nothing out: put the switch 30px into where the bar
+    // starts, as at the foot of a phone screen.
+    const rect = (top: number, bottom: number) =>
+      ({
+        top,
+        bottom,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: bottom - top,
+        x: 0,
+        y: top,
+      }) as DOMRect;
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    const scrolled: number[] = [];
+    const originalScrollBy = window.scrollBy;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this === push) return rect(700, 730);
+      if (this.className.includes("sticky")) return rect(700, 850);
+      return original.call(this);
+    };
+    window.scrollBy = ((_x: number, y: number) => {
+      scrolled.push(y);
+    }) as typeof window.scrollBy;
+    try {
+      await user.click(push);
+      await screen.findByRole("region", { name: "저장하지 않은 변경 1건" });
+      expect(document.activeElement === push).toBe(true);
+      expect(scrolled).toEqual([30]);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+      window.scrollBy = originalScrollBy;
+    }
+  });
+
   test("설정이 없는 에이전트는 저장 전에도 머리글과 스위치가 같이 push 승인 꺼짐이다", async () => {
     const { server, release } = await activeAgent();
     release.policy_pins = {};

@@ -665,15 +665,25 @@ function GitHubSettings({
   const pendingTitle = firstSave
     ? t("agentGitHub.pending.firstTitle")
     : t("agentGitHub.pending.title", { count: pending });
-  const showSaveBar = manages && (pending > 0 || firstSave || saveFailure);
-  // The bar is opaque and stuck to the screen's foot: a control that focus
-  // reaches under it scrolls up past it (WCAG 2.4.11), by the bar's height.
+  const showSaveBar =
+    manages && (pending > 0 || firstSave || Boolean(saveFailure));
+  // The bar is opaque and stuck to the screen's foot (WCAG 2.4.11): a control
+  // that focus reaches under it scrolls up past it by the bar's height, and the
+  // control that already has focus when the bar appears or grows (the switch
+  // that made the first change) is scrolled up out from under it.
   useLayoutEffect(() => {
     const bar = saveBar.current;
     if (!showSaveBar || !bar) return;
     const root = document.documentElement;
     const fit = () => {
       root.style.scrollPaddingBottom = `${bar.offsetHeight}px`;
+      const focused = document.activeElement;
+      if (!(focused instanceof HTMLElement) || bar.contains(focused)) return;
+      if (focused === document.body) return;
+      const hidden =
+        focused.getBoundingClientRect().bottom -
+        bar.getBoundingClientRect().top;
+      if (hidden > 0) window.scrollBy(0, hidden);
     };
     fit();
     const resized =
