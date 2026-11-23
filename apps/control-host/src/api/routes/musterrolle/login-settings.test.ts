@@ -6,11 +6,13 @@ import {
   updateLoginSettingsResponseSchema,
 } from "@werft-ai/contracts";
 import { SessionServiceError } from "@werft-ai/platform";
-import type { LoginSettingsAdmin } from "../login-settings.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
+import type { LoginSettingsAdmin } from "../../login-settings.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerLoginSettingsRoutes } from "./login-settings.ts";
 
-const createApiApp = recordRouteErrors("routes/login-settings.test.ts");
+const createApiApp = recordRouteErrors(
+  "routes/musterrolle/login-settings.test.ts",
+);
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000c1";

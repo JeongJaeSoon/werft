@@ -15,10 +15,10 @@ import {
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
-} from "../app.ts";
-import type { ProviderAdmin } from "../provider-admin.ts";
+} from "../../app.ts";
+import type { ProviderAdmin } from "../../provider-admin.ts";
+import { mapped, requireParams } from "../errors.ts";
 import { setLoginFlowCookie } from "./auth.ts";
-import { mapped, requireParams } from "./errors.ts";
 
 /** The owner's sign-in provider settings (design 7.2). */
 export function registerLoginProviderRoutes(

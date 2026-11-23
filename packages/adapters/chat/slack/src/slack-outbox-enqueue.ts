@@ -6,9 +6,9 @@ import {
   slackMirrorCorrelationIdSchema,
 } from "@werft-ai/contracts";
 import type {
-  SlackOutboxStore,
-  SlackPendingPrompt,
-  SlackUnansweredTurn,
+  SurfaceOutboxStore,
+  SurfacePendingPrompt,
+  SurfaceUnansweredTurn,
 } from "@werft-ai/platform";
 import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 import {
@@ -20,7 +20,7 @@ import { slackPromptMessage } from "./slack-prompts.ts";
 
 /** Enqueues the instructions sent from the web or the API, once each. */
 export async function enqueueSlackInstructions(deps: {
-  outbox: Pick<SlackOutboxStore, "unpostedInstructions" | "enqueue">;
+  outbox: Pick<SurfaceOutboxStore, "unpostedInstructions" | "enqueue">;
   limit: number;
 }): Promise<number> {
   const turns = await deps.outbox.unpostedInstructions(deps.limit);
@@ -61,7 +61,7 @@ export async function enqueueSlackInstructions(deps: {
  * from the web is, its sources the input itself.
  */
 export async function enqueueSlackInputMirrors(deps: {
-  outbox: Pick<SlackOutboxStore, "unmirroredInputs" | "enqueue">;
+  outbox: Pick<SurfaceOutboxStore, "unmirroredInputs" | "enqueue">;
   limit: number;
 }): Promise<number> {
   const inputs = await deps.outbox.unmirroredInputs(deps.limit);
@@ -100,7 +100,7 @@ export async function enqueueSlackInputMirrors(deps: {
 
 /** One outbox row per turn and kind: what makes a turn answered. */
 export function slackTurnDedupeKey(
-  state: SlackUnansweredTurn["state"],
+  state: SurfaceUnansweredTurn["state"],
   sessionLinkId: string,
   turnId: number,
 ): string {
@@ -108,7 +108,7 @@ export function slackTurnDedupeKey(
 }
 
 export function slackPromptDedupeKey(
-  kind: SlackPendingPrompt["prompt"]["kind"],
+  kind: SurfacePendingPrompt["prompt"]["kind"],
   sessionLinkId: string,
   requestId: string,
 ): string {
@@ -119,7 +119,9 @@ export function slackPromptDedupeKey(
  * The text the model wrote after its last tool call: what it said once the
  * work was done. Read whole, unlike presentTurnEvent's clipped summary.
  */
-export function finalReplyText(events: SlackUnansweredTurn["events"]): string {
+export function finalReplyText(
+  events: SurfaceUnansweredTurn["events"],
+): string {
   let parts: string[] = [];
   for (const event of events) {
     if (eventToolCall(event.payload) !== null) parts = [];
@@ -136,7 +138,7 @@ export function finalReplyText(events: SlackUnansweredTurn["events"]): string {
  * language of the user the reader's Slack account is linked to.
  */
 export function createOutboxSlackNoticeSink(
-  outbox: Pick<SlackOutboxStore, "enqueue" | "readerLocale">,
+  outbox: Pick<SurfaceOutboxStore, "enqueue" | "readerLocale">,
 ): SlackNoticeSink {
   return {
     async record(notice) {
@@ -187,7 +189,7 @@ export function createOutboxSlackNoticeSink(
 
 /** Enqueues the reply or failure notice of turns that lack one. */
 export async function enqueueSlackTurnAnswers(deps: {
-  outbox: Pick<SlackOutboxStore, "unansweredTurns" | "enqueue">;
+  outbox: Pick<SurfaceOutboxStore, "unansweredTurns" | "enqueue">;
   consoleOrigin: string | null;
   limit: number;
 }): Promise<number> {
@@ -232,7 +234,7 @@ export async function enqueueSlackTurnAnswers(deps: {
 }
 
 export async function enqueueSlackPrompts(deps: {
-  outbox: Pick<SlackOutboxStore, "unpromptedRequests" | "enqueue">;
+  outbox: Pick<SurfaceOutboxStore, "unpromptedRequests" | "enqueue">;
   consoleOrigin: string | null;
   limit: number;
 }): Promise<number> {

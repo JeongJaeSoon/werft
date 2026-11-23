@@ -53,7 +53,7 @@ import {
   permissionsOf,
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/auth.ts";
+} from "./routes/musterrolle/auth.ts";
 
 const createApiApp = recordRouteErrors("auth.test.ts");
 

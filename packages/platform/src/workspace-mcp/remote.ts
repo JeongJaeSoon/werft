@@ -7,10 +7,10 @@ import {
 import {
   type ClientAuthMethod,
   type OutboundHttp,
+  OutboundRefusedError,
   type OutboundResponse,
   type WorkspaceMcpClient,
   type WorkspaceMcpOAuthPin,
-  WorkspaceMcpOutboundError,
   type WorkspaceMcpTokens,
   type WorkspaceMcpTool,
 } from "./ports/workspace-mcp-store.ts";
@@ -72,7 +72,7 @@ async function send(
   try {
     return await deps.http(request);
   } catch (error) {
-    if (error instanceof WorkspaceMcpOutboundError) {
+    if (error instanceof OutboundRefusedError) {
       throw fail(
         error.reason === "address_not_allowed"
           ? "address_not_allowed"

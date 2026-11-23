@@ -3,7 +3,7 @@ import type {
   ChannelKindChanged,
   ChannelKindNow,
   ChannelSessionPlace,
-  SlackInboundClaim,
+  SurfaceInboundClaim,
 } from "@werft-ai/platform";
 import { createSlackChannelConversionHandler } from "./slack-channel-conversion.ts";
 
@@ -33,7 +33,7 @@ const claim = (event: Record<string, unknown>) =>
     eventType: String(event.type),
     eventTime: null,
     payload: { event },
-  }) as unknown as SlackInboundClaim;
+  }) as unknown as SurfaceInboundClaim;
 
 function handler(
   options: {

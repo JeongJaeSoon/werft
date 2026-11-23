@@ -11,8 +11,8 @@ import {
 } from "../musterrolle/policy.ts";
 import {
   type OutboundHttp,
+  OutboundRefusedError,
   type OutboundRequest,
-  WorkspaceMcpOutboundError,
 } from "../workspace-mcp/ports/workspace-mcp-store.ts";
 import type {
   SettingsConsoleResult,
@@ -887,7 +887,7 @@ describe("reading a connection's models from its provider", () => {
       ],
       [
         async () => {
-          throw new WorkspaceMcpOutboundError("unreachable", "refused");
+          throw new OutboundRefusedError("unreachable", "refused");
         },
         "BACKEND_UNAVAILABLE",
         "provider_unreachable",
@@ -895,7 +895,7 @@ describe("reading a connection's models from its provider", () => {
       ],
       [
         async () => {
-          throw new WorkspaceMcpOutboundError("address_not_allowed", "private");
+          throw new OutboundRefusedError("address_not_allowed", "private");
         },
         "BAD_REQUEST",
         "address_not_allowed",

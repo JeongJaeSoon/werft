@@ -8,7 +8,7 @@ import {
 } from "@werft-ai/contracts";
 import type {
   PendingRequestDisplay,
-  SlackPromptCard,
+  SurfacePromptCard,
 } from "@werft-ai/platform";
 import {
   SLACK_PROMPT_MESSAGES,
@@ -730,9 +730,9 @@ describe("slackCardText", () => {
 });
 
 const card = (
-  display: SlackPromptCard["display"],
-  extra: Partial<SlackPromptCard> = {},
-): SlackPromptCard => ({
+  display: SurfacePromptCard["display"],
+  extra: Partial<SurfacePromptCard> = {},
+): SurfacePromptCard => ({
   locale: "ko",
   linkUrl: LINK,
   decidedVia: "slack",

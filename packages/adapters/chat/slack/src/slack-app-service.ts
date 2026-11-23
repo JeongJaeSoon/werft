@@ -19,16 +19,16 @@ import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
-  type CreatedSlackApp,
+  type CreatedSurfaceApp,
   MANAGEMENT_ROLES,
   NOT_FOUND,
   OUTRANKED,
   requirePermitted,
   type SecretStore,
   SessionServiceError,
-  type SlackAppActor,
-  type SlackAppRecord,
-  type SlackAppStore,
+  type SurfaceAppActor,
+  type SurfaceAppRecord,
+  type SurfaceAppStore,
 } from "@werft-ai/platform";
 import {
   SLACK_APP_GONE_CODES,
@@ -82,7 +82,7 @@ const EVENTS_URL_UNSET = () =>
     undefined,
     { reason_code: "events_url_unset" },
   );
-const creating = (app: SlackAppRecord, uncertain: boolean) =>
+const creating = (app: SurfaceAppRecord, uncertain: boolean) =>
   new SessionServiceError(
     "SLACK_APP_CREATING",
     uncertain
@@ -105,7 +105,7 @@ const answerLost = (method: string) =>
     { afterSeconds: 60 },
   );
 
-export function slackAppView(record: SlackAppRecord): SlackApp {
+export function slackAppView(record: SurfaceAppRecord): SlackApp {
   return {
     id: record.id,
     kind: record.kind,
@@ -130,7 +130,7 @@ export function slackAppView(record: SlackAppRecord): SlackApp {
 }
 
 function issuerWarnings(
-  record: SlackAppRecord | null,
+  record: SurfaceAppRecord | null,
   issuer: { userId: string } | null,
 ): SlackWarning[] {
   const maker = record?.state === "created" ? record.createdByTokenUser : null;
@@ -188,7 +188,7 @@ export type SlackAppService = ReturnType<typeof createSlackAppService>;
 export function createSlackAppService(deps: {
   authorization: AuthorizationPolicy;
   /** Null when the API runs without a master key. */
-  apps: SlackAppStore | null;
+  apps: SurfaceAppStore | null;
   tokens: SlackConfigTokens | null;
   api: SlackConfigApi;
   consoleOrigin: string | null;
@@ -269,7 +269,7 @@ export function createSlackAppService(deps: {
   const actorOf = (
     caller: Caller,
     action: typeof SLACK_INSTALL_ACTION | typeof WORKSPACE_ACTION,
-  ): SlackAppActor => ({
+  ): SurfaceAppActor => ({
     principal: caller,
     managerRoles: MANAGEMENT_ROLES[action] ?? [],
   });
@@ -377,9 +377,9 @@ export function createSlackAppService(deps: {
   }
 
   async function finish(
-    apps: SlackAppStore,
-    input: Parameters<SlackAppStore["finishCreate"]>[0],
-  ): Promise<SlackAppRecord> {
+    apps: SurfaceAppStore,
+    input: Parameters<SurfaceAppStore["finishCreate"]>[0],
+  ): Promise<SurfaceAppRecord> {
     for (let attempt = 1; ; attempt += 1) {
       try {
         return await apps.finishCreate(input);
@@ -393,7 +393,7 @@ export function createSlackAppService(deps: {
   async function create(
     workspaceId: string,
     agentId: string,
-    actor: SlackAppActor,
+    actor: SurfaceAppActor,
     request: CreateSlackAppRequest,
   ): Promise<CreateSlackAppResponse> {
     const { apps, tokens } = ready();
@@ -443,7 +443,7 @@ export function createSlackAppService(deps: {
     };
     const previousTokenUser = await apps.lastTokenUser(workspaceId);
     let called = false;
-    let created: { app: CreatedSlackApp; tokenUserId: string };
+    let created: { app: CreatedSurfaceApp; tokenUserId: string };
     try {
       created = await tokens.withToken(workspaceId, async (token, issuer) => {
         called = true;

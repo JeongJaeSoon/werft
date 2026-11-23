@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionCatalog } from "../catalog/catalog.ts";
 import {
+  OutboundRefusedError,
   type OutboundRequest,
   type OutboundResponse,
-  WorkspaceMcpOutboundError,
 } from "../ports/outbound-http.ts";
 import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
 import type {
@@ -119,13 +119,9 @@ describe("createSessionTitler", () => {
   test("a refused call settles with no title and reports why", async () => {
     const { titler, settled, errors } = harness({
       answer: () => {
-        throw new WorkspaceMcpOutboundError(
-          "answered",
-          "Provider answered 529",
-          {
-            status: 529,
-          },
-        );
+        throw new OutboundRefusedError("answered", "Provider answered 529", {
+          status: 529,
+        });
       },
     });
     expect(await titler.afterFirstTurn(session)).toBe("kept");

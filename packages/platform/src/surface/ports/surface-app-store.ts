@@ -6,18 +6,18 @@ import type {
   SlackAppState,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/index.ts";
-import type { SecretSummary } from "./secret-store.ts";
+import type { Principal } from "../../musterrolle/index.ts";
+import type { SecretSummary } from "../../secrets/ports/secret-store.ts";
 
 /** What Slack answers to `apps.manifest.create`; the secrets are stored, never shown. */
-export type CreatedSlackApp = {
+export type CreatedSurfaceApp = {
   appId: string;
   clientId: string;
   clientSecret: string;
   signingSecret: string;
 };
 
-export type SlackAppRecord = {
+export type SurfaceAppRecord = {
   id: string;
   workspaceId: string;
   kind: SlackAppKind;
@@ -45,7 +45,7 @@ export type AgentBotAllowList = {
 };
 
 /** What the manifest says about the agent, read with its active release. */
-export type SlackAppAgent = {
+export type SurfaceAppAgent = {
   id: string;
   name: string;
   slug: string;
@@ -53,8 +53,8 @@ export type SlackAppAgent = {
   role: string;
 };
 
-export type MadeSlackApp = {
-  app: SlackAppRecord;
+export type MadeSurfaceApp = {
+  app: SurfaceAppRecord;
   agent: { id: string; name: string; slug: string; installed: boolean } | null;
 };
 
@@ -62,16 +62,16 @@ export type MadeSlackApp = {
  * A person acting through the console, whose right is read again under
  * lock; null for the operator's CLI, which holds the database itself.
  */
-export type SlackAppActor = {
+export type SurfaceAppActor = {
   principal: Principal;
   managerRoles: readonly WorkspaceRole[];
 } | null;
 
 export type BeginAgentAppResult =
-  | { outcome: "begun"; app: SlackAppRecord; agent: SlackAppAgent }
-  | { outcome: "exists"; app: SlackAppRecord }
+  | { outcome: "begun"; app: SurfaceAppRecord; agent: SurfaceAppAgent }
+  | { outcome: "exists"; app: SurfaceAppRecord }
   /** `uncertain`: begun before `staleBefore`, so its answer was lost. */
-  | { outcome: "creating"; app: SlackAppRecord; uncertain: boolean }
+  | { outcome: "creating"; app: SurfaceAppRecord; uncertain: boolean }
   | {
       outcome:
         | "agent_not_found"
@@ -82,9 +82,9 @@ export type BeginAgentAppResult =
 
 /** As for an agent's app; the name is what the link app is called after. */
 export type BeginLinkAppResult =
-  | { outcome: "begun"; app: SlackAppRecord; workspaceName: string }
-  | { outcome: "exists"; app: SlackAppRecord }
-  | { outcome: "creating"; app: SlackAppRecord; uncertain: boolean }
+  | { outcome: "begun"; app: SurfaceAppRecord; workspaceName: string }
+  | { outcome: "exists"; app: SurfaceAppRecord }
+  | { outcome: "creating"; app: SurfaceAppRecord; uncertain: boolean }
   | { outcome: "workspace_not_found" | "actor_inactive" | "outranked" };
 
 /**
@@ -92,7 +92,7 @@ export type BeginLinkAppResult =
  * no Slack app to delete (it failed, was abandoned or is gone already).
  */
 export type BeginDeleteResult =
-  | { outcome: "begun" | "settled" | "creating"; app: SlackAppRecord }
+  | { outcome: "begun" | "settled" | "creating"; app: SurfaceAppRecord }
   | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
 /**
@@ -100,13 +100,13 @@ export type BeginDeleteResult =
  * call: `beginAgentApp` records `creating`, `finishCreate` records what
  * Slack answered and seals the app's secrets in the same transaction.
  */
-export type SlackEventsCheck = Omit<GetSlackAppResponse["events"], "url">;
+export type SurfaceEventsCheck = Omit<GetSlackAppResponse["events"], "url">;
 
-export interface SlackAppStore {
+export interface SurfaceAppStore {
   setEvents(
     workspaceId: string,
     slackAppId: string,
-    events: SlackEventsCheck,
+    events: SurfaceEventsCheck,
   ): Promise<void>;
   /**
    * Records `url` as sent to Slack: `pending` unless the app is already
@@ -126,7 +126,7 @@ export interface SlackAppStore {
   setEventsUnlessVerified(
     workspaceId: string,
     slackAppId: string,
-    events: SlackEventsCheck,
+    events: SurfaceEventsCheck,
   ): Promise<void>;
   getSettings(
     workspaceId: string,
@@ -135,7 +135,7 @@ export interface SlackAppStore {
   putSettings(input: {
     workspaceId: string;
     agentId: string;
-    actor: SlackAppActor;
+    actor: SurfaceAppActor;
     settings: SlackAppSettings;
   }): Promise<"saved" | "not_found" | "actor_inactive" | "outranked">;
   /**
@@ -149,13 +149,13 @@ export interface SlackAppStore {
   putAllowedBots(input: {
     workspaceId: string;
     agentId: string;
-    actor: SlackAppActor;
+    actor: SurfaceAppActor;
     allowedBotUserIds: readonly string[];
   }): Promise<"saved" | "not_found" | "actor_inactive" | "outranked">;
   beginAgentApp(input: {
     workspaceId: string;
     agentId: string;
-    actor: SlackAppActor;
+    actor: SurfaceAppActor;
     redirectUrl: string;
     newId: string;
     /** A `creating` row older than this counts as lost. */
@@ -166,7 +166,7 @@ export interface SlackAppStore {
   /** The workspace's one live link app, begun as `beginAgentApp` begins. */
   beginLinkApp(input: {
     workspaceId: string;
-    actor: SlackAppActor;
+    actor: SurfaceAppActor;
     redirectUrl: string;
     newId: string;
     staleBefore: Date;
@@ -175,9 +175,9 @@ export interface SlackAppStore {
   finishCreate(input: {
     workspaceId: string;
     slackAppId: string;
-    created: CreatedSlackApp;
+    created: CreatedSurfaceApp;
     tokenUserId: string;
-  }): Promise<SlackAppRecord>;
+  }): Promise<SurfaceAppRecord>;
   /**
    * Seals the bot token an install returned under the app, replacing an
    * earlier one, and sets `bot_token_ref`. Null when the app is no longer
@@ -187,47 +187,50 @@ export interface SlackAppStore {
     workspaceId: string;
     slackAppId: string;
     botToken: string;
-  }): Promise<SlackAppRecord | null>;
+  }): Promise<SurfaceAppRecord | null>;
   /** Slack refused the creation: no app exists. */
   failCreate(workspaceId: string, slackAppId: string): Promise<void>;
-  find(workspaceId: string, slackAppId: string): Promise<SlackAppRecord | null>;
+  find(
+    workspaceId: string,
+    slackAppId: string,
+  ): Promise<SurfaceAppRecord | null>;
   /**
    * The agent's `created` agent app, whatever workspace holds it: the
    * events route knows only the agent id in its path.
    */
-  findAgentApp(agentId: string): Promise<SlackAppRecord | null>;
+  findAgentApp(agentId: string): Promise<SurfaceAppRecord | null>;
   /** The agent as its manifest describes it now; null when it is gone. */
   manifestAgent(
     workspaceId: string,
     agentId: string,
-  ): Promise<SlackAppAgent | null>;
+  ): Promise<SurfaceAppAgent | null>;
   /** The agent's live app (creating, created or deleting), if any. */
   findForAgent(
     workspaceId: string,
     agentId: string,
-  ): Promise<SlackAppRecord | null>;
+  ): Promise<SurfaceAppRecord | null>;
   /**
    * The workspace's `created` link app with its client secret opened, for
    * the server's own code exchange; null when there is none.
    */
   linkAppClient(
     workspaceId: string,
-  ): Promise<{ app: SlackAppRecord; clientSecret: string } | null>;
+  ): Promise<{ app: SurfaceAppRecord; clientSecret: string } | null>;
   /**
    * The workspace's live agent and link apps, the link app first, then by
    * agent name; `installed` is whether the agent's bot identity is active.
    */
-  listMade(workspaceId: string): Promise<MadeSlackApp[]>;
+  listMade(workspaceId: string): Promise<MadeSurfaceApp[]>;
   /** The Slack user whose token made the workspace's newest app. */
   lastTokenUser(workspaceId: string): Promise<string | null>;
   beginDelete(input: {
     workspaceId: string;
     slackAppId: string;
-    actor: SlackAppActor;
+    actor: SurfaceAppActor;
   }): Promise<BeginDeleteResult>;
   /** Marks the app deleted and drops its secrets. */
   finishDelete(
     workspaceId: string,
     slackAppId: string,
-  ): Promise<SlackAppRecord>;
+  ): Promise<SurfaceAppRecord>;
 }

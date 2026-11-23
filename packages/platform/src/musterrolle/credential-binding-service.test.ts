@@ -4,12 +4,6 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { userPrincipal } from "@werft-ai/testkit/callers";
-import type {
-  BindCredentialResult,
-  CredentialBinding,
-  CredentialBindingStore,
-  RevokeCredentialResult,
-} from "../ports/credential-binding-store.ts";
 import { createCredentialBindingService } from "./credential-binding-service.ts";
 import {
   type AgentAuthority,
@@ -17,6 +11,12 @@ import {
   callerFor,
   createAuthorizationPolicy,
 } from "./policy.ts";
+import type {
+  BindCredentialResult,
+  CredentialBinding,
+  CredentialBindingStore,
+  RevokeCredentialResult,
+} from "./ports/credential-binding-store.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000a1";

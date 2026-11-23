@@ -63,8 +63,8 @@ import {
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "../musterrolle/index.ts";
-import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
-import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
+import type { WorkspaceKeyStore } from "../musterrolle/ports/api-key-store.ts";
+import type { CredentialBindingStore } from "../musterrolle/ports/credential-binding-store.ts";
 import { viewerFor } from "../sessions/index.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";

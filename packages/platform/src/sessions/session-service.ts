@@ -79,8 +79,8 @@ import {
 import type {
   CallerLimitDimension,
   CallerLimitGate,
-} from "../ports/agent-caller-limits-store.ts";
-import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
+} from "../musterrolle/ports/agent-caller-limits-store.ts";
+import type { CredentialBindingStore } from "../musterrolle/ports/credential-binding-store.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import type { SessionControl } from "./ports/session-control.ts";
 import type { SessionViewer } from "./ports/session-share-store.ts";

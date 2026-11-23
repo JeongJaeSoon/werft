@@ -9,7 +9,7 @@ import type {
   RepositoryAttachmentRefusal,
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
-} from "../ports/repository-attachments.ts";
+} from "../sessions/ports/repository-attachments.ts";
 import { storedCredentials } from "./catalog-fakes.ts";
 import { releasePolicy } from "./github-fakes.ts";
 

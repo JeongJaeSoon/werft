@@ -13,14 +13,14 @@ export type OutboundResponse = {
   text: string;
 };
 /**
- * Throws WorkspaceMcpOutboundError when the request may not be sent, did
- * not complete, or answered 5xx; any other answer is the caller's to read.
+ * Throws OutboundRefusedError when the request may not be sent, did not
+ * complete, or answered 5xx; any other answer is the caller's to read.
  */
 export type OutboundHttp = (
   request: OutboundRequest,
 ) => Promise<OutboundResponse>;
 
-export class WorkspaceMcpOutboundError extends Error {
+export class OutboundRefusedError extends Error {
   constructor(
     readonly reason: "address_not_allowed" | "unreachable" | "answered",
     message: string,

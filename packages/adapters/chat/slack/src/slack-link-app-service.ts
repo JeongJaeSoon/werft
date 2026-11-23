@@ -3,15 +3,15 @@ import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
-  type CreatedSlackApp,
+  type CreatedSurfaceApp,
   MANAGEMENT_ROLES,
   NOT_FOUND,
   OUTRANKED,
   requirePermitted,
   SessionServiceError,
-  type SlackAppActor,
-  type SlackAppRecord,
-  type SlackAppStore,
+  type SurfaceAppActor,
+  type SurfaceAppRecord,
+  type SurfaceAppStore,
 } from "@werft-ai/platform";
 import {
   SLACK_APP_CREATE_STALE_MS,
@@ -59,7 +59,7 @@ const NOT_CONFIGURED = (reason: "store_off" | "no_console" | "config_token") =>
     undefined,
     { reason_code: reason },
   );
-const creating = (app: SlackAppRecord, uncertain: boolean) =>
+const creating = (app: SurfaceAppRecord, uncertain: boolean) =>
   new SessionServiceError(
     "SLACK_APP_CREATING",
     uncertain
@@ -97,7 +97,7 @@ export type SlackLinkAppService = ReturnType<typeof createSlackLinkAppService>;
 export function createSlackLinkAppService(deps: {
   authorization: AuthorizationPolicy;
   /** Null when the API runs without a master key. */
-  apps: SlackAppStore | null;
+  apps: SurfaceAppStore | null;
   tokens: SlackConfigTokens | null;
   api: SlackConfigApi;
   consoleOrigin: string | null;
@@ -128,9 +128,9 @@ export function createSlackLinkAppService(deps: {
   }
 
   async function finish(
-    apps: SlackAppStore,
-    input: Parameters<SlackAppStore["finishCreate"]>[0],
-  ): Promise<SlackAppRecord> {
+    apps: SurfaceAppStore,
+    input: Parameters<SurfaceAppStore["finishCreate"]>[0],
+  ): Promise<SurfaceAppRecord> {
     for (let attempt = 1; ; attempt += 1) {
       try {
         return await apps.finishCreate(input);
@@ -143,7 +143,7 @@ export function createSlackLinkAppService(deps: {
   /** Begins, creates in Slack and seals; the shape of the agent app's. */
   async function create(
     workspaceId: string,
-    actor: SlackAppActor,
+    actor: SurfaceAppActor,
     replaceUncertain: boolean,
     /** A start waits out another request's creation instead of refusing. */
     waitUntil: number | null,
@@ -188,7 +188,7 @@ export function createSlackLinkAppService(deps: {
       }
       const previousTokenUser = await apps.lastTokenUser(workspaceId);
       let called = false;
-      let made: { app: CreatedSlackApp; tokenUserId: string };
+      let made: { app: CreatedSurfaceApp; tokenUserId: string };
       try {
         made = await tokens.withToken(workspaceId, async (token, issuer) => {
           called = true;

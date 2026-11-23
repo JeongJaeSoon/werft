@@ -58,7 +58,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
   storageUnavailableError,
-} from "../app.ts";
+} from "../../app.ts";
 import {
   browserRequestViolation,
   clearWebSessionCookie,
@@ -71,10 +71,13 @@ import {
   WorkGate,
   webSessionCookie,
   webSessionInput,
-} from "../auth.ts";
-import type { PasswordChecks } from "../password-checks.ts";
-import { type ProviderLogin, ProviderLoginError } from "../provider-login.ts";
-import { rateLimited, requireParams } from "./errors.ts";
+} from "../../auth.ts";
+import type { PasswordChecks } from "../../password-checks.ts";
+import {
+  type ProviderLogin,
+  ProviderLoginError,
+} from "../../provider-login.ts";
+import { rateLimited, requireParams } from "../errors.ts";
 
 const flowCookie = {
   httpOnly: true,

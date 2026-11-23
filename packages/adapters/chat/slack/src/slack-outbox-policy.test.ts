@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type {
-  SlackOutboxClaim,
-  SlackOutboxSettle,
-  SlackOutboxStore,
+  SurfaceOutboxClaim,
+  SurfaceOutboxSettle,
+  SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import { createRowDelivery, slackOutboxSettleFor } from "./outbox-delivery.ts";
 import {
@@ -34,7 +34,7 @@ const response = (
   body: { ok: true, ts: "200.000200" },
   ...over,
 });
-const claim = (over: Partial<SlackOutboxClaim> = {}): SlackOutboxClaim => ({
+const claim = (over: Partial<SurfaceOutboxClaim> = {}): SurfaceOutboxClaim => ({
   id: "outbox-1",
   claimToken: "claim-1",
   workspaceId: "workspace-1",
@@ -255,16 +255,16 @@ describe("slackOutboxPresentation", () => {
 
 // Scripted reads and recorded effects only: SQL owns eligibility and fencing.
 async function drainFixture(
-  row: SlackOutboxClaim,
+  row: SurfaceOutboxClaim,
   answers: SlackSendResponse[],
 ) {
   const effects: unknown[] = [];
   const messages: Parameters<SlackBotSender["postMessage"]>[1][] = [];
-  const settlements: SlackOutboxSettle[] = [];
+  const settlements: SurfaceOutboxSettle[] = [];
   const notFound: string[] = [];
   const askedAt: (number | undefined)[] = [];
   const batches = [[row], []];
-  const outbox: SlackOutboxStore = {
+  const outbox: SurfaceOutboxStore = {
     enqueue: async (entry) => {
       effects.push(["enqueue", entry]);
       return "enqueued";

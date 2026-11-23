@@ -8,8 +8,8 @@ import type {
   DeliveryInput,
   DeliveryOutcome,
   Notifiable,
-  SlackOutboxClaim,
-  SlackOutboxSettle,
+  SurfaceOutboxClaim,
+  SurfaceOutboxSettle,
 } from "@werft-ai/platform";
 import {
   SlackApiError,
@@ -36,7 +36,7 @@ export const SLACK_OUTBOX_MAX_ATTEMPTS = 10;
 export function slackOutboxSettleFor(
   attempts: number,
   response: SlackSendResponse,
-): SlackOutboxSettle {
+): SurfaceOutboxSettle {
   // A 2xx or 5xx whose answer could not be read: Slack may hold the
   // message, so this is no failure to retry. A 4xx, 429 included, is
   // judged by its status and Retry-After alone.
@@ -81,9 +81,11 @@ export function slackOutboxSettleFor(
  * instruction, a reply, a welcome), which the sender has always posted itself.
  */
 export type RowDelivery = {
-  notifiable: Notifiable<SlackOutboxClaim>;
-  approvable: Approvable<SlackOutboxClaim>;
-  direct: (input: DeliveryInput<SlackOutboxClaim>) => Promise<DeliveryOutcome>;
+  notifiable: Notifiable<SurfaceOutboxClaim>;
+  approvable: Approvable<SurfaceOutboxClaim>;
+  direct: (
+    input: DeliveryInput<SurfaceOutboxClaim>,
+  ) => Promise<DeliveryOutcome>;
 };
 
 export type RowDeliveryDeps = {
@@ -92,14 +94,14 @@ export type RowDeliveryDeps = {
    * Whether a session's direct message would reach someone outside its
    * private channels (`readerOutsideChannels`); such a row never goes out.
    */
-  readerOutside?: (claim: SlackOutboxClaim) => Promise<boolean>;
+  readerOutside?: (claim: SurfaceOutboxClaim) => Promise<boolean>;
   /** Null when the app has no readable token: the row waits, unsent. */
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   consoleOrigin: string | null;
 };
 
 /** The row settle each outcome stands for, and back: one to one. */
-function outcomeOf(settle: SlackOutboxSettle): DeliveryOutcome {
+function outcomeOf(settle: SurfaceOutboxSettle): DeliveryOutcome {
   switch (settle.status) {
     case "sent":
       return { kind: "sent", ref: settle.slackTs };
@@ -124,7 +126,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
   // installed before chat:write.customize may be refused the name; Slack
   // posted nothing then, so it goes once more as the app.
   // Read before begin, so a slow users.info spends no send lease.
-  const senderImage = (botToken: string, claim: SlackOutboxClaim) =>
+  const senderImage = (botToken: string, claim: SurfaceOutboxClaim) =>
     (claim.kind !== "instruction" && claim.kind !== "input_mirror") ||
     claim.body.sender?.slack_user_id === undefined
       ? Promise.resolve(null)
@@ -133,7 +135,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
           .catch(() => null);
   const postMessage = async (
     botToken: string,
-    claim: SlackOutboxClaim,
+    claim: SurfaceOutboxClaim,
     text: string,
     iconUrl: string | null,
   ) => {
@@ -194,7 +196,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
   };
 
   const deliver = async (
-    input: DeliveryInput<SlackOutboxClaim>,
+    input: DeliveryInput<SurfaceOutboxClaim>,
   ): Promise<DeliveryOutcome> => {
     const { row: claim, attempts } = input;
     // Before the token and any Slack call: such a row never goes out.

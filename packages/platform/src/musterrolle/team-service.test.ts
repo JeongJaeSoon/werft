@@ -4,7 +4,6 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Team, TeamStore } from "../ports/team-store.ts";
 import { createAgentAdminService } from "./agent-admin-service.ts";
 import {
   type AgentAuthority,
@@ -18,6 +17,7 @@ import type {
   AgentAdminSubject,
 } from "./ports/agent-admin-store.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
+import type { Team, TeamStore } from "./ports/team-store.ts";
 import { SessionServiceError } from "./service-errors.ts";
 import { createTeamService } from "./team-service.ts";
 

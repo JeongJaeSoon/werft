@@ -38,7 +38,7 @@ import {
   type SecretAudit,
   SecretKey,
   SessionServiceError,
-  type SlackConfigTokenStore,
+  type SurfaceConfigTokenStore,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -168,7 +168,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
   }
 
   async function registered(
-    store: SlackConfigTokenStore,
+    store: SurfaceConfigTokenStore,
     slack: ReturnType<typeof createFakeSlackConfigApi>,
   ) {
     const workspaceId = await workspace();
@@ -258,7 +258,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       const { workspaceId } = await registered(store, slack);
       await store.expireAccess(workspaceId, new Date());
       let attempts = 0;
-      const failing: SlackConfigTokenStore = {
+      const failing: SurfaceConfigTokenStore = {
         ...store,
         complete: async () => {
           attempts += 1;

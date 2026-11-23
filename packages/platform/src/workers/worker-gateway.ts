@@ -134,10 +134,6 @@ import {
   type Setting,
 } from "../limits/index.ts";
 import type {
-  RepositoryAttachmentStore,
-  RepositoryPinStore,
-} from "../ports/repository-attachments.ts";
-import type {
   ClaimInput as ClaimInputOf,
   EgressBindings,
   EgressIssue,
@@ -170,6 +166,10 @@ import type {
   ApprovalCheckpointCommit,
   WorkerPendingStore,
 } from "../sessions/ports/pending-requests.ts";
+import type {
+  RepositoryAttachmentStore,
+  RepositoryPinStore,
+} from "../sessions/ports/repository-attachments.ts";
 import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
 import { hashToken } from "../token-hash.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { WorkspaceMcpOutboundError } from "@werft-ai/platform";
+import { OutboundRefusedError } from "@werft-ai/platform";
 import { githubPackagesOutbound } from "./github-packages-config.ts";
 import {
   createProviderRequest,
@@ -61,8 +61,8 @@ async function refusal(promise: Promise<unknown>) {
     () => null,
     (caught: unknown) => caught,
   );
-  expect(error).toBeInstanceOf(WorkspaceMcpOutboundError);
-  return error as WorkspaceMcpOutboundError;
+  expect(error).toBeInstanceOf(OutboundRefusedError);
+  return error as OutboundRefusedError;
 }
 
 describe("the egress proxy's outbound (titles and judgments)", () => {

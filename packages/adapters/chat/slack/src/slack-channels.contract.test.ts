@@ -4,7 +4,10 @@ import {
   type SurfaceChannelKind,
   type SurfaceMembership,
 } from "@werft-ai/contracts";
-import type { SlackAppRecord, SurfaceBindingRecord } from "@werft-ai/platform";
+import type {
+  SurfaceAppRecord,
+  SurfaceBindingRecord,
+} from "@werft-ai/platform";
 import type { ChannelJoinSubject } from "@werft-ai/platform/testing/channel-joinable";
 import { describeChannelJoinableContract } from "@werft-ai/platform/testing/channel-joinable";
 import type { ChannelKindSubject } from "@werft-ai/platform/testing/channel-kind-readable";
@@ -184,7 +187,7 @@ function kindSubject(slack: Slack): ChannelKindSubject {
     channels: createSlackChannelKinds({
       apps: {
         findForAgent: async () =>
-          installed ? ({ id: "slack-app-1" } as SlackAppRecord) : null,
+          installed ? ({ id: "slack-app-1" } as SurfaceAppRecord) : null,
       },
       secrets: { get: async () => TOKEN },
       slack: slack.api,

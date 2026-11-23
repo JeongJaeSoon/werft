@@ -2,7 +2,7 @@
  * An install link's state as the server keeps it: only the hash of the
  * value, and who may complete it for which agent's app.
  */
-export type SlackInstallState = {
+export type SurfaceInstallState = {
   workspaceId: string;
   agentId: string;
   slackAppId: string;
@@ -13,21 +13,21 @@ export type SlackInstallState = {
   expiresAt: Date;
 };
 
-export type RecordSlackInstallResult =
+export type RecordSurfaceInstallResult =
   | { outcome: "verified"; installationId: string }
   | { outcome: "workspace_conflict" }
   /** Revoked while being registered; a new install reopens it. */
   | { outcome: "revoked" };
 
-export interface SlackInstallStore {
+export interface SurfaceInstallStore {
   /** Stores a new state and drops states that expired before `now`. */
   issueState(
     stateHash: Uint8Array,
-    state: SlackInstallState,
+    state: SurfaceInstallState,
     now: Date,
   ): Promise<void>;
   /** Removes the state and returns it, so it is spent whatever comes next. */
-  consumeState(stateHash: Uint8Array): Promise<SlackInstallState | null>;
+  consumeState(stateHash: Uint8Array): Promise<SurfaceInstallState | null>;
   /**
    * Registers the app's install in the team for the workspace and marks it
    * verified with the bot user Slack reported for the token.
@@ -37,7 +37,7 @@ export interface SlackInstallStore {
     appId: string;
     teamId: string;
     botUserId: string;
-  }): Promise<RecordSlackInstallResult>;
+  }): Promise<RecordSurfaceInstallResult>;
   /**
    * Marks the app's install in the team `revoked`, as Slack reported it
    * uninstalled or its bot token revoked. Revoking again keeps the first

@@ -31,8 +31,8 @@ import {
   SECRET_STORE_OFF,
   SessionServiceError,
 } from "../musterrolle/index.ts";
+import type { TeamActor } from "../musterrolle/ports/team-store.ts";
 import type { OutboundHttp } from "../ports/outbound-http.ts";
-import type { TeamActor } from "../ports/team-store.ts";
 import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
 import type {
   SettingsConsoleResult,

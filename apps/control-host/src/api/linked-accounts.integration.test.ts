@@ -46,7 +46,10 @@ import { createApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
-import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/musterrolle/auth.ts";
 import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
 import { createSlackOidcTransport } from "./slack-link.ts";
 

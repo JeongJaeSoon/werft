@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionLinkRecord, SlackInboundClaim } from "@werft-ai/platform";
+import type {
+  SessionLinkRecord,
+  SurfaceInboundClaim,
+} from "@werft-ai/platform";
 import { createSlackSessionHandler } from "./slack-session-handler.ts";
 import {
   judgeThreadReply,
@@ -130,7 +133,7 @@ async function run(
         ...event,
       },
     },
-  } as unknown as SlackInboundClaim;
+  } as unknown as SurfaceInboundClaim;
   await handler(claim).catch(() => {});
   return { records, reachedBotToken };
 }

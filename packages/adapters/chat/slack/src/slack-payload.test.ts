@@ -13,14 +13,14 @@ import {
   type UserLocale,
 } from "@werft-ai/contracts";
 import type {
-  SlackCardClaim,
-  SlackCardSettleStore,
-  SlackOutboxClaim,
-  SlackOutboxEntry,
-  SlackOutboxStore,
-  SlackPromptCard,
-  SlackThreadStatusFacts,
-  SlackThreadStatusStore,
+  SurfaceCardClaim,
+  SurfaceCardSettleStore,
+  SurfaceOutboxClaim,
+  SurfaceOutboxEntry,
+  SurfaceOutboxStore,
+  SurfacePromptCard,
+  SurfaceThreadStatusFacts,
+  SurfaceThreadStatusStore,
 } from "@werft-ai/platform";
 import { createRowDelivery } from "./outbox-delivery.ts";
 import { settleSlackCards } from "./slack-card-settle.ts";
@@ -247,7 +247,7 @@ describe("Slack payload fixtures: cards", () => {
   const permissionCard = (
     over: Record<string, unknown>,
     locale: UserLocale = "en",
-  ): SlackPromptCard =>
+  ): SurfacePromptCard =>
     ({
       ...base,
       locale,
@@ -265,7 +265,7 @@ describe("Slack payload fixtures: cards", () => {
         expiresAt: EXPIRES,
         ...over,
       },
-    }) as SlackPromptCard;
+    }) as SurfacePromptCard;
   const questionCard = (
     over: Record<string, unknown>,
     questions: PendingQuestion[],
@@ -275,7 +275,7 @@ describe("Slack payload fixtures: cards", () => {
       typed?: boolean;
     }[],
     via: "slack" | "web" = "slack",
-  ): SlackPromptCard =>
+  ): SurfacePromptCard =>
     ({
       ...base,
       decidedVia: via,
@@ -292,12 +292,12 @@ describe("Slack payload fixtures: cards", () => {
         expiresAt: EXPIRES,
         ...over,
       },
-    }) as SlackPromptCard;
+    }) as SurfacePromptCard;
   const pushCard = (
     state: string,
     locale: UserLocale = "en",
     extra: Record<string, unknown> = {},
-  ): SlackPromptCard =>
+  ): SurfacePromptCard =>
     ({
       ...base,
       locale,
@@ -312,7 +312,7 @@ describe("Slack payload fixtures: cards", () => {
         decidedByUserId: "user-1",
         createdAt: "2026-11-02T00:00:00Z",
       },
-    }) as SlackPromptCard;
+    }) as SurfacePromptCard;
 
   test("settled cards: each way a request ends", () => {
     expectFixture("settled-card", {
@@ -493,8 +493,8 @@ describe("Slack payload fixtures: replies, instructions, notices", () => {
   };
 
   test("rows the enqueue paths write", async () => {
-    const rows: SlackOutboxEntry[] = [];
-    const enqueue = async (entry: SlackOutboxEntry) => {
+    const rows: SurfaceOutboxEntry[] = [];
+    const enqueue = async (entry: SurfaceOutboxEntry) => {
       rows.push(entry);
       return "enqueued" as const;
     };
@@ -610,7 +610,7 @@ describe("Slack payload fixtures: replies, instructions, notices", () => {
   });
 
   test("refusal notices in every language, and the welcome row", async () => {
-    const rows: SlackOutboxEntry[] = [];
+    const rows: SurfaceOutboxEntry[] = [];
     const locales = new Map<string, UserLocale | null>([
       ["U0KO", "ko"],
       ["U0JA", "ja"],
@@ -673,7 +673,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
       body: { ok: true, ts: "200.000200" },
       ...over,
     }) as SlackSendResponse;
-  const claim = (over: Partial<SlackOutboxClaim>): SlackOutboxClaim => ({
+  const claim = (over: Partial<SurfaceOutboxClaim>): SurfaceOutboxClaim => ({
     id: "outbox-1",
     claimToken: "claim-token-1",
     workspaceId: "workspace-1",
@@ -693,7 +693,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
   });
 
   /** Runs one row through the real drain and returns every Slack call. */
-  async function sent(row: SlackOutboxClaim, answers: SlackSendResponse[]) {
+  async function sent(row: SurfaceOutboxClaim, answers: SlackSendResponse[]) {
     const calls: unknown[] = [];
     const batches = [[row], []];
     const outbox = {
@@ -718,7 +718,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
         calls.push(["settle", outcome]);
         return true;
       },
-    } as unknown as SlackOutboxStore;
+    } as unknown as SurfaceOutboxStore;
     const slack = {
       setStatus: async () => {},
       userImage: async () => "https://images.example/owner.png",
@@ -760,7 +760,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
   // Before 94S-2007 no post carried message metadata; now a web input's
   // mirror alone does, naming its request.
   test("only a web input's mirror sends message metadata", async () => {
-    const posts = async (row: SlackOutboxClaim) =>
+    const posts = async (row: SurfaceOutboxClaim) =>
       (await sent(row, []))
         .filter((call) => (call as unknown[])[0] === "postMessage")
         .map((call) => (call as [string, Record<string, unknown>])[1]);
@@ -958,7 +958,7 @@ describe("Slack payload fixtures: thread status", () => {
 
 describe("Slack payload fixtures: card edits and status writes", () => {
   const fence = { id: "card-1", claimToken: "claim-token-1" };
-  const cardClaim = (over: Partial<SlackCardClaim>): SlackCardClaim => ({
+  const cardClaim = (over: Partial<SurfaceCardClaim>): SurfaceCardClaim => ({
     ...fence,
     workspaceId: "workspace-1",
     slackAppId: "app-1",
@@ -983,8 +983,8 @@ describe("Slack payload fixtures: card edits and status writes", () => {
 
   /** Runs one card through the real settle pass; returns every edit sent. */
   async function edited(
-    claim: SlackCardClaim,
-    card: SlackPromptCard | null,
+    claim: SurfaceCardClaim,
+    card: SurfacePromptCard | null,
     turnWaits = false,
   ) {
     const calls: unknown[] = [];
@@ -1013,7 +1013,7 @@ describe("Slack payload fixtures: card edits and status writes", () => {
         calls.push(["abandon", error]);
         return true;
       },
-    } as unknown as SlackCardSettleStore;
+    } as unknown as SurfaceCardSettleStore;
     await settleSlackCards({
       store,
       slack: {
@@ -1048,10 +1048,10 @@ describe("Slack payload fixtures: card edits and status writes", () => {
       "settled-on-web": await edited(cardClaim({}), {
         ...decided,
         display: permissionDisplay,
-      } as SlackPromptCard),
+      } as SurfacePromptCard),
       "unchanged-card-is-skipped": await edited(
         cardClaim({ rendered: "allowedSession" }),
-        { ...decided, display: permissionDisplay } as SlackPromptCard,
+        { ...decided, display: permissionDisplay } as SurfacePromptCard,
       ),
       "request-gone": await edited(cardClaim({}), null),
       "turn-notice-done": await edited(
@@ -1068,7 +1068,7 @@ describe("Slack payload fixtures: card edits and status writes", () => {
 
   /** Runs one thread through the real status writer; returns its sends. */
   async function statusWritten(
-    facts: SlackThreadStatusFacts,
+    facts: SurfaceThreadStatusFacts,
     sentStatus: string | null = null,
   ) {
     const calls: unknown[] = [];
@@ -1105,7 +1105,7 @@ describe("Slack payload fixtures: card edits and status writes", () => {
       uncertain: async () => {},
       defer: async () => true,
       disable: async () => true,
-    } as unknown as SlackThreadStatusStore;
+    } as unknown as SurfaceThreadStatusStore;
     await writeSlackThreadStatuses({
       store,
       slack: {
@@ -1124,8 +1124,8 @@ describe("Slack payload fixtures: card edits and status writes", () => {
 
   test("setStatus arguments per session state", async () => {
     const facts = (
-      over: Partial<SlackThreadStatusFacts>,
-    ): SlackThreadStatusFacts => ({
+      over: Partial<SurfaceThreadStatusFacts>,
+    ): SurfaceThreadStatusFacts => ({
       admissionState: "active",
       executionRevoked: false,
       unknownTurn: false,

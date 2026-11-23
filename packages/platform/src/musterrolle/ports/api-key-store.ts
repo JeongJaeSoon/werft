@@ -3,11 +3,8 @@ import type {
   SessionScope,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/index.ts";
-import {
-  refusals,
-  type UnrecordedAllow,
-} from "../musterrolle/ports/decision-log.ts";
+import type { Principal } from "../index.ts";
+import { refusals, type UnrecordedAllow } from "./decision-log.ts";
 
 export type WorkspaceKey = {
   id: string;

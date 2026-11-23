@@ -11,10 +11,10 @@ import {
   type SettingsDocumentService,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
-import { registerInstallationSettingsRoutes } from "../installation-settings.ts";
+import { registerInstallationSettingsRoutes } from "./installation-settings.ts";
 
 const createApiApp = recordRouteErrors(
-  "routes/musterrolle/installation-settings.test.ts",
+  "routes/sessions/installation-settings.test.ts",
 );
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";

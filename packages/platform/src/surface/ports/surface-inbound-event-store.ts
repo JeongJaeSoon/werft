@@ -10,7 +10,7 @@ import type {
  * the sender fields and no payload; the others keep the envelope as Slack
  * sent it, but an edit or a delete, which keeps none.
  */
-export type SlackInboundEventInput = {
+export type SurfaceInboundEventInput = {
   workspaceId: string;
   /** The agent the request URL named. */
   agentId: string;
@@ -43,7 +43,7 @@ export type SlackInboundEventInput = {
 );
 
 /** A received row the `slack` role holds until its lease ends. */
-export type SlackInboundClaim = {
+export type SurfaceInboundClaim = {
   id: string;
   claimToken: string;
   /** This claim included. */
@@ -95,7 +95,10 @@ export type BufferedInputReceipt = {
 };
 
 /** What a write after a claim is fenced on. */
-export type SlackInboundFence = Pick<SlackInboundClaim, "id" | "claimToken">;
+export type SurfaceInboundFence = Pick<
+  SurfaceInboundClaim,
+  "id" | "claimToken"
+>;
 
 /**
  * The Slack inbox. `(app_id, event_id)` is unique: Slack keeps `event_id`
@@ -106,9 +109,9 @@ export type SlackInboundFence = Pick<SlackInboundClaim, "id" | "claimToken">;
  * A write that returns false or `lost` changed nothing: the lease ended and
  * the row is someone else's, or about to be.
  */
-export interface SlackInboundEventStore {
+export interface SurfaceInboundEventStore {
   seen(appId: string, eventId: string): Promise<boolean>;
-  record(event: SlackInboundEventInput): Promise<"recorded" | "duplicate">;
+  record(event: SurfaceInboundEventInput): Promise<"recorded" | "duplicate">;
   /**
    * Leases up to `limit` received rows that are due and head their
    * conversation (no earlier received row with the same key), oldest
@@ -119,17 +122,17 @@ export interface SlackInboundEventStore {
     limit: number;
     leaseMs: number;
     maxAttempts: number;
-  }): Promise<SlackInboundClaim[]>;
+  }): Promise<SurfaceInboundClaim[]>;
   /**
    * Extends a held lease to `leaseMs` from now, before an effect outside
    * the inbox. Null when the lease is gone; otherwise the install's status
    * as of now.
    */
   renew(
-    fence: SlackInboundFence,
+    fence: SurfaceInboundFence,
     leaseMs: number,
   ): Promise<{
-    installationStatus: SlackInboundClaim["installationStatus"];
+    installationStatus: SurfaceInboundClaim["installationStatus"];
   } | null>;
   /**
    * Marks the row `processed`, its payload cleared, and in the same
@@ -139,12 +142,12 @@ export interface SlackInboundEventStore {
    * engagement.
    */
   complete(
-    fence: SlackInboundFence,
+    fence: SurfaceInboundFence,
     input?: InboundInputReceipt | BufferedInputReceipt,
   ): Promise<boolean>;
   /** Ends the row `dropped` for `reason`, its payload and key cleared. */
   drop(
-    fence: SlackInboundFence,
+    fence: SurfaceInboundFence,
     reason: SlackInboundDropReason,
   ): Promise<boolean>;
   /**
@@ -152,7 +155,7 @@ export interface SlackInboundEventStore {
    * once `maxAttempts` claims are spent.
    */
   fail(
-    fence: SlackInboundFence,
+    fence: SurfaceInboundFence,
     options: { retryInMs: number; maxAttempts: number },
   ): Promise<"retry" | "failed" | "lost">;
 }

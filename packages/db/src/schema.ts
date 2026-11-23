@@ -132,10 +132,10 @@ import {
 import type {
   ProviderUsage,
   SecretOwnerRef,
-  SlackOutboxBody,
-  SlackOutboxKind,
-  SlackOutboxStatus,
   StoredSourceSet,
+  SurfaceOutboxBody,
+  SurfaceOutboxKind,
+  SurfaceOutboxStatus,
   WorkspaceMcpOAuthPin,
   WorkspaceMcpTool,
 } from "@werft-ai/platform";
@@ -5965,7 +5965,7 @@ export const slackOutbox = pgTable(
       .notNull()
       .references(() => slackApps.id),
     installationId: uuid("installation_id").notNull(),
-    kind: text().$type<SlackOutboxKind>().notNull(),
+    kind: text().$type<SurfaceOutboxKind>().notNull(),
     channelId: text("channel_id").notNull(),
     threadTs: text("thread_ts").notNull(),
     slackUserId: text("slack_user_id"),
@@ -5973,9 +5973,9 @@ export const slackOutbox = pgTable(
     /** The session link this row reports to; null on rows written before it. */
     sessionLinkId: uuid("session_link_id"),
     /** The text before Slack controls are escaped, and the link it carries. */
-    body: jsonb().$type<SlackOutboxBody>().notNull(),
+    body: jsonb().$type<SurfaceOutboxBody>().notNull(),
     dedupeKey: text("dedupe_key").notNull(),
-    status: text().$type<SlackOutboxStatus>().notNull().default("pending"),
+    status: text().$type<SurfaceOutboxStatus>().notNull().default("pending"),
     claimToken: uuid("claim_token"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     /** Claims so far. */
