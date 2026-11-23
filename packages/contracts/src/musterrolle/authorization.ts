@@ -306,6 +306,8 @@ export const RESOURCE_KIND_VALUES = [
   "team",
   // Receipt targets only: a stored extension bundle.
   "extension_bundle",
+  // An agent's main conversation: a channel it is in, or a person's DM.
+  "conversation",
 ] as const;
 export const resourceKindSchema = z.enum(RESOURCE_KIND_VALUES);
 export const resourceRefSchema = z
@@ -377,6 +379,12 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "session.audit_read",
   // Every session's metadata, none of its content.
   "session.admin_list",
+  // A conversation's topics, threads, summary and turns (design 9-3).
+  "conversation.view",
+  // A new topic or a thread reply from the web, posted under the person.
+  "conversation.post",
+  // Starting a task from a conversation.
+  "task.spawn",
   // Figures summed over every owner: GET /v1/limits and the installation
   // usage summary (the owner's alone).
   "usage.installation_read",
@@ -438,8 +446,11 @@ const ACTION_RESOURCE_KINDS: Record<
   "session.recover": new Set(["session"]),
   "session.share": new Set(["session"]),
   "session.rename": new Set(["session"]),
-  "session.audit_read": new Set(["session"]),
+  "session.audit_read": new Set(["session", "conversation"]),
   "session.admin_list": new Set(["workspace"]),
+  "conversation.view": new Set(["conversation"]),
+  "conversation.post": new Set(["conversation"]),
+  "task.spawn": new Set(["conversation"]),
   "usage.installation_read": new Set(["workspace"]),
   "usage.agent_read": new Set(["agent"]),
   "installation.settings.manage": new Set(["workspace"]),
@@ -606,6 +617,9 @@ export const AUTHORIZATION_REASON_VALUES = [
   "personal_scope_unavailable",
   "personal_connection_unavailable",
   "delivery_audience_outside",
+  // A post to an archived channel, or to one whose listening is off.
+  "conversation_archived",
+  "listening_off",
   // Fail-closed: a throw, a storage error, a malformed request or an
   // action/resource pair the policy has no rule for.
   "error",

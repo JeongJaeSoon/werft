@@ -10,6 +10,7 @@ import {
   accessAxisOf,
   actionAppliesTo,
   authorizationRequestSchema,
+  conversationIdSchema,
   type DeciderKey,
   ownerScopeOf,
   type PrincipalRef,
@@ -27,6 +28,7 @@ import type {
   SessionViewer,
 } from "../sessions/ports/session-share-store.ts";
 import type { UsageDecision } from "./agent-usage-decision.ts";
+import type { ConversationAccess } from "./ports/conversation-access.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
 
 export type RecordedActor = {
@@ -444,9 +446,19 @@ function claimedActorMatches(
   return subject.actor_user_id === expected;
 }
 
+// Design 9-3: each judged on its own, so seeing a conversation never lets
+// anyone write to it. No role or scope grants them, so they stay out of
+// MANAGEMENT_ROLES and the console's permission list.
+export const CONVERSATION_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
+  "conversation.view",
+  "conversation.post",
+  "task.spawn",
+]);
+
 export const RECORDED_ALLOW_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
   [
     ...(Object.keys(MANAGEMENT_ROLES) as AuthorizationAction[]),
+    ...CONVERSATION_ACTIONS,
     "routine.manage",
     "session.approve",
     "session.share",
@@ -481,6 +493,8 @@ export function createAuthorizationPolicy(
     credentials?: CredentialCheck;
     slackGuests?: SlackGuestSetting;
     sessions?: SessionAccess;
+    /** Without it every conversation decision is refused. */
+    conversations?: ConversationAccess;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
     /** Hears the failures that end in a refusal instead of an error. */
@@ -624,6 +638,75 @@ export function createAuthorizationPolicy(
       keyAgentId: reading.keyAgentId ?? null,
     });
   }
+  // Design 9-3. View: a DM is its person's; a public channel is whoever
+  // may use the agent; a private channel adds a live Slack link and current
+  // membership, and hides whatever cannot be confirmed. Post: view, and on a
+  // channel a live link (the post goes out under the person), not archived,
+  // listening not off; a web DM needs none of those. Spawn: post, and the
+  // start a session on that agent would need.
+  async function conversationReason(
+    action: AuthorizationAction,
+    reading: Extract<IdentityReading, { status: "ok" }>,
+    workspaceId: string,
+    resourceId: string | null,
+    justified: boolean,
+  ): Promise<AuthorizationReason> {
+    const { principal } = reading;
+    // Decision 44: no key reaches a conversation, audit reads included.
+    if (principal.kind !== "user") return "role";
+    const id = conversationIdSchema.safeParse(resourceId);
+    if (!id.success || deps.conversations === undefined) return "error";
+    const conversations = deps.conversations;
+    if (action === "session.audit_read") {
+      if (!WORKSPACE_MANAGERS.includes(principal.role)) return "role";
+      if (!justified) return "justification_required";
+      return (await conversations.placeOf(workspaceId, id.data)) === null
+        ? "not_found"
+        : "ok";
+    }
+    const place = await conversations.placeOf(workspaceId, id.data);
+    if (place === null) return "not_found";
+    const agentId = place.agentId.toLowerCase();
+    const self = (userId: string) =>
+      userId.toLowerCase() === principal.id.toLowerCase();
+    if (place.kind === "dm") {
+      if (!self(place.personUserId)) return "not_found";
+      if (action === "conversation.view") return "ok";
+    }
+    const usable = (await usageFor(reading, workspaceId, agentId)).allowed;
+    const linked = () =>
+      conversations.slackLinked(workspaceId, agentId, principal.id);
+    if (place.kind === "channel" && place.private) {
+      // Every refusal reads the same, so a non-member learns nothing of it.
+      if (
+        !usable ||
+        !(await linked()) ||
+        !(await conversations.isMember({
+          workspaceId,
+          agentId,
+          channelId: place.channelId,
+          userId: principal.id,
+        }))
+      ) {
+        return "not_found";
+      }
+    } else if (!usable) {
+      return "agent_private";
+    }
+    if (place.kind === "channel") {
+      if (action === "conversation.view") return "ok";
+      if (!place.private && !(await linked())) return "unlinked";
+      if (await conversations.archived(workspaceId, id.data)) {
+        return "conversation_archived";
+      }
+      if ((await conversations.listening(workspaceId, id.data)) === "off") {
+        return "listening_off";
+      }
+    }
+    if (action === "conversation.post") return "ok";
+    return (await startsInside(reading, workspaceId, agentId)) ? "ok" : "role";
+  }
+
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
 
@@ -638,7 +721,8 @@ export function createAuthorizationPolicy(
         roles === undefined &&
         action !== "session.share" &&
         action !== "workspace.read" &&
-        !AGENT_READ_ACTIONS.has(action)) ||
+        !AGENT_READ_ACTIONS.has(action) &&
+        !CONVERSATION_ACTIONS.has(action)) ||
       !actionAppliesTo(action, resource.kind)
     ) {
       return ["error", []];
@@ -696,6 +780,19 @@ export function createAuthorizationPolicy(
     const manager =
       principal.kind === "user" && WORKSPACE_MANAGERS.includes(principal.role);
     const justified = (subject.justification?.trim() ?? "") !== "";
+    if (resource.kind === "conversation") {
+      // a0 judges conversations on the web and the API only (v1-b opens Slack).
+      if (surface.kind === "slack") return ["surface_ceiling", []];
+      if (subject.agent !== undefined) return ["agent_ceiling", []];
+      const reason = await conversationReason(
+        action,
+        reading,
+        resource.owner_scope,
+        resource.id,
+        justified,
+      );
+      return [reason, reason === "error" ? [] : authorityScopes(reading)];
+    }
     // Step 2 goes on to the share: a session outside it does not exist for
     // this subject, save for what a manager does with a reason.
     if (resource.kind === "session" && resource.id !== null) {
