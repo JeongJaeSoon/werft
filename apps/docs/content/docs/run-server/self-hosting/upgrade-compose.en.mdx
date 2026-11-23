@@ -229,7 +229,7 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 <a id="slack-글의-관여-기록을-남기는-릴리스" />
 ### The release that records engagements with Slack messages
 
-Migration `0321_conversation_engagements` adds the engagement table `conversation_engagements`. The slack role still turns a mention, a DM or a post in a linked thread into a session turn as before, and in the transaction that records its input row it records one row saying the agent took part in that post. The upgrade needs nothing from you, and Slack and sessions behave as before.
+Migration `0322_conversation_engagements` adds the engagement table `conversation_engagements`. The slack role still turns a mention, a DM or a post in a linked thread into a session turn as before, and in the transaction that records its input row it records one row saying the agent took part in that post. The upgrade needs nothing from you, and Slack and sessions behave as before.
 
 - An engagement row keeps only the agent, where the post was (team, channel, ts), its kind and the session the post went into. It keeps no text, thread ts or Slack link; the thread is the session's link to hold.
 - The kind is `mention` for the post that opened a session (a mention or a DM), `reply` when an unmentioned top-level post opened it, and `bound` for a post that went into a session already open, mentioned or not.

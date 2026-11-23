@@ -229,7 +229,7 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 <a id="slack-글의-관여-기록을-남기는-릴리스" />
 ### Slack の投稿への関与を記録するリリース
 
-migration `0321_conversation_engagements` が関与記録の表 `conversation_engagements` を追加する。slack ロールはメンション・DM・紐づいたスレッドの投稿をこれまでどおりセッションのターンにし、入力受付の行を記録する同じ transaction で、エージェントがその投稿に関与したことを一行記録する。上げるときにすることはなく、Slack とセッションの動作も変わらない。
+migration `0322_conversation_engagements` が関与記録の表 `conversation_engagements` を追加する。slack ロールはメンション・DM・紐づいたスレッドの投稿をこれまでどおりセッションのターンにし、入力受付の行を記録する同じ transaction で、エージェントがその投稿に関与したことを一行記録する。上げるときにすることはなく、Slack とセッションの動作も変わらない。
 
 - 関与記録に残るのはエージェント、投稿の場所(team、チャンネル、ts)、種類、その投稿が入ったセッションだけで、本文・スレッドの ts・Slack のリンクは残らない。スレッドはセッションの link が持つ。
 - 種類は、セッションを開いた投稿が `mention`(メンションか DM)、メンションのないトップレベルの投稿で開いたセッションなら `reply`、すでに開いているセッションに入った投稿が `bound`(メンションがあっても `bound`)。
