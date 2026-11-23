@@ -26,7 +26,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 접수 줄이 있는 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
   - 지원 창 안의 이미지로 되돌리면 그동안의 글은 접수 줄 없이 턴만 생긴다.
 
-- **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 이 릴리스의 코드는 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
+- **대화 층의 빈 표 셋 `channel_contexts`·`conversations`·`conversation_topics`를 더한다**(JeongJaeSoon/werft#2023). migration `0310_conversation_scopes`가 만든다. 표를 더하는 일에는 할 일이 없고 동작도 그대로다. 표를 채우기 시작하는 것은 위 `conversation_inputs` 항목이다. 지원 창 안의 이미지로 되돌려도 영향이 없다.
 
 - **Slack에서 글을 지우거나 고친 이벤트를 버리지 않고 그 글의 자리와 시각만 표식으로 남기며, migration `0312_slack_source_marks`가 표 `deleted_sources`·`edited_sources`를 더한다**(JeongJaeSoon/werft#2035). 따로 할 일은 없다.
   - `message_deleted`, 답이 달린 글을 지울 때 오는 묘비 `message_changed`는 삭제 표식, 사람이 고친 `message_changed`는 수정 표식이 된다. 글의 본문과 이벤트 원문은 저장하지 않고, inbox 행은 원문 없이 `processed`로 남는다. 같은 글이 지워지면 수정 표식은 지운다.

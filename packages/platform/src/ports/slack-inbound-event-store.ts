@@ -70,8 +70,10 @@ export type InboundInputReceipt = {
   topicId: ConversationTopicId;
   channelId: string;
   ts: string;
-  requester: { kind: "user" | "slack_bot"; id: string };
-  /** The turn the message became: its session and its number there. */
+  /**
+   * The turn the message became: its session and its number there. The
+   * input's requester is the turn's.
+   */
   turn: { sessionId: string; sequence: number };
 };
 

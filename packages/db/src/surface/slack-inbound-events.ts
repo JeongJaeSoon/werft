@@ -194,9 +194,14 @@ export function createPostgresSlackInboundEventStore(
             `topic ${input.topicId} is no topic of the event's agent`,
           );
         }
-        const [turn] = rowsOf<{ id: string }>(
+        const [turn] = rowsOf<{
+          id: string;
+          requester_kind: string | null;
+          requester_id: string | null;
+        }>(
           await tx.execute(sql`
-            SELECT t.id FROM turns t JOIN sessions s ON s.id = t.session_id
+            SELECT t.id, t.requester_kind, t.requester_id
+            FROM turns t JOIN sessions s ON s.id = t.session_id
             WHERE t.session_id = ${input.turn.sessionId}::uuid
               AND t.sequence = ${input.turn.sequence}
               AND s.workspace_id = ${row.workspaceId}::uuid`),
@@ -205,6 +210,13 @@ export function createPostgresSlackInboundEventStore(
           throw new Error(
             `turn ${input.turn.sequence} of session ${input.turn.sessionId} is missing`,
           );
+        }
+        if (
+          (turn.requester_kind !== "user" &&
+            turn.requester_kind !== "slack_bot") ||
+          turn.requester_id === null
+        ) {
+          throw new Error(`turn ${turn.id} has no Slack requester`);
         }
         await tx.execute(sql`
           INSERT INTO conversation_inputs (
@@ -216,7 +228,7 @@ export function createPostgresSlackInboundEventStore(
             ${row.agentId}::uuid, ${input.topicId}::uuid,
             COALESCE(MAX(i.seq), 0) + 1,
             ${row.teamId}, ${input.channelId}, ${input.ts},
-            ${input.requester.kind}, ${input.requester.id},
+            ${turn.requester_kind}, ${turn.requester_id},
             ${turn.id}::bigint
           FROM conversation_inputs i WHERE i.topic_id = ${input.topicId}::uuid
           ON CONFLICT (agent_id, slack_team_id, slack_channel_id, slack_ts)

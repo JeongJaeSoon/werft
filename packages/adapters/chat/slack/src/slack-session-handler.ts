@@ -12,6 +12,7 @@ import type {
   AgentStore,
   BotTurnStore,
   ConversationStore,
+  InboundInputReceipt,
   LinkedAccountStore,
   SessionLinkRecord,
   SessionLinkStore,
@@ -226,6 +227,30 @@ export function createSlackSessionHandler(
       surfaceRef,
     );
     if (found !== null && found.revokedAt !== null) return;
+    // A retry of a message whose turn was taken before the pass died: the
+    // turn stands, so its input is taken whatever this pass would judge now.
+    const sessionId =
+      found === null
+        ? null
+        : (found.sessionId ?? (await deps.sessionLinks.openedSession(found)));
+    const taken =
+      sessionId === null
+        ? null
+        : await deps.sessionLinks.slackTurn(sessionId, {
+            teamId: claim.teamId,
+            channelId: event.channel,
+            ts: event.ts,
+          });
+    if (sessionId !== null && taken !== null) {
+      return inputOf(
+        { sessionId, sequence: taken.sequence },
+        { dm, personUserId: taken.requesterId, channelId: event.channel },
+        claim.teamId,
+        threadTs,
+        event.ts,
+        agent,
+      );
+    }
     // Before the early returns below, which let most unmentioned talk go:
     // the event itself says the channel is private, so a binding made for a
     // public one waits for approval now, whoever spoke and whatever was said.
@@ -616,44 +641,50 @@ export function createSlackSessionHandler(
       return;
     }
     // Beside the turn, not before it: the inbox row's completion takes it.
-    // A retry finds the same turn by its idempotency key.
-    const requester =
-      decision.actorUserId !== null
-        ? { kind: "user" as const, id: decision.actorUserId }
-        : fromBot
-          ? { kind: "slack_bot" as const, id: event.user }
-          : null;
-    if (requester === null) {
-      throw new Error("A Slack turn was taken with no requester");
+    return inputOf(
+      turn,
+      { dm, personUserId: decision.actorUserId, channelId: event.channel },
+      claim.teamId,
+      threadTs,
+      event.ts,
+      agent,
+    );
+  };
+
+  /** The input of a message its turn took, in the thread's topic. */
+  async function inputOf(
+    turn: InboundInputReceipt["turn"],
+    place: { dm: boolean; personUserId: string | null; channelId: string },
+    teamId: string,
+    threadTs: string,
+    ts: string,
+    agent: { workspaceId: string; agentId: string },
+  ): Promise<InboundInputReceipt> {
+    if (place.dm && place.personUserId === null) {
+      throw new Error("A Slack DM turn was taken with no person");
     }
     const conversation = await deps.conversations.findOrCreateConversation(
-      dm
+      place.dm
         ? {
             kind: "dm",
             workspaceId: agent.workspaceId,
             agentId: agent.agentId,
-            personUserId: requester.id,
+            personUserId: place.personUserId as string,
           }
         : {
             kind: "channel",
             workspaceId: agent.workspaceId,
             agentId: agent.agentId,
-            teamId: claim.teamId,
-            channelId: event.channel,
+            teamId,
+            channelId: place.channelId,
           },
     );
     const topic = await deps.conversations.findOrCreateThreadTopic(
       conversation.id,
-      { teamId: claim.teamId, channelId: event.channel, threadTs },
+      { teamId, channelId: place.channelId, threadTs },
     );
-    return {
-      topicId: topic.id,
-      channelId: event.channel,
-      ts: event.ts,
-      requester,
-      turn,
-    };
-  };
+    return { topicId: topic.id, channelId: place.channelId, ts, turn };
+  }
 
   /**
    * The link's opening message gave out before the link learned its

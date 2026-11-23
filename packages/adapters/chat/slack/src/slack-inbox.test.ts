@@ -143,7 +143,6 @@ describe("drainSlackInbox", () => {
       topicId: "019a0000-0000-7000-8000-0000000000c1",
       channelId: "C1",
       ts: "100.000100",
-      requester: { kind: "user", id: "u" },
       turn: { sessionId: "019a0000-0000-7000-8000-0000000000c2", sequence: 7 },
     } as const;
     const drain = await drainSlackInbox({

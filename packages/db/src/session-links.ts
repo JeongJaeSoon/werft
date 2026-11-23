@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { UUID } from "./control-shared.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
-import { idempotencyKeys, receipts, sessionLinks } from "./schema.ts";
+import { idempotencyKeys, receipts, sessionLinks, turns } from "./schema.ts";
 
 const t = sessionLinks;
 
@@ -102,6 +102,22 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
       const made = (row?.result as { session_id?: unknown } | null | undefined)
         ?.session_id;
       return typeof made === "string" ? made : null;
+    },
+
+    async slackTurn(sessionId, message) {
+      const [row] = await db
+        .select({ sequence: turns.sequence, requesterId: turns.requesterId })
+        .from(turns)
+        .where(
+          and(
+            eq(turns.sessionId, sessionId.toLowerCase()),
+            sql`${turns.slackMessage}->>'team_id' = ${message.teamId}`,
+            sql`${turns.slackMessage}->>'channel_id' = ${message.channelId}`,
+            sql`${turns.slackMessage}->>'ts' = ${message.ts}`,
+          ),
+        )
+        .limit(1);
+      return row ?? null;
     },
 
     async reopen(linkId, openedByTs) {

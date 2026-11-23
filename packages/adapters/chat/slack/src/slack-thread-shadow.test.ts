@@ -90,7 +90,10 @@ async function run(
       release: () => Promise.resolve(),
       claim: () => Promise.resolve({ outcome: "counted" as const }),
     },
-    sessionLinks: { find: async () => found },
+    sessionLinks: {
+      slackTurn: () => Promise.resolve(null),
+      find: async () => found,
+    },
     bindings: {
       resolveSlackChannel: async () => null,
       ensureDmBinding: async () => null,

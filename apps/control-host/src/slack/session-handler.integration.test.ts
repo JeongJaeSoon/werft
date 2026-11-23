@@ -736,6 +736,40 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     ).toEqual([[1, turnIds[0] ?? 0]]);
   });
 
+  test("a retry after the turn takes its input as the turn's, though the person was unlinked meanwhile", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    await deliver(
+      fixture,
+      message("100.000200", {
+        thread_ts: "100.000100",
+        text: `<@${BOT_USER}> again`,
+      }),
+    );
+    const [claim] = await claimAll(30_000);
+    if (claim === undefined) throw new Error("nothing claimed");
+    expect(await handler(shortLease).handle(claim)).toBeDefined();
+    await db.delete(linkedAccounts);
+    await Bun.sleep(100);
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+    const [session] = await sessionsOf(fixture);
+    const turnIds = await turnIdsOf(session?.id);
+    expect(turnIds).toHaveLength(2);
+    expect(await inputsOf(fixture)).toMatchObject([
+      { seq: 1, ts: "100.000100" },
+      {
+        seq: 2,
+        ts: "100.000200",
+        requesterKind: "user",
+        requesterId: fixture.ownerId,
+        turnId: turnIds[1],
+      },
+    ]);
+    expect(notices).toEqual([]);
+  });
+
   test("a receipt whose row lost its lease takes nothing", async () => {
     const fixture = await agentInSlack();
     await deliver(fixture, mention("100.000100"));
