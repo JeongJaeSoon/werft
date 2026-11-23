@@ -100,7 +100,7 @@ Console Apps use github.com only. For a GHES repository, write the App directly 
 
 ## What the user does
 
-To use GitHub, an admin first picks repositories in the agent's GitHub tab and saves. A new agent's sessions have no GitHub tools until then. If the push approval fields are left as they are, the save stores the defaults (human approval before push off, attached repository push allowed), and the agent pushes without human approval.
+To use GitHub, an admin first picks repositories in the agent's GitHub tab and saves. A new agent's sessions have no GitHub tools until then. If the push approval fields are left as they are, the save stores the defaults (Approve before push off, Push to attached repositories allowed), and the agent pushes without human approval.
 
 1. Create a session with that repository's `repository_id` ([Start](/sessions/start)).
 2. [Request](/approvals/request) and [approve](/approvals/approve) the result. When the request becomes `pushed`, the `agent/<session-id>` branch exists in the repository.
