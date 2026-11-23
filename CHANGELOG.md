@@ -19,7 +19,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.
   - 답글이 게시 결과보다 먼저 처리되어 스레드가 이미 다른 주제인 드문 경우는 합치지 않고 `warn` 로그 `Slack mirror opened a thread another topic already holds; the topics stay apart`를 남긴다.
   - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
-
+- **에이전트가 받는 GitHub 도구 설명과 checkpoint 거절 이유가, 브랜치는 worktree 없이 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 만든다고 알린다**(JeongJaeSoon/werft#2069). migration은 없고 따로 할 일도 없다.
+  - 작업 공간 안의 git worktree·clone은 지금처럼 checkpoint가 거절하고, 그 턴의 push는 `turn_ended_without_checkpoint`로 취소된다. `git worktree`의 묻기 규칙도 그대로다.
 - **migration `0333_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더하고, 지운 Slack 글을 출처로 가진 턴이 있는 열린 세션을 멈춘다**(JeongJaeSoon/werft#2064). 따로 할 일은 없고, 지운 글이 없는 세션의 동작은 그대로다.
   - 직접 출처든 물려받은 출처든 턴 하나만 걸려도 세션 전체를 멈춘다. 글의 수정으로는 멈추지 않는다. 닫힌 세션은 건드리지 않는다.
   - 실행 중인 턴은 끊지 않고, 끝난 뒤 pause처럼 `paused`가 된다. 대기 중인 입력은 내보내지 않는다.
