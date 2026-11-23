@@ -55,9 +55,14 @@ export interface SlackSourceMarkStore {
   markDeleted(mark: SlackSourceMark): Promise<"recorded" | "duplicate">;
   /**
    * Keeps the latest edit time of the message; `deleted` when it has a
-   * delete mark, which leaves it unchanged.
+   * delete mark, which leaves it unchanged. `body`, the edited text, only
+   * replaces the text of the message held in the judgment buffer, when this
+   * is its latest edit; it is kept nowhere else.
    */
-  markEdited(mark: SlackSourceMark): Promise<"recorded" | "deleted">;
+  markEdited(
+    mark: SlackSourceMark,
+    body?: string,
+  ): Promise<"recorded" | "deleted">;
 }
 
 export type SlackSignatureCheck = "ok" | "bad_signature" | "stale";
@@ -263,6 +268,8 @@ type SourceChange = {
   ts: string;
   /** Slack's time of the delete (`event_ts`) or of the edit (`edited.ts`). */
   at: string | undefined;
+  /** An edit's new text. */
+  text?: string;
 };
 
 /**
@@ -279,13 +286,19 @@ function sourceChange(event: SlackEventCallback["event"]): SourceChange | null {
   let kind: SourceChange["kind"];
   let ts: string | undefined;
   let at: string | undefined;
+  let text: string | undefined;
   if (event.subtype === "message_deleted") {
     at = tsOf(event.event_ts);
     kind = "deleted";
     ts = tsOf(event.deleted_ts) ?? tsOf(previous?.ts);
   } else if (event.subtype === "message_changed") {
     const inner = event.message as
-      | { subtype?: unknown; edited?: { ts?: unknown } | null; ts?: unknown }
+      | {
+          subtype?: unknown;
+          edited?: { ts?: unknown } | null;
+          ts?: unknown;
+          text?: unknown;
+        }
       | undefined;
     if (inner?.subtype === "tombstone") {
       kind = "deleted";
@@ -293,12 +306,13 @@ function sourceChange(event: SlackEventCallback["event"]): SourceChange | null {
     } else if (typeof inner?.edited === "object" && inner.edited !== null) {
       kind = "edited";
       at = tsOf(inner.edited.ts);
+      if (typeof inner.text === "string") text = inner.text;
     } else return null;
     ts = tsOf(inner.ts) ?? tsOf(previous?.ts);
   } else return null;
   return channelId === undefined || ts === undefined
     ? null
-    : { kind, channelId, ts, at };
+    : { kind, channelId, ts, at, ...(text === undefined ? {} : { text }) };
 }
 
 function hasBotTokens(event: SlackEventCallback["event"]): boolean {
@@ -371,7 +385,7 @@ export function createSlackEventsService(deps: {
       };
       await (change.kind === "deleted"
         ? deps.sourceMarks.markDeleted(mark)
-        : deps.sourceMarks.markEdited(mark));
+        : deps.sourceMarks.markEdited(mark, change.text));
       return { status: "processed", marked: true };
     }
     // member_joined_channel names the bot when it is invited; the

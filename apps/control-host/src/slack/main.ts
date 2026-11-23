@@ -12,6 +12,7 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationSettingsStore,
+  createPostgresJudgmentBufferStore,
   createPostgresLinkedAccountStore,
   createPostgresSecretStore,
   createPostgresSessionControl,
@@ -226,6 +227,7 @@ export function slackSessionHandler(deps: {
     botTurns: createPostgresSlackThreadBotTurnStore(db),
     sessionLinks: createPostgresSessionLinkStore(db),
     conversations: createPostgresConversationStore(db),
+    buffer: createPostgresJudgmentBufferStore(db),
     sessions,
     agentDetails: agentStore,
     releaseRepositoryUnusable: async (workspaceId, releaseId) => {
