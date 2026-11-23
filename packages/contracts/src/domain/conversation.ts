@@ -18,6 +18,13 @@ export const conversationInputIdSchema = z
   .uuid()
   .brand<"ConversationInputId">();
 export type ConversationInputId = z.infer<typeof conversationInputIdSchema>;
+export const channelSummaryLineIdSchema = z
+  .uuid()
+  .brand<"ChannelSummaryLineId">();
+export type ChannelSummaryLineId = z.infer<typeof channelSummaryLineIdSchema>;
+
+/** Most characters one channel summary line holds; the DB checks the same. */
+export const CHANNEL_SUMMARY_LINE_TEXT_MAX = 2000;
 
 /**
  * The key a web client gives an input so a retry finds it again: unique per

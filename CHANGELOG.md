@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0325_channel_summaries`가 채널 요약 표 셋(`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`)을 더한다**(JeongJaeSoon/werft#PRNUM). 따로 할 일은 없고, Slack과 세션의 동작은 그대로다. 요약을 쓰는 길은 아직 없어서 표는 비어 있다.
+  - 줄에는 에이전트가 쓴 글만 있고 Slack 글의 본문은 없다. 출처(글의 자리와 입력 접수 줄 id)와 화자는 서버가 입력 접수 줄에서 읽는다.
+  - 바뀔 때마다 버전이 오르고 옛 버전은 되돌리기용 이력으로 남는다. 출처 글이 지워지거나 고쳐지면 그 줄을 모든 버전에서 지운다.
+  - 요약 줄의 출처인 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
+  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0324_source_sets`가 `turns`와 `slack_outbox`에 출처 집합 칸 `sources`(jsonb, nullable)와 GIN 색인 둘을 더한다**(JeongJaeSoon/werft#2048). 따로 할 일은 없고, Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
   - 출처 집합은 그 턴이 나온 Slack 글을 자리(team, 채널, ts)와 입력 접수 줄 id로만 적는다. 본문은 없다. 그 턴의 입력은 `direct`, 같은 세션 앞 턴들의 것은 `inherited`로 가른다. 한 집합은 256개까지 적고, 넘으면 `overflow`를 표시한다.
   - Slack 글로 생긴 턴과 그 세션의 뒤 턴(이어 가는 턴, push 후속 턴, 웹·API 지시), 그 턴의 답·실패 알림·승인 카드 줄이 출처를 갖는다. Slack과 무관한 웹·API 세션의 턴은 비어 있다.
