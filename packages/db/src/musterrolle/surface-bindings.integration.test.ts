@@ -15,6 +15,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
 import * as schema from "../schema.ts";
 import {
   agents,
@@ -31,6 +32,7 @@ import {
 } from "../surface/slack-installations.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { waitsOn } from "../testing/lock-wait.ts";
+import { newPartitionedSession } from "../testing/sessions.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentIdentityStore } from "./agent-identities.ts";
 import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
@@ -99,7 +101,7 @@ integration("surface bindings on PostgreSQL", () => {
   }
 
   // An agent linked to its own Slack app; fixture ids shaped like Slack's.
-  async function slackAgent(owner: Caller) {
+  async function slackAgent(owner: Caller, teamId?: string) {
     const workspaceId = owner.ownerId;
     const agentId = randomUUID();
     await db.insert(agents).values({
@@ -111,7 +113,7 @@ integration("surface bindings on PostgreSQL", () => {
     });
     const key = {
       appId: `A${randomUUID().slice(0, 8).toUpperCase()}`,
-      teamId: `T${randomUUID().slice(0, 8).toUpperCase()}`,
+      teamId: teamId ?? `T${randomUUID().slice(0, 8).toUpperCase()}`,
     };
     await registerSlackInstallation(db, { ...key, workspaceId });
     await verifySlackInstallation(db, { ...key, botUserId: "B0BOT" });
@@ -1468,6 +1470,181 @@ integration("surface bindings on PostgreSQL", () => {
         expect(
           await store().findLiveSlackChannel(installationId, "C0NEVER"),
         ).toBeNull();
+      });
+
+      let summaryTs = 1792800000;
+      // A channel's summary at version 2 with a line of each version, and
+      // the agent's engagement with a message in it.
+      async function summarized(
+        workspaceId: string,
+        agentId: string,
+        teamId: string,
+        channelId: string,
+      ) {
+        const conversations = createPostgresConversationStore(db);
+        await conversations.findOrCreateConversation({
+          kind: "channel",
+          workspaceId,
+          agentId,
+          teamId,
+          channelId,
+        });
+        await pool.query(
+          "INSERT INTO channel_summaries (workspace_id, team_id, channel_id, version) VALUES ($1, $2, $3, 2)",
+          [workspaceId, teamId, channelId],
+        );
+        for (const [from, to] of [
+          [1, 2],
+          [2, null],
+        ]) {
+          const lineId = randomUUID();
+          summaryTs += 1;
+          await pool.query(
+            "INSERT INTO channel_summary_lines (id, origin_id, workspace_id, team_id, channel_id, text, written_by_agent_id, from_version, to_version) VALUES ($1, $1, $2, $3, $4, 'line', $5, $6, $7)",
+            [lineId, workspaceId, teamId, channelId, agentId, from, to],
+          );
+          await pool.query(
+            "INSERT INTO channel_summary_line_sources (line_id, input_id, workspace_id, team_id, channel_id, ts, speaker_kind, speaker_id) VALUES ($1, $2, $3, $4, $5, $6, 'slack_user', 'U0SPEAKER')",
+            [
+              lineId,
+              randomUUID(),
+              workspaceId,
+              teamId,
+              channelId,
+              `${summaryTs}.000100`,
+            ],
+          );
+        }
+        const session = await newPartitionedSession(db, "channel-deleted");
+        await pool.query(
+          "INSERT INTO conversation_engagements (workspace_id, agent_id, team_id, channel_id, ts, kind, session_id) VALUES ($1, $2, $3, $4, $5, 'mention', $6)",
+          [
+            workspaceId,
+            agentId,
+            teamId,
+            channelId,
+            `${summaryTs}.000100`,
+            session.sessionId,
+          ],
+        );
+      }
+
+      const SUMMARY_TABLES = [
+        "channel_summaries",
+        "channel_summary_lines",
+        "channel_summary_line_sources",
+      ] as const;
+      async function rowsOf(workspaceId: string, channelId: string) {
+        const counts: Record<string, number> = {};
+        for (const table of [
+          ...SUMMARY_TABLES,
+          "conversation_engagements",
+          "channel_contexts",
+        ]) {
+          const { rows } = await pool.query(
+            `SELECT count(*)::int AS n FROM ${table} WHERE workspace_id = $1 AND channel_id = $2`,
+            [workspaceId, channelId],
+          );
+          counts[table] = rows[0].n;
+        }
+        return counts;
+      }
+      const SUMMARIZED = {
+        channel_summaries: 1,
+        channel_summary_lines: 2,
+        channel_summary_line_sources: 2,
+        conversation_engagements: 1,
+        channel_contexts: 1,
+      };
+      const DELETED = {
+        channel_summaries: 0,
+        channel_summary_lines: 0,
+        channel_summary_line_sources: 0,
+        conversation_engagements: 1,
+        channel_contexts: 1,
+      };
+
+      test("a deletion deletes the channel's summary with every version, and keeps other channels, the engagement and the channel's context; an archive deletes nothing", async () => {
+        const { owner, agentId, installationId, key } = await approved();
+        const workspaceId = owner.ownerId;
+        await setAs(owner, agentId, { channelId: "C0SUM" });
+        await setAs(owner, agentId, { channelId: "C0KEEP" });
+        await summarized(workspaceId, agentId, key.teamId, "C0SUM");
+        await summarized(workspaceId, agentId, key.teamId, "C0KEEP");
+
+        await createPostgresConversationStore(db).recordChannelState(
+          {
+            kind: "channel",
+            workspaceId,
+            agentId,
+            teamId: key.teamId,
+            channelId: "C0SUM",
+          },
+          "archived",
+          at(1),
+        );
+        expect(await rowsOf(workspaceId, "C0SUM")).toEqual(SUMMARIZED);
+
+        expect(
+          await store().channelDeleted(installationId, "C0SUM", at(2)),
+        ).toBe(true);
+        expect(await rowsOf(workspaceId, "C0SUM")).toEqual(DELETED);
+        expect(await rowsOf(workspaceId, "C0KEEP")).toEqual(SUMMARIZED);
+      });
+
+      test("every agent's deletion of a channel ends as one: the later ones and a retry find no summary, bound or not", async () => {
+        const { owner, agentId, installationId, key } = await approved();
+        const workspaceId = owner.ownerId;
+        const other = await slackAgent(owner, key.teamId);
+        await setAs(owner, agentId, { channelId: "C0SHARED" });
+        await setAs(owner, other.agentId, { channelId: "C0SHARED" });
+        await summarized(workspaceId, agentId, key.teamId, "C0SHARED");
+
+        expect(
+          await store().channelDeleted(installationId, "C0SHARED", at(2)),
+        ).toBe(true);
+        expect(await rowsOf(workspaceId, "C0SHARED")).toEqual(DELETED);
+        expect(
+          await store().channelDeleted(other.installationId, "C0SHARED", at(2)),
+        ).toBe(true);
+        expect(
+          await store().channelDeleted(installationId, "C0SHARED", at(2)),
+        ).toBe(false);
+        expect(await rowsOf(workspaceId, "C0SHARED")).toEqual(DELETED);
+
+        // An agent with no binding for the channel deletes it too.
+        await summarized(workspaceId, agentId, key.teamId, "C0UNBOUND");
+        expect(
+          await store().channelDeleted(installationId, "C0UNBOUND", null),
+        ).toBe(false);
+        expect(await rowsOf(workspaceId, "C0UNBOUND")).toEqual(DELETED);
+      });
+
+      test("a channel_not_found and a deletion older than a newer join keep the summary", async () => {
+        const { owner, agentId, installationId, key } = await approved();
+        const workspaceId = owner.ownerId;
+        const open = await setAs(owner, agentId, { channelId: "C0LOST" });
+        if (open.outcome !== "set") throw new Error(open.outcome);
+        await summarized(workspaceId, agentId, key.teamId, "C0LOST");
+        expect(await store().channelNotFound(installationId, "C0LOST")).toBe(
+          "gone",
+        );
+        expect(await rowsOf(workspaceId, "C0LOST")).toEqual(SUMMARIZED);
+
+        const back = await setAs(owner, agentId, { channelId: "C0BACK" });
+        if (back.outcome !== "set") throw new Error(back.outcome);
+        await summarized(workspaceId, agentId, key.teamId, "C0BACK");
+        await store().observeLifecycle(installationId, "C0BACK", at(5));
+        await store().recordJoin(
+          installationId,
+          "C0BACK",
+          back.binding.id,
+          at(5),
+        );
+        expect(
+          await store().channelDeleted(installationId, "C0BACK", at(3)),
+        ).toBe(false);
+        expect(await rowsOf(workspaceId, "C0BACK")).toEqual(SUMMARIZED);
       });
 
       test("a join stamped before the deletion revives nothing; a later one brings a private channel back to approval and a public one into use", async () => {
