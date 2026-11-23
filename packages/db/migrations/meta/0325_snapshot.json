@@ -1,5 +1,5 @@
 {
-  "id": "a616ac2b-3324-412e-bc85-0c41dc7ddb08",
+  "id": "4c5813e5-1a57-4694-b6ca-91856937f77f",
   "prevId": "45199509-46d7-4bbd-aeb1-a9c61c173d1b",
   "version": "7",
   "dialect": "postgresql",
@@ -4616,7 +4616,7 @@
           "primaryKey": false,
           "notNull": true,
           "identity": {
-            "type": "always",
+            "type": "byDefault",
             "name": "channel_summary_lines_ordinal_seq",
             "schema": "public",
             "increment": "1",

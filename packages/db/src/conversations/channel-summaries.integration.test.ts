@@ -312,6 +312,33 @@ integration("channel summaries (0325)", () => {
     ).toEqual(["line b"]);
   });
 
+  test("a revert keeps the order of lines written together", async () => {
+    const channel = newChannel();
+    const [a, b] = [await input(channel), await input(channel)];
+    if (!a || !b) throw new Error("inputs");
+    const first = await append(channel, 0, [
+      { text: "line a", inputId: a.id },
+      { text: "line b", inputId: b.id },
+    ]);
+    await summaries.fold({
+      place: placeOf(channel),
+      agentId,
+      expectedVersion: 1,
+      lineIds: [first.lineIds[0] as ChannelSummaryLineId],
+      text: "a again",
+    });
+    const back = { place: placeOf(channel), toVersion: 1 };
+    await summaries.revert({ ...back, expectedVersion: 2 });
+    await summaries.revert({ ...back, expectedVersion: 3 });
+    expect(await everyVersion(channel)).toEqual([
+      [],
+      ["line a", "line b"],
+      ["line b", "a again"],
+      ["line a", "line b"],
+      ["line a", "line b"],
+    ]);
+  });
+
   test("a folded line of two sources goes whole when only one of them is deleted", async () => {
     const channel = newChannel();
     const [a, b] = [await input(channel, "U0A"), await input(channel, "U0B")];

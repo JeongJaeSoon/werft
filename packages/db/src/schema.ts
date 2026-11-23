@@ -5523,9 +5523,9 @@ export const channelSummaryLines = pgTable(
     writtenAt: timestamp("written_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    // Orders lines written at the same time; a copy keeps its original's
-    // written_at.
-    ordinal: bigint({ mode: "number" }).generatedAlwaysAsIdentity(),
+    // Orders lines written at the same time. A copy keeps its original's
+    // written_at and ordinal, so a revert keeps the lines' order.
+    ordinal: bigint({ mode: "number" }).generatedByDefaultAsIdentity(),
     fromVersion: bigint("from_version", { mode: "number" }).notNull(),
     toVersion: bigint("to_version", { mode: "number" }),
   },
