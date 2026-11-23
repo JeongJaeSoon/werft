@@ -99,6 +99,8 @@ export const slackKo = {
   "slack.eventsUrl.unsent": "아직 보내지 않음",
   "slack.eventsUrl.recheck": "다시 확인",
   "slack.eventsUrl.done": "Slack이 Request URL을 확인했습니다.",
+  "slack.eventsUrl.reinstall":
+    "manifest를 Slack에 다시 보냈습니다. 앱에 새 권한이 더해져, 앱을 다시 설치해야 적용됩니다.",
   "slack.eventsUrl.sent":
     "Request URL을 Slack에 다시 보냈습니다. 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다. 확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Retry를 누르세요.",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",

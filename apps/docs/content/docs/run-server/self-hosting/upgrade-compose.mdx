@@ -118,6 +118,10 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾼다.
 - 저장한 주소를 바꿔도 이미 만든 앱에는 바로 보내지 않는다. 에이전트의 Slack 탭에서 "다시 확인"을 누르거나 `slack-app finalize`를 실행한다.
 - `slack_settings` 표는 되돌릴 때 지우지 않는다. 앞선 빌드는 이 표를 읽지 않는다.
 
+### Slack 채널 이벤트와 manifest 다시 보내기
+
+업그레이드한 뒤 에이전트마다 콘솔 Slack 탭의 "다시 확인"을 누르거나 API 컨테이너에서 `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>`를 한 번 실행한다. 그래야 이미 만든 앱이 채널 삭제·보관·이름 변경 이벤트를 받는다. 하지 않으면 삭제된 채널의 처리는 게시나 채널 조회가 `channel_not_found`를 받을 때만 동작한다. 다시 보낸 manifest가 설치에 없는 scope를 요청하면 "다시 확인"의 안내와 명령의 `warnings`(`reinstall_required`)가 앱을 다시 설치하라고 알린다.
+
 ### 웹으로 옮긴 실행 한도
 
 설치 전체에 걸린 실행 한도, 세션 기록 보관, 작업 공간 보존 설정 열두 개를 env 대신 owner가 **설정 > 워크스페이스 > 실행 한도**에서 저장한다(`GET`·`PATCH /v1/installation-config`, 감사 기록 `update_installation_config`). 어느 role도 아래 env를 읽지 않는다. 저장하면 그 API는 바로, 다른 replica와 scheduler·slack·metrics role은 10초 안에 따른다. 이미 기다리는 요청은 처음 받은 시간을 그대로 쓴다. 턴 시간·모델 요청 재시도는 그 뒤에 예약되는 launch부터 받고, 다른 값으로 뜬 worker는 지금 turn을 마친 뒤 내려간다([turn 시간과 재시도를 바꿀 때](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)). 세션 기록 보관 두 값은 보관 job이 돌 때마다, 작업 공간 보존 두 값은 scheduler가 workspace를 회수할 때마다 읽는다. 범위와 기본값은 [웹에서 정하는 실행 한도](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도)에 있다.

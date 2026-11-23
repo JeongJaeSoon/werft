@@ -91,6 +91,8 @@ export const slackJa = {
   "slack.eventsUrl.unsent": "まだ送っていません",
   "slack.eventsUrl.recheck": "再確認",
   "slack.eventsUrl.done": "Slack が Request URL を確認しました。",
+  "slack.eventsUrl.reinstall":
+    "manifest を Slack にもう一度送りました。アプリに新しい権限が加わり、アプリを再インストールすると適用されます。",
   "slack.eventsUrl.sent":
     "Request URL を Slack にもう一度送りました。URL が変わらなければ Slack は再び確認しないことがあります。確認待ちが続く場合は、アプリ設定の Event Subscriptions で Retry を押してください。",
   "slack.repositoryRequired.title": "Slack からはセッションを開始できません",
