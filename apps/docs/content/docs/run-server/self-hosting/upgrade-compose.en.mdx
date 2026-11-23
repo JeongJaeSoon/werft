@@ -269,6 +269,14 @@ GROUP BY 1, 2;
 - The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
 - Earlier images write no such row either, so rolling back with the constraint in place is safe.
 
+<a id="예산-계정-표를-더하는-릴리스" />
+### The release that adds the budget account tables
+
+Migration `0314_budget_accounts` creates three empty tables: `budget_limits` (the workspace's limit for every person, a person's own limit, an agent team's limit), `budget_accounts` (what a person's or a team's account spent and holds reserved each month, months cut in UTC), and `budget_reservations` (the reservation and settlement of each call). Nothing to do.
+
+- In this release no call reads or writes these tables. The session cost and token limits work as before, and there is no screen, API or operator command that sets a budget limit yet.
+- The migration only adds tables, so rolling back to an image inside the support window is fine.
+
 <a id="slack-글의-수정삭제-표식" />
 ### Marks of edited and deleted Slack messages
 

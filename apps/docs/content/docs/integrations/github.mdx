@@ -25,7 +25,7 @@ GitHub와 하는 일은 셋이다. 시작 저장소가 있는 세션은 시작�
 
 ### App의 Setup URL
 
-콘솔에서 만든 App은 Setup URL이 `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`로 채워진다. 이미 있던 App을 연결했다면 GitHub의 App 설정(Developer settings > GitHub Apps > 그 App > General)에서 **Setup URL**을 이 주소에 맞춘다. 조직을 추가하고 나면 GitHub가 브라우저를 이 주소로 돌려보내고, 콘솔은 돌아온 값으로 설치를 기록한다. Setup URL이 옛 `/settings/workspace/github`를 가리키는 App은 새 주소로 바꾼다. 그 경로는 없어졌다. 이미 설치한 계정에서 설치 설정을 저장한 뒤 콘솔로 돌아오는 것은 App의 **Redirect on update**가 켜져 있을 때만이다.
+콘솔에서 만든 App은 Setup URL이 `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`로 채워진다. 이미 있던 App을 연결했다면 GitHub의 App 설정(Developer settings > GitHub Apps > 그 App > General)에서 **Setup URL**을 이 주소에 맞춘다. 조직을 추가하고 나면 GitHub가 브라우저를 이 주소로 돌려보내고, 콘솔은 돌아온 값으로 설치를 기록한다. 이미 설치한 계정에서 설치 설정을 저장한 뒤 콘솔로 돌아오는 것은 App의 **Redirect on update**가 켜져 있을 때만이다.
 
 ### 기본 브랜치 보호
 
@@ -184,29 +184,29 @@ PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit
 
 ## push가 끝난 뒤 PR이 열리는 방식
 
-push 요청에 PR 요청이 붙어 있으면, push가 `pushed`로 끝난 뒤에 control-host 안의 action-broker가 PR을 연다. 에이전트가 이어 턴에서 `open_pull_request`를 다시 부르지 않아도 된다. 이 일은 control-host가 뜰 때 같이 시작하고, 다시 띄워도 이미 시작된 PR 단계는 끝까지 처리된다. REST로는 push가 끝나기 전에 `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true`를 부르면 409 `PUSH_NOT_PUSHED` 대신 202와 `status: "scheduled"`를 받고, push가 끝나는 대로 PR이 열린다. `schedule` query가 없거나, 예전 흐름(`flow = legacy`)으로 만든 push 요청이면 전과 같이 409다.
+push 요청에 PR 요청이 붙어 있으면, push가 `pushed`로 끝난 뒤에 control-host가 PR을 연다. 에이전트가 이어 턴에서 `open_pull_request`를 다시 부르지 않아도 된다. control-host를 다시 띄워도 이미 시작된 PR 단계는 끝까지 처리된다. REST로는 push가 끝나기 전에 `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true`를 부르면 409 `PUSH_NOT_PUSHED` 대신 202와 `status: "scheduled"`를 받고, push가 끝나는 대로 PR이 열린다. `schedule` query가 없거나 `flow = legacy`로 만든 push 요청이면 409다.
 
 PR 단계는 push 요청마다 하나이고, 상태가 아래처럼 바뀐다.
 
 | 상태 | 뜻 |
 | --- | --- |
 | `due` | push가 끝나 PR을 열 차례다. 열기에 실패하면 간격을 두고 다시 시도한다(최대 3번) |
-| `opening` | action-broker 한 곳이 PR을 열고 있다. 그 처리가 멈추면 다른 replica가 이어받는다 |
+| `opening` | control-host 한 곳이 PR을 열고 있다. 그 처리가 멈추면 다른 replica가 이어받는다 |
 | `opened` | PR이 열렸고 기록됐다. 번호와 링크는 PR 행에 있다 |
 | `closed_unrecorded` | 이 push 요청의 PR이 기록되기 전에 닫히거나 머지됐다. 새 PR을 만들지 않는다 |
 | `uncertain` | GitHub에 PR이 있는지 확인하지 못했다(조회가 세 번 실패했거나, 첫 조회가 한도인 10건을 가득 채워 다음 쪽에 더 있을 수 있다). 또는 맞는 PR이 둘 이상이다. 플랫폼이 고르지 않는다 |
 | `failed` | PR을 열지 못했다. 사유가 `pr_error`에 남는다 |
 | `cancelled` | push가 실패해서 열 PR이 없다. 사유가 `pr_error`에 남는다 |
 
-열기 전에 플랫폼은 브랜치를 모든 상태(열림·닫힘·머지됨)로 먼저 찾는다. 응답을 잃은 뒤 다시 시도해도 PR이 하나 더 생기지 않는 이유다. 이미 열린 PR이 있으면 그 PR을 쓰고 꼬리만 새 commit으로 바꾼다. 찾은 PR이나 새로 만든 PR의 head가 push한 commit과 다르면 기록하지 않고 `head_moved`로 끝낸다. 다만 GitHub가 push 직후 잠깐 이전 head를 보여 주는 경우가 있어, 그 head가 push한 commit의 조상이면 끝내지 않고 다음 시도까지 기다린다(마지막 시도 전까지, 비교 요청 1회). 조상이 아니거나 비교가 실패하면 바로 끝낸다. 만들어진 PR은 닫지 않으니 사람이 확인한다. PR 본문의 표시는 누구나 쓸 수 있으므로, 같은 저장소·head·base인 PR만 후보로 본다.
+열기 전에 플랫폼은 브랜치를 모든 상태(열림·닫힘·머지됨)로 먼저 찾는다. 응답을 잃은 뒤 다시 시도해도 PR이 하나 더 생기지 않는 이유다. 이미 열린 PR이 있으면 그 PR을 쓰고 꼬리만 새 commit으로 바꾼다. 찾은 PR이나 새로 만든 PR의 head가 push한 commit과 다르면 기록하지 않고 `head_moved`로 끝낸다. 다만 GitHub가 push 직후 잠깐 이전 head를 보여 주는 경우가 있어, 그 head가 push한 commit의 조상이면 끝내지 않고 다음 시도까지 기다린다. 조상이 아니거나 비교가 실패하면 바로 끝낸다. 만들어진 PR은 닫지 않으니 사람이 확인한다. PR 본문의 표시는 누구나 쓸 수 있으므로, 같은 저장소·head·base인 PR만 후보로 본다.
 
-결과는 세션 스레드에 알림으로 온다(PR 열림, 열지 못함, 이미 닫힘, 확인하지 못함). 알림 문구는 세션을 시작한 사람의 언어를 따르고(요청한 사람이 아니다), 결과마다 한 번만 만들어진다. 알림은 세션에 Slack 스레드가 이어져 있고 음소거·권한 제한이 없을 때만 만들어진다. 그렇지 않으면 상태만 바뀌고 알림 행은 생기지 않는다. 알림이 만들어지는 경우에는 상태를 바꾸는 트랜잭션에 함께 기록되므로 상태만 바뀌고 알림이 빠지는 일은 없다.
+결과는 세션 스레드에 알림으로 온다(PR 열림, 열지 못함, 이미 닫힘, 확인하지 못함). 알림 문구는 세션을 시작한 사람의 언어를 따르고(요청한 사람이 아니다), 결과마다 한 번만 만들어진다. 알림은 세션에 Slack 스레드가 이어져 있고 음소거·권한 제한이 없을 때만 만들어진다. 그렇지 않으면 상태만 바뀌고 알림은 오지 않는다.
 
 알려진 한계가 있다. 프로세스가 호출 직전에 오래 멈췄다가 깨어나 이미 보낸 요청이 늦게 도착하면, 같은 브랜치에 PR이 하나 더 생길 수 있고 플랫폼은 PR을 연 뒤에 이를 다시 찾지 않는다. GitHub에는 조건부 생성이 없어서, 플랫폼은 호출 직전에 다시 확인하고 열기 전에 브랜치를 찾아보는 것까지만 한다. 열 때 맞는 PR이 둘 이상이면 새로 만들지 않고 `uncertain`으로 두며 알린다. 자동으로 닫지 않으니 GitHub에서 사람이 고른다.
 
 ## 세션 도중 저장소 붙이기
 
-GitHub 설정이 있는 에이전트의 세션은 저장소 없이 시작한다(설정이 없는 옛 에이전트는 release의 저장소로 시작한다). 에이전트는 작업이 읽거나 바꾸는 저장소만, 일하는 도중에 내장 MCP 도구 `attach_repository({ repository_id })`로 붙인다. 붙일 수 있는 것은 에이전트 release의 GitHub 설정(`github.repositories`)에 있고 워크스페이스 상한이 허용하는 저장소뿐이다. 사람 승인은 받지 않는다. 그 저장소에 쓰는 일은 지금처럼 push 요청 승인을 거치고, 부착 저장소의 push는 push 승인을 끄고 첨부 저장소 push 정책도 `allow`로 둔 에이전트만 사람 승인 없이 간다(모든 저장소에 같은 규칙). 붙일 수 있는 저장소는 에이전트가 `list_repositories`로 본다(붙인 것 `attached`, 받아 오는 중이거나 실패한 것 `pending`·`failed`, 아직 붙이지 않은 것 `not_attached`. 세션을 만들 때 `repository_id`로 지정한 저장소는 `attached`로 나온다). 세션은 시작할 때의 release를 계속 쓴다. 그래서 그 뒤 활성 release에만 더한 저장소는 `allowed_in_newer_release`로 따로 보이고, `attach_repository`도 `repository_not_allowed` 대신 `allowed_in_newer_release`로 거절한다. 다시 허용할 필요는 없고, 새 세션(Slack에서는 새 스레드)에서 붙일 수 있다. 에이전트 설정으로 도는 세션(붙인 저장소 목록을 가진 세션)은 다르다. 시작한 뒤에 에이전트가 목록에 켠 저장소를 바로 붙일 수 있고, 목록에서 빼거나 GitHub를 끄면 붙였던 저장소(세션을 만들 때 지정한 저장소 포함)가 `revoked`로 보이며, 플랫폼이 에이전트의 그 저장소 GitHub 작업과 다른 저장소의 새 attach를 거절한다. 세션을 만들 때 지정한 저장소에 대한 attach는 아무것도 하지 않고 이미 붙은 것으로 답하고, 플랫폼이 기록된 PR을 읽는 일은 계속된다. 작업 공간의 사본은 지우지 않고, 다시 켜면 그대로 쓴다.
+GitHub 설정이 있는 에이전트의 세션은 저장소 없이 시작한다(GitHub 설정이 없는 에이전트는 release의 저장소로 시작한다). 에이전트는 작업이 읽거나 바꾸는 저장소만, 일하는 도중에 내장 MCP 도구 `attach_repository({ repository_id })`로 붙인다. 붙일 수 있는 것은 에이전트 release의 GitHub 설정(`github.repositories`)에 있고 워크스페이스 상한이 허용하는 저장소뿐이다. 사람 승인은 받지 않는다. 그 저장소에 쓰는 일은 push 요청 승인을 거치고, 부착 저장소의 push는 push 승인을 끄고 첨부 저장소 push 정책도 `allow`로 둔 에이전트만 사람 승인 없이 간다(모든 저장소에 같은 규칙). 붙일 수 있는 저장소는 에이전트가 `list_repositories`로 본다(붙인 것 `attached`, 받아 오는 중이거나 실패한 것 `pending`·`failed`, 아직 붙이지 않은 것 `not_attached`. 세션을 만들 때 `repository_id`로 지정한 저장소는 `attached`로 나온다). 세션은 시작할 때의 release를 계속 쓴다. 그래서 그 뒤 활성 release에만 더한 저장소는 `allowed_in_newer_release`로 따로 보이고, `attach_repository`도 `repository_not_allowed` 대신 `allowed_in_newer_release`로 거절한다. 다시 허용할 필요는 없고, 새 세션(Slack에서는 새 스레드)에서 붙일 수 있다. 에이전트 설정으로 도는 세션(붙인 저장소 목록을 가진 세션)은 다르다. 시작한 뒤에 에이전트가 목록에 켠 저장소를 바로 붙일 수 있고, 목록에서 빼거나 GitHub를 끄면 붙였던 저장소(세션을 만들 때 지정한 저장소 포함)가 `revoked`로 보이며, 플랫폼이 에이전트의 그 저장소 GitHub 작업과 다른 저장소의 새 attach를 거절한다. 세션을 만들 때 지정한 저장소에 대한 attach는 아무것도 하지 않고 이미 붙은 것으로 답하고, 플랫폼이 기록된 PR을 읽는 일은 계속된다. 작업 공간의 사본은 지우지 않고, 다시 켜면 그대로 쓴다.
 
 세션을 만들 때 `attached_repository_ids`를 보내지 않으면 붙인 저장소 없이 시작한다(`repository_id`를 보낸 세션은 그 저장소만 있다). 처음부터 필요한 저장소는 그 목록에 넣고, 나머지는 에이전트가 필요할 때 붙인다. push 요청은 저장소 하나를 내보내므로, 저장소가 여럿이면 저장소마다 한 번씩 낸다.
 

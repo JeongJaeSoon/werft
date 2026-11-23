@@ -14,6 +14,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0314_budget_accounts`가 예산 계정 표 셋(`budget_limits`·`budget_accounts`·`budget_reservations`)을 빈 채로 만든다**(JeongJaeSoon/werft#2034). 따로 할 일은 없다.
+  - 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 그대로이고, 한도를 정하는 화면·API·운영자 명령은 아직 없다.
+  - 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+
 - **migration `0313_session_link_history`가 `session_links`에 `closed_at`·`closed_reason` 칸과 닫히지 않은 link만 보는 부분 unique 둘을, `slack_outbox`에 `session_link_id` 칸을 더한다**(JeongJaeSoon/werft#2038). 이 릴리스의 코드는 새 칸을 아직 읽거나 쓰지 않으므로 할 일은 없고 동작도 그대로다. 있던 줄은 모두 닫히지 않은 link로 남고, 옛 unique 둘은 뒤의 릴리스가 지울 때까지 남는다. 인덱스는 `CONCURRENTLY`로 만들고 CHECK와 외래 키는 `NOT VALID`로 더해 따로 검증하므로 쓰기를 오래 막지 않는다. 지원 창 안의 이미지로 되돌려도 된다.
 
 - **api가 멈추기 시작하면 열린 세션 이벤트 스트림(SSE)을 바로 끝내, 열린 스트림이 있어도 종료가 드레인 상한(35초)을 기다리지 않는다**(JeongJaeSoon/werft#2032). 할 일은 없다. stop grace는 그대로 두어도 된다.

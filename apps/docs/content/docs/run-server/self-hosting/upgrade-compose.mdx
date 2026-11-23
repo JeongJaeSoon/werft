@@ -242,6 +242,13 @@ GROUP BY 1, 2;
 - 보내는 쪽도 그런 줄을 Slack에 보내지 않고 `failed`(`error_code` `user_channel`)로 끝낸다.
 - 앞선 이미지도 그런 줄을 쓰지 않으므로 제약을 둔 채 되돌려도 된다.
 
+### 예산 계정 표를 더하는 릴리스
+
+migration `0314_budget_accounts`가 빈 표 셋을 만든다. `budget_limits`(조직 전체 사람당 기본 한도, 사람마다의 한도, 에이전트 팀 한도), `budget_accounts`(사람·팀 계정의 달마다 쓴 것과 예약한 것, UTC 기준 달), `budget_reservations`(호출마다의 예약과 정산 기록)이다. 따로 할 일은 없다.
+
+- 이 릴리스에서는 어떤 호출도 이 표를 읽거나 쓰지 않는다. 세션 비용 한도와 토큰 한도는 지금처럼 동작하고, 한도를 정하는 화면·API·운영자 명령도 없다.
+- 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+
 ### Slack 글의 수정·삭제 표식
 
 migration `0312_slack_source_marks`가 새 표 `deleted_sources`와 `edited_sources`를 만든다. 이 릴리스부터 Slack에서 글을 지우거나 고친 이벤트(`message_deleted`, 답이 달린 글을 지울 때 오는 묘비 `message_changed`, 사람이 고친 `message_changed`)를 버리지 않고, 그 글의 자리(team, 채널, ts)와 시각만 표식으로 남긴다. 글의 본문과 이벤트 원문은 어디에도 저장하지 않고, inbox 행은 원문 없이 `processed`로 남는다. 따로 할 일은 없다.
