@@ -244,7 +244,7 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/slac
 <a id="대화-기록의-관리자-삭제를-더하는-릴리스" />
 ### 会話記録の管理者削除を追加するリリース
 
-migration `0336_conversation_records_deleted` が `conversations` に `records_deleted_at`・`records_deleted_by_user_id`(nullable)を、`deleted_sources` に `reason`(既定値 `slack_deleted`)を追加する。アップグレード時に行うことはなく、Slack とセッションの動作は変わらない。
+migration `0337_conversation_records_deleted` が `conversations` に `records_deleted_at`・`records_deleted_by_user_id`(nullable)を、`deleted_sources` に `reason`(既定値 `slack_deleted`)を追加する。アップグレード時に行うことはなく、Slack とセッションの動作は変わらない。
 
 - 運用者コマンド `conversation-records.ts delete` が入る([会話記録の管理者削除](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제))。実行しなければ何も変わらない。
 - 既存の削除の印はすべて `slack_deleted` になる。管理者削除が付ける印は `admin_deleted` で、そのメッセージが後で Slack で削除されると `slack_deleted` に変わる。検査は両方を同じに扱う。

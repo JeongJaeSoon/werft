@@ -244,7 +244,7 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/slac
 <a id="대화-기록의-관리자-삭제를-더하는-릴리스" />
 ### The release that adds the admin delete of conversation records
 
-Migration `0336_conversation_records_deleted` adds `records_deleted_at` and `records_deleted_by_user_id` (nullable) to `conversations`, and `reason` (default `slack_deleted`) to `deleted_sources`. Nothing to do when upgrading, and Slack and sessions behave as before.
+Migration `0337_conversation_records_deleted` adds `records_deleted_at` and `records_deleted_by_user_id` (nullable) to `conversations`, and `reason` (default `slack_deleted`) to `deleted_sources`. Nothing to do when upgrading, and Slack and sessions behave as before.
 
 - The operator command `conversation-records.ts delete` comes in ([admin delete of conversation records](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)). Nothing changes unless it is run.
 - Every existing delete mark becomes `slack_deleted`. A mark the admin delete makes is `admin_deleted`, and turns `slack_deleted` if Slack later deletes the message. Every check treats both alike.

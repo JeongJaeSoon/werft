@@ -202,7 +202,7 @@ COMMIT;
 
 ### 대화 기록의 관리자 삭제를 더하는 릴리스
 
-migration `0336_conversation_records_deleted`가 `conversations`에 `records_deleted_at`·`records_deleted_by_user_id`(nullable)를, `deleted_sources`에 `reason`(기본값 `slack_deleted`)을 더한다. 올릴 때 할 일은 없고, Slack과 세션의 동작은 그대로다.
+migration `0337_conversation_records_deleted`가 `conversations`에 `records_deleted_at`·`records_deleted_by_user_id`(nullable)를, `deleted_sources`에 `reason`(기본값 `slack_deleted`)을 더한다. 올릴 때 할 일은 없고, Slack과 세션의 동작은 그대로다.
 
 - 운영자 명령 `conversation-records.ts delete`가 들어온다([대화 기록의 관리자 삭제](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)). 부르지 않으면 아무것도 바뀌지 않는다.
 - 있던 삭제 표식은 모두 `slack_deleted`가 된다. 관리자 삭제가 다는 표식은 `admin_deleted`이고, 그 글이 나중에 Slack에서 지워지면 `slack_deleted`로 바뀐다. 검사는 둘을 똑같이 본다.
