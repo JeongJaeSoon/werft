@@ -17,6 +17,8 @@ import {
   memberships,
   sessionShares,
   sessions,
+  slackInstallations,
+  surfaceBindings,
   users,
   workspaces,
 } from "./schema.ts";
@@ -26,7 +28,8 @@ import { createPostgresUsageReader } from "./usage/usage-reader.ts";
 
 // sessionVisibleTo on a private channel's sessions (94S-1999): the channel
 // the policy found the viewer a member of goes before who made the session,
-// and no key sees one, whatever channels it is handed.
+// and no key sees one, whatever channels it is handed. Since 94S-2052 the
+// door is the parent channel's, whatever the share (decision 26).
 describe("private_channel sessions on the reads", () => {
   let client: PGlite;
   let db: Database;
@@ -34,14 +37,21 @@ describe("private_channel sessions on the reads", () => {
   const agentId = randomUUID();
   const privateChannel = randomUUID();
   const publicChannel = randomUUID();
+  // A channel no binding names: its kind is not known, so it is held private.
+  const unboundChannel = randomUUID();
   const requester = randomUUID();
   const member = randomUUID();
   const ids = {
     privateOne: randomUUID(),
-    // Made before this change: no share row, read workspace-wide until it is
-    // moved (94S-2001).
+    // No share row: behind the channel's door all the same (94S-2052),
+    // before 94S-2001 moves it.
     privateOld: randomUUID(),
+    // Its creator's alone, from a private channel: creator and member both.
+    privateMine: randomUUID(),
     publicOne: randomUUID(),
+    // Its creator's alone, from a public channel: as before.
+    publicMine: randomUUID(),
+    unboundOne: randomUUID(),
   };
 
   beforeAll(async () => {
@@ -68,9 +78,34 @@ describe("private_channel sessions on the reads", () => {
       slug: "notes",
       name: "notes",
     });
+    const installationId = randomUUID();
+    await db.insert(slackInstallations).values({
+      id: installationId,
+      workspaceId: ws,
+      appId: "A0PC",
+      teamId: "T0ACME",
+    });
+    for (const [channelId, surfaceKind] of [
+      ["C0PRIV", "private_channel"],
+      ["C0OPEN", "public_channel"],
+    ] as const) {
+      await db.insert(surfaceBindings).values({
+        id: randomUUID(),
+        workspaceId: ws,
+        agentId,
+        surface: "slack",
+        installationId,
+        externalSurfaceId: channelId,
+        surfaceKind,
+        mode: "on",
+        ceilingActions: [],
+        ceilingDisclosure: "summary",
+      });
+    }
     for (const [id, channelId] of [
       [privateChannel, "C0PRIV"],
       [publicChannel, "C0OPEN"],
+      [unboundChannel, "C0NONE"],
     ] as const) {
       await db.insert(channelContexts).values({
         id: randomUUID(),
@@ -90,7 +125,10 @@ describe("private_channel sessions on the reads", () => {
     for (const [id, parent] of [
       [ids.privateOne, privateChannel],
       [ids.privateOld, privateChannel],
+      [ids.privateMine, privateChannel],
       [ids.publicOne, publicChannel],
+      [ids.publicMine, publicChannel],
+      [ids.unboundOne, unboundChannel],
     ] as const) {
       await db.insert(sessions).values({
         id,
@@ -102,12 +140,18 @@ describe("private_channel sessions on the reads", () => {
         parentConversationId: parent,
       });
     }
-    await db.insert(sessionShares).values({
-      sessionId: ids.privateOne,
-      ownerId: ws,
-      workspaceId: ws,
-      scope: "private_channel",
-    });
+    for (const [sessionId, scope] of [
+      [ids.privateOne, "private_channel"],
+      [ids.privateMine, "private"],
+      [ids.publicMine, "private"],
+    ] as const) {
+      await db.insert(sessionShares).values({
+        sessionId,
+        ownerId: ws,
+        workspaceId: ws,
+        scope,
+      });
+    }
   }, 60_000);
 
   afterAll(() => client.close());
@@ -134,7 +178,7 @@ describe("private_channel sessions on the reads", () => {
       0,
     );
   };
-  const open = [ids.privateOld, ids.publicOne].sort();
+  const sorted = (...list: string[]) => [...list].sort();
 
   test("a member of the channel lists it; the list and the count agree", async () => {
     const viewer = {
@@ -142,15 +186,19 @@ describe("private_channel sessions on the reads", () => {
       apiKeyId: null,
       privateChannels: [privateChannel],
     };
-    expect(await seen(viewer)).toEqual(Object.values(ids).sort());
-    expect(await counted(viewer)).toBe(3);
+    const shown = sorted(ids.privateOne, ids.privateOld, ids.publicOne);
+    expect(await seen(viewer)).toEqual(shown);
+    expect(await counted(viewer)).toBe(shown.length);
   });
 
   test("the requester out of the channel, and anyone not in it, does not", async () => {
-    for (const userId of [requester, member]) {
+    for (const [userId, open] of [
+      [requester, sorted(ids.publicOne, ids.publicMine)],
+      [member, [ids.publicOne]],
+    ] as [string, string[]][]) {
       const viewer = { userId, apiKeyId: null };
       expect(await seen(viewer)).toEqual(open);
-      expect(await counted(viewer)).toBe(2);
+      expect(await counted(viewer)).toBe(open.length);
     }
     expect(
       await seen({
@@ -158,13 +206,65 @@ describe("private_channel sessions on the reads", () => {
         apiKeyId: null,
         privateChannels: [publicChannel],
       }),
-    ).toEqual(open);
+    ).toEqual(sorted(ids.publicOne, ids.publicMine));
+  });
+
+  // 94S-2052: a private session from a private channel goes through the door
+  // first, then its own rule. `before` is what main answered until then.
+  test.each([
+    ["its creator, a member", requester, [privateChannel], true, true],
+    ["its creator, gone from the channel", requester, [], true, false],
+    ["another member", member, [privateChannel], false, false],
+  ] as const)(
+    "a private session from a private channel: %s",
+    async (_, userId, privateChannels, _before, after) => {
+      const viewer = { userId, apiKeyId: null, privateChannels };
+      expect((await seen(viewer)).includes(ids.privateMine)).toBe(after);
+    },
+  );
+
+  test("a private session from a public channel is seen as before: its creator alone", async () => {
+    expect(
+      (await seen({ userId: requester, apiKeyId: null })).includes(
+        ids.publicMine,
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await seen({
+          userId: member,
+          apiKeyId: null,
+          privateChannels: [privateChannel, publicChannel],
+        })
+      ).includes(ids.publicMine),
+    ).toBe(false);
+  });
+
+  test("a channel whose kind no binding names is held private", async () => {
+    expect(
+      (await seen({ userId: member, apiKeyId: null })).includes(ids.unboundOne),
+    ).toBe(false);
+    expect(
+      (
+        await seen({
+          userId: member,
+          apiKeyId: null,
+          privateChannels: [unboundChannel],
+        })
+      ).includes(ids.unboundOne),
+    ).toBe(true);
   });
 
   test("no key lists it, its creator a member or not", async () => {
     for (const viewer of [
       {
         userId: member,
+        apiKeyId: randomUUID(),
+        privateChannels: [privateChannel],
+      },
+      // The creator's own personal key, the channel handed to it.
+      {
+        userId: requester,
         apiKeyId: randomUUID(),
         privateChannels: [privateChannel],
       },
@@ -175,7 +275,10 @@ describe("private_channel sessions on the reads", () => {
         privateChannels: [privateChannel],
       },
     ]) {
-      expect(await seen(viewer)).toEqual(open);
+      const shown = await seen(viewer);
+      for (const id of [ids.privateOne, ids.privateOld, ids.privateMine]) {
+        expect(shown.includes(id)).toBe(false);
+      }
     }
   });
 
@@ -186,10 +289,23 @@ describe("private_channel sessions on the reads", () => {
       agentId,
       channelId: "C0PRIV",
     };
+    const unbound = {
+      conversationId: unboundChannel,
+      agentId,
+      channelId: "C0NONE",
+      kindUnknown: true as const,
+    };
     expect(await shares.privateChannels(ws, ids.privateOne)).toEqual([place]);
     expect(await shares.privateChannels(ws, ids.publicOne)).toEqual([]);
-    expect(await shares.privateChannels(ws, ids.privateOld)).toEqual([]);
-    expect(await shares.privateChannels(ws, null)).toEqual([place]);
+    expect(await shares.privateChannels(ws, ids.publicMine)).toEqual([]);
+    // Before 94S-2052 both read [].
+    expect(await shares.privateChannels(ws, ids.privateOld)).toEqual([place]);
+    expect(await shares.privateChannels(ws, ids.privateMine)).toEqual([place]);
+    expect(await shares.privateChannels(ws, ids.unboundOne)).toEqual([unbound]);
+    const all = await shares.privateChannels(ws, null);
+    expect(
+      [...all].sort((a, b) => a.channelId.localeCompare(b.channelId)),
+    ).toEqual([unbound, place]);
     expect(await shares.privateChannels(randomUUID(), null)).toEqual([]);
   });
 
@@ -243,7 +359,7 @@ describe("private_channel sessions on the reads", () => {
     const filter = { kind: "user", ownerId: ws, userId: requester } as const;
     const period = { since: new Date(0) };
     const summary = await usage.usageSummary(filter, period);
-    expect(summary.sessionCount).toBe(3);
+    expect(summary.sessionCount).toBe(Object.values(ids).length);
     expect(Number(summary.costUsd)).toBe(1.25);
     const labelled = [
       await usage.usageSummaryGroups(filter, period, "agent"),
@@ -291,6 +407,82 @@ describe("private_channel sessions on the reads", () => {
     expect(await reach({ userId: member, apiKeyId: null }, true)).toBe("role");
     expect(await reach({ userId: requester, apiKeyId: null }, true)).toBe("ok");
     expect(await reach({ userId: member, apiKeyId: randomUUID() })).toBe(
+      "not_found",
+    );
+  });
+
+  // Architect (94S-2052): widening one is left as it was, since the door
+  // still stands before the wider share.
+  test("a private session from a private channel widened to the workspace stays behind the door", async () => {
+    const widened = randomUUID();
+    await db.insert(sessions).values({
+      id: widened,
+      ownerId: ws,
+      workspaceId: ws,
+      repoUrl: "https://example.invalid/repo.git",
+      branch: "main",
+      createdByUserId: requester,
+      parentConversationId: privateChannel,
+    });
+    await db.insert(sessionShares).values({
+      sessionId: widened,
+      ownerId: ws,
+      workspaceId: ws,
+      scope: "private",
+      revision: 1,
+    });
+    const shares = createPostgresSessionShareStore(db);
+    const outcome = await shares.set({
+      principal: callerFor(
+        {
+          kind: "user",
+          id: requester,
+          workspace_id: ws,
+          role: "member",
+          scopes: [...scopesForRole("member")],
+        },
+        { kind: "web" },
+        randomUUID(),
+      ),
+      ownerId: ws,
+      workspaceId: ws,
+      sessionId: widened,
+      scope: "workspace",
+      userIds: [],
+      teamIds: [],
+      updatedBy: requester,
+      receiptId: randomUUID(),
+    });
+    expect(outcome.outcome).toBe("changed");
+    const sees = (userId: string, privateChannels: string[]) =>
+      shares.visibleTo(ws, widened, {
+        userId,
+        apiKeyId: null,
+        privateChannels,
+      });
+    expect(await sees(member, [privateChannel])).toBe(true);
+    expect(await sees(member, [])).toBe(false);
+    expect(await sees(requester, [])).toBe(false);
+  });
+
+  test("a private session from a private channel reaches only its creator under the lock", async () => {
+    const reach = (who: { userId: string | null; apiKeyId: string | null }) =>
+      db.transaction((tx) =>
+        lockSessionReach(
+          tx as unknown as Database,
+          { ...who, role: "member", keyAgentId: null, slackBotUserId: null },
+          {
+            id: ids.privateMine,
+            workspaceId: ws,
+            createdByUserId: requester,
+            createdByApiKeyId: null,
+            agentReleaseId: null,
+          },
+        ),
+      );
+    expect(await reach({ userId: requester, apiKeyId: null })).toBe("ok");
+    expect(await reach({ userId: member, apiKeyId: null })).toBe("not_found");
+    expect(await reach({ userId: requester, apiKeyId: randomUUID() })).toBe(
       "not_found",
     );
   });

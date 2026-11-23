@@ -368,7 +368,7 @@ export async function pushRequesterLeft(
 }
 
 /**
- * Whether a direct message about a `private_channel` session would reach
+ * Whether a direct message about a session behind a private channel's door would reach
  * someone who cannot see it: the account it is addressed to is a member of
  * none of the session's channels, or that cannot be told (answer 15, PR2).
  * `membership` asks about that account itself, not whoever links it now. A
@@ -422,8 +422,8 @@ export interface AuthorizationPolicy {
     options?: { record?: false | "deny" },
   ): Promise<AuthorizationDecision>;
   /**
-   * The conversations of the private channels whose `private_channel`
-   * sessions this subject sees now (SessionViewer.privateChannels), for a
+   * The conversations of the private channels whose sessions this subject
+   * may pass the door of now (SessionViewer.privateChannels), for a
    * read across sessions. Records nothing.
    */
   privateChannelsOf?(
@@ -615,7 +615,7 @@ export function createAuthorizationPolicy(
     credentials?: CredentialCheck;
     slackGuests?: SlackGuestSetting;
     sessions?: SessionAccess;
-    /** Without it no one sees a private_channel session. */
+    /** Without it no one passes a private channel's door. */
     channelMembers?: ChannelMemberCheckable;
     /** Without it every conversation decision is refused. */
     conversations?: ConversationAccess;
@@ -843,6 +843,13 @@ export function createAuthorizationPolicy(
     places: readonly PrivateChannelPlace[],
   ): Promise<string[]> {
     const { principal } = reading;
+    const unknown = places.filter((place) => place.kindUnknown === true);
+    if (unknown.length > 0) {
+      deps.logger?.warn("Channel kind unknown; held private", {
+        event: "session.private_channel.kind_unknown",
+        conversation_count: unknown.length,
+      });
+    }
     if (places.length === 0 || principal.kind === "api_key") return [];
     const same = (a: string | undefined, b: string) =>
       a !== undefined && a.toLowerCase() === b.toLowerCase();

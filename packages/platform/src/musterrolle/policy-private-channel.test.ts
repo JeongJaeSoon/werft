@@ -751,3 +751,54 @@ describe("a direct message about a private channel's session", () => {
     ).toBe(true);
   });
 });
+
+// 94S-2052, Architect: a channel no binding names is held private, and each
+// such decision leaves a warning to count them by.
+describe("a session from a channel of unknown kind", () => {
+  test("is behind the door and logged", async () => {
+    const warned: { message: string; fields?: unknown }[] = [];
+    const base = sessionsSeen();
+    const policy = createAuthorizationPolicy({
+      identity: plain,
+      agents,
+      sessions: {
+        ...base,
+        async privateChannels(ownerId, sessionId) {
+          return ((await base.privateChannels?.(ownerId, sessionId)) ?? []).map(
+            (place) => ({ ...place, kindUnknown: true as const }),
+          );
+        },
+      },
+      channelMembers: members().check,
+      logger: {
+        warn(message, fields) {
+          warned.push({ message, fields });
+        },
+      },
+    });
+    const ask = async (who: Person) => {
+      const caller = person(who);
+      return (
+        await policy.authorize({
+          subject: caller.subject,
+          action: "session.read",
+          resource: {
+            kind: "session",
+            id: PRIVATE_SESSION,
+            owner_scope: WORKSPACE,
+          },
+          request_id: caller.requestId,
+        })
+      ).reason_code;
+    };
+    expect(await ask("member")).toBe("ok");
+    expect(await ask("nonmember")).toBe("not_found");
+    expect(warned).toContainEqual({
+      message: "Channel kind unknown; held private",
+      fields: {
+        event: "session.private_channel.kind_unknown",
+        conversation_count: 1,
+      },
+    });
+  });
+});

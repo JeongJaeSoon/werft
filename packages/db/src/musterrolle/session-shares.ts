@@ -31,6 +31,8 @@ import {
   sessionShares,
   sessionShareTargets,
   sessions,
+  slackInstallations,
+  surfaceBindings,
   turns,
 } from "../schema.ts";
 import { administers, insideAgent } from "./administers.ts";
@@ -115,6 +117,20 @@ function insideSessionAgent(db: Database, viewer: SessionViewer): SQL[] {
   ];
 }
 
+// The kind the channel of conversation `conversation` (a conversations row
+// or alias) has now: its live binding's, else its newest one's; null with no
+// binding at all. Qualified by hand: the outer query may read these tables.
+const channelKindOf = (conversation: SQL) =>
+  sql`(SELECT pb.surface_kind FROM ${surfaceBindings} pb JOIN ${slackInstallations} pi ON pi.id = pb.installation_id WHERE pb.agent_id = ${conversation}.agent_id AND pi.team_id = ${conversation}.team_id AND pb.external_surface_id = ${conversation}.channel_id ORDER BY (pb.revoked_at IS NULL) DESC, pb.updated_at DESC, pb.id DESC LIMIT 1)`;
+
+/**
+ * The session the enclosing query reads from `sessions` sits behind a private
+ * channel's door (decision 26): its share says so, or its parent conversation
+ * is a channel no binding calls public. A kind not known counts as private,
+ * so it hides rather than leaks. The one test of it, for every read and act.
+ */
+export const behindPrivateChannel = sql`(coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace') = 'private_channel' OR EXISTS (SELECT 1 FROM ${conversations} pc WHERE pc.id = ${sessions}.parent_conversation_id AND pc.kind = 'channel' AND ${channelKindOf(sql`pc`)} IS DISTINCT FROM 'public_channel'))`;
+
 /**
  * Whether `viewer` sees the session row the enclosing query reads from
  * `sessions`. One predicate for a decision on one session and for a list,
@@ -132,22 +148,25 @@ export function sessionVisibleTo(db: Database, viewer: SessionViewer): SQL {
     ...insideSessionAgent(db, viewer),
   ]);
   const scope = sql`coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace')`;
-  // The channel goes before whoever made or was named on the session; a
-  // key never sees one (no key is a channel member).
+  const byScope = anyOf([
+    sql`(${scope} = 'workspace' AND ${workspaceWide})`,
+    sql`(${scope} <> 'private_channel' AND ${anyOf([...ownedBy(viewer), ...sharedWith(viewer)])})`,
+  ]);
+  // The channel goes before whoever made or was named on the session, then
+  // its scope's own rule; a key never passes it (no key is a channel member).
   const channels = (viewer.privateChannels ?? []).flatMap((id) => {
     const value = uuidOrNull(id);
     return value === null ? [] : [value];
   });
   return anyOf([
-    sql`(${scope} = 'workspace' AND ${workspaceWide})`,
-    sql`(${scope} <> 'private_channel' AND ${anyOf([...ownedBy(viewer), ...sharedWith(viewer)])})`,
+    sql`(NOT ${behindPrivateChannel} AND ${byScope})`,
     ...(viewer.apiKeyId !== null || channels.length === 0
       ? []
       : [
-          sql`(${scope} = 'private_channel' AND ${sessions}.parent_conversation_id IN (${sql.join(
+          sql`(${behindPrivateChannel} AND ${sessions}.parent_conversation_id IN (${sql.join(
             channels.map((id) => sql`${id}::uuid`),
             sql`, `,
-          )}))`,
+          )}) AND (${scope} = 'private_channel' OR ${byScope}))`,
         ]),
   ]);
 }
@@ -447,29 +466,32 @@ export function createPostgresSessionShareStore(
 
     async privateChannels(ownerId, sessionId) {
       if (sessionId !== null && !UUID.test(sessionId)) return [];
-      return db
+      const rows = await db
         .selectDistinct({
           conversationId: conversations.id,
           agentId: conversations.agentId,
           channelId: sql<string>`${conversations.channelId}`,
+          kindKnown: sql<boolean>`(${channelKindOf(sql`${conversations}`)} IS NOT NULL)`,
         })
-        .from(sessionShares)
-        .innerJoin(sessions, eq(sessions.id, sessionShares.sessionId))
+        .from(sessions)
         .innerJoin(
           conversations,
           eq(conversations.id, sessions.parentConversationId),
         )
         .where(
           and(
-            eq(sessionShares.ownerId, ownerId),
-            eq(sessionShares.scope, "private_channel"),
+            eq(sessions.ownerId, ownerId),
+            behindPrivateChannel,
             eq(conversations.kind, "channel"),
             isNotNull(conversations.channelId),
             ...(sessionId === null
               ? []
-              : [eq(sessionShares.sessionId, sessionId.toLowerCase())]),
+              : [eq(sessions.id, sessionId.toLowerCase())]),
           ),
         );
+      return rows.map(({ kindKnown, ...place }) =>
+        kindKnown ? place : { ...place, kindUnknown: true },
+      );
     },
 
     pushRequesterOf: (ownerId, sessionId, pushRequestId) =>
