@@ -188,7 +188,7 @@ describe("joining a bound channel", () => {
     const recorded: [string, SurfaceMembership][] = [];
     const told: string[] = [];
     const asked: (number | undefined)[] = [];
-    let verdict: "gone" | "left" | "unchanged" = "gone";
+    let verdict: "gone" | "left" | "unchanged" | "stale" = "gone";
     const joinerFor = (error: Error) =>
       createSlackChannelJoiner({
         bindings: {
@@ -228,6 +228,10 @@ describe("joining a bound channel", () => {
     // When Slack was asked, so a join noted since outdates the answer.
     expect(asked[0]).toBeGreaterThan(0);
     expect(asked[0]).toBeLessThanOrEqual(Date.now() * 1000);
+    expect(recorded).toEqual([]);
+    // An answer the bot's later join outdated records no membership either.
+    verdict = "stale";
+    await joinerFor(notFound)(base);
     expect(recorded).toEqual([]);
     // A private channel the bot never joined stays as it was: its membership
     // is recorded as before.

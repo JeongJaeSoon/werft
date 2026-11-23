@@ -1077,7 +1077,7 @@ async function channelNotFound(
   installationId: string,
   channelId: string,
   askedAt?: number,
-): Promise<"gone" | "left" | "unchanged"> {
+): Promise<"gone" | "left" | "unchanged" | "stale"> {
   if (!UUID.test(installationId)) return "unchanged";
   const installation = installationId.toLowerCase();
   return db.transaction(async (tx) => {
@@ -1086,7 +1086,7 @@ async function channelNotFound(
     const noted = await noteOf(tx, installation, channelId, { lock: true });
     // The bot joined after Slack was asked: the answer is out of date.
     if (askedAt !== undefined && noted?.join != null && noted.join > askedAt) {
-      return "unchanged";
+      return "stale";
     }
     const current = await lockBinding(tx, channelOf(installation, channelId));
     if (!current) return "unchanged";

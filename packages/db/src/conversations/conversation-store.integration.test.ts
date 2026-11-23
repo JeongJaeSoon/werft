@@ -167,6 +167,10 @@ integration("conversations and topics (0310)", () => {
       await expect(
         store.recordChannelName(key, "x".repeat(81), US + 6),
       ).rejects.toThrow();
+      // A deletion is final for the name too, even for a newer rename.
+      expect(await store.recordChannelState(key, "deleted", US + 7)).toBe(true);
+      expect(await store.recordChannelName(key, "after", US + 8)).toBe(false);
+      expect((await row(conversation.id)).channel_name).toBe("発表");
     });
 
     test("no conversation is made, and another agent's or workspace's is not touched", async () => {

@@ -228,13 +228,14 @@ export interface SurfaceBindingStore {
    * was lost, and any other one stays. Both are noted as a leave with no
    * time. Receipts say `channel_not_found`. `askedAt` is when the caller
    * asked Slack, in microseconds: a join noted after it means the bot came in
-   * since, so the answer is older than that and nothing changes.
+   * since, so the answer is out of date, nothing changes and the result is
+   * `stale`; the caller records nothing from that answer either.
    */
   channelNotFound(
     installationId: string,
     channelId: string,
     askedAt?: number,
-  ): Promise<"gone" | "left" | "unchanged">;
+  ): Promise<"gone" | "left" | "unchanged" | "stale">;
   /**
    * Whether the newest join or leave noted for the channel is a leave (a
    * tie counts as the leave, as in `recordJoin`). The channel's event record,

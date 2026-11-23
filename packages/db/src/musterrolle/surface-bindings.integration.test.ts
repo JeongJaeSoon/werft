@@ -1620,7 +1620,7 @@ integration("surface bindings on PostgreSQL", () => {
         ]);
       });
 
-      test("a channel_not_found asked before the bot's join changes nothing; one asked after it leaves the channel", async () => {
+      test("a channel_not_found asked before the bot's join is stale and changes nothing; one asked after it leaves the channel", async () => {
         // Approved before the bot was invited; the join then writes only the
         // membership, so the binding's revision does not move.
         const { installationId, binding } = await approved();
@@ -1646,7 +1646,7 @@ integration("surface bindings on PostgreSQL", () => {
         });
         expect(
           await store().channelNotFound(installationId, "G0SECRET", at(4)),
-        ).toBe("unchanged");
+        ).toBe("stale");
         expect(
           await store().findLiveSlackChannel(installationId, "G0SECRET"),
         ).toMatchObject({ status: "ready", revision: binding.revision });

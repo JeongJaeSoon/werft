@@ -267,6 +267,7 @@ export function createPostgresConversationStore(
       .where(
         and(
           channelRow(key),
+          ne(conversations.channelState, "deleted"),
           at === null
             ? undefined
             : sql`(${conversations.channelNameUs} IS NULL OR ${conversations.channelNameUs} <= ${at})`,

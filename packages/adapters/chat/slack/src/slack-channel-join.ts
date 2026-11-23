@@ -296,7 +296,8 @@ export function createSlackChannelJoiner(deps: {
     );
     // Slack not finding the channel: a public one was deleted, a private one
     // may also have lost the bot. The store tells the two apart; a binding
-    // it changes takes no membership answer.
+    // it changes takes no membership answer, nor does one the bot joined
+    // after Slack was asked (`stale`).
     if (
       membership?.error === "channel_not_found" &&
       installationId !== null &&
