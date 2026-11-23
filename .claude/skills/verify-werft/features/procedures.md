@@ -831,7 +831,7 @@ node "$U" "$RUN" slack-event "$AID" plain "$ALR" 5
 ap_compose exec -T postgres psql -U postgres -d sessions -c "select surface_ref from session_links order by created_at"
 ```
 
-기대: binding PUT 200, 옛 값 `mention`은 400(`expected one of "off"|"on"`). 이벤트는 모두 200 `ok:true`이고 `slack_inbound_events`는 processed. session_links는 `<SUP>:1792800002.000001`(멘션)과 `<SUP>:1792800004.000001`(꺼진 뒤 멘션 없는 글) 둘뿐이다. 1(켜짐인데 멘션 없음), 3·5(사용 꺼진 채널)는 세션을 열지 않는다. `slack-event`의 `mention`·`plain`은 `[channel seq]`를 받아 seq마다 새 event id와 thread를 만든다. `plain`은 `channel_type: channel`이라 비공개 채널(G…)에 보내면 채널 종류 불일치로 거절된다.
+기대: binding PUT 200, 옛 값 `mention`은 400(`expected one of "off"|"on"`). 이벤트는 모두 200 `ok:true`이고 `slack_inbound_events`는 processed. session_links는 `<SUP>:1792800002.000001`(멘션)과 `<SUP>:1792800004.000001`(꺼진 뒤 멘션 없는 글) 둘뿐이다. 1(켜짐인데 멘션 없음), 3·5(사용 꺼진 채널)는 세션을 열지 않는다. `slack-event`의 `mention`·`plain`은 `[channel seq]`를 받아 seq마다 새 event id와 thread를 만든다. `plain`은 `channel_type: channel`이라 비공개 채널(G…)에 보내면 채널 종류 불일치로 거절된다. `D…` 채널에 보낸 `plain`은 `U0MOCK`이 bot에게 보낸 DM(`channel_type: im`)이다.
 
 스레드 답글은 `reply <channel> <seq> <parent seq>`로 보낸다(멘션 없는 `message`, `thread_ts`는 parent seq의 글). 위 2(멘션)의 스레드에 `reply "$SUP" 3 2`를 보내면 `mention_only`가 켜져 있어도 그 세션의 turn 2가 된다(대화 중인 스레드는 멘션 없이 잇는다). 세션이 없는 1의 스레드에 `reply "$SUP" 4 1`은 켜짐·꺼짐 모두 무시된다. turn 수는 `select l.thread_id, (select count(*) from turns t where t.session_id=l.session_id) from session_links l`로 읽는다.
 

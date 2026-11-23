@@ -546,6 +546,11 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       createdByUserId: fixture.ownerId,
       channel: "slack",
     });
+    // Made with the session: the channel's main conversation is its parent.
+    const [parent, ...more] = await db.select().from(schema.conversations);
+    expect(more).toEqual([]);
+    expect(parent).toMatchObject({ kind: "channel", channelId: CHANNEL });
+    expect(session?.parentConversationId).toBe(parent?.id ?? "");
     const by = fixture.ownerId;
     expect(await turnsOf(session?.id)).toEqual([
       { sequence: 1, message: "summarize the thread", actorId: by },
@@ -859,6 +864,86 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       kind: "dm",
       personUserId: fixture.ownerId,
     });
+    const [session] = await sessionsOf(fixture);
+    expect(session?.parentConversationId).toBe(conversation?.id ?? "");
+  });
+
+  test("a DM thread opened again by another member is the opener's DM, not the link creator's", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    const dm = {
+      type: "message",
+      channel: "D0OWNER",
+      channel_type: "im",
+      user: PERSON,
+      text: "hello",
+    };
+    // The first DM makes the DM binding the second thread's link names.
+    await deliver(fixture, { ...dm, ts: "100.000100" });
+    await drain(handle);
+    // Another member reserved the second thread; its first post gave out
+    // before it made a session.
+    const other = randomUUID();
+    await db.insert(schema.users).values({
+      id: other,
+      email: `${other}@example.invalid`,
+      displayName: "other",
+    });
+    await db.insert(schema.memberships).values({
+      workspaceId: fixture.workspaceId,
+      userId: other,
+      role: "member",
+    });
+    const [installation] = await db.select().from(slackInstallations);
+    const [binding] = await db
+      .select()
+      .from(surfaceBindings)
+      .where(eq(surfaceBindings.surfaceKind, "dm"));
+    await createPostgresSessionLinkStore(db).reserve({
+      workspaceId: fixture.workspaceId,
+      installationId: installation?.id ?? "",
+      surfaceBindingId: binding?.id ?? "",
+      surfaceRef: "D0OWNER:200.000100",
+      channelId: "D0OWNER",
+      threadId: "200.000100",
+      openedByTs: "200.000050",
+      agentId: fixture.agentId,
+      releaseId: fixture.releaseId,
+      createdBy: other,
+    });
+    await deliver(fixture, {
+      ...dm,
+      ts: "200.000200",
+      thread_ts: "200.000100",
+    });
+    await drain(handle);
+
+    const [link] = await db
+      .select()
+      .from(schema.sessionLinks)
+      .where(eq(schema.sessionLinks.threadId, "200.000100"));
+    expect(link?.createdBy).toBe(other);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, link?.sessionId ?? randomUUID()));
+    expect(session?.createdByUserId).toBe(fixture.ownerId);
+    const [parent] = await db
+      .select()
+      .from(schema.conversations)
+      .where(
+        eq(
+          schema.conversations.id,
+          session?.parentConversationId ?? randomUUID(),
+        ),
+      );
+    // The parent and the input's topic are in the one conversation.
+    expect(parent).toMatchObject({ kind: "dm", personUserId: fixture.ownerId });
+    const [topic] = await db
+      .select()
+      .from(schema.conversationTopics)
+      .where(eq(schema.conversationTopics.slackThreadTs, "200.000100"));
+    expect(topic?.conversationId).toBe(parent?.id ?? "");
   });
 
   test("a delete mark of a message taken as an input outlives the unknown-mark purge", async () => {
@@ -2066,6 +2151,10 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
     });
     const [link] = await links();
     expect(link).toMatchObject({ sessionId: session?.id, createdBy: null });
+    // No person behind the turn; the channel is still the session's parent.
+    const [parent] = await db.select().from(schema.conversations);
+    expect(parent).toMatchObject({ kind: "channel", channelId: CHANNEL });
+    expect(session?.parentConversationId).toBe(parent?.id ?? "");
     expect(notices).toEqual([]);
     // The built-in GitHub tools judge a call by the session's creator, and
     // this one has none: they stay closed to it, as no person stands behind

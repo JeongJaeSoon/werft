@@ -226,6 +226,17 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
 
+<a id="세션에-부모-대화를-채우는-릴리스" />
+### The release that fills each session's parent conversation
+
+Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_id` (nullable, a foreign key to `conversations`). The key is added `NOT VALID` and validated on its own, so the table is not locked for long. The upgrade needs nothing from you, and Slack, the web console and the session API behave as before.
+
+- A new Slack session gets its parent conversation when it is made: a channel thread's session the channel's main conversation, a DM session that person's DM conversation. A session with no link (the web's "New session", the session API) has none.
+- Existing sessions are filled in batches by a pass that runs each time the api starts, sessions of closed or revoked links included. A session is filled only while it is empty, so starting again, or several api replicas starting at once, gives the same result, and a pass cut short is picked up by the next start.
+- A DM session's person is the one who opened the session, as a new session picks it, else the link's creator when that person is missing or no longer a workspace member. With neither, the parent stays empty and the session behaves as one with no link. The log `Linked DM sessions left without a parent conversation` counts them by reason (`no_person`, `no_membership`); the next start fills one whose person became a member again.
+- The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
+- Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
+
 <a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### The release that records Slack posts in the input table
 

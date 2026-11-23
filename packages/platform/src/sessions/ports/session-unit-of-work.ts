@@ -1,6 +1,7 @@
 import type {
   AdmissionState,
   AuthorizationSubject,
+  ConversationId,
   CountSessionsQuery,
   CountSessionsResponse,
   CreateSessionResponse,
@@ -115,6 +116,9 @@ export type AcceptSessionInput = {
   // A Slack DM's session starts seen by its creator alone (design 4.6);
   // left out, by the whole workspace.
   shareScope?: "private";
+  // The main conversation a Slack session belongs to; left out, none (a
+  // standalone session).
+  parentConversationId?: ConversationId;
   // A preview: the write refuses it unless the requester, a person, still
   // manages the release's agent over the locked rows.
   preview?: true;

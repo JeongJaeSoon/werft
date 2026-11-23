@@ -660,6 +660,7 @@ export function createPostgresSessionUnitOfWork(
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
+          parentConversationId: input.parentConversationId ?? null,
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId,
