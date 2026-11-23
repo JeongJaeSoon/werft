@@ -405,6 +405,7 @@ jobs:
               - packages/testkit/src/workspace.
               - tests/agent-sdk-compat/
               - tests/architecture.
+              - tests/a0-deferred-paths.
               - tests/module-load.
               - tests/message-keys.
               - tests/korean-copy.
