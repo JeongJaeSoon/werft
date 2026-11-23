@@ -15,6 +15,7 @@ export {
 } from "./deleted-sources.ts";
 export { linkInputAlias } from "./input-aliases.ts";
 export {
+  dropBufferedInputs,
   dropBufferedMessage,
   dropUnlistenedBuffer,
   editBufferedMessage,

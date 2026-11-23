@@ -247,6 +247,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_workspace_mcp_credential",
   "connect_workspace_mcp_server",
   "disconnect_workspace_mcp_server",
+  // An admin's delete of one channel conversation's records (engagements,
+  // channel summary, buffer), from the operator CLI: counts only.
+  "delete_conversation_records",
 ] as const;
 /**
  * Receipts that settle on the observed absence of the execution they asked

@@ -213,10 +213,10 @@ AWS での作成と最小権限は [bucket の準備](/run-server/self-hosting/p
 | Slack インストールの state | PostgreSQL | 600 秒 | 使ったとき、または新しいリンクを作るときに削除します | なし |
 | Slack イベント inbox のイベント原文（payload） | PostgreSQL | 処理するまで。処理に失敗したイベントは受け取ってから 7 日。受け取るときに捨てたイベントの原文は保存せず、処理中に捨てたイベントの原文はそのときに削除します | 処理が終わると slack ロールがすぐに、失敗したイベントは 7 日を過ぎると reconciler が削除します。行（イベントの種類・状態・捨てた理由・試行回数）は残ります。migration 0308 より前に処理した行の原文は運用者コマンド `slack-inbound-payloads.ts` が削除します（アップグレード手順のリリースごとの作業） | なし |
 | Slack メッセージと Web 入力の入力受付の行（`conversation_inputs`） | PostgreSQL | 無期限。Slack メッセージの行はメッセージの場所（team、チャンネル、ts）、話題の中の番号、依頼者、そのメッセージがなったターンだけで、本文はありません。Web 入力の行は番号、依頼者、クライアントのメッセージキーと本文を持ち、Slack に映った後はその投稿の場所（team、チャンネル、ts）を別名として持ちます。Slack への反映を確認できなかった入力は `slack_mirror` が `unconfirmed` です（Web 入力を記録する route はまだありません） | なし | なし |
-| 判断バッファに入った Slack メッセージ（`conversation_inputs` のうち `buffer_expires_at` のある行） | PostgreSQL | 入ってから 10 分。メッセージの場所、話題の中の番号、投稿者の Slack id、本文を持ちます。会話層スイッチが `shadow`・`on` のエージェントの `free` チャンネルでだけ作られます。Slack でメッセージが削除される、チャンネルがアーカイブ・削除される、bot が退出する、binding が `off` になる、エージェントがアーカイブされると、すぐ消します。編集されると本文だけが替わります | reconciler が行ごと削除します | なし |
-| エージェントが関与した Slack メッセージの関与記録（`conversation_engagements`） | PostgreSQL | 無期限。エージェント、メッセージの場所（team、チャンネル、ts）、種類（メンション・返信・作業に紐づく）、そのメッセージが入ったセッションだけで、本文・スレッド・リンクはありません | なし | なし |
-| チャンネル要約（`channel_summaries`、`channel_summary_lines`、`channel_summary_line_sources`） | PostgreSQL | 無期限。バージョンごとの履歴を含みます。行にはエージェントが書いた文と書いたエージェント、出典の行には Slack メッセージの場所（team、チャンネル、ts）・入力受付の行の id・話者だけがあり、Slack メッセージの本文はありません。このリリースには要約を書く経路がありません | 出典のメッセージが削除または編集されると、slack ロールがその行をすべてのバージョンから削除します。チャンネル削除イベント（`channel_deleted`・`group_deleted`）が届くと、そのチャンネルの要約をすべてのバージョンと一緒に削除します。アーカイブと `channel_not_found` では削除しません | なし |
-| Slack メッセージの削除・編集の印（`deleted_sources`、`edited_sources`） | PostgreSQL | 作ってから 70 分。メッセージの場所（team、チャンネル、ts）と時刻だけで、本文はありません。そのメッセージの入力受付の行か関与記録、またはそれを出典に持つターン・outbox の行・チャンネル要約の行があれば残ります | reconciler が削除します | なし |
+| 判断バッファに入った Slack メッセージ（`conversation_inputs` のうち `buffer_expires_at` のある行） | PostgreSQL | 入ってから 10 分。メッセージの場所、話題の中の番号、投稿者の Slack id、本文を持ちます。会話層スイッチが `shadow`・`on` のエージェントの `free` チャンネルでだけ作られます。Slack でメッセージが削除される、チャンネルがアーカイブ・削除される、bot が退出する、binding が `off` になる、エージェントがアーカイブされると、すぐ消します。編集されると本文だけが替わります | reconciler が行ごと削除します。[管理者削除](#대화-기록의-관리자-삭제)も会話単位で削除します | なし |
+| エージェントが関与した Slack メッセージの関与記録（`conversation_engagements`） | PostgreSQL | 無期限。エージェント、メッセージの場所（team、チャンネル、ts）、種類（メンション・返信・作業に紐づく）、そのメッセージが入ったセッションだけで、本文・スレッド・リンクはありません | [管理者削除](#대화-기록의-관리자-삭제)が会話単位で削除します | なし |
+| チャンネル要約（`channel_summaries`、`channel_summary_lines`、`channel_summary_line_sources`） | PostgreSQL | 無期限。バージョンごとの履歴を含みます。行にはエージェントが書いた文と書いたエージェント、出典の行には Slack メッセージの場所（team、チャンネル、ts）・入力受付の行の id・話者だけがあり、Slack メッセージの本文はありません。このリリースには要約を書く経路がありません | 出典のメッセージが削除または編集されると、slack ロールがその行をすべてのバージョンから削除します。チャンネル削除イベント（`channel_deleted`・`group_deleted`）が届くと、そのチャンネルの要約をすべてのバージョンと一緒に削除します。アーカイブと `channel_not_found` では削除しません。[管理者削除](#대화-기록의-관리자-삭제)はそのチャンネルの要約を履歴ごと削除します | なし |
+| Slack メッセージの削除・編集の印（`deleted_sources`、`edited_sources`） | PostgreSQL | 作ってから 70 分。メッセージの場所（team、チャンネル、ts）、時刻、印の理由（Slack での削除 `slack_deleted`、管理者削除 `admin_deleted`）だけで、本文はありません。そのメッセージの入力受付の行か関与記録、またはそれを出典に持つターン・outbox の行・チャンネル要約の行があれば残ります | reconciler が削除します | なし |
 | API key、利用者・メンバー・招待・連携アカウント | PostgreSQL | 無期限 | なし。key の失効と連携解除は記録を残すだけです | なし |
 | 保存した秘密値 | PostgreSQL（master key で暗号化） | 無期限 | 人がその接続や App を削除したときだけ | なし |
 | transcript と checkpoint の object | bucket の `sessions/<id>/` | pointer とその親 3 個、開いている push リクエストが固定した revision | [checkpoint GC](/run-server/self-hosting/backup-and-restore#3-checkpoint-gc) だけが削除します | Helm `checkpointGc.*`、compose `CHECKPOINT_GC_DRY_RUN` |
@@ -230,6 +230,25 @@ AWS での作成と最小権限は [bucket の準備](/run-server/self-hosting/p
 - トレースは既定ではエクスポートしません。有効にする方法は[トレースのエクスポート](/run-server/self-hosting/reference/configuration#트레이스-내보내기)にあります。
 
 <a id="세션-이벤트-보관" />
+<a id="대화-기록의-관리자-삭제" />
+## 会話記録の管理者削除
+
+ワークスペースの管理者（owner・admin）が求めたときに、チャンネル会話ひとつの記録を削除する運用者コマンドです。API route はありません。API コンテナーでコマンドを実行できる運用者が実行します。まず `--dry-run` で削除する行数を確かめます。
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/conversation-records.ts delete --conversation <conversation-id> --by admin@example.com --dry-run
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/conversation-records.ts delete --conversation <conversation-id> --by admin@example.com
+```
+
+- **会話 id。** エージェントとチャンネルで `conversations` 表から探します: `SELECT id FROM conversations WHERE agent_id = '<agent-id>' AND channel_id = '<channel-id>';`
+- **削除するもの。** その会話のエージェントがそのチャンネルに残した関与記録、そのチャンネルの要約（すべてのバージョンの履歴を含む）、その会話の判断バッファに入ったメッセージ。チャンネル要約はチャンネルごとに一つなので、同じチャンネルの他のエージェントも同じ要約を失います。
+- **残るもの。** セッション、ターンと入力の原文、入力受付の行、セッションイベント、transcript、checkpoint、receipt。会話の行も残り、最後に削除した時刻と削除した管理者を持ちます。
+- **止まるセッション。** 削除する前に、記録が指すメッセージのうち、どのターンの入力でもないものに削除の印（`admin_deleted`）を付けます。そのメッセージを出典に持つセッションは、Slack でメッセージが削除されたときと同じように止まり（`SOURCE_DELETED`）、まだ送っていない答えは出ません。同じチャンネルの他のセッションと、自分の入力だけを持つセッションはそのまま動きます。Slack のメッセージはそのまま残ります。
+- **`--by`。** その会話のワークスペースで無効化されていない owner か admin のアドレスです。削除した人として会話の行と receipt に残ります。そうでなければ何も削除せず `not_admin` で終わります。DM の会話は `dm_not_supported` で拒否します。
+- **出力。** stdout に JSON 一行です。`outcome`（`deleted`、削除するものがなければ `unchanged`、`--dry-run` なら `dry_run`）、`conversation_id`、削除した行数（`engagements`、`summary_lines`、`buffered`）、新しく付けた印の数（`marked`）、止めたセッションの id（`sessions_stopped`）。終了コードは 0 完了、1 予期しないエラー、2 使い方、3 存在しない会話、4 拒否です。
+- **もう一度呼ぶ。** 結果は同じです。削除するものがなければ何も書かず `unchanged` です。前の実行が削除の後、セッションを止める前に途切れていたら、もう一度呼んだときにそのセッションを止めます。
+- **監査。** 削除したものがあれば、監査ログに receipt `delete_conversation_records` が一行残ります。行為者は `--by` の人、対象はその会話、結果は削除した行数です。
+
 ## セッションイベントの保管
 
 長く休止したセッションのイベント行を checkpoint bucket に移す週次の job です。イベント以外の行は変えず、API は移した後も同じ応答を返します。

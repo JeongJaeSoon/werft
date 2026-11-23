@@ -114,6 +114,7 @@ export { expireOverdueInterrupts } from "./sessions/turn-interrupts.ts";
 export * from "./sessions/workspace-mcp-egress.ts";
 export * from "./settings-document.ts";
 export { notDeleted } from "./soft-delete.ts";
+export * from "./surface/conversation-records.ts";
 export * from "./surface/slack-apps.ts";
 export * from "./surface/slack-channel-members.ts";
 export * from "./surface/slack-config-tokens.ts";
