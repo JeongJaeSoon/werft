@@ -237,7 +237,8 @@ export async function queuePushFollowUps(
   const { session } = input;
   if (
     session.admissionState !== "active" ||
-    session.takeoverRequiredAt !== null
+    session.takeoverRequiredAt !== null ||
+    session.sourceDeletedAt !== null
   ) {
     return 0;
   }

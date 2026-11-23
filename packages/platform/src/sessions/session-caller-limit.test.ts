@@ -215,6 +215,18 @@ describe("a write whose turn would carry a source deleted in Slack", () => {
     );
     expect(error.code).toBe("SOURCE_DELETED");
     expect(error.message).toBe("This session holds a deleted Slack message");
+    const stopped = await failure(
+      setup({
+        append: { outcome: "source_deleted", sessionStopped: true },
+      }).service.appendMessage(actor, SESSION, {
+        idempotencyKey: "key-3",
+        body: { message: "more" },
+      } as never),
+    );
+    expect(stopped.code).toBe("SOURCE_DELETED");
+    expect(stopped.message).toBe(
+      "A Slack message this session drew on was deleted; it takes no messages and cannot be resumed, only closed",
+    );
   });
 
   test("a start from a deleted Slack message is refused SOURCE_DELETED", async () => {

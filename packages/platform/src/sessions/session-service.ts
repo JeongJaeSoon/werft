@@ -457,6 +457,13 @@ export function createSessionService(deps: {
     );
   }
 
+  function sessionSourceDeleted(): never {
+    throw new SessionServiceError(
+      "SOURCE_DELETED",
+      "A Slack message this session drew on was deleted; it takes no messages and cannot be resumed, only closed",
+    );
+  }
+
   // 403 rather than a state conflict: no retry or later request by the
   // owner changes the answer, only the operator's restore does.
   function executionRevoked(): never {
@@ -750,6 +757,9 @@ export function createSessionService(deps: {
           "TAKEOVER_REQUIRED",
           "The person who asked for this session has left; it takes no messages until an owner takes it over",
         );
+      case "source_deleted":
+        if (result.sessionStopped) return sessionSourceDeleted();
+        throw sourceDeleted();
       case "actor_inactive":
         throw new SessionServiceError(
           "FORBIDDEN",
@@ -766,8 +776,6 @@ export function createSessionService(deps: {
           "UNSUPPORTED_CAPABILITY",
           "This session has no runtime spec pinned on its own model, so it takes no more input; create a new session",
         );
-      case "source_deleted":
-        throw sourceDeleted();
       case "queue_full":
       case "storage_exhausted":
         throw limitError(result);
@@ -1473,6 +1481,8 @@ export function createSessionService(deps: {
           );
         case "execution_revoked":
           throw executionRevoked();
+        case "source_deleted":
+          throw sessionSourceDeleted();
         case "not_restore_failed":
           throw new SessionServiceError(
             "REQUEST_STALE",
@@ -1550,6 +1560,8 @@ export function createSessionService(deps: {
           );
         case "execution_revoked":
           throw executionRevoked();
+        case "source_deleted":
+          throw sessionSourceDeleted();
         case "pending_requests_open":
           throw new SessionServiceError(
             "PENDING_REQUESTS_OPEN",

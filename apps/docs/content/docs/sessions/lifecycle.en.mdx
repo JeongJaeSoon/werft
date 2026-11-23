@@ -183,6 +183,7 @@ When the session is waiting for a person, `attention` carries a `code` and a rea
 | `STARTUP_FAILED`, `RESTORE_FAILED` | The worker cannot start or restore a checkpoint |
 | `CATALOG_MISMATCH` | After the session was created, its connection was disabled, its model left the connection's list, or the repository settings changed |
 | `CONTEXT_GAP` | A recovery decision dropped part of the earlier conversation |
+| `SOURCE_DELETED` | A Slack message among the sources of one of the session's turns was deleted, so the session stopped. Messages and resume are refused with `409 SOURCE_DELETED`; only close works. It outranks every other attention |
 
 ## Usage
 

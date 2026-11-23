@@ -58,6 +58,8 @@ import { registerUsageRoutes } from "./routes/usage/usage.ts";
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-00000000a0a1";
 const SESSION = "019a0000-0000-7000-8000-00000000e0a1";
+// A session of no private channel, which the workspace's keys see.
+const OPEN_SESSION = "019a0000-0000-7000-8000-00000000e0a2";
 const PUSH = "019a0000-0000-7000-8000-00000000e0d1";
 const MEMBER = "019a0000-0000-7000-8000-0000000000c1";
 const REQUESTER = "019a0000-0000-7000-8000-0000000000c3";
@@ -80,9 +82,10 @@ function unreached(name: string): never {
 const sessions: SessionAccess = {
   async visibleTo(_ownerId, sessionId, viewer) {
     return (
-      sessionId === SESSION &&
-      viewer.apiKeyId === null &&
-      (viewer.privateChannels ?? []).length > 0
+      sessionId === OPEN_SESSION ||
+      (sessionId === SESSION &&
+        viewer.apiKeyId === null &&
+        (viewer.privateChannels ?? []).length > 0)
     );
   },
   async originOf() {
@@ -118,7 +121,8 @@ const identity: IdentityReader = {
   },
 };
 
-function app() {
+/** Stores named in `reached` answer; every other one throws when reached. */
+function app(reached: Record<string, unknown> = {}) {
   const decisions: { sessionId: string | null; reason: AuthorizationReason }[] =
     [];
   const log: DecisionLog = {
@@ -144,9 +148,10 @@ function app() {
     },
     decisions: log,
   });
-  const store = (name: string) => unreached(name);
+  const store = (name: string) =>
+    name in reached ? (reached[name] as never) : unreached(name);
   const session = createSessionService({
-    limits: unreached("limits"),
+    limits: store("limits"),
     authorization,
     catalog: unreached("catalog"),
     releases: store("releases"),
@@ -397,6 +402,76 @@ describe("a key on a private channel's session, over HTTP", () => {
           ]),
         ),
       );
+    });
+  }
+});
+
+// Where this meets a deleted Slack source (94S-2010): the policy's refusal
+// comes first, so a key on a private channel's session gets the same 404
+// whether or not the session was stopped for a deleted message, and learns
+// nothing of it. Only a caller the policy lets through reaches the store,
+// whose stop answers 409 SOURCE_DELETED.
+describe("a key on a session stopped for a deleted Slack source", () => {
+  const stopped = {
+    limits: {
+      queuedInputLimitPerSession: 10,
+      storageLimitBytes: 1e9,
+      sessionCostLimitUsd: 100,
+      sessionTokenLimit: null,
+    },
+    inputs: {
+      appendInputAtomic: async () => ({
+        outcome: "source_deleted",
+        sessionStopped: true,
+      }),
+    },
+    controls: { resumeAtomic: async () => ({ outcome: "source_deleted" }) },
+    pending: { answerAtomic: async () => ({ outcome: "source_deleted" }) },
+  };
+  const calls = {
+    appendSessionMessage: ["messages", { message: "hello" }],
+    resumeSession: ["resume", REVISION],
+    answerPendingRequest: [
+      "answers",
+      { request_id: "req-1", kind: "permission", action: "allow" },
+    ],
+  } as const;
+
+  async function status(sessionId: string, kind: keyof typeof TOKENS) {
+    const out: Record<string, string> = {};
+    for (const [operation, [suffix, body]] of Object.entries(calls)) {
+      const { api } = app(stopped);
+      const response = await api.request(
+        `/v1/sessions/${sessionId}/${suffix}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${TOKENS[kind]}`,
+            "Idempotency-Key": crypto.randomUUID(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      const error = ((await response.json()) as { error?: { code?: string } })
+        .error;
+      out[operation] = `${response.status} ${error?.code ?? ""}`;
+    }
+    return out;
+  }
+
+  for (const kind of ["personal", "agent"] as const) {
+    test(`the ${kind} key: 404 on the private channel's session, 409 SOURCE_DELETED on another`, async () => {
+      expect(await status(SESSION, kind)).toEqual({
+        appendSessionMessage: "404 NOT_FOUND",
+        resumeSession: "404 NOT_FOUND",
+        answerPendingRequest: "404 NOT_FOUND",
+      });
+      expect(await status(OPEN_SESSION, kind)).toEqual({
+        appendSessionMessage: "409 SOURCE_DELETED",
+        resumeSession: "409 SOURCE_DELETED",
+        answerPendingRequest: "409 SOURCE_DELETED",
+      });
     });
   }
 });

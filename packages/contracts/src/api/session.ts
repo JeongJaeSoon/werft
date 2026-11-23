@@ -309,6 +309,11 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     code: z.literal("VARIABLE_REFUSED"),
     reason: envRefusalSchema,
   }),
+  // A Slack message among the sources of one of the session's turns, its
+  // own or one it inherited, was deleted. The turn running then finishes
+  // and the session stops: it takes no message and does not resume, and
+  // close is the only control left. It outranks every other attention.
+  z.object({ code: z.literal("SOURCE_DELETED") }),
 ]);
 export const sessionDurabilitySchema = z.object({
   last_transcript_persisted_at: timestampSchema.nullable(),

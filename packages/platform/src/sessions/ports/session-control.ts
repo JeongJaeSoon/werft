@@ -71,6 +71,9 @@ export type RecoveryDecisionResult =
   // start_fresh or retry_restore on a session whose execution authority an
   // operator revoked; only the operator's restore lifts it.
   | { outcome: "execution_revoked" }
+  // start_fresh or retry_restore on a session stopped for a deleted source:
+  // a close is the only decision left.
+  | { outcome: "source_deleted" }
   // retry_restore on a session its failed restores did not stop: restoring
   // the same checkpoint again answers nothing else.
   | { outcome: "not_restore_failed"; admissionState: AdmissionState };
@@ -154,6 +157,8 @@ export type ResumeSessionResult =
   | { outcome: "pin_required" }
   // An operator revoked the session's execution authority.
   | { outcome: "execution_revoked" }
+  // A source of one of the session's turns was deleted; only a close is left.
+  | { outcome: "source_deleted" }
   // The parked turn still waits on requests nobody answered and that have
   // not expired.
   | { outcome: "pending_requests_open"; waitingFor: number }

@@ -160,6 +160,11 @@ export function createPendingRequestService(deps: {
             "The session's workspace is being reclaimed; retry the same request shortly",
             { afterSeconds: 10 },
           );
+        case "source_deleted":
+          throw new SessionServiceError(
+            "SOURCE_DELETED",
+            "A Slack message this session drew on was deleted; it takes no answers and cannot be resumed, only closed",
+          );
         case "actor_inactive":
           throw new SessionServiceError(
             "FORBIDDEN",

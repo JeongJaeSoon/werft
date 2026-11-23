@@ -183,6 +183,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 | `STARTUP_FAILED`, `RESTORE_FAILED` | worker が起動できない、または checkpoint を復元できない |
 | `CATALOG_MISMATCH` | セッションを作った後に、セッションの接続が無効になったか、モデルが接続の一覧から外れたか、リポジトリの設定が変わった |
 | `CONTEXT_GAP` | 復旧判断により、以前の会話の一部が欠けている |
+| `SOURCE_DELETED` | セッションのターンが出典に持つ Slack のメッセージが削除され、セッションが止まった。メッセージと再開は `409 SOURCE_DELETED` で拒否され、閉じることだけができる。他の attention より優先される |
 
 ## 使用量
 
