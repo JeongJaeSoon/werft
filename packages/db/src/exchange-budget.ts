@@ -25,33 +25,34 @@ import {
  * call, a call between turns), a session with no workspace, or a turn whose
  * requester says nothing budgetRootOfTurn can read. An exchange already
  * opened keeps the account its first open chose, whichever turn runs now.
+ * A replay read before the first open commits chooses from the turn as
+ * this snapshot has it; the ledger's lock then compares, and a turn changed
+ * in between is a conflict, never a second account. The proxy sends an
+ * exchange's open once.
  */
 export async function budgetChoiceOfCall(
   db: Database,
   call: { exchangeId: string; sessionId: string; attemptId: string },
 ): Promise<{ choice: BudgetChoice | undefined; turnId: string | null }> {
-  const [stored] = await db
+  // One statement, so one snapshot: an open commits its exchange row and
+  // its reservation together, and this sees both or neither.
+  const id = call.exchangeId;
+  const rows = await db
     .select({
-      rootKind: budgetReservations.rootKind,
-      ownerKind: budgetAccounts.ownerKind,
-      ownerId: budgetAccounts.ownerId,
-    })
-    .from(budgetReservations)
-    .leftJoin(
-      budgetAccounts,
-      eq(budgetAccounts.id, budgetReservations.accountId),
-    )
-    .where(eq(budgetReservations.callId, call.exchangeId))
-    .limit(1);
-  const [opened] = stored
-    ? []
-    : await db
-        .select({ exchangeId: providerExchanges.exchangeId })
-        .from(providerExchanges)
-        .where(eq(providerExchanges.exchangeId, call.exchangeId))
-        .limit(1);
-  const running = await db
-    .select({
+      storedRootKind: sql<BudgetChoice["rootKind"] | null>`(
+        SELECT ${budgetReservations.rootKind} FROM ${budgetReservations}
+        WHERE ${budgetReservations.callId} = ${id})`,
+      storedOwnerKind: sql<"user" | "team" | null>`(
+        SELECT ${budgetAccounts.ownerKind} FROM ${budgetReservations}
+        JOIN ${budgetAccounts} ON ${budgetAccounts.id} = ${budgetReservations.accountId}
+        WHERE ${budgetReservations.callId} = ${id})`,
+      storedOwnerId: sql<string | null>`(
+        SELECT ${budgetAccounts.ownerId} FROM ${budgetReservations}
+        JOIN ${budgetAccounts} ON ${budgetAccounts.id} = ${budgetReservations.accountId}
+        WHERE ${budgetReservations.callId} = ${id})`,
+      opened: sql<boolean>`EXISTS (
+        SELECT 1 FROM ${providerExchanges}
+        WHERE ${providerExchanges.exchangeId} = ${id})`,
       sequence: turns.sequence,
       requesterKind: turns.requesterKind,
       requesterId: turns.requesterId,
@@ -61,33 +62,38 @@ export async function budgetChoiceOfCall(
         string | null
       >`CASE WHEN ${memberTeams.archivedAt} IS NULL THEN ${memberTeams.id} END`,
     })
-    .from(turns)
-    .innerJoin(sessions, eq(sessions.id, turns.sessionId))
-    .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
-    .leftJoin(agents, eq(agents.id, agentReleases.agentId))
-    .leftJoin(memberTeams, eq(memberTeams.id, agents.managingTeamId))
-    .where(
+    .from(sessions)
+    .leftJoin(
+      turns,
       and(
-        eq(turns.sessionId, call.sessionId),
+        eq(turns.sessionId, sessions.id),
         eq(turns.attemptId, call.attemptId),
         eq(turns.status, "running"),
       ),
     )
+    .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+    .leftJoin(agents, eq(agents.id, agentReleases.agentId))
+    .leftJoin(memberTeams, eq(memberTeams.id, agents.managingTeamId))
+    .where(eq(sessions.id, call.sessionId))
     .limit(2);
+  const [first] = rows;
+  if (first === undefined) return { choice: undefined, turnId: null };
+  const running = rows.filter((row) => row.sequence !== null);
   const [turn] = running;
   const turnId =
     running.length === 1 && turn !== undefined ? String(turn.sequence) : null;
-  if (stored) {
+  if (first.storedRootKind !== null) {
+    const ownerId = first.storedOwnerId;
     const owner =
-      stored.ownerKind === "user" && stored.ownerId !== null
-        ? { kind: "user" as const, userId: stored.ownerId }
-        : stored.ownerKind === "team" && stored.ownerId !== null
-          ? { kind: "team" as const, teamId: stored.ownerId }
-          : null;
-    return { choice: { rootKind: stored.rootKind, owner }, turnId };
+      ownerId === null
+        ? null
+        : first.storedOwnerKind === "user"
+          ? { kind: "user" as const, userId: ownerId }
+          : { kind: "team" as const, teamId: ownerId };
+    return { choice: { rootKind: first.storedRootKind, owner }, turnId };
   }
   // Opened on the session's limit alone: so its replays are too.
-  if (opened) return { choice: undefined, turnId };
+  if (first.opened) return { choice: undefined, turnId };
   if (turnId === null || turn === undefined) {
     return { choice: undefined, turnId: null };
   }
