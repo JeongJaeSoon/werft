@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import {
   SLACK_ACCEPTED_MESSAGE_SUBTYPES,
+  SLACK_CHANNEL_CONVERSION_SUBTYPES,
   SLACK_INBOUND_EVENT_TYPES,
   SLACK_SIGNATURE_WINDOW_SECONDS,
   type SlackEventCallback,
@@ -222,12 +223,17 @@ function redactedEvent(
   for (const field of PENDING_EVENT_FIELDS) {
     if (event[field] !== undefined) kept[field] = event[field];
   }
+  // The conversion handler reads which way the channel went.
+  if (event.subtype !== undefined && CONVERSION_SUBTYPES.has(event.subtype)) {
+    kept.subtype = event.subtype;
+  }
   kept.text = mention ? `<@${botUserId}>` : "";
   return kept as SlackEventCallback["event"];
 }
 
 const ACCEPTED_TYPES = new Set<string>(SLACK_INBOUND_EVENT_TYPES);
 const ACCEPTED_SUBTYPES = new Set<string>(SLACK_ACCEPTED_MESSAGE_SUBTYPES);
+const CONVERSION_SUBTYPES = new Set<string>(SLACK_CHANNEL_CONVERSION_SUBTYPES);
 
 /** Slackbot's user id in every workspace. */
 const SLACKBOT_USER_ID = "USLACK";
@@ -444,6 +450,7 @@ export function createSlackEventsService(deps: {
         event.type === "message" &&
         event.subtype !== undefined &&
         !ACCEPTED_SUBTYPES.has(event.subtype) &&
+        !CONVERSION_SUBTYPES.has(event.subtype) &&
         // A person's file or /me line in a thread starts the bots' count
         // there over.
         !(
@@ -467,6 +474,18 @@ export function createSlackEventsService(deps: {
         // Slack deleted this channel: nothing in it is taken or answered.
         if (bound?.status === "gone") {
           return { status: "dropped", dropReason: "channel_gone" };
+        }
+        // A conversion moves the channel's kind whatever its binding waits
+        // for; its text is not kept.
+        if (
+          event.type === "message" &&
+          event.subtype !== undefined &&
+          CONVERSION_SUBTYPES.has(event.subtype)
+        ) {
+          return {
+            status: "received",
+            redact: { botUserId: resolved.botUserId, mention: false },
+          };
         }
         // A private channel without an approved, ready binding keeps no
         // text: waiting, rejected, or flipped from public since it was bound.

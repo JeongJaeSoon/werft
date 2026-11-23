@@ -8,6 +8,7 @@ export {
   createRowDelivery,
   createSlackAppService,
   createSlackBotApi,
+  createSlackChannelConversionHandler,
   createSlackChannelJoiner,
   createSlackChannelKinds,
   createSlackChannelLifecycleHandler,

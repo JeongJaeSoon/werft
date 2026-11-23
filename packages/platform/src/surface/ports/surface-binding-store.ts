@@ -2,6 +2,7 @@ import type {
   BindingListen,
   BindingMode,
   MemoryWritePolicy,
+  SessionShareScope,
   SurfaceBindingStatus,
   SurfaceCeiling,
   SurfaceChannelKind,
@@ -9,6 +10,45 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
+
+/** A Slack channel some agent's linked sessions came from. */
+export type ChannelSessionPlace = {
+  workspaceId: string;
+  agentId: string;
+  installationId: string;
+  teamId: string;
+  channelId: string;
+};
+
+/** What Slack says a channel is now. */
+export type SlackChannelKindNow = "public_channel" | "private_channel";
+
+/**
+ * Why a session of a private channel is not moved: its channel's
+ * conversation cannot be decided (the link names no usable channel, or the
+ * session's parent is another conversation), or it has no workspace to
+ * share in.
+ */
+export type ChannelSessionSkip = "no_channel_conversation" | "no_workspace";
+
+export type ChannelScopeMove = {
+  sessionId: string;
+  from: SessionShareScope;
+  to: SessionShareScope;
+};
+
+/** How a channel's sessions follow its kind (answer 15, 94S-2001). */
+export type ChannelScopePlan = {
+  moves: ChannelScopeMove[];
+  /** Narrowed to their creator: kept private, never widened to the channel. */
+  keptPrivate: string[];
+  unchanged: string[];
+  skipped: { sessionId: string; reason: ChannelSessionSkip }[];
+};
+
+export type ChannelKindChanged = ChannelScopePlan & {
+  binding: "now_private" | "now_public" | "unchanged";
+};
 
 export type SurfaceBindingRecord = {
   id: string;
@@ -215,6 +255,19 @@ export interface SurfaceBindingStore {
    * deletion arriving late) keeps the binding as that join left it. False
    * when no binding changed.
    */
+  /**
+   * Slack says the channel is now `kind` (a conversion event, or the
+   * operator command asking Slack). In one transaction: a live binding still
+   * of the other kind follows, a public one turned private waiting for
+   * approval (reason `channel_now_private`), a private one turned public
+   * ready (a `left` one stays, its kind checked by the table); then the
+   * channel's sessions follow (`ChannelScopePlan`). Running it again with
+   * the same kind changes nothing.
+   */
+  channelKindChanged(
+    place: ChannelSessionPlace,
+    kind: SlackChannelKindNow,
+  ): Promise<ChannelKindChanged>;
   channelDeleted(
     installationId: string,
     channelId: string,

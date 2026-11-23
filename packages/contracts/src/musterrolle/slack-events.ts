@@ -69,6 +69,15 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
 /** Message subtypes kept besides a plain message (no subtype). */
 export const SLACK_ACCEPTED_MESSAGE_SUBTYPES = ["thread_broadcast"] as const;
 
+/**
+ * The messages Slack posts in a channel made private or public: taken, text
+ * dropped, so the channel's binding and sessions follow its kind.
+ */
+export const SLACK_CHANNEL_CONVERSION_SUBTYPES = [
+  "channel_convert_to_private",
+  "channel_convert_to_public",
+] as const;
+
 /** The `event.type` values the agent app's subscriptions deliver. */
 export const SLACK_INBOUND_EVENT_TYPES = [
   "app_mention",

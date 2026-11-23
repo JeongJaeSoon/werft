@@ -2,6 +2,7 @@ export * from "./outbox-delivery.ts";
 export * from "./slack-app-service.ts";
 export * from "./slack-bot-token.ts";
 export * from "./slack-card-settle.ts";
+export * from "./slack-channel-conversion.ts";
 export * from "./slack-channel-join.ts";
 export * from "./slack-channel-lifecycle.ts";
 export * from "./slack-channel-members.ts";

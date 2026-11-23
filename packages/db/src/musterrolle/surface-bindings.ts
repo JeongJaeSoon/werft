@@ -5,10 +5,13 @@ import {
   type SurfaceMembershipState,
 } from "@werft-ai/contracts";
 import type {
+  ChannelKindChanged,
+  ChannelSessionPlace,
   Principal,
   ResolveSurfaceBindingInput,
   ResolveSurfaceBindingResult,
   SetSurfaceBindingResult,
+  SlackChannelKindNow,
   SurfaceBindingRecord,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
@@ -26,6 +29,7 @@ import {
   slackInstallations,
   surfaceBindings,
 } from "../schema.ts";
+import { moveChannelSessionScope } from "../sessions/private-channel-scope.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { callerHoldsRight } from "./agent-identities.ts";
 import { lockedRole } from "./api-keys.ts";
@@ -458,6 +462,7 @@ export function createPostgresSurfaceBindingStore(
         : null,
     recordJoin: (installationId, channelId, bindingId, at, kind) =>
       recordJoin(db, installationId, channelId, bindingId, at, kind),
+    channelKindChanged: (place, kind) => channelKindChanged(db, place, kind),
     channelDeleted: (installationId, channelId, at) =>
       channelDeleted(db, installationId, channelId, at),
     channelNotFound: (installationId, channelId, askedAt) =>
@@ -1053,6 +1058,73 @@ async function reopenGone(tx: Database, current: LockedBinding): Promise<void> {
 // The statuses a deletion or a lost channel changes: a binding in use, one
 // waiting, one the bot left. A revoked, gone or legacy row stays.
 const ACTIVE_OR_LEFT = new Set(["ready", "pending_approval", "left"]);
+
+// Answer 15 (94S-2001): a channel's binding and its sessions follow what
+// Slack says the channel is now, in one transaction.
+async function channelKindChanged(
+  db: Database,
+  place: ChannelSessionPlace,
+  kind: SlackChannelKindNow,
+): Promise<ChannelKindChanged> {
+  return db.transaction(async (tx) => {
+    let binding: ChannelKindChanged["binding"] = "unchanged";
+    const current = UUID.test(place.installationId)
+      ? await lockBinding(
+          tx,
+          channelOf(place.installationId.toLowerCase(), place.channelId),
+        )
+      : null;
+    const other =
+      current !== null &&
+      current.channelKind !== "dm" &&
+      current.channelKind !== kind &&
+      current.agentId.toLowerCase() === place.agentId.toLowerCase();
+    if (current !== null && other) {
+      const nowPrivate = kind === "private_channel";
+      // A private channel waits for approval; a left one keeps its kind,
+      // which only a private binding may be in.
+      const status =
+        current.status === "ready" || current.status === "pending_approval"
+          ? nowPrivate
+            ? "pending_approval"
+            : "ready"
+          : current.status === "left"
+            ? null
+            : current.status;
+      if (status !== null) {
+        await tx
+          .update(surfaceBindings)
+          .set({
+            surfaceKind: kind,
+            status,
+            ...(nowPrivate && status === "pending_approval"
+              ? { home: false, approvedAt: null, approvedLifecycleUs: null }
+              : {}),
+            revision: sql`${surfaceBindings.revision} + 1`,
+            updatedAt: DB_NOW,
+          })
+          .where(eq(surfaceBindings.id, current.id));
+        const [row] = await tx
+          .select(columns)
+          .from(surfaceBindings)
+          .where(eq(surfaceBindings.id, current.id));
+        if (!row)
+          throw new Error(`surface binding ${current.id} vanished in its tx`);
+        await writeReceipt(
+          tx,
+          null,
+          recordOf(row),
+          status === "pending_approval"
+            ? "request_surface_binding"
+            : "set_surface_binding",
+          { reason: nowPrivate ? "channel_now_private" : "channel_now_public" },
+        );
+        binding = nowPrivate ? "now_private" : "now_public";
+      }
+    }
+    return { binding, ...(await moveChannelSessionScope(tx, place, kind)) };
+  });
+}
 
 async function channelDeleted(
   db: Database,

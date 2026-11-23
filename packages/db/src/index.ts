@@ -96,6 +96,7 @@ export * from "./sessions/neutral-fields.ts";
 export { expireParkedGroups } from "./sessions/parked-group.ts";
 export * from "./sessions/pending-control.ts";
 export { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
+export * from "./sessions/private-channel-scope.ts";
 export * from "./sessions/repository-attachments.ts";
 export * from "./sessions/session-attribution.ts";
 export {
