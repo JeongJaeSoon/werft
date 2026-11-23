@@ -234,6 +234,7 @@ function deps(): SlackInteractionDeps {
           channelId: CHANNEL,
           channelKind: "public_channel",
           mode: "on",
+          listen: "free",
           ceiling: {
             actions: [
               "session.read",

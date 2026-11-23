@@ -34,6 +34,7 @@ const VIEW: SurfaceBinding = {
   surface_kind: "public_channel",
   agent_id: AGENT,
   mode: "on",
+  listen: "free",
   ceiling: DEFAULT_SURFACE_CEILING,
   home: true,
   memory_write_policy: "deny",

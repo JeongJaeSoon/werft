@@ -230,6 +230,7 @@ function bind(channelId: string | null, binding: Binding) {
     channelId,
     channelKind: channelId === null ? "dm" : "public_channel",
     mode: "on",
+    listen: "free",
     ceiling: everything,
     home: false,
     memoryWritePolicy: "deny",

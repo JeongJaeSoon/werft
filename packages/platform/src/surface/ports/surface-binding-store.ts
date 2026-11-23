@@ -1,4 +1,5 @@
 import type {
+  BindingListen,
   BindingMode,
   MemoryWritePolicy,
   SurfaceBindingStatus,
@@ -18,6 +19,7 @@ export type SurfaceBindingRecord = {
   channelId: string | null;
   channelKind: SurfaceChannelKind | null;
   mode: BindingMode;
+  listen: BindingListen;
   ceiling: SurfaceCeiling;
   home: boolean;
   memoryWritePolicy: MemoryWritePolicy;
@@ -75,6 +77,8 @@ export interface SurfaceBindingStore {
     channelId: string | null;
     channelKind: SurfaceChannelKind;
     mode: BindingMode;
+    /** Absent keeps the channel's; a new channel then listens to all. */
+    listen?: BindingListen;
     home: boolean;
     ceiling: SurfaceCeiling;
     managerRoles: readonly WorkspaceRole[];

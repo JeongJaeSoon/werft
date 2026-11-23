@@ -6086,6 +6086,8 @@ export interface components {
             channel_kind?: "public_channel" | "private_channel" | "dm";
             /** @enum {string} */
             mode: "off" | "on";
+            /** @enum {string} */
+            listen?: "free" | "mention" | "off";
             /** @default false */
             home: boolean;
             ceiling?: {
@@ -11895,6 +11897,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -11934,6 +11938,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -11975,6 +11981,8 @@ export interface components {
                 agent_id: string;
                 /** @enum {string} */
                 mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */

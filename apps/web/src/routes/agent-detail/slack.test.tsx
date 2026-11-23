@@ -83,6 +83,7 @@ const BINDING: components["schemas"]["ListSlackBindingsResponse"]["items"][numbe
     surface_kind: "public_channel",
     agent_id: AGENT_ID,
     mode: "on",
+    listen: "free",
     ceiling: { actions: ["session.read"], disclosure: "summary" },
     home: true,
     memory_write_policy: "deny",
