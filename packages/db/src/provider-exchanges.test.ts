@@ -538,7 +538,7 @@ describe("the reconciler's pass over the ledger", () => {
     });
     expect(
       await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
-    ).toEqual({ settled: 1, noticed: [], deleted: 0 });
+    ).toEqual({ settled: 1, noticed: [], deleted: 0, unknown: 0 });
     expect(await rows()).toEqual([]);
   });
 
@@ -578,7 +578,7 @@ describe("the reconciler's pass over the ledger", () => {
     });
     expect(
       await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
-    ).toEqual({ settled: 0, noticed: [], deleted: 0 });
+    ).toEqual({ settled: 0, noticed: [], deleted: 0, unknown: 0 });
     expect(await rows()).toHaveLength(1);
   });
 
@@ -645,10 +645,10 @@ describe("the reconciler's pass over the ledger", () => {
     });
     expect(
       await reconcileProviderExchanges(db, { limit: 10, dryRun: true }),
-    ).toEqual({ settled: 1, noticed: [], deleted: 0 });
+    ).toEqual({ settled: 1, noticed: [], deleted: 0, unknown: 0 });
     expect(
       await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
-    ).toEqual({ settled: 1, noticed: [], deleted: 0 });
+    ).toEqual({ settled: 1, noticed: [], deleted: 0, unknown: 0 });
   });
 
   test("a dry run counts a settled row beyond the batch limit as the cleanup step does", async () => {
@@ -676,10 +676,10 @@ describe("the reconciler's pass over the ledger", () => {
     }
     expect(
       await reconcileProviderExchanges(db, { limit: 1, dryRun: true }),
-    ).toEqual({ settled: 1, noticed: [], deleted: 1 });
+    ).toEqual({ settled: 1, noticed: [], deleted: 1, unknown: 0 });
     expect(
       await reconcileProviderExchanges(db, { limit: 1, dryRun: false }),
-    ).toEqual({ settled: 1, noticed: [], deleted: 1 });
+    ).toEqual({ settled: 1, noticed: [], deleted: 1, unknown: 0 });
     expect(await rows()).toEqual([]);
   });
 
@@ -870,6 +870,207 @@ describe("holding a call on a budget account beside its session", () => {
     await report(who, exchangeId);
     expect(await reservationOf(exchangeId)).toMatchObject({ state: "settled" });
     expect(await accountOf(userId)).toMatchObject({ spentCostUsd: 0.0084 });
+  });
+
+  describe("a call with no report within the lease", () => {
+    async function unknownCall() {
+      const { who, userId, budget } = await budgeted();
+      // Room for one reserve and a half.
+      await saveBudgetLimit(
+        db,
+        WORKSPACE,
+        { kind: "user", userId },
+        { costUsd: COST * 1.5, tokens: null },
+      );
+      const exchangeId = crypto.randomUUID();
+      const ledger = ledgerOf();
+      await ledger.open({ exchangeId, ...who, reserve: RESERVE, budget });
+      await expireLease(exchangeId);
+      expect(
+        await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
+      ).toMatchObject({ noticed: [{ exchangeId }], unknown: 1 });
+      return { who, userId, budget, exchangeId, ledger };
+    }
+
+    test("is unknown and still held; a reserve past the rest is refused", async () => {
+      const { who, userId, budget, exchangeId, ledger } = await unknownCall();
+      // Before, nothing marked it past its lease. Still reserved, so an
+      // older image settles or releases it as before.
+      expect(await reservationOf(exchangeId)).toMatchObject({
+        state: "reserved",
+        unknownAt: expect.any(Date),
+        endedAt: null,
+      });
+      expect(await accountOf(userId)).toMatchObject({
+        reservedCostUsd: Math.round(COST * 1e6) / 1e6,
+        reservedTokens: TOKENS,
+        spentCostUsd: 0,
+      });
+      expect(
+        await ledger.open({
+          exchangeId: crypto.randomUUID(),
+          ...who,
+          reserve: RESERVE,
+          budget,
+        }),
+      ).toMatchObject({ outcome: "budget_exceeded", by: "account" });
+      // Marked once: a second pass finds nothing more to mark.
+      expect(
+        await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
+      ).toMatchObject({ noticed: [], unknown: 0 });
+    });
+
+    test("a late report settles it at what it charged and frees the reserve", async () => {
+      const { who, userId, exchangeId } = await unknownCall();
+      expect((await report(who, exchangeId)).outcome).toBe("recorded");
+      expect(await reservationOf(exchangeId)).toMatchObject({
+        state: "settled",
+        settledCostUsd: 0.0084,
+        settledTokens: reservationTokens(USED),
+        unknownAt: null,
+      });
+      expect(await accountOf(userId)).toMatchObject({
+        reservedCostUsd: 0,
+        reservedTokens: 0,
+        spentCostUsd: 0.0084,
+        spentTokens: reservationTokens(USED),
+      });
+    });
+
+    test("a renewal, or the same open again, clears the mark", async () => {
+      const { who, budget, exchangeId, ledger } = await unknownCall();
+      expect(await ledger.renew(exchangeId)).toBe("open");
+      expect(await reservationOf(exchangeId)).toMatchObject({
+        state: "reserved",
+        unknownAt: null,
+      });
+      await expireLease(exchangeId);
+      expect(
+        await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
+      ).toMatchObject({ unknown: 1 });
+      expect(
+        await ledger.open({ exchangeId, ...who, reserve: RESERVE, budget }),
+      ).toEqual({ outcome: "open" });
+      expect(await reservationOf(exchangeId)).toMatchObject({
+        state: "reserved",
+        unknownAt: null,
+      });
+    });
+
+    test("a release frees it", async () => {
+      const { who, userId, exchangeId, ledger } = await unknownCall();
+      expect(
+        await ledger.release({ exchangeId, ...who, reserve: RESERVE }),
+      ).toBe("released");
+      expect(await reservationOf(exchangeId)).toMatchObject({
+        state: "released",
+        unknownAt: null,
+      });
+      expect(await accountOf(userId)).toMatchObject({
+        reservedCostUsd: 0,
+        reservedTokens: 0,
+      });
+    });
+
+    test("a row noticed by an earlier build is marked on the next pass; a dry run only counts", async () => {
+      const { who, budget } = await budgeted();
+      const exchangeId = crypto.randomUUID();
+      await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE, budget });
+      await expireLease(exchangeId);
+      await db
+        .update(providerExchanges)
+        .set({ noticedAt: sql`clock_timestamp()` })
+        .where(eq(providerExchanges.exchangeId, exchangeId));
+      expect(
+        await reconcileProviderExchanges(db, { limit: 10, dryRun: true }),
+      ).toMatchObject({ noticed: [], unknown: 1 });
+      expect(await reservationOf(exchangeId)).toMatchObject({
+        unknownAt: null,
+      });
+      expect(
+        await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
+      ).toMatchObject({ noticed: [], unknown: 1 });
+      expect(await reservationOf(exchangeId)).toMatchObject({
+        state: "reserved",
+        unknownAt: expect.any(Date),
+      });
+    });
+
+    test("a dry run counts a call expiring in this pass as the writes mark it", async () => {
+      const { who, budget } = await budgeted();
+      const exchangeId = crypto.randomUUID();
+      await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE, budget });
+      await expireLease(exchangeId);
+      expect(
+        await reconcileProviderExchanges(db, { limit: 10, dryRun: true }),
+      ).toMatchObject({ noticed: [{ exchangeId }], unknown: 1 });
+      expect(
+        await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
+      ).toMatchObject({ noticed: [{ exchangeId }], unknown: 1 });
+    });
+
+    test("a call held on no account is noticed and has nothing to mark", async () => {
+      const { who } = await budgeted();
+      const exchangeId = crypto.randomUUID();
+      await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
+      await expireLease(exchangeId);
+      expect(
+        await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
+      ).toMatchObject({ noticed: [{ exchangeId }], unknown: 0 });
+      expect(await ledgerOf().renew(exchangeId)).toBe("open");
+    });
+  });
+
+  describe("a team account between 80% and 100% of its limit", () => {
+    // The team's account at 90%: spent directly, as an earlier month's
+    // calls would leave it.
+    async function teamAt90(rootKind: "none" | "key") {
+      const { who } = await budgeted();
+      const teamId = crypto.randomUUID();
+      await saveBudgetLimit(
+        db,
+        WORKSPACE,
+        { kind: "team", teamId },
+        { costUsd: COST * 100, tokens: null },
+      );
+      const budget: BudgetChoice = {
+        rootKind,
+        owner: { kind: "team", teamId },
+      };
+      const warm = crypto.randomUUID();
+      await ledgerOf().open({
+        exchangeId: warm,
+        ...who,
+        reserve: RESERVE,
+        budget: { rootKind: "key", owner: budget.owner },
+      });
+      await db
+        .update(budgetAccounts)
+        .set({ spentCostUsd: Math.round(COST * 89 * 1e6) / 1e6 })
+        .where(eq(budgetAccounts.ownerId, teamId));
+      return { who, budget };
+    }
+
+    test("an open of root kind none is refused; a key's gets in", async () => {
+      const none = await teamAt90("none");
+      expect(
+        await ledgerOf().open({
+          exchangeId: crypto.randomUUID(),
+          ...none.who,
+          reserve: RESERVE,
+          budget: none.budget,
+        }),
+      ).toMatchObject({ outcome: "budget_exceeded", by: "account" });
+      const key = await teamAt90("key");
+      expect(
+        await ledgerOf().open({
+          exchangeId: crypto.randomUUID(),
+          ...key.who,
+          reserve: RESERVE,
+          budget: key.budget,
+        }),
+      ).toEqual({ outcome: "created" });
+    });
   });
 
   test("an open with no account holds nothing on any account, as before accounts", async () => {

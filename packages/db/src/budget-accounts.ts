@@ -12,7 +12,7 @@ import {
   type BudgetSettleResult,
   personLimitOf,
 } from "@werft-ai/platform";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { budgetAccounts, budgetLimits, budgetReservations } from "./schema.ts";
@@ -291,7 +291,8 @@ export async function settleBudgetIn(
   if (row.state === "settled") return "already_settled";
   const costUsd = row.unmetered ? 0 : toStoredCost(actual.costUsd);
   // A released reserve was already taken off; a call billed after its
-  // release still spent what the settlement says.
+  // release still spent what the settlement says. A reserved one whose end
+  // was unknown is held all the same: a late report takes it off.
   const held = row.state === "reserved";
   await tx
     .update(budgetReservations)
@@ -300,6 +301,7 @@ export async function settleBudgetIn(
       settledCostUsd: costUsd,
       settledTokens: actual.tokens,
       endedAt: DB_NOW,
+      unknownAt: null,
     })
     .where(eq(budgetReservations.callId, callId));
   if (row.accountId !== null) {
@@ -336,7 +338,7 @@ export async function releaseBudgetIn(
   if (row.state === "released") return "already_released";
   await tx
     .update(budgetReservations)
-    .set({ state: "released", endedAt: DB_NOW })
+    .set({ state: "released", endedAt: DB_NOW, unknownAt: null })
     .where(eq(budgetReservations.callId, callId));
   if (row.accountId !== null) {
     await tx
@@ -348,6 +350,110 @@ export async function releaseBudgetIn(
       .where(eq(budgetAccounts.id, row.accountId));
   }
   return "released";
+}
+
+/**
+ * Marks a reserved reservation's end unknown (`unknown_at`), or clears the
+ * mark, under the call's lock taken here. No amount changes: an unknown end
+ * stays held. False when the reservation is not reserved or already so.
+ */
+export async function markBudgetUnknownIn(
+  tx: Database,
+  callId: string,
+  unknown: boolean,
+): Promise<boolean> {
+  await lockBudgetCall(tx, callId);
+  const moved = await tx
+    .update(budgetReservations)
+    .set({ unknownAt: unknown ? DB_NOW : null })
+    .where(
+      and(
+        eq(budgetReservations.callId, callId),
+        eq(budgetReservations.state, "reserved"),
+        unknown
+          ? isNull(budgetReservations.unknownAt)
+          : isNotNull(budgetReservations.unknownAt),
+      ),
+    )
+    .returning({ callId: budgetReservations.callId });
+  return moved.length > 0;
+}
+
+/** Reserved reservations of unknown end, summed per account (null: none). */
+export type UnknownBudgetHeld = {
+  accountId: BudgetAccountId | null;
+  ownerKind: "user" | "team" | null;
+  ownerId: string | null;
+  count: number;
+  costUsd: number;
+  tokens: number;
+};
+
+/**
+ * What unknown ends hold, for the reconciler's log: the `limit` accounts
+ * holding the most, and the total over every account, so an account they
+ * pile up on can be seen. Releasing them is not a0's.
+ */
+export async function unknownBudgetByAccount(
+  db: Database,
+  limit: number,
+): Promise<{
+  accounts: UnknownBudgetHeld[];
+  total: {
+    accountCount: number;
+    count: number;
+    costUsd: number;
+    tokens: number;
+  };
+}> {
+  const unknown = and(
+    eq(budgetReservations.state, "reserved"),
+    isNotNull(budgetReservations.unknownAt),
+  );
+  const [total] = await db
+    .select({
+      accountCount: sql<number>`count(DISTINCT coalesce(${budgetReservations.accountId}::text, ''))::int`,
+      count: sql<number>`count(*)::int`,
+      costUsd: sql<string>`coalesce(sum(${budgetReservations.costUsd}), 0)::text`,
+      tokens: sql<string>`coalesce(sum(${budgetReservations.tokens}), 0)::text`,
+    })
+    .from(budgetReservations)
+    .where(unknown);
+  const rows = await db
+    .select({
+      accountId: budgetReservations.accountId,
+      ownerKind: budgetAccounts.ownerKind,
+      ownerId: budgetAccounts.ownerId,
+      count: sql<number>`count(*)::int`,
+      costUsd: sql<string>`sum(${budgetReservations.costUsd})::text`,
+      tokens: sql<string>`sum(${budgetReservations.tokens})::text`,
+    })
+    .from(budgetReservations)
+    .leftJoin(
+      budgetAccounts,
+      eq(budgetAccounts.id, budgetReservations.accountId),
+    )
+    .where(unknown)
+    .groupBy(
+      budgetReservations.accountId,
+      budgetAccounts.ownerKind,
+      budgetAccounts.ownerId,
+    )
+    .orderBy(sql`sum(${budgetReservations.costUsd}) DESC`)
+    .limit(limit);
+  return {
+    accounts: rows.map((row) => ({
+      ...row,
+      costUsd: Number(row.costUsd),
+      tokens: Number(row.tokens),
+    })),
+    total: {
+      accountCount: total?.accountCount ?? 0,
+      count: total?.count ?? 0,
+      costUsd: Number(total?.costUsd ?? 0),
+      tokens: Number(total?.tokens ?? 0),
+    },
+  };
 }
 
 export function createBudgetLedger(db: Database): BudgetLedger {

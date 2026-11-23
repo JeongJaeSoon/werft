@@ -367,6 +367,43 @@ describe("a conversation call's reservation", () => {
     });
   });
 
+  test("a team account at 80% of its limit refuses the agent's own call, not a key's; at 100% both", async () => {
+    const { agentId, teamId } = await agentOf();
+    await saveBudgetLimit(
+      db,
+      WORKSPACE,
+      { kind: "team", teamId },
+      { costUsd: null, tokens: RESERVE.tokens * 100 },
+    );
+    const agentKey: BudgetRoot = {
+      kind: "key",
+      keyKind: "agent",
+      createdByUserId: null,
+    };
+    await issued(agentId, agentKey);
+    const useAt = (percent: number) =>
+      db
+        .update(budgetAccounts)
+        .set({ spentTokens: RESERVE.tokens * (percent - 1) })
+        .where(eq(budgetAccounts.ownerId, teamId));
+    // Spent and held to just under 79% with the new reserve: issued.
+    await useAt(78);
+    expect((await issue(agentId, { kind: "none" })).outcome).toBe("issued");
+    await useAt(79);
+    expect(await issue(agentId, { kind: "none" })).toMatchObject({
+      outcome: "refused",
+      rootKind: "none",
+    });
+    expect((await issue(agentId, agentKey)).outcome).toBe("issued");
+    expect((await issue(agentId, { kind: "slack_bot" })).outcome).toBe(
+      "issued",
+    );
+    await useAt(100);
+    for (const root of [{ kind: "none" } as const, agentKey]) {
+      expect((await issue(agentId, root)).outcome).toBe("refused");
+    }
+  });
+
   test("an agent whose team is archived: its own call is refused with no account", async () => {
     const { agentId } = await agentOf({ teamArchived: true });
     expect(await issue(agentId, { kind: "none" })).toEqual({
@@ -475,6 +512,65 @@ describe("a conversation call's token running out", () => {
     });
     expect((await grant(call.token, exchange)).outcome).toBe("invalid_token");
     expect((await settle(call.callId, exchange)).outcome).toBe("settled");
+  });
+
+  test("a call in flight past the lease with no report is unknown and still held; a late report settles it", async () => {
+    const { agentId } = await agentOf();
+    const userId = crypto.randomUUID();
+    const call = await issued(agentId, person(userId));
+    const exchange = crypto.randomUUID();
+    await grant(call.token, exchange);
+    // Within the lease: left in flight.
+    expect(await store().markUnknown({ limit: 10, dryRun: false })).toEqual({
+      unknown: 0,
+    });
+    await db
+      .update(conversationCalls)
+      .set({
+        startedAt: sql`clock_timestamp() - interval '301 seconds'`,
+        expiresAt: sql`clock_timestamp() - interval '181 seconds'`,
+      })
+      .where(eq(conversationCalls.id, call.callId as never));
+    expect(await store().markUnknown({ limit: 10, dryRun: true })).toEqual({
+      unknown: 1,
+    });
+    expect((await callOf(call.callId))?.unknownAt).toBeNull();
+    // Before, nothing marked it. The states stay in_flight and reserved, so
+    // an older image settles it as before.
+    expect(await store().markUnknown({ limit: 10, dryRun: false })).toEqual({
+      unknown: 1,
+    });
+    expect(await callOf(call.callId)).toMatchObject({
+      state: "in_flight",
+      unknownAt: expect.any(Date),
+    });
+    expect(await reservationOf(call.callId)).toMatchObject({
+      state: "reserved",
+      unknownAt: expect.any(Date),
+    });
+    expect(await accountOf(userId)).toMatchObject({
+      reservedTokens: RESERVE.tokens,
+      spentTokens: 0,
+    });
+    expect(await store().releaseExpired({ limit: 10, dryRun: false })).toEqual({
+      released: 0,
+    });
+    expect(await store().markUnknown({ limit: 10, dryRun: false })).toEqual({
+      unknown: 0,
+    });
+    expect((await settle(call.callId, exchange)).outcome).toBe("settled");
+    expect(await callOf(call.callId)).toMatchObject({
+      state: "settled",
+      unknownAt: null,
+    });
+    expect(await reservationOf(call.callId)).toMatchObject({
+      state: "settled",
+      unknownAt: null,
+    });
+    expect(await accountOf(userId)).toMatchObject({
+      reservedTokens: 0,
+      spentTokens: reservationTokens(USED),
+    });
   });
 
   test("a token not used in time is refused even before the release", async () => {

@@ -19,6 +19,7 @@ import {
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
   reconcileProviderExchanges,
+  unknownBudgetByAccount,
 } from "@werft-ai/db";
 import { SEQUENTIAL_ROLE_POOL_MAX } from "@werft-ai/db/pool";
 import { createLogger, logLevelFromEnv } from "@werft-ai/observability";
@@ -30,6 +31,7 @@ import {
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { queueDatabaseUrl } from "../database-url.ts";
 import { withJobDatabase } from "../job-database.ts";
+import { runUnknownBudgetReport } from "./budget-unknown.ts";
 import { runConversationCallReconciler } from "./conversation-calls.ts";
 import { runProviderExchangeReconciler } from "./provider-exchanges.ts";
 import {
@@ -82,6 +84,16 @@ export async function main(
         },
         logger,
         releaseExpired: (options) => conversationCalls.releaseExpired(options),
+        markUnknown: (options) => conversationCalls.markUnknown(options),
+      });
+      await runUnknownBudgetReport({
+        environment: {
+          ...(environment.RECONCILER_BATCH_SIZE === undefined
+            ? {}
+            : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
+        },
+        logger,
+        unknownByAccount: (limit) => unknownBudgetByAccount(db, limit),
       });
     },
     { max: SEQUENTIAL_ROLE_POOL_MAX },

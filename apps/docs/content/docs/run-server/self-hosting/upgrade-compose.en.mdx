@@ -253,6 +253,16 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="끝을-모르는-호출을-표시하고-에이전트-스스로-하는-일을-먼저-멈추는-릴리스" />
+### The release that marks calls of unknown end and stops the agent's own work first
+
+Migration `0332_unknown_budget_end` adds `unknown_at` (nullable), the column that marks a call of unknown end, to `budget_reservations` and `conversation_calls`, and two partial indexes the reconciler reads. The upgrade needs nothing from you. With no budget limit set, calls of people, keys and agents run as before.
+
+- When a provider call was used and no usage report came within its lease (5 minutes), the reconciler sets its reservation's `unknown_at`. The state stays `reserved` (`in_flight` for a conversation call). It is not released and still counts as spent against the limit. A late report settles it at the actual amount and takes the reservation off. A renewed lease or a release clears the mark. Session calls and calls with no session (conversation calls) follow the same rule.
+- For the accounts holding the most, up to the batch size, the reconciler logs how many reservations of unknown end each holds and what they hold in the warning `Budget reservations of unknown end held` (`unknown_count`, `held_cost_usd`, `held_tokens`), and the total over every account in the log `Budget reservations of unknown end reported`. The logs `Provider exchange ledger reconciled` and `Conversation call reservations reconciled` gain `unknown_count`. This release has no operator command to release them.
+- On a budget account with a limit, a reservation of a run with neither a person nor a key behind it (root kind `none`) is refused at 80% of the limit. Requests of people, keys and Slack bots run to 100%, where all are refused. An account with no limit has no 80% mark.
+- No state value or CHECK changes, and the indexes are built `CONCURRENTLY`. Rolling back to an image inside the support window is safe: an older image ignores `unknown_at` and settles the reservation as `reserved`.
+
 <a id="판단-버퍼를-더하는-릴리스" />
 ### The release that adds the judgment buffer
 

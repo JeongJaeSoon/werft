@@ -14,18 +14,24 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
-import { createBudgetLedger, saveBudgetLimit } from "./budget-accounts.ts";
+import {
+  BUDGET_CALL_LOCK_SPACE,
+  createBudgetLedger,
+  saveBudgetLimit,
+} from "./budget-accounts.ts";
 import {
   createProviderExchangeLedger,
   LOCK_SPACE,
   lockProviderExchange,
   lockProviderExchangeSession,
+  reconcileProviderExchanges,
 } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
   budgetAccounts,
+  budgetReservations,
   providerExchanges,
   sessions,
   workspaces,
@@ -558,4 +564,112 @@ integration("a budgeted open under concurrent writers", () => {
       reservedTokens: reservationTokens(RESERVE),
     });
   }, 20_000);
+
+  describe("marking a call's end unknown beside its renewal or its report", () => {
+    // A budgeted call past its lease, and a transaction holding its call
+    // lock, so the writers below queue on it in the order they start.
+    async function expiredCall() {
+      const { budget, accountId } = await person(null);
+      const who = await owner();
+      const exchangeId = crypto.randomUUID();
+      await ledger().open({ exchangeId, ...who, reserve: RESERVE, budget });
+      await db
+        .update(providerExchanges)
+        .set({ leaseExpiresAt: sql`clock_timestamp() - interval '1 second'` })
+        .where(eq(providerExchanges.exchangeId, exchangeId));
+      const connection: PoolClient = await pool.connect();
+      await connection.query("BEGIN");
+      await connection.query(
+        "SELECT pg_advisory_xact_lock($1::int, hashtext($2))",
+        [BUDGET_CALL_LOCK_SPACE, exchangeId],
+      );
+      const lock = {
+        async end() {
+          await connection.query("COMMIT");
+          connection.release();
+        },
+      };
+      return { who, exchangeId, accountId, lock };
+    }
+    const reservation = async (callId: string) =>
+      (
+        await db
+          .select()
+          .from(budgetReservations)
+          .where(eq(budgetReservations.callId, callId))
+      )[0];
+    const reconcile = () =>
+      reconcileProviderExchanges(asDb(), { limit: 100, dryRun: false });
+
+    test("the reconciler first, then a renewal: no deadlock, and the renewal clears the mark", async () => {
+      const { exchangeId, lock } = await expiredCall();
+      let marking: Promise<unknown> | undefined;
+      let renewing: Promise<string> | undefined;
+      try {
+        marking = reconcile();
+        expect(await waits(marking)).toBe("waited");
+        renewing = ledger().renew(exchangeId);
+        expect(await waits(renewing)).toBe("waited");
+      } finally {
+        await lock.end();
+      }
+      expect(await marking).toMatchObject({ unknown: 1 });
+      expect(await renewing).toBe("open");
+      expect(await reservation(exchangeId)).toMatchObject({
+        state: "reserved",
+        unknownAt: null,
+      });
+    }, 20_000);
+
+    test("a renewal first, then the reconciler: it sees the new lease and marks nothing", async () => {
+      const { exchangeId, lock } = await expiredCall();
+      let marking: Promise<unknown> | undefined;
+      let renewing: Promise<string> | undefined;
+      try {
+        renewing = ledger().renew(exchangeId);
+        expect(await waits(renewing)).toBe("waited");
+        marking = reconcile();
+        expect(await waits(marking)).toBe("waited");
+      } finally {
+        await lock.end();
+      }
+      expect(await renewing).toBe("open");
+      expect(await marking).toMatchObject({ unknown: 0 });
+      expect(await reservation(exchangeId)).toMatchObject({
+        state: "reserved",
+        unknownAt: null,
+      });
+    }, 20_000);
+
+    test("the reconciler first, then a late report: settled once, nothing held or marked", async () => {
+      const { who, exchangeId, accountId, lock } = await expiredCall();
+      let marking: Promise<unknown> | undefined;
+      let reporting: Promise<unknown> | undefined;
+      try {
+        marking = reconcile();
+        expect(await waits(marking)).toBe("waited");
+        reporting = createPostgresWorkerUnitOfWork(
+          asDb(),
+        ).recordProviderUsageAtomic({
+          exchangeId,
+          ...who,
+          usage: { ...RESERVE, outputTokens: 80, estimated: false },
+          priceFor: () => ({ costUsd: 0.0084, pricedBy: "table" }),
+        });
+        expect(await waits(reporting)).toBe("waited");
+      } finally {
+        await lock.end();
+      }
+      await marking;
+      expect(await reporting).toMatchObject({ outcome: "recorded" });
+      expect(await reservation(exchangeId)).toMatchObject({
+        state: "settled",
+        unknownAt: null,
+      });
+      expect(await accountRow(accountId)).toMatchObject({
+        spentCostUsd: 0.0084,
+        reservedTokens: 0,
+      });
+    }, 20_000);
+  });
 });
