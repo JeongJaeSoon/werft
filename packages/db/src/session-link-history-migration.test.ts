@@ -5,16 +5,23 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "./migrate.ts";
-import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
+import { MIGRATIONS_FOLDER, readJournal } from "./migration-journal.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import { createPostgresSessionLinkStore } from "./session-links.ts";
 import { migrationsThrough } from "./testing/migrations-through.ts";
 
 const TAG = "0313_session_link_history";
+// The migration that drops the old uniques; found by name, as db:restack
+// renumbers it.
+const DROP_TAG =
+  readJournal(MIGRATIONS_FOLDER).find((entry) =>
+    entry.tag.endsWith("_session_link_old_uniques"),
+  )?.tag ?? "session_link_old_uniques";
 
 let client: PGlite;
 let before: string;
+let through: string;
 const installationId = randomUUID();
 const oldLinkId = randomUUID();
 const oldSessionId = randomUUID();
@@ -70,12 +77,16 @@ beforeAll(async () => {
     ],
   );
   await oldHostOutbox();
-  await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
+  // Every migration up to the one that drops the old uniques this file
+  // holds the old host to.
+  through = migrationsThrough(DROP_TAG, { exclusive: true });
+  await migrate(drizzle(client), { migrationsFolder: through });
 });
 
 afterAll(async () => {
   await client.close();
   rmSync(before, { recursive: true, force: true });
+  rmSync(through, { recursive: true, force: true });
 });
 
 const uniques = async (table: string) =>
