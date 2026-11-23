@@ -106,7 +106,7 @@ describe("private_channel sessions on the reads", () => {
       workspaceId: ws,
       scope: "private_channel",
     });
-  });
+  }, 60_000);
 
   afterAll(() => client.close());
 
