@@ -70,6 +70,17 @@ export const engagementKindSchema = z.enum(ENGAGEMENT_KIND_VALUES);
 export type EngagementKind = z.infer<typeof engagementKindSchema>;
 
 /**
+ * Why a message carries a delete mark: Slack deleted it, or an admin deleted
+ * the conversation records that held it while the message stays in Slack.
+ * Every check treats both alike; a Slack delete replaces an admin's.
+ */
+export const DELETED_SOURCE_REASON_VALUES = [
+  "slack_deleted",
+  "admin_deleted",
+] as const;
+export type DeletedSourceReason = (typeof DELETED_SOURCE_REASON_VALUES)[number];
+
+/**
  * An agent's main conversation: one per channel it is in, one per person it
  * talks to in DMs.
  */

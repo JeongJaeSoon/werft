@@ -141,6 +141,37 @@ export async function dropChannelSummaryLinesOf(
   return gone;
 }
 
+/**
+ * Removes the channel's summary whole, every version of every line with it,
+ * under the summary's lock. Returns how many line rows went and the Slack ts
+ * of every source they had, so a caller that marked those messages first
+ * can tell a line written since it looked.
+ */
+export async function dropChannelSummary(
+  tx: Database,
+  place: ChannelSummaryPlace,
+): Promise<{ lines: number; sourceTs: string[] }> {
+  if ((await lockSummary(tx, place, false)) === null) {
+    return { lines: 0, sourceTs: [] };
+  }
+  const sourceTs = rowsOf<{ ts: string }>(
+    await tx.execute(sql`
+      SELECT DISTINCT ts FROM channel_summary_line_sources
+      WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}
+      ORDER BY ts`),
+  ).map((row) => row.ts);
+  const lines = rowsOf(
+    await tx.execute(sql`
+      DELETE FROM channel_summary_lines
+      WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}
+      RETURNING id`),
+  ).length;
+  await tx.execute(sql`
+    DELETE FROM channel_summaries
+    WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}`);
+  return { lines, sourceTs };
+}
+
 export function createPostgresChannelSummaryStore(
   db: Database,
 ): ChannelSummaryStore {
@@ -421,16 +452,7 @@ export function createPostgresChannelSummaryStore(
 
     async deleteChannel(place) {
       return db.transaction(async (tx) => {
-        if ((await lockSummary(tx, place, false)) === null) return { lines: 0 };
-        const lines = rowsOf(
-          await tx.execute(sql`
-            DELETE FROM channel_summary_lines
-            WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}
-            RETURNING id`),
-        ).length;
-        await tx.execute(sql`
-          DELETE FROM channel_summaries
-          WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}`);
+        const { lines } = await dropChannelSummary(tx, place);
         return { lines };
       });
     },
