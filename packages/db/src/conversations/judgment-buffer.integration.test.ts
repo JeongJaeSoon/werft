@@ -124,15 +124,19 @@ integration("judgment buffer races", () => {
     return { opened, open };
   }
 
-  /** Until the second transaction waits on a lock, or ran through. */
+  /**
+   * Whether the second transaction came to wait on a lock. A test checks its
+   * outcome first and this last, so it never passes on a run with no race.
+   */
   const waitingOnLock = async () => {
-    for (let i = 0; i < 25; i += 1) {
+    for (let i = 0; i < 100; i += 1) {
       const { rows } = await pool.query(
         "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
       );
-      if (rows.length > 0) return;
+      if (rows.length > 0) return true;
       await Bun.sleep(20);
     }
+    return false;
   };
 
   const turnOff = (tx: Database, channelId: string) =>
@@ -142,41 +146,47 @@ integration("judgment buffer races", () => {
 
   test("a channel turned off while a post is being held: the hold waits and holds nothing", async () => {
     const place = await heardChannel();
+    const ready = gate();
     const committed = gate();
     const stopping = db.transaction(async (tx) => {
       await turnOff(tx, place.channelId);
       await dropUnlistenedBuffer(tx, { agentId, channelId: place.channelId });
+      ready.open();
       await committed.opened;
     });
-    await Bun.sleep(50);
+    await ready.opened;
     const holding = db.transaction((tx) => hold(tx, place, "100.000100"));
-    await waitingOnLock();
+    const waited = await waitingOnLock();
     committed.open();
     await stopping;
     expect(await holding).toBe("not_held");
     expect(await heldIn(place.channelId)).toBe(0);
     expect(await topicsIn(place.channelId)).toBe(0);
+    expect(waited).toBe(true);
   });
 
   test("a post held while the channel is being turned off: the change waits and removes it", async () => {
     const place = await heardChannel();
+    const ready = gate();
     const committed = gate();
     const holding = db.transaction(async (tx) => {
       const held = await hold(tx, place, "100.000100");
+      ready.open();
       await committed.opened;
       return held;
     });
-    await Bun.sleep(50);
+    await ready.opened;
     const stopping = db.transaction(async (tx) => {
       await turnOff(tx, place.channelId);
       return dropUnlistenedBuffer(tx, { agentId, channelId: place.channelId });
     });
-    await waitingOnLock();
+    const waited = await waitingOnLock();
     committed.open();
     expect(await holding).toBe("held");
     expect(await stopping).toBe(1);
     expect(await heldIn(place.channelId)).toBe(0);
     expect(await topicsIn(place.channelId)).toBe(0);
+    expect(waited).toBe(true);
   });
 
   test("two deletes emptying one topic at once leave no topic", async () => {
@@ -190,19 +200,22 @@ integration("judgment buffer races", () => {
       channelId: place.channelId,
       ts,
     });
+    const ready = gate();
     const committed = gate();
     const first = db.transaction(async (tx) => {
       const removed = await dropBufferedMessage(tx, message("100.000100"));
+      ready.open();
       await committed.opened;
       return removed;
     });
-    await Bun.sleep(50);
+    await ready.opened;
     const second = db.transaction((tx) =>
       dropBufferedMessage(tx, message("100.000200")),
     );
-    await waitingOnLock();
+    const waited = await waitingOnLock();
     committed.open();
     expect([await first, await second]).toEqual([1, 1]);
     expect(await topicsIn(place.channelId)).toBe(0);
+    expect(waited).toBe(true);
   });
 });
