@@ -20,8 +20,8 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
-import { fixtureTeam } from "./testing/fixture-team.ts";
 import { lockSessionReach } from "./sessions/requester-locks.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 import { createPostgresUsageReader } from "./usage/usage-reader.ts";
 
 // sessionVisibleTo on a private channel's sessions (94S-1999): the channel
@@ -286,9 +286,38 @@ describe("private_channel sessions on the reads", () => {
           { answer },
         ),
       );
-    expect(await reach({ userId: member, apiKeyId: null })).toBe("not_found");
+    expect(await reach({ userId: member, apiKeyId: null })).toBe("ok");
+    // Answering stays with the creator, a manager or the agent's admins.
+    expect(await reach({ userId: member, apiKeyId: null }, true)).toBe("role");
+    expect(await reach({ userId: requester, apiKeyId: null }, true)).toBe("ok");
     expect(await reach({ userId: member, apiKeyId: randomUUID() })).toBe(
       "not_found",
     );
+  });
+
+  // Architect: the admin list is how an audit read finds one, so it keeps
+  // the row, as metadata alone.
+  test("the admin list keeps it as metadata, with nothing that names its channel or thread", async () => {
+    const rows = await createPostgresSessionShareStore(db).listForAdmin(
+      ws,
+      100,
+    );
+    const row = rows.find((item) => item.sessionId === ids.privateOne);
+    expect(row).toBeDefined();
+    expect(Object.keys(row ?? {}).sort()).toEqual([
+      "admissionState",
+      "agentReleaseId",
+      "createdAt",
+      "createdByApiKeyId",
+      "createdByUserId",
+      "sessionId",
+      "shareScope",
+      "status",
+      "takeoverRequiredAt",
+    ]);
+    expect(row?.shareScope).toBe("private_channel");
+    const text = JSON.stringify(row);
+    expect(text).not.toContain(privateChannel);
+    expect(text).not.toContain("C0PRIV");
   });
 });
