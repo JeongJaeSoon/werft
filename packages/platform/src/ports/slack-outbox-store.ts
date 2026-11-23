@@ -362,7 +362,7 @@ export interface SlackThreadStatusStore {
  * before the cards).
  */
 export type SlackCardRendered =
-  | SlackCardChoice
+  | CardChoice
   | "allowed"
   | "allowedSession"
   | "denied"
@@ -394,7 +394,7 @@ export type SlackCardClaim = SlackCardFence & {
 };
 
 /** A card still waiting on its request. */
-export type SlackCardChoice =
+type CardChoice =
   | "open"
   | "reject_only"
   | "open_requester_left"
@@ -405,7 +405,7 @@ export type SlackOpenPushCard = {
   id: string;
   seq: number;
   sessionId: string;
-  rendered: SlackCardChoice;
+  rendered: CardChoice;
   sessionCheckpointRevision: number | null;
   checkpointRevision: number;
   gitCommit: string;

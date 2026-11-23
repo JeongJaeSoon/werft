@@ -13,11 +13,11 @@ import {
 } from "@werft-ai/contracts";
 import type {
   NeutralizeEvent,
-  SlackCardChoice,
   SlackCardClaim,
   SlackCardFence,
   SlackCardRendered,
   SlackCardSettleStore,
+  SlackOpenPushCard,
   SlackOutboxFence,
   SlackOutboxStore,
   SlackPendingPrompt,
@@ -502,7 +502,7 @@ function createPostgresSlackCardSettleStore(
         id: row.id as string,
         seq: Number(row.seq),
         sessionId: row.session_id as string,
-        rendered: row.rendered as SlackCardChoice,
+        rendered: row.rendered as SlackOpenPushCard["rendered"],
         sessionCheckpointRevision:
           row.session_revision === null ? null : Number(row.session_revision),
         checkpointRevision: Number(row.checkpoint_revision),

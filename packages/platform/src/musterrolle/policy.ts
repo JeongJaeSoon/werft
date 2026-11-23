@@ -318,7 +318,7 @@ export async function pushRequesterLeft(
   },
 ): Promise<boolean> {
   const { sessions, channelMembers } = deps;
-  const membership = channelMembers?.membership?.bind(channelMembers);
+  const membership = channelMembers?.membership.bind(channelMembers);
   if (membership === undefined || sessions.pushRequesterOf === undefined) {
     return false;
   }

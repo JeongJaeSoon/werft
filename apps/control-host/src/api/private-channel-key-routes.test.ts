@@ -138,7 +138,10 @@ function app() {
       usageOf: async () => ({ allowed: true, basis: "public", teamId: null }),
     },
     sessions,
-    channelMembers: { isMember: async () => true },
+    channelMembers: {
+      isMember: async () => true,
+      membership: async () => "member",
+    },
     decisions: log,
   });
   const store = (name: string) => unreached(name);

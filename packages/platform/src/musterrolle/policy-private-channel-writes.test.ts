@@ -97,6 +97,9 @@ const channelMembers: ChannelMemberCheckable = {
   async isMember(input) {
     return inChannel(input.userId);
   },
+  async membership(input) {
+    return inChannel(input.userId) ? "member" : "not_member";
+  },
 };
 
 const plain: IdentityReader = {

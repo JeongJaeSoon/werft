@@ -12,7 +12,7 @@ export interface ChannelMemberCheckable {
    * would answer false without knowing. For a check that must not widen
    * anything on a guess (a requester taken to have left).
    */
-  membership?(input: ChannelMemberQuestion): Promise<ChannelMembership>;
+  membership(input: ChannelMemberQuestion): Promise<ChannelMembership>;
 }
 
 export type ChannelMemberQuestion = {

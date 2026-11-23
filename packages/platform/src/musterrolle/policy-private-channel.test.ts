@@ -112,6 +112,9 @@ function members(answer = (userId: string) => IN_CHANNEL.includes(userId)) {
       asked.push(input.userId);
       return answer(input.userId);
     },
+    async membership(input) {
+      return answer(input.userId) ? "member" : "not_member";
+    },
   };
   return { check, asked };
 }
@@ -436,6 +439,7 @@ describe("the private channels a read across sessions takes", () => {
         running -= 1;
         return true;
       },
+      membership: async () => "member",
     };
     const places = Array.from({ length: 20 }, (_, i) => ({
       conversationId: `019a0000-0000-7000-8000-${String(i).padStart(12, "0")}`,
