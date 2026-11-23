@@ -165,8 +165,24 @@ export function sourceSetHoldsMark(mark: {
 }
 
 /**
+ * Waits for a turn insert or an outbox copy of the session under way, which
+ * then reads the input about to be written; one after this sees it named.
+ * Taken before the input row's insert, whose foreign key check share-locks
+ * the turn: a finalize locks the session, then the turn.
+ */
+export async function lockSessionForSources(
+  tx: Database,
+  sessionId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`SELECT 1 FROM sessions WHERE id = ${sessionId}::uuid FOR UPDATE`,
+  );
+}
+
+/**
  * Names the input row in every source key of the session at the message's
  * place, on its turns and its outbox rows. Keys already naming a row stay.
+ * The caller holds the session row for update (lockSessionForSources).
  */
 export async function recordSourceInput(
   tx: Database,
@@ -188,11 +204,6 @@ export async function recordSourceInput(
       inherited: set.inherited.map(fill),
     });
   };
-  // Waits for a turn insert or an outbox copy of this session under way,
-  // which then reads this input; one after this sees it named.
-  await tx.execute(
-    sql`SELECT 1 FROM sessions WHERE id = ${input.sessionId}::uuid FOR UPDATE`,
-  );
   for (const table of ["turns", "slack_outbox"] as const) {
     const t = sql.raw(table);
     const rows = rowsOf<{ id: string; sources: unknown }>(

@@ -6,7 +6,10 @@ import type {
   SlackInboundFence,
 } from "@werft-ai/platform";
 import { and, eq, gt, sql } from "drizzle-orm";
-import { recordSourceInput } from "../conversations/turn-sources.ts";
+import {
+  lockSessionForSources,
+  recordSourceInput,
+} from "../conversations/turn-sources.ts";
 import type { Database } from "../queries.ts";
 import { slackInboundEvents, slackInstallations } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -220,6 +223,7 @@ export function createPostgresSlackInboundEventStore(
         ) {
           throw new Error(`turn ${turn.id} has no Slack requester`);
         }
+        await lockSessionForSources(tx, input.turn.sessionId);
         await tx.execute(sql`
           INSERT INTO conversation_inputs (
             id, workspace_id, agent_id, topic_id, seq,

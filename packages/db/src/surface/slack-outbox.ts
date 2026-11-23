@@ -1088,15 +1088,19 @@ export function createPostgresSlackOutboxStore(
           // The turn whose intent made the request; a request no intent
           // made, the session's latest turn when it was asked, which holds
           // every source before it.
-          sources: sql<StoredSourceSet | null>`coalesce(
-            (SELECT it.sources FROM push_intents pi
-             JOIN ${turns} it ON it.id = pi.turn_id
-             WHERE pi.push_request_id = ${pushRequests.id}
-             ORDER BY pi.turn_id LIMIT 1),
-            (SELECT lt.sources FROM ${turns} lt
-             WHERE lt.session_id = ${sessions.id}
-               AND lt.created_at <= ${pushRequests.createdAt}
-             ORDER BY lt.sequence DESC LIMIT 1))`,
+          // An intent's turn with no sources gives none.
+          sources: sql<StoredSourceSet | null>`CASE WHEN EXISTS (
+              SELECT 1 FROM push_intents pi
+              WHERE pi.push_request_id = ${pushRequests.id})
+            THEN (SELECT it.sources FROM push_intents pi
+              JOIN ${turns} it ON it.id = pi.turn_id
+              WHERE pi.push_request_id = ${pushRequests.id}
+              ORDER BY pi.turn_id LIMIT 1)
+            ELSE (SELECT lt.sources FROM ${turns} lt
+              WHERE lt.session_id = ${sessions.id}
+                AND lt.created_at <= ${pushRequests.createdAt}
+              ORDER BY lt.sequence DESC LIMIT 1)
+            END`,
           repositoryId: pushRequests.repositoryId,
           repositoryName: catalogName(sql`${pushRequests.repositoryId}`),
           targetBranch: pushRequests.targetBranch,

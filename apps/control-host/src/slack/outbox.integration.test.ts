@@ -1622,9 +1622,55 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       .update(turns)
       .set({ createdAt: new Date(Date.now() - 120_000) })
       .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    // A request an intent made takes its turn's sources, none included,
+    // though a later turn with sources was there when it was asked.
+    const [noSources] = await db
+      .insert(turns)
+      .values({ sessionId, sequence: 3, message: "quiet", status: "completed" })
+      .returning({ id: turns.id });
+    const intentReceipt = randomUUID();
+    await db.insert(receipts).values({
+      id: intentReceipt,
+      ownerId: session.ownerId,
+      operation: "request_push",
+      targetRef: { kind: "session", id: sessionId },
+    });
+    const byIntent = randomUUID();
+    await db.insert(pushRequests).values({
+      id: byIntent,
+      ownerId: session.ownerId,
+      sessionId,
+      repositoryId: "sandbox",
+      checkpointRevision: 1,
+      gitCommit: "b".repeat(40),
+      targetBranch: `agent/${sessionId}-intent`,
+      state: "requested",
+      requestedBy: {
+        principal: { kind: "installation", id: "i" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requestReceiptId: intentReceipt,
+    });
+    await db.insert(pushIntents).values({
+      id: randomUUID(),
+      ownerId: session.ownerId,
+      sessionId,
+      turnId: noSources?.id ?? 0,
+      attemptId: "attempt",
+      repositoryId: "sandbox",
+      targetBranch: `agent/${sessionId}-intent`,
+      status: "requested",
+      pinnedRevision: 1,
+      pushRequestId: byIntent,
+      actor: {},
+    });
     await outboxPass();
     const cards = (await rows()).filter((row) => row.kind === "input_notice");
-    expect(cards.map((row) => row.sources)).toEqual([asked?.sources ?? null]);
+    expect(cards.map((row) => row.sources)).toEqual([
+      asked?.sources ?? null,
+      null,
+    ]);
   });
 
   test("a push request waiting for its decision gets one card, and none once decided", async () => {
