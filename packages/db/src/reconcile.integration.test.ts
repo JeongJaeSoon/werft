@@ -45,9 +45,9 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// The attended default and the two modes in which no tool call waits for a
-// person.
-const RECOVERY_MODES = ["default", "bypassPermissions", "auto"] as const;
+// The two modes a release records. On the test connection's Claude model both
+// run auto: a run decides its mode again and does not read the recorded one.
+const RECOVERY_MODES = ["default", "auto"] as const;
 
 // A legacy pod taking an unowned session: the claimant the orphan
 // reconciler hands the session back to.
@@ -493,7 +493,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
   for (const mode of RECOVERY_MODES) {
     test(`lease expired after delivery (${mode}): the turn ends outcome_unknown and the session waits for recovery`, async () => {
       const b = await bound("after", mode);
-      expect(b.claimed.runtime_config.permission_mode).toBe(mode);
+      expect(b.claimed.runtime_config.permission_mode).toBe("auto");
       const next = await gateway.nextInput(b.principal, b.scope);
       expect(next.input?.turn_id).toBe("1");
       await sleep(LEASE_TTL_MS + 100);

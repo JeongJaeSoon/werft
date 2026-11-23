@@ -297,6 +297,10 @@ export function SessionDetail({
             {/* A server from before titles sends none at all. */}
             {detail.title ? (
               <span className="[overflow-wrap:anywhere]">{detail.title}</span>
+            ) : detail.title_deleted_at ? (
+              <span className="text-muted-foreground">
+                {t("session.sourceDeleted")}
+              </span>
             ) : (
               <span className="font-mono">{shortSessionId(id)}</span>
             )}

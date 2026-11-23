@@ -459,7 +459,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect(first.runtime_config).toEqual({
       model: "claude-sonnet-5",
       tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
+      permission_mode: "auto",
       provider: {
         kind: "anthropic",
         endpoint: "https://api.anthropic.com",

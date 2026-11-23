@@ -115,7 +115,7 @@ export function testSpecSource(
       billing: "per_token",
     },
     model: "claude-sonnet-5",
-    permission_mode: "default",
+    permission_mode: "auto",
     tools: ["Read"],
     repository_mode: "optional",
     ...overrides,

@@ -1,7 +1,5 @@
 import {
-  type PermissionMode,
   RUNTIME_FIXED_TOOLS,
-  RUNTIME_KINDS_WITH_AUTO_MODE,
   RUNTIME_SUBAGENT_TOOL,
   type RuntimeKind,
 } from "@werft-ai/contracts";
@@ -29,10 +27,8 @@ export type ReleaseRunRefusal = {
  * the one the connection's kind runs on, at the version the image ships; its
  * tools are that runtime's whole built-in catalog (or its fixed tool set, for a
  * runtime with no catalog) and its subagent tool, which the workspace's and
- * the agent's rules then narrow. `permission_mode` is `auto` for a runtime
- * whose engine has a classifier of its own and `default` (a person answers
- * what the rules leave open) for any other; the card's model then narrows
- * `auto` (release-ids.ts `releasePermissionMode`).
+ * the agent's rules then narrow. The permission mode comes from the runtime,
+ * connection and model (release-ids.ts `permissionModeOf`).
  */
 export function releaseRunOf(
   catalog: {
@@ -70,11 +66,6 @@ export function releaseRunOf(
       message: `No built-in tool catalog is installed for ${kind} ${version}`,
     };
   }
-  const permission_mode: PermissionMode = RUNTIME_KINDS_WITH_AUTO_MODE.includes(
-    kind,
-  )
-    ? "auto"
-    : "default";
   return {
     ok: true,
     run: {
@@ -82,7 +73,6 @@ export function releaseRunOf(
       connection,
       runtime: { kind, version },
       tools: withSubagentTool(kind, [...tools]),
-      permission_mode,
       project_settings: { claude_md: true },
     },
   };

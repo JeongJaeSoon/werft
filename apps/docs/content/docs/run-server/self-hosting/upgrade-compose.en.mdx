@@ -278,6 +278,20 @@ Migration `0335_input_hold` adds the columns `correlation_id` and `held_for_inpu
 - If the mirror's post fails for good, the held rows are closed unsent as `failed` (`input_unplaced`). If the place is still unknown after `SLACK_ROLE_INPUT_HOLD_SEC` (3600 seconds by default, Helm `slack.inputHoldSec`), they close the same way and the input stays `unconfirmed`. The slack role logs the warning `Slack rows held for a web input's post closed unsent; Slack never confirmed the post`.
 - The CHECKs and the foreign key are added `NOT VALID` and validated in their own statements, and the indexes are built `CONCURRENTLY`. No existing row is changed. Nothing in this release makes a held row, so rolling back to an image in the support window is safe.
 
+<a id="slack에서-지운-글이-든-턴을-가리는-릴리스" />
+### The release that withholds turns of deleted Slack messages
+
+There is no migration and nothing to do on upgrade. Nothing stored is erased: the API withholds it when read. A session with no deleted message reads as before.
+
+- A turn whose instruction is a Slack message that was deleted (including the tombstone of a parent with replies) reads with an empty `message` and a null `result` in the turn list and detail (`GET /v1/sessions/{id}/turns`, `…/turns/{turn_id}`) and in an audit read (`POST /v1/sessions/{id}/audit-read`), with the new field `source_deleted_at` holding when it was deleted. `usage` is kept.
+- Its events (`GET /v1/sessions/{id}/events` and SSE, archived events included) carry `source_deleted_at` in the envelope and leave out their text: the reply's text and thinking, a tool call's input, a tool result's text, a question's input and the result's answer. Tool names and ids, how the turn ended and its token count are kept. A client that already streamed them reads them again to see them withheld.
+- That turn's pending requests are not listed by `GET /v1/sessions/{id}/pending-requests`.
+- A title cut or made from the first message (`title_source` `derived` or `generated`) reads as a null `title` in the session list and detail once the first turn is withheld, with the new field `title_deleted_at` holding when it was deleted, and its words find nothing in a search. The session title is empty in the usage screen's tool calls and the achievements list too. A title a person gave is kept.
+- A web input is withheld the same way once the Slack message mirroring it is deleted.
+- A turn that only inherited the message, such as a later turn of the same session, is not withheld.
+- The web console shows "Deleted in Slack" in each withheld place.
+- Rolling back to an image in the support window reads the withheld text again, as what is stored is unchanged.
+
 <a id="웹-입력을-slack-거울과-잇는-릴리스" />
 ### The release that ties web inputs to their Slack mirror
 

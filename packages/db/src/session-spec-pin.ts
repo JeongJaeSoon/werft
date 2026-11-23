@@ -1,5 +1,5 @@
+import { permissionModeOf } from "@werft-ai/contracts";
 import {
-  movedPermissionMode,
   type ReleaseSpecRecord,
   releaseSpecRecord,
   verifyReleaseSpec,
@@ -27,7 +27,7 @@ function pinOf(record: ReleaseSpecRecord): SessionSpecPin {
 
 /**
  * The release's verified spec with the session's model in place of the
- * release's, and the permission mode that model runs (`movedPermissionMode`).
+ * release's, and the permission mode that model runs (`permissionModeOf`).
  * The release stays as it is. Null when the stored spec does not
  * verify: such a session is not given a guessed one.
  */
@@ -48,7 +48,7 @@ export function sessionPinFromRelease(
     releaseSpecRecord({
       ...source,
       model,
-      permission_mode: movedPermissionMode(source, model),
+      permission_mode: permissionModeOf({ ...source, model }),
     }),
   );
 }
