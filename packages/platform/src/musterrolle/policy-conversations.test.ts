@@ -60,6 +60,7 @@ const ARCHIVED = "019a0000-0000-7000-8000-00000000b0a4";
 const NOT_LISTENING = "019a0000-0000-7000-8000-00000000b0a5";
 const PRIVATE_AGENTS = "019a0000-0000-7000-8000-00000000b0a6";
 const PRIVATE_AGENTS_PRIVATE = "019a0000-0000-7000-8000-00000000b0a7";
+const PRIVATE_AGENTS_DM = "019a0000-0000-7000-8000-00000000b0a8";
 const MISSING = "019a0000-0000-7000-8000-00000000b0ff";
 
 const channel = (
@@ -81,6 +82,11 @@ const PLACES: Record<string, ConversationPlaceFacts> = {
   [PRIVATE_AGENTS]: channel("C0OTHER", false, PRIVATE_AGENT),
   // The member is in it by Slack's list, but may not use its agent.
   [PRIVATE_AGENTS_PRIVATE]: channel("C0PRIVATE", true, PRIVATE_AGENT),
+  [PRIVATE_AGENTS_DM]: {
+    agentId: PRIVATE_AGENT,
+    kind: "dm",
+    personUserId: USERS.member,
+  },
 };
 const LINKED = new Set<string>([
   USERS.owner,
@@ -325,6 +331,17 @@ describe("conversation.post", () => {
     expect(await reason("unlinked", "conversation.post", PUBLIC)).toBe(
       "unlinked",
     );
+  });
+
+  test("a DM whose person may no longer use its agent is seen, never written to", async () => {
+    expect(await reason("member", "conversation.view", PRIVATE_AGENTS_DM)).toBe(
+      "ok",
+    );
+    for (const action of ["conversation.post", "task.spawn"] as const) {
+      expect(await reason("member", action, PRIVATE_AGENTS_DM)).toBe(
+        "agent_private",
+      );
+    }
   });
 
   test("a web DM is its person's and needs no Slack link", async () => {
