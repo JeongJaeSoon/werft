@@ -29,6 +29,7 @@ integration("private-channel-sessions on PostgreSQL", () => {
   let agentId = "";
   let shared = "";
   let open = "";
+  let stale = "";
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "private_channel_cli" });
@@ -63,6 +64,8 @@ integration("private-channel-sessions on PostgreSQL", () => {
     for (const [channel, kind] of [
       ["G1", "private_channel"],
       ["G9", "private_channel"],
+      // Slack says private now, the binding has not caught up.
+      ["G2", "public_channel"],
     ] as const) {
       bindings[channel] = randomUUID();
       await pool.query(
@@ -110,14 +113,17 @@ integration("private-channel-sessions on PostgreSQL", () => {
     open = await session("G1");
     shared = await session("G1");
     await session("G9");
-    await pool.query(
-      "INSERT INTO session_shares (session_id, owner_id, workspace_id, scope) VALUES ($1, $2::text, $2::uuid, 'people')",
-      [shared, workspaceId],
-    );
-    await pool.query(
-      "INSERT INTO session_share_targets (id, workspace_id, session_id, user_id) VALUES ($1, $2, $3, $4)",
-      [randomUUID(), workspaceId, shared, named],
-    );
+    stale = await session("G2");
+    for (const id of [shared, stale]) {
+      await pool.query(
+        "INSERT INTO session_shares (session_id, owner_id, workspace_id, scope) VALUES ($1, $2::text, $2::uuid, 'people')",
+        [id, workspaceId],
+      );
+      await pool.query(
+        "INSERT INTO session_share_targets (id, workspace_id, session_id, user_id) VALUES ($1, $2, $3, $4)",
+        [randomUUID(), workspaceId, id, named],
+      );
+    }
     await pool.query(
       "INSERT INTO turns (session_id, sequence, message, status, requester_kind) VALUES ($1, 1, 'hi', 'completed', 'api_key')",
       [open],
@@ -169,13 +175,21 @@ integration("private-channel-sessions on PostgreSQL", () => {
         row,
       ]),
     );
-    // The people share: its creator and the person it names both lose it.
+    // G1's binding already says private, so the channel door hides both
+    // sessions from non-members before the move: no one newly loses them.
     expect(bySession[shared]).toMatchObject({
       from: "people",
       to: "private_channel",
-      people_losing: 2,
+      people_losing: 0,
       key_turns: 0,
       members_unconfirmed: false,
+    });
+    // G2's binding still says public: its creator and the person it names both
+    // lose the people share.
+    expect(bySession[stale]).toMatchObject({
+      from: "people",
+      to: "private_channel",
+      people_losing: 2,
     });
     expect(bySession[open]).toMatchObject({ from: "workspace", key_turns: 1 });
     expect(line.unconfirmed_channels).toEqual([
@@ -191,15 +205,16 @@ integration("private-channel-sessions on PostgreSQL", () => {
       (first.line.moved as { session_id: string }[])
         .map((row) => row.session_id)
         .sort(),
-    ).toEqual([open, shared].sort());
+    ).toEqual([open, shared, stale].sort());
     const after = await shares();
     expect(after.map((row) => row.scope)).toEqual([
+      "private_channel",
       "private_channel",
       "private_channel",
     ]);
     const second = await run(["apply", "--workspace", workspaceId]);
     expect(second.line.moved).toEqual([]);
-    expect(second.line.unchanged).toBe(2);
+    expect(second.line.unchanged).toBe(3);
     expect(await shares()).toEqual(after);
   });
 });
