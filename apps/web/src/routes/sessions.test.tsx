@@ -3805,6 +3805,7 @@ describe("세션 공유 범위", () => {
       "워크스페이스(담당 팀 밖 사람은 보지 못함)",
     ],
     [share({ scope: "private" }), "세션을 가진 사람만"],
+    [share({ scope: "private_channel" }), "비공개 채널의 지금 멤버"],
     [
       share({ scope: "people", user_ids: [USER(1), USER(2), USER(3)] }),
       "지정한 사람 3명",

@@ -38,7 +38,7 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
-import { viewerOf } from "../../sessions/index.ts";
+import { viewerFor } from "../../sessions/index.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type {
   GitHubAppStore,
@@ -693,7 +693,7 @@ export function createAgentGitHubService(deps: {
       const receipts = await store.activity(
         caller.ownerId,
         agentId,
-        viewerOf(caller),
+        await viewerFor(authorization, caller),
         AGENT_GITHUB_ACTIVITY_LIMIT,
       );
       // New receipts carry `owner/repo`; the older ones only a catalog id,

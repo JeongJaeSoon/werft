@@ -13,6 +13,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   type SQL,
   sql,
@@ -22,6 +23,7 @@ import type { Database } from "../queries.ts";
 import {
   agentReleases,
   agents,
+  conversations,
   memberTeams,
   receipts,
   sessionShares,
@@ -127,10 +129,24 @@ export function sessionVisibleTo(db: Database, viewer: SessionViewer): SQL {
     sql`NOT ${managedAgentSession}`,
     ...insideSessionAgent(db, viewer),
   ]);
+  const scope = sql`coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace')`;
+  // The channel goes before whoever made or was named on the session; a
+  // key never sees one (no key is a channel member).
+  const channels = (viewer.privateChannels ?? []).flatMap((id) => {
+    const value = uuidOrNull(id);
+    return value === null ? [] : [value];
+  });
   return anyOf([
-    sql`(coalesce((SELECT ${sessionShares.scope} FROM ${sessionShares} WHERE ${sessionShares.sessionId} = ${sessions.id}), 'workspace') = 'workspace' AND ${workspaceWide})`,
-    ...ownedBy(viewer),
-    ...sharedWith(viewer),
+    sql`(${scope} = 'workspace' AND ${workspaceWide})`,
+    sql`(${scope} <> 'private_channel' AND ${anyOf([...ownedBy(viewer), ...sharedWith(viewer)])})`,
+    ...(viewer.apiKeyId !== null || channels.length === 0
+      ? []
+      : [
+          sql`(${scope} = 'private_channel' AND ${sessions}.parent_conversation_id IN (${sql.join(
+            channels.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )}))`,
+        ]),
   ]);
 }
 
@@ -253,6 +269,11 @@ async function setShare(
     if (session.preview && input.scope !== "private") {
       return { outcome: "preview_fixed" };
     }
+    const [fixed] = await tx
+      .select({ scope: sessionShares.scope })
+      .from(sessionShares)
+      .where(eq(sessionShares.sessionId, sessionId));
+    if (fixed?.scope === "private_channel") return { outcome: "channel_fixed" };
     if (teamIds.length > 0) {
       const teams = await tx
         .select({ id: memberTeams.id })
@@ -370,6 +391,33 @@ export function createPostgresSessionShareStore(
         )
         .limit(1);
       return row !== undefined;
+    },
+
+    async privateChannels(ownerId, sessionId) {
+      if (sessionId !== null && !UUID.test(sessionId)) return [];
+      return db
+        .selectDistinct({
+          conversationId: conversations.id,
+          agentId: conversations.agentId,
+          channelId: sql<string>`${conversations.channelId}`,
+        })
+        .from(sessionShares)
+        .innerJoin(sessions, eq(sessions.id, sessionShares.sessionId))
+        .innerJoin(
+          conversations,
+          eq(conversations.id, sessions.parentConversationId),
+        )
+        .where(
+          and(
+            eq(sessionShares.ownerId, ownerId),
+            eq(sessionShares.scope, "private_channel"),
+            eq(conversations.kind, "channel"),
+            isNotNull(conversations.channelId),
+            ...(sessionId === null
+              ? []
+              : [eq(sessionShares.sessionId, sessionId.toLowerCase())]),
+          ),
+        );
     },
 
     async originOf(ownerId, sessionId) {

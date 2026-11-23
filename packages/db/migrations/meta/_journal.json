@@ -1646,6 +1646,27 @@
       "when": 1795408522053,
       "tag": "0325_channel_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 326,
+      "version": "7",
+      "when": 1795409940527,
+      "tag": "0326_link_posting",
+      "breakpoints": true
+    },
+    {
+      "idx": 327,
+      "version": "7",
+      "when": 1795411513081,
+      "tag": "0327_private_channel_share_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 328,
+      "version": "7",
+      "when": 1795414238001,
+      "tag": "0328_reset_skill_auto_approve",
+      "breakpoints": true
     }
   ]
 }

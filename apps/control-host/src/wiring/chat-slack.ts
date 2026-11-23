@@ -11,6 +11,7 @@ export {
   createSlackChannelJoiner,
   createSlackChannelKinds,
   createSlackChannelLifecycleHandler,
+  createSlackChannelMembers,
   createSlackChannelSearchService,
   createSlackConfigApi,
   createSlackConfigTokens,

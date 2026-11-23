@@ -16,6 +16,20 @@ export type SessionViewer = {
   apiKeyId: string | null;
   /** The agent an agent key reaches; inside that agent (agent-rbac (b)). */
   keyAgentId?: string | null;
+  /**
+   * The conversations of the private channels whose `private_channel`
+   * sessions the viewer sees: a person of the agent who is a member of the
+   * channel now, as the policy judged it for this request. Absent or empty,
+   * every such session is hidden; a key never has any.
+   */
+  privateChannels?: readonly string[];
+};
+
+/** Where a `private_channel` session came from. */
+export type PrivateChannelPlace = {
+  conversationId: string;
+  agentId: string;
+  channelId: string;
 };
 
 /** Who made a session. A null user is a key's session (D21). */
@@ -66,6 +80,8 @@ export type SetSessionShareResult =
   | { outcome: "not_found" | "invalid_target" | "actor_inactive" }
   /** A preview session, which no one widens past its creator. */
   | { outcome: "preview_fixed" }
+  /** A private_channel session, whose channel alone says who sees it. */
+  | { outcome: "channel_fixed" }
   | { outcome: "revision_conflict"; currentRevision: number };
 
 /** A session as a manager lists it: metadata only, never content. */
@@ -89,6 +105,14 @@ export interface SessionShareStore {
     viewer: SessionViewer,
   ): Promise<boolean>;
   originOf(ownerId: string, sessionId: string): Promise<SessionOrigin | null>;
+  /**
+   * The private channels `private_channel` sessions came from: that
+   * session's, or with a null id every one of the owner's.
+   */
+  privateChannels(
+    ownerId: string,
+    sessionId: string | null,
+  ): Promise<PrivateChannelPlace[]>;
   get(ownerId: string, sessionId: string): Promise<SessionShare | null>;
   /** Wakes the session's open streams so each re-checks what it may see. */
   set(input: SetSessionShareInput): Promise<SetSessionShareResult>;

@@ -127,7 +127,10 @@ function refuse(
   action: AuthorizationAction,
   decision: AuthorizationDecision | null,
 ): never {
-  if (decision?.reason_code === "not_found") {
+  if (
+    decision?.reason_code === "not_found" ||
+    decision?.reason_code === "private_channel_key"
+  ) {
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }
   if (decision?.reason_code === "justification_required") {

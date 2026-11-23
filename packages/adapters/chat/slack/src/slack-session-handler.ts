@@ -617,7 +617,11 @@ export function createSlackSessionHandler(
           caller,
           link,
           message,
-          dm,
+          dm
+            ? "private"
+            : allowedOn?.channelKind === "private_channel"
+              ? "private_channel"
+              : undefined,
           await conversation(),
           slackMessage,
           () => {
@@ -762,7 +766,10 @@ export function createSlackSessionHandler(
     caller: Caller,
     link: SessionLinkRecord,
     message: string,
-    dm: boolean,
+    // A DM is its person's; a private channel's session is its current
+    // members', the channel's kind as the binding read it from Slack (its
+    // events say channel_type "C" too).
+    shareScope: "private" | "private_channel" | undefined,
     parent: Conversation | null,
     slackMessage: SlackMessageRef,
     onCreated: () => void,
@@ -773,7 +780,7 @@ export function createSlackSessionHandler(
         agent_release_id: link.releaseId,
         message,
       },
-      ...(dm ? { shareScope: "private" as const } : {}),
+      ...(shareScope === undefined ? {} : { shareScope }),
       ...(parent === null ? {} : { parentConversationId: parent.id }),
       slackMessage,
     });

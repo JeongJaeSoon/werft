@@ -19,6 +19,7 @@ import {
   createPostgresAuditRetention,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
+  createPostgresChannelMemberStore,
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
@@ -83,6 +84,7 @@ import {
   createProviderExchangeLedger,
   fillSessionParents,
   hasUncollectedCheckpoint,
+  moveSummaryLinks,
   newSessionGitHubReaders,
   reconcileRetiredCatalogDrafts,
   slackAppKind,
@@ -185,6 +187,7 @@ import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
   type SlackServicesStageDeps,
   wireSlackBot,
+  wireSlackChannelMembers,
   wireSlackChannels,
   wireSlackConfig,
   wireSlackInteractions,
@@ -526,6 +529,19 @@ closeAgentlessSessions(db).then(
     );
   },
 );
+// Links from before the posting columns: each start moves the `summary` ones
+// left, so a failed start tries again on the next.
+moveSummaryLinks(db).then(
+  (moved) => {
+    if (moved > 0) logger.info("Summary session links moved", { links: moved });
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Summary session links could not be moved; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
 // Linked sessions from before their parent conversation was kept; each start
 // fills what is left, so one that failed or had no person is tried again.
 fillSessionParents(db).then(
@@ -569,6 +585,8 @@ const checkpoints = createApiCheckpoints(
 const credentialBindings = createPostgresCredentialBindingStore(db);
 const slackGuests = createPostgresSlackGuestSetting(db);
 const sessionShares = createPostgresSessionShareStore(db);
+const slackSecretStore = () => createPostgresSecretStore(db, secretKey);
+const slackAppStore = createPostgresSlackAppStore(db, secretKey);
 const authorization = createAuthorizationPolicy({
   ...(authMode === "none"
     ? {}
@@ -577,13 +595,18 @@ const authorization = createAuthorizationPolicy({
   credentials: credentialBindings,
   slackGuests,
   sessions: sessionShares,
+  channelMembers: wireSlackChannelMembers({
+    apiUrl: slackApiUrlFrom(process.env),
+    appStore: slackAppStore,
+    secrets: slackSecretStore,
+    store: createPostgresChannelMemberStore(db),
+    logger,
+  }),
   decisions: createPostgresDecisionLog(db),
   logger,
 });
 const agentStore = createPostgresAgentStore(db);
 const surfaceBindingStore = createPostgresSurfaceBindingStore(db);
-const slackSecretStore = () => createPostgresSecretStore(db, secretKey);
-const slackAppStore = createPostgresSlackAppStore(db, secretKey);
 const {
   api: slackBotApi,
   join: slackJoin,

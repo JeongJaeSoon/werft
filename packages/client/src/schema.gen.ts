@@ -3886,7 +3886,7 @@ export interface paths {
         put?: never;
         /**
          * Send the agent app's Request URL to Slack again
-         * @description Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
+         * @description Sends the app's whole manifest again with its Request URL (`apps.manifest.update`), as the install does. Slack may not check an unchanged URL again; Retry (or Verify) on the app's Event Subscriptions page makes it check. Slack's check arrives as a signed `url_verification`, which the events route answers with its challenge and nothing else; the app then reads `events.state: verified`. An app already verified stays verified, also when the URL changes, since Slack carries a verified Request URL over a manifest update without checking it again; a refused update of a changed URL reads `failed`. `events.url` is the Request URL last sent to Slack, null before any. `reinstall_required: true` means Slack answered that the manifest asks for a scope the install lacks: the app must be installed again before the new scopes apply. Owners, admins and the agent's admins from a signed-in console; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -6976,7 +6976,7 @@ export interface components {
             /** Format: uuid */
             session_id: string;
             /** @enum {string} */
-            scope: "private" | "people" | "team" | "workspace";
+            scope: "private" | "people" | "team" | "workspace" | "private_channel";
             user_ids: string[];
             team_ids: string[];
             revision: number;
@@ -7005,7 +7005,7 @@ export interface components {
                 /** @enum {string} */
                 admission_state: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
                 /** @enum {string} */
-                share_scope: "private" | "people" | "team" | "workspace";
+                share_scope: "private" | "people" | "team" | "workspace" | "private_channel";
                 /** Format: date-time */
                 created_at: string;
                 takeover_required_at: string | null;
@@ -9203,6 +9203,59 @@ export interface components {
             })[];
             /** @enum {string} */
             config_token: "unset" | "active" | "needs_reentry";
+        };
+        RecheckSlackAppEventsResponse: {
+            slack_app: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "agent" | "link" | "manual";
+                agent_id: string | null;
+                /** @enum {string} */
+                state: "creating" | "created" | "failed" | "abandoned" | "deleting" | "deleted";
+                app_id: string | null;
+                client_id: string | null;
+                /** Format: uri */
+                redirect_url: string;
+                created_by_token_user: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+                secrets: {
+                    slack_signing_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_client_secret: components["schemas"]["SlackSecretSummary"];
+                    slack_bot_token: components["schemas"]["SlackSecretSummary"];
+                };
+            } | null;
+            event_url: string | null;
+            events: {
+                /** @enum {string} */
+                state: "verified" | "pending" | "failed";
+                checked_at: string | null;
+                url: string | null;
+                error?: string;
+            };
+            warnings: ({
+                /** @constant */
+                code: "config_token_issuer_changed";
+                previous_user_id: string;
+                user_id: string;
+            } | {
+                /** @constant */
+                code: "repository_required";
+                release_id: string;
+            } | {
+                /** @constant */
+                code: "release_unavailable";
+                release_id: string;
+            } | {
+                /** @constant */
+                code: "no_active_release";
+            })[];
+            /** @enum {string} */
+            config_token: "unset" | "active" | "needs_reentry";
+            reinstall_required: boolean;
         };
         GetSlackAppManifestResponse: {
             manifest_yaml: string;
@@ -40463,6 +40516,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
+                     *       "reinstall_required": false,
                      *       "slack_app": {
                      *         "id": "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
                      *         "kind": "agent",
@@ -40505,7 +40559,7 @@ export interface operations {
                      *       "config_token": "active"
                      *     }
                      */
-                    "application/json": components["schemas"]["GetSlackAppResponse"];
+                    "application/json": components["schemas"]["RecheckSlackAppEventsResponse"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

@@ -136,6 +136,11 @@ From this release on, the API no longer reads `SLACK_EVENTS_PUBLIC_URL`. When ev
 - Changing the saved address does not send it to apps already made. Press Recheck on the agent's Slack tab, or run `slack-app finalize`.
 - Keep the `slack_settings` table when rolling back. Earlier builds do not read it.
 
+<a id="slack-채널-이벤트와-manifest-다시-보내기" />
+### Slack channel events and sending the manifest again
+
+After upgrading, press Recheck on each agent's Slack tab once, or run `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` in the API container once per agent. Only then does an app made earlier receive channel deletion, archive and rename events. Without it, a deleted channel is handled only when a post or a channel lookup gets `channel_not_found`. When the manifest sent again asks for a scope the install lacks, Recheck's notice and the command's `warnings` (`reinstall_required`) say to install the app again.
+
 <a id="웹으로-옮긴-실행-한도" />
 ### Execution limits moved to the web
 
@@ -271,6 +276,17 @@ Migration `0324_source_sets` adds a source set column `sources` (jsonb, nullable
 - Delete and edit marks (`deleted_sources`, `edited_sources`) of a message in a source set are not removed by the reconciler after 70 minutes.
 - This release only records sources. Nothing yet holds a reply back or stops a session because a source was deleted.
 - The columns are added with no default and the indexes are built `CONCURRENTLY`, so no table is rewritten and writes are not held for long. Existing turns and rows stay empty. Rolling back to an image inside the support window is fine. The older image does not read the column, and turns made meanwhile have no sources.
+
+<a id="slack-스레드의-게시-설정을-칸-셋으로-나눈-릴리스" />
+### The release that splits a Slack thread's posting into three columns
+
+Migration `0326_link_posting` adds three posting columns to `session_links` and a `report_mode` default to each channel binding. What a thread receives is now decided by these columns instead of `visibility`. Nothing to do when you upgrade: the kinds and number of posts that reach Slack stay the same.
+
+- `report_mode` (nullable) covers answers, failures and push or pull request result notices; `mirror_instructions` covers mirroring inputs sent from the web or the API; `post_prompts` covers approval cards and questions. A link whose `report_mode` is empty uses its channel binding's value. A binding defaults to `per_step` (one post per turn, as now).
+- Links with `visibility = 'full'` are left as they are: the new columns' defaults mean the same. Links with `summary` are moved in batches by a pass that runs at every api start, to `report_mode = 'none'` and `false` for the other two (nothing posted, as now). Before it is moved, the outbox posts nothing to a `summary` link either. The count goes to the log `Summary session links moved`. No path made a `summary` link up to this release, so it is usually 0.
+- `none` exists only on moved links. The binding CHECK accepts only `notify_only`, `progress` and `per_step`. This release has no screen or API that changes the three columns.
+- The `session_links` CHECK is added `NOT VALID` and validated separately, so writes are not blocked for long. The `visibility` column stays until a later release drops it.
+- Rolling back to an image inside the support window is safe. The old image reads only `visibility`, and links the new image made still have `visibility` `full`, so they post as now.
 
 <a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### The release that records Slack posts in the input table
