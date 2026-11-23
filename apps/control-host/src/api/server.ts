@@ -80,6 +80,7 @@ import {
   createPostgresWorkspaceMcpEgressStore,
   createPostgresWorkspaceMcpStore,
   createProviderExchangeLedger,
+  fillSessionParents,
   hasUncollectedCheckpoint,
   newSessionGitHubReaders,
   reconcileRetiredCatalogDrafts,
@@ -520,6 +521,36 @@ closeAgentlessSessions(db).then(
   (error: unknown) => {
     logger.warn(
       "Sessions without an agent release could not be read; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
+// Linked sessions from before their parent conversation was kept; each start
+// fills what is left, so one that failed or had no person is tried again.
+fillSessionParents(db).then(
+  ({ filled, skipped, failed }) => {
+    if (filled > 0) {
+      logger.info("Parent conversations filled", { sessions: filled });
+    }
+    if (skipped.no_person + skipped.no_membership > 0) {
+      logger.info("Linked DM sessions left without a parent conversation", {
+        no_person: skipped.no_person,
+        no_membership: skipped.no_membership,
+      });
+    }
+    for (const { sessionId, error } of failed) {
+      logger.warn(
+        "A session's parent conversation could not be filled; the next start tries again",
+        {
+          session_id: sessionId,
+          error_name: error instanceof Error ? error.name : typeof error,
+        },
+      );
+    }
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Sessions without a parent conversation could not be read; the next start tries again",
       { error_name: error instanceof Error ? error.name : typeof error },
     );
   },

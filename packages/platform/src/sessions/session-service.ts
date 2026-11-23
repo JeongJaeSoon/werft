@@ -7,6 +7,7 @@ import type {
   AuditReadResponse,
   CloseSessionRequest,
   ControlAcceptedResponse,
+  ConversationId,
   CountSessionsQuery,
   CountSessionsResponse,
   CreateSessionRequest,
@@ -758,6 +759,7 @@ export function createSessionService(deps: {
         idempotencyKey: string;
         body: CreateSessionRequest;
         shareScope?: "private";
+        parentConversationId?: ConversationId;
         slackMessage?: SlackMessageRef;
         traceContext?: string;
       },
@@ -1019,6 +1021,9 @@ export function createSessionService(deps: {
           : input.shareScope === undefined
             ? {}
             : { shareScope: input.shareScope }),
+        ...(input.parentConversationId === undefined
+          ? {}
+          : { parentConversationId: input.parentConversationId }),
         ...(input.slackMessage === undefined
           ? {}
           : { slackMessage: input.slackMessage }),

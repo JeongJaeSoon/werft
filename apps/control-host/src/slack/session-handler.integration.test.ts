@@ -546,6 +546,11 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       createdByUserId: fixture.ownerId,
       channel: "slack",
     });
+    // Made with the session: the channel's main conversation is its parent.
+    const [parent, ...more] = await db.select().from(schema.conversations);
+    expect(more).toEqual([]);
+    expect(parent).toMatchObject({ kind: "channel", channelId: CHANNEL });
+    expect(session?.parentConversationId).toBe(parent?.id ?? "");
     const by = fixture.ownerId;
     expect(await turnsOf(session?.id)).toEqual([
       { sequence: 1, message: "summarize the thread", actorId: by },
@@ -859,6 +864,8 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       kind: "dm",
       personUserId: fixture.ownerId,
     });
+    const [session] = await sessionsOf(fixture);
+    expect(session?.parentConversationId).toBe(conversation?.id ?? "");
   });
 
   test("a delete mark of a message taken as an input outlives the unknown-mark purge", async () => {
@@ -2066,6 +2073,10 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
     });
     const [link] = await links();
     expect(link).toMatchObject({ sessionId: session?.id, createdBy: null });
+    // No person behind the turn; the channel is still the session's parent.
+    const [parent] = await db.select().from(schema.conversations);
+    expect(parent).toMatchObject({ kind: "channel", channelId: CHANNEL });
+    expect(session?.parentConversationId).toBe(parent?.id ?? "");
     expect(notices).toEqual([]);
     // The built-in GitHub tools judge a call by the session's creator, and
     // this one has none: they stay closed to it, as no person stands behind
