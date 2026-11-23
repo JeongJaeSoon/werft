@@ -223,6 +223,16 @@ migration `0320_session_parent_conversation`이 `sessions.parent_conversation_id
 - 채운 수는 로그 `Parent conversations filled`에 남는다. 채우지 못한 세션은 세션 id와 함께 경고로 남고 다음 기동에서 다시 시도한다.
 - 지원 창 안의 이미지로 되돌려도 된다. 그동안 만든 Slack 세션은 부모 없이 생기고, 다시 올리면 기동 때 채워진다.
 
+### 채널 요약 표를 만드는 릴리스
+
+migration `0325_channel_summaries`가 채널 요약 표 셋(`channel_summaries`, `channel_summary_lines`, `channel_summary_line_sources`)을 더한다. 이 릴리스에는 요약을 쓰는 길이 없어서 표는 비어 있다. 올릴 때 할 일은 없고, Slack과 세션의 동작은 그대로다.
+
+- 요약은 채널마다 한 벌이고 그 채널의 에이전트가 같이 쓴다. 줄에는 에이전트가 쓴 글, 쓴 에이전트, 시각이 있고, 출처 줄에는 그 줄이 나온 Slack 글의 자리(team, 채널, ts), 입력 접수 줄 id, 화자(그 입력의 요청자)가 있다. Slack 글의 본문은 저장하지 않는다. 화자와 출처는 서버가 입력 접수 줄에서 읽는다.
+- 바뀔 때마다 버전이 하나 오르고, 옛 버전은 되돌리기용 이력으로 남는다.
+- 출처 글이 Slack에서 지워지거나 고쳐지면 그 줄을 지금 버전과 모든 옛 버전에서 지우고 버전을 올린다. 되돌려도 살아나지 않는다.
+- 요약 줄이 출처로 가진 글의 삭제·수정 표식은 70분이 지나도 reconciler가 지우지 않는다.
+- 새 표만 만들므로 지원 창 안의 이미지로 되돌려도 된다.
+
 ### 턴과 outbox 줄에 출처 집합을 적는 릴리스
 
 migration `0324_source_sets`가 `turns`와 `slack_outbox`에 출처 집합 칸 `sources`(jsonb, nullable)를 더하고, 두 칸에 GIN 색인(`turns_sources_idx`, `slack_outbox_sources_idx`)을 만든다. 올릴 때 할 일은 없고, Slack 멘션의 답과 웹·API 세션의 동작은 그대로다.
