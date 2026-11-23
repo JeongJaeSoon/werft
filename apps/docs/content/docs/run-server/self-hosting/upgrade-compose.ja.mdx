@@ -229,7 +229,7 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 <a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### Slack の投稿を入力受付の表に記録するリリース
 
-migration `0315_conversation_inputs` が入力受付の表 `conversation_inputs` を追加する。slack ロールはメンション・DM・紐づいたスレッドの投稿をこれまでどおりセッションのターンにし、inbox の行を処理済みにする同じ transaction で、その投稿を受付の行一つとして記録する。0310 が作った `conversations`・`conversation_topics` もこのリリースから埋める。上げるときにすることはなく、Slack とセッションの動作も変わらない。
+migration `0316_conversation_inputs` が入力受付の表 `conversation_inputs` を追加する。slack ロールはメンション・DM・紐づいたスレッドの投稿をこれまでどおりセッションのターンにし、inbox の行を処理済みにする同じ transaction で、その投稿を受付の行一つとして記録する。0310 が作った `conversations`・`conversation_topics` もこのリリースから埋める。上げるときにすることはなく、Slack とセッションの動作も変わらない。
 
 - 受付の行には投稿の場所(team、チャンネル、ts)、話題(スレッド)の中の番号、依頼者(Werft のユーザー id、許可したボットならそのボットの Slack ユーザー id)、その投稿がなったターンだけが残る。本文は残らない。
 - 一つの投稿が `message` と `app_mention` の二つのイベントで届いても、Slack が同じイベントを送り直しても、エージェントごとに一行になる。ターンにならなかった投稿(拒否、無視)は記録しない。
