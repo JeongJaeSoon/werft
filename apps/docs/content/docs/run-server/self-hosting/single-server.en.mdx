@@ -123,7 +123,7 @@ If a host port is already in use, put the following in the env file. Without a v
 
 If the env file is somewhere other than `/etc/werft/test-ops.env`, pass its path in `TEST_OPS_ENV_FILE` every time you call the script.
 
-Add model keys through console model connections after installation, so leave `ANTHROPIC_API_KEY` empty. Back up `PLATFORM_SECRET_KEY` securely and separately: losing it prevents reading stored credentials.
+Add model keys through console model connections after installation, so leave `ANTHROPIC_API_KEY` empty. On the `v0.1.0` tag, however, compose requires it and `preflight` exits 1 when it is empty, so put the model key (or a placeholder you will replace later in the console) in the env file. Back up `PLATFORM_SECRET_KEY` securely and separately: losing it prevents reading stored credentials.
 
 Put the settings document at `/etc/werft/settings.json`, listing the GitHub repositories sessions will use. The first `deploy` puts it into the empty installation once; after that, edits to the document are not imported, so change settings in the console. It contains no secrets. Replace only the repository URL with your actual value; this example assumes a public repository. Every repository entry needs `"auth": { "kind": "github_app" }`. Otherwise `preflight` refuses the whole document and blocks installation. For a private repository, install the GitHub App on it ([GitHub](/integrations/github)).
 

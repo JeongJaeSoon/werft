@@ -123,7 +123,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 
 env ファイルを `/etc/werft/test-ops.env` 以外の場所に置く場合は、スクリプトを呼ぶたびに `TEST_OPS_ENV_FILE` にそのパスを渡します。
 
-モデル key は設置後にコンソールのモデル接続で入力するため、`ANTHROPIC_API_KEY` は空のままにします。`PLATFORM_SECRET_KEY` を失うと保存した資格情報を読めなくなるため、別途安全にバックアップします。
+モデル key は設置後にコンソールのモデル接続で入力するため、`ANTHROPIC_API_KEY` は空のままにします。ただし `v0.1.0` タグでは compose がこれを必須とし、空のままだと `preflight` が exit 1 で終わるため、env ファイルにモデル key (または後でコンソールで差し替える仮の値) を入れます。`PLATFORM_SECRET_KEY` を失うと保存した資格情報を読めなくなるため、別途安全にバックアップします。
 
 設定文書は `/etc/werft/settings.json` に置き、セッションが使う GitHub リポジトリを書きます。最初の `deploy` が空のインストールに一度だけ入れ、その後は文書を直しても取り込まれないため、設定はコンソールで変更します。秘密情報は含みません。リポジトリ URL だけを実際の値に変更します。例は公開リポジトリ用です。リポジトリ項目には `"auth": { "kind": "github_app" }` が必要です。なければ `preflight` が文書全体を拒否し、設置を止めます。非公開リポジトリは、そのリポジトリに GitHub App をインストールします（[GitHub](/integrations/github)）。
 
