@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   listProviderModels,
   ModelDiscoveryError,
-  WorkspaceMcpOutboundError,
+  OutboundRefusedError,
 } from "@werft-ai/platform";
 import {
   startFakeAnthropicServer,
@@ -170,7 +170,7 @@ describe("workspaceMcpOutbound", () => {
     expect(policy).toEqual({ plainHttp: "refuse", privateHosts: [] });
   });
 
-  const failures: [string, unknown, WorkspaceMcpOutboundError["reason"]][] = [
+  const failures: [string, unknown, OutboundRefusedError["reason"]][] = [
     [
       "a refused address",
       new OidcUnavailableError("address_not_allowed", "no"),
@@ -196,8 +196,8 @@ describe("workspaceMcpOutbound", () => {
         url: "https://a.example/",
         method: "GET",
       }).catch((error: unknown) => error);
-      expect(caught).toBeInstanceOf(WorkspaceMcpOutboundError);
-      expect((caught as WorkspaceMcpOutboundError).reason).toBe(reason);
+      expect(caught).toBeInstanceOf(OutboundRefusedError);
+      expect((caught as OutboundRefusedError).reason).toBe(reason);
     });
   }
 });

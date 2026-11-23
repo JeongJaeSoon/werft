@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  OutboundRefusedError,
   type OutboundRequest,
-  WorkspaceMcpOutboundError,
 } from "../../ports/outbound-http.ts";
 import {
   createGitHubPackagesTokenVerifier,
@@ -73,10 +73,10 @@ describe("the GitHub Packages token verifier", () => {
       outcome: "unavailable",
     });
     for (const error of [
-      new WorkspaceMcpOutboundError("answered", "Provider answered 502", {
+      new OutboundRefusedError("answered", "Provider answered 502", {
         status: 502,
       }),
-      new WorkspaceMcpOutboundError("address_not_allowed", "not the API host"),
+      new OutboundRefusedError("address_not_allowed", "not the API host"),
       new TypeError("network"),
     ]) {
       const thrown = createGitHubPackagesTokenVerifier({

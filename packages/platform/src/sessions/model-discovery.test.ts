@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { CatalogProvider } from "../catalog/catalog.ts";
 import {
+  OutboundRefusedError,
   type OutboundRequest,
   type OutboundResponse,
-  WorkspaceMcpOutboundError,
 } from "../ports/outbound-http.ts";
 import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
 
@@ -201,17 +201,17 @@ describe("listProviderModels", () => {
       [answer("<html>"), "provider_failed", null],
       [answer({ models: [] }), "provider_failed", null],
       [
-        new WorkspaceMcpOutboundError("unreachable", "down"),
+        new OutboundRefusedError("unreachable", "down"),
         "provider_unreachable",
         null,
       ],
       [
-        new WorkspaceMcpOutboundError("answered", "Provider answered 502"),
+        new OutboundRefusedError("answered", "Provider answered 502"),
         "provider_unreachable",
         null,
       ],
       [
-        new WorkspaceMcpOutboundError("address_not_allowed", "private"),
+        new OutboundRefusedError("address_not_allowed", "private"),
         "address_not_allowed",
         null,
       ],
