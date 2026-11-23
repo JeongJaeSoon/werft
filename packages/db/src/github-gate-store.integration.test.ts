@@ -156,7 +156,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
         currentRepositories: null,
         startActionsAllow: null,
         enabledAtStart: true,
-        pushAttached: "ask",
+        pushAttached: "allow",
       },
       ceiling: GITHUB_CEILING_NONE,
       repositoryCeiling: null,

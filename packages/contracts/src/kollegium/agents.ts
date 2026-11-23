@@ -649,8 +649,8 @@ export const agentGitHubSettingsInputSchema =
 /**
  * The bound `push_attached` puts on a push to any repository; the stricter of
  * it and `push_approval` applies (`pushDecisionOf`). Stored on
- * `agent_github_settings.push_attached`, never on a release pin: a pin means
- * `ask`.
+ * `agent_github_settings.push_attached`, never on a release pin. Where no
+ * person chose one (a pin, no row, a null column) it is `allow`.
  */
 export const PUSH_ATTACHED_VALUES = ["allow", "ask", "deny"] as const;
 export const pushAttachedSchema = z.enum(PUSH_ATTACHED_VALUES);
@@ -668,12 +668,12 @@ export function meetPushAttached(a: PushAttached, b: PushAttached) {
 }
 
 /**
- * A stored value as it applies. A row saved before the column has none and
- * keeps asking a person (the behavior before the column existed); a value
- * this image does not know is refused, never guessed at.
+ * A stored value as it applies. A row saved before the column has none, and
+ * nobody chose to be asked, so it allows (owner decision, Orchestrator item
+ * 147); a value this image does not know is refused, never guessed at.
  */
 export function pushAttachedOf(stored: unknown): PushAttached {
-  if (stored === null || stored === undefined) return "ask";
+  if (stored === null || stored === undefined) return "allow";
   const parsed = pushAttachedSchema.safeParse(stored);
   return parsed.success ? parsed.data : "deny";
 }
@@ -681,8 +681,9 @@ export function pushAttachedOf(stored: unknown): PushAttached {
 /**
  * What a push to any repository needs: `allow` pushes without a person, `ask`
  * waits for one, `deny` refuses. One rule for every repository, the stricter
- * of `push_approval` and `push_attached`; `settings` that cannot be applied
- * ask. A caller reads this at run time, so a push intent made under an older
+ * of `push_approval` and `push_attached`. No settings at all (`null`: no row
+ * and no pin) is nobody asking for a person, so only `push_attached` applies;
+ * `settings` that cannot be read ask. A caller reads this at run time, so a push intent made under an older
  * rule (its stored class is audit only) is judged again by this one.
  */
 export function pushDecisionOf(policy: {
@@ -690,13 +691,11 @@ export function pushDecisionOf(policy: {
   pushAttached: PushAttached;
 }): PushAttached {
   const { settings } = policy;
-  const usable = settings !== null && settings !== "invalid";
+  if (settings === "invalid")
+    return meetPushAttached("ask", policy.pushAttached);
   const approval: PushAttached =
-    usable && !settings.push_approval ? "allow" : "ask";
-  const attached = usable
-    ? policy.pushAttached
-    : meetPushAttached("ask", policy.pushAttached);
-  return meetPushAttached(approval, attached);
+    settings !== null && settings.push_approval ? "ask" : "allow";
+  return meetPushAttached(approval, policy.pushAttached);
 }
 
 /**
@@ -713,7 +712,8 @@ export const githubPolicyStartSchema = z.object({
   settings: agentGitHubSettingsSchema,
   /**
    * `push_attached` at start. On the envelope, not in `settings`, so an image
-   * from before it still reads the snapshot. Absent: `ask`.
+   * from before it still reads the snapshot. Absent: `allow`, as a null
+   * column reads.
    */
   push_attached: pushAttachedSchema.optional(),
 });
@@ -771,10 +771,13 @@ export type AgentGitHubSettingsRow = {
   updatedBy: string | null;
 };
 
-/** What an agent session reads when it has no row: nothing, a person asked. */
+/**
+ * What an agent session reads when it has no row: nothing reachable. Push
+ * approval is off, as for any agent nobody chose it for.
+ */
 export const GITHUB_POLICY_CLOSED: AgentGitHub = {
   repositories: [],
-  push_approval: true,
+  push_approval: false,
   features: {
     workflows: false,
     actions: false,
@@ -813,24 +816,21 @@ export type EffectiveGitHubPolicy = {
   /**
    * Whether a push to an attached repository needs a person. Like the other
    * fields it only narrows after the session starts. A release pin has no
-   * value of its own and means `ask`; a row can take it to `deny`, never to
-   * `allow`.
+   * value of its own and means `allow`; a row a person saved sets it.
    */
   pushAttached: PushAttached;
 };
 
 /**
- * A release means `ask`; the row a person saved can only take that to `deny`.
- * A row a migration wrote (no `updatedBy`) changes nothing.
+ * A release has no value and allows; the row a person saved sets it. A row a
+ * migration wrote (no `updatedBy`) changes nothing.
  */
 function releasePushAttached(row: AgentGitHubSettingsRow): PushAttached {
-  return row.updatedBy === null
-    ? "ask"
-    : meetPushAttached("ask", pushAttachedOf(row.pushAttached));
+  return row.updatedBy === null ? "allow" : pushAttachedOf(row.pushAttached);
 }
 
 const UNSET = {
-  pushAttached: "ask" as PushAttached,
+  pushAttached: "allow" as PushAttached,
   startRepositoryId: null,
   agentSettingsRevision: null,
   currentRepositories: null,
@@ -878,8 +878,10 @@ export function effectiveGitHubPolicy(input: {
           features: agentRow.features,
           actions_allow: agentRow.actionsAllow,
         });
+  // Unreadable settings never widen: every reader of these asks or refuses.
   const invalid = (source: GitHubPolicySource): EffectiveGitHubPolicy => ({
     ...UNSET,
+    pushAttached: "ask",
     source,
     settings: "invalid",
     agentSettingsRevision: agentRow?.revision ?? null,
@@ -889,11 +891,8 @@ export function effectiveGitHubPolicy(input: {
     const pin = hasPin ? agentGitHubSchema.safeParse(input.releasePin) : null;
     if (agentRow === null || current === null) {
       if (pin === null) return { ...UNSET, source: "release", settings: null };
-      return {
-        ...UNSET,
-        source: "release",
-        settings: pin.success ? pin.data : "invalid",
-      };
+      if (!pin.success) return invalid("release");
+      return { ...UNSET, source: "release", settings: pin.data };
     }
     // A row this image cannot read closes the session whoever wrote it.
     if (
@@ -931,7 +930,12 @@ export function effectiveGitHubPolicy(input: {
     };
   }
   if (input.source !== "agent") {
-    return { ...UNSET, source: "agent", settings: "invalid" };
+    return {
+      ...UNSET,
+      pushAttached: "ask",
+      source: "agent",
+      settings: "invalid",
+    };
   }
   if (agentRow === null || current === null) {
     return { ...UNSET, source: "agent", settings: GITHUB_POLICY_CLOSED };
@@ -967,7 +971,7 @@ export function effectiveGitHubPolicy(input: {
       ? { ...met, repositories: current.data.repositories }
       : met,
     pushAttached: meetPushAttached(
-      start.data.push_attached ?? "ask",
+      pushAttachedOf(start.data.push_attached),
       pushAttachedOf(agentRow.pushAttached),
     ),
     startActionsAllow: start.data.settings.actions_allow,

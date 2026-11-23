@@ -255,7 +255,8 @@ integration("the readers of an agent's GitHub settings", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
-      pushAttached: "ask",
+      // No row: nobody chose to be asked.
+      pushAttached: "allow",
     });
     await settingsRow(workspaceId, agentId, {
       repositories: ["sample-app", "docs"],
@@ -285,7 +286,8 @@ integration("the readers of an agent's GitHub settings", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
-      pushAttached: "ask",
+      // A pin carries no push_attached, and a migration's row changes nothing.
+      pushAttached: "allow",
     });
   });
 
@@ -564,20 +566,23 @@ integration("the readers of an agent's GitHub settings", () => {
           decision,
         );
       }
-      // A release pin carries no push_attached: it reads as ask, so a release
-      // session never gets a policy approval.
-      for (const pushApproval of [false, true]) {
+      // A release pin carries no push_attached: nobody chose to be asked, so
+      // the pin's own push_approval decides.
+      for (const [pushApproval, decision] of [
+        [false, "allow"],
+        [true, "ask"],
+      ] as const) {
         const { workspaceId, sessionId } = await fixture({
           pins: { github: { ...PIN_OFF, push_approval: pushApproval } },
         });
         expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
-          "ask",
+          decision,
         );
       }
-      // A row a person saved for the agent afterwards can take a release
-      // session from ask to deny, never to allow.
+      // A row a person saved for the agent afterwards sets push_attached for
+      // a release session too.
       for (const [pushAttached, decision] of [
-        ["allow", "ask"],
+        ["allow", "allow"],
         ["ask", "ask"],
         ["deny", "deny"],
       ] as const) {
@@ -773,8 +778,15 @@ integration("the readers of an agent's GitHub settings", () => {
     expect(sessionIds).toContain(person.sessionId);
   });
 
-  test("a `release` session asks under the one rule, so a policy approval it was handed goes back to a person at the claim", async () => {
-    const { workspaceId, sessionId } = await fixture();
+  test("a `release` session whose pin asks keeps asking, so a policy approval it was handed goes back to a person at the claim", async () => {
+    // A pin with approval off and no row: nobody chose to be asked.
+    const open = await fixture();
+    expect(
+      (await pushes.findSession(open.workspaceId, open.sessionId))?.push,
+    ).toBe("allow");
+    const { workspaceId, sessionId } = await fixture({
+      pins: { github: { ...PIN_OFF, push_approval: true } },
+    });
     const found = await pushes.findSession(workspaceId, sessionId);
     expect(found?.push).toBe("ask");
     expect(found?.policyApproval).toMatchObject({
@@ -996,7 +1008,8 @@ integration("the readers of an agent's GitHub settings", () => {
           features: REVIEW_ON,
           actions_allow: [],
         },
-        push_attached: "ask",
+        // A row from before the column (null) starts the snapshot at allow.
+        push_attached: "allow",
       });
     });
 
@@ -1162,7 +1175,7 @@ integration("the readers of an agent's GitHub settings", () => {
         currentRepositories: ["sample-app", "docs"],
         startActionsAllow: null,
         enabledAtStart: true,
-        pushAttached: "ask",
+        pushAttached: "allow",
       });
       expect(
         await createPostgresGitHubMcpStore(db).sessionState(sessionId),

@@ -62,7 +62,8 @@ function policy(
     currentRepositories: null,
     startActionsAllow: null,
     enabledAtStart: true,
-    pushAttached: "ask",
+    // Nobody chose to be asked (owner decision, Orchestrator item 147).
+    pushAttached: "allow",
     ...fields,
   } as EffectiveGitHubPolicy;
 }
@@ -104,7 +105,7 @@ describe("effectiveGitHubPolicy", () => {
     [
       "a pin this image cannot read is invalid",
       { source: "release", releasePin: { repositories: [] }, agentRow: null },
-      policy({ source: "release", settings: "invalid" }),
+      policy({ source: "release", settings: "invalid", pushAttached: "ask" }),
     ],
     [
       "an agent session reads the agent's row, not the pin",
@@ -114,6 +115,8 @@ describe("effectiveGitHubPolicy", () => {
         settings: SETTINGS,
         startRepositoryId: "infra",
         agentSettingsRevision: 4,
+        // A session with no snapshot keeps the cap it began under.
+        pushAttached: "ask",
       }),
     ],
     [
@@ -132,6 +135,7 @@ describe("effectiveGitHubPolicy", () => {
         source: "agent",
         settings: { ...SETTINGS, repositories: [] },
         agentSettingsRevision: 4,
+        pushAttached: "ask",
       }),
     ],
     [
@@ -145,17 +149,18 @@ describe("effectiveGitHubPolicy", () => {
         source: "agent",
         settings: "invalid",
         agentSettingsRevision: 4,
+        pushAttached: "ask",
       }),
     ],
     [
       "a source this image does not know is invalid",
       { source: "team", releasePin: PIN, agentRow: ROW },
-      policy({ source: "agent", settings: "invalid" }),
+      policy({ source: "agent", settings: "invalid", pushAttached: "ask" }),
     ],
     [
       "no source at all is invalid, never the release",
       { source: null, releasePin: PIN, agentRow: null },
-      policy({ source: "agent", settings: "invalid" }),
+      policy({ source: "agent", settings: "invalid", pushAttached: "ask" }),
     ],
   ];
 
@@ -165,9 +170,9 @@ describe("effectiveGitHubPolicy", () => {
     });
   }
 
-  test("closed asks a person and allows nothing", () => {
+  test("closed allows nothing and asks for no approval nobody chose", () => {
     expect(GITHUB_POLICY_CLOSED.repositories).toEqual([]);
-    expect(GITHUB_POLICY_CLOSED.push_approval).toBe(true);
+    expect(GITHUB_POLICY_CLOSED.push_approval).toBe(false);
     expect(GITHUB_POLICY_CLOSED.actions_allow).toEqual([]);
     expect(Object.values(GITHUB_POLICY_CLOSED.features)).not.toContain(true);
   });
@@ -582,13 +587,13 @@ describe("push_attached: a push to an attached repository", () => {
     settings: PIN,
   };
 
-  test("a value is read as it is stored; none reads as ask; an unknown one is refused", () => {
+  test("a value is read as it is stored; none reads as allow; an unknown one is refused", () => {
     expect(pushAttachedOf("allow")).toBe("allow");
     expect(pushAttachedOf("ask")).toBe("ask");
     expect(pushAttachedOf("deny")).toBe("deny");
-    // A row from before the column keeps asking a person.
-    expect(pushAttachedOf(null)).toBe("ask");
-    expect(pushAttachedOf(undefined)).toBe("ask");
+    // A row from before the column: nobody chose to be asked.
+    expect(pushAttachedOf(null)).toBe("allow");
+    expect(pushAttachedOf(undefined)).toBe("allow");
     // A value a later image wrote must not widen anything here.
     expect(pushAttachedOf("ask_once")).toBe("deny");
   });
@@ -632,8 +637,10 @@ describe("push_attached: a push to an attached repository", () => {
     expect(read("allow", "deny")).toBe("deny");
     expect(read("ask", "allow")).toBe("ask");
     expect(read("deny", "allow")).toBe("deny");
-    // A snapshot from before the value was kept reads as ask.
-    expect(read(undefined, "allow")).toBe("ask");
+    // A snapshot from before the value was kept reads as allow, and the
+    // row now still narrows it.
+    expect(read(undefined, "allow")).toBe("allow");
+    expect(read(undefined, "ask")).toBe("ask");
   });
 
   test("a snapshot that carries the value still parses for an image that does not know it", () => {
@@ -645,25 +652,27 @@ describe("push_attached: a push to an attached repository", () => {
     expect(githubPolicyStartSchema.safeParse(START).success).toBe(true);
   });
 
-  test("a release session means ask: a person's row can take it to deny, never to allow", () => {
+  test("a release session allows: a person's row sets it, a migration's does not", () => {
     const read = (pushAttached: string | null, updatedBy: string | null) =>
       effectiveGitHubPolicy({
         source: "release",
         releasePin: PIN,
         agentRow: { ...ROW, pushAttached, updatedBy },
       }).pushAttached;
-    expect(read("allow", PERSON)).toBe("ask");
+    expect(read("allow", PERSON)).toBe("allow");
+    expect(read("ask", PERSON)).toBe("ask");
     expect(read("deny", PERSON)).toBe("deny");
+    expect(read(null, PERSON)).toBe("allow");
     // A row a migration wrote changes nothing for a session on its release.
-    expect(read("deny", null)).toBe("ask");
+    expect(read("deny", null)).toBe("allow");
     expect(
       effectiveGitHubPolicy({
         source: "release",
         releasePin: PIN,
         agentRow: null,
       }).pushAttached,
-    ).toBe("ask");
-    expect(newSessionGitHubPolicy(null, PIN).pushAttached).toBe("ask");
+    ).toBe("allow");
+    expect(newSessionGitHubPolicy(null, PIN).pushAttached).toBe("allow");
   });
 
   test("a policy that cannot be read does not widen the value", () => {
@@ -693,7 +702,7 @@ describe("newSessionGitHubPolicy", () => {
       newSessionGitHubPolicy({ ...ROW, pushAttached }, PIN).pushAttached;
     expect(start("allow")).toBe("allow");
     expect(start("deny")).toBe("deny");
-    expect(start(null)).toBe("ask");
+    expect(start(null)).toBe("allow");
   });
 
   test("a row makes the session the agent's", () => {
@@ -724,11 +733,23 @@ describe("pushDecisionOf: one rule for every repository", () => {
     });
   }
 
-  test("settings that cannot be applied ask, and deny still denies", () => {
-    for (const settings of ["invalid", null] as const) {
-      expect(pushDecisionOf({ settings, pushAttached: "allow" })).toBe("ask");
-      expect(pushDecisionOf({ settings, pushAttached: "deny" })).toBe("deny");
-    }
+  test("settings that cannot be read ask, and deny still denies", () => {
+    expect(pushDecisionOf({ settings: "invalid", pushAttached: "allow" })).toBe(
+      "ask",
+    );
+    expect(pushDecisionOf({ settings: "invalid", pushAttached: "deny" })).toBe(
+      "deny",
+    );
+  });
+
+  test("no settings at all (no row, no pin) asks nobody; push_attached still applies", () => {
+    expect(pushDecisionOf({ settings: null, pushAttached: "allow" })).toBe(
+      "allow",
+    );
+    expect(pushDecisionOf({ settings: null, pushAttached: "ask" })).toBe("ask");
+    expect(pushDecisionOf({ settings: null, pushAttached: "deny" })).toBe(
+      "deny",
+    );
   });
 
   test("a snapshot that started open and is narrowed meets to the stricter value", () => {
