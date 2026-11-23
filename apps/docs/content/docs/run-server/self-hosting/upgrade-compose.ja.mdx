@@ -264,7 +264,7 @@ migration `0324_source_sets` が `turns` と `slack_outbox` に出典の集合�
 <a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### Slack スレッドの投稿設定を三つの列に分けたリリース
 
-migration `0323_link_posting` が `session_links` に投稿の列を三つ、チャンネル binding に `report_mode` の既定値を加える。スレッドに何が投稿されるかは、`visibility` ではなくこれらの列で決まる。アップグレード時の作業はなく、Slack に投稿されるメッセージの種類と回数は変わらない。
+migration `0325_link_posting` が `session_links` に投稿の列を三つ、チャンネル binding に `report_mode` の既定値を加える。スレッドに何が投稿されるかは、`visibility` ではなくこれらの列で決まる。アップグレード時の作業はなく、Slack に投稿されるメッセージの種類と回数は変わらない。
 
 - `report_mode`(nullable)は回答・失敗・push と PR の結果通知を、`mirror_instructions` は Web・API から送った指示をスレッドに映すことを、`post_prompts` は承認カードと質問を決める。link の `report_mode` が空なら、そのチャンネル binding の値を使う。binding の既定値は `per_step`(今と同じくターンごとに投稿)だ。
 - `visibility = 'full'` の link はそのままにする。新しい列の既定値が `full` と同じ意味になる。`summary` の link は、api の起動ごとに走る整理が `report_mode = 'none'`、残り二つを `false` にまとめて移す(今と同じく何も投稿しない)。移した数はログ `Summary session links moved` に残る。このリリースまで `summary` の link を作る経路はなかったので、ふつうは 0 だ。

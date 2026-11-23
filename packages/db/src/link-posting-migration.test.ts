@@ -13,7 +13,7 @@ import type { Database } from "./queries.ts";
 import { rowsOf } from "./statement-rows.ts";
 import { migrationsThrough } from "./testing/migrations-through.ts";
 
-const TAG = "0323_link_posting";
+const TAG = "0325_link_posting";
 
 let client: PGlite;
 let db: Database;
@@ -78,7 +78,7 @@ const byVisibility = async () =>
     `),
   );
 
-describe("0323 link posting", () => {
+describe("0325 link posting", () => {
   test("adds the three link columns and the binding's report mode, its checks validated", async () => {
     const columns = (
       await client.query<{
