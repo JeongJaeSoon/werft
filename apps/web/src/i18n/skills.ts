@@ -2,7 +2,7 @@ export const skillsKo = {
   "skills.nav": "스킬 라이브러리",
   "skills.title": "스킬 라이브러리",
   "skills.description":
-    "에이전트에 주는 스킬입니다. 새 버전은 등록한 사람이 아닌 다른 오너나 어드민이 내용을 보고 승인한 뒤에만 에이전트에 지정할 수 있습니다. 관리자가 한 명뿐인 워크스페이스에서는 그 사람이 승인합니다.",
+    "에이전트에 주는 스킬입니다. 새 버전은 등록한 사람이 아닌 다른 오너나 어드민이 내용을 보고 승인한 뒤에만 에이전트에 지정할 수 있습니다. 관리자가 한 명뿐인 워크스페이스에서는 그 사람이 승인합니다. 자동 연동을 켠 GitHub 스킬은 고정 규칙 검사를 통과한 버전이 사람의 승인 없이 승인됩니다.",
   "skills.readOnly":
     "보기만 할 수 있습니다. 등록과 승인은 오너와 어드민이 합니다.",
   "skills.empty": "등록한 스킬이 없습니다.",
@@ -45,7 +45,7 @@ export const skillsKo = {
   "skills.versions.commit": "커밋 {commit}",
   "skills.sync.title": "GitHub 동기화",
   "skills.sync.description":
-    "push가 오거나 하루 한 번 확인할 때 ref를 다시 읽고, 내용이 바뀌었으면 새 버전을 승인 대기로 만듭니다.",
+    "push가 오거나 하루 한 번 확인할 때 ref를 다시 읽고, 내용이 바뀌었으면 새 버전을 만듭니다. 새 버전은 승인 대기로 들어오고, 자동 연동이 켜져 있으면 고정 규칙 검사를 통과한 버전은 바로 승인됩니다.",
   "skills.sync.source": "가져오는 곳",
   "skills.sync.sourceValue": "{repository} · {path} · {ref}",
   "skills.sync.root": "저장소 루트",
@@ -73,7 +73,8 @@ export const skillsKo = {
   "skills.sync.trigger.daily": "하루 한 번 확인",
   "skills.sync.trigger.manual": "지금 확인",
   "skills.sync.trigger.resume": "다시 켬",
-  "skills.sync.result.created": "새 버전을 승인 대기로 만듦",
+  "skills.sync.trigger.auto_approve": "자동 연동 켬",
+  "skills.sync.result.created": "새 버전을 만듦",
   "skills.sync.result.unchanged": "바뀐 내용 없음",
   "skills.sync.result.source_missing": "ref나 경로가 없음",
   "skills.sync.result.rejected": "검사에서 거절됨",
@@ -115,7 +116,7 @@ export const skillsKo = {
     "앞 승인 버전과 비교해 코드가 정해진 규칙으로 봅니다. 규칙은 우회될 수 있어, 걸린 것이 없어도 바뀐 줄을 읽어야 합니다.",
   "skills.checks.none": "걸린 규칙이 없습니다.",
   "skills.checks.failed":
-    "규칙 {count}개에 걸렸습니다. 규칙에 걸린 버전은 보호 브랜치에서 자동 승인되지 않고, 사람이 승인해야 합니다.",
+    "규칙 {count}개에 걸렸습니다. 규칙에 걸린 버전은 자동 연동이 켜져 있어도 자동으로 승인되지 않고, 사람이 승인해야 합니다.",
   "skills.checks.paths": "파일",
   "skills.checks.samples": "걸린 값",
   "skills.checks.lines": "바뀐 줄 {count}줄",
@@ -139,22 +140,29 @@ export const skillsKo = {
     "지시를 무시하라, 비밀 값을 보내라, 사용자에게 숨기라 같은 문장이 추가됐습니다.",
   "skills.checks.why.description_changed":
     "스킬이 언제 불릴지 정하는 description이 바뀌었습니다.",
+  "skills.autoSync.title": "자동 연동",
+  "skills.autoSync.on": "켜짐",
+  "skills.autoSync.off": "꺼짐",
+  "skills.autoSync.hintOff":
+    "꺼져 있으면 새 버전은 승인 대기로 들어옵니다. 켜면 고정 규칙 검사를 통과한 버전은 사람의 승인 없이 승인되어 현재 버전이 됩니다. 이 브랜치에 push할 수 있는 사람은 누구나 그렇게 스킬을 바꿀 수 있습니다. 업그레이드 전에 켠 자동 승인은 꺼졌으니, 쓰려면 다시 켭니다.",
+  "skills.autoSync.hintOn":
+    "고정 규칙 검사를 통과한 버전은 사람의 승인 없이 승인되어 현재 버전이 됩니다. 규칙에 걸린 버전만 승인 대기로 남습니다. 이 브랜치에 push할 수 있는 사람은 누구나 그렇게 스킬을 바꿀 수 있습니다.",
+  "skills.autoSync.hintPaused":
+    "켜져 있지만 동기화가 멈춰 있어 아무것도 승인하지 않습니다. 동기화를 다시 켜면 한 번 확인합니다.",
+  "skills.autoSync.turnOn": "켬",
+  "skills.autoSync.turnOff": "끔",
+  "skills.autoSync.turningOn": "켜는 중…",
+  "skills.autoSync.turningOff": "끄는 중…",
+  "skills.autoSync.turnedOn": "자동 연동을 켰습니다.",
+  "skills.autoSync.turnedOff": "자동 연동을 껐습니다.",
   "skills.sync.autoApproval": "자동 승인",
   "skills.sync.autoApproval.approved": "자동 승인함",
   "skills.sync.autoApproval.pending": "승인 대기",
   "skills.sync.autoApproval.review": "검토 화면에서 보기",
-  "skills.sync.autoApproval.reason.not_branch":
-    "브랜치가 아니라서 자동 승인하지 않았습니다.",
-  "skills.sync.autoApproval.reason.protection_missing":
-    "브랜치에 리뷰를 요구하는 규칙이 없어 자동 승인하지 않았습니다.",
-  "skills.sync.autoApproval.reason.no_reviewed_pull_request":
-    "리뷰 승인된 PR로 들어온 커밋이 아니라서 자동 승인하지 않았습니다.",
-  "skills.sync.autoApproval.reason.github_unreachable":
-    "GitHub가 답하지 않아 자동 승인하지 않았습니다.",
   "skills.sync.autoApproval.reason.checks_failed":
     "고정 규칙 검사에 걸려 자동 승인하지 않았습니다: {rules}",
   "skills.sync.autoApproval.reason.baseline_changed":
-    "검사하는 동안 다른 버전이 승인되어 자동 승인하지 않았습니다.",
+    "검사하는 동안 다른 버전이 승인되어 자동 승인하지 않았습니다. 다음 확인 때 다시 검사합니다.",
   "skills.reviewPage.approve": "승인",
   "skills.reviewPage.reject": "거절",
   "skills.reviewPage.approving": "승인하는 중…",
@@ -184,6 +192,8 @@ export const skillsKo = {
   "skills.refused.github_rejected": "GitHub가 App의 요청을 거절했습니다.",
   "skills.refused.not_approved": "승인된 버전만 지정할 수 있습니다.",
   "skills.refused.version_not_approved": "승인된 버전만 지정할 수 있습니다.",
+  "skills.refused.not_branch":
+    "자동 연동은 브랜치에서만 켤 수 있습니다. 태그와 커밋은 자동으로 승인하지 않습니다.",
   "skills.refused.outranked":
     "워크스페이스가 이미 정한 지정은 바꿀 수 없습니다.",
   "skills.uploadDialog.title": "스킬 업로드",
@@ -261,7 +271,7 @@ export const skillsEn = {
   "skills.nav": "Skill library",
   "skills.title": "Skill library",
   "skills.description":
-    "Skills you give agents. A new version can be attached only after an owner or admin other than the one who registered it reads and approves it. In a workspace with a single manager, that person approves.",
+    "Skills you give agents. A new version can be attached only after an owner or admin other than the one who registered it reads and approves it. In a workspace with a single manager, that person approves. A GitHub skill with auto-sync on has the versions that pass the fixed-rule checks approved with no person's review.",
   "skills.readOnly":
     "You can only view these. Owners and admins register and approve.",
   "skills.empty": "No skills are registered.",
@@ -304,7 +314,7 @@ export const skillsEn = {
   "skills.versions.commit": "Commit {commit}",
   "skills.sync.title": "GitHub sync",
   "skills.sync.description":
-    "On a push or the daily check the ref is read again; changed content becomes a new version awaiting review.",
+    "On a push or the daily check the ref is read again; changed content becomes a new version. It waits for review, or, with auto-sync on, is approved at once when it passes the fixed-rule checks.",
   "skills.sync.source": "Source",
   "skills.sync.sourceValue": "{repository} · {path} · {ref}",
   "skills.sync.root": "repository root",
@@ -332,7 +342,8 @@ export const skillsEn = {
   "skills.sync.trigger.daily": "Daily check",
   "skills.sync.trigger.manual": "Check now",
   "skills.sync.trigger.resume": "Resume",
-  "skills.sync.result.created": "new version awaiting review",
+  "skills.sync.trigger.auto_approve": "Auto-sync turned on",
+  "skills.sync.result.created": "new version",
   "skills.sync.result.unchanged": "no change",
   "skills.sync.result.source_missing": "ref or path is gone",
   "skills.sync.result.rejected": "refused by the checker",
@@ -374,7 +385,7 @@ export const skillsEn = {
     "Code reads the change from the previous approved version against fixed rules. Rules can be evaded, so read the changed lines even when nothing is caught.",
   "skills.checks.none": "No rule caught anything.",
   "skills.checks.failed":
-    "{count} rules caught this version. A version a rule catches is not auto-approved on a protected branch; a person has to approve it.",
+    "{count} rules caught this version. A version a rule catches is not approved automatically even with auto-sync on; a person has to approve it.",
   "skills.checks.paths": "Files",
   "skills.checks.samples": "Caught",
   "skills.checks.lines": "{count} changed lines",
@@ -398,22 +409,29 @@ export const skillsEn = {
     "A sentence like ignore your instructions, send the credentials, or hide this from the user was added.",
   "skills.checks.why.description_changed":
     "The description, which decides when the skill is used, changed.",
+  "skills.autoSync.title": "Auto-sync",
+  "skills.autoSync.on": "On",
+  "skills.autoSync.off": "Off",
+  "skills.autoSync.hintOff":
+    "While off, a new version waits for review. Turn it on and a version that passes the fixed-rule checks is approved with no person's review and becomes the current version. Anyone who can push to this branch can change the skill that way. Auto-approve turned on before the upgrade was turned off; turn it on again to use it.",
+  "skills.autoSync.hintOn":
+    "A version that passes the fixed-rule checks is approved with no person's review and becomes the current version. Only a version a rule catches waits for review. Anyone who can push to this branch can change the skill that way.",
+  "skills.autoSync.hintPaused":
+    "It is on, but sync is paused, so nothing is approved. Resuming sync checks once.",
+  "skills.autoSync.turnOn": "Turn on",
+  "skills.autoSync.turnOff": "Turn off",
+  "skills.autoSync.turningOn": "Turning on…",
+  "skills.autoSync.turningOff": "Turning off…",
+  "skills.autoSync.turnedOn": "Auto-sync is on.",
+  "skills.autoSync.turnedOff": "Auto-sync is off.",
   "skills.sync.autoApproval": "Auto-approve",
   "skills.sync.autoApproval.approved": "Approved",
   "skills.sync.autoApproval.pending": "Pending",
   "skills.sync.autoApproval.review": "Open the review",
-  "skills.sync.autoApproval.reason.not_branch":
-    "Not approved: the ref is not a branch.",
-  "skills.sync.autoApproval.reason.protection_missing":
-    "Not approved: no rule on the branch requires a review.",
-  "skills.sync.autoApproval.reason.no_reviewed_pull_request":
-    "Not approved: the commit did not come in by a reviewed pull request.",
-  "skills.sync.autoApproval.reason.github_unreachable":
-    "Not approved: GitHub did not answer.",
   "skills.sync.autoApproval.reason.checks_failed":
     "Not approved: fixed-rule checks caught {rules}",
   "skills.sync.autoApproval.reason.baseline_changed":
-    "Not approved: another version was approved while the checks ran.",
+    "Not approved: another version was approved while the checks ran. The next check judges it again.",
   "skills.reviewPage.approve": "Approve",
   "skills.reviewPage.reject": "Reject",
   "skills.reviewPage.approving": "Approving…",
@@ -445,6 +463,8 @@ export const skillsEn = {
   "skills.refused.not_approved": "Only an approved version can be attached.",
   "skills.refused.version_not_approved":
     "Only an approved version can be attached.",
+  "skills.refused.not_branch":
+    "Auto-sync can be turned on for a branch only. A tag or a commit is never approved automatically.",
   "skills.refused.outranked":
     "The workspace already set this attachment; it cannot be changed here.",
   "skills.uploadDialog.title": "Upload a skill",
@@ -522,7 +542,7 @@ export const skillsJa = {
   "skills.nav": "スキルライブラリ",
   "skills.title": "スキルライブラリ",
   "skills.description":
-    "エージェントに渡すスキルです。新しいバージョンは、登録した人とは別のオーナーかアドミンが内容を確認して承認した後にのみエージェントに指定できます。管理者が 1 人だけのワークスペースでは、その人が承認します。",
+    "エージェントに渡すスキルです。新しいバージョンは、登録した人とは別のオーナーかアドミンが内容を確認して承認した後にのみエージェントに指定できます。管理者が 1 人だけのワークスペースでは、その人が承認します。自動連携をオンにした GitHub スキルは、固定ルール検査を通過したバージョンが人の承認なしで承認されます。",
   "skills.readOnly":
     "閲覧のみできます。登録と承認はオーナーとアドミンが行います。",
   "skills.empty": "登録したスキルはありません。",
@@ -565,7 +585,7 @@ export const skillsJa = {
   "skills.versions.commit": "コミット {commit}",
   "skills.sync.title": "GitHub 同期",
   "skills.sync.description":
-    "push が来たときや 1 日 1 回の確認で ref を読み直し、内容が変わっていれば新しいバージョンを承認待ちにします。",
+    "push が来たときや 1 日 1 回の確認で ref を読み直し、内容が変わっていれば新しいバージョンを作ります。新しいバージョンは承認待ちになり、自動連携がオンなら固定ルール検査を通過したものはすぐに承認されます。",
   "skills.sync.source": "取得元",
   "skills.sync.sourceValue": "{repository} · {path} · {ref}",
   "skills.sync.root": "リポジトリのルート",
@@ -593,7 +613,8 @@ export const skillsJa = {
   "skills.sync.trigger.daily": "1 日 1 回の確認",
   "skills.sync.trigger.manual": "今すぐ確認",
   "skills.sync.trigger.resume": "再開",
-  "skills.sync.result.created": "新しいバージョンを承認待ちに",
+  "skills.sync.trigger.auto_approve": "自動連携をオン",
+  "skills.sync.result.created": "新しいバージョンを作成",
   "skills.sync.result.unchanged": "変更なし",
   "skills.sync.result.source_missing": "ref かパスがない",
   "skills.sync.result.rejected": "検査で却下",
@@ -635,7 +656,7 @@ export const skillsJa = {
     "前の承認済みバージョンとの差分を、コードが決まったルールで調べます。ルールは回避できるため、何も検出されなくても変更行を読んでください。",
   "skills.checks.none": "検出されたルールはありません。",
   "skills.checks.failed":
-    "{count}件のルールで検出されました。ルールで検出されたバージョンは保護ブランチで自動承認されず、人が承認する必要があります。",
+    "{count}件のルールで検出されました。ルールで検出されたバージョンは、自動連携がオンでも自動では承認されず、人が承認する必要があります。",
   "skills.checks.paths": "ファイル",
   "skills.checks.samples": "検出した値",
   "skills.checks.lines": "変更行 {count}行",
@@ -659,22 +680,29 @@ export const skillsJa = {
     "指示を無視せよ、秘密の値を送れ、ユーザーに隠せ、のような文が追加されました。",
   "skills.checks.why.description_changed":
     "スキルがいつ呼ばれるかを決める description が変わりました。",
+  "skills.autoSync.title": "自動連携",
+  "skills.autoSync.on": "オン",
+  "skills.autoSync.off": "オフ",
+  "skills.autoSync.hintOff":
+    "オフの間、新しいバージョンは承認待ちになります。オンにすると、固定ルール検査を通過したバージョンは人の承認なしで承認され、現在のバージョンになります。このブランチに push できる人は誰でも、その方法でスキルを変更できます。アップグレード前にオンにした自動承認はオフになりました。使う場合はもう一度オンにします。",
+  "skills.autoSync.hintOn":
+    "固定ルール検査を通過したバージョンは人の承認なしで承認され、現在のバージョンになります。ルールで検出されたバージョンだけが承認待ちに残ります。このブランチに push できる人は誰でも、その方法でスキルを変更できます。",
+  "skills.autoSync.hintPaused":
+    "オンですが、同期が停止しているため何も承認しません。同期を再開すると 1 回確認します。",
+  "skills.autoSync.turnOn": "オンにする",
+  "skills.autoSync.turnOff": "オフにする",
+  "skills.autoSync.turningOn": "オンにしています…",
+  "skills.autoSync.turningOff": "オフにしています…",
+  "skills.autoSync.turnedOn": "自動連携をオンにしました。",
+  "skills.autoSync.turnedOff": "自動連携をオフにしました。",
   "skills.sync.autoApproval": "自動承認",
   "skills.sync.autoApproval.approved": "自動承認済み",
   "skills.sync.autoApproval.pending": "承認待ち",
   "skills.sync.autoApproval.review": "レビュー画面で見る",
-  "skills.sync.autoApproval.reason.not_branch":
-    "ブランチではないため自動承認しませんでした。",
-  "skills.sync.autoApproval.reason.protection_missing":
-    "ブランチにレビューを求めるルールがないため自動承認しませんでした。",
-  "skills.sync.autoApproval.reason.no_reviewed_pull_request":
-    "レビュー承認された PR で入ったコミットではないため自動承認しませんでした。",
-  "skills.sync.autoApproval.reason.github_unreachable":
-    "GitHub が応答しないため自動承認しませんでした。",
   "skills.sync.autoApproval.reason.checks_failed":
     "固定ルール検査で検出されたため自動承認しませんでした: {rules}",
   "skills.sync.autoApproval.reason.baseline_changed":
-    "検査中に別のバージョンが承認されたため自動承認しませんでした。",
+    "検査中に別のバージョンが承認されたため自動承認しませんでした。次の確認でもう一度検査します。",
   "skills.reviewPage.approve": "承認",
   "skills.reviewPage.reject": "却下",
   "skills.reviewPage.approving": "承認しています…",
@@ -707,6 +735,8 @@ export const skillsJa = {
   "skills.refused.not_approved": "承認済みのバージョンのみ指定できます。",
   "skills.refused.version_not_approved":
     "承認済みのバージョンのみ指定できます。",
+  "skills.refused.not_branch":
+    "自動連携はブランチでのみオンにできます。タグとコミットは自動で承認しません。",
   "skills.refused.outranked":
     "ワークスペースがすでに決めた指定のため変更できません。",
   "skills.uploadDialog.title": "スキルをアップロード",

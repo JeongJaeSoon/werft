@@ -74,6 +74,8 @@ export const SKILL_SYNC_TRIGGER_VALUES = [
   "manual",
   // Turning sync back on checks once, by a person.
   "resume",
+  // Turning auto-approve on checks once, by a person.
+  "auto_approve",
 ] as const;
 export const skillSyncTriggerKindSchema = z.enum(SKILL_SYNC_TRIGGER_VALUES);
 export type SkillSyncTriggerKind = z.infer<typeof skillSyncTriggerKindSchema>;
@@ -107,7 +109,10 @@ export const skillSyncTriggerSchema = z
     kind: skillSyncTriggerKindSchema,
     /** The webhook delivery (`X-GitHub-Delivery`); null for other kinds. */
     delivery_id: z.string().nullable(),
-    /** The person who registered, pressed or resumed; null for the sync. */
+    /**
+     * The person who registered, pressed, resumed or turned auto-approve on;
+     * null for the sync.
+     */
     user_id: userIdSchema.nullable(),
   })
   .strict();
@@ -128,17 +133,10 @@ export const skillIssueSchema = z
   .strict();
 
 export const SKILL_AUTO_APPROVAL_REASON_VALUES = [
-  // The ref is a tag or a commit.
-  "not_branch",
-  // No rule on the branch requires a pull request with an approving review.
-  "protection_missing",
-  // The commit came in by no merged pull request whose reviews approve it.
-  "no_reviewed_pull_request",
-  // GitHub did not answer.
-  "github_unreachable",
   // The version failed a fixed-rule check; `checks` says which.
   "checks_failed",
-  // Another version was approved while the checks ran; a person reviews.
+  // Another version was approved while the checks ran; the next check
+  // judges it again.
   "baseline_changed",
 ] as const;
 export const skillAutoApprovalReasonSchema = z.enum(
@@ -179,21 +177,11 @@ export const skillCheckFindingSchema = z
   .strict();
 export type SkillCheckFinding = z.infer<typeof skillCheckFindingSchema>;
 
-export const skillProtectionRuleSchema = z
-  .object({
-    kind: z.enum(["ruleset", "branch_protection"]),
-    required_reviews: z.number().int().positive(),
-  })
-  .strict();
-
 export const skillAutoApprovalSchema = z
   .object({
     result: z.enum(["approved", "pending"]),
     /** Why it stayed `pending`; null once approved. */
     reason: skillAutoApprovalReasonSchema.nullable(),
-    /** The rule that required review; null when none was found. */
-    rule: skillProtectionRuleSchema.nullable(),
-    pull_request: z.number().int().positive().nullable(),
     checks: z.array(skillCheckFindingSchema).meta({
       description:
         "The fixed-rule checks the version failed against the approved version before it; empty when it failed none or was not checked.",
@@ -215,7 +203,7 @@ export const skillSyncCheckSchema = z
     }),
     auto_approval: skillAutoApprovalSchema.nullable().meta({
       description:
-        "How the new version's auto-approval went (`created` with auto-approve on); null otherwise.",
+        "How auto-approve judged the version this content is, while it is on: a new version (`created`) or one still `pending` (`unchanged`); null otherwise.",
     }),
   })
   .strict();
@@ -244,14 +232,14 @@ export const skillGitSourceSchema = z
     webhook: z.enum(SKILL_WEBHOOK_STATE_VALUES),
     auto_approve: z
       .object({
-        state: z.enum(["off", "requested", "on"]),
-        requested_by: userIdSchema.nullable(),
-        consented_by: userIdSchema.nullable(),
+        state: z.enum(["off", "on"]),
+        /** The manager who turned it on; null while off. */
+        enabled_by: userIdSchema.nullable(),
       })
       .strict()
       .meta({
         description:
-          "Protected-branch auto-approve: one manager requests, another consents.",
+          "Auto-approve: while on, the sync approves a version that passes the fixed-rule checks, with no person's review.",
       }),
     last_check: skillSyncCheckSchema.nullable(),
   })
@@ -382,6 +370,10 @@ export const skillSyncResponseSchema = z
     receipt_id: receiptIdSchema.nullable().meta({
       description: "Null when sync already was in that state.",
     }),
+    check: z.enum(["checked", "queued"]).nullable().meta({
+      description:
+        "The check this call ran, on a resume or on turning auto-approve on. `queued`: a check of the skill was running, and it runs once more when it ends. Null when the call ran none.",
+    }),
   })
   .strict();
 export type SkillSyncResponse = z.infer<typeof skillSyncResponseSchema>;
@@ -506,9 +498,8 @@ export type AgentSkillList = z.infer<typeof agentSkillListSchema>;
 
 export const putSkillAutoApproveRequestSchema = z
   .object({
-    action: z.enum(["request", "consent", "off"]).meta({
-      description:
-        "`request` and `consent` are by two managers (one, when the workspace has one); `off` turns it off at once.",
+    action: z.enum(["on", "off"]).meta({
+      description: "One manager turns it on or off, at once.",
     }),
   })
   .strict();

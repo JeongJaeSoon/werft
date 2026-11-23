@@ -72,6 +72,7 @@ const TRIGGER_LABEL = {
   daily: "skills.sync.trigger.daily",
   manual: "skills.sync.trigger.manual",
   resume: "skills.sync.trigger.resume",
+  auto_approve: "skills.sync.trigger.auto_approve",
 } as const satisfies Record<SkillSyncTrigger["kind"], string>;
 
 export const RESULT_LABEL = {
@@ -187,7 +188,10 @@ function SyncPanel({
     readonly until: number;
   } | null>(null);
   useEffect(() => {
-    if (queued === null || lastAt === queued.seen) return;
+    if (queued === null || lastAt === null || lastAt === queued.seen) return;
+    // A list read from before the answer shows an older check: not a move.
+    if (queued.seen !== null && Date.parse(lastAt) < Date.parse(queued.seen))
+      return;
     setQueued(
       queued.moves + 1 >= 2
         ? null
@@ -199,8 +203,8 @@ function SyncPanel({
     refetchInterval: () =>
       queued !== null && Date.now() < queued.until ? QUEUED_POLL_MS : false,
   });
-  const waitQueued = () =>
-    setQueued({ seen: lastAt, moves: 0, until: Date.now() + QUEUED_WAIT_MS });
+  const waitQueued = (seen: string | null) =>
+    setQueued({ seen, moves: 0, until: Date.now() + QUEUED_WAIT_MS });
   const check = useSkillWrite(
     () =>
       unwrap(
@@ -210,7 +214,8 @@ function SyncPanel({
       ) as Promise<CheckSkillResponse>,
     {
       onDone: (answer) => {
-        if (answer.outcome === "queued") waitQueued();
+        if (answer.outcome === "queued")
+          waitQueued(answer.last_check?.at ?? null);
         setOutcome({
           kind: "notice",
           text:
@@ -239,12 +244,8 @@ function SyncPanel({
       onDone: (answer, enabled) => {
         // Resuming checks once; behind a running check that one is queued
         // and the answer still carries the old last check.
-        if (
-          enabled &&
-          answer.receipt_id !== null &&
-          (answer.git.last_check?.at ?? null) === lastAt
-        )
-          waitQueued();
+        if (answer.check === "queued")
+          waitQueued(answer.git.last_check?.at ?? null);
         setOutcome({
           kind: "notice",
           text: t(
@@ -255,7 +256,35 @@ function SyncPanel({
       onRefused: refused,
     },
   );
-  const busy = check.isPending || toggle.isPending;
+  const autoOn = git.auto_approve.state === "on";
+  const auto = useSkillWrite(
+    (on: boolean) =>
+      unwrap(
+        client.PUT("/v1/workspace/skills/{name}/sync/auto-approve", {
+          params: {
+            path: { name },
+            header: { "Idempotency-Key": crypto.randomUUID() },
+          },
+          body: { action: on ? "on" : "off" },
+        }),
+      ) as Promise<SkillSyncResponse>,
+    {
+      onDone: (answer, on) => {
+        // Turning it on checks once, queued behind a running check as a
+        // resume's is.
+        if (answer.check === "queued")
+          waitQueued(answer.git.last_check?.at ?? null);
+        setOutcome({
+          kind: "notice",
+          text: t(
+            on ? "skills.autoSync.turnedOn" : "skills.autoSync.turnedOff",
+          ),
+        });
+      },
+      onRefused: refused,
+    },
+  );
+  const busy = check.isPending || toggle.isPending || auto.isPending;
   const last = git.last_check;
   const where = t("skills.sync.sourceValue", {
     repository: git.repository,
@@ -301,6 +330,41 @@ function SyncPanel({
                           ? "skills.sync.pause"
                           : "skills.sync.resume",
                       )}
+                </Button>
+              ) : undefined
+            }
+          />
+          <SettingRow
+            title={t("skills.autoSync.title")}
+            badge={
+              <Badge variant={autoOn ? "green" : "gray"}>
+                {t(autoOn ? "skills.autoSync.on" : "skills.autoSync.off")}
+              </Badge>
+            }
+            description={t(
+              !autoOn
+                ? "skills.autoSync.hintOff"
+                : git.sync_enabled
+                  ? "skills.autoSync.hintOn"
+                  : "skills.autoSync.hintPaused",
+            )}
+            actions={
+              manages ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => auto.mutate(!autoOn)}
+                >
+                  {t(
+                    auto.isPending
+                      ? autoOn
+                        ? "skills.autoSync.turningOff"
+                        : "skills.autoSync.turningOn"
+                      : autoOn
+                        ? "skills.autoSync.turnOff"
+                        : "skills.autoSync.turnOn",
+                  )}
                 </Button>
               ) : undefined
             }
