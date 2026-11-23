@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **Slack 역할에 스위치 `SLACK_ROLE_CLOSE_LINKS`(기본 `false`, Helm은 `slack.extraEnv`)가 생긴다. 지금은 켜지 않는다**(JeongJaeSoon/werft#2083). migration은 없고, 꺼진 채로는 Slack 스레드의 동작이 그대로다.
+  - 켜면 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결(link)을 마지막 보고 줄을 넣은 뒤 닫는다. 그 스레드에 다시 멘션하면 새 세션이 새 연결로 열린다. 켜기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
+  - 조용한(muted) 연결과 턴을 보고하지 않는 연결은 보낼 마지막 보고가 없으므로 세션이 닫히면 바로 닫는다. 그 뒤에 보고 방식을 바꿔도 닫힌 세션의 밀린 답은 보내지 않는다.
+  - 닫는 사유(`closed_reason`)는 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기 등 그 밖이면 `abandoned`다.
+  - 스위치와 상관없이, Slack 줄을 보낼지는 그 줄이 가리키는 연결을 보고 판단하고 연결이 닫혔는지는 보지 않는다. 닫힌 연결에는 그 연결의 줄이 `uncertain`이 됐다는 알림 한 줄 말고는 새 줄을 넣지 않는다.
+
 - **migration `0337_conversation_records_deleted`가 `conversations`에 지운 시각·지운 관리자 칸을, `deleted_sources`에 표식의 이유 `reason`을 더하고, 운영자 명령 `conversation-records.ts delete`가 조직 관리자의 요청으로 채널 대화 하나의 관여 기록·채널 요약(이력 포함)·판단 버퍼를 지운다**(JeongJaeSoon/werft#2077). 따로 할 일은 없고, 명령을 부르지 않으면 동작은 그대로다. 공개 route는 없다.
   - 세션, 턴과 입력 원문, 입력 접수 줄, 이벤트, transcript, checkpoint는 지우지 않는다. 대화 행도 남는다.
   - 지우기 전에, 지울 기록이 가리키는 글 가운데 어느 턴의 입력도 아닌 글에 삭제 표식(`admin_deleted`)을 단다. 그 글을 출처로 가진 세션만 `SOURCE_DELETED`로 멈추고 보내지 않은 답은 나가지 않는다. 같은 채널의 다른 세션은 그대로 돈다.
@@ -38,7 +44,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 전환: Slack이 채널에 올리는 `channel_convert_to_private`·`channel_convert_to_public` 글(본문은 남기지 않는다)을 받으면 binding과 그 채널의 세션을 한 transaction에서 옮긴다. 글이 늦게 올 수 있어서, 글이 말하는 종류가 아니라 Slack에 지금 물은 종류를 따른다. 다른 채널에서 시작해 이 채널에 이어진 세션은 그 채널을 따르고 넓히지 않는다. 비공개로 바꾸면 위와 같고, **비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다**(Slack에서 지난 글이 공개되는 것과 같다). 옛 `people`·`team` 범위는 되살리지 않는다.
   - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
 - **migration `0336_session_link_old_uniques`가 `session_links`의 옛 unique 둘(`session_links_surface_ref_key`, `session_links_session_uniq`)을 지운다. 이 릴리스를 올린 뒤에는 `v0.3.0` 이하의 이미지로 되돌릴 수 없다**(JeongJaeSoon/werft#2079). 따로 할 일은 없고, Slack 스레드의 동작은 그대로다.
-  - 남는 unique는 닫히지 않은 link만 보는 둘이다. 스레드와 세션마다 열린 link는 하나뿐이고, 닫힌 link는 그 옆에 이력으로 남을 수 있다. 이 릴리스에는 link를 닫는 길이 없다.
+  - 남는 unique는 닫히지 않은 link만 보는 둘이다. 스레드와 세션마다 열린 link는 하나뿐이고, 닫힌 link는 그 옆에 이력으로 남을 수 있다. 이 릴리스의 link 닫기는 기본으로 꺼진 스위치 `SLACK_ROLE_CLOSE_LINKS`(JeongJaeSoon/werft#2083) 뒤에 있다.
   - `v0.3.0` 이하의 이미지는 옛 unique를 가리키는 `ON CONFLICT`로 스레드를 예약하므로, 되돌리면 Slack 스레드에 세션이 생기지 않는다. 열린 link만 보는 예약으로 옮긴 JeongJaeSoon/werft#2041부터의 이미지로는 되돌려도 된다. 더 앞으로 가야 하면 업그레이드 전 백업으로 DB를 복원한다.
   - `v0.3.0`에서 바로 올리면 migrate가 끝난 뒤 옛 slack 역할이 내려갈 때까지 그 역할이 받은 스레드 예약이 실패하고, 그 이벤트는 다시 시도된다.
   - 행은 고치지 않는다. 제약은 표를 읽지 않는 한 문장으로, 인덱스는 `CONCURRENTLY`로 지운다.

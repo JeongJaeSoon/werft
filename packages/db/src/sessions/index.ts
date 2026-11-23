@@ -1,6 +1,6 @@
 export { queueAchievementJudgment } from "./achievement-judgments.ts";
 export { insertBuiltinAchievementTypes } from "./achievement-rules.ts";
-export { openDrainReceipt } from "./drain.ts";
+export { CLOSE, openDrainReceipt } from "./drain.ts";
 export { enqueueWithin } from "./enqueue.ts";
 export { hasRestorePoint } from "./pause-policy.ts";
 export { createPostgresPendingRequests } from "./pending-requests.ts";
