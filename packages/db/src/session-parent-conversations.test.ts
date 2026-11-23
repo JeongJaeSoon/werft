@@ -245,6 +245,12 @@ describe("fillSessionParents", () => {
       channelId: "D0006",
       createdBy: ada,
     });
+    const goneOpener = await addSession(gone);
+    await addLink(goneOpener, {
+      binding: dmBinding,
+      channelId: "D0008",
+      createdBy: ada,
+    });
     const byLink = await addSession(null);
     await addLink(byLink, {
       binding: dmBinding,
@@ -269,12 +275,13 @@ describe("fillSessionParents", () => {
     });
 
     expect(await fillSessionParents(db)).toEqual({
-      filled: 4,
+      filled: 5,
       skipped: { no_person: 1, no_membership: 1 },
       failed: [],
     });
     expect((await conversationOf(reopened))?.person_user_id).toBe(bea);
     expect((await conversationOf(byLink))?.person_user_id).toBe(ada);
+    expect((await conversationOf(goneOpener))?.person_user_id).toBe(ada);
     expect((await conversationOf(bySession))?.person_user_id).toBe(bea);
     expect((await conversationOf(notMember))?.person_user_id).toBe(bea);
     expect(await parentOf(noOne)).toBeNull();
