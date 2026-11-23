@@ -21,6 +21,7 @@ export const SLACK_INBOUND_PAYLOADS_EXIT = {
 export const SLACK_INBOUND_PAYLOADS_DEFAULT_BATCH = 1000;
 const MAX_BATCH = 10_000;
 // Counting only reads; a page this large is still one short statement.
+// Each page is its own snapshot, so the totals are not one moment's.
 const COUNT_PAGE = 10_000;
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-inbound-payloads.ts [--batch-size <n>]

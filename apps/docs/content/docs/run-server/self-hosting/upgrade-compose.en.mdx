@@ -235,9 +235,9 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/slac
 ```
 
 - It clears the body of processed rows (`processed`) only. Rows still being processed (`received`) and failed rows (`failed`, which the reconciler clears 7 days after receipt) stay as they are. The rows themselves (event type, status, attempts) stay.
-- It clears 1000 rows per statement in primary key order and commits each statement on its own. A batch locks only its processed rows, and no table lock is taken. `--batch-size <n>` (1 to 10000) changes the batch size.
+- It clears 1000 rows per statement in primary key order and commits each statement on its own. Row locks fall only on the batch's processed rows; the table gets only the `ROW EXCLUSIVE` lock any write takes, which blocks no reads or writes. `--batch-size <n>` (1 to 10000) changes the batch size.
 - The result is one line of JSON: rows holding a body by status (`before`, `after`), rows cleared `cleared`, batches `batches`, `batch_size`, and the time taken `duration_ms`. Running it again clears nothing more (`cleared: 0`).
-- If processed rows still hold a body when it ends, it reports `outcome: incomplete` and exits `3`. A slack role on an earlier image is still running. Stop that container and run the command again.
+- If processed rows still hold a body when it ends, it reports `outcome: incomplete` and exits `3`. A slack role on an earlier image is still running. Stop that container and run the command again. The counts are read batch by batch, so exit `0` does not prove no earlier image is running; check every container's image before you run it.
 - A cleared body does not come back. New rows reuse the freed space after autovacuum; the files do not shrink. The rollback floor stays at 0308.
 
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
