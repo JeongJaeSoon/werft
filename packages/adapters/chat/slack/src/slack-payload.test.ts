@@ -672,6 +672,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
     threadTs: "100.000100",
     slackUserId: null,
     sessionId: SESSION,
+    sessionLinkId: null,
     body: { text: "hi" },
     dedupeKey: "reply:link-1:1",
     attempts: 1,

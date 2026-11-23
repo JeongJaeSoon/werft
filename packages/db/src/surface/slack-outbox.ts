@@ -103,6 +103,7 @@ const entry = {
   threadTs: t.threadTs,
   slackUserId: t.slackUserId,
   sessionId: t.sessionId,
+  sessionLinkId: t.sessionLinkId,
   body: t.body,
   dedupeKey: t.dedupeKey,
 };
@@ -774,6 +775,7 @@ export function createPostgresSlackOutboxStore(
             AND l2.revoked_at IS NULL
             AND NOT l2.muted
             AND l2.visibility = 'full'
+            AND l2.closed_at IS NULL
         ) m
         WHERE l.id = m.id AND m.mark > l.answered_through
         RETURNING l.id
@@ -823,6 +825,7 @@ export function createPostgresSlackOutboxStore(
             isNull(sessionLinks.revokedAt),
             eq(sessionLinks.muted, false),
             eq(sessionLinks.visibility, "full"),
+            isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             // By a range per link, as unansweredTurns finds its turns.
             sql`${turns.id} = ANY (ARRAY(
@@ -839,6 +842,7 @@ export function createPostgresSlackOutboxStore(
               WHERE ol.revoked_at IS NULL
                 AND NOT ol.muted
                 AND ol.visibility = 'full'
+                AND ol.closed_at IS NULL
             ))`,
             sql`${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
           ),
@@ -924,11 +928,13 @@ export function createPostgresSlackOutboxStore(
               WHERE ol.revoked_at IS NULL
                 AND NOT ol.muted
                 AND ol.visibility = 'full'
+                AND ol.closed_at IS NULL
             ))`,
             isNull(sessionLinks.revokedAt),
             // A muted or summary-only thread is not where a full answer goes.
             eq(sessionLinks.muted, false),
             eq(sessionLinks.visibility, "full"),
+            isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             inArray(turns.status, ENDED_WITH_POST),
             // A turn from before the thread is not the thread's to answer.
@@ -1019,6 +1025,7 @@ export function createPostgresSlackOutboxStore(
         isNull(sessionLinks.revokedAt),
         eq(sessionLinks.muted, false),
         eq(sessionLinks.visibility, "full"),
+        isNull(sessionLinks.closedAt),
         ne(slackInstallations.status, "revoked"),
       );
       const requester = (actorId: SQL) =>

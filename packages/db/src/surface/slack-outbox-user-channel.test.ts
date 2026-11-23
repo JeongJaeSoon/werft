@@ -47,6 +47,7 @@ function entryOf(kind: SlackOutboxKind, channelId: string): SlackOutboxEntry {
     threadTs: kind === "model_notice" ? "" : "100.000100",
     slackUserId: null,
     sessionId: null,
+    sessionLinkId: null,
     body: { text: "Done." },
     dedupeKey: `${kind}:${channelId}`,
   };

@@ -28,14 +28,18 @@ export type SessionLinkReservation = Omit<
 >;
 
 export interface SessionLinkStore {
-  /** The thread's link, live or revoked; null when it has none. */
+  /**
+   * The thread's open link, live or revoked; null when it has none. Closed
+   * links are the thread's history and not found.
+   */
   find(
     installationId: string,
     surfaceRef: string,
   ): Promise<SessionLinkRecord | null>;
   /**
-   * Takes the thread's link in one transaction: the row this call inserts,
-   * or, when another event already holds the key, that row read under lock.
+   * Takes the thread's open link in one transaction: the row this call
+   * inserts, or, when another event already holds the thread, that row read
+   * under lock. A closed link does not hold it.
    * `reserved` says which.
    */
   reserve(

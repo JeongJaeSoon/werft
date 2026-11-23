@@ -56,6 +56,7 @@ function rowOf(kind: SlackOutboxKind): SlackOutboxClaim {
     threadTs: direct || kind === "welcome" ? "" : "100.000100",
     slackUserId: kind === "notice" ? "U0A" : null,
     sessionId: direct ? "session-1" : null,
+    sessionLinkId: null,
     body: bodies[kind],
     dedupeKey: `${kind}:1`,
   };

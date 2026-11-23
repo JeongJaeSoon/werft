@@ -508,6 +508,7 @@ export function createSlackSessionHandler(
           channelId: event.channel,
           threadTs,
           sessionId: found?.sessionId ?? null,
+          sessionLinkId: found?.id ?? null,
           notice: { message: "botTurnLimit" },
           onceKey: `${claim.teamId}:${surfaceRef}:bot_turn_limit:${counted.stop}`,
         });

@@ -268,8 +268,13 @@ integration("action_notice rows on PostgreSQL", () => {
         `action:${id}:pushed`,
       ]);
       const opened = rows[0];
+      const [link] = await db
+        .select({ id: sessionLinks.id })
+        .from(sessionLinks)
+        .where(eq(sessionLinks.sessionId, sessionId));
       expect(opened).toMatchObject({
         kind: "action_notice",
+        sessionLinkId: link?.id,
         channelId: "C1",
         threadTs: "1730000000.000100",
       });

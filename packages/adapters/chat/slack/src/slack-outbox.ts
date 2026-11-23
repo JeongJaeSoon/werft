@@ -116,6 +116,7 @@ export async function drainSlackOutbox(deps: {
       threadTs: row.threadTs,
       slackUserId: null,
       sessionId: row.sessionId,
+      sessionLinkId: row.sessionLinkId,
       body:
         link_url === undefined ? { text, locale } : { text, locale, link_url },
       dedupeKey: `uncertain:${row.id}`,

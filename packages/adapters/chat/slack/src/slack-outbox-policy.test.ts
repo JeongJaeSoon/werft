@@ -46,6 +46,7 @@ const claim = (over: Partial<SlackOutboxClaim> = {}): SlackOutboxClaim => ({
   threadTs: "100.000100",
   slackUserId: null,
   sessionId: "session-1",
+  sessionLinkId: null,
   body: { text: "hi" },
   dedupeKey: "reply:link-1:1",
   attempts: 1,

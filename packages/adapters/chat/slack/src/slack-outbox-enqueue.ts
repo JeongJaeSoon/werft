@@ -39,6 +39,7 @@ export async function enqueueSlackInstructions(deps: {
       threadTs: turn.threadTs,
       slackUserId: null,
       sessionId: turn.sessionId,
+      sessionLinkId: turn.sessionLinkId,
       body: {
         text: turn.message,
         sender:
@@ -111,6 +112,7 @@ export function createOutboxSlackNoticeSink(
         threadTs: notice.threadTs,
         slackUserId: notice.slackUserId,
         sessionId: null,
+        sessionLinkId: null,
         body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale, ...link },
         dedupeKey: `notice:${notice.onceKey}`,
       });
@@ -130,6 +132,7 @@ export function createOutboxSlackNoticeSink(
         threadTs: notice.threadTs,
         slackUserId: null,
         sessionId: notice.sessionId,
+        sessionLinkId: notice.sessionLinkId,
         body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale, ...link },
         dedupeKey: `thread_notice:${notice.onceKey}`,
       });
@@ -162,6 +165,7 @@ export async function enqueueSlackTurnAnswers(deps: {
       threadTs: turn.threadTs,
       slackUserId: null,
       sessionId: turn.sessionId,
+      sessionLinkId: turn.sessionLinkId,
       body: {
         text,
         locale,
@@ -207,6 +211,7 @@ export async function enqueueSlackPrompts(deps: {
       threadTs: row.threadTs,
       slackUserId: null,
       sessionId: row.sessionId,
+      sessionLinkId: row.sessionLinkId,
       body: {
         text: message.text,
         locale,
