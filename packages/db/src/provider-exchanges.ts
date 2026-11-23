@@ -12,6 +12,8 @@ import type {
 import { reservationCostUsd, reservationTokens } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
+  lockBudgetCall,
+  markBudgetUnknownIn,
   releaseBudgetIn,
   reserveBudgetIn,
   settleBudgetIn,
@@ -20,6 +22,7 @@ import { fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
+  budgetReservations,
   providerExchanges,
   providerUsage,
   sessions,
@@ -28,10 +31,12 @@ import { rowsOf } from "./statement-rows.ts";
 
 /**
  * How long an open row stands without a renewal or a report before the
- * reconciler logs it. Covers the proxy's slowest normal path: an authorizer
- * outage cuts the exchange about 120 seconds after the last good regrant,
- * and the report's retries take up to about 61 seconds more. A row past it
- * still counts as a reservation until a report or a release.
+ * reconciler logs it and marks its reservation's end unknown (unknown_at);
+ * a conversation call in flight this long is marked too. Covers the proxy's slowest
+ * normal path: an authorizer outage cuts the exchange about 120 seconds
+ * after the last good regrant, and the report's retries take up to about
+ * 61 seconds more. A row past it still counts as a reservation until a
+ * report or a release.
  */
 export const PROVIDER_EXCHANGE_LEASE_MS = 300_000;
 
@@ -276,6 +281,10 @@ export function createProviderExchangeLedger(
               noticedAt: null,
             })
             .where(eq(providerExchanges.exchangeId, input.exchangeId));
+          // The lease is alive again, so its end is no longer unknown.
+          if (input.budget !== undefined) {
+            await markBudgetUnknownIn(tx, input.exchangeId, false);
+          }
           return { outcome: "open" };
         }
         if (standing.kind !== "none") return { outcome: standing.kind };
@@ -356,21 +365,32 @@ export function createProviderExchangeLedger(
       });
     },
 
-    async renew(exchangeId) {
-      const [renewed] = await db
-        .update(providerExchanges)
-        .set({
-          leaseExpiresAt: fromDbNow(PROVIDER_EXCHANGE_LEASE_MS),
-          noticedAt: null,
-        })
-        .where(
-          and(
-            eq(providerExchanges.exchangeId, exchangeId),
-            isNull(providerExchanges.releasedAt),
-          ),
-        )
-        .returning({ exchangeId: providerExchanges.exchangeId });
-      return renewed ? "open" : "gone";
+    renew(exchangeId) {
+      return db.transaction(async (tx) => {
+        // Under the exchange's lock, as the open and the report: the call's
+        // lock comes after the row here, as it does in the report.
+        await lockProviderExchange(tx, exchangeId);
+        const [renewed] = await tx
+          .update(providerExchanges)
+          .set({
+            leaseExpiresAt: fromDbNow(PROVIDER_EXCHANGE_LEASE_MS),
+            noticedAt: null,
+          })
+          .where(
+            and(
+              eq(providerExchanges.exchangeId, exchangeId),
+              isNull(providerExchanges.releasedAt),
+            ),
+          )
+          .returning({
+            budgeted: sql<boolean>`${providerExchanges.budgetRootKind} IS NOT NULL`,
+          });
+        if (!renewed) return "gone";
+        if (renewed.budgeted) {
+          await markBudgetUnknownIn(tx, exchangeId, false);
+        }
+        return "open";
+      });
     },
 
     release(input): Promise<ProviderExchangeReleaseResult> {
@@ -435,6 +455,12 @@ export async function reconcileProviderExchanges(
   noticed: ExpiredProviderExchange[];
   /** Rows released more than PROVIDER_EXCHANGE_KEEP_DAYS ago, deleted. */
   deleted: number;
+  /**
+   * Budgeted rows past their lease (noticed now or in an earlier pass) whose
+   * reservation's end was marked unknown: still held until a report, a
+   * release or a renewal clears it.
+   */
+  unknown: number;
 }> {
   const expired = sql`${providerExchanges.leaseExpiresAt} < clock_timestamp()`;
   const reportedBySameOwner = sql`EXISTS (
@@ -486,7 +512,10 @@ export async function reconcileProviderExchanges(
         ),
       ),
     ).length;
-    return { settled: settledIds.length, noticed, deleted };
+    const unknown = rowsOf<{ exchange_id: string }>(
+      await db.execute(unknownCandidates(input.limit)),
+    ).length;
+    return { settled: settledIds.length, noticed, deleted, unknown };
   }
 
   const settled = await db
@@ -507,9 +536,42 @@ export async function reconcileProviderExchanges(
     .delete(providerExchanges)
     .where(picked(old))
     .returning({ exchangeId: providerExchanges.exchangeId });
+  let unknown = 0;
+  for (const { exchange_id: id } of rowsOf<{ exchange_id: string }>(
+    await db.execute(unknownCandidates(input.limit)),
+  )) {
+    const marked = await db.transaction(async (tx) => {
+      // Takes the call's lock first, so a renewal or a report that holds it
+      // is seen whole by the read below.
+      await lockBudgetCall(tx, id);
+      const [still] = rowsOf<{ exchange_id: string }>(
+        await tx.execute(unknownCandidates(1, id)),
+      );
+      return still ? markBudgetUnknownIn(tx, id, true) : false;
+    });
+    if (marked) unknown++;
+  }
   return {
     settled: settled.length,
     noticed,
     deleted: deleted.length,
+    unknown,
   };
+}
+
+// Rows past their lease and not released whose reservation is reserved and
+// not yet marked: noticed in this pass or an earlier one, so a dry run
+// counts what the writes would mark.
+function unknownCandidates(limit: number, exchangeId?: string) {
+  return sql`
+    SELECT ${providerExchanges.exchangeId} FROM ${providerExchanges}
+    JOIN ${budgetReservations}
+      ON ${budgetReservations.callId} = ${providerExchanges.exchangeId}
+    WHERE ${providerExchanges.releasedAt} IS NULL
+      AND ${providerExchanges.leaseExpiresAt} < clock_timestamp()
+      AND ${budgetReservations.state} = 'reserved'
+      AND ${budgetReservations.unknownAt} IS NULL
+      ${exchangeId === undefined ? sql`` : sql`AND ${providerExchanges.exchangeId} = ${exchangeId}`}
+    ORDER BY ${providerExchanges.leaseExpiresAt}
+    LIMIT ${limit}`;
 }

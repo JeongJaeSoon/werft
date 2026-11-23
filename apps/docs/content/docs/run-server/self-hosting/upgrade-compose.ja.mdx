@@ -253,6 +253,16 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 - 埋めた数はログ `Parent conversations filled` に残る。埋められなかったセッションはセッション id とともに警告として残り、次の起動でもう一度試す。
 - サポート期間内のイメージに戻してもよい。その間に作った Slack セッションは親なしでできて、また上げると起動時に埋まる。
 
+<a id="끝을-모르는-호출을-표시하고-에이전트-스스로-하는-일을-먼저-멈추는-릴리스" />
+### 終わりのわからない呼び出しを示し、エージェント自身の仕事を先に止めるリリース
+
+migration `0330_unknown_budget_end` が `budget_reservations` と `conversation_calls` に、終わりのわからない呼び出しを示す列 `unknown_at`(nullable)を追加し、reconciler が読む部分インデックスを二つ作る。上げるときにすることはない。予算の上限がないインストールでは、人、key、エージェントの呼び出しはこれまでどおり動く。
+
+- 使われた provider 呼び出しに lease(5 分)以内に使用量の報告が来なければ、reconciler がその予約の `unknown_at` を書く。状態は `reserved`(会話呼び出しは `in_flight`)のままである。予約は解放せず、上限の計算では使ったものとして数え続ける。遅れて報告が来れば実際の値で精算し、予約を外す。lease がまた更新されるか呼び出しが解放されれば印を消す。セッションの呼び出しとセッションのない呼び出し(会話呼び出し)が同じ規則に従う。
+- reconciler は終わりのわからない予約の多い口座からバッチの大きさまで、その数と押さえている金額を `warn` ログ `Budget reservations of unknown end held`(`unknown_count`、`held_cost_usd`、`held_tokens`)に、すべての口座の合計をログ `Budget reservations of unknown end reported` に残す。ログ `Provider exchange ledger reconciled` と `Conversation call reservations reconciled` に `unknown_count` が加わる。このリリースには押さえられた予約を運用者が解放するコマンドはない。
+- 上限のある予算口座では、人も key もいない実行(root の種類 `none`)の予約は上限の 80% で拒否される。人の依頼と key、Slack ボットの依頼は 100% まで動き、100% ではすべて拒否される。上限のない口座には 80% の判定はかからない。
+- 状態の値と CHECK は変わらず、インデックスは `CONCURRENTLY` で作る。サポート期間内のイメージに戻してもよい。古いイメージは `unknown_at` を無視し、予約を `reserved` として精算する。
+
 <a id="판단-버퍼를-더하는-릴리스" />
 ### 判断バッファを追加するリリース
 

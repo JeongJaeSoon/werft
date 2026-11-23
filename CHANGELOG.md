@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0330_unknown_budget_end`가 끝을 모르는 호출을 적는 칸 `unknown_at`을 더하고, 한도가 있는 계정에서 root 종류 `none`의 예약을 한도의 80%에서 거절한다**(JeongJaeSoon/werft#2065). 따로 할 일은 없고, 예산 한도가 없는 설치는 지금처럼 돈다.
+  - 쓰인 provider 호출에 lease(5분) 안에 사용량 보고가 없으면 reconciler가 `budget_reservations`(대화 호출은 `conversation_calls`도)의 `unknown_at`을 적는다. 상태는 `reserved`(`in_flight`) 그대로이고, 예약은 풀지 않고 쓴 것으로 센다. 늦은 보고가 실제 값으로 정산하고, lease 갱신과 해제는 표시를 지운다. 세션 호출과 대화 호출 모두 같다.
+  - 계정마다 `unknown` 예약의 수와 묶인 금액이 `warn` 로그 `Budget reservations of unknown end held`에 남는다. `Provider exchange ledger reconciled`와 `Conversation call reservations reconciled`에 `unknown_count`가 더해진다. 묶인 예약을 푸는 운영자 명령은 아직 없다.
+  - root 종류 `none`(사람도 key도 없는 실행)은 80%에서, 사람과 key·Slack 봇의 요청은 100%에서 거절된다. 한도가 없는 계정에는 80% 판정이 없다.
+  - 상태 값과 CHECK는 바뀌지 않는다. 지원 창 안의 이미지로 되돌려도 `unknown_at`은 무시되고 예약은 `reserved`로 정산된다.
+
 - **migration `0330_judgment_buffer`가 입력 접수 표 `conversation_inputs`에 판단 버퍼의 만료 칸 `buffer_expires_at`과 그 색인을 더한다**(JeongJaeSoon/werft#2059). 따로 할 일은 없고 Slack 동작도 그대로다.
   - 판단 버퍼는 에이전트의 대화 층 스위치 `conversation_rollout`이 `shadow`·`on`이고 채널이 `free`로 듣는 때만 멘션 없는 글을 본문째 담는다. 스위치 기본값은 `off`이고 이 릴리스에는 스위치를 바꾸는 API가 없어서, 올린 뒤에도 버퍼는 비어 있다.
   - 담긴 줄은 10분 뒤 reconciler가 통째로 지운다(로그 `Judgment buffer purged`, `expired_count`·`unlistened_count`). Slack에서 글이 지워지면 바로, 채널 보관·삭제·봇이 나감·binding `off`·에이전트 보관 때도 바로 지운다. 글이 고쳐지면 담긴 본문만 바뀐다.

@@ -145,11 +145,20 @@ export function personLimitOf(
 export type BudgetHeld = { spent: BudgetAmount; reserved: BudgetAmount };
 
 /**
+ * The share of a limit, in percent, past which a reserve of root kind
+ * `none` (no person and no key behind it) is refused (decision 31): the
+ * agent's own work stops first and leaves the rest of the month to the
+ * people and keys the account also serves.
+ */
+export const ROOT_NONE_LIMIT_PERCENT = 80;
+
+/**
  * Whether one more reserve fits. Without a limit (no account, or one with
  * no limit) only the agent's own work is refused: a person's and a key's
- * calls run and are recorded. With one, spent, held and the new reserve
- * together must stay under it, the predicate the session limits use
- * (limitsReached): a limit is reached once the sum gets to it.
+ * calls run and are recorded. With one, spent, held (an unknown end
+ * included) and the new reserve together must stay under it, the predicate
+ * the session limits use (limitsReached): a limit is reached once the sum
+ * gets to it. Root kind `none` is held to ROOT_NONE_LIMIT_PERCENT of it.
  */
 export function admitsBudgetReserve(input: {
   rootKind: BudgetRootKind;
@@ -168,11 +177,21 @@ export function admitsBudgetReserve(input: {
       (total, amount) => total + (amount ? BigInt(pick(amount)) : 0n),
       0n,
     );
+  const percent = BigInt(
+    input.rootKind === "none" ? ROOT_NONE_LIMIT_PERCENT : 100,
+  );
+  // sum / limit >= percent / 100, in integers.
+  const reached = (used: bigint, limitOf: bigint) =>
+    used * 100n >= limitOf * percent;
   const costMicros = sum((amount) => microsOf(amount.costUsd));
   const tokens = sum((amount) => amount.tokens);
-  if (limit.costUsd !== null && costMicros >= BigInt(microsOf(limit.costUsd)))
+  if (
+    limit.costUsd !== null &&
+    reached(costMicros, BigInt(microsOf(limit.costUsd)))
+  )
     return false;
-  if (limit.tokens !== null && tokens >= BigInt(limit.tokens)) return false;
+  if (limit.tokens !== null && reached(tokens, BigInt(limit.tokens)))
+    return false;
   return true;
 }
 
