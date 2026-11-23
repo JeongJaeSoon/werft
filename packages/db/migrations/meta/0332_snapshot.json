@@ -1,5 +1,5 @@
 {
-  "id": "cdfd2cae-6e0c-4c93-9815-33530e9d5c47",
+  "id": "eda8bbe6-12ff-4738-8b2d-4922dc0634f3",
   "prevId": "a35323ff-c07f-43d7-8c97-030dc8aadba2",
   "version": "7",
   "dialect": "postgresql",
@@ -17122,6 +17122,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "slack_outbox_input_idx": {
+          "name": "slack_outbox_input_idx",
+          "columns": [
+            {
+              "expression": "input_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_outbox\".\"input_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
