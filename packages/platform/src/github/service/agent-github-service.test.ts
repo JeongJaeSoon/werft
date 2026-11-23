@@ -520,7 +520,7 @@ describe("the agent GitHub tab's options", () => {
     expect(row.legacy_defaults).toBeNull();
   });
 
-  test("push_attached: a first save starts from allow, a row from before the column asks, a stored value shows as it is", async () => {
+  test("push_attached: no row and a row from before the column show allow, a stored value shows as it is", async () => {
     const rowWith = (pushAttached: string | null) => ({
       repositories: ["sample-app"],
       pushApproval: true,
@@ -535,11 +535,12 @@ describe("the agent GitHub tab's options", () => {
     expect(
       (await serviceWith({ noRelease: true }).get(caller, AGENT)).push_attached,
     ).toBe("allow");
-    // A row saved before the column keeps asking a person.
+    // A row saved before the column: nobody chose to be asked, and the
+    // gate reads it the same way.
     expect(
       (await serviceWith({ settings: rowWith(null) }).get(caller, AGENT))
         .push_attached,
-    ).toBe("ask");
+    ).toBe("allow");
     for (const stored of ["allow", "ask", "deny"] as const) {
       expect(
         (await serviceWith({ settings: rowWith(stored) }).get(caller, AGENT))
