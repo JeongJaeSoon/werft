@@ -5645,4 +5645,45 @@ describe.each(ENGINES)("closing a closed session's link on %s", (engine) => {
       status: "sent",
     });
   });
+
+  test("on: a session closed by recovery with its turn still outcome_unknown closes its link once the failure row is in", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db
+      .update(turns)
+      .set({ status: "outcome_unknown", endedAt: new Date() })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    await closeSession(sessionId, false);
+    expect(
+      await outboxPass({ botToken: null, closeLinks: true }),
+    ).toMatchObject({ enqueued: 1, linksClosed: 1 });
+    const [link] = await links();
+    expect(link?.closedReason).toBe("abandoned");
+    expect((await rows()).map((row) => row.dedupeKey)).toEqual([
+      `failure:${link?.id}:1`,
+    ]);
+  });
+
+  test("on: a link that reports no turns closes with its session, and turning reports on afterwards sends nothing", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await db.update(sessionLinks).set({ reportMode: "none" });
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("unheard")]]);
+    await closeSession(sessionId, true);
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      linksClosed: 1,
+    });
+    const before = await rows();
+
+    await db.update(sessionLinks).set({ reportMode: "per_step" });
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      enqueued: 0,
+      linksClosed: 0,
+    });
+    await outboxPass({ closeLinks: true });
+    expect(await rows()).toEqual(before);
+    expect(posted()).toEqual([]);
+  });
 });

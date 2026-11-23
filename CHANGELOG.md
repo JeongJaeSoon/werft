@@ -16,6 +16,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 - **Slack 역할에 스위치 `SLACK_ROLE_CLOSE_LINKS`(기본 `false`, Helm은 `slack.extraEnv`)가 생긴다. 지금은 켜지 않는다**(JeongJaeSoon/werft#PRNUM). migration은 없고, 꺼진 채로는 Slack 스레드의 동작이 그대로다.
   - 켜면 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결(link)을 마지막 보고 줄을 넣은 뒤 닫는다. 그 스레드에 다시 멘션하면 새 세션이 새 연결로 열린다. 켜기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
+  - 조용한(muted) 연결과 턴을 보고하지 않는 연결은 보낼 마지막 보고가 없으므로 세션이 닫히면 바로 닫는다. 그 뒤에 보고 방식을 바꿔도 닫힌 세션의 밀린 답은 보내지 않는다.
   - 닫는 사유(`closed_reason`)는 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기 등 그 밖이면 `abandoned`다.
   - 스위치와 상관없이, Slack 줄을 보낼지는 그 줄이 가리키는 연결을 보고 판단하고 연결이 닫혔는지는 보지 않는다. 닫힌 연결에는 그 연결의 줄이 `uncertain`이 됐다는 알림 한 줄 말고는 새 줄을 넣지 않는다.
 

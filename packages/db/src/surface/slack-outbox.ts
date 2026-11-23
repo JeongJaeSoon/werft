@@ -913,9 +913,9 @@ export function createPostgresSlackOutboxStore(
     },
 
     async closeFinishedLinks(limit) {
-      // Owed nothing more: a muted link; one that reports turns, once its
-      // mark is past the last turn (its last report is in); else no turn
-      // still owes its instruction. Under the row locks, so an enqueue that
+      // Owed nothing more: a muted link; one that reports turns, once no
+      // turn past its mark lacks its report row (its last report is in);
+      // else no turn still owes its instruction. Under the row locks, so an enqueue that
       // holds one is waited for.
       const rows = rowsOf<unknown>(
         await db.execute(sql`
@@ -935,9 +935,23 @@ export function createPostgresSlackOutboxStore(
             AND l2.closed_at IS NULL
             AND l2.revoked_at IS NULL
             AND (l2.muted OR CASE WHEN ${reportsTurns(sql.raw("l2"))}
-              THEN l2.answered_through >= coalesce(
-                (SELECT max(t.sequence) FROM ${turns} t
-                 WHERE t.session_id = l2.session_id), 0)
+              THEN NOT EXISTS (
+                -- Past the mark with its report row not yet in. Unlike
+                -- advanceAnswered, an outcome_unknown turn with its failure
+                -- row counts as in: the session is closed, so nobody will
+                -- confirm it now.
+                SELECT 1 FROM ${turns} t
+                WHERE t.session_id = l2.session_id
+                  AND t.sequence > l2.answered_through
+                  AND t.status NOT IN (${STOPPED_TURNS})
+                  AND NOT (t.status IN (${ENDED_WITH_POST_TURNS}) AND (
+                    t.created_at < l2.created_at OR EXISTS (
+                      SELECT 1 FROM ${t} o
+                      WHERE o.dedupe_key = (CASE WHEN t.status = 'completed'
+                          THEN 'reply' ELSE 'failure' END)
+                        || ':' || l2.id || ':' || t.sequence
+                    )))
+              )
               ELSE NOT EXISTS (
                 SELECT 1 FROM ${turns} ot
                 WHERE ot.session_id = l2.session_id
