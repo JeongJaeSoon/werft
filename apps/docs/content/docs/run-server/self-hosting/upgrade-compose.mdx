@@ -211,7 +211,7 @@ migration `0337_conversation_records_deleted`가 `conversations`에 `records_del
 
 ### 비공개 채널의 옛 세션을 옮기는 릴리스
 
-migration은 없다. 비공개 Slack 채널에서 이 릴리스 전에 만든 세션은 공유 범위 줄이 없어 워크스페이스에 보인다. 운영자 명령 `private-channel-sessions.ts`가 그 세션을 `private_channel`로 옮긴다. 돌리기 전까지는 옛 세션은 워크스페이스에, 새 세션만 지금 채널 멤버에게 보인다.
+migration은 없다. 비공개 Slack 채널에서 이 릴리스 전에 만든 세션은 공유 범위 줄이 없어 범위 값이 `workspace`로 남는다. 운영자 명령 `private-channel-sessions.ts`가 그 범위를 `private_channel`로 옮긴다. 비공개 채널의 세션에 채널 확인을 먼저 거는 릴리스부터는 명령을 돌리기 전에도 그런 세션이 그 에이전트를 쓸 수 있는 지금 채널 멤버에게만 보이고, 명령은 남은 범위 값을 바로잡는다.
 
 - 돌리는 때: 비공개 채널에서 만든 사람이 범위를 `private`로 좁혀 둔 세션에도 채널 확인을 먼저 거는 릴리스에 올린 뒤에 돌린다. 그 전에 돌리면 그런 세션은 채널을 나간 만든 사람과 그 사람의 key에 계속 닿는다.
 - 먼저 `plan`으로 본다. 아무것도 바꾸지 않는다.

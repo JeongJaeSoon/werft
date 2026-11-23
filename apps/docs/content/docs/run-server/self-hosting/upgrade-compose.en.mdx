@@ -226,7 +226,7 @@ From this release model connections, MCP servers and repository GitHub App keys 
 <a id="비공개-채널의-옛-세션을-옮기는-릴리스" />
 ### The release that moves old private channel sessions
 
-There is no migration. Sessions made in a private Slack channel before this release have no share row and are visible to the workspace. The operator command `private-channel-sessions.ts` moves them to `private_channel`. Until it runs, the old sessions stay visible to the workspace and only new ones are limited to the channel's current members.
+There is no migration. Sessions made in a private Slack channel before this release have no share row, so their scope stays `workspace`. The operator command `private-channel-sessions.ts` moves that scope to `private_channel`. From the release that puts the channel check first on a private channel's sessions, such sessions are visible only to the channel's current members who can use the agent even before the command runs, and the command corrects the scope left behind.
 
 - When to run it: after upgrading to the release that also puts the channel check first on a private channel's sessions whose creator narrowed them to `private`. Run before that, such sessions stay reachable by a creator who left the channel and by that person's keys.
 - Look first with `plan`. It changes nothing.
