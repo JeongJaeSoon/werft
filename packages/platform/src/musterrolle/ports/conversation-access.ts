@@ -1,4 +1,4 @@
-import type { ConversationId } from "@werft-ai/contracts";
+import type { BindingListen, ConversationId } from "@werft-ai/contracts";
 
 /** Where a conversation is, and whose agent it belongs to. */
 export type ConversationPlaceFacts = { agentId: string } & (
@@ -6,8 +6,7 @@ export type ConversationPlaceFacts = { agentId: string } & (
   | { kind: "dm"; personUserId: string }
 );
 
-/** A channel binding's listening setting (design 14). */
-export type ConversationListening = "free" | "mention" | "off";
+export type ConversationListening = BindingListen;
 
 /**
  * What a conversation decision reads (design 9-3), each part from the store
