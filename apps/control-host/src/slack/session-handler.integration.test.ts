@@ -889,13 +889,11 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       email: `${other}@example.invalid`,
       displayName: "other",
     });
-    await db
-      .insert(schema.memberships)
-      .values({
-        workspaceId: fixture.workspaceId,
-        userId: other,
-        role: "member",
-      });
+    await db.insert(schema.memberships).values({
+      workspaceId: fixture.workspaceId,
+      userId: other,
+      role: "member",
+    });
     const [installation] = await db.select().from(slackInstallations);
     const [binding] = await db
       .select()
