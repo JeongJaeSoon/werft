@@ -4,7 +4,10 @@ import type { Principal, UsageDecision } from "@werft-ai/platform";
 import { and, arrayContains, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { lockActorAccount } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
-import { reachesBeforePublishNow } from "../musterrolle/index.ts";
+import {
+  behindPrivateChannel,
+  reachesBeforePublishNow,
+} from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentAdmins,
@@ -18,6 +21,7 @@ import {
   memberTeams,
   sessionShares,
   sessionShareTargets,
+  sessions,
   users,
 } from "../schema.ts";
 import { usageOf } from "../usage/index.ts";
@@ -576,6 +580,11 @@ export async function lockSessionReach(
     .where(eq(sessionShares.sessionId, session.id))
     .limit(1);
   const scope = share?.scope ?? "workspace";
+  const [door] = await tx
+    .select({ behind: behindPrivateChannel })
+    .from(sessions)
+    .where(eq(sessions.id, session.id))
+    .limit(1);
   const targets =
     scope === "people" || scope === "team"
       ? await tx
@@ -708,18 +717,22 @@ export async function lockSessionReach(
       agentId === null ||
       userId === null ||
       (await reachesBeforePublishNow(tx, workspaceId, userId, agentId)));
-  // Slack cannot be asked under the lock: a private channel's session is
-  // the policy's call, made just before for this person; never a key's.
+  const byScope =
+    owns ||
+    named ||
+    shareTeams.some((id) => memberOf.has(id)) ||
+    (scope === "workspace" && (!gated || inside));
+  // Slack cannot be asked under the lock: a private channel's door is the
+  // policy's call, made just before for this person; never a key's. Past
+  // it, the scope's own rule, as sessionVisibleTo has it.
   const sees =
-    scope === "private_channel"
+    door?.behind === true
       ? userId !== null &&
         apiKeyId === null &&
         requester.keyAgentId === null &&
-        requester.slackBotUserId === null
-      : owns ||
-        named ||
-        shareTeams.some((id) => memberOf.has(id)) ||
-        (scope === "workspace" && (!gated || inside));
+        requester.slackBotUserId === null &&
+        (scope === "private_channel" || byScope)
+      : byScope;
   if (!sees) return "not_found";
   if (answerer || directAdmin) return "ok";
   // The managing team's lead administers the agent, as administers() says.

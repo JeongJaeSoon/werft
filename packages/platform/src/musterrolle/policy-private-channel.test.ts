@@ -751,3 +751,75 @@ describe("a direct message about a private channel's session", () => {
     ).toBe(true);
   });
 });
+
+// 94S-2052, Architect: a channel no binding names is held private, and each
+// such decision leaves a warning to count them by.
+describe("a session from a channel of unknown kind", () => {
+  test("is behind the door and logged", async () => {
+    const warned: { message: string; fields?: unknown }[] = [];
+    const base = sessionsSeen();
+    const policy = createAuthorizationPolicy({
+      identity: plain,
+      agents,
+      sessions: {
+        ...base,
+        async privateChannels(ownerId, sessionId) {
+          return ((await base.privateChannels?.(ownerId, sessionId)) ?? []).map(
+            (place) => ({ ...place, kindUnknown: true as const }),
+          );
+        },
+      },
+      channelMembers: members().check,
+      logger: {
+        warn(message, fields) {
+          warned.push({ message, fields });
+        },
+      },
+    });
+    const ask = async (who: Person) => {
+      const caller = person(who);
+      return (
+        await policy.authorize({
+          subject: caller.subject,
+          action: "session.read",
+          resource: {
+            kind: "session",
+            id: PRIVATE_SESSION,
+            owner_scope: WORKSPACE,
+          },
+          request_id: caller.requestId,
+        })
+      ).reason_code;
+    };
+    expect(await ask("member")).toBe("ok");
+    expect(await ask("nonmember")).toBe("not_found");
+    expect(warned).toContainEqual({
+      message: "Channel kind unknown; held private",
+      fields: {
+        event: "session.private_channel.kind_unknown",
+        conversation_count: 1,
+      },
+    });
+  });
+});
+
+// Codex (94S-2052): behind the door the share is changed only by someone
+// who passes it.
+describe("a share change on a private channel's session", () => {
+  test("is not_found for its creator gone from the channel, role for a member who did not make it", async () => {
+    expect(
+      await reason(
+        person("requester"),
+        plain,
+        "session.share",
+        PRIVATE_SESSION,
+      ),
+    ).toBe("not_found");
+    expect(
+      await reason(person("member"), plain, "session.share", PRIVATE_SESSION),
+    ).toBe("role");
+    expect(
+      await reason(person("member"), plain, "session.share", OPEN_SESSION),
+    ).toBe("ok");
+  });
+});

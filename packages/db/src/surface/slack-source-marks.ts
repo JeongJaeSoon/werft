@@ -81,7 +81,9 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
         const inserted = await tx.execute(sql`
           INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at)
           VALUES (${key(mark)}, ${mark.at.toISOString()}::timestamptz)
-          ON CONFLICT DO NOTHING
+          ON CONFLICT (workspace_id, team_id, channel_id, ts) DO UPDATE
+            SET reason = 'slack_deleted', deleted_at = EXCLUDED.deleted_at
+            WHERE deleted_sources.reason = 'admin_deleted'
           RETURNING ts`);
         await tx.execute(sql`
           DELETE FROM edited_sources

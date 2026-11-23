@@ -174,7 +174,9 @@ services:
       AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
-      PLATFORM_SECRET_KEY: &local-secret-key ${PLATFORM_SECRET_KEY:-0000000000000000000000000000000000000000000000000000000000000001}
+      # Set but empty in the shell, no key goes here: a stack whose key is in
+      # PLATFORM_SECRET_KEY_FILE (scripts/local.sh empties it for one).
+      PLATFORM_SECRET_KEY: &local-secret-key ${PLATFORM_SECRET_KEY-0000000000000000000000000000000000000000000000000000000000000001}
     depends_on:
       localstack:
         condition: service_healthy

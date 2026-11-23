@@ -200,6 +200,15 @@ COMMIT;
 - 콘솔에서 만드는 연결과 MCP 서버는 key가 있어야 저장된다. 웹은 8자 이상을 넣기 전에 저장 버튼을 끄고, API는 key가 없거나 8바이트보다 짧거나 제어 문자·앞뒤 공백이 있으면 400으로 거절하며, DB는 값 없이 콘솔에서 만든 행을 같은 트랜잭션에서 거절한다. 외부 출처 연결을 저장형으로 바꾸던 콘솔의 "화면에서 키 넣기" 버튼과 `POST …/connections/{id}/convert` 경로는 없어졌다.
 - 위 0285 되돌리기 SQL은 이 릴리스 뒤에는 쓸 수 없다. `credential_source`는 `stored`만 허용된다.
 
+### 대화 기록의 관리자 삭제를 더하는 릴리스
+
+migration `0337_conversation_records_deleted`가 `conversations`에 `records_deleted_at`·`records_deleted_by_user_id`(nullable)를, `deleted_sources`에 `reason`(기본값 `slack_deleted`)을 더한다. 올릴 때 할 일은 없고, Slack과 세션의 동작은 그대로다.
+
+- 운영자 명령 `conversation-records.ts delete`가 들어온다([대화 기록의 관리자 삭제](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)). 부르지 않으면 아무것도 바뀌지 않는다.
+- 있던 삭제 표식은 모두 `slack_deleted`가 된다. 관리자 삭제가 다는 표식은 `admin_deleted`이고, 그 글이 나중에 Slack에서 지워지면 `slack_deleted`로 바뀐다. 검사는 둘을 똑같이 본다.
+- 칸은 nullable이거나 상수 기본값이라 표를 다시 쓰지 않는다. `conversations`의 CHECK·외래 키와 `deleted_sources`의 CHECK는 `NOT VALID`로 더한 뒤 따로 검증하므로 쓰기를 오래 막지 않는다.
+- 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 새 칸을 읽지 않고, 관리자 삭제가 단 표식도 Slack의 삭제 표식처럼 본다.
+
 ### 처리를 마친 Slack 이벤트의 옛 원문을 지우는 릴리스
 
 migration은 없다. migration 0308 전의 slack 역할은 이벤트 처리를 마쳐도 inbox 행에 원문(`payload`)을 남겼다. 운영자 명령 `slack-inbound-payloads.ts`가 그 원문을 지운다. 돌리기 전에는 그 원문이 남아 있을 뿐이고 동작은 같다.

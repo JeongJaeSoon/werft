@@ -241,6 +241,16 @@ docker compose --profile apps exec -T api bun run apps/control-host/src/api/slac
 - A cleared body does not come back. New rows reuse the freed space after autovacuum; the files do not shrink. The rollback floor stays at 0308.
 
 <a id="지운-slack-글이-든-세션을-멈추는-릴리스" />
+<a id="대화-기록의-관리자-삭제를-더하는-릴리스" />
+### The release that adds the admin delete of conversation records
+
+Migration `0337_conversation_records_deleted` adds `records_deleted_at` and `records_deleted_by_user_id` (nullable) to `conversations`, and `reason` (default `slack_deleted`) to `deleted_sources`. Nothing to do when upgrading, and Slack and sessions behave as before.
+
+- The operator command `conversation-records.ts delete` comes in ([admin delete of conversation records](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)). Nothing changes unless it is run.
+- Every existing delete mark becomes `slack_deleted`. A mark the admin delete makes is `admin_deleted`, and turns `slack_deleted` if Slack later deletes the message. Every check treats both alike.
+- The columns are nullable or take a constant default, so no table is rewritten. The CHECK and the foreign key on `conversations` and the CHECK on `deleted_sources` are added `NOT VALID` and validated separately, so writes are not blocked for long.
+- Rolling back to an image within the support window is fine. Older images do not read the new columns and treat a mark the admin delete made like a Slack delete mark.
+
 ### The release that stops sessions holding a deleted Slack message
 
 Migration `0333_source_deleted` adds `source_deleted_at` (timestamptz, nullable) to `sessions`. Nothing to do when upgrading. Sessions with no deleted message behave as before.
