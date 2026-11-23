@@ -100,6 +100,8 @@ clone・push・PR は、API が App キーで受け取った installation token 
 
 ## ユーザーがやること
 
+GitHub を使うには、まず管理者がエージェントの GitHub タブでリポジトリを選んで保存する。新しいエージェントは、保存するまでセッションに GitHub ツールがない。保存するときに push 承認の項目を変えなければ既定値(push 前の人の承認はオフ、付けたリポジトリへの push は許可)が保存され、エージェントは人の承認なしで push する。
+
 1. そのリポジトリの `repository_id` でセッションを作る([開始](/sessions/start))。
 2. 結果を[リクエスト](/approvals/request)し、[承認](/approvals/approve)する。リクエストが `pushed` になると、リポジトリに `agent/<session-id>` ブランチができる。
 3. PR を開く。`sessions:approve` が必要である。下の例は[リクエスト](/approvals/request)と[承認](/approvals/approve)の `sessionId` と `push`(HTTP API は `SID`、`PUSH_ID`)を使う。

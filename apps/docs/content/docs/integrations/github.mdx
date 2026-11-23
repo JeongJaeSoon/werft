@@ -96,6 +96,8 @@ clone·push·PR은 API가 App 키로 받은 설치 토큰을 쓴다. 발급이 �
 
 ## 사용자가 할 일
 
+GitHub를 쓰려면 먼저 관리자가 에이전트의 GitHub 탭에서 저장소를 골라 저장한다. 새 에이전트는 저장하기 전에는 세션에 GitHub 도구가 없다. 저장할 때 push 승인 칸을 바꾸지 않으면 기본값(push 전 사람 승인 꺼짐, 첨부 저장소 push 허용)이 저장되어, 에이전트는 사람 승인 없이 push한다.
+
 1. 그 저장소의 `repository_id`로 세션을 만든다([시작](/sessions/start)).
 2. 결과를 [요청](/approvals/request)하고 [승인](/approvals/approve)한다. 요청이 `pushed`가 되면 저장소에 `agent/<session-id>` 브랜치가 생긴다.
 3. PR을 연다. `sessions:approve`가 필요하다. 아래 예제는 [요청](/approvals/request)과 [승인](/approvals/approve)의 `sessionId`와 `push`(HTTP API는 `SID`, `PUSH_ID`)를 쓴다.
