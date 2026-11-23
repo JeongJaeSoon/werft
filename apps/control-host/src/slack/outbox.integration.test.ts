@@ -624,8 +624,10 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
     const [row, ...others] = await rows();
     expect(others).toEqual([]);
+    const [link] = await db.select().from(sessionLinks);
     expect(row).toMatchObject({
       kind: "reply",
+      sessionLinkId: link?.id,
       status: "sent",
       slackTs: posted()[0]?.ts,
       attempts: 1,
@@ -1142,6 +1144,27 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       status: "failed",
       errorCode: "not_addressed",
     });
+  });
+
+  test("a closed link's turns are not answered; once enqueued, a reply still goes", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    const close = (closedAt: Date | null) =>
+      db.update(sessionLinks).set({
+        closedAt,
+        closedReason: closedAt === null ? null : "completed",
+      });
+    await close(new Date());
+    expect(await outboxPass()).toMatchObject({ enqueued: 0, claimed: 0 });
+    expect(posted()).toEqual([]);
+
+    await close(null);
+    await outboxPass({ botToken: null });
+    await close(new Date());
+    expect(await outboxPass()).toMatchObject({ enqueued: 0, sent: 1 });
+    expect(posted()).toHaveLength(1);
   });
 
   test("a reply to a channel that is waiting for approval is not sent", async () => {

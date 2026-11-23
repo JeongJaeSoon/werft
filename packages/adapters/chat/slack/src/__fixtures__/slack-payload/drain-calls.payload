@@ -411,6 +411,7 @@
         "installationId": "installation-1",
         "kind": "failure_notice",
         "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+        "sessionLinkId": null,
         "slackAppId": "app-1",
         "slackUserId": null,
         "threadTs": "100.000100",

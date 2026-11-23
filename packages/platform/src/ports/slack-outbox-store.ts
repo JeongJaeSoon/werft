@@ -71,6 +71,11 @@ export type SlackOutboxEntry = {
   threadTs: string;
   /** The ephemeral's reader; set exactly for `notice`. */
   slackUserId: string | null;
+  /**
+   * The link whose thread the row reports to, fixed when it is enqueued;
+   * null for a row outside a linked thread.
+   */
+  sessionLinkId: string | null;
   /** The session the console link opens; null for a refusal. */
   sessionId: string | null;
   body: SlackOutboxBody;

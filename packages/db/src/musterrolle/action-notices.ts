@@ -84,6 +84,7 @@ async function enqueueNotice(
 ): Promise<"enqueued" | "duplicate" | "no_thread"> {
   const [link] = await tx
     .select({
+      id: sessionLinks.id,
       workspaceId: sessionLinks.workspaceId,
       agentId: sessionLinks.agentId,
       slackAppId: slackApps.id,
@@ -112,6 +113,7 @@ async function enqueueNotice(
         isNull(sessionLinks.revokedAt),
         eq(sessionLinks.muted, false),
         eq(sessionLinks.visibility, "full"),
+        isNull(sessionLinks.closedAt),
         ne(slackInstallations.status, "revoked"),
       ),
     )
@@ -131,6 +133,7 @@ async function enqueueNotice(
       threadTs: link.threadTs,
       slackUserId: null,
       sessionId: input.sessionId,
+      sessionLinkId: link.id,
       body: {
         text: actionNoticeText(link.locale, input.notice),
         ...(input.notice.url === undefined

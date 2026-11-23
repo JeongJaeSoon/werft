@@ -34,6 +34,7 @@ function rowOf(kind: SlackOutboxKind, channelId: string): SlackOutboxClaim {
     threadTs: kind === "model_notice" ? "" : "100.000100",
     slackUserId: null,
     sessionId: kind === "model_notice" ? "session-1" : null,
+    sessionLinkId: null,
     body: { text: "Done." },
     dedupeKey: `${kind}:${channelId}`,
   };

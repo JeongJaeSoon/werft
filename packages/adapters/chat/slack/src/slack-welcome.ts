@@ -52,6 +52,7 @@ export function deploymentWelcome(input: {
     threadTs: "",
     slackUserId: null,
     sessionId: null,
+    sessionLinkId: null,
     body: { text: slackWelcomeText(input.agentName) },
     dedupeKey: deploymentWelcomeKey(input.agentId, input.homeBindingId),
   };
