@@ -237,6 +237,19 @@ Migration `0320_session_parent_conversation` adds `sessions.parent_conversation_
 - The log `Parent conversations filled` records how many were filled. A session that could not be filled is logged as a warning with its id and tried again on the next start.
 - Rolling back to an image inside the support window is safe. Slack sessions made meanwhile have no parent until the next upgraded start fills them.
 
+<a id="턴과-outbox-줄에-출처-집합을-적는-릴리스" />
+### The release that records source sets on turns and outbox rows
+
+Migration `0321_source_sets` adds a source set column `sources` (jsonb, nullable) to `turns` and `slack_outbox`, with a GIN index on each (`turns_sources_idx`, `slack_outbox_sources_idx`). The upgrade needs nothing from you, and replies to Slack mentions and web or API sessions behave as before.
+
+- A source set records which Slack messages a turn came from, only as each message's place (team, channel, ts) and its input row id. It never holds text. The turn's own input is a direct source (`direct`); the messages earlier turns of the same session came from are inherited sources (`inherited`).
+- A turn made from a Slack message has that message as its direct source. Later turns of the same session (a turn carrying a park on, a push follow-up, an instruction sent from the web or the API) inherit the sources of the turns before them. Turns of web or API sessions with no Slack in them have none.
+- A turn's reply, its failure notice, its approval cards, the mirror of a web instruction and the notice that a send could not be confirmed carry the turn's sources as they are. Other notice rows have none.
+- One set lists up to 256 keys. Past that it keeps the first ones and says `overflow`.
+- Delete and edit marks (`deleted_sources`, `edited_sources`) of a message in a source set are not removed by the reconciler after 70 minutes.
+- This release only records sources. Nothing yet holds a reply back or stops a session because a source was deleted.
+- The columns are added with no default and the indexes are built `CONCURRENTLY`, so no table is rewritten and writes are not held for long. Existing turns and rows stay empty. Rolling back to an image inside the support window is fine. The older image does not read the column, and turns made meanwhile have no sources.
+
 <a id="slack-글을-입력-접수-표에-적는-릴리스" />
 ### The release that records Slack posts in the input table
 
