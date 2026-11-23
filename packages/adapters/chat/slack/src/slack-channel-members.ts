@@ -33,6 +33,20 @@ export type SlackMemberCheckUnconfirmed =
   | "overtaken"
   | "failed";
 
+/** A Slack account asked about directly, in a given install of the agent. */
+export type SlackMemberQuestion = Omit<ChannelMemberQuestion, "userId"> & {
+  installationId: string;
+  slackUserId: string;
+};
+
+export type SlackChannelMembers = ChannelMemberCheckable & {
+  /**
+   * membership for one Slack account rather than a Werft user: what a
+   * message addressed to that account would reach.
+   */
+  slackMembership(input: SlackMemberQuestion): Promise<ChannelMembership>;
+};
+
 function unconfirmedOf(error: unknown): SlackMemberCheckUnconfirmed {
   if (error instanceof SlackRateLimitedError) return "rate_limited";
   if (error instanceof SlackApiError) {
@@ -51,9 +65,22 @@ export function createSlackChannelMembers(deps: {
   slack: SlackChannelMemberApi;
   botToken(workspaceId: string, agentId: string): Promise<string | null>;
   logger: Pick<SlackInboxLogger, "warn">;
-}): ChannelMemberCheckable {
+}): SlackChannelMembers {
   async function membership(
     input: ChannelMemberQuestion,
+  ): Promise<ChannelMembership> {
+    let subject: { installationId: string; slackUserId: string } | null;
+    try {
+      subject = await deps.store.subject(input);
+    } catch {
+      return "unconfirmed";
+    }
+    if (subject === null) return "unconfirmed";
+    return slackMembership({ ...input, ...subject });
+  }
+
+  async function slackMembership(
+    input: SlackMemberQuestion,
   ): Promise<ChannelMembership> {
     const unconfirmed = (
       reason: SlackMemberCheckUnconfirmed,
@@ -72,14 +99,12 @@ export function createSlackChannelMembers(deps: {
     const of = (member: boolean): ChannelMembership =>
       member ? "member" : "not_member";
     try {
-      const subject = await deps.store.subject(input);
-      if (subject === null) return "unconfirmed";
       const read = await deps.store.cached(
-        subject.installationId,
+        input.installationId,
         input.channelId,
       );
       if (read.memberIds !== null) {
-        return of(read.memberIds.includes(subject.slackUserId));
+        return of(read.memberIds.includes(input.slackUserId));
       }
       const botToken = await deps.botToken(input.workspaceId, input.agentId);
       if (botToken === null) return unconfirmed("no_bot_token");
@@ -102,7 +127,7 @@ export function createSlackChannelMembers(deps: {
       // revoke): it answers nothing, and the next question reads again.
       if (
         !(await deps.store.remember(
-          subject.installationId,
+          input.installationId,
           input.channelId,
           [...members],
           read.checkedAt,
@@ -110,7 +135,7 @@ export function createSlackChannelMembers(deps: {
       ) {
         return unconfirmed("overtaken");
       }
-      return of(members.has(subject.slackUserId));
+      return of(members.has(input.slackUserId));
     } catch (error) {
       return unconfirmed(unconfirmedOf(error), error);
     }
@@ -120,6 +145,7 @@ export function createSlackChannelMembers(deps: {
       return (await membership(input)) === "member";
     },
     membership,
+    slackMembership,
   };
 }
 

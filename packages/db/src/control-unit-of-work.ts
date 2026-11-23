@@ -155,7 +155,7 @@ export async function stopExecution(
   session: SessionRow,
   input: {
     now: Date;
-    by: "terminate" | "execution revocation";
+    by: "terminate" | "execution revocation" | "source deletion";
     measure?: ControlStageMeasure;
   },
 ): Promise<{

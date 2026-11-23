@@ -1,5 +1,5 @@
 {
-  "id": "c7440b2e-0ae4-44ce-b12d-31454b496891",
+  "id": "665c0b23-1bdf-43da-843a-ccdbf43ab47d",
   "prevId": "b2c43d54-c7cf-43aa-aff7-882a88500b7a",
   "version": "7",
   "dialect": "postgresql",
@@ -5897,22 +5897,6 @@
           ],
           "isUnique": true,
           "where": "\"conversation_inputs\".\"client_message_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_inputs_mirror_due_idx": {
-          "name": "conversation_inputs_mirror_due_idx",
-          "columns": [
-            {
-              "expression": "received_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_inputs\".\"slack_mirror\" = 'pending' AND \"conversation_inputs\".\"slack_ts\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -15257,6 +15241,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "source_deleted_at": {
+          "name": "source_deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "restore_attempt_id": {
           "name": "restore_attempt_id",
           "type": "text",
@@ -17081,12 +17071,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
-        },
-        "input_id": {
-          "name": "input_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -17170,22 +17154,6 @@
           "method": "btree",
           "with": {}
         },
-        "slack_outbox_input_idx": {
-          "name": "slack_outbox_input_idx",
-          "columns": [
-            {
-              "expression": "input_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_outbox\".\"input_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "slack_outbox_uncertain_idx": {
           "name": "slack_outbox_uncertain_idx",
           "columns": [
@@ -17240,15 +17208,6 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "slack_outbox_input_fk": {
-          "name": "slack_outbox_input_fk",
-          "tableFrom": "slack_outbox",
-          "tableTo": "conversation_inputs",
-          "columnsFrom": ["input_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "slack_outbox_agent_fk": {
           "name": "slack_outbox_agent_fk",
           "tableFrom": "slack_outbox",
@@ -17277,13 +17236,9 @@
           "name": "slack_outbox_settle_claim_check",
           "value": "(\"slack_outbox\".\"settle_claim_token\" IS NULL) = (\"slack_outbox\".\"settle_lease_expires_at\" IS NULL)"
         },
-        "slack_outbox_input_check": {
-          "name": "slack_outbox_input_check",
-          "value": "(\"slack_outbox\".\"kind\" = 'input_mirror') = (\"slack_outbox\".\"input_id\" IS NOT NULL)"
-        },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",

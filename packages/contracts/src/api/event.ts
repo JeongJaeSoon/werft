@@ -62,6 +62,7 @@ export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
   "transcript_near_limit",
   "execution_revoked",
   "execution_restored",
+  "source_deleted",
   "recovery_decision",
   "transcript_limit_reached",
   "workspace_limit_mode",

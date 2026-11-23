@@ -22,5 +22,6 @@ export type {
   ArchivedEventCache,
 } from "./session-event-archives.ts";
 export { recordEvent, recordStatus } from "./session-events.ts";
+export { stopSessionsOnDeletedSource } from "./source-deletion.ts";
 export { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
 export { toolCallTotals, toolDescriptionsOf } from "./tool-calls.ts";

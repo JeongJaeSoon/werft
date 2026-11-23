@@ -6030,6 +6030,19 @@
                       "reason"
                     ],
                     "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "const": "SOURCE_DELETED"
+                      }
+                    },
+                    "required": [
+                      "code"
+                    ],
+                    "additionalProperties": false
                   }
                 ]
               },
@@ -58148,7 +58161,7 @@
             }
           },
           "409": {
-            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `REQUEST_STALE`: The request was made against state that has since moved on.\n- `SESSION_PAUSED`: The session is pausing or paused; resume it first.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.\n- `SESSION_STOPPED`: The session is stopping or stopped; resume it first.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request.",
+            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `REQUEST_STALE`: The request was made against state that has since moved on.\n- `SESSION_PAUSED`: The session is pausing or paused; resume it first.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.\n- `SESSION_STOPPED`: The session is stopping or stopped; resume it first.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request.\n- `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -58178,7 +58191,8 @@
                                 "SESSION_STOPPED",
                                 "RECOVERY_REQUIRED",
                                 "SESSION_CLOSED",
-                                "CHECKPOINT_UNAVAILABLE"
+                                "CHECKPOINT_UNAVAILABLE",
+                                "SOURCE_DELETED"
                               ]
                             }
                           }
@@ -59301,7 +59315,7 @@
             }
           },
           "409": {
-            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `SESSION_PAUSED`: The session is pausing or paused; resume it first.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.\n- `SESSION_STOPPED`: The session is stopping or stopped; resume it first.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).\n- `SESSION_CLOSING`: The session is closing; wait for the close receipt. A close that cannot finish returns the session to `active`.\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.\n- `TAKEOVER_REQUIRED`: The person who asked for the session was offboarded; it takes no input until an owner takes it over.\n- `SOURCE_DELETED`: The session holds a Slack message that was deleted in Slack, so it takes no new turn.",
+            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `SESSION_PAUSED`: The session is pausing or paused; resume it first.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.\n- `SESSION_STOPPED`: The session is stopping or stopped; resume it first.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`).\n- `SESSION_CLOSING`: The session is closing; wait for the close receipt. A close that cannot finish returns the session to `active`.\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.\n- `TAKEOVER_REQUIRED`: The person who asked for the session was offboarded; it takes no input until an owner takes it over.\n- `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -60868,7 +60882,7 @@
             }
           },
           "409": {
-            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `REQUEST_EXPIRED`: The pending request was already answered, expired or closed.\n- `REQUEST_STALE`: The request was made against state that has since moved on. The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on. A parked request can be answered whatever happened to the attempt that asked.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A parked request whose session has no checkpoint to resume from: the answer is not kept.",
+            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `REQUEST_EXPIRED`: The pending request was already answered, expired or closed.\n- `REQUEST_STALE`: The request was made against state that has since moved on. The attempt that asked is no longer the session's live attempt: it ended, lost its lease, or the turn moved on. A parked request can be answered whatever happened to the attempt that asked.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. A parked request whose session has no checkpoint to resume from: the answer is not kept.\n- `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left. A Slack message among the sources of one of the session's turns was deleted and its last turn has ended: the answer is not kept. While the turn still runs, its own question takes the answer.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -60894,7 +60908,8 @@
                                 "REQUEST_EXPIRED",
                                 "REQUEST_STALE",
                                 "RECOVERY_REQUIRED",
-                                "CHECKPOINT_UNAVAILABLE"
+                                "CHECKPOINT_UNAVAILABLE",
+                                "SOURCE_DELETED"
                               ]
                             }
                           }
@@ -68432,7 +68447,7 @@
             }
           },
           "409": {
-            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `REQUEST_STALE`: The request was made against state that has since moved on. The session is already active.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.\n- `SESSION_CLOSING`: The session is closing; wait for the close receipt. A close that cannot finish returns the session to `active`.\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The session is stopping or needs recovery, or a turn's outcome is unknown.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. The stopped or paused session has no restore point it can resume from.\n- `PAUSE_COMMITTING`: The pause has already committed its stop and can no longer be cancelled; wait for it, then resume.\n- `PENDING_REQUESTS_OPEN`: A request the parked turn waits on is neither answered nor expired yet. The session's parked turn still has a request that is neither answered nor expired: answer it, or wait for its `expires_at`. Its answer then resumes the session.",
+            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `REQUEST_STALE`: The request was made against state that has since moved on. The session is already active.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt.\n- `SESSION_CLOSING`: The session is closing; wait for the close receipt. A close that cannot finish returns the session to `active`.\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The session is stopping or needs recovery, or a turn's outcome is unknown.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. The stopped or paused session has no restore point it can resume from.\n- `PAUSE_COMMITTING`: The pause has already committed its stop and can no longer be cancelled; wait for it, then resume.\n- `PENDING_REQUESTS_OPEN`: A request the parked turn waits on is neither answered nor expired yet. The session's parked turn still has a request that is neither answered nor expired: answer it, or wait for its `expires_at`. Its answer then resumes the session.\n- `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left. A Slack message among the sources of one of the session's turns was deleted. The session cannot resume; close it.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -68463,7 +68478,8 @@
                                 "RECOVERY_REQUIRED",
                                 "CHECKPOINT_UNAVAILABLE",
                                 "PAUSE_COMMITTING",
-                                "PENDING_REQUESTS_OPEN"
+                                "PENDING_REQUESTS_OPEN",
+                                "SOURCE_DELETED"
                               ]
                             }
                           }
@@ -68858,7 +68874,7 @@
             }
           },
           "409": {
-            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `REQUEST_STALE`: The request was made against state that has since moved on. The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed` or `abandon` on a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.\n- `SESSION_PAUSED`: The session is pausing or paused; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.\n- `SESSION_STOPPED`: The session is stopping or stopped; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. `confirm_completed` with no committed checkpoint that reaches the target turn.",
+            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `REQUEST_STALE`: The request was made against state that has since moved on. The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed` or `abandon` on a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.\n- `SESSION_PAUSED`: The session is pausing or paused; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.\n- `SESSION_RESUMING`: The session is resuming; wait for the resume receipt. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.\n- `SESSION_STOPPED`: The session is stopping or stopped; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.\n- `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.\n- `SESSION_CLOSED`: The session is closed and accepts no further commands.\n- `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. `confirm_completed` with no committed checkpoint that reaches the target turn.\n- `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left. `start_fresh` or `retry_restore` on a session stopped because a source of one of its turns was deleted in Slack; `close` is the decision left.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -68888,7 +68904,8 @@
                                 "SESSION_STOPPED",
                                 "RECOVERY_REQUIRED",
                                 "SESSION_CLOSED",
-                                "CHECKPOINT_UNAVAILABLE"
+                                "CHECKPOINT_UNAVAILABLE",
+                                "SOURCE_DELETED"
                               ]
                             }
                           }
@@ -70696,7 +70713,7 @@
           "Members"
         ],
         "summary": "Disable a member of the workspace",
-        "description": "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover (a `private_channel` session's, for a current member of its channel). Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -72283,7 +72300,7 @@
           "Admin"
         ],
         "summary": "Become the requester of an offboarded member's session",
-        "description": "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. A `private_channel` session is taken over instead by a current member of its channel who may write to it, with no justification asked; anyone else, an owner included, gets 404. The body may be empty. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

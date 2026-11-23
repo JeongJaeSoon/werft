@@ -53,7 +53,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   TAKEOVER_REQUIRED:
     "요청한 분이 떠나 오너나 어드민이 이어받을 때까지 멈춥니다 — 워크스페이스 오너나 어드민에게 인수를 요청하세요.",
   SOURCE_DELETED:
-    "이 세션에는 Slack에서 삭제된 글이 들어 있어 새 메시지를 받지 않습니다 — 새 세션을 시작하세요.",
+    "이 세션이 참고한 Slack 글이 삭제되어 세션이 멈췄습니다. 메시지를 보내거나 다시 시작할 수 없고 닫기만 할 수 있습니다.",
   INVITE_EXPIRED:
     "초대가 회수됐거나 새 초대로 바뀌었거나 만료됐습니다 — 오너나 어드민에게 새 초대를 요청하세요.",
   INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
@@ -214,7 +214,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   TAKEOVER_REQUIRED:
     "The requester has left, so this waits until an owner or admin takes it over — ask a workspace owner or admin to take it over.",
   SOURCE_DELETED:
-    "This session holds a message that was deleted in Slack, so it takes no new messages — start a new session.",
+    "A Slack message this session drew on was deleted, so the session stopped. It can't take messages or resume; you can only close it.",
   INVITE_EXPIRED:
     "The invitation was revoked, replaced or has expired — ask an owner or admin for a new one.",
   INVITE_USED:
@@ -395,7 +395,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   TAKEOVER_REQUIRED:
     "依頼者が離れたため、オーナーかアドミンが引き継ぐまで止まります — ワークスペースのオーナーかアドミンに引き継ぎを依頼してください。",
   SOURCE_DELETED:
-    "このセッションには Slack で削除されたメッセージが含まれるため、新しいメッセージを受け付けません — 新しいセッションを始めてください。",
+    "このセッションが参照した Slack のメッセージが削除されたため、セッションは止まりました。メッセージの送信や再開はできず、閉じることだけができます。",
   INVITE_EXPIRED:
     "招待は取り消された、新しい招待に置き換わった、または期限切れです — オーナーかアドミンに新しい招待を依頼してください。",
   INVITE_USED: "すでに使われた招待です — ログイン画面に進んでください。",

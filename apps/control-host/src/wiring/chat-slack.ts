@@ -34,6 +34,7 @@ export {
   forgettingChannelsOnBindingPut,
   SLACK_API_URL,
   type SlackAppService,
+  type SlackChannelMembers,
   type SlackChannelSearchService,
   type SlackEventsService,
   type SlackInboundHandler,

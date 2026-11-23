@@ -3,10 +3,11 @@ import {
   type SourcePlace,
   sourceSetOf,
 } from "@werft-ai/platform";
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { lockSlackSourceMark } from "./source-mark-lock.ts";
+import { sourcesHoldPlace } from "./turn-sources.ts";
 
 const placeOrder = (place: SourcePlace) =>
   `${place.teamId}|${place.channelId}|${place.ts}`;
@@ -121,4 +122,17 @@ export async function lockedDeletedSource(
         channelId: deleted.channel_id,
         ts: deleted.ts,
       };
+}
+
+/**
+ * Whether a turn of the session has the deleted message among its sources,
+ * directly or inherited: lockedDeletedSource read the other way, from a
+ * deleted place to the sessions it stops. `session` names the sessions
+ * row's id column.
+ */
+export function sessionHoldsSource(session: SQL, place: SourcePlace): SQL {
+  return sql`EXISTS (
+    SELECT 1 FROM turns st
+    WHERE st.session_id = ${session} AND st.sources IS NOT NULL
+      AND ${sourcesHoldPlace(sql.raw("st.sources"), place)})`;
 }

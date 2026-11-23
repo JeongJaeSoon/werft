@@ -4042,6 +4042,7 @@ export const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
   },
@@ -4375,9 +4376,12 @@ export const API_ROUTE_DECLARATIONS = [
         "REQUEST_STALE",
         "RECOVERY_REQUIRED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
     errorNotes: {
+      SOURCE_DELETED:
+        "A Slack message among the sources of one of the session's turns was deleted and its last turn has ended: the answer is not kept. While the turn still runs, its own question takes the answer.",
       RECOVERY_REQUIRED:
         "A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.",
       CHECKPOINT_UNAVAILABLE:
@@ -5191,9 +5195,12 @@ export const API_ROUTE_DECLARATIONS = [
         "CHECKPOINT_UNAVAILABLE",
         "PAUSE_COMMITTING",
         "PENDING_REQUESTS_OPEN",
+        "SOURCE_DELETED",
       ],
     },
     errorNotes: {
+      SOURCE_DELETED:
+        "A Slack message among the sources of one of the session's turns was deleted. The session cannot resume; close it.",
       PENDING_REQUESTS_OPEN:
         "The session's parked turn still has a request that is neither answered nor expired: answer it, or wait for its `expires_at`. Its answer then resumes the session.",
       FORBIDDEN:
@@ -5235,6 +5242,8 @@ export const API_ROUTE_DECLARATIONS = [
     // 422: a legacy pod binding, as for terminate.
     errors: [...CONFLICTS, 413, 422, 503],
     errorNotes: {
+      SOURCE_DELETED:
+        "`start_fresh` or `retry_restore` on a session stopped because a source of one of its turns was deleted in Slack; `close` is the decision left.",
       FORBIDDEN:
         "Also when an operator revoked the session's execution authority.",
       NOT_FOUND: "Also when `target_turn_id` names no turn of the session.",
@@ -5263,6 +5272,7 @@ export const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
   },
@@ -5385,7 +5395,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Disable a member of the workspace",
     description:
-      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover (a `private_channel` session's, for a current member of its channel). Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
@@ -5473,7 +5483,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Admin",
     summary: "Become the requester of an offboarded member's session",
     description:
-      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. The body may be empty. API keys are refused.",
+      "The caller becomes the session's requester and its queued input runs again. A session shared with less than the whole workspace and not with the caller needs a `justification`, kept on the decision and the receipt; without one it answers 403 with `reason_code` `justification_required`. A `private_channel` session is taken over instead by a current member of its channel who may write to it, with no justification asked; anyone else, an owner included, gets 404. The body may be empty. API keys are refused.",
     auth: "session",
     body: "TakeOverSessionRequest",
     success: { status: 200, schema: "ReceiptAcceptedResponse" },

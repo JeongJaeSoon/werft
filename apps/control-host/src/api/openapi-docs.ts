@@ -187,7 +187,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   TAKEOVER_REQUIRED:
     "The person who asked for the session was offboarded; it takes no input until an owner takes it over.",
   SOURCE_DELETED:
-    "The session holds a Slack message that was deleted in Slack, so it takes no new turn.",
+    "A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left.",
   ALREADY_EXISTS:
     "A resource with the same identity already exists; the operation names which field must be unique.",
   INVITE_USED: "The invite was already accepted and cannot be used again.",
