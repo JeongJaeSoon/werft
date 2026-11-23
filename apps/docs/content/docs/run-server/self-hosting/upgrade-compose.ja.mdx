@@ -502,6 +502,15 @@ migration `0312_slack_source_marks` が新しいテーブル `deleted_sources` �
 - 捨てた理由 `message_subtype` で集計していたクエリは、編集・削除イベントがなくなった分だけ数が減る。リンクのプレビューのように人が編集していない `message_changed` は今までどおり捨てる。
 - テーブルを足すだけなので、サポート期間内のイメージに戻してもよい。前のイメージはこのテーブルを使わず、編集・削除イベントをまた捨てる。
 
+<a id="slack-스레드의-옛-link-unique를-지운-릴리스" />
+### Slack スレッドの古い link unique を削除したリリース
+
+migration `0336_session_link_old_uniques` が `session_links` の古い unique 二つ(`session_links_surface_ref_key`、`session_links_session_uniq`)を削除する。残る unique は閉じていない link だけを見る二つ(`session_links_open_surface_ref_uniq`、`session_links_open_session_uniq`)だ。スレッドとセッションごとに開いた link はこれまでどおり一つだけで、閉じた link はその横に履歴として残せる。アップグレード時にすることはなく、Slack スレッドの動作も変わらない。
+
+- **`v0.3.0` 以前のイメージには戻せない。** そのイメージは Slack スレッドの link を古い unique `(installation_id, surface_ref)` を指す `ON CONFLICT` で予約するので、この migration の後はその予約がエラーで終わり、スレッドにセッションができない。予約を開いた link だけの unique に移したリリース以降のイメージには戻してもよい。それより前に戻すときは、アップグレード前のバックアップから DB を復元する。
+- `v0.3.0` から直接上げると、migrate が終わってから古い slack ロールが止まるまで、そのロールが受けたスレッドの予約が失敗する。失敗したイベントはほかの予約の失敗と同じく再試行され、新しい slack ロールが処理する。
+- 行は変更しない。制約は表を読まない一文で削除し(短くロックを取る)、インデックスは `CONCURRENTLY` で削除する。どの文も再実行してよい。
+
 <a id="slack-스레드의-link-이력-칸을-더한-릴리스" />
 ### Slack スレッドの link 履歴の列を加えたリリース
 

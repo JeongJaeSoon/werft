@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0336_session_link_old_uniques`가 `session_links`의 옛 unique 둘(`session_links_surface_ref_key`, `session_links_session_uniq`)을 지운다. 이 릴리스를 올린 뒤에는 `v0.3.0` 이하의 이미지로 되돌릴 수 없다**(JeongJaeSoon/werft#2079). 따로 할 일은 없고, Slack 스레드의 동작은 그대로다.
+  - 남는 unique는 닫히지 않은 link만 보는 둘이다. 스레드와 세션마다 열린 link는 하나뿐이고, 닫힌 link는 그 옆에 이력으로 남을 수 있다. 이 릴리스에는 link를 닫는 길이 없다.
+  - `v0.3.0` 이하의 이미지는 옛 unique를 가리키는 `ON CONFLICT`로 스레드를 예약하므로, 되돌리면 Slack 스레드에 세션이 생기지 않는다. 열린 link만 보는 예약으로 옮긴 JeongJaeSoon/werft#2041부터의 이미지로는 되돌려도 된다. 더 앞으로 가야 하면 업그레이드 전 백업으로 DB를 복원한다.
+  - `v0.3.0`에서 바로 올리면 migrate가 끝난 뒤 옛 slack 역할이 내려갈 때까지 그 역할이 받은 스레드 예약이 실패하고, 그 이벤트는 다시 시도된다.
+  - 행은 고치지 않는다. 제약은 표를 읽지 않는 한 문장으로, 인덱스는 `CONCURRENTLY`로 지운다.
+
 - **migration 0308 전에 처리를 마친 Slack inbox 행에 남은 원문(`payload`)을 지우는 운영자 명령 `slack-inbound-payloads.ts`가 생긴다**(JeongJaeSoon/werft#2080). migration은 없다. 돌리기 전에는 그 원문이 남아 있을 뿐이고 동작은 같다.
   - **모든 slack 역할이 0308 이후 이미지로 돈 뒤에 한 번 돌린다.** 앞선 이미지의 slack 역할이 남아 있으면 처리한 행에 원문을 다시 남긴다.
   - api 컨테이너에서 `bun run apps/control-host/src/api/slack-inbound-payloads.ts`를 돌린다. 처리를 마친 행(`processed`)의 원문만 지우고, 처리 중인 행과 실패한 행(받은 지 7일 뒤 reconciler가 지운다)은 그대로다.
