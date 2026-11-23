@@ -63,19 +63,30 @@ async function dropBuffered(tx: Database, where: SQL): Promise<number> {
       RETURNING i.topic_id`),
   );
   if (gone.length === 0) return 0;
-  const topics = [...new Set(gone.map((row) => row.topic_id))];
+  // In one order, so two removals never wait on each other.
+  const topics = [...new Set(gone.map((row) => row.topic_id))].sort();
+  for (const topicId of topics) await dropTopicIfEmpty(tx, topicId);
+  return gone.length;
+}
+
+/**
+ * Removes a topic that has no input left. Two transactions emptying one
+ * topic take its lock in turn, so the later one judges it after the earlier
+ * one's rows are gone. A topic another transaction holds is left: it is
+ * taking an input, or will judge the topic itself.
+ */
+async function dropTopicIfEmpty(tx: Database, topicId: string) {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('conversation_topic_drop'), hashtext(${topicId}::text))`,
+  );
   await tx.execute(sql`
     DELETE FROM conversation_topics
     WHERE id IN (
       SELECT t.id FROM conversation_topics t
-      WHERE t.id IN (${sql.join(
-        topics.map((id) => sql`${id}::uuid`),
-        sql`, `,
-      )})
+      WHERE t.id = ${topicId}::uuid
         AND NOT EXISTS (
           SELECT 1 FROM conversation_inputs o WHERE o.topic_id = t.id)
       FOR UPDATE SKIP LOCKED)`);
-  return gone.length;
 }
 
 /**
@@ -168,17 +179,26 @@ export async function holdBufferedInput(
       LIMIT 1`),
   );
   // The topic was found or made for this message; one left with no input
-  // goes with it. The caller holds the topic's lock.
-  const dropEmptyTopic = () =>
-    tx.execute(sql`
-      DELETE FROM conversation_topics t
-      WHERE t.id = ${input.topicId}::uuid
-        AND NOT EXISTS (
-          SELECT 1 FROM conversation_inputs o WHERE o.topic_id = t.id)`);
+  // goes with it.
+  const dropEmptyTopic = () => dropTopicIfEmpty(tx, input.topicId);
   if (marked !== undefined) {
     await dropEmptyTopic();
     return "marked";
   }
+  // What stops the listening updates one of these rows: shared, they make
+  // that change wait for this hold, or this hold see it once committed, so
+  // its removal of the channel's buffer never misses the row held here.
+  await tx.execute(sql`
+    SELECT 1 FROM agents WHERE id = ${row.agentId}::uuid FOR SHARE`);
+  await tx.execute(sql`
+    SELECT 1 FROM surface_bindings
+    WHERE agent_id = ${row.agentId}::uuid AND surface = 'slack'
+      AND external_surface_id = ${input.channelId}
+    ORDER BY id FOR SHARE`);
+  await tx.execute(sql`
+    SELECT 1 FROM conversations c
+    JOIN conversation_topics t ON t.conversation_id = c.id
+    WHERE t.id = ${input.topicId}::uuid FOR SHARE OF c`);
   const held = rowsOf(
     await tx.execute(sql`
       INSERT INTO conversation_inputs (
