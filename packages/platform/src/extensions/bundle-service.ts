@@ -33,8 +33,8 @@ import {
 } from "./skill-checks.ts";
 
 /** A GitHub version as the sync hands it in; the checks are run here. */
-export type GitRegistration = Omit<GitVersionInput, "protection"> & {
-  protection?: Omit<NonNullable<GitVersionInput["protection"]>, "checks">;
+export type GitRegistration = Omit<GitVersionInput, "auto"> & {
+  auto?: Omit<NonNullable<GitVersionInput["auto"]>, "checks">;
 };
 
 /** Who may register, review and attach bundles; the web console and API routes say the same. */
@@ -172,23 +172,25 @@ export function createExtensionBundleService(deps: {
       }
       let git: GitVersionInput | undefined;
       if (input.git !== undefined) {
-        const { protection, ...rest } = input.git;
+        const { auto, ...rest } = input.git;
         git = rest;
-        if (protection !== undefined) {
+        if (auto !== undefined) {
           // Against what the reviewer's diff starts from; the write compares
-          // the baseline again under the lock.
+          // the baseline again under the lock. Content a version already
+          // holds is judged as that version.
+          const named = (await store.list(workspaceId)).filter(
+            (row) => row.name === bundle.slug,
+          );
           const baseline = checkBaseline(
-            (await store.list(workspaceId)).filter(
-              (row) => row.name === bundle.slug,
-            ),
-            null,
+            named,
+            named.find((row) => row.digest === bundle.digest)?.id ?? null,
           );
           const before =
             baseline === null
               ? null
               : await service.read(workspaceId, baseline.digest);
-          git.protection = {
-            ...protection,
+          git.auto = {
+            ...auto,
             checks: {
               baselineId: baseline?.id ?? null,
               findings: checkSkillVersion(

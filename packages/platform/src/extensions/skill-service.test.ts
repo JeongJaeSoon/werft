@@ -382,18 +382,11 @@ describe("the skill service", () => {
         trigger: { kind: "webhook", deliveryId: null, userId: null },
         checkedAt: new Date(0),
         leaseToken: "t",
-        protection: {
-          grantId: "g",
-          evidence: {
-            met: true,
-            rule: { kind: "ruleset", requiredReviews: 1 },
-            pullRequest: 1,
-          },
-        },
+        auto: { grantId: "g" },
       },
     });
     if (synced.outcome !== "registered") throw new Error(synced.outcome);
-    const held = registers.at(-1)?.git?.protection?.checks;
+    const held = registers.at(-1)?.git?.auto?.checks;
     const view = await service.files(web, synced.bundle.id);
     expect(held?.baselineId).toBe(first.version.id);
     expect(view.previous_approved?.id).toBe(first.version.id);
