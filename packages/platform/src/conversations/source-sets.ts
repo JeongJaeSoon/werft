@@ -93,7 +93,7 @@ export function storedSourceSet(set: SourceSet): StoredSourceSet | null {
 
 /**
  * Reads a stored column back. Null, and a value of no shape this reads, is
- * the empty set: a row from before 0322, or from a turn with no source.
+ * the empty set: a row from before 0323, or from a turn with no source.
  */
 export function sourceSetOf(stored: unknown): SourceSet {
   const parsed = storedSetSchema.safeParse(stored);

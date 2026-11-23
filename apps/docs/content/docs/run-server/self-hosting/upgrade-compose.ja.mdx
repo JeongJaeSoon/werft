@@ -240,7 +240,7 @@ migration `0320_session_parent_conversation` が `sessions.parent_conversation_i
 <a id="턴과-outbox-줄에-출처-집합을-적는-릴리스" />
 ### ターンと outbox の行に出典の集合を記録するリリース
 
-migration `0322_source_sets` が `turns` と `slack_outbox` に出典の集合の列 `sources`(jsonb、nullable)を追加し、それぞれに GIN インデックス(`turns_sources_idx`、`slack_outbox_sources_idx`)を作る。上げるときにすることはなく、Slack のメンションへの返答と Web・API のセッションの動作も変わらない。
+migration `0323_source_sets` が `turns` と `slack_outbox` に出典の集合の列 `sources`(jsonb、nullable)を追加し、それぞれに GIN インデックス(`turns_sources_idx`、`slack_outbox_sources_idx`)を作る。上げるときにすることはなく、Slack のメンションへの返答と Web・API のセッションの動作も変わらない。
 
 - 出典の集合は、そのターンがどの Slack メッセージから来たかを、メッセージの場所(team、チャンネル、ts)と入力受付の行の id だけで記録する。本文は含まない。そのターンの入力は直接の出典(`direct`)、同じセッションの前のターンが来たメッセージは引き継いだ出典(`inherited`)として分けて記録する。
 - Slack メッセージから生まれたターンは、そのメッセージを直接の出典に持つ。同じセッションの後のターン(続きのターン、push の後続ターン、Web・API から送った指示)は前のターンの出典を引き継ぐ。Slack と関係のない Web・API セッションのターンは空になる。
