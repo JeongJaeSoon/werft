@@ -12,6 +12,7 @@ import {
   type RequestBodyInvalidDetails,
   readyResponseSchema,
   SKILL_UPLOAD_BODY_MAX_BYTES,
+  type WebSessionId,
 } from "@werft-ai/contracts";
 import {
   isConnectionFailure,
@@ -570,6 +571,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       { kind: authenticated.webSession ? "web" : "api" },
       context.get("requestId"),
       authenticated.storedKey,
+      authenticated.webSession?.sessionId as WebSessionId | undefined,
     );
     if (missing) {
       logger.warn("API request refused for a missing scope", {

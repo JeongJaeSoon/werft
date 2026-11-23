@@ -17,6 +17,7 @@ import {
   type SessionScope,
   SLACK_SURFACE_ACTION_VALUES,
   scopesForRole,
+  type WebSessionId,
   WORKSPACE_MANAGER_ROLES,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -40,6 +41,8 @@ export type RecordedActor = {
   apiKeyKind?: DeciderKey["kind"] | null;
   /** The Slack link a person spoke through; a write re-reads it. */
   linkedAccount?: { id: string; revision: number };
+  /** The console login this request came in on; a write does not re-read it. */
+  webSessionId?: WebSessionId;
   /**
    * The allowed Slack bot whose mention this is, for `agentId`; no person.
    * A write re-reads the agent's allow list.
@@ -105,6 +108,7 @@ export function callerFor(
     issuerId?: string | null;
     kind?: DeciderKey["kind"];
   },
+  webSessionId?: WebSessionId,
 ): Caller {
   const userId =
     principal.kind === "user"
@@ -125,6 +129,7 @@ export function callerFor(
         principal.kind === "api_key" ? (storedKey?.issuerId ?? null) : null,
       apiKeyKind:
         principal.kind === "api_key" ? (storedKey?.kind ?? null) : null,
+      ...(webSessionId === undefined ? {} : { webSessionId }),
     },
     subject: {
       principal,

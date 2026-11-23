@@ -376,6 +376,8 @@ integration("tool call audit end to end", () => {
         "principal_id",
         "principal_kind",
         "record_version",
+        "requester_id",
+        "requester_kind",
         "session_id",
         "source",
         "surface",

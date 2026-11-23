@@ -226,6 +226,15 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
 
+<a id="턴에-요청자의-인증-근거를-남기는-릴리스" />
+### The release that records each turn's requester credential
+
+Migration `0315_turn_requester_auth` adds `turns.requester_auth` (jsonb) and `tool_call_audits.requester_kind` and `requester_id` (text). All three are nullable with no default, index or backfill, so no table is rewritten. Nothing needs doing for the upgrade.
+
+- From this release a new turn records the credential its requester came in on: the console login session id, the personal key id, the agent of an agent key, the Slack installation and linked account. It holds no key secret, no cookie and no Slack user id.
+- Older turns are left as they are. The turn read API shows them with `requester` null or `auth_method` null. The two `tool_call_audits` columns stay empty in this release.
+- Rolling back to an image inside the support window neither reads nor writes the new columns. Turns that image queues simply have no credential recorded.
+
 <a id="대화-층의-빈-표-셋을-더한-릴리스" />
 ### The release that adds three empty conversation tables
 
