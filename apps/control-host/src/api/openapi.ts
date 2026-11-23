@@ -4042,6 +4042,7 @@ export const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
   },
@@ -4375,9 +4376,12 @@ export const API_ROUTE_DECLARATIONS = [
         "REQUEST_STALE",
         "RECOVERY_REQUIRED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
     errorNotes: {
+      SOURCE_DELETED:
+        "A Slack message among the sources of one of the session's turns was deleted and its last turn has ended: the answer is not kept. While the turn still runs, its own question takes the answer.",
       RECOVERY_REQUIRED:
         "A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.",
       CHECKPOINT_UNAVAILABLE:
@@ -5191,9 +5195,12 @@ export const API_ROUTE_DECLARATIONS = [
         "CHECKPOINT_UNAVAILABLE",
         "PAUSE_COMMITTING",
         "PENDING_REQUESTS_OPEN",
+        "SOURCE_DELETED",
       ],
     },
     errorNotes: {
+      SOURCE_DELETED:
+        "A Slack message among the sources of one of the session's turns was deleted. The session cannot resume; close it.",
       PENDING_REQUESTS_OPEN:
         "The session's parked turn still has a request that is neither answered nor expired: answer it, or wait for its `expires_at`. Its answer then resumes the session.",
       FORBIDDEN:
@@ -5235,6 +5242,8 @@ export const API_ROUTE_DECLARATIONS = [
     // 422: a legacy pod binding, as for terminate.
     errors: [...CONFLICTS, 413, 422, 503],
     errorNotes: {
+      SOURCE_DELETED:
+        "`start_fresh` or `retry_restore` on a session stopped because a source of one of its turns was deleted in Slack; `close` is the decision left.",
       FORBIDDEN:
         "Also when an operator revoked the session's execution authority.",
       NOT_FOUND: "Also when `target_turn_id` names no turn of the session.",
@@ -5263,6 +5272,7 @@ export const API_ROUTE_DECLARATIONS = [
         "RECOVERY_REQUIRED",
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
+        "SOURCE_DELETED",
       ],
     },
   },

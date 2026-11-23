@@ -809,6 +809,7 @@ export function createPostgresSessionUnitOfWork(
             checkpointPendingReason: sessions.checkpointPendingReason,
             status: sessions.status,
             takeoverRequiredAt: sessions.takeoverRequiredAt,
+            sourceDeletedAt: sessions.sourceDeletedAt,
             agentReleaseId: sessions.agentReleaseId,
             runtimeSpec: sessions.runtimeSpec,
             model: sessions.model,
@@ -928,6 +929,11 @@ export function createPostgresSessionUnitOfWork(
         }
         if (session.takeoverRequiredAt !== null) {
           return { outcome: "awaiting_takeover" };
+        }
+        // Before the admission: a session stopped for a deleted source says
+        // why, whether it is pausing, paused or stopped by now.
+        if (session.sourceDeletedAt !== null) {
+          return { outcome: "source_deleted" };
         }
         if (session.admissionState !== "active") {
           return {
@@ -1932,6 +1938,9 @@ export function createPostgresSessionReader(
               row.pauseReason === "awaiting_input" ? row.pauseReason : null,
             pending_request_count: read.pendingCount,
             attention:
+              (row.sourceDeletedAt === null
+                ? null
+                : { code: "SOURCE_DELETED" as const }) ??
               (await drainAttention(tx, row)) ??
               (await contextGapAttention(tx, row)) ??
               startupFailedAttention(row) ??

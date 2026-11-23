@@ -224,6 +224,16 @@ From this release model connections, MCP servers and repository GitHub App keys 
 - The 0285 rollback SQL above no longer applies after this release: `credential_source` allows `stored` only.
 
 <a id="쓰지-않는-표-셋을-지운-릴리스" />
+### The release that stops sessions holding a deleted Slack message
+
+Migration `0330_source_deleted` adds `source_deleted_at` (timestamptz, nullable) to `sessions`. Nothing to do when upgrading. Sessions with no deleted message behave as before.
+
+- When a Slack message is deleted (including the tombstone of a parent with replies), every open session with a turn that has that message among its sources stops, whether the turn holds it directly or inherited it from an earlier turn. An edit stops nothing.
+- A running turn is not cut. The worker finishes it, leaves a checkpoint as for a pause, and goes; the session ends `paused`. Queued input is not sent. This pause's receipt has no `actor`, since no person asked for it.
+- A stopped session reads `attention.code: SOURCE_DELETED` on `GET /v1/sessions/{id}`. Sending a message, resuming, and the recovery decisions `start_fresh` and `retry_restore` are refused with `409 SOURCE_DELETED`. Only close works.
+- Why it stopped is recorded as a `system` event `source_deleted` on the session's event stream, with the deleted message's place and the admission it moved to. Closed sessions are left alone.
+- The column is added without a default, so the table is not rewritten. Rolling back to an image within the support window is fine; an older image does not read the column, so a stopped session can be resumed again.
+
 ### The release that drops three unused tables
 
 Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_workspace_map` and `push_continuations` tables with their rows. No release since `v0.1.0` reads or writes the first two, and the last release that used `push_continuations` is `v0.1.1`. Rolling back to an image inside the support window is therefore unaffected.

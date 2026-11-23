@@ -183,6 +183,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 | `STARTUP_FAILED`, `RESTORE_FAILED` | worker가 시작하거나 checkpoint를 복원하지 못한다 |
 | `CATALOG_MISMATCH` | 세션을 만든 뒤 세션의 연결이 꺼졌거나, 모델이 연결 목록에서 빠졌거나, 저장소 설정이 바뀌었다 |
 | `CONTEXT_GAP` | 복구 결정으로 이전 대화의 일부가 빠졌다 |
+| `SOURCE_DELETED` | 세션의 턴이 출처로 가진 Slack 글이 삭제되어 세션이 멈췄다. 메시지와 재개는 `409 SOURCE_DELETED`로 거절되고 닫기만 된다. 다른 attention보다 앞선다 |
 
 ## 사용량
 

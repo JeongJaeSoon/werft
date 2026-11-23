@@ -411,6 +411,7 @@ export function decideRecoveryAtomic(
       checkpoint_revision: reset === null ? restoreBaseRevision(after) : null,
       resumable:
         after.admissionState === "stopped" &&
+        after.sourceDeletedAt === null &&
         (await resumableFromStopped(tx, after)),
     };
     // Every control decision leaves its audit record on the session's event
@@ -503,6 +504,7 @@ async function startFresh(
   if (session.executionRevokedAt !== null) {
     return { outcome: "execution_revoked" };
   }
+  if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
   const unknown = await earliestUnknownTurn(tx, session.id);
   if (unknown !== null) {
     return { outcome: "unknown_turn_left", turnId: unknown };
@@ -593,6 +595,7 @@ async function retryRestore(
   if (session.executionRevokedAt !== null) {
     return { outcome: "execution_revoked" };
   }
+  if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
   const unknown = await earliestUnknownTurn(tx, session.id);
   if (unknown !== null) {
     return { outcome: "unknown_turn_left", turnId: unknown };
@@ -874,6 +877,8 @@ export function resumeAtomic(
     if (session.executionRevokedAt !== null) {
       return { outcome: "execution_revoked" };
     }
+    // Stopped for a deleted source: nothing brings it back, close ends it.
+    if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
     // stopping: the kill is not yet observed. recovery_required: a turn is
     // unknown. Both are RECOVERY_REQUIRED to the caller.
     if (

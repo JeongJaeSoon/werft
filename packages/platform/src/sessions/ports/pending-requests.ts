@@ -52,6 +52,10 @@ export type AnswerRequestResult =
   // answer is kept, so the resume it may start never mounts a volume being
   // removed. The same request goes through once the claim settles.
   | { outcome: "workspace_reclaiming" }
+  // A deleted source stopped the session and its turn has ended: no turn is
+  // left to take the answer. While it still drains (pausing), the turn that
+  // asked may finish, so its answer is taken.
+  | { outcome: "source_deleted" }
   // Re-judged inside the write: the requester is gone, or no longer answers
   // for this session.
   | { outcome: "actor_inactive" | "role" };

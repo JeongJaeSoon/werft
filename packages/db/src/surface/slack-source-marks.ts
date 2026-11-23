@@ -5,6 +5,7 @@ import {
   sourceSetHoldsMark,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
+import { stopSessionsOnDeletedSource } from "../sessions/index.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 /**
@@ -67,8 +68,8 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
   const key = (mark: SlackSourceMark) =>
     sql`${mark.workspaceId}::uuid, ${mark.teamId}, ${mark.channelId}, ${mark.ts}`;
   return {
-    markDeleted(mark) {
-      return db.transaction(async (tx) => {
+    async markDeleted(mark) {
+      const recorded = await db.transaction(async (tx) => {
         await tx.execute(lockSlackSourceMark(mark));
         const inserted = await tx.execute(sql`
           INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at)
@@ -81,6 +82,12 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
         await dropChannelSummaryLinesOf(tx, mark);
         return rowsOf(inserted).length > 0 ? "recorded" : "duplicate";
       });
+      // After the mark commits, each session in its own transaction under
+      // the control lock order (launch, then session), never inside the
+      // mark lock. A redelivered delete reaches here as a duplicate and
+      // stops whatever a failure left running.
+      await stopSessionsOnDeletedSource(db, mark);
+      return recorded;
     },
     markEdited(mark) {
       return db.transaction(async (tx) => {

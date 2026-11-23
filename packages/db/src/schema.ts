@@ -1693,6 +1693,12 @@ export const sessions = pgTable(
       withTimezone: true,
     }),
     executionRevokedReason: text("execution_revoked_reason"),
+    // A Slack message among the sources of one of the session's turns was
+    // deleted (stopOnDeletedSource). Like executionRevokedAt it is apart
+    // from admission_state: the session stops, and resume, start_fresh and
+    // every new message refuse while it is set. Nothing clears it; a close
+    // ends the session.
+    sourceDeletedAt: timestamp("source_deleted_at", { withTimezone: true }),
     // Startups that failed before their worker was ready for input: a
     // restore not reported ready, or any claim that never asked
     // for input. The attempt is the one claimed and not yet ready

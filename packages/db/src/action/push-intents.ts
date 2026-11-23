@@ -216,6 +216,7 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
                 and(
                   eq(sessions.admissionState, "active"),
                   isNull(sessions.takeoverRequiredAt),
+                  isNull(sessions.sourceDeletedAt),
                 ),
               ),
             ),
@@ -360,13 +361,18 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
           .select({
             admission: sessions.admissionState,
             takeover: sessions.takeoverRequiredAt,
+            sourceDeleted: sessions.sourceDeletedAt,
           })
           .from(sessions)
           .where(eq(sessions.id, job.sessionId));
         if (held === undefined || held.admission === "closed") {
           return end("cancelled", "session_closed");
         }
-        if (held.admission !== "active" || held.takeover !== null) {
+        if (
+          held.admission !== "active" ||
+          held.takeover !== null ||
+          held.sourceDeleted !== null
+        ) {
           await tx
             .update(pushIntents)
             .set({ claimToken: null, leaseExpiresAt: null })

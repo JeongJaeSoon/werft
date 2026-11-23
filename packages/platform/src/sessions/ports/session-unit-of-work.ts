@@ -203,7 +203,8 @@ export type AppendMessageResult =
   | { outcome: "pin_required" }
   /**
    * The turn would carry a Slack message that was deleted: the input's own,
-   * or one an earlier turn of the session came from. Nothing is recorded.
+   * or one an earlier turn of the session came from, which also stopped the
+   * session (source_deleted_at). Nothing is recorded.
    */
   | { outcome: "source_deleted" }
   | InputLimitRefusal;
