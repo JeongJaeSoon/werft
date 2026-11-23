@@ -209,17 +209,10 @@ describe("reading a skill from GitHub with the App's installation", () => {
   });
 });
 
-describe("reading what GitHub shows about a skill's branch, for auto-approve", () => {
+describe("whether a skill's ref is a branch, for auto-approve", () => {
   let guarded: number;
   let commit = "";
-  const author = {
-    contents: "write",
-    metadata: "read",
-    pull_requests: "write",
-  } as const;
-  afterAll(() => github.setPermissions(undefined));
   beforeAll(async () => {
-    github.setPermissions({ ...author, administration: "read" });
     await github.createRepository("acme", "guarded", {
       "skills/review/SKILL.md": "---\nname: review\n---\nReview.\n",
     });
@@ -234,184 +227,38 @@ describe("reading what GitHub shows about a skill's branch, for auto-approve", (
         )
       )?.id ?? 0;
   });
-  const protection = (ref: string, at: string | null) =>
-    createGitHubSkillReader({ retryAfterBaseMs: 1 }).protection(
+  const isBranch = (ref: string) =>
+    createGitHubSkillReader({ retryAfterBaseMs: 1 }).isBranch(
       app(),
       INSTALLATION,
       guarded,
       ref,
-      at,
     );
-  let body = 0;
-  const pushed = () =>
-    github.writeFiles("acme", "guarded", "main", {
-      "skills/review/SKILL.md": `---\nname: review\n---\nReview ${++body}.\n`,
-    });
 
-  test("no rule is protection_missing; a ruleset, or classic protection read with administration, is the rule", async () => {
-    expect(await protection("main", null)).toEqual({
-      met: false,
-      reason: "protection_missing",
-    });
-    github.setBranchRule("acme", "guarded", "main", "ruleset", 2);
-    expect(await protection("main", null)).toEqual({
-      met: true,
-      rule: { kind: "ruleset", requiredReviews: 2 },
-      pullRequest: null,
-    });
-    github.setBranchRule("acme", "guarded", "main", "ruleset", null);
-    github.setBranchRule("acme", "guarded", "main", "branch_protection", 1);
-    expect(await protection("refs/heads/main", null)).toEqual({
-      met: true,
-      rule: { kind: "branch_protection", requiredReviews: 1 },
-      pullRequest: null,
-    });
-    // The author App's own permissions: classic protection answers 403.
-    github.setPermissions(author);
-    try {
-      expect(await protection("main", null)).toEqual({
-        met: false,
-        reason: "protection_missing",
-      });
-    } finally {
-      github.setPermissions({ ...author, administration: "read" });
-      github.setBranchRule(
-        "acme",
-        "guarded",
-        "main",
-        "branch_protection",
-        null,
-      );
-    }
+  test("a branch is, by its short or its full name, whatever rules it has", async () => {
+    expect(await isBranch("main")).toBe(true);
+    expect(await isBranch("refs/heads/main")).toBe(true);
+    expect(
+      github.apiRequests.filter((one) =>
+        /\/(rules|protection|pulls|reviews)\b/.test(one.path),
+      ),
+    ).toEqual([]);
   });
 
-  test("a tag, a commit, a missing branch, or a short name a tag also has is not a branch", async () => {
-    github.setBranchRule("acme", "guarded", "main", "ruleset", 1);
-    github.setBranchRule("acme", "guarded", "release", "ruleset", 1);
+  test("a tag, a commit, a missing branch, or a short name a tag also has is not", async () => {
     await github.setRef("acme", "guarded", "refs/tags/v1", commit);
     await github.setRef("acme", "guarded", "refs/heads/release", commit);
     await github.setRef("acme", "guarded", "refs/tags/release", commit);
     for (const ref of ["v1", "refs/tags/v1", commit, "gone", "release"]) {
-      for (const at of [commit, null]) {
-        expect(await protection(ref, at)).toEqual({
-          met: false,
-          reason: "not_branch",
-        });
-      }
+      expect(await isBranch(ref)).toBe(false);
     }
-    expect(await protection("refs/heads/release", null)).toMatchObject({
-      met: true,
-    });
+    expect(await isBranch("refs/heads/release")).toBe(true);
   });
 
-  test("the commit needs a merged pull request whose reviewers' last reviews approve, not only its author's", async () => {
-    github.setBranchRule("acme", "guarded", "main", "ruleset", 1);
-    const pending = { met: false, reason: "no_reviewed_pull_request" } as const;
-    const direct = await pushed();
-    expect(await protection("main", direct)).toEqual(pending);
-
-    const merged = async (
-      reviews: {
-        userId: number;
-        state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED";
-      }[],
-      base = "main",
-    ) => {
-      const at = await pushed();
-      const number = github.addMergedPull("acme", "guarded", {
-        base,
-        commit: at,
-        authorId: 7,
-        reviews,
-      });
-      return { at, number };
-    };
-    for (const reviews of [
-      [],
-      [{ userId: 7, state: "APPROVED" as const }],
-      [
-        { userId: 8, state: "APPROVED" as const },
-        { userId: 9, state: "CHANGES_REQUESTED" as const },
-      ],
-      [
-        { userId: 8, state: "APPROVED" as const },
-        { userId: 8, state: "DISMISSED" as const },
-      ],
-    ]) {
-      const { at } = await merged(reviews);
-      expect(await protection("main", at)).toEqual(pending);
-    }
-    const elsewhere = await merged(
-      [{ userId: 8, state: "APPROVED" }],
-      "release",
-    );
-    expect(await protection("main", elsewhere.at)).toEqual(pending);
-
-    const changed = await merged([
-      { userId: 9, state: "CHANGES_REQUESTED" },
-      { userId: 9, state: "APPROVED" },
-      { userId: 8, state: "COMMENTED" },
-    ]);
-    expect(await protection("main", changed.at)).toEqual({
-      met: true,
-      rule: { kind: "ruleset", requiredReviews: 1 },
-      pullRequest: changed.number,
-    });
-
-    const long = await merged([
-      ...Array.from({ length: 150 }, () => ({
-        userId: 10,
-        state: "COMMENTED" as const,
-      })),
-      { userId: 8, state: "APPROVED" },
-    ]);
-    expect(await protection("refs/heads/main", long.at)).toMatchObject({
-      met: true,
-      pullRequest: long.number,
-    });
-
-    // More reviews than are read: one past the last page could request changes.
-    const unread = await merged([
-      { userId: 8, state: "APPROVED" },
-      ...Array.from({ length: 999 }, () => ({
-        userId: 10,
-        state: "COMMENTED" as const,
-      })),
-      { userId: 9, state: "CHANGES_REQUESTED" },
-    ]);
-    expect(await protection("main", unread.at)).toEqual(pending);
-
-    // A later page that cannot be read is not the end of the list.
-    const lost = await merged([
-      { userId: 8, state: "APPROVED" },
-      ...Array.from({ length: 99 }, () => ({
-        userId: 10,
-        state: "COMMENTED" as const,
-      })),
-      { userId: 9, state: "CHANGES_REQUESTED" },
-    ]);
-    github.failNext(1, 404, /\/reviews\?(.*&)?page=2(&|$)/);
-    try {
-      expect(await protection("main", lost.at)).toEqual(pending);
-      expect(
-        github.apiRequests.filter(
-          (one) =>
-            one.path.includes(`/pulls/${lost.number}/reviews`) &&
-            /[?&]page=2(&|$)/.test(one.path),
-        ),
-      ).toMatchObject([{ status: 404 }]);
-    } finally {
-      github.failNext(0, 500);
-    }
-  });
-
-  test("GitHub failing is a check error, never a pass or a missing rule", async () => {
-    github.setBranchRule("acme", "guarded", "main", "ruleset", 1);
+  test("GitHub failing is a check error, never an answer", async () => {
     github.failNext(20, 500);
     try {
-      const error = await protection("main", null).catch(
-        (caught: unknown) => caught,
-      );
+      const error = await isBranch("main").catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(GitHubAppCheckError);
     } finally {
       github.failNext(0, 500);

@@ -5,7 +5,6 @@ import type { ExtensionMode } from "../resolve.ts";
 import type {
   SkillGitLocation,
   SkillGitSource,
-  SkillProtectionEvidence,
   SkillSyncTrigger,
 } from "./skill-git-source-store.ts";
 
@@ -27,18 +26,18 @@ export type GitVersionInput = {
   /** The sync's lease token; a check that lost its lease writes nothing. */
   leaseToken?: string;
   /**
-   * What GitHub showed about the commit, read for a source whose
-   * auto-approve was on, with the source's `grantId` then. It approves the
-   * version only when sync and auto-approve are still on with that same
-   * grant (no off, pause or resume since), under the source row's lock.
+   * Set for a source whose auto-approve was on when the check read it, with
+   * the source's `grantId` then. The version this content is (a new one,
+   * or one still `pending`) is approved only when sync and auto-approve
+   * are still on with that same grant (no off, pause or resume since),
+   * under the source row's lock.
    */
-  protection?: {
+  auto?: {
     grantId: string;
-    evidence: SkillProtectionEvidence;
     /**
-     * The fixed-rule checks of the tree against `baselineId`, the name's
-     * highest approved version when they ran (null: none). Any finding, or
-     * another highest approved version under the lock, leaves it `pending`.
+     * The fixed-rule checks of the tree against `baselineId`, the approved
+     * version before it when they ran (null: none). Any finding, or another
+     * approved version before it under the lock, leaves it `pending`.
      */
     checks: { baselineId: string | null; findings: SkillCheckFinding[] };
   };

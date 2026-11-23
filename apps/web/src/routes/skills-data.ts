@@ -149,11 +149,6 @@ export const CHECK_RULE_WHY = {
 } as const satisfies Record<SkillCheckRule, MessageKey>;
 
 export const AUTO_APPROVAL_REASON = {
-  not_branch: "skills.sync.autoApproval.reason.not_branch",
-  protection_missing: "skills.sync.autoApproval.reason.protection_missing",
-  no_reviewed_pull_request:
-    "skills.sync.autoApproval.reason.no_reviewed_pull_request",
-  github_unreachable: "skills.sync.autoApproval.reason.github_unreachable",
   checks_failed: "skills.sync.autoApproval.reason.checks_failed",
   baseline_changed: "skills.sync.autoApproval.reason.baseline_changed",
 } as const satisfies Record<SkillAutoApprovalReason, MessageKey>;
@@ -169,6 +164,7 @@ const REFUSALS = {
   connection_not_found: "skills.refused.connection_not_found",
   repository_not_installed: "skills.refused.repository_not_installed",
   path_not_found: "skills.refused.path_not_found",
+  not_branch: "skills.refused.not_branch",
   github_unreachable: "skills.refused.github_unreachable",
   github_rejected: "skills.refused.github_rejected",
   not_approved: "skills.refused.not_approved",
