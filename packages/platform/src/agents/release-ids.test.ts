@@ -11,11 +11,9 @@ import {
   assertReleaseIdentity,
   cardContentSha256,
   deriveReleaseId,
-  movedPermissionMode,
   type ReleaseIdentity,
   ReleaseIdentityError,
   type ReleaseRun,
-  releasePermissionMode,
   resolveReleaseContent,
 } from "./release-ids.ts";
 
@@ -43,7 +41,6 @@ const run: ReleaseRun = {
   }),
   runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
   tools: ["Read", "Grep", "Edit", "Bash"],
-  permission_mode: "default",
   project_settings: { claude_md: false },
 };
 
@@ -227,7 +224,7 @@ describe("resolveReleaseContent", () => {
     expect(identity.runtime_config_snapshot).toEqual({
       model: "claude-sonnet-5",
       tools: ["Read", "Grep", "Edit", "Bash"],
-      permission_mode: "default",
+      permission_mode: "auto",
       provider: { kind: "litellm", endpoint: "https://litellm.invalid" },
       runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
       language: "ko",
@@ -275,7 +272,6 @@ describe("resolveReleaseContent", () => {
     ] as const) {
       const auto: ReleaseRun = {
         ...run,
-        permission_mode: "auto",
         connection: {
           ...run.connection,
           provider: providerOf(kind),
@@ -286,59 +282,11 @@ describe("resolveReleaseContent", () => {
         identityOf({ ...card, model }, auto).runtime_config_snapshot
           .permission_mode,
       ).toBe(mode);
-      expect(releasePermissionMode(auto, model)).toBe(mode);
     }
-    // A run that is not `auto` keeps its mode on any model.
-    expect(releasePermissionMode(run, "claude-sonnet-5")).toBe("default");
-  });
-
-  test("a session's model move decides the mode again only where the model decided it", () => {
-    const source = {
-      runtime: { kind: "claude_agent_sdk" as const, version: "0.3.270" },
-      connection: {
-        id: "conn-1",
-        kind: "litellm" as const,
-        endpoint: "https://litellm.invalid",
-        billing: "per_token" as const,
-      },
-    };
-    // From the model: auto on a Claude model, default on another.
-    expect(
-      movedPermissionMode(
-        { ...source, model: "claude-sonnet-5", permission_mode: "auto" },
-        "gpt-5",
-      ),
-    ).toBe("default");
-    expect(
-      movedPermissionMode(
-        { ...source, model: "gpt-5", permission_mode: "default" },
-        "claude-sonnet-5",
-      ),
-    ).toBe("auto");
-    // `default` on a Claude model was pinned, not decided: it stays.
-    expect(
-      movedPermissionMode(
-        { ...source, model: "claude-sonnet-5", permission_mode: "default" },
-        "claude-opus-5",
-      ),
-    ).toBe("default");
-    // Another runtime never runs auto.
-    expect(
-      movedPermissionMode(
-        {
-          runtime: { kind: "codex_app_server", version: "0.167.0" },
-          connection: { ...source.connection, kind: "openai_responses" },
-          model: "gpt-5",
-          permission_mode: "default",
-        },
-        "claude-sonnet-5",
-      ),
-    ).toBe("default");
   });
 
   test("a changed run is a different release; a rotated credential is not", () => {
     for (const edited of [
-      { ...run, permission_mode: "auto" as const },
       { ...run, runtime: { ...run.runtime, version: "0.3.271" } },
       { ...run, project_settings: { claude_md: true } },
       {

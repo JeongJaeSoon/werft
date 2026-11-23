@@ -58,6 +58,41 @@ describe("sessionPinFromRelease", () => {
     expect(release.spec_source.model).toBe("sonnet-5-0");
   });
 
+  // Before: a release made with `default` on a Claude model kept it through
+  // a move. After: the moved pin records the mode its new model runs.
+  test.each([
+    [
+      "an old Claude release",
+      { kind: "anthropic", model: "claude-sonnet-5" },
+      "claude-opus-5",
+      "auto",
+    ],
+    [
+      "a non-Claude litellm release",
+      { kind: "litellm", model: "gpt-5" },
+      "gpt-5-mini",
+      "default",
+    ],
+    [
+      "a litellm release moving onto Claude",
+      { kind: "litellm", model: "gpt-5" },
+      "claude-sonnet-5",
+      "auto",
+    ],
+  ] as const)(
+    "%s moves to the mode its new model runs",
+    (_name, from, model, mode) => {
+      const release = stored({
+        connection: { ...source.connection, kind: from.kind },
+        model: from.model,
+        permission_mode: "default",
+      });
+      expect(
+        sessionPinFromRelease(release, model)?.specSource.permission_mode,
+      ).toBe(mode);
+    },
+  );
+
   test("leaves a session unpinned when the release has no verified spec", () => {
     const empty = {
       spec_source: null,

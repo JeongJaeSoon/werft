@@ -23,11 +23,19 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 봇이 빠진 채널은 멤버 목록을 읽지 못해 `members_unconfirmed: true`이고, 옮기면 모두에게 숨는다. 남길 채널이면 명령 전에 봇을 다시 초대한다.
   - 전환: Slack이 채널에 올리는 `channel_convert_to_private`·`channel_convert_to_public` 글(본문은 남기지 않는다)을 받으면 binding과 그 채널의 세션을 한 transaction에서 옮긴다. 글이 늦게 올 수 있어서, 글이 말하는 종류가 아니라 Slack에 지금 물은 종류를 따른다. 다른 채널에서 시작해 이 채널에 이어진 세션은 그 채널을 따르고 넓히지 않는다. 비공개로 바꾸면 위와 같고, **비공개 채널을 공개로 바꾸면 그 채널의 `private_channel` 세션은 워크스페이스에 보인다**(Slack에서 지난 글이 공개되는 것과 같다). 옛 `people`·`team` 범위는 되살리지 않는다.
   - 지원 창 안의 이미지로 되돌려도 된다. 옛 이미지는 `private_channel` 세션을 만든 사람에게만 보인다.
+- **세션의 권한 모드를 release에 적힌 값이 아니라 지금 규칙(연결과 모델)으로 정한다. 그래서 `default`로 만든 옛 Claude 모델 release의 세션이 `auto`로 바뀐다**(JeongJaeSoon/werft#2070). migration은 없고, release를 다시 만들 필요도 없다. release id는 그대로다.
+  - Claude 모델(`anthropic` 연결, 또는 `litellm` 연결의 Claude 모델 id)은 `auto`, Codex(`openai_responses`)와 Claude가 아닌 모델은 `default`로 돈다. 이미 도는 세션은 다음에 worker가 세션을 받을 때 바뀐다. 세션 상세의 `runtime.permission_mode`도 이 값을 보인다.
+  - 그 세션은 사람에게 묻던 호출을 이제 분류기가 판정한다. 묻기 목록에 걸린 호출과 push 승인은 지금처럼 사람에게 간다.
+  - 모드를 고르는 설정은 없다. 연결, 에이전트, 설치 설정 어디에도 없고, `default`로 되돌리는 스위치도 없다.
+  - release의 `spec_source.permission_mode`는 `default`와 `auto`만 읽는다. `acceptEdits`·`dontAsk`·`plan`·`bypassPermissions`가 적힌 release(지금 서버는 만들지 않는다)는 spec을 읽지 못해 새 세션을 시작하지 못한다.
+  - 지원 창 안의 이미지로 되돌리면 옛 release의 세션은 다시 `default`로 돈다.
 - **migration `0334_input_mirror`가 outbox 종류 `input_mirror`와 칸 `input_id`를 더하고, Slack에 비친 웹 입력에 그 글의 자리를 별칭으로 잇는다**(JeongJaeSoon/werft#2067). 따로 할 일은 없다. 이 릴리스에는 웹 입력을 적는 route가 없어서 새 종류의 줄은 생기지 않고, Slack 멘션과 답, 웹·API 세션의 동작은 그대로다.
   - 웹 입력은 `instruction`과 같은 모양으로 올라가고, 게시 결과를 적는 트랜잭션에서 그 글의 (team, 채널, ts)가 입력의 별칭(새 주제면 주제의 위치도)이 된다. 같은 스레드의 사람 답글은 그 주제의 다음 순번이다. 돌아온 이벤트는 지금처럼 문에서 `own_bot_user`로 버린다.
   - 별칭이 생긴 뒤 그 글을 지우면 그 입력을 출처로 가진 outbox 줄이 `voided_by_delete`로 멈춘다.
   - 답글이 게시 결과보다 먼저 처리되어 스레드가 이미 다른 주제인 드문 경우는 합치지 않고 `warn` 로그 `Slack mirror opened a thread another topic already holds; the topics stay apart`를 남긴다.
   - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증하며, 색인은 `CONCURRENTLY`로 만든다. 지원 창 안의 이미지로 되돌려도 된다.
+- **에이전트가 받는 GitHub 도구 설명과 checkpoint 거절 이유가, 브랜치는 worktree 없이 작업 공간에서 `git switch -c <브랜치> <repository_id>/<branch>`로 만든다고 알린다**(JeongJaeSoon/werft#2069). migration은 없고 따로 할 일도 없다.
+  - 작업 공간 안의 git worktree·clone은 지금처럼 checkpoint가 거절하고, 그 턴의 push는 `turn_ended_without_checkpoint`로 취소된다. `git worktree`의 묻기 규칙도 그대로다.
 - **migration `0333_source_deleted`가 `sessions`에 `source_deleted_at`(timestamptz, nullable)을 더하고, 지운 Slack 글을 출처로 가진 턴이 있는 열린 세션을 멈춘다**(JeongJaeSoon/werft#2064). 따로 할 일은 없고, 지운 글이 없는 세션의 동작은 그대로다.
   - 직접 출처든 물려받은 출처든 턴 하나만 걸려도 세션 전체를 멈춘다. 글의 수정으로는 멈추지 않는다. 닫힌 세션은 건드리지 않는다.
   - 실행 중인 턴은 끊지 않고, 끝난 뒤 pause처럼 `paused`가 된다. 대기 중인 입력은 내보내지 않는다.
