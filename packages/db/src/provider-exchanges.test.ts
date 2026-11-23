@@ -263,7 +263,11 @@ describe("judging a session's budget at the open", () => {
         ...who,
         reserve: RESERVE,
       }),
-    ).toEqual({ outcome: "budget_exceeded" });
+    ).toEqual({
+      outcome: "budget_exceeded",
+      by: "session",
+      accountId: null,
+    });
     expect(await rows()).toEqual([]);
 
     await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
@@ -771,7 +775,11 @@ describe("holding a call on a budget account beside its session", () => {
         reserve: RESERVE,
         budget,
       }),
-    ).toEqual({ outcome: "budget_exceeded" });
+    ).toEqual({
+      outcome: "budget_exceeded",
+      by: "session",
+      accountId: null,
+    });
     expect(await rows()).toEqual([]);
     expect(await reservationOf(exchangeId)).toBeUndefined();
     expect(await accountOf(userId)).toBeUndefined();
@@ -791,7 +799,7 @@ describe("holding a call on a budget account beside its session", () => {
     const exchangeId = crypto.randomUUID();
     expect(
       await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE, budget }),
-    ).toEqual({ outcome: "budget_exceeded" });
+    ).toMatchObject({ outcome: "budget_exceeded", by: "account" });
     expect(await rows()).toEqual([]);
     expect(await reservationOf(exchangeId)).toBeUndefined();
     expect(await accountOf(userId)).toMatchObject({
@@ -913,7 +921,11 @@ describe("holding a call on a budget account beside its session", () => {
         reserve: RESERVE,
         budget: { rootKind: "none", owner: null },
       }),
-    ).toEqual({ outcome: "budget_exceeded" });
+    ).toEqual({
+      outcome: "budget_exceeded",
+      by: "account",
+      accountId: null,
+    });
     expect(await rows()).toEqual([]);
     expect(await reservationOf(exchangeId)).toBeUndefined();
   });
@@ -974,7 +986,7 @@ describe("holding a call on a budget account beside its session", () => {
         reserve: RESERVE,
         budget: { rootKind: "none", owner: { kind: "team", teamId } },
       }),
-    ).toEqual({ outcome: "budget_exceeded" });
+    ).toMatchObject({ outcome: "budget_exceeded", by: "account" });
     expect(await reservationOf(own)).toBeUndefined();
     expect((await rows()).map((row) => row.exchangeId)).toEqual([key]);
   });

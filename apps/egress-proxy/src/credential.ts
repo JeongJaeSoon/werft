@@ -1342,6 +1342,7 @@ export function startCredentialProxy(
   async function openLedger(
     body: Readonly<Record<string, unknown>>,
     signal: AbortSignal,
+    title: boolean,
   ): Promise<"open" | "budget" | "failed"> {
     try {
       const response = await fetch(exchangesUrl, {
@@ -1349,6 +1350,9 @@ export function startCredentialProxy(
         headers: {
           authorization: `Bearer ${options.authorizer.token}`,
           "content-type": "application/json",
+          // The API holds a title call on no turn's account; one before
+          // this header ignores it.
+          ...(title ? { "x-werft-exchange-call": "title" } : {}),
         },
         body: JSON.stringify({ op: "open", ...body }),
         redirect: "error",
@@ -2365,7 +2369,12 @@ export function startCredentialProxy(
                   reserve: requestEstimate(sent, route.path === RESPONSES_PATH),
                 };
                 entry = asked;
-                const answer = await openLedger(asked, signal);
+                // A grant for one request is a session title call's.
+                const answer = await openLedger(
+                  asked,
+                  signal,
+                  authorized.grant.requestLimits !== undefined,
+                );
                 if (answer === "open") {
                   opened = true;
                   return null;

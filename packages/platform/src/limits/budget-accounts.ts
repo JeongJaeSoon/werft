@@ -1,4 +1,8 @@
-import type { BudgetRootKind } from "@werft-ai/contracts";
+import {
+  type BudgetRootKind,
+  type TurnRequester,
+  userIdSchema,
+} from "@werft-ai/contracts";
 import type { BudgetAmount } from "./ports/budget-ledger.ts";
 
 /**
@@ -13,6 +17,9 @@ export type BudgetRoot =
       keyKind: "personal" | "agent" | "operator";
       createdByUserId: string | null;
     }
+  // An allowed Slack bot's message: an outside request, charged as a key
+  // with no person.
+  | { kind: "slack_bot" }
   | { kind: "none" };
 
 export type BudgetOwner =
@@ -50,8 +57,73 @@ export function chooseBudgetAccount(
             ? { kind: "user", userId: root.createdByUserId }
             : team,
       };
+    case "slack_bot":
+      return { rootKind: "slack_bot", owner: team };
     case "none":
       return { rootKind: "none", owner: team };
+  }
+}
+
+/** A turn's requester columns as stored, its credential unparsed. */
+export type StoredTurnRequester = {
+  requesterKind: string | null;
+  requesterId: string | null;
+  requesterAuth: unknown;
+};
+
+const objectOf = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+/**
+ * The root a running turn's calls are charged to. A push follow-up is the
+ * agent's turn, and its root is the push request's (requester_auth.root);
+ * every other turn, a carried one too, holds its root in its own columns.
+ * Null when they say nothing this can read: such a call is held on the
+ * session's limit alone, never refused as the agent's own work.
+ */
+export function budgetRootOfTurn(turn: StoredTurnRequester): BudgetRoot | null {
+  const auth = objectOf(turn.requesterAuth);
+  if (auth?.method !== "push_decision") return rootOfColumns(turn);
+  const root = objectOf(auth.root);
+  if (root === null) return null;
+  const asked = {
+    requesterKind:
+      typeof root.requester_kind === "string" ? root.requester_kind : null,
+    requesterId:
+      typeof root.requester_id === "string" ? root.requester_id : null,
+    requesterAuth: root.requester_auth ?? null,
+  };
+  // Roots never nest; one that says it is a push decision is not read.
+  if (objectOf(asked.requesterAuth)?.method === "push_decision") return null;
+  return rootOfColumns(asked);
+}
+
+function rootOfColumns(turn: StoredTurnRequester): BudgetRoot | null {
+  const kind = turn.requesterKind as TurnRequester["kind"] | null;
+  const method = objectOf(turn.requesterAuth)?.method;
+  switch (kind) {
+    case "user": {
+      const userId = userIdSchema.safeParse(turn.requesterId);
+      if (!userId.success) return null;
+      // A personal key's requester is the person who made it.
+      return method === "personal_key"
+        ? { kind: "key", keyKind: "personal", createdByUserId: userId.data }
+        : { kind: "user", userId: userId.data };
+    }
+    case "api_key":
+      return {
+        kind: "key",
+        keyKind: method === "agent_key" ? "agent" : "operator",
+        createdByUserId: null,
+      };
+    case "slack_bot":
+      return { kind: "slack_bot" };
+    case "agent":
+      return { kind: "none" };
+    default:
+      return null;
   }
 }
 

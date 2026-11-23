@@ -19,6 +19,7 @@ export * from "./conversations/conversation-store.ts";
 export * from "./conversations/engagements.ts";
 export * from "./conversations/session-parents.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
+export { budgetChoiceOfCall } from "./exchange-budget.ts";
 export * from "./extensions/extension-bundles.ts";
 export { createPostgresSkillGitSourceStore } from "./extensions/skill-git-sources.ts";
 export * from "./github/agent-github.ts";
