@@ -14,6 +14,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **운영자 명령 `private-channel-sessions.ts`가 Slack 앱 설치가 없는 에이전트(`SLACK_NOT_INSTALLED`)의 채널을 `no_install`로 따로 세고, 그런 채널만 남으면 exit 0으로 끝난다**(JeongJaeSoon/werft#2089). 비공개 binding이거나 종류를 모르는 채널의 세션은 `private_channel`로 옮기고 공개 binding은 넓히지 않는다. 재설치하면 지금 채널 멤버에게 다시 보인다. 그 밖의 읽지 못한 채널은 지금처럼 exit 3이다.
+
 - **slack 역할이 Slack 글의 접수 줄(`conversation_inputs`)을 inbox 행을 처리됨으로 바꿀 때가 아니라 그 글의 턴을 넣는 transaction에서 적는다**(JeongJaeSoon/werft#2084). migration은 없고 따로 할 일도 없다. Slack에서 보이는 동작은 그대로다.
   - 턴을 넣은 직후 slack 역할이 죽고 그사이 설치가 해지되면, 예전에는 턴만 남고 접수 줄이 없었다. 이제 둘은 함께 생기거나 함께 생기지 않는다.
   - 이 릴리스 전 이미지가 턴만 넣고 죽은 이벤트는 다시 돌 때 지금처럼 접수 줄을 채운다. 지원 창 안의 이미지로 되돌려도 된다.
