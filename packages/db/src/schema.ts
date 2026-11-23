@@ -1925,7 +1925,7 @@ export const turns = pgTable(
     callerChannel: text("caller_channel"),
     callerLimitDigest: text("caller_limit_digest"),
     // What the turn came from (`StoredSourceSet`): Slack places and input
-    // ids, never text. Null for none and before 0320.
+    // ids, never text. Null for none and before 0321.
     sources: jsonb().$type<StoredSourceSet>(),
   },
   (table) => [
