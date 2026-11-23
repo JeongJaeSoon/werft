@@ -1,5 +1,5 @@
 {
-  "id": "e0966b74-6956-4aa7-8059-3737919d8f52",
+  "id": "0cc7a9fd-2505-4c38-9477-08ee913baf68",
   "prevId": "34616e56-5f69-463b-a9c2-8589d268d052",
   "version": "7",
   "dialect": "postgresql",
@@ -6241,18 +6241,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "records_deleted_at": {
-          "name": "records_deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "records_deleted_by_user_id": {
-          "name": "records_deleted_by_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6289,15 +6277,6 @@
           "columnsTo": ["workspace_id", "user_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "conversations_records_deleted_by_fk": {
-          "name": "conversations_records_deleted_by_fk",
-          "tableFrom": "conversations",
-          "tableTo": "memberships",
-          "columnsFrom": ["workspace_id", "records_deleted_by_user_id"],
-          "columnsTo": ["workspace_id", "user_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -6325,10 +6304,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "conversations_records_deleted_check": {
-          "name": "conversations_records_deleted_check",
-          "value": "(\"conversations\".\"records_deleted_at\" IS NULL) = (\"conversations\".\"records_deleted_by_user_id\" IS NULL)"
-        },
         "conversations_kind_check": {
           "name": "conversations_kind_check",
           "value": "\"conversations\".\"kind\" IN ('channel','dm')"
@@ -6529,13 +6504,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'slack_deleted'"
         }
       },
       "indexes": {
@@ -6574,12 +6542,7 @@
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "deleted_sources_reason_check": {
-          "name": "deleted_sources_reason_check",
-          "value": "\"deleted_sources\".\"reason\" IN ('slack_deleted','admin_deleted')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.edited_sources": {
@@ -13900,22 +13863,6 @@
         }
       },
       "indexes": {
-        "session_links_session_uniq": {
-          "name": "session_links_session_uniq",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"session_links\".\"session_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "session_links_open_surface_ref_uniq": {
           "name": "session_links_open_surface_ref_uniq",
           "columns": [
@@ -14012,13 +13959,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "session_links_surface_ref_key": {
-          "name": "session_links_surface_ref_key",
-          "nullsNotDistinct": false,
-          "columns": ["installation_id", "surface_ref"]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
         "session_links_closed_check": {

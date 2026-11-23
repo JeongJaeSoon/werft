@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { ConversationInputId } from "@werft-ai/contracts";
+import {
+  type ConversationInputId,
+  SLACK_INBOUND_EVENT_STATUS_VALUES,
+  type SlackInboundEventStatus,
+} from "@werft-ai/contracts";
 import type {
   SlackInboundClaim,
   SlackInboundEventStore,
@@ -342,4 +346,93 @@ export async function purgeFailedSlackInboundPayloads(
     RETURNING id`,
   );
   return rowsOf<{ id: string }>(result).length;
+}
+
+type PayloadCountRow = {
+  last: string | null;
+  status: SlackInboundEventStatus | null;
+  with_payload: number;
+};
+type PurgeBatchRow = { last: string | null; cleared: number };
+
+/** Rows that still hold a payload, by status, every status present. */
+export type SlackInboundPayloadCounts = Record<SlackInboundEventStatus, number>;
+
+/**
+ * Counts rows that hold a payload by status, walking the table in primary
+ * key order `pageSize` rows per statement so no statement scans it whole.
+ */
+export async function countSlackInboundPayloads(
+  db: Database,
+  options: { pageSize: number },
+): Promise<SlackInboundPayloadCounts> {
+  const counts = Object.fromEntries(
+    SLACK_INBOUND_EVENT_STATUS_VALUES.map((status) => [status, 0]),
+  ) as SlackInboundPayloadCounts;
+  let after: string | null = null;
+  for (;;) {
+    const rows: PayloadCountRow[] = rowsOf<PayloadCountRow>(
+      await db.execute(sql`
+        WITH page AS (
+          SELECT id, status, payload IS NOT NULL AS held
+          FROM slack_inbound_events
+          WHERE ${after}::uuid IS NULL OR id > ${after}::uuid
+          ORDER BY id
+          LIMIT ${options.pageSize}
+        )
+        SELECT
+          (SELECT id FROM page ORDER BY id DESC LIMIT 1)::text AS last,
+          status,
+          (count(*) FILTER (WHERE held))::int AS with_payload
+        FROM page GROUP BY status`),
+    );
+    for (const row of rows) {
+      if (row.status !== null) counts[row.status] += row.with_payload;
+    }
+    const last: string | null = rows[0]?.last ?? null;
+    if (last === null) return counts;
+    after = last;
+  }
+}
+
+/**
+ * Clears the payload of processed rows that still hold one: rows the slack
+ * role completed before it cleared payloads itself. Walks the table in
+ * primary key order, `batchSize` rows per statement, each its own
+ * transaction, so a batch locks at most that many settled rows, for as long
+ * as its one UPDATE takes. Received and failed rows are left alone; a
+ * second run finds nothing.
+ */
+export async function purgeProcessedSlackInboundPayloads(
+  db: Database,
+  options: { batchSize: number },
+): Promise<{ cleared: number; batches: number }> {
+  let after: string | null = null;
+  let cleared = 0;
+  let batches = 0;
+  for (;;) {
+    const [row]: PurgeBatchRow[] = rowsOf<PurgeBatchRow>(
+      await db.execute(sql`
+        WITH batch AS (
+          SELECT id FROM slack_inbound_events
+          WHERE ${after}::uuid IS NULL OR id > ${after}::uuid
+          ORDER BY id
+          LIMIT ${options.batchSize}
+        ), done AS (
+          UPDATE slack_inbound_events e SET payload = NULL
+          FROM batch
+          WHERE e.id = batch.id
+            AND e.status = 'processed'
+            AND e.payload IS NOT NULL
+          RETURNING e.id
+        )
+        SELECT
+          (SELECT id FROM batch ORDER BY id DESC LIMIT 1)::text AS last,
+          (SELECT count(*) FROM done)::int AS cleared`),
+    );
+    if (row === undefined || row.last === null) return { cleared, batches };
+    batches += 1;
+    cleared += row.cleared;
+    after = row.last;
+  }
 }

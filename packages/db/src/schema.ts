@@ -5918,13 +5918,6 @@ export const sessionLinks = pgTable(
       columns: [table.workspaceId, table.installationId],
       foreignColumns: [slackInstallations.workspaceId, slackInstallations.id],
     }),
-    unique("session_links_surface_ref_key").on(
-      table.installationId,
-      table.surfaceRef,
-    ),
-    uniqueIndex("session_links_session_uniq")
-      .on(table.sessionId)
-      .where(sql`${table.sessionId} IS NOT NULL`),
     // One open link per thread and per session; closed ones are history.
     uniqueIndex("session_links_open_surface_ref_uniq")
       .on(table.installationId, table.surfaceRef)

@@ -17,8 +17,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 /**
  * Reserving a Slack thread's link on a real database, where reservations
- * race: one open link per thread, closed links kept as its history, and a
- * host from before the open-only uniques writing beside this one.
+ * race: one open link per thread, and closed links kept as its history.
  */
 integration("session link reservation on PostgreSQL", () => {
   let database: TempDatabase;
@@ -62,39 +61,6 @@ integration("session link reservation on PostgreSQL", () => {
       .from(sessionLinks)
       .where(eq(sessionLinks.surfaceRef, surfaceRef))
       .orderBy(asc(sessionLinks.createdAt));
-  // What a host from before the open-only uniques writes: its ON CONFLICT
-  // names the old (installation_id, surface_ref) key, so a race on the
-  // open-only one fails its insert (unique_violation), and its event is
-  // retried as any failed reservation is.
-  const oldHostReserve = (input: SessionLinkReservation) =>
-    pool
-      .query(
-        `INSERT INTO session_links (id, workspace_id, owner_id, installation_id,
-         surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts,
-         agent_id, release_id)
-       VALUES ($1, $2::uuid, $2::text, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (installation_id, surface_ref) DO NOTHING`,
-        [
-          randomUUID(),
-          input.workspaceId,
-          input.installationId,
-          input.surfaceBindingId,
-          input.surfaceRef,
-          input.channelId,
-          input.threadId,
-          input.openedByTs,
-          input.agentId,
-          input.releaseId,
-        ],
-      )
-      .then(
-        () => "done",
-        (error: { code?: string }) => {
-          if (error.code !== "23505") throw error;
-          return "retried";
-        },
-      );
-
   test("reservations of one thread at once make one link, reserved once", async () => {
     const input = threadOf("100.000100");
     const taken = await Promise.all(
@@ -108,21 +74,9 @@ integration("session link reservation on PostgreSQL", () => {
     );
   });
 
-  test("beside a host from before, a thread still gets one link", async () => {
-    for (let round = 0; round < 30; round++) {
-      const input = threadOf(`200.${String(round).padStart(6, "0")}`);
-      const [, ours] = await Promise.all([
-        oldHostReserve(input),
-        store().reserve(input),
-        oldHostReserve(input),
-      ]);
-      const [link, ...others] = await linksOf(input.surfaceRef);
-      expect(others).toEqual([]);
-      expect(ours.link.id).toBe(link?.id ?? "");
-    }
-  });
-
-  test("a reservation that waits on an older host's insert takes that host's link", async () => {
+  // No writer in the support window skips the advisory lock; one that did
+  // would still leave the thread one link.
+  test("a reservation that waits on an insert outside the lock takes that link", async () => {
     const input = threadOf("250.000100");
     const old = await pool.connect();
     try {
@@ -132,8 +86,7 @@ integration("session link reservation on PostgreSQL", () => {
         `INSERT INTO session_links (id, workspace_id, owner_id, installation_id,
            surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts,
            agent_id, release_id)
-         VALUES ($1, $2::uuid, $2::text, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (installation_id, surface_ref) DO NOTHING`,
+         VALUES ($1, $2::uuid, $2::text, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           theirs,
           input.workspaceId,
@@ -177,14 +130,7 @@ integration("session link reservation on PostgreSQL", () => {
     expect(await linksOf(input.surfaceRef)).toHaveLength(1);
   });
 
-  describe("once the old uniques are gone", () => {
-    beforeAll(async () => {
-      await pool.query(
-        "ALTER TABLE session_links DROP CONSTRAINT session_links_surface_ref_key",
-      );
-      await pool.query("DROP INDEX session_links_session_uniq");
-    });
-
+  describe("with only the open-only uniques", () => {
     test("a thread whose link closed gets a new open link; the closed one stays as it was", async () => {
       const input = threadOf("400.000100");
       const closedId = randomUUID();
