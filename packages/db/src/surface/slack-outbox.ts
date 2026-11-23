@@ -447,19 +447,29 @@ function createPostgresSlackCardSettleStore(
         AND o.dedupe_key LIKE 'push:%'
         AND o.installation_id = ${installationId}
         AND o.channel_id = ${channelId}`;
-      const idle = await markDueWhere(
-        sql`o.settle_state IS NULL AND ${inChannel}`,
-      );
+      // One statement, so a redraw's finish lands wholly before or after it.
       // A card being drawn now may have read the membership before this
-      // change: its edit is taken as uncertain, so finish keeps it owed and
-      // it is drawn again a window later.
-      const drawing = await rowsOf<Raw>(
+      // change: its edit is taken as uncertain (as recordUncertain does), so
+      // finish keeps it owed and it is drawn again a window later.
+      const drawing = sql`o.settle_claim_token IS NOT NULL`;
+      const rows = await rowsOf<Raw>(
         await db.execute(sql`
-          UPDATE slack_outbox o SET ${recordUncertain(sql`now()`, windowMs)}
-          WHERE o.settle_claim_token IS NOT NULL AND ${inChannel}
+          UPDATE slack_outbox o SET
+            settle_state = 'due',
+            settle_uncertain_rev = settle_uncertain_rev
+              + CASE WHEN ${drawing} THEN 1 ELSE 0 END,
+            settle_uncertain_latest_at = CASE WHEN ${drawing}
+              THEN greatest(settle_uncertain_latest_at, now())
+              ELSE settle_uncertain_latest_at END,
+            settle_next_at = CASE WHEN ${drawing}
+              THEN greatest(settle_next_at,
+                greatest(settle_uncertain_latest_at, now()) + ${ms(windowMs)})
+              ELSE settle_next_at END
+          WHERE ${inChannel}
+            AND (o.settle_state IS NULL OR ${drawing})
           RETURNING o.id`),
       );
-      return idle + drawing.length;
+      return rows.length;
     },
 
     async markDueById(id) {

@@ -3635,6 +3635,33 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     const after = await cardRow();
     expect(after.settleUncertainLatestAt).not.toBeNull();
     expect(after.settleNextAt).not.toBeNull();
+
+    // The other order: a redraw that finished just before the change leaves
+    // the card idle, and the change marks it due.
+    await db
+      .update(slackOutbox)
+      .set({
+        settleState: "due",
+        settleUncertainLatestAt: null,
+        settleNextAt: null,
+      })
+      .where(eq(slackOutbox.id, row.id));
+    const [again] = await cards().claim({
+      limit: 1,
+      leaseMs: LEASE,
+      graceMs: GRACE,
+      only: { channelId: row.channelId, slackTs: row.slackTs ?? "" },
+    });
+    if (!again) throw new Error("no claim");
+    expect(await cards().beginSend(again, 0)).not.toBeNull();
+    await cards().finish(again, {
+      rendered: "open",
+      uncertainRev: again.uncertainRev,
+      windowMs: W,
+    });
+    expect(await cardRow()).toMatchObject({ settleState: null });
+    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    expect(await cardRow()).toMatchObject({ settleState: "due" });
   });
 
   test("a turn's notice from before the cards ends as one handled line once its turn waits no more", async () => {
