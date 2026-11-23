@@ -492,3 +492,62 @@ describe("pending requests after the requester left", () => {
     expect(error).toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("Codex round 1 (94S-1999)", () => {
+  const fromChannel = (who: Person): [Caller, IdentityReader] => [
+    {
+      ownerId: WORKSPACE,
+      requestId: "r",
+      subject: {
+        principal: {
+          kind: "installation",
+          id: "019a0000-0000-7000-8000-0000000000d1",
+          owner_id: WORKSPACE,
+          workspace_id: WORKSPACE,
+          scopes: [...INSTALLATION_SESSION_SCOPE_VALUES],
+        },
+        actor_user_id: USERS[who],
+        surface: {
+          kind: "slack",
+          slack_user_kind: "member",
+          ceiling: DEFAULT_SURFACE_CEILING,
+          agent_id: AGENT,
+          channel_id: CHANNEL,
+        },
+      },
+    },
+    {
+      reread: async () => ({
+        status: "ok",
+        principal: {
+          kind: "user",
+          id: USERS[who],
+          workspace_id: WORKSPACE,
+          role: ROLES[who],
+          scopes: [...scopesForRole(ROLES[who])],
+        },
+      }),
+    },
+  ];
+
+  test("a Slack decision from the channel by someone who may not use the agent", async () => {
+    const viewers: SessionViewer[] = [];
+    const [caller, identity] = fromChannel("outsider");
+    await reason(caller, identity, "session.read", PRIVATE_SESSION, {
+      viewers,
+    });
+    expect(viewers.map((viewer) => viewer.privateChannels)).toEqual([
+      [CONVERSATION],
+    ]);
+  });
+
+  test("an owner outside the channel, with a reason, on what is not an audit read", async () => {
+    for (const action of ["session.control", "session.recover"] as const) {
+      expect(
+        await reason(person("owner"), plain, action, PRIVATE_SESSION, {
+          justification: "incident 42",
+        }),
+      ).toBe("ok");
+    }
+  });
+});
