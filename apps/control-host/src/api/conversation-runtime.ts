@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import {
   agentIdSchema,
   CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
+  CONVERSATION_TURN_LEASE_MS,
   CONVERSATION_TURN_TEXT_MAX,
   conversationIdSchema,
   conversationTopicIdSchema,
@@ -33,7 +34,7 @@ export const DEFAULT_CONVERSATION_TURN_SOCKET =
 export const OPERATOR_TURN_MAX_TOKENS = 4_096;
 export const OPERATOR_TURN_MAX_REQUEST_BYTES = 96 * 1024;
 // How long a queued turn waits for a runtime to take it.
-const OPERATOR_TURN_TAKE_MS = 30_000;
+export const OPERATOR_TURN_TAKE_MS = 30_000;
 
 export type ConversationRuntimeConfig = {
   /** The bearers the runtime's routes accept: the current one, then the one being rotated out. */
@@ -200,6 +201,8 @@ export function createOperatorConversationTurns(deps: {
         // The turn's one call.
         callClass: "m2",
         turnId,
+        // Valid for as long as the turn may wait and then run.
+        ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
         releaseId: release.id,
         connectionId: release.connection_id,
         model,

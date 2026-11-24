@@ -6,6 +6,7 @@ import {
 import type { SessionCatalog } from "../catalog/index.ts";
 import type { BudgetRoot } from "./budget-accounts.ts";
 import {
+  CONVERSATION_CALL_TOKEN_TTL_MS,
   createConversationCalls,
   OPERATOR_CALL_KEY_PREFIX,
 } from "./conversation-calls.ts";
@@ -56,9 +57,10 @@ describe("an operator's conversation call", () => {
   test("is written as an operator key's call under the operator prefix, so its ledger row is told apart", async () => {
     const { written, calls: c } = calls();
 
-    expect((await c.issueForOperator({ ...call, turnId: TURN })).outcome).toBe(
-      "issued",
-    );
+    expect(
+      (await c.issueForOperator({ ...call, turnId: TURN, ttlMs: 180_000 }))
+        .outcome,
+    ).toBe("issued");
 
     expect(written).toHaveLength(1);
     expect(written[0]?.root).toEqual({
@@ -69,6 +71,11 @@ describe("an operator's conversation call", () => {
     expect(written[0]?.callKey).toBe(keyed(`operator-${TURN}:m2`));
     expect(written[0]?.callKey.startsWith(OPERATOR_CALL_KEY_PREFIX)).toBe(true);
     expect(written[0]?.attempt).toBe(1);
+    // The permit lasts as long as the turn it is for, not a lone call's two minutes.
+    expect(written[0]?.ttlMs).toBe(180_000);
+    await expect(
+      c.issueForOperator({ ...call, turnId: TURN, ttlMs: 0 }),
+    ).rejects.toThrow(/ttlMs must be a positive integer/);
   });
 
   test("cannot be issued the way every other call is: the root and the prefix are both refused, and nothing is written", async () => {
@@ -113,5 +120,9 @@ describe("an operator's conversation call", () => {
         input.callKey.startsWith(OPERATOR_CALL_KEY_PREFIX),
       ),
     ).toBe(false);
+    // And each keeps a lone call's life.
+    expect(new Set(written.map((input) => input.ttlMs))).toEqual(
+      new Set([CONVERSATION_CALL_TOKEN_TTL_MS]),
+    );
   });
 });

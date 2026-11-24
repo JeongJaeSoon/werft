@@ -8,8 +8,13 @@ worker:
   workspace:
     gcMinAgeSec: 0
 # On, so the smoke sees it reach the api through the proxy with no resolver.
+# No CPU request: a runner-sized node has none to spare beside the two workers
+# the upgrade check runs, and one more request leaves the second unscheduled.
 conversationRuntime:
   enabled: true
+  resources:
+    requests:
+      cpu: null
 scheduler:
   extraEnv:
     # A stopped session's workspace goes on the next pass, so the smoke sees

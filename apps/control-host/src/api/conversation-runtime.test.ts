@@ -4,6 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import {
+  CONVERSATION_TURN_LEASE_MS,
+  CONVERSATION_TURN_LIMIT_MS,
   conversationCallIdSchema,
   conversationRuntimeIdSchema,
 } from "@werft-ai/contracts";
@@ -21,6 +23,7 @@ import {
   DEFAULT_CONVERSATION_TURN_SOCKET,
   OPERATOR_TURN_MAX_REQUEST_BYTES,
   OPERATOR_TURN_MAX_TOKENS,
+  OPERATOR_TURN_TAKE_MS,
   serveOperatorConversationTurns,
 } from "./conversation-runtime.ts";
 import { CONVERSATION_TURN_EXIT, main } from "./conversation-turn.ts";
@@ -265,6 +268,10 @@ describe("an operator's conversation turn", () => {
       call_id: h.callId,
       turn: { outcome: "completed", text: "hi" },
     });
+    // A turn taken at the last moment still has its whole limit to run in.
+    expect(OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS).toBeGreaterThan(
+      OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LIMIT_MS,
+    );
     expect(h.issued).toEqual([
       {
         workspaceId: WORKSPACE,
@@ -274,6 +281,8 @@ describe("an operator's conversation turn", () => {
         // Neither a root nor a key: the operator's are not the command's to choose.
         callClass: "m2",
         turnId: turn.turn_id,
+        // The permit outlives the wait to be taken and the whole lease.
+        ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
         releaseId: RELEASE,
         connectionId: "anthropic",
         model: "claude-haiku-5",

@@ -89,27 +89,31 @@ export function createConversationCalls(deps: {
   store: ConversationCallStore;
   catalog: Pick<SessionCatalog, "connections">;
 }) {
-  const issueWith = async (input: {
-    workspaceId: string;
-    agentId: string;
-    conversationId: ConversationId;
-    topicId: ConversationTopicId | null;
-    callClass: ConversationCallClass;
-    /** The agent's active release (an agent_releases id). */
-    releaseId: string | null;
-    /** Unique in the agent with `attempt`; a retry takes the next attempt. */
-    callKey: ConversationCallKey;
-    attempt: number;
-    root: BudgetRoot;
-    connectionId: string;
-    model: string;
-    maxTokens: number;
-    maxRequestBytes: number;
-  }): Promise<ConversationCallIssued> => {
+  const issueWith = async (
+    input: {
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+      topicId: ConversationTopicId | null;
+      callClass: ConversationCallClass;
+      /** The agent's active release (an agent_releases id). */
+      releaseId: string | null;
+      /** Unique in the agent with `attempt`; a retry takes the next attempt. */
+      callKey: ConversationCallKey;
+      attempt: number;
+      root: BudgetRoot;
+      connectionId: string;
+      model: string;
+      maxTokens: number;
+      maxRequestBytes: number;
+    },
+    ttlMs = CONVERSATION_CALL_TOKEN_TTL_MS,
+  ): Promise<ConversationCallIssued> => {
     for (const [name, value] of [
       ["maxTokens", input.maxTokens],
       ["maxRequestBytes", input.maxRequestBytes],
       ["attempt", input.attempt],
+      ["ttlMs", ttlMs],
     ] as const) {
       if (!Number.isSafeInteger(value) || value < 1) {
         throw new RangeError(`${name} must be a positive integer: ${value}`);
@@ -133,7 +137,7 @@ export function createConversationCalls(deps: {
       path: CONVERSATION_CALL_PATH,
       reserve: conversationCallReserve(input),
       unmetered: connection.provider.billing === "none",
-      ttlMs: CONVERSATION_CALL_TOKEN_TTL_MS,
+      ttlMs,
     });
     if (issued.outcome !== "issued") return issued;
     return { outcome: "issued", callId, token, expiresAt: issued.expiresAt };
@@ -162,17 +166,26 @@ export function createConversationCalls(deps: {
       input: Omit<Issue, "root" | "callKey" | "attempt"> & {
         /** The turn the call is for. */
         turnId: string;
+        /**
+         * How long the permit lasts: the turn's wait to be taken and then
+         * its lease. The proxy asks again while the call runs, and a permit
+         * that ended by then cuts a turn still inside its own limit.
+         */
+        ttlMs: number;
       },
     ): Promise<ConversationCallIssued> {
-      const { turnId, ...call } = input;
-      return issueWith({
-        ...call,
-        root: OPERATOR_ROOT,
-        callKey: conversationCallKeySchema.parse(
-          `${OPERATOR_CALL_KEY_PREFIX}${turnId}:${call.callClass}`,
-        ),
-        attempt: 1,
-      });
+      const { turnId, ttlMs, ...call } = input;
+      return issueWith(
+        {
+          ...call,
+          root: OPERATOR_ROOT,
+          callKey: conversationCallKeySchema.parse(
+            `${OPERATOR_CALL_KEY_PREFIX}${turnId}:${call.callClass}`,
+          ),
+          attempt: 1,
+        },
+        ttlMs,
+      );
     },
   };
 }
