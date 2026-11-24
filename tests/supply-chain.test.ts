@@ -590,7 +590,13 @@ describe("images.yml supply-chain", () => {
         rmSync(dir, { recursive: true, force: true });
       }
     };
-    const source = ["apps/control-host/src/api/x.ts", "packages/db/src/y.ts"];
+    // docs/api ships in the control-host image, but nothing the build checks
+    // reads it, and ci.yml's e2e builds the same stage.
+    const source = [
+      "apps/control-host/src/api/x.ts",
+      "packages/db/src/y.ts",
+      "docs/api/index.html",
+    ];
     expect(decide("pull_request", source)).toBe("images=skip");
     for (const input of [
       "apps/worker/Dockerfile",
@@ -608,9 +614,10 @@ describe("images.yml supply-chain", () => {
       ".github/scripts/supply-chain-verdict.sh",
       ".github/vulnerability-exceptions.json",
     ]) {
-      expect({ input, plan: decide("pull_request", [...source, input]) }).toEqual(
-        { input, plan: "images=build" },
-      );
+      expect({
+        input,
+        plan: decide("pull_request", [...source, input]),
+      }).toEqual({ input, plan: "images=build" });
     }
     // No list: ci-plan.sh kept the full plan.
     expect(decide("pull_request", null)).toBe("images=build");

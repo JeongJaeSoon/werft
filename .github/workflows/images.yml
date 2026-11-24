@@ -98,7 +98,7 @@ jobs:
                   package.json | */package.json | bun.lock | bunfig.toml | tsconfig.base.json | \
                   THIRD_PARTY_NOTICES.md | scripts/third-party-notices.ts | scripts/image-prune.sh | \
                   scripts/fetch-pinned.ts | packages/adapters/runtimes/registry/* | \
-                  apps/worker/git-hooks/* | apps/worker/src/image-runtime.ts | docs/api/* | \
+                  apps/worker/git-hooks/* | apps/worker/src/image-runtime.ts | \
                   scripts/test-ops.sh | infra/test-ops.env.example | tests/fixtures/test-ops-release-manifest.json | \
                   .github/workflows/images.yml | .github/scripts/ci-plan.sh | .github/scripts/image-*.sh | \
                   .github/scripts/test-ops-bundle.sh | .github/scripts/supply-chain-verdict.sh | \
