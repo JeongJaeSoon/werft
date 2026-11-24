@@ -1265,7 +1265,7 @@ export interface paths {
         };
         /**
          * The authenticated principal, user and workspace
-         * @description Says who the credential authenticates as and what it may do: the principal with its scopes, the workspace, and for a cookie session the user and the management actions its role holds (`permissions`). An API key has no user, so `user` is null and `permissions` is empty; `workspace` is the key's workspace, or null for a legacy key that predates workspaces. The web app boots from this. It changes nothing.
+         * @description Says who the credential authenticates as and what it may do: the principal with its scopes, the workspace, and for a cookie session the user and the management actions its role holds (`permissions`). An API key has no user, so `user` is null and `permissions` is empty; `workspace` is the key's workspace, or null for a legacy key that predates workspaces. `codex_sandbox_provider` is the chart's `codexSandbox.provider` (`disabled`, `installer` or `external`), so the console can warn a Codex agent's admins that its sessions fail with `CODEX_SANDBOX_NOT_INSTALLED` where it is `disabled`; it is absent where nothing says it (Docker Compose, or a chart with `codexSandbox.enabled` false). The web app boots from this. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -9890,6 +9890,8 @@ export interface components {
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
             permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "conversation.view" | "conversation.post" | "task.spawn" | "usage.installation_read" | "usage.agent_read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
+            /** @enum {string} */
+            codex_sandbox_provider?: "disabled" | "installer" | "external";
         };
         UpdateAuthMeRequest: {
             /** @enum {string} */

@@ -44,6 +44,7 @@ import { AccessTab } from "./agent-detail/access-tab.tsx";
 import { AdminsTab } from "./agent-detail/admins-tab.tsx";
 import { AgentNotFound } from "./agent-detail/agent-not-found.tsx";
 import { CardTab } from "./agent-detail/card-tab.tsx";
+import { CodexSandboxAlert } from "./agent-detail/codex-sandbox.tsx";
 import { saveFailureText } from "./agent-detail/effective-behavior.tsx";
 import { GitHubPanel, SlackPanel } from "./agent-detail/lazy-tabs.tsx";
 import {
@@ -301,6 +302,7 @@ function AgentView({
       <NewSessionReason reason={newSessionReason} />
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       <OwnerlessAlert agent={agent} onAdmins={() => open("admins")} />
+      {manages ? <CodexSandboxAlert detail={detail} /> : null}
       {manages &&
       agent.active_release_id === null &&
       agent.status !== "archived" ? (

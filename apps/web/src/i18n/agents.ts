@@ -468,6 +468,8 @@ export const agentsKo = {
   "agents.tabs.ownerless": "관리자 없음",
   "agent.readOnly":
     "담당 팀 구성원은 이 에이전트의 설정을 볼 수만 있습니다. 바꾸는 것은 팀 관리자와 에이전트 관리자입니다.",
+  "agent.codexSandboxDisabled":
+    "이 설치는 Codex sandbox가 꺼져 있어 이 에이전트의 작업이 실패합니다.",
   "agents.flow.team": "담당 팀",
   "agents.flow.teamHint":
     "이 팀의 팀 관리자가 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다.",
@@ -974,6 +976,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.ownerless": "No admin",
   "agent.readOnly":
     "As a member of the responsible team you can see this agent's settings but not change them. Team leads and the agent's admins change them.",
+  "agent.codexSandboxDisabled":
+    "This installation has the Codex sandbox turned off, so this agent's work fails.",
   "agents.flow.team": "Responsible team",
   "agents.flow.teamHint":
     "This team's leads manage the agent; its members see its settings and use it.",
@@ -1483,6 +1487,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.ownerless": "管理者なし",
   "agent.readOnly":
     "担当チームのメンバーはこのエージェントの設定を見るだけです。変更するのはチーム管理者とエージェント管理者です。",
+  "agent.codexSandboxDisabled":
+    "この環境は Codex サンドボックスがオフのため、このエージェントの作業は失敗します。",
   "agents.flow.team": "担当チーム",
   "agents.flow.teamHint":
     "このチームのチーム管理者がエージェントを管理し、メンバーは設定を見て使います。",

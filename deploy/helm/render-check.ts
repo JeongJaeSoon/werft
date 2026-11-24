@@ -2771,6 +2771,13 @@ const schedulerEnvOf = (manifests: Manifest[]): EnvVar[] =>
       (m) => m.kind === "Deployment" && m.metadata.name.endsWith("-scheduler"),
     ) as Manifest,
   ).containers[0].env;
+// The API reads the provider too, for the console's warning.
+const apiEnvOf = (manifests: Manifest[]): EnvVar[] =>
+  podSpecOf(
+    manifests.find(
+      (m) => m.kind === "Deployment" && m.metadata.name.endsWith("-api"),
+    ) as Manifest,
+  ).containers[0].env;
 const INSTALLER_ON = ["--set", "codexSandbox.provider=installer"];
 const installerOf = (manifests: Manifest[]) => ({
   configMap: manifests.find(
@@ -2801,15 +2808,22 @@ function checkCodexSandbox(): string[] {
     fail("the installer renders by default");
   }
   const on = render(["-f", ciDigests, ...INSTALLER_ON]);
-  const providerOf = (manifests: Manifest[]) =>
-    schedulerEnvOf(manifests).find((v) => v.name === "CODEX_SANDBOX_PROVIDER")
-      ?.value;
+  const providerOf = (manifests: Manifest[]) => {
+    const of = (env: EnvVar[]) =>
+      env.find((v) => v.name === "CODEX_SANDBOX_PROVIDER")?.value;
+    const scheduler = of(schedulerEnvOf(manifests));
+    return scheduler === of(apiEnvOf(manifests))
+      ? scheduler
+      : "the API and the scheduler differ";
+  };
   if (
     schedulerEnvOf(on).some((v) => v.name === "CODEX_SANDBOX") ||
     providerOf(on) !== "installer" ||
     providerOf(byDefault) !== "disabled"
   ) {
-    fail("the scheduler is not told the provider (disabled by default)");
+    fail(
+      "the scheduler and the API are not told the provider (disabled by default)",
+    );
   }
   // Told by a cluster administrator: nothing of ours in the cluster scope.
   const external = render([

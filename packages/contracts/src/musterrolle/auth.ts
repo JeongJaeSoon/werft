@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  codexSandboxProviderSchema,
   receiptIdSchema,
   timestampSchema,
   userIdSchema,
@@ -233,6 +234,12 @@ export const authMeResponseSchema = z
      * holds more on that agent than this says; an API key holds none.
      */
     permissions: z.array(authorizationActionSchema),
+    /**
+     * The installation's Codex sandbox provider, so a screen can warn that
+     * Codex agents fail where it is `disabled`. Absent where nothing says
+     * it: Docker Compose, or a chart with `codexSandbox.enabled` false.
+     */
+    codex_sandbox_provider: codexSandboxProviderSchema.exactOptional(),
   })
   .strict()
   .superRefine((response, ctx) => {

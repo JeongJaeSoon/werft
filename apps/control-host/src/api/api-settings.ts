@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
+  type CodexSandboxProvider,
+  codexSandboxProviderSchema,
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
 } from "@werft-ai/contracts";
@@ -30,6 +32,8 @@ export type ApiSettings = {
     maxStreamsPerOwner?: number;
   };
   webDistDir?: string;
+  /** The chart's `codexSandbox.provider`, which the scheduler reads too. */
+  codexSandboxProvider?: CodexSandboxProvider;
   signIn: {
     /** Lower-cased; unset trusts no header. */
     clientIpHeader?: string;
@@ -134,6 +138,16 @@ export function apiSettingsFromEnv(
       "WEB_DIST_DIR must be an absolute path to a directory holding index.html (apps/web's build output)",
     );
   }
+  const provider = environment.CODEX_SANDBOX_PROVIDER;
+  const codexSandboxProvider =
+    provider === undefined || provider === ""
+      ? undefined
+      : codexSandboxProviderSchema.safeParse(provider).data;
+  if (provider && codexSandboxProvider === undefined) {
+    problems.push(
+      `CODEX_SANDBOX_PROVIDER must be installer, external or disabled (got ${provider})`,
+    );
+  }
   if (problems.length > 0) throw new ApiSettingsError(problems);
   return {
     leaseTtlMs: leaseTtlMs as number,
@@ -148,6 +162,7 @@ export function apiSettingsFromEnv(
         : { maxStreamsPerOwner: sse.maxStreamsPerOwner }),
     },
     ...(webDistDir === undefined ? {} : { webDistDir }),
+    ...(codexSandboxProvider === undefined ? {} : { codexSandboxProvider }),
     signIn: {
       ...(clientIpHeader === undefined
         ? {}

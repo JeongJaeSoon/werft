@@ -22660,6 +22660,14 @@
                 "mcp.use"
               ]
             }
+          },
+          "codex_sandbox_provider": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "installer",
+              "external"
+            ]
           }
         },
         "required": [
@@ -55852,7 +55860,7 @@
           "Auth"
         ],
         "summary": "The authenticated principal, user and workspace",
-        "description": "Says who the credential authenticates as and what it may do: the principal with its scopes, the workspace, and for a cookie session the user and the management actions its role holds (`permissions`). An API key has no user, so `user` is null and `permissions` is empty; `workspace` is the key's workspace, or null for a legacy key that predates workspaces. The web app boots from this. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "Says who the credential authenticates as and what it may do: the principal with its scopes, the workspace, and for a cookie session the user and the management actions its role holds (`permissions`). An API key has no user, so `user` is null and `permissions` is empty; `workspace` is the key's workspace, or null for a legacy key that predates workspaces. `codex_sandbox_provider` is the chart's `codexSandbox.provider` (`disabled`, `installer` or `external`), so the console can warn a Codex agent's admins that its sessions fail with `CODEX_SANDBOX_NOT_INSTALLED` where it is `disabled`; it is absent where nothing says it (Docker Compose, or a chart with `codexSandbox.enabled` false). The web app boots from this. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {

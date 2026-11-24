@@ -1538,6 +1538,9 @@ const auth = {
   loginSettings: loginSettingsStore,
   passwords,
   logger,
+  ...(settings.codexSandboxProvider === undefined
+    ? {}
+    : { codexSandboxProvider: settings.codexSandboxProvider }),
 };
 const slackInteractions = wireSlackInteractions({
   secrets: slackSecretStore,

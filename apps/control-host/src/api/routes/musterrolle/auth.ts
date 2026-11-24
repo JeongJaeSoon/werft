@@ -4,6 +4,7 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  type CodexSandboxProvider,
   clampDisplayName,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
@@ -109,6 +110,8 @@ export interface AuthRouteDeps {
   loginMethods?: LoginMethodStore;
   /** Absent: the login page is told passwords are open to everyone. */
   loginSettings?: Pick<LoginSettingsStore, "read">;
+  /** What GET /v1/auth/me says of the Codex sandbox; absent, nothing. */
+  codexSandboxProvider?: CodexSandboxProvider;
 }
 
 const LINK_SESSION_MAX_AGE_MS = LOGIN_LINK_SESSION_MAX_AGE_MINUTES * 60 * 1000;
@@ -1213,6 +1216,10 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
   });
 
   apiRoute(router, "getAuthMe", async (context) => {
+    const codexSandbox =
+      deps.codexSandboxProvider === undefined
+        ? {}
+        : { codex_sandbox_provider: deps.codexSandboxProvider };
     const principal = context.get("principal");
     const session = context.get("webSession");
     if (principal.kind === "user" && session) {
@@ -1239,6 +1246,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         workspace: workspaceView(workspace),
         scopes: principal.scopes,
         permissions: permissionsOf(principal.role),
+        ...codexSandbox,
       });
     }
     const workspaceId =
@@ -1256,6 +1264,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
       workspace: workspace ? workspaceView(workspace) : null,
       scopes: principal.scopes,
       permissions: [],
+      ...codexSandbox,
     });
   });
 }
