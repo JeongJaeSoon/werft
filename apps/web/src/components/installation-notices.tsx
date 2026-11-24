@@ -45,7 +45,8 @@ export function InstallationNotices() {
     <Alert
       variant="amber"
       data-slot="installation-notice"
-      className="rounded-none border-x-0 border-t-0 md:px-6"
+      // One line beside a taller button: the icon centres on the row.
+      className="items-center rounded-none border-x-0 border-t-0 md:px-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <Text className="text-foreground">
