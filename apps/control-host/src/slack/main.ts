@@ -69,9 +69,11 @@ import { queueDatabaseUrl } from "../database-url.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 import {
   createOutboxSlackNoticeSink,
+  createSlackAudienceCache,
   drainSlackInbox,
   drainSlackOutbox,
   SLACK_INPUT_HOLD_MS,
+  type SlackAudienceCache,
   type SlackInboundHandler,
   type SlackInboxDrain,
   type SlackNoticeSink,
@@ -188,6 +190,8 @@ export function slackSessionHandler(deps: {
   inbox?: Pick<SurfaceInboundEventStore, "renew">;
   /** The pass's catalog, already read. No timer reads it again. */
   catalog?: ReturnType<typeof slackCatalog>;
+  /** Slack's answers about channels and people, kept across passes. */
+  audienceCache?: SlackAudienceCache;
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
   const catalog = deps.catalog ?? slackCatalog(db, environment);
@@ -237,6 +241,9 @@ export function slackSessionHandler(deps: {
   const identities = createPostgresAgentIdentityStore(db);
   const bindings = createPostgresSurfaceBindingStore(db);
   return wireSlackInbound({
+    ...(deps.audienceCache === undefined
+      ? {}
+      : { audienceCache: deps.audienceCache }),
     apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
     secrets,
     consoleOrigin,
@@ -334,6 +341,7 @@ function slackReaderOutside(
 // The pass child serves pass after pass, so this flips each pass: statuses
 // and posts take turns at the start of the outbox window.
 let statusesFirst = false;
+const audienceCache = createSlackAudienceCache();
 function nextStatusesFirst(): boolean {
   statusesFirst = !statusesFirst;
   return statusesFirst;
@@ -376,6 +384,7 @@ export async function main(
         leaseMs: settings.leaseMs,
         notices: createOutboxSlackNoticeSink(outbox),
         catalog,
+        audienceCache,
       }),
       logger,
       batchSize: settings.batchSize,

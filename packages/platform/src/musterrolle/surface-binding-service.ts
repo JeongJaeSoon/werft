@@ -13,7 +13,10 @@ import {
 } from "@werft-ai/contracts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
-import type { ChannelKindReadable } from "../surface/ports/channel-kind-readable.ts";
+import type {
+  ChannelKindReadable,
+  ChannelSharingReadable,
+} from "../surface/ports/channel-kind-readable.ts";
 import type {
   SurfaceBindingRecord,
   SurfaceBindingStore,
@@ -74,7 +77,7 @@ export function surfaceBindingView(
 export function createSurfaceBindingService(deps: {
   authorization: AuthorizationPolicy;
   store: SurfaceBindingStore;
-  channels: ChannelKindReadable;
+  channels: ChannelKindReadable & ChannelSharingReadable;
   /** Joins a bound channel; absent where no bot token can be read. */
   join?: ChannelJoinable;
   welcome?: Pick<AgentWelcomable, "welcome">;
@@ -192,6 +195,21 @@ export function createSurfaceBindingService(deps: {
       if (request.channel_id !== null && channelKind === "dm") {
         throw bindingError("BAD_REQUEST", "dmChannel");
       }
+      // People of another organization never agreed to the notice, so a
+      // channel they share listens for mentions only: free is refused, and a
+      // new binding that names no setting starts at mention. Unknown, the
+      // save goes on: what is held is judged again on every post.
+      const externalShared =
+        request.channel_id !== null &&
+        (request.listen === "free" || request.listen === undefined) &&
+        (await channels.sharingOf(
+          caller.ownerId,
+          agentId,
+          request.channel_id,
+        )) === "external";
+      if (externalShared && request.listen === "free") {
+        throw bindingError("BAD_REQUEST", "externalShared");
+      }
       const result = await store.set({
         principal: caller,
         workspaceId: caller.ownerId,
@@ -200,6 +218,7 @@ export function createSurfaceBindingService(deps: {
         channelKind,
         mode: request.mode,
         ...(request.listen === undefined ? {} : { listen: request.listen }),
+        ...(externalShared ? { newListen: "mention" as const } : {}),
         home: request.home,
         ceiling: request.ceiling ?? DEFAULT_SURFACE_CEILING,
         managerRoles: MANAGERS,

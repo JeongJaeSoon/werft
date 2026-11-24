@@ -94,8 +94,16 @@ export const SLACK_INBOUND_EVENT_TYPES = [
   "group_rename",
   "channel_deleted",
   "group_deleted",
+  "channel_shared",
+  "channel_unshared",
   "app_uninstalled",
   "tokens_revoked",
+] as const;
+
+/** The events that say another organization shares a channel or no longer does. */
+export const SLACK_CHANNEL_SHARING_EVENT_TYPES = [
+  "channel_shared",
+  "channel_unshared",
 ] as const;
 
 /** The events that say a channel was archived, unarchived, renamed or deleted. */

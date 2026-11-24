@@ -18,7 +18,19 @@ import type {
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
-import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNull,
+  lt,
+  lte,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { findPgError, UUID } from "../control-shared.ts";
 import {
   deleteChannelSummary,
@@ -290,6 +302,9 @@ async function set(
       } else {
         await tx.insert(surfaceBindings).values({
           ...values,
+          ...(input.listen === undefined && input.newListen !== undefined
+            ? { listen: input.newListen }
+            : {}),
           id,
           workspaceId,
           agentId,
@@ -480,6 +495,35 @@ export function createPostgresSurfaceBindingStore(
       channelNotFound(db, installationId, channelId, askedAt),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
+    async recordExternalShared(agentId, channelId, shared, at) {
+      if (!UUID.test(agentId)) return false;
+      return db.transaction(async (tx) => {
+        const written = await tx
+          .update(surfaceBindings)
+          .set({ externalShared: shared, externalSharedAt: at })
+          .where(
+            and(
+              eq(surfaceBindings.agentId, agentId.toLowerCase()),
+              eq(surfaceBindings.surface, "slack"),
+              eq(surfaceBindings.externalSurfaceId, channelId),
+              isNull(surfaceBindings.revokedAt),
+              or(
+                isNull(surfaceBindings.externalSharedAt),
+                // At the same instant a share wins: holding is what must not slip.
+                shared
+                  ? lte(surfaceBindings.externalSharedAt, at)
+                  : lt(surfaceBindings.externalSharedAt, at),
+              ),
+            ),
+          )
+          .returning({ id: surfaceBindings.id });
+        if (shared && written.length > 0) {
+          await dropUnlistenedBuffer(tx, { agentId, channelId });
+        }
+        return written.length > 0;
+      });
+    },
+
     async setMembership(bindingId, membership, expected, leaveNoted) {
       if (!UUID.test(bindingId)) return;
       const id = bindingId.toLowerCase();

@@ -1,5 +1,6 @@
 export * from "./outbox-delivery.ts";
 export * from "./slack-app-service.ts";
+export * from "./slack-audience.ts";
 export * from "./slack-bot-token.ts";
 export * from "./slack-card-settle.ts";
 export * from "./slack-channel-conversion.ts";
@@ -7,6 +8,7 @@ export * from "./slack-channel-join.ts";
 export * from "./slack-channel-lifecycle.ts";
 export * from "./slack-channel-members.ts";
 export * from "./slack-channel-search.ts";
+export * from "./slack-channel-sharing.ts";
 export * from "./slack-config-api.ts";
 export * from "./slack-config-token.ts";
 export * from "./slack-decision.ts";

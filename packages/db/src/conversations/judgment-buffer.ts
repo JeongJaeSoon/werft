@@ -26,8 +26,8 @@ type SlackMessage = SlackChannelOf<{ ts: string }>;
 /**
  * Whether the agent still holds unmentioned messages of the channel: it is
  * active with its switch `shadow` or `on`, the channel is bound in use
- * (`ready`, mode `on`, listening `free`), and its conversation is not
- * archived or deleted. The receive path asks the same through the
+ * (`ready`, mode `on`, listening `free`) and not shared with another
+ * organization, and its conversation is not archived or deleted. The receive path asks the same through the
  * handling table; this is its database side, for what changes afterwards.
  */
 function stillListened(row: { agentId: SQL; channelId: SQL; topicId: SQL }) {
@@ -39,7 +39,8 @@ function stillListened(row: { agentId: SQL; channelId: SQL; topicId: SQL }) {
     SELECT 1 FROM surface_bindings b
     WHERE b.agent_id = ${row.agentId} AND b.surface = 'slack'
       AND b.external_surface_id = ${row.channelId}
-      AND b.status = 'ready' AND b.mode = 'on' AND b.listen = 'free')
+      AND b.status = 'ready' AND b.mode = 'on' AND b.listen = 'free'
+      AND NOT b.external_shared)
   AND NOT EXISTS (
     SELECT 1 FROM conversation_topics t
     JOIN conversations c ON c.id = t.conversation_id

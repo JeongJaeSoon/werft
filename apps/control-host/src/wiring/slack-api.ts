@@ -22,6 +22,7 @@ import {
   createSlackChannelKinds,
   createSlackChannelMembers,
   createSlackChannelSearchService,
+  createSlackChannelSharingReader,
   createSlackConfigApi,
   createSlackConfigTokens,
   createSlackEventsFinalize,
@@ -115,13 +116,15 @@ export interface SlackChannelsStageDeps {
   secrets: SlackBotStageDeps["secrets"];
   identities: AgentIdentityStore;
   installs: SurfaceInstallStore;
+  bindings: Pick<SurfaceBindingStore, "recordExternalShared">;
   onTokenRevokedError: (error: unknown) => void;
 }
 
 export interface SlackChannelsStage {
   /** A Slack call answered `token_revoked` with no uninstall event sent. */
   tokenRevoked: ReturnType<typeof createSlackTokenRevoked>;
-  channelKinds: ReturnType<typeof createSlackChannelKinds>;
+  channelKinds: ReturnType<typeof createSlackChannelKinds> &
+    ReturnType<typeof createSlackChannelSharingReader>;
 }
 
 export function wireSlackChannels(
@@ -135,12 +138,20 @@ export function wireSlackChannels(
   });
   return {
     tokenRevoked,
-    channelKinds: createSlackChannelKinds({
-      apps: deps.appStore,
-      secrets: deps.secrets(),
-      slack: deps.api,
-      tokenRevoked,
-    }),
+    channelKinds: {
+      ...createSlackChannelKinds({
+        apps: deps.appStore,
+        secrets: deps.secrets(),
+        slack: deps.api,
+        tokenRevoked,
+      }),
+      ...createSlackChannelSharingReader({
+        apps: deps.appStore,
+        secrets: deps.secrets(),
+        slack: deps.api,
+        bindings: deps.bindings,
+      }),
+    },
   };
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type {
   AuthorizationDecision,
+  SlackChannelSharing,
   SurfaceChannelKind,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
@@ -44,6 +45,7 @@ function recordOf(
 function service(
   kindOf: (channelId: string) => Promise<SurfaceChannelKind>,
   overrides: Partial<SurfaceBindingStore> = {},
+  sharing: SlackChannelSharing | null = "internal",
 ) {
   const asked: string[] = [];
   const actions: string[] = [];
@@ -96,6 +98,7 @@ function service(
     botRemovedFrom: async () => false,
     lastLeaveNoted: async () => null,
     recordJoin: async () => true,
+    recordExternalShared: async () => false,
     ...overrides,
     list: async () => [],
     resolveSlackChannel: async () => null,
@@ -116,6 +119,7 @@ function service(
         asked.push(channelId);
         return kindOf(channelId);
       },
+      sharingOf: async () => sharing,
     },
   });
   return { bindings, asked, stored, actions };
@@ -203,6 +207,44 @@ describe("a Slack binding's listen setting (94S-2013)", () => {
       narrowed.slack_binding.listen,
       unnamed.slack_binding.listen,
     ]).toEqual(["mention", "free"]);
+  });
+
+  test("a channel another organization shares refuses free, by name, and saves mention and off", async () => {
+    const shared = service(async () => "public_channel", {}, "external");
+    const put = (listen: "free" | "mention" | "off") =>
+      shared.bindings.putSlackBinding(caller, AGENT, {
+        channel_id: "C0SHARED",
+        mode: "on",
+        listen,
+        home: false,
+      });
+    const refused = await put("free").catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(SessionServiceError);
+    expect((refused as SessionServiceError).code).toBe("BAD_REQUEST");
+    expect((refused as SessionServiceError).details).toEqual({
+      reason_code: "external_shared_channel",
+    });
+    expect(shared.stored).toEqual([]);
+    expect((await put("mention")).slack_binding.listen).toBe("mention");
+    expect((await put("off")).slack_binding.listen).toBe("off");
+    // A save that leaves listening as it is binds the channel all the same.
+    const unnamed = await shared.bindings.putSlackBinding(caller, AGENT, {
+      channel_id: "C0SHARED",
+      mode: "on",
+      home: false,
+    });
+    expect(unnamed.slack_binding.external_surface_id).toBe("C0SHARED");
+  });
+
+  test("free is saved when Slack cannot tell whether the channel is shared: each post is judged again", async () => {
+    const { bindings } = service(async () => "public_channel", {}, null);
+    const saved = await bindings.putSlackBinding(caller, AGENT, {
+      channel_id: "C0OPS",
+      mode: "on",
+      listen: "free",
+      home: false,
+    });
+    expect(saved.slack_binding.listen).toBe("free");
   });
 });
 
@@ -302,7 +344,10 @@ describe("a private channel waits for an owner or admin", () => {
           return resolved;
         },
       },
-      channels: { kindOf: async () => "private_channel" },
+      channels: {
+        kindOf: async () => "private_channel",
+        sharingOf: async () => "internal",
+      },
       join: async (binding) => {
         joined.push(binding.id);
         return { state: "joined", error: null };
@@ -362,7 +407,10 @@ describe("a private channel waits for an owner or admin", () => {
         findLiveSlackChannel: async () =>
           recordOf({ status: "gone", home: false, revision: 3 }),
       },
-      channels: { kindOf: async () => "private_channel" },
+      channels: {
+        kindOf: async () => "private_channel",
+        sharingOf: async () => "internal",
+      },
       join: async () => ({
         state: "awaiting_invite",
         error: "channel_not_found",
