@@ -32,6 +32,7 @@ umask 077
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 . scripts/lib/seed-credentials.sh
+. scripts/lib/setup-link-token.sh
 
 if [ -z "${DOCKER_HOST:-}" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
   export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
@@ -89,7 +90,7 @@ echo "== stack" >&2
 dc up -d --wait postgres localstack fake-git gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
 dc up -d --wait api >>"$out/up.log" 2>&1
 # The fresh stack's one setup link makes the first owner.
-E2E_SETUP_TOKEN="$(dc exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null 2>>"$out/up.log")" ||
+E2E_SETUP_TOKEN="$(setup_link_token "$E2E_OWNER_EMAIL" dc exec -T api 2>>"$out/up.log")" ||
   { echo "the API issued no setup link" >&2; exit 1; }
 export E2E_SETUP_TOKEN="${E2E_SETUP_TOKEN##*#setup=}"
 

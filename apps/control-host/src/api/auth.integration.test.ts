@@ -15,6 +15,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
   memberships,
+  receipts,
   setupLinks,
   users,
   webSessions,
@@ -38,12 +39,14 @@ import {
   releaseIn,
   sessionReleases,
 } from "../testing/releases.ts";
-import { liveSetupToken } from "../testing/setup-link.ts";
+import {
+  issueTestSetupToken as issueSetupToken,
+  liveSetupToken,
+} from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
 import {
   DatabaseIdentityStore,
   hashWebSessionToken,
-  issueSetupToken,
   WEB_SESSIONS_PER_USER,
 } from "./auth.ts";
 import { MemoryAuthAttemptStore } from "./auth-attempts.ts";
@@ -199,6 +202,29 @@ integration("auth API on PostgreSQL", () => {
   let cookie = "";
   let workspaceId = "";
 
+  test("a link issued for one address refuses another with 403 and stays live", async () => {
+    const issued = await issueSetupToken(
+      new DatabaseIdentityStore(db),
+      "owner@example.com",
+    );
+    if (issued === null) throw new Error("no link issued");
+    const [row] = await db.select().from(setupLinks);
+    expect(row?.email).toBe("owner@example.com");
+    expect(row?.id).toMatch(/^[0-9a-f-]{36}$/);
+    const other = await json("/v1/auth/bootstrap", {
+      ...bootstrapBody,
+      email: "someone@example.com",
+      setup_token: issued,
+    });
+    expect(other.status).toBe(403);
+    expect(await db.$count(users)).toBe(0);
+    expect(await db.$count(setupLinks)).toBe(1);
+    const check = await json("/v1/auth/setup-link/check", {
+      setup_token: issued,
+    });
+    expect(check.status).toBe(204);
+  });
+
   test("a setup link creates owner + workspace + membership once; reusing it is 401 and no new link is issued", async () => {
     const setupToken = await liveSetupToken(db);
     // Checking the link does not spend it.
@@ -233,6 +259,22 @@ integration("auth API on PostgreSQL", () => {
     expect(await db.$count(users)).toBe(1);
     expect(await issueSetupToken(new DatabaseIdentityStore(db))).toBeNull();
     expect(await db.$count(setupLinks)).toBe(0);
+  });
+
+  test("the first workspace's first receipt names the setup link that made its owner", async () => {
+    const written = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.ownerId, workspaceId));
+    expect(written.map((r) => r.operation)).toEqual(["bootstrap_owner"]);
+    const [user] = await db.select().from(users);
+    expect(written[0]?.result).toMatchObject({
+      user_id: user?.id,
+      setup_link: {
+        id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        created_at: expect.any(String),
+      },
+    });
   });
 
   test("login sets the cookie, stores only the hash, and me reads it back", async () => {

@@ -23,11 +23,14 @@ import {
   type IdentityWorkspace,
   type IssuePasswordResetInput,
   type IssuePasswordResetResult,
+  type IssueSetupLinkInput,
   type LoginSettingsStore,
   type ResolvedWebSession,
+  SetupLinkEmailMismatchError,
   SetupLinkInvalidError,
 } from "@werft-ai/platform";
 import { Hono } from "hono";
+import { issueTestSetupToken as issueSetupToken } from "../testing/setup-link.ts";
 import { BODY_IDLE_TIMEOUT_SECONDS } from "./app.ts";
 import {
   apiKeyPrincipal,
@@ -35,7 +38,6 @@ import {
   csrfViolation,
   hashPassword,
   hashWebSessionToken,
-  issueSetupToken,
   SETUP_LINK_TTL_MS,
   unauthenticatedPrincipal,
   WEB_SESSION_TTL_MS,
@@ -87,6 +89,8 @@ class MemoryIdentityStore implements IdentityStore {
   }> = [];
   /** Setup link token hash (hex) to its expiry. */
   setupLinks = new Map<string, number>();
+  /** Setup link token hash (hex) to the address it was issued for. */
+  setupLinkEmails = new Map<string, string>();
   receipts: Array<{
     id: string;
     operation: string;
@@ -113,7 +117,14 @@ class MemoryIdentityStore implements IdentityStore {
     if (!this.linkIsLive(input.setupTokenHash)) {
       throw new SetupLinkInvalidError();
     }
+    const issuedFor = this.setupLinkEmails.get(
+      Buffer.from(input.setupTokenHash).toString("hex"),
+    );
+    if (issuedFor !== undefined && issuedFor !== input.email) {
+      throw new SetupLinkEmailMismatchError();
+    }
     this.setupLinks.clear();
+    this.setupLinkEmails.clear();
     const recovered = this.users.length > 0;
     let workspace = this.workspaces[0];
     if (!workspace) {
@@ -180,14 +191,17 @@ class MemoryIdentityStore implements IdentityStore {
     );
     return expiresAt !== undefined && expiresAt > this.now();
   }
-  async issueSetupLink(tokenHash: Uint8Array, ttlMs: number) {
-    if ((await this.countLiveOwners()) > 0) return "owner_exists" as const;
+  async issueSetupLink({ tokenHash, email, ttlMs }: IssueSetupLinkInput) {
+    if ((await this.countLiveOwners()) > 0) {
+      return { outcome: "owner_exists" as const };
+    }
     this.setupLinks.clear();
-    this.setupLinks.set(
-      Buffer.from(tokenHash).toString("hex"),
-      this.now() + ttlMs,
-    );
-    return "issued" as const;
+    this.setupLinkEmails.clear();
+    const hex = Buffer.from(tokenHash).toString("hex");
+    const expiresAt = this.now() + ttlMs;
+    this.setupLinks.set(hex, expiresAt);
+    this.setupLinkEmails.set(hex, email);
+    return { outcome: "issued" as const, expiresAt: new Date(expiresAt) };
   }
   async setupLinkIsLive(tokenHash: Uint8Array) {
     return this.linkIsLive(tokenHash);
@@ -541,6 +555,25 @@ describe("bootstrap", () => {
     expect(fresh).toHaveLength(43);
     expect((await h.bootstrap()).status).toBe(401);
     expect((await h.bootstrap({ setup_token: fresh })).status).toBe(201);
+  });
+
+  test("a link issued for one address refuses another and stays live", async () => {
+    const h = harness();
+    const issued = await issueSetupToken(h.identity, "owner@example.com");
+    if (issued === null) throw new Error("no link issued");
+    const other = await h.bootstrap({
+      setup_token: issued,
+      email: "someone@example.com",
+    });
+    expect(other.status).toBe(403);
+    expect((await other.json()).error.code).toBe("FORBIDDEN");
+    expect(h.identity.users).toHaveLength(0);
+    expect(h.identity.setupLinks.size).toBe(1);
+    const owner = await h.bootstrap({
+      setup_token: issued,
+      email: "Owner@Example.com",
+    });
+    expect(owner.status).toBe(201);
   });
 
   test("an expired link is refused", async () => {

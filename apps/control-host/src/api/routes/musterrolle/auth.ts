@@ -44,6 +44,7 @@ import {
   type LoginSettingsStore,
   MANAGEMENT_ROLES,
   passwordResetIssueDenial,
+  SetupLinkEmailMismatchError,
   SetupLinkInvalidError,
 } from "@werft-ai/platform";
 import type { Context } from "hono";
@@ -339,6 +340,14 @@ export function registerPublicAuthRoutes(
       }
       // Expired, or replaced by a newer link, since the check above.
       if (error instanceof SetupLinkInvalidError) throw invalidSetupLink();
+      // The link stays live: the operator issued it for one address.
+      if (error instanceof SetupLinkEmailMismatchError) {
+        throw new ApiHttpError(
+          403,
+          "FORBIDDEN",
+          "This setup link was issued for another email address",
+        );
+      }
       throw error;
     }
   });
