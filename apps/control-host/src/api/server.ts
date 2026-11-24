@@ -182,6 +182,7 @@ import {
   settingsJudgeConnections,
   withConsoleRepositories,
 } from "@werft-ai/platform";
+import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
 import {
@@ -195,6 +196,7 @@ import {
 } from "../wiring/github-api.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
 import { wireM1JudgmentRunner } from "../wiring/m1-judgments.ts";
+import { wireReleaseInstructions } from "../wiring/release-instructions.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
 import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
@@ -703,6 +705,12 @@ const agents = createAgentService({
   welcome: slackWelcome,
   keys: createPostgresWorkspaceKeyStore(db),
   runtimes: installedRuntimeVersions,
+  releaseInstructions: wireReleaseInstructions({
+    catalog,
+    resolver: () => githubResolver,
+    descriptors: installedDescriptors,
+    logger,
+  }),
   extensions: extensionDeps,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);

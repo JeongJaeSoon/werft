@@ -8,6 +8,8 @@ import {
   cardContentSha256,
   createAgentService,
   createAuthorizationPolicy,
+  deriveReleaseId,
+  type ReleaseInstructionsSource,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import {
@@ -93,8 +95,11 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
 
   const store = () => createPostgresAgentStore(db);
 
-  function service(): AgentService {
+  function service(
+    releaseInstructions?: ReleaseInstructionsSource,
+  ): AgentService {
     return createAgentService({
+      ...(releaseInstructions === undefined ? {} : { releaseInstructions }),
       authorization: createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
       }),
@@ -209,6 +214,55 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     expect(edited.release.version_id).toBe(
       edited.versions.at(-1)?.id as string,
     );
+  });
+
+  test("a release stores its instruction snapshot, and reads back under the id it hashes to", async () => {
+    const caller = await owner();
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
+    const text = "판단 규칙\n";
+    const snapshotting = service({
+      open: async () => ({
+        kind: "tree",
+        commit: "f".repeat(40),
+        files: ["AGENTS.md"],
+        tree: {
+          entry: async (path) =>
+            path === "AGENTS.md"
+              ? { mode: "100644", type: "blob", object: "b" }
+              : null,
+          size: async () => new TextEncoder().encode(text).length,
+          read: async () => text,
+        },
+      }),
+    });
+    const { release } = await snapshotting.createRelease(
+      caller,
+      made.agent.id,
+      {
+        version_id: made.versions[0]?.id as string,
+        connection_id: TEST_CONNECTION_ID,
+        repository_id: "app",
+      },
+    );
+    const expected = {
+      kind: "text",
+      repository_id: "app",
+      commit: "f".repeat(40),
+      file: "AGENTS.md",
+      text,
+      bytes: 14,
+      truncated: false,
+    } as const;
+    expect(release.instructions_snapshot).toEqual(expected);
+    const read = await store().findRelease(caller.ownerId, release.id);
+    expect(read?.instructions_snapshot).toEqual(expected);
+    // jsonb gives the snapshot back in its own key order: the id still holds.
+    expect(read && deriveReleaseId(read)).toBe(release.id);
+    const [row] = await db
+      .select({ snapshot: agentReleases.instructionsSnapshot })
+      .from(agentReleases)
+      .where(eq(agentReleases.id, release.id));
+    expect(row?.snapshot).toEqual(expected);
   });
 
   test("the same behavior is unchanged, makes no release, and still takes a revision", async () => {

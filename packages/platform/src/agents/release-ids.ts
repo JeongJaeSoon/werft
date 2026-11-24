@@ -39,6 +39,7 @@ export type ReleaseIdentity = Pick<
   | "runtime_config_snapshot"
   | "effective_tools"
   | "policy_pins"
+  | "instructions_snapshot"
 >;
 
 export function deriveReleaseId(identity: ReleaseIdentity): string {
@@ -54,6 +55,11 @@ export function deriveReleaseId(identity: ReleaseIdentity): string {
       runtime_config_snapshot: identity.runtime_config_snapshot,
       effective_tools: identity.effective_tools,
       policy_pins: identity.policy_pins,
+      // Null leaves a release made before snapshots under the id it has. A
+      // push to the file is a new release even when nothing else changed.
+      ...(identity.instructions_snapshot === null
+        ? {}
+        : { instructions_snapshot: identity.instructions_snapshot }),
     }),
   )}`;
 }
@@ -171,6 +177,8 @@ export function resolveReleaseContent(
       },
       effective_tools,
       policy_pins,
+      // Read from the repository by the service that makes the release.
+      instructions_snapshot: null,
     },
   };
 }
