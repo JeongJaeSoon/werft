@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **`EXECUTION_WORKSPACE_QUOTA=off`가 "quota 없음"에서 "커널 quota 대신 측정으로 막음"으로 바뀐다. off인 Docker 설치의 worker는 콘솔의 `WORKSPACE_ENFORCE`와 상관없이 `fail`로 돈다**(JeongJaeSoon/werft#PR). migration은 없다. 로컬 개발 compose(`infra/compose.core.yml`)의 기본값도 `off`다.
+- **`EXECUTION_WORKSPACE_QUOTA=off`가 "quota 없음"에서 "커널 quota 대신 측정으로 막음"으로 바뀐다. off인 Docker 설치의 worker는 콘솔의 `WORKSPACE_ENFORCE`와 상관없이 `fail`로 돈다**(JeongJaeSoon/werft#2168). migration은 없다. 로컬 개발 compose(`infra/compose.core.yml`)의 기본값도 `off`다.
   - worker가 작업 공간을 1분에 한 번보다 자주 재지 않는 주기로 재고, `EXECUTION_WORKSPACE_QUOTA_MB`(기본 4096) 또는 `EXECUTION_WORKSPACE_QUOTA_INODES`(기본 1,000,000)를 넘은 turn을 `workspace_quota_exceeded`로 멈춘다. 세션은 남아 다음 입력을 받고, 세션 대화에는 한도를 넘어 요청을 멈췄으니 파일을 줄인 뒤 다시 요청하라는 문구가 나온다. 두 값은 이제 `off`에서도 읽고 같은 범위를 검사하므로, `off`와 함께 1024보다 작은 `EXECUTION_WORKSPACE_QUOTA_MB`를 둔 설치는 scheduler가 기동하지 않는다.
   - api가 같은 변수를 읽는다(Compose는 api에도 넘긴다). 기동 때 warn을 남기고, `/readyz`는 200 그대로 본문에 `detail.no_disk_quota: true`를 더한다. 본문을 통째로 비교하던 검사는 이 칸을 허용한다.
   - 콘솔은 owner·admin에게 모든 화면 맨 위에 닫을 수 없는 띠를 보인다. 시험 설치(`INSTALLATION_PROFILE=test`)는 "시험 모드: 디스크 quota 없음, 운영 불가", 그 밖의 설치는 XFS quota를 켜라는 문구다. 새 route는 `GET /v1/installation-status`이고 로그인한 owner·admin만 쓴다.
