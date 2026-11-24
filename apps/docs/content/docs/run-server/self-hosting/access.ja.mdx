@@ -10,7 +10,7 @@ outcome: "コンソールと SSE に安全な経路で到達できることを�
 <a id="무엇을-하게-되나" />
 ## 作業内容
 
-リモート bootstrap 前に SSH tunnel または TLS・制限したネットワークでのアクセス経路を構成し、コンソール・API・SSE を確認します。
+リモート bootstrap 前に SSH tunnel または TLS・制限したネットワークでのアクセス経路を構成し、コンソール・API・SSE を確認します。Slack を接続する場合は、Slack のパスだけを開く公開入口も構成します。
 
 <a id="준비물" />
 ## 準備
@@ -36,7 +36,84 @@ API（既定 3000）と PostgreSQL（既定 5432）はホスト loopback のみ�
 
 内部 DNS 名で API を公開する場合は、前段に reverse proxy を置きます。upstream は引き続き `127.0.0.1:3000` です。アクセス元を VPN 範囲または IP allowlist に絞り、TLS 接続は proxy で処理します。proxy はブラウザが送った `Host` をそのまま upstream に渡します。API は状態変更するブラウザ要求の `Origin` の host と `Host` が異なると拒否するため、upstream の host に変えると Web コンソールの変更要求が失敗します。イベントストリーム（SSE）は接続を長時間保持するため、`proxy_buffering` と要求 buffering を無効にし、read・send timeout を 1 時間など長く設定します。どの経路でも PostgreSQL と Docker socket は proxy やファイアウォールの外へ公開しません。Docker socket は scheduler が worker を管理するときだけ使用し、ホスト TCP socket は有効にしません。
 
-証明書パス、内部 DNS 名、許可範囲は組織の環境値を使います。同じサーバーからの試験要求も許可するなら loopback を明示します。`Host` とブラウザの `Origin` を一致させ、SSE buffering を無効にします。
+証明書パス、内部 DNS 名、許可範囲は組織の環境値を使います。同じサーバーからの試験要求も許可するなら loopback を明示します。`Host` とブラウザの `Origin` を一致させ、SSE buffering を無効にします。設定例は下の [公開入口](#공개-입구-slack-경로만-열기) 節のコンソール入口の `server` ブロックです。
+
+<a id="공개-입구-slack-경로만-열기" />
+### 公開入口: Slack のパスだけを開く
+
+Slack のイベントとボタン・モーダル(interaction)を受け取るには、Slack から届く公開 https 入口が必要です。Slack が呼び出すアドレスは `POST /v1/slack/events/{agent_id}` と `POST /v1/slack/interactions/{agent_id}` の二つだけで、どちらも cookie や API key の代わりにそのエージェントアプリの signing secret の署名を確認します。公開入口はこの二つのパスだけを api に送り、それ以外は proxy で 404 を返します。Slack アプリのインストールとアカウント連携の OAuth redirect は、ブラウザがコンソールのアドレス(`CONSOLE_ORIGIN`)に戻るため、公開入口には開きません。
+
+api の 3000 番ポートには、コンソールと `/v1` API のほかに worker 用の `/internal` もあります。トンネルや proxy で 3000 をまるごと公開すると、`/internal` までインターネットに開きます。そのため公開入口(Slack のパスだけ)とコンソール入口(VPN・IP allowlist の内側)を別の DNS 名に分け、コンソール入口でも `/internal` を塞ぎます。
+
+次は Compose サーバーで nginx を使って二つの入口を分ける例です。`<hooks-host>` は公開 DNS 名、`<console-host>` は `CONSOLE_ORIGIN` の host、`<allowed-cidr>` はコンソールに入れる範囲です。証明書パスは組織の値を使います。
+
+```nginx
+# Public entry: only the two request URLs Slack calls reach the API.
+server {
+    listen 443 ssl;
+    server_name <hooks-host>;
+    ssl_certificate     <certificate-path>;
+    ssl_certificate_key <certificate-key-path>;
+
+    location ~ "^/v1/slack/(events|interactions)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" {
+        limit_except POST { deny all; }
+        proxy_pass http://127.0.0.1:3000$uri;
+        proxy_set_header Host $http_host;
+    }
+
+    location / {
+        return 404;
+    }
+}
+
+# Console entry: allowlisted networks only, /internal never forwarded.
+server {
+    listen 443 ssl;
+    server_name <console-host>;
+    ssl_certificate     <certificate-path>;
+    ssl_certificate_key <certificate-key-path>;
+
+    allow <allowed-cidr>;
+    allow 127.0.0.1;
+    deny all;
+
+    if ($request_uri ~* "\\\\|%5c") {
+        return 400;
+    }
+
+    location ^~ /internal {
+        return 404;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $http_host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+}
+```
+
+- 公開入口の `location` は、nginx がデコード・正規化したパスが二つの Slack パスのどちらかに `agent_id`(小文字の UUID)が付いた形のときだけ一致します。api には元のリクエスト行ではなく、その正規化したパス(`$uri`)を渡すため、`..` やバックスラッシュを混ぜても api に届くのは Slack のパスだけです。それ以外は 404、POST 以外のリクエストは 403 です。query は渡しません。Slack に送るアドレスには query がありません。
+- コンソール入口は `/internal` とその下を 404 で返します。nginx は `/%69nternal/x` のようにエンコードしたパスや `/x/../internal/x` をデコード・正規化してから `location` を選ぶので、これらも 404 です。nginx はバックスラッシュをパスの区切りとして扱いませんが、api の前の Bun は `/` に変えるため、`/x/..\internal/x` が `/internal/x` になります。そのためリクエスト行に `\` や `%5C` があれば 400 で拒否します。
+- `Host` は `$http_host` で、ブラウザが送った値をポートまでそのまま渡します。`$host` はポートを落とすので、443 以外のポートでコンソールを開くと変更要求が `Origin` と一致せず拒否されます。
+- イベントストリーム(SSE)が通るコンソール入口は buffering を無効にし、read・send timeout を 1 時間にします。
+
+公開入口の DNS 名がコンソールと異なる場合は、owner が **設定 > 連携 > Slack** の「イベントの入口アドレス」に `https://<hooks-host>` を保存します(`PUT /v1/slack-settings`)。保存したアドレスのパス prefix は Slack に送る URL にも付きます。上の例は prefix を外さないので、host だけを保存します。保存前に作ったエージェントアプリは、そのエージェントの Slack タブの **再確認** で新しいアドレスを送ります。
+
+トンネル(例: Cloudflare Tunnel)で公開入口を作るときも規則は同じです。公開 hostname では二つの Slack パスだけを `http://127.0.0.1:3000` に送り、それ以外は 404 を返すようにし、コンソールは別の hostname とアクセス制限の内側に置きます。パスの正規化はトンネル製品ごとに異なるため、規則を書いたあと次の確認を公開アドレスに対して実行します。
+
+```bash
+for p in /v1/slack/events/00000000-0000-0000-0000-000000000000 /v1/auth/login-methods / /internal/x /%69nternal/x /x/../internal/x '/x/..\internal/x'; do
+  curl -s --path-as-is -o /dev/null -X POST -w "$p %{http_code} %{content_type}\n" "https://<hooks-host>$p"
+done
+```
+
+最初の行だけが api の応答(署名がないので 4xx、`application/json`)で、残りはすべて proxy の 404 です(nginx は `text/html`)。ほかの行に `application/json` が来たら、そのパスが api に届いているので、公開入口を止めて規則を直します。コンソール入口は [確認](#확인) のループを `<console-host>` に対して実行します。上の nginx の例では、バックスラッシュを含む二行が 400、残りが 404 で、どの行も `application/json` ではありません。
 
 <a id="kubernetes-내부망-alb" />
 ### Kubernetes: 内部ネットワーク ALB
@@ -100,7 +177,7 @@ TLS 証明書が信頼されていなければ、ブラウザが接続を遮断�
 <a id="되돌리기" />
 ## 元に戻す
 
-tunnel はそのターミナルで終了します。reverse proxy の今回の設定をバックアップへ戻します。Kubernetes は環境別 values の `ingress.console.enabled` を false に戻して適用し、`/internal` と authorizer が外部に公開されていないことを確認します。
+tunnel はそのターミナルで終了します。reverse proxy の今回の設定をバックアップへ戻します。公開入口はその `server` ブロック(またはトンネルの規則)を削除します。その後は Slack のイベントが届かなくなります。Kubernetes は環境別 values の `ingress.console.enabled` を false に戻して適用し、`/internal` と authorizer が外部に公開されていないことを確認します。
 
 <a id="다음에-읽을-곳" />
 ## 次に読む
