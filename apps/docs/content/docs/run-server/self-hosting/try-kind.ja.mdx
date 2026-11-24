@@ -15,7 +15,7 @@ outcome: "試験用 chart を設置して後片付けします"
 <a id="준비물" />
 ## 準備
 
-Docker、kind、Helm 3、kubectl、git、Bun 1.3.14 とリポジトリ checkout が必要です。設置・削除するクラスタ名と registry ポートが他の作業と重複しないことを確認します。NetworkPolicy を強制する kind バージョンを使います。
+Docker、kind、Helm 3、kubectl が必要です。手順 1 の harness は git、Bun 1.3.14 とリポジトリ checkout も使います。手順 2 の公開 chart 試験は checkout の代わりに `curl`、`openssl` と [chart 試験用の DB と object store の準備](/run-server/self-hosting/try-chart-dependencies#준비물)を使います。設置・削除するクラスタ名と registry ポートが他の作業と重複しないことを確認します。NetworkPolicy を強制する kind バージョンを使います。
 
 <a id="단계" />
 ## 手順
@@ -35,38 +35,17 @@ export KUBECONFIG=~/.cache/werft/kind/werft-try/kubeconfig
 <a id="2-게시-chart를-직접-시험하는-경우" />
 ### 2. 公開 chart を直接試験する場合
 
-harness の代わりに公開パッケージを試験するには、別のクラスタを作成し、次の依存サービスを準備します。`VERSION` は[パッケージ契約](/run-server/self-hosting/reference/packages)で選んだ正確な公開 chart バージョンです。
+harness の代わりに公開 chart を試験する場合、リポジトリ checkout は不要です。別の kind クラスタを作成し、そのクラスタだけを指す kubeconfig を使います。
 
 ```bash
-git clone https://github.com/JeongJaeSoon/werft.git
-cd werft
-kind create cluster --name werft-try
-kubectl create namespace werft
-kubectl -n werft create configmap localstack-init \
-  --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
-kubectl -n werft apply -f deploy/kind/deps.yaml
-kubectl -n werft rollout status deploy/postgres --timeout=300s || exit 1
-kubectl -n werft rollout status deploy/localstack --timeout=300s || exit 1
-SECRETS="$(mktemp -d)"
+kind create cluster --name werft-try --kubeconfig "$HOME/.kube/werft-try"
+export KUBECONFIG="$HOME/.kube/werft-try"
+kubectl config current-context
 ```
 
-次の `read -rs` はプロンプトを出さず入力を待ちます。入力するのは `deploy/kind/deps.yaml` の `POSTGRES_PASSWORD` です。値をコマンドラインに書かないよう、ターミナルから読み取ります。ターミナルなしのスクリプトでは同じ値を標準入力に渡してこの行を満たします。Secret の値はすべてこの kind 試験専用です。実サーバーでは [Kubernetes 設置の 2. namespace と Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret)で自分で作った値を使います。Secret 作成後は変数と一時ディレクトリを削除します。
+最後のコマンドが `kind-werft-try` を出力することを確認します。続けて同じシェルで [chart 試験用の DB と object store](/run-server/self-hosting/try-chart-dependencies)の手順 1〜4 に従います。そのページが依存サービスの manifest、Secret、最小の values を本文で示し、手順 4 で公開 chart を設置します。LocalStack の初期化スクリプトはその manifest の ConfigMap `localstack-init` に入っており、リリースバンドル（`werft-test-ops-<tag>.tar.gz`）の `infra/localstack/init/10-create-resources.sh` と同じ bucket を作ります。
 
-```bash
-read -rs KIND_DB_PASSWORD
-{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
-openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
-openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
-printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
-printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
-kubectl -n werft create secret generic werft --from-file="$SECRETS"
-unset KIND_DB_PASSWORD
-rm -r "${SECRETS:?}"
-helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --timeout 10m
-```
-
-最初の owner は、api Pod が出力する一回限りの設定リンクで作ります（`kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`）。パスだけが出力された場合は、port-forward のアドレス（`http://127.0.0.1:13000`）の後ろに付けて開きます。リンクは DB にあるため、2 個の replica のどちらに届いても使えます。モデル key は Secret に入れません。key は最初の owner がコンソールで入力して DB に保存する値だけで、この試験では key を入れません。Secret ディレクトリは作成後にアクセス権限が 0700 であることを確認し、ターミナルなしでは DB パスワードを標準入力に渡します。実運用の資格情報をこの試験に入れないでください。上記 Secret ブロックと fixture chart の試験成功を、公開 chart 試験全体の成功と混同しないでください。
+最初の owner は、api Pod が出力する一回限りの設定リンクで作ります（`kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`）。パスだけが出力された場合は、port-forward のアドレス（`http://127.0.0.1:13000`）の後ろに付けて開きます。リンクは DB にあるため、2 個の replica のどちらに届いても使えます。モデル key は Secret に入れません。key は最初の owner がコンソールで入力して DB に保存する値だけで、この試験では key を入れません。実運用の資格情報をこの試験に入れないでください。
 
 <a id="확인" />
 ## 確認
@@ -115,7 +94,7 @@ harness で作成した場合：
 CLUSTER_NAME=werft-try deploy/kind/up.sh down
 ```
 
-直接作成した `werft-try` クラスタは `kind delete cluster --name werft-try` で削除します。失敗時も今回の試験クラスタだけを整理し、他の context のリソースには触れません。
+直接作成した `werft-try` クラスタは `kind delete cluster --name werft-try --kubeconfig "$HOME/.kube/werft-try"` で削除します。失敗時も今回の試験クラスタだけを整理し、他の context のリソースには触れません。
 
 <a id="다음에-읽을-곳" />
 ## 次に読む
