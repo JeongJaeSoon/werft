@@ -1,5 +1,7 @@
 import {
+  type ConversationId,
   type ConversationInputId,
+  type ConversationTopicId,
   type ConversationTurnId,
   type EngagementKind,
   type ScopeKey,
@@ -11,14 +13,17 @@ import {
   type ContextRead,
   type ConversationKey,
   type SourceKey,
+  sourceSetOf,
   storedSourceSet,
+  type TopicTurnContexts,
+  topicTurnContexts,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { createPostgresChannelSummaryStore } from "./channel-summaries.ts";
 import { lockedDeletedSource } from "./deleted-sources.ts";
-import { inputTexts } from "./input-texts.ts";
+import { inputTexts, turnAnswerTexts } from "./input-texts.ts";
 
 /** The conversation columns a fragment's scope is read off. */
 type ConversationColumns = {
@@ -52,11 +57,86 @@ const conversationColumns = (alias: string) => {
     ${c}.channel_id, ${c}.person_user_id`;
 };
 
+/** A topic turn's context and checks, read through the assembler (G1). */
+export function createPostgresTopicTurnContexts(
+  db: Database,
+): TopicTurnContexts {
+  return topicTurnContexts(createPostgresContextFragmentSource(db));
+}
+
 export function createPostgresContextFragmentSource(
   db: Database,
 ): ContextFragmentSource {
   return {
-    read(key: ConversationKey): Promise<ContextRead> {
+    async conversationOf(ref: {
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+    }): Promise<ConversationKey | null> {
+      const [row] = rowsOf<ConversationColumns>(
+        await db.execute(sql`
+          SELECT ${conversationColumns("c")} FROM conversations c
+          WHERE c.id = ${ref.conversationId}::uuid
+            AND c.workspace_id = ${ref.workspaceId}::uuid
+            AND c.agent_id = ${ref.agentId}::uuid`),
+      );
+      if (row === undefined) return null;
+      return row.kind === "channel"
+        ? {
+            kind: "channel",
+            workspaceId: row.workspace_id,
+            agentId: row.agent_id,
+            teamId: row.team_id as string,
+            channelId: row.channel_id as string,
+          }
+        : {
+            kind: "dm",
+            workspaceId: row.workspace_id,
+            agentId: row.agent_id,
+            personUserId: row.person_user_id as string,
+          };
+    },
+
+    async recordsDeletedAt(ref: {
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+    }): Promise<Date | null> {
+      const [row] = rowsOf<{ records_deleted_at: Date | string | null }>(
+        await db.execute(sql`
+          SELECT c.records_deleted_at FROM conversations c
+          WHERE c.id = ${ref.conversationId}::uuid
+            AND c.workspace_id = ${ref.workspaceId}::uuid
+            AND c.agent_id = ${ref.agentId}::uuid`),
+      );
+      return row?.records_deleted_at == null
+        ? null
+        : new Date(row.records_deleted_at);
+    },
+
+    anyDeleted(
+      workspaceId: string,
+      sources: readonly SourceKey[],
+    ): Promise<boolean> {
+      return db.transaction(
+        async (tx) =>
+          (await lockedDeletedSource(tx, {
+            workspaceId,
+            sessionId: null,
+            sources: storedSourceSet({
+              direct: [...sources],
+              inherited: [],
+              overflow: false,
+            }),
+            throughTurn: null,
+          })) !== null,
+      );
+    },
+
+    read(
+      key: ConversationKey,
+      options?: { topicId?: ConversationTopicId },
+    ): Promise<ContextRead> {
       return db.transaction(async (tx) => {
         const [conversation] = rowsOf<ConversationColumns & { id: string }>(
           await tx.execute(sql`
@@ -157,6 +237,49 @@ export function createPostgresContextFragmentSource(
                   },
             at: new Date(row.created_at),
           });
+        }
+
+        // A topic's earlier answers: its own turns' only, each judged by
+        // every source it came from. A turn an admin deleted is no row.
+        if (options?.topicId !== undefined) {
+          const turns = rowsOf<
+            ConversationColumns & {
+              turn_id: ConversationTurnId;
+              sources: unknown;
+              ended_at: Date | string;
+            }
+          >(
+            await tx.execute(sql`
+              SELECT ct.id AS turn_id, ct.sources, ct.ended_at,
+                ${conversationColumns("c")}
+              FROM conversation_turns ct
+              JOIN conversations c ON c.id = ct.conversation_id
+              WHERE c.id = ${conversation.id}::uuid
+                AND ct.topic_id = ${options.topicId}::uuid
+                AND ct.workspace_id = c.workspace_id
+                AND ct.agent_id = c.agent_id
+                AND ct.state = 'decided' AND ct.ended_at IS NOT NULL
+              ORDER BY ct.ended_at, ct.id`),
+          );
+          const answers = await turnAnswerTexts(
+            tx,
+            turns.map((row) => row.turn_id),
+          );
+          for (const row of turns) {
+            const answer = answers.get(row.turn_id);
+            if (answer === undefined) continue;
+            const set = sourceSetOf(row.sources);
+            // Past its list, a deleted source would not be seen.
+            if (set.overflow) continue;
+            fragments.push({
+              kind: "conversation_turn",
+              scope: scopeOfRow(row),
+              sources: [...set.direct, ...set.inherited],
+              turnId: row.turn_id,
+              answer,
+              endedAt: new Date(row.ended_at),
+            });
+          }
         }
 
         // A buffered message is the conversation's through its topic. One

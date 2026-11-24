@@ -290,10 +290,13 @@ conversationRuntime:
   enabled: false
   # Above the few seconds it takes to cut a running turn and report it.
   terminationGracePeriodSeconds: 30
-  # One engine at a time beside the loop, and the topics' in-memory directory.
+  # Up to 8 topic sessions (CONVERSATION_TOPIC_SESSION_LIMIT), each an engine
+  # process kept between turns: one idle after a turn measured about 215Mi
+  # RSS. 8 x 215Mi, the loop, the topics' in-memory directory (256Mi) and a
+  # margin. Requested in full, so the Pod is never squeezed below it.
   resources:
-    requests: {cpu: 100m, memory: 512Mi}
-    limits: {memory: 2Gi}
+    requests: {cpu: 100m, memory: 2560Mi}
+    limits: {memory: 2560Mi}
 
 # A pre-install/pre-upgrade hook: the schema is migrated before any new pod
 # of the release starts.
