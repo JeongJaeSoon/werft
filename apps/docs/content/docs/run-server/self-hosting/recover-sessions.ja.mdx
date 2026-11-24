@@ -86,6 +86,14 @@ checkpoint がないセッションも同じ規則です。worker が claim 後�
 - SIGTERM で drain された worker も数えません。worker は release に `stop_kind: "drain"` を含めます。
 - **デプロイ順序：** 制御ホストイメージ（`API_IMAGE`、api・scheduler 共用）を先に更新し、`WORKER_IMAGE` は後に変えます。worker protocol の要求 schema は strict なので、新 worker の新フィールドを以前の API が 400 で拒否します。代替経路があるのは `platform_tool_trust` だけです（以前の API が拒否すると worker はフィールドを外して一度再送）。他の新フィールドにはありません。プロファイル削除リリースへの更新は例外で、両方のイメージを一つの upgrade で一緒に変えます。以前の worker が新しい制御ホストの応答を読めないためです（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。
 
+<a id="작업-자리를-기다리는-세션" />
+#### 作業の空きを待つセッション
+
+Kubernetes が worker Pod を置く node を見つけられないとき（Pod 条件 `PodScheduled` が `False`、理由 `Unschedulable`、Pod イベント `FailedScheduling`）、セッションは失敗せずに待ちます。セッション API の `wait_reason` が `waiting_for_capacity` になり、`werft_sessions_waiting_for_capacity` が上がります。scheduler ログ `Execution waiting for capacity; no node has room` の `fields.unschedulable_reason` に Kubernetes が示す理由（例：`0/1 nodes are available: 1 Insufficient memory.`）があります。
+- 待つ間、scheduler はその Pod を作り直したり置き換えたりしません。空きが出れば、その Pod がそのまま起動します。
+- 15 分以内に空きが出なければ、待っていた入力は `NO_CAPACITY` で失敗し、Pod は下ろされます。セッションは `idle` に戻り、launch の失敗としては数えません。ユーザーがもう一度送れば新しい Pod が続きを進めます。運用者が下す復旧の判断はありません。
+- 頻繁に起きるなら、node を増やすか、worker Pod の resource 要求が node に収まるかを確かめます。
+
 <a id="3-interrupt-뒤-결과-불명" />
 ### 3. interrupt 後の結果不明
 

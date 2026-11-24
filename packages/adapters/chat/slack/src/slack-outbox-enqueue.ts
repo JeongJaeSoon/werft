@@ -187,6 +187,64 @@ export function createOutboxSlackNoticeSink(
   };
 }
 
+/** How long a worker waits for room before its thread hears of it. */
+export const SLACK_CAPACITY_WAIT_NOTICE_MS = 30_000;
+
+/** One notice per thread per launch that waits: a wait is told once. */
+export function slackCapacityWaitDedupeKey(
+  sessionLinkId: string,
+  executionId: string,
+  generation: number,
+): string {
+  return `capacity_wait:${sessionLinkId}:${executionId}:${generation}`;
+}
+
+/**
+ * Tells each thread, once, that its session's worker waits for room. Nothing
+ * says when room is found; if none is, the failed turns' notice says so.
+ */
+export async function enqueueSlackCapacityWaits(deps: {
+  outbox: Pick<SurfaceOutboxStore, "capacityWaits" | "enqueue">;
+  consoleOrigin: string | null;
+  limit: number;
+}): Promise<number> {
+  const capacityWaits = deps.outbox.capacityWaits;
+  if (capacityWaits === undefined) return 0;
+  const waits = await capacityWaits.call(
+    deps.outbox,
+    deps.limit,
+    SLACK_CAPACITY_WAIT_NOTICE_MS,
+  );
+  for (const wait of waits) {
+    const link_url = sessionUrl(deps.consoleOrigin, wait.sessionId);
+    const locale = wait.locale ?? DEFAULT_USER_LOCALE;
+    await deps.outbox.enqueue({
+      workspaceId: wait.workspaceId,
+      agentId: wait.agentId,
+      slackAppId: wait.slackAppId,
+      installationId: wait.installationId,
+      // A thread notice for everyone there, like a failed turn's.
+      kind: "failure_notice",
+      channelId: wait.channelId,
+      threadTs: wait.threadTs,
+      slackUserId: null,
+      sessionId: wait.sessionId,
+      sessionLinkId: wait.sessionLinkId,
+      body: {
+        text: SLACK_NOTICE_MESSAGES[locale].capacityWait,
+        locale,
+        ...(link_url === undefined ? {} : { link_url }),
+      },
+      dedupeKey: slackCapacityWaitDedupeKey(
+        wait.sessionLinkId,
+        wait.executionId,
+        wait.generation,
+      ),
+    });
+  }
+  return waits.length;
+}
+
 /** Enqueues the reply or failure notice of turns that lack one. */
 export async function enqueueSlackTurnAnswers(deps: {
   outbox: Pick<SurfaceOutboxStore, "unansweredTurns" | "enqueue">;
@@ -201,7 +259,9 @@ export async function enqueueSlackTurnAnswers(deps: {
       turn.state === "completed"
         ? finalReplyText(turn.events) ||
           SLACK_OUTBOX_MESSAGES[locale].emptyReply
-        : SLACK_NOTICE_MESSAGES[locale].failed;
+        : turn.terminalReason === "no_capacity"
+          ? SLACK_NOTICE_MESSAGES[locale].noCapacity
+          : SLACK_NOTICE_MESSAGES[locale].failed;
     await deps.outbox.enqueue({
       workspaceId: turn.workspaceId,
       agentId: turn.agentId,

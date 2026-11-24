@@ -20,10 +20,14 @@ export type LaunchGiveUpCause = {
   /** On the failed receipts and the status event. */
   code: Extract<
     ApiErrorCode,
-    "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "VARIABLE_UNRESOLVED"
+    "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "VARIABLE_UNRESOLVED" | "NO_CAPACITY"
   >;
   /** On the failed turns. */
-  terminalReason: "launch_failed" | "catalog_mismatch" | "variables_refused";
+  terminalReason:
+    | "launch_failed"
+    | "catalog_mismatch"
+    | "variables_refused"
+    | "no_capacity";
   /** The receipt's error message, before the detail. */
   receiptPrefix: string;
   /** The resume receipt's error message, before the detail. */
@@ -50,6 +54,18 @@ export function catalogMismatchCause(detail: string): LaunchGiveUpCause {
       "the catalog no longer holds this session's connection, model or repository",
     resumePrefix:
       "the catalog no longer holds this session's connection, model or repository, so no worker may restore it",
+    detail,
+  };
+}
+
+/** No node had room for the worker; `detail` is how long it waited. */
+export function noCapacityCause(detail: string): LaunchGiveUpCause {
+  return {
+    code: "NO_CAPACITY",
+    terminalReason: "no_capacity",
+    receiptPrefix: "no node had room to start a worker for this input",
+    resumePrefix:
+      "no node had room to start a worker to restore the checkpoint",
     detail,
   };
 }
@@ -114,45 +130,7 @@ export async function quarantineLaunch(
       now,
     });
   } else if (session) {
-    const failed = await tx
-      .update(turns)
-      .set({
-        status: "failed",
-        endedAt: now,
-        terminalReason: cause.terminalReason,
-      })
-      .where(and(eq(turns.sessionId, session.id), eq(turns.status, "queued")))
-      .returning({ id: turns.id, sequence: turns.sequence });
-    if (failed.length > 0) {
-      await tx.delete(queueMessages).where(
-        inArray(
-          queueMessages.turnId,
-          failed.map((turn) => turn.id),
-        ),
-      );
-      await tx
-        .update(receipts)
-        .set({
-          status: "failed",
-          error: {
-            code: cause.code,
-            message: `${cause.receiptPrefix}: ${cause.detail}`,
-          },
-          // `result` stays the acceptance response (receiptSchema.result).
-          updatedAt: now,
-        })
-        .where(
-          and(
-            inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
-            eq(receipts.status, "accepted"),
-            sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
-            inArray(
-              sql`${receipts.targetRef}->>'turn_id'`,
-              failed.map((turn) => String(turn.sequence)),
-            ),
-          ),
-        );
-    }
+    const failed = await failQueuedInput(tx, session.id, cause, now);
     await tx
       .delete(unassignedSessions)
       .where(eq(unassignedSessions.sessionId, session.id));
@@ -168,13 +146,130 @@ export async function quarantineLaunch(
           admission_state: session.admissionState,
           code: cause.code,
           message: cause.detail,
-          failed_turn_count: failed.length,
+          failed_turn_count: failed,
         },
         turnRowId: null,
         now,
       });
     }
   }
+  await killLaunch(tx, ref);
+}
+
+/**
+ * Gives a launch up after it waited too long for room, inside the caller's
+ * transaction and after its launch row lock. Unlike `quarantineLaunch` the
+ * session is not failed: its queued input fails with `NO_CAPACITY` and it is
+ * left without a worker, waiting for its next input as after an idle worker
+ * ended. That input signals it again and gets a fresh launch. A resuming
+ * session goes to an operator, as for any launch given up on.
+ */
+export async function releaseForCapacity(
+  tx: Database,
+  ref: ExecutionRef,
+  sessionId: string | null,
+  cause: LaunchGiveUpCause,
+): Promise<void> {
+  const [session] =
+    sessionId === null
+      ? []
+      : await tx
+          .select({
+            admissionState: sessions.admissionState,
+            id: sessions.id,
+            status: sessions.status,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+          .limit(1)
+          .for("update");
+  if (session?.admissionState === "resuming") {
+    await quarantineLaunch(tx, ref, sessionId, cause);
+    return;
+  }
+  if (session) {
+    const now = await dbNow(tx);
+    const failed = await failQueuedInput(tx, session.id, cause, now);
+    await tx
+      .delete(unassignedSessions)
+      .where(eq(unassignedSessions.sessionId, session.id));
+    if (session.status === "queued") {
+      await tx
+        .update(sessions)
+        .set({ status: "idle", updatedAt: now })
+        .where(eq(sessions.id, session.id));
+      await recordStatus(tx, {
+        sessionId: session.id,
+        phase: "idle",
+        extra: {
+          admission_state: session.admissionState,
+          code: cause.code,
+          message: cause.detail,
+          failed_turn_count: failed,
+        },
+        turnRowId: null,
+        now,
+      });
+    }
+  }
+  await killLaunch(tx, ref);
+}
+
+/**
+ * Fails what was queued for the session so far, the way a terminate cancels
+ * it: the turns, their queue rows (a terminal head would block delivery),
+ * and their input receipts. Returns how many turns failed.
+ */
+async function failQueuedInput(
+  tx: Database,
+  sessionId: string,
+  cause: LaunchGiveUpCause,
+  now: Date,
+): Promise<number> {
+  const failed = await tx
+    .update(turns)
+    .set({
+      status: "failed",
+      endedAt: now,
+      terminalReason: cause.terminalReason,
+    })
+    .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "queued")))
+    .returning({ id: turns.id, sequence: turns.sequence });
+  if (failed.length > 0) {
+    await tx.delete(queueMessages).where(
+      inArray(
+        queueMessages.turnId,
+        failed.map((turn) => turn.id),
+      ),
+    );
+    await tx
+      .update(receipts)
+      .set({
+        status: "failed",
+        error: {
+          code: cause.code,
+          message: `${cause.receiptPrefix}: ${cause.detail}`,
+        },
+        // `result` stays the acceptance response (receiptSchema.result).
+        updatedAt: now,
+      })
+      .where(
+        and(
+          inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
+          eq(receipts.status, "accepted"),
+          sql`${receipts.targetRef}->>'session_id' = ${sessionId}`,
+          inArray(
+            sql`${receipts.targetRef}->>'turn_id'`,
+            failed.map((turn) => String(turn.sequence)),
+          ),
+        ),
+      );
+  }
+  return failed.length;
+}
+
+/** The kill intent: the pass carries it out and the slot comes back. */
+async function killLaunch(tx: Database, ref: ExecutionRef): Promise<void> {
   await tx
     .update(executions)
     .set({ desiredState: "terminated" })

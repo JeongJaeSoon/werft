@@ -41,6 +41,8 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 | `werft_provider_cost_usd_total` | counter | `model`、`priced_by` | provider の推定費用（USD）。Kubernetes インフラ費用ではありません |
 | `werft_launch_queue_sessions` | gauge | なし | worker launch を待つセッション数 |
 | `werft_launch_queue_oldest_wait_seconds` | gauge | なし | launch キューで最も長く待つセッションの待ち時間。空なら 0 |
+| `werft_sessions_waiting_for_capacity` | gauge | なし | worker Pod は起動したが入れる node がなく、開始を待っているセッション数。Kubernetes が Pod を `Unschedulable` とした場合です |
+| `werft_session_no_capacity_failures_total` | counter | なし | 15 分待っても空きが出ず、待っていた入力を `NO_CAPACITY` で失敗させた回数 |
 | `werft_input_queue_oldest_age_seconds` | gauge | なし | worker が未取得の入力のうち最も古いものの経過時間。空なら 0 |
 
 `tool_calls` が counter ではなく gauge なのは、ツールの結果が後で変わることがあるためです。結果イベントが遅れて届くと `unknown` が `ok` や `failed` になり、より早い結果が後から届くと既存結果を置き換えます。counter の値が減るとコレクターは reset と解釈し、増分が跳ねます。呼び出し数の増分は `tool_calls_total`、結果別の比率は `tool_calls` で確認します。
@@ -87,6 +89,9 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 
 - **launch キュー**：scheduler が次の pass に worker を起動できるセッションです。scheduler と同じ SQL 条件で数えます。launch 可能な admission、execution 回収・takeover なし、費用・トークン上限以内、restore 再試行時刻を経過、slot を取得した launch なし、が条件です。上限は scheduler と同じ `config.limits` から読みます。待ち時間は `unassigned_sessions.signaled_at` から測ります。
 - **入力キュー**：`queue_messages` のうち、どの worker も取得しておらず、可視時刻を過ぎた入力です。compose の `werft.queue.oldest_age_seconds` と同じ意味です。
+- **空き待ち**：worker Pod の `PodScheduled` 条件が `Unschedulable` であることを scheduler が最初に見た時点から測ります。待つ間、scheduler はその Pod を作り直したり置き換えたりしません。15 分を過ぎると待っていた入力を失敗させ、Pod を下ろします。セッションは次の入力を待ち、launch の失敗としては数えないため `recovery_required` にはなりません。scheduler のログには、待ち始めたときに `Execution waiting for capacity; no node has room`（warn）が、Kubernetes が示す理由が変わったときに `Execution still waiting for capacity`（warn）が、あきらめたときに `Execution found no capacity in time; queued input failed with NO_CAPACITY`（error）が残ります。Kubernetes が示す理由（Pod イベント `FailedScheduling` と同じ文）は `fields.unschedulable_reason` にあります。
+
+chart はアラートルールを含みません。Prometheus ルールの例は[メトリクス収集](/run-server/self-hosting/collect-metrics#5-경보-규칙-예시)にあります。
 
 <a id="라벨-규칙" />
 ## label の規則

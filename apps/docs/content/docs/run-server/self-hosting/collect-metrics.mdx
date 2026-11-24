@@ -67,6 +67,21 @@ port-forward는 백그라운드에서 실행하고 이번 PID만 정리한다. c
 
 지표 이름이 바뀌면 옛 별칭을 기대하지 말고 Datadog 정의·쿼리·필터와 Prometheus 규칙을 [지표 계약](/run-server/self-hosting/reference/metrics)의 이름으로 바꾼다. 변경한 rules가 실제 새 series를 읽는지 확인한다.
 
+### 5. 경보 규칙 예시
+
+chart는 경보 규칙(PrometheusRule)을 싣지 않는다. 아래는 worker가 들어갈 node가 모자랄 때 알리는 Prometheus 규칙 예시다. 임계와 창은 설치에 맞춘다. 지표의 뜻은 [지표 계약](/run-server/self-hosting/reference/metrics)에 있다.
+
+```yaml
+groups:
+  - name: werft-capacity
+    rules:
+      - alert: WerftSessionsWaitingForCapacity
+        expr: werft_sessions_waiting_for_capacity > 0
+        for: 5m
+      - alert: WerftNoCapacityFailures
+        expr: increase(werft_session_no_capacity_failures_total[1h]) > 0
+```
+
 ## 확인
 
 본문에 werft_ 지표가 있고 수집기의 scrape가 성공해야 한다. healthz 200은 DB 읽기 성공이 아니다. DB 읽기가 실패하면 endpoint는 503이고 이전 값을 내지 않는다. 수집 시간이 간격의 절반을 넘으면 scrape 간격을 늘려 DB 부하를 낮춘다.

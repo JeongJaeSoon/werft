@@ -42,6 +42,13 @@ export const DEFAULT_PAUSED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
  */
 export const DEFAULT_DRAIN_DEADLINE_MS = 30 * 60_000;
 
+/**
+ * How long a launch may wait for room the provider does not have before its
+ * queued input fails with `NO_CAPACITY`. Replacing the resource would only
+ * wait for the same room again, so it is waited on instead, up to this.
+ */
+export const CAPACITY_WAIT_LIMIT_MS = 15 * 60_000;
+
 /** Past its turn limit a draining worker still finalizes and checkpoints. */
 export const DRAIN_FINALIZE_GRACE_MS = 5 * 60_000;
 
@@ -194,6 +201,17 @@ export type SchedulerRunSummary = {
    * was written. The slot comes back once the kill is confirmed.
    */
   launchesQuarantined: ExecutionRef[];
+  /**
+   * Unclaimed launches whose resource waits for room the provider does not
+   * have (`ExecutionObservation.unschedulable`). Each keeps its slot.
+   */
+  waitingForCapacity: ExecutionRef[];
+  /**
+   * Launches given up on this pass after waiting `CAPACITY_WAIT_LIMIT_MS`
+   * for room: their queued input failed with `NO_CAPACITY` and their kill
+   * was written. Their sessions wait for their next input.
+   */
+  launchesNoCapacity: ExecutionRef[];
   /**
    * Unclaimed launches whose resource was to be built again on a retracted
    * image: given back instead, so their sessions choose an image afresh.

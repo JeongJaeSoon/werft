@@ -18,6 +18,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
   credentialUnbound:
     "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요",
   failed: "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",
+  capacityWait: "작업 자리를 기다리는 중이에요. 자리가 나면 바로 시작해요",
+  noCapacity: "지금 자리가 없어 시작하지 못했어요. 잠시 뒤 다시 요청해 주세요",
   repositoryRequired:
     "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
   releaseUnavailable:
@@ -60,6 +62,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "接続設定が変更されたため、開始できませんでした。エージェントの管理者にお問い合わせください",
     failed:
       "現在リクエストを処理できませんでした。しばらくしてからもう一度お試しください",
+    capacityWait: "作業の空きを待っています。空きが出しだい始めます",
+    noCapacity:
+      "今は空きがなく開始できませんでした。しばらくしてからもう一度リクエストしてください",
     repositoryRequired:
       "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
     releaseUnavailable:
@@ -92,6 +97,10 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     credentialUnbound:
       "The connection settings changed, so the agent couldn't start. Contact the agent's admin",
     failed: "We couldn't process the request right now. Try again shortly",
+    capacityWait:
+      "Waiting for room to run this. It starts as soon as room frees up",
+    noCapacity:
+      "There was no room to start this right now. Please ask again in a little while",
     repositoryRequired:
       "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
     releaseUnavailable:

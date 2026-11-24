@@ -26,6 +26,7 @@ export const sessionsKo = {
   "sessions.status.idle": "쉬는 중",
   "sessions.status.failed": "실패",
   "sessions.status.stopped": "멈춤",
+  "sessions.capacityWait": "작업 자리를 기다리는 중",
 
   "sessions.admission.active": "열림",
   "sessions.admission.pausing": "일시 정지 중",
@@ -278,6 +279,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.status.idle": "Idle",
   "sessions.status.failed": "Failed",
   "sessions.status.stopped": "Stopped",
+  "sessions.capacityWait": "Waiting for room to run this",
 
   "sessions.admission.active": "Open",
   "sessions.admission.pausing": "Pausing",
@@ -535,6 +537,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "sessions.status.idle": "入力待ち",
   "sessions.status.failed": "失敗",
   "sessions.status.stopped": "停止",
+  "sessions.capacityWait": "作業の空きを待っています",
 
   "sessions.admission.active": "受付中",
   "sessions.admission.pausing": "一時停止中",

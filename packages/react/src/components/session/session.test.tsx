@@ -738,6 +738,46 @@ describe("SessionOverviewRow", () => {
   });
 });
 
+describe("a session whose worker waits for room", () => {
+  afterEach(() => jest.useRealTimers());
+
+  const at = "2026-10-21T01:00:00.000Z";
+  const waiting: SessionSummary = {
+    ...SESSION,
+    status: "queued",
+    wait_reason: "waiting_for_capacity",
+    waiting_since: at,
+  };
+
+  test("목록 행은 30초를 기다린 뒤에야 대기 상태 대신 자리를 기다린다고 읽는다", () => {
+    jest.useFakeTimers({ now: new Date(Date.parse(at) + 10_000) });
+    const row = render(
+      <SessionRow
+        session={waiting}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={{ ...ROW_MESSAGES, capacityWait: "room" }}
+      />,
+    );
+    const status = () =>
+      row.container.querySelector('[data-axis="session"]')?.textContent;
+    expect(status()).toContain("status:queued");
+    act(() => jest.advanceTimersByTime(20_000));
+    expect(status()).toContain("room");
+    expect(status()).not.toContain("status:queued");
+  });
+
+  test("개요 행은 기다림이 없으면 상태 그대로, 30초를 넘긴 기다림은 자리를 기다린다고 읽는다", () => {
+    jest.useFakeTimers({ now: new Date(Date.parse(at) + 31_000) });
+    const messages = { ...OVERVIEW_MESSAGES, capacityWait: "room" };
+    const plain = overviewRow({ ...waiting, wait_reason: null }, { messages });
+    expect(plain.container.textContent).toContain("status:queued");
+    plain.unmount();
+    const shown = overviewRow(waiting, { messages });
+    expect(shown.container.textContent).toContain("room");
+    expect(shown.container.textContent).not.toContain("status:queued");
+  });
+});
+
 describe("rows' relative time", () => {
   afterEach(() => jest.useRealTimers());
 

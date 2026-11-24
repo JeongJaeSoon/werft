@@ -31,6 +31,8 @@ export interface SessionRowMessages {
   readonly admission: (state: AdmissionState) => string;
   /** The axis names a screen reader hears before each state. */
   readonly statusAxis: string;
+  /** Read in place of the status once the worker has waited long for room. */
+  readonly capacityWait?: string | undefined;
   readonly admissionAxis: string;
   /** Heard before the runtime; the row shows only its value. */
   readonly runtime: string;
@@ -126,6 +128,8 @@ export function SessionRow({
         <SessionStatusLabel
           status={session.status}
           label={messages.status(session.status)}
+          capacityWait={session}
+          capacityWaitLabel={messages.capacityWait}
           axisLabel={messages.statusAxis}
         />
       </GridTableCell>
