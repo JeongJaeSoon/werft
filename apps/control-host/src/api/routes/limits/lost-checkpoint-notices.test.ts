@@ -85,7 +85,7 @@ describe("lost checkpoint notice routes", () => {
     [{ ids: [] }, "ids"],
     [{ ids: ["not-a-uuid"] }, "ids.0"],
     [{ ids: NOTICE }, "ids"],
-    // One more than a read answers.
+    // One more than a close takes: the console sends a longer list in several.
     [{ ids: Array.from({ length: 101 }, () => NOTICE) }, "ids"],
     // "Close everything" is not offered: a later start would go unseen.
     [{ ids: [NOTICE], all: true }, ""],

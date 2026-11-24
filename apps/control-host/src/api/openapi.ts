@@ -3690,7 +3690,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "listLostCheckpointNotices",
     tag: "Installation settings",
     summary: "Checkpoints a test installation gave up at start",
-    description: `${NOTICE_MANAGER} One entry for each start at which the API gave up the checkpoints an emptied object store held (\`CHECKPOINT_OBJECTS_LOST=forget\`, accepted only on a test installation whose object store is LocalStack) and that nobody has closed yet, oldest first, 100 at most: the rest follow once these are closed. The console shows them as a banner on every page, and \`GET /readyz\` counts their sessions in \`detail.checkpoints_forgotten_on_boot\`. Empty on an installation that never gave any up.`,
+    description: `${NOTICE_MANAGER} One entry for each start at which the API gave up the checkpoints an emptied object store held (\`CHECKPOINT_OBJECTS_LOST=forget\`, accepted only on a test installation whose object store is LocalStack) and that nobody has closed yet, oldest first. The console shows them as a banner on every page, and \`GET /readyz\` counts their sessions in \`detail.checkpoints_forgotten_on_boot\`. Empty on an installation that never gave any up.`,
     auth: "session",
     success: {
       status: 200,
@@ -3706,7 +3706,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "closeLostCheckpointNotices",
     tag: "Installation settings",
     summary: "Close the notices of checkpoints given up at start",
-    description: `${NOTICE_MANAGER} Closes the named notices for the whole installation and records who closed them: the banner goes for everyone and \`GET /readyz\` stops counting them. The sessions stay in \`recovery_required\` until each gets its recovery decision. Send the ids that were read, so a start that gave up more after the read stays open. An id that names no open notice changes nothing.`,
+    description: `${NOTICE_MANAGER} Closes the named notices for the whole installation and records who closed them: the banner goes for everyone and \`GET /readyz\` stops counting them. The sessions stay in \`recovery_required\` until each gets its recovery decision. Send the ids that were read, so a start that gave up more after the read stays open; one request takes up to 100, and a longer list goes in several. An id that names no open notice changes nothing.`,
     auth: "session",
     body: "CloseLostCheckpointNoticesRequest",
     requestExample: { ids: [EXAMPLE_LOST_CHECKPOINT_NOTICE_ID] },

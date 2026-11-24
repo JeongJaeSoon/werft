@@ -103,6 +103,34 @@ describe("the banner for checkpoints a test installation gave up at start", () =
     ]);
   });
 
+  test("more notices than one close takes go in several, and all that were read close", async () => {
+    const many = Array.from({ length: 101 }, (_, index) =>
+      notice(`00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, 1),
+    );
+    let open = many;
+    const { api } = renderAt("/", {
+      [ME]: () => json(200, me()),
+      [NOTICES]: () => json(200, { notices: open }),
+      [CLOSE]: async (request) => {
+        const { ids } = (await request.json()) as { ids: string[] };
+        open = open.filter((each) => !ids.includes(each.id));
+        return json(200, { notices: open });
+      },
+    });
+    // The count is of every open notice, as /readyz counts them.
+    await screen.findByText(
+      "시험 설치: 다시 켜서 세션 101개의 맥락을 잃었습니다",
+    );
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(banner() === null).toBe(true));
+    expect(
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => (call.body as { ids: string[] }).ids.length),
+    ).toEqual([100, 1]);
+  });
+
   test("a start that gave up more after the read stays on screen", async () => {
     renderAt("/", {
       [ME]: () => json(200, me()),

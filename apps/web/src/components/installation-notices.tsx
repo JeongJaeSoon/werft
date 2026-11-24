@@ -12,6 +12,9 @@ import { FormError } from "./auth-page.tsx";
 // Another owner or admin may close it, and a restart may add to it.
 const NOTICES_REFETCH_MS = 60_000;
 
+/** What one close takes (closeLostCheckpointNoticesRequestSchema). */
+const CLOSE_BATCH = 100;
+
 /** What a page that fills the screen's height subtracts (tokens.css). */
 const NOTICE_HEIGHT = "--werft-shell-notice-h";
 
@@ -41,12 +44,23 @@ export function InstallationNotices() {
       query.state.status === "error" ? false : NOTICES_REFETCH_MS,
   });
   const close = useMutation<LostCheckpointNotices, ApiError, string[]>({
-    mutationFn: (ids) =>
-      unwrap(
-        client.POST("/v1/lost-checkpoint-notices/close", { body: { ids } }),
-      ),
-    // What the server still holds open: a restart since the read stays.
+    // Everything that was read and nothing else, as many at a time as one
+    // request takes. The last answer is what the server still holds open: a
+    // restart since the read stays.
+    mutationFn: async (ids) => {
+      let left: LostCheckpointNotices = { notices: [] };
+      for (let from = 0; from < ids.length; from += CLOSE_BATCH) {
+        left = await unwrap(
+          client.POST("/v1/lost-checkpoint-notices/close", {
+            body: { ids: ids.slice(from, from + CLOSE_BATCH) },
+          }),
+        );
+      }
+      return left;
+    },
     onSuccess: (left) => queryClient.setQueryData(key, left),
+    // Some may have closed before the failure: show what is open now.
+    onError: () => queryClient.invalidateQueries({ queryKey: key }),
   });
   const notices = read.data?.notices ?? [];
   const shown = manages && notices.length > 0;
