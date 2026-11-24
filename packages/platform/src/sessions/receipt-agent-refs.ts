@@ -64,6 +64,7 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     resolve_unknown_budget: { agents: ["agent_id"] },
     approve_slack_notice: { target: "agent", agents: ["agent_id"] },
     revoke_slack_notice: { target: "agent", agents: ["agent_id"] },
+    set_conversation_rollout: { target: "agent", agents: ["agent_id"] },
     // A key made for an agent, or revoked.
     create_api_key: { agents: ["agent_id"] },
     revoke_api_key: { agents: ["agent_id"] },

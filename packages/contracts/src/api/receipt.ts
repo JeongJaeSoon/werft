@@ -266,6 +266,10 @@ export const RECEIPT_OPERATION_VALUES = [
   // An operator closing one budget reservation of unknown end, from the
   // operator CLI: the call, its account, spent or refunded, and the reason.
   "resolve_unknown_budget",
+  // An agent's conversation switch changed: by a workspace owner or admin in
+  // the console, the operator CLI, or lowered to `off` when its notice
+  // approval was revoked or stopped counting.
+  "set_conversation_rollout",
 ] as const;
 /**
  * Receipts that settle on the observed absence of the execution they asked

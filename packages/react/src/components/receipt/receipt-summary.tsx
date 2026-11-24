@@ -162,6 +162,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   resolve_unknown_budget: "끝을 모르는 예산 예약 풀기",
   approve_slack_notice: "Slack 고지 승인",
   revoke_slack_notice: "Slack 고지 승인 철회",
+  set_conversation_rollout: "에이전트 대화 스위치 변경",
   set_slack_secret: "Slack 비밀값 설정",
   delete_slack_secret: "Slack 비밀값 삭제",
 };
