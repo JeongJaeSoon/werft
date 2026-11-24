@@ -5,14 +5,14 @@ import type {
 } from "@werft-ai/contracts";
 import type { WorkerLogger } from "../console-logger.ts";
 import { messageOf } from "../message-of.ts";
-import type { TopicDirectories } from "./topic-directories.ts";
+import type { TopicSessions } from "./topic-sessions.ts";
 import type { ConversationTurnRunner } from "./turn-runner.ts";
 import type { ConversationTurnSource } from "./turn-source.ts";
 
 export type ConversationHostDeps = {
   source: ConversationTurnSource;
   runner: ConversationTurnRunner;
-  topics: TopicDirectories;
+  sessions: TopicSessions;
   logger: WorkerLogger;
   /** Written after each answered poll; `main.ts --health` reads it. */
   statusFile?: string;
@@ -22,9 +22,9 @@ export type ConversationHostDeps = {
 };
 
 /**
- * The conversation runtime's loop: take a turn, run it, report it, drop its
- * topic's directory. One turn at a time, and a topic lives for one turn; a
- * topic kept across turns and turns side by side are its lifetime's to add.
+ * The conversation runtime's loop: take a turn, run it in its topic's
+ * session, report it. One turn at a time; between polls, sessions whose
+ * topic has been idle for its lifetime are dropped, and at stop all are.
  */
 export class ConversationHost {
   private readonly stopping = new AbortController();
@@ -39,13 +39,14 @@ export class ConversationHost {
   }
 
   async run(): Promise<void> {
-    const { source, logger, topics } = this.deps;
+    const { source, logger, sessions } = this.deps;
     const retryMs = this.deps.retryMs ?? 2_000;
     // What a process before this one left is no topic of this one's.
-    await topics.reset();
+    await sessions.reset();
     logger.info("conversation_runtime.started");
     while (!this.stopping.signal.aborted) {
       let turn: ConversationRuntimeTurn | null;
+      await this.sweep();
       try {
         turn = await source.next(this.stopping.signal);
         await this.touchStatus();
@@ -60,11 +61,24 @@ export class ConversationHost {
       if (turn === null) continue;
       await this.serve(turn);
     }
+    await sessions.dropAll().catch((error) =>
+      logger.error("conversation_runtime.sessions_not_dropped", {
+        error: messageOf(error),
+      }),
+    );
     logger.info("conversation_runtime.stopped");
   }
 
+  private async sweep(): Promise<void> {
+    await this.deps.sessions.sweep().catch((error) =>
+      this.deps.logger.error("conversation_runtime.sessions_not_swept", {
+        error: messageOf(error),
+      }),
+    );
+  }
+
   private async serve(turn: ConversationRuntimeTurn): Promise<void> {
-    const { logger, runner, topics } = this.deps;
+    const { logger, runner } = this.deps;
     const now = this.deps.now ?? (() => performance.now());
     // Ids only: neither the input nor the answer is logged.
     const fields = {
@@ -95,12 +109,6 @@ export class ConversationHost {
       duration_ms: Math.round(now() - startedAt),
     });
     await this.report(turn, result, fields);
-    await topics.drop(turn.scope.topic_id).catch((error) =>
-      logger.error("conversation_turn.topic_not_dropped", {
-        ...fields,
-        error: messageOf(error),
-      }),
-    );
   }
 
   /**
