@@ -76,6 +76,12 @@ export interface ContextFragmentSource {
     agentId: string;
     conversationId: ConversationId;
   }): Promise<ConversationKey | null>;
+  /** When an admin last deleted the conversation's records; null when never, or no such conversation. */
+  recordsDeletedAt(ref: {
+    workspaceId: string;
+    agentId: string;
+    conversationId: ConversationId;
+  }): Promise<Date | null>;
   /** Whether Slack deleted any of these sources: check place ① for what a live session holds. */
   anyDeleted(
     workspaceId: string,

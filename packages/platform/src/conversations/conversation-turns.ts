@@ -57,8 +57,16 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
       (entry) =>
         entry.state === "leased" && entry.turn.scope.topic_id === topicId,
     );
-  const freed = (entry: Entry, at: Date) =>
-    topicFreedAt.set(entry.turn.scope.topic_id, at.getTime());
+  // Kept only while a turn of the topic waits: a later one waits from its own enqueue.
+  const freed = (entry: Entry, at: Date) => {
+    const topicId = entry.turn.scope.topic_id;
+    const waiting = [...entries.values()].some(
+      (other) =>
+        other.state === "queued" && other.turn.scope.topic_id === topicId,
+    );
+    if (waiting) topicFreedAt.set(topicId, at.getTime());
+    else topicFreedAt.delete(topicId);
+  };
 
   // A turn nobody took, or whose holder went quiet, ends here: never requeued,
   // since its one-call permit may already be spent.

@@ -384,6 +384,11 @@ export function topicTurnContexts(source: ContextFragmentSource) {
       };
     },
 
+    /** An admin delete removes turns a live session may still hold. */
+    async recordsDeletedAt(topic: TopicRef): Promise<number | null> {
+      return (await source.recordsDeletedAt(topic))?.getTime() ?? null;
+    },
+
     anyDeleted(
       workspaceId: string,
       sources: readonly SourceKey[],

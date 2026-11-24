@@ -82,6 +82,7 @@ describe("topic turn fragments", () => {
     topic?: ConversationTopicId;
     channel?: string;
     state?: "decided" | "no_decision" | "voided_by_delete";
+    overflow?: boolean;
   }): Promise<ConversationTurnId> {
     const begun = await beginConversationTurn(db, {
       workspaceId,
@@ -95,7 +96,7 @@ describe("topic turn fragments", () => {
           : storedSourceSet({
               direct: [placeSource(place(input.read, input.channel))],
               inherited: [],
-              overflow: false,
+              overflow: input.overflow ?? false,
             }),
       releaseId: null,
       slackInstallationId: null,
@@ -219,15 +220,18 @@ describe("topic turn fragments", () => {
     expect(await answersIn(otherTopic)).toEqual([]);
   });
 
-  test("a turn whose source is deleted, one with no answer, and one an admin deleted are not read", async () => {
+  test("a turn whose source is deleted, one past its source list, one with no answer, and one an admin deleted are not read", async () => {
     const read = ts();
     await answered({ answer: "from a deleted message", read });
     await answered({ answer: "unused", state: "no_decision" });
     await answered({ answer: "unused", state: "voided_by_delete" });
     await answered({ answer: "kept" });
+    // Its sources past their list are not known, so neither is whether they stand.
+    await answered({ answer: "past its list", read: ts(), overflow: true });
     await markDeleted(read);
     expect(await answersIn()).toEqual(["kept"]);
 
+    expect(await source().recordsDeletedAt(ref())).toBeNull();
     expect(
       await deleteConversationRecords(db, {
         conversationId,
@@ -235,6 +239,8 @@ describe("topic turn fragments", () => {
       }),
     ).toMatchObject({ outcome: "deleted" });
     expect(await answersIn()).toEqual([]);
+    // What a live session that held those turns is dropped by.
+    expect(await source().recordsDeletedAt(ref())).toBeInstanceOf(Date);
   });
 
   test("after its session is gone, a topic's turn starts from a context holding its earlier answer", async () => {

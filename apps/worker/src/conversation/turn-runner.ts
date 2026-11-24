@@ -30,6 +30,16 @@ const utf8 = new TextEncoder();
 const bytesOf = (text: string) => utf8.encode(text).length;
 
 /** Whether a turn goes on in the topic's live session rather than a new one. */
+// The engine was started on one model, provider and output cap: a turn on
+// others starts its own.
+const startedFor = (turn: ConversationRuntimeTurn) =>
+  JSON.stringify([
+    turn.model,
+    turn.provider.kind,
+    turn.provider.endpoint,
+    turn.call.max_tokens,
+  ]);
+
 function goesOn(
   session: TopicSession | null,
   turn: ConversationRuntimeTurn,
@@ -37,6 +47,7 @@ function goesOn(
 ): session is TopicSession {
   return (
     session !== null &&
+    session.startedFor === startedFor(turn) &&
     // No check, or one that could not be made, drops it.
     turn.topic_session === "keep" &&
     session.bytes + bytesOf(turn.input.text) <= maxBytes
@@ -120,7 +131,9 @@ export function createConversationTurnRunner(deps: {
           });
       let session: TopicSession;
       try {
-        session = continued ? live : await sessions.open(topicId, start);
+        session = continued
+          ? live
+          : await sessions.open(topicId, start, startedFor(turn));
       } catch {
         return { outcome: "failed", reason: "runtime_failed" };
       }

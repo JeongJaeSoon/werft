@@ -177,6 +177,30 @@ describe("a topic's session", () => {
     expect(s.runs.map((run) => run.closed)).toEqual([true, false]);
   });
 
+  test("is new for a turn on another model, provider or output cap than it started on", async () => {
+    const s = setup();
+    const t = topic();
+    await s.run(turnOf(t, "one"));
+    await s.run({ ...turnOf(t, "two", "keep"), model: "claude-sonnet-5" });
+    const three = turnOf(t, "three", "keep");
+    await s.run({
+      ...three,
+      model: "claude-sonnet-5",
+      call: { ...three.call, max_tokens: 2_048 },
+    });
+    await s.run({
+      ...turnOf(t, "four", "keep"),
+      model: "claude-sonnet-5",
+      call: { ...three.call, max_tokens: 2_048 },
+    });
+
+    expect(s.runs.map((run) => run.sent)).toEqual([
+      ["context: one"],
+      ["context: two"],
+      ["context: three", "four"],
+    ]);
+  });
+
   test("is new when the control host's check drops it, or made none", async () => {
     const s = setup();
     const t = topic();

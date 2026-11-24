@@ -50,6 +50,7 @@ const sourceOf = (
 ): ContextFragmentSource => ({
   read: async () => ({ fragments, unreadable }),
   conversationOf: async () => null,
+  recordsDeletedAt: async () => null,
   anyDeleted: async () => false,
 });
 

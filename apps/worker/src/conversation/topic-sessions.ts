@@ -16,6 +16,8 @@ export type TopicSession = {
   directory: TopicDirectory;
   /** The key its engine was started with, which the relay trades for a turn's permit. */
   permitKey: string;
+  /** What its engine was started with that a turn must share to go on in it. */
+  startedFor: string;
   run: AgentRun;
   /** The run's one event stream, read turn by turn. */
   events: AsyncIterator<RuntimeEvent>;
@@ -71,6 +73,7 @@ export class TopicSessions {
   async open(
     topicId: ConversationTopicId,
     start: (directory: TopicDirectory, permitKey: string) => AgentRun,
+    startedFor = "",
   ): Promise<TopicSession> {
     await this.drop(topicId);
     while (this.live.size >= this.limit) {
@@ -93,6 +96,7 @@ export class TopicSessions {
       topicId,
       directory,
       permitKey,
+      startedFor,
       run,
       events: run.events()[Symbol.asyncIterator](),
       bytes: 0,

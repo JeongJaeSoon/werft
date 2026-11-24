@@ -97,6 +97,23 @@ export function createPostgresContextFragmentSource(
           };
     },
 
+    async recordsDeletedAt(ref: {
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+    }): Promise<Date | null> {
+      const [row] = rowsOf<{ records_deleted_at: Date | string | null }>(
+        await db.execute(sql`
+          SELECT c.records_deleted_at FROM conversations c
+          WHERE c.id = ${ref.conversationId}::uuid
+            AND c.workspace_id = ${ref.workspaceId}::uuid
+            AND c.agent_id = ${ref.agentId}::uuid`),
+      );
+      return row?.records_deleted_at == null
+        ? null
+        : new Date(row.records_deleted_at);
+    },
+
     anyDeleted(
       workspaceId: string,
       sources: readonly SourceKey[],
@@ -252,6 +269,8 @@ export function createPostgresContextFragmentSource(
             const answer = answers.get(row.turn_id);
             if (answer === undefined) continue;
             const set = sourceSetOf(row.sources);
+            // Past its list, a deleted source would not be seen.
+            if (set.overflow) continue;
             fragments.push({
               kind: "conversation_turn",
               scope: scopeOfRow(row),

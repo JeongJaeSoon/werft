@@ -4,11 +4,14 @@ import {
   type ConversationTopicId,
   type ConversationTurnId,
 } from "@werft-ai/contracts";
-import type { TopicTurnContexts } from "./context-assembler.ts";
+import type { TopicRef, TopicTurnContexts } from "./context-assembler.ts";
 import { mergeSources, type SourceKey } from "./source-sets.ts";
 
 type Seen = {
-  workspaceId: string;
+  topic: TopicRef;
+  /** The conversation's last admin delete when the turn was handed out; NaN when unread. */
+  recordsDeletedAt: number | null;
+  handedOutAt: number;
   /** Every source the topic's live session may hold, as far as it is known. */
   keys: SourceKey[];
   /** More than the set holds: what the session holds is not known whole. */
@@ -39,21 +42,32 @@ export function createTopicSessionChecks(deps: {
   // The turn each topic has out, by the turn's id.
   const out = new Map<ConversationTurnId, ConversationTopicId>();
 
+  // A turn that never reported is swept from when it was handed out.
   function sweep(at: number): void {
     for (const [topicId, entry] of seen) {
-      if (entry.endedAt !== null && at - entry.endedAt >= idleMs) {
+      if (at - (entry.endedAt ?? entry.handedOutAt) >= idleMs) {
         seen.delete(topicId);
+        for (const [turnId, topic] of out)
+          if (topic === topicId) out.delete(turnId);
       }
     }
   }
 
-  async function mayGoOn(entry: Seen | undefined): Promise<boolean> {
+  async function mayGoOn(
+    entry: Seen | undefined,
+    recordsDeletedAt: number | null,
+  ): Promise<boolean> {
     // A turn still out is one that never reported: its session is gone.
     if (entry === undefined || entry.endedAt === null || entry.overflow) {
       return false;
     }
+    // NaN, unread either time, is equal to nothing.
+    if (recordsDeletedAt !== entry.recordsDeletedAt) return false;
     try {
-      return !(await deps.contexts.anyDeleted(entry.workspaceId, entry.keys));
+      return !(await deps.contexts.anyDeleted(
+        entry.topic.workspaceId,
+        entry.keys,
+      ));
     } catch {
       return false;
     }
@@ -67,34 +81,37 @@ export function createTopicSessionChecks(deps: {
       const at = now();
       sweep(at);
       const topicId = turn.scope.topic_id;
+      const topic: TopicRef = {
+        workspaceId: turn.scope.workspace_id,
+        agentId: turn.scope.agent_id,
+        conversationId: turn.scope.conversation_id,
+        topicId,
+      };
       const entry = seen.get(topicId);
-      const keep = await mayGoOn(entry);
+      const recordsDeletedAt = await deps.contexts
+        .recordsDeletedAt(topic)
+        .catch(() => Number.NaN);
+      const keep = await mayGoOn(entry, recordsDeletedAt);
       for (const [turnId, topic] of out)
         if (topic === topicId) out.delete(turnId);
       out.set(turn.turn_id, topicId);
       const assembled = await deps.contexts
-        .assemble(
-          {
-            workspaceId: turn.scope.workspace_id,
-            agentId: turn.scope.agent_id,
-            conversationId: turn.scope.conversation_id,
-            topicId,
+        .assemble(topic, {
+          instructions: deps.instructions?.(turn) ?? "",
+          current: {
+            inputId: null,
+            body: turn.input.text,
+            sources: [],
+            receivedAt: new Date(at),
           },
-          {
-            instructions: deps.instructions?.(turn) ?? "",
-            current: {
-              inputId: null,
-              body: turn.input.text,
-              sources: [],
-              receivedAt: new Date(at),
-            },
-          },
-        )
+        })
         .catch(() => null);
       if (assembled === null || assembled.outcome !== "assembled") {
         // Nothing read now is safe to start from but the turn's own input.
         seen.set(topicId, {
-          workspaceId: turn.scope.workspace_id,
+          topic,
+          recordsDeletedAt,
+          handedOutAt: at,
           keys: [],
           overflow: false,
           endedAt: null,
@@ -109,16 +126,19 @@ export function createTopicSessionChecks(deps: {
         keep && entry !== undefined ? entry.keys : [],
         assembled.sources.keys,
       ]);
+      const overflow = merged.overflow || assembled.sources.overflow;
       seen.set(topicId, {
-        workspaceId: turn.scope.workspace_id,
+        topic,
+        recordsDeletedAt,
+        handedOutAt: at,
         keys: merged.keys,
-        overflow: merged.overflow || assembled.sources.overflow,
+        overflow,
         endedAt: null,
       });
       return {
         ...turn,
         fresh_input: { ...turn.fresh_input, text: assembled.text },
-        topic_session: keep ? "keep" : "drop",
+        topic_session: keep && !overflow ? "keep" : "drop",
       };
     },
 

@@ -78,6 +78,7 @@ function sourceOf(fragments: ContextFragment[]) {
     },
     conversationOf: async (ref) =>
       ref.conversationId === topic.conversationId ? key : null,
+    recordsDeletedAt: async () => null,
     anyDeleted: async (workspaceId, sources) => {
       deleted.push({ workspaceId, sources });
       return true;

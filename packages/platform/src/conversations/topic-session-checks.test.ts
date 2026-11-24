@@ -53,6 +53,7 @@ function contexts() {
     assembled: [] as TopicRef[],
     result: null as TopicTurnContext | "throw" | null,
     checkThrows: false,
+    recordsDeletedAt: null as number | null | "throw",
   };
   const value: TopicTurnContexts = {
     async assemble(topic, input) {
@@ -64,6 +65,10 @@ function contexts() {
         text: `assembled: ${input.current.body}`,
         sources: { keys: state.sources, overflow: state.overflow },
       };
+    },
+    async recordsDeletedAt() {
+      if (state.recordsDeletedAt === "throw") throw new Error("database down");
+      return state.recordsDeletedAt;
     },
     async anyDeleted(_workspaceId, sources) {
       if (state.checkThrows) throw new Error("database down");
@@ -148,6 +153,34 @@ describe("createTopicSessionChecks", () => {
     await s.serve();
     s.state.checkThrows = true;
     expect((await s.serve()).topic_session).toBe("drop");
+  });
+
+  test("drops on the turn whose context first overflows, not the one after", async () => {
+    const s = setup();
+    await s.serve();
+    expect((await s.serve()).topic_session).toBe("keep");
+    s.state.overflow = true;
+    expect((await s.serve()).topic_session).toBe("drop");
+  });
+
+  test("drops once an admin deleted the conversation's records, or that cannot be read", async () => {
+    const s = setup();
+    await s.serve();
+    // An operator's turns name no Slack place: only the delete itself tells.
+    s.state.recordsDeletedAt = 5;
+    expect((await s.serve()).topic_session).toBe("drop");
+    expect((await s.serve()).topic_session).toBe("keep");
+    s.state.recordsDeletedAt = "throw";
+    expect((await s.serve()).topic_session).toBe("drop");
+    expect((await s.serve()).topic_session).toBe("drop");
+  });
+
+  test("a turn that never reported is forgotten after the idle time", async () => {
+    const s = setup();
+    await s.checks.handOut(turnOf());
+    expect(s.checks.size).toBe(1);
+    s.tick(CONVERSATION_TOPIC_SESSION_IDLE_MS);
+    expect(s.checks.size).toBe(0);
   });
 
   test("drops after a failed turn, and after a turn that never reported", async () => {
