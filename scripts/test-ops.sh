@@ -661,26 +661,30 @@ readyz() { curl -sS --max-time 3 "$API_URL/readyz" 2>/dev/null || true; }
 
 # Starts what is not running and waits for every healthcheck, the
 # scheduler's included: its first pass runs the network isolation and
-# workspace quota probes.
+# workspace quota probes. Every long-running app service is named: compose
+# starts only the named ones and what they depend on, so a service left out
+# would never run and never get a changed env file.
 start_apps() {
-  if ! ops_compose up -d --wait --wait-timeout "$WAIT_TIMEOUT_SEC" "$@" api scheduler reconciler; then
+  if ! ops_compose up -d --wait --wait-timeout "$WAIT_TIMEOUT_SEC" "$@" api scheduler reconciler slack maintenance; then
     log "the installation did not become healthy; last log lines of the services that fail first:"
-    ops_compose logs --no-color --tail 30 migrate egress-proxy scheduler api >&2 || true
+    ops_compose logs --no-color --tail 30 migrate egress-proxy scheduler api slack >&2 || true
     # A first deploy that fails leaves no current.json, so `stop` has nothing to take down.
     die "start failed (log lines above; for the scheduler, its quota or network preflight is the usual cause, https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/single-server/). Containers that started stay up; take them down with: ${DOWN_BY_NAME} (never -v; the volumes stay)"
   fi
   log "readyz: $(readyz)"
 }
 
-# Admissions stop with the api, the only way in; the scheduler and the
-# reconciler follow, then the workers the scheduler launched, which outlive
-# it. backup.sh checks for itself that none is left.
+# Admissions stop with the api and slack, which starts sessions from Slack
+# messages; the scheduler, the reconciler and maintenance (checkpoint GC
+# deletes objects) follow, then the workers the scheduler launched, which
+# outlive it. backup.sh checks for itself that none of those that write
+# checkpoints or their objects is left.
 stop_writers() {
   local installation workers
   installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
   [ -n "$installation" ] || die "no EXECUTION_INSTALLATION_ID; cannot tell this installation's workers apart"
-  log "stopping admissions and writers: api, scheduler, reconciler"
-  ops_compose stop api scheduler reconciler
+  log "stopping admissions and writers: api, slack, scheduler, reconciler, maintenance"
+  ops_compose stop api slack scheduler reconciler maintenance
   workers="$(docker ps -q --filter "label=werft.installation=${installation}")" \
     || die "docker ps failed; cannot tell whether workers of installation $installation run"
   if [ -n "$workers" ]; then
@@ -707,8 +711,11 @@ reopen() {
   start_apps --no-recreate
 }
 
-# Back to the release current.json names, after an upgrade stopped short.
+# Back to the release current.json names, after an upgrade stopped short:
+# its images, not the target's, so a service the installation has no
+# container for yet is not made from the release that was refused.
 reopen_current() {
+  load_manifest "$CURRENT"
   reopen
   rm -f "$PENDING"
 }
