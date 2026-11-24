@@ -45,7 +45,7 @@ If the public entrance's DNS name differs from `CONSOLE_ORIGIN`, the owner saves
 
 ### 3. First owner [#3-첫-owner]
 
-Follow [Create the first owner](/run-server/self-hosting/users-and-keys#1-첫-owner-만들기). The operator gets a one-time setup link as a file from a command on the installation, and the person who becomes owner opens it to create the owner and the workspace. On a host with no browser to open the console, follow [Create it without a browser](/run-server/self-hosting/users-and-keys#브라우저-없이-만들기).
+Follow [Create the first owner](/run-server/self-hosting/users-and-keys#1-첫-owner-만들기). The operator gets a one-time setup link as a file from a command on the installation, and the person who becomes owner opens it to create the owner and the workspace. On a host with no browser to open the console, follow [Create it without a browser](/run-server/self-hosting/users-and-keys#브라우저-없이-만들기). Images up to `v0.4.0` have a different link command. If the command prints only its usage, follow [Troubleshooting in First owner and keys](/run-server/self-hosting/users-and-keys#자주-막히는-곳).
 
 Go on once you can sign in to the console as the owner.
 
@@ -92,7 +92,7 @@ The first install is done when the agent's answer appears in the thread of the m
 | --- | --- |
 | **Create and install Slack app** is off | Read the reason under the button. If the token is missing or must be registered again, go back to step 5. If the console address is unknown, set `CONSOLE_ORIGIN` from step 1 |
 | The Events Request URL stays awaiting verification or failed to register | Slack cannot reach the public entrance. Fix the public entrance from step 2, then choose **Recheck** in the **Slack** tab |
-| A mention gets no answer | Check that the channel is connected and **Use in this channel** is on. For a private channel, check that the bot was invited. The **Slack needs attention** link in the agent list names what is left |
+| A mention gets no answer | In the channel table of the **Slack** tab, check that the channel is connected and **In use** is on. For a private channel, check that the bot was invited. The **Slack needs attention** link in the agent list names what is left |
 | A notice asks to link an account instead of an answer | The Slack account of the person who mentioned is not linked. Follow step 8 |
 | An error says the model connection has no usable key | Put a key in the connection from step 4 |
 
