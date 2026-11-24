@@ -182,8 +182,8 @@ FAKE_DOCKER_IN_USE=$a_busy bash "$here/rm-volumes.sh" "$id" >"$scratch/rm.out" 2
 grep -qx "volume rm $a_ok" "$log"; check "rm-volumes.sh: removes an anonymous volume the run's containers mounted" 0 $?
 grep -qx "volume rm $a_ok2" "$log"; check "rm-volumes.sh: removes a second anonymous volume" 0 $?
 [ "$(grep -c '^volume rm' "$log")" = 2 ]; check "rm-volumes.sh: removes only those two" 0 $?
-grep -q "labelled for another project): $a_demo" "$scratch/rm.out"; check "rm-volumes.sh: a volume labelled for the 4620 demo is left" 0 $?
-grep -q "not marked anonymous): $a_plain" "$scratch/rm.out"; check "rm-volumes.sh: a volume without the anonymous marker is left" 0 $?
+grep -q "not an unlabelled anonymous volume): $a_demo" "$scratch/rm.out"; check "rm-volumes.sh: a volume labelled for the 4620 demo is left" 0 $?
+grep -q "not an unlabelled anonymous volume): $a_plain" "$scratch/rm.out"; check "rm-volumes.sh: a volume without the anonymous marker is left" 0 $?
 grep -q "a container still uses it): $a_busy" "$scratch/rm.out"; check "rm-volumes.sh: an anonymous volume in use is left" 0 $?
 grep -q "$a_unlisted" "$log"; check "rm-volumes.sh: an anonymous volume no container of the run mounted is never touched" 1 $?
 grep -Eq "^volume rm (werft-fresh|$demo)" "$log"; check "rm-volumes.sh: demo and werft-fresh names are never removed" 1 $?
@@ -191,12 +191,12 @@ grep -Eq -- ' -f|prune|--force|--context|-H |machine' "$log"; check "rm-volumes.
 
 # A volume labelled for another installation under any label namespace is left.
 a_other=$(hex 9)
-printf '{"com.docker.volume.anonymous":"","custom.installation":"%s"}' "$demo" >"$scratch/vols/$a_other"
+printf '{"com.docker.volume.anonymous":"","custom.installation":"other,%s"}' "$demo" >"$scratch/vols/$a_other"
 printf '  volume  %s\n' "$a_other" >"$VERIFY_AP_ROOT/$id/evidence/teardown-targets.txt"
 : >"$VERIFY_AP_ROOT/$id/ports.yml"
 : >"$log"
 EXECUTION_VOLUME_LABEL_NAMESPACE=werft bash "$here/rm-volumes.sh" "$id" >"$scratch/rm.out" 2>&1; check "rm-volumes.sh: other installation label exits 0" 0 $?
-grep -q "labelled for another project): $a_other" "$scratch/rm.out"; check "rm-volumes.sh: another installation's label is honoured under any namespace" 0 $?
+grep -q "not an unlabelled anonymous volume): $a_other" "$scratch/rm.out"; check "rm-volumes.sh: another installation's label is honoured under any namespace" 0 $?
 grep -q '^volume rm' "$log"; check "rm-volumes.sh: other installation label removed nothing" 1 $?
 
 # The 4620 demo as the run itself is refused before any docker call that removes.

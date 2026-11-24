@@ -10,7 +10,7 @@
 # only when the run's own labelled containers were seen mounting it (the mounts
 # down.sh recorded in teardown-targets.txt, or a container that is still
 # there), it exists, no container uses it now, it is marked anonymous, and it
-# carries no compose project or installation label of another run. Anything
+# carries no label other than Docker's anonymous marker. Anything
 # else is printed and left.
 #
 # Names come from down.sh's evidence/teardown-targets.txt and from the labels
@@ -74,7 +74,7 @@ remove_volume() {
 # $1 is a candidate whose link to this run came from the labels of its
 # containers. Re-check the volume itself before removing it.
 rm_anonymous() {
-  local name=$1 found users labels other
+  local name=$1 found users labels
   if ! found=$(docker volume ls -q --filter "name=^$name\$"); then
     echo "could not tell whether $name exists; left"
     failed=1
@@ -95,19 +95,13 @@ rm_anonymous() {
     failed=1
     return
   fi
-  case "$labels" in
-    *'"com.docker.volume.anonymous"'*) ;;
-    *) echo "left (not marked anonymous): $name"; return ;;
-  esac
-  # The label values of this volume, if any, must be this run's.
-  other=$(printf '%s' "$labels" | tr ',' '\n' |
-    sed -n -E "s/.*\"(com\\.docker\\.compose\\.project|[^\"]*\\.installation)\":\"([^\"]*)\".*/\2/p" |
-    grep -vxF "$COMPOSE_PROJECT_NAME" || true)
-  if [ -n "$other" ]; then
-    echo "left (labelled for another project): $name"
+  # An anonymous volume carries that one label and nothing else. Any further
+  # label (a compose project, an installation) makes it somebody's: left.
+  if [ "$labels" != '{"com.docker.volume.anonymous":""}' ]; then
+    echo "left (not an unlabelled anonymous volume): $name"
     return
   fi
-    remove_volume "$name"
+  remove_volume "$name"
 }
 # Names come from a file: no glob expansion in the loop below.
 set -f
