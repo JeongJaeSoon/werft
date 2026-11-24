@@ -1,0 +1,13 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+if [ "$1" = --verify ]; then
+  # STUB_VERIFY_REFUSES_ENTRY: refuse the fstab once the script's entry is in it.
+  if [ -n "${STUB_VERIFY_REFUSES_ENTRY:-}" ] && grep -q docker.xfs.img "$3"; then exit 1; fi
+  exit 0
+fi
+if [ "$3" = -T ]; then
+  awk -F'|' -v p="$4" '{ t = $1; if ((p == t || index(p, t "/") == 1) && length(t) > best) { best = length(t); out = $2 } } END { if (best) print out; else exit 1 }' "$mounts" \
+    || echo "${STUB_ROOT_FS:-ext4 rw,relatime}"
+else
+  lookup "$3"
+fi

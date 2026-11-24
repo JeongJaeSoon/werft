@@ -471,6 +471,7 @@ jobs:
               - tests/local-sh.
               - tests/pages-target.
               - tests/pages-workflow.
+              - tests/prepare-xfs.
               - tests/preview-reap.
               - tests/preview-sync.
               - tests/verify-werft-response-capture.

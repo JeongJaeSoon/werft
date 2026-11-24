@@ -1,0 +1,7 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+case "$1" in
+  is-active) [ -f "$STUB_STATE/running" ] ;;
+  stop) rm -f "$STUB_STATE/running" ;;
+  start) touch "$STUB_STATE/running" ;;
+esac

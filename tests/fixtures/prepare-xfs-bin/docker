@@ -1,0 +1,16 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+case "$1" in
+  info)
+    [ -f "$STUB_STATE/running" ] || exit 1
+    echo "${STUB_DOCKER_ROOT:-$PREPARE_XFS_ROOT/var/lib/docker}"
+    ;;
+  volume)
+    [ -f "$STUB_STATE/running" ] || exit 1
+    if [ "$2" = create ]; then
+      lookup "$PREPARE_XFS_ROOT/var/lib/docker" | grep -q prjquota \
+        || [ -n "${STUB_ROOT_FS:-}" ] \
+        || { echo "quota size requested but no quota support" >&2; exit 1; }
+    fi
+    ;;
+esac

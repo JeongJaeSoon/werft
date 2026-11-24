@@ -1,0 +1,9 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+img="$3" target="$4"
+[ -f "$img" ] && [ -d "$target" ] || exit 32
+case "$target" in
+  *xfs-trial*) opts="rw,relatime,attr2,inode64,prjquota" ;;
+  *) opts="${STUB_MOUNT_OPTS:-rw,relatime,attr2,inode64,prjquota}" ;;
+esac
+printf '%s|xfs %s|%s\n' "$target" "$opts" "$img" >>"$mounts"
