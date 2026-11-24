@@ -1163,6 +1163,51 @@ exit 0
     );
   });
 
+  // An upgrade that stops the writers and then cannot list the sessions
+  // reopens the recorded release. compose creates any service with no
+  // container yet (slack and maintenance on an installation an older start
+  // made), so the reopen must hand compose the recorded images.
+  test("an upgrade that stops short reopens on the recorded release's images", async () => {
+    const docker = await deployedSameWorker();
+    const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+    const target = {
+      ...manifest,
+      images: {
+        ...manifest.images,
+        control_host: manifest.images.control_host.replace(
+          /1{64}/,
+          "5".repeat(64),
+        ),
+        worker: manifest.images.worker.replace(/2{64}/, "6".repeat(64)),
+      },
+    };
+    await writeFile(join(dir, "release.json"), JSON.stringify(target));
+    const listed = join(dir, "listed");
+    await writeFile(
+      join(dir, "bin", "docker"),
+      docker
+        .replace('echo "$*" >> ', 'echo "API_IMAGE=$API_IMAGE $*" >> ')
+        .replace(
+          "esac\nexit 0",
+          `esac\ncase "$*" in *" exec -T postgres psql"*) [ ! -e "${listed}" ] || exit 1; : > "${listed}" ;; esac\nexit 0`,
+        ),
+      { mode: 0o755 },
+    );
+    const result = await run(["upgrade", join(dir, "release.json")], env);
+    expect(result.stderr).toContain("could not list the sessions");
+    expect(result.exitCode).toBe(1);
+    const up = (await dockerCalls())
+      .split("\n")
+      .filter((line) => line.includes(" up -d"));
+    expect(up).toEqual([expect.stringContaining("--no-recreate")]);
+    expect(up[0]).toStartWith(`API_IMAGE=${manifest.images.control_host} `);
+    expect(
+      await readFile(join(dir, "state", "pending.json"), "utf8").catch(
+        () => null,
+      ),
+    ).toBeNull();
+  });
+
   test("stop takes the containers down and never the volumes", async () => {
     await deployedSameWorker();
     const result = await run(["stop"], env);

@@ -57,6 +57,8 @@ docker exec -e CHECKPOINT_GC_DRY_RUN=1 "$API_CONTAINER" \
 
 API_CONTAINERを今回のstatusとproject labelで特定します。出力の保持・削除対象を確認してから、dry-run用の環境変数を外して実行します。既定Compose projectの他の設置を選ばないでください。Kubernetesはchartの `checkpointGc.schedule` を使います。
 
+単一サーバー設置では、`maintenance` サービスが週 1 回（`MAINTENANCE_INTERVAL_SEC`、既定 604800 秒）checkpoint GC を実行し、続けて session archive を実行します。上の dry-run の確認は最初の自動実行の前に終えます。自動実行も dry-run だけにするには、env ファイルに `CHECKPOINT_GC_DRY_RUN=true` を加えて `scripts/test-ops.sh start` で再適用します。`backup` は実行中 `maintenance` を止めます。
+
 <a id="확인" />
 ## 確認
 

@@ -57,6 +57,8 @@ docker exec -e CHECKPOINT_GC_DRY_RUN=1 "$API_CONTAINER" \
 
 Identify API_CONTAINER from this installation's status and project label. Review the objects to retain and delete in the output, then run without the dry-run environment variable. Do not select another installation in the default Compose project. Kubernetes uses the chart's `checkpointGc.schedule`.
 
+On a single-server installation, the `maintenance` service runs checkpoint GC once a week (`MAINTENANCE_INTERVAL_SEC`, default 604800 seconds), followed by session archive. Finish the dry-run review above before its first run. To keep the scheduled run a dry run too, add `CHECKPOINT_GC_DRY_RUN=true` to the env file and reapply it with `scripts/test-ops.sh start`. `backup` stops `maintenance` while it runs.
+
 <a id="확인" />
 ## Verify
 

@@ -677,7 +677,8 @@ start_apps() {
 # Admissions stop with the api and slack, which starts sessions from Slack
 # messages; the scheduler, the reconciler and maintenance (checkpoint GC
 # deletes objects) follow, then the workers the scheduler launched, which
-# outlive it. backup.sh checks for itself that none is left.
+# outlive it. backup.sh checks for itself that none of those that write
+# checkpoints or their objects is left.
 stop_writers() {
   local installation workers
   installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
@@ -710,8 +711,11 @@ reopen() {
   start_apps --no-recreate
 }
 
-# Back to the release current.json names, after an upgrade stopped short.
+# Back to the release current.json names, after an upgrade stopped short:
+# its images, not the target's, so a service the installation has no
+# container for yet is not made from the release that was refused.
 reopen_current() {
+  load_manifest "$CURRENT"
   reopen
   rm -f "$PENDING"
 }
