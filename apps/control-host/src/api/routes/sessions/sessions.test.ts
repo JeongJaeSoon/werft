@@ -64,6 +64,7 @@ function release(connectionId: string = TEST_CONNECTION_ID): AgentRelease {
     },
     effective_tools: { tools: ["Read"], mcp: [] },
     policy_pins: {},
+    instructions_snapshot: null,
     created_by: null,
     created_at: "2026-10-11T00:00:00.000Z",
     approved_by: null,

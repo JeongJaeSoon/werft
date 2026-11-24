@@ -20,6 +20,7 @@ There is one way to tell an agent how to work, how to answer, and which rules to
 - Commit the file. A session reads the committed content when it starts, so a change reaches new sessions without a version or a release.
 - A release pins reading this file in a session that has a repository (`project_settings.claude_md: true`). A session without a repository has no file to read.
 - A session reads the file of the repository it started in, so agents on the same repository share it.
+- Conversation judgments (whether the agent should join in on a channel's posts) never read the repository. When a release is made, the file is read once, by the same rules as a session, at the commit the release repository's branch points to, and stored on the release; judgments use only its first 4 KB. An edit to the file reaches judgments with the next release. Sessions still read the whole file (up to 64 KiB). Judgments of an agent without a repository have no instructions.
 
 ### How to write it
 

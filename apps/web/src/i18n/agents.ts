@@ -207,6 +207,12 @@ export const agentsKo = {
   "agent.releases.colActivated": "활성화 시각",
   "agent.releases.activePeriod": "{from} ~ {to}",
   "agent.releases.noteNone": "—",
+  "agent.releases.instructionsTruncated":
+    "지침이 4KB를 넘어 앞부분만 대화 판단에 씁니다. 판단에 쓸 규칙은 파일 앞쪽에 두세요.",
+  "agent.releases.instructionsReadFailed":
+    "저장소의 지침 파일을 읽지 못해 대화 판단은 고정 기준만 씁니다. 새 릴리스를 만들면 다시 읽습니다.",
+  "agent.releases.instructionsRefused":
+    "저장소의 지침 파일을 쓸 수 없어 대화 판단은 고정 기준만 씁니다.",
   "agent.releases.colActions": "동작",
   "agent.releases.previous": "이전",
   "agent.releases.never": "활성화 전",
@@ -707,6 +713,12 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.colActivated": "Activated",
   "agent.releases.activePeriod": "{from} – {to}",
   "agent.releases.noteNone": "—",
+  "agent.releases.instructionsTruncated":
+    "The instructions are over 4 KB, so conversation judgments use only their start. Put the rules judgments need near the top of the file.",
+  "agent.releases.instructionsReadFailed":
+    "The repository's instruction file could not be read, so conversation judgments use the fixed criteria only. A new release reads it again.",
+  "agent.releases.instructionsRefused":
+    "The repository's instruction file cannot be used, so conversation judgments use the fixed criteria only.",
   "agent.releases.colActions": "Actions",
   "agent.releases.previous": "Previous",
   "agent.releases.never": "Never active",
@@ -1198,6 +1210,12 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.colActivated": "有効化日時",
   "agent.releases.activePeriod": "{from}〜{to}",
   "agent.releases.noteNone": "—",
+  "agent.releases.instructionsTruncated":
+    "指示が4KBを超えるため、会話の判断には先頭部分だけを使います。判断に使うルールはファイルの先頭に置いてください。",
+  "agent.releases.instructionsReadFailed":
+    "リポジトリの指示ファイルを読めなかったため、会話の判断は固定の基準だけを使います。新しいリリースを作ると読み直します。",
+  "agent.releases.instructionsRefused":
+    "リポジトリの指示ファイルを使えないため、会話の判断は固定の基準だけを使います。",
   "agent.releases.colActions": "操作",
   "agent.releases.previous": "以前",
   "agent.releases.never": "有効化前",

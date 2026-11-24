@@ -9,6 +9,7 @@ export * from "./agents/agent-pull-request-service.ts";
 export * from "./agents/agent-service.ts";
 export * from "./agents/model-move-runner.ts";
 export * from "./agents/release-ids.ts";
+export * from "./agents/release-instructions.ts";
 export * from "./agents/release-run.ts";
 export * from "./agents/release-spec.ts";
 export * from "./workers/runtime-config-of-spec.ts";

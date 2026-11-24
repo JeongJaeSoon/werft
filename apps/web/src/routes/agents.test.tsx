@@ -2686,6 +2686,51 @@ describe("에이전트 상세", () => {
     expect(within(never).getAllByText("—").length).toBeGreaterThan(0);
   });
 
+  test("판단이 지침을 덜 읽는 릴리스에는 그 이유가 한 줄 보인다", async () => {
+    const server = agentServer();
+    await releasedTwice(server);
+    server.releases.push(
+      {
+        ...releaseFixture(5, { id: "rel-cut" }),
+        instructions_snapshot: {
+          kind: "text",
+          repository_id: "sample-app",
+          commit: "a".repeat(40),
+          file: "AGENTS.md",
+          text: "앞부분",
+          bytes: 9000,
+          truncated: true,
+        },
+      },
+      {
+        ...releaseFixture(6, { id: "rel-unread" }),
+        instructions_snapshot: {
+          kind: "read_failed",
+          repository_id: "sample-app",
+          reason: "github_failed",
+        },
+      },
+    );
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    const table = await screen.findByRole("table");
+    const [unread, cut, ...rest] = within(table)
+      .getAllByRole("row")
+      .slice(1) as HTMLElement[];
+    expect(
+      within(unread as HTMLElement).getByText(
+        "저장소의 지침 파일을 읽지 못해 대화 판단은 고정 기준만 씁니다. 새 릴리스를 만들면 다시 읽습니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      within(cut as HTMLElement).getByText(
+        "지침이 4KB를 넘어 앞부분만 대화 판단에 씁니다. 판단에 쓸 규칙은 파일 앞쪽에 두세요.",
+      ),
+    ).toBeDefined();
+    for (const row of rest) {
+      expect(within(row).queryByText(/대화 판단/)).toBeNull();
+    }
+  });
+
   test("접근 변경은 릴리스 사이에 줄로 보이고 되돌리기가 없다", async () => {
     const server = agentServer({
       activity: [

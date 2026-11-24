@@ -19,9 +19,12 @@ import {
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   DEFAULT_TOOL_POLICY,
+  JUDGMENT_INSTRUCTIONS_MAX_BYTES,
+  judgmentInstructionsOf,
   listAgentsQuerySchema,
   listAgentsResponseSchema,
   policyPinsSchema,
+  releaseInstructionsSchema,
   storedAgentCapabilitiesSchema,
   storedAgentCardSchema,
   updateAgentRequestSchema,
@@ -526,6 +529,7 @@ describe("agent, version and release", () => {
       },
       effective_tools: { tools: ["Read"], mcp: [] },
       policy_pins: PINS,
+      instructions_snapshot: null,
       created_by: null,
       created_at: AT,
       approved_by: null,
@@ -647,6 +651,7 @@ describe("agent, version and release", () => {
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
       policy_pins: PINS,
+      instructions_snapshot: null,
       created_by: null,
       created_at: AT,
       approved_by: null,
@@ -729,6 +734,43 @@ describe("agent, version and release", () => {
     ).toBe(false);
   });
 
+  test("an instruction snapshot holds at most the judgment's share, and only text reaches a judgment", () => {
+    const text = (body: string) => ({
+      kind: "text",
+      repository_id: "app",
+      commit: "c".repeat(40),
+      file: "AGENTS.md",
+      text: body,
+      bytes: 99_999,
+      truncated: true,
+    });
+    expect(
+      releaseInstructionsSchema.safeParse(
+        text("가".repeat(Math.floor(JUDGMENT_INSTRUCTIONS_MAX_BYTES / 3))),
+      ).success,
+    ).toBe(true);
+    expect(
+      releaseInstructionsSchema.safeParse(
+        text("a".repeat(JUDGMENT_INSTRUCTIONS_MAX_BYTES + 1)),
+      ).success,
+    ).toBe(false);
+    expect(
+      releaseInstructionsSchema.safeParse({
+        kind: "read_failed",
+        repository_id: "app",
+        reason: "rate_limited",
+      }).success,
+    ).toBe(false);
+    expect(
+      judgmentInstructionsOf(releaseInstructionsSchema.parse(text("규칙"))),
+    ).toBe("규칙");
+    expect(
+      judgmentInstructionsOf(releaseInstructionsSchema.parse(text("  "))),
+    ).toBeNull();
+    expect(judgmentInstructionsOf({ kind: "no_repository" })).toBeNull();
+    expect(judgmentInstructionsOf(null)).toBeNull();
+  });
+
   test("a release snapshot must be hashable, since its id is the hash", () => {
     const release = {
       id: "rel_9f2c",
@@ -740,6 +782,7 @@ describe("agent, version and release", () => {
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
       policy_pins: PINS,
+      instructions_snapshot: null,
       created_by: null,
       created_at: AT,
       approved_by: null,
