@@ -538,7 +538,7 @@ check_workspace_quota() {
 
 # The loaded manifest against this host.
 preflight() {
-  local head engine compose_version running_port=""
+  local head engine compose_version running_port="" quota=""
   if [ "$MODE" = bundle ]; then
     require_tools docker jq curl
     check_bundle
@@ -564,7 +564,7 @@ preflight() {
     || die "Docker Engine $engine is too old; worker networks need $MIN_ENGINE_MAJOR or newer (gateway_mode_ipv4=isolated)"
   compose_version="$(docker compose version --short 2>/dev/null)" || die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" || die "docker compose $compose_version is too old; $MIN_COMPOSE or newer"
-  case "$VERB" in preflight | deploy) check_workspace_quota ;; esac
+  case "$VERB" in preflight | deploy) check_workspace_quota && quota=", workspace quota" ;; esac
   render
   check_mount_modes
   # Before the bucket is touched with what may be another installation's settings.
@@ -583,7 +583,7 @@ preflight() {
     # startup, and deploy and upgrade wait for that.
     log "preflight: object store is LocalStack on port $(printf '%s' "$RENDER" | jq -r '.services.localstack.ports[0].published'), in memory — a restart loses every checkpoint object (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)"
   fi
-  log "preflight: passed — Docker Engine $engine, compose $compose_version, workspace quota, store $STORE, source $SOURCE_COMMIT, settings $SETTINGS_DIGEST, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
+  log "preflight: passed — Docker Engine $engine, compose $compose_version${quota}, store $STORE, source $SOURCE_COMMIT, settings $SETTINGS_DIGEST, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
 }
 
 # --- lifecycle -------------------------------------------------------------------
