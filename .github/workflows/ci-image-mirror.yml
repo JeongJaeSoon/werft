@@ -28,6 +28,10 @@ on:
 permissions:
   contents: read
 
+# Latest wins: GitHub keeps only the newest waiting run, and that is safe here.
+# Every run mirrors the whole matrix below as of its own main commit, never
+# only what its push changed, and main only moves forward, so a later run
+# covers a dropped one. tests/ci-concurrency.test.ts lists this group.
 concurrency:
   group: ci-image-mirror
   cancel-in-progress: false
