@@ -9,15 +9,14 @@ import {
 } from "@werft-ai/contracts";
 import { and, asc, between, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
+import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentIdentities,
   agents,
-  memberships,
   receipts,
   slackInstallations,
   slackNoticeApprovals,
-  users,
 } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";
 
@@ -181,21 +180,12 @@ async function lockAdminAndAgent(
   place: Place,
   userId: string,
 ): Promise<"not_admin" | "not_found" | null> {
-  const [admin] = await tx
-    .select({ userId: memberships.userId })
-    .from(memberships)
-    .innerJoin(users, eq(users.id, memberships.userId))
-    .where(
-      and(
-        eq(memberships.workspaceId, place.workspaceId),
-        eq(memberships.userId, userId),
-        inArray(memberships.role, [...WORKSPACE_MANAGER_ROLES]),
-        isNull(memberships.disabledAt),
-        isNull(users.disabledAt),
-      ),
-    )
-    .for("share", { of: memberships });
-  if (admin === undefined) return "not_admin";
+  // Locks the account first, as lockedRole does for every role check, so a
+  // disable committed while this waited is seen.
+  const role = await lockedRole(tx, place.workspaceId, userId);
+  if (role === null || !WORKSPACE_MANAGER_ROLES.some((r) => r === role)) {
+    return "not_admin";
+  }
   const [agent] = await tx
     .select({ id: agents.id })
     .from(agents)

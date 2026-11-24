@@ -394,6 +394,38 @@ integration("Slack notice approvals on PostgreSQL", () => {
     ).toBe(false);
   });
 
+  test("an admin disabled while the approval waits on the account is refused", async () => {
+    const [ws] = workspaces as [Workspace];
+    const agentId = await agent(ws);
+    await install(ws, agentId, "T0NOTICEM");
+    const place = { workspaceId: ws.id, agentId };
+    const admin = await user(ws.id, "admin");
+    const disabling = await pool.connect();
+    try {
+      await disabling.query("BEGIN");
+      await disabling.query(
+        "UPDATE users SET disabled_at = now() WHERE id = $1",
+        [admin],
+      );
+      let settled = false;
+      const approval = approveSlackNotice(
+        db,
+        { ...place, by: admin },
+        V1,
+      ).finally(() => {
+        settled = true;
+      });
+      await Bun.sleep(300);
+      // Queued behind the disable's lock on the account.
+      expect(settled).toBe(false);
+      await disabling.query("COMMIT");
+      expect(await approval).toEqual({ outcome: "not_admin" });
+    } finally {
+      disabling.release();
+    }
+    expect(await listSlackNoticeApprovals(db, { agentId })).toEqual([]);
+  });
+
   test("an approval holds across a reinstall in the same Slack team, not in another", async () => {
     const [ws] = workspaces as [Workspace];
     const agentId = await agent(ws);
