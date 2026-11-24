@@ -3054,7 +3054,11 @@ function checkWorkerPrePull(): string[] {
     single.securityContext?.seccompProfile?.type !== "RuntimeDefault" ||
     single.containers.length !== 1 ||
     ![...single.initContainers, ...single.containers].every(hardened) ||
-    JSON.stringify(single.initContainers[0].command) !== '["true"]'
+    !single.initContainers.every(
+      (c: { command: string[] }) => JSON.stringify(c.command) === '["true"]',
+    ) ||
+    // It must stay up, or the node's Pod restarts and never turns Ready.
+    !single.containers[0].command.join(" ").includes("sleep 3600")
   ) {
     fail(`not held down: ${JSON.stringify(single)}`);
   }
@@ -3112,8 +3116,9 @@ function checkWorkerPrePull(): string[] {
     "worker.tolerations[0].operator=Exists",
   ]);
   if (
-    placed?.nodeSelector?.pool !== "agents" ||
-    placed?.tolerations?.[0]?.key !== "agents"
+    JSON.stringify(placed?.nodeSelector) !== '{"pool":"agents"}' ||
+    JSON.stringify(placed?.tolerations) !==
+      '[{"key":"agents","operator":"Exists"}]'
   ) {
     fail("does not follow worker.nodeSelector and tolerations");
   }
