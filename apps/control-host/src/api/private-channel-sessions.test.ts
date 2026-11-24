@@ -165,12 +165,12 @@ describe("slackOfAgents", () => {
     });
 
     test("rate limiting, an HTTP failure and no answer are told apart", async () => {
-      expect(
-        await readable(answer({}, 429)).memberIds(place),
-      ).toEqual({ unconfirmed: "slack_error:ratelimited" });
-      expect(
-        await readable(answer("<html>", 502)).memberIds(place),
-      ).toEqual({ unconfirmed: "http_502" });
+      expect(await readable(answer({}, 429)).memberIds(place)).toEqual({
+        unconfirmed: "slack_error:ratelimited",
+      });
+      expect(await readable(answer("<html>", 502)).memberIds(place)).toEqual({
+        unconfirmed: "http_502",
+      });
       const down = (async () => {
         throw new TypeError("connect ECONNREFUSED with the token in it");
       }) as unknown as typeof fetch;

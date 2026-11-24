@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import {
   type SessionShareScope,
   slackScopeSegmentSchema,
 } from "@werft-ai/contracts";
 import type {
   ChannelKindNow,
+  ChannelScopeChange,
   ChannelScopePlan,
   ChannelSessionPlace,
 } from "@werft-ai/platform";
@@ -12,6 +14,7 @@ import { UUID } from "../control-shared.ts";
 import { createPostgresConversationStore } from "../conversations/index.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
+import { receipts } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 /** A session of a channel, as its scope is read now (no share row: workspace). */
@@ -282,13 +285,17 @@ export async function readChannelScopePlan(
  * again moves nothing more. Only what was written is reported as moved.
  * `locked` is the session set the caller already holds; a session linked
  * after it is left for the next run (`share_changed`), so no session is
- * locked after what the caller took next.
+ * locked after what the caller took next. Given a `change`, each session
+ * written gets its `share_session` receipt here, so a failed receipt rolls
+ * the move back with it; `losing` is its people_losing, read by the caller.
  */
 export async function moveChannelSessionScope(
   tx: Database,
   place: ChannelSessionPlace,
   kind: ChannelKindNow,
   locked?: ReadonlySet<string>,
+  change?: ChannelScopeChange,
+  losing: ReadonlyMap<string, number> | null = null,
 ): Promise<ChannelScopePlan> {
   const held = locked ?? (await lockChannelSessions(tx, place));
   const linked = await channelSessions(tx, place);
@@ -336,6 +343,36 @@ export async function moveChannelSessionScope(
     if (written.length === 0) {
       plan.skipped.push({ sessionId: row.sessionId, reason: "share_changed" });
       continue;
+    }
+    if (change !== undefined) {
+      // On the owner's receipt list, as an owner's own share change is; ids,
+      // scopes and a count only. `by` names who did it, as no person asked.
+      await tx.insert(receipts).values({
+        id: randomUUID(),
+        ownerId: row.ownerId,
+        operation: "share_session",
+        targetRef: {
+          session_id: row.sessionId,
+          turn_id: null,
+          request_id: null,
+        },
+        status: "succeeded",
+        result: {
+          scope: move.to,
+          previous_scope: move.from,
+          reason: change.reason,
+          no_install: change.noInstall(),
+          // Null where it is not counted; a counted widening loses no one.
+          people_losing:
+            change.peopleLosing === null
+              ? null
+              : move.to === "private_channel"
+                ? (losing?.get(row.sessionId) ?? null)
+                : 0,
+          ...change.ref,
+          by: change.by,
+        },
+      });
     }
     // Open streams re-read on this wakeup and end if they no longer see it.
     await tx.execute(sql`SELECT pg_notify('session_events', ${row.sessionId})`);

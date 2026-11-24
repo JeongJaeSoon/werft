@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import {
   SLACK_CHANNEL_MEMBER_LIMIT,
@@ -66,7 +67,9 @@ const USAGE = `Usage: bun run apps/control-host/src/api/private-channel-sessions
   apply  moves them: a private channel's sessions to private_channel (a session its creator
          made private stays private), a public channel's private_channel ones back to workspace,
          and a binding left of the other kind follows (one turned private waits for approval).
-         Running it again changes nothing more.
+         Each session moved gets a share_session receipt (reason operator_private_channel_migration,
+         people_losing, null for no_install) carrying the output's run_id, as the binding's receipt
+         does; a failed receipt leaves its channel as it was. Running it again changes nothing more.
   A channel of an agent with no Slack install (SLACK_NOT_INSTALLED) is no_install: Slack cannot
   be asked, so its binding's kind is used. A private binding, or a channel no binding knows the
   kind of, narrows to private_channel; a public one is left as it is. Who would stop seeing them
@@ -74,7 +77,8 @@ const USAGE = `Usage: bun run apps/control-host/src/api/private-channel-sessions
   Without --workspace or --agent, every workspace.
 Environment: DATABASE_URL and PLATFORM_SECRET_KEY, or PLATFORM_SECRET_KEY_FILE naming a file that holds it (required)
 Test only:   MOCK_SLACK_API_URL (default https://slack.com/api; for the mock Slack stack)
-Output: one line of JSON on stdout, ids and counts only.
+Output: one line of JSON on stdout, ids and counts only. outcome: planned (plan); moved when apply
+        changed a session or a binding, unchanged when it changed nothing, incomplete with exit 3.
 Exit codes: 0 done (also when nothing had to change); 1 unexpected error; 2 usage;
             3 incomplete: a channel's kind could not be read (unconfirmed_channels; no_install is not) or a session
               was not moved (skipped); those are left as they were, run it again after fixing them.
@@ -283,21 +287,15 @@ type PlannedSession = {
   members_unconfirmed_reason?: string;
 };
 
-// Who sees a session now (the one predicate every read uses) and who still
-// would once it is private_channel: a member who may use the agent, with a
-// live Slack link, in the channel now. A list that cannot be read keeps no
-// one, as the policy hides what it cannot confirm.
-async function peopleLosing(
-  db: Database,
-  place: ChannelSessionPlace,
-  sessionIds: readonly string[],
+type MemberRead = Awaited<ReturnType<PrivateChannelSlack["memberIds"]>>;
+
+/** The member list, with one warning line when it cannot be read. */
+async function readMembers(
   slack: PrivateChannelSlack,
+  place: ChannelSessionPlace,
   logger: PrivateChannelSessionsLogger | undefined,
-): Promise<{ losing: Map<string, number>; unconfirmed: string | null }> {
-  const losing = new Map(sessionIds.map((id) => [id, 0]));
-  if (sessionIds.length === 0) return { losing, unconfirmed: null };
+): Promise<MemberRead> {
   const read = await slack.memberIds(place);
-  const memberIds = "memberIds" in read ? read.memberIds : null;
   if ("unconfirmed" in read) {
     logger?.warn("Channel members unconfirmed; no one is kept", {
       event: "private_channel_sessions.member_check.unconfirmed",
@@ -307,6 +305,23 @@ async function peopleLosing(
       channel_id: place.channelId,
     });
   }
+  return read;
+}
+
+// Who sees a session now (the one predicate every read uses) and who still
+// would once it is private_channel: a member who may use the agent, with a
+// live Slack link, in the channel now. A list that cannot be read keeps no
+// one, as the policy hides what it cannot confirm.
+async function peopleLosing(
+  db: Database,
+  place: ChannelSessionPlace,
+  sessionIds: readonly string[],
+  read: MemberRead | null,
+): Promise<{ losing: Map<string, number>; unconfirmed: string | null }> {
+  const losing = new Map(sessionIds.map((id) => [id, 0]));
+  if (sessionIds.length === 0) return { losing, unconfirmed: null };
+  const memberIds =
+    read !== null && "memberIds" in read ? read.memberIds : null;
   const authority = createDatabaseAgentAuthority(db);
   const subjects = createPostgresChannelMemberStore(db);
   const people = await db
@@ -349,7 +364,15 @@ async function peopleLosing(
     if (keeps) continue;
     for (const { id } of seen) losing.set(id, (losing.get(id) ?? 0) + 1);
   }
-  return { losing, unconfirmed: "unconfirmed" in read ? read.unconfirmed : null };
+  return {
+    losing,
+    unconfirmed:
+      read === null
+        ? "not_read"
+        : "unconfirmed" in read
+          ? read.unconfirmed
+          : null,
+  };
 }
 
 async function run(
@@ -364,6 +387,7 @@ async function run(
 }> {
   const bindings = createPostgresSurfaceBindingStore(db);
   const places = await channelSessionPlaces(db, command.filter);
+  const runId = randomUUID();
   const unconfirmedChannels: Record<string, string>[] = [];
   const skipped: Record<string, string>[] = [];
   const planned: PlannedSession[] = [];
@@ -393,17 +417,35 @@ async function run(
     if (command.command === "apply") {
       let reason = "failed";
       let bound: BindingKind = "unknown";
+      let members: MemberRead | null = null;
       // Asked inside the move, after its lock on the channel: a binding
       // changed meanwhile is read as it is now.
       const changed = await bindings.channelKindChanged(
         place,
         async (inside) => {
           const now = await slack.kindOf(place);
-          if ("kind" in now) return now.kind;
+          if ("kind" in now) {
+            // Read before the sessions are locked, for who loses them.
+            if (now.kind === "private_channel") {
+              members = await readMembers(slack, place, logger);
+            }
+            return now.kind;
+          }
           reason = now.unconfirmed;
           if (reason !== NOT_INSTALLED) return null;
           bound = await bindingKindOf(inside.bindingKind);
           return noInstallKind(bound);
+        },
+        {
+          ref: { run_id: runId },
+          reason: "operator_private_channel_migration",
+          by: "operator_cli",
+          noInstall: () => reason === NOT_INSTALLED,
+          peopleLosing: async (tx, ids) =>
+            reason === NOT_INSTALLED
+              ? null
+              : (await peopleLosing(tx as Database, place, ids, members))
+                  .losing,
         },
       );
       if (reason === NOT_INSTALLED) {
@@ -495,7 +537,14 @@ async function run(
       .map((move) => move.sessionId);
     const { losing, unconfirmed } =
       bound === null
-        ? await peopleLosing(db, place, narrowing, slack, logger)
+        ? await peopleLosing(
+            db,
+            place,
+            narrowing,
+            narrowing.length === 0
+              ? null
+              : await readMembers(slack, place, logger),
+          )
         : { losing: new Map<string, number>(), unconfirmed: null };
     for (const move of bound === null ? plan.moves : []) {
       planned.push({
@@ -505,7 +554,8 @@ async function run(
         to: move.to,
         people_losing: losing.get(move.sessionId) ?? 0,
         key_turns: keyTurns(move),
-        members_unconfirmed: move.to === "private_channel" && unconfirmed !== null,
+        members_unconfirmed:
+          move.to === "private_channel" && unconfirmed !== null,
         ...(move.to === "private_channel" && unconfirmed !== null
           ? { members_unconfirmed_reason: unconfirmed }
           : {}),
@@ -518,6 +568,7 @@ async function run(
     unchanged += plan.unchanged.length;
   }
   const incomplete = unconfirmedChannels.length > 0 || skipped.length > 0;
+  const changedAny = moved.length > 0 || bindingChanges.length > 0;
   return {
     exit: incomplete
       ? PRIVATE_CHANNEL_SESSIONS_EXIT.incomplete
@@ -531,7 +582,16 @@ async function run(
           ? "planned"
           : incomplete
             ? "incomplete"
-            : "moved",
+            : changedAny
+              ? "moved"
+              : "unchanged",
+      ...(command.command === "plan"
+        ? {}
+        : {
+            run_id: runId,
+            sessions_moved: moved.length,
+            bindings_changed: bindingChanges.length,
+          }),
       channels: places.length,
       ...(command.command === "plan" ? { sessions: planned } : { moved }),
       bindings: bindingChanges,
