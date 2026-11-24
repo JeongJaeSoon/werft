@@ -283,6 +283,23 @@ describe("releaseChanges", () => {
     ]);
   });
 
+  test("a judgment model picked or cleared is a model change of its own", () => {
+    const changes = releaseChanges(
+      release({ runtime_config_snapshot: { model: "m" } }),
+      release({ runtime_config_snapshot: { model: "m", judgment_model: "s" } }),
+      () => undefined,
+    );
+    expect(changes).toEqual([
+      {
+        area: "model",
+        field: { key: "judgmentModel" },
+        kind: "value",
+        before: null,
+        after: "s",
+      },
+    ]);
+  });
+
   test("no GitHub pin reads as the workspace's range, not as no repository", () => {
     const { github: _dropped, ...unpinned } = before.policy_pins;
     expect(

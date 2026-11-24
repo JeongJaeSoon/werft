@@ -11,7 +11,9 @@ export type Binding =
 type BindingInput = components["schemas"]["PutSlackBindingRequest"];
 export type BindingChange = {
   readonly body: BindingInput;
-  readonly kind: "reaction" | "home" | "connect";
+  readonly kind: "reaction" | "home" | "connect" | "listen";
+  /** On a listen change: the row and its name, to say which one was refused. */
+  readonly row?: { readonly id: string; readonly name: string };
 };
 // With no row yet the server makes one on the first DM and answers it.
 export const dmOn = (dm: Binding | undefined) =>
@@ -19,6 +21,7 @@ export const dmOn = (dm: Binding | undefined) =>
 
 export const SECTION = {
   slack: "slack-overview",
+  notice: "slack-notice",
   channels: "slack-channels",
   basic: "slack-basic",
   token: "slack-token",
@@ -31,6 +34,7 @@ export const SECTION = {
 /** The tab's sections, in the side list's words. */
 export const SECTION_LABEL = {
   slack: "agent.tabs.slack",
+  notice: "slack.notice",
   channels: "slack.channels",
   basic: "slack.basic",
   token: "workspace.tokenSection",

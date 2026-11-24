@@ -204,11 +204,13 @@ export function releaseChanges(
   // The snapshot's model and tools are compared as their own fields.
   const {
     model: modelA,
+    judgment_model: judgmentA,
     tools: _toolsA,
     ...configA
   } = before.runtime_config_snapshot;
   const {
     model: modelB,
+    judgment_model: judgmentB,
     tools: _toolsB,
     ...configB
   } = after.runtime_config_snapshot;
@@ -225,6 +227,13 @@ export function releaseChanges(
       { key: "model" },
       modelA ?? cardA?.model,
       modelB ?? cardB?.model,
+    ),
+    // Absent: the judgment calls run the card's model.
+    ...valueChange(
+      "model",
+      { key: "judgmentModel" },
+      judgmentA ?? cardA?.judgment_model,
+      judgmentB ?? cardB?.judgment_model,
     ),
     ...listChange(
       "tools",

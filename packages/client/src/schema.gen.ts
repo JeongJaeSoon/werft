@@ -3625,6 +3625,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/slack/notice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the agent's Slack notice and its approval
+         * @description The notice an owner or admin approves before the agent listens in Slack, and whether its organization approved it. `notice` is the current version with its words in Korean and Japanese (`text.ko`, `text.ja`), drawn as written, or null before the first version is published. `state`: `no_notice`; `not_installed` (the agent's app has no live Slack install); `not_approved`; `reapproval_required` (an approval of an older version is live, but the current version asks for a new one: the agent does not listen until it is given); `approved` (every Slack team of the agent's live installs has a live approval of a counted version). `approvals` are the unrevoked approvals in those teams, by team, newest version first; `counts` is false for one the current version no longer counts. `approved_by.email` is null unless the reader is a workspace owner or admin, which `can_approve` says. Owners, admins, the agent's admins and the live members of its managing team, with a web session only.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSlackNotice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/slack/notice/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve the agent's Slack notice
+         * @description Approves the current notice version for each Slack team of the agent's live installs that has no live approval of it yet, writing one `approve_slack_notice` receipt per team with the version and the language it was shown in (`locale`). `notice_version` is the version the caller was shown: another current version answers 409 REVISION_CONFLICT with `details.reason_code` `notice_version_stale`, and no published version answers 409 REVISION_CONFLICT with `no_notice`. An app with no live install answers 409 SLACK_NOT_INSTALLED. Approving again writes nothing. Answers the notice as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["approveSlackNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/slack/notice/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke the agent's Slack notice approval
+         * @description Revokes every live approval of the agent in any Slack team, with one `revoke_slack_notice` receipt naming them; with none live it writes nothing. The agent then has no approval and stops listening. Answers the notice as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["revokeSlackNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/slack/app/bots": {
         parameters: {
             query?: never;
@@ -5927,6 +5993,7 @@ export interface components {
                  */
                 language: "follow-user" | "ko" | "en" | "ja";
                 model: string;
+                judgment_model?: string;
                 capabilities: {
                     mcp: {
                         server: string;
@@ -5968,6 +6035,7 @@ export interface components {
                  */
                 language: "follow-user" | "ko" | "en" | "ja";
                 model: string;
+                judgment_model?: string;
                 capabilities: {
                     mcp: {
                         server: string;
@@ -9383,6 +9451,53 @@ export interface components {
         SlackAppSettings: {
             mention_only: boolean;
         };
+        GetSlackNoticeResponse: {
+            notice: {
+                version: number;
+                requires_reapproval: boolean;
+                text: {
+                    ko: {
+                        body: string[];
+                        policy_link: {
+                            label: string;
+                            /** Format: uri */
+                            href: string;
+                        };
+                    };
+                    ja: {
+                        body: string[];
+                        policy_link: {
+                            label: string;
+                            /** Format: uri */
+                            href: string;
+                        };
+                    };
+                };
+            } | null;
+            /** @enum {string} */
+            state: "no_notice" | "not_installed" | "not_approved" | "reapproval_required" | "approved";
+            can_approve: boolean;
+            approvals: {
+                /** Format: uuid */
+                id: string;
+                slack_team_id: string;
+                notice_version: number;
+                counts: boolean;
+                approved_by: {
+                    /** Format: uuid */
+                    user_id: string;
+                    display_name: string;
+                    email: string | null;
+                };
+                /** Format: date-time */
+                approved_at: string;
+            }[];
+        };
+        ApproveSlackNoticeRequest: {
+            notice_version: number;
+            /** @enum {string} */
+            locale: "ko" | "ja";
+        };
         GetSlackAppBotsResponse: {
             items: {
                 user_id: string;
@@ -10366,6 +10481,7 @@ export interface components {
                      */
                     language: "follow-user" | "ko" | "en" | "ja";
                     model: string;
+                    judgment_model?: string;
                     capabilities: {
                         mcp: {
                             server: string;
@@ -10559,6 +10675,7 @@ export interface components {
                      */
                     language: "follow-user" | "ko" | "en" | "ja";
                     model: string;
+                    judgment_model?: string;
                     capabilities: {
                         mcp: {
                             server: string;
@@ -12140,6 +12257,7 @@ export interface components {
             };
             /** Format: uuid */
             receipt_id: string;
+            dropped_buffered?: number;
         };
         ResolveSlackBindingResponse: {
             slack_binding: {
@@ -38436,6 +38554,477 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getSlackNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current notice and the approvals. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "notice": {
+                     *         "version": 1,
+                     *         "requires_reapproval": true,
+                     *         "text": {
+                     *           "ko": {
+                     *             "body": [
+                     *               "…"
+                     *             ],
+                     *             "policy_link": {
+                     *               "label": "…",
+                     *               "href": "https://docs.example.test/data"
+                     *             }
+                     *           },
+                     *           "ja": {
+                     *             "body": [
+                     *               "…"
+                     *             ],
+                     *             "policy_link": {
+                     *               "label": "…",
+                     *               "href": "https://docs.example.test/data"
+                     *             }
+                     *           }
+                     *         }
+                     *       },
+                     *       "state": "approved",
+                     *       "can_approve": true,
+                     *       "approvals": [
+                     *         {
+                     *           "id": "019a0000-0000-7000-8000-0000000000a1",
+                     *           "slack_team_id": "T0EXAMPLE",
+                     *           "notice_version": 1,
+                     *           "counts": true,
+                     *           "approved_by": {
+                     *             "user_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *             "display_name": "Admin",
+                     *             "email": "admin@example.test"
+                     *           },
+                     *           "approved_at": "2026-11-24T00:00:00.000Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackNoticeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    approveSlackNotice: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "notice_version": 1,
+                 *       "locale": "ja"
+                 *     }
+                 */
+                "application/json": components["schemas"]["ApproveSlackNoticeRequest"];
+            };
+        };
+        responses: {
+            /** @description The notice with the approvals after this one. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "notice": {
+                     *         "version": 1,
+                     *         "requires_reapproval": true,
+                     *         "text": {
+                     *           "ko": {
+                     *             "body": [
+                     *               "…"
+                     *             ],
+                     *             "policy_link": {
+                     *               "label": "…",
+                     *               "href": "https://docs.example.test/data"
+                     *             }
+                     *           },
+                     *           "ja": {
+                     *             "body": [
+                     *               "…"
+                     *             ],
+                     *             "policy_link": {
+                     *               "label": "…",
+                     *               "href": "https://docs.example.test/data"
+                     *             }
+                     *           }
+                     *         }
+                     *       },
+                     *       "state": "approved",
+                     *       "can_approve": true,
+                     *       "approvals": [
+                     *         {
+                     *           "id": "019a0000-0000-7000-8000-0000000000a1",
+                     *           "slack_team_id": "T0EXAMPLE",
+                     *           "notice_version": 1,
+                     *           "counts": true,
+                     *           "approved_by": {
+                     *             "user_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *             "display_name": "Admin",
+                     *             "email": "admin@example.test"
+                     *           },
+                     *           "approved_at": "2026-11-24T00:00:00.000Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackNoticeResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /**
+             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team.
+             */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT" | "SLACK_NOT_INSTALLED";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    revokeSlackNotice: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notice with no live approval left. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "notice": {
+                     *         "version": 1,
+                     *         "requires_reapproval": true,
+                     *         "text": {
+                     *           "ko": {
+                     *             "body": [
+                     *               "…"
+                     *             ],
+                     *             "policy_link": {
+                     *               "label": "…",
+                     *               "href": "https://docs.example.test/data"
+                     *             }
+                     *           },
+                     *           "ja": {
+                     *             "body": [
+                     *               "…"
+                     *             ],
+                     *             "policy_link": {
+                     *               "label": "…",
+                     *               "href": "https://docs.example.test/data"
+                     *             }
+                     *           }
+                     *         }
+                     *       },
+                     *       "state": "not_approved",
+                     *       "can_approve": true,
+                     *       "approvals": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackNoticeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
                         };
                     };
                 };

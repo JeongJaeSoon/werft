@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { conversationCallIdSchema } from "../domain/budget.ts";
 import {
   conversationIdSchema,
   conversationTopicIdSchema,
@@ -78,13 +77,13 @@ export const conversationRuntimeTurnSchema = z
     lease_expires_at: timestampSchema,
     scope: conversationTurnScopeSchema,
     model: z.string().min(1).max(128),
-    // `auth.token` is the turn's one-call permit: the egress proxy trades it
-    // for the connection's credential on one Messages request.
+    // `auth.token` is the turn's permit: the egress proxy trades it for the
+    // connection's credential on each Messages request of the turn, each
+    // reserved on its own as the proxy asks.
     provider: runtimeProviderSchema,
     call: z
       .object({
-        id: conversationCallIdSchema,
-        /** The output cap the call was reserved with; a request over it is refused. */
+        /** Each call's output cap, as it is reserved; a request over it is refused. */
         max_tokens: z.number().int().positive(),
       })
       .strict(),

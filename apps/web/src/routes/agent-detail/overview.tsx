@@ -606,6 +606,19 @@ export function CardSummary({
                     ),
                   },
                   {
+                    label: t("agentCard.judgmentModel"),
+                    value:
+                      card.judgment_model === undefined ? (
+                        <span className={VALUE}>
+                          {t("agentCard.judgmentModelCardUnset")}
+                        </span>
+                      ) : (
+                        <Code size="inherit" className={VALUE}>
+                          {card.judgment_model}
+                        </Code>
+                      ),
+                  },
+                  {
                     label: t("agentCard.language"),
                     value: (
                       <span className={VALUE}>

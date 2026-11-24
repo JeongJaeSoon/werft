@@ -25,6 +25,8 @@ import {
   GridTableRow,
   Input,
   Link,
+  NativeSelect,
+  NativeSelectOption,
   RowAction,
   RowList,
   RowListItem,
@@ -47,7 +49,8 @@ import { useHasPermission } from "../../../auth/guard.tsx";
 import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import type { Notify } from "../../../components/toast.tsx";
-import { useI18n } from "../../../i18n/i18n.tsx";
+import { type MessageKey, useI18n } from "../../../i18n/i18n.tsx";
+import { reasonCodeOf } from "../../workspace-slack.tsx";
 import type { SlackApp } from "./actions.ts";
 import { Outcome, RecheckButton, RecheckError } from "./app.tsx";
 import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
@@ -124,6 +127,12 @@ function InviteCopy({
     </>
   );
 }
+
+const LISTEN_LABEL = {
+  free: "slack.listen.free",
+  mention: "slack.listen.mention",
+  off: "slack.listen.off",
+} as const satisfies Record<Binding["listen"], MessageKey>;
 
 function VisibilityBadge({ isPrivate }: { readonly isPrivate: boolean }) {
   const { t } = useI18n();
@@ -230,11 +239,19 @@ export function SlackChannels({
           body,
         }),
       ),
-    onSuccess: async (_result, change) => {
+    onSuccess: async (result, change) => {
       if (change.kind === "connect") notify(t("slack.channelConnected"));
       else
         setNotice(
-          t(change.kind === "home" ? "slack.homeSaved" : "slack.saved"),
+          t(
+            change.kind === "home"
+              ? "slack.homeSaved"
+              : change.kind !== "listen"
+                ? "slack.saved"
+                : (result.dropped_buffered ?? 0) > 0
+                  ? "slack.listenSavedDropped"
+                  : "slack.listenSaved",
+          ),
         );
       setPicking(false);
       await cache.invalidateQueries({ queryKey: [...key, "bindings"] });
@@ -261,6 +278,8 @@ export function SlackChannels({
     onSettled: () =>
       cache.invalidateQueries({ queryKey: [...key, "bindings"] }),
   });
+  const refusalId = useId();
+  const refusedRow = update.isError ? update.variables?.row : undefined;
   const rows =
     bindings.data?.items.filter((row) => row.surface_kind !== "dm") ?? [];
   const listed = [
@@ -311,6 +330,26 @@ export function SlackChannels({
         },
       });
   };
+  // The one write that carries `listen`: every other one leaves it out, so a
+  // channel the server moved to mention is never put back to free.
+  const changeListen = (
+    row: Binding,
+    name: string,
+    listen: Binding["listen"],
+  ) => {
+    if (update.isPending || locked || listen === row.listen) return;
+    update.mutate({
+      kind: "listen",
+      row: { id: row.id, name },
+      body: {
+        channel_id: row.external_surface_id,
+        mode: row.mode,
+        listen,
+        home: row.home,
+        ceiling: row.ceiling,
+      },
+    });
+  };
   const actions =
     // Until the bindings load, it is not known which step this is.
     bindings.isPending || !manages || locked ? null : (
@@ -358,6 +397,7 @@ export function SlackChannels({
             {homeStep ? <p className="m-0">{t("slack.homeStepHint")}</p> : null}
             {/* A channel's replies follow no session sharing (agent-rbac (b)). */}
             <p className="m-0">{t("slack.channelsAudience")}</p>
+            <p className="m-0">{t("slack.listenHint")}</p>
           </>
         }
         actions={actions}
@@ -395,7 +435,19 @@ export function SlackChannels({
             ) : null}
             {update.error ? (
               <div>
-                <FieldError>{slackFailure(update.error, t)}</FieldError>
+                <FieldError id={refusalId}>
+                  {refusedRow
+                    ? t(
+                        reasonCodeOf(update.error) === "external_shared_channel"
+                          ? "slack.listenExternalShared"
+                          : "slack.listenFailed",
+                        {
+                          channel: refusedRow.name,
+                          reason: slackFailure(update.error, t),
+                        },
+                      )
+                    : slackFailure(update.error, t)}
+                </FieldError>
               </div>
             ) : null}
             {/* FieldError is an alert, so a failed approval is announced too. */}
@@ -415,12 +467,15 @@ export function SlackChannels({
               <GridTable
                 aria-label={t("slack.connectedChannels")}
                 columns={COLUMNS}
-                align={["start", "end"]}
+                align={["start", "start", "end"]}
                 framed
               >
                 <GridTableHeader>
                   <GridTableColumnHeader>
                     {t("slack.channelColumn")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.listenColumn")}
                   </GridTableColumnHeader>
                   <GridTableColumnHeader>
                     {t("slack.useColumn")}
@@ -490,6 +545,52 @@ export function SlackChannels({
                           </div>
                           {meta}
                         </div>
+                      </GridTableCell>
+                      <GridTableCell>
+                        {manages &&
+                        row.status !== "left" &&
+                        row.status !== "gone" ? (
+                          <span className="flex items-center gap-2">
+                            <NativeSelect
+                              size="sm"
+                              // In a table the select's w-full squeezes it to one character.
+                              className="w-auto"
+                              aria-label={t("slack.listenOf", {
+                                channel: name,
+                              })}
+                              value={row.listen}
+                              aria-disabled={update.isPending}
+                              aria-invalid={refusedRow?.id === row.id}
+                              aria-describedby={
+                                refusedRow?.id === row.id
+                                  ? refusalId
+                                  : undefined
+                              }
+                              onChange={(event) =>
+                                changeListen(
+                                  row,
+                                  name,
+                                  event.target.value as Binding["listen"],
+                                )
+                              }
+                            >
+                              {BINDING_LISTEN.map((value) => (
+                                <NativeSelectOption key={value} value={value}>
+                                  {t(LISTEN_LABEL[value])}
+                                </NativeSelectOption>
+                              ))}
+                            </NativeSelect>
+                            {refusedRow?.id === row.id ? (
+                              <Badge variant="red">
+                                {t("slack.listenRefused")}
+                              </Badge>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <Text as="span" variant="sub">
+                            {t(LISTEN_LABEL[row.listen])}
+                          </Text>
+                        )}
                       </GridTableCell>
                       <GridTableCell>
                         {
@@ -673,9 +774,11 @@ export function SlackChannels({
   );
 }
 
-// The channel, its state and what to do about it; then the in-use switch
-// and any approve button beside it, as wide as the widest row's.
-const COLUMNS = "minmax(0,1fr) max-content";
+// The channel, its state and what to do about it; what it listens to; then
+// the in-use switch and any approve button beside it, as wide as the widest
+// row's.
+const COLUMNS = "minmax(0,1fr) max-content max-content";
+const BINDING_LISTEN = Object.keys(LISTEN_LABEL) as Binding["listen"][];
 
 /** The `/invite` line, for any channel the bot should join. */
 function InviteRow({

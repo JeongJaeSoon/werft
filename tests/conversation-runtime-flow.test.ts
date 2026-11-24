@@ -35,8 +35,9 @@ import { until } from "./until.ts";
  * A conversation turn as the conversation runtime runs it, minus the
  * container: the worker's turn runner and the pinned engine it starts, the
  * egress proxy's credential listener in-process, an authorizer that grants a
- * one-call token the way the control host's does (one exchange, the call's
- * limits), and a local fake Messages API behind the proxy.
+ * turn's permit the way the control host's does (each new exchange a call of
+ * its own, its regrant the same call, each with the permit's limits), and a
+ * local fake Messages API behind the proxy.
  */
 
 const AUTHORIZER_BEARER = ["authorizer", "bearer", "for", "this", "test"].join(
@@ -55,8 +56,9 @@ const PROVIDER_KEY = [
 const MODEL = "claude-sonnet-4-5";
 const MAX_TOKENS = 1_024;
 
-// A turn permit's stand-in: good for up to `calls` exchanges, one call each.
-type Grant = { callId: string; exchanges: Set<string>; calls: number };
+// Each exchange the permit was granted for, and the call it became; at most
+// `limit` of them, as the server's own count of a turn's calls holds it.
+type Grant = { calls: Map<string, string>; limit: number };
 
 let root: string | undefined;
 let provider: FakeAnthropicServer | undefined;
@@ -101,18 +103,18 @@ async function stack(
       const { token } = (await request.json()) as { token: string };
       const exchange = request.headers.get("x-werft-exchange-id");
       const grant = grants.get(token);
-      // Taken by the first exchanges that present it, as many as it covers.
       const granted =
         grant !== undefined &&
         exchange !== null &&
-        (grant.exchanges.has(exchange) || grant.exchanges.size < grant.calls);
+        (grant.calls.has(exchange) || grant.calls.size < grant.limit);
       asked.push({ token, granted });
       if (!granted || grant === undefined) {
         return new Response("unknown", { status: 401 });
       }
-      grant.exchanges.add(exchange);
+      const callId = grant.calls.get(exchange) ?? crypto.randomUUID();
+      grant.calls.set(exchange, callId);
       return Response.json({
-        conversation_call_id: grant.callId,
+        conversation_call_id: callId,
         upstream: {
           url: `http://upstream.test:${upstreamPort}`,
           headers: [["x-api-key", PROVIDER_KEY]],
@@ -149,19 +151,17 @@ async function stack(
     topics,
     ...(options.limitMs === undefined ? {} : { limitMs: options.limitMs }),
   });
-  /** A turn with a fresh one-call token the authorizer grants, unless `known` is false. */
+  /** A turn with a fresh permit the authorizer grants, unless `known` is false. */
   const turn = (
     topicId: string,
     text: string,
     known = true,
   ): ConversationRuntimeTurn & { token: string } => {
-    const token = ["wec", crypto.randomUUID()].join("_");
-    const callId = crypto.randomUUID();
+    const token = ["wct", crypto.randomUUID()].join("_");
     if (known) {
       grants.set(token, {
-        callId,
-        exchanges: new Set(),
-        calls: options.calls ?? 1,
+        calls: new Map(),
+        limit: options.calls ?? Number.POSITIVE_INFINITY,
       });
     }
     return {
@@ -181,14 +181,24 @@ async function stack(
           endpoint: "https://api.anthropic.com",
           auth: { kind: "egress_token", token },
         },
-        call: { id: callId, max_tokens: MAX_TOKENS },
+        call: { max_tokens: MAX_TOKENS },
         input: { id: crypto.randomUUID(), text },
       }),
       token,
     };
   };
   const live = new AbortController().signal;
-  return { root, provider, topics, runner, turn, asked, reported, live };
+  return {
+    root,
+    provider,
+    topics,
+    runner,
+    turn,
+    asked,
+    reported,
+    grants,
+    live,
+  };
 }
 
 /** Every regular file under `directory`, with its text. */
@@ -225,12 +235,14 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     // The engine asked for no more output than the call was reserved with.
     expect(request?.body.max_tokens).toBe(MAX_TOKENS);
     expect(s.asked).toEqual([{ token: turn.token, granted: true }]);
-    // Settled on the call the token stood for.
+    // Settled on the call the proxy was granted for that exchange.
     const report = await until(
       async () => s.reported[0],
       "the call's usage report",
     );
-    expect(report.conversation_call_id).toBe(turn.call.id);
+    expect(report.conversation_call_id).toBe(
+      [...(s.grants.get(turn.token)?.calls.values() ?? [])][0],
+    );
   }, 60_000);
 
   test("a turn whose token the control host does not grant never reaches the provider", async () => {
