@@ -124,7 +124,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 | `--settings-document` | 任意。既定値は `/etc/werft/settings.json`。下の設定文書の絶対パス |
 | `--api-port`、`--postgres-port` | 任意。下のポートの表の `TEST_OPS_API_PORT`、`TEST_OPS_POSTGRES_PORT` になります |
 
-`init-config` は `POSTGRES_PASSWORD`（32 文字 hex）、`EGRESS_AUTHORIZER_TOKEN`（48 文字 hex）、`PLATFORM_SECRET_KEY`（64 文字 hex）をランダムな値で埋めます。`EXECUTION_WORKSPACE_QUOTA=on` と provider・Git host の credential allowlist は例の値のままです。設置後に `CONSOLE_ORIGIN` を変えたら、`start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します。
+`init-config` は `POSTGRES_PASSWORD`（32 文字 hex）、`EGRESS_AUTHORIZER_TOKEN`（48 文字 hex）、`PLATFORM_SECRET_KEY`（64 文字 hex）をランダムな値で埋めます。`EXECUTION_WORKSPACE_QUOTA=on` と provider・Git host の credential allowlist は例の値のままです。設置後に `CONSOLE_ORIGIN` を変えたら、`start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します。バンドルは `upgrade` を拒否するため、このコマンドはそのリリースの `source_commit` を checkout したリポジトリで、同じ env ファイルと状態ディレクトリのまま実行します。
 
 env ファイルを自分で書くには、取得したディレクトリの `infra/test-ops.env.example` を運用者所有の `0600` で `/etc/werft/test-ops.env` にコピーし、エディターで次を設定します。
 

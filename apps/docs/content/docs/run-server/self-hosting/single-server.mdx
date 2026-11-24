@@ -117,7 +117,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 | `--settings-document` | 선택. 기본값은 `/etc/werft/settings.json`. 아래 설정 문서의 절대 경로 |
 | `--api-port`, `--postgres-port` | 선택. 아래 포트 표의 `TEST_OPS_API_PORT`, `TEST_OPS_POSTGRES_PORT`가 된다 |
 
-`init-config`는 `POSTGRES_PASSWORD`(32자 hex), `EGRESS_AUTHORIZER_TOKEN`(48자 hex), `PLATFORM_SECRET_KEY`(64자 hex)를 무작위 값으로 채운다. `EXECUTION_WORKSPACE_QUOTA=on`과 provider·Git host의 credential allowlist는 예시 값 그대로 둔다. 설치 뒤 `CONSOLE_ORIGIN`을 바꾸면 `start` 대신 `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 현재 release를 다시 적용해 반영한다.
+`init-config`는 `POSTGRES_PASSWORD`(32자 hex), `EGRESS_AUTHORIZER_TOKEN`(48자 hex), `PLATFORM_SECRET_KEY`(64자 hex)를 무작위 값으로 채운다. `EXECUTION_WORKSPACE_QUOTA=on`과 provider·Git host의 credential allowlist는 예시 값 그대로 둔다. 설치 뒤 `CONSOLE_ORIGIN`을 바꾸면 `start` 대신 `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 현재 release를 다시 적용해 반영한다. 번들은 `upgrade`를 거부하므로, 이 명령은 그 릴리스의 `source_commit`을 checkout한 저장소에서 같은 env 파일과 상태 디렉터리로 실행한다.
 
 env 파일을 직접 쓰려면 받은 디렉터리의 `infra/test-ops.env.example`을 `/etc/werft/test-ops.env`에 운영자 소유 `0600`으로 복사하고 편집기로 다음을 채운다.
 

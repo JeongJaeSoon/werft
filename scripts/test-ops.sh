@@ -1197,6 +1197,10 @@ init_config() {
     values+=("EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST=" "AWS_REGION=${INIT_REGION}" "S3_BUCKET=${INIT_BUCKET}"
       "AWS_ACCESS_KEY_ID=${key_id}" "AWS_SECRET_ACCESS_KEY=${key}")
   fi
+  # The EXIT trap runs on an interrupt too, so no copy of the secrets stays.
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   INIT_TMP="$(mktemp "${dir}/.test-ops-init.XXXXXX")" || die "init-config: cannot create a file in $dir"
   CLEANUPS+=('rm -f "$INIT_TMP"')
   # Each value replaces the first line, set or commented out, of its name;
@@ -1236,8 +1240,12 @@ init_config() {
     [ "$(grep -c "^${name}=." "$INIT_TMP")" = 1 ] || die "init-config: the written settings do not set $name once; nothing was installed"
   done
   chmod 600 "$INIT_TMP"
-  ln "$INIT_TMP" "$ENV_FILE" 2>/dev/null \
-    || die "init-config: $ENV_FILE appeared meanwhile or cannot be made; it was not replaced"
+  # A directory that appeared at the path meanwhile would take the link
+  # inside it, so that is undone and refused.
+  if ! ln "$INIT_TMP" "$ENV_FILE" 2>/dev/null || [ -d "$ENV_FILE" ]; then
+    [ ! -d "$ENV_FILE" ] || rm -f "${ENV_FILE}/${INIT_TMP##*/}"
+    die "init-config: $ENV_FILE appeared meanwhile or cannot be made; it was not replaced"
+  fi
   log "init-config: wrote $ENV_FILE (0600, object store $store) with random POSTGRES_PASSWORD, EGRESS_AUTHORIZER_TOKEN and PLATFORM_SECRET_KEY and CONSOLE_ORIGIN $INIT_ORIGIN; no value is shown"
   log "init-config: PLATFORM_SECRET_KEY decrypts the stored credentials; back the file up apart from this host"
 }

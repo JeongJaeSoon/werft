@@ -257,6 +257,54 @@ describe("scripts/test-ops.sh", () => {
       expect(await exists(join(dir, "closed", "settings"))).toBe(false);
     });
 
+    test("leaves nothing inside a directory that appears at the path meanwhile", async () => {
+      // ln finds a directory where init-config found nothing.
+      await writeFile(
+        join(dir, "bin", "ln"),
+        `#!/bin/sh\nmkdir "$2"\nexec /bin/ln "$@"\n`,
+        { mode: 0o755 },
+      );
+      const result = await run(
+        ["init-config", "--console-origin", ORIGIN],
+        initEnv(),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("appeared meanwhile");
+      expect(await readdir(target())).toEqual([]);
+      expect(
+        (await readdir(dir)).filter((name) => name.startsWith(".")),
+      ).toEqual([]);
+    });
+
+    test("removes its copy of the secrets when it is stopped", async () => {
+      // awk writes the secrets and is still at it when the signal comes;
+      // bash takes the trap once it returns.
+      await writeFile(
+        join(dir, "bin", "awk"),
+        "#!/bin/sh\necho POSTGRES_PASSWORD=x\nsleep 2\n",
+        { mode: 0o755 },
+      );
+      const handle = Bun.spawn(
+        ["bash", script, "init-config", "--console-origin", ORIGIN],
+        {
+          cwd: repoRoot,
+          env: { ...process.env, ...initEnv() },
+          stderr: "pipe",
+        },
+      );
+      const temporary = async () =>
+        (await readdir(dir)).filter((name) =>
+          name.startsWith(".test-ops-init"),
+        );
+      for (let i = 0; i < 100 && (await temporary()).length === 0; i++)
+        await Bun.sleep(50);
+      expect(await temporary()).toHaveLength(1);
+      handle.kill("SIGTERM");
+      expect(await handle.exited).not.toBe(0);
+      expect(await temporary()).toEqual([]);
+      expect(await exists(target())).toBe(false);
+    });
+
     test.each([
       "http://127.0.0.1:8443",
       "http://localhost:8443",
