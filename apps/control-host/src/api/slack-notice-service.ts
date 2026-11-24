@@ -235,7 +235,13 @@ export function createSlackNoticeService(deps: {
         );
       }
       if (result.outcome === "not_approved") {
-        if (result.reason === "not_installed") throw NOT_INSTALLED();
+        if (result.reason === "not_installed") {
+          throw refused(
+            "SLACK_NOT_INSTALLED",
+            "The switch leaves off only while the agent's Slack app is installed",
+            "not_installed",
+          );
+        }
         throw refused(
           "REVISION_CONFLICT",
           "The switch leaves off only after the current Slack notice is approved",

@@ -511,14 +511,12 @@ integration("Slack notice service on PostgreSQL", () => {
       .set({ status: "revoked", revokedAt: new Date() })
       .where(eq(agentIdentities.agentId, ws.agentId));
     expect(
-      (
-        await refusal(
-          notices.setRollout(ws.owner.caller, ws.agentId, {
-            rollout: "shadow",
-          }),
-        )
-      ).code,
-    ).toBe("SLACK_NOT_INSTALLED");
+      await refusal(
+        notices.setRollout(ws.owner.caller, ws.agentId, {
+          rollout: "shadow",
+        }),
+      ),
+    ).toEqual({ code: "SLACK_NOT_INSTALLED", reason: "not_installed" });
   });
 
   test("an agent without a live Slack install cannot be approved", async () => {
