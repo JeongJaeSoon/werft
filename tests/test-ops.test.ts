@@ -3,6 +3,7 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -124,11 +125,249 @@ describe("scripts/test-ops.sh", () => {
     [["restore-drill", "--bucket", "drill"]],
     [["restore-drill", "backups/b", "--bucket", "drill", "--port-base", "x"]],
     [["restore-drill", "backups/b", "backups/c", "--bucket", "drill"]],
+    [["init-config"]],
+    [["init-config", "--console-origin"]],
+    [["init-config", "--api-port", "3100"]],
+    [
+      [
+        "init-config",
+        "--console-origin",
+        "https://werft.example.com",
+        "--force",
+        "x",
+      ],
+    ],
   ])("refuses %j with usage, touching nothing", async (args) => {
     const result = await run(args, env);
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("scripts/test-ops.sh preflight");
     expect(await dockerCalls()).toBe("");
+  });
+
+  describe("init-config", () => {
+    const ORIGIN = "https://werft.example.com";
+    const SECRETS = [
+      "POSTGRES_PASSWORD",
+      "EGRESS_AUTHORIZER_TOKEN",
+      "PLATFORM_SECRET_KEY",
+    ] as const;
+    const target = () => join(dir, "init");
+    const initEnv = (extra: Record<string, string> = {}) => ({
+      ...env,
+      TEST_OPS_ENV_FILE: target(),
+      AWS_ACCESS_KEY_ID: "",
+      AWS_SECRET_ACCESS_KEY: "",
+      ...extra,
+    });
+    const settingsOf = async (file: string) =>
+      Object.fromEntries(
+        (await readFile(file, "utf8"))
+          .split("\n")
+          .filter((line) => /^[A-Z][A-Z0-9_]*=/.test(line))
+          .map((line) => [
+            line.slice(0, line.indexOf("=")),
+            line.slice(line.indexOf("=") + 1),
+          ]),
+      ) as Record<string, string | undefined>;
+    const exists = (file: string) =>
+      stat(file).then(
+        () => true,
+        () => false,
+      );
+
+    test("writes a new 0600 file with random secrets and prints none", async () => {
+      const result = await run(
+        [
+          "init-config",
+          "--console-origin",
+          ORIGIN,
+          "--api-port",
+          "3100",
+          "--postgres-port",
+          "15432",
+          "--localstack-port",
+          "14566",
+        ],
+        initEnv(),
+      );
+      expect(result.exitCode).toBe(0);
+      expect((await stat(target())).mode & 0o777).toBe(0o600);
+      const settings = await settingsOf(target());
+      expect(settings.POSTGRES_PASSWORD).toMatch(/^[0-9a-f]{32}$/);
+      expect(settings.EGRESS_AUTHORIZER_TOKEN).toMatch(/^[0-9a-f]{48}$/);
+      expect(settings.PLATFORM_SECRET_KEY).toMatch(/^[0-9a-f]{64}$/);
+      for (const name of SECRETS) {
+        expect(result.stderr).not.toContain(settings[name] ?? "-");
+        expect(result.stdout).not.toContain(settings[name] ?? "-");
+      }
+      expect(settings).toMatchObject({
+        CONSOLE_ORIGIN: ORIGIN,
+        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "localstack:4566",
+        EXECUTION_INSTALLATION_ID: "test-ops",
+        PLATFORM_SETTINGS_DOCUMENT: "/etc/werft/settings.json",
+        TEST_OPS_API_PORT: "3100",
+        TEST_OPS_LOCALSTACK_PORT: "14566",
+        TEST_OPS_POSTGRES_PORT: "15432",
+      });
+      expect(settings.AWS_ACCESS_KEY_ID).toBeUndefined();
+      expect(settings.BOOTSTRAP_TOKEN).toBeUndefined();
+      // No temporary file is left beside it.
+      expect(
+        (await readdir(dir)).filter((name) => name.startsWith(".")),
+      ).toEqual([]);
+
+      const second = join(dir, "init-second");
+      expect(
+        (
+          await run(
+            ["init-config", "--console-origin", ORIGIN],
+            initEnv({ TEST_OPS_ENV_FILE: second }),
+          )
+        ).exitCode,
+      ).toBe(0);
+      const other = await settingsOf(second);
+      for (const name of SECRETS) expect(other[name]).not.toBe(settings[name]);
+      expect(other.TEST_OPS_API_PORT).toBeUndefined();
+      expect(await dockerCalls()).toBe("");
+    });
+
+    test("never replaces a file that is there", async () => {
+      const result = await run(
+        ["init-config", "--console-origin", ORIGIN],
+        initEnv({ TEST_OPS_ENV_FILE: join(dir, "settings") }),
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("is never replaced");
+      expect(await readFile(join(dir, "settings"), "utf8")).toBe(
+        "EXECUTION_INSTALLATION_ID=t\n",
+      );
+    });
+
+    test("refuses a directory it cannot write, naming the command that fixes it", async () => {
+      // root writes anywhere.
+      if (process.getuid?.() === 0) return;
+      await mkdir(join(dir, "closed"), { mode: 0o500 });
+      const result = await run(
+        ["init-config", "--console-origin", ORIGIN],
+        initEnv({ TEST_OPS_ENV_FILE: join(dir, "closed", "settings") }),
+      );
+      await chmod(join(dir, "closed"), 0o700);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('sudo install -d -m 755 -o "$USER"');
+      expect(await exists(join(dir, "closed", "settings"))).toBe(false);
+    });
+
+    test.each([
+      "http://127.0.0.1:8443",
+      "http://localhost:8443",
+      "http://[::1]:8443",
+      "https://console.example.com:8443",
+    ])("takes %s as the console origin", async (origin) => {
+      const result = await run(
+        ["init-config", "--console-origin", origin],
+        initEnv(),
+      );
+      expect(result.exitCode).toBe(0);
+      expect((await settingsOf(target())).CONSOLE_ORIGIN).toBe(origin);
+    });
+
+    test.each([
+      [["--console-origin", "http://werft.example.com"]],
+      [["--console-origin", "https://werft.example.com/"]],
+      [["--console-origin", "https://werft.example.com/console"]],
+      [["--console-origin", "werft.example.com"]],
+      [["--console-origin", "https://werft.example.com:0"]],
+      [["--console-origin", "https://werft.example.com:65536"]],
+      [["--console-origin", ORIGIN, "--api-port", "0"]],
+      [["--console-origin", ORIGIN, "--postgres-port", "05432"]],
+      [["--console-origin", ORIGIN, "--installation-id", "local"]],
+      [["--console-origin", ORIGIN, "--installation-id", "a b"]],
+      [["--console-origin", ORIGIN, "--settings-document", "settings.json"]],
+      [["--console-origin", ORIGIN, "--s3-bucket", "ops-bucket"]],
+    ])("refuses %j, writing nothing", async (args) => {
+      const result = await run(["init-config", ...args], initEnv());
+      expect(result.exitCode).toBe(1);
+      expect(await exists(target())).toBe(false);
+      expect(await readdir(dir)).not.toContain("init");
+    });
+
+    describe("on s3", () => {
+      const S3 = [
+        "init-config",
+        "--console-origin",
+        ORIGIN,
+        "--aws-region",
+        "ap-northeast-1",
+        "--s3-bucket",
+      ];
+      // Placeholders, not keys.
+      const keyId = "IDPLACEHOLDER0000000";
+      const key = "placeholder/secret+value=".repeat(2);
+
+      test("takes the API's key from the environment alone", async () => {
+        const refused = await run(
+          [...S3, "ops-bucket"],
+          initEnv({ TEST_OPS_OBJECT_STORE: "s3" }),
+        );
+        expect(refused.exitCode).toBe(1);
+        expect(refused.stderr).toContain(
+          "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY",
+        );
+        expect(await exists(target())).toBe(false);
+
+        const result = await run(
+          [...S3, "ops-bucket"],
+          initEnv({
+            AWS_ACCESS_KEY_ID: keyId,
+            AWS_SECRET_ACCESS_KEY: key,
+            TEST_OPS_OBJECT_STORE: "s3",
+          }),
+        );
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).not.toContain(key);
+        expect(result.stderr).not.toContain(keyId);
+        expect(await settingsOf(target())).toMatchObject({
+          AWS_ACCESS_KEY_ID: keyId,
+          AWS_REGION: "ap-northeast-1",
+          AWS_SECRET_ACCESS_KEY: key,
+          EGRESS_CREDENTIAL_ALLOWLIST:
+            "api.anthropic.com:443,api.openai.com:443,github.com:443,ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
+          EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "",
+          S3_BUCKET: "ops-bucket",
+        });
+      });
+
+      test("routes a dotted bucket through the regional host", async () => {
+        const result = await run(
+          [...S3, "ops.bucket"],
+          initEnv({
+            AWS_ACCESS_KEY_ID: keyId,
+            AWS_SECRET_ACCESS_KEY: key,
+            TEST_OPS_OBJECT_STORE: "s3",
+          }),
+        );
+        expect(result.exitCode).toBe(0);
+        expect(
+          (await settingsOf(target())).EGRESS_CREDENTIAL_ALLOWLIST?.split(
+            ",",
+          ).at(-1),
+        ).toBe("s3.ap-northeast-1.amazonaws.com:443");
+      });
+
+      test("refuses a key with characters an AWS key has not", async () => {
+        const result = await run(
+          [...S3, "ops-bucket"],
+          initEnv({
+            AWS_ACCESS_KEY_ID: keyId,
+            AWS_SECRET_ACCESS_KEY: "has space$",
+            TEST_OPS_OBJECT_STORE: "s3",
+          }),
+        );
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).not.toContain("has space");
+        expect(await exists(target())).toBe(false);
+      });
+    });
   });
 
   test("setup-link never replaces a file the operator has, touching nothing", async () => {
@@ -1143,6 +1382,79 @@ describe("rendered installation", () => {
       },
     );
   }
+
+  /** The layers on an env file alone, as scripts/test-ops.sh hands it to compose. */
+  function composeEnvFile(store: ObjectStoreMode, envFile: string) {
+    const { PATH = "", HOME = "" } = Bun.env;
+    const digest = (c: string) => `@sha256:${c.repeat(64)}`;
+    return Bun.spawnSync(
+      [
+        "docker",
+        "compose",
+        "--env-file",
+        envFile,
+        "--profile",
+        "apps",
+        ...[...TEST_OPS_LAYERS, TEST_OPS_STORE_LAYERS[store]].flatMap(
+          (file) => ["-f", join(repoRoot, file)],
+        ),
+        "config",
+        "--format",
+        "json",
+      ],
+      {
+        env: {
+          PATH,
+          HOME,
+          API_IMAGE: `ghcr.io/x/control-host${digest("a")}`,
+          WORKER_IMAGE: `ghcr.io/x/worker${digest("b")}`,
+          EGRESS_PROXY_IMAGE: `ghcr.io/x/egress-proxy${digest("c")}`,
+        },
+      },
+    );
+  }
+
+  test.each(["localstack", "s3"] as const)(
+    "an init-config file on %s renders as preflight wants it",
+    async (store) => {
+      const file = join(scratch, "settings");
+      const made = Bun.spawnSync(
+        [
+          "bash",
+          join(repoRoot, "scripts/test-ops.sh"),
+          "init-config",
+          "--console-origin",
+          "https://werft.example.com",
+          "--settings-document",
+          document,
+          ...(store === "s3"
+            ? ["--aws-region", "ap-northeast-1", "--s3-bucket", "ops-bucket"]
+            : []),
+        ],
+        {
+          env: {
+            PATH: Bun.env.PATH ?? "",
+            HOME: Bun.env.HOME ?? "",
+            TEST_OPS_ENV_FILE: file,
+            TEST_OPS_OBJECT_STORE: store,
+            // Placeholders, not keys.
+            AWS_ACCESS_KEY_ID: "IDPLACEHOLDER0000000",
+            AWS_SECRET_ACCESS_KEY: "placeholder/secret+value",
+          },
+        },
+      );
+      expect(made.stderr.toString()).toContain("init-config: wrote");
+      expect(made.exitCode).toBe(0);
+      const result = composeEnvFile(store, file);
+      expect(result.stderr.toString()).toBe("");
+      const model = JSON.parse(result.stdout.toString()) as RenderedModel;
+      await checkRender(model, { store });
+      expect(model.services?.api?.environment?.CONSOLE_ORIGIN).toBe(
+        "https://werft.example.com",
+      );
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 
   function render(
     store: ObjectStoreMode,

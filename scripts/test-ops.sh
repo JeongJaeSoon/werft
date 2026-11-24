@@ -27,9 +27,16 @@
 #   scripts/test-ops.sh reset --yes             delete the installation and ALL its data; deploy again after
 #   scripts/test-ops.sh manifest <release-manifest.json> <settings-document>
 #                                              print the deploy manifest of a GitHub Release's manifest
+#   scripts/test-ops.sh init-config --console-origin <origin> [--api-port <port>] [--postgres-port <port>]
+#       [--localstack-port <port>] [--installation-id <id>] [--settings-document <file>]
+#       [--aws-region <region> --s3-bucket <bucket>]
+#                                              write a new env file (0600) from infra/test-ops.env.example
+#                                              with random secrets, printing none; never replaces one. On s3
+#                                              the API's key comes from AWS_ACCESS_KEY_ID and
+#                                              AWS_SECRET_ACCESS_KEY in the environment
 #
 # From the release bundle (werft-test-ops-<tag>.tar.gz, no checkout, no host
-# bun) preflight, deploy, start, stop, status, key, setup-link, reset and manifest run; the
+# bun) init-config, preflight, deploy, start, stop, status, key, setup-link, reset and manifest run; the
 # helper runs in the release's own control-host image. upgrade, backup,
 # reseed and restore-drill need the checkout at the release's source_commit.
 #
@@ -106,7 +113,7 @@ WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,57p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -123,6 +130,14 @@ KEEP=0
 STOP=0
 SETUP_EMAIL=""
 SETUP_OUT=""
+INIT_ORIGIN=""
+INIT_API_PORT=""
+INIT_POSTGRES_PORT=""
+INIT_LOCALSTACK_PORT=""
+INIT_INSTALLATION_ID=test-ops
+INIT_SETTINGS_DOCUMENT=/etc/werft/settings.json
+INIT_REGION=""
+INIT_BUCKET=""
 case "$VERB" in
   preflight)
     [ $# -le 1 ] || usage
@@ -196,6 +211,24 @@ case "$VERB" in
     [ $# -eq 2 ] || usage
     MANIFEST="$1"
     SETTINGS_FILE="$2"
+    ;;
+  init-config)
+    while [ $# -gt 0 ]; do
+      [ $# -ge 2 ] || usage
+      case "$1" in
+        --console-origin) INIT_ORIGIN="$2" ;;
+        --api-port) INIT_API_PORT="$2" ;;
+        --postgres-port) INIT_POSTGRES_PORT="$2" ;;
+        --localstack-port) INIT_LOCALSTACK_PORT="$2" ;;
+        --installation-id) INIT_INSTALLATION_ID="$2" ;;
+        --settings-document) INIT_SETTINGS_DOCUMENT="$2" ;;
+        --aws-region) INIT_REGION="$2" ;;
+        --s3-bucket) INIT_BUCKET="$2" ;;
+        *) usage ;;
+      esac
+      shift 2
+    done
+    [ -n "$INIT_ORIGIN" ] || usage
     ;;
   *) usage ;;
 esac
@@ -1085,6 +1118,130 @@ restore_drill() {
   return "$status"
 }
 
+# A new env file from the example: random secrets, the console origin and
+# the values given, and on s3 the API's key from the environment, never from
+# the command line. The values reach awk through its environment, not its
+# arguments, which ps shows, and none is printed. ln makes the file only if
+# nothing is there: a replaced PLATFORM_SECRET_KEY would leave every stored
+# credential unreadable.
+random_hex() {
+  local hex
+  hex="$(od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n')"
+  [ "${#hex}" = "$(($1 * 2))" ] || die "init-config: could not read $1 random bytes from /dev/urandom"
+  printf '%s' "$hex"
+}
+
+init_port() {
+  [[ "$2" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$2" -le 65535 ] || die "init-config: $1 must be a port from 1 to 65535: '$2'"
+}
+
+init_config() {
+  local example="${REPO_ROOT}/infra/test-ops.env.example" store="${TEST_OPS_OBJECT_STORE:-localstack}"
+  local dir s3_host="" key_id="" key="" name
+  local -a values=()
+  [[ "$INIT_ORIGIN" =~ ^(https://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])|http://(127\.0\.0\.1|localhost|\[::1\]))(:([0-9]+))?$ ]] \
+    || die "init-config: --console-origin must be an https origin, https://<host>[:<port>] with no path or trailing /, or http on 127.0.0.1, localhost or [::1] for an SSH tunnel: '$INIT_ORIGIN'"
+  [ -z "${BASH_REMATCH[6]}" ] || init_port "the port of --console-origin" "${BASH_REMATCH[6]}"
+  [ -z "$INIT_API_PORT" ] || init_port --api-port "$INIT_API_PORT"
+  [ -z "$INIT_POSTGRES_PORT" ] || init_port --postgres-port "$INIT_POSTGRES_PORT"
+  [ -z "$INIT_LOCALSTACK_PORT" ] || init_port --localstack-port "$INIT_LOCALSTACK_PORT"
+  [[ "$INIT_INSTALLATION_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] && [ "$INIT_INSTALLATION_ID" != local ] \
+    || die "init-config: --installation-id must be letters, digits and . _ - and not local (the local stack's): '$INIT_INSTALLATION_ID'"
+  [[ "$INIT_SETTINGS_DOCUMENT" =~ ^/[A-Za-z0-9_./-]+$ ]] \
+    || die "init-config: --settings-document must be an absolute path of letters, digits and . _ - /: '$INIT_SETTINGS_DOCUMENT'"
+  case "$store" in
+    localstack)
+      [ -z "$INIT_REGION$INIT_BUCKET" ] || die "init-config: --aws-region and --s3-bucket are for TEST_OPS_OBJECT_STORE=s3; LocalStack needs neither"
+      ;;
+    s3)
+      [ -n "$INIT_REGION" ] && [ -n "$INIT_BUCKET" ] || die "init-config: TEST_OPS_OBJECT_STORE=s3 needs --aws-region and --s3-bucket"
+      [ -z "$INIT_LOCALSTACK_PORT" ] || die "init-config: --localstack-port is for TEST_OPS_OBJECT_STORE=localstack"
+      [[ "$INIT_REGION" =~ ^[a-z0-9-]+$ ]] || die "init-config: --aws-region is not an AWS region name: '$INIT_REGION'"
+      [[ "$INIT_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || die "init-config: --s3-bucket is not an S3 bucket name: '$INIT_BUCKET'"
+      key_id="${AWS_ACCESS_KEY_ID:-}"
+      key="${AWS_SECRET_ACCESS_KEY:-}"
+      [ -n "$key_id" ] && [ -n "$key" ] \
+        || die "init-config: on s3 the API's key comes from AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in this shell's environment, never the command line; export both first"
+      [[ "$key_id" =~ ^[A-Za-z0-9]+$ ]] && [[ "$key" =~ ^[A-Za-z0-9/+=]+$ ]] \
+        || die "init-config: AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY holds a character an AWS key does not (the value is not shown)"
+      # A dotted bucket name does not fit the virtual-hosted certificate.
+      case "$INIT_BUCKET" in
+        *.*) s3_host="s3.${INIT_REGION}.amazonaws.com:443" ;;
+        *) s3_host="${INIT_BUCKET}.s3.${INIT_REGION}.amazonaws.com:443" ;;
+      esac
+      ;;
+    *) die "TEST_OPS_OBJECT_STORE must be localstack or s3, not '$store'" ;;
+  esac
+  [ -r "$example" ] || die "init-config: $example not found"
+  [ ! -e "$ENV_FILE" ] && [ ! -L "$ENV_FILE" ] \
+    || die "init-config: $ENV_FILE exists and is never replaced (its PLATFORM_SECRET_KEY reads the stored credentials); keep it, or set TEST_OPS_ENV_FILE to a new path"
+  dir="$(cd "$(dirname -- "$ENV_FILE")" 2>/dev/null && pwd -P)" \
+    || die "init-config: the directory of $ENV_FILE does not exist; make it yours first: sudo install -d -m 755 -o \"\$USER\" $(dirname -- "$ENV_FILE")"
+  [ -w "$dir" ] \
+    || die "init-config: $(id -un) cannot write in $dir; make it yours first: sudo install -d -m 755 -o \"\$USER\" $dir"
+  case "$dir/" in
+    "$(cd "$REPO_ROOT" && pwd -P)"/*) die "init-config: $ENV_FILE is inside the checkout or bundle; keep it outside" ;;
+  esac
+  values=(
+    "EXECUTION_INSTALLATION_ID=${INIT_INSTALLATION_ID}"
+    "POSTGRES_PASSWORD=$(random_hex 16)"
+    "EGRESS_AUTHORIZER_TOKEN=$(random_hex 24)"
+    "PLATFORM_SECRET_KEY=$(random_hex 32)"
+    "PLATFORM_SETTINGS_DOCUMENT=${INIT_SETTINGS_DOCUMENT}"
+    "CONSOLE_ORIGIN=${INIT_ORIGIN}"
+  )
+  [ -z "$INIT_API_PORT" ] || values+=("TEST_OPS_API_PORT=${INIT_API_PORT}")
+  [ -z "$INIT_POSTGRES_PORT" ] || values+=("TEST_OPS_POSTGRES_PORT=${INIT_POSTGRES_PORT}")
+  [ -z "$INIT_LOCALSTACK_PORT" ] || values+=("TEST_OPS_LOCALSTACK_PORT=${INIT_LOCALSTACK_PORT}")
+  if [ "$store" = s3 ]; then
+    values+=("EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST=" "AWS_REGION=${INIT_REGION}" "S3_BUCKET=${INIT_BUCKET}"
+      "AWS_ACCESS_KEY_ID=${key_id}" "AWS_SECRET_ACCESS_KEY=${key}")
+  fi
+  INIT_TMP="$(mktemp "${dir}/.test-ops-init.XXXXXX")" || die "init-config: cannot create a file in $dir"
+  CLEANUPS+=('rm -f "$INIT_TMP"')
+  # Each value replaces the first line, set or commented out, of its name;
+  # one the example lacks goes at the end.
+  INIT_VALUES="$(printf '%s\n' "${values[@]}")" INIT_ALLOW="$s3_host" awk '
+    BEGIN {
+      n = split(ENVIRON["INIT_VALUES"], lines, "\n")
+      for (i = 1; i <= n; i++) {
+        if (lines[i] == "") continue
+        eq = index(lines[i], "=")
+        name = substr(lines[i], 1, eq - 1)
+        value[name] = substr(lines[i], eq + 1)
+        order[++count] = name
+      }
+    }
+    {
+      line = $0
+      sub(/^# ?/, "", line)
+      if (match(line, /^[A-Z][A-Z0-9_]*=/)) {
+        name = substr(line, 1, RLENGTH - 1)
+        if ((name in value) && !(name in done)) { print name "=" value[name]; done[name] = 1; next }
+        if (name == "EGRESS_CREDENTIAL_ALLOWLIST" && line == $0 && ENVIRON["INIT_ALLOW"] != "") {
+          print $0 "," ENVIRON["INIT_ALLOW"]
+          next
+        }
+      }
+      print
+    }
+    END {
+      for (i = 1; i <= count; i++) {
+        if (order[i] in done) continue
+        if (!added++) print "\n# Set by scripts/test-ops.sh init-config."
+        print order[i] "=" value[order[i]]
+      }
+    }' "$example" >"$INIT_TMP" || die "init-config: could not write the settings (the example is unreadable or awk failed)"
+  for name in POSTGRES_PASSWORD EGRESS_AUTHORIZER_TOKEN PLATFORM_SECRET_KEY CONSOLE_ORIGIN; do
+    [ "$(grep -c "^${name}=." "$INIT_TMP")" = 1 ] || die "init-config: the written settings do not set $name once; nothing was installed"
+  done
+  chmod 600 "$INIT_TMP"
+  ln "$INIT_TMP" "$ENV_FILE" 2>/dev/null \
+    || die "init-config: $ENV_FILE appeared meanwhile or cannot be made; it was not replaced"
+  log "init-config: wrote $ENV_FILE (0600, object store $store) with random POSTGRES_PASSWORD, EGRESS_AUTHORIZER_TOKEN and PLATFORM_SECRET_KEY and CONSOLE_ORIGIN $INIT_ORIGIN; no value is shown"
+  log "init-config: PLATFORM_SECRET_KEY decrypts the stored credentials; back the file up apart from this host"
+}
+
 # The deploy manifest of a GitHub Release's release-manifest.json plus the
 # digest of the settings document. Needs neither the env file nor a host.
 make_manifest() {
@@ -1103,6 +1260,10 @@ make_manifest() {
 if [ "$VERB" = manifest ]; then
   require_tools jq
   make_manifest
+  exit 0
+fi
+if [ "$VERB" = init-config ]; then
+  init_config
   exit 0
 fi
 

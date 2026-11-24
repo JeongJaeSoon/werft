@@ -57,15 +57,17 @@ To install a `v*` release without a checkout, follow [Get the release bundle in 
 <a id="2-시험-설정" />
 ### 2. Test configuration
 
-Keep secrets only in an env file outside the repository, readable only by operators. The script rejects group or other permissions.
+Keep secrets only in the env file `/etc/werft/test-ops.env`, outside the repository. The following block makes the settings directory and the state directory the operator's, and `init-config` makes this file anew from the example. The file is created `0600`, readable by the operator alone, and the random secrets are not shown on screen. If the file already exists, it is refused, never replaced. Put the origin of the console as the browser opens it in `<console-origin>`; for an SSH tunnel it is `http://127.0.0.1:<tunnel port>`.
 
 ```bash
-sudo mkdir -p /etc/werft
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 755 -o "$USER" /etc/werft
 sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
+TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh init-config --console-origin '<console-origin>'
 ```
 
-Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools such as `sed -i` create temporary files and fail with `Permission denied` in `/etc/werft`; use an editor that writes in place.
+A line starting with `init-config: wrote /etc/werft/test-ops.env` must appear. The arguments and the values filled in are those of [step 2 of the single-server installation](/run-server/self-hosting/single-server#2-비밀과-설정-문서); instead of the S3 arguments, `--localstack-port` moves the LocalStack host port. The example's `EXECUTION_INSTALLATION_ID=test-ops`, `PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`, `EXECUTION_WORKSPACE_QUOTA=on` and private credential allowlist `localstack:4566` stay, and the AWS key, region, and bucket variables stay empty.
+
+To write the env file yourself, copy `infra/test-ops.env.example` to `/etc/werft/test-ops.env`, owned by the operator with mode `0600`, and fill in the following in an editor.
 
 | Variable | Value |
 | --- | --- |
@@ -73,7 +75,7 @@ Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools suc
 | `EGRESS_AUTHORIZER_TOKEN` | Random value of at least 32 characters |
 | `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`. Losing it prevents reading stored credentials |
 
-Use `EXECUTION_INSTALLATION_ID=test-ops`, `PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`, and `EXECUTION_WORKSPACE_QUOTA=on`. Set the credential allowlist to `api.anthropic.com:443,github.com:443` and the private credential allowlist to `localstack:4566`. Leave AWS key, region, and bucket variables empty as in the example. LocalStack uses fixed test keys and the `claude-sessions` bucket.
+Add `CONSOLE_ORIGIN` yourself. Use `EXECUTION_INSTALLATION_ID=test-ops`, `PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`, and `EXECUTION_WORKSPACE_QUOTA=on`. Set the credential allowlist to `api.anthropic.com:443,github.com:443` and the private credential allowlist to `localstack:4566`. Leave AWS key, region, and bucket variables empty as in the example. LocalStack uses fixed test keys and the `claude-sessions` bucket.
 
 Put the settings document in `/etc/werft/settings.json` and list the GitHub repositories sessions will use. The first `deploy` puts it into the empty installation once; after that, edits to the document are not imported, so change settings in the console. It contains no secrets. Replace only the repository URL with your actual value. This example assumes a public repository. Each repository entry must contain `"auth": { "kind": "github_app" }`; otherwise `preflight` refuses the whole document and blocks installation. For a private repository, install the GitHub App on it ([GitHub](/integrations/github)).
 
