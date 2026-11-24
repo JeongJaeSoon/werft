@@ -1190,6 +1190,50 @@ export interface paths {
         patch: operations["updateInstallationConfig"];
         trace?: never;
     };
+    "/v1/lost-checkpoint-notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Checkpoints a test installation gave up at start
+         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. One entry for each start at which the API gave up the checkpoints an emptied object store held (`CHECKPOINT_OBJECTS_LOST=forget`, accepted only on a test installation whose object store is LocalStack) and that nobody has closed yet, oldest first. The console shows them as a banner on every page, and `GET /readyz` counts their sessions in `detail.checkpoints_forgotten_on_boot`. Empty on an installation that never gave any up.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["listLostCheckpointNotices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lost-checkpoint-notices/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close the notices of checkpoints given up at start
+         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. Closes the named notices for the whole installation and records who closed them: the banner goes for everyone and `GET /readyz` stops counting them. The sessions stay in `recovery_required` until each gets its recovery decision. Send the ids that were read, so a start that gave up more after the read stays open; one request takes up to 100, and a longer list goes in several. An id that names no open notice changes nothing.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["closeLostCheckpointNotices"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/logout": {
         parameters: {
             query?: never;
@@ -5800,6 +5844,9 @@ export interface components {
             workspace_paused_ttl_sec?: number;
             judgment_buffer_limit_per_channel?: number;
         };
+        CloseLostCheckpointNoticesRequest: {
+            ids: string[];
+        };
         SetLoginProviderSecretRequest: {
             value: string;
         };
@@ -8960,6 +9007,15 @@ export interface components {
             };
             /** Format: uuid */
             receipt_id?: string;
+        };
+        LostCheckpointNotices: {
+            notices: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                forgotten_at: string;
+                sessions: number;
+            }[];
         };
         GetGitHubAppResponse: {
             github_app: {
@@ -21443,6 +21499,202 @@ export interface operations {
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when a value is outside its key's range or of another type; `details.issues[].path` names that key. An unknown key is reported on the body itself, with an empty `path`. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listLostCheckpointNotices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notices still open. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "notices": [
+                     *         {
+                     *           "id": "5b2e8c1d-4f7a-4a3b-9e6d-0c1f2a3b4d5e",
+                     *           "forgotten_at": "2026-11-24T09:12:44.000Z",
+                     *           "sessions": 3
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["LostCheckpointNotices"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    closeLostCheckpointNotices: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "ids": [
+                 *         "5b2e8c1d-4f7a-4a3b-9e6d-0c1f2a3b4d5e"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["CloseLostCheckpointNoticesRequest"];
+            };
+        };
+        responses: {
+            /** @description The notices still open after the close. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "notices": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["LostCheckpointNotices"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

@@ -239,6 +239,7 @@ bucket だけが空になった場合、api は次の起動時に DB に残っ�
 - 失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になります。
 - `kubectl -n werft logs deploy/werft-api` に `The object store came back empty` で始まる警告が 1 行残り、セッション数と id を記録します。
 - `/readyz` は 200 のままで、本文の `detail.checkpoints_forgotten_on_boot` にそのセッション数が入ります。
+- コンソールは owner・admin に、すべての画面の最上部で「試験インストール: 再起動でセッションN件のコンテキストを失いました」と表示します。そのうちの一人が**閉じる**を押すと全員の画面から消え、`/readyz` の数からも除かれます。セッションは `recovery_required` のままです。
 
 ノードを再起動すると api も一緒に再起動するので、することはありません。LocalStack の Pod だけが再起動した場合、api は動いたままで整理しません。そのときはすぐに api を再起動します。
 

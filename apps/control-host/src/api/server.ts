@@ -5,6 +5,7 @@ import {
   backfillWebInputTurns,
   budgetChoiceOfCall,
   closeAgentlessSessions,
+  closeLostCheckpointNotices,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAchievementJudgments,
@@ -91,6 +92,7 @@ import {
   hasUncollectedCheckpoint,
   moveSummaryLinks,
   newSessionGitHubReaders,
+  openLostCheckpointNotices,
   reconcileRetiredCatalogDrafts,
   slackAppKind,
   workspaceRepositoryCeiling,
@@ -261,6 +263,7 @@ import {
 import { leftOutReporter, settingsSource } from "./installation-settings.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
+import { createLostCheckpointNoticesAdmin } from "./lost-checkpoint-notices.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { endpointProblem } from "./oidc/provider-http.ts";
 import { oneHostOutbound } from "./outbound-http.ts";
@@ -295,6 +298,7 @@ import {
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
 import { registerInstallationConfigRoutes } from "./routes/limits/installation-config.ts";
+import { registerLostCheckpointNoticeRoutes } from "./routes/limits/lost-checkpoint-notices.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
@@ -812,6 +816,13 @@ const installationConfigAdmin = createInstallationConfigAdmin({
   source: installationConfig,
   store: installationConfigStore,
   sessionArchive: sessionArchiveStatusOf(checkpointStorage),
+});
+const lostCheckpointNoticesAdmin = createLostCheckpointNoticesAdmin({
+  authorization,
+  store: {
+    open: () => openLostCheckpointNotices(db),
+    close: (input) => closeLostCheckpointNotices(db, input),
+  },
 });
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {
@@ -1625,6 +1636,7 @@ const app = createApiApp({
     registerLoginSettingsRoutes(router, loginSettingsAdmin);
     registerSlackSettingsRoutes(router, slackSettingsAdmin);
     registerInstallationConfigRoutes(router, installationConfigAdmin);
+    registerLostCheckpointNoticeRoutes(router, lostCheckpointNoticesAdmin);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,

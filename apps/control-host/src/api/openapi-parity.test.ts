@@ -53,6 +53,7 @@ import type { AccountLinkCookies } from "./account-link-cookie.ts";
 import { createApiApp } from "./app.ts";
 import type { InstallationConfigAdmin } from "./installation-config.ts";
 import type { LoginSettingsAdmin } from "./login-settings.ts";
+import type { LostCheckpointNoticesAdmin } from "./lost-checkpoint-notices.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import type { ProviderAdmin } from "./provider-admin.ts";
@@ -76,6 +77,7 @@ import {
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
 import { registerInstallationConfigRoutes } from "./routes/limits/installation-config.ts";
+import { registerLostCheckpointNoticeRoutes } from "./routes/limits/lost-checkpoint-notices.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
@@ -220,6 +222,10 @@ function apiApp() {
       registerSlackSettingsRoutes(router, {} as SlackSettingsAdmin);
       registerSlackNoticeRoutes(router, {} as SlackNoticeService);
       registerInstallationConfigRoutes(router, {} as InstallationConfigAdmin);
+      registerLostCheckpointNoticeRoutes(
+        router,
+        {} as LostCheckpointNoticesAdmin,
+      );
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerAuditLogRoutes(router, {} as AuditLogService);
       registerAchievementRoutes(router, {} as AchievementRuleService);
