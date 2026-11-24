@@ -1,8 +1,7 @@
-export type SlackThreadShadow = {
-  /** What a silence rule would do with the message; nothing acts on it yet. */
-  decision: "reply" | "skip";
-  reason: "addressed_to_other_user" | "default_reply";
-};
+import type { ThreadReplyRule } from "@werft-ai/contracts";
+
+/** What a silence rule would do with the message; nothing acts on it yet. */
+export type SlackThreadShadow = ThreadReplyRule;
 
 /**
  * Stage 1 of mention-less replies: judge whether an unmentioned reply in a

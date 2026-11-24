@@ -201,6 +201,7 @@ import {
 } from "./sessions/session-event-archives.ts";
 import { recordStatus } from "./sessions/session-events.ts";
 import { withheldEventPayload } from "./sessions/withheld-events.ts";
+import { m1GateOpenForWrite } from "./surface/m1-judgments.ts";
 
 export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -418,6 +419,18 @@ async function takeSlackInput(
   if (!input.workspaceId || agentId === null) {
     throw new Error("a Slack input needs its session's workspace and agent");
   }
+  // M1's judgment is asked for only past the whole gate, in the turn's own
+  // transaction under the agent's lock (a1/J5).
+  const judgment =
+    input.slackInput.judgment !== undefined &&
+    (await m1GateOpenForWrite(tx, {
+      workspaceId: input.workspaceId,
+      agentId,
+      teamId: input.slackMessage.team_id,
+      channelId: input.slackMessage.channel_id,
+    }))
+      ? input.slackInput.judgment
+      : undefined;
   await takeSlackTurnInput(
     tx,
     {
@@ -431,6 +444,7 @@ async function takeSlackInput(
       ts: input.slackMessage.ts,
       turn: { sessionId: input.sessionId, sequence: input.sequence },
       engagement: input.slackInput.engagement,
+      ...(judgment === undefined ? {} : { judgment }),
     },
   );
 }

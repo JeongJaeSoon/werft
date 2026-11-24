@@ -282,3 +282,116 @@ export function conversationScopeKey(place: ConversationPlace): ScopeKey {
         userId: place.personUserId,
       });
 }
+
+/** One M1 judgment's record: a batch's, or one unmentioned reply's. */
+export const conversationJudgmentIdSchema = z
+  .uuid()
+  .brand<"ConversationJudgmentId">();
+export type ConversationJudgmentId = z.infer<
+  typeof conversationJudgmentIdSchema
+>;
+
+/**
+ * What M1 judged: buffered messages in a batch (`buffer_m1`); one unmentioned
+ * reply in a bound thread, its session not working (`m1`) or working
+ * (`m1_to_task`); or one in a thread the agent took part in that has no
+ * session (`m1_engaged`), which makes no turn.
+ */
+export const JUDGMENT_GRADE_VALUES = [
+  "buffer_m1",
+  "m1",
+  "m1_to_task",
+  "m1_engaged",
+] as const;
+export type JudgmentGrade = (typeof JUDGMENT_GRADE_VALUES)[number];
+
+export const M1_DECISION_VALUES = ["speak", "quiet"] as const;
+export type M1Decision = (typeof M1_DECISION_VALUES)[number];
+
+/** The reasons the model picks one of. */
+export const M1_MODEL_REASON_VALUES = [
+  "not_for_agent",
+  "human_conversation",
+  "already_handled",
+  "out_of_scope",
+  "needs_agent",
+  "unclear",
+] as const;
+export type M1ModelReason = (typeof M1_MODEL_REASON_VALUES)[number];
+
+/** Why a judgment stopped before the model: it was never called. */
+export const JUDGMENT_NOT_CALLED_REASON_VALUES = [
+  "budget_refused",
+  "concurrency_limited",
+  "rate_limited",
+  "input_too_large",
+  "no_active_release",
+  "model_unavailable",
+] as const;
+export type JudgmentNotCalledReason =
+  (typeof JUDGMENT_NOT_CALLED_REASON_VALUES)[number];
+
+/** Why a called judgment has no answer: silence, with this reason. */
+export const JUDGMENT_FAILED_REASON_VALUES = [
+  "timed_out",
+  "unreachable",
+  "provider_error",
+  "malformed",
+] as const;
+export type JudgmentFailedReason =
+  (typeof JUDGMENT_FAILED_REASON_VALUES)[number];
+
+export const JUDGMENT_OUTCOME_VALUES = [
+  "judged",
+  "not_called",
+  "failed",
+] as const;
+export type JudgmentOutcome = (typeof JUDGMENT_OUTCOME_VALUES)[number];
+
+export const JUDGMENT_REASON_VALUES = [
+  ...M1_MODEL_REASON_VALUES,
+  ...JUDGMENT_NOT_CALLED_REASON_VALUES,
+  ...JUDGMENT_FAILED_REASON_VALUES,
+] as const;
+export type JudgmentReason = (typeof JUDGMENT_REASON_VALUES)[number];
+
+/** A judgment's result as its record keeps it; only `judged` can speak. */
+export type JudgmentVerdict =
+  | { outcome: "judged"; decision: M1Decision; reason: M1ModelReason }
+  | {
+      outcome: "not_called";
+      decision: "quiet";
+      reason: JudgmentNotCalledReason;
+    }
+  | { outcome: "failed"; decision: "quiet"; reason: JudgmentFailedReason };
+
+/** The thread-reply rule's answer (slack-thread-shadow). */
+export type ThreadReplyRule = {
+  decision: "reply" | "skip";
+  reason: "addressed_to_other_user" | "default_reply";
+};
+
+/**
+ * What the current path did with a judged reply, kept beside M1's answer:
+ * the thread-reply rule's, or `none`/`stray_reply` for a reply it makes no
+ * turn of. A batch has none.
+ */
+export const JUDGMENT_RULE_DECISION_VALUES = ["reply", "skip", "none"] as const;
+export type JudgmentRuleDecision =
+  (typeof JUDGMENT_RULE_DECISION_VALUES)[number];
+export const JUDGMENT_RULE_REASON_VALUES = [
+  "addressed_to_other_user",
+  "default_reply",
+  "stray_reply",
+] as const;
+export type JudgmentRuleReason = (typeof JUDGMENT_RULE_REASON_VALUES)[number];
+export type JudgmentRule =
+  | ThreadReplyRule
+  | { decision: "none"; reason: "stray_reply" };
+
+/**
+ * The fixed judgment rules a record was made under. Raised whenever the
+ * system text changes, so judgments under other rules are never compared
+ * as one.
+ */
+export const M1_PROMPT_VERSION = 1;
