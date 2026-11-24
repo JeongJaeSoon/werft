@@ -24,8 +24,9 @@ export const SLACK_NOTICE_EXIT = {
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-notice.ts show --agent <agent_id>
        bun run apps/control-host/src/api/slack-notice.ts list --workspace <workspace_id>
-  show  the agent's approval under the published notice (approved, or the reason it is not:
-        no_notice, not_installed, not_approved) and every approval row it has, revoked ones too
+  show  the agent's approval under the published notice (approved with the ids of the rows that
+        count, one per Slack team of its live installs, or the reason it is not: no_notice,
+        not_installed, not_approved) and every approval row it has, revoked ones too
   list  every approval row of the workspace's agents, oldest first
   A row names its id, agent, Slack team, notice version, who approved and revoked it, and when.
 Environment: DATABASE_URL (required)
@@ -142,11 +143,7 @@ async function run(
       workspace_id: agent.workspaceId,
       approved: judgment.approved,
       ...(judgment.approved
-        ? {
-            approval_id: judgment.approvalId,
-            notice_version: judgment.version,
-            slack_team_id: judgment.slackTeamId,
-          }
+        ? { counted: judgment.approvals.map((a) => a.approvalId) }
         : { reason: judgment.reason }),
       approvals: records.map(rowOf),
     },

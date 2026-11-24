@@ -97,7 +97,8 @@ integration("slack-notice command on PostgreSQL", () => {
       { workspaceId, agentId, by: admin },
       V1,
     );
-    if (approved.outcome !== "approved") throw new Error("not approved");
+    if (approved.outcome !== "approved") throw new Error(approved.outcome);
+    const [first] = approved.added;
     await revokeSlackNotice(db, { workspaceId, agentId, by: admin });
     await approveSlackNotice(db, { workspaceId, agentId, by: admin }, V1);
 
@@ -109,7 +110,7 @@ integration("slack-notice command on PostgreSQL", () => {
     expect(line).toMatchObject({ approved: false, reason: "no_notice" });
     expect(line.approvals).toHaveLength(2);
     expect(line.approvals[0]).toEqual({
-      id: approved.approvalId,
+      id: first?.approvalId,
       agent_id: agentId,
       slack_team_id: "T0NOTICECLI",
       notice_version: 1,

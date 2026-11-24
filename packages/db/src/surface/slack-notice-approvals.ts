@@ -21,19 +21,25 @@ import {
 } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";
 
+/** One live approval that counts, for one Slack team of the agent's installs. */
+export type SlackNoticeTeamApproval = {
+  approvalId: SlackNoticeApprovalId;
+  version: SlackNoticeVersion;
+  slackTeamId: string;
+};
+
 export type SlackNoticeJudgment =
   | {
       approved: true;
-      approvalId: SlackNoticeApprovalId;
-      version: SlackNoticeVersion;
-      slackTeamId: string;
+      /** One per Slack team the agent's app is live in, by team id. */
+      approvals: SlackNoticeTeamApproval[];
     }
   | {
       approved: false;
       /**
        * `no_notice`: no version is published; `not_installed`: the agent has
-       * no live Slack install; `not_approved`: no live approval in that
-       * team within the counted versions.
+       * no live Slack install; `not_approved`: a team of its live installs
+       * has no live approval within the counted versions.
        */
       reason: "no_notice" | "not_installed" | "not_approved";
     };
@@ -52,11 +58,14 @@ export type SlackNoticeApprovalRecord = {
 
 export type SlackNoticeApproval =
   | {
-      /** `unchanged`: a live approval of this version in this team was there. */
+      /**
+       * `unchanged`: every live team already had a live approval of this
+       * version, and nothing was written.
+       */
       outcome: "approved" | "unchanged";
-      approvalId: SlackNoticeApprovalId;
       version: SlackNoticeVersion;
-      slackTeamId: string;
+      /** The rows this call wrote, one per team that lacked one. */
+      added: SlackNoticeTeamApproval[];
     }
   | { outcome: "not_found" | "not_admin" | "no_notice" | "not_installed" };
 
@@ -82,18 +91,13 @@ const recordColumns = {
   revokedAt: slackNoticeApprovals.revokedAt,
 };
 
-const asRecord = (row: {
-  id: string;
-  version: number;
-}): Pick<SlackNoticeApprovalRecord, "id" | "version"> => ({
-  id: row.id as SlackNoticeApprovalId,
-  version: row.version as SlackNoticeVersion,
-});
-
-/** The Slack team of the agent's live install, or null without one. */
-async function liveTeamOf(tx: Database, place: Place): Promise<string | null> {
-  const [row] = await tx
-    .select({ teamId: slackInstallations.teamId })
+/**
+ * The Slack teams of the agent's live installs, sorted; empty without one.
+ * One app may be installed in several teams, each its own organization.
+ */
+async function liveTeamsOf(tx: Database, place: Place): Promise<string[]> {
+  const rows = await tx
+    .selectDistinct({ teamId: slackInstallations.teamId })
     .from(agentIdentities)
     .innerJoin(
       slackInstallations,
@@ -118,13 +122,13 @@ async function liveTeamOf(tx: Database, place: Place): Promise<string | null> {
         notDeleted(agents),
       ),
     )
-    .limit(1);
-  return row?.teamId ?? null;
+    .orderBy(asc(slackInstallations.teamId));
+  return rows.map((row) => row.teamId);
 }
 
 /**
- * Whether the agent is approved under the published notice: a live approval
- * in the Slack team of its live install, of a version from the latest one
+ * Whether the agent is approved under the published notice: every Slack team
+ * of its live installs has a live approval of a version from the latest one
  * that asked for a new approval up to the current one.
  */
 export async function judgeSlackNotice(
@@ -134,19 +138,20 @@ export async function judgeSlackNotice(
 ): Promise<SlackNoticeJudgment> {
   const window = slackNoticeWindow(versions);
   if (window === null) return { approved: false, reason: "no_notice" };
-  const slackTeamId = await liveTeamOf(db, place);
-  if (slackTeamId === null) return { approved: false, reason: "not_installed" };
-  const [row] = await db
+  const teams = await liveTeamsOf(db, place);
+  if (teams.length === 0) return { approved: false, reason: "not_installed" };
+  const rows = await db
     .select({
       id: slackNoticeApprovals.id,
       version: slackNoticeApprovals.noticeVersion,
+      slackTeamId: slackNoticeApprovals.slackTeamId,
     })
     .from(slackNoticeApprovals)
     .where(
       and(
         eq(slackNoticeApprovals.workspaceId, place.workspaceId),
         eq(slackNoticeApprovals.agentId, place.agentId),
-        eq(slackNoticeApprovals.slackTeamId, slackTeamId),
+        inArray(slackNoticeApprovals.slackTeamId, teams),
         isNull(slackNoticeApprovals.revokedAt),
         between(
           slackNoticeApprovals.noticeVersion,
@@ -155,11 +160,18 @@ export async function judgeSlackNotice(
         ),
       ),
     )
-    .orderBy(desc(slackNoticeApprovals.noticeVersion))
-    .limit(1);
-  if (row === undefined) return { approved: false, reason: "not_approved" };
-  const { id, version } = asRecord(row);
-  return { approved: true, approvalId: id, version, slackTeamId };
+    .orderBy(desc(slackNoticeApprovals.noticeVersion));
+  const approvals: SlackNoticeTeamApproval[] = [];
+  for (const slackTeamId of teams) {
+    const row = rows.find((candidate) => candidate.slackTeamId === slackTeamId);
+    if (row === undefined) return { approved: false, reason: "not_approved" };
+    approvals.push({
+      approvalId: row.id as SlackNoticeApprovalId,
+      version: row.version as SlackNoticeVersion,
+      slackTeamId,
+    });
+  }
+  return { approved: true, approvals };
 }
 
 // Lock order: the actor's membership, then the agent, as the identity and
@@ -206,8 +218,9 @@ const actorOf = (userId: string) => ({
 
 /**
  * A workspace owner's or admin's approval of the current notice version for
- * the agent's app in the Slack team of its live install, with its receipt in
- * the same transaction.
+ * the agent's app, in each Slack team of its live installs that has no live
+ * approval of that version yet: one row and one receipt per team, in one
+ * transaction.
  */
 export async function approveSlackNotice(
   db: Database,
@@ -220,56 +233,57 @@ export async function approveSlackNotice(
   return db.transaction(async (tx) => {
     const refused = await lockAdminAndAgent(tx, input, input.by);
     if (refused !== null) return { outcome: refused };
-    const slackTeamId = await liveTeamOf(tx, input);
-    if (slackTeamId === null) return { outcome: "not_installed" };
-    const [live] = await tx
-      .select({ id: slackNoticeApprovals.id })
+    const teams = await liveTeamsOf(tx, input);
+    if (teams.length === 0) return { outcome: "not_installed" };
+    const live = await tx
+      .select({ slackTeamId: slackNoticeApprovals.slackTeamId })
       .from(slackNoticeApprovals)
       .where(
         and(
           eq(slackNoticeApprovals.agentId, input.agentId),
-          eq(slackNoticeApprovals.slackTeamId, slackTeamId),
+          inArray(slackNoticeApprovals.slackTeamId, teams),
           eq(slackNoticeApprovals.noticeVersion, version),
           isNull(slackNoticeApprovals.revokedAt),
         ),
       );
-    if (live !== undefined) {
-      return {
-        outcome: "unchanged",
-        approvalId: live.id as SlackNoticeApprovalId,
-        version,
+    const added: SlackNoticeTeamApproval[] = [];
+    for (const slackTeamId of teams) {
+      if (live.some((row) => row.slackTeamId === slackTeamId)) continue;
+      const approvalId = randomUUID() as SlackNoticeApprovalId;
+      await tx.insert(slackNoticeApprovals).values({
+        id: approvalId,
+        workspaceId: input.workspaceId,
+        agentId: input.agentId,
         slackTeamId,
-      };
+        noticeVersion: version,
+        approvedBy: input.by,
+        approvedAt: DB_NOW,
+      });
+      await tx.insert(receipts).values({
+        id: randomUUID(),
+        ownerId: input.workspaceId,
+        operation: "approve_slack_notice",
+        targetRef: {
+          resource: { kind: "agent", id: input.agentId },
+          workspace_id: input.workspaceId,
+        },
+        status: "succeeded",
+        result: {
+          agent_id: input.agentId,
+          approval_id: approvalId,
+          slack_team_id: slackTeamId,
+          notice_version: version,
+        },
+        actor: actorOf(input.by),
+        requestId: input.requestId ?? null,
+      });
+      added.push({ approvalId, version, slackTeamId });
     }
-    const approvalId = randomUUID() as SlackNoticeApprovalId;
-    await tx.insert(slackNoticeApprovals).values({
-      id: approvalId,
-      workspaceId: input.workspaceId,
-      agentId: input.agentId,
-      slackTeamId,
-      noticeVersion: version,
-      approvedBy: input.by,
-      approvedAt: DB_NOW,
-    });
-    await tx.insert(receipts).values({
-      id: randomUUID(),
-      ownerId: input.workspaceId,
-      operation: "approve_slack_notice",
-      targetRef: {
-        resource: { kind: "agent", id: input.agentId },
-        workspace_id: input.workspaceId,
-      },
-      status: "succeeded",
-      result: {
-        agent_id: input.agentId,
-        approval_id: approvalId,
-        slack_team_id: slackTeamId,
-        notice_version: version,
-      },
-      actor: actorOf(input.by),
-      requestId: input.requestId ?? null,
-    });
-    return { outcome: "approved", approvalId, version, slackTeamId };
+    return {
+      outcome: added.length === 0 ? "unchanged" : "approved",
+      version,
+      added,
+    };
   });
 }
 
@@ -346,5 +360,9 @@ export async function listSlackNoticeApprovals(
       asc(slackNoticeApprovals.approvedAt),
       asc(slackNoticeApprovals.id),
     );
-  return rows.map((row) => ({ ...row, ...asRecord(row) }));
+  return rows.map((row) => ({
+    ...row,
+    id: row.id as SlackNoticeApprovalId,
+    version: row.version as SlackNoticeVersion,
+  }));
 }

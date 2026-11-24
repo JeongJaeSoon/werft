@@ -120,6 +120,14 @@ integration("Slack notice approvals on PostgreSQL", () => {
     );
   }
 
+  /** The rows an approval added; throws unless it approved. */
+  function addedOf(result: Awaited<ReturnType<typeof approveSlackNotice>>) {
+    if (result.outcome !== "approved") throw new Error(result.outcome);
+    const [first, ...rest] = result.added;
+    if (first === undefined) throw new Error("approved with no row");
+    return [first, ...rest] as const;
+  }
+
   async function receiptsOf(agentId: string, operation: string) {
     const { rows } = await pool.query(
       `SELECT owner_id, target_ref, status, result, actor, xmin::text AS xmin
@@ -152,12 +160,14 @@ integration("Slack notice approvals on PostgreSQL", () => {
       { workspaceId: ws.id, agentId, by: ws.admin, requestId: "req-notice-1" },
       V1,
     );
-    expect(approved).toMatchObject({
+    const [added] = addedOf(approved);
+    expect(approved).toEqual({
       outcome: "approved",
       version: 1,
-      slackTeamId: "T0NOTICEA",
-    });
-    if (approved.outcome !== "approved") throw new Error("not approved");
+      added: [
+        { approvalId: added.approvalId, version: 1, slackTeamId: "T0NOTICEA" },
+      ],
+    } as never);
 
     const { rows } = await pool.query(
       `SELECT id, workspace_id, agent_id, slack_team_id, notice_version, approved_by,
@@ -168,7 +178,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     expect(rows).toHaveLength(1);
     const [row] = rows;
     expect(row).toMatchObject({
-      id: approved.approvalId,
+      id: added.approvalId,
       workspace_id: ws.id,
       agent_id: agentId,
       slack_team_id: "T0NOTICEA",
@@ -191,7 +201,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
       },
       result: {
         agent_id: agentId,
-        approval_id: approved.approvalId,
+        approval_id: added.approvalId,
         slack_team_id: "T0NOTICEA",
         notice_version: 1,
       },
@@ -208,9 +218,9 @@ integration("Slack notice approvals on PostgreSQL", () => {
       await judgeSlackNotice(db, { workspaceId: ws.id, agentId }, V1),
     ).toEqual({
       approved: true,
-      approvalId: approved.approvalId,
-      version: 1,
-      slackTeamId: "T0NOTICEA",
+      approvals: [
+        { approvalId: added.approvalId, version: 1, slackTeamId: "T0NOTICEA" },
+      ],
     } as never);
 
     // The same approval again writes nothing.
@@ -220,7 +230,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
         { workspaceId: ws.id, agentId, by: ws.owner },
         V1,
       ),
-    ).toMatchObject({ outcome: "unchanged", approvalId: approved.approvalId });
+    ).toEqual({ outcome: "unchanged", version: 1, added: [] } as never);
     expect(await receiptsOf(agentId, "approve_slack_notice")).toHaveLength(1);
     expect(await listSlackNoticeApprovals(db, { agentId })).toHaveLength(1);
   });
@@ -259,7 +269,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
 
     expect(await judgeSlackNotice(db, place, V2)).toMatchObject({
       approved: true,
-      version: 1,
+      approvals: [{ version: 1 }],
     });
     expect(await judgeSlackNotice(db, place, V3)).toEqual({
       approved: false,
@@ -270,7 +280,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     expect(again).toMatchObject({ outcome: "approved", version: 3 });
     expect(await judgeSlackNotice(db, place, V3)).toMatchObject({
       approved: true,
-      version: 3,
+      approvals: [{ version: 3 }],
     });
     expect(await receiptsOf(agentId, "approve_slack_notice")).toHaveLength(2);
   });
@@ -280,12 +290,9 @@ integration("Slack notice approvals on PostgreSQL", () => {
     const agentId = await agent(ws);
     await install(ws, agentId, "T0NOTICED");
     const place = { workspaceId: ws.id, agentId };
-    const approved = await approveSlackNotice(
-      db,
-      { ...place, by: ws.admin },
-      V1,
+    const [approved] = addedOf(
+      await approveSlackNotice(db, { ...place, by: ws.admin }, V1),
     );
-    if (approved.outcome !== "approved") throw new Error("not approved");
 
     const revoked = await revokeSlackNotice(db, { ...place, by: ws.owner });
     expect(revoked).toEqual({
@@ -321,9 +328,9 @@ integration("Slack notice approvals on PostgreSQL", () => {
     expect(await receiptsOf(agentId, "revoke_slack_notice")).toHaveLength(1);
 
     // Approving after a revoke makes a new row.
-    const back = await approveSlackNotice(db, { ...place, by: ws.admin }, V1);
-    expect(back).toMatchObject({ outcome: "approved" });
-    if (back.outcome !== "approved") throw new Error("not approved");
+    const [back] = addedOf(
+      await approveSlackNotice(db, { ...place, by: ws.admin }, V1),
+    );
     expect(back.approvalId).not.toBe(approved.approvalId);
     expect((await judgeSlackNotice(db, place, V1)).approved).toBe(true);
   });
@@ -406,7 +413,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     await install(ws, agentId, "T0NOTICEG");
     expect(await judgeSlackNotice(db, place, V1)).toMatchObject({
       approved: true,
-      slackTeamId: "T0NOTICEG",
+      approvals: [{ slackTeamId: "T0NOTICEG" }],
     });
 
     await uninstall(agentId);
@@ -419,6 +426,52 @@ integration("Slack notice approvals on PostgreSQL", () => {
     expect(await listSlackNoticeApprovals(db, { agentId })).toMatchObject([
       { slackTeamId: "T0NOTICEG", revokedAt: null },
     ]);
+  });
+
+  test("an app live in two Slack teams is approved only when both are; one approval covers each team", async () => {
+    const [ws] = workspaces as [Workspace];
+    const agentId = await agent(ws);
+    const place = { workspaceId: ws.id, agentId };
+    await install(ws, agentId, "T0NOTICEK");
+    await approveSlackNotice(db, { ...place, by: ws.admin }, V1);
+    expect((await judgeSlackNotice(db, place, V1)).approved).toBe(true);
+
+    // The same app installed in a second team: that organization has not
+    // been approved for.
+    await install(ws, agentId, "T0NOTICEL");
+    for (let i = 0; i < 3; i++) {
+      expect(await judgeSlackNotice(db, place, V1)).toEqual({
+        approved: false,
+        reason: "not_approved",
+      });
+    }
+
+    const added = addedOf(
+      await approveSlackNotice(db, { ...place, by: ws.admin }, V1),
+    );
+    expect(added.map((row) => row.slackTeamId)).toEqual(["T0NOTICEL"]);
+    const judged = await judgeSlackNotice(db, place, V1);
+    expect(judged).toMatchObject({
+      approved: true,
+      approvals: [{ slackTeamId: "T0NOTICEK" }, { slackTeamId: "T0NOTICEL" }],
+    });
+    expect(await receiptsOf(agentId, "approve_slack_notice")).toHaveLength(2);
+
+    // A version that asks again: one approval writes a row and a receipt for
+    // each team, in one transaction.
+    const both = addedOf(
+      await approveSlackNotice(db, { ...place, by: ws.owner }, V3),
+    );
+    expect(both.map((row) => row.slackTeamId)).toEqual([
+      "T0NOTICEK",
+      "T0NOTICEL",
+    ]);
+    const { rows } = await pool.query(
+      "SELECT DISTINCT xmin::text AS xmin FROM receipts WHERE operation = 'approve_slack_notice' AND result->>'notice_version' = '3' AND target_ref->'resource'->>'id' = $1",
+      [agentId],
+    );
+    expect(rows).toHaveLength(1);
+    expect((await judgeSlackNotice(db, place, V3)).approved).toBe(true);
   });
 
   test("with no notice version nobody is approved and an approval is refused", async () => {
