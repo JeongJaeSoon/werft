@@ -200,16 +200,19 @@ rm -r "${SECRETS:?}"
 ```yaml
 installationId: werft-try
 config:
+  installation:
+    profile: test
   aws:
     endpointUrl: http://localstack:4566
   checkpoints:
     bucket: claude-sessions
+    objectsLost: forget
   egress:
     credentialAllowlist: "api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443"
     credentialPrivateAllowlist: "localstack:4566"
 ```
 
-`endpointUrl` は api の接続先を AWS ではなく LocalStack にします。LocalStack はクラスタ内のプライベートアドレスなので `credentialPrivateAllowlist` に書きます。`credentialAllowlist` は既定値を丸ごと置き換えるので、既定の一覧をすべて書いて `github.com:443` を続けました。別の Git ホストを使うならそのホストも加えます。それ以外は chart の既定値を使います。
+`endpointUrl` は api の接続先を AWS ではなく LocalStack にします。LocalStack はクラスタ内のプライベートアドレスなので `credentialPrivateAllowlist` に書きます。`credentialAllowlist` は既定値を丸ごと置き換えるので、既定の一覧をすべて書いて `github.com:443` を続けました。別の Git ホストを使うならそのホストも加えます。`installation.profile: test` と `checkpoints.objectsLost: forget` は、LocalStack の Pod が再起動して bucket が空になったときに、api が起動を拒否せず失った checkpoint を諦めるようにします(下の[よくある問題](#자주-막히는-곳))。`v0.4.0` 以前の chart はこの 2 つの値を読みません。それ以外は chart の既定値を使います。
 
 `VERSION` は[配布パッケージ契約](/run-server/self-hosting/reference/packages)で選んだ正確な公開 chart バージョンです。
 
@@ -229,7 +232,21 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
 <a id="자주-막히는-곳" />
 ## よくある問題
 
-PostgreSQL の Pod が入れ替わると DB が、LocalStack のコンテナが再起動すると(ノードの再起動を含む)bucket が空になります。PostgreSQL が空になると `/readyz` が 503 `schema check failed` を返します。DB に未回収の checkpoint が残ったまま bucket だけが空になると、api は起動を拒否します。このようにデータを失った試験設置は修復せず、下の「元に戻す」で削除して手順 1 から作り直します。
+PostgreSQL の Pod が入れ替わると DB が、LocalStack のコンテナが再起動すると(ノードの再起動を含む)bucket が空になります。PostgreSQL が空になると `/readyz` が 503 `schema check failed` を返します。このように DB を失った試験設置は修復せず、下の「元に戻す」で削除して手順 1 から作り直します。
+
+bucket だけが空になった場合、api は次の起動時に DB に残った未回収の checkpoint を諦めてから起動します。手順 4 の `installation.profile` と `checkpoints.objectsLost` がそう決めます。
+
+- 失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になります。
+- `kubectl -n werft logs deploy/werft-api` に `The object store came back empty` で始まる警告が 1 行残り、セッション数と id を記録します。
+- `/readyz` は 200 のままで、本文の `detail.checkpoints_forgotten_on_boot` にそのセッション数が入ります。
+
+ノードを再起動すると api も一緒に再起動するので、することはありません。LocalStack の Pod だけが再起動した場合、api は動いたままで整理しません。そのときはすぐに api を再起動します。
+
+```bash
+kubectl -n werft rollout restart deploy/werft-api
+```
+
+遅らせると、その間に書かれた新しい checkpoint のために bucket が空ではなくなって整理されず、object を失ったセッションは復元時に失敗します。2 つの値がない設置(`v0.4.0` 以前の chart を含む)の api は、bucket だけが空の状態で起動を拒否します。
 
 手順 1〜3 の途中で止めてシェルを閉じるときは、先に `rm -r "${SECRETS:?}"` でパスワードの入った一時ディレクトリを削除します。
 

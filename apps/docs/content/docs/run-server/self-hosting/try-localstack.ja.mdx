@@ -131,9 +131,18 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 アップグレードで LocalStack コンテナが再作成されると、object を失う場合があります。`status` で未回収 checkpoint が 0 件と確認できなければアップグレードを延期します。API 起動失敗と `pending.json` が重なると `reseed` も拒否され、`reset` は全データを破棄します。`backup --stop` もこの遮断を解除しません。
 
-LocalStack はコンテナを再作成するとメモリの object を失います。DB に未回収 checkpoint が残り bucket が空なら、API は起動を拒否します。自動再起動と手動 start の条件は [Compose のライフサイクル](/run-server/self-hosting/stop-compose)に従います。
+LocalStack はコンテナが再起動すると（ホストの再起動、Docker の再起動、コンテナの再作成）メモリの object を失います。bucket は起動のたびに作り直されますが、空です。この試験設置の API はその状態でも起動を拒否せず、DB に残った未回収 checkpoint を諦めてから起動します。予告のない再起動の後にすることはなく、`reset` は使いません。
 
-計画的な再起動では、先にバックアップして writer を停止します。
+- owner、key、設定、セッション一覧は残ります。
+- 失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になります。以前の文脈なしで続けるか（`start_fresh`）、閉じるか（`close`）を決めます（[API ガイド](/reference/api-guide)の復旧判断）。
+- API のログに `The object store came back empty` で始まる警告が 1 行残り、セッション数と id を記録します。
+- `/readyz` は 200 のままで、本文の `detail.checkpoints_forgotten_on_boot` にそのセッション数が入ります。
+
+LocalStack のコンテナだけを再起動しないでください。API が整理するのは起動時だけで、動いている間は整理しません。その間に新しい checkpoint が書かれると bucket が空ではなくなり、次の起動でも整理されず、object を失ったセッションは復元時に失敗します。そうなった場合は、すぐに `scripts/test-ops.sh stop` の後 `start` で設置全体を再起動します。
+
+`v0.4.0` 以前のリリースは整理しません。その API はログに `Checkpoint bucket claude-sessions holds no object version` を残して起動を拒否します。事前に `backup --stop` を取っていなければ、残るのは `reset` だけです。自動再起動と手動 start の条件は [Compose のライフサイクル](/run-server/self-hosting/stop-compose)に従います。
+
+セッションの文脈を守るには、計画的な再起動の前にバックアップして writer を停止します。再起動の後は `start` ではなく `reseed` を使います。`start` は API を空の bucket で起動して checkpoint を諦めさせ、その後に object を戻しても諦めた checkpoint は戻りません。
 
 ```bash
 # Back up, leave the writers stopped, restart the host, then restore the objects

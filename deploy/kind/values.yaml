@@ -2,6 +2,13 @@
 # deps.yaml as the object store, and the images up.sh pushed to the local
 # registry. up.sh sets the repositories and digests on the command line.
 config:
+  # The LocalStack of deps.yaml keeps S3 in memory: when its pod restarts the
+  # bucket comes back empty, and the api gives the lost checkpoints up at its
+  # next start instead of refusing to start.
+  installation:
+    profile: test
+  checkpoints:
+    objectsLost: forget
   aws:
     endpointUrl: http://localstack:4566
   egress:
