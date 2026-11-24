@@ -1,5 +1,5 @@
 {
-  "id": "a39f7479-bf5c-4920-91fd-3d00b464a2a4",
+  "id": "c64f2f04-3317-4130-97fd-067c86609156",
   "prevId": "2a117181-d31c-4051-a684-dd4ec69ae674",
   "version": "7",
   "dialect": "postgresql",
@@ -5614,12 +5614,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
-        },
-        "conversation_turn_id": {
-          "name": "conversation_turn_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -5712,6 +5706,44 @@
           "method": "btree",
           "with": {}
         },
+        "conversation_calls_agent_open_idx": {
+          "name": "conversation_calls_agent_open_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"state\" IN ('reserved', 'in_flight')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_calls_requester_open_idx": {
+          "name": "conversation_calls_requester_open_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "requester_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"state\" IN ('reserved', 'in_flight') AND \"conversation_calls\".\"requester_user_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "conversation_calls_topic_idx": {
           "name": "conversation_calls_topic_idx",
           "columns": [
@@ -5724,22 +5756,6 @@
           ],
           "isUnique": false,
           "where": "\"conversation_calls\".\"topic_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_calls_conversation_turn_idx": {
-          "name": "conversation_calls_conversation_turn_idx",
-          "columns": [
-            {
-              "expression": "conversation_turn_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_calls\".\"conversation_turn_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5790,25 +5806,12 @@
           "columnsTo": ["agent_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "conversation_calls_conversation_turn_fk": {
-          "name": "conversation_calls_conversation_turn_fk",
-          "tableFrom": "conversation_calls",
-          "tableTo": "conversation_turns",
-          "columnsFrom": ["conversation_turn_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "conversation_calls_conversation_turn_check": {
-          "name": "conversation_calls_conversation_turn_check",
-          "value": "\"conversation_calls\".\"conversation_turn_id\" IS NULL OR COALESCE(\"conversation_calls\".\"call_class\" = 'm2', false)"
-        },
         "conversation_calls_call_class_check": {
           "name": "conversation_calls_call_class_check",
           "value": "\"conversation_calls\".\"call_class\" IN ('m1','m2','summary')"
@@ -5952,22 +5955,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "conversation_engagements_conversation_turn_idx": {
-          "name": "conversation_engagements_conversation_turn_idx",
-          "columns": [
-            {
-              "expression": "conversation_turn_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_engagements\".\"conversation_turn_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -5986,15 +5973,6 @@
           "tableTo": "agents",
           "columnsFrom": ["workspace_id", "agent_id"],
           "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_engagements_conversation_turn_fk": {
-          "name": "conversation_engagements_conversation_turn_fk",
-          "tableFrom": "conversation_engagements",
-          "tableTo": "conversation_turns",
-          "columnsFrom": ["conversation_turn_id"],
-          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -6105,18 +6083,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "conversation_turn_id": {
-          "name": "conversation_turn_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "body_sha256": {
-          "name": "body_sha256",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": false
-        },
         "slack_mirror": {
           "name": "slack_mirror",
           "type": "text",
@@ -6168,22 +6134,6 @@
           ],
           "isUnique": true,
           "where": "\"conversation_inputs\".\"client_message_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_inputs_conversation_turn_idx": {
-          "name": "conversation_inputs_conversation_turn_idx",
-          "columns": [
-            {
-              "expression": "conversation_turn_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_inputs\".\"conversation_turn_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -6272,15 +6222,6 @@
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "conversation_inputs_conversation_turn_fk": {
-          "name": "conversation_inputs_conversation_turn_fk",
-          "tableFrom": "conversation_inputs",
-          "tableTo": "conversation_turns",
-          "columnsFrom": ["conversation_turn_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -6305,7 +6246,7 @@
       "checkConstraints": {
         "conversation_inputs_origin_check": {
           "name": "conversation_inputs_origin_check",
-          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending','unconfirmed') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL AND ((\"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL) OR (\"conversation_inputs\".\"conversation_turn_id\" IS NOT NULL AND \"conversation_inputs\".\"body_sha256\" IS NOT NULL AND octet_length(\"conversation_inputs\".\"body_sha256\") = 32))) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user' AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL)"
+          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending','unconfirmed') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user')"
         },
         "conversation_inputs_seq_check": {
           "name": "conversation_inputs_seq_check",
@@ -6462,244 +6403,6 @@
         "conversation_topics_slack_check": {
           "name": "conversation_topics_slack_check",
           "value": "(\"conversation_topics\".\"slack_team_id\" IS NULL AND \"conversation_topics\".\"slack_channel_id\" IS NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NULL) OR (\"conversation_topics\".\"slack_team_id\" IS NOT NULL AND \"conversation_topics\".\"slack_channel_id\" IS NOT NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NOT NULL AND \"conversation_topics\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_thread_ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.conversation_turns": {
-      "name": "conversation_turns",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "topic_id": {
-          "name": "topic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "origin": {
-          "name": "origin",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requester_kind": {
-          "name": "requester_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requester_id": {
-          "name": "requester_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "input_text": {
-          "name": "input_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decision": {
-          "name": "decision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decision_reason": {
-          "name": "decision_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "answer_text": {
-          "name": "answer_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sources": {
-          "name": "sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "release_id": {
-          "name": "release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "slack_installation_id": {
-          "name": "slack_installation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "conversation_turns_conversation_idx": {
-          "name": "conversation_turns_conversation_idx",
-          "columns": [
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_turns_topic_idx": {
-          "name": "conversation_turns_topic_idx",
-          "columns": [
-            {
-              "expression": "topic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_turns\".\"topic_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_turns_sources_idx": {
-          "name": "conversation_turns_sources_idx",
-          "columns": [
-            {
-              "expression": "sources",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last",
-              "opclass": "jsonb_path_ops"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_turns\".\"sources\" IS NOT NULL",
-          "concurrently": false,
-          "method": "gin",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_turns_agent_fk": {
-          "name": "conversation_turns_agent_fk",
-          "tableFrom": "conversation_turns",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_turns_conversation_fk": {
-          "name": "conversation_turns_conversation_fk",
-          "tableFrom": "conversation_turns",
-          "tableTo": "conversations",
-          "columnsFrom": ["conversation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_turns_topic_fk": {
-          "name": "conversation_turns_topic_fk",
-          "tableFrom": "conversation_turns",
-          "tableTo": "conversation_topics",
-          "columnsFrom": ["topic_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_turns_release_fk": {
-          "name": "conversation_turns_release_fk",
-          "tableFrom": "conversation_turns",
-          "tableTo": "agent_releases",
-          "columnsFrom": ["agent_id", "release_id"],
-          "columnsTo": ["agent_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_turns_slack_installation_fk": {
-          "name": "conversation_turns_slack_installation_fk",
-          "tableFrom": "conversation_turns",
-          "tableTo": "slack_installations",
-          "columnsFrom": ["slack_installation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "conversation_turns_origin_check": {
-          "name": "conversation_turns_origin_check",
-          "value": "\"conversation_turns\".\"origin\" IN ('web_input','m2')"
-        },
-        "conversation_turns_state_check": {
-          "name": "conversation_turns_state_check",
-          "value": "\"conversation_turns\".\"state\" IN ('received','running','decided','no_decision','voided_by_delete')"
-        },
-        "conversation_turns_decision_check": {
-          "name": "conversation_turns_decision_check",
-          "value": "\"conversation_turns\".\"decision\" IN ('reply','route_to_task','spawn_task','no_reply')"
-        },
-        "conversation_turns_shape_check": {
-          "name": "conversation_turns_shape_check",
-          "value": "CASE \"conversation_turns\".\"origin\"\n        WHEN 'web_input' THEN \"conversation_turns\".\"state\" = 'received' AND \"conversation_turns\".\"input_text\" IS NOT NULL AND \"conversation_turns\".\"requester_kind\" = 'user' AND \"conversation_turns\".\"decision\" IS NULL AND \"conversation_turns\".\"decision_reason\" IS NULL AND \"conversation_turns\".\"answer_text\" IS NULL AND \"conversation_turns\".\"ended_at\" IS NULL\n        ELSE \"conversation_turns\".\"state\" <> 'received' AND \"conversation_turns\".\"input_text\" IS NULL\n          AND (\"conversation_turns\".\"decision\" IS NOT NULL) = (\"conversation_turns\".\"state\" = 'decided')\n          AND (\"conversation_turns\".\"decision_reason\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT NULL)\n          AND (\"conversation_turns\".\"answer_text\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT NULL)\n          AND (\"conversation_turns\".\"ended_at\" IS NULL) = (\"conversation_turns\".\"state\" = 'running')\n      END"
-        },
-        "conversation_turns_text_check": {
-          "name": "conversation_turns_text_check",
-          "value": "(\"conversation_turns\".\"decision_reason\" IS NULL OR char_length(\"conversation_turns\".\"decision_reason\") BETWEEN 1 AND 1000) AND (\"conversation_turns\".\"answer_text\" IS NULL OR char_length(\"conversation_turns\".\"answer_text\") <= 16000)"
         }
       },
       "isRLSEnabled": false
