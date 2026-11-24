@@ -121,6 +121,7 @@ function memoryStore(
       administered: 0,
       active: 1,
       draft: 0,
+      inactive: 0,
       ownerless: 0,
     }),
     summaries: async () => new Map(),
@@ -245,7 +246,14 @@ describe("agent service", () => {
       count: async (_workspace, reader) => {
         reached = true;
         readers.push(reader);
-        return { all: 0, administered: 0, active: 0, draft: 0, ownerless: 0 };
+        return {
+          all: 0,
+          administered: 0,
+          active: 0,
+          draft: 0,
+          inactive: 0,
+          ownerless: 0,
+        };
       },
     });
     const key = callerFor(
@@ -306,13 +314,15 @@ describe("agent service", () => {
         return new Map([[AGENT, summary]]);
       },
     });
+    // A draft: its status says the record exists, its activation that
+    // nobody can talk to it yet.
     expect((await service.listAgents(owner, PAGE)).items).toEqual([
-      detail.agent,
+      { ...detail.agent, activation: "draft" },
     ]);
     expect(asked).toEqual([]);
     expect(
       (await service.listAgents(owner, { ...PAGE, include: "summary" })).items,
-    ).toEqual([{ ...detail.agent, summary }]);
+    ).toEqual([{ ...detail.agent, activation: "draft", summary }]);
     expect(asked).toEqual([[AGENT]]);
   });
 

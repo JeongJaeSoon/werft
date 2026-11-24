@@ -135,10 +135,20 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ```text
 {"n":1,"next_cursor":null}
-{"counts":{"all":1,"administered":1,"active":1,"draft":0,"ownerless":0}}
+{"counts":{"all":1,"administered":1,"active":1,"draft":0,"inactive":0,"ownerless":0}}
 ```
 
-一覧は古いエージェントから `limit` 件ずつ(既定 50、最大 100)返る。レスポンスの `next_cursor` を `cursor` として送ると次のページになり、最後のページでは `null` である。`cursor` なしで呼ぶと最初のページだけが返る。`q`(最大 200 文字)を渡すと名前か識別子にその文字列を含むエージェントだけが大文字小文字を区別せずに返り、`ids` にエージェント ID をカンマでつないで(最大 100 件)渡すとそのエージェントだけが返る。`connection_id` を渡すと、有効な release がその接続で動くエージェントだけが返り、有効な release のないエージェントは除かれる。いずれも同じ `cursor` で次のページを読む。`GET /v1/agents/counts` は、一覧を最後まで読んだときの件数(`all`)、そのうち自分が直接またはチームで管理している件数(`administered`)、有効な release で動いている件数(`active`)、アーカイブされていないがまだ有効な release のない下書きの件数(`draft`)、管理する人のいない件数(`ownerless`)を返す。どちらも一覧と同じ権限が必要で、API キーは拒否される。`ownerless=true` を渡すと、管理する人のいないエージェントだけが返る([管理者のいないエージェント](/agents/permissions#管理者のいないエージェント))。
+一覧は古いエージェントから `limit` 件ずつ(既定 50、最大 100)返る。レスポンスの `next_cursor` を `cursor` として送ると次のページになり、最後のページでは `null` である。`cursor` なしで呼ぶと最初のページだけが返る。`q`(最大 200 文字)を渡すと名前か識別子にその文字列を含むエージェントだけが大文字小文字を区別せずに返り、`ids` にエージェント ID をカンマでつないで(最大 100 件)渡すとそのエージェントだけが返る。`connection_id` を渡すと、有効な release がその接続で動くエージェントだけが返り、有効な release のないエージェントは除かれる。いずれも同じ `cursor` で次のページを読む。`GET /v1/agents/counts` は、一覧を最後まで読んだときの件数(`all`)、そのうち自分が直接またはチームで管理している件数(`administered`)、有効な release で動いている件数(`active`)、アーカイブされていないがまだ有効な release のない下書きの件数(`draft`)、そのどちらにも入らない件数(`inactive`)、管理する人のいない件数(`ownerless`)を返す。どちらも一覧と同じ権限が必要で、API キーは拒否される。`ownerless=true` を渡すと、管理する人のいないエージェントだけが返る([管理者のいないエージェント](/agents/permissions#管理者のいないエージェント))。
+
+一覧の各エージェントには `status` と `activation` がある。`status` はエージェントの記録の状態なので、作ったあと一度も有効にしていない下書きも `active` である。有効かどうかの判断には使わない。有効かどうかは `activation` で見る。有効な release があって人が対話できれば `active`、まだ有効な release がなければ `draft`、それ以外(有効な release があるが一時停止したエージェントや、アーカイブされたエージェント)は `inactive` である。三つの値は `GET /v1/agents/counts` の `active`・`draft`・`inactive` と同じ基準なので、三つの件数を足すと `all` になる。`activation` の値は増えることがある。知らない値は有効でないものとして読む。
+
+```bash
+curl -sS "$API/v1/agents?limit=50" "${WEB[@]}" | jq -c '.items[] | {slug, status, activation}'
+```
+
+```text
+{"slug":"research-bot","status":"active","activation":"active"}
+```
 
 ## 公開する前に試す
 

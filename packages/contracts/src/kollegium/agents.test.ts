@@ -7,6 +7,7 @@ import {
   AGENT_SUMMARY_INSTRUCTIONS_MAX,
   type AgentCard,
   activateAgentRequestSchema,
+  agentActivationOf,
   agentCardRequestSchema,
   agentCardSchema,
   agentGitHubSchema,
@@ -909,6 +910,7 @@ describe("agent list summary", () => {
     created_by: null,
     created_at: AT,
     updated_at: AT,
+    activation: "draft",
   } as const;
   const summary = {
     version: {
@@ -930,7 +932,7 @@ describe("agent list summary", () => {
     channels: ["slack" as const, "github" as const],
   };
 
-  test("is asked for, and a page without it is the agents as before", () => {
+  test("is asked for, and a page without it is the agents and their activation", () => {
     expect(listAgentsQuerySchema.parse({ limit: 50 })).toEqual({ limit: 50 });
     expect(
       listAgentsQuerySchema.parse({ limit: 50, include: "summary" }).include,
@@ -940,9 +942,30 @@ describe("agent list summary", () => {
     ).toBe(false);
     const page = { items: [agent], next_cursor: null };
     expect(listAgentsResponseSchema.parse(page)).toEqual(page);
+    const { activation: _, ...row } = agent;
+    expect(agentSchema.parse(row)).toEqual(row);
+    expect(agentListItemSchema.safeParse(row).success).toBe(false);
     expect(
-      agentSchema.parse(listAgentsResponseSchema.parse(page).items[0]),
-    ).toEqual(agent);
+      agentListItemSchema.safeParse({ ...agent, activation: "on" }).success,
+    ).toBe(false);
+  });
+
+  test("activation is the counts bucket the agent falls in", () => {
+    const of = (
+      status: "active" | "paused" | "archived",
+      active_release_id: string | null,
+    ) => agentActivationOf({ status, active_release_id });
+    expect([
+      of("active", null),
+      of("active", "sha256:a"),
+      of("paused", "sha256:a"),
+      of("archived", "sha256:a"),
+    ]).toEqual(["draft", "active", "inactive", "inactive"]);
+    // Each value is one counts bucket: a paused draft is still a draft.
+    expect([of("paused", null), of("archived", null)]).toEqual([
+      "draft",
+      "inactive",
+    ]);
   });
 
   test("names the engine and the channels, and nothing else as a channel", () => {
