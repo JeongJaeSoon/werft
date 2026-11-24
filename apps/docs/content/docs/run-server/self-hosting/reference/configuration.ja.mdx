@@ -156,7 +156,7 @@ worker は claim 時に、実際に自分のイメージに含む組み合わせ
 |---|---|---|
 | `WORKER_CPUS` | 1 | 一つの worker の CPU 割り当て。0.01 以上 |
 | `WORKER_MEMORY_MB` | 4608 | 一つの worker のメモリ上限（MiB）。非圧縮の 512MiB transcript を resume したエンジンが上限の半分未満に収まるよう決めた値です。開発用 `.env.example` の 2048 は基準を満たさないため、大きな transcript の復元試験では `WORKER_MEMORY_MB` の行を削除するか 4608 に変えます |
-| `WORKER_IDLE_TIMEOUT_SEC` | 1800 | 入力のない worker が終わるまで待つ秒数です。その間 worker は場所を確保したままです。60〜7200 の範囲外なら scheduler は起動しません。Kubernetes では、新しいセッションの worker Pod が場所不足で起動できないとき、この時間を待たずに最も長く休んでいる worker を一つずつ止めます。ターンが開いている worker は止めません。人の回答を待つターンも開いたターンです。止めたセッションは次の入力で新しい worker が checkpoint から続けます |
+| `WORKER_IDLE_TIMEOUT_SEC` | 1800 | 入力のない worker が終わるまで待つ秒数です。その間 worker は場所を確保したままです。60〜7200 の範囲外なら scheduler は起動しません。Kubernetes では、新しいセッションの worker Pod が場所不足で起動できないとき、この時間を待たずに最も長く休んでいる worker を一つずつ止めます。ターンが開いている worker は止めません。人の回答を待つターンも開いたターンです。止めたセッションは次の入力で新しい worker が checkpoint から続けます。Codex sandbox Pod は Codex ラベルのノードにだけ起動するため、そのノードの worker だけを止めます。`SCHEDULER_NODE_CAPACITY_CHECK` が無効なら sandbox worker だけが候補で、有効ならラベルのノード上の休んでいる worker がすべて候補です |
 | `WORKER_PIDS_LIMIT` | 512 | 一つの worker の PID 上限。compose は渡しません |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | worker の数値 `uid[:gid]`。uid または gid が 0 なら起動拒否。worker イメージの `/workspace` 所有者と一致する必要があります |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | tmpfs で mount する HOME。絶対パス |
@@ -249,7 +249,7 @@ kubernetes モードだけで読む設定は次のとおりです。
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 任意。JSON object |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 任意。JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker コンテナの ephemeral-storage requests・limits（MiB）。既定 1024。超過すると kubelet が Pod を evict します |
-| `SCHEDULER_NODE_CAPACITY_CHECK` | 任意。`true` なら scheduler が起動時に worker 二つを受け入れられないノードごとに警告ログを記録します。未設定は `false` で、`true`/`false` 以外の値は起動を拒否します。Node を読む権限が必要です |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | 任意。`true` なら scheduler が起動時に worker 二つを受け入れられないノードごとに警告ログを記録します。未設定は `false` で、`true`/`false` 以外の値は起動を拒否します。Node を読む権限が必要です。有効にすると、Codex sandbox Pod が場所を待つときに止める worker もノードのラベルで選びます |
 
 失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。ログのマスキング規則は tail を行単位で隠します。秘密の形をした値は、その値がまたがる行だけを隠します。`input:` のような断片は、その行から最後までを隠します。それより前の行は残ります（URL の login はその部分だけ隠します）。保存先と保持期間は、リポジトリの Kubernetes 実行アダプターの README（終了理由とログ tail 節）にあります。
 
