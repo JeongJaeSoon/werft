@@ -92,7 +92,7 @@ api:
     CONSOLE_ORIGIN: https://werft.example.com
 ```
 
-이 값이 없어도 설치와 로그인은 된다. 하지만 Slack 계정 연결과 Slack 앱의 이벤트 구독이 꺼지고, 콘솔에서 GitHub App을 만들 수 없고, [SSO 로그인](/run-server/self-hosting/sso) 공급자도 만들 수 없다. Slack은 https 주소에만 이벤트를 보내므로 Slack을 쓰려면 https origin을 둔다. Slack 이벤트가 콘솔과 다른 공개 입구로 들어오면 owner가 그 입구의 https 주소를 **설정 > 연동 > Slack**의 "이벤트 입구 주소"에 저장한다. 설치 뒤에 값을 넣거나 바꾸면 4단계 명령을 같은 `VERSION`으로 다시 돌린다. api Pod가 새 값으로 다시 뜬다.
+이 값이 없어도 설치와 로그인은 된다. 하지만 콘솔에서 에이전트의 Slack 앱을 만들 수 없고, Slack 계정 연결, 콘솔의 GitHub App 만들기, [SSO 로그인](/run-server/self-hosting/sso) 공급자 만들기, OAuth로 연결하는 MCP 서버도 쓸 수 없다. Slack 앱의 이벤트 주소는 이 값에서 계산한다. Slack은 https 주소에만 이벤트를 보내므로, Slack 이벤트가 콘솔 주소로 들어오면 https origin을 둔다. 이벤트가 콘솔과 다른 공개 입구로 들어오면 owner가 그 입구의 https 주소를 **설정 > 연동 > Slack**의 "이벤트 입구 주소"에 저장하고, 이벤트 주소는 그 값을 쓴다. 설치 뒤에 값을 넣거나 바꾸면 4단계 명령을 같은 `VERSION`으로 다시 돌린다. api Pod가 새 값으로 다시 뜬다.
 
 ### 4. 설치와 rollout
 
@@ -160,7 +160,7 @@ WantedBy=multi-user.target
 
 `--address 127.0.0.1`이므로 이 호스트의 loopback에서만 받는다. 이 포트에는 worker용 `/internal`도 그대로 열리므로 다른 주소로 바꾸거나 방화벽에서 열지 않는다. 호스트의 3000번을 다른 프로그램이 쓰면 앞의 `3000`과 proxy의 upstream을 함께 바꾼다.
 
-`Restart=always`는 빼지 않는다. port-forward는 api Pod 하나에 붙는다. 업그레이드나 재시작으로 그 Pod가 사라지면 `error: lost connection to pod`를 남기고 종료 코드 0으로 끝나므로, `Restart=on-failure`로는 다시 뜨지 않는다. 다시 붙기까지(`RestartSec`의 5초 남짓) 콘솔 요청은 실패한다. `enable`한 unit은 호스트를 다시 켠 뒤에도 뜬다.
+`Restart=always`는 빼지 않는다. port-forward는 api Pod 하나에 붙는다. 업그레이드나 재시작으로 그 Pod가 사라지면 `error: lost connection to pod`를 남기고 종료 코드 0으로 끝나므로, `Restart=on-failure`로는 다시 뜨지 않는다. 다시 붙기까지 콘솔 요청은 실패한다. 적어도 `RestartSec`의 5초가 걸리고, 새 api Pod가 준비되는 동안 더 길어질 수 있다. `enable`한 unit은 호스트를 다시 켠 뒤에도 뜬다.
 
 ```bash
 sudo systemctl daemon-reload
@@ -173,6 +173,8 @@ curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/r
 ```
 
 200이 나오면 port-forward가 api에 닿은 것이다. 그 앞의 TLS reverse proxy는 [접속 경로](/run-server/self-hosting/access)의 proxy 예시를 upstream `127.0.0.1:3000` 그대로 쓴다. proxy는 `/internal`과 그 아래 경로를 api에 넘기지 않고 거절하며, 브라우저가 보낸 `Host`를 그대로 넘기고, SSE buffering을 끈다. 3단계의 `CONSOLE_ORIGIN`은 이 proxy의 https origin이다.
+
+경로에 백슬래시(`\`)나 `%5C`가 든 요청은 앞단에서 400으로 막는다. chart의 ALB Ingress를 쓸 때도, 다른 controller나 직접 둔 proxy를 쓸 때도 같다. api의 Bun은 원문 백슬래시를 `/`로 바꿔 라우팅하므로 `/x/..\internal/x`가 `/internal/x`로 닿을 수 있다. ALB에서도 규칙으로 막는다.
 
 ## 확인
 

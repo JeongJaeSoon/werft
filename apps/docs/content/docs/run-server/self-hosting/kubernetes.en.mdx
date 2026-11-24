@@ -98,7 +98,7 @@ api:
     CONSOLE_ORIGIN: https://werft.example.com
 ```
 
-Installation and sign-in work without it. But Slack account linking and the Slack apps' event subscription stay off, the console cannot create a GitHub App, and no [SSO sign-in](/run-server/self-hosting/sso) provider can be created. Slack sends events to https addresses only, so use an https origin if you use Slack. If Slack's events enter through a public entrance other than the console's, an owner saves that entrance's https address in **Events entrance** under **Settings > Integrations > Slack**. To add or change the value after installation, rerun the step 4 command with the same `VERSION`; the api Pods restart with the new value.
+Installation and sign-in work without it. But the console cannot create an agent's Slack app, and Slack account linking, creating a GitHub App in the console, creating an [SSO sign-in](/run-server/self-hosting/sso) provider, and MCP servers connected through OAuth do not work either. The Slack apps' events address is computed from this value. Slack sends events to https addresses only, so use an https origin when Slack's events enter at the console's address. If they enter through a public entrance other than the console's, an owner saves that entrance's https address in **Events entrance** under **Settings > Integrations > Slack**, and the events address uses it. To add or change the value after installation, rerun the step 4 command with the same `VERSION`; the api Pods restart with the new value.
 
 <a id="4-설치와-rollout" />
 ### 4. Install and roll out
@@ -168,7 +168,7 @@ WantedBy=multi-user.target
 
 With `--address 127.0.0.1` it listens on this host's loopback only. The worker `/internal` is open on this port too, so do not change the address or open the port in the firewall. If another program uses port 3000 on the host, change the first `3000` and the proxy's upstream together.
 
-Keep `Restart=always`. The port-forward attaches to one api Pod. When an upgrade or a restart removes that Pod, it logs `error: lost connection to pod` and exits with status 0, so `Restart=on-failure` does not start it again. Console requests fail until it reconnects (a little over the 5 seconds of `RestartSec`). An enabled unit also starts again after the host reboots.
+Keep `Restart=always`. The port-forward attaches to one api Pod. When an upgrade or a restart removes that Pod, it logs `error: lost connection to pod` and exits with status 0, so `Restart=on-failure` does not start it again. Console requests fail until it reconnects. That takes at least the 5 seconds of `RestartSec`, and longer while a new api Pod becomes ready. An enabled unit also starts again after the host reboots.
 
 ```bash
 sudo systemctl daemon-reload
@@ -181,6 +181,8 @@ curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/r
 ```
 
 A 200 means the port-forward reaches the api. For the TLS reverse proxy in front of it, use the proxy example in [Access](/run-server/self-hosting/access) with its upstream `127.0.0.1:3000` unchanged. The proxy refuses `/internal` and everything under it instead of forwarding it to the api, forwards the browser's `Host` unchanged, and turns off SSE buffering. `CONSOLE_ORIGIN` from step 3 is this proxy's https origin.
+
+Refuse requests whose path contains a backslash (`\`) or `%5C` with 400 at the front. This holds with the chart's ALB Ingress as well as with another controller or a proxy you run yourself. The api's Bun turns a raw backslash into `/` before routing, so `/x/..\internal/x` can reach `/internal/x`. On ALB, block them with a rule as well.
 
 <a id="확인" />
 ## Verify
