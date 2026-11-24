@@ -1,5 +1,6 @@
 import type { TeamMemberRole } from "@werft-ai/contracts";
 import type {
+  BudgetLimit,
   Team,
   TeamActor,
   TeamMember,
@@ -20,6 +21,11 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import {
+  budgetLimitOf,
+  saveBudgetLimit,
+  toStoredCost,
+} from "../budget-accounts.ts";
 import {
   containsPattern,
   findPgError,
@@ -160,6 +166,9 @@ async function lockLiveTeam(tx: Database, workspaceId: string, teamId: string) {
     .for("update");
   return row ?? null;
 }
+
+// No row, or a row with neither part, is no limit (budgetLimitOf).
+const NO_BUDGET_LIMIT: BudgetLimit = { costUsd: null, tokens: null };
 
 // An archive races agents being given the team; past this many restarts it
 // answers conflict and the caller asks again.
@@ -587,6 +596,71 @@ export function createPostgresTeamStore(db: Database): TeamStore {
         eq(memberTeams.id, teamId.toLowerCase()),
       ).limit(1);
       return rows.length > 0;
+    },
+
+    async getBudgetLimit(workspaceId, teamId) {
+      if (!UUID.test(workspaceId) || !UUID.test(teamId)) return null;
+      const [team] = await db
+        .select({ id: memberTeams.id })
+        .from(memberTeams)
+        .where(
+          and(
+            eq(memberTeams.workspaceId, workspaceId),
+            eq(memberTeams.id, teamId.toLowerCase()),
+            isNull(memberTeams.archivedAt),
+          ),
+        );
+      if (!team) return null;
+      return (
+        (await budgetLimitOf(db, workspaceId, {
+          kind: "team",
+          teamId: team.id,
+        })) ?? NO_BUDGET_LIMIT
+      );
+    },
+
+    async setBudgetLimit(input) {
+      const { actor } = input;
+      return db.transaction(async (tx) => {
+        if (!(await actorManagesTeams(tx, actor))) {
+          return { outcome: "actor_inactive" as const };
+        }
+        const team = await lockLiveTeam(tx, actor.workspaceId, input.teamId);
+        if (!team) return { outcome: "not_found" as const };
+        const target = { kind: "team" as const, teamId: team.id };
+        const before =
+          (await budgetLimitOf(tx, actor.workspaceId, target)) ??
+          NO_BUDGET_LIMIT;
+        const { costUsd, tokens } = input.limit;
+        const limit: BudgetLimit = {
+          costUsd: costUsd === null ? null : toStoredCost(costUsd),
+          tokens,
+        };
+        if (
+          before.costUsd === limit.costUsd &&
+          before.tokens === limit.tokens
+        ) {
+          return { outcome: "unchanged" as const, limit };
+        }
+        const unset = limit.costUsd === null && limit.tokens === null;
+        await saveBudgetLimit(
+          tx,
+          actor.workspaceId,
+          target,
+          unset ? null : limit,
+        );
+        await writeSucceededReceipt(tx, actor.principal, {
+          id: input.receiptId,
+          operation: "set_team_budget_limit",
+          resource: { kind: "team", id: team.id },
+          workspaceId: actor.workspaceId,
+          result: {
+            from: { cost_usd: before.costUsd, tokens: before.tokens },
+            to: { cost_usd: limit.costUsd, tokens: limit.tokens },
+          },
+        });
+        return { outcome: "set" as const, limit };
+      });
     },
 
     async get(workspaceId, teamId) {
