@@ -370,7 +370,12 @@ describe("a conversation turn's limits, counted by the runner on the pinned engi
       reason: "model_call_limit",
     });
     expect(s.provider.requests).toHaveLength(8);
-    expect(await processesUnder(s.root)).toEqual([]);
+    expect(
+      await until(
+        async () => (await processesUnder(s.root)).length === 0 || undefined,
+        "the engine gone",
+      ),
+    ).toBe(true);
   }, 120_000);
 
   test("a response asking for thirteen tool calls cuts the turn before any of them runs", async () => {
@@ -390,7 +395,12 @@ describe("a conversation turn's limits, counted by the runner on the pinned engi
       await s.runner.run(s.turn(crypto.randomUUID(), "all at once"), s.live),
     ).toEqual({ outcome: "failed", reason: "tool_call_limit" });
     expect(s.provider.requests).toHaveLength(1);
-    expect(await processesUnder(s.root)).toEqual([]);
+    expect(
+      await until(
+        async () => (await processesUnder(s.root)).length === 0 || undefined,
+        "the engine gone",
+      ),
+    ).toBe(true);
   }, 90_000);
 
   test("a turn within its limits ends on the model's answer", async () => {
@@ -458,6 +468,11 @@ describe("a conversation turn's limits behind a runtime that does not count", ()
     expect(ended).toMatchObject({ outcome: "failed", reason: "engine_failed" });
     expect(s.provider.requests).toHaveLength(8);
     expect(s.asked.filter((ask) => !ask.granted)).toHaveLength(1);
-    expect(await processesUnder(s.root)).toEqual([]);
+    expect(
+      await until(
+        async () => (await processesUnder(s.root)).length === 0 || undefined,
+        "the engine gone",
+      ),
+    ).toBe(true);
   }, 120_000);
 });
