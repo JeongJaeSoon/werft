@@ -29,10 +29,6 @@ import {
 // The scale of the cost column, so a replay compares what was stored.
 const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
 
-// Thrown to roll back an issue whose key and attempt another issue took
-// first, its reservation with it.
-class AlreadyIssued extends Error {}
-
 function requesterUserOf(root: BudgetRoot): string | null {
   if (root.kind === "user") return root.userId;
   if (root.kind === "key" && root.keyKind === "personal") {
@@ -46,7 +42,25 @@ function issueIn(
   input: ConversationCallIssueInput,
 ): Promise<ConversationCallIssue> {
   return db.transaction(async (tx): Promise<ConversationCallIssue> => {
+    // Two issues of one key and attempt take it in turn, so the later one
+    // reads the earlier one's row below whatever its account holds.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext('conversation_call_key'), hashtext(${`${input.agentId}:${input.callKey}:${input.attempt}`}))`,
+    );
     await lockBudgetCall(tx, input.callId);
+    // Before the conversation's checks: a replay is one even once the
+    // buffer has dropped the topic its call named.
+    const [taken] = await tx
+      .select({ id: conversationCalls.id })
+      .from(conversationCalls)
+      .where(
+        and(
+          eq(conversationCalls.agentId, input.agentId),
+          eq(conversationCalls.callKey, input.callKey),
+          eq(conversationCalls.attempt, input.attempt),
+        ),
+      );
+    if (taken) return { outcome: "already_issued" };
     // The agent's team, while neither is deleted or archived: as the
     // session calls choose it (exchange-budget.ts).
     const [agent] = await tx
@@ -90,17 +104,6 @@ function issueIn(
         .for("key share");
       if (!topic) return { outcome: "unknown_conversation" };
     }
-    const [taken] = await tx
-      .select({ id: conversationCalls.id })
-      .from(conversationCalls)
-      .where(
-        and(
-          eq(conversationCalls.agentId, input.agentId),
-          eq(conversationCalls.callKey, input.callKey),
-          eq(conversationCalls.attempt, input.attempt),
-        ),
-      );
-    if (taken) return { outcome: "already_issued" };
     const choice = chooseBudgetAccount(input.root, agent.teamId);
     const reserved = await reserveBudgetIn(tx, {
       callId: input.callId,
@@ -144,44 +147,27 @@ function issueIn(
         callKey: input.callKey,
         attempt: input.attempt,
       })
-      // An issue of the same key and attempt that committed since the
-      // check above.
-      .onConflictDoNothing({
-        target: [
-          conversationCalls.agentId,
-          conversationCalls.callKey,
-          conversationCalls.attempt,
-        ],
-      })
       .returning({ expiresAt: conversationCalls.expiresAt });
-    if (!row) throw new AlreadyIssued();
+    if (!row) throw new Error("conversation call row missing after insert");
     return { outcome: "issued", expiresAt: row.expiresAt };
   });
 }
 
 /**
  * Locks, in the one order every writer of a conversation call takes them:
- * budget-accounts.ts's call lock first, then this call's row, then the
- * reservation row and the account row (the budget ledger's own order). The
- * issue holds the account row while it inserts the call's row, which only
- * an issue of the same key and attempt waits on, holding no lock the first
- * one needs. The issue key-share locks the call's topic first, so the buffer
- * does not drop it in between. The grant question takes the call's row
- * alone, never an account.
+ * an issue's lock on its key and attempt first, then budget-accounts.ts's
+ * call lock, then this call's row, then the reservation row and the account
+ * row (the budget ledger's own order). The issue holds the account row while
+ * it inserts the call's row, which no one can wait on before it commits. It
+ * key-share locks the call's topic before that, so the buffer does not drop
+ * the topic in between. The grant question takes the call's row alone, never
+ * an account.
  */
 export function createPostgresConversationCalls(
   db: Database,
 ): ConversationCallStore {
   return {
-    async issueAtomic(input) {
-      try {
-        return await issueIn(db, input);
-      } catch (error) {
-        if (error instanceof AlreadyIssued)
-          return { outcome: "already_issued" };
-        throw error;
-      }
-    },
+    issueAtomic: (input) => issueIn(db, input),
 
     authorizeAtomic(input) {
       return db.transaction(async (tx) => {

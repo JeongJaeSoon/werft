@@ -933,8 +933,10 @@ test("the buffer drops the last input of a topic a call names: the topic goes, t
     body: "unheard",
     bufferExpiresAt: new Date(Date.now() + 60_000),
   });
+  const callKey = keyOf();
   const call = await issued(agentId, person(crypto.randomUUID()), {
     topicId,
+    callKey,
   });
   // The foreign keys' actions run from here on.
   await client.exec("SET session_replication_role = origin");
@@ -953,4 +955,12 @@ test("the buffer drops the last input of a topic a call names: the topic goes, t
     topicId: null,
     callClass: "m1",
   });
+  // Sent again after its topic went: still the one call.
+  expect(
+    await issue(agentId, person(crypto.randomUUID()), CONNECTION, {
+      topicId,
+      callKey,
+    }),
+  ).toEqual({ outcome: "already_issued" });
+  expect(await db.select().from(budgetReservations)).toHaveLength(1);
 });

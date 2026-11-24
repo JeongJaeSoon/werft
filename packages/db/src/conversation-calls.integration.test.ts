@@ -41,6 +41,7 @@ import {
   memberTeams,
   workspaces,
 } from "./schema.ts";
+import { makeFixtureRelease } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -276,31 +277,110 @@ integration("conversation calls on PostgreSQL", () => {
     }
   });
 
-  test("eight issues of one key and attempt at once: one call, held once", async () => {
+  // On an account that holds one call: a later issue that missed the
+  // earlier one's row would be refused instead of told it is a replay.
+  test("eight issues of one key and attempt at once on an account that holds one: one call, the rest replays", async () => {
     const userId = crypto.randomUUID();
+    await saveBudgetLimit(
+      db,
+      workspaceId,
+      { kind: "user", userId },
+      { costUsd: null, tokens: RESERVE.tokens * 2 - 1 },
+    );
     const callKey = keyOf();
     const results = await Promise.all(
       Array.from({ length: 8 }, () => issue(userId, { callKey })),
     );
-    expect(
-      results.filter((result) => result.outcome === "issued"),
-    ).toHaveLength(1);
-    expect(
-      results.filter((result) => result.outcome === "already_issued"),
-    ).toHaveLength(7);
+    expect(results.map((result) => result.outcome).sort()).toEqual([
+      ...Array.from({ length: 7 }, () => "already_issued" as const),
+      "issued",
+    ]);
     const rows = await db
       .select({ id: conversationCalls.id })
       .from(conversationCalls)
       .where(eq(conversationCalls.callKey, callKey));
     expect(rows).toHaveLength(1);
-    const reservations = await db
-      .select({ id: budgetReservations.callId })
-      .from(budgetReservations)
-      .where(eq(budgetReservations.callId, rows[0]?.id as string));
-    expect(reservations).toHaveLength(1);
     expect(await accountOf(userId)).toMatchObject({
       reservedTokens: RESERVE.tokens,
     });
+  });
+
+  test("eight people's issues of one key and attempt at once: one call, held on one account", async () => {
+    const userIds = Array.from({ length: 8 }, () => crypto.randomUUID());
+    const callKey = keyOf();
+    const results = await Promise.all(
+      userIds.map((userId) => issue(userId, { callKey })),
+    );
+    expect(results.map((result) => result.outcome).sort()).toEqual([
+      ...Array.from({ length: 7 }, () => "already_issued" as const),
+      "issued",
+    ]);
+    const rows = await db
+      .select({ id: conversationCalls.id })
+      .from(conversationCalls)
+      .where(eq(conversationCalls.callKey, callKey));
+    expect(rows).toHaveLength(1);
+    const held = await Promise.all(
+      userIds.map(
+        async (userId) => (await accountOf(userId))?.reservedTokens ?? 0,
+      ),
+    );
+    expect(held.reduce((total, tokens) => total + tokens, 0)).toBe(
+      RESERVE.tokens,
+    );
+    const reservations = await pool.query(
+      "SELECT call_id FROM budget_reservations WHERE call_id NOT IN (SELECT id FROM conversation_calls)",
+    );
+    expect(reservations.rows).toEqual([]);
+  });
+
+  test("a call names its agent's release; another agent's release is refused with nothing held", async () => {
+    const releaseId = await makeFixtureRelease(db, { workspaceId });
+    const {
+      rows: [release],
+    } = await pool.query("SELECT agent_id FROM agent_releases WHERE id = $1", [
+      releaseId,
+    ]);
+    const releaseAgent = release.agent_id as string;
+    const releaseConversation = conversationIdSchema.parse(crypto.randomUUID());
+    await pool.query(
+      "INSERT INTO conversations (id, workspace_id, agent_id, kind, team_id, channel_id) VALUES ($1, $2, $3, 'channel', $4, $5)",
+      [releaseConversation, workspaceId, releaseAgent, TEAM, CHANNEL],
+    );
+    const calls = createConversationCalls({ store: store(), catalog });
+    const base = {
+      workspaceId,
+      topicId: null,
+      callClass: "m1" as const,
+      releaseId,
+      attempt: 1,
+      connectionId: CONNECTION,
+      ...LIMITS,
+    };
+    const own = await calls.issue({
+      ...base,
+      agentId: releaseAgent,
+      conversationId: releaseConversation,
+      callKey: keyOf(),
+      root: { kind: "user", userId: crypto.randomUUID() },
+    });
+    if (own.outcome !== "issued") throw new Error(own.outcome);
+    const [row] = await db
+      .select({ releaseId: conversationCalls.releaseId })
+      .from(conversationCalls)
+      .where(eq(conversationCalls.id, own.callId));
+    expect(row?.releaseId).toBe(releaseId);
+    const userId = crypto.randomUUID();
+    await expect(
+      calls.issue({
+        ...base,
+        agentId,
+        conversationId,
+        callKey: keyOf(),
+        root: { kind: "user", userId },
+      }),
+    ).rejects.toThrow("conversation_calls_release_fk");
+    expect((await accountOf(userId))?.reservedTokens ?? 0).toBe(0);
   });
 
   test("the buffer drops the last input of a topic a call names: the topic goes, the call stays with no topic", async () => {
