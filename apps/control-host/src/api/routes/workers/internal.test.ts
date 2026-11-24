@@ -47,19 +47,20 @@ const app = createApiApp({
     }),
 });
 
-// Middleware is registered as ALL and takes next; an endpoint mounted with
-// all() is ALL too, so it is called with both a read and a write.
+// Every entry is called, middleware included: an endpoint mounted with all()
+// is ALL too and the two look alike in the table. A wildcard path matches no
+// endpoint of its own, so 404 is the one other answer it may give.
 const internalRoutes = app.routes
   .filter(
     (route) =>
-      (route.path === "/internal" || route.path.startsWith("/internal/")) &&
-      !(route.method === "ALL" && route.handler.length > 1),
+      route.path === "/internal" || route.path.startsWith("/internal/"),
   )
   .flatMap((route) =>
     (route.method === "ALL" ? ["GET", "POST"] : [route.method]).map(
       (method) => ({
         method,
         path: route.path.replace(/:[^/]+/g, "x").replace(/\*/g, "x"),
+        allowed: route.path.includes("*") ? [401, 403, 404] : [401, 403],
       }),
     ),
   );
@@ -77,14 +78,14 @@ describe("/internal shares the public listener, so every route needs its own bea
   });
 
   test.each(internalRoutes)(
-    "$method $path without a bearer is 401 or 403",
-    async ({ method, path }) => {
+    "$method $path without a bearer is refused",
+    async ({ method, path, allowed }) => {
       const response = await app.request(path, {
         method,
         headers: { "content-type": "application/json" },
         ...(method === "GET" || method === "HEAD" ? {} : { body: "{}" }),
       });
-      expect([401, 403]).toContain(response.status);
+      expect(allowed).toContain(response.status);
     },
   );
 });
