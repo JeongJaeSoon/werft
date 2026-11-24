@@ -31,6 +31,13 @@ describe("clientNetworkOf", () => {
     expect(clientNetworkOf("0:0:0:0:0:FFFF:CB00:710A")?.network).toBe(
       "203.0.113.10",
     );
+    for (const spelling of [
+      "0::ffff:203.0.113.9",
+      "0:0:0:0:0:ffff:203.0.113.9",
+      "::FFFF:203.0.113.9",
+    ]) {
+      expect(clientNetworkOf(spelling)?.network).toBe("203.0.113.9");
+    }
     expect(clientNetworkOf("::ffff:a00:1")).toEqual({
       network: "10.0.0.1",
       private: true,

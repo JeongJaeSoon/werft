@@ -37,6 +37,16 @@ function ipv6Groups(address: string): number[] | null {
   return groups.every((group) => group >= 0 && group <= 0xffff) ? groups : null;
 }
 
+/** An IPv6 address's dotted IPv4 tail as its two last groups. */
+function withHexTail(address: string): string {
+  const colon = address.lastIndexOf(":");
+  const tail = address.slice(colon + 1);
+  if (isIP(tail) !== 4) return address;
+  const [a = 0, b = 0, c = 0, d = 0] = tail.split(".").map(Number);
+  const hex = (n: number) => n.toString(16);
+  return `${address.slice(0, colon + 1)}${hex(a * 256 + b)}:${hex(c * 256 + d)}`;
+}
+
 /** Null for anything that is not one IP address. */
 export function clientNetworkOf(raw: string): ClientNetwork | null {
   let address = raw.trim();
@@ -44,16 +54,14 @@ export function clientNetworkOf(raw: string): ClientNetwork | null {
     address = address.slice(1, -1);
   }
   address = address.split("%")[0] ?? "";
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
-  if (mapped?.[1]) address = mapped[1];
   const version = isIP(address);
   if (version === 4) {
     return { network: address, private: ipv4Private(address) };
   }
   if (version !== 6) return null;
-  const groups = ipv6Groups(address);
+  const groups = ipv6Groups(withHexTail(address));
   if (!groups) return null;
-  // ::ffff:a.b.c.d written in hex is the same IPv4 client.
+  // ::ffff:a.b.c.d, however it is written, is one IPv4 client.
   if (
     groups.slice(0, 5).every((group) => group === 0) &&
     groups[5] === 0xffff
