@@ -180,7 +180,7 @@ done
 curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/readyz
 ```
 
-200 が返れば port-forward は api に届いています。その前の TLS reverse proxy は、[アクセス経路](/run-server/self-hosting/access)の proxy 例を upstream `127.0.0.1:3000` のまま使います。proxy は `/internal` とその下のパスを api に渡さずに拒否し、ブラウザが送った `Host` をそのまま渡し、SSE の buffering を切ります。手順 3 の `CONSOLE_ORIGIN` はこの proxy の https origin です。
+200 が返れば port-forward は api に届いています。その前の TLS reverse proxy は、[アクセス経路の公開入口](/run-server/self-hosting/access#공개-입구-slack-경로만-열기)の節にあるコンソール入口の `server` ブロックを upstream `127.0.0.1:3000` のまま使います。proxy は `/internal` とその下のパスを api に渡さずに拒否し、ブラウザが送った `Host` をそのまま渡し、SSE の buffering を切ります。手順 3 の `CONSOLE_ORIGIN` はこの proxy の https origin です。
 
 パスにバックスラッシュ（`\`）や `%5C` を含むリクエストは、前段で 400 で拒否します。chart の ALB Ingress を使う場合も、別の controller や自分で置いた proxy を使う場合も同じです。api の Bun は生のバックスラッシュを `/` に変えてからルーティングするため、`/x/..\internal/x` が `/internal/x` に届くことがあります。ALB でも規則で塞ぎます。
 

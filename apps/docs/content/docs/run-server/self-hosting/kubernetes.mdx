@@ -172,7 +172,7 @@ done
 curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/readyz
 ```
 
-200이 나오면 port-forward가 api에 닿은 것이다. 그 앞의 TLS reverse proxy는 [접속 경로](/run-server/self-hosting/access)의 proxy 예시를 upstream `127.0.0.1:3000` 그대로 쓴다. proxy는 `/internal`과 그 아래 경로를 api에 넘기지 않고 거절하며, 브라우저가 보낸 `Host`를 그대로 넘기고, SSE buffering을 끈다. 3단계의 `CONSOLE_ORIGIN`은 이 proxy의 https origin이다.
+200이 나오면 port-forward가 api에 닿은 것이다. 그 앞의 TLS reverse proxy는 [접속 경로의 공개 입구](/run-server/self-hosting/access#공개-입구-slack-경로만-열기) 절에 있는 콘솔 입구 `server` 블록을 upstream `127.0.0.1:3000` 그대로 쓴다. proxy는 `/internal`과 그 아래 경로를 api에 넘기지 않고 거절하며, 브라우저가 보낸 `Host`를 그대로 넘기고, SSE buffering을 끈다. 3단계의 `CONSOLE_ORIGIN`은 이 proxy의 https origin이다.
 
 경로에 백슬래시(`\`)나 `%5C`가 든 요청은 앞단에서 400으로 막는다. chart의 ALB Ingress를 쓸 때도, 다른 controller나 직접 둔 proxy를 쓸 때도 같다. api의 Bun은 원문 백슬래시를 `/`로 바꿔 라우팅하므로 `/x/..\internal/x`가 `/internal/x`로 닿을 수 있다. ALB에서도 규칙으로 막는다.
 

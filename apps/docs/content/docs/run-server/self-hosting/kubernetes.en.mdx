@@ -180,7 +180,7 @@ done
 curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/readyz
 ```
 
-A 200 means the port-forward reaches the api. For the TLS reverse proxy in front of it, use the proxy example in [Access](/run-server/self-hosting/access) with its upstream `127.0.0.1:3000` unchanged. The proxy refuses `/internal` and everything under it instead of forwarding it to the api, forwards the browser's `Host` unchanged, and turns off SSE buffering. `CONSOLE_ORIGIN` from step 3 is this proxy's https origin.
+A 200 means the port-forward reaches the api. For the TLS reverse proxy in front of it, use the console entrance `server` block in [Public entrance](/run-server/self-hosting/access#공개-입구-slack-경로만-열기) in Access, with its upstream `127.0.0.1:3000` unchanged. The proxy refuses `/internal` and everything under it instead of forwarding it to the api, forwards the browser's `Host` unchanged, and turns off SSE buffering. `CONSOLE_ORIGIN` from step 3 is this proxy's https origin.
 
 Refuse requests whose path contains a backslash (`\`) or `%5C` with 400 at the front. This holds with the chart's ALB Ingress as well as with another controller or a proxy you run yourself. The api's Bun turns a raw backslash into `/` before routing, so `/x/..\internal/x` can reach `/internal/x`. On ALB, block them with a rule as well.
 
