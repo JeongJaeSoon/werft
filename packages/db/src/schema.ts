@@ -5804,12 +5804,12 @@ export const conversationInputs = pgTable(
     /**
      * A buffered Slack message's text, held until `buffer_expires_at`, or a
      * web input's: a copy of its turn row's, kept while an image before
-     * 0344 may still read it here.
+     * 0345 may still read it here.
      */
     body: text(),
     /**
      * A web input's turn row, which holds its text. Written with the input
-     * from 0344; the start pass gives older ones theirs.
+     * from 0345; the start pass gives older ones theirs.
      */
     conversationTurnId: uuid(
       "conversation_turn_id",
@@ -5837,7 +5837,7 @@ export const conversationInputs = pgTable(
       )
       .where(sql`${table.clientMessageId} IS NOT NULL`),
     // A Slack input has a turn and no web fields; a web input is a user's,
-    // with its text, and from 0344 its turn row and the text's hash, and
+    // with its text, and from 0345 its turn row and the text's hash, and
     // whether Slack is to mirror it; a buffered Slack
     // message has its text, its poster and its end, and no turn. A NULL
     // operand makes "IN" NULL, which a CHECK passes; hence IS NOT NULL.

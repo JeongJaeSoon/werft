@@ -30,7 +30,7 @@ const TEAM = "T0TURNS";
 const CHANNEL = "C0TURNS";
 const THREAD = "1700000000.000100";
 
-describe("conversation turns (0344)", () => {
+describe("conversation turns (0345)", () => {
   let client: PGlite;
   let db: Database;
   let workspaceId: string;

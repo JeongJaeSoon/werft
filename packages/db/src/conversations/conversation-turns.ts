@@ -209,7 +209,7 @@ export type WebInputTurnsBackfilled = {
 };
 
 /**
- * Gives each web input taken before 0344 a turn row of its own holding its
+ * Gives each web input taken before 0345 a turn row of its own holding its
  * text, the way a web input is taken now, and keeps the text's hash for its
  * retries; the input row keeps its copy. One input per transaction, in batches of `batch`; an API
  * start runs it, and one that failed is tried again on the next.

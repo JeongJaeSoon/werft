@@ -80,7 +80,7 @@ export function createPostgresConversationInputStore(
       );
       if (membership === undefined) return { outcome: "not_member" };
       // Compared on the text's hash as written, no trimming or normalizing,
-      // so the text itself is not read again; one taken before 0344 and not
+      // so the text itself is not read again; one taken before 0345 and not
       // yet moved by the start pass is hashed here.
       const bodyHash = webInputBodyHash(request.body);
       const [earlier] = rowsOf<InputRow & { same_body: boolean }>(
@@ -152,7 +152,7 @@ export function createPostgresConversationInputStore(
         topicId = topic.id;
       }
       // The text goes to the input's turn row, which the input row points at;
-      // the input row keeps a copy for an image before 0344.
+      // the input row keeps a copy for an image before 0345.
       const turnId = await insertWebInputTurn(tx, {
         workspaceId: request.workspaceId,
         agentId,
