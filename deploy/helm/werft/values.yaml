@@ -381,6 +381,20 @@ worker:
     # the cluster default applies: verify enforcement for each PVC. Werft does not
     # verify it. The declaration path leaves inode enforcement unknown.
     enforcedByStorage: false
+  # A DaemonSet that pulls the worker images onto each worker node ahead of
+  # the first session there, and again when an upgrade changes them: the
+  # unretracted images.workers entries, or images.worker and
+  # images.workerPrevious. Each image is a container that only runs `true`;
+  # the Pod then sleeps on images.controlHost. Off by default.
+  prePull:
+    enabled: false
+    # Each container's.
+    resources:
+      requests: {cpu: 10m, memory: 16Mi}
+      limits: {memory: 64Mi}
+    # Empty: worker.nodeSelector and worker.tolerations.
+    nodeSelector: {}
+    tolerations: []
 
 # Codex auto mode runs each command in Codex's bubblewrap sandbox: the
 # workspace writable, the rest read-only, the network still behind the egress
