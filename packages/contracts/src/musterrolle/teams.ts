@@ -86,6 +86,42 @@ export const deleteTeamResponseSchema = z
   .object({ receipt_id: receiptIdSchema })
   .strict();
 
+// A team's monthly budget limit (the agent team's budget account, 94S-1995):
+// what the agent's own work (root none) is held to, months cut in UTC. Each
+// part may be unset; with neither the team has no limit, and the agent's own
+// work is refused. The cost fits the ledger's numeric(14, 6).
+export const TEAM_BUDGET_COST_USD_MAX = 99_999_999;
+export const teamBudgetLimitSchema = z
+  .object({
+    cost_usd: z
+      .number()
+      .nonnegative()
+      .max(TEAM_BUDGET_COST_USD_MAX)
+      .nullable()
+      .meta({
+        description:
+          "USD a month, to six decimals; null leaves cost unlimited.",
+      }),
+    tokens: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(Number.MAX_SAFE_INTEGER)
+      .nullable()
+      .meta({ description: "Tokens a month; null leaves tokens unlimited." }),
+  })
+  .strict();
+export const putTeamBudgetLimitRequestSchema = teamBudgetLimitSchema;
+export const teamBudgetLimitResponseSchema = z
+  .object({ team_id: teamIdSchema, limit: teamBudgetLimitSchema })
+  .strict();
+export const putTeamBudgetLimitResponseSchema = teamBudgetLimitResponseSchema
+  .extend({
+    /** Null when the limit already was what was asked: nothing was written. */
+    receipt_id: receiptIdSchema.nullable(),
+  })
+  .strict();
+
 export const TEAM_SEARCH_MAX_CHARS = 200;
 export const listTeamsQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().min(1).max(TEAM_SEARCH_MAX_CHARS).optional().meta({
@@ -200,6 +236,16 @@ export type CreateTeamRequest = z.infer<typeof createTeamRequestSchema>;
 export type UpdateTeamRequest = z.infer<typeof updateTeamRequestSchema>;
 export type TeamChangeResponse = z.infer<typeof teamChangeResponseSchema>;
 export type DeleteTeamResponse = z.infer<typeof deleteTeamResponseSchema>;
+export type TeamBudgetLimit = z.infer<typeof teamBudgetLimitSchema>;
+export type PutTeamBudgetLimitRequest = z.infer<
+  typeof putTeamBudgetLimitRequestSchema
+>;
+export type TeamBudgetLimitResponse = z.infer<
+  typeof teamBudgetLimitResponseSchema
+>;
+export type PutTeamBudgetLimitResponse = z.infer<
+  typeof putTeamBudgetLimitResponseSchema
+>;
 export type ListTeamsQuery = z.infer<typeof listTeamsQuerySchema>;
 export type ListTeamsResponse = z.infer<typeof listTeamsResponseSchema>;
 export type AgentAdminKind = z.infer<typeof agentAdminKindSchema>;

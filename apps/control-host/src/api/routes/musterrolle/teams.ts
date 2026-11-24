@@ -12,9 +12,12 @@ import {
   listMyTeamsResponseSchema,
   listTeamsQuerySchema,
   listTeamsResponseSchema,
+  putTeamBudgetLimitRequestSchema,
+  putTeamBudgetLimitResponseSchema,
   setAgentManagingTeamRequestSchema,
   setAgentManagingTeamResponseSchema,
   setTeamMemberRoleRequestSchema,
+  teamBudgetLimitResponseSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
   teamIdParamsSchema,
@@ -117,6 +120,23 @@ export function registerTeamRoutes(
       ),
     );
     return jsonWithSchema(context, teamChangeResponseSchema, changed);
+  });
+
+  apiRoute(router, "getTeamBudgetLimit", async (context) => {
+    const params = requireParams(context, teamIdParamsSchema);
+    const read = await mapped(() =>
+      teams.getTeamBudgetLimit(context.get("caller"), params.team_id),
+    );
+    return jsonWithSchema(context, teamBudgetLimitResponseSchema, read);
+  });
+
+  apiRoute(router, "putTeamBudgetLimit", async (context) => {
+    const params = requireParams(context, teamIdParamsSchema);
+    const body = await parseJsonBody(context, putTeamBudgetLimitRequestSchema);
+    const saved = await mapped(() =>
+      teams.putTeamBudgetLimit(context.get("caller"), params.team_id, body),
+    );
+    return jsonWithSchema(context, putTeamBudgetLimitResponseSchema, saved);
   });
 
   apiRoute(router, "setAgentManagingTeam", async (context) => {
