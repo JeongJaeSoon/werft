@@ -30,11 +30,11 @@ scripts/test-ops.sh stop
 scripts/test-ops.sh start
 ```
 
-`stop` は api、scheduler、reconciler とセッションが作った worker を停止し、コンテナと network を削除しますが、volume は残します。`start` は状態ディレクトリの `current.json` が示す release をそのまま起動し、healthcheck を待ちます。`stop`、`compose down`、ホスト再起動のいずれで停止した場合も同じです。`deploy` は使いません。release が記録済みなら `deploy` は `use upgrade` と表示して拒否し、停止中の環境では postgres がないため `upgrade` が失敗します。一度も deploy していないホストや、未完了のアップグレード（`pending.json`）がある環境では `start` も拒否します。後者は同じ release ファイルで `upgrade` を再実行して解消します。
+`stop` は api、slack、scheduler、reconciler、maintenance とセッションが作った worker を停止し、コンテナと network を削除しますが、volume は残します。`start` は状態ディレクトリの `current.json` が示す release をそのまま起動し、healthcheck を待ちます。`stop`、`compose down`、ホスト再起動のいずれで停止した場合も同じです。`deploy` は使いません。release が記録済みなら `deploy` は `use upgrade` と表示して拒否し、停止中の環境では postgres がないため `upgrade` が失敗します。一度も deploy していないホストや、未完了のアップグレード（`pending.json`）がある環境では `start` も拒否します。後者は同じ release ファイルで `upgrade` を再実行して解消します。
 
 `start` は checkout が release の source commit と違っても、`infra/` がその commit と同じなら起動します。checkout から読み込むのは compose ファイルだけだからです。
 
-env ファイルの値を変えた環境にも、`scripts/test-ops.sh start` で同じ release を再適用します。実行中の環境なら、変わった値を受け取る api・scheduler・reconciler とその依存サービスのコンテナだけを作り直し、変わらないコンテナと volume には触れません。
+env ファイルの値を変えた環境にも、`scripts/test-ops.sh start` で同じ release を再適用します。実行中の環境なら、変わった値を受け取る api・scheduler・reconciler・slack・maintenance とその依存サービスのコンテナだけを作り直し、変わらないコンテナと volume には触れません。
 
 DB と workspace volume は残ります。LocalStack は volume を使わずメモリに保存するため、コンテナを削除すると `-v` がなくても checkpoint object が消えます。LocalStack 試験環境の API は、次の起動時に DB に残った未回収 checkpoint を諦めてから起動し、失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になります。そのため、その環境の `stop` と `start` はセッションの文脈を失います。文脈を守るには、停止する前に[試験環境の計画的な再起動](/run-server/self-hosting/try-localstack#자주-막히는-곳)に従います。
 

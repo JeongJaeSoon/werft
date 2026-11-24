@@ -27,7 +27,7 @@ You need a healthy installation, separately stored copies of the current release
 scripts/test-ops.sh backup
 ```
 
-The command stops api, scheduler, reconciler, and workers, bundles the database and objects into `backups/backup-<timestamp>` under the state directory, then restarts services. Check for active turns before starting: they are interrupted and can later be reclaimed. Never use failed (`.failed`) or incomplete (`.partial`) backups as successful ones. The command fails if it cannot restart services, even if the backup itself finished.
+The command stops api, slack, scheduler, reconciler, maintenance, and workers, bundles the database and objects into `backups/backup-<timestamp>` under the state directory, then restarts services. Check for active turns before starting: they are interrupted and can later be reclaimed. Never use failed (`.failed`) or incomplete (`.partial`) backups as successful ones. The command fails if it cannot restart services, even if the backup itself finished.
 
 Run this daily during a quiet period and immediately before every upgrade. An example retention policy is 14 days on the host and 90 days in an encrypted external store. Alert if no new successful backup exists for 26 hours, the command exits non-zero, or services fail to resume.
 
@@ -56,6 +56,8 @@ docker exec -e CHECKPOINT_GC_DRY_RUN=1 "$API_CONTAINER" \
 ```
 
 Identify API_CONTAINER from this installation's status and project label. Review the objects to retain and delete in the output, then run without the dry-run environment variable. Do not select another installation in the default Compose project. Kubernetes uses the chart's `checkpointGc.schedule`.
+
+On a single-server installation, the `maintenance` service runs checkpoint GC once a week (`MAINTENANCE_INTERVAL_SEC`, default 604800 seconds), followed by session archive. Finish the dry-run review above before its first run. To keep the scheduled run a dry run too, add `CHECKPOINT_GC_DRY_RUN=true` to the env file and reapply it with `scripts/test-ops.sh start`. `backup` stops `maintenance` while it runs.
 
 <a id="확인" />
 ## Verify
