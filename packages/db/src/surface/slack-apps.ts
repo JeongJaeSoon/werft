@@ -18,6 +18,7 @@ import {
 } from "@werft-ai/platform";
 import {
   and,
+  asc,
   desc,
   eq,
   inArray,
@@ -44,6 +45,7 @@ import {
   receipts,
   slackApps,
   slackInstallations,
+  surfaceBindings,
   workspaces,
 } from "../schema.ts";
 import {
@@ -1008,11 +1010,12 @@ export function createPostgresSlackAppStore(
       const workspaceId = input.workspaceId.toLowerCase();
       const slackAppId = input.slackAppId.toLowerCase();
       return db.transaction(async (tx) => {
-        // The agent first, as an archive takes it: an archive revokes
-        // bindings before identities, this close the other way round, so the
-        // two must queue before either holds a row of the other's.
+        // The agents first, as an archive takes its agent: an archive
+        // revokes bindings before identities, this close the other way round,
+        // so the two must queue before either holds a row of the other's.
+        // An install's identity or binding may be another agent's.
         const [owner] = await tx
-          .select({ agentId: slackApps.agentId })
+          .select({ agentId: slackApps.agentId, appId: slackApps.appId })
           .from(slackApps)
           .where(
             and(
@@ -1020,11 +1023,37 @@ export function createPostgresSlackAppStore(
               eq(slackApps.workspaceId, workspaceId),
             ),
           );
-        if (owner?.agentId) {
+        const touched = new Set<string>();
+        if (owner?.agentId) touched.add(owner.agentId);
+        if (owner?.appId) {
+          const installs = and(
+            eq(slackInstallations.workspaceId, workspaceId),
+            eq(slackInstallations.appId, owner.appId),
+          );
+          const held = await tx
+            .selectDistinct({ agentId: agentIdentities.agentId })
+            .from(agentIdentities)
+            .innerJoin(
+              slackInstallations,
+              eq(slackInstallations.id, agentIdentities.installationId),
+            )
+            .where(and(installs, eq(agentIdentities.status, "active")));
+          const bound = await tx
+            .selectDistinct({ agentId: surfaceBindings.agentId })
+            .from(surfaceBindings)
+            .innerJoin(
+              slackInstallations,
+              eq(slackInstallations.id, surfaceBindings.installationId),
+            )
+            .where(and(installs, isNull(surfaceBindings.revokedAt)));
+          for (const { agentId } of [...held, ...bound]) touched.add(agentId);
+        }
+        if (touched.size > 0) {
           await tx
             .select({ id: agents.id })
             .from(agents)
-            .where(eq(agents.id, owner.agentId))
+            .where(inArray(agents.id, [...touched]))
+            .orderBy(asc(agents.id))
             .for("key share");
         }
         // NO KEY UPDATE, not lockedApp's FOR UPDATE: an outbox insert holds a
