@@ -186,6 +186,7 @@ describe("database schema", () => {
       "conversation_engagements",
       "conversation_inputs",
       "conversation_topics",
+      "conversation_turn_permits",
       "conversation_turns",
       "conversations",
       "credential_bindings",

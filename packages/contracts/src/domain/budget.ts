@@ -53,6 +53,19 @@ export const CONVERSATION_CALL_STATE_VALUES = [
 export type ConversationCallState =
   (typeof CONVERSATION_CALL_STATE_VALUES)[number];
 
+/**
+ * Why a conversation turn's permit was refused a call, as its row keeps it:
+ * the account could not hold it, a call limit was full, or the turn had
+ * made as many calls as a turn may.
+ */
+export const CONVERSATION_TURN_CALL_REFUSAL_VALUES = [
+  "budget",
+  "concurrency",
+  "turn_limit",
+] as const;
+export type ConversationTurnCallRefusal =
+  (typeof CONVERSATION_TURN_CALL_REFUSAL_VALUES)[number];
+
 export const conversationCallIdSchema = z.uuid().brand<"ConversationCallId">();
 export type ConversationCallId = z.infer<typeof conversationCallIdSchema>;
 
