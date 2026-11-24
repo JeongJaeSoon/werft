@@ -147,6 +147,10 @@ export function createSlackNoticeService(deps: {
       body: ApproveSlackNoticeRequest,
     ) {
       const { place, userId } = await reader(caller, agentId);
+      // Who may approve is answered before what is approved; the write checks again under its lock.
+      if (!(await managesWorkspace(deps.db, place.workspaceId, userId))) {
+        throw NOT_ADMIN();
+      }
       const window = slackNoticeWindow(versions);
       if (window === null) {
         throw refused(

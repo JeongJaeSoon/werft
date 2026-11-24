@@ -219,6 +219,25 @@ describe("Slack notice", () => {
     expect(
       within(notice).getByRole("button", { name: "다시 승인" }),
     ).toBeDefined();
+    expect(
+      within(notice).getByRole("button", { name: "승인 철회" }),
+    ).toBeDefined();
+  });
+
+  test("an approval of one Slack team stays withdrawable while another team waits for one", async () => {
+    renderAt(
+      DETAIL,
+      routes(() =>
+        json(200, view({ state: "not_approved", approvals: [APPROVAL] })),
+      ),
+    );
+    const notice = await section();
+    await waitFor(() =>
+      expect(
+        within(notice).getByRole("button", { name: "승인 철회" }),
+      ).toBeDefined(),
+    );
+    expect(within(notice).getByRole("button", { name: "승인" })).toBeDefined();
   });
 
   test("whoever may not approve reads the notice and who approved it, without buttons or email", async () => {

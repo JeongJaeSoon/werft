@@ -113,28 +113,39 @@ export function SlackNoticeSection({
     data.notice !== null &&
     data.state !== "not_installed" &&
     data.state !== "approved";
+  // Revoke follows the live approvals, not the state: one Slack team approved
+  // beside another not yet approved must still be withdrawable.
   const action = !data ? null : !data.can_approve ? (
     <Text as="p" variant="sub">
       {t("slack.notice.adminOnly")}
     </Text>
-  ) : data.state === "approved" ? (
-    <Button variant="danger" onClick={() => setRevoking(true)} disabled={busy}>
-      {t("slack.notice.revoke")}
-    </Button>
   ) : (
-    <Button
-      aria-disabled={!canApprove || busy}
-      onClick={() => {
-        if (canApprove && !busy && data.notice)
-          approve.mutate(data.notice.version);
-      }}
-    >
-      {t(
-        data.state === "reapproval_required"
-          ? "slack.notice.reapprove"
-          : "slack.notice.approve",
+    <div className="flex flex-wrap items-center gap-2">
+      {data.state === "approved" ? null : (
+        <Button
+          aria-disabled={!canApprove || busy}
+          onClick={() => {
+            if (canApprove && !busy && data.notice)
+              approve.mutate(data.notice.version);
+          }}
+        >
+          {t(
+            data.state === "reapproval_required"
+              ? "slack.notice.reapprove"
+              : "slack.notice.approve",
+          )}
+        </Button>
       )}
-    </Button>
+      {data.approvals.length > 0 ? (
+        <Button
+          variant="danger"
+          onClick={() => setRevoking(true)}
+          disabled={busy}
+        >
+          {t("slack.notice.revoke")}
+        </Button>
+      ) : null}
+    </div>
   );
   return (
     <SettingsSection

@@ -265,6 +265,12 @@ integration("Slack notice service on PostgreSQL", () => {
           notice_version: slackNoticeVersionSchema.parse(1),
           locale: "ko",
         }),
+      // A stale version is still a refusal of the person, not of the version.
+      () =>
+        notices.approve(ws.agentAdmin.caller, ws.agentId, {
+          notice_version: slackNoticeVersionSchema.parse(2),
+          locale: "ko",
+        }),
       () => notices.revoke(ws.agentAdmin.caller, ws.agentId),
     ]) {
       expect(await refusal(work())).toEqual({
@@ -375,6 +381,14 @@ integration("Slack notice service on PostgreSQL", () => {
         }),
       ),
     ).toEqual({ code: "REVISION_CONFLICT", reason: "no_notice" });
+    expect(
+      await refusal(
+        notices.approve(ws.agentAdmin.caller, ws.agentId, {
+          notice_version: slackNoticeVersionSchema.parse(1),
+          locale: "ko",
+        }),
+      ),
+    ).toEqual({ code: "FORBIDDEN", reason: "workspace_admin_required" });
   });
 
   test("an agent without a live Slack install cannot be approved", async () => {
