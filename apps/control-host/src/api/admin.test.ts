@@ -172,6 +172,32 @@ describe("bootstrapOwner", () => {
       await cleanup();
     }
   });
+
+  test("audits a link it issued even when the file cannot be written", async () => {
+    const { dir, cleanup } = await scratch();
+    try {
+      const out = join(dir, "owner-link.json");
+      const sink = new MemoryLogSink();
+      const { store, calls } = fakeStore();
+      // Not a URL: making the file's accept_url throws after the issue.
+      await expect(
+        bootstrapOwner(
+          { email: "owner@example.com", out },
+          {
+            store,
+            consoleOrigin: "not an origin",
+            audit: createLogger({ sinks: [sink] }),
+          },
+        ),
+      ).rejects.toThrow();
+      expect(calls).toHaveLength(1);
+      await expect(stat(out)).rejects.toThrow();
+      expect(sink.records).toHaveLength(1);
+      expect(sink.records[0]?.event).toBe("setup_link_issued");
+    } finally {
+      await cleanup();
+    }
+  });
 });
 
 describe("containerLogSink", () => {

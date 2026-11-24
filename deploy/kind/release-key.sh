@@ -30,8 +30,13 @@ kind_release_key() {
 # shellcheck source=../../scripts/lib/setup-link-token.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib/setup-link-token.sh"
 
-# kind_setup_link_token <fullname>: the token of a new setup link from the api
-# Deployment, or nothing once an owner exists (the command issues none then).
+# kind_setup_link_token <fullname>: the token of a new setup link from one api
+# Pod, or nothing once an owner exists (the command issues none then). The
+# Pod is picked once: deploy/<name> picks again on every exec, and the file
+# made in one Pod is not in another.
 kind_setup_link_token() {
-  setup_link_token "$E2E_OWNER_EMAIL" kubectl -n "$NAMESPACE" exec deploy/"$1"-api -- 2>/dev/null || true
+  local pod
+  pod="$(kubectl -n "$NAMESPACE" get pod -l app.kubernetes.io/component=api \
+    --field-selector=status.phase=Running -o name | grep -m 1 "^pod/$1-api-")" || return 0
+  setup_link_token "$E2E_OWNER_EMAIL" kubectl -n "$NAMESPACE" exec "$pod" -c api -- 2>/dev/null || true
 }

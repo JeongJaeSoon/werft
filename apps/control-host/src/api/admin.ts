@@ -129,7 +129,8 @@ export type BootstrapOwnerOutcome =
 /**
  * The file is created before the link is issued, so a path that cannot be
  * written leaves the earlier link in place; it is removed again when no link
- * is issued or the write fails.
+ * is issued or the write fails. The audit line goes out as soon as the link
+ * is issued, so a link that is live is on record even when the file write fails.
  */
 export async function bootstrapOwner(
   args: BootstrapOwnerArgs,
@@ -154,6 +155,11 @@ export async function bootstrapOwner(
     await handle.chmod(0o600);
     issued = await issueSetupToken(deps.store, args.email);
     if (issued !== null) {
+      auditSetupLinkIssued(deps.audit, {
+        id: issued.id,
+        email: args.email,
+        expiresAt: issued.expiresAt,
+      });
       await handle.writeFile(
         setupLinkFile(issued.token, issued.expiresAt, deps.consoleOrigin),
       );
@@ -169,11 +175,6 @@ export async function bootstrapOwner(
     await rm(path, { force: true });
     return { outcome: "owner_exists" };
   }
-  auditSetupLinkIssued(deps.audit, {
-    id: issued.id,
-    email: args.email,
-    expiresAt: issued.expiresAt,
-  });
   return { outcome: "issued", path, expiresAt: issued.expiresAt };
 }
 

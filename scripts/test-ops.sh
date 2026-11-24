@@ -896,7 +896,9 @@ key() {
 # The link is made inside the API container into a 0600 file there, copied to
 # --out on this host and removed from the container. ln makes --out only if
 # it does not exist, from a 0600 mktemp file beside it, so a file the operator
-# already has is never replaced. This terminal shows the file and the expiry.
+# already has is never replaced; a directory that appears at --out meanwhile
+# would take the link inside it, so that is undone and refused. This terminal
+# shows the file and the expiry.
 setup_link() {
   local inner printed expires tmp status=0
   load_current
@@ -909,6 +911,10 @@ setup_link() {
   tmp="$(mktemp "$(dirname -- "$SETUP_OUT")/.setup-link.XXXXXX")" || status=$?
   if [ "$status" = 0 ]; then
     { ops_compose exec -T api cat "$inner" </dev/null >"$tmp" && ln "$tmp" "$SETUP_OUT"; } || status=$?
+    if [ -d "$SETUP_OUT" ]; then
+      rm -f "$SETUP_OUT/${tmp##*/}"
+      status=1
+    fi
     rm -f "$tmp"
   fi
   ops_compose exec -T api rm -f "$inner" </dev/null || true
