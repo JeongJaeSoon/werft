@@ -68,6 +68,8 @@ export const bindingListenSchema = z.enum(BINDING_LISTEN_VALUES);
  */
 export const CONVERSATION_ROLLOUT_VALUES = ["off", "shadow", "on"] as const;
 export const conversationRolloutSchema = z.enum(CONVERSATION_ROLLOUT_VALUES);
+/** What the console and the operator command may set; `on` is not open yet. */
+export const SETTABLE_CONVERSATION_ROLLOUT_VALUES = ["off", "shadow"] as const;
 
 export const MEMORY_WRITE_POLICY_VALUES = ["deny", "allow_explicit"] as const;
 export const memoryWritePolicySchema = z.enum(MEMORY_WRITE_POLICY_VALUES);

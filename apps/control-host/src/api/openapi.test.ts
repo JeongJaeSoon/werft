@@ -509,6 +509,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack/notice",
         "/v1/agents/{id}/slack/notice/approve",
         "/v1/agents/{id}/slack/notice/revoke",
+        "/v1/agents/{id}/slack/notice/rollout",
         "/v1/agents/{id}/github",
         "/v1/agents/{id}/github/enabled",
         "/v1/agents/{id}/github/repositories",

@@ -114,6 +114,7 @@ function routes(app: typeof APP | null = null, installed = false) {
       json(200, {
         notice: null,
         state: "no_notice",
+        rollout: "off",
         can_approve: true,
         approvals: [],
       }),

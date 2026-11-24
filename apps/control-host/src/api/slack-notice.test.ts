@@ -17,6 +17,25 @@ describe("slack-notice arguments", () => {
       command: "list",
       workspaceId: id,
     });
+    expect(
+      parseSlackNoticeCommand([
+        "set-rollout",
+        "--agent",
+        id,
+        "--rollout",
+        "shadow",
+      ]),
+    ).toEqual({ command: "set-rollout", agentId: id, rollout: "shadow" });
+    // Parsed, to be refused by name: on is not open yet.
+    expect(
+      parseSlackNoticeCommand([
+        "set-rollout",
+        "--agent",
+        id,
+        "--rollout",
+        "on",
+      ]),
+    ).toEqual({ command: "set-rollout", agentId: id, rollout: "on" });
   });
 
   test("anything else is a usage error", () => {
@@ -35,6 +54,12 @@ describe("slack-notice arguments", () => {
       ["revoke", "--agent", id],
       ["show", "--agent"],
       ["show", "--agent", id, "--all"],
+      ["set-rollout", "--agent", id],
+      ["set-rollout", "--rollout", "off"],
+      ["set-rollout", "--agent", id, "--rollout", "maybe"],
+      ["set-rollout", "--agent", "not-a-uuid", "--rollout", "off"],
+      ["set-rollout", "--agent", id, "--rollout", "off", "--workspace", id],
+      ["show", "--agent", id, "--rollout", "off"],
     ]) {
       expect(() => parseSlackNoticeCommand(argv)).toThrow(
         SlackNoticeUsageError,

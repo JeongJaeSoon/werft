@@ -349,6 +349,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/slack/notice",
     "POST /v1/agents/{id}/slack/notice/approve",
     "POST /v1/agents/{id}/slack/notice/revoke",
+    "POST /v1/agents/{id}/slack/notice/rollout",
   ],
   "routes/surface/slack-install.test.ts": [
     "POST /v1/agents/{id}/slack/install/start",
