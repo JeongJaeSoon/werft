@@ -31,7 +31,7 @@ Each invite leaves an `invite_member` receipt.
 | `accept_url` | The link to hand to the invitee: `accept_path` on `CONSOLE_ORIGIN`, in the form `https://console.example.com/invite/<invite_token>`. `null` when `CONSOLE_ORIGIN` is not set |
 | `expires_at` | When the invite expires |
 
-Set `CONSOLE_ORIGIN` and `accept_url` holds the complete link. Without it, append `accept_path` to the address you open the console at in a browser, and hand that over.
+Set `CONSOLE_ORIGIN` and `accept_url` holds the complete link. Without it, append `accept_path` directly to the console's origin (`scheme://host[:port]`, for example `https://console.example.com`) and hand that over. Appended to a console page's address (such as `…/members`), it does not open the accept screen.
 
 ## Revoking an invite
 

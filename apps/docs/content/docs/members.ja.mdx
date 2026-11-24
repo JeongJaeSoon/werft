@@ -31,7 +31,7 @@ Web コンソールの **メンバー** 画面で **メンバーを招待** を�
 | `accept_url` | 受け取る人に渡すリンク。`CONSOLE_ORIGIN` に `accept_path` を付けた `https://console.example.com/invite/<invite_token>` の形です。`CONSOLE_ORIGIN` がなければ `null` です |
 | `expires_at` | 有効期限 |
 
-`CONSOLE_ORIGIN` を設定すると、`accept_url` に完成したリンクが入ります。設定していなければ、ブラウザーでコンソールを開くアドレスの後ろに `accept_path` を付けて渡します。
+`CONSOLE_ORIGIN` を設定すると、`accept_url` に完成したリンクが入ります。設定していなければ、コンソールの origin（`scheme://host[:port]`、例: `https://console.example.com`）の直後に `accept_path` を付けて渡します。コンソール画面のアドレス（`…/members` など）に付けると、承諾画面は開きません。
 
 ## 招待を取り消す
 

@@ -31,7 +31,7 @@ description: 초대 링크를 만들어 전하고, 받은 사람이 비밀번호
 | `accept_url` | 받는 사람에게 건넬 링크. `CONSOLE_ORIGIN` 뒤에 `accept_path`를 붙인 `https://console.example.com/invite/<invite_token>` 꼴이다. `CONSOLE_ORIGIN`이 없으면 `null`이다 |
 | `expires_at` | 만료 시각 |
 
-`CONSOLE_ORIGIN`을 정하면 `accept_url`에 완성된 링크가 나온다. 정하지 않았으면 브라우저로 콘솔을 여는 주소 뒤에 `accept_path`를 붙여 건넨다.
+`CONSOLE_ORIGIN`을 정하면 `accept_url`에 완성된 링크가 나온다. 정하지 않았으면 콘솔의 origin(`scheme://host[:port]`, 예: `https://console.example.com`) 바로 뒤에 `accept_path`를 붙여 건넨다. 콘솔 화면의 주소(`…/members` 등)에 붙이면 수락 화면이 열리지 않는다.
 
 ## 초대 회수하기
 
