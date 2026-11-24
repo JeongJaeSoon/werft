@@ -56,5 +56,27 @@ export type ConversationCallState =
 export const conversationCallIdSchema = z.uuid().brand<"ConversationCallId">();
 export type ConversationCallId = z.infer<typeof conversationCallIdSchema>;
 
+/**
+ * What a conversation call does: M1's judgment of whether to step in, a
+ * call of an M2 conversation turn, or a channel summary's.
+ */
+export const CONVERSATION_CALL_CLASS_VALUES = ["m1", "m2", "summary"] as const;
+export type ConversationCallClass =
+  (typeof CONVERSATION_CALL_CLASS_VALUES)[number];
+
+/**
+ * One conversation call's key in its agent, `{input or batch id}:{class}`.
+ * A retry of the call keeps the key and takes the next attempt number.
+ */
+export const conversationCallKeySchema = z
+  .string()
+  .regex(
+    new RegExp(
+      `^[A-Za-z0-9_-]{1,128}:(${CONVERSATION_CALL_CLASS_VALUES.join("|")})$`,
+    ),
+  )
+  .brand<"ConversationCallKey">();
+export type ConversationCallKey = z.infer<typeof conversationCallKeySchema>;
+
 export const budgetAccountIdSchema = z.uuid().brand<"BudgetAccountId">();
 export type BudgetAccountId = z.infer<typeof budgetAccountIdSchema>;

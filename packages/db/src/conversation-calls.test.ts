@@ -1,8 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import {
+  type ConversationCallClass,
+  type ConversationId,
+  type ConversationTopicId,
+  conversationCallIdSchema,
+  conversationCallKeySchema,
+  conversationIdSchema,
+  conversationTopicIdSchema,
+} from "@werft-ai/contracts";
+import {
   type BudgetRoot,
   CONVERSATION_CALL_TOKEN_PREFIX,
+  chooseBudgetAccount,
   conversationCallReserve,
   createConversationCalls,
   hashConversationCallToken,
@@ -13,8 +23,13 @@ import {
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { saveBudgetLimit } from "./budget-accounts.ts";
+import {
+  lockBudgetCall,
+  reserveBudgetIn,
+  saveBudgetLimit,
+} from "./budget-accounts.ts";
 import { createPostgresConversationCalls } from "./conversation-calls.ts";
+import { dropBufferedInputs } from "./conversations/judgment-buffer.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
@@ -22,6 +37,9 @@ import {
   budgetAccounts,
   budgetReservations,
   conversationCalls,
+  conversationInputs,
+  conversations,
+  conversationTopics,
   memberTeams,
   providerUsage,
   sessions,
@@ -93,6 +111,10 @@ const USED: ProviderUsage = {
 };
 const BILLED = 0.0021;
 
+const TEAM = "T0CALLS";
+// Each agent's one channel conversation, which its calls name by default.
+const conversationOf = new Map<string, ConversationId>();
+
 async function agentOf(options: { teamArchived?: boolean } = {}) {
   const teamId = crypto.randomUUID();
   const agentId = crypto.randomUUID();
@@ -109,24 +131,80 @@ async function agentOf(options: { teamArchived?: boolean } = {}) {
     slug: `a-${agentId.slice(0, 8)}`,
     name: "agent",
   });
-  return { agentId, teamId };
+  const conversationId = conversationIdSchema.parse(crypto.randomUUID());
+  await db.insert(conversations).values({
+    id: conversationId,
+    workspaceId: WORKSPACE,
+    agentId,
+    kind: "channel",
+    teamId: TEAM,
+    channelId: `C${agentId.slice(0, 8)}`,
+  });
+  conversationOf.set(agentId, conversationId);
+  return { agentId, teamId, conversationId };
 }
+
+async function topicOf(agentId: string, conversationId: ConversationId) {
+  const id = conversationTopicIdSchema.parse(crypto.randomUUID());
+  await db.insert(conversationTopics).values({
+    id,
+    workspaceId: WORKSPACE,
+    agentId,
+    conversationId,
+    conversationKind: "channel",
+    slackTeamId: TEAM,
+    slackChannelId: `C${agentId.slice(0, 8)}`,
+    slackThreadTs: `${Date.now()}.${Math.floor(Math.random() * 1e6)}`,
+  });
+  return id;
+}
+
+const keyOf = (callClass: ConversationCallClass = "m1") =>
+  conversationCallKeySchema.parse(`${crypto.randomUUID()}:${callClass}`);
+
+type Judgment = Partial<{
+  conversationId: ConversationId;
+  topicId: ConversationTopicId | null;
+  callClass: ConversationCallClass;
+  releaseId: string | null;
+  callKey: ReturnType<typeof keyOf>;
+  attempt: number;
+}>;
 
 const store = () => createPostgresConversationCalls(db);
 const calls = () => createConversationCalls({ store: store(), catalog });
 
-function issue(agentId: string, root: BudgetRoot, connectionId = CONNECTION) {
+function issue(
+  agentId: string,
+  root: BudgetRoot,
+  connectionId = CONNECTION,
+  judgment: Judgment = {},
+) {
+  const callClass = judgment.callClass ?? "m1";
   return calls().issue({
     workspaceId: WORKSPACE,
     agentId,
+    conversationId:
+      conversationOf.get(agentId) ??
+      conversationIdSchema.parse(crypto.randomUUID()),
+    topicId: null,
+    releaseId: null,
+    callKey: keyOf(callClass),
+    attempt: 1,
+    ...judgment,
+    callClass,
     root,
     connectionId,
     ...LIMITS,
   });
 }
 
-async function issued(agentId: string, root: BudgetRoot) {
-  const result = await issue(agentId, root);
+async function issued(
+  agentId: string,
+  root: BudgetRoot,
+  judgment: Judgment = {},
+) {
+  const result = await issue(agentId, root, CONNECTION, judgment);
   if (result.outcome !== "issued") {
     throw new Error(`not issued: ${JSON.stringify(result)}`);
   }
@@ -616,4 +694,263 @@ test("no use goes missing: the calls' settled sum is the account's spend", async
     used.reduce((total, usage) => total + reservationTokens(usage), 0),
   );
   expect(account?.reservedTokens).toBe(RESERVE.tokens);
+});
+
+describe("what a conversation call is for", () => {
+  test("a call records its conversation, topic, class, release, key and attempt", async () => {
+    const { agentId, conversationId } = await agentOf();
+    const topicId = await topicOf(agentId, conversationId);
+    const callKey = keyOf("summary");
+    const call = await issued(agentId, person(crypto.randomUUID()), {
+      topicId,
+      callClass: "summary",
+      releaseId: "release-1",
+      callKey,
+      attempt: 1,
+    });
+    expect(await callOf(call.callId)).toMatchObject({
+      conversationId,
+      topicId,
+      callClass: "summary",
+      releaseId: "release-1",
+      callKey,
+      attempt: 1,
+    });
+  });
+
+  test("the same key and attempt twice: one call, held once", async () => {
+    const { agentId } = await agentOf();
+    const userId = crypto.randomUUID();
+    const callKey = keyOf();
+    const first = await issued(agentId, person(userId), { callKey });
+    expect(
+      await issue(agentId, person(userId), CONNECTION, { callKey }),
+    ).toEqual({ outcome: "already_issued" });
+    expect(
+      (await db.select().from(conversationCalls)).map((row) => row.id),
+    ).toEqual([first.callId]);
+    expect(await db.select().from(budgetReservations)).toHaveLength(1);
+    expect(await accountOf(userId)).toMatchObject({
+      reservedTokens: RESERVE.tokens,
+    });
+  });
+
+  test("a retry under the same key takes the next attempt, held and settled on its own", async () => {
+    const { agentId } = await agentOf();
+    const userId = crypto.randomUUID();
+    const callKey = keyOf();
+    const first = await issued(agentId, person(userId), { callKey });
+    const retry = await issued(agentId, person(userId), {
+      callKey,
+      attempt: 2,
+    });
+    expect(await accountOf(userId)).toMatchObject({
+      reservedTokens: RESERVE.tokens * 2,
+    });
+    const used = [10, 20].map((outputTokens) => ({ ...USED, outputTokens }));
+    for (const [index, call] of [first, retry].entries()) {
+      const exchange = crypto.randomUUID();
+      await grant(call.token, exchange);
+      expect(
+        (await settle(call.callId, exchange, used[index] as ProviderUsage))
+          .outcome,
+      ).toBe("settled");
+      expect(await reservationOf(call.callId)).toMatchObject({
+        state: "settled",
+        settledTokens: reservationTokens(used[index] as ProviderUsage),
+      });
+    }
+    expect(await callOf(retry.callId)).toMatchObject({ callKey, attempt: 2 });
+    expect(await accountOf(userId)).toMatchObject({
+      reservedTokens: 0,
+      spentTokens: used.reduce(
+        (total, usage) => total + reservationTokens(usage),
+        0,
+      ),
+    });
+  });
+
+  test("another agent's conversation, or another conversation's topic, gets nothing", async () => {
+    const { agentId, conversationId } = await agentOf();
+    const other = await agentOf();
+    const othersTopic = await topicOf(other.agentId, other.conversationId);
+    expect(
+      await issue(agentId, person(crypto.randomUUID()), CONNECTION, {
+        conversationId: other.conversationId,
+      }),
+    ).toEqual({ outcome: "unknown_conversation" });
+    expect(
+      await issue(agentId, person(crypto.randomUUID()), CONNECTION, {
+        conversationId,
+        topicId: othersTopic,
+      }),
+    ).toEqual({ outcome: "unknown_conversation" });
+    expect(await db.select().from(conversationCalls)).toEqual([]);
+    expect(await db.select().from(budgetReservations)).toEqual([]);
+  });
+
+  test("a key of another class, or an attempt below 1, is refused before anything is written", async () => {
+    const { agentId } = await agentOf();
+    await expect(
+      issue(agentId, person(crypto.randomUUID()), CONNECTION, {
+        callClass: "m2",
+        callKey: keyOf("m1"),
+      }),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      issue(agentId, person(crypto.randomUUID()), CONNECTION, { attempt: 0 }),
+    ).rejects.toThrow(RangeError);
+    expect(await db.select().from(conversationCalls)).toEqual([]);
+  });
+
+  test("the table holds the columns to each other: a keyed row has a conversation, a keyless row nothing", async () => {
+    const { agentId, conversationId } = await agentOf();
+    const old = await issuedByOlderImage(agentId, crypto.randomUUID());
+    const set = async (values: Record<string, unknown>) => {
+      await db
+        .update(conversationCalls)
+        .set(values)
+        .where(eq(conversationCalls.id, old.callId));
+    };
+    await expect(set({ callKey: keyOf(), attempt: 1 })).rejects.toThrow();
+    await expect(set({ conversationId })).rejects.toThrow();
+    await expect(
+      set({
+        conversationId,
+        callClass: "m2",
+        callKey: keyOf("m1"),
+        attempt: 1,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      set({ conversationId, callClass: "m1", callKey: keyOf(), attempt: 0 }),
+    ).rejects.toThrow();
+    await set({
+      conversationId,
+      callClass: "m1",
+      callKey: keyOf(),
+      attempt: 1,
+    });
+  });
+});
+
+/**
+ * What an image from before migration 0340 writes on an issue: the
+ * reservation and the call's row with the columns it knew, none of the new.
+ */
+async function issuedByOlderImage(agentId: string, userId: string) {
+  const callId = conversationCallIdSchema.parse(crypto.randomUUID());
+  const token = `${CONVERSATION_CALL_TOKEN_PREFIX}${crypto.randomUUID()}`;
+  const hash = Buffer.from(hashConversationCallToken(token)).toString("hex");
+  await db.transaction(async (tx) => {
+    await lockBudgetCall(tx, callId);
+    const reserved = await reserveBudgetIn(tx, {
+      callId,
+      workspaceId: WORKSPACE,
+      choice: chooseBudgetAccount(person(userId), null),
+      reserve: RESERVE,
+      unmetered: false,
+    });
+    if (reserved.outcome !== "reserved") throw new Error(reserved.outcome);
+    await tx.execute(sql`
+      INSERT INTO conversation_calls (id, workspace_id, agent_id, token_hash,
+        root_kind, requester_user_id, connection_id, path, model, max_tokens,
+        max_request_bytes, expires_at)
+      VALUES (${callId}, ${WORKSPACE}, ${agentId}, decode(${hash}, 'hex'),
+        'user', ${userId}, ${CONNECTION}, '/v1/messages', ${MODEL},
+        ${LIMITS.maxTokens}, ${LIMITS.maxRequestBytes},
+        clock_timestamp() + interval '2 minutes')`);
+  });
+  return { callId, token };
+}
+
+describe("rows an older image issued, beside keyed ones", () => {
+  test("an older image's call is granted, settled and released as before", async () => {
+    const { agentId } = await agentOf();
+    const userId = crypto.randomUUID();
+    const keyed = await issued(agentId, person(userId));
+    const old = await issuedByOlderImage(agentId, userId);
+    const unused = await issuedByOlderImage(agentId, userId);
+    expect(await callOf(old.callId)).toMatchObject({
+      conversationId: null,
+      topicId: null,
+      callClass: null,
+      releaseId: null,
+      callKey: null,
+      attempt: null,
+    });
+    for (const call of [keyed, old]) {
+      const exchange = crypto.randomUUID();
+      expect((await grant(call.token, exchange)).outcome).toBe("ok");
+      expect((await settle(call.callId, exchange)).outcome).toBe("settled");
+    }
+    await db
+      .update(conversationCalls)
+      .set({ expiresAt: sql`clock_timestamp() - interval '1 second'` })
+      .where(eq(conversationCalls.id, unused.callId));
+    expect(await store().releaseExpired({ limit: 10, dryRun: false })).toEqual({
+      released: 1,
+    });
+    expect(await accountOf(userId)).toMatchObject({
+      reservedTokens: 0,
+      spentTokens: reservationTokens(USED) * 2,
+    });
+  });
+
+  test("an older image's call in flight past the lease is marked unknown, and a late report settles it", async () => {
+    const { agentId } = await agentOf();
+    const userId = crypto.randomUUID();
+    const old = await issuedByOlderImage(agentId, userId);
+    const exchange = crypto.randomUUID();
+    await grant(old.token, exchange);
+    await db
+      .update(conversationCalls)
+      .set({ startedAt: sql`clock_timestamp() - interval '301 seconds'` })
+      .where(eq(conversationCalls.id, old.callId));
+    expect(await store().markUnknown({ limit: 10, dryRun: false })).toEqual({
+      unknown: 1,
+    });
+    expect((await settle(old.callId, exchange)).outcome).toBe("settled");
+    expect(await accountOf(userId)).toMatchObject({ reservedTokens: 0 });
+  });
+});
+
+test("the buffer drops the last input of a topic a call names: the topic goes, the call stays with no topic", async () => {
+  const { agentId, conversationId } = await agentOf();
+  const topicId = await topicOf(agentId, conversationId);
+  const inputId = crypto.randomUUID();
+  await db.insert(conversationInputs).values({
+    id: inputId,
+    workspaceId: WORKSPACE,
+    agentId,
+    topicId,
+    seq: 1,
+    slackTeamId: TEAM,
+    slackChannelId: `C${agentId.slice(0, 8)}`,
+    slackTs: "100.000001",
+    requesterKind: "slack_user",
+    requesterId: "U0PERSON",
+    body: "unheard",
+    bufferExpiresAt: new Date(Date.now() + 60_000),
+  });
+  const call = await issued(agentId, person(crypto.randomUUID()), {
+    topicId,
+  });
+  // The foreign keys' actions run from here on.
+  await client.exec("SET session_replication_role = origin");
+  expect(await db.transaction((tx) => dropBufferedInputs(tx, [inputId]))).toBe(
+    1,
+  );
+  expect(
+    await db
+      .select()
+      .from(conversationTopics)
+      .where(eq(conversationTopics.id, topicId)),
+  ).toEqual([]);
+  expect(await callOf(call.callId)).toMatchObject({
+    state: "reserved",
+    conversationId,
+    topicId: null,
+    callClass: "m1",
+  });
 });

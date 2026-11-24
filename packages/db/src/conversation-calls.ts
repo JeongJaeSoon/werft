@@ -1,5 +1,7 @@
 import {
   type BudgetRoot,
+  type ConversationCallIssue,
+  type ConversationCallIssueInput,
   type ConversationCallStore,
   chooseBudgetAccount,
   reservationTokens,
@@ -19,11 +21,17 @@ import {
   agents,
   budgetReservations,
   conversationCalls,
+  conversations,
+  conversationTopics,
   memberTeams,
 } from "./schema.ts";
 
 // The scale of the cost column, so a replay compares what was stored.
 const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
+
+// Thrown to roll back an issue whose key and attempt another issue took
+// first, its reservation with it.
+class AlreadyIssued extends Error {}
 
 function requesterUserOf(root: BudgetRoot): string | null {
   if (root.kind === "user") return root.userId;
@@ -33,81 +41,146 @@ function requesterUserOf(root: BudgetRoot): string | null {
   return null;
 }
 
+function issueIn(
+  db: Database,
+  input: ConversationCallIssueInput,
+): Promise<ConversationCallIssue> {
+  return db.transaction(async (tx): Promise<ConversationCallIssue> => {
+    await lockBudgetCall(tx, input.callId);
+    // The agent's team, while neither is deleted or archived: as the
+    // session calls choose it (exchange-budget.ts).
+    const [agent] = await tx
+      .select({
+        teamId: sql<
+          string | null
+        >`CASE WHEN ${memberTeams.archivedAt} IS NULL THEN ${memberTeams.id} END`,
+      })
+      .from(agents)
+      .leftJoin(memberTeams, eq(memberTeams.id, agents.managingTeamId))
+      .where(
+        and(
+          eq(agents.id, input.agentId),
+          eq(agents.workspaceId, input.workspaceId),
+          isNull(agents.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!agent) return { outcome: "unknown_agent" };
+    const [conversation] = await tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.id, input.conversationId),
+          eq(conversations.agentId, input.agentId),
+          eq(conversations.workspaceId, input.workspaceId),
+        ),
+      );
+    if (!conversation) return { outcome: "unknown_conversation" };
+    if (input.topicId !== null) {
+      const [topic] = await tx
+        .select({ id: conversationTopics.id })
+        .from(conversationTopics)
+        .where(
+          and(
+            eq(conversationTopics.id, input.topicId),
+            eq(conversationTopics.conversationId, input.conversationId),
+          ),
+        )
+        .for("key share");
+      if (!topic) return { outcome: "unknown_conversation" };
+    }
+    const [taken] = await tx
+      .select({ id: conversationCalls.id })
+      .from(conversationCalls)
+      .where(
+        and(
+          eq(conversationCalls.agentId, input.agentId),
+          eq(conversationCalls.callKey, input.callKey),
+          eq(conversationCalls.attempt, input.attempt),
+        ),
+      );
+    if (taken) return { outcome: "already_issued" };
+    const choice = chooseBudgetAccount(input.root, agent.teamId);
+    const reserved = await reserveBudgetIn(tx, {
+      callId: input.callId,
+      workspaceId: input.workspaceId,
+      choice,
+      reserve: input.reserve,
+      unmetered: input.unmetered,
+    });
+    if (reserved.outcome === "refused") {
+      return {
+        outcome: "refused",
+        rootKind: choice.rootKind,
+        accountId: reserved.accountId,
+      };
+    }
+    // A fresh id under its own lock: nothing else reserved it.
+    if (reserved.outcome !== "reserved") {
+      throw new Error(
+        `conversation call ${input.callId}: its id was already reserved`,
+      );
+    }
+    const [row] = await tx
+      .insert(conversationCalls)
+      .values({
+        id: input.callId,
+        workspaceId: input.workspaceId,
+        agentId: input.agentId,
+        tokenHash: input.tokenHash,
+        rootKind: choice.rootKind,
+        requesterUserId: requesterUserOf(input.root),
+        connectionId: input.connectionId,
+        path: input.path,
+        model: input.model,
+        maxTokens: input.maxTokens,
+        maxRequestBytes: input.maxRequestBytes,
+        expiresAt: fromDbNow(input.ttlMs),
+        conversationId: input.conversationId,
+        topicId: input.topicId,
+        callClass: input.callClass,
+        releaseId: input.releaseId,
+        callKey: input.callKey,
+        attempt: input.attempt,
+      })
+      // An issue of the same key and attempt that committed since the
+      // check above.
+      .onConflictDoNothing({
+        target: [
+          conversationCalls.agentId,
+          conversationCalls.callKey,
+          conversationCalls.attempt,
+        ],
+      })
+      .returning({ expiresAt: conversationCalls.expiresAt });
+    if (!row) throw new AlreadyIssued();
+    return { outcome: "issued", expiresAt: row.expiresAt };
+  });
+}
+
 /**
  * Locks, in the one order every writer of a conversation call takes them:
  * budget-accounts.ts's call lock first, then this call's row, then the
  * reservation row and the account row (the budget ledger's own order). The
- * issue holds the account row while it inserts the call's row, which no one
- * can wait on before it commits. The grant question takes the call's row
+ * issue holds the account row while it inserts the call's row, which only
+ * an issue of the same key and attempt waits on, holding no lock the first
+ * one needs. The issue key-share locks the call's topic first, so the buffer
+ * does not drop it in between. The grant question takes the call's row
  * alone, never an account.
  */
 export function createPostgresConversationCalls(
   db: Database,
 ): ConversationCallStore {
   return {
-    issueAtomic(input) {
-      return db.transaction(async (tx) => {
-        await lockBudgetCall(tx, input.callId);
-        // The agent's team, while neither is deleted or archived: as the
-        // session calls choose it (exchange-budget.ts).
-        const [agent] = await tx
-          .select({
-            teamId: sql<
-              string | null
-            >`CASE WHEN ${memberTeams.archivedAt} IS NULL THEN ${memberTeams.id} END`,
-          })
-          .from(agents)
-          .leftJoin(memberTeams, eq(memberTeams.id, agents.managingTeamId))
-          .where(
-            and(
-              eq(agents.id, input.agentId),
-              eq(agents.workspaceId, input.workspaceId),
-              isNull(agents.deletedAt),
-            ),
-          )
-          .limit(1);
-        if (!agent) return { outcome: "unknown_agent" };
-        const choice = chooseBudgetAccount(input.root, agent.teamId);
-        const reserved = await reserveBudgetIn(tx, {
-          callId: input.callId,
-          workspaceId: input.workspaceId,
-          choice,
-          reserve: input.reserve,
-          unmetered: input.unmetered,
-        });
-        if (reserved.outcome === "refused") {
-          return {
-            outcome: "refused",
-            rootKind: choice.rootKind,
-            accountId: reserved.accountId,
-          };
-        }
-        // A fresh id under its own lock: nothing else reserved it.
-        if (reserved.outcome !== "reserved") {
-          throw new Error(
-            `conversation call ${input.callId}: its id was already reserved`,
-          );
-        }
-        const [row] = await tx
-          .insert(conversationCalls)
-          .values({
-            id: input.callId,
-            workspaceId: input.workspaceId,
-            agentId: input.agentId,
-            tokenHash: input.tokenHash,
-            rootKind: choice.rootKind,
-            requesterUserId: requesterUserOf(input.root),
-            connectionId: input.connectionId,
-            path: input.path,
-            model: input.model,
-            maxTokens: input.maxTokens,
-            maxRequestBytes: input.maxRequestBytes,
-            expiresAt: fromDbNow(input.ttlMs),
-          })
-          .returning({ expiresAt: conversationCalls.expiresAt });
-        if (!row) throw new Error("conversation call row missing after insert");
-        return { outcome: "issued", expiresAt: row.expiresAt };
-      });
+    async issueAtomic(input) {
+      try {
+        return await issueIn(db, input);
+      } catch (error) {
+        if (error instanceof AlreadyIssued)
+          return { outcome: "already_issued" };
+        throw error;
+      }
     },
 
     authorizeAtomic(input) {

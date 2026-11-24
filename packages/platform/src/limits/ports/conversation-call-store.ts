@@ -1,7 +1,11 @@
 import type {
   BudgetAccountId,
   BudgetRootKind,
+  ConversationCallClass,
   ConversationCallId,
+  ConversationCallKey,
+  ConversationId,
+  ConversationTopicId,
 } from "@werft-ai/contracts";
 import type { BudgetRoot } from "../budget-accounts.ts";
 import type { ProviderUsage } from "../model-prices.ts";
@@ -62,6 +66,14 @@ export type ConversationCallIssueInput = {
   tokenHash: Uint8Array;
   workspaceId: string;
   agentId: string;
+  conversationId: ConversationId;
+  /** One of the conversation's topics. */
+  topicId: ConversationTopicId | null;
+  callClass: ConversationCallClass;
+  /** The agent's active release (an agent_releases id). */
+  releaseId: string | null;
+  callKey: ConversationCallKey;
+  attempt: number;
   root: BudgetRoot;
   connectionId: string;
   path: string;
@@ -83,7 +95,11 @@ export type ConversationCallIssue =
       accountId: BudgetAccountId | null;
     }
   // No such agent in that workspace.
-  | { outcome: "unknown_agent" };
+  | { outcome: "unknown_agent" }
+  // The conversation is not the agent's, or the topic not the conversation's.
+  | { outcome: "unknown_conversation" }
+  // The agent already has a call of that key and attempt; none is added.
+  | { outcome: "already_issued" };
 
 export type ConversationCallAuthorization =
   | {
