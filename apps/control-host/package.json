@@ -12,7 +12,7 @@
     "scheduler": "bun run src/main.ts scheduler --once",
     "reconciler": "bun run src/main.ts reconciler --once",
     "keys": "bun run src/api/keys.ts",
-    "setup-link": "bun run src/api/setup-link.ts",
+    "bootstrap-owner": "bun run src/main.ts admin bootstrap-owner",
     "grants": "bun run src/api/grants.ts",
     "slack-install": "bun run src/api/slack-install.ts",
     "slack-app": "bun run src/api/slack-app.ts",

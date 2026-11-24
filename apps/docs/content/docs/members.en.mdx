@@ -19,6 +19,7 @@ On the **Members** screen of the web console, click **Invite member**, enter the
 
 Each invite leaves an `invite_member` receipt.
 
+<a id="api-응답" />
 ### API response
 
 `POST /v1/invites` returns 201 with the fields below. The link appears only in this response, once. The response carries `Cache-Control: no-store`, and neither the token nor the link appears in the invite list (`GET /v1/invites`) or in the server logs.

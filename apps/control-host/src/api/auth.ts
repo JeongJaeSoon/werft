@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
+  normalizeEmail,
   type Principal,
   SESSION_SCOPE_VALUES,
   SETUP_LINK_TTL_HOURS,
@@ -35,6 +36,7 @@ import type {
   ExternalSignInInput,
   IdentityStore,
   IssuePasswordResetInput,
+  IssueSetupLinkInput,
   ResolvedWebSession,
 } from "@werft-ai/platform";
 import type { Context } from "hono";
@@ -61,8 +63,8 @@ export class DatabaseIdentityStore implements IdentityStore {
   bootstrap(input: BootstrapInput) {
     return bootstrapOwner(this.db, input);
   }
-  issueSetupLink(tokenHash: Uint8Array, ttlMs: number) {
-    return issueSetupLinkRow(this.db, tokenHash, ttlMs);
+  issueSetupLink(input: IssueSetupLinkInput) {
+    return issueSetupLinkRow(this.db, input);
   }
   setupLinkIsLive(tokenHash: Uint8Array) {
     return setupLinkIsLive(this.db, tokenHash);
@@ -173,18 +175,25 @@ export function setupLinkPath(token: string): string {
 }
 
 /**
- * Mint a setup link's token for an install with no live owner, replacing any
- * earlier link. Null when an owner exists: nothing is issued then.
+ * Mint a setup link's token for `email` (normalized here) on an install with
+ * no live owner, replacing any earlier link. Null when an owner exists:
+ * nothing is issued then.
  */
 export async function issueSetupToken(
   store: Pick<IdentityStore, "issueSetupLink">,
-): Promise<string | null> {
+  email: string,
+): Promise<{ id: string; token: string; expiresAt: Date } | null> {
+  const id = randomUUID();
   const token = randomBytes(32).toString("base64url");
-  const outcome = await store.issueSetupLink(
-    hashWebSessionToken(token),
-    SETUP_LINK_TTL_MS,
-  );
-  return outcome === "issued" ? token : null;
+  const issued = await store.issueSetupLink({
+    id,
+    tokenHash: hashWebSessionToken(token),
+    email: normalizeEmail(email),
+    ttlMs: SETUP_LINK_TTL_MS,
+  });
+  return issued.outcome === "issued"
+    ? { id, token, expiresAt: issued.expiresAt }
+    : null;
 }
 
 // ---------------------------------------------------------------------------

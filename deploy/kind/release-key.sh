@@ -27,10 +27,18 @@ kind_release_key() {
   export KIND_RELEASE_ID
 }
 
-# kind_setup_link_token <fullname>: the token of a new setup link from the api
-# Deployment, or nothing once an owner exists (the command issues none then).
+# shellcheck source=../../scripts/lib/setup-link-token.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib/setup-link-token.sh"
+
+# kind_setup_link_token <fullname>: the token of a new setup link from one api
+# Pod, or nothing once an owner exists (the command issues none then). The
+# Pod is picked once: deploy/<name> picks again on every exec, and the file
+# made in one Pod is not in another. It is a Ready Pod not being deleted: a
+# Pod of a replaced ReplicaSet still reads Running while it terminates.
 kind_setup_link_token() {
-  local link
-  link="$(kubectl -n "$NAMESPACE" exec deploy/"$1"-api -- bun run apps/control-host/src/api/setup-link.ts </dev/null 2>/dev/null)" || return 0
-  printf '%s' "${link##*#setup=}"
+  local pod
+  # shellcheck disable=SC2016 # $name is the template's variable, not the shell's
+  pod="$(kubectl -n "$NAMESPACE" get pod -l app.kubernetes.io/component=api -o go-template='{{range .items}}{{$name := .metadata.name}}{{if not .metadata.deletionTimestamp}}{{range .status.conditions}}{{if and (eq .type "Ready") (eq .status "True")}}{{$name}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}' \
+    | grep -m 1 -E "^$1-api-[a-z0-9]+-[a-z0-9]+$")" || return 0
+  setup_link_token "$E2E_OWNER_EMAIL" kubectl -n "$NAMESPACE" exec "pod/$pod" -c api -- 2>/dev/null || true
 }

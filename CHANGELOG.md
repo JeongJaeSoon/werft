@@ -18,6 +18,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - `list`는 reconciler 로그와 같은 수(`unknown_count`·`held_cost_usd`)와 예약 줄을 낸다. `resolve --by <owner·admin>`은 기본으로 묶인 만큼을 쓴 것으로 확정하고, `--refund --reason`은 0으로 돌려준다. 한 번에 100개까지이고 `--dry-run`이 있다. 푼 예약마다 receipt `resolve_unknown_budget`이 같은 transaction에서 남는다.
   - 푼 뒤의 늦은 보고는 예약을 다시 열지 않고, 차이를 원래 예약의 계정과 달에 조정 줄 하나로 더한다.
   - 지원 창 안의 이미지로 되돌려도 되지만, 옛 이미지는 푼 예약의 늦은 보고를 저장하지 못해 실패로 답한다(보고는 다시 시도된다). 되돌린 동안은 명령으로 풀지 않는다.
+- **첫 owner 설정 링크는 새 명령 `bun run apps/control-host/src/main.ts admin bootstrap-owner --email <address> --out <file>`(api 컨테이너·Pod 안)이 만든다. `apps/control-host/src/api/setup-link.ts`는 없어졌고, `scripts/test-ops.sh setup-link`에는 `--email`과 `--out`이 필요하다**(JeongJaeSoon/werft#2134). 옛 명령을 부르는 스크립트는 고친다.
+  - 링크는 stdout이 아니라 `--out` 파일(새로 만들고 0600, 있는 파일은 덮어쓰지 않음)에 `accept_path`·`accept_url`·`expires_at`으로 쓰인다. 화면에는 경로와 만료 시각만 나온다.
+  - 링크는 `--email`의 주소에만 쓰인다. `POST /v1/auth/bootstrap`에 다른 주소를 보내면 `403 FORBIDDEN`이고 링크는 남는다.
+  - 실행마다 api 컨테이너 로그에 `setup_link_issued` 줄(링크 id, 이메일, 만료 시각. 토큰과 링크는 없음)이 남는다. 링크로 만든 첫 워크스페이스의 첫 receipt는 `bootstrap_owner`다.
+  - migration `0349_setup_link_email`이 `setup_links`에 `id`·`email`·`created_at` 칸을 더한다. 있는 행은 다시 쓰지 않는다. 이전 이미지가 낸 링크는 주소에 묶이지 않는다. rolling deploy 중에는 모든 api가 새 이미지로 바뀐 뒤 링크를 낸다.
 - **reconciler가 고지 승인 없이 대화 스위치(`agents.conversation_rollout`)가 `shadow`·`on`인 에이전트를 `off`로 내리고 그 판단 버퍼를 비운다**(JeongJaeSoon/werft#2135). migration은 없다. 아직 게시된 고지 판이 없으므로, DB에서 직접 스위치를 올려 둔 에이전트가 있다면 올린 뒤 첫 pass에서 모두 내려간다. 내릴 때마다 receipt `set_conversation_rollout`(`by: "reconciler"`)과 로그 `Unapproved conversation switches lowered`(`lowered_count`·`agent_ids`)가 남는다.
   - 스위치는 웹(에이전트 Slack 탭)이나 운영자 명령 `slack-notice.ts set-rollout --agent <id> --rollout off|shadow`로 바꾼다. 워크스페이스 owner·admin만, 고지를 승인한 에이전트만 `shadow`로 올릴 수 있고 `on`은 거절된다(명령 exit 4). 고지 승인을 철회하면 스위치도 같이 내려간다.
 - **migration `0346_judgment_batches`가 새 빈 표 `judgment_batches`(판단 묶음)·`judgment_channel_tallies`(채널별 상한 넘김·판단 못 함 수)를 만들고, `conversation_inputs`에 nullable 칸 `judgment_batch_id`를 더한다**(JeongJaeSoon/werft#2119). 있는 줄은 다시 쓰지 않고 색인은 `CONCURRENTLY`로 만든다. reconciler 로그 `Judgment buffer purged`에 `unjudged_count`(10분 기한에 판단 없이 지운 글 수)와 `batches_count`(60분이 지나 지운 묶음 줄 수)가 더해진다. 묶음을 닫고 판단하는 pass는 아직 어느 role에도 배선되지 않아 동작은 그대로다.
