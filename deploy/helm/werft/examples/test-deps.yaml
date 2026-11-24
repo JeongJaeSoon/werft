@@ -1,0 +1,154 @@
+# TEST ONLY. Not for production: PostgreSQL keeps its data in the Pod's
+# emptyDir and LocalStack keeps S3 in memory, so a restart loses the database
+# or the bucket. A production install brings a persistent PostgreSQL and a
+# real checkpoint bucket instead.
+#
+# PostgreSQL 16 and a LocalStack S3 bucket that meets the chart's default
+# checkpoint contract (Object Lock with versioning, SSE-S3 default
+# encryption), for trying the published chart in a cluster of its own. Apply
+# it in the release's namespace after creating the werft-test-postgres
+# Secret (key POSTGRES_PASSWORD); values-test.yaml points the chart at it.
+# Both Services are ClusterIP, and the chart's worker NetworkPolicy keeps
+# workers off them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: localstack-init
+data:
+  # infra/localstack/init/10-create-resources.sh of the same commit.
+  10-create-resources.sh: |
+    #!/bin/sh
+    set -eu
+
+    # Checkpoint objects are pinned by version and held after finalize, so the
+    # bucket needs versioning and Object Lock (CHECKPOINT_OBJECT_PROTECTION=locked,
+    # the API default). Creating it with Object Lock turns versioning on too.
+    if ! awslocal s3api head-bucket --bucket claude-sessions >/dev/null 2>&1; then
+      awslocal s3api create-bucket \
+        --bucket claude-sessions \
+        --create-bucket-configuration "LocationConstraint=${AWS_DEFAULT_REGION}" \
+        --object-lock-enabled-for-bucket
+    fi
+
+    # A bucket left in the localstack-data volume by an older compose file has
+    # neither. Only then turn both on: once Object Lock is configured, S3 refuses
+    # any PutBucketVersioning, even one that changes nothing. Objects written
+    # before this stay unversioned, and a locked API refuses the checkpoints that
+    # name them.
+    lock=$(awslocal s3api get-object-lock-configuration \
+      --bucket claude-sessions \
+      --query ObjectLockConfiguration.ObjectLockEnabled \
+      --output text 2>/dev/null || true)
+    if [ "$lock" != "Enabled" ]; then
+      awslocal s3api put-bucket-versioning \
+        --bucket claude-sessions \
+        --versioning-configuration Status=Enabled
+      awslocal s3api put-object-lock-configuration \
+        --bucket claude-sessions \
+        --object-lock-configuration ObjectLockEnabled=Enabled
+    fi
+
+    # SSE-S3 as the bucket default, which the API checks at startup
+    # (CHECKPOINT_OBJECT_ENCRYPTION_CHECK). Checkpoint writes name no encryption,
+    # so this is what every object gets. Idempotent, so an old volume's bucket
+    # gets it on the next start.
+    awslocal s3api put-bucket-encryption \
+      --bucket claude-sessions \
+      --server-side-encryption-configuration \
+      '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels: {app: postgres}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+          env:
+            - {name: POSTGRES_DB, value: sessions}
+            - {name: POSTGRES_USER, value: postgres}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: werft-test-postgres, key: POSTGRES_PASSWORD}
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U postgres -d sessions"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: {app: postgres}
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localstack
+  labels: {app: localstack}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: localstack}
+  template:
+    metadata:
+      labels: {app: localstack}
+    spec:
+      containers:
+        - name: localstack
+          image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+          env:
+            - {name: SERVICES, value: s3}
+            # The chart's config.aws.region default; the bucket is made there.
+            - {name: AWS_DEFAULT_REGION, value: ap-northeast-1}
+          ports:
+            - containerPort: 4566
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null &&
+                  [ "$(awslocal s3api get-bucket-encryption --bucket claude-sessions
+                  --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm'
+                  --output text)" = AES256 ]
+            periodSeconds: 5
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: init
+              mountPath: /etc/localstack/init/ready.d
+      volumes:
+        - name: init
+          configMap:
+            name: localstack-init
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack
+spec:
+  selector: {app: localstack}
+  ports:
+    - port: 4566
