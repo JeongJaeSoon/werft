@@ -71,7 +71,10 @@ function goesOn(
 export function createConversationTurnRunner(deps: {
   runtime: RuntimeModule;
   sessions: TopicSessions;
-  relay: Pick<PermitRelay, "hold" | "release" | "url" | "requestBytes">;
+  relay: Pick<
+    PermitRelay,
+    "hold" | "release" | "url" | "requestBytes" | "responseBytes"
+  >;
   limitMs?: number;
   maxBytes?: number;
 }): ConversationTurnRunner {
@@ -226,7 +229,11 @@ export function createConversationTurnRunner(deps: {
           Math.max(
             deps.relay.requestBytes(session.permitKey),
             session.bytes + bytesOf(sent.text),
-          ) + bytesOf(result.text);
+          ) +
+          Math.max(
+            deps.relay.responseBytes(session.permitKey),
+            bytesOf(result.text),
+          );
         session.lastUsedAt = sessions.now();
       } else {
         // Where a failed or cut turn left the engine is not known.

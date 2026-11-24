@@ -1,4 +1,5 @@
 import {
+  CONVERSATION_TURN_FRESH_TEXT_MAX,
   type ConversationId,
   type ConversationInputId,
   type ConversationTopicId,
@@ -377,11 +378,23 @@ export function topicTurnContexts(source: ContextFragmentSource) {
         topicId: topic.topicId,
       });
       if (fitted.outcome === "too_large") return fitted;
-      return {
-        outcome: "assembled",
-        text: renderContext(fitted),
-        sources: fitted.sources,
-      };
+      // The turn's own input goes whole: a post's cut is for what others wrote.
+      const text = renderContext({
+        ...fitted,
+        current: fitted.current.map((post) => ({
+          ...post,
+          body: input.current.body,
+        })),
+      });
+      if (text.length > CONVERSATION_TURN_FRESH_TEXT_MAX) {
+        return {
+          outcome: "too_large",
+          reason: "current_post",
+          bytes: Buffer.byteLength(text),
+          capBytes: CONTEXT_CAP_BYTES,
+        };
+      }
+      return { outcome: "assembled", text, sources: fitted.sources };
     },
 
     /** An admin delete removes turns a live session may still hold. */

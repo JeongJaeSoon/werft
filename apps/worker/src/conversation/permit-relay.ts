@@ -27,6 +27,7 @@ const DROPPED_HEADERS = [
 export class PermitRelay {
   private readonly permits = new Map<string, string | null>();
   private readonly sizes = new Map<string, number>();
+  private readonly answers = new Map<string, number>();
   private readonly server: ReturnType<typeof Bun.serve>;
   private readonly call: RelayFetch;
 
@@ -72,11 +73,20 @@ export class PermitRelay {
   close(key: string): void {
     this.permits.delete(key);
     this.sizes.delete(key);
+    this.answers.delete(key);
   }
 
   /** The body of the session's last request passed on, in bytes: what the next one grows from. */
   requestBytes(key: string): number {
     return this.sizes.get(key) ?? 0;
+  }
+
+  /**
+   * The body of the answer to it as it came, in bytes: more than the answer
+   * the engine keeps, which the next request carries, and never less.
+   */
+  responseBytes(key: string): number {
+    return this.answers.get(key) ?? 0;
   }
 
   stop(): void {
@@ -88,7 +98,7 @@ export class PermitRelay {
       request.headers.get("x-api-key") ??
       /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
     const permit = key === undefined ? undefined : this.permits.get(key);
-    if (permit === undefined || permit === null) {
+    if (key === undefined || permit === undefined || permit === null) {
       await request.body?.cancel();
       // In the provider's own shape, so the engine ends its turn on it.
       return Response.json(
@@ -108,7 +118,8 @@ export class PermitRelay {
     headers.set("x-api-key", permit);
     // Read whole: the permit bounds a request's size, which the session is kept under.
     const body = await request.arrayBuffer();
-    if (key !== undefined) this.sizes.set(key, body.byteLength);
+    this.sizes.set(key, body.byteLength);
+    this.answers.set(key, 0);
     const response = await this.call(
       `${this.upstream.replace(/\/$/, "")}${url.pathname}${url.search}`,
       {
@@ -122,7 +133,17 @@ export class PermitRelay {
     const answer = new Headers(response.headers);
     answer.delete("content-encoding");
     answer.delete("content-length");
-    return new Response(response.body, {
+    const count = new TransformStream<Uint8Array, Uint8Array>({
+      transform: (chunk, out) => {
+        if (this.answers.has(key))
+          this.answers.set(
+            key,
+            (this.answers.get(key) ?? 0) + chunk.byteLength,
+          );
+        out.enqueue(chunk);
+      },
+    });
+    return new Response(response.body?.pipeThrough(count) ?? null, {
       status: response.status,
       headers: answer,
     });

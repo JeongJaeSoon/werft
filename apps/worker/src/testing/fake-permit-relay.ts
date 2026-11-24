@@ -3,7 +3,13 @@ import type { PermitRelay } from "../conversation/permit-relay.ts";
 /** A relay that listens nowhere and keeps each session key's permit. */
 export function fakePermitRelay(): Pick<
   PermitRelay,
-  "url" | "open" | "close" | "hold" | "release" | "requestBytes"
+  | "url"
+  | "open"
+  | "close"
+  | "hold"
+  | "release"
+  | "requestBytes"
+  | "responseBytes"
 > & {
   permits: Map<string, string | null>;
   held: string[];
@@ -20,6 +26,7 @@ export function fakePermitRelay(): Pick<
     held,
     sizes,
     requestBytes: (key) => sizes.get(key) ?? 0,
+    responseBytes: () => 0,
     open: () => {
       const key = `session-${++next}`;
       permits.set(key, null);

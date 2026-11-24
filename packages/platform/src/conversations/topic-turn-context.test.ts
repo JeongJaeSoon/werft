@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CONVERSATION_TURN_FRESH_TEXT_MAX,
   type ConversationId,
   type ConversationTopicId,
   type ConversationTurnId,
@@ -14,6 +15,7 @@ import type { ConversationKey } from "../ports/conversation-store.ts";
 import {
   CONTEXT_CAP_BYTES,
   fitContext,
+  POST_CHAR_LIMIT,
   renderContext,
   topicTurnContexts,
 } from "./context-assembler.ts";
@@ -186,6 +188,29 @@ describe("topicTurnContexts", () => {
     expect(s.asked).toEqual([
       { conversation: key, options: { topicId: topic.topicId } },
     ]);
+  });
+
+  test("keeps the turn's own input whole, past the cut of a post", async () => {
+    const contexts = topicTurnContexts(sourceOf([]).source);
+    const long = `${"a".repeat(POST_CHAR_LIMIT)} and the end`;
+    expect(
+      await contexts.assemble(topic, {
+        instructions: "",
+        current: { ...now, body: long },
+      }),
+    ).toMatchObject({ outcome: "assembled", text: `[now] ${long}` });
+    // Past what a turn may carry, it is the runtime's to start from the input alone.
+    expect(
+      (
+        await contexts.assemble(topic, {
+          instructions: "",
+          current: {
+            ...now,
+            body: "a".repeat(CONVERSATION_TURN_FRESH_TEXT_MAX),
+          },
+        })
+      ).outcome,
+    ).toBe("too_large");
   });
 
   test("refuses a conversation that is not the agent's, and an input past the cap", async () => {
