@@ -207,7 +207,7 @@ export function createConversationRuntimeTurns(deps: {
   pollMs?: number;
   leaseMs?: number;
   /** Told of each turn as it is leased, before the runtime has it. */
-  leased?: (turn: ConversationRuntimeTurn, leaseMs: number) => Promise<void>;
+  leased?: (turn: ConversationRuntimeTurn) => Promise<void>;
 }) {
   const now = deps.now ?? (() => new Date());
   const sleep =
@@ -236,7 +236,7 @@ export function createConversationRuntimeTurns(deps: {
           leaseMs,
         });
         if (turn !== null) {
-          await deps.leased?.(turn, leaseMs);
+          await deps.leased?.(turn);
           return turn;
         }
         const left = deadline - now().getTime();

@@ -83,10 +83,10 @@ export interface ConversationCallStore {
     refusal: ConversationTurnCallRefusal | null;
     limit: ConversationTurnLimitReached | null;
   }>;
-  /** Ends the turn's permit no later than `withinMs` from now. */
+  /** Ends the turn's permit no later than `until`. */
   boundTurnPermitAtomic(input: {
     turnId: ConversationTurnId;
-    withinMs: number;
+    until: Date;
   }): Promise<void>;
   /** The bound exchange's usage report, settled on the account once. */
   settleAtomic(input: {

@@ -589,14 +589,15 @@ describe("a conversation turn's limits, held by the server", () => {
 
   test("a permit held to its runtime's lease grants no call once the lease is out, its turn still running", async () => {
     const turn = await operatorTurn();
-    await calls.boundTurnPermit(turn.turnId, 60_000);
+    await calls.boundTurnPermit(turn.turnId, new Date(Date.now() + 60_000));
     await granted(turn.token);
-    await calls.boundTurnPermit(turn.turnId, 0);
+    // A bound that comes after its lease ended still ends the permit there.
+    await calls.boundTurnPermit(turn.turnId, new Date(Date.now() - 5_000));
     expect((await providerAsk(turn.token, crypto.randomUUID())).status).toBe(
       401,
     );
     // A bound never lengthens a permit.
-    await calls.boundTurnPermit(turn.turnId, 600_000);
+    await calls.boundTurnPermit(turn.turnId, new Date(Date.now() + 600_000));
     expect((await providerAsk(turn.token, crypto.randomUUID())).status).toBe(
       401,
     );

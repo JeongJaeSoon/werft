@@ -1280,11 +1280,11 @@ assertConversationTurnDispatch(process.env, conversationTurnQueue);
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
   // A turn's calls end with its runtime's lease, the turn's time limit as
-  // the server holds it.
-  leased: (turn, leaseMs) =>
+  // the server holds it: at the lease's own end, however late this runs.
+  leased: (turn) =>
     conversationCallStore.boundTurnPermitAtomic({
       turnId: turn.turn_id,
-      withinMs: leaseMs,
+      until: new Date(turn.lease_expires_at),
     }),
 });
 const workers = createWorkerGateway({

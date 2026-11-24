@@ -672,11 +672,11 @@ export function createPostgresConversationCalls(
       });
     },
 
-    async boundTurnPermitAtomic({ turnId, withinMs }) {
+    async boundTurnPermitAtomic({ turnId, until }) {
       await db
         .update(conversationTurnPermits)
         .set({
-          expiresAt: sql`LEAST(${conversationTurnPermits.expiresAt}, ${fromDbNow(withinMs)})`,
+          expiresAt: sql`LEAST(${conversationTurnPermits.expiresAt}, ${until.toISOString()}::timestamptz)`,
         })
         .where(eq(conversationTurnPermits.turnId, turnId));
     },

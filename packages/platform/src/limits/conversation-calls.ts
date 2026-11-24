@@ -306,8 +306,8 @@ export function createConversationCalls(deps: {
      * Holds a turn's permit to its runtime's lease: once the lease is out,
      * no call is granted on it, whatever the runtime does.
      */
-    boundTurnPermit(turnId: ConversationTurnId, withinMs: number) {
-      return deps.store.boundTurnPermitAtomic({ turnId, withinMs });
+    boundTurnPermit(turnId: ConversationTurnId, until: Date) {
+      return deps.store.boundTurnPermitAtomic({ turnId, until });
     },
   };
 }
