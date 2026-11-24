@@ -1,0 +1,105 @@
+---
+title: "From first install to a Slack reply"
+description: "Install a new server and follow it through to an agent answering a Slack mention"
+pageId: "P39"
+docType: "Installation"
+audience: "First-time installers"
+outcome: "An agent on a newly installed server answers a Slack mention"
+---
+
+## What you will do [#무엇을-하게-되나]
+
+Install a new server, create the first owner, a model connection, an agent and a Slack app in turn, then mention the agent in a Slack channel and get its answer. This page gives only the order and what to prepare for each step. The commands and screens are on the page each step links to. The release bundle or the published chart is enough; no repository checkout is needed.
+
+## Before you begin [#준비물]
+
+The model key and the Slack token are values a person gets and pastes into the console. Decide who enters them, and when, before the install starts.
+
+| What to prepare | Step | Who |
+| --- | --- | --- |
+| What the install method needs. A single server needs an XFS disk mounted with `prjquota` and a persistent AWS S3 bucket; Kubernetes needs PostgreSQL 16 and an S3-compatible bucket | 1 | Installer |
+| The console address `CONSOLE_ORIGIN`. The Slack events address is computed from it, so it must be an https address. If events arrive at another public address, save that address separately in step 2 | 1, 2 | Installer |
+| A public https entrance Slack can reach: a public DNS name and a TLS certificate | 2 | Network operator |
+| The email address of the person who becomes owner | 3 | Installer |
+| A model provider key. Claude agents use an Anthropic API key, Codex agents an OpenAI API key | 4 | Owner |
+| A Slack account that can create apps in the Slack workspace, and the Refresh Token of an App Configuration Token that account got at api.slack.com/apps | 5 | Owner or admin |
+| Slack permission to install the agent's app in the workspace. If the workspace requires admin approval for app installs, a Slack admin who approves it | 7 | Owner or agent manager |
+| The public Slack channel the agent answers in | 7, 9 | Agent manager |
+| A Werft account and a Slack account for the person who mentions the agent | 8, 9 | Person who mentions |
+
+## Steps [#단계]
+
+### 1. Install the server [#1-서버-설치]
+
+Pick a method in [Choose an install method](/run-server/self-hosting). For a single server, finish [Prepare an XFS disk](/run-server/self-hosting/prepare-xfs) and [Prepare the checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket), then follow [Single-server install](/run-server/self-hosting/single-server). For Kubernetes, follow [Kubernetes install](/run-server/self-hosting/kubernetes). On a trial cluster with no production data, [Trial database and object store for the chart](/run-server/self-hosting/try-chart-dependencies) does everything from the database and bucket to the chart install.
+
+Set `CONSOLE_ORIGIN` in this step: [step 2, secrets and settings document](/run-server/self-hosting/single-server#2-비밀과-설정-문서) for a single server, `api.extraEnv` in [step 3, per-install values](/run-server/self-hosting/kubernetes#3-설치별-values) for Kubernetes. A trial install adds the same value to `values-test.yaml`. Without it the install and sign-in work, but the console cannot create Slack apps.
+
+Go on once `/readyz` returns `200` as the install page's verification section shows.
+
+### 2. Console entrance and Slack public entrance [#2-콘솔-입구와-slack-공개-입구]
+
+Follow [Configure user access paths](/run-server/self-hosting/access). Open the console only through an SSH tunnel or an entrance inside a VPN or IP allowlist. Open the two paths Slack calls on a separate public https entrance, as in [Public entrance: open only the Slack paths](/run-server/self-hosting/access#공개-입구-slack-경로만-열기). Do not publish the whole api port: that would also open the worker-only `/internal`.
+
+If the public entrance's DNS name differs from `CONSOLE_ORIGIN`, the owner saves the events entrance address as that section describes, after the owner is created in step 3. Do it before step 5.
+
+### 3. First owner [#3-첫-owner]
+
+Follow [Create the first owner](/run-server/self-hosting/users-and-keys#1-첫-owner-만들기). The operator gets a one-time setup link as a file from a command on the installation, and the person who becomes owner opens it to create the owner and the workspace. On a host with no browser to open the console, follow [Create it without a browser](/run-server/self-hosting/users-and-keys#브라우저-없이-만들기). Images up to `v0.4.0` have a different link command. If the command prints only its usage, follow [Troubleshooting in First owner and keys](/run-server/self-hosting/users-and-keys#자주-막히는-곳).
+
+Go on once you can sign in to the console as the owner.
+
+### 4. Model connection [#4-모델-연결]
+
+As in [Console connections and model lists](/run-server/self-hosting/model-connections#1-콘솔-연결과-모델-목록), the owner adds a connection in **Settings > Agent connections > Model connections**, pastes the key, and saves the models agents will use. The connection can be chosen in step 6 only once at least one model is saved.
+
+### 5. Slack app creation token [#5-slack-앱-생성-토큰]
+
+For the console to create an agent's Slack app, the workspace needs an App Configuration Token. An owner or admin chooses **Register token** under **Slack app creation** in **Settings > Workspace > Integrations > Slack** and follows the order on screen.
+
+1. Open api.slack.com/apps and, in the list of App Configuration Tokens, choose **Generate Token** for this Slack workspace.
+2. Of the two values made, paste the Refresh Token that starts with `xoxe-1-` and choose **Register**. Not the Access Token.
+
+Registering exchanges it with Slack at once, so the pasted value cannot be used again. The Slack user who made the token becomes a collaborator on the apps this console makes. Go on once **Token verified** shows.
+
+### 6. Create an agent [#6-에이전트-만들기]
+
+A new installation has no teams, and an agent needs a responsible team. The owner first creates one with **Create team** in **Members** > **Teams**. The **Go to Teams** button the new agent screen shows when there is no team opens the same screen. Then in **Agents** choose **New agent** and set the name and the responsible team. In the **What it does** step pick the connection and model from step 4 and choose **Save and preview**: the agent and its first release are saved. The release is not on yet. In the **Preview** step, send a message with **Send** to see in advance whether the model answers with the key from step 4. Choose **Publish**, then **Publish** again in the confirmation dialog: the release turns on and the **Connect channels** step opens. Then go on to the next step. [Create an agent](/agents/create) explains agents and releases.
+
+### 7. Install the Slack app and pick a home channel [#7-slack-앱-설치와-홈-채널]
+
+In the **Connect channels** step or the agent's **Slack** tab, follow items 1 to 3 of [Connect Slack in the console](/integrations/slack-console). Choose **Create and install Slack app**, install the app on Slack's consent screen, and on the screen you return to pick the channel the agent answers in under **Choose home channel**. Pick a public channel for the first check. The server adds the bot to a public channel. A private channel can be used only after you invite the bot in Slack with `/invite @<agent slug>` and an owner or admin also approves the channel; until then it cannot be the home channel.
+
+Go on once the **Slack** card's badge is **Connected** and the **Events Request URL** under **Addresses for a Slack app** is verified.
+
+### 8. Link a Slack account [#8-slack-계정-연결]
+
+The agent answers mentions from Slack users linked to a Werft account. When someone who has not linked mentions it, a notice with a link asks them to link their account instead of an answer. The person who will mention signs in to the console, chooses **Link Slack account** in **Linked accounts** in the user menu, and consents in Slack. The owner can do the first check. Invite anyone else as a [member](/members) first and put them in the agent's responsible team. Conditions and errors for linking are in "Link a Slack account" in [Slack](/integrations/slack).
+
+Go on once the Slack row in **Linked accounts** shows **Linked**.
+
+### 9. Mention in Slack [#9-slack에서-멘션]
+
+Write a message with `@<agent slug>` in the home channel. The agent answers in that message's thread. Replies in the same thread continue the same session without a mention. To answer a mention another bot wrote, add that bot to the list of bots to answer, as "Mentions from other bots" in [Slack](/integrations/slack) describes.
+
+## Verify [#확인]
+
+The first install is done when the agent's answer appears in the thread of the message that mentioned it. The web console's session screen shows that conversation as a session with a **View in Slack** link ("Original Slack message link" in [Slack](/integrations/slack)). The answer also shows that model calls work with the key from step 4. A `200` from `/readyz` does not check model calls.
+
+## Troubleshooting [#자주-막히는-곳]
+
+| Symptom | Where to look |
+| --- | --- |
+| **Create and install Slack app** is off | Read the reason under the button. If the token is missing or must be registered again, go back to step 5. If the console address is unknown, set `CONSOLE_ORIGIN` from step 1 |
+| The Events Request URL stays awaiting verification or failed to register | Slack cannot reach the public entrance. Fix the public entrance from step 2, then choose **Recheck** in the **Slack** tab |
+| A mention gets no answer | In the channel table of the **Slack** tab, check that the channel is connected and **In use** is on. For a private channel, check that the bot was invited and an owner or admin approved it. The **Slack needs attention** link in the agent list names what is left |
+| A notice asks to link an account instead of an answer | The Slack account of the person who mentioned is not linked. Follow step 8 |
+| An error says the model connection has no usable key | Put a key in the connection from step 4 |
+
+## Roll back [#되돌리기]
+
+On the Slack side, disconnect or delete the app in **Danger zone** of the agent's **Slack** tab ([Connect Slack in the console](/integrations/slack-console)). For the server, follow [Stop, restart and remove Compose](/run-server/self-hosting/stop-compose) for a single server or [Stop and remove Kubernetes](/run-server/self-hosting/remove-kubernetes) for Kubernetes.
+
+## Next steps [#다음에-읽을-곳]
+
+[Issue per-user keys](/run-server/self-hosting/users-and-keys#2-사용자별-key-발급), [Members](/members), [Slack](/integrations/slack), [GitHub](/integrations/github), [Backup and restore](/run-server/self-hosting/backup-and-restore).
