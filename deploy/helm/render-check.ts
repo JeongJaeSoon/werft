@@ -3581,7 +3581,13 @@ function checkTestExamples(): string[] {
     );
   }
   try {
-    render(["-f", ciDigests, "-f", join(chart, values)]);
+    found.push(
+      ...check(
+        "test example",
+        render(["-f", ciDigests, "-f", join(chart, values)]),
+        true,
+      ),
+    );
   } catch (error) {
     fail(String(error));
   }
