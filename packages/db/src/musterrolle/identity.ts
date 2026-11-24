@@ -12,9 +12,12 @@ import {
   type InviteSignUpResult,
   type IssuePasswordResetInput,
   type IssuePasswordResetResult,
+  type IssueSetupLinkInput,
+  type IssueSetupLinkResult,
   type LiveMembership,
   type MembershipRole,
   type ResolvedWebSession,
+  SetupLinkEmailMismatchError,
   SetupLinkInvalidError,
 } from "@werft-ai/platform";
 import {
@@ -118,9 +121,17 @@ export async function bootstrapOwner(
           eq(setupLinks.epoch, CURRENT_EPOCH),
         ),
       )
-      .returning({ tokenHash: setupLinks.tokenHash });
+      .returning({
+        id: setupLinks.id,
+        email: setupLinks.email,
+        createdAt: setupLinks.createdAt,
+      });
     if (!spent) {
       throw new SetupLinkInvalidError();
+    }
+    // The throw rolls the delete back: the link stays live for its address.
+    if (spent.email !== null && spent.email !== input.email) {
+      throw new SetupLinkEmailMismatchError();
     }
     // Any other link dies with the owner it would have made.
     await tx.delete(setupLinks);
@@ -206,6 +217,26 @@ export async function bootstrapOwner(
       // A workspace is born with its repository ceiling written, so a null
       // ceiling (which rejects everything) never reaches a new workspace.
       await ensureInstalledRepositoryCeiling(tx, workspace.id);
+      // Recovery writes recover_owner under the same id below instead.
+      if (!recovered) {
+        await tx.insert(receipts).values({
+          id: input.receiptId,
+          ownerId: workspace.id,
+          operation: "bootstrap_owner",
+          targetRef: {
+            resource: { kind: "workspace", id: workspace.id },
+            workspace_id: workspace.id,
+          },
+          status: "succeeded",
+          result: {
+            user_id: user.id,
+            setup_link: {
+              id: spent.id,
+              created_at: spent.createdAt.toISOString(),
+            },
+          },
+        });
+      }
     }
     await tx
       .insert(loginMethods)
@@ -291,21 +322,28 @@ export async function bootstrapOwner(
  */
 export async function issueSetupLink(
   db: Database,
-  tokenHash: Uint8Array,
-  ttlMs: number,
-): Promise<"issued" | "owner_exists"> {
+  input: IssueSetupLinkInput,
+): Promise<IssueSetupLinkResult> {
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext('auth.bootstrap'))`,
     );
     if ((await countLiveOwners(tx)) > 0) {
-      return "owner_exists";
+      return { outcome: "owner_exists" };
     }
     await tx.delete(setupLinks);
-    await tx
+    const [row] = await tx
       .insert(setupLinks)
-      .values({ tokenHash, expiresAt: fromDbNow(ttlMs), epoch: CURRENT_EPOCH });
-    return "issued";
+      .values({
+        id: input.id,
+        tokenHash: input.tokenHash,
+        email: input.email,
+        expiresAt: fromDbNow(input.ttlMs),
+        epoch: CURRENT_EPOCH,
+      })
+      .returning({ expiresAt: setupLinks.expiresAt });
+    if (!row) throw new Error("setup link insert returned no row");
+    return { outcome: "issued", expiresAt: row.expiresAt };
   });
 }
 

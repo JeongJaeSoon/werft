@@ -34,13 +34,15 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { liveSetupToken } from "../testing/setup-link.ts";
+import {
+  issueTestSetupToken as issueSetupToken,
+  liveSetupToken,
+} from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
 import {
   DatabaseIdentityStore,
   hashPassword,
   hashWebSessionToken,
-  issueSetupToken,
 } from "./auth.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import {
@@ -134,7 +136,7 @@ integration("account recovery on PostgreSQL", () => {
         json,
         bootstrap: async (email = "Owner@Example.com", setupToken?: string) =>
           json("/v1/auth/bootstrap", {
-            setup_token: setupToken ?? (await liveSetupToken(db)),
+            setup_token: setupToken ?? (await liveSetupToken(db, email)),
             email,
             password: PASSWORD,
             display_name: "Owner",

@@ -39,7 +39,10 @@ export type BootstrapInput = {
   workspaceName: string;
   /** sha256 of the setup link's token; the link is deleted with the owner. */
   setupTokenHash: Uint8Array;
-  /** The recovery receipt's id, used only when an owner is recovered. */
+  /**
+   * The receipt's id: `recover_owner` when an owner is recovered, else
+   * `bootstrap_owner` when the first workspace is made.
+   */
   receiptId: string;
   /** The owner's kind=password login method, unless it already has one. */
   loginMethodId: string;
@@ -54,6 +57,19 @@ export type BootstrapResult = {
   workspace: IdentityWorkspace;
   recovered: boolean;
 };
+
+export type IssueSetupLinkInput = {
+  id: string;
+  /** sha256 of the link's token; the token itself is never stored. */
+  tokenHash: Uint8Array;
+  /** Normalized; bootstrap refuses any other address. */
+  email: string;
+  ttlMs: number;
+};
+
+export type IssueSetupLinkResult =
+  | { outcome: "issued"; expiresAt: Date }
+  | { outcome: "owner_exists" };
 
 export type IssuePasswordResetInput = {
   id: string;
@@ -177,10 +193,7 @@ export interface IdentityStore {
    * Replace any setup link with this one, valid for `ttlMs`, unless a live
    * owner exists.
    */
-  issueSetupLink(
-    tokenHash: Uint8Array,
-    ttlMs: number,
-  ): Promise<"issued" | "owner_exists">;
+  issueSetupLink(input: IssueSetupLinkInput): Promise<IssueSetupLinkResult>;
   /** Whether an unexpired setup link has this hash; does not spend it. */
   setupLinkIsLive(tokenHash: Uint8Array): Promise<boolean>;
   issuePasswordReset(
@@ -234,6 +247,14 @@ export class SetupLinkInvalidError extends Error {
   constructor() {
     super("The setup link is unknown, expired or already used");
     this.name = "SetupLinkInvalidError";
+  }
+}
+
+/** The link is live but was issued for another address; it stays live. */
+export class SetupLinkEmailMismatchError extends Error {
+  constructor() {
+    super("The setup link was issued for another email address");
+    this.name = "SetupLinkEmailMismatchError";
   }
 }
 
