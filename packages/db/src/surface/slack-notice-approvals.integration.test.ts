@@ -15,9 +15,11 @@ import * as schema from "../schema.ts";
 import { fixtureTeamSql } from "../testing/fixture-team.ts";
 import {
   approveSlackNotice,
+  conversationGate,
   judgeSlackNotice,
   listSlackNoticeApprovals,
   revokeSlackNotice,
+  setConversationRollout,
 } from "./slack-notice-approvals.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -570,6 +572,49 @@ integration("Slack notice approvals on PostgreSQL", () => {
       reason: "no_notice",
     });
     expect(await listSlackNoticeApprovals(db, { agentId })).toEqual([]);
+  });
+
+  test("the gate asked with lock in a writer's transaction makes a revoke wait for that write", async () => {
+    const [ws] = workspaces as [Workspace];
+    const agentId = await agent(ws);
+    await install(ws, agentId, "T0NOTICEM");
+    const place = { workspaceId: ws.id, agentId };
+    await approveSlackNotice(db, { ...place, by: ws.admin, locale: "ko" }, V1);
+    expect(
+      (
+        await setConversationRollout(
+          db,
+          { ...place, rollout: "shadow", by: "operator_cli" },
+          V1,
+        )
+      ).outcome,
+    ).toBe("changed");
+    const writer = await pool.connect();
+    try {
+      await writer.query("BEGIN");
+      const inWriter = drizzle(writer, { schema });
+      expect(
+        (await conversationGate(inWriter, place, { lock: true, versions: V1 }))
+          .open,
+      ).toBe(true);
+      let revoked = false;
+      const revoke = revokeSlackNotice(db, { ...place, by: ws.owner }).then(
+        (result) => {
+          revoked = true;
+          return result;
+        },
+      );
+      await Bun.sleep(300);
+      expect(revoked).toBe(false);
+      await writer.query("COMMIT");
+      expect((await revoke).outcome).toBe("revoked");
+    } finally {
+      writer.release();
+    }
+    expect(await conversationGate(db, place, { versions: V1 })).toEqual({
+      open: false,
+      reason: "rollout_off",
+    });
   });
 
   test("a deleted agent is not approved and cannot be approved", async () => {
