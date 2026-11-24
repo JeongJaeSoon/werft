@@ -395,3 +395,29 @@ describe("conversation turns over the memory queue", () => {
     ).toBeNull();
   });
 });
+
+describe("the limit a conversation turn ended on", () => {
+  test("each turn leased is told, with its lease, before the runtime has it", async () => {
+    const told: Array<[string, string]> = [];
+    const turns = createConversationRuntimeTurns({
+      queue: createMemoryConversationTurnQueue(),
+      now: () => START,
+      leased: async (turn) => {
+        told.push([turn.turn_id, turn.lease_expires_at]);
+      },
+    });
+    const turn = queued();
+    await turns.queue.enqueue(turn, new Date(START.getTime() + 30_000));
+    expect(told).toEqual([]);
+    await turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    expect(told).toEqual([
+      [
+        turn.turn_id,
+        new Date(START.getTime() + CONVERSATION_TURN_LEASE_MS).toISOString(),
+      ],
+    ]);
+    // A poll that finds nothing tells nothing.
+    await turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    expect(told).toHaveLength(1);
+  });
+});

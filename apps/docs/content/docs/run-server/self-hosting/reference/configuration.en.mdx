@@ -156,6 +156,7 @@ Deploy API first, then scheduler WORKER_IMAGE: new workers send claim image_runt
 |---|---|---|
 | `WORKER_CPUS` | 1 | CPU share/worker, at least 0.01 |
 | `WORKER_MEMORY_MB` | 4608 | The per-worker memory limit (MiB) keeps the engine's peak below half the limit when resuming an uncompacted 512MiB transcript. The development `.env.example` setting `WORKER_MEMORY_MB=2048` does not meet this criterion. For large-transcript restoration tests, remove that `WORKER_MEMORY_MB` line to use the default, or set it to 4608 MiB or more |
+| `WORKER_IDLE_TIMEOUT_SEC` | 1800 | Seconds a worker with no input waits before it ends; it keeps its room until then. The scheduler refuses to start on a value outside 60 to 7200. On Kubernetes, when a new session's worker Pod cannot schedule for lack of room, the scheduler stops the worker idle longest, one at a time, without waiting this long. It never stops a worker with a turn open, including a turn waiting for a person's answer. A stopped session continues from its checkpoint on a new worker when its next input arrives |
 | `WORKER_PIDS_LIMIT` | 512 | PID limit; not forwarded by Compose |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | Numeric uid[:gid], rejecting uid/gid 0. Must match image /workspace ownership |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | Absolute tmpfs HOME |
@@ -199,7 +200,7 @@ API memory is determined by checkpoint bundle validation: at most two validation
 
 Compose Postgres uses POSTGRES_USER (postgres), POSTGRES_PASSWORD (dev), POSTGRES_DB (sessions); all services build DSNs from the same values.
 
-Workers also read the following env settings, but scheduler does not forward them, so production uses code defaults: WORKER_ANSWER_POLL_SEC (1), WORKER_ATTACH_FETCH_TIMEOUT_SEC (300, fetch one repository attached mid-session), WORKER_ATTACH_FETCH_MAX_MB (2048, fetched scratch mirror size), WORKER_CLAIM_TIMEOUT_SEC (60), WORKER_DRAIN_TIMEOUT_SEC (100, reduced to fit stop grace), WORKER_HEARTBEAT_INTERVAL_SEC (5), WORKER_IDLE_TIMEOUT_SEC (1800), WORKER_LEASE_SAFETY_MARGIN_SEC (10), WORKER_NEXT_INPUT_RETRY_SEC (60), WORKER_NEXT_INPUT_WAIT_SEC (20), WORKER_REQUEST_TIMEOUT_SEC (30), WORKER_STARTUP_TIMEOUT_SEC (3600), WORKER_CLAUDE_CONFIG_DIR ($HOME/.claude).
+Workers also read the following env settings, but scheduler does not forward them, so production uses code defaults: WORKER_ANSWER_POLL_SEC (1), WORKER_ATTACH_FETCH_TIMEOUT_SEC (300, fetch one repository attached mid-session), WORKER_ATTACH_FETCH_MAX_MB (2048, fetched scratch mirror size), WORKER_CLAIM_TIMEOUT_SEC (60), WORKER_DRAIN_TIMEOUT_SEC (100, reduced to fit stop grace), WORKER_HEARTBEAT_INTERVAL_SEC (5), WORKER_LEASE_SAFETY_MARGIN_SEC (10), WORKER_NEXT_INPUT_RETRY_SEC (60), WORKER_NEXT_INPUT_WAIT_SEC (20), WORKER_REQUEST_TIMEOUT_SEC (30), WORKER_STARTUP_TIMEOUT_SEC (3600), WORKER_CLAUDE_CONFIG_DIR ($HOME/.claude).
 
 <a id="감독-루프" />
 ## Supervisor loops
@@ -248,6 +249,7 @@ Kubernetes-only settings:
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | Optional JSON object |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | Optional JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | Ephemeral-storage requests/limits MiB, default 1024; exceeding it causes kubelet eviction |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | Optional. `true` makes the scheduler log a warning at startup for each node that cannot hold two workers. Unset is `false`; a value other than `true`/`false` refuses startup. Needs permission to read Nodes |
 
 Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. The log masking rule hides the tail line by line. A secret-shaped value hides only the lines it spans. A fragment such as `input:` hides its line and every line after it. The lines before it stay (a URL login in them is still masked). See storage/retention in the repository's Kubernetes execution adapter README.
 
@@ -269,7 +271,9 @@ With deploy/helm/werft ([installation](/run-server/self-hosting/kubernetes)), ch
 | `EXECUTION_INSTALLATION_ID` | `installationId` | Also worker NetworkPolicy label |
 | `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`, `worker.workspace.gcMinAgeSec`, `worker.workspace.enforcedByStorage` | Requested size, minimum reclamation age, installation-wide enforcement declaration |
 | `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
+| `WORKER_IDLE_TIMEOUT_SEC` | `worker.idleTimeoutSeconds` | The chart refuses to render a value outside 60 to 7200 |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | Default 1024 |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | `scheduler.nodeCapacityCheck.enabled` | Default `false`. On, the chart gives the scheduler a read-only ClusterRole for Nodes. [Node size warning at startup](/run-server/self-hosting/capacity#설치-때-노드-크기-경고선택) |
 | Installation limits (EXECUTION_SLOT_LIMIT, etc.) | `config.limits` | Same for api/scheduler |
 | `SCHEDULER_*` | `scheduler.intervalSec`, etc. | scheduler.passTimeoutSec/SCHEDULER_PASS_TIMEOUT_SEC default 180, must exceed 150 |
 | `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC`, `SLACK_ROLE_INPUT_HOLD_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec`, `slack.inputHoldSec` | Defaults 2, 60, 3, 90, 10, 60, 3600. `SLACK_ROLE_INPUT_HOLD_SEC` is how many seconds a Slack row waiting for a web input's post waits before it closes unsent. slack.enabled: false omits Deployment |

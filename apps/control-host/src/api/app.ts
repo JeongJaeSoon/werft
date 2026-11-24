@@ -508,6 +508,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     return jsonWithSchema(context, readyResponseSchema, {
       status: "ready",
       checks: { database: "ok", schema: "ok", config: "ok" },
+      ...(result.detail === undefined ? {} : { detail: result.detail }),
     });
   });
 

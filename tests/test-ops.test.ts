@@ -18,6 +18,7 @@ import {
   localstackEnabled,
   withLocalstackBucket,
 } from "@werft-ai/testkit";
+import { checkpointStorageConfigFromEnv } from "../apps/control-host/src/api/checkpoints.ts";
 import {
   checkRender,
   decideUpgrade,
@@ -1552,6 +1553,27 @@ describe("rendered installation", () => {
         "http://localstack:4566",
       );
       await checkRender(model, { store: "localstack" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "on LocalStack the API is a test installation that gives lost checkpoints up at start; on S3 neither is set",
+    () => {
+      const trial = render("localstack").services?.api?.environment ?? {};
+      expect(trial.INSTALLATION_PROFILE).toBe("test");
+      expect(trial.CHECKPOINT_OBJECTS_LOST).toBe("forget");
+      // The API's own reading of what the layer hands it: it accepts forget
+      // only on a test installation whose object store is LocalStack.
+      expect(checkpointStorageConfigFromEnv(trial)).toMatchObject({
+        objectsLost: "forget",
+      });
+      const s3 = render("s3").services?.api?.environment ?? {};
+      expect(s3).not.toHaveProperty("INSTALLATION_PROFILE");
+      expect(s3).not.toHaveProperty("CHECKPOINT_OBJECTS_LOST");
+      expect(checkpointStorageConfigFromEnv(s3)).not.toHaveProperty(
+        "objectsLost",
+      );
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

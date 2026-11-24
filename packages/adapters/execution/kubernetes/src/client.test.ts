@@ -157,6 +157,22 @@ describe("KubernetesClient", () => {
     ).toBeNull();
   });
 
+  test("nodes are listed cluster-wide, by label when one is given", async () => {
+    const all = recording(
+      200,
+      JSON.stringify({ items: [{ metadata: { name: "n1" } }] }),
+    );
+    expect(await all.client.listNodes({})).toEqual([
+      { metadata: { name: "n1" } },
+    ]);
+    expect(all.requests[0]?.url).toBe("https://k8s/api/v1/nodes");
+    const pool = recording(200, JSON.stringify({ items: [] }));
+    await pool.client.listNodes({ pool: "agents" });
+    expect(pool.requests[0]?.url).toBe(
+      "https://k8s/api/v1/nodes?labelSelector=pool%3Dagents",
+    );
+  });
+
   test("no answer within the deadline is a timeout, not a refusal", async () => {
     const client = new KubernetesClient(
       { server: "https://k8s" },

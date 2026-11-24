@@ -377,7 +377,7 @@ export type JudgmentEgressGrant = {
  */
 export type ConversationTurnCallRefused = Extract<
   ConversationTurnCallAuthorization,
-  { outcome: "refused" | "concurrency_limited" }
+  { outcome: "refused" | "concurrency_limited" | "turn_limited" }
 >;
 
 /**
@@ -1638,6 +1638,7 @@ export function createWorkerGateway(deps: {
         return moved("turn's connection");
       case "refused":
       case "concurrency_limited":
+      case "turn_limited":
         return result;
     }
     // No model check here: the call is committed by now, and a regrant

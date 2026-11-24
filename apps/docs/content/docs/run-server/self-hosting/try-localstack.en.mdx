@@ -133,9 +133,18 @@ If `preflight` stops with `path(s) the containers mount cannot be read by the us
 
 An upgrade that recreates the LocalStack container may lose objects. Postpone the upgrade unless `status` confirms 0 uncollected checkpoints. If API startup failure coincides with `pending.json`, `reseed` is also rejected; `reset` discards all data. `backup --stop` does not remove this block.
 
-LocalStack loses in-memory objects when its container is recreated. The API refuses to start if the database retains uncollected checkpoints but the bucket is empty. For automatic and manual start conditions, see the [Compose lifecycle](/run-server/self-hosting/stop-compose).
+LocalStack loses its in-memory objects whenever its container restarts (a host reboot, a Docker restart, a recreated container). The bucket is made again on every start, but empty. The API of this trial installation does not refuse to start in that state: it gives up the uncollected checkpoints the database still has and starts. After an unplanned reboot there is nothing to do, and `reset` is not the answer.
 
-Before a planned restart, back up and stop writers.
+- The owner, keys, settings and the session list stay.
+- Sessions whose restore point was one of those checkpoints, closed ones aside, move to `recovery_required`. Decide whether each goes on without its earlier context (`start_fresh`) or is closed (`close`); see the recovery decision in the [API guide](/reference/api-guide).
+- One warning line in the API log, starting with `The object store came back empty`, names the number of sessions and their ids.
+- `/readyz` still answers 200, and `detail.checkpoints_forgotten_on_boot` in its body carries that number of sessions.
+
+Do not restart the LocalStack container on its own. The API cleans up only when it starts, not while it runs. If a new checkpoint is written in between, the bucket is no longer empty, so the next start cleans up nothing either, and the sessions that lost their objects fail when they restore. If that happened, restart the whole installation at once with `scripts/test-ops.sh stop` and then `start`.
+
+Releases up to `v0.4.0` do not clean up. Their API logs `Checkpoint bucket claude-sessions holds no object version` and refuses to start; unless you took `backup --stop` beforehand, only `reset` is left. For automatic and manual start conditions, see the [Compose lifecycle](/run-server/self-hosting/stop-compose).
+
+To keep the sessions' context, back up and stop the writers before a planned restart. After the restart use `reseed`, not `start`. `start` brings the API up on the empty bucket, which gives the checkpoints up, and putting the objects back afterwards does not bring those checkpoints back.
 
 ```bash
 # Back up, leave the writers stopped, restart the host, then restore the objects

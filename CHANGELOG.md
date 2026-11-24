@@ -14,6 +14,16 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **LocalStack 시험 설치의 api가 재기동으로 빈 bucket에서 기동을 거부하지 않고, 잃은 checkpoint를 포기한 뒤 뜬다. migration `0352_lost_checkpoint_notices`가 새 빈 표 `lost_checkpoint_notices`를 만든다**(JeongJaeSoon/werft#2130). 운영 설치는 그대로다. 기본값 `CHECKPOINT_OBJECTS_LOST=refuse`는 지금처럼 기동을 거부한다.
+  - 새 설정 둘이 생긴다. `INSTALLATION_PROFILE`(`production` 기본, `test`)과 `CHECKPOINT_OBJECTS_LOST`(`refuse` 기본, `forget`). chart는 `config.installation.profile`과 `config.checkpoints.objectsLost`다. 두 이름은 `extraEnv`나 `config.limits`로 넣으면 render가 멈춘다.
+  - `forget`은 profile이 `test`이고 `AWS_ENDPOINT_URL`의 host 첫 마디가 `localstack`일 때만 받는다. 그 밖의 설치에서 켜면 api가 기동하지 않는다.
+  - Compose의 LocalStack layer(`TEST_OPS_OBJECT_STORE=localstack`)는 두 값을 스스로 준다. 그 설치에서 `stop` 뒤 `start`나 재부팅을 하면 잃은 checkpoint가 복원 지점이던 세션이 닫힌 것을 빼고 `recovery_required`가 된다. 맥락을 지키려면 `backup --stop` 뒤 `start`가 아니라 `reseed`를 쓴다.
+  - chart로 LocalStack을 쓰는 시험 설치는 values에 `config.installation.profile: test`와 `config.checkpoints.objectsLost: forget`을 더한다. 더하지 않으면 지금처럼 기동을 거부한다.
+  - 포기한 세션 수는 api의 warn 로그 한 줄과 `/readyz` 본문의 `detail.checkpoints_forgotten_on_boot`에 남는다. `/readyz`의 상태 코드와 `status`·`checks`는 그대로다. 본문을 통째로 비교하던 검사는 새 칸 `detail`을 허용한다.
+- **migration `0350_unknown_budget_resolution`이 `budget_reservations`에 칸 `resolution`과 상태 값 `resolved`를, `conversation_calls`에 상태 값 `resolved`를 더하고 새 빈 표 `budget_adjustments`를 만든다. 운영자 명령 `budget-unknown.ts`(`list`·`resolve`)로 끝을 모르는 예약을 보고 푼다**(JeongJaeSoon/werft#2142). 올릴 때 할 일은 없다. 바뀐 CHECK는 `NOT VALID`로 더한 뒤 따로 검증한다.
+  - `list`는 reconciler 로그와 같은 수(`unknown_count`·`held_cost_usd`)와 예약 줄을 낸다. `resolve --by <owner·admin>`은 기본으로 묶인 만큼을 쓴 것으로 확정하고, `--refund --reason`은 0으로 돌려준다. 한 번에 100개까지이고 `--dry-run`이 있다. 푼 예약마다 receipt `resolve_unknown_budget`이 같은 transaction에서 남는다.
+  - 푼 뒤의 늦은 보고는 예약을 다시 열지 않고, 차이를 원래 예약의 계정과 달에 조정 줄 하나로 더한다.
+  - 지원 창 안의 이미지로 되돌려도 되지만, 옛 이미지는 푼 예약의 늦은 보고를 저장하지 못해 실패로 답한다(보고는 다시 시도된다). 되돌린 동안은 명령으로 풀지 않는다.
 - **첫 owner 설정 링크는 새 명령 `bun run apps/control-host/src/main.ts admin bootstrap-owner --email <address> --out <file>`(api 컨테이너·Pod 안)이 만든다. `apps/control-host/src/api/setup-link.ts`는 없어졌고, `scripts/test-ops.sh setup-link`에는 `--email`과 `--out`이 필요하다**(JeongJaeSoon/werft#2134). 옛 명령을 부르는 스크립트는 고친다.
   - 링크는 stdout이 아니라 `--out` 파일(새로 만들고 0600, 있는 파일은 덮어쓰지 않음)에 `accept_path`·`accept_url`·`expires_at`으로 쓰인다. 화면에는 경로와 만료 시각만 나온다.
   - 링크는 `--email`의 주소에만 쓰인다. `POST /v1/auth/bootstrap`에 다른 주소를 보내면 `403 FORBIDDEN`이고 링크는 남는다.

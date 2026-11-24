@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
-import type {
-  ConversationCallClass,
-  ConversationId,
-  ConversationKind,
-  ConversationTopicId,
-  ConversationTurnCallRefusal,
-  ConversationTurnId,
+import {
+  CONVERSATION_TURN_MODEL_CALL_LIMIT,
+  type ConversationCallClass,
+  type ConversationId,
+  type ConversationKind,
+  type ConversationTopicId,
+  type ConversationTurnCallRefusal,
+  type ConversationTurnId,
 } from "@werft-ai/contracts";
 import {
   type BudgetChoice,
@@ -45,6 +46,7 @@ import { PROVIDER_EXCHANGE_LEASE_MS } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import {
   agents,
+  budgetAdjustments,
   budgetReservations,
   conversationCalls,
   conversations,
@@ -547,6 +549,15 @@ export function createPostgresConversationCalls(
             .where(eq(c.exchangeId, input.exchangeId))
             .limit(1);
           if (taken) return { outcome: "invalid_token" };
+          // The server's own count of the turn's calls, behind the runtime's:
+          // one past it is refused before anything is held.
+          if (permit.calls >= CONVERSATION_TURN_MODEL_CALL_LIMIT) {
+            await tx
+              .update(p)
+              .set({ refusal: "turn_limit" })
+              .where(eq(p.turnId, permit.turnId));
+            return { outcome: "turn_limited", turnId: permit.turnId };
+          }
           const held = input.reserveFor(permit);
           if (held === null) return { outcome: "unavailable" };
           const [conversation] = await tx
@@ -662,7 +673,16 @@ export function createPostgresConversationCalls(
       });
     },
 
-    endTurnAtomic({ turnId }) {
+    async boundTurnPermitAtomic({ turnId, until }) {
+      await db
+        .update(conversationTurnPermits)
+        .set({
+          expiresAt: sql`LEAST(${conversationTurnPermits.expiresAt}, ${until.toISOString()}::timestamptz)`,
+        })
+        .where(eq(conversationTurnPermits.turnId, turnId));
+    },
+
+    endTurnAtomic({ turnId, limitReached }) {
       return db.transaction(async (tx) => {
         const p = conversationTurnPermits;
         // The permit first, as a call on it takes it.
@@ -682,15 +702,21 @@ export function createPostgresConversationCalls(
             ),
           )
           .for("update");
-        if (!turn) return { ended: "gone" as const, refusal };
+        if (!turn) return { ended: "gone" as const, refusal, limit: null };
         if (turn.state !== "running") {
-          return { ended: "already_ended" as const, refusal };
+          return { ended: "already_ended" as const, refusal, limit: null };
         }
+        const limit = limitReached?.(refusal) ?? null;
         await tx
           .update(conversationTurns)
-          .set({ state: "no_decision", endedAt: DB_NOW })
+          .set({
+            state: "no_decision",
+            endedAt: DB_NOW,
+            limitReached: limit?.limit ?? null,
+            limitReachedBy: limit?.by ?? null,
+          })
           .where(eq(conversationTurns.id, turnId));
-        return { ended: "recorded" as const, refusal };
+        return { ended: "recorded" as const, refusal, limit };
       });
     },
 
@@ -718,6 +744,34 @@ export function createPostgresConversationCalls(
                 unmetered,
               }
             : { outcome: "conflict" };
+        }
+        if (call.state === "resolved") {
+          // An operator closed it while its end was unknown: it stays closed,
+          // and the report adds the call's one adjustment to its account.
+          const costUsd = unmetered
+            ? 0
+            : toStoredCost(input.priceFor({ unmetered }).costUsd);
+          const adjusted = await settleBudgetIn(tx, {
+            callId: input.callId,
+            actual: { costUsd, tokens: reservationTokens(input.usage) },
+          });
+          if (adjusted === "adjusted") {
+            return { outcome: "settled", costUsd, unmetered };
+          }
+          if (adjusted !== "already_adjusted") {
+            throw new Error(
+              `conversation call ${input.callId}: its resolved reservation was ${adjusted}`,
+            );
+          }
+          const [first] = await tx
+            .select({ costUsd: budgetAdjustments.reportedCostUsd })
+            .from(budgetAdjustments)
+            .where(eq(budgetAdjustments.callId, input.callId));
+          return {
+            outcome: "already_settled",
+            costUsd: first?.costUsd ?? 0,
+            unmetered,
+          };
         }
         // Bound and not settled is in flight, its end unknown or not, held
         // either way: a release takes only an unbound row. A late report
