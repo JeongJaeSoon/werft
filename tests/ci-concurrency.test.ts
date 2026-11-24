@@ -10,10 +10,16 @@ import { join } from "node:path";
 const dir = join(import.meta.dir, "..", ".github", "workflows");
 
 type Concurrency = { group: string; "cancel-in-progress": boolean | string };
+type Job = {
+  concurrency?: Concurrency;
+  if?: string;
+  env?: Record<string, string>;
+  steps?: { run?: string; env?: Record<string, string> }[];
+};
 type Workflow = {
   on: Record<string, { tags?: string[] } | null>;
   concurrency?: Concurrency;
-  jobs: Record<string, { concurrency?: Concurrency }>;
+  jobs: Record<string, Job>;
 };
 
 const workflows = readdirSync(dir)
@@ -45,6 +51,19 @@ const isRelease = (file: string, workflow: Workflow) =>
 const LATEST_WINS: Record<string, string> = {
   "ci-image-mirror-${{ github.ref == 'refs/heads/main' && 'main' || github.run_id }}":
     "every main run mirrors the whole list as of its own commit",
+  "release-latest":
+    "every run marks the highest stable of all published releases Latest",
+};
+
+// Serial groups of one release. Jobs share one only when they release the same
+// commit or the same tag, so no release waits behind another and none can
+// replace another's waiting job.
+const PER_RELEASE: Record<string, string> = {
+  "images-promote-${{ github.sha }}":
+    "vX and sha-<12> are written for one commit; its tags promote one at a time",
+  "images-release-${{ github.ref_name }}": "a pushed tag's own GitHub Release",
+  "images-release-${{ needs.release-detect.outputs.tag }}":
+    "the GitHub Release of the tag a main run releases",
 };
 
 // Shared serial groups on a release path whose pending run can still be lost.
@@ -53,9 +72,11 @@ const LATEST_WINS: Record<string, string> = {
 const PENDING_94S_2068: Record<string, string> = {
   pages:
     "deploys its own ref, so a later run of an older ref replaces a newer one",
-  "images-promote": "check-then-write of the sha-<12> and vX tags",
-  "images-release": "one GitHub Release write at a time",
 };
+
+const NAMED = [LATEST_WINS, PER_RELEASE, PENDING_94S_2068].flatMap((list) =>
+  Object.keys(list),
+);
 
 const groupsOf = ({ file, workflow }: (typeof workflows)[number]) => [
   ...(workflow.concurrency ? [{ where: file, ...workflow.concurrency }] : []),
@@ -69,12 +90,9 @@ describe("release concurrency groups", () => {
     for (const group of groupsOf(entry)) {
       test(`${group.where} never cancels or replaces a release run`, () => {
         const literal = !group.group.includes("{{");
-        const named = [
-          ...Object.keys(LATEST_WINS),
-          ...Object.keys(PENDING_94S_2068),
-        ].includes(group.group);
+        const named = NAMED.includes(group.group);
         if (literal || named) {
-          // A shared group is allowed only when named here, never cancelling.
+          // A serial group is allowed only when named here, never cancelling.
           expect(named).toBe(true);
           expect(group["cancel-in-progress"]).toBe(false);
           return;
@@ -100,14 +118,10 @@ describe("release concurrency groups", () => {
       .flatMap(groupsOf)
       .map((g) => g.group);
 
-  test("the two lists do not overlap and have no stale names", () => {
+  test("the lists do not overlap and have no stale names", () => {
     const used = new Set(shared());
-    const names = [
-      ...Object.keys(LATEST_WINS),
-      ...Object.keys(PENDING_94S_2068),
-    ];
-    expect(new Set(names).size).toBe(names.length);
-    for (const name of names) expect(used.has(name)).toBe(true);
+    expect(new Set(NAMED).size).toBe(NAMED.length);
+    for (const name of NAMED) expect(used.has(name)).toBe(true);
   });
 
   test("every release workflow is covered", () => {
@@ -121,5 +135,78 @@ describe("release concurrency groups", () => {
         "worker-compat.yml",
       ]),
     );
+  });
+});
+
+describe("images.yml release groups", () => {
+  const images = workflows.find((w) => w.file === "images.yml");
+  const jobs = images?.workflow.jobs ?? {};
+  const inGroup = (name: string) =>
+    Object.entries(jobs)
+      .filter(([, job]) => job.concurrency?.group === name)
+      .map(([job]) => job);
+  const tagPush =
+    "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')";
+
+  test("a release waits only behind its own commit or tag", () => {
+    const promote = "images-promote-${{ github.sha }}";
+    expect(inGroup(promote)).toEqual(["promote", "promote-release"]);
+    // github.ref_name is the tag only in a run a tag push started.
+    expect(inGroup("images-release-${{ github.ref_name }}")).toEqual([
+      "release",
+    ]);
+    expect(jobs.release?.if).toBe(tagPush);
+    expect(
+      inGroup("images-release-${{ needs.release-detect.outputs.tag }}"),
+    ).toEqual(["release-publish"]);
+    // No job is left in a group every release shares, but the Latest mark's.
+    const literal = Object.entries(jobs)
+      .filter(
+        ([, job]) => job.concurrency && !job.concurrency.group.includes("{{"),
+      )
+      .map(([name]) => name);
+    expect(literal).toEqual(["latest", "latest-release"]);
+  });
+
+  test("the shared group only marks Latest, from every release and no version of its own", () => {
+    const script = ".github/scripts/release-latest.sh";
+    for (const name of inGroup("release-latest")) {
+      const job = jobs[name];
+      // Nothing tells the job which release its run made.
+      expect(job?.env).toBeUndefined();
+      const runs = (job?.steps ?? []).filter((step) => step.run !== undefined);
+      expect(runs.map((step) => step.run)).toEqual([script]);
+      expect(Object.keys(runs[0]?.env ?? {}).sort()).toEqual([
+        "GH_REPO",
+        "GH_TOKEN",
+      ]);
+    }
+    const text = readFileSync(
+      join(dir, "..", "scripts", "release-latest.sh"),
+      "utf8",
+    );
+    for (const own of ["GITHUB_REF", "GITHUB_SHA", "RELEASE_REF"]) {
+      expect(text).not.toContain(own);
+    }
+    expect(text).toContain("release-versions.ts");
+  });
+
+  test("a release's own jobs leave the Latest mark alone", () => {
+    for (const group of Object.keys(PER_RELEASE)) {
+      for (const name of inGroup(group)) {
+        const runs = (jobs[name]?.steps ?? []).map((step) => step.run ?? "");
+        expect(runs.join("\n")).not.toContain("release-latest.sh");
+      }
+    }
+    const publish = readFileSync(
+      join(dir, "..", "scripts", "release-publish.sh"),
+      "utf8",
+    );
+    // Every write that publishes says so; GitHub's default would take the mark.
+    const publishes = publish
+      .split("\n")
+      .filter((line) => line.includes("draft=false") && line.includes("PATCH"));
+    expect(publishes).toHaveLength(1);
+    expect(publishes[0]).toContain("-f make_latest=false");
   });
 });

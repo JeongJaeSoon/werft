@@ -1364,10 +1364,10 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(concurrency["cancel-in-progress"]).toBe(
         expression("github.event_name == 'pull_request'"),
       );
-      // Tag promotions serialize repository-wide; two v* tags on one commit
-      // share sha-<12>, and the tag check is not atomic.
+      // Tag promotions serialize per commit: two v* tags on one commit share
+      // sha-<12>, and the tag check is not atomic. Other commits never wait.
       expect(jobs.promote?.concurrency).toEqual({
-        group: "images-promote",
+        group: `images-promote-${expression("github.sha")}`,
         "cancel-in-progress": false,
       });
       // In that group a queued entry would replace another merge's promotion.
