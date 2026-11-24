@@ -2005,6 +2005,7 @@ export function startCredentialProxy(
         secrets,
         route.purpose,
         { ...fields, path: route.path },
+        grant.conversationCallId !== null,
       );
       return route.purpose === "mcp" && relayed.status === 401
         ? new Response(relayed.body, { status: 403, headers: relayed.headers })
@@ -2071,6 +2072,9 @@ export function startCredentialProxy(
     secrets: readonly string[],
     purpose: EgressPurpose,
     fields: Readonly<Record<string, unknown>>,
+    // A conversation call's prompt is the installation's channel text, which
+    // an upstream may echo; its refusals are logged without the excerpt.
+    conversationCall: boolean,
   ): Promise<Response> {
     const encoding = response.headers.get("content-encoding");
     const body = await readAtMost(response, MAX_ERROR_BODY_BYTES);
@@ -2095,9 +2099,10 @@ export function startCredentialProxy(
       const excerpt = text?.slice(0, REFUSAL_EXCERPT_CHARS) ?? "";
       // Said here rather than left to the logger, which would replace a
       // secret-shaped excerpt with a bare [REDACTED] and no reason.
-      const withheld =
-        unsafe ??
-        (sanitizeText(excerpt) === REDACTED ? "redacted_pattern" : null);
+      const withheld = conversationCall
+        ? "conversation_call"
+        : (unsafe ??
+          (sanitizeText(excerpt) === REDACTED ? "redacted_pattern" : null));
       logger.warn("Provider upstream refused the credential route", {
         ...fields,
         status: response.status,
