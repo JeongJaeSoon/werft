@@ -135,6 +135,5 @@ export const pathFixed: readonly string[] = [
   "apps/control-host/src/api/route-error-coverage.ts",
   "apps/control-host/src/api/session-archive.ts",
   "apps/control-host/src/api/settings.ts",
-  "apps/control-host/src/api/setup-link.ts",
   "apps/control-host/src/api/upgrade-check.ts",
 ];
