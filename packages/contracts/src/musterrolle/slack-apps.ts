@@ -206,6 +206,11 @@ export const getSlackAppResponseSchema = z
         /** The Request URL last sent to Slack; null while none has been. */
         url: z.url().nullable(),
         error: z.string().max(128).optional(),
+        /**
+         * When a request signed by the app last arrived, kept to within a
+         * minute; absent before any. `state` stays `verified` when Slack stops sending.
+         */
+        last_received_at: timestampSchema.optional(),
       })
       .strict(),
     warnings: z.array(

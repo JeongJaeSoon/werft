@@ -362,7 +362,7 @@ export type SlackEventsService = ReturnType<typeof createSlackEventsService>;
 export function createSlackEventsService(deps: {
   signingSecrets: Pick<SlackSigningSecrets, "forAgent">;
   inbox: SurfaceInboundEventStore;
-  apps: Pick<SurfaceAppStore, "setEventsUnlessVerified">;
+  apps: Pick<SurfaceAppStore, "setEventsUnlessVerified" | "markEventsReceived">;
   identities: Pick<AgentIdentityStore, "resolveSlackEvent">;
   installs: Pick<SurfaceInstallStore, "revokeInstallation">;
   bindings: Pick<SurfaceBindingStore, "findLiveSlackChannel" | "wasRejected">;
@@ -595,6 +595,12 @@ export function createSlackEventsService(deps: {
       const verified = await verifySlackRequest(deps, request, now);
       if (verified === null) return { kind: "unauthorized" };
       const { agentId, app } = verified;
+      // Before the body is read: only the signature says Slack reached here.
+      await deps.apps.markEventsReceived(
+        app.workspaceId,
+        app.slackAppId,
+        now(),
+      );
 
       let body: unknown;
       try {

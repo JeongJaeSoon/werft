@@ -328,10 +328,48 @@ describe("Slack events service", () => {
       state: "verified",
       checked_at: NOW.toISOString(),
       url: null,
+      last_received_at: NOW.toISOString(),
     });
     w.advance(60_000);
     await w.service.receive(w.signed(w.event(MENTION, { eventId: "Ev0B" })));
     expect((await events())?.checked_at).toBe(NOW.toISOString());
+  });
+
+  test("each signed request marks when the app was last reached, at most once a minute, and never moves its state", async () => {
+    const w = world();
+    await w.install();
+    const events = async () =>
+      (await w.apps.store.find(WORKSPACE, APP_ROW))?.events;
+    await w.service.receive(
+      w.signed(w.event(MENTION), { secret: fakeSlackValue("wrong") }),
+    );
+    expect((await events())?.last_received_at).toBeUndefined();
+
+    const challenge = JSON.stringify({
+      challenge: "challenge-value",
+      type: "url_verification",
+    });
+    await w.service.receive(w.signed(challenge));
+    expect(await events()).toEqual({
+      state: "verified",
+      checked_at: NOW.toISOString(),
+      url: null,
+      last_received_at: NOW.toISOString(),
+    });
+    w.advance(30_000);
+    await w.service.receive(w.signed(w.event(MENTION, { eventId: "Ev0M1" })));
+    expect((await events())?.last_received_at).toBe(NOW.toISOString());
+    w.advance(31_000);
+    // A signed body that is not an event still says Slack got through.
+    expect((await w.service.receive(w.signed("{not json"))).kind).toBe(
+      "bad_request",
+    );
+    expect(await events()).toEqual({
+      state: "verified",
+      checked_at: NOW.toISOString(),
+      url: null,
+      last_received_at: new Date(NOW.getTime() + 61_000).toISOString(),
+    });
   });
 
   test("no app, no secret or an unknown agent answer as a bad signature; misses are not cached", async () => {

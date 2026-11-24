@@ -186,6 +186,7 @@ function policyFor(
     check?: ChannelMemberCheckable;
     viewers?: SessionViewer[];
     decisions?: DecisionLog;
+    logger?: { warn(message: string, fields?: Record<string, unknown>): void };
   } = {},
 ) {
   return createAuthorizationPolicy({
@@ -194,6 +195,7 @@ function policyFor(
     sessions: sessionsSeen(options.viewers),
     channelMembers: options.check ?? members().check,
     ...(options.decisions ? { decisions: options.decisions } : {}),
+    ...(options.logger ? { logger: options.logger } : {}),
   });
 }
 
@@ -431,6 +433,30 @@ describe("the private channels a read across sessions takes", () => {
     }
     expect(await of(KEYS.personal.caller, KEYS.personal.identity)).toEqual([]);
     expect(await of(KEYS.agent.caller, KEYS.agent.identity)).toEqual([]);
+  });
+
+  test("log why a channel is hidden when the agent may not be used", async () => {
+    const warned: { message: string; fields?: unknown }[] = [];
+    const check = members();
+    const caller = person("outsider");
+    const seen = await policyFor(plain, {
+      check: check.check,
+      logger: { warn: (message, fields) => warned.push({ message, fields }) },
+    }).privateChannelsOf?.(caller.subject, WORKSPACE);
+    expect(seen).toEqual([]);
+    expect(check.asked).toEqual([]);
+    expect(warned).toEqual([
+      {
+        message: "Private channel hidden; agent usage denied",
+        fields: {
+          event: "session.private_channel.usage_denied",
+          reason: "usage_denied",
+          workspace_id: WORKSPACE,
+          agent_id: AGENT.toLowerCase(),
+          channel_id: CHANNEL,
+        },
+      },
+    ]);
   });
 
   test("ask Slack at most 8 channels at once", async () => {

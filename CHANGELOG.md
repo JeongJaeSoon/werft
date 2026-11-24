@@ -18,6 +18,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - receipt에는 이전·새 범위, 사유, 못 보게 된 사람 수(`people_losing`, 명단 없음), 실행 id(`run_id`) 또는 Slack 이벤트 id(`event_id`)가 들고 세션 본문은 없다. Slack의 채널 공개↔비공개 전환도 같은 receipt를 남긴다(`reason: "slack_channel_converted"`).
   - receipt를 쓰지 못하면 그 채널의 옮기기도 되돌리고 exit 1로 멈춘다. 이 릴리스 전 명령으로 옮긴 세션에는 receipt가 없다.
 - **운영자 명령 `private-channel-sessions.ts plan`의 `members_unconfirmed: true` 세션에 이유 칸 `members_unconfirmed_reason`(Slack 오류 코드나 짧은 분류)이 더해지고, 같은 이유가 stderr 로그 한 줄로 남는다**(JeongJaeSoon/werft#2094). 판정과 종료 코드는 그대로다. 출력을 읽는 스크립트는 새 칸을 무시해도 된다.
+- **migration `0338_slack_app_events_received`가 `slack_apps`에 nullable 칸 `events_received_at`을 더하고, Slack이 재시도한 이벤트의 `Slack event received` 로그 줄이 `info`에서 `warn`으로 올라간다**(JeongJaeSoon/werft#2100). 행은 다시 쓰지 않는다. 그 줄과 `Slack event refused`에 `retry_num`·`retry_reason`(Slack의 `X-Slack-Retry-Reason`)이 붙는다. `warn`에 경보를 건 설치는 재시도마다 경보가 울릴 수 있다. 앱이 마지막으로 이벤트를 받은 시각은 `GET /v1/agents/{id}/slack/app`의 `events.last_received_at`에서 읽는다.
 
 ## v0.4.0
 

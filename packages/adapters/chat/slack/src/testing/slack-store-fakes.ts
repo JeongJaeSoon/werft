@@ -309,11 +309,18 @@ export function createMemorySlackAppStore(input: {
   const touch = (row: Omit<SurfaceAppRecord, "secrets">, patch: object) =>
     Object.assign(row, patch, { updatedAt: clock() });
 
+  // As the table's own column, a check written later keeps the mark.
+  const received = (row: Omit<SurfaceAppRecord, "secrets">) =>
+    row.events?.last_received_at === undefined
+      ? {}
+      : { last_received_at: row.events.last_received_at };
   const store: SurfaceAppStore = {
     async setEvents(workspaceId, slackAppId, events) {
       const row = rows.get(slackAppId);
       if (row?.workspaceId === workspaceId)
-        touch(row, { events: { ...events, url: row.events?.url ?? null } });
+        touch(row, {
+          events: { ...events, url: row.events?.url ?? null, ...received(row) },
+        });
     },
     async registerEventsUrl(workspaceId, slackAppId, url, checkedAt) {
       const row = rows.get(slackAppId);
@@ -323,7 +330,7 @@ export function createMemorySlackAppStore(input: {
       touch(row, {
         events: kept
           ? { ...events, url }
-          : { state: "pending", checked_at: checkedAt, url },
+          : { state: "pending", checked_at: checkedAt, url, ...received(row) },
       });
     },
     async setEventsUnlessVerified(workspaceId, slackAppId, events) {
@@ -333,8 +340,24 @@ export function createMemorySlackAppStore(input: {
         row.state === "created" &&
         row.events?.state !== "verified"
       ) {
-        touch(row, { events: { ...events, url: row.events?.url ?? null } });
+        touch(row, {
+          events: { ...events, url: row.events?.url ?? null, ...received(row) },
+        });
       }
+    },
+    async markEventsReceived(workspaceId, slackAppId, at) {
+      const row = rows.get(slackAppId);
+      if (row?.workspaceId !== workspaceId || row.state !== "created") return;
+      const events = row.events ?? {
+        state: "pending",
+        checked_at: null,
+        url: null,
+      };
+      const last = events.last_received_at;
+      if (last !== undefined && Date.parse(last) >= at.getTime() - 60_000) {
+        return;
+      }
+      row.events = { ...events, last_received_at: at.toISOString() };
     },
     async getSettings(workspaceId, agentId) {
       const agent = input.agents.get(agentId);

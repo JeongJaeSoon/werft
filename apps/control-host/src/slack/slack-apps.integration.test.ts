@@ -591,6 +591,45 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         (await store().findForAgent(workspaceId, agentId))?.events,
       ).toEqual({ ...verified, url: null });
     });
+
+    test("a receipt mark moves at most once a minute, in its own workspace only, and leaves the state and updated_at", async () => {
+      const slack = fakeSlack();
+      const { workspaceId, owner } = await withToken(slack);
+      const agentId = await agent(workspaceId);
+      const { apps } = service(slack);
+      const created = await apps.createAgentApp(owner.principal, agentId, {
+        replace_uncertain: false,
+      });
+      const id = created.slack_app.id;
+      const read = () => store().findForAgent(workspaceId, agentId);
+      const before = await read();
+      const at = new Date("2026-11-24T01:00:00.000Z");
+      await store().markEventsReceived(await workspace(), id, at);
+      expect((await read())?.events?.last_received_at).toBeUndefined();
+      await store().markEventsReceived(workspaceId, id, at);
+      await store().markEventsReceived(
+        workspaceId,
+        id,
+        new Date(at.getTime() + 60_000),
+      );
+      expect((await read())?.events?.last_received_at).toBe(at.toISOString());
+      const later = new Date(at.getTime() + 60_001);
+      await store().markEventsReceived(workspaceId, id, later);
+      const after = await read();
+      expect(after?.events?.last_received_at).toBe(later.toISOString());
+      expect([after?.events?.state, after?.events?.checked_at]).toEqual([
+        before?.events?.state,
+        before?.events?.checked_at,
+      ]);
+      expect(after?.updatedAt).toEqual(before?.updatedAt);
+      await store().setEvents(workspaceId, id, {
+        state: "pending",
+        checked_at: null,
+      });
+      expect((await read())?.events?.last_received_at).toBe(
+        later.toISOString(),
+      );
+    });
     const begin = (
       workspaceId: string,
       agentId: string,

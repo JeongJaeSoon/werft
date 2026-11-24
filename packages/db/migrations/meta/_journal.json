@@ -1730,6 +1730,13 @@
       "when": 1795450711225,
       "tag": "0337_conversation_records_deleted",
       "breakpoints": true
+    },
+    {
+      "idx": 338,
+      "version": "7",
+      "when": 1795489841667,
+      "tag": "0338_slack_app_events_received",
+      "breakpoints": true
     }
   ]
 }
