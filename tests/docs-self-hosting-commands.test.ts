@@ -102,34 +102,26 @@ describe("self-hosting command fixtures", () => {
     expect(result.stdout).not.toMatch(/compose[^\n]*build[^\n]*\bapi\b/);
   });
 
-  test("kind dependencies must be ready before Helm can start", () => {
-    const block = blocks("try-kind", "bash").find((block) =>
-      block.includes("apply -f deploy/kind/deps.yaml"),
-    );
-    expect(block).toBeDefined();
-    for (const failed of ["", "deploy/postgres", "deploy/localstack"]) {
-      const input = [
-        "git() { :; }; cd() { :; }; kind() { :; }; mktemp() { printf fixture; }",
-        `kubectl() { printf '%s\\n' "$*"; [ "$5" != '${failed}' ]; }`,
-        block,
-        "printf '%s\\n' 'dependencies ready; Helm may start'",
-      ].join("\n");
-      const result = spawnSync("bash", [], {
-        input,
-        encoding: "utf8",
-        timeout: 5000,
-      });
-      expect(result.stdout).toContain(
-        "rollout status deploy/postgres --timeout=300s",
+  test("the published-chart kind trial needs no repository checkout", () => {
+    for (const suffix of ["", ".en", ".ja"]) {
+      const text = readFileSync(join(root, `try-kind${suffix}.mdx`), "utf8");
+      const start = text.indexOf("### 2.");
+      const end =
+        text.slice(start).search(/^(?:<a id="확인" \/>|## )/m) + start;
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      const section = text.slice(start, end);
+      const commands = [
+        ...section.matchAll(/^\x60\x60\x60bash\n([\s\S]*?)^\x60\x60\x60$/gm),
+      ]
+        .map((match) => match[1] ?? "")
+        .join("\n");
+      expect(commands).toContain("kind create cluster --name werft-try");
+      for (const checkout of ["git clone", "deploy/", "infra/", "cd werft"])
+        expect(commands).not.toContain(checkout);
+      expect(section).toContain(
+        "(/run-server/self-hosting/try-chart-dependencies)",
       );
-      expect(result.status).toBe(failed === "" ? 0 : 1);
-      expect(result.stdout.includes("dependencies ready; Helm may start")).toBe(
-        failed === "",
-      );
-      if (failed !== "deploy/postgres")
-        expect(result.stdout).toContain(
-          "rollout status deploy/localstack --timeout=300s",
-        );
     }
   });
 
