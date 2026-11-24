@@ -370,6 +370,7 @@ integration("Slack notice service on PostgreSQL", () => {
     expect(await notices.read(ws.owner.caller, ws.agentId)).toEqual({
       notice: null,
       state: "no_notice",
+      rollout: "off",
       can_approve: true,
       approvals: [],
     });
@@ -389,6 +390,135 @@ integration("Slack notice service on PostgreSQL", () => {
         }),
       ),
     ).toEqual({ code: "FORBIDDEN", reason: "workspace_admin_required" });
+  });
+
+  test("an owner or admin raises the switch to shadow only once the notice is approved, and on never", async () => {
+    const ws = await setUp();
+    const notices = service(V1);
+    expect(
+      await refusal(
+        notices.setRollout(ws.admin.caller, ws.agentId, { rollout: "shadow" }),
+      ),
+    ).toEqual({ code: "REVISION_CONFLICT", reason: "notice_not_approved" });
+    expect(
+      await refusal(
+        service([]).setRollout(ws.admin.caller, ws.agentId, {
+          rollout: "shadow",
+        }),
+      ),
+    ).toEqual({ code: "REVISION_CONFLICT", reason: "no_notice" });
+    await notices.approve(ws.owner.caller, ws.agentId, {
+      notice_version: slackNoticeVersionSchema.parse(1),
+      locale: "ko",
+    });
+    expect(
+      await refusal(
+        notices.setRollout(ws.admin.caller, ws.agentId, { rollout: "on" }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "rollout_on_unavailable" });
+    expect(await receiptsOf(ws.agentId, "set_conversation_rollout")).toEqual(
+      [],
+    );
+
+    const raised = await notices.setRollout(ws.admin.caller, ws.agentId, {
+      rollout: "shadow",
+    });
+    expect(raised.rollout).toBe("shadow");
+    expect((await notices.read(ws.agentAdmin.caller, ws.agentId)).rollout).toBe(
+      "shadow",
+    );
+    await notices.setRollout(ws.owner.caller, ws.agentId, {
+      rollout: "shadow",
+    });
+    const written = await receiptsOf(ws.agentId, "set_conversation_rollout");
+    expect(written).toEqual([
+      {
+        result: {
+          agent_id: ws.agentId,
+          before: "off",
+          after: "shadow",
+          by: "web",
+          reason: null,
+          buffered_dropped: 0,
+        },
+        actor: {
+          principal: { kind: "user", id: ws.admin.userId },
+          actor_user_id: ws.admin.userId,
+          agent_id: null,
+        },
+      },
+    ]);
+
+    // A revoke takes the switch back to off in its transaction.
+    const revoked = await notices.revoke(ws.owner.caller, ws.agentId);
+    expect(revoked.rollout).toBe("off");
+    expect(
+      (await receiptsOf(ws.agentId, "set_conversation_rollout")).at(-1)?.result,
+    ).toMatchObject({
+      before: "shadow",
+      after: "off",
+      reason: "notice_revoked",
+    });
+  });
+
+  test("the agent's admin may not change the switch, another workspace's agent is not found, and an API key is refused", async () => {
+    const ws = await setUp();
+    const other = await setUp();
+    const notices = service(V1);
+    await notices.approve(ws.owner.caller, ws.agentId, {
+      notice_version: slackNoticeVersionSchema.parse(1),
+      locale: "ko",
+    });
+    for (const rollout of ["shadow", "off"] as const) {
+      expect(
+        await refusal(
+          notices.setRollout(ws.agentAdmin.caller, ws.agentId, { rollout }),
+        ),
+      ).toEqual({ code: "FORBIDDEN", reason: "workspace_admin_required" });
+    }
+    expect(
+      (
+        await refusal(
+          notices.setRollout(other.owner.caller, ws.agentId, {
+            rollout: "shadow",
+          }),
+        )
+      ).code,
+    ).toBe("NOT_FOUND");
+    const viaKey = await person(ws.workspaceId, "owner", "api");
+    expect(
+      await refusal(
+        notices.setRollout(viaKey.caller, ws.agentId, { rollout: "shadow" }),
+      ),
+    ).toEqual({ code: "FORBIDDEN", reason: "web_session_required" });
+    expect((await notices.read(ws.owner.caller, ws.agentId)).rollout).toBe(
+      "off",
+    );
+    expect(await receiptsOf(ws.agentId, "set_conversation_rollout")).toEqual(
+      [],
+    );
+  });
+
+  test("an agent without a live Slack install cannot be raised", async () => {
+    const ws = await setUp();
+    const notices = service(V1);
+    await notices.approve(ws.owner.caller, ws.agentId, {
+      notice_version: slackNoticeVersionSchema.parse(1),
+      locale: "ko",
+    });
+    await db
+      .update(agentIdentities)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(agentIdentities.agentId, ws.agentId));
+    expect(
+      (
+        await refusal(
+          notices.setRollout(ws.owner.caller, ws.agentId, {
+            rollout: "shadow",
+          }),
+        )
+      ).code,
+    ).toBe("SLACK_NOT_INSTALLED");
   });
 
   test("an agent without a live Slack install cannot be approved", async () => {
