@@ -40,6 +40,7 @@ import {
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
   CONVERSATION_ROLLOUT_VALUES,
+  CONVERSATION_TURN_CALL_REFUSAL_VALUES,
   CONVERSATION_TURN_DECISION_VALUES,
   CONVERSATION_TURN_ORIGIN_VALUES,
   CONVERSATION_TURN_REASON_MAX,
@@ -55,6 +56,7 @@ import {
   type ConversationInputSlackMirror,
   type ConversationKind,
   type ConversationTopicId,
+  type ConversationTurnCallRefusal,
   type ConversationTurnDecision,
   type ConversationTurnId,
   type ConversationTurnOrigin,
@@ -5767,6 +5769,60 @@ export const conversationTurns = pgTable(
     check(
       "conversation_turns_text_check",
       sql`(${table.decisionReason} IS NULL OR char_length(${table.decisionReason}) BETWEEN 1 AND ${sql.raw(String(CONVERSATION_TURN_REASON_MAX))}) AND (${table.answerText} IS NULL OR char_length(${table.answerText}) <= ${sql.raw(String(CONVERSATION_TURN_TEXT_MAX))})`,
+    ),
+  ],
+);
+
+/**
+ * A running conversation turn's permit: the token its runtime sends with
+ * every provider request, and what each request may use. It reserves
+ * nothing itself; each request the proxy is granted on it is a call of its
+ * own in conversation_calls, reserved on the account its root chooses.
+ * Holds no secret, only the token's hash.
+ */
+export const conversationTurnPermits = pgTable(
+  "conversation_turn_permits",
+  {
+    turnId: uuid("turn_id").$type<ConversationTurnId>().primaryKey(),
+    tokenHash: bytea("token_hash").notNull(),
+    // The turn's root, as its calls are charged: the person when there is
+    // one (a personal key's maker for a key), its agent's team otherwise.
+    rootKind: text("root_kind").$type<BudgetRootKind>().notNull(),
+    requesterUserId: uuid("requester_user_id"),
+    // What each call may use.
+    connectionId: text("connection_id").notNull(),
+    path: text().notNull(),
+    model: text().notNull(),
+    maxTokens: integer("max_tokens").notNull(),
+    maxRequestBytes: integer("max_request_bytes").notNull(),
+    // Every call's key; its attempt is the call's number in the turn.
+    callKey: text("call_key").$type<ConversationCallKey>().notNull(),
+    calls: integer().notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // The last call it was refused, and why: what the turn ended on.
+    refusal: text().$type<ConversationTurnCallRefusal>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("conversation_turn_permits_token_uniq").on(table.tokenHash),
+    foreignKey({
+      name: "conversation_turn_permits_turn_fk",
+      columns: [table.turnId],
+      foreignColumns: [conversationTurns.id],
+    }).onDelete("cascade"),
+    check(
+      "conversation_turn_permits_root_kind_check",
+      sql`${table.rootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
+    ),
+    check(
+      "conversation_turn_permits_limits_check",
+      sql`${table.maxTokens} >= 1 AND ${table.maxRequestBytes} >= 1 AND ${table.calls} >= 0 AND ${table.callKey} ~ '^[A-Za-z0-9_-]{1,128}:m2$'`,
+    ),
+    check(
+      "conversation_turn_permits_refusal_check",
+      sql`${table.refusal} IN (${sql.raw(sqlList(CONVERSATION_TURN_CALL_REFUSAL_VALUES))})`,
     ),
   ],
 );

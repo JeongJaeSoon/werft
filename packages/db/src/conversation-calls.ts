@@ -1,10 +1,13 @@
+import { randomBytes } from "node:crypto";
 import type {
   ConversationCallClass,
   ConversationId,
   ConversationKind,
   ConversationTopicId,
+  ConversationTurnCallRefusal,
 } from "@werft-ai/contracts";
 import {
+  type BudgetChoice,
   type BudgetRoot,
   CHANNEL_LIMITED_CLASS,
   CONVERSATION_CALL_LIMIT_VALUES,
@@ -12,6 +15,8 @@ import {
   type ConversationCallIssue,
   type ConversationCallIssueInput,
   type ConversationCallStore,
+  type ConversationTurnCallAuthorization,
+  type ConversationTurnPermitIssue,
   chooseBudgetAccount,
   reservationTokens,
 } from "@werft-ai/platform";
@@ -23,7 +28,7 @@ import {
   reserveBudgetIn,
   settleBudgetIn,
 } from "./budget-accounts.ts";
-import { DB_NOW, fromDbNow } from "./db-clock.ts";
+import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { PROVIDER_EXCHANGE_LEASE_MS } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -32,6 +37,8 @@ import {
   conversationCalls,
   conversations,
   conversationTopics,
+  conversationTurnPermits,
+  conversationTurns,
   memberTeams,
 } from "./schema.ts";
 
@@ -366,6 +373,281 @@ export function createPostgresConversationCalls(
         return again
           ? { outcome: "ok", ...again }
           : { outcome: "invalid_token" };
+      });
+    },
+
+    issueTurnPermitAtomic(input) {
+      return db.transaction(
+        async (tx): Promise<ConversationTurnPermitIssue> => {
+          const [agent] = await tx
+            .select({ id: agents.id })
+            .from(agents)
+            .where(
+              and(
+                eq(agents.id, input.agentId),
+                eq(agents.workspaceId, input.workspaceId),
+                isNull(agents.deletedAt),
+              ),
+            )
+            .limit(1);
+          if (!agent) return { outcome: "unknown_agent" };
+          const [conversation] = await tx
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.id, input.conversationId),
+                eq(conversations.agentId, input.agentId),
+                eq(conversations.workspaceId, input.workspaceId),
+              ),
+            );
+          if (!conversation) return { outcome: "unknown_conversation" };
+          // So the buffer does not drop the topic before the turn holds it.
+          const [topic] = await tx
+            .select({ id: conversationTopics.id })
+            .from(conversationTopics)
+            .where(
+              and(
+                eq(conversationTopics.id, input.topicId),
+                eq(conversationTopics.conversationId, input.conversationId),
+              ),
+            )
+            .for("key share");
+          if (!topic) return { outcome: "unknown_conversation" };
+          await tx.insert(conversationTurns).values({
+            id: input.turnId,
+            workspaceId: input.workspaceId,
+            agentId: input.agentId,
+            conversationId: input.conversationId,
+            topicId: input.topicId,
+            origin: "m2",
+            state: "running",
+            requesterKind: input.requester.kind,
+            requesterId: input.requester.id,
+            releaseId: input.releaseId,
+          });
+          const [permit] = await tx
+            .insert(conversationTurnPermits)
+            .values({
+              turnId: input.turnId,
+              tokenHash: input.tokenHash,
+              rootKind: chooseBudgetAccount(input.root, null).rootKind,
+              requesterUserId: requesterUserOf(input.root),
+              connectionId: input.connectionId,
+              path: input.path,
+              model: input.model,
+              maxTokens: input.maxTokens,
+              maxRequestBytes: input.maxRequestBytes,
+              callKey: input.callKey,
+              expiresAt: fromDbNow(input.ttlMs),
+            })
+            .returning({ expiresAt: conversationTurnPermits.expiresAt });
+          if (!permit) throw new Error("turn permit row missing after insert");
+          return { outcome: "issued", expiresAt: permit.expiresAt };
+        },
+      );
+    },
+
+    authorizeTurnCallAtomic(input) {
+      return db.transaction(
+        async (tx): Promise<ConversationTurnCallAuthorization> => {
+          const p = conversationTurnPermits;
+          const t = conversationTurns;
+          const c = conversationCalls;
+          // Every call of one turn takes the permit's row in turn, so each
+          // is numbered once and a turn's end waits for a call being written.
+          const [permit] = await tx
+            .select({
+              turnId: p.turnId,
+              rootKind: p.rootKind,
+              requesterUserId: p.requesterUserId,
+              connectionId: p.connectionId,
+              path: p.path,
+              model: p.model,
+              maxTokens: p.maxTokens,
+              maxRequestBytes: p.maxRequestBytes,
+              callKey: p.callKey,
+              calls: p.calls,
+              expiresAt: p.expiresAt,
+              state: t.state,
+              workspaceId: t.workspaceId,
+              agentId: t.agentId,
+              conversationId: t.conversationId,
+              topicId: t.topicId,
+              releaseId: t.releaseId,
+            })
+            .from(p)
+            .innerJoin(t, eq(t.id, p.turnId))
+            .where(eq(p.tokenHash, input.tokenHash))
+            .for("update", { of: p });
+          if (!permit) return { outcome: "invalid_token" };
+          const limits = {
+            callId: c.id,
+            connectionId: c.connectionId,
+            path: c.path,
+            model: c.model,
+            maxTokens: c.maxTokens,
+            maxRequestBytes: c.maxRequestBytes,
+          };
+          // The proxy's regrant of a call already made on the permit.
+          const [again] = await tx
+            .select(limits)
+            .from(c)
+            .where(
+              and(
+                eq(c.exchangeId, input.exchangeId),
+                eq(c.conversationTurnId, permit.turnId),
+                eq(c.state, "in_flight"),
+                gt(c.expiresAt, DB_NOW),
+              ),
+            )
+            .limit(1);
+          if (again) return { outcome: "ok", turnId: permit.turnId, ...again };
+          // Read after the lock, not in its statement (db-clock.ts).
+          const now = await dbNow(tx);
+          if (permit.state !== "running" || permit.expiresAt <= now) {
+            return { outcome: "invalid_token" };
+          }
+          const [taken] = await tx
+            .select({ id: c.id })
+            .from(c)
+            .where(eq(c.exchangeId, input.exchangeId))
+            .limit(1);
+          if (taken) return { outcome: "invalid_token" };
+          const held = input.reserveFor(permit);
+          if (held === null) return { outcome: "unavailable" };
+          const [conversation] = await tx
+            .select({ kind: conversations.kind })
+            .from(conversations)
+            .where(eq(conversations.id, permit.conversationId));
+          if (!conversation) return { outcome: "invalid_token" };
+          await lockBudgetCall(tx, input.callId);
+          const refuse = (refusal: ConversationTurnCallRefusal) =>
+            tx.update(p).set({ refusal }).where(eq(p.turnId, permit.turnId));
+          const limited = await holdConversationCallLimitsIn(tx, {
+            workspaceId: permit.workspaceId,
+            agentId: permit.agentId,
+            conversationId: permit.conversationId,
+            conversationKind: conversation.kind,
+            topicId: permit.topicId,
+            callClass: "m2",
+            requesterUserId: permit.requesterUserId,
+          });
+          if (limited) {
+            await refuse("concurrency");
+            return { ...limited, turnId: permit.turnId };
+          }
+          // The agent's team, as an issue chooses it.
+          const [agent] = await tx
+            .select({
+              teamId: sql<
+                string | null
+              >`CASE WHEN ${memberTeams.archivedAt} IS NULL THEN ${memberTeams.id} END`,
+            })
+            .from(agents)
+            .leftJoin(memberTeams, eq(memberTeams.id, agents.managingTeamId))
+            .where(and(eq(agents.id, permit.agentId), isNull(agents.deletedAt)))
+            .limit(1);
+          const teamId = agent?.teamId ?? null;
+          // The permit kept the person whenever its root chose one.
+          const choice: BudgetChoice = {
+            rootKind: permit.rootKind,
+            owner:
+              permit.requesterUserId !== null
+                ? { kind: "user", userId: permit.requesterUserId }
+                : teamId === null
+                  ? null
+                  : { kind: "team", teamId },
+          };
+          const reserved = await reserveBudgetIn(tx, {
+            callId: input.callId,
+            workspaceId: permit.workspaceId,
+            choice,
+            reserve: held.reserve,
+            unmetered: held.unmetered,
+          });
+          if (reserved.outcome === "refused") {
+            await refuse("budget");
+            return {
+              outcome: "refused",
+              turnId: permit.turnId,
+              rootKind: choice.rootKind,
+              accountId: reserved.accountId,
+            };
+          }
+          if (reserved.outcome !== "reserved") {
+            throw new Error(
+              `conversation call ${input.callId}: its id was already reserved`,
+            );
+          }
+          const [row] = await tx
+            .insert(c)
+            .values({
+              id: input.callId,
+              workspaceId: permit.workspaceId,
+              agentId: permit.agentId,
+              // No token stands for one call of a turn: the permit does.
+              tokenHash: randomBytes(32),
+              rootKind: choice.rootKind,
+              requesterUserId: permit.requesterUserId,
+              connectionId: permit.connectionId,
+              path: permit.path,
+              model: permit.model,
+              maxTokens: permit.maxTokens,
+              maxRequestBytes: permit.maxRequestBytes,
+              state: "in_flight",
+              exchangeId: input.exchangeId,
+              startedAt: DB_NOW,
+              expiresAt: permit.expiresAt,
+              conversationId: permit.conversationId,
+              topicId: permit.topicId,
+              callClass: "m2",
+              releaseId: permit.releaseId,
+              callKey: permit.callKey,
+              attempt: permit.calls + 1,
+              conversationTurnId: permit.turnId,
+            })
+            .returning(limits);
+          if (!row)
+            throw new Error("conversation call row missing after insert");
+          await tx
+            .update(p)
+            .set({ calls: permit.calls + 1 })
+            .where(eq(p.turnId, permit.turnId));
+          return { outcome: "ok", turnId: permit.turnId, ...row };
+        },
+      );
+    },
+
+    endTurnAtomic({ turnId }) {
+      return db.transaction(async (tx) => {
+        const p = conversationTurnPermits;
+        // The permit first, as a call on it takes it.
+        const [permit] = await tx
+          .select({ refusal: p.refusal })
+          .from(p)
+          .where(eq(p.turnId, turnId))
+          .for("update");
+        const refusal = permit?.refusal ?? null;
+        const [turn] = await tx
+          .select({ state: conversationTurns.state })
+          .from(conversationTurns)
+          .where(
+            and(
+              eq(conversationTurns.id, turnId),
+              eq(conversationTurns.origin, "m2"),
+            ),
+          )
+          .for("update");
+        if (!turn) return { ended: "gone" as const, refusal };
+        if (turn.state !== "running") {
+          return { ended: "already_ended" as const, refusal };
+        }
+        await tx
+          .update(conversationTurns)
+          .set({ state: "no_decision", endedAt: DB_NOW })
+          .where(eq(conversationTurns.id, turnId));
+        return { ended: "recorded" as const, refusal };
       });
     },
 

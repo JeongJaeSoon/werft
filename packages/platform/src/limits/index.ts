@@ -6,7 +6,9 @@ export type { ConversationCallLimit } from "./conversation-call-limits.ts";
 export {
   CONVERSATION_CALL_PATH,
   CONVERSATION_CALL_TOKEN_PREFIX,
+  CONVERSATION_TURN_PERMIT_TOKEN_PREFIX,
   type ConversationCalls,
+  conversationCallReserve,
   hashConversationCallToken,
 } from "./conversation-calls.ts";
 export {
@@ -30,4 +32,7 @@ export {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "./model-prices.ts";
-export type { ConversationCallStore } from "./ports/conversation-call-store.ts";
+export type {
+  ConversationCallStore,
+  ConversationTurnCallAuthorization,
+} from "./ports/conversation-call-store.ts";

@@ -3,7 +3,6 @@ import {
   CONVERSATION_TURN_LEASE_MS,
   CONVERSATION_TURN_LIMIT_MS,
   type ConversationTurnResult,
-  conversationCallIdSchema,
   conversationIdSchema,
   conversationRuntimeIdSchema,
   conversationTopicIdSchema,
@@ -36,10 +35,7 @@ function queued(): QueuedConversationTurn {
       endpoint: "https://api.anthropic.com",
       auth: { kind: "egress_token", token: ["wec", "one-call"].join("_") },
     },
-    call: {
-      id: conversationCallIdSchema.parse(crypto.randomUUID()),
-      max_tokens: 1_024,
-    },
+    call: { max_tokens: 1_024 },
     input: { id: crypto.randomUUID(), text: "hello" },
   };
 }

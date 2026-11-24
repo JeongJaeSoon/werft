@@ -6,7 +6,6 @@ import { join } from "node:path";
 import {
   CONVERSATION_TURN_LEASE_MS,
   CONVERSATION_TURN_LIMIT_MS,
-  conversationCallIdSchema,
   conversationRuntimeIdSchema,
 } from "@werft-ai/contracts";
 import { createLogger } from "@werft-ai/observability";
@@ -139,11 +138,13 @@ describe("assertConversationTurnDispatch", () => {
   });
 });
 
-type Issue = Awaited<ReturnType<ConversationCalls["issueForOperator"]>>;
+type Issue = Awaited<ReturnType<ConversationCalls["issueOperatorTurn"]>>;
 
 function operatorHarness(
   options: {
     issue?: () => Issue;
+    /** What the turn's permit was last refused for. */
+    refusal?: "budget" | "concurrency";
     release?: unknown;
     /** Wait in real time, for a test that acts while the operator waits. */
     realTime?: boolean;
@@ -162,21 +163,24 @@ function operatorHarness(
           },
         }),
   });
-  const issued: Parameters<ConversationCalls["issueForOperator"]>[0][] = [];
-  const callId = conversationCallIdSchema.parse(crypto.randomUUID());
+  const issued: Parameters<ConversationCalls["issueOperatorTurn"]>[0][] = [];
+  const ended: string[] = [];
   const operator = createOperatorConversationTurns({
     turns,
     calls: {
-      async issueForOperator(input) {
+      async issueOperatorTurn(input) {
         issued.push(input);
         return options.issue
           ? options.issue()
           : {
               outcome: "issued",
-              callId,
               token: CALL_TOKEN,
               expiresAt: new Date(now().getTime() + 120_000),
             };
+      },
+      async endTurn(turnId) {
+        ended.push(turnId);
+        return { ended: "recorded", refusal: options.refusal ?? null };
       },
     },
     agents: {
@@ -220,7 +224,7 @@ function operatorHarness(
     text: "hello there",
     operator: { user: "ops", host: "api-host" },
   } as never;
-  return { turns, operator, issued, callId, request };
+  return { turns, operator, issued, ended, request };
 }
 
 describe("an operator's conversation turn", () => {
@@ -230,7 +234,7 @@ describe("an operator's conversation turn", () => {
     expect(h.issued).toEqual([]);
   });
 
-  test("reserves one call as the operator's own, queues the turn with its permit and scope, and returns how it ended", async () => {
+  test("writes the turn with its permit, queues it with its scope, and ends it once the runtime reports", async () => {
     const h = operatorHarness({ realTime: true });
     // A runtime is polling.
     expect(await h.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
@@ -250,7 +254,7 @@ describe("an operator's conversation turn", () => {
         endpoint: "https://api.anthropic.com",
         auth: { kind: "egress_token", token: CALL_TOKEN },
       },
-      call: { id: h.callId, max_tokens: OPERATOR_TURN_MAX_TOKENS },
+      call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
       input: { text: "hello there" },
     });
     expect(
@@ -265,9 +269,10 @@ describe("an operator's conversation turn", () => {
     expect(await running).toEqual({
       outcome: "ended",
       turn_id: turn.turn_id,
-      call_id: h.callId,
       turn: { outcome: "completed", text: "hi" },
     });
+    // Its row and permit end with it: no call is granted on it after.
+    expect(h.ended).toEqual([turn.turn_id]);
     // A turn taken at the last moment still has its whole limit to run in.
     expect(OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS).toBeGreaterThan(
       OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LIMIT_MS,
@@ -279,8 +284,8 @@ describe("an operator's conversation turn", () => {
         conversationId: CONVERSATION as never,
         topicId: TOPIC as never,
         // Neither a root nor a key: the operator's are not the command's to choose.
-        callClass: "m2",
         turnId: turn.turn_id,
+        operator: "ops@api-host",
         // The permit outlives the wait to be taken and the whole lease.
         ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
         releaseId: RELEASE,
@@ -328,19 +333,6 @@ describe("an operator's conversation turn", () => {
       });
       expect(h.issued).toEqual([]);
     }
-    const refused = await polled(
-      operatorHarness({
-        issue: () => ({
-          outcome: "refused",
-          rootKind: "none",
-          accountId: null,
-        }),
-      }),
-    );
-    expect(await refused.operator.run(refused.request)).toEqual({
-      outcome: "budget_refused",
-    });
-    expect(await refused.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
     const elsewhere = await polled(
       operatorHarness({ issue: () => ({ outcome: "unknown_conversation" }) }),
     );
@@ -348,6 +340,19 @@ describe("an operator's conversation turn", () => {
       outcome: "unknown_conversation",
     });
     expect(await elsewhere.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
+    // Nothing was written, so nothing is ended.
+    expect(elsewhere.ended).toEqual([]);
+  });
+
+  test("names the refusal a turn's call ended it on", async () => {
+    const h = operatorHarness({ refusal: "budget" });
+    await h.turns.nextTurn({ runtimeId, waitMs: 0 });
+    expect(await h.operator.run(h.request)).toMatchObject({
+      outcome: "ended",
+      turn: { outcome: "failed", reason: "not_taken" },
+      refused: "budget",
+    });
+    expect(h.ended).toHaveLength(1);
   });
 });
 
@@ -480,9 +485,9 @@ describe("an operator's call is the operator command's alone", () => {
       )
       .sort();
 
-  test("no route, Slack role or web code names the issue an operator's call takes", () => {
+  test("no route, Slack role or web code names the issue an operator's turn takes", () => {
     // Where it is defined, and the operator command's module.
-    expect(naming("issueForOperator")).toEqual([
+    expect(naming("issueOperatorTurn")).toEqual([
       "apps/control-host/src/api/conversation-runtime.ts",
       "packages/platform/src/limits/conversation-calls.ts",
     ]);

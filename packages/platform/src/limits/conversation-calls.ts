@@ -5,6 +5,7 @@ import {
   type ConversationCallKey,
   type ConversationId,
   type ConversationTopicId,
+  type ConversationTurnId,
   conversationCallIdSchema,
   conversationCallKeySchema,
 } from "@werft-ai/contracts";
@@ -15,10 +16,13 @@ import type { ProviderUsage } from "./model-prices.ts";
 import type {
   ConversationCallIssue,
   ConversationCallStore,
+  ConversationTurnPermitIssue,
 } from "./ports/conversation-call-store.ts";
 import { reservationCostUsd, reservationTokens } from "./reservations.ts";
 
 export const CONVERSATION_CALL_TOKEN_PREFIX = "wec_";
+// A conversation turn's permit, good for each of its calls while it runs.
+export const CONVERSATION_TURN_PERMIT_TOKEN_PREFIX = "wct_";
 // One call's life: issued, used and answered. A token not used by then is
 // released by the reconciler; one in use is cut by the proxy's regrant.
 export const CONVERSATION_CALL_TOKEN_TTL_MS = 2 * 60_000;
@@ -66,6 +70,17 @@ export function conversationCallReserve(call: {
     tokens: reservationTokens(usage),
   };
 }
+
+export type ConversationTurnPermitIssued =
+  | {
+      outcome: "issued";
+      /** Sent as the API key of each of the turn's calls to the proxy's provider route. */
+      token: string;
+      expiresAt: Date;
+    }
+  | Exclude<ConversationTurnPermitIssue, { outcome: "issued" }>
+  // The connection is not one the catalog holds, or serves no Messages.
+  | { outcome: "unavailable" };
 
 export type ConversationCallIssued =
   | {
@@ -151,41 +166,73 @@ export function createConversationCalls(deps: {
         input.callKey.startsWith(OPERATOR_CALL_KEY_PREFIX)
       ) {
         throw new RangeError(
-          "An operator's call is issued by issueForOperator alone",
+          "An operator's calls are issued by issueOperatorTurn alone",
         );
       }
       return issueWith(input);
     },
     /**
-     * The one call of a turn an operator started by hand, for the operator's
-     * command alone: nothing a person, a key or Slack reaches calls this.
-     * Charged to the agent's team as an operator key's call, which runs
-     * whether or not the team has a limit.
+     * A turn an operator started by hand, for the operator's command alone:
+     * nothing a person, a key or Slack reaches calls this. Writes the turn
+     * and its permit; each provider call the turn makes on the permit is
+     * reserved when the proxy asks for it, charged to the agent's team as an
+     * operator key's call, which runs whether or not the team has a limit.
      */
-    async issueForOperator(
-      input: Omit<Issue, "root" | "callKey" | "attempt"> & {
-        /** The turn the call is for. */
-        turnId: string;
-        /**
-         * How long the permit lasts: the turn's wait to be taken and then
-         * its lease. The proxy asks again while the call runs, and a permit
-         * that ended by then cuts a turn still inside its own limit.
-         */
-        ttlMs: number;
-      },
-    ): Promise<ConversationCallIssued> {
-      const { turnId, ttlMs, ...call } = input;
-      return issueWith(
-        {
-          ...call,
-          root: OPERATOR_ROOT,
-          callKey: conversationCallKeySchema.parse(
-            `${OPERATOR_CALL_KEY_PREFIX}${turnId}:${call.callClass}`,
-          ),
-          attempt: 1,
-        },
-        ttlMs,
-      );
+    async issueOperatorTurn(input: {
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+      topicId: ConversationTopicId;
+      turnId: ConversationTurnId;
+      /** Who ran the command, kept as the turn's requester. */
+      operator: string;
+      releaseId: string | null;
+      connectionId: string;
+      model: string;
+      /** What each call of the turn may use. */
+      maxTokens: number;
+      maxRequestBytes: number;
+      /**
+       * How long the permit lasts: the turn's wait to be taken and then its
+       * lease. The proxy asks again while a call runs, and a permit that
+       * ended by then cuts a turn still inside its own limit.
+       */
+      ttlMs: number;
+    }): Promise<ConversationTurnPermitIssued> {
+      for (const [name, value] of [
+        ["maxTokens", input.maxTokens],
+        ["maxRequestBytes", input.maxRequestBytes],
+        ["ttlMs", input.ttlMs],
+      ] as const) {
+        if (!Number.isSafeInteger(value) || value < 1) {
+          throw new RangeError(`${name} must be a positive integer: ${value}`);
+        }
+      }
+      const connection = connectionOf(deps.catalog, input.connectionId);
+      if (!connection || connection.provider.kind === "openai_responses") {
+        return { outcome: "unavailable" };
+      }
+      const { operator, ...turn } = input;
+      const token = `${CONVERSATION_TURN_PERMIT_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+      const issued = await deps.store.issueTurnPermitAtomic({
+        ...turn,
+        tokenHash: hashConversationCallToken(token),
+        requester: { kind: "operator", id: operator },
+        root: OPERATOR_ROOT,
+        path: CONVERSATION_CALL_PATH,
+        callKey: conversationCallKeySchema.parse(
+          `${OPERATOR_CALL_KEY_PREFIX}${input.turnId}:m2`,
+        ),
+      });
+      if (issued.outcome !== "issued") return issued;
+      return { outcome: "issued", token, expiresAt: issued.expiresAt };
+    },
+    /**
+     * Ends a turn issued here once its runtime is done with it, and its
+     * permit with it: no call is granted on it after this.
+     */
+    endTurn(turnId: ConversationTurnId) {
+      return deps.store.endTurnAtomic({ turnId });
     },
   };
 }
