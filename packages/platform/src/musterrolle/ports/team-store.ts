@@ -74,6 +74,14 @@ export type TeamMembershipResult =
         | "member_disabled";
     };
 
+/** A team's monthly budget limit; an unset part limits nothing. */
+export type TeamBudgetLimit = { costUsd: number | null; tokens: number | null };
+
+/** `unchanged`: the limit already was this; no receipt. */
+export type SetTeamBudgetLimitResult =
+  | { outcome: "set" | "unchanged"; limit: TeamBudgetLimit }
+  | { outcome: "not_found" | "actor_inactive" };
+
 export interface TeamStore {
   create(
     input: Write & { teamId: string; name: string },
@@ -102,6 +110,15 @@ export interface TeamStore {
    */
   list(workspaceId: string, query: ListTeamsQuery): Promise<TeamPage<Team>>;
   get(workspaceId: string, teamId: string): Promise<TeamDetail | null>;
+  /** A live team's limit, both parts null when it has none; null: no team. */
+  getBudgetLimit(
+    workspaceId: string,
+    teamId: string,
+  ): Promise<TeamBudgetLimit | null>;
+  /** Neither part set takes the team's limit off. */
+  setBudgetLimit(
+    input: Write & { teamId: string; limit: TeamBudgetLimit },
+  ): Promise<SetTeamBudgetLimitResult>;
   /** One page of the live teams a live member of the workspace is in now. */
   listJoined(
     workspaceId: string,
