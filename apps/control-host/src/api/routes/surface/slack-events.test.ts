@@ -238,7 +238,7 @@ describe("POST /v1/slack/events/{agent_id}", () => {
     expect(at).toBeLessThanOrEqual(Date.now());
   });
 
-  test("a wrongly signed url_verification is 401 and leaves the subscription pending", async () => {
+  test("a wrongly signed url_verification is 401 and leaves the subscription pending and its last receipt as it was", async () => {
     await apps.store.setEvents(WORKSPACE, APP_ROW, {
       state: "pending",
       checked_at: null,
@@ -247,17 +247,15 @@ describe("POST /v1/slack/events/{agent_id}", () => {
       challenge: "verify-me",
       type: "url_verification",
     });
+    const before = (await apps.store.find(WORKSPACE, APP_ROW))?.events;
     const wrong = await post(
       AGENT,
       body,
       signSlackRequest(fakeSlackValue("wrong"), body, Date.now() / 1000),
     );
     expect(wrong.status).toBe(401);
-    expect((await apps.store.find(WORKSPACE, APP_ROW))?.events).toEqual({
-      state: "pending",
-      checked_at: null,
-      url: null,
-    });
+    expect(before).toMatchObject({ state: "pending", checked_at: null });
+    expect((await apps.store.find(WORKSPACE, APP_ROW))?.events).toEqual(before);
   });
 
   test("unknown agent, no app, no secret and a bad signature look the same", async () => {
@@ -322,18 +320,22 @@ describe("POST /v1/slack/events/{agent_id}", () => {
     expect((await global(crypto.randomUUID(), body)).status).toBe(429);
   });
 
-  test("Slack's retries of one event answer 200 and leave one row", async () => {
+  test("Slack's retries of one event answer 200, leave one row and log why at warn", async () => {
     await setup;
     const body = mention("Ev0RETRY");
     const statuses = [];
-    for (const retry of [undefined, "1", "2"]) {
+    const logged = logs.records.length;
+    for (const [num, reason] of [
+      [undefined, undefined],
+      ["1", "http_timeout"],
+      ["2", "Bearer xoxb-not-a-reason"],
+    ]) {
       statuses.push(
         (
           await post(AGENT, body, {
             ...signed(body),
-            ...(retry
-              ? { "X-Slack-Retry-Num": retry, "X-Slack-Retry-Reason": "x" }
-              : {}),
+            ...(num ? { "X-Slack-Retry-Num": num } : {}),
+            ...(reason ? { "X-Slack-Retry-Reason": reason } : {}),
           })
         ).status,
       );
@@ -342,6 +344,45 @@ describe("POST /v1/slack/events/{agent_id}", () => {
     expect(
       [...inbox.rows.keys()].filter((key) => key.endsWith("|Ev0RETRY")),
     ).toHaveLength(1);
+    expect(
+      logs.records
+        .slice(logged)
+        .filter((record) => record.message === "Slack event received")
+        .map(({ level, fields }) => [
+          level,
+          fields?.retry_num,
+          fields?.retry_reason,
+        ]),
+    ).toEqual([
+      ["info", null, null],
+      ["warn", 1, "http_timeout"],
+      ["warn", 2, null],
+    ]);
+  });
+
+  test("a refused request logs Slack's retry headers too", async () => {
+    const body = mention("Ev0REFUSED");
+    const logged = logs.records.length;
+    const refused = await post(AGENT, body, {
+      ...signSlackRequest(
+        fakeSlackValue("wrong"),
+        body,
+        Math.floor(Date.now() / 1000),
+      ),
+      "X-Slack-Retry-Num": "3",
+      "X-Slack-Retry-Reason": "http_error",
+    });
+    expect(refused.status).toBe(401);
+    expect(
+      logs.records
+        .slice(logged)
+        .filter((record) => record.message === "Slack event refused")
+        .map(({ level, fields }) => [
+          level,
+          fields?.retry_num,
+          fields?.retry_reason,
+        ]),
+    ).toEqual([["warn", 3, "http_error"]]);
   });
 
   test("a signed body that is not JSON is 400", async () => {

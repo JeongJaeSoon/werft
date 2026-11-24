@@ -7226,7 +7226,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's Slack app, if the platform made one",
     description:
-      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `release_unavailable` (with the `release_id`) while the active release's connection is disabled or gone, or its model left the connection's list, and `repository_required` (with the `release_id`) while a session cannot start: the release names a repository the catalog or the workspace's repository ceiling does not allow, or the agent's GitHub settings cannot be read. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.",
+      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `release_unavailable` (with the `release_id`) while the active release's connection is disabled or gone, or its model left the connection's list, and `repository_required` (with the `release_id`) while a session cannot start: the release names a repository the catalog or the workspace's repository ceiling does not allow, or the agent's GitHub settings cannot be read. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. `events.last_received_at` is when a request signed by the app last reached the events route (kept to within a minute), absent before any; `events.state` stays `verified` when Slack stops sending, so an old `last_received_at` on an app that should be busy says events are being lost before they arrive. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -7237,9 +7237,10 @@ export const API_ROUTE_DECLARATIONS = [
         event_url:
           "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
         events: {
-          state: "pending",
+          state: "verified",
           checked_at: "2026-10-28T00:00:00.000Z",
           url: "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
+          last_received_at: "2026-11-24T01:12:00.000Z",
         },
         warnings: [],
         config_token: "active",
