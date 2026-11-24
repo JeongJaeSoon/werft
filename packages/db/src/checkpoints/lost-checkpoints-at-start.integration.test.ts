@@ -4,9 +4,10 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { findPgError } from "../control-shared.ts";
 import * as schema from "../schema.ts";
 import { checkpoints, lostCheckpointNotices, sessions } from "../schema.ts";
 import {
@@ -64,26 +65,40 @@ integration("giving lost checkpoints up at start, on PostgreSQL", () => {
     (await db.select().from(lostCheckpointNotices)).map((row) =>
       [...row.sessionIds].sort(),
     );
-  const settled = (promise: Promise<unknown>) =>
-    Promise.race([
-      promise.then(
-        () => true,
-        () => true,
-      ),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 400)),
-    ]);
+  // Connections of this database waiting for an advisory lock.
+  const advisoryWaiters = async () => {
+    const result = await pool.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
+    );
+    return result.rows[0]?.n ?? 0;
+  };
 
-  test("two APIs starting together record the loss once", async () => {
+  test("two APIs starting together record the loss once, and a session of the first stays locked through the second look", async () => {
     const lost = await sessionWithCheckpoint();
     let second: ReturnType<typeof forgetLostCheckpointsAtStart> | undefined;
     const first = await forgetLostCheckpointsAtStart(
       db,
       new Date(),
       async () => {
-        // The first holds its locks; the second starts on its own connection
-        // and must wait rather than read the same checkpoints.
+        // The first holds its locks. The second starts on a connection of its
+        // own and has to wait for the first instead of reading the same
+        // checkpoints: seen in pg_locks, not assumed from a delay.
         second = forgetLostCheckpointsAtStart(db, new Date(), async () => true);
-        expect(await settled(second)).toBe(false);
+        for (let waited = 0; (await advisoryWaiters()) === 0; waited += 1) {
+          if (waited === 200) throw new Error("the second start never waited");
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        // What a finalize takes first (acquireFence): the session row. It is
+        // not available while the bucket is read again.
+        const locked = await db
+          .execute(
+            sql`SELECT id FROM sessions WHERE id = ${lost} FOR UPDATE NOWAIT`,
+          )
+          .then(
+            () => undefined,
+            (error: unknown) => error,
+          );
+        expect(findPgError(locked, "55P03")).toBeDefined();
         return true;
       },
     );

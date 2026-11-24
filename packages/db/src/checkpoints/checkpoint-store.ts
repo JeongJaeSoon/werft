@@ -25,6 +25,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { transactionWithBindingRetry } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { openResumeReceipt } from "../resume-control.ts";
@@ -208,14 +209,19 @@ export function forgetLostCheckpoints(
  * reads what the first left, which is nothing, and records nothing.
  * `stillLost` is the caller's bucket check again, under the session locks
  * (forgetLostCheckpoints): a checkpoint committed after the first look keeps
- * everything.
+ * everything. It must be quick, since those locks are held while it runs.
+ *
+ * forgetLostCheckpoints locks a dispatch signal before its session, and the
+ * control paths that clear the signal hold the session first. With the API
+ * down that never meets; here it can, so a deadlock victim runs again
+ * (transactionWithBindingRetry), `stillLost` included.
  */
 export function forgetLostCheckpointsAtStart(
   db: Database,
   now: Date,
   stillLost: () => Promise<boolean>,
 ): Promise<LostCheckpoints> {
-  return db.transaction(async (tx) => {
+  return transactionWithBindingRetry(db, async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtextextended('lost_checkpoints_at_start', 0))`,
     );

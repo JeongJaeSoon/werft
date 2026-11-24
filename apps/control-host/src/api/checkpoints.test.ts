@@ -898,6 +898,31 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
     expect(await db.select().from(lostCheckpointNotices)).toHaveLength(0);
   });
 
+  test("a second look the bucket never answers fails the start with nothing given up", async () => {
+    let looks = 0;
+    await expect(
+      checkpointObjectsAtStart(config, {
+        client: {
+          send() {
+            looks += 1;
+            // The first look answers "empty"; the second hangs.
+            return looks === 1 ? Promise.resolve({}) : new Promise(() => {});
+          },
+        },
+        hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+        forget: (stillLost) =>
+          forgetLostCheckpointsAtStart(db, new Date(), stillLost),
+        secondLookDeadlineMs: 20,
+      }),
+    ).rejects.toThrow(
+      "Checkpoint bucket claude-sessions did not answer within 20 ms when it was read again before giving up its lost checkpoints; nothing was given up",
+    );
+    expect(looks).toBe(2);
+    expect(await hasUncollectedCheckpoint(db)).toBe(true);
+    expect(await admissionState(open)).toBe("stopped");
+    expect(await db.select().from(lostCheckpointNotices)).toHaveLength(0);
+  });
+
   test("an empty bucket starts: the checkpoints are given up, their sessions wait in recovery_required, and the loss is recorded", async () => {
     expect(await start({})).toEqual({ held: [open], unchanged: [closed] });
     expect(await hasUncollectedCheckpoint(db)).toBe(false);
@@ -918,6 +943,41 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
       await forgetLostCheckpointsAtStart(db, new Date(), async () => true),
     ).toEqual({ held: [], unchanged: [] });
     expect(await db.select().from(lostCheckpointNotices)).toHaveLength(1);
+  });
+
+  test("a start PostgreSQL picked as a deadlock victim runs again, second look included", async () => {
+    const victim = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id: victim,
+      ownerId: "owner",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${victim}`,
+      status: "stopped",
+      admissionState: "stopped",
+      checkpointRevision: 1,
+    });
+    await db.insert(checkpoints).values({
+      sessionId: victim,
+      revision: 1,
+      manifestRef: `s3://claude-sessions/${victim}/manifest.json`,
+      manifestSha256: "sha256",
+    });
+    let looks = 0;
+    expect(
+      await forgetLostCheckpointsAtStart(db, new Date(), async () => {
+        looks += 1;
+        if (looks === 1) {
+          throw Object.assign(new Error("deadlock detected"), {
+            code: "40P01",
+          });
+        }
+        return true;
+      }),
+    ).toEqual({ held: [victim], unchanged: [] });
+    expect(looks).toBe(2);
+    // The first attempt was rolled back whole: one more row, not two.
+    expect(await db.select().from(lostCheckpointNotices)).toHaveLength(2);
+    expect(await openCount()).toBe(3);
   });
 
   test("a closed notice no longer counts", async () => {

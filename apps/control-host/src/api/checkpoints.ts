@@ -474,6 +474,14 @@ export async function assertCheckpointBucketEncryption(
 export type LostCheckpointObjectsDecision = "present" | "refuse" | "forget";
 
 /**
+ * How long the second look at the bucket may take. It runs while the forget
+ * holds its session locks, so it has to end well inside the database's
+ * idle-in-transaction limit (30 s). Past it the start fails with nothing given
+ * up, and the next start tries again.
+ */
+const SECOND_LOOK_DEADLINE_MS = 10_000;
+
+/**
  * What a start does about the checkpoints the database still has, decided in
  * this one place. A bucket that holds any object version is `present`, even
  * when some of its objects are gone: a restore finds that gap, and the backup
@@ -513,17 +521,39 @@ export async function checkpointObjectsAtStart(
     ) => Promise<LostCheckpoints>;
     /** Tests substitute a fake; the product path never passes this. */
     readonly client?: S3ClientLike;
+    /** Tests shorten SECOND_LOOK_DEADLINE_MS; the product path never passes this. */
+    readonly secondLookDeadlineMs?: number;
   },
 ): Promise<LostCheckpoints | undefined> {
   if (!(await options.hasUncollectedCheckpoint())) return undefined;
+  const deadlineMs = options.secondLookDeadlineMs ?? SECOND_LOOK_DEADLINE_MS;
   const check = async (client: S3ClientLike) => {
     const decision = await lostCheckpointObjectsDecision(config, client);
     if (decision === "present") return undefined;
     if (decision === "forget") {
-      const lost = await options.forget(
-        async () =>
-          (await lostCheckpointObjectsDecision(config, client)) === "forget",
-      );
+      const lost = await options.forget(async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            lostCheckpointObjectsDecision(config, client).then(
+              (second) => second === "forget",
+            ),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `Checkpoint bucket ${config.bucket} did not answer within ${deadlineMs} ms when it was read again before giving up its lost checkpoints; nothing was given up`,
+                    ),
+                  ),
+                deadlineMs,
+              );
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      });
       // Nothing when another start forgot them first, or the second look
       // found an object.
       return lost.held.length + lost.unchanged.length > 0 ? lost : undefined;
