@@ -80,6 +80,7 @@ DB に未回収の checkpoint 行があるのに bucket に object version が�
 - 失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になり、復旧の判断を待ちます。
 - API のログに警告が 1 行残り、セッション数と id を記録します。
 - `/readyz` は 200 のままで、本文の `detail.checkpoints_forgotten_on_boot` にそのセッション数が入ります。
+- コンソールは owner・admin に、すべての画面の最上部で「試験インストール: 再起動でセッションN件のコンテキストを失いました」と表示します。そのうちの一人が**閉じる**を押すと全員の画面から消え、`/readyz` の数からも除かれます。セッションは `recovery_required` のままです。
 
 API がこの設定を受け付けるのは、`INSTALLATION_PROFILE=test`（chart では `config.installation.profile: test`）で、`AWS_ENDPOINT_URL` の host の先頭ラベルが `localstack` のときだけです（`localstack`、`localstack.<namespace>.svc…`）。それ以外の設置で有効にすると起動しません。再起動のたびに空になる LocalStack のための設定で、運用 bucket には使えません。object が一部だけ欠けた bucket は、この設定でも整理しません。`v0.4.0` 以前のリリースにこの設定はありません。
 

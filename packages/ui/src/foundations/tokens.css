@@ -263,6 +263,8 @@
     --werft-w-narrow: 52.5rem;
     --werft-gutter: 2rem;
     --werft-topbar-h: 3.25rem;
+    /* What the console shell shows between the top bar and the page, measured. */
+    --werft-shell-notice-h: 0px;
     /* The 768px reading column of 02 UX 설계 §6. */
     --werft-layout-reading-width: 48rem;
     --werft-layout-sidebar-width: 14.75rem;

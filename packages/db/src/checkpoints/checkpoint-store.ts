@@ -241,6 +241,56 @@ export function forgetLostCheckpointsAtStart(
 export const OPEN_LOST_CHECKPOINT_SESSIONS_SQL =
   "SELECT COALESCE(SUM(jsonb_array_length(session_ids)), 0)::int AS n FROM lost_checkpoint_notices WHERE closed_at IS NULL";
 
+export interface OpenLostCheckpointNotice {
+  readonly id: string;
+  readonly forgottenAt: Date;
+  /** Sessions whose checkpoints that start gave up. */
+  readonly sessions: number;
+}
+
+/** The starts no administrator has closed yet, oldest first. */
+export async function openLostCheckpointNotices(
+  db: Database,
+): Promise<OpenLostCheckpointNotice[]> {
+  const rows = await db
+    .select({
+      id: lostCheckpointNotices.id,
+      forgottenAt: lostCheckpointNotices.forgottenAt,
+      sessionIds: lostCheckpointNotices.sessionIds,
+    })
+    .from(lostCheckpointNotices)
+    .where(isNull(lostCheckpointNotices.closedAt))
+    .orderBy(
+      asc(lostCheckpointNotices.forgottenAt),
+      asc(lostCheckpointNotices.id),
+    );
+  return rows.map((row) => ({
+    id: row.id,
+    forgottenAt: row.forgottenAt,
+    sessions: row.sessionIds.length,
+  }));
+}
+
+/**
+ * Closes the named notices for the whole installation. One that is already
+ * closed keeps who closed it first; an id that names none changes nothing.
+ */
+export async function closeLostCheckpointNotices(
+  db: Database,
+  input: { readonly ids: readonly string[]; readonly closedBy: string },
+): Promise<void> {
+  if (input.ids.length === 0) return;
+  await db
+    .update(lostCheckpointNotices)
+    .set({ closedAt: DB_NOW, closedBy: input.closedBy })
+    .where(
+      and(
+        inArray(lostCheckpointNotices.id, [...input.ids]),
+        isNull(lostCheckpointNotices.closedAt),
+      ),
+    );
+}
+
 /**
  * The checkpoint pointer on PostgreSQL, read with the helpers a turn's finalize
  * uses (worker-unit-of-work.ts), so a read judges the fence, the clock and the

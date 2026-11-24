@@ -239,6 +239,7 @@ When only the bucket is empty, the api gives up the uncollected checkpoints the 
 - Sessions whose restore point was one of those checkpoints, closed ones aside, move to `recovery_required`.
 - One warning line in `kubectl -n werft logs deploy/werft-api`, starting with `The object store came back empty`, names the number of sessions and their ids.
 - `/readyz` still answers 200, and `detail.checkpoints_forgotten_on_boot` in its body carries that number of sessions.
+- The console shows owners and admins "Test installation: a restart lost the context of N sessions" at the top of every page. When one of them presses **Close**, it goes for all of them and `/readyz` stops counting those sessions. The sessions stay in `recovery_required`.
 
 A node restart restarts the api too, so there is nothing to do. If only the LocalStack Pod restarted, the api keeps running and cleans up nothing. Restart the api at once.
 
