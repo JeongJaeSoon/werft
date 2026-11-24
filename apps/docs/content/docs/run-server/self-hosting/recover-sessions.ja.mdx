@@ -91,7 +91,7 @@ checkpoint がないセッションも同じ規則です。worker が claim 後�
 
 Kubernetes が worker Pod を置く node を見つけられないとき（Pod 条件 `PodScheduled` が `False`、理由 `Unschedulable`、Pod イベント `FailedScheduling`）、セッションは失敗せずに待ちます。セッション API の `wait_reason` が `waiting_for_capacity` になり、`werft_sessions_waiting_for_capacity` が上がります。scheduler ログ `Execution waiting for capacity; no node has room` の `fields.unschedulable_reason` に Kubernetes が示す理由（例：`0/1 nodes are available: 1 Insufficient memory.`）があります。
 - 待つ間、scheduler はその Pod を作り直したり置き換えたりしません。空きが出れば、その Pod がそのまま起動します。
-- 15 分以内に空きが出なければ、待っていた入力は `NO_CAPACITY` で失敗し、Pod は下ろされます。セッションは `idle` に戻り、launch の失敗としては数えません。ユーザーがもう一度送れば新しい Pod が続きを進めます。運用者が下す復旧の判断はありません。
+- 15 分以内に空きが出なければ、待っていた入力は `NO_CAPACITY` で失敗し、Pod は下ろされます。セッションは `idle` に戻り、launch の失敗としては数えません。ユーザーがもう一度送れば新しい Pod が続きを進めます。resume 中だったセッションは checkpoint を残したまま `paused` に戻り、もう一度 resume すればそこから続けます。運用者が下す復旧の判断はありません。
 - 頻繁に起きるなら、node を増やすか、worker Pod の resource 要求が node に収まるかを確かめます。
 
 <a id="3-interrupt-뒤-결과-불명" />

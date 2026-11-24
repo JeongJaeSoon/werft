@@ -1242,6 +1242,7 @@ export function createPostgresSlackOutboxStore(
           sources: turns.sources,
           status: turns.status,
           terminalReason: turns.terminalReason,
+          sessionPaused: sql<boolean>`${sessions.admissionState} = 'paused'`,
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
           locale: starterLocale,

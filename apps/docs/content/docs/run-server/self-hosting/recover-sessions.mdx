@@ -81,7 +81,7 @@ checkpoint가 없는 세션도 같은 규칙을 따른다. worker가 claim 뒤 �
 
 Kubernetes가 worker Pod를 둘 node를 찾지 못하면(Pod 조건 `PodScheduled`가 `False`, 이유 `Unschedulable`, Pod 이벤트 `FailedScheduling`) 세션은 실패하지 않고 기다린다. 세션 API의 `wait_reason`이 `waiting_for_capacity`가 되고 `werft_sessions_waiting_for_capacity`가 오른다. scheduler 로그 `Execution waiting for capacity; no node has room`의 `fields.unschedulable_reason`에 Kubernetes가 적은 이유(예: `0/1 nodes are available: 1 Insufficient memory.`)가 있다.
 - 기다리는 동안 scheduler는 그 Pod를 다시 만들거나 교체하지 않는다. 자리가 나면 그 Pod가 그대로 시작한다.
-- 15분 안에 자리가 나지 않으면 기다리던 입력이 `NO_CAPACITY`로 실패하고 Pod를 내린다. 세션은 `idle`로 돌아가고 launch 실패로 세지 않는다. 사용자가 다시 보내면 새 Pod가 이어 간다. 운영자가 내릴 복구 결정은 없다.
+- 15분 안에 자리가 나지 않으면 기다리던 입력이 `NO_CAPACITY`로 실패하고 Pod를 내린다. 세션은 `idle`로 돌아가고 launch 실패로 세지 않는다. 사용자가 다시 보내면 새 Pod가 이어 간다. resume 중이던 세션은 checkpoint를 둔 채 `paused`로 돌아가고, 다시 resume하면 이어 간다. 운영자가 내릴 복구 결정은 없다.
 - 자주 일어나면 node를 늘리거나 worker Pod의 resource 요청이 node에 들어가는지 확인한다.
 
 ### 3. interrupt 뒤 결과 불명

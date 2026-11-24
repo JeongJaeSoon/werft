@@ -1107,6 +1107,25 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
+  test("a resume that found no room says the session stays paused", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "failed");
+    await db
+      .update(turns)
+      .set({ terminalReason: "no_capacity" })
+      .where(eq(turns.sessionId, sessionId));
+    await db
+      .update(sessions)
+      .set({ admissionState: "paused" })
+      .where(eq(sessions.id, sessionId));
+    await outboxPass();
+    expect(posted().map((message) => message.text)).toEqual([
+      `${SLACK_NOTICE_MESSAGES.ko.noCapacityPaused}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+    ]);
+  });
+
   test("a person with no saved language reads English", async () => {
     const fixture = await agentInSlack();
     await db.update(users).set({ locale: null });

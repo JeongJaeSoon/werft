@@ -4,7 +4,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { INPUT_RECEIPT_OPERATIONS } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
-import { failResume } from "../resume-control.ts";
+import { failResume, returnResumeToPaused } from "../resume-control.ts";
 import {
   executions,
   queueMessages,
@@ -162,7 +162,7 @@ export async function quarantineLaunch(
  * session is not failed: its queued input fails with `NO_CAPACITY` and it is
  * left without a worker, waiting for its next input as after an idle worker
  * ended. That input signals it again and gets a fresh launch. A resuming
- * session goes to an operator, as for any launch given up on.
+ * session goes back to paused with its checkpoint, never to an operator.
  */
 export async function releaseForCapacity(
   tx: Database,
@@ -183,26 +183,34 @@ export async function releaseForCapacity(
           .where(eq(sessions.id, sessionId))
           .limit(1)
           .for("update");
-  if (session?.admissionState === "resuming") {
-    await quarantineLaunch(tx, ref, sessionId, cause);
-    return;
-  }
   if (session) {
     const now = await dbNow(tx);
     const failed = await failQueuedInput(tx, session.id, cause, now);
     await tx
       .delete(unassignedSessions)
       .where(eq(unassignedSessions.sessionId, session.id));
-    if (session.status === "queued") {
+    const resuming = session.admissionState === "resuming";
+    if (resuming) {
+      await returnResumeToPaused(tx, {
+        sessionId: session.id,
+        error: {
+          code: cause.code,
+          message: `${cause.resumePrefix}: ${cause.detail}`,
+        },
+        now,
+      });
+    }
+    const status = session.status === "queued" ? "idle" : session.status;
+    if (resuming || status !== session.status) {
       await tx
         .update(sessions)
-        .set({ status: "idle", updatedAt: now })
+        .set({ status, updatedAt: now })
         .where(eq(sessions.id, session.id));
       await recordStatus(tx, {
         sessionId: session.id,
-        phase: "idle",
+        phase: status,
         extra: {
-          admission_state: session.admissionState,
+          admission_state: resuming ? "paused" : session.admissionState,
           code: cause.code,
           message: cause.detail,
           failed_turn_count: failed,

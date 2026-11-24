@@ -260,7 +260,9 @@ export async function enqueueSlackTurnAnswers(deps: {
         ? finalReplyText(turn.events) ||
           SLACK_OUTBOX_MESSAGES[locale].emptyReply
         : turn.terminalReason === "no_capacity"
-          ? SLACK_NOTICE_MESSAGES[locale].noCapacity
+          ? SLACK_NOTICE_MESSAGES[locale][
+              turn.sessionPaused ? "noCapacityPaused" : "noCapacity"
+            ]
           : SLACK_NOTICE_MESSAGES[locale].failed;
     await deps.outbox.enqueue({
       workspaceId: turn.workspaceId,

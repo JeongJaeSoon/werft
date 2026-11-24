@@ -157,6 +157,8 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
   requesterSlackUserId: string | null;
   /** Why a failed turn ended (`no_capacity`); null or absent when unsaid. */
   terminalReason?: string | null;
+  /** The session is paused: a resume that found no room went back to it. */
+  sessionPaused?: boolean;
   /**
    * The final attempt's top-level assistant and tool_use event payloads,
    * in order; empty unless the turn completed.
