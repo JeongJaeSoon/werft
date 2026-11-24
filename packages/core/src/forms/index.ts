@@ -56,6 +56,8 @@ export const acceptInviteStep = z.object({
 const agentCardDraftSchema = z.object({
   language: agentCardSchema.shape.language.unwrap(),
   model: z.string(),
+  /** Empty: the judgment calls run `model`. */
+  judgmentModel: z.string().default(""),
 });
 export type AgentCardDraft = z.input<typeof agentCardDraftSchema>;
 
@@ -73,13 +75,16 @@ export function draftCapabilities(
  */
 export function agentCardStep(base?: AgentCard) {
   return agentCardDraftSchema
-    .transform(
-      (draft): z.input<typeof agentCardSchema> => ({
-        ...base,
+    .transform((draft): z.input<typeof agentCardSchema> => {
+      const { judgment_model: _kept, ...rest } = base ?? {};
+      const judgment = draft.judgmentModel.trim();
+      return {
+        ...rest,
         language: draft.language,
         model: draft.model.trim(),
+        ...(judgment === "" ? {} : { judgment_model: judgment }),
         capabilities: draftCapabilities(base?.capabilities),
-      }),
-    )
+      };
+    })
     .pipe(agentCardSchema);
 }

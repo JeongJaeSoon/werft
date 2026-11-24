@@ -57,6 +57,30 @@ describe("카드 폼 변환", () => {
     expect<unknown>(cardFromDraft(draftFromCard(base), base)).toEqual(base);
   });
 
+  test("판단 모델은 고르면 카드에 실리고, 비우면 카드에서 빠진다", () => {
+    const picked = cardFromDraft(
+      { ...draftFromCard(CARD), judgmentModel: "claude-haiku-5" },
+      CARD,
+    );
+    expect(picked.judgment_model).toBe("claude-haiku-5");
+    const base: AgentCard = { ...CARD, judgment_model: "claude-haiku-5" };
+    expect(draftFromCard(base).judgmentModel).toBe("claude-haiku-5");
+    const cleared = cardFromDraft(
+      { ...draftFromCard(base), judgmentModel: "" },
+      base,
+    );
+    expect(Object.hasOwn(cleared, "judgment_model")).toBe(false);
+    expect<unknown>(cardFromDraft(draftFromCard(base), base)).toEqual(base);
+  });
+
+  test("판단 모델 칸이 생기기 전에 남긴 폼 값은 빈 판단 모델로 읽는다", () => {
+    expect(cardDraftOf({ language: "ko", model: "m" })).toEqual({
+      language: "ko",
+      model: "m",
+      judgmentModel: "",
+    });
+  });
+
   test("모델 선택지는 연결이 제공하는 모델을 하나씩 둔다", () => {
     const main = connection("anthropic-main", [
       "claude-haiku-5",
@@ -127,6 +151,7 @@ describe("카드 폼 변환", () => {
       {
         language: "en",
         model: "claude-haiku-5",
+        judgmentModel: "",
       },
       base,
     );

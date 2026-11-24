@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  type AgentRelease,
   type ConversationCallClass,
   type ConversationCallId,
   type ConversationCallKey,
@@ -7,8 +8,13 @@ import {
   type ConversationTopicId,
   conversationCallIdSchema,
   conversationCallKeySchema,
+  releaseJudgmentModel,
 } from "@werft-ai/contracts";
-import { connectionOf, type SessionCatalog } from "../catalog/index.ts";
+import {
+  connectionModels,
+  connectionOf,
+  type SessionCatalog,
+} from "../catalog/index.ts";
 import { hashToken } from "../token-hash.ts";
 import type { BudgetRoot } from "./budget-accounts.ts";
 import type { ProviderUsage } from "./model-prices.ts";
@@ -76,8 +82,62 @@ export type ConversationCallIssued =
       expiresAt: Date;
     }
   | Exclude<ConversationCallIssue, { outcome: "issued" }>
-  // The connection is not one the catalog holds, or serves no Messages.
-  | { outcome: "unavailable" };
+  | { outcome: "unavailable"; reason: ConversationCallUnavailable };
+
+/**
+ * Why a call cannot go out: the connection is not one the catalog holds
+ * (disabled or removed) or serves no Messages, or the model is off its list.
+ * No successor stands in for a removed model, as one does for a session's.
+ */
+export type ConversationCallUnavailable =
+  | "connection_missing"
+  | "model_removed";
+
+function callConnection(
+  catalog: Pick<SessionCatalog, "connections">,
+  connectionId: string,
+  model: string | undefined,
+):
+  | { connection: SessionCatalog["connections"][string] }
+  | { reason: ConversationCallUnavailable } {
+  const connection = connectionOf(catalog, connectionId);
+  if (!connection || connection.provider.kind === "openai_responses") {
+    return { reason: "connection_missing" };
+  }
+  return model !== undefined && connectionModels(connection).includes(model)
+    ? { connection }
+    : { reason: "model_removed" };
+}
+
+/**
+ * What an agent's judgment calls go through: its active release's connection
+ * and judgment model (the card's model when it names none), or why they
+ * cannot run.
+ */
+export function judgmentCallOf(
+  catalog: Pick<SessionCatalog, "connections">,
+  release: Pick<
+    AgentRelease,
+    "id" | "connection_id" | "runtime_config_snapshot"
+  >,
+):
+  | { outcome: "ready"; releaseId: string; connectionId: string; model: string }
+  | { outcome: "unavailable"; reason: ConversationCallUnavailable } {
+  const model = releaseJudgmentModel(release);
+  const found = callConnection(catalog, release.connection_id, model);
+  if ("reason" in found || model === undefined) {
+    return {
+      outcome: "unavailable",
+      reason: "reason" in found ? found.reason : "model_removed",
+    };
+  }
+  return {
+    outcome: "ready",
+    releaseId: release.id,
+    connectionId: release.connection_id,
+    model,
+  };
+}
 
 /**
  * Issues the token of one provider call that serves no session: reserved on
@@ -124,10 +184,10 @@ export function createConversationCalls(deps: {
         `call key ${input.callKey} is not of class ${input.callClass}`,
       );
     }
-    const connection = connectionOf(deps.catalog, input.connectionId);
-    if (!connection || connection.provider.kind === "openai_responses") {
-      return { outcome: "unavailable" };
-    }
+    const found = callConnection(deps.catalog, input.connectionId, input.model);
+    if ("reason" in found)
+      return { outcome: "unavailable", reason: found.reason };
+    const { connection } = found;
     const callId = conversationCallIdSchema.parse(crypto.randomUUID());
     const token = `${CONVERSATION_CALL_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
     const issued = await deps.store.issueAtomic({

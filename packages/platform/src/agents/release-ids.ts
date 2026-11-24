@@ -111,6 +111,19 @@ export function resolveReleaseContent(
       },
     };
   }
+  if (
+    card.judgment_model !== undefined &&
+    !connectionModels(run.connection).includes(card.judgment_model)
+  ) {
+    return {
+      ok: false,
+      error: {
+        field: "card.judgment_model",
+        // apps/web parses this wording too.
+        message: `model ${card.judgment_model} is not a model of connection ${run.connection_id}`,
+      },
+    };
+  }
   const tools = [...run.tools];
   const policy = resolveToolPolicy(card, tools);
   if (!policy.ok) return policy;
@@ -134,6 +147,10 @@ export function resolveReleaseContent(
       // gets that at claim.
       runtime_config_snapshot: {
         model: card.model,
+        // Absent leaves the snapshot, and so the release id, as before.
+        ...(card.judgment_model === undefined
+          ? {}
+          : { judgment_model: card.judgment_model }),
         tools,
         permission_mode: permissionModeOf({
           runtime: run.runtime,

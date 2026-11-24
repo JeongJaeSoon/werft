@@ -527,10 +527,10 @@ describe("a conversation call's reservation", () => {
     const { agentId } = await agentOf();
     expect(
       await issue(agentId, person(crypto.randomUUID()), "conn-responses"),
-    ).toEqual({ outcome: "unavailable" });
+    ).toEqual({ outcome: "unavailable", reason: "connection_missing" });
     expect(
       await issue(agentId, person(crypto.randomUUID()), "conn-gone"),
-    ).toEqual({ outcome: "unavailable" });
+    ).toEqual({ outcome: "unavailable", reason: "connection_missing" });
     await db
       .update(agents)
       .set({ status: "archived", deletedAt: new Date(), deletedBy: agentId })
