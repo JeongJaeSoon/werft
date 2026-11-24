@@ -48,6 +48,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   BACKEND_UNAVAILABLE: "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
   LAUNCH_FAILED:
     "작업 환경을 여러 번 띄우지 못해 입력이 처리되지 않았습니다 — 담당자에게 알린 뒤 다시 보내세요.",
+  NO_CAPACITY:
+    "지금 자리가 없어 시작하지 못했습니다 — 잠시 뒤 다시 요청해 주세요.",
   LOGIN_LINK_REQUIRED:
     "이 이메일로 만든 계정이 이미 있습니다 — 기존 계정으로 로그인한 뒤 설정에서 Google을 연결하세요.",
   TAKEOVER_REQUIRED:
@@ -209,6 +211,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   BACKEND_UNAVAILABLE: "The server is unavailable — try again shortly.",
   LAUNCH_FAILED:
     "The work environment failed to start several times, so the input wasn't processed — tell the person in charge, then send it again.",
+  NO_CAPACITY:
+    "There was no room to start this right now — please ask again in a little while.",
   LOGIN_LINK_REQUIRED:
     "An account with this email already exists — sign in with it, then connect Google in settings.",
   TAKEOVER_REQUIRED:
@@ -390,6 +394,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "サーバーを利用できません — しばらくしてからもう一度お試しください。",
   LAUNCH_FAILED:
     "作業環境を何度か起動できず、入力は処理されませんでした — 担当者に知らせてから、もう一度送ってください。",
+  NO_CAPACITY:
+    "今は空きがなく開始できませんでした — しばらくしてから、もう一度リクエストしてください。",
   LOGIN_LINK_REQUIRED:
     "このメールアドレスのアカウントがすでにあります — 既存のアカウントでログインし、設定で Google を連携してください。",
   TAKEOVER_REQUIRED:

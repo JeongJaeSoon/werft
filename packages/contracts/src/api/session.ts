@@ -393,6 +393,9 @@ export const sessionAttachedRepositorySchema = z.object({
 
 export const PAUSE_REASON_VALUES = ["awaiting_input"] as const;
 export const pauseReasonSchema = z.enum(PAUSE_REASON_VALUES);
+/** Why a session's queued input has not started yet. */
+export const SESSION_WAIT_REASON_VALUES = ["waiting_for_capacity"] as const;
+export const sessionWaitReasonSchema = z.enum(SESSION_WAIT_REASON_VALUES);
 export const INPUT_WAIT_STATE_VALUES = [
   "waiting",
   "parking",
@@ -531,6 +534,14 @@ export const sessionSummarySchema = z.object({
   input_wait: inputWaitSchema.pick({ state: true }).nullable().optional().meta({
     description:
       "Which stage the session's wait for an answer is in; null when it waits on none. `GET /v1/sessions/{id}` says what it waits on. Absent from a server older than the field.",
+  }),
+  wait_reason: sessionWaitReasonSchema.nullable().optional().meta({
+    description:
+      "Why the session's queued input has not started: `waiting_for_capacity` while its worker waits for room no node has (on Kubernetes, a worker Pod the scheduler marked Unschedulable). After 15 minutes of it the queued input fails with `NO_CAPACITY` and the session waits for its next input. Null when nothing holds it back this way. Absent from a server older than the field.",
+  }),
+  waiting_since: timestampSchema.nullable().optional().meta({
+    description:
+      "When the wait `wait_reason` names began; null with it. Absent from a server older than the field.",
   }),
   // What the session's spec runs, or null for a session without one (a
   // legacy row). Never an estimate.

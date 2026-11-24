@@ -1,5 +1,5 @@
 {
-  "id": "33144d14-d765-41e9-845b-24b8c7512bb4",
+  "id": "90d4da7f-5606-4c3d-98bf-342da1b063d8",
   "prevId": "9fb41fb8-c05b-49ac-aa42-1d9ee3720641",
   "version": "7",
   "dialect": "postgresql",
@@ -16787,25 +16787,6 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
-        },
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
         }
       },
       "indexes": {},
@@ -20923,6 +20904,18 @@
         },
         "last_launch_error": {
           "name": "last_launch_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "capacity_wait_since": {
+          "name": "capacity_wait_since",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "capacity_wait_message": {
+          "name": "capacity_wait_message",
           "type": "text",
           "primaryKey": false,
           "notNull": false

@@ -4029,6 +4029,11 @@ export const workerLaunches = pgTable(
     // or the launch was given up on.
     launchRetryAt: timestamp("launch_retry_at", { withTimezone: true }),
     lastLaunchError: text("last_launch_error"),
+    // When a pass first found the launch's resource waiting for room no node
+    // has (a Pod marked Unschedulable), on the database clock, and the
+    // provider's latest words for it; both null while it is not waiting.
+    capacityWaitSince: timestamp("capacity_wait_since", { withTimezone: true }),
+    capacityWaitMessage: text("capacity_wait_message"),
     // When the scheduler first asked the worker this launch bound to drain,
     // because its resource no longer meets the isolation contract.
     // From then on the worker is handed no new turn; the replacement waits

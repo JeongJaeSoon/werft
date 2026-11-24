@@ -29,6 +29,7 @@ import {
   sessions,
   turns,
   unassignedSessions,
+  workerLaunches,
 } from "./schema.ts";
 import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
@@ -983,6 +984,97 @@ integration(
       expect((await sessionRow(session.sessionId)).admissionState).toBe(
         "recovery_required",
       );
+    });
+
+    test("a resume that finds no room in time goes back to paused, keeps its checkpoint, and a later resume restores it", async () => {
+      const { session } = await pausedSession("no-room");
+      const first = await accepted("resume", session);
+      const intent = await reserve(session);
+      const store = scheduler();
+      await store.issueBootstrapNonce(intent);
+      await store.recordCapacityWait(intent, "0/1 nodes are available.");
+      await db
+        .update(workerLaunches)
+        .set({ capacityWaitSince: new Date(Date.now() - 16 * 60_000) })
+        .where(eq(workerLaunches.executionId, intent.executionId));
+      expect(await store.giveUpForCapacity(intent, 15 * 60_000)).toBe(true);
+
+      // Never recovery_required, and the checkpoint it resumes from stays.
+      const paused = await sessionRow(session.sessionId);
+      expect(paused.admissionState).toBe("paused");
+      expect(paused.checkpointRevision).toBe(0);
+      expect(await receiptRow(first.receipt_id)).toMatchObject({
+        status: "failed",
+        error: { code: "NO_CAPACITY" },
+      });
+      expect(
+        await db
+          .select({ status: turns.status, reason: turns.terminalReason })
+          .from(turns)
+          .where(eq(turns.sessionId, session.sessionId))
+          .orderBy(asc(turns.sequence)),
+      ).toEqual([
+        { status: "completed", reason: null },
+        { status: "failed", reason: "no_capacity" },
+      ]);
+      // Not counted toward quarantine.
+      const [launch] = await db
+        .select({ failures: workerLaunches.launchFailureCount })
+        .from(workerLaunches)
+        .where(eq(workerLaunches.executionId, intent.executionId));
+      expect(launch?.failures).toBe(0);
+      expect((await admissionEvents(session)).slice(-2)).toEqual([
+        "resuming",
+        "paused",
+      ]);
+      await confirmExecutionGone(db, intent.executionId);
+      expect((await sessionRow(session.sessionId)).admissionState).toBe(
+        "paused",
+      );
+
+      // Once there is room, resuming again restores the same checkpoint.
+      const second = await accepted("resume", session);
+      const { worker, claimed } = await claimReserved(session);
+      expect(claimed.restore).toEqual({
+        revision: 0,
+        manifest_ref: `manifests/${session.sessionId}/0`,
+        manifest_sha256: MANIFEST_SHA,
+      });
+      restoreAnswer = {
+        status: "ready",
+        plan: {
+          artifacts: [],
+          cwd: "/workspace",
+          engine: "claude",
+          gitCommit: "e".repeat(40),
+          manifestRef: `manifests/${session.sessionId}/0`,
+          manifestSha256: MANIFEST_SHA,
+          objectKeys: [],
+          resume: "sdk-session",
+          revision: 0,
+        },
+      };
+      expect(
+        (
+          await gateway.restorePlan(worker.principal, {
+            ...worker.scope,
+            runtime: FINGERPRINT,
+          })
+        ).status,
+      ).toBe("ready");
+      expect(
+        await gateway.ready(worker.principal, {
+          ...worker.scope,
+          restored_revision: 0,
+        }),
+      ).toEqual({ activated: true });
+      expect((await sessionRow(session.sessionId)).admissionState).toBe(
+        "active",
+      );
+      expect(await receiptRow(second.receipt_id)).toMatchObject({
+        status: "succeeded",
+        result: { resulting_admission_state: "active", checkpoint_revision: 0 },
+      });
     });
 
     test("a resume whose checkpoint no configured worker image restores fails as a resume before anything launches", async () => {

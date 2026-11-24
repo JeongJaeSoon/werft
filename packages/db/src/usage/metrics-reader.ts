@@ -1,9 +1,19 @@
 import { ENDED_ADMISSION_STATES } from "@werft-ai/contracts";
 import type { SessionBudget } from "@werft-ai/platform";
-import { type AnyColumn, and, eq, gt, isNull, lte, sql } from "drizzle-orm";
+import {
+  type AnyColumn,
+  and,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { awaitingLaunch } from "../scheduler/index.ts";
 import {
+  executions,
   providerUsageTotals,
   queueMessages,
   sessions,
@@ -45,6 +55,13 @@ export type PlatformMetricsSnapshot = {
     le: number[];
   }[];
   outcomeUnknownTurns: number;
+  /** Open launches whose worker waits for room no node has. */
+  waitingForCapacity: number;
+  /**
+   * Launches given up on for want of room: each failed its session's queued
+   * turns with `no_capacity` at one moment, so one is a session and an end.
+   */
+  noCapacityFailures: number;
   /** `firstAt` is the earliest call of the name, whatever its outcome. */
   toolCalls: {
     name: string;
@@ -101,6 +118,8 @@ export async function readPlatformMetrics(
     sessionRows,
     settledTurns,
     outcomeUnknownTurns,
+    waitingForCapacity,
+    noCapacityFailures,
     toolCallRows,
     providerUsageRows,
     launchQueue,
@@ -110,6 +129,8 @@ export async function readPlatformMetrics(
     readSessions(db),
     readSettledTurns(db, options.buckets),
     readOutcomeUnknownTurns(db),
+    readWaitingForCapacity(db),
+    readNoCapacityFailures(db),
     readToolCalls(db),
     readProviderUsage(db),
     options.budget === null ? null : readLaunchQueue(db, options.budget),
@@ -120,6 +141,8 @@ export async function readPlatformMetrics(
     sessions: sessionRows,
     settledTurns,
     outcomeUnknownTurns,
+    waitingForCapacity,
+    noCapacityFailures,
     toolCalls: toolCallRows,
     providerUsage: providerUsageRows,
     launchQueue,
@@ -217,6 +240,36 @@ async function readOutcomeUnknownTurns(db: Database) {
     .select({ count: sql<number>`count(*)`.mapWith(Number) })
     .from(turns)
     .where(eq(turns.status, "outcome_unknown"));
+  return row?.count ?? 0;
+}
+
+async function readWaitingForCapacity(db: Database) {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)`.mapWith(Number) })
+    .from(workerLaunches)
+    .innerJoin(executions, eq(executions.id, workerLaunches.executionId))
+    .where(
+      and(
+        isNull(workerLaunches.slotReleasedAt),
+        isNotNull(workerLaunches.capacityWaitSince),
+        // A worker that claimed it is no longer waiting, cleared or not.
+        isNull(workerLaunches.claimedAttemptId),
+        eq(executions.desiredState, "running"),
+      ),
+    );
+  return row?.count ?? 0;
+}
+
+async function readNoCapacityFailures(db: Database) {
+  const [row] = await db
+    .select({
+      count:
+        sql<number>`count(DISTINCT (${turns.sessionId}, ${turns.endedAt}))`.mapWith(
+          Number,
+        ),
+    })
+    .from(turns)
+    .where(eq(turns.terminalReason, "no_capacity"));
   return row?.count ?? 0;
 }
 
