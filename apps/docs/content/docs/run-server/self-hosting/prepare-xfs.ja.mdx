@@ -68,7 +68,9 @@ sudo bash scripts/prepare-xfs.sh
 /var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0
 ```
 
-イメージサイズは `--size` で変更します。値は整数の GB です（例: `--size 100G`）。60G はイメージ・ログ・すべての volume の合計上限です。sparse ファイルですが、ホストにはその分の空きが必要です。
+スクリプトがこの項目を `/etc/fstab` に自分で追記するため、エディタで編集する必要はありません。この段階の `findmnt --verify` は終了コード 0 のまま警告を 2 つ出すことがあり、どちらも正常です。`non-bind mount source /var/lib/docker.xfs.img is a directory or regular file` は、loop mount の source が通常ファイルだという通知です。`your fstab has been modified, but systemd still uses the old version` は、直後にスクリプトが実行する `systemctl daemon-reload` の前なので出ます。
+
+イメージサイズは `--size` で変更します。値は整数の GB です（例: `--size 100G`）。60G は `/var/lib/docker` に入る volume とコンテナログが分け合う合計の上限です。ファイルシステムの metadata も容量を使うため、実際のデータ領域はこれより小さくなります。Docker 29 以降を新規にインストールして containerd image store（既定）を使う場合、イメージとコンテナ層は `/var/lib/containerd` に置かれ、XFS イメージの外（通常はルートディスク）に溜まります。その空きは別に確認します。XFS イメージは sparse ファイルですが、ホストにはその分の空きが必要です。
 
 ある段階が失敗すると、スクリプトはそれより前の段階を逆順に元に戻します。fstab をバックアップから復元し、unmount し、作成した mount ポイントとイメージを削除し、原本を `/var/lib/docker` に戻してから Docker を再び起動します。Docker が新しいイメージで既に起動していた場合、その間に書き込んだ内容がイメージにあるため、イメージは削除せずにそのパスを表示します。
 
@@ -89,6 +91,7 @@ sudo bash scripts/prepare-xfs.sh
 ## よくある問題
 
 - `already exists` で拒否された場合は、以前の実行や手作業が残したパスです。中身を調べます。イメージや `/var/lib/docker.old` をサイズ変更や mkfs で再利用しないでください。
+- 元に戻した後の再実行で `/var/lib/docker.xfs.img` や `/etc/fstab.before-prepare-xfs` が既にあるとして拒否された場合は、直前の巻き戻しが残したファイルです。Docker が新しいイメージで既に動いていた場合は、スクリプトもイメージを削除しません。イメージに残すべきデータがないことを確認し、unmount、fstab の復元、`daemon-reload` が終わって `/var/lib/docker` が原本に戻った後にだけ、`sudo rm -f /var/lib/docker.xfs.img /etc/fstab.before-prepare-xfs` で削除します。`/var/lib/docker.old` が残っていれば原本なので、削除せず先に戻します。
 - `the trial XFS loop mount` で拒否された場合、このホストでは loop デバイスや XFS project quota を使えません。別のサーバーを使うか、Docker data-root 用の XFS ディスクを別に用意する移行計画を立てます。
 - 終了コード 4 で data-root が元の位置に戻っていない場合、スクリプトは Docker を止めたままにします。この状態で Docker を起動すると空の data-root を使うため、出力に記された残りの状態を[元に戻す](#되돌리기)の順で片付けてから起動します。
 
@@ -97,7 +100,7 @@ sudo bash scripts/prepare-xfs.sh
 
 新しい XFS で Docker を再起動した後に作成したコンテナ・volume・データは `/var/lib/docker.old` にありません。原本ディレクトリに戻すとその変更を失うため、先に新しいデータを別途保存し、復元する対象を決めます。sparse イメージは削除したデータの分だけ自動では縮まないため、ホストのファイルシステムの空き容量も監視します。
 
-Docker と socket を停止します。新しい XFS が mount されていれば、使用中のコンテナがないことを確認してから unmount し、追加された fstab の項目をスクリプトが残した `/etc/fstab.before-prepare-xfs` と照合して戻します。`/var/lib/docker.old` が原本です。元のパスが空であることを確認してから原本を戻し、Docker を起動します。新しいイメージや原本を削除せず、既存のコンテナ・volume の一覧が合っているか確認します。
+Docker と socket を停止します。新しい XFS が mount されていれば、使用中のコンテナがないことを確認してから unmount し、追加された fstab の項目をスクリプトが残した `/etc/fstab.before-prepare-xfs` と照合して戻し、`sudo systemctl daemon-reload` で systemd に復元した fstab を読み直させます。`/var/lib/docker.old` が原本です。元のパスが空であることを確認してから原本を戻し、Docker を起動します。新しいイメージや原本を削除せず、既存のコンテナ・volume の一覧が合っているか確認します。
 
 元のデータディレクトリがあった環境では、unmount と fstab の復元が終わった後、空の mount ポイントだけを `sudo rmdir /var/lib/docker` で削除し、`sudo mv /var/lib/docker.old /var/lib/docker` で戻します。rmdir が失敗したら中のデータを削除せずに調べます。原本がなかった新規環境では、この移動を実行しません。
 
