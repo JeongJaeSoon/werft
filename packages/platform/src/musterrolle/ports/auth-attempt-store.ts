@@ -34,14 +34,16 @@ export interface AuthAttemptStore {
     rule: AuthAttemptRule,
   ): Promise<AuthAttemptTake>;
   /**
-   * Uncounts an admitted attempt. Nothing once its window has ended or has
-   * refused one, so a closed window stays closed until it ends.
+   * Uncounts an admitted attempt, nothing once its window has ended. With
+   * `upTo` only while the count is at most that, so a window that refused
+   * one stays closed until it ends; with null whatever the count, so it can
+   * open again (and close, and report closing, again).
    */
   giveBack(
     kind: AuthAttemptKind,
     key: AuthAttemptKey,
     window: AuthAttemptWindowRef,
-    limit: number,
+    upTo: number | null,
   ): Promise<void>;
   clear(kind: AuthAttemptKind, key: AuthAttemptKey): Promise<void>;
   /**

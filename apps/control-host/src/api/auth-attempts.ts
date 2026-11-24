@@ -129,14 +129,14 @@ export class MemoryAuthAttemptStore implements AuthAttemptStore {
     kind: AuthAttemptKind,
     key: AuthAttemptKey,
     ref: AuthAttemptWindowRef,
-    limit: number,
+    upTo: number | null,
   ): Promise<void> {
     const window = this.windows.get(`${kind}:${key}`);
     if (
       window &&
       String(window.startedAt) === ref &&
       window.count >= 1 &&
-      window.count <= limit
+      (upTo === null || window.count <= upTo)
     ) {
       window.count -= 1;
       if (window.count === 0) this.windows.delete(`${kind}:${key}`);

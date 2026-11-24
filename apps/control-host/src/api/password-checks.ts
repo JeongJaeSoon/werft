@@ -212,9 +212,10 @@ export class PasswordChecks {
               failures: rule.limit,
             })
             .catch((error: unknown) => {
-              this.logger?.error("Login lock receipt not written", {
-                error: error instanceof Error ? error.message : String(error),
-              });
+              this.logger?.error(
+                "Login lock receipt not written",
+                errorFields(error),
+              );
               return null;
             });
     this.logger?.warn("Login locked", {
@@ -232,13 +233,37 @@ export class PasswordChecks {
     rule: AuthAttemptRule,
   ): void {
     if (taken === null) return;
+    // A network's window is shared by everyone behind one NAT: right
+    // passwords and outages give back even after it refused, or a burst of
+    // them would lock the network with no failure in it. An account's stays
+    // closed (its right password clears it), so its lock has one receipt.
+    const upTo = kind === "ip_failure" ? null : rule.limit;
     void this.store
-      .giveBack(kind, taken.key, taken.window, rule.limit)
+      .giveBack(kind, taken.key, taken.window, upTo)
       .catch((error: unknown) => {
         this.logger?.warn("Sign-in attempt not given back", {
           kind,
-          error: error instanceof Error ? error.message : String(error),
+          ...errorFields(error),
         });
       });
   }
+}
+
+/**
+ * What a store error may log: a query error's message carries its
+ * parameters, and those include the email that was tried.
+ */
+function errorFields(error: unknown): Record<string, string> {
+  const fields: Record<string, string> = {
+    error_name: error instanceof Error ? error.name : typeof error,
+  };
+  const cause = error instanceof Error ? error.cause : undefined;
+  for (const source of [error, cause]) {
+    const code = (source as { code?: unknown } | undefined)?.code;
+    if (typeof code === "string") {
+      fields.error_code = code;
+      break;
+    }
+  }
+  return fields;
 }

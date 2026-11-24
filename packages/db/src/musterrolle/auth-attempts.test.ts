@@ -128,6 +128,20 @@ describe("createPostgresAuthAttemptStore", () => {
     expect(await count()).toBeUndefined();
   });
 
+  test("without a ceiling, giving back opens a closed window again", async () => {
+    const admitted = [];
+    for (let i = 0; i < 4; i += 1) {
+      admitted.push(await store.take("ip_failure", KEY, RULE));
+    }
+    expect(admitted.at(-1)?.admitted).toBe(false);
+    for (const one of admitted) {
+      if (one.admitted)
+        await store.giveBack("ip_failure", KEY, one.window, null);
+    }
+    expect(await count()).toBe(1);
+    expect((await store.take("ip_failure", KEY, RULE)).admitted).toBe(true);
+  });
+
   test("writes a lock receipt on each live membership of a live account", async () => {
     const userId = randomUUID();
     const [kept, also, left] = [randomUUID(), randomUUID(), randomUUID()];

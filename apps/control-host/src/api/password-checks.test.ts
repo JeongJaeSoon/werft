@@ -13,6 +13,7 @@ import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { ApiHttpError } from "./app.ts";
+import { WorkGate } from "./auth.ts";
 import { AuthAttemptKeys } from "./auth-attempts.ts";
 import { PasswordChecks } from "./password-checks.ts";
 
@@ -41,7 +42,7 @@ describe("PasswordChecks on Postgres", () => {
     env: { clientAddress: address },
     req: { raw: new Request("http://api.test/", { headers: entries }) },
   });
-  /** A wrong password: counted, never succeeded. */
+  /** A wrong password: [REDACTED], never succeeded. */
   const fail = (checks: PasswordChecks, email: string, address: string) =>
     checks.guess(email, checks.clientOf(from(address)), async () => false);
   const refusal = async (attempt: Promise<unknown>) => {
@@ -173,7 +174,7 @@ describe("PasswordChecks on Postgres", () => {
     ).toHaveLength(1);
   });
 
-  test("with the header set, the client it names is counted", async () => {
+  test("with the header set, the client it names is [REDACTED]", async () => {
     const checks = replica("cf-connecting-ip");
     const via = (ip: string, email: string) =>
       checks.guess(
@@ -188,7 +189,7 @@ describe("PasswordChecks on Postgres", () => {
     await via("198.51.100.8", known);
   });
 
-  test("IPv6 clients are counted per /64", async () => {
+  test("IPv6 clients are [REDACTED] per /64", async () => {
     const checks = replica();
     for (let i = 0; i < 20; i += 1) {
       await fail(
@@ -212,7 +213,7 @@ describe("PasswordChecks on Postgres", () => {
     ]);
     expect(refused.retryAfterSeconds).toBeLessThanOrEqual(60);
     await checks.admitTokenRequest(checks.clientOf(from("203.0.113.5")));
-    // Uncounted (a private peer without the header) is never refused.
+    // Un[REDACTED] (a private peer without the header) is never refused.
     const tunnel = checks.clientOf(from("127.0.0.1"));
     for (let i = 0; i < 31; i += 1) await checks.admitTokenRequest(tunnel);
   });
@@ -228,5 +229,61 @@ describe("PasswordChecks on Postgres", () => {
     await reservation.succeeded();
     for (let i = 0; i < 5; i += 1) await fail(checks, known, "203.0.113.7");
     await refusal(fail(checks, known, "203.0.113.7"));
+  });
+  test("right passwords in flight give the network back even after it refused", async () => {
+    const checks = new PasswordChecks({
+      store: schema.createPostgresAuthAttemptStore(db),
+      keys: new AuthAttemptKeys(secret),
+      logger: new StructuredLogger({ sinks: [sink] }),
+      work: new WorkGate(32, 64),
+    });
+    const network = checks.clientOf(from("203.0.113.8"));
+    let open = () => {};
+    const held = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    // Twenty people behind one NAT, each with their right password, all
+    // still being checked when a twenty-first arrives.
+    const inFlight = Array.from({ length: 20 }, (_, i) =>
+      checks.guess(`member${i}@example.com`, network, async () => {
+        await held;
+        return true;
+      }),
+    );
+    await Bun.sleep(50);
+    await refusal(checks.guess("late@example.com", network, async () => false));
+    open();
+    for (const { reservation } of await Promise.all(inFlight)) {
+      await reservation.succeeded();
+    }
+    await Bun.sleep(50);
+    await checks.guess("next@example.com", network, async () => false);
+  });
+
+  test("a receipt that cannot be written logs no email", async () => {
+    const store = schema.createPostgresAuthAttemptStore(db);
+    const checks = new PasswordChecks({
+      store: {
+        ...store,
+        recordAccountLock: async (input) => {
+          throw Object.assign(
+            new Error(`Failed query: insert ... params: ${input.email}`),
+            { code: "57P01" },
+          );
+        },
+      },
+      keys: new AuthAttemptKeys(secret),
+      logger: new StructuredLogger({ sinks: [sink] }),
+    });
+    for (let i = 0; i < 5; i += 1) await fail(checks, known, "203.0.113.1");
+    await refusal(fail(checks, known, "203.0.113.1"));
+    const failed = sink.records.find(
+      (record) => record.message === "Login lock receipt not written",
+    );
+    expect(failed?.fields).toEqual({
+      error_name: "Error",
+      error_code: "57P01",
+    });
+    expect(JSON.stringify(sink.records)).not.toContain(known);
   });
 });

@@ -63,7 +63,7 @@ export function createPostgresAuthAttemptStore(db: Database): AuthAttemptStore {
       };
     },
 
-    async giveBack(kind, key, window, limit) {
+    async giveBack(kind, key, window, upTo) {
       await db
         .update(windows)
         .set({ count: sql`${windows.count} - 1` })
@@ -71,7 +71,9 @@ export function createPostgresAuthAttemptStore(db: Database): AuthAttemptStore {
           and(
             keyOf(kind, key),
             sql`${windows.windowStartedAt} = ${window}::timestamptz`,
-            sql`${windows.count} BETWEEN 1 AND ${limit}`,
+            upTo === null
+              ? sql`${windows.count} >= 1`
+              : sql`${windows.count} BETWEEN 1 AND ${upTo}`,
           ),
         );
     },
