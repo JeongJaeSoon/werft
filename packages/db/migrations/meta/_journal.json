@@ -1807,6 +1807,13 @@
       "when": 1795524708284,
       "tag": "0348_capacity_waits",
       "breakpoints": true
+    },
+    {
+      "idx": 349,
+      "version": "7",
+      "when": 1795534180453,
+      "tag": "0349_release_instructions_snapshot",
+      "breakpoints": true
     }
   ]
 }

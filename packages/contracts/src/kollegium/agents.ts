@@ -1054,6 +1054,75 @@ export const releaseLabelSchema = z
  * edit cannot change an in-flight session. Everything but `created_by`,
  * `approved_by`, `label` and the timestamps goes into the release id.
  */
+/** How much of an agent's instruction file its conversation judgment reads. */
+export const JUDGMENT_INSTRUCTIONS_MAX_BYTES = 4_096;
+
+const instructionsCommitSchema = z
+  .string()
+  .regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/);
+const utf8Bytes = (text: string) => new TextEncoder().encode(text).length;
+
+/**
+ * The repository's root instruction file as it was when the release was made,
+ * chosen by the rules a session's worker reads it by. The conversation
+ * judgment reads only this, never the repository: a push reaches it with
+ * the next release. Sessions still read the whole file at their own commit.
+ */
+export const releaseInstructionsSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("no_repository") }).strict(),
+  z
+    .object({
+      kind: z.literal("absent"),
+      repository_id: z.string().min(1).max(128),
+      commit: instructionsCommitSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("text"),
+      repository_id: z.string().min(1).max(128),
+      commit: instructionsCommitSchema,
+      /** The file name the text was found under (an import's target). */
+      file: z.string().min(1).max(4096),
+      /** At most JUDGMENT_INSTRUCTIONS_MAX_BYTES UTF-8 bytes. */
+      text: z
+        .string()
+        .refine((text) => utf8Bytes(text) <= JUDGMENT_INSTRUCTIONS_MAX_BYTES),
+      /** The file's UTF-8 bytes before the cut. */
+      bytes: z.number().int().nonnegative(),
+      /** Only its start is kept: the file passed JUDGMENT_INSTRUCTIONS_MAX_BYTES. */
+      truncated: z.boolean(),
+    })
+    .strict(),
+  // The file is there and the rules refuse it, as a session's worker would.
+  z
+    .object({
+      kind: z.literal("refused"),
+      repository_id: z.string().min(1).max(128),
+      commit: instructionsCommitSchema,
+      reason: z.string().min(1).max(500),
+    })
+    .strict(),
+  // Nothing was read; the release was made anyway.
+  z
+    .object({
+      kind: z.literal("read_failed"),
+      repository_id: z.string().min(1).max(128),
+      reason: z.enum(["not_on_github", "branch_missing", "github_failed"]),
+    })
+    .strict(),
+]);
+export type ReleaseInstructions = z.infer<typeof releaseInstructionsSchema>;
+
+/** The text a conversation judgment adds to its fixed criteria, or null. */
+export function judgmentInstructionsOf(
+  snapshot: ReleaseInstructions | null,
+): string | null {
+  return snapshot?.kind === "text" && snapshot.text.trim() !== ""
+    ? snapshot.text
+    : null;
+}
+
 export const agentReleaseSchema = z
   .object({
     id: agentReleaseIdSchema,
@@ -1071,6 +1140,8 @@ export const agentReleaseSchema = z
     runtime_config_snapshot: runtimeConfigSnapshotSchema,
     effective_tools: effectiveToolsSchema,
     policy_pins: policyPinsSchema,
+    /** Null on a release made before the snapshot was taken. */
+    instructions_snapshot: releaseInstructionsSchema.nullable(),
     created_by: userIdSchema.nullable(),
     created_at: timestampSchema,
     /** Set by the first activation, never by creating the release. */

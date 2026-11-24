@@ -110,6 +110,7 @@ describe("deriveReleaseId", () => {
         },
         effective_tools: { tools: ["Read"], mcp: [] },
         policy_pins: {},
+        instructions_snapshot: null,
       }),
     ).toBe(PINNED_V5);
   });

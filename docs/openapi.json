@@ -26539,6 +26539,156 @@
                   },
                   "additionalProperties": false
                 },
+                "instructions_snapshot": {
+                  "anyOf": [
+                    {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "no_repository"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "absent"
+                            },
+                            "repository_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "commit": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "repository_id",
+                            "commit"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "text"
+                            },
+                            "repository_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "commit": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                            },
+                            "file": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "bytes": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "truncated": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "repository_id",
+                            "commit",
+                            "file",
+                            "text",
+                            "bytes",
+                            "truncated"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "refused"
+                            },
+                            "repository_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "commit": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "repository_id",
+                            "commit",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "read_failed"
+                            },
+                            "repository_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "not_on_github",
+                                "branch_missing",
+                                "github_failed"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "repository_id",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "created_by": {
                   "anyOf": [
                     {
@@ -26619,6 +26769,7 @@
                 "runtime_config_snapshot",
                 "effective_tools",
                 "policy_pins",
+                "instructions_snapshot",
                 "created_by",
                 "created_at",
                 "approved_by",
@@ -26837,6 +26988,156 @@
                     },
                     "additionalProperties": false
                   },
+                  "instructions_snapshot": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "no_repository"
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "absent"
+                              },
+                              "repository_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "commit": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "repository_id",
+                              "commit"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "text"
+                              },
+                              "repository_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "commit": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                              },
+                              "file": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 4096
+                              },
+                              "text": {
+                                "type": "string"
+                              },
+                              "bytes": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "truncated": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "repository_id",
+                              "commit",
+                              "file",
+                              "text",
+                              "bytes",
+                              "truncated"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "refused"
+                              },
+                              "repository_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "commit": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "repository_id",
+                              "commit",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "read_failed"
+                              },
+                              "repository_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": [
+                                  "not_on_github",
+                                  "branch_missing",
+                                  "github_failed"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "repository_id",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "created_by": {
                     "anyOf": [
                       {
@@ -26917,6 +27218,7 @@
                   "runtime_config_snapshot",
                   "effective_tools",
                   "policy_pins",
+                  "instructions_snapshot",
                   "created_by",
                   "created_at",
                   "approved_by",
@@ -27615,6 +27917,156 @@
                   },
                   "additionalProperties": false
                 },
+                "instructions_snapshot": {
+                  "anyOf": [
+                    {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "no_repository"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "absent"
+                            },
+                            "repository_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "commit": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "repository_id",
+                            "commit"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "text"
+                            },
+                            "repository_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "commit": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                            },
+                            "file": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "bytes": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "truncated": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "repository_id",
+                            "commit",
+                            "file",
+                            "text",
+                            "bytes",
+                            "truncated"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "refused"
+                            },
+                            "repository_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "commit": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "repository_id",
+                            "commit",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "read_failed"
+                            },
+                            "repository_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "not_on_github",
+                                "branch_missing",
+                                "github_failed"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "repository_id",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "created_by": {
                   "anyOf": [
                     {
@@ -27695,6 +28147,7 @@
                 "runtime_config_snapshot",
                 "effective_tools",
                 "policy_pins",
+                "instructions_snapshot",
                 "created_by",
                 "created_at",
                 "approved_by",
@@ -27913,6 +28366,156 @@
                     },
                     "additionalProperties": false
                   },
+                  "instructions_snapshot": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "no_repository"
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "absent"
+                              },
+                              "repository_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "commit": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "repository_id",
+                              "commit"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "text"
+                              },
+                              "repository_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "commit": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                              },
+                              "file": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 4096
+                              },
+                              "text": {
+                                "type": "string"
+                              },
+                              "bytes": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "truncated": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "repository_id",
+                              "commit",
+                              "file",
+                              "text",
+                              "bytes",
+                              "truncated"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "refused"
+                              },
+                              "repository_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "commit": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "repository_id",
+                              "commit",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "read_failed"
+                              },
+                              "repository_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": [
+                                  "not_on_github",
+                                  "branch_missing",
+                                  "github_failed"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "repository_id",
+                              "reason"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "created_by": {
                     "anyOf": [
                       {
@@ -27993,6 +28596,7 @@
                   "runtime_config_snapshot",
                   "effective_tools",
                   "policy_pins",
+                  "instructions_snapshot",
                   "created_by",
                   "created_at",
                   "approved_by",
@@ -28410,6 +29014,156 @@
                 },
                 "additionalProperties": false
               },
+              "instructions_snapshot": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "no_repository"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "absent"
+                          },
+                          "repository_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "commit": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "repository_id",
+                          "commit"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "text"
+                          },
+                          "repository_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "commit": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                          },
+                          "file": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "bytes": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "repository_id",
+                          "commit",
+                          "file",
+                          "text",
+                          "bytes",
+                          "truncated"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "refused"
+                          },
+                          "repository_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "commit": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "repository_id",
+                          "commit",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "read_failed"
+                          },
+                          "repository_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "reason": {
+                            "type": "string",
+                            "enum": [
+                              "not_on_github",
+                              "branch_missing",
+                              "github_failed"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "repository_id",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "created_by": {
                 "anyOf": [
                   {
@@ -28490,6 +29244,7 @@
               "runtime_config_snapshot",
               "effective_tools",
               "policy_pins",
+              "instructions_snapshot",
               "created_by",
               "created_at",
               "approved_by",

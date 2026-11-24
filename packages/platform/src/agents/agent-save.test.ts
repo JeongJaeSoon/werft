@@ -20,6 +20,7 @@ import type {
   UpdateAgentResult,
 } from "./ports/agent-store.ts";
 import { cardContentSha256, deriveReleaseId } from "./release-ids.ts";
+import type { ReleaseInstructionsSource } from "./release-instructions.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000b1";
@@ -74,6 +75,7 @@ function activeRelease(): AgentRelease {
     runtime_config_snapshot: { model: "claude-sonnet-5" },
     effective_tools: { tools: ["Read"], mcp: [] },
     policy_pins: { github: GITHUB },
+    instructions_snapshot: null,
   };
   return {
     id: deriveReleaseId(identity),
@@ -126,6 +128,7 @@ type Script = {
   /** What holdsSave answers, in order; true once they run out. */
   holds?: boolean[];
   record?: AgentRecord;
+  instructions?: ReleaseInstructionsSource;
 };
 
 function scripted(script: Script) {
@@ -224,6 +227,9 @@ function scripted(script: Script) {
     catalog: CATALOG,
     credentials: { unboundRefs: async () => [] },
     runtimes: TEST_RUNTIMES,
+    ...(script.instructions === undefined
+      ? {}
+      : { releaseInstructions: script.instructions }),
   });
   void createAuthorizationPolicy;
   return { service, calls };
@@ -351,6 +357,51 @@ describe("a card save asks releaseAgent for what the request changes", () => {
     expect(insert?.release.repository_id).toBe("app");
     // The lock re-checks a first settings row saved since the read.
     expect(insert?.refuseGitHubWhenSettings).toBe(true);
+  });
+
+  test("it snapshots the carried repository's instruction file into the release it makes", async () => {
+    const opened: string[] = [];
+    const instructions: ReleaseInstructionsSource = {
+      open: async (repositoryId) => {
+        opened.push(repositoryId);
+        return {
+          kind: "tree",
+          commit: "d".repeat(40),
+          files: ["AGENTS.md"],
+          tree: {
+            entry: async (path) =>
+              path === "AGENTS.md"
+                ? { mode: "100644", type: "blob", object: "x" }
+                : null,
+            size: async () => 5,
+            read: async () => "rules",
+          },
+        };
+      },
+    };
+    const { calls, result } = save({ instructions });
+    await result;
+    const [insert] = calls.insert as { release: AgentRelease }[];
+    expect(opened).toEqual(["app"]);
+    expect(insert?.release.instructions_snapshot).toEqual({
+      kind: "text",
+      repository_id: "app",
+      commit: "d".repeat(40),
+      file: "AGENTS.md",
+      text: "rules",
+      bytes: 5,
+      truncated: false,
+    });
+
+    // With a settings row the release has no repository, so nothing is read.
+    opened.length = 0;
+    const row = save({ instructions, hasRow: true });
+    await row.result;
+    const [bare] = row.calls.insert as { release: AgentRelease }[];
+    expect(bare?.release.instructions_snapshot).toEqual({
+      kind: "no_repository",
+    });
+    expect(opened).toEqual([]);
   });
 
   test("with a settings row it carries neither", async () => {

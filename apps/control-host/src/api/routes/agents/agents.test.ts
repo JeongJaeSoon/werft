@@ -104,6 +104,7 @@ function storedRelease(): AgentRelease {
         per_tool: { Read: "allow" },
       },
     } as const,
+    instructions_snapshot: null,
   };
   return {
     id: deriveReleaseId(identity),
