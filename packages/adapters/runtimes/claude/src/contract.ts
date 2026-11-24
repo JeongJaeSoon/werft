@@ -232,6 +232,9 @@ export function claudeStartConfig(
       ? {}
       : { maxOutputTokens: config.maxOutputTokens }),
     ...(config.tmpDir === undefined ? {} : { tmpDir: config.tmpDir }),
+    ...(config.compactionOff === undefined
+      ? {}
+      : { compactionOff: config.compactionOff }),
     ...(config.maxBudgetUsd === undefined
       ? {}
       : { maxBudgetUsd: config.maxBudgetUsd }),

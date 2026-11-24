@@ -155,11 +155,24 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
   state: "completed" | "failed";
   /** The Slack account linked to whoever asked for the turn, if any. */
   requesterSlackUserId: string | null;
+  /** Why a failed turn ended (`no_capacity`); null or absent when unsaid. */
+  terminalReason?: string | null;
+  /** The session is paused: a resume that found no room went back to it. */
+  sessionPaused?: boolean;
   /**
    * The final attempt's top-level assistant and tool_use event payloads,
    * in order; empty unless the turn completed.
    */
   events: { type: string; payload: unknown }[];
+};
+
+/**
+ * A live linked session whose worker has waited for room past the notice
+ * threshold, and the launch that waits: its thread hears of each wait once.
+ */
+export type SurfaceCapacityWait = SurfaceLinkedTurnTarget & {
+  executionId: string;
+  generation: number;
 };
 
 /**
@@ -610,6 +623,15 @@ export interface SurfaceOutboxStore {
    * so the answer never goes ahead of what it answers.
    */
   unansweredTurns(limit: number): Promise<SurfaceUnansweredTurn[]>;
+  /**
+   * Live linked sessions whose worker has waited at least `waitedMs` for
+   * room no node has, and whose thread was not told of that wait
+   * (`slackCapacityWaitDedupeKey`).
+   */
+  capacityWaits?(
+    limit: number,
+    waitedMs: number,
+  ): Promise<SurfaceCapacityWait[]>;
   /**
    * The card posted as that message for that request, or null when no
    * `input_notice` row of the session sent it.

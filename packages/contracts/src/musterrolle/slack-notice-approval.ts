@@ -5,6 +5,7 @@ import {
   slackNoticeLocaleSchema,
   slackNoticeVersionSchema,
 } from "../domain/slack-notice.ts";
+import { conversationRolloutSchema } from "../kollegium/surfaces.ts";
 import { timestampSchema, userIdSchema } from "../shared/index.ts";
 import { slackIdSchema } from "./agent-identities.ts";
 import { displayNameSchema, emailSchema } from "./workspaces.ts";
@@ -70,7 +71,16 @@ export const getSlackNoticeResponseSchema = z
       .strict()
       .nullable(),
     state: slackNoticeStateSchema,
-    /** The reader may approve and revoke: a workspace owner or admin. */
+    /**
+     * The agent's conversation switch. It leaves `off` only while `state`
+     * is `approved`, and goes back to `off` when the approval is revoked or
+     * the current version asks for a new one.
+     */
+    rollout: conversationRolloutSchema,
+    /**
+     * The reader may approve, revoke and change `rollout`: a workspace owner
+     * or admin.
+     */
     can_approve: z.boolean(),
     approvals: z.array(slackNoticeApprovalViewSchema),
   })
@@ -85,10 +95,20 @@ export const approveSlackNoticeRequestSchema = z
   })
   .strict();
 
+export const setConversationRolloutRequestSchema = z
+  .object({
+    /** `on` parses but is refused: it is not open yet. */
+    rollout: conversationRolloutSchema,
+  })
+  .strict();
+
 export type SlackNoticeState = z.infer<typeof slackNoticeStateSchema>;
 export type GetSlackNoticeResponse = z.infer<
   typeof getSlackNoticeResponseSchema
 >;
 export type ApproveSlackNoticeRequest = z.infer<
   typeof approveSlackNoticeRequestSchema
+>;
+export type SetConversationRolloutRequest = z.infer<
+  typeof setConversationRolloutRequestSchema
 >;

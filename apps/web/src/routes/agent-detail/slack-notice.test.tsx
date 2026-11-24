@@ -54,6 +54,7 @@ const APPROVAL: Notice["approvals"][number] = {
 const view = (over: Partial<Notice> = {}): Notice => ({
   notice: NOTICE,
   state: "not_approved",
+  rollout: "off",
   can_approve: true,
   approvals: [],
   ...over,
@@ -366,6 +367,125 @@ describe("Slack notice", () => {
     );
     await waitFor(() =>
       expect(notice.textContent).toContain("그사이 고지가 바뀌었습니다."),
+    );
+    await waitFor(() => expect(reads).toBeGreaterThan(1));
+  });
+
+  const rolloutSwitch = (notice: HTMLElement) =>
+    within(notice).getByRole("switch", { name: "조용히 듣기 (shadow)" });
+
+  test("before approval the switch is locked and says why, and sends nothing", async () => {
+    const { api } = renderAt(
+      DETAIL,
+      routes(() => json(200, view())),
+    );
+    const notice = await section();
+    await waitFor(() =>
+      expect(notice.textContent).toContain("고지를 승인한 뒤 켤 수 있습니다."),
+    );
+    const toggle = rolloutSwitch(notice);
+    expect(toggle.getAttribute("aria-disabled")).toBe("true");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    const user = await setupUser();
+    await user.click(toggle);
+    expect(api.calls.some((call) => call.path.endsWith("/rollout"))).toBe(
+      false,
+    );
+  });
+
+  test("once approved an owner turns the switch to shadow and back off", async () => {
+    let current = view({ state: "approved", approvals: [APPROVAL] });
+    const { api } = renderAt(DETAIL, {
+      ...routes(() => json(200, current)),
+      [`POST ${PATH}/slack/notice/rollout`]: async (request) => {
+        const body = (await request.json()) as { rollout: Notice["rollout"] };
+        current = { ...current, rollout: body.rollout };
+        return json(200, current);
+      },
+    });
+    const notice = await section();
+    const user = await setupUser();
+    await waitFor(() =>
+      expect(rolloutSwitch(notice).getAttribute("aria-disabled")).not.toBe(
+        "true",
+      ),
+    );
+    await user.click(rolloutSwitch(notice));
+    await waitFor(() =>
+      expect(rolloutSwitch(notice).getAttribute("aria-checked")).toBe("true"),
+    );
+    expect(await screen.findByText("조용히 듣기를 켰습니다.")).toBeDefined();
+    await user.click(rolloutSwitch(notice));
+    await waitFor(() =>
+      expect(rolloutSwitch(notice).getAttribute("aria-checked")).toBe("false"),
+    );
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/notice/rollout"))
+        .map((call) => call.body),
+    ).toEqual([{ rollout: "shadow" }, { rollout: "off" }]);
+  });
+
+  test("a raised switch stays lowerable when the approval no longer counts", async () => {
+    renderAt(
+      DETAIL,
+      routes(() =>
+        json(200, view({ state: "reapproval_required", rollout: "shadow" })),
+      ),
+    );
+    const notice = await section();
+    await waitFor(() =>
+      expect(rolloutSwitch(notice).getAttribute("aria-checked")).toBe("true"),
+    );
+    expect(rolloutSwitch(notice).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    );
+  });
+
+  test("whoever may not change the switch reads its state without one", async () => {
+    renderAt(
+      DETAIL,
+      routes(() =>
+        json(
+          200,
+          view({ state: "approved", rollout: "shadow", can_approve: false }),
+        ),
+      ),
+    );
+    const notice = await section();
+    await waitFor(() =>
+      expect(notice.textContent).toContain(
+        "워크스페이스 owner·admin만 바꿀 수 있습니다.",
+      ),
+    );
+    expect(within(notice).queryByRole("switch")).toBeNull();
+    expect(notice.textContent).toContain("켜짐");
+  });
+
+  test("a raise refused because the approval changed shows why and reads the notice again", async () => {
+    let reads = 0;
+    renderAt(DETAIL, {
+      ...routes(() => {
+        reads += 1;
+        return json(200, view({ state: "approved", approvals: [APPROVAL] }));
+      }),
+      [`POST ${PATH}/slack/notice/rollout`]: () =>
+        apiError(409, "REVISION_CONFLICT", "not approved", false, {
+          reason_code: "notice_not_approved",
+        }),
+    });
+    const notice = await section();
+    const user = await setupUser();
+    await waitFor(() =>
+      expect(rolloutSwitch(notice).getAttribute("aria-disabled")).not.toBe(
+        "true",
+      ),
+    );
+    await user.click(rolloutSwitch(notice));
+    await waitFor(() =>
+      expect(
+        within(notice).getByText("고지를 승인한 뒤 켤 수 있습니다."),
+      ).toBeDefined(),
     );
     await waitFor(() => expect(reads).toBeGreaterThan(1));
   });

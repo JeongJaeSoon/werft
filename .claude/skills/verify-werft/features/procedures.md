@@ -1062,7 +1062,45 @@ a0_sql "select count(buffer_expires_at) as buffered, count(*) from conversation_
 a0_sql "select conversation_rollout from agents where id='$AID'"
 ```
 
-기대: processed·dropped 행의 payload 0. 명령은 `{"outcome":"cleared",…,"cleared":0,…}` exit 0. buffered 0, `conversation_rollout`은 `off`(바꾸는 API 없음). 버퍼의 10분 TTL은 스위치가 꺼져 있어 P-A0-DEFERRED로 본다.
+기대: processed·dropped 행의 payload 0. 명령은 `{"outcome":"cleared",…,"cleared":0,…}` exit 0. buffered 0, `conversation_rollout`은 `off`(올린 적이 없을 때). 스위치를 올리고 버퍼의 10분 TTL을 보는 것은 P-A0-ROLLOUT이다.
+
+## P-A0-ROLLOUT — 대화 스위치와 판정 버퍼 TTL
+
+전제: mock Slack run(P-SLACK-SETUP), owner의 Slack 계정 `U0MOCK` 연결(`a0_link owner U0MOCK`), P-A0 helper. 고지 문구가 아직 게시되지 않았으면(`SLACK_NOTICE_VERSIONS`가 빈 목록) 아무도 승인할 수 없다. 그때는 `up.sh` 전에 `packages/contracts/src/domain/slack-notice.ts`의 목록에 검증용 1판(`requiresReapproval: true`, ko·ja 문구)을 커밋하지 않고 넣고, 끝나면 `git checkout --`으로 되돌린다. 그 run의 doctor는 커밋하지 않은 변경을 보고한다.
+
+```sh
+# Actor: owner, then stack operator.
+a0_mock /fake/channels "$(jq -nc --arg app "$APP" '{app_id:$app, channels:[{name:"rollout-public", bot_member:true, user_ids:["U0MOCK"]}]}')"   # PUB
+ap_as owner
+ap_web PUT "/v1/agents/$AID/slack-bindings" "{\"channel_id\":\"$PUB\",\"mode\":\"on\",\"home\":true,\"listen\":\"free\"}"
+node "$B" "$RUN" open "/agents/$AID?tab=slack"
+node "$B" "$RUN" click '승인'
+node "$B" "$RUN" click '[aria-label="조용히 듣기 (shadow)"]'     # 1. 웹에서 shadow로
+a0_event "$AID" plain "$PUB" $((S + 2)); a0_settle
+a0_sql "select count(buffer_expires_at) as buffered from conversation_inputs where agent_id='$AID'"
+node "$B" "$RUN" click '[aria-label="조용히 듣기 (shadow)"]'     # 2. 웹에서 off로
+a0_event "$AID" plain "$PUB" $((S + 3)); a0_settle
+a0_sql "select count(buffer_expires_at) as buffered from conversation_inputs where agent_id='$AID'"
+CLI="ap_compose exec -T -w /app api bun run apps/control-host/src/api/slack-notice.ts"
+$CLI set-rollout --agent "$AID" --rollout on; echo "exit=$?"     # 3. 운영자 명령
+$CLI set-rollout --agent "$AID" --rollout shadow; echo "exit=$?"
+a0_event "$AID" plain "$PUB" $((S + 4)); a0_settle
+$CLI set-rollout --agent "$AID" --rollout off; echo "exit=$?"
+a0_sql "select actor, result from receipts where operation='set_conversation_rollout' order by created_at"
+```
+
+기대: 승인 전에는 스위치가 `aria-disabled="true"`이고 "고지를 승인한 뒤 켤 수 있습니다."가 보인다. 1 뒤 buffered 1, slack 로그 `Slack message held for the judgment`(`rollout:"shadow"`). 2 뒤 buffered 0이고, 그 뒤의 글도 0이다. 3의 `on`은 `{"outcome":"refused",…,"reason_code":"rollout_on_unavailable"}` exit 4, `shadow`·`off`는 `{"outcome":"changed",…}` exit 0이고 off의 `buffered_dropped`는 1이다. 같은 값을 다시 주면 `unchanged`이고 receipt는 늘지 않는다. receipt의 `result.by`는 웹이 `web`(actor는 그 사용자), 명령이 `operator_cli`(actor 없음)다. 워크스페이스 owner·admin이 아닌 사람은 에이전트 관리자여도 화면에 스위치가 없고("워크스페이스 owner·admin만 바꿀 수 있습니다."), API는 403 `workspace_admin_required`다. shadow에서 owner가 `POST /v1/agents/$AID/slack/notice/revoke`를 하면 `rollout:"off"`, buffered 0이고 receipt `reason:"notice_revoked"`다. 그 뒤 다시 올리면 409 `notice_not_approved`다.
+
+4. 10분 TTL: shadow로 올리고 글 하나를 담은 뒤 아무것도 하지 않는다. reconciler가 10초마다 `Judgment buffer purged`를 남긴다.
+
+```sh
+a0_sql "select id, buffer_expires_at, now(), buffer_expires_at - now() as remaining from conversation_inputs where agent_id='$AID' and buffer_expires_at is not null"
+# 만료 60초 전에 한 번, 만료 뒤에 한 번 더 읽는다.
+ap_compose logs reconciler | grep '"Judgment buffer purged"' | grep -v '"expired_count":0'
+```
+
+기대: `buffer_expires_at`은 받은 시각 + 10분. 만료 60초 전에는 행이 남는다. 만료 뒤 첫 pass(10초 이내)에서 `expired_count:1`이 찍히고 행이 사라진다. 한 run에서 확인한 값: 만료 12:06:33.17, 12:05:35에 남은 시간 00:00:57, 12:06:34.19 pass의 `expired_count:1`, 12:06:35에 행 0.
+
 
 ## P-A0-MODEL-CALLS — 예약과 대화 호출(조건 8)
 
@@ -1109,7 +1147,6 @@ grep -E '\((pass|fail|skip)\)' "$EVIDENCE/ci-<job>.log" | grep -F '<test name>'
 | context 조립(`assembleContext`) | context-assembler(db) | 9-2 1–9행, "a fragment with a deleted source is left out" | a1 |
 | 세션 없는 대화 호출(`createConversationCalls`) | conversation-calls(db), budget-accounts(db) | "two issues at once on an account that holds one: one token, one refusal, no stray row" | a1(a1/J5의 M1 판단기가 낸다. 실행기와 배선은 a1/J2에서 들어왔고, `tests/a0-deferred-paths.test.ts`의 목록에서 빠졌다) |
 | 웹 입력(`createWebInputService`) | conversation-inputs(db), slack/outbox(surface) | "a retry with the same key and text gets the same input id and number back", "the post's record and its echo arriving at once leave one input and one alias" | 웹 입력 route를 여는 epic(실제 Slack에서 mirror 왕복) |
-| 판정 버퍼 TTL | judgment-buffer(db) | "buffer: nine minutes on it stays", "buffer: ten minutes on it is gone" | 버퍼 스위치를 켜는 epic |
 | 요약 줄 삭제 | channel-summaries(db) | "deleting one of three sources takes its line out of every version…", "a deletion deletes the channel's summary with every version…" | 요약을 쓰는 epic |
 
 `tests/a0-deferred-paths.test.ts`는 선언한 파일 밖의 제품 코드·`scripts/`에서 그 이름(식별자나 문자열)이 나오면 실패한다. 실패하면 그 경로에 호출자가 생긴 것이다. 그 epic에서 위 행의 실제 출력을 verify stack으로 내고 시험의 목록에서 뺀다.
@@ -1139,7 +1176,9 @@ docker inspect "$(ap_compose ps -q conversation-runtime)" --format 'readonly={{.
 ap_compose exec -T conversation-runtime sh -c 'ls -A /conversation | wc -l'
 ```
 
-기대: 명령은 `{"outcome":"ended",…,"turn":{"outcome":"completed","text":"conversation runtime verify"}}`와 exit 0. 런타임 로그는 `conversation_turn.started`·`ended`(`outcome:"completed"`)·`reported`(`reported:"recorded"`) 세 줄이고 id만 있다(입력·답·토큰 없음). API 로그 한 줄에 `operator_user`·`operator_host`와 `turn_outcome:"completed"`. 원장은 턴의 provider 호출마다 한 줄이고(fake 모델 턴은 한 줄), 줄마다 proxy가 그 요청을 물을 때 예약되어 따로 정산된다: `root_kind` `key`, `requester_user_id` 비어 있음, `call_class` `m2`, `call_key` `operator-<turn id>:m2`, `attempt`는 턴 안 호출 순번(1부터), `state` `settled`, `conversation_turn_id`는 명령이 출력한 `turn_id`. 턴 줄은 `m2`·`no_decision`·`operator`, 허가 줄은 `calls`가 원장 줄 수와 같고 `refusal` 비어 있음. 운영자 턴은 `call_key`의 `operator-` 접두어로 다른 호출과 갈린다. fake 모델 기록은 `spec_id:"t2-verify"`, `tools:[]` 한 건. proxy 로그는 `purpose:"provider"`와 그 호출 id, status 200. inspect는 `readonly=true mounts=0`이고 network는 `…_conversation-runtime` 하나다. 주제 디렉터리는 0개.
+기대: 명령은 `{"outcome":"ended",…,"turn":{"outcome":"completed","text":"conversation runtime verify"}}`와 exit 0. 런타임 로그는 `conversation_turn.started`·`ended`(`outcome:"completed"`)·`reported`(`reported:"recorded"`) 세 줄이고 id만 있다(입력·답·토큰 없음). API 로그 한 줄에 `operator_user`·`operator_host`와 `turn_outcome:"completed"`. 원장은 턴의 provider 호출마다 한 줄이고(fake 모델 턴은 한 줄), 줄마다 proxy가 그 요청을 물을 때 예약되어 따로 정산된다: `root_kind` `key`, `requester_user_id` 비어 있음, `call_class` `m2`, `call_key` `operator-<turn id>:m2`, `attempt`는 턴 안 호출 순번(1부터), `state` `settled`, `conversation_turn_id`는 명령이 출력한 `turn_id`. 턴 줄은 `m2`·`no_decision`·`operator`, 허가 줄은 `calls`가 원장 줄 수와 같고 `refusal` 비어 있음. 운영자 턴은 `call_key`의 `operator-` 접두어로 다른 호출과 갈린다. fake 모델 기록은 `spec_id:"t2-verify"`, `tools:[]` 한 건. proxy 로그는 `purpose:"provider"`와 그 호출 id, status 200. inspect는 `readonly=true mounts=0`이고 network는 `…_conversation-runtime` 하나다. 주제 디렉터리는 1개다. 주제 세션이 10분 동안 살아 있기 때문이다.
+
+같은 주제로 10분 안에 턴을 더 보내면 같은 엔진에서 이어진다. 런타임 안 `/proc/*/status`의 `claude` pid가 턴 사이에 그대로이고, proxy 로그에는 턴마다 자기 호출 id로 status 200이 한 줄씩 남는다. 세션이 본 멘션을 지우고(`slack-event "$AID" delete "$PUB" 2 0`) 턴을 보내면 새 pid로 시작한다. `ap_compose restart conversation-runtime` 뒤에는 주제 디렉터리 0개, `claude` 프로세스 없음이고 다음 턴은 `completed`다. fake 모델 기록(`/requests`)에는 메시지 본문이 없어서 새 세션의 첫 요청 내용은 여기서 보지 못한다. 그것은 `tests/conversation-runtime-flow.test.ts`가 본다.
 
 런타임을 끄면 거절된다. `ap_compose stop conversation-runtime` 뒤 45초(런타임이 묻는 간격의 두 배)를 기다려 같은 명령을 돌리면 `{"outcome":"no_runtime"}`와 exit 3이고 원장 줄 수는 그대로다. overlay 없이 띄운 run에서는 exit 4("The conversation runtime is off for this API")다. 런타임 안에서 다른 서비스로 직접 가는 길이 없는 것은 `ap_compose exec -T conversation-runtime bun -e`로 `node:net` 연결을 시도해 본다: `egress-proxy:3128`·`3129`만 열리고 `api`·`postgres`·`fake-messages`는 이름이 풀리지 않는다. 소스: `apps/control-host/src/api/conversation-runtime.ts`, `conversation-turn.ts`, `apps/worker/src/conversation/`.
 
