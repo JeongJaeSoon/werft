@@ -68,13 +68,35 @@ describe("localDockerConfigFromEnv", () => {
     },
   );
 
+  test("the limits hold under off too, for the worker's measurement", () => {
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_QUOTA: "off",
+        EXECUTION_WORKSPACE_QUOTA_MB: "2048",
+        EXECUTION_WORKSPACE_QUOTA_INODES: "5000",
+      }).workspaceQuota,
+    ).toEqual({ mode: "off", sizeBytes: 2048 * 1024 * 1024, inodes: 5000 });
+    expect(() =>
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_QUOTA: "off",
+        EXECUTION_WORKSPACE_QUOTA_MB: "1023",
+      }),
+    ).toThrow("EXECUTION_WORKSPACE_QUOTA_MB 1023 is under the 1024");
+  });
+
   test("the workspace quota is on unless it is turned off by name", () => {
     expect(
       localDockerConfigFromEnv({
         ...base,
         EXECUTION_WORKSPACE_QUOTA: "off",
       }).workspaceQuota,
-    ).toEqual({ mode: "off" });
+    ).toEqual({
+      mode: "off",
+      sizeBytes: 4096 * 1024 * 1024,
+      inodes: 1_000_000,
+    });
     expect(
       localDockerConfigFromEnv({
         ...base,
@@ -128,7 +150,11 @@ describe("localDockerConfigFromEnv", () => {
         ...withoutImage,
         EXECUTION_WORKSPACE_QUOTA: "off",
       }).workspaceQuota,
-    ).toEqual({ mode: "off" });
+    ).toEqual({
+      mode: "off",
+      sizeBytes: 4096 * 1024 * 1024,
+      inodes: 1_000_000,
+    });
   });
 
   test("a value that is neither on nor off is a typo, not an opt-out", () => {

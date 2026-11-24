@@ -184,6 +184,7 @@ import {
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { installationProfileFromEnv } from "../installation-profile.ts";
 import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
 import {
   wireAppBotUsers,
@@ -261,6 +262,11 @@ import {
   sessionArchiveStatusOf,
 } from "./installation-config.ts";
 import { leftOutReporter, settingsSource } from "./installation-settings.ts";
+import {
+  createInstallationStatusReader,
+  noDiskQuotaFromEnv,
+  noDiskQuotaWarning,
+} from "./installation-status.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
 import { createLostCheckpointNoticesAdmin } from "./lost-checkpoint-notices.ts";
@@ -298,6 +304,7 @@ import {
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
 import { registerInstallationConfigRoutes } from "./routes/limits/installation-config.ts";
+import { registerInstallationStatusRoutes } from "./routes/limits/installation-status.ts";
 import { registerLostCheckpointNoticeRoutes } from "./routes/limits/lost-checkpoint-notices.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
@@ -430,6 +437,13 @@ const secretKey = loadSecretKey(process.env);
 // error, not a warning, unless the operator said there is none.
 const checkpointStorage = checkpointStorageConfigFromEnv(process.env);
 const checkpointGitMemoryBytes = checkpointGitMemoryBytesFromEnv(process.env);
+const installationProfile = installationProfileFromEnv(process.env);
+const noDiskQuota = noDiskQuotaFromEnv(process.env);
+if (noDiskQuota) {
+  logger.warn(noDiskQuotaWarning(installationProfile), {
+    profile: installationProfile,
+  });
+}
 if (checkpointStorage === "disabled") {
   logger.warn(
     "Checkpoint object store is disabled; every checkpoint will be refused and no session can be restored",
@@ -823,6 +837,10 @@ const lostCheckpointNoticesAdmin = createLostCheckpointNoticesAdmin({
     open: () => openLostCheckpointNotices(db),
     close: (input) => closeLostCheckpointNotices(db, input),
   },
+});
+const installationStatusReader = createInstallationStatusReader({
+  authorization,
+  status: { profile: installationProfile, no_disk_quota: noDiskQuota },
 });
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {
@@ -1637,6 +1655,7 @@ const app = createApiApp({
     registerSlackSettingsRoutes(router, slackSettingsAdmin);
     registerInstallationConfigRoutes(router, installationConfigAdmin);
     registerLostCheckpointNoticeRoutes(router, lostCheckpointNoticesAdmin);
+    registerInstallationStatusRoutes(router, installationStatusReader);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,
@@ -1734,6 +1753,7 @@ const app = createApiApp({
     createReadinessProbe({
       db: probePool,
       requiredEnv: API_READINESS_REQUIRED_ENV,
+      noDiskQuota,
       // A blocked key stays out: the owner fixes it in the console, which
       // a not-ready API would keep them from reaching.
       configProblems: (environment) => [

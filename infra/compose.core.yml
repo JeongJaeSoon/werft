@@ -287,6 +287,9 @@ services:
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       WORKER_IMAGES: *worker-images
       <<: *installation-limits
+      # The scheduler's, read only to say so: readiness and the console show
+      # an installation whose worker workspaces have no kernel quota.
+      EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:-off}
       # The egress proxy's credential lists, the same defaults: the console
       # warns when a connection's endpoint is on neither. Only a warning;
       # the proxy is what refuses.
@@ -516,7 +519,8 @@ services:
       EXECUTION_EGRESS_CREDENTIAL_PORT: *egress-credential-port
       <<: *installation-limits
       # Docker Desktop cannot carry a project quota, so the local stack opts out
-      # a daemon on xfs+prjquota should set it back to `on`.
+      # a daemon on xfs+prjquota should set it back to `on`. Under `off` each
+      # worker measures its workspace against the two limits below instead.
       EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:-off}
       EXECUTION_WORKSPACE_QUOTA_MB: ${EXECUTION_WORKSPACE_QUOTA_MB:-4096}
       EXECUTION_WORKSPACE_QUOTA_INODES: ${EXECUTION_WORKSPACE_QUOTA_INODES:-1000000}

@@ -11,6 +11,9 @@ export const readyDetailSchema = z.object({
   // Sessions whose checkpoints a start gave up on an emptied object store
   // (CHECKPOINT_OBJECTS_LOST=forget), until an administrator closes the notice.
   checkpoints_forgotten_on_boot: z.number().int().positive().optional(),
+  // Worker workspaces have no kernel quota (EXECUTION_WORKSPACE_QUOTA=off):
+  // only the workers' measurement holds them, and it can lag.
+  no_disk_quota: z.literal(true).optional(),
 });
 export const readyResponseSchema = z.object({
   status: z.literal("ready"),
