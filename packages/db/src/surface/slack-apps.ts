@@ -1008,6 +1008,25 @@ export function createPostgresSlackAppStore(
       const workspaceId = input.workspaceId.toLowerCase();
       const slackAppId = input.slackAppId.toLowerCase();
       return db.transaction(async (tx) => {
+        // The agent first, as an archive takes it: an archive revokes
+        // bindings before identities, this close the other way round, so the
+        // two must queue before either holds a row of the other's.
+        const [owner] = await tx
+          .select({ agentId: slackApps.agentId })
+          .from(slackApps)
+          .where(
+            and(
+              eq(slackApps.id, slackAppId),
+              eq(slackApps.workspaceId, workspaceId),
+            ),
+          );
+        if (owner?.agentId) {
+          await tx
+            .select({ id: agents.id })
+            .from(agents)
+            .where(eq(agents.id, owner.agentId))
+            .for("key share");
+        }
         // NO KEY UPDATE, not lockedApp's FOR UPDATE: an outbox insert holds a
         // binding this close revokes and takes the app's key share for its
         // foreign key; FOR UPDATE would wait on it while it waits here.
