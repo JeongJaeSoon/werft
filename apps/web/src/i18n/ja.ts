@@ -199,6 +199,14 @@ export const slackJa = {
     "承認できるのはワークスペースの owner・admin だけです。",
   "slack.notice.approvedNotice": "告知を承認しました。",
   "slack.notice.revokedNotice": "告知の承認を取り消しました。",
+  "slack.rollout": "静かに聞く（shadow）",
+  "slack.rolloutHint":
+    "オンにすると、このエージェントは聞く設定が「すべての投稿」のチャンネルの投稿を集めて、会話に加わるかを判断し、その記録だけを残します。その判断で Slack に投稿することはありません。オフにすると集めた投稿を削除し、新しい判断を止めます。判断の記録とチャンネルの要約は残ります。",
+  "slack.rollout.locked": "告知を承認するとオンにできます。",
+  "slack.rollout.adminOnly":
+    "ワークスペースの owner・admin だけが変更できます。",
+  "slack.rollout.savedOn": "静かに聞くをオンにしました。",
+  "slack.rollout.savedOff": "静かに聞くをオフにしました。",
   "slack.notice.stale":
     "その間に告知が変わりました。新しい告知を読んで、もう一度承認してください。",
   "slack.channelColumn": "チャンネル",

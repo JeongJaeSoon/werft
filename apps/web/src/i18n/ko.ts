@@ -202,6 +202,13 @@ export const slackKo = {
   "slack.notice.adminOnly": "워크스페이스 owner·admin만 승인할 수 있습니다.",
   "slack.notice.approvedNotice": "고지를 승인했습니다.",
   "slack.notice.revokedNotice": "고지 승인을 철회했습니다.",
+  "slack.rollout": "조용히 듣기 (shadow)",
+  "slack.rolloutHint":
+    "켜면 이 에이전트가 듣기 설정이 '모든 글'인 채널의 글을 모아 끼어들지 판단하고 그 기록만 남깁니다. 그 판단으로 Slack에 글을 올리지는 않습니다. 끄면 모아 둔 글을 지우고 새 판단을 멈춥니다. 판단 기록과 채널 요약은 남습니다.",
+  "slack.rollout.locked": "고지를 승인한 뒤 켤 수 있습니다.",
+  "slack.rollout.adminOnly": "워크스페이스 owner·admin만 바꿀 수 있습니다.",
+  "slack.rollout.savedOn": "조용히 듣기를 켰습니다.",
+  "slack.rollout.savedOff": "조용히 듣기를 껐습니다.",
   "slack.notice.stale":
     "그사이 고지가 바뀌었습니다. 새 고지를 읽고 다시 승인하세요.",
   "slack.channelColumn": "채널",
