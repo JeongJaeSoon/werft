@@ -20,11 +20,12 @@ on:
 permissions:
   contents: read
 
-# One group per main commit, never cancelled: a later merge must neither drop
-# this commit's images nor stop a promotion between repositories.
+# Only pull_request runs are cancelled by a newer push. Main, tag, scheduled and
+# manual runs publish or promote images, so a later push must never stop them;
+# main also gets one group per commit so a later merge cannot replace it.
 concurrency:
   group: images-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha) || github.ref }}
-  cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REGISTRY: ghcr.io
