@@ -332,6 +332,7 @@ import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/surface/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
 import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
+import { registerSlackNoticeRoutes } from "./routes/surface/slack-notice.ts";
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { registerSlackSettingsRoutes } from "./routes/surface/slack-settings.ts";
 import { registerUsageRoutes } from "./routes/usage/usage.ts";
@@ -346,6 +347,7 @@ import {
   slackIssuerFrom,
 } from "./slack-config.ts";
 import { createSlackOidcTransport, signInWithSlackOff } from "./slack-link.ts";
+import { createSlackNoticeService } from "./slack-notice-service.ts";
 import {
   carryOverSlackSettings,
   createSlackSettingsAdmin,
@@ -814,6 +816,7 @@ const {
   activeReleaseWarning: slackActiveReleaseWarning,
   logger,
 });
+const slackNotices = createSlackNoticeService({ authorization, db });
 const slackSettingsAdmin = createSlackSettingsAdmin({
   authorization,
   store: slackSettingsStore,
@@ -1597,6 +1600,7 @@ const app = createApiApp({
       logger,
     });
     registerSlackInstallRoutes(router, { service: slackInstall, logger });
+    registerSlackNoticeRoutes(router, slackNotices);
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerAgentUsageRoutes(router, agentUsage);

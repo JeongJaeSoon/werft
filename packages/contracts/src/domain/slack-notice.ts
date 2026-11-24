@@ -14,12 +14,24 @@ export const slackNoticeVersionSchema = z
   .brand<"SlackNoticeVersion">();
 export type SlackNoticeVersion = z.infer<typeof slackNoticeVersionSchema>;
 
+/** The languages every notice version is written in. */
+export const SLACK_NOTICE_LOCALE_VALUES = ["ko", "ja"] as const;
+export const slackNoticeLocaleSchema = z.enum(SLACK_NOTICE_LOCALE_VALUES);
+export type SlackNoticeLocale = z.infer<typeof slackNoticeLocaleSchema>;
+
+/** A version's words in one language, drawn as written. */
+export type SlackNoticeText = {
+  readonly body: readonly string[];
+  readonly policyLink: { readonly label: string; readonly href: string };
+};
+
 /**
  * One version of the notice a workspace owner or admin approves for an
  * agent's Slack app before the agent listens there.
  */
 export type SlackNoticeVersionEntry = {
   readonly version: SlackNoticeVersion;
+  readonly text: Readonly<Record<SlackNoticeLocale, SlackNoticeText>>;
   /**
    * False for a version that only rewords the one before: approvals of the
    * earlier versions still count.

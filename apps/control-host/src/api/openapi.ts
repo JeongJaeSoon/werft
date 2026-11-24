@@ -39,6 +39,7 @@ import {
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
   apiRootResponseSchema,
+  approveSlackNoticeRequestSchema,
   auditExportLineSchema,
   auditReadRequestSchema,
   auditReadResponseSchema,
@@ -110,6 +111,7 @@ import {
   getSlackAppBotsResponseSchema,
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
+  getSlackNoticeResponseSchema,
   getTurnResponseSchema,
   githubAppRoleParamsSchema,
   githubConnectionParamsSchema,
@@ -652,6 +654,8 @@ const responseComponents = {
   RecheckSlackAppEventsResponse: recheckSlackAppEventsResponseSchema,
   GetSlackAppManifestResponse: getSlackAppManifestResponseSchema,
   SlackAppSettings: slackAppSettingsSchema,
+  GetSlackNoticeResponse: getSlackNoticeResponseSchema,
+  ApproveSlackNoticeRequest: approveSlackNoticeRequestSchema,
   GetSlackAppBotsResponse: getSlackAppBotsResponseSchema,
   PutSlackAppBotsRequest: putSlackAppBotsRequestSchema,
   CreateSlackAppResponse: createSlackAppResponseSchema,
@@ -1679,6 +1683,45 @@ const ACCEPTED_RECEIPT = {
 };
 const RESERVED_HERE =
   "Reserved: this operation does not currently return it, because it accepts a session in that state.";
+
+const SLACK_NOTICE_EXAMPLE = {
+  notice: {
+    version: 1,
+    requires_reapproval: true,
+    text: {
+      ko: {
+        body: ["…"],
+        policy_link: {
+          label: "…",
+          href: "https://docs.example.test/data",
+        },
+      },
+      ja: {
+        body: ["…"],
+        policy_link: {
+          label: "…",
+          href: "https://docs.example.test/data",
+        },
+      },
+    },
+  },
+  state: "approved",
+  can_approve: true,
+  approvals: [
+    {
+      id: "019a0000-0000-7000-8000-0000000000a1",
+      slack_team_id: "T0EXAMPLE",
+      notice_version: 1,
+      counts: true,
+      approved_by: {
+        user_id: "019a0000-0000-7000-8000-0000000000b1",
+        display_name: "Admin",
+        email: "admin@example.test",
+      },
+      approved_at: "2026-11-24T00:00:00.000Z",
+    },
+  ],
+};
 
 export const API_ROUTE_DECLARATIONS = [
   {
@@ -6850,6 +6893,66 @@ export const API_ROUTE_DECLARATIONS = [
       example: { mention_only: true },
     },
     errors: [400, 401, 403, 404, 413, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/slack/notice",
+    operationId: "getSlackNotice",
+    tag: "Agents",
+    summary: "Read the agent's Slack notice and its approval",
+    description:
+      "The notice an owner or admin approves before the agent listens in Slack, and whether its organization approved it. `notice` is the current version with its words in Korean and Japanese (`text.ko`, `text.ja`), drawn as written, or null before the first version is published. `state`: `no_notice`; `not_installed` (the agent's app has no live Slack install); `not_approved`; `reapproval_required` (an approval of an older version is live, but the current version asks for a new one: the agent does not listen until it is given); `approved` (every Slack team of the agent's live installs has a live approval of a counted version). `approvals` are the unrevoked approvals in those teams, by team, newest version first; `counts` is false for one the current version no longer counts. `approved_by.email` is null unless the reader is a workspace owner or admin, which `can_approve` says. Owners, admins, the agent's admins and the live members of its managing team, with a web session only.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GetSlackNoticeResponse",
+      description: "The current notice and the approvals.",
+      example: SLACK_NOTICE_EXAMPLE,
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/slack/notice/approve",
+    operationId: "approveSlackNotice",
+    tag: "Agents",
+    summary: "Approve the agent's Slack notice",
+    description:
+      "Approves the current notice version for each Slack team of the agent's live installs that has no live approval of it yet, writing one `approve_slack_notice` receipt per team with the version and the language it was shown in (`locale`). `notice_version` is the version the caller was shown: another current version answers 409 REVISION_CONFLICT with `details.reason_code` `notice_version_stale`, and no published version answers 409 REVISION_CONFLICT with `no_notice`. An app with no live install answers 409 SLACK_NOT_INSTALLED. Approving again writes nothing. Answers the notice as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.",
+    auth: "session",
+    body: "ApproveSlackNoticeRequest",
+    requestExample: { notice_version: 1, locale: "ja" },
+    success: {
+      status: 200,
+      schema: "GetSlackNoticeResponse",
+      description: "The notice with the approvals after this one.",
+      example: SLACK_NOTICE_EXAMPLE,
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT", "SLACK_NOT_INSTALLED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/slack/notice/revoke",
+    operationId: "revokeSlackNotice",
+    tag: "Agents",
+    summary: "Revoke the agent's Slack notice approval",
+    description:
+      "Revokes every live approval of the agent in any Slack team, with one `revoke_slack_notice` receipt naming them; with none live it writes nothing. The agent then has no approval and stops listening. Answers the notice as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GetSlackNoticeResponse",
+      description: "The notice with no live approval left.",
+      example: {
+        ...SLACK_NOTICE_EXAMPLE,
+        state: "not_approved",
+        approvals: [],
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
   },
   {
     method: "get",

@@ -16,7 +16,20 @@ import { runSlackNotice, SLACK_NOTICE_EXIT } from "./slack-notice.ts";
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const V1 = [
-  { version: slackNoticeVersionSchema.parse(1), requiresReapproval: true },
+  {
+    version: slackNoticeVersionSchema.parse(1),
+    text: {
+      ko: {
+        body: ["notice"],
+        policyLink: { label: "policy", href: "https://docs.example.test/data" },
+      },
+      ja: {
+        body: ["notice"],
+        policyLink: { label: "policy", href: "https://docs.example.test/data" },
+      },
+    },
+    requiresReapproval: true,
+  },
 ];
 /** Stored where the command could reach it; it must never be printed. */
 const CREDENTIAL_REF = "slack/notice-cli-bot-token";
@@ -94,13 +107,17 @@ integration("slack-notice command on PostgreSQL", () => {
 
     const approved = await approveSlackNotice(
       db,
-      { workspaceId, agentId, by: admin },
+      { workspaceId, agentId, by: admin, locale: "ko" },
       V1,
     );
     if (approved.outcome !== "approved") throw new Error(approved.outcome);
     const [first] = approved.added;
     await revokeSlackNotice(db, { workspaceId, agentId, by: admin });
-    await approveSlackNotice(db, { workspaceId, agentId, by: admin }, V1);
+    await approveSlackNotice(
+      db,
+      { workspaceId, agentId, by: admin, locale: "ko" },
+      V1,
+    );
 
     const shown = await command(["show", "--agent", agentId]);
     expect(shown.code).toBe(SLACK_NOTICE_EXIT.ok);

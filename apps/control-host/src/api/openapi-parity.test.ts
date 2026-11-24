@@ -124,9 +124,11 @@ import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/surface/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
 import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
+import { registerSlackNoticeRoutes } from "./routes/surface/slack-notice.ts";
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { registerSlackSettingsRoutes } from "./routes/surface/slack-settings.ts";
 import { registerUsageRoutes } from "./routes/usage/usage.ts";
+import type { SlackNoticeService } from "./slack-notice-service.ts";
 import type { SlackSettingsAdmin } from "./slack-settings.ts";
 
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
@@ -216,6 +218,7 @@ function apiApp() {
       registerLoginProviderRoutes(router, {} as ProviderAdmin);
       registerLoginSettingsRoutes(router, {} as LoginSettingsAdmin);
       registerSlackSettingsRoutes(router, {} as SlackSettingsAdmin);
+      registerSlackNoticeRoutes(router, {} as SlackNoticeService);
       registerInstallationConfigRoutes(router, {} as InstallationConfigAdmin);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerAuditLogRoutes(router, {} as AuditLogService);

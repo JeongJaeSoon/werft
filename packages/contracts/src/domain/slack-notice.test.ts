@@ -1,16 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import { slackNoticeTextSchema } from "../musterrolle/slack-notice-approval.ts";
 import {
+  SLACK_NOTICE_LOCALE_VALUES,
   SLACK_NOTICE_VERSIONS,
   type SlackNoticeVersionEntry,
   slackNoticeVersionSchema,
   slackNoticeWindow,
 } from "./slack-notice.ts";
 
+const TEXT = {
+  body: ["notice"],
+  policyLink: { label: "policy", href: "https://docs.example.test/data" },
+};
 const entry = (
   version: number,
   requiresReapproval: boolean,
 ): SlackNoticeVersionEntry => ({
   version: slackNoticeVersionSchema.parse(version),
+  text: { ko: TEXT, ja: TEXT },
   requiresReapproval,
 });
 
@@ -55,5 +62,21 @@ describe("slackNoticeWindow", () => {
 
   test("the published list is in order", () => {
     expect(() => slackNoticeWindow(SLACK_NOTICE_VERSIONS)).not.toThrow();
+  });
+});
+
+describe("SLACK_NOTICE_VERSIONS", () => {
+  test("every published version has its words in Korean and Japanese, with an https policy link", () => {
+    for (const published of SLACK_NOTICE_VERSIONS) {
+      for (const locale of SLACK_NOTICE_LOCALE_VALUES) {
+        const text = published.text[locale];
+        expect(
+          slackNoticeTextSchema.safeParse({
+            body: [...text.body],
+            policy_link: text.policyLink,
+          }).success,
+        ).toBe(true);
+      }
+    }
   });
 });

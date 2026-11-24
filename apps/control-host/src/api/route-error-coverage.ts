@@ -341,6 +341,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/workspaces/{id}/slack/apps/{app_id}",
     "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}",
   ],
+  "routes/surface/slack-notice.test.ts": [
+    "GET /v1/agents/{id}/slack/notice",
+    "POST /v1/agents/{id}/slack/notice/approve",
+    "POST /v1/agents/{id}/slack/notice/revoke",
+  ],
   "routes/surface/slack-install.test.ts": [
     "POST /v1/agents/{id}/slack/install/start",
     "POST /v1/slack/install/complete",
