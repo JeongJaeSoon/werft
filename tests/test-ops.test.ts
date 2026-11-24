@@ -662,6 +662,28 @@ exit 0
     },
   );
 
+  // A full disk fails the quota probe too; the scheduler that start and
+  // upgrade bring up is what reclaims finished workspaces then.
+  test.each(["start", "upgrade"])(
+    "%s does not run the quota probe",
+    async (verb) => {
+      const docker = await deployedSameWorker();
+      await writeFile(
+        join(dir, "bin", "docker"),
+        docker.replace(
+          "esac\nexit 0",
+          'esac\ncase "$*" in "volume create"*) exit 1 ;; esac\nexit 0',
+        ),
+        { mode: 0o755 },
+      );
+      const args =
+        verb === "start" ? [verb] : [verb, join(dir, "release.json")];
+      const result = await run(args, env);
+      expect(result.exitCode).toBe(0);
+      expect(await dockerCalls()).not.toContain("volume create");
+    },
+  );
+
   test("deploy still refuses a host with a recorded release", async () => {
     await deployedSameWorker();
     const result = await run(["deploy", join(dir, "release.json")], env);
@@ -782,6 +804,23 @@ exit 0
     expect(missing.stderr).toContain(
       "the database does not hold the settings document",
     );
+  });
+
+  test("deploy stops at the quota probe before anything starts", async () => {
+    await freshHost();
+    const docker = await readFile(join(dir, "bin", "docker"), "utf8");
+    await writeFile(
+      join(dir, "bin", "docker"),
+      docker.replace(
+        "esac\nexit 0",
+        'esac\ncase "$*" in "volume create"*) exit 1 ;; esac\nexit 0',
+      ),
+      { mode: 0o755 },
+    );
+    const result = await run(["deploy", join(dir, "release.json")], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("the workspace quota probe failed");
+    expect(await dockerCalls()).not.toContain(" up ");
   });
 
   test("deploy with the document in the database records the release", async () => {

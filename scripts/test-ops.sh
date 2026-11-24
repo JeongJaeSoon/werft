@@ -525,10 +525,12 @@ check_mount_modes() {
 # The prepare-xfs page's quota probe: the local driver refuses a size option
 # unless the data-root is XFS mounted with prjquota. Only the daemon's answer
 # counts, so a DOCKER_HOST daemon is checked too. The scheduler still runs its
-# full probe at startup (deploy and upgrade wait for it).
+# full probe at startup (deploy and upgrade wait for it). Not on start or
+# upgrade: an installed host whose disk filled up fails this probe too, and
+# the scheduler it would keep down is what reclaims finished workspaces.
 check_workspace_quota() {
   local probe
-  probe="${PROJECT}-quota-probe-$(date -u +%Y%m%dt%H%M%Sz)-$$"
+  probe="${PROJECT}-quota-probe-$(date -u +%Y%m%dt%H%M%Sz)-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
   docker volume create --driver local --opt size=64m "$probe" >/dev/null \
     || die "the workspace quota probe failed (above): Docker's data-root must be on XFS mounted with prjquota; prepare the disk first (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/prepare-xfs/)"
   docker volume rm "$probe" >/dev/null || log "could not remove the quota probe volume $probe; remove it with docker volume rm $probe"
@@ -562,7 +564,7 @@ preflight() {
     || die "Docker Engine $engine is too old; worker networks need $MIN_ENGINE_MAJOR or newer (gateway_mode_ipv4=isolated)"
   compose_version="$(docker compose version --short 2>/dev/null)" || die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" || die "docker compose $compose_version is too old; $MIN_COMPOSE or newer"
-  check_workspace_quota
+  case "$VERB" in preflight | deploy) check_workspace_quota ;; esac
   render
   check_mount_modes
   # Before the bucket is touched with what may be another installation's settings.
