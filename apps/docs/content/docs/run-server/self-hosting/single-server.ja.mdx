@@ -124,7 +124,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 | `--settings-document` | 任意。既定値は `/etc/werft/settings.json`。下の設定文書の絶対パス |
 | `--api-port`、`--postgres-port` | 任意。下のポートの表の `TEST_OPS_API_PORT`、`TEST_OPS_POSTGRES_PORT` になります |
 
-`init-config` は `POSTGRES_PASSWORD`（32 文字 hex）、`EGRESS_AUTHORIZER_TOKEN`（48 文字 hex）、`PLATFORM_SECRET_KEY`（64 文字 hex）をランダムな値で埋めます。`EXECUTION_WORKSPACE_QUOTA=on` と provider・Git host の credential allowlist は例の値のままです。設置後に `CONSOLE_ORIGIN` を変えたら、`start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します。バンドルは `upgrade` を拒否するため、このコマンドはそのリリースの `source_commit` を checkout したリポジトリで、同じ env ファイルと状態ディレクトリのまま実行します。
+`init-config` は `POSTGRES_PASSWORD`（32 文字 hex）、`EGRESS_AUTHORIZER_TOKEN`（48 文字 hex）、`PLATFORM_SECRET_KEY`（64 文字 hex）をランダムな値で埋めます。`EXECUTION_WORKSPACE_QUOTA=on` と provider・Git host の credential allowlist は例の値のままです。`CONSOLE_ORIGIN` とポートは `deploy` の前に決めます。最初の `deploy` がこの値でコンテナを作ります。設置後に変えるには、env ファイルを直して `scripts/test-ops.sh start` で同じ release を再適用します。バンドルでも checkout でもこのコマンドを使い、`upgrade` は要りません。実行中の環境でも、`start` は変わった値を受け取る api・scheduler・reconciler とその依存サービスのコンテナだけを作り直し、volume と記録された release はそのまま残します。`start: done` の行が出れば反映されています。
 
 env ファイルを自分で書くには、取得したディレクトリの `infra/test-ops.env.example` を運用者所有の `0600` で `/etc/werft/test-ops.env` にコピーし、エディターで次を設定します。
 
@@ -156,7 +156,7 @@ env ファイルを自分で書くには、取得したディレクトリの `in
 | `TEST_OPS_LOCALSTACK_PORT` | `4566` | [LocalStack の試用設置](/run-server/self-hosting/try-localstack)のホストポート。1〜65535。S3 の設置では無視します |
 | `TEST_OPS_API_URL` | `http://127.0.0.1:<TEST_OPS_API_PORT>` | `deploy`・`upgrade`・`status` が `/readyz` を確認するアドレス。ホストの前にプロキシを置くときだけ入れます。形式は `scheme://host[:port]` で、パスと末尾の `/` は付けません |
 
-`preflight` は範囲外のポート、二つのサービスが同じポートを使う値、形式の誤った URL を拒否します。設置後にポートを変えるには、env ファイルを直して `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で同じ release を再適用します。トンネルと `curl` のポートも合わせて変えます。`TEST_OPS_LOCALSTACK_PORT` を変えると LocalStack コンテナが作り直されて object がすべて消えるため、`preflight` は実行中のポートと違う値を拒否します。`scripts/test-ops.sh backup --stop` でバックアップし、env ファイルを直してから、そのバックアップで `reseed` を呼びます。
+`preflight` は範囲外のポート、二つのサービスが同じポートを使う値、形式の誤った URL を拒否します。設置後にポートを変えるには、env ファイルを直して `scripts/test-ops.sh start` で同じ release を再適用します。トンネルと `curl` のポートも合わせて変えます。`TEST_OPS_LOCALSTACK_PORT` を変えると LocalStack コンテナが作り直されて object がすべて消えるため、`preflight` は実行中のポートと違う値を拒否します。`scripts/test-ops.sh backup --stop` でバックアップし、env ファイルを直してから、そのバックアップで `reseed` を呼びます。
 
 env ファイルを `/etc/werft/test-ops.env` 以外の場所に置く場合は、スクリプトを呼ぶたびに `TEST_OPS_ENV_FILE` にそのパスを渡します。
 

@@ -34,7 +34,7 @@ scripts/test-ops.sh start
 
 `start` can run from a checkout other than the release's source commit if `infra/` matches that commit, because only the Compose files are read from the checkout.
 
-After changing the env file, reapply the same release with `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`. Do not assume `start` applies changed env values.
+After changing the env file, reapply the same release with `scripts/test-ops.sh start` as well. On a running installation it recreates only the containers of api, scheduler, reconciler and the services they depend on that get a changed value, and leaves the unchanged containers and the volumes alone.
 
 Database and workspace volumes remain. LocalStack stores objects in memory without a volume, so removing its container loses checkpoint objects even without `-v`. The API of a LocalStack trial installation gives up the uncollected checkpoints the database still has at its next start, and the sessions whose restore point was one of them, closed ones aside, move to `recovery_required`. So `stop` and `start` on that installation lose the sessions' context. To keep it, follow the [planned restart of a trial installation](/run-server/self-hosting/try-localstack#자주-막히는-곳) before taking it down.
 
