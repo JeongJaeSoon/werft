@@ -90,6 +90,16 @@ config:
 
 Set a unique `installationId` in the same file. Retain the published chart's `images.*` digests. Proceed after checking the database, S3, Secret, and CNI are ready.
 
+Put the console's public address in the same file as `CONSOLE_ORIGIN` under `api.extraEnv`. It is the origin (`scheme://host[:port]`) the browser opens the console on: the Ingress host for an internal ALB on AWS, or the reverse proxy's address from [step 5](#5-aws-밖-클러스터의-콘솔-접속) on other clusters.
+
+```yaml
+api:
+  extraEnv:
+    CONSOLE_ORIGIN: https://werft.example.com
+```
+
+Installation and sign-in work without it. But Slack account linking and the Slack apps' event subscription stay off, the console cannot create a GitHub App, and no [SSO sign-in](/run-server/self-hosting/sso) provider can be created. Slack sends events to https addresses only, so use an https origin if you use Slack. If Slack's events enter through a public entrance other than the console's, an owner saves that entrance's https address in **Events entrance** under **Settings > Integrations > Slack**. To add or change the value after installation, rerun the step 4 command with the same `VERSION`; the api Pods restart with the new value.
+
 <a id="4-설치와-rollout" />
 ### 4. Install and roll out
 
@@ -131,6 +141,47 @@ sudo crictl pull '<worker-image>'
 
 On a k3s node, pull with `sudo k3s crictl pull '<worker-image>'`. If your values set `images.registry`, prefix each reference with `<registry>/`.
 
+<a id="5-aws-밖-클러스터의-콘솔-접속" />
+### 5. Reach the console on clusters outside AWS
+
+On AWS, open the console through the [internal ALB in Access](/run-server/self-hosting/access#kubernetes-내부망-alb). The chart's console Ingress (`ingress.console.enabled`) renders only when `ingress.className` is `alb`. On other clusters (k3s, GKE and so on), a chart Ingress turned on with `ingress.enabled` sends only `/v1`, `/docs`, `/healthz`, and `/readyz` to the api and does not open the console (`/`).
+
+On such clusters the docs support one console path: keep a port-forward to the api running on a host that reaches the cluster, and put a TLS reverse proxy that refuses `/internal` in front of it. A console Ingress you write yourself is not supported. How to block `/internal` differs by controller, and some controllers skip an `/internal` rule whose backend Service does not exist and send `/internal` to the api through the `/` rule (k3s's default Traefik does).
+
+Run the port-forward as a systemd unit. Save the following as `/etc/systemd/system/werft-console.service`. `<kubectl>` is the absolute path `command -v kubectl` prints, and `<kubeconfig>` is this cluster's kubeconfig path (`/etc/rancher/k3s/k3s.yaml` on k3s).
+
+```ini
+[Unit]
+Description=Werft console port-forward
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Environment=KUBECONFIG=<kubeconfig>
+ExecStart=<kubectl> -n werft port-forward --address 127.0.0.1 svc/werft-api 3000:3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+With `--address 127.0.0.1` it listens on this host's loopback only. The worker `/internal` is open on this port too, so do not change the address or open the port in the firewall. If another program uses port 3000 on the host, change the first `3000` and the proxy's upstream together.
+
+Keep `Restart=always`. The port-forward attaches to one api Pod. When an upgrade or a restart removes that Pod, it logs `error: lost connection to pod` and exits with status 0, so `Restart=on-failure` does not start it again. Console requests fail until it reconnects (a little over the 5 seconds of `RestartSec`). An enabled unit also starts again after the host reboots.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now werft-console.service
+for attempt in $(seq 1 30); do
+  curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:3000/readyz && break
+  sleep 1
+done
+curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/readyz
+```
+
+A 200 means the port-forward reaches the api. For the TLS reverse proxy in front of it, use the proxy example in [Access](/run-server/self-hosting/access) with its upstream `127.0.0.1:3000` unchanged. The proxy refuses `/internal` and everything under it instead of forwarding it to the api, forwards the browser's `Host` unchanged, and turns off SSE buffering. `CONSOLE_ORIGIN` from step 3 is this proxy's https origin.
+
 <a id="확인" />
 ## Verify
 
@@ -157,6 +208,13 @@ fi
 
 Check the ready response body and 200, and docs 200. If not ready within 30 attempts, clean up the port-forward PID started by this shell and record failure. Also run [access checks](/run-server/self-hosting/access) through the actual user path. These checks establish empty-installation readiness, not worker execution or checkpoint restoration.
 
+Check the step 5 console path through the proxy's address. `/readyz` must answer 200, and `/internal/x` must get the proxy's refusal. An `application/json` response came from the api, which means the proxy is forwarding `/internal`. For encoded and dot-segment paths, follow the checks in [Access](/run-server/self-hosting/access).
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://<host>/readyz
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://<host>/internal/x
+```
+
 <a id="자주-막히는-곳" />
 ## Troubleshooting
 
@@ -166,10 +224,12 @@ A CNI without NetworkPolicy enforcement provides no worker isolation. Use Pod an
 
 After a node restarts, the api can take a few minutes to become ready. On a node where PostgreSQL restarts alongside the api, api Pods have stayed unready for over 2 minutes and became ready only after their startup probe (24 checks 5 seconds apart, about 2 minutes) restarted them. Meanwhile `kubectl rollout status` can report success from the state before the restart. Check readiness by reading `/readyz` directly with the block in [Verify](#확인). If it is not ready within 30 attempts, run it again a few minutes later and check the api Pod's status and `RESTARTS` with `kubectl -n werft get pods` and its logs with `kubectl -n werft logs deploy/werft-api`.
 
+If the step 5 console drops, read the port-forward log with `sudo journalctl -u werft-console.service`. `Forwarding from 127.0.0.1:3000` again after `lost connection to pod` means it attached to a new api Pod.
+
 <a id="되돌리기" />
 ## Roll back
 
-Do not automatically roll back to the previous revision. After a failed first installation, inspect this namespace's resources and follow [removal](/run-server/self-hosting/remove-kubernetes). Preserve PVCs and uncollected checkpoints in the bucket.
+Do not automatically roll back to the previous revision. After a failed first installation, inspect this namespace's resources and follow [removal](/run-server/self-hosting/remove-kubernetes). Preserve PVCs and uncollected checkpoints in the bucket. Stop the step 5 port-forward with `sudo systemctl disable --now werft-console.service` and delete the unit file.
 
 <a id="다음에-읽을-곳" />
 ## Next steps

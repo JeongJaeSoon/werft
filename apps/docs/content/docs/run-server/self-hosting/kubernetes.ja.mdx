@@ -90,6 +90,16 @@ config:
 
 他の環境と重複しない `installationId` を同じファイルに置きます。`images.*` の digest は公開 chart の値を維持します。DB・S3・Secret・CNI の準備を確認してから進みます。
 
+コンソールの公開アドレスは、同じファイルの `api.extraEnv` に `CONSOLE_ORIGIN` として置きます。ブラウザがコンソールを開く origin（`scheme://host[:port]`）です。AWS の内部 ALB ならその Ingress の host、それ以外のクラスタなら[手順 5](#5-aws-밖-클러스터의-콘솔-접속) の reverse proxy のアドレスです。
+
+```yaml
+api:
+  extraEnv:
+    CONSOLE_ORIGIN: https://werft.example.com
+```
+
+この値がなくても設置とログインはできます。ただし Slack アカウント連携と Slack アプリのイベント購読が無効になり、コンソールで GitHub App を作れず、[SSO ログイン](/run-server/self-hosting/sso)のプロバイダーも作れません。Slack は https のアドレスにしかイベントを送らないため、Slack を使うなら https の origin にします。Slack のイベントがコンソールとは別の公開入口から入る場合は、owner がその入口の https アドレスを **設定 > 連携 > Slack** の「イベントの入口アドレス」に保存します。設置後に値を追加・変更したら、手順 4 のコマンドを同じ `VERSION` で再実行します。api Pod が新しい値で起動し直します。
+
 <a id="4-설치와-rollout" />
 ### 4. 設置と rollout
 
@@ -131,6 +141,47 @@ sudo crictl pull '<worker-image>'
 
 k3s のノードでは `sudo k3s crictl pull '<worker-image>'` で取得します。values に `images.registry` を置いた環境では、各アドレスの前に `<registry>/` を付けます。
 
+<a id="5-aws-밖-클러스터의-콘솔-접속" />
+### 5. AWS 以外のクラスタでのコンソール接続
+
+AWS では[アクセス経路の内部 ALB](/run-server/self-hosting/access#kubernetes-내부망-alb) でコンソールを開きます。chart のコンソール Ingress（`ingress.console.enabled`）は、`ingress.className` が `alb` のときだけ render されます。それ以外のクラスタ（k3s、GKE など）で `ingress.enabled` で有効にした chart Ingress は、`/v1`・`/docs`・`/healthz`・`/readyz` だけを api に送り、コンソール（`/`）は開きません。
+
+こうしたクラスタで文書が支えるコンソール経路は一つです。クラスタに到達できるホストで api への port-forward を常時動かし、その前に `/internal` を拒否する TLS reverse proxy を置きます。コンソール用の Ingress を自分で作る方法は支えません。`/internal` の塞ぎ方は controller ごとに異なり、backend Service が存在しない `/internal` 規則を飛ばして `/` 規則で `/internal` を api に送る controller があります（k3s 既定の Traefik もそうです）。
+
+port-forward は systemd unit で動かします。次の内容を `/etc/systemd/system/werft-console.service` として保存します。`<kubectl>` は `command -v kubectl` が示す絶対パス、`<kubeconfig>` はこのクラスタの kubeconfig のパスです（k3s では `/etc/rancher/k3s/k3s.yaml`）。
+
+```ini
+[Unit]
+Description=Werft console port-forward
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Environment=KUBECONFIG=<kubeconfig>
+ExecStart=<kubectl> -n werft port-forward --address 127.0.0.1 svc/werft-api 3000:3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`--address 127.0.0.1` なので、このホストの loopback でだけ受け付けます。このポートには worker 用の `/internal` もそのまま開いているため、別のアドレスに変えたりファイアウォールで開いたりしません。ホストの 3000 番を別のプログラムが使っている場合は、先頭の `3000` と proxy の upstream を併せて変えます。
+
+`Restart=always` は外しません。port-forward は api Pod 一つに接続します。アップグレードや再起動でその Pod がなくなると `error: lost connection to pod` を残して終了コード 0 で終わるため、`Restart=on-failure` では再起動しません。再接続まで（`RestartSec` の 5 秒強）コンソールへのリクエストは失敗します。`enable` した unit はホストを再起動した後も起動します。
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now werft-console.service
+for attempt in $(seq 1 30); do
+  curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:3000/readyz && break
+  sleep 1
+done
+curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/readyz
+```
+
+200 が返れば port-forward は api に届いています。その前の TLS reverse proxy は、[アクセス経路](/run-server/self-hosting/access)の proxy 例を upstream `127.0.0.1:3000` のまま使います。proxy は `/internal` とその下のパスを api に渡さずに拒否し、ブラウザが送った `Host` をそのまま渡し、SSE の buffering を切ります。手順 3 の `CONSOLE_ORIGIN` はこの proxy の https origin です。
+
 <a id="확인" />
 ## 確認
 
@@ -157,6 +208,13 @@ fi
 
 ready の本文と 200、docs 200 を確認します。30 回以内に ready にならなければ、このシェルが起動した port-forward の PID を終了し、失敗として記録します。実際の利用者経路では[アクセス経路の検査](/run-server/self-hosting/access)も実行します。この確認は空の環境の準備状態であり、worker 実行・checkpoint 復元を証明しません。
 
+手順 5 のコンソール経路は proxy のアドレスで確認します。`/readyz` は 200、`/internal/x` は proxy が拒否した応答でなければなりません。`application/json` の応答が来たら api が答えたもので、proxy が `/internal` を渡しています。エンコードしたパスと dot segment のパスは[アクセス経路](/run-server/self-hosting/access)の確認に従います。
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://<host>/readyz
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://<host>/internal/x
+```
+
 <a id="자주-막히는-곳" />
 ## よくある問題
 
@@ -166,10 +224,12 @@ NetworkPolicy を強制しない CNI では worker は隔離されません。Se
 
 ノードを再起動したあと、api の準備には数分かかることがあります。PostgreSQL が同じノードで一緒に再起動する構成では、api Pod が 2 分以上準備できず、startup probe（5 秒間隔で 24 回、約 2 分）で再起動されてから準備完了になったことがあります。そのあいだ `kubectl rollout status` は再起動前の状態を見て成功で終わることがあります。準備状態は[確認](#확인)のブロックで `/readyz` を直接見ます。30 回以内に準備できなければ数分後に再実行し、`kubectl -n werft get pods` で api Pod の状態と `RESTARTS` を、`kubectl -n werft logs deploy/werft-api` でログを併せて確認します。
 
+手順 5 のコンソールが切れたら、`sudo journalctl -u werft-console.service` で port-forward のログを見ます。`lost connection to pod` の後に `Forwarding from 127.0.0.1:3000` が再び出ていれば、新しい api Pod に接続し直しています。
+
 <a id="되돌리기" />
 ## 元に戻す
 
-以前の revision に自動 rollback しません。初回設置の失敗は、この namespace のリソースを確認してから[削除](/run-server/self-hosting/remove-kubernetes)に従います。PVC と bucket の未回収 checkpoint は保持します。
+以前の revision に自動 rollback しません。初回設置の失敗は、この namespace のリソースを確認してから[削除](/run-server/self-hosting/remove-kubernetes)に従います。PVC と bucket の未回収 checkpoint は保持します。 手順 5 の port-forward は `sudo systemctl disable --now werft-console.service` で止め、unit ファイルを削除します。
 
 <a id="다음에-읽을-곳" />
 ## 次に読む
