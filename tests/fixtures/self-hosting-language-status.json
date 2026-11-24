@@ -293,6 +293,14 @@
       "ja": "implemented"
     }
   },
+  "P39": {
+    "paths": ["run-server/self-hosting/first-install"],
+    "locales": {
+      "ko": "implemented",
+      "en": "implemented",
+      "ja": "implemented"
+    }
+  },
   "H01": {
     "paths": ["run-server/self-hosting/operate/session-data-flow"],
     "held": true,
