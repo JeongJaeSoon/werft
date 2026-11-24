@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **`EXECUTION_WORKSPACE_QUOTA=off`가 "quota 없음"에서 "커널 quota 대신 측정으로 막음"으로 바뀐다. off인 Docker 설치의 worker는 콘솔의 `WORKSPACE_ENFORCE`와 상관없이 `fail`로 돈다**(JeongJaeSoon/werft#PR). migration은 없다. 로컬 개발 compose(`infra/compose.core.yml`)의 기본값도 `off`다.
+  - worker가 작업 공간을 1분에 한 번보다 자주 재지 않는 주기로 재고, `EXECUTION_WORKSPACE_QUOTA_MB`(기본 4096) 또는 `EXECUTION_WORKSPACE_QUOTA_INODES`(기본 1,000,000)를 넘은 turn을 `workspace_quota_exceeded`로 멈춘다. 세션은 남는다. 두 값은 이제 `off`에서도 읽고 같은 범위를 검사하므로, `off`와 함께 1024보다 작은 `EXECUTION_WORKSPACE_QUOTA_MB`를 둔 설치는 scheduler가 기동하지 않는다.
+  - api가 같은 변수를 읽는다(Compose는 api에도 넘긴다). 기동 때 warn을 남기고, `/readyz`는 200 그대로 본문에 `detail.no_disk_quota: true`를 더한다. 본문을 통째로 비교하던 검사는 이 칸을 허용한다.
+  - 콘솔은 owner·admin에게 모든 화면 맨 위에 닫을 수 없는 띠를 보인다. 시험 설치(`INSTALLATION_PROFILE=test`)는 "시험 모드: 디스크 quota 없음, 운영 불가", 그 밖의 설치는 XFS quota를 켜라는 문구다. 새 route는 `GET /v1/installation-status`이고 로그인한 owner·admin만 쓴다.
+  - `scripts/test-ops.sh`는 LocalStack 저장소에서 `off`를 받고 `preflight`·`deploy`의 quota probe를 건너뛴다. XFS가 없는 서버도 LocalStack 시험 설치를 할 수 있다. S3 저장소에서는 지금처럼 `on`만 받는다.
+  - 운영 설치에서 `off`를 막지는 않는다. 운영 설치는 XFS quota(`on`)를 쓴다.
 - **`DELETE /v1/workspaces/{id}/slack/apps/{app_id}`가 Slack의 이벤트를 기다리지 않고 그 앱의 설치·에이전트 Slack identity·채널 binding·아직 안 나간 Slack 메시지(`app_deleted`)·판단 버퍼를 한 transaction에서 닫고, Slack 쪽(`auth.revoke`, `apps.manifest.delete`)은 그 뒤 한 번씩만 해 본다**(JeongJaeSoon/werft#2137). migration은 없다. Slack이 거절하거나 응답이 없어도 삭제는 200이고 새 응답 칸 `slack_cleanup`이 실패한 단계를 알린다. 이때는 Slack 앱 관리 화면(api.slack.com/apps)에서 앱을 직접 지운다. 전에는 같은 경우 503·409(`CONFIG_TOKEN_INVALID`)로 거절했으니, 그 응답으로 다시 시도하던 스크립트는 `slack_cleanup`을 읽는다. 삭제는 receipt `delete_slack_app`(닫은 수, Slack 쪽 결과, 토큰 값 없음)을 남긴다. 이 릴리스 전에 지운 앱의 identity는 `active`로 남아 있을 수 있으니 `GET /v1/agents/{id}/identities`로 보고 `DELETE /v1/agents/{id}/identities/{identity_id}`로 회수한다. 지운 앱으로 `bun run slack-install register`를 부르면 설치를 다시 열지 않는다. 삭제가 bot token을 무효로 했으면 exit 3(Slack이 token을 거절), token이 아직 살아 있으면 exit 5(`revoked`)로 끝나니, 새 앱을 만들어 설치한다.
 - **LocalStack 시험 설치의 api가 재기동으로 빈 bucket에서 기동을 거부하지 않고, 잃은 checkpoint를 포기한 뒤 뜬다. migration `0352_lost_checkpoint_notices`가 새 빈 표 `lost_checkpoint_notices`를 만든다**(JeongJaeSoon/werft#2130). 운영 설치는 그대로다. 기본값 `CHECKPOINT_OBJECTS_LOST=refuse`는 지금처럼 기동을 거부한다.
   - 새 설정 둘이 생긴다. `INSTALLATION_PROFILE`(`production` 기본, `test`)과 `CHECKPOINT_OBJECTS_LOST`(`refuse` 기본, `forget`). chart는 `config.installation.profile`과 `config.checkpoints.objectsLost`다. 두 이름은 `extraEnv`나 `config.limits`로 넣으면 render가 멈춘다.

@@ -557,7 +557,13 @@ describe("scripts/test-ops.sh", () => {
     async function preflightWith(
       services: Record<
         string,
-        { binds: string[]; groupAdd?: number[]; image?: string; user?: string }
+        {
+          binds: string[];
+          environment?: Record<string, string>;
+          groupAdd?: number[];
+          image?: string;
+          user?: string;
+        }
       >,
       volume = "exit 0",
     ) {
@@ -569,9 +575,10 @@ describe("scripts/test-ops.sh", () => {
       await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
       const rendered = Object.fromEntries(
         Object.entries(services).map(
-          ([name, { binds, groupAdd, image, user }]) => [
+          ([name, { binds, environment, groupAdd, image, user }]) => [
             name,
             {
+              ...(environment ? { environment } : {}),
               ...(groupAdd ? { group_add: groupAdd } : {}),
               ...(image ? { image } : {}),
               ...(user ? { user } : {}),
@@ -744,7 +751,29 @@ describe("scripts/test-ops.sh", () => {
     );
 
     cleanTest(
-      "stops before the render when the data-root has no prjquota",
+      "skips the quota probe for the test mode without a workspace quota",
+      async () => {
+        const result = await preflightWith(
+          {
+            scheduler: {
+              binds: [],
+              environment: { EXECUTION_WORKSPACE_QUOTA: "off" },
+            },
+          },
+          'echo "Error response from daemon: quota size requested but no quota support" >&2; exit 1',
+        );
+        expect(result.stderr).toContain(passed);
+        expect(result.stderr).not.toContain("quota probe failed");
+        expect(
+          (await dockerCalls())
+            .split("\n")
+            .filter((line) => line.startsWith("volume ")),
+        ).toEqual([]);
+      },
+    );
+
+    cleanTest(
+      "stops at the quota probe when the data-root has no prjquota",
       async () => {
         const result = await preflightWith(
           {},
@@ -1741,6 +1770,36 @@ exit 0
       const model = render("localstack", { TEST_OPS_API_URL: url });
       expect(model["x-test-ops-api-url"]).toBe(url);
       await checkRender(model, { store: "localstack" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "the test mode without a workspace quota passes on LocalStack and reaches the API",
+    async () => {
+      const model = render("localstack", { EXECUTION_WORKSPACE_QUOTA: "off" });
+      await checkRender(model, { store: "localstack" });
+      // The API reads the same value for readiness and the console banner.
+      expect(model.services?.api?.environment?.EXECUTION_WORKSPACE_QUOTA).toBe(
+        "off",
+      );
+      expect(model.services?.api?.environment?.INSTALLATION_PROFILE).toBe(
+        "test",
+      );
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "the test mode without a workspace quota is refused on S3",
+    async () => {
+      await expect(
+        checkRender(render("s3", { EXECUTION_WORKSPACE_QUOTA: "off" }), {
+          store: "s3",
+        }),
+      ).rejects.toThrow(
+        "EXECUTION_WORKSPACE_QUOTA must be on (xfs with prjquota); off is for the LocalStack store only",
+      );
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

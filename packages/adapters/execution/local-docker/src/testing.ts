@@ -6,6 +6,13 @@ import { LABELS } from "./backend.ts";
 import type { WorkspaceQuota } from "./config.ts";
 import { DockerClient, parseDockerHost } from "./docker-client.ts";
 
+/** The opt-out with the default limits the worker then measures against. */
+export const OFF_QUOTA: WorkspaceQuota = {
+  mode: "off",
+  sizeBytes: 4096 * 1024 * 1024,
+  inodes: 1_000_000,
+};
+
 /**
  * The quota a suite holds a daemon to: enforced where the daemon can carry
  * one, `off` where it cannot. Enforced needs an image with xfsprogs for the
@@ -17,7 +24,7 @@ export function quotaForTestDaemon(
   capable: boolean,
   limits: { sizeBytes: number; inodes: number },
 ): WorkspaceQuota {
-  if (!capable) return { mode: "off" };
+  if (!capable) return { mode: "off", ...limits };
   const helperImage = process.env.DOCKER_BACKEND_TEST_HELPER_IMAGE;
   if (!helperImage) {
     throw new Error(

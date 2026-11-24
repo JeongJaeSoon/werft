@@ -52,6 +52,7 @@ import type {
 import type { AccountLinkCookies } from "./account-link-cookie.ts";
 import { createApiApp } from "./app.ts";
 import type { InstallationConfigAdmin } from "./installation-config.ts";
+import type { InstallationStatusReader } from "./installation-status.ts";
 import type { LoginSettingsAdmin } from "./login-settings.ts";
 import type { LostCheckpointNoticesAdmin } from "./lost-checkpoint-notices.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
@@ -77,6 +78,7 @@ import {
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
 import { registerInstallationConfigRoutes } from "./routes/limits/installation-config.ts";
+import { registerInstallationStatusRoutes } from "./routes/limits/installation-status.ts";
 import { registerLostCheckpointNoticeRoutes } from "./routes/limits/lost-checkpoint-notices.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
@@ -226,6 +228,7 @@ function apiApp() {
         router,
         {} as LostCheckpointNoticesAdmin,
       );
+      registerInstallationStatusRoutes(router, {} as InstallationStatusReader);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerAuditLogRoutes(router, {} as AuditLogService);
       registerAchievementRoutes(router, {} as AchievementRuleService);

@@ -2079,9 +2079,9 @@ export function workerEnvironmentFor(
     `${ENV.workspaceDir}=${config.workspaceDir}`,
     `${ENV.workspaceMountDir}=${config.workspaceDir}`,
     `${ENV.workspaceQuotaMode}=${config.workspaceQuota.mode}`,
-    ...(config.workspaceQuota.mode === "enforced"
-      ? [`${ENV.workspaceQuotaBytes}=${config.workspaceQuota.sizeBytes}`]
-      : []),
+    // Under off these are the limits the worker's own measurement enforces.
+    `${ENV.workspaceQuotaBytes}=${config.workspaceQuota.sizeBytes}`,
+    `${ENV.workspaceQuotaInodes}=${config.workspaceQuota.inodes}`,
     `${ENV.httpProxy}=${config.egressProxyUrl}`,
     `${ENV.httpProxyLower}=${config.egressProxyUrl}`,
     `${ENV.httpsProxy}=${config.egressProxyUrl}`,

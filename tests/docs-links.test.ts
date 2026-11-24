@@ -363,6 +363,8 @@ const NOT_SETTINGS: Record<string, string> = {
     "derived by the execution backend, not an operator setting",
   WORKER_WORKSPACE_QUOTA_BYTES:
     "derived from the backend's existing workspace quota",
+  WORKER_WORKSPACE_QUOTA_INODES:
+    "derived from the backend's workspace inode limit",
   WORKER_WORKSPACE_QUOTA_MODE:
     "reports the local backend's validated quota mode",
   WORKER_WORKSPACE_ENFORCED_BY_STORAGE:

@@ -39,6 +39,7 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_WORKSPACE_MOUNT_DIR?: string | undefined;
   WORKER_WORKSPACE_PVC_CAPACITY_BYTES?: string | undefined;
   WORKER_WORKSPACE_QUOTA_BYTES?: string | undefined;
+  WORKER_WORKSPACE_QUOTA_INODES?: string | undefined;
   WORKER_WORKSPACE_QUOTA_MODE?: string | undefined;
 
   WORKER_CLAUDE_CONFIG_DIR?: string | undefined;
@@ -295,7 +296,9 @@ export function workerConfigFromEnv(
       quota: {
         bytes:
           evidence.requestedBytes ?? DEFAULT_WORKSPACE_QUOTA_MB * 1024 * 1024,
-        inodes: 1_000_000,
+        inodes:
+          positiveSafeInteger(environment.WORKER_WORKSPACE_QUOTA_INODES) ??
+          1_000_000,
       },
       evidence,
     },
@@ -324,6 +327,11 @@ export function workspaceEvidenceFromEnv(
       ? { enforcedByStorage: true }
       : {}),
   };
+}
+
+function positiveSafeInteger(value: string | undefined): number | undefined {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined;
 }
 
 function required(value: string | undefined, name: string): string {

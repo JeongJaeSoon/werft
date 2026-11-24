@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
-import type { LostCheckpointNotices } from "@werft-ai/contracts";
+import type {
+  InstallationStatus,
+  LostCheckpointNotices,
+} from "@werft-ai/contracts";
 import { scopedKey } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import { Alert, Button, Text } from "@werft-ai/ui";
@@ -20,9 +23,10 @@ const NOTICE_HEIGHT = "--werft-shell-notice-h";
 
 /**
  * Standing notes about the installation itself, above every console page for
- * the people who run it (owners and admins). One so far: a test installation
- * gave up checkpoints when it was switched back on. It stays until one of
- * them closes it, which closes it for all of them.
+ * the people who run it (owners and admins). Worker workspaces without a disk
+ * quota stay noted for as long as the installation runs that way. Checkpoints
+ * a test installation gave up when it was switched back on stay until one of
+ * them closes the note, which closes it for all of them.
  */
 export function InstallationNotices() {
   const { t } = useI18n();
@@ -42,6 +46,17 @@ export function InstallationNotices() {
     retry: false,
     refetchInterval: (query) =>
       query.state.status === "error" ? false : NOTICES_REFETCH_MS,
+  });
+  const status = useQuery({
+    queryKey: scopedKey(client, "installation-status"),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/installation-status"),
+      ) as Promise<InstallationStatus>,
+    enabled: manages,
+    // Fixed for the life of the API process; a server from before it is 404.
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
   });
   const close = useMutation<LostCheckpointNotices, ApiError, string[]>({
     // Everything that was read and nothing else, as many at a time as one
@@ -63,7 +78,8 @@ export function InstallationNotices() {
     onError: () => queryClient.invalidateQueries({ queryKey: key }),
   });
   const notices = read.data?.notices ?? [];
-  const shown = manages && notices.length > 0;
+  const noDiskQuota = status.data?.no_disk_quota === true;
+  const shown = manages && (notices.length > 0 || noDiskQuota);
 
   // The session chat sizes itself to the screen under the top bar; it has to
   // know how much of that this takes, which changes as the text wraps.
@@ -90,32 +106,47 @@ export function InstallationNotices() {
   const count = notices.reduce((sum, notice) => sum + notice.sessions, 0);
   return (
     <div ref={box} data-slot="installation-notice">
-      <Alert
-        variant="amber"
-        // One line beside a taller button: the icon centres on the row.
-        className="items-center rounded-none border-x-0 border-t-0 md:px-6"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      {noDiskQuota ? (
+        <Alert
+          variant="amber"
+          data-slot="no-disk-quota"
+          className="rounded-none border-x-0 border-t-0 md:px-6"
+        >
           <Text className="text-foreground">
-            {t("shell.lostCheckpoints", { count })}
+            {status.data?.profile === "test"
+              ? t("shell.noDiskQuota.test")
+              : t("shell.noDiskQuota")}
           </Text>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={close.isPending}
-            onClick={() => close.mutate(notices.map((notice) => notice.id))}
-          >
-            {t("shell.lostCheckpoints.close")}
-          </Button>
-        </div>
-        {close.error ? (
-          <FormError>
-            {t("shell.lostCheckpoints.closeFailed")}{" "}
-            {t(errorKey(close.error.code))}
-          </FormError>
-        ) : null}
-      </Alert>
+        </Alert>
+      ) : null}
+      {notices.length > 0 ? (
+        <Alert
+          variant="amber"
+          // One line beside a taller button: the icon centres on the row.
+          className="items-center rounded-none border-x-0 border-t-0 md:px-6"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <Text className="text-foreground">
+              {t("shell.lostCheckpoints", { count })}
+            </Text>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={close.isPending}
+              onClick={() => close.mutate(notices.map((notice) => notice.id))}
+            >
+              {t("shell.lostCheckpoints.close")}
+            </Button>
+          </div>
+          {close.error ? (
+            <FormError>
+              {t("shell.lostCheckpoints.closeFailed")}{" "}
+              {t(errorKey(close.error.code))}
+            </FormError>
+          ) : null}
+        </Alert>
+      ) : null}
     </div>
   );
 }

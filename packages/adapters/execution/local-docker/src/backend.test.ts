@@ -38,6 +38,7 @@ import {
   DockerClient,
   DockerTimeoutError,
 } from "./docker-client.ts";
+import { OFF_QUOTA } from "./testing.ts";
 import { INODE_HELPER_LABEL } from "./workspace-inodes.ts";
 
 const GATEWAY_MODE_OPTION = "com.docker.network.bridge.gateway_mode_ipv4";
@@ -1174,6 +1175,7 @@ describe("LocalDockerBackend.ensureExecution", () => {
         `${ENV.workspaceMountDir}=/workspace`,
         `${ENV.workspaceQuotaMode}=enforced`,
         `${ENV.workspaceQuotaBytes}=4294967296`,
+        `${ENV.workspaceQuotaInodes}=250000`,
         `${ENV.bootstrapNonce}=nonce-abc`,
         `${ENV.executionGeneration}=1`,
         `${ENV.executionId}=${intent.executionId}`,
@@ -3378,17 +3380,28 @@ describe("LocalDockerBackend workspace volumes", () => {
   });
 
   test("with the quota off the volume is created without a size", async () => {
-    const off = backendWith({ workspaceQuota: { mode: "off" } });
+    const off = backendWith({ workspaceQuota: OFF_QUOTA });
     await off.ensureExecution(intentFor());
     const volume = docker.volumes.get(
       workspaceNameOf(docker, intentFor().sessionId, "test-a") ?? "",
     );
     expect(volume?.options).toBeNull();
     expect(volume?.labels[VOLUME_LABELS.workspaceQuota]).toBe("off");
+    // The worker measures against these instead.
+    const container = docker.containers.get(
+      containerNameFor(intentFor(), "test-a"),
+    );
+    expect(container?.body.Env).toEqual(
+      expect.arrayContaining([
+        `${ENV.workspaceQuotaMode}=off`,
+        `${ENV.workspaceQuotaBytes}=${OFF_QUOTA.sizeBytes}`,
+        `${ENV.workspaceQuotaInodes}=${OFF_QUOTA.inodes}`,
+      ]),
+    );
   });
 
   test("turning the quota on over an opted-out volume refuses the launch", async () => {
-    await backendWith({ workspaceQuota: { mode: "off" } }).ensureExecution(
+    await backendWith({ workspaceQuota: OFF_QUOTA }).ensureExecution(
       intentFor(),
     );
     docker.containers.clear();
@@ -3500,7 +3513,7 @@ describe("LocalDockerBackend workspace inode limit", () => {
   test("an opted-out host runs no helper", async () => {
     await new LocalDockerBackend({
       ...configFor(docker.host),
-      workspaceQuota: { mode: "off" },
+      workspaceQuota: OFF_QUOTA,
     }).ensureExecution(intentFor());
     expect(docker.inodeHelperRuns).toHaveLength(0);
   });
@@ -3720,7 +3733,7 @@ describe("LocalDockerBackend.verifyWorkspaceQuota", () => {
   test("the opt-out asks the daemon nothing", async () => {
     const off = new LocalDockerBackend({
       ...configFor(docker.host),
-      workspaceQuota: { mode: "off" },
+      workspaceQuota: OFF_QUOTA,
     });
     await expect(off.verifyWorkspaceQuota()).resolves.toBeUndefined();
     expect(docker.requests).toHaveLength(0);

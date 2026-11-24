@@ -222,3 +222,115 @@ describe("the banner for checkpoints a test installation gave up at start", () =
     });
   }
 });
+const STATUS = "GET /v1/installation-status";
+const quotaBanner = () =>
+  document.querySelector<HTMLElement>("[data-slot=no-disk-quota]");
+const TEST_MODE = "시험 모드: 디스크 quota 없음, 운영 불가";
+const QUOTA_OFF =
+  "디스크 quota가 꺼져 있습니다. 측정으로만 막아서 한도를 잠깐 넘을 수 있습니다. 운영에서는 XFS quota를 켜세요.";
+
+describe("the banner for an installation without a disk quota", () => {
+  for (const [profile, text] of [
+    ["test", TEST_MODE],
+    ["production", QUOTA_OFF],
+  ] as const) {
+    test(`a ${profile} installation says so at the top, with nothing to close`, async () => {
+      renderAt("/agents", {
+        [ME]: () => json(200, me()),
+        [NOTICES]: () => json(200, { notices: [] }),
+        [STATUS]: () => json(200, { profile, no_disk_quota: true }),
+      });
+      expect(await screen.findByText(text)).toBeDefined();
+      expect(
+        document.getElementById("main")?.firstElementChild === banner(),
+      ).toBe(true);
+      expect(
+        within(banner() as HTMLElement).queryByRole("button") === null,
+      ).toBe(true);
+    });
+  }
+
+  test("it stands above the lost checkpoints, and closing those leaves it", async () => {
+    renderAt("/", {
+      [ME]: () => json(200, me(undefined, "admin")),
+      [NOTICES]: () => json(200, twoStarts),
+      [STATUS]: () => json(200, { profile: "test", no_disk_quota: true }),
+      [CLOSE]: () => json(200, { notices: [] }),
+    });
+    await screen.findByText(TEXT);
+    expect(await screen.findByText(TEST_MODE)).toBeDefined();
+    expect((banner() as HTMLElement).firstElementChild === quotaBanner()).toBe(
+      true,
+    );
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByText(TEXT) === null).toBe(true));
+    expect(screen.getByText(TEST_MODE)).toBeDefined();
+  });
+
+  test("nothing shows with the quota on or on a server from before the status", async () => {
+    for (const answer of [
+      () => json(200, { profile: "test", no_disk_quota: false }),
+      () => apiError(404, "NOT_FOUND", "no such route"),
+    ]) {
+      const { api } = renderAt("/", {
+        [ME]: () => json(200, me()),
+        [NOTICES]: () => json(200, { notices: [] }),
+        [STATUS]: answer,
+      });
+      await shell();
+      await waitFor(() =>
+        expect(
+          api.calls.some((call) => call.path === "/v1/installation-status"),
+        ).toBe(true),
+      );
+      expect(banner() === null).toBe(true);
+    }
+  });
+
+  test("a member is shown nothing and the status is not asked for", async () => {
+    const { api } = renderAt("/", {
+      [ME]: () => json(200, memberMe()),
+      [STATUS]: () => json(200, { profile: "test", no_disk_quota: true }),
+    });
+    await shell();
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.path === "/v1/sessions")).toBe(true),
+    );
+    expect(banner() === null).toBe(true);
+    expect(
+      api.calls.filter((call) => call.path === "/v1/installation-status"),
+    ).toEqual([]);
+  });
+
+  for (const [locale, test_, production] of [
+    [
+      "en",
+      "Test mode: no disk quota, not for production",
+      "The disk quota is off. Only measurement holds the limit, so a workspace can briefly pass it. Turn the XFS quota on for production.",
+    ],
+    [
+      "ja",
+      "試験モード: ディスク quota なし、運用不可",
+      "ディスク quota がオフです。測定だけで抑えるため、一時的に上限を超えることがあります。運用では XFS quota をオンにしてください。",
+    ],
+  ] as const) {
+    for (const [profile, text] of [
+      ["test", test_],
+      ["production", production],
+    ] as const) {
+      test(`it reads in ${locale} on a ${profile} installation`, async () => {
+        renderAt(
+          "/",
+          {
+            [ME]: () => json(200, me()),
+            [NOTICES]: () => json(200, { notices: [] }),
+            [STATUS]: () => json(200, { profile, no_disk_quota: true }),
+          },
+          locale,
+        );
+        expect(await screen.findByText(text)).toBeDefined();
+      });
+    }
+  }
+});

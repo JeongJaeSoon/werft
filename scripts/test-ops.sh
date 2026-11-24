@@ -624,8 +624,18 @@ preflight() {
     || die "Docker Engine $engine is too old; worker networks need $MIN_ENGINE_MAJOR or newer (gateway_mode_ipv4=isolated)"
   compose_version="$(docker compose version --short 2>/dev/null)" || die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" || die "docker compose $compose_version is too old; $MIN_COMPOSE or newer"
-  case "$VERB" in preflight | deploy) check_workspace_quota && quota=", workspace quota" ;; esac
   render
+  # Off is the LocalStack test mode: no kernel quota to probe, and the
+  # workers measure their workspaces instead. check-render refuses it on s3.
+  case "$VERB" in
+    preflight | deploy)
+      if [ "$(rendered scheduler EXECUTION_WORKSPACE_QUOTA)" = off ]; then
+        quota=", no workspace quota (test mode, not for production)"
+      else
+        check_workspace_quota && quota=", workspace quota"
+      fi
+      ;;
+  esac
   check_mount_modes
   # Before the bucket is touched with what may be another installation's settings.
   [ ! -e "$IDENTITY" ] || check_identity

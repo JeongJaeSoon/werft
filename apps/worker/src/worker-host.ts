@@ -170,6 +170,8 @@ export type WorkerHostOptions = {
       "measureNow" | "watch" | "nudge" | "onClassified"
     >;
     limits: WorkspaceQuotaLimits;
+    /** Takes the place of the claim's `workspace_enforce`. */
+    enforce?: "fail";
   };
   logger?: WorkerLogger;
   now?: () => Date;
@@ -1236,7 +1238,9 @@ export class WorkerHost {
       const { claim } = claimed;
       this.claimValue = claim;
       this.workspaceEnforce =
-        claim.workspace_enforce ?? DEFAULT_WORKSPACE_ENFORCE;
+        this.options.workspaceQuota?.enforce ??
+        claim.workspace_enforce ??
+        DEFAULT_WORKSPACE_ENFORCE;
       this.options.gateway.useCredential(claim.session_credential);
       this.options.objectStoreAccess?.useToken(claim.object_store.access.token);
       this.scopeValue = {

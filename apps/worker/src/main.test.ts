@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { workspaceEvidenceFromEnv } from "./config.ts";
-import { exitCodeFor, verifyWorkspace } from "./main.ts";
+import { exitCodeFor, measuredOnlyLimits, verifyWorkspace } from "./main.ts";
 import { workspaceLimitMode } from "./workspace-limit-mode.ts";
 
 test.each([
@@ -67,6 +67,15 @@ test.each([
     ).toMatchObject({ bytes, inodes: "unknown" });
   },
 );
+
+test("without a kernel quota the measurement stops the turn, at most once a minute", () => {
+  expect(measuredOnlyLimits({ localQuota: "off" })).toEqual({
+    observer: { minimumIntervalMs: 60_000 },
+    host: { enforce: "fail" },
+  });
+  for (const evidence of [{ localQuota: "enforced" as const }, {}])
+    expect(measuredOnlyLimits(evidence)).toEqual({ observer: {}, host: {} });
+});
 
 describe("exitCodeFor", () => {
   test.each([
