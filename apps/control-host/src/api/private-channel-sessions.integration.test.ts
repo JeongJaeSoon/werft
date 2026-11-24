@@ -13,6 +13,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
   PRIVATE_CHANNEL_SESSIONS_EXIT,
+  type PrivateChannelSessionsLogger,
   type PrivateChannelSlack,
   runPrivateChannelSessions,
 } from "./private-channel-sessions.ts";
@@ -155,9 +156,13 @@ integration("private-channel-sessions on PostgreSQL", () => {
       place.channelId === "G9"
         ? { unconfirmed: "BACKEND_UNAVAILABLE" }
         : { kind: "private_channel" },
-    memberIds: async () => ["U0SOMEONE"],
+    memberIds: async () => ({ memberIds: ["U0SOMEONE"] }),
   };
-  const run = async (argv: string[], asked: PrivateChannelSlack = slack) => {
+  const run = async (
+    argv: string[],
+    asked: PrivateChannelSlack = slack,
+    logger?: PrivateChannelSessionsLogger,
+  ) => {
     const out: string[] = [];
     const err: string[] = [];
     const exit = await runPrivateChannelSessions(argv, {
@@ -167,6 +172,7 @@ integration("private-channel-sessions on PostgreSQL", () => {
       loadKey: async () => ({}) as SecretKey,
       openDatabase: async () => ({ db, close: async () => {} }),
       openSlack: () => asked,
+      ...(logger === undefined ? {} : { logger }),
     });
     expect(out).toHaveLength(1);
     return { exit, err, line: JSON.parse(out[0] as string) };
@@ -214,6 +220,40 @@ integration("private-channel-sessions on PostgreSQL", () => {
     expect(await shares()).toEqual(before);
   });
 
+  test("an unreadable member list names its reason in the plan and in one log line, and changes no exit code", async () => {
+    const warned: { message: string; fields: Record<string, string> }[] = [];
+    const reason = "slack_error:missing_scope";
+    const quiet = await run(["plan", "--agent", agentId]);
+    const { exit, line } = await run(
+      ["plan", "--agent", agentId],
+      {
+        kindOf: slack.kindOf,
+        memberIds: async () => ({ unconfirmed: reason }),
+      },
+      { warn: (message, fields) => warned.push({ message, fields }) },
+    );
+    expect(exit).toBe(quiet.exit);
+    const sessions = line.sessions as {
+      to: string;
+      members_unconfirmed: boolean;
+      members_unconfirmed_reason?: string;
+    }[];
+    for (const row of sessions) {
+      expect(row.members_unconfirmed).toBe(row.to === "private_channel");
+      expect(row.members_unconfirmed_reason).toBe(
+        row.to === "private_channel" ? reason : undefined,
+      );
+    }
+    expect(warned.length).toBeGreaterThan(0);
+    for (const entry of warned) {
+      expect(entry.fields).toMatchObject({
+        event: "private_channel_sessions.member_check.unconfirmed",
+        reason,
+        agent_id: agentId,
+      });
+    }
+  });
+
   test("apply moves the readable channel's sessions once; the unread channel stays as it was", async () => {
     const first = await run(["apply", "--workspace", workspaceId]);
     expect(first.exit).toBe(PRIVATE_CHANNEL_SESSIONS_EXIT.incomplete);
@@ -239,7 +279,7 @@ integration("private-channel-sessions on PostgreSQL", () => {
     for (const command of ["plan", "apply"]) {
       const { exit, err, line } = await run([command, "--agent", agentId], {
         kindOf: async () => ({ unconfirmed: "master_key_mismatch" }),
-        memberIds: async () => null,
+        memberIds: async () => ({ unconfirmed: "slack_error:missing_scope" }),
       });
       expect(exit).toBe(PRIVATE_CHANNEL_SESSIONS_EXIT.incomplete);
       expect(

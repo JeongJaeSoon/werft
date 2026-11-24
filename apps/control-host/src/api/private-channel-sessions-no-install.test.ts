@@ -62,7 +62,7 @@ const notInstalled: PrivateChannelSlack = {
       : place.channelId === "P1"
         ? { kind: "public_channel" }
         : { unconfirmed: "SLACK_NOT_INSTALLED" },
-  memberIds: async () => [],
+  memberIds: async () => ({ memberIds: [] }),
 };
 
 async function run(argv: string[], slack: PrivateChannelSlack = notInstalled) {
