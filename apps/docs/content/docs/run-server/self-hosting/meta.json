@@ -2,6 +2,7 @@
   "title": "셀프 호스팅",
   "pages": [
     "index",
+    "first-install",
     "---시험 설치---",
     "try-kind",
     "try-localstack",

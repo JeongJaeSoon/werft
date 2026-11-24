@@ -2,6 +2,7 @@
   "title": "セルフホスティング",
   "pages": [
     "index",
+    "first-install",
     "---試用の設置---",
     "try-kind",
     "try-localstack",
