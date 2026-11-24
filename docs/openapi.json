@@ -3296,6 +3296,11 @@
                 "minLength": 1,
                 "maxLength": 128
               },
+              "judgment_model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
               "capabilities": {
                 "type": "object",
                 "properties": {
@@ -3492,6 +3497,11 @@
                 ]
               },
               "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "judgment_model": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128
@@ -26047,6 +26057,11 @@
                       "minLength": 1,
                       "maxLength": 128
                     },
+                    "judgment_model": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
                     "capabilities": {
                       "type": "object",
                       "properties": {
@@ -27114,6 +27129,11 @@
                       ]
                     },
                     "model": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "judgment_model": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128

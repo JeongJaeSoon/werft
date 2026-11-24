@@ -29,6 +29,19 @@ export const modelsKo = {
     "{successor}(으)로 옮길 수 있지만 이 에이전트는 자동 이동을 끄고 있어 새 세션도 시작되지 않습니다. 자동 이동을 켜거나 상세 설정 탭에서 모델을 바꿔 저장하세요.",
   "agent.modelMoves.turnOn": "자동 이동 켜기",
   "agent.modelMoves.turnOff": "자동 이동 끄기",
+
+  "agentCard.judgmentModel": "판단 모델",
+  "agentCard.judgmentModelCard": "카드 모델 사용 ({model})",
+  "agentCard.judgmentModelCardUnset": "카드 모델 사용",
+  "agentCard.judgmentModelHint":
+    "채널 글에 끼어들지 판단하고 채널 요약을 접을 때 쓰는 모델입니다. 고른 연결이 제공하는 모델 중에서 고르고, 비워 두면 카드 모델을 씁니다. 성과 판정의 판정 모델과는 따로입니다.",
+  "agentCard.judgmentModelUncatalogedWarning":
+    "이 판단 모델은 연결의 모델 목록에 없어 판단을 돌리지 않습니다. 이 카드로는 릴리스를 만들 수 없으니 연결이 제공하는 모델이나 카드 모델 사용으로 바꾸세요.",
+  "agent.releases.judgmentModelRefused":
+    "판단 모델 {model}을(를) 연결 {connection}이(가) 제공하지 않아 릴리스를 만들지 못했습니다. 이 연결의 모델을 고르거나 카드 모델 사용으로 바꾸세요.",
+  "agent.releases.field.judgmentModel": "판단 모델",
+  "agent.save.reason.judgment_model_not_in_connection":
+    "연결이 제공하지 않는 판단 모델입니다",
 };
 
 export const modelsEn: Record<keyof typeof modelsKo, string> = {
@@ -58,6 +71,19 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
     "It could move to {successor}, but this agent has automatic move turned off, so no new session starts. Turn automatic move on, or change the model in the Settings tab and save.",
   "agent.modelMoves.turnOn": "Turn automatic move on",
   "agent.modelMoves.turnOff": "Turn automatic move off",
+
+  "agentCard.judgmentModel": "Judgment model",
+  "agentCard.judgmentModelCard": "Use the card's model ({model})",
+  "agentCard.judgmentModelCardUnset": "Use the card's model",
+  "agentCard.judgmentModelHint":
+    "The model that judges whether to step into channel messages and folds channel summaries. Choose among the models the chosen connection offers; left empty, the card's model is used. It is separate from the decision model of achievement judging.",
+  "agentCard.judgmentModelUncatalogedWarning":
+    "This judgment model is not on the connection's model list, so no judgment runs. This card cannot be released: choose a model the connection offers, or use the card's model.",
+  "agent.releases.judgmentModelRefused":
+    "Connection {connection} does not offer the judgment model {model}, so no release was created. Choose one of its models, or use the card's model.",
+  "agent.releases.field.judgmentModel": "Judgment model",
+  "agent.save.reason.judgment_model_not_in_connection":
+    "The connection does not offer this judgment model",
 };
 
 export const modelsJa: Record<keyof typeof modelsKo, string> = {
@@ -87,4 +113,17 @@ export const modelsJa: Record<keyof typeof modelsKo, string> = {
     "{successor} に切り替えられますが、このエージェントは自動切り替えをオフにしているため新しいセッションも開始されません。自動切り替えをオンにするか、詳細設定タブでモデルを変更して保存してください。",
   "agent.modelMoves.turnOn": "自動切り替えをオンにする",
   "agent.modelMoves.turnOff": "自動切り替えをオフにする",
+
+  "agentCard.judgmentModel": "判断モデル",
+  "agentCard.judgmentModelCard": "カードのモデルを使う ({model})",
+  "agentCard.judgmentModelCardUnset": "カードのモデルを使う",
+  "agentCard.judgmentModelHint":
+    "チャンネルの投稿に加わるかを判断し、チャンネルの要約をまとめるときに使うモデルです。選んだ接続が提供するモデルから選び、空のままならカードのモデルを使います。成果判定の判定モデルとは別です。",
+  "agentCard.judgmentModelUncatalogedWarning":
+    "この判断モデルは接続のモデル一覧にないため、判断は実行されません。このカードではリリースを作れないので、接続が提供するモデルかカードのモデルに変更してください。",
+  "agent.releases.judgmentModelRefused":
+    "接続 {connection} は判断モデル {model} を提供していないため、リリースは作成されませんでした。この接続のモデルを選ぶか、カードのモデルを使ってください。",
+  "agent.releases.field.judgmentModel": "判断モデル",
+  "agent.save.reason.judgment_model_not_in_connection":
+    "接続が提供していない判断モデルです",
 };

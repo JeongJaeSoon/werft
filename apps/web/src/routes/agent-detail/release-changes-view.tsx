@@ -37,6 +37,7 @@ const AREA: Record<ReleaseArea, MessageKey> = {
 const FIELD: Record<string, MessageKey> = {
   repositories: "agent.releases.field.repositories",
   model: "agent.releases.field.model",
+  judgmentModel: "agent.releases.field.judgmentModel",
   tools: "agent.releases.field.tools",
   toolPolicy: "agent.releases.field.toolPolicy",
   connection: "agent.releases.field.connection",
