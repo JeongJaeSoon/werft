@@ -1288,7 +1288,7 @@ export const agentListItemSchema = agentSchema
   .extend({
     status: agentStatusSchema.meta({
       description:
-        "The record's state: `active` for every agent that exists, whether or not it was ever switched on. Do not read it as switched on; read `activation`.",
+        "The record's state, as before: a draft that was never switched on is `active` too. Do not read it as switched on; read `activation`.",
     }),
     activation: agentActivationSchema.meta({
       description:
