@@ -14,6 +14,7 @@ import {
   createConversationRuntimeTurns,
   createMemoryConversationTurnQueue,
 } from "@werft-ai/platform";
+import { ambiguousPathGuard } from "./ambiguous-path.ts";
 import {
   assertConversationTurnDispatch,
   conversationRuntimeBearer,
@@ -423,6 +424,7 @@ describe("the conversation-turn command", () => {
           { write: (record) => void logged.push(JSON.stringify(record)) },
         ],
       }),
+      guard: ambiguousPathGuard({ warn: () => {} }),
     });
     const env = {
       CONVERSATION_RUNTIME_TOKEN: CURRENT,

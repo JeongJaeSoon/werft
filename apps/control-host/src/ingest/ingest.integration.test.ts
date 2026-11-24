@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import { parseTracingSettings } from "@werft-ai/observability";
 import { createOtelSpanSink } from "@werft-ai/observability/otel";
+import { ambiguousPathGuard } from "../api/ambiguous-path.ts";
 import {
   attemptOf,
   authenticatorOf,
@@ -81,6 +82,7 @@ function listenerFor(
     sink,
     masker: valueMasker,
     drops: new CountingDrops(),
+    guard: ambiguousPathGuard({ warn: () => {} }),
   });
   stops.push(() => listener.stop(true));
   return `http://127.0.0.1:${listener.port}/v1/traces`;
