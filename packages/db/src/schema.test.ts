@@ -168,6 +168,7 @@ describe("database schema", () => {
       "authz_decisions",
       "bootstrap_token_uses",
       "budget_accounts",
+      "budget_adjustments",
       "budget_limits",
       "budget_reservations",
       "catalog_repositories",

@@ -15,6 +15,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 ### 운영자가 할 일
 
 - **`DELETE /v1/workspaces/{id}/slack/apps/{app_id}`가 Slack의 이벤트를 기다리지 않고 그 앱의 설치·에이전트 Slack identity·채널 binding·아직 안 나간 Slack 메시지(`app_deleted`)·판단 버퍼를 한 transaction에서 닫고, Slack 쪽(`auth.revoke`, `apps.manifest.delete`)은 그 뒤 한 번씩만 해 본다**(JeongJaeSoon/werft#2137). migration은 없다. Slack이 거절하거나 응답이 없어도 삭제는 200이고 새 응답 칸 `slack_cleanup`이 실패한 단계를 알린다. 이때는 Slack 앱 관리 화면(api.slack.com/apps)에서 앱을 직접 지운다. 전에는 같은 경우 503·409(`CONFIG_TOKEN_INVALID`)로 거절했으니, 그 응답으로 다시 시도하던 스크립트는 `slack_cleanup`을 읽는다. 삭제는 receipt `delete_slack_app`(닫은 수, Slack 쪽 결과, 토큰 값 없음)을 남긴다. 이 릴리스 전에 지운 앱의 identity는 `active`로 남아 있을 수 있으니 `GET /v1/agents/{id}/identities`로 보고 `DELETE /v1/agents/{id}/identities/{identity_id}`로 회수한다. 지운 앱으로 `bun run slack-install register`를 부르면 설치를 다시 열지 않는다. 삭제가 bot token을 무효로 했으면 exit 3(Slack이 token을 거절), token이 아직 살아 있으면 exit 5(`revoked`)로 끝나니, 새 앱을 만들어 설치한다.
+- **migration `0350_unknown_budget_resolution`이 `budget_reservations`에 칸 `resolution`과 상태 값 `resolved`를, `conversation_calls`에 상태 값 `resolved`를 더하고 새 빈 표 `budget_adjustments`를 만든다. 운영자 명령 `budget-unknown.ts`(`list`·`resolve`)로 끝을 모르는 예약을 보고 푼다**(JeongJaeSoon/werft#2142). 올릴 때 할 일은 없다. 바뀐 CHECK는 `NOT VALID`로 더한 뒤 따로 검증한다.
+  - `list`는 reconciler 로그와 같은 수(`unknown_count`·`held_cost_usd`)와 예약 줄을 낸다. `resolve --by <owner·admin>`은 기본으로 묶인 만큼을 쓴 것으로 확정하고, `--refund --reason`은 0으로 돌려준다. 한 번에 100개까지이고 `--dry-run`이 있다. 푼 예약마다 receipt `resolve_unknown_budget`이 같은 transaction에서 남는다.
+  - 푼 뒤의 늦은 보고는 예약을 다시 열지 않고, 차이를 원래 예약의 계정과 달에 조정 줄 하나로 더한다.
+  - 지원 창 안의 이미지로 되돌려도 되지만, 옛 이미지는 푼 예약의 늦은 보고를 저장하지 못해 실패로 답한다(보고는 다시 시도된다). 되돌린 동안은 명령으로 풀지 않는다.
 - **첫 owner 설정 링크는 새 명령 `bun run apps/control-host/src/main.ts admin bootstrap-owner --email <address> --out <file>`(api 컨테이너·Pod 안)이 만든다. `apps/control-host/src/api/setup-link.ts`는 없어졌고, `scripts/test-ops.sh setup-link`에는 `--email`과 `--out`이 필요하다**(JeongJaeSoon/werft#2134). 옛 명령을 부르는 스크립트는 고친다.
   - 링크는 stdout이 아니라 `--out` 파일(새로 만들고 0600, 있는 파일은 덮어쓰지 않음)에 `accept_path`·`accept_url`·`expires_at`으로 쓰인다. 화면에는 경로와 만료 시각만 나온다.
   - 링크는 `--email`의 주소에만 쓰인다. `POST /v1/auth/bootstrap`에 다른 주소를 보내면 `403 FORBIDDEN`이고 링크는 남는다.

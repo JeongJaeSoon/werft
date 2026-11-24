@@ -269,6 +269,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // approval rows, never the notice's text.
   "approve_slack_notice",
   "revoke_slack_notice",
+  // An operator closing one budget reservation of unknown end, from the
+  // operator CLI: the call, its account, spent or refunded, and the reason.
+  "resolve_unknown_budget",
   // An agent's conversation switch changed: by a workspace owner or admin in
   // the console, the operator CLI, or lowered to `off` when its notice
   // approval was revoked or stopped counting.
