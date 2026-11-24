@@ -98,7 +98,7 @@ api:
     CONSOLE_ORIGIN: https://werft.example.com
 ```
 
-この値がなくても設置とログインはできます。ただしコンソールでエージェントの Slack アプリを作れず、Slack アカウント連携、コンソールでの GitHub App の作成、[SSO ログイン](/run-server/self-hosting/sso)のプロバイダーの作成、OAuth で接続する MCP サーバーも使えません。Slack アプリのイベントアドレスはこの値から計算します。Slack は https のアドレスにしかイベントを送らないため、Slack のイベントがコンソールのアドレスに入るなら https の origin にします。コンソールとは別の公開入口から入る場合は、owner がその入口の https アドレスを **設定 > 連携 > Slack** の「イベントの入口アドレス」に保存し、イベントアドレスはその値を使います。設置後に値を追加・変更したら、手順 4 のコマンドを同じ `VERSION` で再実行します。api Pod が新しい値で起動し直します。
+この値がなくても設置とログインはできます。ただしコンソールでエージェントの Slack アプリを作れず、Slack・GitHub のアカウント連携、コンソールでの GitHub App の作成、[SSO ログイン](/run-server/self-hosting/sso)のプロバイダーの作成、OAuth で接続する MCP サーバーも使えません。Slack アプリのイベントアドレスはこの値から計算します。Slack は https のアドレスにしかイベントを送らないため、Slack のイベントがコンソールのアドレスに入るなら https の origin にします。コンソールとは別の公開入口から入る場合は、owner がその入口の https アドレスを **設定 > 連携 > Slack** の「イベントの入口アドレス」に保存し、イベントアドレスはその値を使います。設置後に値を追加・変更したら、手順 4 のコマンドを同じ `VERSION` で再実行します。api Pod が新しい値で起動し直します。
 
 <a id="4-설치와-rollout" />
 ### 4. 設置と rollout
