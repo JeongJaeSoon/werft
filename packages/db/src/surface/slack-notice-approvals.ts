@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   SLACK_NOTICE_VERSIONS,
   type SlackNoticeApprovalId,
+  type SlackNoticeLocale,
   type SlackNoticeVersion,
   type SlackNoticeVersionEntry,
   slackNoticeWindow,
@@ -14,9 +15,11 @@ import type { Database } from "../queries.ts";
 import {
   agentIdentities,
   agents,
+  memberships,
   receipts,
   slackInstallations,
   slackNoticeApprovals,
+  users,
 } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";
 
@@ -214,7 +217,12 @@ const actorOf = (userId: string) => ({
  */
 export async function approveSlackNotice(
   db: Database,
-  input: Place & { by: string; requestId?: string },
+  input: Place & {
+    by: string;
+    /** The language the approver was shown the notice in. */
+    locale: SlackNoticeLocale;
+    requestId?: string;
+  },
   versions: readonly SlackNoticeVersionEntry[] = SLACK_NOTICE_VERSIONS,
 ): Promise<SlackNoticeApproval> {
   const window = slackNoticeWindow(versions);
@@ -263,6 +271,7 @@ export async function approveSlackNotice(
           approval_id: approvalId,
           slack_team_id: slackTeamId,
           notice_version: version,
+          notice_locale: input.locale,
         },
         actor: actorOf(input.by),
         requestId: input.requestId ?? null,
@@ -355,4 +364,83 @@ export async function listSlackNoticeApprovals(
     id: row.id as SlackNoticeApprovalId,
     version: row.version as SlackNoticeVersion,
   }));
+}
+
+/** An unrevoked approval in a team of the agent's live installs, with its approver. */
+export type SlackNoticeLiveApproval = {
+  id: SlackNoticeApprovalId;
+  slackTeamId: string;
+  version: SlackNoticeVersion;
+  approvedBy: string;
+  approvedByName: string;
+  approvedByEmail: string;
+  approvedAt: Date;
+};
+
+/**
+ * The agent's unrevoked approvals of any version in the teams of its live
+ * installs, by team, newest version first. An approval from a team the app
+ * left is not shown: it no longer counts for anything.
+ */
+export async function liveSlackNoticeApprovals(
+  db: Database,
+  place: Place,
+): Promise<SlackNoticeLiveApproval[]> {
+  const teams = await liveTeamsOf(db, place);
+  if (teams.length === 0) return [];
+  const rows = await db
+    .select({
+      id: slackNoticeApprovals.id,
+      slackTeamId: slackNoticeApprovals.slackTeamId,
+      version: slackNoticeApprovals.noticeVersion,
+      approvedBy: slackNoticeApprovals.approvedBy,
+      approvedByName: users.displayName,
+      approvedByEmail: users.email,
+      approvedAt: slackNoticeApprovals.approvedAt,
+    })
+    .from(slackNoticeApprovals)
+    .innerJoin(users, eq(users.id, slackNoticeApprovals.approvedBy))
+    .where(
+      and(
+        eq(slackNoticeApprovals.workspaceId, place.workspaceId),
+        eq(slackNoticeApprovals.agentId, place.agentId),
+        inArray(slackNoticeApprovals.slackTeamId, teams),
+        isNull(slackNoticeApprovals.revokedAt),
+      ),
+    )
+    .orderBy(
+      asc(slackNoticeApprovals.slackTeamId),
+      desc(slackNoticeApprovals.noticeVersion),
+      asc(slackNoticeApprovals.id),
+    );
+  return rows.map((row) => ({
+    ...row,
+    id: row.id as SlackNoticeApprovalId,
+    version: row.version as SlackNoticeVersion,
+  }));
+}
+
+/**
+ * Whether the user is a live owner or admin of the workspace now, read
+ * without a lock: for what a screen offers, not for a write.
+ */
+export async function managesWorkspace(
+  db: Database,
+  workspaceId: string,
+  userId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ role: memberships.role })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.workspaceId, workspaceId),
+        eq(memberships.userId, userId),
+        isNull(memberships.disabledAt),
+        isNull(users.disabledAt),
+      ),
+    )
+    .limit(1);
+  return WORKSPACE_MANAGER_ROLES.some((role) => role === row?.role);
 }
