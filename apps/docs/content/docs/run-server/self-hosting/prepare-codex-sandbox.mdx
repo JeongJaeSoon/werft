@@ -30,7 +30,7 @@ Codex 에이전트의 `auto` 모드는 worker 노드의 seccomp 프로필 파일
 | chart | `codexSandbox.provider`가 있는 게시 chart. 0.4.0 chart에는 이 값이 없다. 그 chart에서는 `codexSandbox.installer.enabled: false`가 `external`과 같은 일을 한다 |
 | 도구 | `helm` 3 이상, `kubectl`. 관리자 쪽에서 chart를 받는다 |
 | 노드 | Codex worker가 뜰 노드마다 root 권한(SSH 등). 노드 이미지나 구성 관리 도구로 파일을 두어도 된다 |
-| 권한 | Node에 라벨을 붙이는 권한(`nodes`의 `patch`) |
+| 권한 | Node를 보고 라벨을 붙이는 권한(`nodes`의 `get`·`list`·`patch`) |
 
 프로필의 경로는 kubelet의 seccomp 디렉터리 기준 `werft/codex-sandbox.json`으로 고정이다. kubelet의 seccomp 디렉터리는 kubelet root 디렉터리 아래 `seccomp`이고, 기본 root는 `/var/lib/kubelet`이다. kubelet을 다른 root 디렉터리로 띄우는 배포판에서는 아래 명령의 `/var/lib/kubelet`을 그 경로로 바꾼다(`installer`의 `codexSandbox.installer.kubeletDir`이 같은 값이다).
 
@@ -40,12 +40,12 @@ Codex 에이전트의 `auto` 모드는 worker 노드의 seccomp 프로필 파일
 
 ### 1. chart에서 프로필 파일 꺼내기
 
-설치할 chart와 같은 버전에서 꺼낸다. 프로필은 chart마다 다를 수 있다.
+설치할 chart와 같은 버전에서 꺼낸다. 프로필은 chart마다 다를 수 있다. 버전마다 다른 디렉터리에 푼다. `helm pull --untar`는 이미 있는 디렉터리에는 풀지 않는다.
 
 ```bash
 VERSION='<published-chart-version>'
-helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir werft-chart
-ls -l werft-chart/werft/files/codex-sandbox-seccomp.json
+helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir "werft-chart-$VERSION"
+ls -l "werft-chart-$VERSION/werft/files/codex-sandbox-seccomp.json"
 ```
 
 ### 2. 노드 고르기
@@ -90,7 +90,7 @@ codexSandbox:
 
 ### 6. chart를 올릴 때
 
-`installer`는 프로필이 바뀐 chart로 올리면 노드의 파일을 새로 쓴다. `external`에서는 관리자가 한다. 올리기 전에 새 chart에서 1단계처럼 파일을 꺼내 노드에 복사하고, 노드에서 지금 파일과 비교한다.
+`installer`는 프로필이 바뀐 chart로 올리면 노드의 파일을 새로 쓴다. `external`에서는 관리자가 한다. 올리기 전에 새 chart의 `VERSION`으로 1단계를 다시 해 파일을 꺼내 노드에 복사하고, 노드에서 지금 파일과 비교한다.
 
 ```bash
 sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
@@ -117,9 +117,9 @@ helm get manifest werft -n werft | grep -c codex-seccomp
 ## 자주 막히는 곳
 
 - **`CODEX_SANDBOX_NOT_INSTALLED`.** chart의 `codexSandbox.provider`가 아직 `disabled`다. 5단계의 값이 values에 들어갔는지 본다.
-- **Codex worker Pod가 `Pending`.** 라벨이 붙은 노드가 없거나, 그 노드에 자리가 없다. 15분 뒤 세션은 `NO_CAPACITY`로 실패하고, 이유에 `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed`가 더해진다. 확인의 첫 명령으로 라벨 노드를 보고, 그 노드가 `worker.nodeSelector`에도 맞는지 본다.
-- **`CreateContainerError`.** 라벨은 있는데 그 노드에 파일이 없다. 파일 경로나 kubelet root 디렉터리가 다르거나, 노드 디스크를 새로 만든 경우다. scheduler는 이 오류를 launch 실패로 세고, 이유에 노드 이름과 프로필 경로를 남긴다. 그 이유는 chart의 설치 DaemonSet을 확인하라고도 적는데, `external`에서는 그 노드의 파일을 본다. 3단계를 다시 하거나 라벨을 뗀다.
-- **`auto` 세션이 `recovery_required`이고 이유에 `bwrap:` 오류.** 파일과 라벨은 맞고 노드 조건이 막는다. 준비물의 노드 조건을 본다.
+- **Codex worker Pod가 `Pending`.** 라벨이 붙은 노드가 없거나, 그 노드에 자리가 없다. 15분 뒤 그 입력이 `NO_CAPACITY`로 실패하고(세션은 다음 입력을 받는다), 이유에 `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed`가 더해진다. 확인의 첫 명령으로 라벨 노드를 보고, 그 노드가 `worker.nodeSelector`에도 맞는지 본다.
+- **메시지에 `seccomp`가 든 `CreateContainerError`.** 라벨은 있는데 그 노드에 파일이 없다. 파일 경로나 kubelet root 디렉터리가 다르거나, 노드 디스크를 새로 만든 경우다. scheduler는 메시지에 `seccomp`가 든 이 오류만 launch 실패로 세고, 이유에 노드 이름과 프로필 경로를 남긴다. 그 이유는 chart의 설치 DaemonSet을 확인하라고도 적는데, `external`에서는 그 노드의 파일을 본다. 3단계를 다시 하거나 라벨을 뗀다.
+- **`auto` 세션이 `recovery_required`이고 이유에 `bwrap:` 오류.** 먼저 3단계의 `cmp`로 노드의 파일이 이 chart의 파일과 같은지 본다. 같으면 노드 조건이 막는 것이다. 준비물의 노드 조건을 본다.
 
 ## 되돌리기
 

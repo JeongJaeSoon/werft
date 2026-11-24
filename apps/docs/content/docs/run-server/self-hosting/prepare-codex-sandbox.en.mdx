@@ -32,7 +32,7 @@ The table below lists the resources the chart creates with `installer`, and who 
 | Chart | A published chart that has `codexSandbox.provider`. The 0.4.0 chart does not have it. In that chart, `codexSandbox.installer.enabled: false` does what `external` does |
 | Tools | `helm` 3 or later, `kubectl`. The chart is downloaded on the administrator's machine |
 | Nodes | Root access (SSH or similar) on each node that will run Codex workers. A node image or configuration management tool may place the file instead |
-| Permissions | Permission to label Nodes (`patch` on `nodes`) |
+| Permissions | Permission to read and label Nodes (`get`, `list` and `patch` on `nodes`) |
 
 The profile path is fixed: `werft/codex-sandbox.json` under the kubelet's seccomp directory. That directory is `seccomp` under the kubelet root directory, and the default root is `/var/lib/kubelet`. On distributions that run the kubelet with another root directory, replace `/var/lib/kubelet` in the commands below with that path (`codexSandbox.installer.kubeletDir` is the same value for `installer`).
 
@@ -44,12 +44,12 @@ Even with the profile in place, `auto` sessions are refused when the node blocks
 <a id="1-chart에서-프로필-파일-꺼내기" />
 ### 1. Take the profile file from the chart
 
-Take it from the same chart version you install. The profile can differ between charts.
+Take it from the same chart version you install. The profile can differ between charts. Unpack each version into its own directory: `helm pull --untar` does not unpack into a directory that already exists.
 
 ```bash
 VERSION='<published-chart-version>'
-helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir werft-chart
-ls -l werft-chart/werft/files/codex-sandbox-seccomp.json
+helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir "werft-chart-$VERSION"
+ls -l "werft-chart-$VERSION/werft/files/codex-sandbox-seccomp.json"
 ```
 
 <a id="2-노드-고르기" />
@@ -99,7 +99,7 @@ codexSandbox:
 <a id="6-chart를-올릴-때" />
 ### 6. When upgrading the chart
 
-With `installer`, upgrading to a chart whose profile changed rewrites the file on the nodes. With `external`, the administrator does it. Before upgrading, take the file from the new chart as in step 1, copy it to the node, and compare it with the current file on the node.
+With `installer`, upgrading to a chart whose profile changed rewrites the file on the nodes. With `external`, the administrator does it. Before upgrading, repeat step 1 with the new chart's `VERSION` to take the file, copy it to the node, and compare it with the current file on the node.
 
 ```bash
 sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
@@ -128,9 +128,9 @@ Finally, send one message to an `auto` session of a Codex agent. If the session 
 ## Troubleshooting
 
 - **`CODEX_SANDBOX_NOT_INSTALLED`.** The chart's `codexSandbox.provider` is still `disabled`. Check that the value from step 5 is in the values.
-- **Codex worker Pod is `Pending`.** No node carries the label, or the labelled nodes have no room. After 15 minutes the session fails with `NO_CAPACITY`, and its reason adds `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed`. List the labelled nodes with the first command under Verify, and check that they also match `worker.nodeSelector`.
-- **`CreateContainerError`.** The node carries the label but not the file: the file path or the kubelet root directory differs, or the node's disk was recreated. The scheduler counts this error as a failed launch, and its reason names the node and the profile path. The reason also says to check the chart's installer DaemonSet; with `external`, check the file on that node instead. Repeat step 3, or remove the label.
-- **An `auto` session is `recovery_required` with a `bwrap:` error in its reason.** The file and the label are right, and a node requirement blocks it. Check the node requirements under Before you begin.
+- **Codex worker Pod is `Pending`.** No node carries the label, or the labelled nodes have no room. After 15 minutes that input fails with `NO_CAPACITY` (the session takes the next input), and its reason adds `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed`. List the labelled nodes with the first command under Verify, and check that they also match `worker.nodeSelector`.
+- **`CreateContainerError` with `seccomp` in its message.** The node carries the label but not the file: the file path or the kubelet root directory differs, or the node's disk was recreated. The scheduler counts only this error, with `seccomp` in its message, as a failed launch, and its reason names the node and the profile path. The reason also says to check the chart's installer DaemonSet; with `external`, check the file on that node instead. Repeat step 3, or remove the label.
+- **An `auto` session is `recovery_required` with a `bwrap:` error in its reason.** First check with the `cmp` from step 3 that the node's file is this chart's file. If it is, a node requirement blocks it. Check the node requirements under Before you begin.
 
 <a id="되돌리기" />
 ## Roll back

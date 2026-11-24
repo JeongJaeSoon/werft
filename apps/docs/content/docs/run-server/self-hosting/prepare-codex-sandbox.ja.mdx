@@ -32,7 +32,7 @@ Codex エージェントの `auto` モードは、worker ノードの seccomp �
 | chart | `codexSandbox.provider` を持つ公開 chart。0.4.0 の chart にはこの値がありません。その chart では `codexSandbox.installer.enabled: false` が `external` と同じことをします |
 | ツール | `helm` 3 以上、`kubectl`。chart は管理者側で取得します |
 | ノード | Codex worker が動くノードごとの root 権限（SSH など）。ノードイメージや構成管理ツールでファイルを置いてもかまいません |
-| 権限 | Node にラベルを付ける権限（`nodes` の `patch`） |
+| 権限 | Node を参照してラベルを付ける権限（`nodes` の `get`・`list`・`patch`） |
 
 プロファイルのパスは kubelet の seccomp ディレクトリを基準に `werft/codex-sandbox.json` で固定です。kubelet の seccomp ディレクトリは kubelet の root ディレクトリの下の `seccomp` で、既定の root は `/var/lib/kubelet` です。kubelet を別の root ディレクトリで動かすディストリビューションでは、以下のコマンドの `/var/lib/kubelet` をそのパスに置き換えます（`installer` の `codexSandbox.installer.kubeletDir` が同じ値です）。
 
@@ -44,12 +44,12 @@ Codex エージェントの `auto` モードは、worker ノードの seccomp �
 <a id="1-chart에서-프로필-파일-꺼내기" />
 ### 1. chart からプロファイルファイルを取り出す
 
-設置する chart と同じバージョンから取り出します。プロファイルは chart ごとに異なることがあります。
+設置する chart と同じバージョンから取り出します。プロファイルは chart ごとに異なることがあります。バージョンごとに別のディレクトリへ展開します。`helm pull --untar` は既存のディレクトリには展開しません。
 
 ```bash
 VERSION='<published-chart-version>'
-helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir werft-chart
-ls -l werft-chart/werft/files/codex-sandbox-seccomp.json
+helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir "werft-chart-$VERSION"
+ls -l "werft-chart-$VERSION/werft/files/codex-sandbox-seccomp.json"
 ```
 
 <a id="2-노드-고르기" />
@@ -99,7 +99,7 @@ codexSandbox:
 <a id="6-chart를-올릴-때" />
 ### 6. chart を上げるとき
 
-`installer` は、プロファイルが変わった chart に上げるとノードのファイルを書き直します。`external` では管理者が行います。上げる前に、新しい chart から手順 1 のようにファイルを取り出してノードにコピーし、ノードで現在のファイルと比べます。
+`installer` は、プロファイルが変わった chart に上げるとノードのファイルを書き直します。`external` では管理者が行います。上げる前に、新しい chart の `VERSION` で手順 1 をやり直してファイルを取り出し、ノードにコピーし、ノードで現在のファイルと比べます。
 
 ```bash
 sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
@@ -128,9 +128,9 @@ helm get manifest werft -n werft | grep -c codex-seccomp
 ## よくあるつまずき
 
 - **`CODEX_SANDBOX_NOT_INSTALLED`。** chart の `codexSandbox.provider` がまだ `disabled` です。手順 5 の値が values に入っているか確認します。
-- **Codex worker Pod が `Pending`。** ラベルの付いたノードがないか、そのノードに空きがありません。15 分後にセッションは `NO_CAPACITY` で失敗し、理由に `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed` が加わります。確認の最初のコマンドでラベルの付いたノードを見て、そのノードが `worker.nodeSelector` にも合うか確認します。
-- **`CreateContainerError`。** ラベルはあるのに、そのノードにファイルがありません。ファイルのパスや kubelet の root ディレクトリが違うか、ノードのディスクを作り直した場合です。scheduler はこのエラーを launch の失敗として数え、理由にノード名とプロファイルのパスを残します。その理由は chart の設置 DaemonSet を確認するようにも書きますが、`external` ではそのノードのファイルを確認します。手順 3 をやり直すか、ラベルを外します。
-- **`auto` セッションが `recovery_required` で、理由に `bwrap:` のエラー。** ファイルとラベルは正しく、ノードの条件が妨げています。準備のノードの条件を確認します。
+- **Codex worker Pod が `Pending`。** ラベルの付いたノードがないか、そのノードに空きがありません。15 分後にその入力が `NO_CAPACITY` で失敗し（セッションは次の入力を受け付けます）、理由に `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed` が加わります。確認の最初のコマンドでラベルの付いたノードを見て、そのノードが `worker.nodeSelector` にも合うか確認します。
+- **メッセージに `seccomp` を含む `CreateContainerError`。** ラベルはあるのに、そのノードにファイルがありません。ファイルのパスや kubelet の root ディレクトリが違うか、ノードのディスクを作り直した場合です。scheduler はメッセージに `seccomp` を含むこのエラーだけを launch の失敗として数え、理由にノード名とプロファイルのパスを残します。その理由は chart の設置 DaemonSet を確認するようにも書きますが、`external` ではそのノードのファイルを確認します。手順 3 をやり直すか、ラベルを外します。
+- **`auto` セッションが `recovery_required` で、理由に `bwrap:` のエラー。** まず手順 3 の `cmp` で、ノードのファイルがこの chart のファイルと同じか確認します。同じなら、ノードの条件が妨げています。準備のノードの条件を確認します。
 
 <a id="되돌리기" />
 ## 元に戻す
