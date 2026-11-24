@@ -542,6 +542,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   test("the example allowlists name the Codex provider beside the Claude one", () => {
     for (const path of [
       "deploy/helm/werft/values-aws.example.yaml",
+      "deploy/helm/werft/examples/values-test.yaml",
       "infra/test-ops.env.example",
     ]) {
       const line = read(path)

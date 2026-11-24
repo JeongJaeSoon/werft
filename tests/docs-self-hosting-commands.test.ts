@@ -90,6 +90,38 @@ describe("self-hosting command fixtures", () => {
     }
   });
 
+  // A reader of a chart up to v0.4.0 saves these blocks instead of copying
+  // the chart's examples/, so they must be those files.
+  test("the chart trial's examples come from the published chart, and the fallback blocks are those files", () => {
+    const examples = join(import.meta.dir, "../deploy/helm/werft/examples");
+    const files = ["test-deps.yaml", "values-test.yaml"].map((name) =>
+      readFileSync(join(examples, name), "utf8"),
+    );
+    for (const suffix of ["", ".en", ".ja"]) {
+      const path = `try-chart-dependencies${suffix}`;
+      const text = readFileSync(join(root, `${path}.mdx`), "utf8");
+      const step2 = text.slice(text.indexOf("### 2."), text.indexOf("### 3."));
+      expect(step2).toContain(
+        'helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir werft-chart',
+      );
+      expect(step2).toContain(
+        "cp werft-chart/werft/examples/test-deps.yaml werft-chart/werft/examples/values-test.yaml .",
+      );
+      expect(step2).toContain("kubectl -n werft apply -f test-deps.yaml");
+      const start = text.search(
+        /^(?:<a id="examples가-없는-chart" \/>|## examples가 없는 chart)$/m,
+      );
+      expect(start, path).toBeGreaterThan(-1);
+      const fallback = text.slice(start);
+      const yaml = [
+        ...fallback.matchAll(/^\x60\x60\x60yaml\n([\s\S]*?)^\x60\x60\x60$/gm),
+      ].map((match) => match[1]);
+      expect(yaml, path).toEqual(files);
+      // The steps above the fallback give no file of their own to save.
+      expect(text.slice(0, start), path).not.toContain("\x60\x60\x60yaml");
+    }
+  });
+
   // An agent running the install is stopped by any command that names the
   // env file, so step 2 runs init-config, which needs no file name.
   test.each(["single-server", "try-localstack"])(
