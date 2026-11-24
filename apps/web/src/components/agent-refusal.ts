@@ -5,6 +5,8 @@ import { errorKey, type Translate } from "../i18n/i18n.tsx";
 // The release check's model refusal (release-ids.ts), as "<field>: <message>".
 const MODEL_REFUSAL =
   /^card\.model: model (.+) is not a model of connection (.+)$/;
+const JUDGMENT_MODEL_REFUSAL =
+  /^card\.judgment_model: model (.+) is not a model of connection (.+)$/;
 
 /**
  * What a refused agent action says: a 403 in the words of the disabled
@@ -28,6 +30,15 @@ export function agentRefusal(
     return t("agent.releases.modelRefused", {
       card: model[1] ?? "",
       connection: model[2] ?? "",
+    });
+  const judgment =
+    error.code === "UNSUPPORTED_CAPABILITY"
+      ? JUDGMENT_MODEL_REFUSAL.exec(error.message)
+      : null;
+  if (judgment)
+    return t("agent.releases.judgmentModelRefused", {
+      model: judgment[1] ?? "",
+      connection: judgment[2] ?? "",
     });
   if (error.code === "UNSUPPORTED_CAPABILITY" || error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;

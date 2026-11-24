@@ -150,7 +150,11 @@ describe("createConversationCallExecutor", () => {
         "unknown_conversation",
       ],
       [() => ({ outcome: "already_issued" }) as const, "already_issued"],
-      [() => ({ outcome: "unavailable" }) as const, "unavailable"],
+      [
+        () =>
+          ({ outcome: "unavailable", reason: "connection_missing" }) as const,
+        "unavailable",
+      ],
       [
         () => {
           throw new Error("connection reset");
@@ -159,7 +163,7 @@ describe("createConversationCallExecutor", () => {
       ],
     ] as const) {
       const { executor, requests } = harness({ issue });
-      expect(await executor.run(request)).toEqual({ outcome } as never);
+      expect(await executor.run(request)).toMatchObject({ outcome });
       expect(requests).toHaveLength(0);
     }
   });

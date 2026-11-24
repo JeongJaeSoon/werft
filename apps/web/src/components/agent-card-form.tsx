@@ -41,12 +41,15 @@ export function languageLabel(
 export interface CardDraft {
   readonly language: AgentCard["language"];
   readonly model: string;
+  /** Empty: the judgment calls run `model`. */
+  readonly judgmentModel: string;
 }
 
 export const EMPTY_DRAFT: CardDraft = {
   // A new card follows the person; a stored card keeps what it holds.
   language: "follow-user",
   model: "",
+  judgmentModel: "",
 };
 
 type ApiCard = components["schemas"]["CreateAgentRequest"]["card"];
@@ -59,6 +62,7 @@ export function draftFromCard(card: AgentCard): CardDraft {
   return {
     language: card.language,
     model: card.model,
+    judgmentModel: card.judgment_model ?? "",
   };
 }
 
@@ -77,6 +81,9 @@ export function cardDraftOf(value: unknown): CardDraft | null {
   return {
     language: kept.language as CardDraft["language"],
     model: kept.model,
+    // A draft kept before this field had none.
+    judgmentModel:
+      typeof kept.judgmentModel === "string" ? kept.judgmentModel : "",
   };
 }
 
@@ -86,10 +93,13 @@ export function cardDraftOf(value: unknown): CardDraft | null {
  * credential_refs, an earlier role and instructions) survive the save.
  */
 export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
+  const { judgment_model: _kept, ...rest } = base ?? { rules: [] };
+  const judgment = draft.judgmentModel.trim();
   return toApiCard({
-    ...(base ?? { rules: [] }),
+    ...rest,
     language: draft.language,
     model: draft.model.trim(),
+    ...(judgment === "" ? {} : { judgment_model: judgment }),
     capabilities: draftCapabilities(base?.capabilities),
   });
 }
@@ -206,6 +216,12 @@ export function AgentCardFields({
             error={errors.model}
             onChange={(model) => set("model", model)}
           />
+          <JudgmentModelSelect
+            options={modelOptions(offered, draft.judgmentModel)}
+            value={draft.judgmentModel}
+            cardModel={draft.model}
+            onChange={(model) => set("judgmentModel", model)}
+          />
         </>
       )}
       <Field>
@@ -278,6 +294,53 @@ function ModelSelect({
         </Alert>
       ) : null}
       <FieldError>{error}</FieldError>
+    </Field>
+  );
+}
+
+function JudgmentModelSelect({
+  options,
+  value,
+  cardModel,
+  onChange,
+}: {
+  readonly options: readonly ModelOption[];
+  readonly value: string;
+  readonly cardModel: string;
+  readonly onChange: (model: string) => void;
+}) {
+  const { t } = useI18n();
+  const uncataloged = options.some(
+    (option) => option.model === value && !option.offered,
+  );
+  return (
+    <Field>
+      <FieldLabel>{t("agentCard.judgmentModel")}</FieldLabel>
+      <NativeSelect
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <NativeSelectOption value="">
+          {cardModel === ""
+            ? t("agentCard.judgmentModelCardUnset")
+            : t("agentCard.judgmentModelCard", { model: cardModel })}
+        </NativeSelectOption>
+        {options.map((option) => (
+          <NativeSelectOption key={option.model} value={option.model}>
+            {!option.offered
+              ? t("agentCard.modelUncataloged", { model: option.model })
+              : option.model}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <FieldDescription>{t("agentCard.judgmentModelHint")}</FieldDescription>
+      {uncataloged ? (
+        <Alert variant="amber">
+          <FieldDescription>
+            {t("agentCard.judgmentModelUncatalogedWarning")}
+          </FieldDescription>
+        </Alert>
+      ) : null}
     </Field>
   );
 }
