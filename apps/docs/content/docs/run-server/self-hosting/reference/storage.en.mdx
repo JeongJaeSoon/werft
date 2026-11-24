@@ -251,6 +251,29 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/conversation-reco
 - **Running it again.** The result is the same. With nothing left it writes nothing and says `unchanged`. If an earlier run stopped after deleting but before stopping a session, running it again stops that session.
 - **Audit.** When something was deleted, one receipt `delete_conversation_records` is in the audit log: the `--by` person as its actor, the conversation as its target and the rows removed as its result.
 
+<a id="끝을-모르는-예산-예약-풀기" />
+## Resolving budget reservations of unknown end
+
+A reservation whose call got no usage report within its lease (5 minutes), marked with `unknown_at`, stays held on its account until a late report comes. When they pile up and an account or an agent is stuck, an operator looks at them with this command and resolves them. There is no API route: an operator who can run a command in the API container runs it, naming a workspace owner or admin with `--by`. Session calls and conversation calls (a conversation turn's included) go through the same command.
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts list --limit 20
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts resolve --account <budget-account-id> --by admin@example.com --dry-run
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts resolve --call <call-id> --by admin@example.com
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts resolve --call <call-id> --by admin@example.com --refund --reason "provider never billed"
+```
+
+- **`list`.** The accounts holding the most reservations of unknown end and the total over every account, with the names and the numbers the reconciler logs (`Budget reservations of unknown end held` and `... reported`): `unknown_count`, `held_cost_usd` and `held_tokens` under `accounts`, and `total`. `lines` has one entry per reservation, the oldest mark first: the call id (`call_id`), its kind (`call_kind`: `session` or `conversation`, `unlinked` when neither ledger has a row for it), the account and its month, the amount held, and the session id or the agent and conversation turn ids. `--account` lists one account's lines; `--limit` (default 100, at most 1000) caps the count. It writes nothing.
+- **`resolve`.** Resolves the reservations named with `--call` (repeatable), or the oldest `--limit` (default and at most 100) of an `--account`. At most 100 a run; run it again for more. Each reservation commits on its own.
+  - By default each is charged at what it held (`resolution: "spent"`), so a call of unknown end is never charged less. `--refund` gives it back to zero (`refunded`) and needs `--reason`; a `--refund` with no reason is refused with exit code 2 and changes nothing.
+  - Either way the hold comes off the account and the call stops counting as in progress: a conversation call becomes `resolved` and leaves the concurrency limits, and a session call's ledger row is released. The account and the agent take new calls at once.
+  - A line that is not a reservation of unknown end (settled already, or its lease renewed) is left as it is, as `not_unknown`. An id that does not exist is `not_found`.
+  - `--dry-run` reports what would be resolved and the amounts (`would_resolve`) and writes nothing.
+- **`--by`.** The address of a live owner or admin of every workspace the named reservations belong to. If it is not, nothing is written and the command ends with `not_admin` (exit code 4). If the role is lost mid-run, the run stops there and `stopped_at` names the call it stopped at (exit code 4).
+- **Audit.** Each resolved reservation writes one receipt `resolve_unknown_budget` in the transaction that resolves it: the `--by` person as its actor, the account's owner (a person or a team, or the workspace when no account held it) as its target, and as its result the call, the account and its month, which way it was resolved (`resolution`), the reason (`reason`), the amounts held and charged, and the run id (`run_id`). The time is the receipt's `created_at`.
+- **Late reports.** A report that comes after the resolve does not reopen the reservation. The difference between the actual amount and what the resolve charged is added to the reservation's own account as one adjustment row (`budget_adjustments`): a report of less gives the difference back, and a report of more, or any report of a line resolved with `--refund`, charges more. The adjustment goes to the reservation's own month, so one that comes after the month turned leaves this month's spend as it is. An adjustment is written once, keyed by the reservation's call id; the same report again adds nothing.
+- **Output.** One line of JSON on stdout. `resolve` gives `outcome` (`resolved`, `unchanged` when nothing was resolved, `dry_run` with `--dry-run`, or `not_admin`), `run_id`, `resolution`, the count `resolved` and each line's result in `lines`. Exit codes: 0 done (also when nothing was left to resolve), 1 unexpected error, 2 usage, 4 refused.
+
 ## Session event archive
 
 A weekly job moves the event rows of long-idle sessions to the checkpoint bucket. It changes no rows other than events, and the API gives the same responses after the move.

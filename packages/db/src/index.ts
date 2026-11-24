@@ -7,6 +7,7 @@ export * from "./agents/agent-workspace-mcp.ts";
 export * from "./agents/retired-catalog-drafts.ts";
 export * from "./agents.ts";
 export * from "./budget-accounts.ts";
+export * from "./budget-unknown.ts";
 export {
   listUnreleasedLaunchImages,
   listUpgradeSessions,

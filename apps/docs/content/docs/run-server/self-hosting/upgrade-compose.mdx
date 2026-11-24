@@ -339,6 +339,13 @@ migration `0334_input_mirror`가 `slack_outbox`에 종류 `input_mirror`와 그 
 - DM의 새 주제는 그 사람의 DM 채널을 아는 주제가 있을 때만 올라간다. 없으면 입력은 Slack에 비치지 않은 채로 기다린다.
 - CHECK와 외래 키는 `NOT VALID`로 더하고 따로 검증한다. 지원 창 안의 이미지로 되돌려도 된다.
 
+### 끝을 모르는 예약을 운영자가 푸는 릴리스
+
+migration `0350_unknown_budget_resolution`이 `budget_reservations`에 nullable 칸 `resolution`과 상태 값 `resolved`를, `conversation_calls`에 상태 값 `resolved`를 더하고, 늦은 보고의 조정 줄을 두는 빈 표 `budget_adjustments`를 만든다. 바뀐 CHECK는 `NOT VALID`로 다시 더한 뒤 따로 검증하므로 표를 오래 잠그지 않는다. 올릴 때 할 일은 없고, 운영자가 명령으로 풀기 전에는 동작이 그대로다.
+
+- 운영자 명령 `budget-unknown.ts`(`list`·`resolve`)가 들어온다. 사용법은 [끝을 모르는 예산 예약 풀기](/run-server/self-hosting/reference/storage#끝을-모르는-예산-예약-풀기)에 있다. 푼 예약마다 receipt `resolve_unknown_budget`이 남는다.
+- 지원 창 안의 이미지로 되돌려도 된다. 다만 푼 예약에 늦은 보고가 오면 옛 이미지는 그 보고를 저장하지 못하고 실패로 답하며, 보고는 다시 시도된다. 되돌린 동안은 명령으로 풀지 않는다.
+
 ### 끝을 모르는 호출을 표시하고 에이전트 스스로 하는 일을 먼저 멈추는 릴리스
 
 migration `0332_unknown_budget_end`가 `budget_reservations`와 `conversation_calls`에 끝을 모르는 호출을 적는 칸 `unknown_at`(nullable)을 더하고, reconciler가 읽는 부분 인덱스 둘을 만든다. 올릴 때 할 일은 없다. 예산 한도가 없는 설치에서는 사람, key, 에이전트의 호출이 지금처럼 돈다.

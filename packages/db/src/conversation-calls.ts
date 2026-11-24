@@ -46,6 +46,7 @@ import { PROVIDER_EXCHANGE_LEASE_MS } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import {
   agents,
+  budgetAdjustments,
   budgetReservations,
   conversationCalls,
   conversations,
@@ -743,6 +744,34 @@ export function createPostgresConversationCalls(
                 unmetered,
               }
             : { outcome: "conflict" };
+        }
+        if (call.state === "resolved") {
+          // An operator closed it while its end was unknown: it stays closed,
+          // and the report adds the call's one adjustment to its account.
+          const costUsd = unmetered
+            ? 0
+            : toStoredCost(input.priceFor({ unmetered }).costUsd);
+          const adjusted = await settleBudgetIn(tx, {
+            callId: input.callId,
+            actual: { costUsd, tokens: reservationTokens(input.usage) },
+          });
+          if (adjusted === "adjusted") {
+            return { outcome: "settled", costUsd, unmetered };
+          }
+          if (adjusted !== "already_adjusted") {
+            throw new Error(
+              `conversation call ${input.callId}: its resolved reservation was ${adjusted}`,
+            );
+          }
+          const [first] = await tx
+            .select({ costUsd: budgetAdjustments.reportedCostUsd })
+            .from(budgetAdjustments)
+            .where(eq(budgetAdjustments.callId, input.callId));
+          return {
+            outcome: "already_settled",
+            costUsd: first?.costUsd ?? 0,
+            unmetered,
+          };
         }
         // Bound and not settled is in flight, its end unknown or not, held
         // either way: a release takes only an unbound row. A late report
