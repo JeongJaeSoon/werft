@@ -12,6 +12,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+### 운영자가 할 일
+
+- **운영자 명령 `private-channel-sessions.ts apply`가 바꾼 것이 없으면 `outcome: "unchanged"`(exit 0)로 끝나고, 세션의 공유 범위를 바꿀 때마다 그 세션에 `share_session` receipt를 남긴다**(JeongJaeSoon/werft#2091). migration은 없다. 출력을 `moved`로 분기하던 스크립트는 `unchanged`도 성공으로 읽는다. 출력에 `run_id`·`sessions_moved`·`bindings_changed`가 더해진다.
+  - receipt에는 이전·새 범위, 사유, 못 보게 된 사람 수(`people_losing`, 명단 없음), 실행 id(`run_id`) 또는 Slack 이벤트 id(`event_id`)가 들고 세션 본문은 없다. Slack의 채널 공개↔비공개 전환도 같은 receipt를 남긴다(`reason: "slack_channel_converted"`).
+  - receipt를 쓰지 못하면 그 채널의 옮기기도 되돌리고 exit 1로 멈춘다. 이 릴리스 전 명령으로 옮긴 세션에는 receipt가 없다.
+
 ## v0.4.0
 
 `v0.3.0` 뒤 `main`에 들어간 변경이다. Slack 글을 입력 접수 표와 관여 기록으로 이루어진 대화 층에 적기 시작하고(채널 요약 표는 아직 비어 있다), 비공개 Slack 채널에서 생긴 세션은 지금 채널 멤버에게만 보이며, Slack에서 지운 글을 출처로 가진 턴은 가려지고 그 세션은 멈춘다. 스킬의 버전·승인·GitHub 동기화와 워크스페이스 MCP 서버가 들어온다. 실행 한도와 작업 공간 보존 시간의 env, `BOOTSTRAP_TOKEN`, 설정의 `value_env`·`secret_id`, 설치 카탈로그 MCP, 실행 규칙, 에이전트 접근 설정이 없어지고, migration `0336`이 Slack 스레드의 옛 unique를 지워 올린 뒤에는 `v0.3.0` 이하의 이미지로 되돌릴 수 없다. 그래서 minor 버전을 올린다. migration `0286`–`0337`이 있으므로 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다. 운영자 명령 `private-channel-sessions.ts`와 `slack-inbound-payloads.ts`는 모든 역할을 이 릴리스로 올린 뒤에 돌린다.

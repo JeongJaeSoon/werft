@@ -8,6 +8,7 @@ import type {
   ChannelKindChanged,
   ChannelKindInside,
   ChannelKindNow,
+  ChannelScopeChange,
   ChannelSessionPlace,
   Principal,
   ResolveSurfaceBindingInput,
@@ -471,8 +472,8 @@ export function createPostgresSurfaceBindingStore(
         : null,
     recordJoin: (installationId, channelId, bindingId, at, kind) =>
       recordJoin(db, installationId, channelId, bindingId, at, kind),
-    channelKindChanged: (place, kindNow) =>
-      channelKindChanged(db, place, kindNow),
+    channelKindChanged: (place, kindNow, change) =>
+      channelKindChanged(db, place, kindNow, change),
     channelDeleted: (installationId, channelId, at) =>
       channelDeleted(db, installationId, channelId, at),
     channelNotFound: (installationId, channelId, askedAt) =>
@@ -1075,6 +1076,7 @@ async function channelKindChanged(
   db: Database,
   place: ChannelSessionPlace,
   kindNow: (inside: ChannelKindInside) => Promise<ChannelKindNow | null>,
+  change?: ChannelScopeChange,
 ): Promise<ChannelKindChanged | null> {
   return db.transaction(async (tx) => {
     // One change of a channel at a time, Slack asked after the lock: of two
@@ -1093,6 +1095,12 @@ async function channelKindChanged(
         SELECT id FROM agents WHERE id = ${place.agentId.toLowerCase()}::uuid
         FOR SHARE`);
     }
+    // Who loses each session, read before the binding or a share is written:
+    // the visibility the plan read.
+    const losing =
+      kind === "private_channel" && held.size > 0
+        ? ((await change?.peopleLosing?.(tx, [...held])) ?? null)
+        : null;
     let binding: ChannelKindChanged["binding"] = "unchanged";
     const current = UUID.test(place.installationId)
       ? await lockBinding(
@@ -1143,14 +1151,17 @@ async function channelKindChanged(
           status === "pending_approval"
             ? "request_surface_binding"
             : "set_surface_binding",
-          { reason: nowPrivate ? "channel_now_private" : "channel_now_public" },
+          {
+            reason: nowPrivate ? "channel_now_private" : "channel_now_public",
+            ...change?.ref,
+          },
         );
         binding = nowPrivate ? "now_private" : "now_public";
       }
     }
     return {
       binding,
-      ...(await moveChannelSessionScope(tx, place, kind, held)),
+      ...(await moveChannelSessionScope(tx, place, kind, held, change, losing)),
     };
   });
 }
