@@ -14093,6 +14093,7 @@
               "issue_password_reset",
               "reset_password",
               "recover_owner",
+              "bootstrap_owner",
               "lock_login",
               "takeover",
               "link_account",
@@ -36673,7 +36674,7 @@
           "Auth"
         ],
         "summary": "Create the first owner and default workspace, or recover an owner",
-        "description": "Allowed only with a live setup link, which the `setup-link` command issues only while no live owner exists (an owner whose account or membership is disabled is not live). The link is spent in the same transaction that makes the owner. On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt.\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
+        "description": "Allowed only with a live setup link, which the `admin bootstrap-owner` command issues for one email address only while no live owner exists (an owner whose account or membership is disabled is not live). `email` must be the address the link was issued for. The link is spent in the same transaction that makes the owner. On an empty installation it creates the workspace and writes a `bootstrap_owner` receipt naming the link. On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt.\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
         "security": [],
         "parameters": [],
         "requestBody": {
@@ -36797,6 +36798,41 @@
                               "type": "string",
                               "enum": [
                                 "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: . `email` is not the address the setup link was issued for. The link stays live.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
                               ]
                             }
                           }
