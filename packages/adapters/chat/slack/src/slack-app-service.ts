@@ -685,10 +685,20 @@ export function createSlackAppService(deps: {
     }> {
       const { apps } = ready();
       if (change.action === "allow") {
-        assertAddable(
-          [change.botUserId],
-          await workspaceBots(workspaceId, agentId, [change.botUserId]),
-        );
+        const state = await workspaceBots(workspaceId, agentId, [
+          change.botUserId,
+        ]);
+        // Already allowed, as far as it was read: nothing to add, so a
+        // disallow made meanwhile is not undone, and a bot Slack lost may stay.
+        if (state.allowed.includes(change.botUserId)) {
+          return {
+            changed: false,
+            added: [],
+            removed: [],
+            allowed_user_ids: state.allowed,
+          };
+        }
+        assertAddable([change.botUserId], state);
       } else if ((await apps.getAllowedBots(workspaceId, agentId)) === null) {
         throw NOT_FOUND();
       }

@@ -204,6 +204,32 @@ describe("the operator's changes to the agent's Slack bot allow list", () => {
     }
   });
 
+  test("allowing a bot Slack lost but the agent still has changes nothing and adds nothing back", async () => {
+    const { service, apps } = setup([[bot("U0OLD", "old", { deleted: true })]]);
+    await apps.store.putAllowedBots({
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      actor: null,
+      allowedBotUserIds: ["U0OLD"],
+    });
+    const same = await service.changeAgentAppBotAsOperator(WORKSPACE, AGENT, {
+      action: "allow",
+      botUserId: "U0OLD",
+    });
+    expect(same).toMatchObject({ changed: false, allowed_user_ids: ["U0OLD"] });
+    // Not allowed any more, and gone: refused, as a new bot would be.
+    await service.changeAgentAppBotAsOperator(WORKSPACE, AGENT, {
+      action: "disallow",
+      botUserId: "U0OLD",
+    });
+    await expect(
+      service.changeAgentAppBotAsOperator(WORKSPACE, AGENT, {
+        action: "allow",
+        botUserId: "U0OLD",
+      }),
+    ).rejects.toMatchObject({ details: { reason_code: "slack_bot_unknown" } });
+  });
+
   test("disallows one bot without asking Slack, and a bot not allowed changes nothing", async () => {
     const { service, reads, apps } = setup(pages());
     await apps.store.putAllowedBots({
