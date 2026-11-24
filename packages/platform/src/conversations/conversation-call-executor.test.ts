@@ -142,6 +142,20 @@ describe("createConversationCallExecutor", () => {
     }
   });
 
+  test("a parser that throws makes the answer malformed, and its error is not logged", async () => {
+    const { executor, logs } = harness({});
+    expect(
+      await executor.run({
+        ...request,
+        parse: (text) => {
+          throw new SyntaxError(`not JSON: ${text}`);
+        },
+      }),
+    ).toEqual({ outcome: "malformed", callId: CALL_ID, retryable: false });
+    expect(logs).toHaveLength(1);
+    expect(JSON.stringify(logs)).not.toContain(ANSWER);
+  });
+
   test("each way a call goes wrong is a named result, and no log holds the prompt or the answer", async () => {
     const cases: Array<{
       answer: () => OutboundResponse;

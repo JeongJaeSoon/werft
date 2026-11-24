@@ -10,8 +10,8 @@ import {
   OutboundRefusedError,
 } from "../ports/outbound-http.ts";
 
-// Under the proxy's 30s regrant: the token is bound by the first grant, so an
-// exchange still open at the regrant is cut, and the call left unknown.
+// Shorter than the proxy's 30s regrant interval, so a call is answered on its
+// first grant and never waits on a regrant.
 export const CONVERSATION_CALL_TIMEOUT_MS = 25_000;
 
 export type ConversationCallMessage = {
@@ -165,7 +165,13 @@ export function createConversationCallExecutor(deps: {
         });
       }
       const text = answerText(response.text);
-      const value = text === null ? null : input.parse(text);
+      let value: T | null = null;
+      try {
+        value = text === null ? null : input.parse(text);
+      } catch {
+        // A parser that throws on text not in its shape reads as one that
+        // returns null; what it threw may quote the answer.
+      }
       if (value === null) {
         return failed({ outcome: "malformed", callId, retryable: false });
       }
