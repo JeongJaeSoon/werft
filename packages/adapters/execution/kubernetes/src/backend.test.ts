@@ -612,6 +612,33 @@ describe("inspect", () => {
     }
   });
 
+  test("a Pending Pod the scheduler found no node for says so, in the scheduler's words", async () => {
+    const { api, backend } = setup();
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    const message =
+      "0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.";
+    api.setPhase(NS, podName, "Pending", {
+      conditions: [
+        {
+          message,
+          reason: "Unschedulable",
+          status: "False",
+          type: "PodScheduled",
+        },
+      ],
+    });
+    const observed = await backend.inspect(intent);
+    expect(observed.state).toBe("pending");
+    expect(observed.unschedulable).toEqual({ message });
+
+    // Placed and pulling its image: pending, with room.
+    api.setPhase(NS, podName, "Pending", {
+      conditions: [{ status: "True", type: "PodScheduled" }],
+    });
+    expect((await backend.inspect(intent)).unschedulable).toBeUndefined();
+  });
+
   test("a worker that succeeded reports its reason and has no log read", async () => {
     const { api, backend } = setup();
     const { intent } = intentFor();

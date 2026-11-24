@@ -138,11 +138,13 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
     return 1;
   }
   // A launch waiting out its backoff is one that is failing; one given up
-  // on failed its session's input; so did a session out of replacements.
+  // on failed its session's input, as did one that found no room in time;
+  // so did a session out of replacements.
   // Each is one session's trouble, kept in the database, that a restart of
   // this loop would not fix.
   return summary.launchesBackingOff.length > 0 ||
     summary.launchesQuarantined.length > 0 ||
+    summary.launchesNoCapacity.length > 0 ||
     summary.replacementsExhausted.length > 0
     ? PASS_DEGRADED_EXIT
     : 0;

@@ -96,6 +96,13 @@ export type ExecutionObservation = {
   /** Why a terminated resource ended, as the provider names it (`OOMKilled`). */
   terminationReason?: string;
   /**
+   * A pending resource the provider has no room to place: for Kubernetes, a
+   * Pod the scheduler marked Unschedulable. `message` is the provider's own
+   * words (`0/1 nodes are available: 1 Insufficient memory.`), for the
+   * operator's log. Absent when it has room or the backend cannot tell.
+   */
+  unschedulable?: { message: string };
+  /**
    * The bounded end of a failed resource's output, read before anything
    * removes it. Only logged: it may carry whatever the worker printed.
    */
