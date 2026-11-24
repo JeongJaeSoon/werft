@@ -102,6 +102,12 @@ export async function reensure(
     backingOff(ctx, execution);
     return;
   }
+  if (
+    !execution.claimed &&
+    (await refusedForCodexSandbox(ctx, execution, stored.image))
+  ) {
+    return;
+  }
   lock.throwIfAborted();
   const attempt = await openAttempt(ctx, execution);
   if (attempt === null) return;
@@ -444,6 +450,32 @@ export async function openAttempt<
   return { ...execution, launchAttempts: attempts };
 }
 
+/**
+ * Refuses a launch whose image needs a Codex sandbox the installation does
+ * not have, before anything is created: the queued input fails with
+ * `CODEX_SANDBOX_NOT_INSTALLED` and the session waits for its next input.
+ * True when it was refused (or moved on meanwhile), so the caller stops.
+ */
+export async function refusedForCodexSandbox(
+  ctx: PassContext,
+  execution: ExecutionRef & { sessionId: string | null },
+  image: string | null,
+): Promise<boolean> {
+  const missing =
+    image === null ? undefined : ctx.backend.missingCodexSandbox?.(image);
+  if (missing === undefined) return false;
+  const ref = refOf(execution);
+  ctx.lock.throwIfAborted();
+  if (await ctx.store.giveUpForCodexSandbox(ref, missing)) {
+    ctx.summary.launchesNoCodexSandbox.push(ref);
+    ctx.logger.error(
+      "Execution refused: no Codex sandbox on this installation; queued input failed with CODEX_SANDBOX_NOT_INSTALLED",
+      { ...fieldsOf(ref), reason: missing, session_id: execution.sessionId },
+    );
+  }
+  return true;
+}
+
 export function backingOff(ctx: PassContext, execution: ActiveExecution): void {
   ctx.summary.launchesBackingOff.push(refOf(execution));
   ctx.logger.warn("Launch is waiting out the backoff after a failed attempt", {
@@ -716,6 +748,11 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
     if (stored === null) continue;
     free -= 1;
     const ref = refOf(stored);
+    if (
+      await refusedForCodexSandbox(ctx, { ...ref, sessionId }, chosen.image)
+    ) {
+      continue;
+    }
     lock.throwIfAborted();
     const launch = await openAttempt(ctx, {
       ...stored,

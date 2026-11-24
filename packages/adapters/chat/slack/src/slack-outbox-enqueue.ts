@@ -263,7 +263,9 @@ export async function enqueueSlackTurnAnswers(deps: {
           ? SLACK_NOTICE_MESSAGES[locale][
               turn.sessionPaused ? "noCapacityPaused" : "noCapacity"
             ]
-          : SLACK_NOTICE_MESSAGES[locale].failed;
+          : turn.terminalReason === "codex_sandbox_not_installed"
+            ? SLACK_NOTICE_MESSAGES[locale].codexSandboxNotInstalled
+            : SLACK_NOTICE_MESSAGES[locale].failed;
     await deps.outbox.enqueue({
       workspaceId: turn.workspaceId,
       agentId: turn.agentId,

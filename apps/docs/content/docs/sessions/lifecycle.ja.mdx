@@ -72,6 +72,8 @@ worker の入る空きがなく起動を待っているセッションでは、`
 
 空きが出ると worker が起動し、2 つの値は `null` に戻る。15 分以内に空きが出なければ、待っていた turn は `failed` で終わり、その入力の受付は `NO_CAPACITY` で失敗する。セッション自体は失敗にならない。`idle` に戻って次のメッセージを受け付け、次のメッセージが新しい worker を起動して前の会話から続ける。resume 中（`resuming`）だったセッションは checkpoint をそのまま残して `paused` に戻り、resume の受付も `NO_CAPACITY` で失敗する。しばらくしてもう一度 resume すれば、その checkpoint から続ける。どちらの場合も `recovery_required` にはならない。
 
+Kubernetes の環境では、Codex エージェントの worker は Pod を作る前に Codex サンドボックスがあるかを確かめる。chart の `codexSandbox.provider` が `disabled`（既定）なら、その入力の受付はすぐに `CODEX_SANDBOX_NOT_INSTALLED` で失敗する。待たず、セッションは `NO_CAPACITY` と同じく `idle` に戻って次のメッセージを受け、launch の失敗には数えない。管理者が `installer` や `external` にする方法は[設定リファレンス](/run-server/self-hosting/reference/configuration)にある。
+
 ## admission_state
 
 | 値 | 意味 |

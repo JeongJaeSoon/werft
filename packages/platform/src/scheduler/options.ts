@@ -213,6 +213,12 @@ export type SchedulerRunSummary = {
    */
   launchesNoCapacity: ExecutionRef[];
   /**
+   * Launches refused before their resource was created: the installation has
+   * no Codex sandbox, so their queued input failed with
+   * `CODEX_SANDBOX_NOT_INSTALLED` and their kill was written.
+   */
+  launchesNoCodexSandbox: ExecutionRef[];
+  /**
    * Idle workers asked to go this pass so a launch waiting for room gets
    * theirs. Each stops at its next poll; its session waits for its next
    * input, as after an idle timeout.

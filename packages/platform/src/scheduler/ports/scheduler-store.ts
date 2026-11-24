@@ -472,7 +472,21 @@ export interface SchedulerStore {
    * when the launch is claimed, gave its slot back, was asked to go, or has
    * not waited that long.
    */
-  giveUpForCapacity(ref: ExecutionRef, limitMs: number): Promise<boolean>;
+  giveUpForCapacity(
+    ref: ExecutionRef,
+    limitMs: number,
+    /** Appended to the failure's detail: where else to look for the room. */
+    hint?: string,
+  ): Promise<boolean>;
+  /**
+   * Gives an unclaimed launch up before its resource is created, because
+   * the installation has no Codex sandbox for it: the same as
+   * `giveUpForCapacity` (kill intent written, queued input failed, session
+   * left waiting for its next input, no launch failure counted) but with
+   * `CODEX_SANDBOX_NOT_INSTALLED`, and with no wait required. False when
+   * the launch is claimed, gave its slot back, or was asked to go.
+   */
+  giveUpForCodexSandbox(ref: ExecutionRef, detail: string): Promise<boolean>;
   /** See `IdleWorkers`; claimed launches that hold a slot on `backend`. */
   idleWorkers(backend: ExecutionBackendKind): Promise<IdleWorkers>;
   /**
