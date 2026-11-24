@@ -787,7 +787,8 @@ describe("scripts/test-ops.sh", () => {
         expect(result.stderr).toContain(
           "https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/prepare-xfs/",
         );
-        expect(await dockerCalls()).not.toContain("config --format json");
+        // The render comes first: it says whether the quota is on at all.
+        expect(await dockerCalls()).toContain("config --format json");
         expect(await dockerCalls()).not.toContain("volume rm");
       },
     );
