@@ -17,7 +17,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **운영자 명령 `private-channel-sessions.ts apply`가 바꾼 것이 없으면 `outcome: "unchanged"`(exit 0)로 끝나고, 세션의 공유 범위를 바꿀 때마다 그 세션에 `share_session` receipt를 남긴다**(JeongJaeSoon/werft#2091). migration은 없다. 출력을 `moved`로 분기하던 스크립트는 `unchanged`도 성공으로 읽는다. 출력에 `run_id`·`sessions_moved`·`bindings_changed`가 더해진다.
   - receipt에는 이전·새 범위, 사유, 못 보게 된 사람 수(`people_losing`, 명단 없음), 실행 id(`run_id`) 또는 Slack 이벤트 id(`event_id`)가 들고 세션 본문은 없다. Slack의 채널 공개↔비공개 전환도 같은 receipt를 남긴다(`reason: "slack_channel_converted"`).
   - receipt를 쓰지 못하면 그 채널의 옮기기도 되돌리고 exit 1로 멈춘다. 이 릴리스 전 명령으로 옮긴 세션에는 receipt가 없다.
-- **운영자 명령 `private-channel-sessions.ts plan`의 `members_unconfirmed: true` 세션에 이유 칸 `members_unconfirmed_reason`(Slack 오류 코드나 짧은 분류)이 더해지고, 같은 이유가 stderr 로그 한 줄로 남는다**(JeongJaeSoon/werft#PR). 판정과 종료 코드는 그대로다. 출력을 읽는 스크립트는 새 칸을 무시해도 된다.
+- **운영자 명령 `private-channel-sessions.ts plan`의 `members_unconfirmed: true` 세션에 이유 칸 `members_unconfirmed_reason`(Slack 오류 코드나 짧은 분류)이 더해지고, 같은 이유가 stderr 로그 한 줄로 남는다**(JeongJaeSoon/werft#2094). 판정과 종료 코드는 그대로다. 출력을 읽는 스크립트는 새 칸을 무시해도 된다.
 
 ## v0.4.0
 
