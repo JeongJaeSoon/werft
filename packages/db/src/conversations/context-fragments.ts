@@ -1,5 +1,6 @@
 import {
   type ConversationInputId,
+  type ConversationTurnId,
   type EngagementKind,
   type ScopeKey,
   scopeKeyOf,
@@ -17,6 +18,7 @@ import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { createPostgresChannelSummaryStore } from "./channel-summaries.ts";
 import { lockedDeletedSource } from "./deleted-sources.ts";
+import { inputTexts } from "./input-texts.ts";
 
 /** The conversation columns a fragment's scope is read off. */
 type ConversationColumns = {
@@ -101,12 +103,14 @@ export function createPostgresContextFragmentSource(
           }
         }
 
-        // An engagement is the conversation's through its session's parent;
-        // a channel one must be of a message in that channel too.
+        // An engagement is the conversation's through its session's parent
+        // or its conversation turn's conversation; a channel one must be of
+        // a message in that channel too.
         const engagements = rowsOf<
           ConversationColumns & {
             engagement_kind: EngagementKind;
-            session_id: string;
+            session_id: string | null;
+            conversation_turn_id: ConversationTurnId | null;
             created_at: Date | string;
             e_team_id: string;
             e_channel_id: string;
@@ -114,12 +118,15 @@ export function createPostgresContextFragmentSource(
           }
         >(
           await tx.execute(sql`
-            SELECT e.kind AS engagement_kind, e.session_id, e.created_at,
+            SELECT e.kind AS engagement_kind, e.session_id,
+              e.conversation_turn_id, e.created_at,
               e.team_id AS e_team_id, e.channel_id AS e_channel_id, e.ts,
               ${conversationColumns("c")}
             FROM conversation_engagements e
-            JOIN sessions s ON s.id = e.session_id
-            JOIN conversations c ON c.id = s.parent_conversation_id
+            LEFT JOIN sessions s ON s.id = e.session_id
+            LEFT JOIN conversation_turns ct ON ct.id = e.conversation_turn_id
+            JOIN conversations c
+              ON c.id = COALESCE(s.parent_conversation_id, ct.conversation_id)
             WHERE c.id = ${conversation.id}::uuid
               AND e.workspace_id = c.workspace_id AND e.agent_id = c.agent_id
               AND (c.kind = 'dm'
@@ -141,7 +148,13 @@ export function createPostgresContextFragmentSource(
               },
             ],
             engagementKind: row.engagement_kind,
-            sessionId: row.session_id,
+            target:
+              row.session_id !== null
+                ? { kind: "session", sessionId: row.session_id }
+                : {
+                    kind: "conversation_turn",
+                    turnId: row.conversation_turn_id as ConversationTurnId,
+                  },
             at: new Date(row.created_at),
           });
         }
@@ -171,7 +184,7 @@ export function createPostgresContextFragmentSource(
               AND i.buffer_expires_at > now()
             ORDER BY i.received_at, i.id`),
         );
-        const texts = await textsAt(
+        const texts = await inputTexts(
           tx,
           buffered.map((row) => row.input_id),
         );
@@ -214,26 +227,6 @@ export function createPostgresContextFragmentSource(
       });
     },
   };
-}
-
-/**
- * Reads a message's text again from where it points. The one place the
- * assembler's read leans on a stored copy: today the input row's body; one
- * it cannot read is not in the map.
- */
-async function textsAt(
-  tx: Database,
-  inputIds: readonly ConversationInputId[],
-): Promise<Map<ConversationInputId, string>> {
-  if (inputIds.length === 0) return new Map();
-  const rows = rowsOf<{ id: ConversationInputId; body: string | null }>(
-    await tx.execute(sql`
-      SELECT id, body FROM conversation_inputs
-      WHERE id = ANY(${`{${inputIds.join(",")}}`}::uuid[])`),
-  );
-  return new Map(
-    rows.flatMap((row) => (row.body === null ? [] : [[row.id, row.body]])),
-  );
 }
 
 /**

@@ -121,6 +121,7 @@ async function run(
           engagements: result.counts.engagements,
           summary_lines: result.counts.summaryLines,
           buffered: result.counts.buffered,
+          turns: result.counts.turns,
           marked: result.counts.marked,
           sessions_stopped: result.sessionsStopped,
         },
