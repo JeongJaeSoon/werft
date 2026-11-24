@@ -170,6 +170,12 @@ export type ActiveExecution = Omit<StoredLaunchIntent, "operationId"> & {
   /** When the next attempt may be made, or null when nothing holds it back. */
   launchRetryAt: Date | null;
   /**
+   * When a pass first found this launch's resource waiting for room the
+   * provider does not have (`recordCapacityWait`), on the storage clock;
+   * null while it is not waiting.
+   */
+  capacityWaitSince: Date | null;
+  /**
    * `launchRetryAt` judged on the storage clock as the rows were listed, like
    * `nonceExpired`: true when no failure holds the next attempt back.
    */
@@ -208,6 +214,18 @@ export type LaunchFailureInput = {
  * nothing was written.
  */
 export type LaunchFailureOutcome = "backing_off" | "quarantined" | "stale";
+
+/** A launch's wait for room, as `recordCapacityWait` left it. */
+export type CapacityWait = {
+  /** When the wait began, on the storage clock. */
+  since: Date;
+  /** How long it has gone on, on the storage clock. */
+  waitedMs: number;
+  /** This call began it. */
+  began: boolean;
+  /** The provider's message the wait held before this call; null when it began. */
+  previousMessage: string | null;
+};
 
 /** The scheduling pass lock, while this pass holds it. */
 export type PassLock = {
@@ -407,6 +425,33 @@ export interface SchedulerStore {
    * something to replace.
    */
   bootstrapCredentialState(ref: ExecutionRef): Promise<LaunchCredentialState>;
+  /**
+   * Records that the launch's resource waits for room the provider does not
+   * have: begins the wait the first time and keeps when it began, stores the
+   * provider's latest message, and holds the bootstrap credential open while
+   * the wait goes on — a resource that finds room late must still be able to
+   * bind, and replacing it would only wait for the same room again. Null when
+   * the launch is claimed, gave its slot back, was asked to go, or holds no
+   * credential.
+   */
+  recordCapacityWait(
+    ref: ExecutionRef,
+    message: string,
+  ): Promise<CapacityWait | null>;
+  /**
+   * The resource found room, or is no longer waiting for it: ends the wait.
+   * Returns how long it lasted, or null when the launch was not waiting.
+   */
+  clearCapacityWait(ref: ExecutionRef): Promise<number | null>;
+  /**
+   * Gives the launch up after it waited at least `limitMs` for room. Writes
+   * its kill intent, fails the input queued for its session with
+   * `NO_CAPACITY`, and leaves the session without a worker, waiting for its
+   * next input as after an idle worker ended. Counts no launch failure. False
+   * when the launch is claimed, gave its slot back, was asked to go, or has
+   * not waited that long.
+   */
+  giveUpForCapacity(ref: ExecutionRef, limitMs: number): Promise<boolean>;
   /** Open launches for `backend` only; other backends' rows are theirs. */
   listActiveExecutions(
     backend: ExecutionBackendKind,

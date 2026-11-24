@@ -74,6 +74,22 @@ port-forward runs in the background; cleanup targets only its recorded PID. The 
 
 When metric names change, update Datadog definitions, queries, and filters and Prometheus rules to the names in the [metrics contract](/run-server/self-hosting/reference/metrics). Do not expect aliases for old names. Verify that the updated rules read the new series.
 
+<a id="5-경보-규칙-예시" />
+### 5. Example alerting rules
+
+The chart ships no alerting rules (PrometheusRule). These example Prometheus rules alert when there are not enough nodes with room for workers. Fit the thresholds and windows to your installation. What each metric means is in the [metrics contract](/run-server/self-hosting/reference/metrics).
+
+```yaml
+groups:
+  - name: werft-capacity
+    rules:
+      - alert: WerftSessionsWaitingForCapacity
+        expr: werft_sessions_waiting_for_capacity > 0
+        for: 5m
+      - alert: WerftNoCapacityFailures
+        expr: increase(werft_session_no_capacity_failures_total[1h]) > 0
+```
+
 <a id="확인" />
 ## Verify
 

@@ -246,6 +246,18 @@ export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
       samples: [{ labels: {}, value: snapshot.outcomeUnknownTurns }],
     },
     {
+      name: "sessions_waiting_for_capacity",
+      type: "gauge",
+      help: "Sessions whose worker waits for room no node has (a Kubernetes worker Pod marked Unschedulable).",
+      samples: [{ labels: {}, value: snapshot.waitingForCapacity }],
+    },
+    {
+      name: "session_no_capacity_failures_total",
+      type: "counter",
+      help: "Times a session's queued input failed with NO_CAPACITY after its worker waited 15 minutes for room.",
+      samples: [{ labels: {}, value: snapshot.noCapacityFailures }],
+    },
+    {
       name: "tool_calls_total",
       type: "counter",
       help: "Tool calls the engine made.",

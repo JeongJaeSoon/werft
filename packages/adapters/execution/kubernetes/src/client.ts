@@ -89,6 +89,12 @@ export type Pod = {
     phase?: string;
     /** Pod-level cause, such as `Evicted`. */
     reason?: string;
+    conditions?: Array<{
+      type: string;
+      status: string;
+      reason?: string;
+      message?: string;
+    }>;
     containerStatuses?: Array<{
       name?: string;
       state?: {
