@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **Kubernetes chart의 Codex sandbox 설치기가 기본으로 꺼지고, 값이 `codexSandbox.provider`(`disabled` 기본 | `installer` | `external`)로 바뀐다. Codex sandbox를 쓰면 올리기 전에 values에 `codexSandbox.provider: installer`를 넣어라**(JeongJaeSoon/werft#PR). 기본 render에는 cluster 범위 리소스가 하나도 없어, namespace 권한만 받은 설치자도 `helm install`을 할 수 있다.
+- **Kubernetes chart의 Codex sandbox 설치기가 기본으로 꺼지고, 값이 `codexSandbox.provider`(`disabled` 기본 | `installer` | `external`)로 바뀐다. Codex sandbox를 쓰면 올리기 전에 values에 `codexSandbox.provider: installer`를 넣어라**(JeongJaeSoon/werft#2156). 기본 render에는 cluster 범위 리소스가 하나도 없어, namespace 권한만 받은 설치자도 `helm install`을 할 수 있다.
   - 넣지 않고 올리면 helm upgrade가 설치 DaemonSet, ClusterRole, ClusterRoleBinding, admission 정책을 지우고, Codex 에이전트의 입력은 Pod를 만들기 전에 `CODEX_SANDBOX_NOT_INSTALLED`로 실패한다(`NO_CAPACITY`와 같이 세션은 `idle`로 돌아가고 launch 실패로 세지 않는다). 노드에 둔 profile 파일과 라벨은 그대로 남는다.
   - `codexSandbox.installer.enabled`는 없어졌고 남아 있으면 render가 멈춘다. `true`는 `provider: installer`, `false`(SPO나 노드 이미지로 profile을 두는 설치)는 `provider: external`이다. 두 경우 모두 chart는 cluster 범위 리소스를 만들지 않는다.
   - `NOTES.txt`가 꺼져 있을 때 한 줄을 늘 보인다. 새 실패 코드 `CODEX_SANDBOX_NOT_INSTALLED`가 세션 API, 콘솔, Slack 스레드에 나온다.
