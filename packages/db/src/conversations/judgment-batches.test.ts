@@ -450,6 +450,34 @@ describe("judgment batches", () => {
     expect(await heldTs()).toEqual([old, kept]);
   });
 
+  test("a batch the judgment left out whole is not closed again; it expires unjudged", async () => {
+    const judge = fakeJudge((batch) => ({
+      modelCalled: false,
+      left: batch.inputs.map((input) => input.inputId),
+    }));
+    const warned: string[] = [];
+    const ts = await post(0);
+    expect(
+      await pass(judge.judge, 15 * SEC, {
+        warn: (message) => {
+          warned.push(message);
+        },
+      }),
+    ).toEqual({ judged: 1, rateLimited: 0, failed: 0 });
+    expect(warned).toEqual(["Judgment batch left out whole"]);
+    expect((await pass(judge.judge, 2 * MIN)).judged).toBe(0);
+    expect(await heldTs()).toEqual([ts]);
+    expect(
+      (
+        await purgeJudgmentBuffer(db, {
+          limit: 100,
+          dryRun: false,
+          now: at(11 * MIN),
+        })
+      ).unjudged,
+    ).toBe(1);
+  });
+
   describe("no batch while the channel is not judged", () => {
     const cases: [string, string, unknown[]][] = [
       [

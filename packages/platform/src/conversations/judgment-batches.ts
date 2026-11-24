@@ -59,7 +59,10 @@ export type ClosedJudgmentBatch =
 export type JudgmentBatchResult = {
   /** Whether the model was called; a batch stopped before it does not count. */
   modelCalled: boolean;
-  /** Messages the judgment left out (the context's size): to the next batch. */
+  /**
+   * Messages the judgment left out (the context's size): to the next batch,
+   * unless it took none of the batch, when they stay to expire unjudged.
+   */
   left: readonly ConversationInputId[];
 };
 
@@ -145,6 +148,13 @@ export async function runJudgmentBatches(deps: {
       continue;
     }
     run.judged += 1;
+    if (batch.inputs.length > 0 && result.left.length >= batch.inputs.length) {
+      // The store keeps them in the batch: they expire unjudged.
+      deps.logger.warn("Judgment batch left out whole", {
+        batch_id: batch.id,
+        left_count: result.left.length,
+      });
+    }
   }
   return run;
 }

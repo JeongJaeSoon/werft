@@ -10,6 +10,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import type { Database } from "../queries.ts";
@@ -21,7 +22,7 @@ import {
 } from "../testing/spec-pins.ts";
 import { createPostgresConversationStore } from "./conversation-store.ts";
 import { createPostgresJudgmentBatchStore } from "./judgment-batches.ts";
-import { holdBufferedInput } from "./judgment-buffer.ts";
+import { dropUnlistenedBuffer, holdBufferedInput } from "./judgment-buffer.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -156,6 +157,39 @@ integration("judgment batches across workers", () => {
       expect(
         judged.filter((b) => b.channelId === place.channelId),
       ).toHaveLength(1);
+    }
+  });
+
+  test("a close racing the removal of a channel no longer heard never deadlocks", async () => {
+    const store = createPostgresJudgmentBatchStore(db);
+    for (let round = 0; round < 10; round++) {
+      const place = await heardChannel();
+      for (let n = 0; n < 30; n++) {
+        await quietPost(place, `400.${String(n).padStart(6, "0")}`);
+      }
+      const stop = db.transaction(async (tx) => {
+        await tx.execute(
+          sql`UPDATE surface_bindings SET listen = 'mention' WHERE agent_id = ${agentId}::uuid AND external_surface_id = ${place.channelId}`,
+        );
+        return dropUnlistenedBuffer(tx, {
+          agentId,
+          channelId: place.channelId,
+        });
+      });
+      const [, dropped] = await Promise.all([store.closeNext(), stop]);
+      // Whichever went first, every row is gone once the channel is unheard,
+      // or in the batch the close made before it.
+      const left = await pool.query(
+        "SELECT judgment_batch_id FROM conversation_inputs WHERE slack_channel_id = $1",
+        [place.channelId],
+      );
+      expect(
+        dropped + left.rows.filter((row) => row.judgment_batch_id).length,
+      ).toBe(30);
+      await pool.query(
+        "UPDATE judgment_batches SET state = 'failed', ended_at = now() WHERE slack_channel_id = $1 AND state = 'judging'",
+        [place.channelId],
+      );
     }
   });
 

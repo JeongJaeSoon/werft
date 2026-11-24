@@ -92,11 +92,6 @@ async function closeChannel(
     ),
   );
   if (!locked?.locked) return null;
-  // The lock a hold takes before the channel's limit removes rows: taken
-  // first, so this close and that removal never lock the rows in two orders.
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext('judgment_buffer_limit'), hashtext(${`${channel.agent_id}:${channel.slack_team_id}:${channel.slack_channel_id}`}::text))`,
-  );
   const same = sql`agent_id = ${channel.agent_id}::uuid
     AND slack_team_id = ${channel.slack_team_id}
     AND slack_channel_id = ${channel.slack_channel_id}`;
@@ -126,7 +121,7 @@ async function closeChannel(
         AND ${takeable(at)}
         AND ${stillListened(rowColumns)}
       ORDER BY i.received_at, i.id
-      FOR UPDATE OF i`),
+      FOR UPDATE OF i SKIP LOCKED`),
   );
   const fresh = rows.filter((row) => !row.rate_limited);
   const [clock] = rowsOf<{ at: Date | string }>(
@@ -213,9 +208,10 @@ async function closeChannel(
  * Batches of the judgment buffer. Each channel is closed under a lock of its
  * own that a second caller skips, and a channel has one judging batch at a
  * time (a partial unique index), so however many replicas close at once one
- * judgment runs per channel. A close takes its messages' rows for update, so
- * a Slack edit or delete either lands before it, and the batch carries the
- * new text or not the message, or waits for it.
+ * judgment runs per channel. A close never waits on a message's row: one a
+ * Slack edit, a delete or a removal holds is skipped and goes to a later
+ * batch, if it is still there, with its new text. Waiting on none, a close
+ * is in no deadlock with the removals, which lock rows in no set order.
  */
 export function createPostgresJudgmentBatchStore(
   db: Database,
@@ -280,13 +276,19 @@ export function createPostgresJudgmentBatchStore(
         );
         if (ended.length === 0) return "late";
         if (result.left.length > 0) {
+          const left = sql.join(
+            result.left.map((input) => sql`${input}::uuid`),
+            sql`, `,
+          );
+          // Only when the judgment took one of them: a batch left out whole
+          // would close again at once, as often as the pass allows.
           await tx.execute(sql`
             UPDATE conversation_inputs SET judgment_batch_id = NULL
-            WHERE judgment_batch_id = ${id}::uuid
-              AND id IN (${sql.join(
-                result.left.map((input) => sql`${input}::uuid`),
-                sql`, `,
-              )})`);
+            WHERE judgment_batch_id = ${id}::uuid AND id IN (${left})
+              AND EXISTS (
+                SELECT 1 FROM conversation_inputs o
+                WHERE o.judgment_batch_id = ${id}::uuid
+                  AND o.id NOT IN (${left}))`);
         }
         return "finished";
       });
