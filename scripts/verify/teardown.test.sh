@@ -189,6 +189,28 @@ grep -q "$a_unlisted" "$log"; check "rm-volumes.sh: an anonymous volume no conta
 grep -Eq "^volume rm (werft-fresh|$demo)" "$log"; check "rm-volumes.sh: demo and werft-fresh names are never removed" 1 $?
 grep -Eq -- ' -f|prune|--force|--context|-H |machine' "$log"; check "rm-volumes.sh: no force, prune, context or machine flag" 1 $?
 
+# A volume labelled for another installation under any label namespace is left.
+a_other=$(hex 9)
+printf '{"com.docker.volume.anonymous":"","custom.installation":"%s"}' "$demo" >"$scratch/vols/$a_other"
+printf '  volume  %s\n' "$a_other" >"$VERIFY_AP_ROOT/$id/evidence/teardown-targets.txt"
+: >"$VERIFY_AP_ROOT/$id/ports.yml"
+: >"$log"
+EXECUTION_VOLUME_LABEL_NAMESPACE=werft bash "$here/rm-volumes.sh" "$id" >"$scratch/rm.out" 2>&1; check "rm-volumes.sh: other installation label exits 0" 0 $?
+grep -q "labelled for another project): $a_other" "$scratch/rm.out"; check "rm-volumes.sh: another installation's label is honoured under any namespace" 0 $?
+grep -q '^volume rm' "$log"; check "rm-volumes.sh: other installation label removed nothing" 1 $?
+
+# The 4620 demo as the run itself is refused before any docker call that removes.
+demo_id=20261031-094644-90075
+mkdir -p "$VERIFY_AP_ROOT/$demo_id/evidence"
+printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVERIFY_REPO=%s\n' "$demo" "$demo" "$scratch" >"$VERIFY_AP_ROOT/$demo_id/state.env"
+printf '  volume  %s\n  volume  %s_pgdata\n' "$a_ok" "$demo" >"$VERIFY_AP_ROOT/$demo_id/evidence/teardown-targets.txt"
+printf '{"com.docker.volume.anonymous":""}' >"$scratch/vols/$a_ok"
+: >"$VERIFY_AP_ROOT/$demo_id/ports.yml"
+: >"$log"
+bash "$here/rm-volumes.sh" "$demo_id" >/dev/null 2>&1; check "rm-volumes.sh: the demo stack as the run is refused" 1 $?
+grep -q '^volume rm' "$log"; check "rm-volumes.sh: the demo stack removed nothing" 1 $?
+[ -f "$VERIFY_AP_ROOT/$demo_id/ports.yml" ]; check "rm-volumes.sh: the demo stack keeps its ports.yml" 0 $?
+
 # The skill never tells the agent to build ids.sh from Bash (Write tool only).
 grep -rEq '>>? *"?\$(\{VERIFY_RUN\}|VERIFY_RUN)/ids\.sh' "$here" "$here/../../.claude/skills/verify-werft" --include='*.md' --include='*.sh'; check "skill docs: no redirect into ids.sh" 1 $?
 

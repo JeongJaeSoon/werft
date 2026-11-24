@@ -38,6 +38,11 @@ if ! teardown_guard "$(basename "$run")" "${COMPOSE_PROJECT_NAME:-}" "${EXECUTIO
   echo "rm-volumes.sh: project '${COMPOSE_PROJECT_NAME:-}' is not verify-ap-$(basename "$run"); nothing was removed" >&2
   exit 1
 fi
+# The long-lived 4620 demo stack: never a target, whatever its state file says.
+if [ "$COMPOSE_PROJECT_NAME" = verify-ap-20261031-094644-90075 ]; then
+  echo "rm-volumes.sh: $COMPOSE_PROJECT_NAME is the demo stack; nothing was removed" >&2
+  exit 1
+fi
 if [ -n "$(docker ps -q --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME")" ]; then
   echo "rm-volumes.sh: containers of $COMPOSE_PROJECT_NAME are still running; run down.sh $run first" >&2
   exit 1
@@ -56,7 +61,6 @@ TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$labelled" "$prior" | sed '/^$/d' | sort -
 workspaces=werft-ws-${EXECUTION_INSTALLATION_ID}-
 failed=0
 out=$run/evidence/rm-volumes.txt
-ns=${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}
 
 remove_volume() {
   if [ -n "$dry" ]; then
@@ -97,7 +101,7 @@ rm_anonymous() {
   esac
   # The label values of this volume, if any, must be this run's.
   other=$(printf '%s' "$labels" | tr ',' '\n' |
-    sed -n -E "s/.*\"(com\\.docker\\.compose\\.project|$ns\\.installation)\":\"([^\"]*)\".*/\2/p" |
+    sed -n -E "s/.*\"(com\\.docker\\.compose\\.project|[^\"]*\\.installation)\":\"([^\"]*)\".*/\2/p" |
     grep -vxF "$COMPOSE_PROJECT_NAME" || true)
   if [ -n "$other" ]; then
     echo "left (labelled for another project): $name"
