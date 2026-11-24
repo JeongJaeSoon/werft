@@ -176,6 +176,7 @@ export function runtimeEnvironment(
   config: Pick<
     ClaudeRuntimeConfig,
     | "claudeConfigDir"
+    | "compactionOff"
     | "gitEnvironment"
     | "home"
     | "maxOutputTokens"
@@ -218,6 +219,10 @@ export function runtimeEnvironment(
   }
   if (config.maxOutputTokens !== undefined) {
     environment.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(config.maxOutputTokens);
+  }
+  if (config.compactionOff === true) {
+    // DISABLE_AUTO_COMPACT leaves /compact; this one stops both.
+    environment.DISABLE_COMPACT = "1";
   }
   if (config.trustedCaBundle !== undefined) {
     environment.NODE_EXTRA_CA_CERTS = config.trustedCaBundle;

@@ -6,7 +6,10 @@ import {
   type ScopeKey,
   scopeKeyOf,
 } from "@werft-ai/contracts";
-import type { ContextFragment } from "../ports/context-fragment-source.ts";
+import type {
+  ContextFragment,
+  ContextFragmentSource,
+} from "../ports/context-fragment-source.ts";
 import type { ConversationKey } from "../ports/conversation-store.ts";
 import {
   assembleCallContext,
@@ -41,8 +44,14 @@ function random(seed: number) {
 const uuid = (prefix: string, n: number) =>
   `00000000-0000-4000-8000-${prefix}${String(n).padStart(12 - prefix.length, "0")}`;
 
-const sourceOf = (fragments: ContextFragment[], unreadable = 0) => ({
+const sourceOf = (
+  fragments: ContextFragment[],
+  unreadable = 0,
+): ContextFragmentSource => ({
   read: async () => ({ fragments, unreadable }),
+  conversationOf: async () => null,
+  recordsDeletedAt: async () => null,
+  anyDeleted: async () => false,
 });
 
 function fragment(scope: ScopeKey, n: number): ContextFragment {
@@ -261,7 +270,9 @@ const ids = (fs: ContextFragment[]) =>
         ? f.target.kind === "session"
           ? f.target.sessionId
           : f.target.turnId
-        : f.inputId,
+        : f.kind === "conversation_turn"
+          ? f.turnId
+          : f.inputId,
   );
 const fitted = (result: ReturnType<typeof fitContext>) => {
   if (result.outcome !== "fitted") throw new Error(result.outcome);

@@ -13,7 +13,9 @@ import {
   DEFAULT_CONVERSATION_STATUS_FILE,
 } from "./config.ts";
 import { ConversationHost } from "./conversation-host.ts";
+import { PermitRelay } from "./permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
+import { TopicSessions } from "./topic-sessions.ts";
 import { createConversationTurnRunner } from "./turn-runner.ts";
 import { HttpConversationTurnSource } from "./turn-source.ts";
 
@@ -35,7 +37,13 @@ export async function main(
 ): Promise<void> {
   const config = conversationRuntimeConfigFromEnv(environment);
   const logger = createConsoleLogger({ level: environment.LOG_LEVEL });
-  const topics = new TopicDirectories(config.topicsDir);
+  const relay = new PermitRelay(
+    `${config.egressCredentialUrl.replace(/\/$/, "")}/provider`,
+  );
+  const sessions = new TopicSessions(
+    new TopicDirectories(config.topicsDir),
+    relay,
+  );
   const host = new ConversationHost({
     source: new HttpConversationTurnSource({
       baseUrl: config.gatewayUrl,
@@ -46,10 +54,10 @@ export async function main(
     }),
     runner: createConversationTurnRunner({
       runtime: imageRuntime(),
-      egressCredentialUrl: config.egressCredentialUrl,
-      topics,
+      sessions,
+      relay,
     }),
-    topics,
+    sessions,
     logger,
     statusFile: config.statusFile,
   });
@@ -62,6 +70,7 @@ export async function main(
     await host.run();
   } finally {
     for (const { signal, handler } of handlers) process.off(signal, handler);
+    relay.stop();
   }
 }
 
