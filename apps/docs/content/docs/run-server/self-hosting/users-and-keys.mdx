@@ -19,7 +19,110 @@ outcome: "사용자별 인증 수단과 실행 권한을 발급한다"
 
 ### 1. 첫 owner 만들기
 
-운영자가 설치 쪽에서 일회용 설정 링크를 받는다. test-ops 단일 서버는 `scripts/test-ops.sh setup-link`, Kubernetes는 `kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`, 그 밖의 compose 구성은 `docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts`다. 명령은 live owner가 없을 때만 링크를 stdout에 한 번 출력하고, 로그나 파일에는 남기지 않는다. `CONSOLE_ORIGIN`이 있으면 그 주소를 붙인 URL, 없으면 `/bootstrap#setup=…` 경로만 나오니 콘솔 주소 뒤에 붙인다. 링크를 브라우저로 열고 owner 정보와 workspace 이름을 넣는다. 링크는 한 번 쓰면 바로 무효이고 24시간 뒤 만료된다. 다시 실행하면 앞 링크는 무효가 되고 새 링크가 나온다. owner가 있으면 명령은 링크를 만들지 않고 종료 코드 1로 끝난다. `/login`으로 로그인한다.
+운영자가 설치 쪽 명령으로 첫 owner의 일회용 설정 링크를 파일로 받는다. 명령은 api 이미지 안에 있고, owner가 될 사람의 이메일 주소만 받는다. 비밀번호는 명령 인자나 환경 변수로 주지 않고, 링크를 연 사람이 정한다. 링크는 화면에 나오지 않는다. 화면에는 파일 경로와 만료 시각만 나온다.
+
+test-ops 단일 서버에서는 호스트의 새 파일에 바로 받는다. `DEPLOYMENT_DIR`는 [단일 서버 설치](/run-server/self-hosting/single-server)에서 정한 설치별 디렉터리이고, 번들 디렉터리 안은 거절된다.
+
+```bash
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
+```
+
+그 밖의 compose 구성에서는 api 컨테이너 안에 파일을 만든 뒤 호스트로 옮기고 컨테이너 쪽 파일을 지운다.
+
+```bash
+docker compose --profile apps exec -T api \
+  bun run apps/control-host/src/main.ts admin bootstrap-owner \
+  --email <owner-email> --out /tmp/owner-link.json
+(umask 077 && set -C && docker compose --profile apps exec -T api cat /tmp/owner-link.json >owner-link.json)
+docker compose --profile apps exec -T api rm -f /tmp/owner-link.json
+```
+
+Kubernetes에서는 먼저 [설치의 context·namespace·fullname 확인](/run-server/self-hosting/kubernetes#준비물)을 따른다. 아래 `werft`는 그 예시 설치 이름이다. 세 명령이 같은 Pod에 닿도록 Pod 하나를 먼저 고른다.
+
+```bash
+POD="$(kubectl -n werft get pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api -o name | head -n 1)"
+kubectl -n werft exec "$POD" -c api -- \
+  bun run apps/control-host/src/main.ts admin bootstrap-owner \
+  --email <owner-email> --out /tmp/owner-link.json
+(umask 077 && set -C && kubectl -n werft exec "$POD" -c api -- cat /tmp/owner-link.json >owner-link.json)
+kubectl -n werft exec "$POD" -c api -- rm -f /tmp/owner-link.json
+```
+
+파일은 0600으로 새로 만들어지고, 같은 이름의 파일이 있으면 명령은 덮어쓰지 않고 거절한다. 파일에는 [구성원 초대](/members#api-응답)의 응답과 같은 칸이 JSON으로 들어 있다.
+
+| 칸 | 내용 |
+| --- | --- |
+| `accept_path` | 설정 화면의 경로. `/bootstrap#setup=<setup_token>` 꼴이다 |
+| `accept_url` | `CONSOLE_ORIGIN` 뒤에 `accept_path`를 붙인 링크. `CONSOLE_ORIGIN`이 없으면 `null`이다 |
+| `expires_at` | 만료 시각 |
+
+브라우저가 있으면 `accept_url`(없으면 콘솔 origin 바로 뒤에 `accept_path`)을 열고 owner 정보와 workspace 이름을 넣는다. 이메일 주소는 명령에 준 주소여야 한다. 다른 주소는 `403`으로 거절되고 링크는 그대로 남는다. 그다음 `/login`으로 로그인하고, 링크 파일은 지운다. 브라우저가 없으면 아래 [브라우저 없이 만들기](#브라우저-없이-만들기)를 따른다.
+
+링크는 한 번 쓰면 바로 무효이고 24시간 뒤 만료된다. 다시 실행하면 앞 링크는 무효가 되고 새 링크가 나온다. owner가 있으면 명령은 링크도 파일도 만들지 않고 종료 코드 1로 끝난다. 명령을 실행할 때마다 api 컨테이너 로그(`docker compose logs api`, `kubectl logs`)에 `setup_link_issued` 한 줄이 남는다. 그 줄에는 링크 id, 이메일 주소, 만료 시각만 있고 토큰과 링크는 없다. 링크로 첫 workspace가 만들어지면 그 workspace의 첫 receipt(`bootstrap_owner`)가 쓴 링크의 id와 만든 시각을 남긴다.
+
+#### 브라우저 없이 만들기
+
+콘솔을 열 브라우저가 없는 호스트(설치를 에이전트에게 맡긴 경우 등)에서는 링크 파일의 값으로 `POST /v1/auth/bootstrap`을 직접 부른다. 설정 화면이 부르는 것과 같은 API다. `curl`과 `jq`가 필요하다. 아래 명령은 api에 닿는 호스트의, `owner-link.json`이 있는 디렉터리에서 실행한다. `API`는 콘솔에 닿는 주소다. test-ops 단일 서버에서는 그 서버 안의 `http://127.0.0.1:<TEST_OPS_API_PORT>`(기본 `3000`), AWS 밖 Kubernetes에서는 [콘솔 접속](/run-server/self-hosting/kubernetes#5-aws-밖-클러스터의-콘솔-접속)의 port-forward 주소 `http://127.0.0.1:3000`이다.
+
+먼저 owner의 비밀번호(12자 이상, 1024바이트 이하)를 0600 파일 `owner-password`에 한 줄로 둔다. 비밀번호는 명령 인자, 환경 변수, 화면에 두지 않는다. 아래 예시는 `openssl`로 무작위 값을 만든다. 직접 정한 값을 쓰려면 편집기로 같은 파일을 만든다.
+
+```bash
+API=http://127.0.0.1:3000
+(umask 077 && set -C && openssl rand -base64 24 >owner-password)
+```
+
+링크 파일의 `accept_path`에서 `#setup=` 뒤의 값(`setup_token`)을 0600 파일로 꺼낸다.
+
+```bash
+(umask 077 && set -C && jq -j '.accept_path | sub("^/bootstrap#setup="; "")' owner-link.json >owner-setup-token)
+```
+
+요청 본문을 0600 파일로 만든다. `<owner-email>`은 링크 명령에 준 주소, `<owner-name>`은 화면에 보일 이름(64자까지), `<workspace-name>`은 workspace 이름, `<workspace-slug>`는 workspace 식별자(영문 소문자·숫자·`-`, `-`로 시작하지 않고 64자까지)다.
+
+```bash
+(umask 077 && set -C && jq -n \
+  --rawfile token owner-setup-token \
+  --rawfile password owner-password \
+  --arg email '<owner-email>' \
+  --arg name '<owner-name>' \
+  --arg workspace '<workspace-name>' \
+  --arg slug '<workspace-slug>' \
+  '{setup_token: ($token | rtrimstr("\n")), email: $email,
+    password: ($password | rtrimstr("\n")), display_name: $name,
+    workspace_name: $workspace, workspace_slug: $slug}' >owner-bootstrap.json)
+```
+
+`set -C` 때문에 같은 이름의 파일이 있으면 만들지 않는다. 명령이 실패해 빈 파일이 남았으면 그 파일을 지우고 다시 실행한다.
+
+본문을 보낸다.
+
+```bash
+curl --max-time 10 -sS -w '\n%{http_code}\n' "$API/v1/auth/bootstrap" \
+  -H 'content-type: application/json' -H 'x-requested-with: werft-web' \
+  --data-binary @owner-bootstrap.json
+```
+
+마지막 줄이 `201`이고 본문의 `role`이 `owner`이며 `workspace`에 만든 workspace가 있으면 owner가 만들어진 것이다. 응답에는 비밀번호도 토큰도 없다. 다른 상태는 다음과 같다.
+
+| 상태 | 뜻과 할 일 |
+| --- | --- |
+| `400` | 본문의 칸이 틀렸다(비밀번호 길이, slug 꼴 등). 링크는 남으므로 `owner-bootstrap.json`을 지우고 본문 만들기부터 다시 한다 |
+| `401` | 링크를 이미 썼거나, 24시간이 지났거나, 명령을 다시 실행해 바뀌었다. owner가 없으면 `owner-link.json`, `owner-setup-token`, `owner-bootstrap.json`을 지우고 링크 명령부터 다시 한다 |
+| `403` | 이메일 주소가 링크 명령에 준 주소와 다르다. 링크는 남는다 |
+| `409` | 같은 링크로 먼저 온 요청이 owner를 만들었다 |
+| `429` | 요청이 너무 잦다. 잠시 뒤 다시 보낸다 |
+
+끝으로 그 이메일 주소와 비밀번호로 로그인되는지 확인하고, 링크·토큰·본문 파일을 지운다.
+
+```bash
+(umask 077 && set -C && jq '{email, password}' owner-bootstrap.json >owner-login.json)
+curl --max-time 10 -sS -o /dev/null -w '%{http_code}\n' "$API/v1/auth/login" \
+  -H 'content-type: application/json' -H 'x-requested-with: werft-web' \
+  --data-binary @owner-login.json
+rm -f owner-link.json owner-setup-token owner-bootstrap.json owner-login.json
+```
+
+`200`이 나오면 된 것이다. 이 확인은 응답이 준 로그인 세션을 버린다. `owner-password`는 비밀번호 관리자처럼 안전한 곳에 옮긴 뒤 지운다. 콘솔 밖에서 owner의 로그인 세션으로 관리 API를 부르는 방법(`cookieSession`)은 설치가 서빙하는 API 레퍼런스(`/docs`)에 있다.
 
 ### 2. 사용자별 key 발급
 
@@ -112,6 +215,16 @@ owner·admin에게도 공유 범위 밖 세션은 목록·상세·turn에 보이
 ## 자주 막히는 곳
 
 링크가 "이 설정 링크는 쓸 수 없습니다"로 열리면 이미 썼거나, 24시간이 지났거나, 명령을 다시 실행해 바뀐 것이다. owner가 없으면 명령을 다시 실행해 새 링크를 받는다. CLI의 owner id에 workspace id를 넣지 않는다.
+
+`admin bootstrap-owner`가 `usage: bun run src/main.ts <api|metrics> | …(got admin)`으로 끝나거나 `scripts/test-ops.sh setup-link --email …`이 사용법만 출력하면, 이 명령이 없는 이전 릴리스(`v0.4.0`까지)의 이미지다. 그 이미지에서는 `bun run apps/control-host/src/api/setup-link.ts`(test-ops 단일 서버는 인자 없는 `scripts/test-ops.sh setup-link`)가 링크를 stdout에 한 번 출력하고 파일은 만들지 않는다. 링크는 이메일 주소에 묶이지 않는다. 브라우저 없이 만들려면 출력을 화면에 내지 말고 토큰 파일로 받은 뒤 [브라우저 없이 만들기](#브라우저-없이-만들기)에서 토큰 꺼내기만 건너뛰고 따른다.
+
+```bash
+(umask 077 && set -C && { scripts/test-ops.sh setup-link | sed -n 's/.*#setup=//p'; } >"$DEPLOYMENT_DIR/owner-setup-token")
+(umask 077 && set -C && { kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/setup-link.ts | sed -n 's/.*#setup=//p'; } >owner-setup-token)
+```
+
+첫 줄은 test-ops 단일 서버, 그 아래 두 줄은 Kubernetes의 한 명령이다. 설치에 맞는 것 하나만 실행한다. test-ops 단일 서버는 번들 디렉터리 안에 파일을 두면 다음 실행이 멈추므로 토큰 파일을 `DEPLOYMENT_DIR`에 만들고, 이어지는 명령도 그 디렉터리에서 실행한다. `owner-setup-token`이 비어 있으면 링크가 나오지 않은 것이므로(owner가 이미 있으면 그렇다) 파일을 지우고 명령의 오류를 확인한다.
 
 ## 되돌리기
 

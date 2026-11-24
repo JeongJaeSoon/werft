@@ -2,6 +2,7 @@
 //
 //   bun run src/main.ts <api|metrics>
 //   bun run src/main.ts <scheduler|reconciler|slack> [--once|--health|--serve]
+//   bun run src/main.ts admin bootstrap-owner --email <address> --out <file>
 //
 // The role is named, never defaulted, so a container runs what its command
 // says. `scheduler`, `reconciler` and `slack` are services: a supervised loop
@@ -38,6 +39,12 @@ function parse(args: readonly string[]): { role: Role; mode: Mode } | string {
     return `${USAGE} (got ${args.join(" ")})`;
   }
   return { role: role as Role, mode: mode as Mode };
+}
+
+// `admin <command>`: an operator's one-shot command (api/admin.ts), not a role.
+if (process.argv[2] === "admin") {
+  const { runAdmin } = await import("./api/admin.ts");
+  process.exit(await runAdmin(process.argv.slice(3)));
 }
 
 const parsed = parse(process.argv.slice(2));
