@@ -1,0 +1,10 @@
+# A small node or a trial, laid over values.yaml next to your installation
+# values: -f values-<installation>.yaml -f values-small-node.example.yaml.
+# Worker Pods request their whole memory limit, so sessions running at once
+# on a node are about its allocatable memory, less what other Pods there
+# request, over worker.memoryMb.
+worker:
+  # Down from 4608. More sessions per node, less room to resume a large
+  # transcript with no compaction: past about 150 MiB its resume can reach the
+  # limit, and the worker restarts until the session is recovery_required.
+  memoryMb: 2048

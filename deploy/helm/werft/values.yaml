@@ -228,6 +228,13 @@ scheduler:
   tolerations: []
   affinity: {}
   extraEnv: {}
+  # At startup, warns in the scheduler log for each node worker Pods may land
+  # on (worker.nodeSelector, worker.tolerations) whose allocatable memory holds
+  # fewer than two workers of worker.memoryMb. true also creates a ClusterRole
+  # that reads Nodes, bound to the scheduler, which a namespace-only installer
+  # cannot create; false creates none. A failed read is logged and skipped.
+  nodeCapacityCheck:
+    enabled: false
 
 # Passes are re-judged under row locks, so no leader election is needed;
 # one replica is enough.
@@ -384,8 +391,21 @@ worker:
   cpus: 1
   # Requests equal limits on worker pods; sized so a resumed engine holding
   # a transcript at the 512 MiB checkpoint limit stays under half of it.
-  # Sessions per node and how to trade them off: apps/docs/content/docs/run-server/self-hosting/operate/capacity.mdx.
+  # Sessions running at once on a node is about its allocatable memory, less
+  # what other Pods there request, over this: a 16 GiB node that also runs the
+  # rest of the chart holds 2. values-small-node.example.yaml trades the
+  # large-transcript headroom for more sessions on a small node.
+  # How to count and trade them off: the capacity page of the docs site
+  # (apps/docs/content/docs/run-server/self-hosting/capacity.mdx).
   memoryMb: 4608
+  # Seconds a worker with no input stays up before it ends, keeping its
+  # memoryMb reserved on the node until then: an integer from 60 to 7200.
+  # The scheduler hands it to the worker Pods as WORKER_IDLE_TIMEOUT_SEC.
+  # When a new session's Pod finds no room, the scheduler also stops the
+  # worker idle longest without waiting for this, one at a time; a worker
+  # with a turn open is never stopped. A stopped or timed-out session's
+  # next message starts a new worker that resumes from its checkpoint.
+  idleTimeoutSeconds: 1800
   # Node disk a worker may use outside its PVC (mostly its log), request
   # and limit both; past it the kubelet evicts the Pod.
   ephemeralStorageMb: 1024

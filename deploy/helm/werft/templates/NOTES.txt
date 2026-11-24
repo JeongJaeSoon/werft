@@ -1,0 +1,26 @@
+{{- $memoryMb := int .Values.worker.memoryMb -}}
+Werft is installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+Worker memory
+  worker.memoryMb: {{ $memoryMb }} MiB per session. A worker Pod requests its whole
+  limit, so a node runs about this many sessions at once:
+
+    sessions per node ~ node allocatable memory / {{ $memoryMb }} MiB
+
+  less the memory other Pods on that node request. Each node's allocatable memory:
+
+    kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE:.status.allocatable.memory
+
+  When no node has room, a new session waits for one: the session API shows
+  wait_reason waiting_for_capacity.
+{{- if lt $memoryMb 4608 }}
+  Below 4608 MiB, resuming a large transcript with no compaction can reach the limit.
+{{- end }}
+{{- if .Values.scheduler.enabled }}
+{{- if .Values.scheduler.nodeCapacityCheck.enabled }}
+  The scheduler log warns at startup for each worker node that holds fewer than two workers.
+{{- else }}
+  scheduler.nodeCapacityCheck.enabled=true makes the scheduler warn at startup for each
+  worker node that holds fewer than two workers. It creates a ClusterRole that reads Nodes.
+{{- end }}
+{{- end }}

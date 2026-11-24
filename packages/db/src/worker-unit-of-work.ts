@@ -2645,7 +2645,13 @@ export function createPostgresWorkerUnitOfWork(
         // would both walk its state back to running and leave that turn
         // unfinished once the execution goes, which costs the session a
         // recovery decision it never needed.
-        const draining = fenced.attempt.state === "draining";
+        // So is one the scheduler asked to drain, under the session lock
+        // `requestDrain` and `requestIdleStop` take before they judge it:
+        // told so on a poll that hands it nothing, an idle worker stops
+        // the way an idle timeout stops it, its room free for another.
+        const draining =
+          fenced.attempt.state === "draining" ||
+          (await drainRequested(tx, fenced.attempt));
         // The session's model moved after this attempt claimed it: it
         // finishes what it holds on its own model and goes, and the next
         // claim runs the new one.
@@ -2738,13 +2744,6 @@ export function createPostgresWorkerUnitOfWork(
         ) {
           return none;
         }
-        // The scheduler is draining the launch to replace it: the
-        // turn this attempt runs is its last. Read under the session lock,
-        // which `requestDrain` takes before it looks for an open turn.
-        if (!redelivery && (await drainRequested(tx, fenced.attempt))) {
-          return none;
-        }
-
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {
           await tx
