@@ -5825,9 +5825,24 @@ export const conversationInputs = pgTable(
      * the judgment, with no turn, and removed whole at this time.
      */
     bufferExpiresAt: timestamp("buffer_expires_at", { withTimezone: true }),
+    /**
+     * A buffered message's batch while one judges it, is past the channel's
+     * cap with it, or has judged it. Null: not yet in a batch.
+     */
+    judgmentBatchId: uuid("judgment_batch_id").references(
+      () => judgmentBatches.id,
+      { onDelete: "set null" },
+    ),
   },
   (table) => [
     unique("conversation_inputs_seq_uniq").on(table.topicId, table.seq),
+    check(
+      "conversation_inputs_judgment_batch_check",
+      sql`${table.judgmentBatchId} IS NULL OR ${table.bufferExpiresAt} IS NOT NULL`,
+    ),
+    index("conversation_inputs_judgment_batch_idx")
+      .on(table.judgmentBatchId)
+      .where(sql`${table.judgmentBatchId} IS NOT NULL`),
     uniqueIndex("conversation_inputs_client_message_uniq")
       .on(
         table.agentId,
@@ -5918,6 +5933,107 @@ export const judgmentBufferOverflows = pgTable(
     ),
     check(
       "judgment_buffer_overflows_slack_check",
+      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
+    ),
+  ],
+);
+
+/**
+ * One batch of an agent's buffered messages in one Slack channel, closed for
+ * M1's judgment. No text: the messages point at it. Kept past the cap's
+ * window, then removed.
+ */
+export const judgmentBatches = pgTable(
+  "judgment_batches",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    slackChannelId: text("slack_channel_id").notNull(),
+    releaseId: text("release_id").notNull(),
+    /** `judging`, `judged`, `failed` or `rate_limited` (past the cap). */
+    state: text().notNull(),
+    /** Set when judged: whether the judgment called the model. */
+    modelCalled: boolean("model_called"),
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "judgment_batches_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "judgment_batches_conversation_fk",
+      columns: [table.conversationId],
+      foreignColumns: [conversations.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "judgment_batches_release_fk",
+      columns: [table.agentId, table.releaseId],
+      foreignColumns: [agentReleases.agentId, agentReleases.id],
+    }),
+    check(
+      "judgment_batches_state_check",
+      sql`${table.state} IN ('judging', 'judged', 'failed', 'rate_limited') AND (${table.state} = 'judging') = (${table.endedAt} IS NULL) AND (${table.state} = 'judged') = (${table.modelCalled} IS NOT NULL)`,
+    ),
+    check(
+      "judgment_batches_slack_check",
+      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
+    ),
+    // One judging batch per agent and channel, whichever replica closes it.
+    uniqueIndex("judgment_batches_judging_uniq")
+      .on(table.agentId, table.slackTeamId, table.slackChannelId)
+      .where(sql`${table.state} = 'judging'`),
+    // The cap's window.
+    index("judgment_batches_channel_idx").on(
+      table.agentId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.closedAt,
+    ),
+    index("judgment_batches_closed_idx").on(table.closedAt),
+  ],
+);
+
+/**
+ * Per agent and Slack channel: how many batches went past M1's cap, and how
+ * many buffered messages expired without a judgment. Counts only.
+ */
+export const judgmentChannelTallies = pgTable(
+  "judgment_channel_tallies",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    slackChannelId: text("slack_channel_id").notNull(),
+    rateLimitedCount: bigint("rate_limited_count", { mode: "number" })
+      .notNull()
+      .default(0),
+    unjudgedCount: bigint("unjudged_count", { mode: "number" })
+      .notNull()
+      .default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "judgment_channel_tallies_pk",
+      columns: [table.agentId, table.slackTeamId, table.slackChannelId],
+    }),
+    foreignKey({
+      name: "judgment_channel_tallies_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "judgment_channel_tallies_count_check",
+      sql`${table.rateLimitedCount} >= 0 AND ${table.unjudgedCount} >= 0`,
+    ),
+    check(
+      "judgment_channel_tallies_slack_check",
       sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
     ),
   ],
