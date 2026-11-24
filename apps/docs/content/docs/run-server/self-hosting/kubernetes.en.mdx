@@ -113,7 +113,15 @@ If your values set `slack.enabled: false`, drop `slack` from the loop. When the 
 
 After a failed first installation, fix values and rerun the same command. If Deployments already exist and you changed the worker image, upgrade-check rules apply. With no sessions, [remove the Kubernetes installation](/run-server/self-hosting/remove-kubernetes) and start again.
 
-The first session is slow while the node that runs its worker Pod pulls the worker image. The image is several hundred MB (the Claude worker in 0.4.0 is about 395 MB). A worker Pod does not pull an image the node already has, so you can pull it in advance. The first command below prints this chart's worker image references (Claude worker, Codex worker), one per line. On every node that runs workers, put the reference for the engine your agents use in place of `<worker-image>` and pull it.
+The first session is slow while the node that runs its worker Pod pulls the worker image. The image is several hundred MB (the Claude worker in 0.4.0 is about 395 MB). A worker Pod does not pull an image the node already has, so you can pull it in advance.
+
+To have the chart do it, set `worker.prePull.enabled: true` in your installation values. The chart then runs a DaemonSet Pod on every worker node (the nodes `worker.nodeSelector` and `worker.tolerations` select) that pulls every worker image sessions use. When an upgrade changes the images, it pulls the new ones. A node's Pod becomes Ready once it has pulled them all.
+
+```bash
+kubectl -n werft rollout status ds/werft-worker-prepull --timeout=600s
+```
+
+A chart without this value (0.4.0 and earlier) ignores it in your values. With such a chart, pull on the nodes yourself. The first command below prints this chart's worker image references (Claude worker, Codex worker), one per line. On every node that runs workers, put the reference for the engine your agents use in place of `<worker-image>` and pull it.
 
 ```bash
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
