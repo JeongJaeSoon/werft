@@ -35,11 +35,15 @@ function wired(options: {
   choice?: "connection" | "none";
   branch?: "ok" | "missing";
   truncated?: boolean;
+  unsized?: string;
 }) {
   const asked: string[] = [];
   const warned: unknown[] = [];
   const trees: Record<string, GitTreeEntry[]> = {
     [ROOT_TREE]: [
+      ...(options.unsized === undefined
+        ? []
+        : [{ ...blob("AGENTS.md", "unsized", 0), size: null }]),
       blob("CLAUDE.md", "link", 13, "120000"),
       {
         name: "docs",
@@ -54,6 +58,7 @@ function wired(options: {
   const blobs: Record<string, string> = {
     link: "docs/rules.md",
     rules: "rules",
+    unsized: options.unsized ?? "",
   };
   const api = {
     getBranchHead: async (branch: string) => {
@@ -166,5 +171,17 @@ describe("wireReleaseInstructions", () => {
       await snapshotReleaseInstructions(cut.source, "app", "claude_agent_sdk"),
     ).toMatchObject({ kind: "read_failed", reason: "github_failed" });
     expect(cut.warned).toHaveLength(1);
+  });
+
+  test("a file whose size GitHub leaves out is measured in bytes, not characters", async () => {
+    const snapshot = await snapshotReleaseInstructions(
+      wired({ unsized: "가".repeat(30_000) }).source,
+      "app",
+      "claude_agent_sdk",
+    );
+    expect(snapshot).toMatchObject({ kind: "refused", commit: COMMIT });
+    expect(snapshot.kind === "refused" && snapshot.reason).toContain(
+      "larger than 65536 bytes",
+    );
   });
 });

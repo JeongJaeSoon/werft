@@ -75,6 +75,19 @@ export function wireReleaseInstructions(deps: {
         return entries;
       };
       const sizes = new Map<string, number | null>();
+      const blobs = new Map<string, Promise<Uint8Array>>();
+      const blob = async (object: string): Promise<Uint8Array> => {
+        let bytes = blobs.get(object);
+        if (bytes === undefined) {
+          bytes = api.readBlob(object);
+          blobs.set(object, bytes);
+        }
+        try {
+          return await bytes;
+        } catch (error) {
+          throw failed(error);
+        }
+      };
       const tree: CommittedTree = {
         async entry(path) {
           try {
@@ -102,14 +115,10 @@ export function wireReleaseInstructions(deps: {
         async size(object) {
           const known = sizes.get(object);
           if (known !== undefined && known !== null) return known;
-          return (await this.read(object)).length;
+          return (await blob(object)).byteLength;
         },
         async read(object) {
-          try {
-            return new TextDecoder().decode(await api.readBlob(object));
-          } catch (error) {
-            throw failed(error);
-          }
+          return new TextDecoder().decode(await blob(object));
         },
       };
       const files =
