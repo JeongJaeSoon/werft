@@ -55,6 +55,12 @@ export type RuntimeStartConfig = RuntimeMode & {
    * of a checkpoint's fingerprint.
    */
   maxOutputTokens?: number;
+  /**
+   * The engine never compacts the conversation, on its own or when asked: a
+   * caller that rebuilds a session from its own context sets it. Never part
+   * of a checkpoint's fingerprint.
+   */
+  compactionOff?: true;
   model: string;
   permissionMode: PermissionMode;
   /**

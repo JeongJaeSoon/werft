@@ -175,7 +175,8 @@ function operatorHarness(
           : {
               outcome: "issued",
               token: CALL_TOKEN,
-              expiresAt: new Date(now().getTime() + 120_000),
+              // The take time and a whole lease, as the real permit's.
+              expiresAt: new Date(now().getTime() + 180_000),
             };
       },
       async endTurn(turnId) {
