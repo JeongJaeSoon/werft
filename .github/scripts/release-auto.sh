@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # The release steps of the main-push Images run, one subcommand each, in the
-# order the jobs run them: `release-auto.sh detect|ci|free|tag`.
+# order the jobs run them: `release-auto.sh detect|ci|conformance|free|tag`.
 #
 #   detect  BEFORE and AFTER (the push's two commits): the one CHANGELOG.md
 #           heading `## vX.Y.Z` that AFTER has and BEFORE lacks is the release
 #           to make; none means an ordinary merge. Writes `tag=` to
 #           GITHUB_OUTPUT. Anything that is not one clean new heading fails.
 #   ci      waits for the ci.yml push run of GITHUB_SHA and requires success
+#   conformance  a ci.yml push or manual run of GITHUB_SHA passed the
+#           conformance suite on every engine (no pull request runs it)
 #   free    TAG has no tag ref and no Release (also run again right before tagging)
 #   tag     creates the annotated tag TAG at GITHUB_SHA and reads it back
 #
@@ -106,6 +108,33 @@ ci() {
   done
 }
 
+# The engines of ci.yml's conformance matrix; tests/release-auto.test.ts holds
+# this list to it.
+conformance_engines=(claude_agent_sdk codex_app_server two_engines)
+
+conformance() {
+  local sha="${GITHUB_SHA:?}" ids id passed engine missing
+  # Not a pull_request run: it tests a merge of the head, not this commit.
+  ids="$(gh api "repos/${repo}/actions/workflows/ci.yml/runs?head_sha=${sha}&status=completed&per_page=100" \
+    --jq "[.workflow_runs[] | select(.head_sha == \"${sha}\" and (.event == \"push\" or .event == \"workflow_dispatch\")) | .id] | sort | reverse | .[]")" \
+    || fail "could not read the ci.yml runs of ${sha}"
+  for id in $ids; do
+    passed="$(gh api --paginate "repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100" \
+      --jq '.jobs[] | select(.conclusion == "success") | .name')" \
+      || fail "could not read the jobs of ci.yml run ${id}"
+    missing=""
+    for engine in "${conformance_engines[@]}"; do
+      grep -qxF "conformance (${engine})" <<<"$passed" || missing="${missing:+${missing}, }${engine}"
+    done
+    if [ -z "$missing" ]; then
+      echo "conformance: passed in ci.yml run ${id}"
+      return 0
+    fi
+    echo "ci.yml run ${id} did not pass conformance on: ${missing}"
+  done
+  fail "no ci.yml push or manual run of ${sha} passed the conformance suite on every engine; run ci.yml by hand with only=conformance on it"
+}
+
 tag() {
   local tag="${TAG:?}" sha="${GITHUB_SHA:?}" run="${GITHUB_RUN_ID:?}" obj peeled message
   message="$(printf '%s\n\nCreated by the Images run %s after the release approval' "$tag" "$run")"
@@ -134,10 +163,11 @@ tag() {
 case "${1:-}" in
   detect) detect ;;
   ci) ci ;;
+  conformance) conformance ;;
   free) free ;;
   tag) tag ;;
   *)
-    echo "usage: release-auto.sh detect|ci|free|tag" >&2
+    echo "usage: release-auto.sh detect|ci|conformance|free|tag" >&2
     exit 2
     ;;
 esac
