@@ -182,10 +182,11 @@ egress-proxy と API の authorizer listener は次の値を読みます。一�
 | `EGRESS_CREDENTIAL_PORT` | 3129 | 個別 key なし | credential route ポート |
 | `LOG_LEVEL` | `info` | `config.logLevel` | ログレベル。API と同じ形式 |
 | `EGRESS_ALLOWLIST` | 空一覧 | `config.egress.allowlist` | forward public 宛先のカンマ区切り `host:port`。credential・redirect 一覧との重複禁止 |
-| `EGRESS_PRIVATE_ALLOWLIST` | Compose：`api:3000,host.docker.internal:3000`。chart：API Service の 3000 | `config.egress.privateAllowlist`（空なら API Service） | forward private 宛先。link-local・reserved アドレスは許可しません。両 forward 一覧が空なら proxy 起動拒否 |
+| `EGRESS_PRIVATE_ALLOWLIST` | Compose：`api:3200,host.docker.internal:3200`。chart：API internal Service（`<fullname>-api-internal`）の 3200 | `config.egress.privateAllowlist`（空なら API internal Service） | forward private 宛先。link-local・reserved アドレスは許可しません。両 forward 一覧が空なら proxy 起動拒否 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | Compose（core・local）：`api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443`。単一サーバー（test-ops）：既定値なし、必須。chart：core・local と同じ既定値 | `config.egress.credentialAllowlist` | API・proxy の credential public 宛先。test-ops は未設定なら Compose が失敗します。既定値全体を置き換えるため、GitHub・checkpoint bucket host を追加する際は必要な全項目を再記入します |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | chart・Compose core proxy：空一覧。Compose core API・local proxy layer：`fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566` | `config.egress.credentialPrivateAllowlist` | proxy 拒否、API のワークスペース MCP private アクセスとコンソール警告に使う private 宛先。test-ops LocalStack 経路には `localstack:4566` が必須で、例もこの値だけを使います。local-model overlay は `fake-git:3000,localstack:4566,ollama.internal:11434,litellm:4000`。運用環境では試験 host を使いません |
 | `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` | 空一覧 | `config.egress.packagesRedirectAllowlist` | packages redirect と Git LFS object の public 宛先。資格情報なしで取得し、forward 一覧との重複禁止 |
+| `INTERNAL_API_PORT` | 3200 | 個別 key なし | API の `/internal` listener ポート。worker と会話ランタイムが egress proxy を経由して呼びます。公開ポート（`PORT`、3000）には `/internal` route がありません。Compose はホストに割り当てず、chart は ClusterIP Service `<fullname>-api-internal` でだけ開き、NetworkPolicy で egress-proxy だけを通します |
 | `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | 個別 key なし | API authorizer listener アドレス |
 | `EGRESS_AUTHORIZER_PORT` | API コード：未設定なら listener なし。Compose・chart：3100 | 自動生成 | API では token と両方設定するか両方省略。`AUTH_MODE=none` と併用すると起動拒否 |
 | `EGRESS_AUTHORIZER_URL` | proxy コード：なし。Compose：`http://api:3100`、chart：API authorizer Service | 自動生成 | http/https URL。proxy では token と両方設定するか両方省略。API listener ポートとの一致が必要です |
@@ -269,7 +270,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `EXECUTION_K8S_IMAGE_PULL_SECRETS` | `images.pullSecrets` | 制御領域 Pod にも同じ Secret を使います |
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR`、`EXECUTION_K8S_WORKER_TOLERATIONS` | `worker.nodeSelector`、`worker.tolerations` | JSON に変換して設定します |
 | `WORKER_IMAGE` | `images.registry`、`images.worker.*` | `<registry>/<repository>@<digest>`。digest がなければ render 失敗 |
-| `WORKER_GATEWAY_URL`、`EXECUTION_EGRESS_PROXY_URL`、`EXECUTION_EGRESS_CREDENTIAL_PORT` | なし | api Service の 3000、egress-proxy Service の 3128、3129 |
+| `WORKER_GATEWAY_URL`、`EXECUTION_EGRESS_PROXY_URL`、`EXECUTION_EGRESS_CREDENTIAL_PORT` | なし | api internal Service（`<fullname>-api-internal`）の 3200、egress-proxy Service の 3128、3129 |
 | `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy の label 値でもあります |
 | `EXECUTION_WORKSPACE_QUOTA_MB`、`EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`、`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`、`worker.workspace.gcMinAgeSec`、`worker.workspace.enforcedByStorage` | 要求サイズ・回収最小経過時間・設置全体の強制宣言 |
 | `WORKER_CPUS`、`WORKER_MEMORY_MB` | `worker.cpus`、`worker.memoryMb` | |
@@ -302,7 +303,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 
 | リソース | 数 | 備考 |
 |---|---|---|
-| api Deployment + Service（3000）+ authorizer Service（3100） | 2 | 3100 は egress-proxy だけが到達できます（NetworkPolicy）。Ingress は 3000 の `/v1`・`/docs`・`/healthz`・`/readyz` だけを route し、worker 用 `/internal` は開きません。Web コンソールの `/` は `ingress.console.enabled` で追加します（[アクセス経路](/run-server/self-hosting/access)） |
+| api Deployment + Service（3000）+ authorizer Service（3100）+ internal Service（3200） | 2 | 3100 と 3200 は egress-proxy だけが到達できます（NetworkPolicy）。Ingress は 3000 の `/v1`・`/docs`・`/healthz`・`/readyz` だけを route します。worker 用 `/internal` は 3200 だけにあり、3000 にはありません。Web コンソールの `/` は `ingress.console.enabled` で追加します（[アクセス経路](/run-server/self-hosting/access)） |
 | scheduler Deployment + Role/RoleBinding | 1、`Recreate` | worker Pod・nonce Secret・workspace PVC を同じ namespace だけで作成・削除します |
 | reconciler Deployment | 1 | |
 | slack Deployment | 1 | Slack inbox を処理します。`slack.enabled: false` ならありません。外向きは DNS（53）、443、DB ポート（`networkPolicy.slack.databasePort`、既定 5432）だけです |
@@ -407,11 +408,11 @@ API だけが読む設定です。既定はオフで、キーを一つも設定�
 OTEL_TRACES_EXPORTER=otlp
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com:4318
 TRACE_INGEST_URL=http://api:4319
-EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
+EGRESS_PRIVATE_ALLOWLIST=api:3200,host.docker.internal:3200,api:4319
 ```
 
-- **Compose.** 上の値を compose を起動するシェルか `.env` に置くと、同じ名前で api コンテナに渡ります。worker が ingest に向かう経路も egress proxy を通るため、`EGRESS_PRIVATE_ALLOWLIST` の既定値 `api:3000,host.docker.internal:3000` に `api:<TRACE_INGEST_PORT>` を加えます。
-- **Kubernetes.** キーは `api.extraEnv` に渡します。ポートは Service と NetworkPolicy も知る必要があるため、`config.tracing.ingestPort`（既定 `4319`）でだけ変え、`TRACE_INGEST_PORT` は渡しません。`TRACE_INGEST_URL` は `http://<api Service 名>:4319` で、`config.egress.privateAllowlist` を `<api Service 名>:3000,<api Service 名>:4319` に指定します。
+- **Compose.** 上の値を compose を起動するシェルか `.env` に置くと、同じ名前で api コンテナに渡ります。worker が ingest に向かう経路も egress proxy を通るため、`EGRESS_PRIVATE_ALLOWLIST` の既定値 `api:3200,host.docker.internal:3200` に `api:<TRACE_INGEST_PORT>` を加えます。
+- **Kubernetes.** キーは `api.extraEnv` に渡します。ポートは Service と NetworkPolicy も知る必要があるため、`config.tracing.ingestPort`（既定 `4319`）でだけ変え、`TRACE_INGEST_PORT` は渡しません。`TRACE_INGEST_URL` は `http://<api Service 名>:4319` で、`config.egress.privateAllowlist` を `<api Service 名>-internal:3200,<api Service 名>:4319` に指定します。
 - worker は collector に直接接続しません。collector の host を `EGRESS_PRIVATE_ALLOWLIST` や `EGRESS_ALLOWLIST` に入れると、api が起動時に警告を残します。`OTEL_*` キーは worker とエンジンに渡りません。
 
 **collector 側の条件.**
