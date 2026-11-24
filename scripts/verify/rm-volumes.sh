@@ -5,16 +5,26 @@
 # volumes of this project, or with werft-ws-verify-ap-<run id>-, the session
 # workspaces of this installation (the trailing "-" keeps a run id that is a
 # prefix of another apart). A workspace a container still mounts is printed
-# and left. Anonymous worker volumes say nothing about their run by name, so
-# they are printed and left too.
+# and left. An anonymous worker volume (64 hex characters) says nothing about
+# its run by name, and Docker gives it no compose label either. It is removed
+# only when the run's own labelled containers were seen mounting it (the mounts
+# down.sh recorded in teardown-targets.txt, or a container that is still
+# there), it exists, no container uses it now, it is marked anonymous, and it
+# carries no compose project or installation label of another run. Anything
+# else is printed and left.
 #
 # Names come from down.sh's evidence/teardown-targets.txt and from the labels
 # of the project, so it works after the containers are gone.
 #
-#   rm-volumes.sh <run id | run dir>    run down.sh first; no default run
+#   rm-volumes.sh [--dry-run] <run id | run dir>    run down.sh first; no default run
+#
+# --dry-run prints what would be removed and what would be left, runs no
+# `docker volume rm`, and keeps everything else of the run.
 set -uo pipefail
 
-[ "$#" = 1 ] || { echo "usage: rm-volumes.sh <run id | run dir>" >&2; exit 2; }
+dry=
+if [ "${1:-}" = "--dry-run" ]; then dry=1; shift; fi
+[ "$#" = 1 ] || { echo "usage: rm-volumes.sh [--dry-run] <run id | run dir>" >&2; exit 2; }
 
 # shellcheck disable=SC1091
 . "$(dirname "$0")/run.sh" "$1" || exit 2
@@ -46,14 +56,62 @@ TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$labelled" "$prior" | sed '/^$/d' | sort -
 workspaces=werft-ws-${EXECUTION_INSTALLATION_ID}-
 failed=0
 out=$run/evidence/rm-volumes.txt
+ns=${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}
+
+remove_volume() {
+  if [ -n "$dry" ]; then
+    echo "would remove: $1"
+  else
+    echo "\$ docker volume rm $1"
+    docker volume rm "$1" 2>&1 || failed=1
+  fi
+}
+
+# $1 is a candidate whose link to this run came from the labels of its
+# containers. Re-check the volume itself before removing it.
+rm_anonymous() {
+  local name=$1 found users labels other
+  if ! found=$(docker volume ls -q --filter "name=^$name\$"); then
+    echo "could not tell whether $name exists; left"
+    failed=1
+    return
+  fi
+  [ "$found" = "$name" ] || { echo "already gone: $name"; return; }
+  if ! users=$(docker ps -aq --filter "volume=$name"); then
+    echo "could not tell whether a container uses $name; left"
+    failed=1
+    return
+  fi
+  if [ -n "$users" ]; then
+    echo "left (a container still uses it): $name"
+    return
+  fi
+  if ! labels=$(docker volume inspect --format '{{json .Labels}}' "$name"); then
+    echo "could not read the labels of $name; left"
+    failed=1
+    return
+  fi
+  case "$labels" in
+    *'"com.docker.volume.anonymous"'*) ;;
+    *) echo "left (not marked anonymous): $name"; return ;;
+  esac
+  # The label values of this volume, if any, must be this run's.
+  other=$(printf '%s' "$labels" | tr ',' '\n' |
+    sed -n -E "s/.*\"(com\\.docker\\.compose\\.project|$ns\\.installation)\":\"([^\"]*)\".*/\2/p" |
+    grep -vxF "$COMPOSE_PROJECT_NAME" || true)
+  if [ -n "$other" ]; then
+    echo "left (labelled for another project): $name"
+    return
+  fi
+    remove_volume "$name"
+}
 # Names come from a file: no glob expansion in the loop below.
 set -f
 {
   for name in $TEARDOWN_VOLUMES; do
     case "$name" in
       "$COMPOSE_PROJECT_NAME"_*)
-        echo "\$ docker volume rm $name"
-        docker volume rm "$name" 2>&1 || failed=1 ;;
+                remove_volume "$name" ;;
       "$workspaces"*)
         if ! users=$(docker ps -aq --filter "volume=$name"); then
           echo "could not tell whether a container uses $name; left"
@@ -61,10 +119,14 @@ set -f
         elif [ -n "$users" ]; then
           echo "left (a container still uses it): $name"
         else
-          echo "\$ docker volume rm $name"
-          docker volume rm "$name" 2>&1 || failed=1
+                    remove_volume "$name"
         fi ;;
-      *) echo "left (name starts with neither ${COMPOSE_PROJECT_NAME}_ nor $workspaces): $name" ;;
+      *)
+        if printf '%s' "$name" | grep -Eq '^[0-9a-f]{64}$'; then
+          rm_anonymous "$name"
+        else
+          echo "left (name starts with neither ${COMPOSE_PROJECT_NAME}_ nor $workspaces): $name"
+        fi ;;
     esac
   done
   left=$(teardown_volumes_left) || failed=1
@@ -77,6 +139,8 @@ if [ "$failed" = 1 ]; then
   echo "rm-volumes.sh: a volume could not be removed or listed (above); ports.yml kept" >&2
   exit 1
 fi
+
+[ -z "$dry" ] || { echo "rm-volumes.sh: dry run; nothing was removed" >&2; exit 0; }
 
 rm -f "$run/ports.yml" "$run/cookie" "$run"/cookie.*
 rm -rf "$run/users" "$run/keys"
