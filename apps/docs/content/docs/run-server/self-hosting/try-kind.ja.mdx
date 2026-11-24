@@ -71,10 +71,12 @@ if [ "$READY" != 1 ]; then
   trap - EXIT INT TERM
   false
 else
-  curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
-  curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+  STATUS=0
+  curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz || STATUS=1
+  curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs || STATUS=1
   kill "$PF" 2>/dev/null || true
   trap - EXIT INT TERM
+  [ "$STATUS" = 0 ]
 fi
 ```
 
