@@ -36,6 +36,7 @@ import {
   type StorageS3Settings,
   storageS3Credentials,
 } from "@werft-ai/storage";
+import { installationProfileFromEnv } from "../installation-profile.ts";
 
 export type ApiCheckpointServiceDependencies = Pick<
   CheckpointServiceDependencies,
@@ -136,6 +137,13 @@ export const API_CHECKPOINT_CODECS: CheckpointServiceDependencies["codecs"] =
  * `CHECKPOINT_OBJECT_ENCRYPTION_CHECK` is `enforce` (default) or `warn`: what
  * `assertCheckpointBucketEncryption` does with a bucket whose default
  * encryption is not SSE-S3.
+ *
+ * `CHECKPOINT_OBJECTS_LOST` is `refuse` (default) or `forget`: what
+ * `checkpointObjectsAtStart` does on a bucket that holds no object version
+ * while the database still has checkpoints. `forget` gives those checkpoints
+ * up without asking anyone, so it is accepted only where an empty bucket is
+ * the expected result of a restart: `INSTALLATION_PROFILE=test` and an
+ * `AWS_ENDPOINT_URL` that names LocalStack. Anywhere else it is refused here.
  */
 export type CheckpointStorageEnvironment = Readonly<
   Record<string, string | undefined>
@@ -145,6 +153,8 @@ export type CheckpointStorageConfig = StorageS3Settings & {
   bucket: string;
   /** Absent means `enforce`. */
   encryptionCheck?: "warn";
+  /** Absent means `refuse`. */
+  objectsLost?: "forget";
   protection: ObjectProtection;
 };
 
@@ -159,6 +169,7 @@ export function checkpointStorageConfigFromEnv(
     );
   }
   const endpoint = environment.AWS_ENDPOINT_URL?.trim();
+  let endpointHost: string | undefined;
   if (endpoint) {
     let parsed: URL | undefined;
     try {
@@ -176,6 +187,7 @@ export function checkpointStorageConfigFromEnv(
     if (parsed.username !== "" || parsed.password !== "") {
       throw new Error("AWS_ENDPOINT_URL must not carry userinfo");
     }
+    endpointHost = parsed.hostname;
   }
   // The bucket is named first so an empty environment is reported as the
   // missing object store, not as a missing key.
@@ -203,6 +215,30 @@ export function checkpointStorageConfigFromEnv(
       `CHECKPOINT_OBJECT_ENCRYPTION_CHECK must be "enforce" (default) or "warn", not ${encryptionCheck}`,
     );
   }
+  const profile = installationProfileFromEnv(environment);
+  const objectsLost = environment.CHECKPOINT_OBJECTS_LOST?.trim();
+  if (
+    objectsLost !== undefined &&
+    objectsLost !== "" &&
+    objectsLost !== "refuse" &&
+    objectsLost !== "forget"
+  ) {
+    throw new Error(
+      `CHECKPOINT_OBJECTS_LOST must be "refuse" (default) or "forget", not ${objectsLost}`,
+    );
+  }
+  if (objectsLost === "forget") {
+    if (profile !== "test") {
+      throw new Error(
+        "CHECKPOINT_OBJECTS_LOST=forget gives up lost checkpoints without asking, so it is accepted only on a test installation: INSTALLATION_PROFILE must be test",
+      );
+    }
+    if (!isLocalstackHost(endpointHost)) {
+      throw new Error(
+        "CHECKPOINT_OBJECTS_LOST=forget is accepted only when the object store is LocalStack, which empties on a restart: the host of AWS_ENDPOINT_URL must start with the label localstack",
+      );
+    }
+  }
   const region = required(environment.AWS_REGION, "AWS_REGION");
   // Both keys or neither: without them the SDK's default chain (IRSA on
   // EKS) signs. One alone is a half-written Secret, not a choice.
@@ -224,9 +260,19 @@ export function checkpointStorageConfigFromEnv(
       : {}),
     ...(endpoint ? { endpoint } : {}),
     ...(encryptionCheck === "warn" ? { encryptionCheck } : {}),
+    ...(objectsLost === "forget" ? { objectsLost } : {}),
     protection: protection === "unversioned" ? "unversioned" : "locked",
     region,
   };
+}
+
+/**
+ * Whether an endpoint host is LocalStack as the trial installations name it:
+ * the Compose service `localstack`, or a Kubernetes Service of that name
+ * reached as `localstack.<namespace>.svc…`.
+ */
+function isLocalstackHost(host: string | undefined): boolean {
+  return host?.split(".")[0] === "localstack";
 }
 
 function required(value: string | undefined, name: string): string {
@@ -425,26 +471,93 @@ export async function assertCheckpointBucketEncryption(
   }
 }
 
+export type LostCheckpointObjectsDecision = "present" | "refuse" | "forget";
+
 /**
- * Refuses to start when the database still has checkpoints a restore or a
- * backup reads but the bucket holds no object version at all. A lost or
- * replaced S3 volume, migration from an older LocalStack store, or a volatile
- * test-ops LocalStack can leave PostgreSQL references without their objects;
- * every such session would fail its restore instead. This only
- * catches the empty bucket fast. It does not replace the backup's
- * per-version check.
+ * How long the second look at the bucket may take. It runs while the forget
+ * holds its session locks, so it has to end well inside the database's
+ * idle-in-transaction limit (30 s). Past it the start fails with nothing given
+ * up, and the next start tries again.
  */
-export async function assertCheckpointObjectsPresent(
+const SECOND_LOOK_DEADLINE_MS = 10_000;
+
+/**
+ * What a start does about the checkpoints the database still has, decided in
+ * this one place. A bucket that holds any object version is `present`, even
+ * when some of its objects are gone: a restore finds that gap, and the backup
+ * checks each version. Only a bucket that holds none counts as lost, which is
+ * refused unless `CHECKPOINT_OBJECTS_LOST=forget` was accepted
+ * (checkpointStorageConfigFromEnv).
+ */
+export async function lostCheckpointObjectsDecision(
+  config: CheckpointStorageConfig,
+  client: S3ClientLike,
+): Promise<LostCheckpointObjectsDecision> {
+  if (await bucketHoldsObjectVersion(client, config.bucket)) return "present";
+  return config.objectsLost === "forget" ? "forget" : "refuse";
+}
+
+/**
+ * Run at start while the database still has checkpoints a restore or a
+ * backup reads. A lost or replaced S3 volume, migration from an older
+ * LocalStack store, or a volatile test-ops LocalStack can leave PostgreSQL
+ * references without their objects; every such session would fail its
+ * restore instead. On `refuse` this throws and the API does not start; on
+ * `forget` it gives the checkpoints up through `options.forget` and answers
+ * what was lost, for the caller to log. This only catches the empty bucket
+ * fast. It does not replace the backup's per-version check.
+ */
+export async function checkpointObjectsAtStart(
   config: CheckpointStorageConfig,
   options: {
     readonly hasUncollectedCheckpoint: () => Promise<boolean>;
+    /**
+     * Runs only on the `forget` decision. It is handed the decision to make
+     * again once it holds its locks: an API beside this one may have
+     * committed a checkpoint since the bucket was read.
+     */
+    readonly forget: (
+      stillLost: () => Promise<boolean>,
+    ) => Promise<LostCheckpoints>;
     /** Tests substitute a fake; the product path never passes this. */
     readonly client?: S3ClientLike;
+    /** Tests shorten SECOND_LOOK_DEADLINE_MS; the product path never passes this. */
+    readonly secondLookDeadlineMs?: number;
   },
-): Promise<void> {
-  if (!(await options.hasUncollectedCheckpoint())) return;
+): Promise<LostCheckpoints | undefined> {
+  if (!(await options.hasUncollectedCheckpoint())) return undefined;
+  const deadlineMs = options.secondLookDeadlineMs ?? SECOND_LOOK_DEADLINE_MS;
   const check = async (client: S3ClientLike) => {
-    if (await bucketHoldsObjectVersion(client, config.bucket)) return;
+    const decision = await lostCheckpointObjectsDecision(config, client);
+    if (decision === "present") return undefined;
+    if (decision === "forget") {
+      const lost = await options.forget(async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            lostCheckpointObjectsDecision(config, client).then(
+              (second) => second === "forget",
+            ),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `Checkpoint bucket ${config.bucket} did not answer within ${deadlineMs} ms when it was read again before giving up its lost checkpoints; nothing was given up`,
+                    ),
+                  ),
+                deadlineMs,
+              );
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      });
+      // Nothing when another start forgot them first, or the second look
+      // found an object.
+      return lost.held.length + lost.unchanged.length > 0 ? lost : undefined;
+    }
     throw new Error(
       `Checkpoint bucket ${config.bucket} holds no object version, but the database still has checkpoints that restores read: the object store lost its data while the database kept it. The S3 volume may have been lost or replaced, or this installation may be migrating from an older LocalStack store; test-ops LocalStack still loses S3 state on restart. If a backup holds the checkpoint objects, restore it into a new, unused compose project with \`scripts/restore.sh\` and verify it with \`scripts/verify-restore.sh\`. Otherwise, keep accounts, keys and sessions and give up only the lost checkpoints with \`scripts/local.sh forget-lost-checkpoints\` (their sessions wait for a recovery decision), or start the local installation over in the mode it runs in, \`scripts/local.sh reset\` or \`scripts/local.sh reset --fake-model\` (it deletes every session)`,
     );
@@ -452,14 +565,14 @@ export async function assertCheckpointObjectsPresent(
   if (options.client !== undefined) return check(options.client);
   const client = checkpointS3Client(config);
   try {
-    await check(client);
+    return await check(client);
   } finally {
     client.destroy();
   }
 }
 
 /**
- * The operator's way past assertCheckpointObjectsPresent short of a reset:
+ * The operator's way past checkpointObjectsAtStart short of a reset:
  * runs `forget` only in the state that guard refuses, a bucket holding no
  * object version while the database still has uncollected checkpoints.
  * A bucket with any version left did not lose everything, so nothing is

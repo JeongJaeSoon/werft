@@ -483,6 +483,8 @@ const CHECKPOINT_STORAGE_ENV: Record<string, string> = {
   CHECKPOINT_OBJECT_STORE: "config.checkpoints.objectStore",
   CHECKPOINT_OBJECT_PROTECTION: "config.checkpoints.protection",
   CHECKPOINT_OBJECT_ENCRYPTION_CHECK: "config.checkpoints.encryptionCheck",
+  CHECKPOINT_OBJECTS_LOST: "config.checkpoints.objectsLost",
+  INSTALLATION_PROFILE: "config.installation.profile",
 };
 const CHECKPOINT_STORAGE_HOLDERS = ["api", "checkpoint-gc", "session-archive"];
 
@@ -1413,6 +1415,8 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     "api.extraEnv.CHECKPOINT_OBJECT_STORE=disabled",
     "api.extraEnv.S3_BUCKET=other",
     "api.extraEnv.CHECKPOINT_OBJECT_ENCRYPTION_CHECK=warn",
+    "api.extraEnv.CHECKPOINT_OBJECTS_LOST=forget",
+    "api.extraEnv.INSTALLATION_PROFILE=test",
     "scheduler.extraEnv.S3_BUCKET=other",
     "reconciler.extraEnv.AWS_REGION=us-east-1",
     "slack.extraEnv.AWS_ENDPOINT_URL=http://store:9000",
@@ -1622,6 +1626,8 @@ const errors = [
   ...checkCheckpointStorage("default", render(["-f", ciDigests]), {
     CHECKPOINT_OBJECT_STORE: "s3",
     CHECKPOINT_OBJECT_ENCRYPTION_CHECK: "enforce",
+    CHECKPOINT_OBJECTS_LOST: "refuse",
+    INSTALLATION_PROFILE: "production",
   }),
   ...checkCheckpointStorage("aws example", awsRender(), {
     CHECKPOINT_OBJECT_STORE: "s3",
@@ -1641,10 +1647,16 @@ const errors = [
       "config.checkpoints.bucket=other",
       "--set",
       "config.aws.endpointUrl=http://store:9000",
+      "--set",
+      "config.checkpoints.objectsLost=forget",
+      "--set",
+      "config.installation.profile=test",
     ]),
     {
       CHECKPOINT_OBJECT_STORE: "disabled",
       CHECKPOINT_OBJECT_ENCRYPTION_CHECK: "warn",
+      CHECKPOINT_OBJECTS_LOST: "forget",
+      INSTALLATION_PROFILE: "test",
       CHECKPOINT_OBJECT_PROTECTION: "unversioned",
       S3_BUCKET: "other",
       AWS_ENDPOINT_URL: "http://store:9000",
