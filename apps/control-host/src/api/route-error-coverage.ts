@@ -242,6 +242,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/teams/{team_id}/members",
     "PATCH /v1/teams/{team_id}/members/{user_id}",
     "DELETE /v1/teams/{team_id}/members/{user_id}",
+    "GET /v1/teams/{team_id}/budget-limit",
+    "PUT /v1/teams/{team_id}/budget-limit",
     "PUT /v1/agents/{id}/managing-team",
     "GET /v1/agents/{id}/admins",
     "POST /v1/agents/{id}/admins",
