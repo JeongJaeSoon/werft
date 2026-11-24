@@ -167,6 +167,7 @@ import {
   sessions,
   turns,
   users,
+  workerLaunches,
 } from "./schema.ts";
 import { newSessionPin, pinRefusesLive } from "./session-spec-pin.ts";
 import { contextGapAttention } from "./sessions/context-gap.ts";
@@ -1631,6 +1632,28 @@ export function createPostgresSessionReader(
         ),
       );
 
+    // An open launch still meant to run whose resource waits for room.
+    const capacityWaits = new Map(
+      (
+        await executor
+          .select({
+            sessionId: workerLaunches.sessionId,
+            since: workerLaunches.capacityWaitSince,
+          })
+          .from(workerLaunches)
+          .innerJoin(executions, eq(executions.id, workerLaunches.executionId))
+          .where(
+            and(
+              inArray(workerLaunches.sessionId, ids),
+              isNull(workerLaunches.slotReleasedAt),
+              isNotNull(workerLaunches.capacityWaitSince),
+              isNull(workerLaunches.claimedAttemptId),
+              eq(executions.desiredState, "running"),
+            ),
+          )
+      ).map((wait) => [wait.sessionId, wait.since]),
+    );
+
     const agentIds = [...new Set(releases.map((release) => release.id))];
     const usable =
       viewer === undefined || agentIds.length === 0
@@ -1692,6 +1715,10 @@ export function createPostgresSessionReader(
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
         input_wait: summaryWait(inputWaits.get(row.id) ?? null),
+        wait_reason: capacityWaits.has(row.id)
+          ? ("waiting_for_capacity" as const)
+          : null,
+        waiting_since: capacityWaits.get(row.id)?.toISOString() ?? null,
         spec: specOf(row.specSource),
         model: row.model,
         repository_id: row.repositoryId,

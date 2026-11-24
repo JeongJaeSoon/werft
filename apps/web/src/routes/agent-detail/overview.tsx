@@ -439,6 +439,8 @@ function AgentSessionRow({
         <SessionStatusLabel
           status={session.status}
           label={t(`sessions.status.${session.status}`)}
+          capacityWait={session}
+          capacityWaitLabel={t("sessions.capacityWait")}
           axisLabel={t("sessions.column.status")}
         />
       </GridTableCell>
