@@ -18,6 +18,9 @@ export const conversationInputIdSchema = z
   .uuid()
   .brand<"ConversationInputId">();
 export type ConversationInputId = z.infer<typeof conversationInputIdSchema>;
+/** One judgment batch: buffered messages of a channel judged together. */
+export const judgmentBatchIdSchema = z.uuid().brand<"JudgmentBatchId">();
+export type JudgmentBatchId = z.infer<typeof judgmentBatchIdSchema>;
 /**
  * A new value for each request that posts a web input's Slack mirror, sent
  * in the post's message metadata, so the post Slack sends back names the one
