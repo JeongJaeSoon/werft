@@ -1,5 +1,5 @@
 {
-  "id": "8d8bc2b7-5375-4bb6-8cca-d2f09908731b",
+  "id": "9fb41fb8-c05b-49ac-aa42-1d9ee3720641",
   "prevId": "fe7be122-1388-45d8-b95c-a2a9091c1be0",
   "version": "7",
   "dialect": "postgresql",
@@ -6539,6 +6539,144 @@
       },
       "isRLSEnabled": false
     },
+    "public.conversation_turn_permits": {
+      "name": "conversation_turn_permits",
+      "schema": "",
+      "columns": {
+        "turn_id": {
+          "name": "turn_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "root_kind": {
+          "name": "root_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requester_user_id": {
+          "name": "requester_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max_tokens": {
+          "name": "max_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max_request_bytes": {
+          "name": "max_request_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "call_key": {
+          "name": "call_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "calls": {
+          "name": "calls",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "refusal": {
+          "name": "refusal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "conversation_turn_permits_token_uniq": {
+          "name": "conversation_turn_permits_token_uniq",
+          "columns": [
+            {
+              "expression": "token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_turn_permits_turn_fk": {
+          "name": "conversation_turn_permits_turn_fk",
+          "tableFrom": "conversation_turn_permits",
+          "tableTo": "conversation_turns",
+          "columnsFrom": ["turn_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "conversation_turn_permits_root_kind_check": {
+          "name": "conversation_turn_permits_root_kind_check",
+          "value": "\"conversation_turn_permits\".\"root_kind\" IN ('user','key','slack_bot','none')"
+        },
+        "conversation_turn_permits_limits_check": {
+          "name": "conversation_turn_permits_limits_check",
+          "value": "\"conversation_turn_permits\".\"max_tokens\" >= 1 AND \"conversation_turn_permits\".\"max_request_bytes\" >= 1 AND \"conversation_turn_permits\".\"calls\" >= 0 AND \"conversation_turn_permits\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m2$'"
+        },
+        "conversation_turn_permits_refusal_check": {
+          "name": "conversation_turn_permits_refusal_check",
+          "value": "\"conversation_turn_permits\".\"refusal\" IN ('budget','concurrency','turn_limit')"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.conversation_turns": {
       "name": "conversation_turns",
       "schema": "",
@@ -10469,70 +10607,6 @@
         "login_settings_emergency_admin_check": {
           "name": "login_settings_emergency_admin_check",
           "value": "\"login_settings\".\"password_login\" = 'on' OR \"login_settings\".\"emergency_admin_user_id\" IS NOT NULL"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.lost_checkpoint_notices": {
-      "name": "lost_checkpoint_notices",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "forgotten_at": {
-          "name": "forgotten_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "session_ids": {
-          "name": "session_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "closed_at": {
-          "name": "closed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "closed_by": {
-          "name": "closed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "lost_checkpoint_notices_closed_by_users_id_fk": {
-          "name": "lost_checkpoint_notices_closed_by_users_id_fk",
-          "tableFrom": "lost_checkpoint_notices",
-          "tableTo": "users",
-          "columnsFrom": ["closed_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "lost_checkpoint_notices_session_ids_check": {
-          "name": "lost_checkpoint_notices_session_ids_check",
-          "value": "jsonb_typeof(\"lost_checkpoint_notices\".\"session_ids\") = 'array'"
-        },
-        "lost_checkpoint_notices_closed_check": {
-          "name": "lost_checkpoint_notices_closed_check",
-          "value": "\"lost_checkpoint_notices\".\"closed_by\" IS NULL OR \"lost_checkpoint_notices\".\"closed_at\" IS NOT NULL"
         }
       },
       "isRLSEnabled": false
