@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { isIP } from "node:net";
-import type { ConversationCallId } from "@werft-ai/contracts";
+import {
+  type ConversationCallId,
+  type ConversationId,
+  conversationCallKeySchema,
+  conversationIdSchema,
+} from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agents,
@@ -71,6 +76,7 @@ integration("conversation call through the egress proxy on PostgreSQL", () => {
   let catalog: Pick<SessionCatalog, "connections">;
   let workspaceId: string;
   let agentId: string;
+  let conversationId: ConversationId;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "conversation_call_flow" });
@@ -92,6 +98,15 @@ integration("conversation call through the egress proxy on PostgreSQL", () => {
       slug: "agent",
       name: "agent",
     });
+    conversationId = conversationIdSchema.parse(crypto.randomUUID());
+    await pool.query(
+      "INSERT INTO channel_contexts (id, workspace_id, team_id, channel_id) VALUES ($1, $2, 'T0FLOW', 'C0FLOW')",
+      [crypto.randomUUID(), workspaceId],
+    );
+    await pool.query(
+      "INSERT INTO conversations (id, workspace_id, agent_id, kind, team_id, channel_id) VALUES ($1, $2, $3, 'channel', 'T0FLOW', 'C0FLOW')",
+      [conversationId, workspaceId, agentId],
+    );
 
     messages = startFakeAnthropicServer((request) => {
       if (JSON.stringify(request.body.messages).includes(HANG)) {
@@ -170,6 +185,12 @@ integration("conversation call through the egress proxy on PostgreSQL", () => {
   ): ConversationCallRequest<string> => ({
     workspaceId,
     agentId,
+    conversationId,
+    topicId: null,
+    callClass: "m1",
+    releaseId: null,
+    callKey: conversationCallKeySchema.parse(`${crypto.randomUUID()}:m1`),
+    attempt: 1,
     root,
     connectionId: CONNECTION,
     model: MODEL,
