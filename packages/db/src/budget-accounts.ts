@@ -15,7 +15,12 @@ import {
 import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { budgetAccounts, budgetLimits, budgetReservations } from "./schema.ts";
+import {
+  budgetAccounts,
+  budgetAdjustments,
+  budgetLimits,
+  budgetReservations,
+} from "./schema.ts";
 
 /** What a budget limit row is for. */
 export type BudgetLimitTarget =
@@ -291,6 +296,9 @@ export async function settleBudgetIn(
   if (!row) return "unknown";
   if (row.state === "settled") return "already_settled";
   const costUsd = row.unmetered ? 0 : toStoredCost(actual.costUsd);
+  if (row.state === "resolved") {
+    return adjustResolvedIn(tx, row, { costUsd, tokens: actual.tokens });
+  }
   // A released reserve was already taken off; a call billed after its
   // release still spent what the settlement says. A reserved one whose end
   // was unknown is held all the same: a late report takes it off.
@@ -337,6 +345,7 @@ export async function releaseBudgetIn(
   if (!row) return "unknown";
   if (row.state === "settled") return "settled";
   if (row.state === "released") return "already_released";
+  if (row.state === "resolved") return "resolved";
   await tx
     .update(budgetReservations)
     .set({ state: "released", endedAt: DB_NOW, unknownAt: null })
@@ -351,6 +360,46 @@ export async function releaseBudgetIn(
       .where(eq(budgetAccounts.id, row.accountId));
   }
   return "released";
+}
+
+/**
+ * A late report of a reservation an operator resolved: the row stays as the
+ * resolve left it, and the report's difference from what that charged is
+ * added once, keyed by the call, to the spent of the account (and so the
+ * month) the reservation was held on. Under the call's lock and the row's.
+ */
+async function adjustResolvedIn(
+  tx: Database,
+  row: typeof budgetReservations.$inferSelect,
+  reported: BudgetAmount,
+): Promise<"adjusted" | "already_adjusted"> {
+  const adjustment = {
+    costUsd: toStoredCost(reported.costUsd - (row.settledCostUsd ?? 0)),
+    tokens: reported.tokens - (row.settledTokens ?? 0),
+  };
+  const [added] = await tx
+    .insert(budgetAdjustments)
+    .values({
+      callId: row.callId,
+      workspaceId: row.workspaceId,
+      accountId: row.accountId,
+      reportedCostUsd: reported.costUsd,
+      reportedTokens: reported.tokens,
+      ...adjustment,
+    })
+    .onConflictDoNothing()
+    .returning({ callId: budgetAdjustments.callId });
+  if (!added) return "already_adjusted";
+  if (row.accountId !== null) {
+    await tx
+      .update(budgetAccounts)
+      .set({
+        spentCostUsd: sql`${budgetAccounts.spentCostUsd} + ${adjustment.costUsd}`,
+        spentTokens: sql`${budgetAccounts.spentTokens} + ${adjustment.tokens}`,
+      })
+      .where(eq(budgetAccounts.id, row.accountId));
+  }
+  return "adjusted";
 }
 
 /**

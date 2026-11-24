@@ -43,7 +43,7 @@ API（既定 3000）と PostgreSQL（既定 5432）はホスト loopback のみ�
 
 Slack のイベントとボタン・モーダル(interaction)を受け取るには、Slack から届く公開 https 入口が必要です。Slack が呼び出すアドレスは `POST /v1/slack/events/{agent_id}` と `POST /v1/slack/interactions/{agent_id}` の二つだけで、どちらも cookie や API key の代わりにそのエージェントアプリの signing secret の署名を確認します。公開入口はこの二つのパスだけを api に送り、それ以外は proxy で 404 を返します。Slack アプリのインストールとアカウント連携の OAuth redirect は、ブラウザがコンソールのアドレス(`CONSOLE_ORIGIN`)に戻るため、公開入口には開きません。
 
-api の 3000 番ポートには、コンソールと `/v1` API のほかに worker 用の `/internal` もあります。トンネルや proxy で 3000 をまるごと公開すると、`/internal` までインターネットに開きます。そのため公開入口(Slack のパスだけ)とコンソール入口(VPN・IP allowlist の内側)を別の DNS 名に分け、コンソール入口でも `/internal` を塞ぎます。
+api の 3000 番ポートには、コンソールと `/v1` API のほかに worker 用の `/internal` もあります。トンネルや proxy で 3000 をまるごと公開すると、`/internal` までインターネットに開きます。そのため公開入口(Slack のパスだけ)とコンソール入口(VPN・IP allowlist の内側)を別の DNS 名に分け、コンソール入口でも `/internal` を塞ぎます。Bun はバックスラッシュを `/` に変えて `/internal` の規則をすり抜けさせるので、どの proxy でも、パスに `\` や `%5C` を含むリクエストは 400 で拒否します。
 
 次は Compose サーバーで nginx を使って二つの入口を分ける例です。`<hooks-host>` は公開 DNS 名、`<console-host>` は `CONSOLE_ORIGIN` の host、`<allowed-cidr>` はコンソールに入れる範囲です。証明書パスは組織の値を使います。
 
