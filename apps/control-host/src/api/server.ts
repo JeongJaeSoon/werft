@@ -78,6 +78,7 @@ import {
   createPostgresSlackSourceMarkStore,
   createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
+  createPostgresTopicTurnContexts,
   createPostgresTurnInterrupts,
   createPostgresUsageReader,
   createPostgresWorkerPendingStore,
@@ -164,6 +165,7 @@ import {
   createSkillService,
   createSurfaceBindingService,
   createTeamService,
+  createTopicSessionChecks,
   createUsageService,
   createWorkerGateway,
   createWorkspaceMcpService,
@@ -1304,6 +1306,10 @@ const conversationTurnQueue = createMemoryConversationTurnQueue();
 assertConversationTurnDispatch(process.env, conversationTurnQueue);
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
+  // What a topic's live session read, in this process's memory like the queue.
+  topicSessions: createTopicSessionChecks({
+    contexts: createPostgresTopicTurnContexts(db),
+  }),
 });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
