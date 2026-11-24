@@ -508,6 +508,38 @@ export function createEgressAuthorizer(deps: {
       path: body.path,
       exchange_id: exchangeId.success ? exchangeId.data : undefined,
     });
+    if (called !== null && "outcome" in called) {
+      // A turn's call refused with nothing held: the turn ends on it, and
+      // its permit keeps why.
+      deps.logger.info("Conversation turn call refused", {
+        turn_id: called.turnId,
+        refused_by: called.outcome === "refused" ? "budget" : "concurrency",
+        ...(called.outcome === "refused"
+          ? {
+              budget_root_kind: called.rootKind,
+              budget_account_id: called.accountId ?? undefined,
+            }
+          : {
+              limit: called.limit,
+              in_progress: called.inProgress,
+              unknown: called.unknown,
+            }),
+      });
+      throw called.outcome === "refused"
+        ? new WorkerGatewayError(
+            403,
+            "BUDGET_EXCEEDED",
+            "The turn's budget account cannot hold this call's reserve",
+          )
+        : new WorkerGatewayError(
+            403,
+            "FORBIDDEN",
+            "Too many conversation calls are in progress",
+            false,
+            undefined,
+            `conversation_call_limit_${called.limit}`,
+          );
+    }
     return called ?? deps.gateway.authorizeEgress(body);
   }
 
