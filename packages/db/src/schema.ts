@@ -5142,6 +5142,47 @@ export const agentIdentities = pgTable(
   ],
 );
 
+// A workspace owner's or admin's approval of the Slack notice, at one version,
+// for one agent's app as installed in one Slack team. It counts only while the
+// agent's live install is in that team. Rows are never deleted: a revoke sets
+// revoked_at, and a reinstall in another team leaves them unmatched.
+export const slackNoticeApprovals = pgTable(
+  "slack_notice_approvals",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    /** `SLACK_NOTICE_VERSIONS`; the notice's text is not stored. */
+    noticeVersion: integer("notice_version").notNull(),
+    /** No foreign key: the row outlives the account. */
+    approvedBy: uuid("approved_by").notNull(),
+    approvedAt: timestamp("approved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedBy: uuid("revoked_by"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "slack_notice_approvals_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    uniqueIndex("slack_notice_approvals_live_uniq")
+      .on(table.agentId, table.slackTeamId, table.noticeVersion)
+      .where(sql`${table.revokedAt} IS NULL`),
+    check(
+      "slack_notice_approvals_version_check",
+      sql`${table.noticeVersion} >= 1`,
+    ),
+    check(
+      "slack_notice_approvals_revoked_check",
+      sql`(${table.revokedAt} IS NULL) = (${table.revokedBy} IS NULL)`,
+    ),
+  ],
+);
+
 // How an agent answers in one place of a chat surface: a Slack channel of its
 // app's install, or that install's DMs, which share one row with no channel id.
 // Rows are revoked, never deleted; a write replaces the row and bumps
@@ -5673,6 +5714,44 @@ export const conversationInputs = pgTable(
     check(
       "conversation_inputs_slack_check",
       sql`(${table.slackTeamId} IS NULL AND ${table.slackChannelId} IS NULL AND ${table.slackTs} IS NULL) OR (${table.slackTeamId} IS NOT NULL AND ${table.slackChannelId} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackTs} ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')`,
+    ),
+  ],
+);
+
+/**
+ * How many held messages an agent lost in one Slack channel to the judgment
+ * buffer's limit, oldest first, for the shadow records the limit is set by.
+ * No message, text or poster: the count and when it last grew.
+ */
+export const judgmentBufferOverflows = pgTable(
+  "judgment_buffer_overflows",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    slackChannelId: text("slack_channel_id").notNull(),
+    droppedCount: bigint("dropped_count", { mode: "number" }).notNull(),
+    lastDroppedAt: timestamp("last_dropped_at", {
+      withTimezone: true,
+    }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "judgment_buffer_overflows_pk",
+      columns: [table.agentId, table.slackTeamId, table.slackChannelId],
+    }),
+    foreignKey({
+      name: "judgment_buffer_overflows_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "judgment_buffer_overflows_count_check",
+      sql`${table.droppedCount} > 0`,
+    ),
+    check(
+      "judgment_buffer_overflows_slack_check",
+      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
     ),
   ],
 );
