@@ -1,14 +1,22 @@
 import { randomUUID } from "node:crypto";
+import type { ConversationInputId } from "@werft-ai/contracts";
 import type {
   BufferedInputReceipt,
   ChannelConversationKey,
   JudgmentBufferPlace,
   JudgmentBufferStore,
 } from "@werft-ai/platform";
-import { M1_CHANNEL_WINDOW_MS } from "@werft-ai/platform";
+import {
+  ENGAGED_THREAD_WINDOW_MS,
+  M1_CHANNEL_WINDOW_MS,
+} from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
+import {
+  heldForReply,
+  requestReplyJudgment,
+} from "./conversation-judgments.ts";
 import { lockSlackSourceMark } from "./source-mark-lock.ts";
 
 /** How long an unmentioned message stays in the judgment buffer (decision 24). */
@@ -27,7 +35,8 @@ type SlackMessage = SlackChannelOf<{ ts: string }>;
 /**
  * Whether the agent still holds unmentioned messages of the channel: it is
  * active with its switch `shadow` or `on`, the channel is bound in use
- * (`ready`, mode `on`, listening `free`) and not shared with another
+ * (`ready`, mode `on`, listening `free`, or `mention` for a reply held for
+ * its own judgment, `heldForReply`) and not shared with another
  * organization, and its conversation is not archived or deleted. The receive path asks the same through the
  * handling table; this is its database side, for what changes afterwards.
  */
@@ -35,7 +44,12 @@ export function stillListened(row: {
   agentId: SQL;
   channelId: SQL;
   topicId: SQL;
+  heldForReply?: SQL;
 }) {
+  const listens =
+    row.heldForReply === undefined
+      ? sql`b.listen = 'free'`
+      : sql`(b.listen = 'free' OR (b.listen = 'mention' AND ${row.heldForReply}))`;
   return sql`(EXISTS (
     SELECT 1 FROM agents a
     WHERE a.id = ${row.agentId} AND a.status = 'active'
@@ -44,7 +58,7 @@ export function stillListened(row: {
     SELECT 1 FROM surface_bindings b
     WHERE b.agent_id = ${row.agentId} AND b.surface = 'slack'
       AND b.external_surface_id = ${row.channelId}
-      AND b.status = 'ready' AND b.mode = 'on' AND b.listen = 'free'
+      AND b.status = 'ready' AND b.mode = 'on' AND ${listens}
       AND NOT b.external_shared)
   AND NOT EXISTS (
     SELECT 1 FROM conversation_topics t
@@ -56,6 +70,7 @@ export const rowColumns = {
   agentId: sql.raw("i.agent_id"),
   channelId: sql.raw("i.slack_channel_id"),
   topicId: sql.raw("i.topic_id"),
+  heldForReply,
 };
 
 /**
@@ -317,7 +332,7 @@ export async function holdBufferedInput(
     SELECT 1 FROM conversations c
     JOIN conversation_topics t ON t.conversation_id = c.id
     WHERE t.id = ${input.topicId}::uuid FOR SHARE OF c`);
-  const held = rowsOf(
+  const [heldRow] = rowsOf<{ id: ConversationInputId }>(
     await tx.execute(sql`
       INSERT INTO conversation_inputs (
         id, workspace_id, agent_id, topic_id, seq,
@@ -335,12 +350,23 @@ export async function holdBufferedInput(
         agentId: sql`${row.agentId}::uuid`,
         channelId: sql`${input.channelId}`,
         topicId: sql`${input.topicId}::uuid`,
+        ...(input.judgment === undefined ? {} : { heldForReply: sql`true` }),
       })}
       ON CONFLICT (agent_id, slack_team_id, slack_channel_id, slack_ts)
         DO NOTHING
       RETURNING id`),
   );
-  if (held.length > 0) {
+  if (heldRow !== undefined) {
+    if (input.judgment !== undefined) {
+      await requestReplyJudgment(tx, {
+        ...message,
+        agentId: row.agentId,
+        topicId: input.topicId,
+        inputId: heldRow.id,
+        sessionId: null,
+        rule: { decision: "none", reason: "stray_reply" },
+      });
+    }
     const dropped = await keepChannelLimit(
       tx,
       { ...message, agentId: row.agentId },
@@ -480,6 +506,25 @@ export function createPostgresJudgmentBufferStore(
         agentActive: row.status === "active",
         channelState: row.channel_state ?? "active",
       };
+    },
+
+    async engagedThread(key) {
+      const rows = rowsOf(
+        await db.execute(sql`
+          SELECT 1 FROM conversation_engagements e
+          WHERE e.agent_id = ${key.agentId}::uuid
+            AND e.workspace_id = ${key.workspaceId}::uuid
+            AND e.team_id = ${key.teamId} AND e.channel_id = ${key.channelId}
+            AND e.created_at > now() - make_interval(secs => ${ENGAGED_THREAD_WINDOW_MS / 1000})
+            AND (e.ts = ${key.threadTs} OR EXISTS (
+              SELECT 1 FROM conversation_inputs i
+              JOIN conversation_topics t ON t.id = i.topic_id
+              WHERE i.agent_id = e.agent_id AND i.slack_team_id = e.team_id
+                AND i.slack_channel_id = e.channel_id AND i.slack_ts = e.ts
+                AND t.slack_thread_ts = ${key.threadTs}))
+          LIMIT 1`),
+      );
+      return rows.length > 0;
     },
   };
 }
