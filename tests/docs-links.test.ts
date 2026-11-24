@@ -375,6 +375,8 @@ const NOT_SETTINGS: Record<string, string> = {
   GIT_CONFIG_SYSTEM:
     "git's own variable, passed on to the attribution repair tool when set",
   NODE_EXTRA_CA_CERTS: "written into the engine's environment, not read",
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS:
+    "written into the engine's environment, not read",
   NEXT_PUBLIC_BASE_PATH: "inlined into the docs site by its next.config.mjs",
   DEMO_FIXTURES:
     "inlined into the console demo build by apps/web/vite.config.ts",

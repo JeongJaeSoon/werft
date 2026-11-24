@@ -641,6 +641,150 @@ function checkSlack(
   return errors;
 }
 
+// All the conversation runtime's container is given: its bearer, from the
+// Secret, and where the api and the proxy are.
+const CONVERSATION_RUNTIME_ENV = [
+  "CONVERSATION_RUNTIME_TOKEN",
+  "CONVERSATION_TOPICS_DIR",
+  "WORKER_GATEWAY_URL",
+  "WORKER_EGRESS_CREDENTIAL_URL",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "LOG_LEVEL",
+];
+
+/**
+ * The conversation runtime, rendered only when it is enabled: one replica
+ * held as a worker Pod is (the egress proxy alone, no resolver, nothing in),
+ * with its bearer as its one Secret key, no provider key and no volume that
+ * outlives it. The api takes the bearer exactly when the runtime is there.
+ */
+function checkConversationRuntime(
+  label: string,
+  manifests: Manifest[],
+  enabled: boolean,
+): string[] {
+  const errors: string[] = [];
+  const componentOf = (m: Manifest) =>
+    m.metadata.labels?.["app.kubernetes.io/component"];
+  const ofRuntime = (kind: string) =>
+    manifests.filter(
+      (m) => m.kind === kind && componentOf(m) === "conversation-runtime",
+    );
+  const want = enabled ? 1 : 0;
+  for (const kind of ["Deployment", "NetworkPolicy"]) {
+    const got = ofRuntime(kind).length;
+    if (got !== want) {
+      errors.push(
+        `${label}: expected ${want} conversation runtime ${kind}, got ${got}`,
+      );
+    }
+  }
+  const api = manifests.find(
+    (m) => m.kind === "Deployment" && componentOf(m) === "api",
+  );
+  const apiEnv: EnvVar[] =
+    api === undefined ? [] : (podSpecOf(api).containers[0].env ?? []);
+  if (apiEnv.some((v) => v.name === "CONVERSATION_RUNTIME_TOKEN") !== enabled) {
+    errors.push(
+      `${label}: the api ${enabled ? "lacks" : "holds"} the conversation runtime's bearer`,
+    );
+  }
+  const proxyPolicy = manifests.find(
+    (m) =>
+      m.kind === "NetworkPolicy" &&
+      m.spec.podSelector?.matchLabels?.["app.kubernetes.io/component"] ===
+        "egress-proxy",
+  );
+  const admitted = (proxyPolicy?.spec.ingress ?? []).some(
+    (rule: { from?: Peer[] }) =>
+      (rule.from ?? []).some(
+        (peer) =>
+          peer.podSelector?.matchLabels?.["app.kubernetes.io/component"] ===
+          "conversation-runtime",
+      ),
+  );
+  if (admitted !== enabled) {
+    errors.push(
+      `${label}: the egress proxy ${enabled ? "does not admit" : "admits"} the conversation runtime`,
+    );
+  }
+  for (const m of ofRuntime("Deployment")) {
+    const where = `${label}: ${m.kind}/${m.metadata.name}`;
+    const pod = podSpecOf(m);
+    if (m.spec.replicas !== 1) errors.push(`${where}: replicas is not 1`);
+    if (pod.dnsPolicy !== "None") {
+      errors.push(`${where}: has a resolver: a query is a way out`);
+    }
+    for (const volume of pod.volumes ?? []) {
+      if (volume.emptyDir === undefined) {
+        errors.push(`${where}: volume ${volume.name} is not an emptyDir`);
+      }
+    }
+    // The worker image declares /workspace a volume: unmasked, the container
+    // runtime hands the Pod a writable one of its own.
+    const workspace = (pod.containers[0].volumeMounts ?? []).find(
+      (mount: { mountPath: string }) => mount.mountPath === "/workspace",
+    );
+    if (workspace?.readOnly !== true) {
+      errors.push(`${where}: /workspace is not masked read-only`);
+    }
+    for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
+      const env: EnvVar[] = c.env ?? [];
+      const names = env.map((v) => v.name);
+      if (JSON.stringify(names) !== JSON.stringify(CONVERSATION_RUNTIME_ENV)) {
+        errors.push(
+          `${where}: container ${c.name} env ${JSON.stringify(names)} is not ${JSON.stringify(CONVERSATION_RUNTIME_ENV)}`,
+        );
+      }
+      const secrets = env
+        .filter((v) => v.valueFrom !== undefined)
+        .map((v) => v.valueFrom?.secretKeyRef?.key);
+      if (
+        JSON.stringify(secrets) !== '["CONVERSATION_RUNTIME_TOKEN"]' ||
+        (c.envFrom ?? []).length > 0
+      ) {
+        errors.push(
+          `${where}: container ${c.name} reads ${JSON.stringify(secrets)} from the cluster, not its bearer alone`,
+        );
+      }
+      const proxy = env.find((v) => v.name === "HTTP_PROXY")?.value ?? "";
+      // The Service's address by its variable: the Pod cannot look a name up.
+      if (
+        !/^http:\/\/\$\([A-Z0-9_]+_EGRESS_PROXY_SERVICE_HOST\):3128$/.test(
+          proxy,
+        )
+      ) {
+        errors.push(
+          `${where}: HTTP_PROXY ${proxy} is not the proxy Service's address`,
+        );
+      }
+    }
+  }
+  for (const policy of ofRuntime("NetworkPolicy")) {
+    const spec = policy.spec;
+    const egress = (spec.egress ?? []).map((rule: PolicyRule) => ({
+      to: (rule.to ?? []).map(
+        (peer) =>
+          peer.podSelector?.matchLabels?.["app.kubernetes.io/component"],
+      ),
+      ports: (rule.ports ?? []).map((p) => `${p.protocol}/${p.port}`),
+    }));
+    if (
+      JSON.stringify([...spec.policyTypes].sort()) !== '["Egress","Ingress"]' ||
+      (spec.ingress ?? []).length !== 0 ||
+      JSON.stringify(egress) !==
+        '[{"to":["egress-proxy"],"ports":["TCP/3128","TCP/3129"]}]'
+    ) {
+      errors.push(
+        `${label}: NetworkPolicy/${policy.metadata.name}: must deny all ingress and reach the egress proxy alone, got ${JSON.stringify(egress)}`,
+      );
+    }
+  }
+  return errors;
+}
+
 const WORKER_IMAGE_ROLES = ["api", "slack", "scheduler"];
 
 /**
@@ -1055,8 +1199,37 @@ const listInstead = (workers: unknown) => [
   "--set-json",
   `images.workers=${JSON.stringify(workers)}`,
 ];
+const CODEX_LISTED = listedWorker({
+  repository: "reg/codex",
+  digest: `sha256:${"e".repeat(64)}`,
+  runtime: { engine: "codex", sdkVersion: "1", cliVersion: "1" },
+  releasedAt: "2026-11-12T00:00:00Z",
+});
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
+  [
+    "the conversation runtime on a Codex image",
+    [
+      "-f",
+      ciDigests,
+      "--set",
+      "conversationRuntime.enabled=true",
+      "--set-json",
+      'images.worker.runtime={"engine":"codex","sdkVersion":"1","cliVersion":"1"}',
+    ],
+    /conversationRuntime.enabled needs a Claude worker image/,
+  ],
+  [
+    "the conversation runtime with no Claude image listed",
+    [
+      "-f",
+      ciDigests,
+      "--set",
+      "conversationRuntime.enabled=true",
+      ...listInstead([CODEX_LISTED]),
+    ],
+    /conversationRuntime.enabled needs a Claude worker image/,
+  ],
   [
     "the console on a controller other than the ALB",
     [
@@ -2832,10 +3005,54 @@ function checkCodexSandbox(): string[] {
 }
 errors.push(...checkCodexSandbox());
 
+const runtimeOn = render([
+  "-f",
+  ciDigests,
+  "--set",
+  "conversationRuntime.enabled=true",
+]);
+errors.push(
+  ...checkConversationRuntime("default", render(["-f", ciDigests]), false),
+  ...checkConversationRuntime("conversation runtime on", runtimeOn, true),
+  ...check("conversation runtime on", runtimeOn, true),
+);
+// From a list it runs the newest Claude image that is not retracted.
+{
+  const listed = render([
+    "-f",
+    ciDigests,
+    "--set",
+    "conversationRuntime.enabled=true",
+    ...listInstead([
+      listedWorker({
+        digest: `sha256:${"9".repeat(64)}`,
+        releasedAt: "2026-11-11T00:00:00Z",
+        retracted: true,
+      }),
+      CODEX_LISTED,
+      listedWorker(),
+    ]),
+  ]);
+  const image = listed
+    .filter(
+      (m) =>
+        m.kind === "Deployment" &&
+        m.metadata.labels?.["app.kubernetes.io/component"] ===
+          "conversation-runtime",
+    )
+    .map((m) => podSpecOf(m).containers[0].image);
+  const expected = `reg/worker@sha256:${"5".repeat(64)}`;
+  if (JSON.stringify(image) !== JSON.stringify([expected])) {
+    errors.push(
+      `conversation runtime from an image list: runs ${JSON.stringify(image)}, not ${expected}`,
+    );
+  }
+}
+
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
+  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate, the conversation runtime off and on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
 );

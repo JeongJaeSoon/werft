@@ -308,6 +308,7 @@ healthz checks HTTP response only, not database. Use it for liveness; readyz che
 | NetworkPolicy | 5 | Workers only reach proxy; slack alone among control-plane Pods has outbound restrictions |
 | Ingress, ExternalSecret | Optional | ingress.enabled, secrets.externalSecret.enabled |
 | metrics Deployment + Service(9464) + NetworkPolicy | Optional, 1, Recreate | metrics.enabled ([metrics](/run-server/self-hosting/collect-metrics)) |
+| conversation-runtime Deployment + NetworkPolicy | Optional, 1, Recreate | conversationRuntime.enabled, off by default. Runs the worker image (the newest Claude image) on the worker nodes and reaches only the egress proxy ([conversation runtime](#대화-런타임)) |
 
 <a id="secret과-aws-values" />
 ## Secrets and AWS values
@@ -426,6 +427,25 @@ When a session is created without `title`, the first message cut at 80 character
 - The call uses the session's connection and model through the provider route, so its cost goes into the first turn's usage and the session limits. The proxy sends only requests to `/v1/messages` with the session's model and `max_tokens` 64 or less.
 - The API sends only to this URL's host:port (metadata and link-local addresses are refused), follows no redirect, and gives up after 25 seconds.
 - A title the user gave, or one changed with `PATCH /v1/sessions/{id}`, is never overwritten. If the call fails or the answer is empty, the first-message title stays.
+
+## Conversation runtime [#대화-런타임]
+
+The conversation runtime is one process: the worker image started on its conversation entry point (`apps/worker/src/conversation/main.ts`). It runs the conversation turns of every agent in the installation. It is off by default and turned on only in test stacks. Nothing sends a person's message to it yet. A turn starts only when an operator runs `bun run apps/control-host/src/api/conversation-turn.ts` in the api container.
+
+- The runtime holds no provider key. Each turn brings a one-call permit, which the runtime sends to the egress proxy's credential route; the proxy adds the key. A turn calls the provider once.
+- It has no workspace volume and no repository checkout. Each topic gets a temporary in-memory directory, removed when the turn ends. The engine is given no tools.
+- The runtime reaches the egress proxy and nothing else, with no DNS. It asks the API for the next turn through the forward proxy, and nothing connects to the runtime.
+- To turn it on: with compose, lay `infra/compose.conversation-runtime.yml` over the stack. With Helm, set `conversationRuntime.enabled: true` and put `CONVERSATION_RUNTIME_TOKEN` in the Secret. It runs one replica.
+- Turns are queued in the memory of one API process for now. Restarting the API drops the queued turns. With more than one API replica, the operator command is refused with `no_runtime` on a replica the runtime is not asking.
+
+| Variable | Read by | Default | Allowed values |
+|---|---|---|---|
+| `CONVERSATION_RUNTIME_TOKEN` | api, conversation runtime (same value) | none | At least 32 characters. The bearer that opens the runtime's two routes (`/internal/conversation-runtime/next-turn`, `/internal/conversation-runtime/turn-result`) and nothing else; on any other `/internal` route it gets 403. Without it the api serves neither route nor the operator command, and the runtime refuses to start. With Helm, the Secret key of the same name |
+| `CONVERSATION_RUNTIME_TOKEN_PREVIOUS` | api | none | A bearer being rotated out, accepted beside the new one. Put the old value here and the new one in `CONVERSATION_RUNTIME_TOKEN`, restart the api and the runtime, then remove this value |
+| `CONVERSATION_TURN_DISPATCH` | api | `false` | The switch that sends people's messages to conversation turns. Leave it off. While turns are queued in memory, the api refuses to start with it on |
+| `CONVERSATION_TURN_SOCKET` | api | `/tmp/werft-conversation-turns.sock` | The unix socket path where the operator command hands the api a turn. Reachable only inside the same container |
+| `CONVERSATION_TOPICS_DIR` | conversation runtime | `/conversation` in compose and the chart | The tmpfs path the per-topic temporary directories are made under. Required |
+| `CONVERSATION_STATUS_FILE` | conversation runtime | `/tmp/conversation-runtime-status.json` | The file where the runtime records when it last reached the api. The healthcheck (`main.ts --health`) reads it; staler than 200 seconds is unhealthy |
 
 ## Settings document import and export [#설정-문서-가져오기내보내기]
 

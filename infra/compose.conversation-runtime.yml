@@ -1,0 +1,25 @@
+# The conversation runtime overlay: runs the core's conversation-runtime
+# service, which is off without it. For test stacks only: nothing dispatches
+# a person's message to the runtime yet, and an operator's
+# `docker compose exec api bun run apps/control-host/src/api/conversation-turn.ts`
+# is the one way a turn starts. It names no path, so it merges the same under
+# either project directory.
+#
+# The bearer is the same value on both sides. The default serves a local
+# stack only: set your own CONVERSATION_RUNTIME_TOKEN anywhere else.
+x-conversation-runtime-token: &conversation-runtime-token ${CONVERSATION_RUNTIME_TOKEN:-local-conversation-runtime-token-0123456789}
+
+services:
+  conversation-runtime:
+    profiles: !reset []
+    environment:
+      CONVERSATION_RUNTIME_TOKEN: *conversation-runtime-token
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+  # The runtime's only neighbour, and its only way to the API and a provider.
+  egress-proxy:
+    networks: [default, conversation-runtime]
+  api:
+    environment:
+      CONVERSATION_RUNTIME_TOKEN: *conversation-runtime-token

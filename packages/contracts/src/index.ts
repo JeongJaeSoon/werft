@@ -5,4 +5,5 @@ export * from "./kollegium/index.ts";
 export * from "./musterrolle/index.ts";
 export * from "./shared/index.ts";
 export * from "./surface/index.ts";
+export * from "./worker-protocol/conversation-runtime.ts";
 export * from "./worker-protocol/index.ts";

@@ -128,6 +128,14 @@ export type ClaudeRuntimeConfig = DriverConfig & {
    */
   repositoryClaudeMd?: { contents: string | null };
   /**
+   * The most output tokens the engine asks for in one Messages request
+   * (`max_tokens`); the thinking budget fits inside it. Unset leaves the
+   * engine's default. Not part of the checkpoint fingerprint.
+   */
+  maxOutputTokens?: number;
+  /** The engine's `TMPDIR`; unset is the host's. Not part of the checkpoint fingerprint. */
+  tmpDir?: string;
+  /**
    * How many times the engine retries a failed Messages request (5xx,
    * overload, rate limit, connection) before the turn fails with
    * `terminal_reason: "api_error"`. Unset leaves the engine's own policy.

@@ -9,6 +9,7 @@ import {
   claudeCheckpointCodec,
   claudeEventCodec,
   equivalentToolCatalogVersions,
+  pinnedClaudeToolCatalog,
 } from "@werft-ai/runtime-claude-codec";
 import {
   type AdmissionHold,
@@ -227,6 +228,10 @@ export function claudeStartConfig(
     ...(deps.providerMaxRetries === undefined
       ? {}
       : { providerMaxRetries: deps.providerMaxRetries }),
+    ...(config.maxOutputTokens === undefined
+      ? {}
+      : { maxOutputTokens: config.maxOutputTokens }),
+    ...(config.tmpDir === undefined ? {} : { tmpDir: config.tmpDir }),
     ...(config.maxBudgetUsd === undefined
       ? {}
       : { maxBudgetUsd: config.maxBudgetUsd }),
@@ -284,6 +289,13 @@ export const claudeRuntimeModule: RuntimeModule = {
   descriptor: CLAUDE_DESCRIPTOR,
   checkpointCodec: claudeCheckpointCodec,
   eventCodec: claudeEventCodec,
+  ...(pinnedClaudeToolCatalog() === undefined
+    ? {}
+    : {
+        builtinTools: (pinnedClaudeToolCatalog()?.tools ?? []).map(
+          (tool) => tool.name,
+        ),
+      }),
   /**
    * A session made for another build is refused, unless that build's tool
    * catalog is this one's: a release pinned at the version before an SDK

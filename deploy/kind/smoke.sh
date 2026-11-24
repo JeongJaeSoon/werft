@@ -153,6 +153,11 @@ if [ -n "$retried" ]; then
   [ "$(helm_status)" = deployed ] || fail "the retry left the release $(helm_status)"
   upgrade_check_verdict '.verdict == "proceed" and .deployedWorker == null'
 fi
+# Ready is the conversation runtime's loop having asked the api for a turn:
+# through the egress proxy, by the Service's address, with no resolver.
+if [ "$KIND_MODEL" = fake ]; then
+  k rollout status "deploy/${fullname}-conversation-runtime" --timeout=300s
+fi
 pass
 
 # One session reaches turn 1 completed in a worker Pod the scheduler launched,

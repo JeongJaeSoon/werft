@@ -410,6 +410,7 @@ jobs:
               - packages/adapters/execution/local-docker/src/egress.
               - tests/credential-routes.
               - tests/sdk-egress-proxy.
+              - tests/conversation-runtime-flow.
           # What runs inside a worker, none of it needing a service: the worker
           # process, runtime adapters, platform services — plus the UI component
           # library and the repository's own tooling suites, which need no

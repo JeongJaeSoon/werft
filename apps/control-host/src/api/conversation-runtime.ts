@@ -1,0 +1,331 @@
+import { timingSafeEqual } from "node:crypto";
+import { rm } from "node:fs/promises";
+import {
+  agentIdSchema,
+  CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
+  CONVERSATION_TURN_LEASE_MS,
+  CONVERSATION_TURN_TEXT_MAX,
+  conversationIdSchema,
+  conversationTopicIdSchema,
+  conversationTurnIdSchema,
+  workspaceIdSchema,
+} from "@werft-ai/contracts";
+import type { StructuredLogger } from "@werft-ai/observability";
+import {
+  type AgentStore,
+  type ConversationCalls,
+  type ConversationRuntimeTurns,
+  type ConversationTurnOutcome,
+  type ConversationTurnQueue,
+  connectionOf,
+  hashToken,
+  type SessionCatalog,
+} from "@werft-ai/platform";
+import { z } from "zod";
+import { booleanFlag } from "../boolean-flag.ts";
+
+// A bearer an operator could type from memory is not a lock.
+const MIN_TOKEN_LENGTH = 32;
+export const DEFAULT_CONVERSATION_TURN_SOCKET =
+  "/tmp/werft-conversation-turns.sock";
+
+// What an operator's turn may use at most. The engine's own request (its
+// system prompt, with no tools) is about 16 KiB before the input.
+export const OPERATOR_TURN_MAX_TOKENS = 4_096;
+export const OPERATOR_TURN_MAX_REQUEST_BYTES = 96 * 1024;
+// How long a queued turn waits for a runtime to take it.
+export const OPERATOR_TURN_TAKE_MS = 30_000;
+
+export type ConversationRuntimeConfig = {
+  /** The bearers the runtime's routes accept: the current one, then the one being rotated out. */
+  tokens: readonly string[];
+  /** Where an operator in this container starts a turn. */
+  socketPath: string;
+};
+
+/**
+ * Unset, the conversation runtime is off: its routes are not served and an
+ * operator's turn is refused. `CONVERSATION_RUNTIME_TOKEN_PREVIOUS` is the
+ * bearer being rotated out, accepted beside the current one until the
+ * runtime has restarted on the new value.
+ */
+export function conversationRuntimeConfigFromEnv(
+  env: Record<string, string | undefined>,
+): ConversationRuntimeConfig | null {
+  const current = env.CONVERSATION_RUNTIME_TOKEN || undefined;
+  const previous = env.CONVERSATION_RUNTIME_TOKEN_PREVIOUS || undefined;
+  if (current === undefined) {
+    if (previous !== undefined) {
+      throw new Error(
+        "CONVERSATION_RUNTIME_TOKEN_PREVIOUS is set without CONVERSATION_RUNTIME_TOKEN",
+      );
+    }
+    return null;
+  }
+  for (const [name, value] of [
+    ["CONVERSATION_RUNTIME_TOKEN", current],
+    ["CONVERSATION_RUNTIME_TOKEN_PREVIOUS", previous],
+  ] as const) {
+    if (value !== undefined && value.length < MIN_TOKEN_LENGTH) {
+      throw new Error(
+        `${name} must be at least ${MIN_TOKEN_LENGTH} characters`,
+      );
+    }
+  }
+  return {
+    tokens: previous === undefined ? [current] : [current, previous],
+    socketPath:
+      env.CONVERSATION_TURN_SOCKET || DEFAULT_CONVERSATION_TURN_SOCKET,
+  };
+}
+
+/**
+ * Whether conversation turns are dispatched from people's messages. Nothing
+ * dispatches them yet; the switch exists so that turning it on over a queue
+ * held in one process's memory stops the API at start rather than losing
+ * turns at its next restart.
+ */
+export function assertConversationTurnDispatch(
+  env: Record<string, string | undefined>,
+  queue: Pick<ConversationTurnQueue, "durable">,
+): void {
+  const value = env.CONVERSATION_TURN_DISPATCH;
+  if (value === undefined || value === "") return;
+  if (!booleanFlag(value, "CONVERSATION_TURN_DISPATCH")) return;
+  if (!queue.durable) {
+    throw new Error(
+      "CONVERSATION_TURN_DISPATCH is on, but conversation turns are queued in this process's memory: a restart loses them and a second API process does not see them. Leave it off until the queue is in the database.",
+    );
+  }
+}
+
+/** Whether a bearer is one of the runtime's, compared as digests. */
+export function conversationRuntimeBearer(
+  tokens: readonly string[],
+): (token: string | null) => boolean {
+  const expected = tokens.map((token) => hashToken(token));
+  return (token) => {
+    if (token === null) return false;
+    const given = hashToken(token);
+    // Every candidate is compared, so the time does not say which matched.
+    let matched = false;
+    for (const candidate of expected) {
+      if (timingSafeEqual(given, candidate)) matched = true;
+    }
+    return matched;
+  };
+}
+
+export const operatorTurnRequestSchema = z
+  .object({
+    workspace_id: workspaceIdSchema,
+    agent_id: agentIdSchema,
+    conversation_id: conversationIdSchema,
+    topic_id: conversationTopicIdSchema,
+    text: z.string().min(1).max(CONVERSATION_TURN_TEXT_MAX),
+    // Who ran the command, as its process saw itself: for the log only.
+    operator: z
+      .object({
+        user: z.string().regex(/^[\w.@:-]{1,64}$/),
+        host: z.string().regex(/^[\w.-]{1,255}$/),
+      })
+      .strict(),
+  })
+  .strict();
+export type OperatorTurnRequest = z.infer<typeof operatorTurnRequestSchema>;
+
+export type OperatorTurnResult =
+  | { outcome: "invalid_request" }
+  // No runtime has asked for a turn lately: none is running, or none reaches this API.
+  | { outcome: "no_runtime" }
+  | { outcome: "unknown_agent" }
+  // The conversation is not the agent's, or the topic not the conversation's.
+  | { outcome: "unknown_conversation" }
+  | { outcome: "no_active_release" }
+  // The release's connection is gone, or serves no Messages.
+  | { outcome: "connection_unavailable" }
+  // The agent's team budget cannot hold the call.
+  | { outcome: "budget_refused" }
+  | {
+      outcome: "ended";
+      turn_id: string;
+      call_id: string;
+      turn: ConversationTurnOutcome;
+    };
+
+/**
+ * Starts one conversation turn for an operator: reserves its one provider
+ * call on the agent's team as an operator's call, queues the turn for the
+ * runtime and waits for how it ends. The only way a turn starts until
+ * people's messages dispatch them.
+ */
+export function createOperatorConversationTurns(deps: {
+  turns: ConversationRuntimeTurns;
+  calls: Pick<ConversationCalls, "issueForOperator">;
+  agents: Pick<AgentStore, "get">;
+  catalog: Pick<SessionCatalog, "connections">;
+  now?: () => Date;
+}) {
+  const now = deps.now ?? (() => new Date());
+  return {
+    async run(request: OperatorTurnRequest): Promise<OperatorTurnResult> {
+      // Before anything is reserved: a turn nobody takes holds its
+      // reservation until the permit expires.
+      if (
+        !deps.turns.runtimePolledWithin(2 * CONVERSATION_NEXT_TURN_MAX_WAIT_MS)
+      ) {
+        return { outcome: "no_runtime" };
+      }
+      const agent = await deps.agents.get(
+        request.workspace_id,
+        request.agent_id,
+      );
+      if (agent === null) return { outcome: "unknown_agent" };
+      const release = agent.active_release;
+      if (release === null) return { outcome: "no_active_release" };
+      const connection = connectionOf(deps.catalog, release.connection_id);
+      const model = release.runtime_config_snapshot.model;
+      if (
+        connection === undefined ||
+        connection.provider.kind === "openai_responses" ||
+        typeof model !== "string"
+      ) {
+        return { outcome: "connection_unavailable" };
+      }
+      const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
+      const issued = await deps.calls.issueForOperator({
+        workspaceId: request.workspace_id,
+        agentId: request.agent_id,
+        conversationId: request.conversation_id,
+        topicId: request.topic_id,
+        // The turn's one call.
+        callClass: "m2",
+        turnId,
+        // Valid for as long as the turn may wait and then run.
+        ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
+        releaseId: release.id,
+        connectionId: release.connection_id,
+        model,
+        maxTokens: OPERATOR_TURN_MAX_TOKENS,
+        maxRequestBytes: OPERATOR_TURN_MAX_REQUEST_BYTES,
+      });
+      if (issued.outcome === "unknown_agent")
+        return { outcome: "unknown_agent" };
+      if (issued.outcome === "unavailable") {
+        return { outcome: "connection_unavailable" };
+      }
+      if (issued.outcome === "refused") return { outcome: "budget_refused" };
+      if (issued.outcome === "unknown_conversation") {
+        return { outcome: "unknown_conversation" };
+      }
+      if (issued.outcome === "already_issued") {
+        throw new Error(`A call is already issued for turn ${turnId}`);
+      }
+      const takeBy = new Date(
+        Math.min(
+          now().getTime() + OPERATOR_TURN_TAKE_MS,
+          issued.expiresAt.getTime(),
+        ),
+      );
+      await deps.turns.queue.enqueue(
+        {
+          turn_id: turnId,
+          scope: {
+            workspace_id: request.workspace_id,
+            agent_id: request.agent_id,
+            conversation_id: request.conversation_id,
+            topic_id: request.topic_id,
+          },
+          model,
+          provider: {
+            kind: connection.provider.kind,
+            endpoint: connection.provider.endpoint,
+            auth: { kind: "egress_token", token: issued.token },
+          },
+          call: { id: issued.callId, max_tokens: OPERATOR_TURN_MAX_TOKENS },
+          input: { id: crypto.randomUUID(), text: request.text },
+        },
+        takeBy,
+      );
+      const turn = await deps.turns.ended(turnId);
+      // Queued just above, so it has an end.
+      if (turn === null)
+        throw new Error(`Conversation turn ${turnId} vanished`);
+      return {
+        outcome: "ended",
+        turn_id: turnId,
+        call_id: issued.callId,
+        turn,
+      };
+    },
+  };
+}
+
+/**
+ * The operator's door: a socket in this container's own filesystem, so only
+ * a process started inside it (`conversation-turn.ts`) reaches it and no
+ * bearer is needed. Removed with the API; a leftover from a killed one is
+ * replaced.
+ */
+export async function serveOperatorConversationTurns(deps: {
+  socketPath: string;
+  operator: ReturnType<typeof createOperatorConversationTurns>;
+  logger: StructuredLogger;
+}): Promise<{ stop(): Promise<void> }> {
+  await rm(deps.socketPath, { force: true });
+  const server = Bun.serve({
+    unix: deps.socketPath,
+    async fetch(request, server) {
+      // A turn is held open until it ends, longer than the idle default.
+      server.timeout(request, 0);
+      if (request.method !== "POST") {
+        return Response.json({ outcome: "invalid_request" }, { status: 405 });
+      }
+      const parsed = operatorTurnRequestSchema.safeParse(
+        await request.json().catch(() => null),
+      );
+      if (!parsed.success) {
+        return Response.json(
+          { outcome: "invalid_request" } satisfies OperatorTurnResult,
+          { status: 400 },
+        );
+      }
+      try {
+        const result = await deps.operator.run(parsed.data);
+        // Ids and outcomes only: neither the input nor the answer is logged.
+        deps.logger.info("Operator conversation turn", {
+          operator_user: parsed.data.operator.user,
+          operator_host: parsed.data.operator.host,
+          agent_id: parsed.data.agent_id,
+          topic_id: parsed.data.topic_id,
+          outcome: result.outcome,
+          ...(result.outcome === "ended"
+            ? {
+                turn_id: result.turn_id,
+                call_id: result.call_id,
+                turn_outcome: result.turn.outcome,
+                ...("reason" in result.turn
+                  ? { turn_failure: result.turn.reason }
+                  : {}),
+              }
+            : {}),
+        });
+        return Response.json(result);
+      } catch (error) {
+        deps.logger.error("Operator conversation turn failed", {
+          operator_user: parsed.data.operator.user,
+          operator_host: parsed.data.operator.host,
+          agent_id: parsed.data.agent_id,
+          error_name: error instanceof Error ? error.name : "UnknownError",
+        });
+        return Response.json({ outcome: "error" }, { status: 500 });
+      }
+    },
+  });
+  return {
+    async stop() {
+      await server.stop(true);
+      await rm(deps.socketPath, { force: true });
+    },
+  };
+}

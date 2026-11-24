@@ -6,6 +6,7 @@ import {
   type ConversationId,
   type ConversationTopicId,
   conversationCallIdSchema,
+  conversationCallKeySchema,
 } from "@werft-ai/contracts";
 import { connectionOf, type SessionCatalog } from "../catalog/index.ts";
 import { hashToken } from "../token-hash.ts";
@@ -23,6 +24,16 @@ export const CONVERSATION_CALL_TOKEN_PREFIX = "wec_";
 export const CONVERSATION_CALL_TOKEN_TTL_MS = 2 * 60_000;
 // The one route a conversation call takes.
 export const CONVERSATION_CALL_PATH = "/v1/messages";
+
+// An operator's own call is charged as an operator key's and keyed under
+// this prefix, which is how its ledger row is told from every other call's:
+// the ledger has no column for a key's kind.
+export const OPERATOR_CALL_KEY_PREFIX = "operator-";
+const OPERATOR_ROOT: BudgetRoot = {
+  kind: "key",
+  keyKind: "operator",
+  createdByUserId: null,
+};
 
 export const hashConversationCallToken = hashToken;
 
@@ -78,8 +89,8 @@ export function createConversationCalls(deps: {
   store: ConversationCallStore;
   catalog: Pick<SessionCatalog, "connections">;
 }) {
-  return {
-    async issue(input: {
+  const issueWith = async (
+    input: {
       workspaceId: string;
       agentId: string;
       conversationId: ConversationId;
@@ -95,38 +106,86 @@ export function createConversationCalls(deps: {
       model: string;
       maxTokens: number;
       maxRequestBytes: number;
-    }): Promise<ConversationCallIssued> {
-      for (const [name, value] of [
-        ["maxTokens", input.maxTokens],
-        ["maxRequestBytes", input.maxRequestBytes],
-        ["attempt", input.attempt],
-      ] as const) {
-        if (!Number.isSafeInteger(value) || value < 1) {
-          throw new RangeError(`${name} must be a positive integer: ${value}`);
-        }
+    },
+    ttlMs = CONVERSATION_CALL_TOKEN_TTL_MS,
+  ): Promise<ConversationCallIssued> => {
+    for (const [name, value] of [
+      ["maxTokens", input.maxTokens],
+      ["maxRequestBytes", input.maxRequestBytes],
+      ["attempt", input.attempt],
+      ["ttlMs", ttlMs],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value < 1) {
+        throw new RangeError(`${name} must be a positive integer: ${value}`);
       }
-      if (!input.callKey.endsWith(`:${input.callClass}`)) {
+    }
+    if (!input.callKey.endsWith(`:${input.callClass}`)) {
+      throw new RangeError(
+        `call key ${input.callKey} is not of class ${input.callClass}`,
+      );
+    }
+    const connection = connectionOf(deps.catalog, input.connectionId);
+    if (!connection || connection.provider.kind === "openai_responses") {
+      return { outcome: "unavailable" };
+    }
+    const callId = conversationCallIdSchema.parse(crypto.randomUUID());
+    const token = `${CONVERSATION_CALL_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+    const issued = await deps.store.issueAtomic({
+      ...input,
+      callId,
+      tokenHash: hashConversationCallToken(token),
+      path: CONVERSATION_CALL_PATH,
+      reserve: conversationCallReserve(input),
+      unmetered: connection.provider.billing === "none",
+      ttlMs,
+    });
+    if (issued.outcome !== "issued") return issued;
+    return { outcome: "issued", callId, token, expiresAt: issued.expiresAt };
+  };
+  type Issue = Parameters<typeof issueWith>[0];
+  return {
+    /** Every call but an operator's own: its root and its key prefix are refused here. */
+    async issue(input: Issue): Promise<ConversationCallIssued> {
+      if (
+        (input.root.kind === "key" && input.root.keyKind === "operator") ||
+        input.callKey.startsWith(OPERATOR_CALL_KEY_PREFIX)
+      ) {
         throw new RangeError(
-          `call key ${input.callKey} is not of class ${input.callClass}`,
+          "An operator's call is issued by issueForOperator alone",
         );
       }
-      const connection = connectionOf(deps.catalog, input.connectionId);
-      if (!connection || connection.provider.kind === "openai_responses") {
-        return { outcome: "unavailable" };
-      }
-      const callId = conversationCallIdSchema.parse(crypto.randomUUID());
-      const token = `${CONVERSATION_CALL_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
-      const issued = await deps.store.issueAtomic({
-        ...input,
-        callId,
-        tokenHash: hashConversationCallToken(token),
-        path: CONVERSATION_CALL_PATH,
-        reserve: conversationCallReserve(input),
-        unmetered: connection.provider.billing === "none",
-        ttlMs: CONVERSATION_CALL_TOKEN_TTL_MS,
-      });
-      if (issued.outcome !== "issued") return issued;
-      return { outcome: "issued", callId, token, expiresAt: issued.expiresAt };
+      return issueWith(input);
+    },
+    /**
+     * The one call of a turn an operator started by hand, for the operator's
+     * command alone: nothing a person, a key or Slack reaches calls this.
+     * Charged to the agent's team as an operator key's call, which runs
+     * whether or not the team has a limit.
+     */
+    async issueForOperator(
+      input: Omit<Issue, "root" | "callKey" | "attempt"> & {
+        /** The turn the call is for. */
+        turnId: string;
+        /**
+         * How long the permit lasts: the turn's wait to be taken and then
+         * its lease. The proxy asks again while the call runs, and a permit
+         * that ended by then cuts a turn still inside its own limit.
+         */
+        ttlMs: number;
+      },
+    ): Promise<ConversationCallIssued> {
+      const { turnId, ttlMs, ...call } = input;
+      return issueWith(
+        {
+          ...call,
+          root: OPERATOR_ROOT,
+          callKey: conversationCallKeySchema.parse(
+            `${OPERATOR_CALL_KEY_PREFIX}${turnId}:${call.callClass}`,
+          ),
+          attempt: 1,
+        },
+        ttlMs,
+      );
     },
   };
 }
