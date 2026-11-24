@@ -29,7 +29,7 @@ chart は PostgreSQL、object store、Secret の値を作りません。worker P
 
 chart は Git サーバーも作りません。設定文書のリポジトリ URL は worker から egress proxy 経由で到達できる必要があります。kind の試験 Git サーバーは運用リポジトリではありません。
 
-次の例は namespace と release がともに `werft` の環境です。実行前に `kubectl config current-context` と `KUBECONFIG` が今回のクラスタを選ぶことを確認します。他の環境ではすべての `-n`・`--namespace`・release 名と `deploy/werft-*`・`svc/werft-*` を実際の fullname に変更します。release 名に `werft` がなければ fullname は `<release>-werft` です。
+次の例は namespace と release がともに `werft` の環境です。実行前に `kubectl config current-context` と `KUBECONFIG` が今回のクラスタを選ぶことを確認します。`helm` は `KUBECONFIG`（未設定なら `~/.kube/config`）を読みます。k3s に同梱の `kubectl` は k3s の設定ファイルを別に読むため、`kubectl` が動いても `helm` がクラスタを見つけられないことがあります。k3s では `export KUBECONFIG=/etc/rancher/k3s/k3s.yaml` で指定します。このファイルは既定で root しか読めないため、root シェルで実行します。他の環境ではすべての `-n`・`--namespace`・release 名と `deploy/werft-*`・`svc/werft-*` を実際の fullname に変更します。release 名に `werft` がなければ fullname は `<release>-werft` です。
 
 先に [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)と [workspace ストレージ契約](/run-server/self-hosting/reference/storage)を確認します。設置 id は backend が受け付ける **32 文字以下の小文字 DNS label** でなければなりません。chart がより広く許可してもこの制約に従います。リモート bootstrap 前に[アクセス経路](/run-server/self-hosting/access)を準備します。
 
@@ -98,18 +98,30 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
   --namespace werft -f values-<installation>.yaml --timeout 10m
 ```
 
+`helm` が `Kubernetes cluster unreachable: Get "http://localhost:8080/version"` で終わったら `KUBECONFIG` が未設定です。準備に書いたとおり `KUBECONFIG` を指定し、同じコマンドを再実行します。
+
 migrate Job が先に schema を更新し、完了後に api、egress proxy、reconciler、scheduler、slack を一度に適用します。初回設置がイメージパスや pull 権限のエラーで失敗したら、値を直して同じコマンドを再実行します。
 
 ```bash
 kubectl -n werft get job werft-migrate
-for d in api egress-proxy reconciler scheduler; do
+for d in api egress-proxy reconciler scheduler slack; do
   kubectl -n werft rollout status deploy/werft-$d --timeout=600s
 done
 ```
 
-release 名に `werft` が含まれなければ、リソース名は `<release>-werft-…` になります。
+values に `slack.enabled: false` を置いた環境では、ループから `slack` を外します。release 名に `werft` が含まれなければ、リソース名は `<release>-werft-…` になります。
 
 初回設置が失敗したら、値を直して同じコマンドを再実行します。Deployment が作成された段階で失敗し、worker イメージを変えた場合はアップグレード検査規則が適用されます。セッションがなければ [Kubernetes の削除](/run-server/self-hosting/remove-kubernetes)で環境を整理し、やり直します。
+
+最初のセッションは、worker Pod が動くノードが worker イメージを取得するあいだ遅くなります。イメージは数百 MB です（0.4.0 の Claude worker は約 395 MB）。worker Pod はノードにすでにあるイメージを取得し直さないため、事前に取得しておけます。下の最初のコマンドは、この chart の worker イメージのアドレス（Claude worker、Codex worker）を 1 行に一つずつ出力します。worker を動かすノードごとに、エージェントが使うエンジンのアドレスを `<worker-image>` に入れて取得します。
+
+```bash
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  | sed -n 's/.*"repository":"\([^"]*\)","digest":"\([^"]*\)".*/\1@\2/p'
+sudo crictl pull '<worker-image>'
+```
+
+k3s のノードでは `sudo k3s crictl pull '<worker-image>'` で取得します。values に `images.registry` を置いた環境では、各アドレスの前に `<registry>/` を付けます。
 
 <a id="확인" />
 ## 確認
@@ -143,6 +155,8 @@ ready の本文と 200、docs 200 を確認します。30 回以内に ready に
 初日は設置直後、1 時間後、業務終了前に `kubectl -n werft get job,deploy,pods,pvc` と api・scheduler・reconciler のログ、各 `--health`、ディスク・inode・PVC の空き容量を確認します。バックアップ失敗通知、checkpoint GC 日程、key 廃止時の連絡先、provider 費用上限を点検します。release と namespace が例と違えば、すべてのコマンドを当該環境の値へ変更します。
 
 NetworkPolicy を強制しない CNI では worker は隔離されません。Secret key の欠落、不正な installationId、S3 保護設定エラー、image pull 失敗を Pod・Job ログで切り分けます。fixture chart の render 成功と公開 chart の設置成功は異なります。
+
+ノードを再起動したあと、api の準備には数分かかることがあります。PostgreSQL がまだ接続を受け付けないうちに起動した api Pod はログを残さずに待ち、startup probe（5 秒間隔で 24 回、約 2 分）で再起動されてから準備完了になります。そのあいだ `kubectl rollout status` は再起動前の状態を見て成功で終わることがあります。準備状態は[確認](#확인)のブロックで `/readyz` を直接見ます。30 回以内に準備できなければ数分後に再実行し、`kubectl -n werft get pods` で api Pod の状態と `RESTARTS` を併せて確認します。
 
 <a id="되돌리기" />
 ## 元に戻す

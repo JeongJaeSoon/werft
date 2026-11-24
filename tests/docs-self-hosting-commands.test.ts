@@ -133,6 +133,33 @@ describe("self-hosting command fixtures", () => {
     }
   });
 
+  test("the worker pre-pull block prints every worker image reference", () => {
+    const block = blocks("kubernetes", "bash").find((block) =>
+      block.includes("crictl pull"),
+    );
+    expect(block).toBeDefined();
+    // The two entries as `helm show values` prints images.workers of a
+    // packaged chart: one JSON object per list item.
+    const values = [
+      "  workers:",
+      '    - {"repository":"ghcr.io/jeongjaesoon/werft-worker","digest":"sha256:aa","runtime":{"engine":"claude"},"releasedAt":"2026-11-23T23:52:04Z"}',
+      '    - {"repository":"ghcr.io/jeongjaesoon/werft-worker-codex","digest":"sha256:bb","runtime":{"engine":"codex"},"releasedAt":"2026-11-23T23:52:04Z"}',
+    ].join("\n");
+    const result = spawnSync("bash", [], {
+      input: [
+        `helm() { printf '%s\\n' '${values}'; }`,
+        "sudo() { :; }",
+        block,
+      ].join("\n"),
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(
+      "ghcr.io/jeongjaesoon/werft-worker@sha256:aa\nghcr.io/jeongjaesoon/werft-worker-codex@sha256:bb\n",
+    );
+  });
+
   test("a failed readiness check stops its own port-forward and returns failure", () => {
     const block = blocks("kubernetes", "bash").find((block) =>
       block.includes("PF=$!"),

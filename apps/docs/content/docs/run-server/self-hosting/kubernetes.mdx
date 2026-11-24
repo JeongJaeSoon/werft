@@ -27,7 +27,7 @@ chart는 PostgreSQL, object store, Secret 값을 만들지 않는다. worker Pod
 
 Git 서버도 chart가 만들지 않는다. 설정 문서의 저장소 URL은 worker가 egress proxy로 닿을 수 있어야 한다. kind의 시험 Git 서버는 운영 저장소가 아니다.
 
-아래 예시는 namespace와 release가 모두 `werft`인 설치다. 실행 전에 `kubectl config current-context`와 `KUBECONFIG`가 이번 설치의 클러스터를 고르는지 확인한다. 다른 설치는 모든 `-n`·`--namespace`·release 이름과 `deploy/werft-*`·`svc/werft-*`를 실제 fullname으로 바꾼다. release 이름에 `werft`가 없으면 fullname은 `<release>-werft`다.
+아래 예시는 namespace와 release가 모두 `werft`인 설치다. 실행 전에 `kubectl config current-context`와 `KUBECONFIG`가 이번 설치의 클러스터를 고르는지 확인한다. `helm`은 `KUBECONFIG`(없으면 `~/.kube/config`)를 읽는다. k3s에 들어 있는 `kubectl`은 k3s의 설정 파일을 따로 읽으므로, `kubectl`이 되어도 `helm`은 클러스터를 찾지 못할 수 있다. k3s에서는 `export KUBECONFIG=/etc/rancher/k3s/k3s.yaml`로 지정한다. 이 파일은 기본으로 root만 읽으므로 root 셸에서 실행한다. 다른 설치는 모든 `-n`·`--namespace`·release 이름과 `deploy/werft-*`·`svc/werft-*`를 실제 fullname으로 바꾼다. release 이름에 `werft`가 없으면 fullname은 `<release>-werft`다.
 
 [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)과 [workspace 저장소 계약](/run-server/self-hosting/reference/storage)을 먼저 확인한다. 설치 id는 backend가 받는 **32자 이하 소문자 DNS label**이어야 한다. chart가 더 넓게 허용해도 이 제약을 따른다. 원격 bootstrap 전 [접속 경로](/run-server/self-hosting/access)를 준비한다.
 
@@ -91,18 +91,30 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
   --namespace werft -f values-<installation>.yaml --timeout 10m
 ```
 
+`helm`이 `Kubernetes cluster unreachable: Get "http://localhost:8080/version"`으로 끝나면 `KUBECONFIG`가 없는 것이다. 준비물에 적은 대로 `KUBECONFIG`를 지정하고 같은 명령을 다시 돌린다.
+
 migrate Job이 먼저 schema를 올리고, 끝나면 api, egress proxy, reconciler, scheduler, slack이 한꺼번에 적용된다. 첫 설치가 이미지 경로나 pull 권한 오류로 실패하면 값을 고치고 같은 명령을 다시 돌린다.
 
 ```bash
 kubectl -n werft get job werft-migrate
-for d in api egress-proxy reconciler scheduler; do
+for d in api egress-proxy reconciler scheduler slack; do
   kubectl -n werft rollout status deploy/werft-$d --timeout=600s
 done
 ```
 
-release 이름에 `werft`가 들어가지 않으면 리소스 이름은 `<release>-werft-…`가 된다.
+values에 `slack.enabled: false`를 둔 설치는 반복문에서 `slack`을 뺀다. release 이름에 `werft`가 들어가지 않으면 리소스 이름은 `<release>-werft-…`가 된다.
 
 첫 설치가 실패하면 값을 고치고 같은 명령을 다시 실행한다. Deployment까지 생긴 실패에서 worker 이미지를 바꿨다면 업그레이드 검사 규칙이 적용된다. 세션이 없다면 [Kubernetes 제거](/run-server/self-hosting/remove-kubernetes)로 설치를 정리한 뒤 다시 시작한다.
+
+첫 세션은 worker Pod가 뜰 노드가 worker 이미지를 받는 동안 늦다. 이미지는 수백 MB다(0.4.0의 Claude worker는 약 395 MB). worker Pod는 노드에 이미 있는 이미지를 다시 받지 않으므로 미리 받아 둘 수 있다. 아래 첫 명령은 이 chart의 worker 이미지 주소(Claude worker, Codex worker)를 한 줄에 하나씩 적는다. worker를 띄울 노드마다 에이전트가 쓰는 엔진의 주소를 `<worker-image>` 자리에 넣어 받는다.
+
+```bash
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  | sed -n 's/.*"repository":"\([^"]*\)","digest":"\([^"]*\)".*/\1@\2/p'
+sudo crictl pull '<worker-image>'
+```
+
+k3s 노드에서는 `sudo k3s crictl pull '<worker-image>'`로 받는다. values에 `images.registry`를 둔 설치는 각 주소 앞에 `<registry>/`를 붙인다.
 
 ## 확인
 
@@ -134,6 +146,8 @@ ready 본문과 200, docs 200을 확인한다. 30번 안에 ready가 되지 않�
 첫날에는 설치 직후·1시간 뒤·업무 종료 전에 `kubectl -n werft get job,deploy,pods,pvc`와 api·scheduler·reconciler 로그, 각 `--health`, 디스크·inode·PVC 여유를 확인한다. 백업 실패 알림·checkpoint GC 일정·key 폐기 연락 경로·provider 비용 한도를 점검한다. release와 namespace가 예시와 다르면 모든 명령을 해당 설치 값으로 바꾼다.
 
 NetworkPolicy를 강제하지 않는 CNI에는 worker 격리가 없다. Secret 키 누락, 잘못된 installationId, S3 보호 설정 오류, image pull 실패를 Pod와 Job 로그에서 구분한다. fixture chart의 render 성공은 게시 chart의 설치 성공과 다르다.
+
+노드를 다시 켠 뒤에는 api가 준비되기까지 몇 분 걸릴 수 있다. PostgreSQL이 아직 접속을 받지 않을 때 뜬 api Pod는 로그를 남기지 않고 머물다가, startup probe(5초 간격 24번, 약 2분)에 재시작된 뒤 준비된다. 그동안 `kubectl rollout status`는 재시작 전 상태를 보고 성공으로 끝날 수 있다. 준비됐는지는 [확인](#확인)의 블록으로 `/readyz`를 직접 본다. 30번 안에 준비되지 않으면 몇 분 뒤 다시 돌리고, `kubectl -n werft get pods`로 api Pod의 상태와 `RESTARTS`를 함께 본다.
 
 ## 되돌리기
 
