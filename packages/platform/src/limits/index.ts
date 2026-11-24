@@ -1,8 +1,11 @@
 // The entrance other platform domains import (A2 in tests/architecture.test.ts):
 // only the names other domains use, not a barrel over the directory.
 
+export type { BudgetRoot } from "./budget-accounts.ts";
 export {
+  CONVERSATION_CALL_PATH,
   CONVERSATION_CALL_TOKEN_PREFIX,
+  type ConversationCalls,
   hashConversationCallToken,
 } from "./conversation-calls.ts";
 export {

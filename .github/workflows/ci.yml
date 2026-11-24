@@ -335,6 +335,7 @@ jobs:
               - packages/adapters/forge/
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
+              - tests/conversation-call-flow.
               - tests/drain-park-flow.
               - tests/feature-gate-flow.
               - tests/interrupt-flow.

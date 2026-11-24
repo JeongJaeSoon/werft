@@ -14,10 +14,14 @@ import {
  *
  * Side requests the engine makes without tools (titles, summaries) are
  * answered with the fallback text and never read a spec, even when they
- * quote one.
+ * quote one. A request without tools whose last user message carries
+ * `CALL-SPEC {"id":…,"reply":…}` (a conversation call's) gets that reply.
  */
 
 export const SPEC_MARKER = "GATE-SPEC ";
+export const CALL_SPEC_MARKER = "CALL-SPEC ";
+
+export type CallSpec = { id: string; reply: string };
 
 export type GateStep = {
   delayMs?: number;
@@ -144,6 +148,23 @@ export function specIdsIn(messages: readonly unknown[]): string[] {
   return ids;
 }
 
+/** The call spec in the last user message's text, or null. */
+export function callSpecOf(messages: readonly Message[]): CallSpec | null {
+  const last = [...messages]
+    .reverse()
+    .find((message) => message?.role === "user");
+  if (last === undefined) return null;
+  for (const block of blocksOf(last)) {
+    if (block.type !== "text" || block.text === undefined) continue;
+    const marker = block.text.indexOf(CALL_SPEC_MARKER);
+    if (marker < 0) continue;
+    return JSON.parse(
+      firstJsonObject(block.text.slice(marker + CALL_SPEC_MARKER.length)),
+    ) as CallSpec;
+  }
+  return null;
+}
+
 /** The spec is followed by whatever the engine appends to a prompt. */
 export function firstJsonObject(text: string): string {
   let depth = 0;
@@ -168,12 +189,13 @@ export function replyFor(
   const messages = (request.body.messages ?? []) as Message[];
   const hasTools = (request.body.tools ?? []).length > 0;
   const plan = hasTools ? planOf(messages) : null;
+  const call = hasTools ? null : callSpecOf(messages);
   recorded.push({
     at: new Date().toISOString(),
     hasTools,
     index: recorded.length,
     messages,
-    specId: plan?.spec.id ?? null,
+    specId: plan?.spec.id ?? call?.id ?? null,
     step: plan?.step ?? null,
     system: request.body.system,
     // A deferred tool is not in front of the model until a search loads it.
@@ -186,6 +208,7 @@ export function replyFor(
     }),
     found: toolReferencesIn(messages),
   });
+  if (call !== null) return textReply(call.reply);
   if (plan === null) return textReply(fallback);
   const { spec, step } = plan;
   const next = spec.steps[step];
