@@ -28,6 +28,8 @@ const created = () =>
   json(201, {
     invite_id: "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
     invite_token: TOKEN,
+    accept_path: "/invite/test",
+    accept_url: null,
     expires_at: "2026-10-18T00:00:00.000Z",
   });
 
@@ -38,6 +40,8 @@ const createdEach = () => {
     json(201, {
       invite_id: "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
       invite_token: `${"k".repeat(42)}${n++}`,
+      accept_path: "/invite/test",
+      accept_url: null,
       expires_at: "2026-10-18T00:00:00.000Z",
     });
 };

@@ -7135,6 +7135,9 @@ export interface components {
             /** Format: uuid */
             invite_id: string;
             invite_token: string;
+            /** Format: starts_with */
+            accept_path: string;
+            accept_url: string | null;
             /** Format: date-time */
             expires_at: string;
         };

@@ -19,6 +19,20 @@ description: 초대 링크를 만들어 전하고, 받은 사람이 비밀번호
 
 초대를 만들 때마다 `invite_member` receipt가 남는다.
 
+### API 응답
+
+`POST /v1/invites`는 201과 아래 칸을 돌려준다. 링크는 이 응답에 한 번만 나온다. 응답에는 `Cache-Control: no-store`가 붙고, 초대 목록(`GET /v1/invites`)과 서버 로그에는 토큰도 링크도 나오지 않는다.
+
+| 칸 | 내용 |
+| --- | --- |
+| `invite_id` | 초대 id. 회수할 때 쓴다 |
+| `invite_token` | 수락 토큰 |
+| `accept_path` | 수락 화면의 경로. `/invite/<invite_token>` 꼴이다 |
+| `accept_url` | 받는 사람에게 건넬 링크. `CONSOLE_ORIGIN` 뒤에 `accept_path`를 붙인 `https://console.example.com/invite/<invite_token>` 꼴이다. `CONSOLE_ORIGIN`이 없으면 `null`이다 |
+| `expires_at` | 만료 시각 |
+
+`CONSOLE_ORIGIN`을 정하면 `accept_url`에 완성된 링크가 나온다. 정하지 않았으면 브라우저로 콘솔을 여는 주소 뒤에 `accept_path`를 붙여 건넨다.
+
 ## 초대 회수하기
 
 대기 중인 초대 옆의 **회수**를 누른다. API로는 `DELETE /v1/invites/{id}`이고 204를 돌려준다.

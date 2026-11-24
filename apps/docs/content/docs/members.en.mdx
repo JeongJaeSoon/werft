@@ -19,6 +19,20 @@ On the **Members** screen of the web console, click **Invite member**, enter the
 
 Each invite leaves an `invite_member` receipt.
 
+### API response
+
+`POST /v1/invites` returns 201 with the fields below. The link appears only in this response, once. The response carries `Cache-Control: no-store`, and neither the token nor the link appears in the invite list (`GET /v1/invites`) or in the server logs.
+
+| Field | Contents |
+| --- | --- |
+| `invite_id` | The invite's id. Use it to revoke the invite |
+| `invite_token` | The token that accepts the invite |
+| `accept_path` | The path of the accept screen, in the form `/invite/<invite_token>` |
+| `accept_url` | The link to hand to the invitee: `accept_path` on `CONSOLE_ORIGIN`, in the form `https://console.example.com/invite/<invite_token>`. `null` when `CONSOLE_ORIGIN` is not set |
+| `expires_at` | When the invite expires |
+
+Set `CONSOLE_ORIGIN` and `accept_url` holds the complete link. Without it, append `accept_path` to the address you open the console at in a browser, and hand that over.
+
 ## Revoking an invite
 
 Click **Revoke** next to a pending invite. Through the API it is `DELETE /v1/invites/{id}`, which returns 204.

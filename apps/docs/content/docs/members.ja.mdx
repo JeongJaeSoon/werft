@@ -19,6 +19,20 @@ Web コンソールの **メンバー** 画面で **メンバーを招待** を�
 
 招待を作成するたびに `invite_member` の receipt が残ります。
 
+### API の応答
+
+`POST /v1/invites` は 201 と次の項目を返します。リンクはこの応答に一度だけ現れます。応答には `Cache-Control: no-store` が付き、招待の一覧（`GET /v1/invites`）にもサーバーのログにも、トークンとリンクは現れません。
+
+| 項目 | 内容 |
+| --- | --- |
+| `invite_id` | 招待の id。取り消すときに使います |
+| `invite_token` | 承諾に使うトークン |
+| `accept_path` | 承諾画面のパス。`/invite/<invite_token>` の形です |
+| `accept_url` | 受け取る人に渡すリンク。`CONSOLE_ORIGIN` に `accept_path` を付けた `https://console.example.com/invite/<invite_token>` の形です。`CONSOLE_ORIGIN` がなければ `null` です |
+| `expires_at` | 有効期限 |
+
+`CONSOLE_ORIGIN` を設定すると、`accept_url` に完成したリンクが入ります。設定していなければ、ブラウザーでコンソールを開くアドレスの後ろに `accept_path` を付けて渡します。
+
 ## 招待を取り消す
 
 保留中の招待の横にある **取り消し** をクリックします。API では `DELETE /v1/invites/{id}` で、204 を返します。

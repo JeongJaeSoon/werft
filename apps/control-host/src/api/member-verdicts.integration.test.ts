@@ -112,7 +112,7 @@ integration("the member list offers what the writes accept", () => {
           }),
           invites,
         );
-        registerInviteRoutes(router, invites);
+        registerInviteRoutes(router, invites, null);
       },
     });
     passwordHash = await Bun.password.hash(PASSWORD, {
