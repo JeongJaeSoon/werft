@@ -1,0 +1,52 @@
+name: Gitleaks
+
+# A separate workflow, not a job in ci.yml: it needs no bun, no cache and no plan,
+# and ci.yml's concurrency group would cancel it with the rest of the suite on every
+# push. Commits made by a cloud agent never pass the local agent-guard and gitleaks
+# hooks, so this scan is the only secret check they get.
+# The job name below is the check name; keep it unique.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitleaks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: v8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the commit range
+          persist-credentials: false
+      - name: gitleaks
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz -C bin gitleaks
+      - name: scan the commit range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        # --redact keeps the matched value out of this public log.
+        run: |
+          range="${BASE_SHA}..${HEAD_SHA}"
+          # A new branch has no previous tip: scan its tip commit.
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = 0000000000000000000000000000000000000000 ]; then
+            range="-1 ${HEAD_SHA}"
+          fi
+          "$RUNNER_TEMP/bin/gitleaks" git --redact --no-banner --log-opts="$range"
