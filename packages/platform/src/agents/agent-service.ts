@@ -60,6 +60,7 @@ import {
   NOT_FOUND,
   OUTRANKED,
   type Principal,
+  receiptActorOf,
   requirePermitted,
   SessionServiceError,
   TEAM_HOLDING,
@@ -262,6 +263,8 @@ export function createAgentService(deps: {
   }
   // A release whose sessions never read the file has none to snapshot.
   const instructionsSnapshot = (
+    caller: Principal,
+    agentId: string,
     repositoryId: string | null,
     run: ReleaseRun,
   ): Promise<ReleaseInstructions | null> =>
@@ -271,6 +274,11 @@ export function createAgentService(deps: {
           deps.releaseInstructions,
           repositoryId,
           run.runtime.kind,
+          {
+            ownerId: caller.ownerId,
+            agentId,
+            actor: receiptActorOf(caller),
+          },
         );
   const AGENT_MANAGERS = MANAGEMENT_ROLES["agent.manage"] ?? [];
   // Who names any live team as an agent's managing team, as setManagingTeam.
@@ -581,7 +589,12 @@ export function createAgentService(deps: {
         ...resolved.content.policy_pins,
         ...(github === undefined ? {} : { github }),
       },
-      instructions_snapshot: await instructionsSnapshot(repositoryId, run),
+      instructions_snapshot: await instructionsSnapshot(
+        caller,
+        input.agentId,
+        repositoryId,
+        run,
+      ),
     };
     const releaseId = deriveReleaseId(identity);
     const inserted = await store.insertRelease({
@@ -1317,7 +1330,12 @@ export function createAgentService(deps: {
           ...resolved.content.policy_pins,
           ...(github === undefined ? {} : { github }),
         },
-        instructions_snapshot: await instructionsSnapshot(repositoryId, run),
+        instructions_snapshot: await instructionsSnapshot(
+          caller,
+          agentId,
+          repositoryId,
+          run,
+        ),
       };
       const result = await store.insertRelease({
         principal: caller,

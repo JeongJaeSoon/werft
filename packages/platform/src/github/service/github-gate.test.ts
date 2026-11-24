@@ -33,6 +33,7 @@ import {
   GitHubPermissionError,
   type GitHubPermissions,
   type GitHubSessionContext,
+  type GitHubTokenUse,
   type GitHubWork,
   type RegisteredGitHubConnection,
 } from "../ports/github-gate.ts";
@@ -126,7 +127,11 @@ function fakeConnection(
     installed?: boolean | null;
   } = {},
 ) {
-  const issued: Array<{ repo: RepoRef; permissions: GitHubPermissions }> = [];
+  const issued: Array<{
+    repo: RepoRef;
+    permissions: GitHubPermissions;
+    use: GitHubTokenUse;
+  }> = [];
   const cache = new Map<string, GitCredential>();
   let refuse = false;
   const connection: GitHubConnection = {
@@ -143,10 +148,10 @@ function fakeConnection(
     quotaKey: async () => `${label}:quota`,
     installed: async () =>
       options.installed === undefined ? true : options.installed,
-    credential: async (repo, permissions) => {
-      issued.push({ repo, permissions });
+    credential: async (repo, permissions, use) => {
+      issued.push({ repo, permissions, use });
       if (refuse) throw new GitHubPermissionError("422");
-      const key = JSON.stringify([repo, permissions]);
+      const key = JSON.stringify([repo, permissions, use]);
       const cached = cache.get(key);
       if (cached !== undefined) return { credential: cached, fresh: false };
       const made: GitCredential = {
@@ -691,6 +696,70 @@ describe("credentials and receipts", () => {
     expect(JSON.stringify(receipts)).not.toContain(
       first?.gitCredential.password ?? "?",
     );
+  });
+
+  test("a release read gets a contents:read token of its own and a receipt on the workspace; the session's clone still mints its own", async () => {
+    const { gate, grant, receipts, author } = harness();
+    const read = {
+      ownerId: "owner-a",
+      agentId: "agent-1",
+      repositoryId: "app",
+      actor: null,
+    };
+    const granted = await gate.releaseRead(read);
+    expect(granted).not.toBeNull();
+    expect(author?.issued).toEqual([
+      {
+        repo: granted?.repo as RepoRef,
+        permissions: { contents: "read" },
+        use: "release_instructions",
+      },
+    ]);
+    expect(receipts).toEqual([
+      {
+        ownerId: "owner-a",
+        sessionId: null,
+        workspaceId: "owner-a",
+        actor: null,
+        operation: "mint_github_token",
+        status: "succeeded",
+        error: null,
+        result: {
+          agent_id: "agent-1",
+          repository_id: "app",
+          purpose: "release_instructions",
+          role: "author",
+          connection_id: null,
+          app_id: 7,
+          permissions: { contents: "read" },
+          expires_at: "2026-10-30T01:00:00.000Z",
+        },
+      },
+    ]);
+    await gate.releaseRead(read);
+    expect(receipts).toHaveLength(1);
+
+    await grant({ purpose: "clone" });
+    expect(author?.issued.at(-1)?.use).toBe("session");
+    expect(receipts).toHaveLength(2);
+    expect(receipts[1]).toMatchObject({
+      sessionId: SESSION,
+      operation: "mint_github_token",
+      result: { purpose: "clone", permissions: { contents: "read" } },
+    });
+  });
+
+  test("a release read of a repository the catalog lacks, or that no App serves, is null and issues nothing", async () => {
+    const read = { ownerId: "owner-a", agentId: "agent-1", actor: null };
+    const { gate, receipts } = harness();
+    expect(
+      await gate.releaseRead({ ...read, repositoryId: "gone" }),
+    ).toBeNull();
+    const without = harness({ author: null });
+    expect(
+      await without.gate.releaseRead({ ...read, repositoryId: "app" }),
+    ).toBeNull();
+    expect([...receipts, ...without.receipts]).toEqual([]);
   });
 
   test("the switch turned off refuses the next grant though the connection still caches a credential", async () => {

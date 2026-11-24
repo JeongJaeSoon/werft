@@ -411,7 +411,13 @@ export function createPostgresGitHubGateStore(
         id,
         ownerId: input.ownerId,
         operation: input.operation,
-        targetRef: sessionTarget(input.sessionId),
+        targetRef:
+          input.sessionId === null
+            ? {
+                resource: { kind: "workspace", id: input.workspaceId },
+                workspace_id: input.workspaceId,
+              }
+            : sessionTarget(input.sessionId),
         status: input.status,
         result: input.result,
         error: input.error,

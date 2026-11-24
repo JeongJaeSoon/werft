@@ -24,7 +24,10 @@ import type {
   AgentStore,
 } from "./ports/agent-store.ts";
 import { deriveReleaseId } from "./release-ids.ts";
-import type { ReleaseInstructionsSource } from "./release-instructions.ts";
+import type {
+  ReleaseInstructionsReader,
+  ReleaseInstructionsSource,
+} from "./release-instructions.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000b1";
@@ -207,9 +210,11 @@ function serviceOver(
 function branchAt(state: {
   commit: string;
   text: string | null;
+  readers?: ReleaseInstructionsReader[];
 }): ReleaseInstructionsSource {
   return {
-    open: async () => {
+    open: async (_repositoryId, _runtime, reader) => {
+      state.readers?.push(reader);
       if (state.text === null) {
         return { kind: "read_failed", reason: "github_failed" };
       }
@@ -376,7 +381,11 @@ describe("agent service", () => {
   });
 
   test("a release keeps the instruction file its repository's branch has now, and a push makes the next one new", async () => {
-    const branch = { commit: "a".repeat(40), text: "first" as string | null };
+    const branch = {
+      commit: "a".repeat(40),
+      text: "first" as string | null,
+      readers: [] as ReleaseInstructionsReader[],
+    };
     const service = serviceOver(
       memoryStore().store,
       CONNECTION,
@@ -392,6 +401,11 @@ describe("agent service", () => {
       text: "first",
       bytes: 5,
       truncated: false,
+    });
+    // The token's receipt names the release's workspace and agent.
+    expect(branch.readers[0]).toMatchObject({
+      ownerId: owner.ownerId,
+      agentId: AGENT,
     });
     expect((await service.createRelease(owner, AGENT, release)).created).toBe(
       false,

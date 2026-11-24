@@ -33,6 +33,7 @@ import {
   type GitHubPermissions,
   type GitHubRateLimit,
   type GitHubSkillReader,
+  type GitHubTokenUse,
   type GitHubWorkflowRun,
   type GitTreeEntry,
   type RegisteredGitHubConnection,
@@ -170,7 +171,7 @@ type ConnectionOptions = {
 /**
  * One GitHub connection: an App on github.com or a GHES host
  * (`apiBase` its `/api/v3`), with its own token cache. An App issues an
- * installation token per repository and permission set, scoped to that one
+ * installation token per repository, permission set and use, scoped to that one
  * repository. Only the GitHub gate asks it for a
  * credential; the REST calls take the one the gate issued.
  */
@@ -203,11 +204,12 @@ export function createGitHubConnection(
   async function credential(
     repo: RepoRef,
     permissions: GitHubPermissions,
+    use: GitHubTokenUse,
   ): Promise<{ credential: GitCredential; fresh: boolean }> {
     const key = `${repo.owner}/${repo.name}|${Object.entries(permissions)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([name, level]) => `${name}:${level}`)
-      .join(",")}`;
+      .join(",")}|${use}`;
     const held = cached.get(key);
     if (
       held !== undefined &&
