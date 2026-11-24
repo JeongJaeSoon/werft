@@ -46,7 +46,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -581,7 +581,16 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         });
         await holding;
         const save = put(workspaceId, agentId, actor, ["U0B"]);
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        // Release only once the save is queued on the row lock.
+        for (let tries = 0; ; tries++) {
+          const waiting = await db.execute(
+            sql`select 1 from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+          );
+          if (waiting.rows.length > 0) break;
+          if (tries > 100)
+            throw new Error("the save never waited for the lock");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
         release();
         await other;
         expect(await save).toBe("saved");
