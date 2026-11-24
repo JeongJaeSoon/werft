@@ -71,8 +71,9 @@ import {
   workerImageRefusals,
   workerLaunches,
 } from "../schema.ts";
-import { contextCoverage, contextGap } from "../sessions/context-gap.ts";
 import {
+  contextCoverage,
+  contextGap,
   hasRestorePoint,
   holdIncompatibleBeforeLaunch,
   recordEvent,
