@@ -435,4 +435,48 @@ integration("M1 judgment records", () => {
     }
     expect(await request(place, onInput, "800.000003")).toBe(1);
   });
+  test("an engaged reply past the channel's twelve an hour is rate limited", async () => {
+    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const counted = async (place: Place, n: number) => {
+      for (let i = 0; i < n; i++) {
+        await pool.query(
+          `INSERT INTO conversation_judgments (id, workspace_id, agent_id, conversation_id, grade,
+             slack_team_id, slack_channel_id, refs, release_id, call_key, attempts, prompt_version,
+             outcome, decision, reason, rule_decision, rule_reason, claimed_at, judged_at)
+           VALUES ($1, $2, $3, $4, 'm1_engaged', $5, $6, ARRAY[$7], $8, $9, 1, 1,
+             'judged', 'quiet', 'unclear', 'none', 'stray_reply', now(), now())`,
+          [
+            randomUUID(),
+            workspaceId,
+            agentId,
+            place.conversationId,
+            TEAM,
+            place.channelId,
+            `900.${String(i).padStart(6, "0")}`,
+            releaseId,
+            `k${i}:m1`,
+          ],
+        );
+      }
+    };
+    // Earlier cases leave waiting rows; this one claims its own.
+    await pool.query(
+      "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+    );
+    const full = await channel();
+    await counted(full, 12);
+    await hold(full, "901.000001", "one more", "m1_engaged");
+    const limited = await store.claimReply();
+    expect(limited?.subject.channelId).toBe(full.channelId);
+    expect(limited?.rateLimited).toBe(true);
+    if (limited) await store.finishReply(limited.id, null);
+
+    const room = await channel();
+    await counted(room, 11);
+    await hold(room, "902.000001", "the last place", "m1_engaged");
+    const fits = await store.claimReply();
+    expect(fits?.subject.channelId).toBe(room.channelId);
+    expect(fits?.rateLimited).toBe(false);
+    if (fits) await store.finishReply(fits.id, null);
+  });
 });

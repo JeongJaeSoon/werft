@@ -91,36 +91,36 @@ type WaitingRow = {
   refs: string[];
 };
 
-/** Drops a reply's row, and its held text when it has one. */
+// Lock order, as the switch's lowering and an admin's delete take theirs:
+// the agent (the gate), then buffered inputs, then judgment rows.
+
+/** Drops a waiting reply's row, its held text first when it has one. */
 async function dropReply(
   tx: Database,
   row: Pick<WaitingRow, "id" | "grade" | "input_id">,
 ) {
-  await tx.execute(sql`
-    DELETE FROM conversation_judgments WHERE id = ${row.id}::uuid`);
   if (row.grade === "m1_engaged" && row.input_id !== null) {
     await dropBufferedInputs(tx, [row.input_id]);
   }
+  await tx.execute(sql`
+    DELETE FROM conversation_judgments
+    WHERE id = ${row.id}::uuid AND outcome IS NULL`);
 }
 
 /**
- * How many judgments of the channel count against M1's cap at `at`, read
- * under the lock its batches are closed under: a batch counting at once sees
- * this reply's claim, or this count waits for the batch.
+ * Takes the lock the channel's batches are closed under, so a batch and a
+ * reply never both count the window's last place.
  */
-async function countedInWindow(
-  db: Database,
+async function lockChannelWindow(
+  tx: Database,
   row: Pick<WaitingRow, "agent_id" | "slack_team_id" | "slack_channel_id">,
-  at: SQL,
-): Promise<number> {
-  return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtext('judgment_batch'), hashtext(${`${row.agent_id}:${row.slack_team_id}:${row.slack_channel_id}`}::text))`,
-    );
-    return countIn(tx, row, at);
-  });
+) {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('judgment_batch'), hashtext(${`${row.agent_id}:${row.slack_team_id}:${row.slack_channel_id}`}::text))`,
+  );
 }
 
+/** How many judgments of the channel count against M1's cap at `at`. */
 async function countIn(
   db: Database,
   row: Pick<WaitingRow, "agent_id" | "slack_team_id" | "slack_channel_id">,
@@ -187,34 +187,47 @@ export function createPostgresM1JudgmentStore(
           : sql`${options.now.toISOString()}::timestamptz`;
       // Unjudged past the buffer's time, or taken by a judge that died:
       // given up, as a buffered message expires unjudged.
-      await db.transaction(async (tx) => {
-        const lapsed = rowsOf<Pick<WaitingRow, "id" | "grade" | "input_id">>(
-          await tx.execute(sql`
-            SELECT id, grade, input_id FROM conversation_judgments
-            WHERE outcome IS NULL
-              AND (created_at <= ${at} - ${secs(JUDGMENT_BUFFER_TTL_MS)}
-                OR claimed_at <= ${at} - ${secs(JUDGMENT_BATCH_DEADLINE_MS)})
-            ORDER BY created_at
-            LIMIT 100
-            FOR UPDATE SKIP LOCKED`),
-        );
-        for (const row of lapsed) await dropReply(tx, row);
-      });
+      const lapsed = rowsOf<Pick<WaitingRow, "id" | "grade" | "input_id">>(
+        await db.execute(sql`
+          SELECT id, grade, input_id FROM conversation_judgments
+          WHERE outcome IS NULL
+            AND (created_at <= ${at} - ${secs(JUDGMENT_BUFFER_TTL_MS)}
+              OR claimed_at <= ${at} - ${secs(JUDGMENT_BATCH_DEADLINE_MS)})
+          ORDER BY created_at
+          LIMIT 100`),
+      );
+      for (const row of lapsed) {
+        await db.transaction((tx) => dropReply(tx, row));
+      }
       for (;;) {
-        const [row] = rowsOf<WaitingRow>(
-          await db.execute(sql`
-            UPDATE conversation_judgments SET claimed_at = ${at}
-            WHERE id = (
-              SELECT id FROM conversation_judgments
+        // Taken and, for `m1_engaged`, held to the cap in one transaction:
+        // claims of one channel count each other one at a time.
+        const taken = await db.transaction(async (tx) => {
+          const [row] = rowsOf<WaitingRow>(
+            await tx.execute(sql`
+              SELECT id, workspace_id, agent_id, conversation_id, grade,
+                slack_team_id, slack_channel_id, input_id, refs
+              FROM conversation_judgments
               WHERE outcome IS NULL AND claimed_at IS NULL
                 AND created_at > ${at} - ${secs(JUDGMENT_BUFFER_TTL_MS)}
               ORDER BY created_at
               LIMIT 1
-              FOR UPDATE SKIP LOCKED)
-            RETURNING id, workspace_id, agent_id, conversation_id, grade,
-              slack_team_id, slack_channel_id, input_id, refs`),
-        );
-        if (row === undefined) return null;
+              FOR UPDATE SKIP LOCKED`),
+          );
+          if (row === undefined) return null;
+          let rateLimited = false;
+          if (row.grade === "m1_engaged") {
+            await lockChannelWindow(tx, row);
+            rateLimited =
+              (await countIn(tx, row, at)) >= M1_JUDGMENTS_PER_CHANNEL_WINDOW;
+          }
+          await tx.execute(sql`
+            UPDATE conversation_judgments SET claimed_at = ${at}
+            WHERE id = ${row.id}::uuid`);
+          return { row, rateLimited };
+        });
+        if (taken === null) return null;
+        const { row, rateLimited } = taken;
         const inputId = row.input_id;
         const ts = row.refs[0];
         const [post] =
@@ -242,11 +255,6 @@ export function createPostgresM1JudgmentStore(
           await db.transaction((tx) => dropReply(tx, row));
           continue;
         }
-        // This row is taken already, so it counts itself.
-        const rateLimited =
-          row.grade === "m1_engaged" &&
-          (await countedInWindow(db, row, at)) >
-            M1_JUDGMENTS_PER_CHANNEL_WINDOW;
         const claimed: ClaimedReplyJudgment = {
           id: row.id,
           rateLimited,
@@ -284,16 +292,15 @@ export function createPostgresM1JudgmentStore(
     },
 
     async finishReply(id, record) {
+      const [row] = rowsOf<WaitingRow>(
+        await db.execute(sql`
+          SELECT id, workspace_id, agent_id, grade, slack_team_id,
+            slack_channel_id, input_id
+          FROM conversation_judgments
+          WHERE id = ${id}::uuid AND outcome IS NULL`),
+      );
+      if (row === undefined) return "dropped";
       return db.transaction(async (tx) => {
-        const [row] = rowsOf<WaitingRow>(
-          await tx.execute(sql`
-            SELECT id, workspace_id, agent_id, grade, slack_team_id,
-              slack_channel_id, input_id
-            FROM conversation_judgments
-            WHERE id = ${id}::uuid AND outcome IS NULL
-            FOR UPDATE`),
-        );
-        if (row === undefined) return "dropped";
         if (
           record === null ||
           !(await gateOpenIn(
@@ -311,19 +318,22 @@ export function createPostgresM1JudgmentStore(
           await dropReply(tx, row);
           return "dropped";
         }
-        const columns = verdictColumns(record);
-        await tx.execute(sql`
-          UPDATE conversation_judgments SET
-            sources = ${columns.sources}::jsonb,
-            release_id = ${record.releaseId}, call_key = ${record.callKey},
-            attempts = ${record.attempts}, outcome = ${columns.outcome},
-            decision = ${columns.decision}, reason = ${columns.reason},
-            judged_at = now()
-          WHERE id = ${id}::uuid`);
         if (row.grade === "m1_engaged" && row.input_id !== null) {
           await dropBufferedInputs(tx, [row.input_id]);
         }
-        return "written";
+        const columns = verdictColumns(record);
+        const written = rowsOf(
+          await tx.execute(sql`
+            UPDATE conversation_judgments SET
+              sources = ${columns.sources}::jsonb,
+              release_id = ${record.releaseId}, call_key = ${record.callKey},
+              attempts = ${record.attempts}, outcome = ${columns.outcome},
+              decision = ${columns.decision}, reason = ${columns.reason},
+              judged_at = now()
+            WHERE id = ${id}::uuid AND outcome IS NULL
+            RETURNING id`),
+        );
+        return written.length > 0 ? "written" : "dropped";
       });
     },
   };
