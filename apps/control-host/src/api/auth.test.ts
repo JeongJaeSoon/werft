@@ -416,7 +416,7 @@ function harness(
     passwordWork?: WorkGate;
     clientIpHeader?: string;
     loginSettings?: Pick<LoginSettingsStore, "read">;
-    codexSandboxProvider?: "disabled";
+    codexSandboxMissing?: boolean;
   } = {},
 ) {
   const identity = new MemoryIdentityStore();
@@ -440,8 +440,8 @@ function harness(
         : {}),
     }),
     ...(options.loginSettings ? { loginSettings: options.loginSettings } : {}),
-    ...(options.codexSandboxProvider
-      ? { codexSandboxProvider: options.codexSandboxProvider }
+    ...(options.codexSandboxMissing
+      ? { codexSandboxMissing: options.codexSandboxMissing }
       : {}),
   };
   const app = createApiApp({
@@ -1168,8 +1168,8 @@ describe("login, logout, me", () => {
     expect((await h.login()).status).toBe(401);
   });
 
-  test("me says the Codex sandbox provider it was given, to a session and a key", async () => {
-    const h = harness({ codexSandboxProvider: "disabled" });
+  test("me says Codex workers are refused here, to a session and a key", async () => {
+    const h = harness({ codexSandboxMissing: true });
     await h.bootstrap();
     const cookie = cookieOf(await h.login());
     for (const headers of [
@@ -1179,8 +1179,8 @@ describe("login, logout, me", () => {
       const me = await h.app.request("/v1/auth/me", { headers });
       expect(me.status).toBe(200);
       expect(
-        authMeResponseSchema.parse(await me.json()).codex_sandbox_provider,
-      ).toBe("disabled");
+        authMeResponseSchema.parse(await me.json()).codex_sandbox_missing,
+      ).toBe(true);
     }
 
     const unsaid = harness();
@@ -1188,7 +1188,7 @@ describe("login, logout, me", () => {
     const me = await unsaid.app.request("/v1/auth/me", {
       headers: { Cookie: cookieOf(await unsaid.login()) },
     });
-    expect("codex_sandbox_provider" in (await me.json())).toBe(false);
+    expect("codex_sandbox_missing" in (await me.json())).toBe(false);
   });
 
   test("me returns the user principal, user and workspace; logout revokes", async () => {

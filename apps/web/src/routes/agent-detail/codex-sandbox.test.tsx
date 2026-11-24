@@ -23,23 +23,18 @@ const CODEX = {
 };
 
 function routesFor({
-  provider,
+  missing,
   behavior,
   who = me(),
 }: {
-  provider?: AuthMeResponse["codex_sandbox_provider"];
+  missing?: boolean;
   behavior: AgentDetail["effective_behavior"];
   who?: AuthMeResponse;
 }) {
   const server = agentServer();
   return {
     "GET /v1/auth/me": () =>
-      json(
-        200,
-        provider === undefined
-          ? who
-          : { ...who, codex_sandbox_provider: provider },
-      ),
+      json(200, missing ? { ...who, codex_sandbox_missing: true } : who),
     ...server.routes,
     [`GET /v1/agents/${AGENT_ID}`]: () =>
       json(200, { ...server.detail(), effective_behavior: behavior }),
@@ -70,7 +65,7 @@ describe("Codex sandbox가 꺼진 설치의 에이전트 경고", () => {
     renderAt(
       DETAIL,
       routesFor({
-        provider: "disabled",
+        missing: true,
         behavior: { applied: on(CODEX.id), draft: null },
       }),
     );
@@ -81,32 +76,27 @@ describe("Codex sandbox가 꺼진 설치의 에이전트 경고", () => {
     renderAt(
       DETAIL,
       routesFor({
-        provider: "disabled",
+        missing: true,
         behavior: { applied: null, draft: on(CODEX.id) },
       }),
     );
     expect(await screen.findByText(WARNING)).toBeDefined();
   });
 
-  for (const provider of ["installer", undefined] as const) {
-    test(`provider가 ${provider ?? "없는"} 설치에서는 알리지 않는다`, async () => {
-      const { api } = renderAt(
-        DETAIL,
-        routesFor({
-          provider,
-          behavior: { applied: on(CODEX.id), draft: null },
-        }),
-      );
-      await settled(api);
-      expect(screen.queryByText(WARNING) === null).toBe(true);
-    });
-  }
+  test("Codex worker를 거절하지 않는 설치에서는 알리지 않는다", async () => {
+    const { api } = renderAt(
+      DETAIL,
+      routesFor({ behavior: { applied: on(CODEX.id), draft: null } }),
+    );
+    await settled(api);
+    expect(screen.queryByText(WARNING) === null).toBe(true);
+  });
 
   test("Claude 연결의 에이전트에는 알리지 않는다", async () => {
     const { api } = renderAt(
       DETAIL,
       routesFor({
-        provider: "disabled",
+        missing: true,
         behavior: { applied: on("anthropic-main"), draft: null },
       }),
     );
@@ -118,7 +108,7 @@ describe("Codex sandbox가 꺼진 설치의 에이전트 경고", () => {
     renderAt(
       DETAIL,
       routesFor({
-        provider: "disabled",
+        missing: true,
         behavior: { applied: on(CODEX.id), draft: null },
         who: memberMe(),
       }),

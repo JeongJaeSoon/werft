@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { parseSettingsDocument } from "@werft-ai/platform";
 import {
+  codexSandboxMissingFromEnv,
   installedRuntimes,
   installedRuntimeVersions,
   launchableKindsFromEnv,
@@ -28,6 +29,46 @@ async function fixture(name: Fixture) {
     await Bun.file(join(REPO_ROOT, FIXTURES[name])).json(),
   );
 }
+
+describe("codexSandboxMissingFromEnv", () => {
+  const runtime = (engine: string) =>
+    JSON.stringify({ engine, sdkVersion: "0.9.0", cliVersion: "0.9.0" });
+  const codex = { WORKER_IMAGE_RUNTIME: runtime("codex") };
+
+  test("disabled with a Codex image: the scheduler refuses its workers", () => {
+    expect(codexSandboxMissingFromEnv(codex, "disabled")).toBe(true);
+    expect(
+      codexSandboxMissingFromEnv(
+        {
+          WORKER_IMAGE_RUNTIME: runtime("claude"),
+          WORKER_IMAGE_PREVIOUS_RUNTIME: runtime("codex"),
+        },
+        "disabled",
+      ),
+    ).toBe(true);
+  });
+
+  test("nothing is refused otherwise", () => {
+    for (const provider of ["installer", "external", undefined]) {
+      expect(codexSandboxMissingFromEnv(codex, provider)).toBe(false);
+    }
+    // A Codex image with no declared runtime is not sandboxed, so not refused.
+    expect(codexSandboxMissingFromEnv({}, "disabled")).toBe(false);
+    expect(
+      codexSandboxMissingFromEnv(
+        { WORKER_IMAGE_RUNTIME: runtime("claude") },
+        "disabled",
+      ),
+    ).toBe(false);
+    // Auto mode off: the scheduler reads no provider.
+    expect(
+      codexSandboxMissingFromEnv(
+        { ...codex, CODEX_SANDBOX: "disabled" },
+        "disabled",
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("what no longer starts", () => {
   test("a missing or empty master key is refused, a bad one without its value", () => {

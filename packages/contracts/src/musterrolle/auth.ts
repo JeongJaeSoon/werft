@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import {
-  codexSandboxProviderSchema,
   receiptIdSchema,
   timestampSchema,
   userIdSchema,
@@ -235,11 +234,11 @@ export const authMeResponseSchema = z
      */
     permissions: z.array(authorizationActionSchema),
     /**
-     * The installation's Codex sandbox provider, so a screen can warn that
-     * Codex agents fail where it is `disabled`. Absent where nothing says
-     * it: Docker Compose, or a chart with `codexSandbox.enabled` false.
+     * True where the scheduler refuses every Codex worker before it starts
+     * (`CODEX_SANDBOX_NOT_INSTALLED`), so a screen can warn a Codex agent's
+     * admins; absent otherwise.
      */
-    codex_sandbox_provider: codexSandboxProviderSchema.exactOptional(),
+    codex_sandbox_missing: z.literal(true).exactOptional(),
   })
   .strict()
   .superRefine((response, ctx) => {

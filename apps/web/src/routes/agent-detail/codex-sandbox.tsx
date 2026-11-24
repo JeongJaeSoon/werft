@@ -7,8 +7,8 @@ import { useMe } from "../../auth/guard.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 
 /**
- * One line for the agent's admins where the installation has no Codex
- * sandbox and the agent runs on the Codex engine (its released or saved
+ * One line for the agent's admins where the installation refuses Codex
+ * workers (no Codex sandbox) and the agent runs on the Codex engine (its released or saved
  * card is on a Responses API connection): its sessions fail with
  * CODEX_SANDBOX_NOT_INSTALLED. Turning the agent on stays open, since the
  * chart's value can be turned on later.
@@ -20,7 +20,7 @@ export function CodexSandboxAlert({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const disabled = useMe()?.codex_sandbox_provider === "disabled";
+  const disabled = useMe()?.codex_sandbox_missing === true;
   const connections = useQuery({
     ...connectionsQuery(client),
     enabled: disabled,
