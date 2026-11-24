@@ -1513,6 +1513,49 @@ describe("PostgresSchedulerStore", () => {
     });
   });
 
+  test("a launch with no Codex sandbox that was a resume goes back to paused with its checkpoint, and is refused once", async () => {
+    const sessionId = await insertUnassigned({
+      admissionState: "resuming",
+      checkpointRevision: 3,
+      status: "queued",
+    });
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "kubernetes",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    await store.issueBootstrapNonce(intent);
+    await db.insert(receipts).values({
+      id: crypto.randomUUID(),
+      ownerId: "owner-a",
+      operation: "resume",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      status: "accepted",
+    });
+    await queueInput(sessionId, 1);
+    expect(await store.giveUpForCodexSandbox(intent, "no sandbox")).toBe(true);
+    // Its kill is written: a second refusal finds nothing to do.
+    expect(await store.giveUpForCodexSandbox(intent, "no sandbox")).toBe(false);
+
+    const [session] = await db
+      .select({
+        admission: sessions.admissionState,
+        checkpoint: sessions.checkpointRevision,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    // Never recovery_required, and the checkpoint it would resume from stays.
+    expect(session).toEqual({
+      admission: "paused",
+      checkpoint: 3,
+      status: "idle",
+    });
+  });
+
   test("a resume that found no room in time goes back to paused with its checkpoint", async () => {
     const sessionId = await insertUnassigned({
       admissionState: "resuming",
