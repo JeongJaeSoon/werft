@@ -297,6 +297,7 @@ describe("OpenAPI document", () => {
         if (
           path.startsWith("/v1/installation/settings/") ||
           path === "/v1/installation-config" ||
+          path.startsWith("/v1/lost-checkpoint-notices") ||
           path === "/v1/slack-settings"
         ) {
           expect(tag, `${method} ${path}`).toBe("Installation settings");
@@ -521,6 +522,8 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack/install/start",
         "/v1/slack-settings",
         "/v1/installation-config",
+        "/v1/lost-checkpoint-notices",
+        "/v1/lost-checkpoint-notices/close",
         "/v1/slack/events/{agent_id}",
         "/v1/slack/install/complete",
         "/v1/slack/interactions/{agent_id}",

@@ -1,0 +1,163 @@
+import { describe, expect, test } from "bun:test";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
+import { appHarness } from "../test-support/render-app.tsx";
+
+const { renderAt, screen, waitFor, within } = await appHarness();
+
+const ME = "GET /v1/auth/me";
+const NOTICES = "GET /v1/lost-checkpoint-notices";
+const CLOSE = "POST /v1/lost-checkpoint-notices/close";
+const FIRST = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
+const SECOND = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+const LATER = "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e";
+
+const notice = (id: string, sessions: number) => ({
+  id,
+  forgotten_at: "2026-11-24T09:12:44.000Z",
+  sessions,
+});
+const twoStarts = { notices: [notice(FIRST, 2), notice(SECOND, 1)] };
+const TEXT = "시험 설치: 다시 켜서 세션 3개의 맥락을 잃었습니다";
+
+const banner = () =>
+  document.querySelector<HTMLElement>("[data-slot=installation-notice]");
+const shell = () => screen.findByRole("navigation", { name: "주요 메뉴" });
+
+describe("the banner for checkpoints a test installation gave up at start", () => {
+  for (const [role, signedInAs] of [
+    ["owner", me()],
+    ["admin", me(undefined, "admin")],
+  ] as const) {
+    for (const path of ["/", "/agents", "/settings/preferences"]) {
+      test(`an ${role} sees it at the top of ${path}, counting the sessions of every start`, async () => {
+        renderAt(path, {
+          [ME]: () => json(200, signedInAs),
+          [NOTICES]: () => json(200, twoStarts),
+        });
+        expect(await screen.findByText(TEXT)).toBeDefined();
+        const main = document.getElementById("main");
+        expect(main?.firstElementChild === banner()).toBe(true);
+        expect(
+          within(banner() as HTMLElement).getByRole("button", { name: "닫기" }),
+        ).toBeDefined();
+      });
+    }
+  }
+
+  test("a member is shown nothing and the notices are not asked for", async () => {
+    const { api } = renderAt("/", {
+      [ME]: () => json(200, memberMe()),
+      [NOTICES]: () => json(200, twoStarts),
+    });
+    await shell();
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.path === "/v1/sessions")).toBe(true),
+    );
+    expect(banner()).toBeNull();
+    expect(
+      api.calls.filter((call) => call.path === "/v1/lost-checkpoint-notices"),
+    ).toEqual([]);
+  });
+
+  test("nothing shows while no start gave anything up, or on a server from before the notices", async () => {
+    for (const answer of [
+      () => json(200, { notices: [] }),
+      () => apiError(404, "NOT_FOUND", "no such route"),
+    ]) {
+      const { api } = renderAt("/", {
+        [ME]: () => json(200, me()),
+        [NOTICES]: answer,
+      });
+      await shell();
+      await waitFor(() =>
+        expect(
+          api.calls.some((call) => call.path === "/v1/lost-checkpoint-notices"),
+        ).toBe(true),
+      );
+      expect(banner()).toBeNull();
+      // The page keeps its place as the first thing in <main>.
+      expect(
+        document.getElementById("main")?.querySelector("[data-slot]"),
+      ).not.toBeNull();
+    }
+  });
+
+  test("closing sends the ids that were read and the banner goes", async () => {
+    const { api } = renderAt("/", {
+      [ME]: () => json(200, me()),
+      [NOTICES]: () => json(200, twoStarts),
+      [CLOSE]: () => json(200, { notices: [] }),
+    });
+    await screen.findByText(TEXT);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(banner()).toBeNull());
+    expect(
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => [call.path, call.body]),
+    ).toEqual([
+      ["/v1/lost-checkpoint-notices/close", { ids: [FIRST, SECOND] }],
+    ]);
+  });
+
+  test("a start that gave up more after the read stays on screen", async () => {
+    renderAt("/", {
+      [ME]: () => json(200, me()),
+      [NOTICES]: () => json(200, twoStarts),
+      [CLOSE]: () => json(200, { notices: [notice(LATER, 4)] }),
+    });
+    await screen.findByText(TEXT);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    expect(
+      await screen.findByText(
+        "시험 설치: 다시 켜서 세션 4개의 맥락을 잃었습니다",
+      ),
+    ).toBeDefined();
+  });
+
+  test("a close the server refuses keeps the banner and says so", async () => {
+    renderAt("/", {
+      [ME]: () => json(200, me()),
+      [NOTICES]: () => json(200, twoStarts),
+      [CLOSE]: () => apiError(503, "SERVICE_UNAVAILABLE", "down"),
+    });
+    await screen.findByText(TEXT);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    const failed = await within(banner() as HTMLElement).findByRole("alert");
+    expect(failed.textContent).toStartWith("닫지 못했습니다.");
+    expect(screen.getByText(TEXT)).toBeDefined();
+    expect(
+      (screen.getByRole("button", { name: "닫기" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  for (const [locale, text, button] of [
+    [
+      "en",
+      "Test installation: a restart lost the context of 3 sessions",
+      "Close",
+    ],
+    [
+      "ja",
+      "試験インストール: 再起動でセッション3件のコンテキストを失いました",
+      "閉じる",
+    ],
+  ] as const) {
+    test(`it reads in ${locale}`, async () => {
+      renderAt(
+        "/",
+        { [ME]: () => json(200, me()), [NOTICES]: () => json(200, twoStarts) },
+        locale,
+      );
+      expect(await screen.findByText(text)).toBeDefined();
+      expect(
+        within(banner() as HTMLElement).getByRole("button", { name: button }),
+      ).toBeDefined();
+    });
+  }
+});

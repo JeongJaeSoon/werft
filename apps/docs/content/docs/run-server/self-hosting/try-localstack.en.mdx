@@ -137,6 +137,7 @@ LocalStack loses its in-memory objects whenever its container restarts (a host r
 - Sessions whose restore point was one of those checkpoints, closed ones aside, move to `recovery_required`. Decide whether each goes on without its earlier context (`start_fresh`) or is closed (`close`); see the recovery decision in the [API guide](/reference/api-guide).
 - One warning line in the API log, starting with `The object store came back empty`, names the number of sessions and their ids.
 - `/readyz` still answers 200, and `detail.checkpoints_forgotten_on_boot` in its body carries that number of sessions.
+- The console shows owners and admins "Test installation: a restart lost the context of N sessions" at the top of every page. When one of them presses **Close**, it goes for all of them and `/readyz` stops counting those sessions. The sessions stay in `recovery_required`.
 
 Do not restart the LocalStack container on its own. The API cleans up only when it starts, not while it runs. If a new checkpoint is written in between, the bucket is no longer empty, so the next start cleans up nothing either, and the sessions that lost their objects fail when they restore. If that happened, restart the whole installation at once with `scripts/test-ops.sh stop` and then `start`.
 
