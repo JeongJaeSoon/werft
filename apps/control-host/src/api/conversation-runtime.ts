@@ -4,7 +4,6 @@ import {
   agentIdSchema,
   CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
   CONVERSATION_TURN_TEXT_MAX,
-  conversationCallKeySchema,
   conversationIdSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
@@ -123,6 +122,13 @@ export const operatorTurnRequestSchema = z
     conversation_id: conversationIdSchema,
     topic_id: conversationTopicIdSchema,
     text: z.string().min(1).max(CONVERSATION_TURN_TEXT_MAX),
+    // Who ran the command, as its process saw itself: for the log only.
+    operator: z
+      .object({
+        user: z.string().regex(/^[\w.@:-]{1,64}$/),
+        host: z.string().regex(/^[\w.-]{1,255}$/),
+      })
+      .strict(),
   })
   .strict();
 export type OperatorTurnRequest = z.infer<typeof operatorTurnRequestSchema>;
@@ -148,13 +154,13 @@ export type OperatorTurnResult =
 
 /**
  * Starts one conversation turn for an operator: reserves its one provider
- * call on the agent's team budget, queues the turn for the runtime and waits
- * for how it ends. The only way a turn starts until people's messages
- * dispatch them.
+ * call on the agent's team as an operator's call, queues the turn for the
+ * runtime and waits for how it ends. The only way a turn starts until
+ * people's messages dispatch them.
  */
 export function createOperatorConversationTurns(deps: {
   turns: ConversationRuntimeTurns;
-  calls: Pick<ConversationCalls, "issue">;
+  calls: Pick<ConversationCalls, "issueForOperator">;
   agents: Pick<AgentStore, "get">;
   catalog: Pick<SessionCatalog, "connections">;
   now?: () => Date;
@@ -186,18 +192,15 @@ export function createOperatorConversationTurns(deps: {
         return { outcome: "connection_unavailable" };
       }
       const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
-      const issued = await deps.calls.issue({
+      const issued = await deps.calls.issueForOperator({
         workspaceId: request.workspace_id,
         agentId: request.agent_id,
         conversationId: request.conversation_id,
         topicId: request.topic_id,
-        callClass: "m2",
-        releaseId: release.id,
         // The turn's one call.
-        callKey: conversationCallKeySchema.parse(`${turnId}:m2`),
-        attempt: 1,
-        // Nobody asked for it in a conversation: the agent's team pays.
-        root: { kind: "none" },
+        callClass: "m2",
+        turnId,
+        releaseId: release.id,
         connectionId: release.connection_id,
         model,
         maxTokens: OPERATOR_TURN_MAX_TOKENS,
@@ -288,6 +291,8 @@ export async function serveOperatorConversationTurns(deps: {
         const result = await deps.operator.run(parsed.data);
         // Ids and outcomes only: neither the input nor the answer is logged.
         deps.logger.info("Operator conversation turn", {
+          operator_user: parsed.data.operator.user,
+          operator_host: parsed.data.operator.host,
           agent_id: parsed.data.agent_id,
           topic_id: parsed.data.topic_id,
           outcome: result.outcome,
@@ -305,6 +310,8 @@ export async function serveOperatorConversationTurns(deps: {
         return Response.json(result);
       } catch (error) {
         deps.logger.error("Operator conversation turn failed", {
+          operator_user: parsed.data.operator.user,
+          operator_host: parsed.data.operator.host,
           agent_id: parsed.data.agent_id,
           error_name: error instanceof Error ? error.name : "UnknownError",
         });

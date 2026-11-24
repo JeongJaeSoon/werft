@@ -6,9 +6,10 @@
 //     --text <text>
 //
 // The conversation is one of the agent's and the topic one of its topics.
-// The turn's one provider call is reserved on the agent's team budget, like
-// any call the agent makes on its own. Until people's messages dispatch
-// turns, this is the only way one starts.
+// The turn's one provider call is charged to the agent's team as an
+// operator's call, and the API's log names the user and host that ran this.
+// Until people's messages dispatch turns, this is the only way one starts.
+import { hostname, userInfo } from "node:os";
 import { parseArgs } from "node:util";
 import {
   conversationRuntimeConfigFromEnv,
@@ -59,6 +60,7 @@ export async function main(
     conversation_id: values.conversation,
     topic_id: values.topic,
     text: values.text,
+    operator: { user: operatorUser(), host: hostname() },
   });
   if (!request.success) {
     out.error(USAGE);
@@ -98,6 +100,15 @@ export async function main(
   return result.outcome === "ended" && result.turn.outcome === "completed"
     ? CONVERSATION_TURN_EXIT.completed
     : CONVERSATION_TURN_EXIT.failed;
+}
+
+/** The OS user running the command; a uid with no account is named by number. */
+function operatorUser(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    return `uid:${process.getuid?.() ?? "unknown"}`;
+  }
 }
 
 if (import.meta.main) {

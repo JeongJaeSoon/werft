@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import {
   conversationCallIdSchema,
@@ -135,7 +136,7 @@ describe("assertConversationTurnDispatch", () => {
   });
 });
 
-type Issue = Awaited<ReturnType<ConversationCalls["issue"]>>;
+type Issue = Awaited<ReturnType<ConversationCalls["issueForOperator"]>>;
 
 function operatorHarness(
   options: {
@@ -158,12 +159,12 @@ function operatorHarness(
           },
         }),
   });
-  const issued: Parameters<ConversationCalls["issue"]>[0][] = [];
+  const issued: Parameters<ConversationCalls["issueForOperator"]>[0][] = [];
   const callId = conversationCallIdSchema.parse(crypto.randomUUID());
   const operator = createOperatorConversationTurns({
     turns,
     calls: {
-      async issue(input) {
+      async issueForOperator(input) {
         issued.push(input);
         return options.issue
           ? options.issue()
@@ -214,6 +215,7 @@ function operatorHarness(
     conversation_id: CONVERSATION,
     topic_id: TOPIC,
     text: "hello there",
+    operator: { user: "ops", host: "api-host" },
   } as never;
   return { turns, operator, issued, callId, request };
 }
@@ -225,7 +227,7 @@ describe("an operator's conversation turn", () => {
     expect(h.issued).toEqual([]);
   });
 
-  test("reserves one call on the agent's team, queues the turn with its permit and scope, and returns how it ended", async () => {
+  test("reserves one call as the operator's own, queues the turn with its permit and scope, and returns how it ended", async () => {
     const h = operatorHarness({ realTime: true });
     // A runtime is polling.
     expect(await h.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
@@ -269,11 +271,10 @@ describe("an operator's conversation turn", () => {
         agentId: AGENT,
         conversationId: CONVERSATION as never,
         topicId: TOPIC as never,
+        // Neither a root nor a key: the operator's are not the command's to choose.
         callClass: "m2",
+        turnId: turn.turn_id,
         releaseId: RELEASE,
-        callKey: `${turn.turn_id}:m2` as never,
-        attempt: 1,
-        root: { kind: "none" },
         connectionId: "anthropic",
         model: "claude-haiku-5",
         maxTokens: OPERATOR_TURN_MAX_TOKENS,
@@ -395,7 +396,7 @@ describe("the conversation-turn command", () => {
     expect(lines.at(-1)).toMatch(/operator socket does not answer/);
   });
 
-  test("starts a turn over the API's socket and prints how it ended, with neither text in the API's log", async () => {
+  test("starts a turn over the API's socket and prints how it ended; the API's log names who ran it and neither text", async () => {
     const directory = await mkdtemp(join(tmpdir(), "conversation-turn-"));
     const socketPath = join(directory, "turns.sock");
     const h = operatorHarness({ realTime: true });
@@ -439,6 +440,12 @@ describe("the conversation-turn command", () => {
         turn: { outcome: "completed", text: "the private answer" },
       });
       const all = logged.join("\n");
+      // The user and host the command's own process reports.
+      expect(JSON.parse(logged.at(-1) ?? "").fields).toMatchObject({
+        operator_user: userInfo().username,
+        operator_host: hostname(),
+        turn_outcome: "completed",
+      });
       expect(all).not.toContain("hello there");
       expect(all).not.toContain("the private answer");
       expect(all).not.toContain(CALL_TOKEN);
@@ -447,4 +454,38 @@ describe("the conversation-turn command", () => {
       await rm(directory, { force: true, recursive: true });
     }
   });
+});
+
+describe("an operator's call is the operator command's alone", () => {
+  const root = join(import.meta.dir, "../../../..");
+  /** The product sources naming `name`, comments included. */
+  const naming = (name: string) =>
+    [...new Bun.Glob("{apps,packages}/**/*.{ts,tsx}").scanSync(root)]
+      .filter(
+        (file) =>
+          !/(^|\/)(node_modules|dist)\//.test(file) &&
+          !/\.(test|integration|e2e|conformance)\.tsx?$/.test(file) &&
+          new RegExp(`\\b${name}\\b`).test(
+            readFileSync(join(root, file), "utf8"),
+          ),
+      )
+      .sort();
+
+  test("no route, Slack role or web code names the issue an operator's call takes", () => {
+    // Where it is defined, and the operator command's module.
+    expect(naming("issueForOperator")).toEqual([
+      "apps/control-host/src/api/conversation-runtime.ts",
+      "packages/platform/src/limits/conversation-calls.ts",
+    ]);
+    // That module's turns are served on the operator socket, by the API's
+    // composition alone.
+    expect(naming("createOperatorConversationTurns")).toEqual([
+      "apps/control-host/src/api/conversation-runtime.ts",
+      "apps/control-host/src/api/server.ts",
+    ]);
+    expect(naming("serveOperatorConversationTurns")).toEqual([
+      "apps/control-host/src/api/conversation-runtime.ts",
+      "apps/control-host/src/api/server.ts",
+    ]);
+  }, 30_000);
 });
