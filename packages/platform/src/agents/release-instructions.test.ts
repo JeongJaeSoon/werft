@@ -8,6 +8,7 @@ import {
 } from "./release-instructions.ts";
 
 const COMMIT = "c".repeat(40);
+const READER = { ownerId: "workspace-1", agentId: "agent-1", actor: null };
 
 const treeOf = (paths: Record<string, string>): CommittedTree => ({
   entry: async (path) =>
@@ -43,6 +44,7 @@ describe("snapshotReleaseInstructions", () => {
         sourceOf({}, opened),
         null,
         "claude_agent_sdk",
+        READER,
       ),
     ).toEqual({ kind: "no_repository" });
     expect(opened).toEqual([]);
@@ -55,6 +57,7 @@ describe("snapshotReleaseInstructions", () => {
         sourceOf({ "CLAUDE.md": "답은 한국어로.\n" }, opened),
         "app",
         "claude_agent_sdk",
+        READER,
       ),
     ).toEqual({
       kind: "text",
@@ -71,6 +74,7 @@ describe("snapshotReleaseInstructions", () => {
         sourceOf({}),
         "app",
         "claude_agent_sdk",
+        READER,
       ),
     ).toEqual({ kind: "absent", repository_id: "app", commit: COMMIT });
   });
@@ -82,6 +86,7 @@ describe("snapshotReleaseInstructions", () => {
       sourceOf({ "AGENTS.md": long }),
       "app",
       "claude_agent_sdk",
+      READER,
     );
     if (snapshot.kind !== "text") throw new Error(snapshot.kind);
     expect(snapshot.truncated).toBe(true);
@@ -92,6 +97,7 @@ describe("snapshotReleaseInstructions", () => {
       sourceOf({ "AGENTS.md": "a".repeat(JUDGMENT_INSTRUCTIONS_MAX_BYTES) }),
       "app",
       "claude_agent_sdk",
+      READER,
     );
     expect(fits.kind === "text" && fits.truncated).toBe(false);
   });
@@ -106,6 +112,7 @@ describe("snapshotReleaseInstructions", () => {
       sourceOf({ "AGENTS.md": "a".repeat(64 * 1024 + 1) }),
       "app",
       "claude_agent_sdk",
+      READER,
     );
     expect(snapshot).toEqual({
       kind: "refused",
@@ -120,7 +127,12 @@ describe("snapshotReleaseInstructions", () => {
       open: async () => ({ kind: "read_failed", reason: "not_on_github" }),
     };
     expect(
-      await snapshotReleaseInstructions(said, "app", "claude_agent_sdk"),
+      await snapshotReleaseInstructions(
+        said,
+        "app",
+        "claude_agent_sdk",
+        READER,
+      ),
     ).toEqual({
       kind: "read_failed",
       repository_id: "app",
@@ -141,7 +153,12 @@ describe("snapshotReleaseInstructions", () => {
       }),
     };
     expect(
-      await snapshotReleaseInstructions(throwing, "app", "claude_agent_sdk"),
+      await snapshotReleaseInstructions(
+        throwing,
+        "app",
+        "claude_agent_sdk",
+        READER,
+      ),
     ).toEqual({
       kind: "read_failed",
       repository_id: "app",
@@ -151,7 +168,13 @@ describe("snapshotReleaseInstructions", () => {
       open: () => new Promise(() => {}),
     };
     expect(
-      await snapshotReleaseInstructions(hanging, "app", "claude_agent_sdk", 10),
+      await snapshotReleaseInstructions(
+        hanging,
+        "app",
+        "claude_agent_sdk",
+        READER,
+        10,
+      ),
     ).toEqual({
       kind: "read_failed",
       repository_id: "app",

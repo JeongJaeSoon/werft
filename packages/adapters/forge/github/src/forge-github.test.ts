@@ -104,7 +104,11 @@ describe("a GitHub App connection", () => {
       appId: 101,
       githubCom: false,
     });
-    const { credential, fresh } = await connection.credential(repo, READ);
+    const { credential, fresh } = await connection.credential(
+      repo,
+      READ,
+      "session",
+    );
     expect(fresh).toBe(true);
     const [asked] = github.tokenRequests.slice(before);
     expect(github.tokenRequests.length - before).toBe(1);
@@ -132,31 +136,31 @@ describe("a GitHub App connection", () => {
     );
   });
 
-  test("keeps a token per repository and permission set, and re-issues it ten minutes before it expires", async () => {
+  test("keeps a token per repository, permission set and use, and re-issues it ten minutes before it expires", async () => {
     let offset = 0;
     const { connection } = appConnection({
       now: () => new Date(Date.now() + offset),
     });
     const before = github.tokenRequests.length;
-    const first = await connection.credential(repo, READ);
-    const cached = await connection.credential(repo, READ);
+    const first = await connection.credential(repo, READ, "session");
+    const cached = await connection.credential(repo, READ, "session");
     expect(cached.credential.password).toBe(first.credential.password);
     expect(cached.fresh).toBe(false);
     expect(github.tokenRequests.length - before).toBe(1);
 
     const expiresAt = first.credential.expiresAt?.getTime() ?? 0;
     offset = expiresAt - REFRESH_BEFORE_EXPIRY_MS - Date.now() - 5_000;
-    expect((await connection.credential(repo, READ)).credential.password).toBe(
-      first.credential.password,
-    );
+    expect(
+      (await connection.credential(repo, READ, "session")).credential.password,
+    ).toBe(first.credential.password);
     offset = expiresAt - REFRESH_BEFORE_EXPIRY_MS - Date.now() + 1_000;
-    const second = await connection.credential(repo, READ);
+    const second = await connection.credential(repo, READ, "session");
     expect(second.credential.password).not.toBe(first.credential.password);
     expect(second.fresh).toBe(true);
     expect(github.tokenRequests.length - before).toBe(2);
 
     // Write access is its own token, asked with contents:write.
-    await connection.credential(repo, WRITE);
+    await connection.credential(repo, WRITE, "session");
     expect(github.tokenRequests.at(-1)?.body).toEqual({
       repositories: ["app"],
       permissions: { contents: "write" },
@@ -165,14 +169,16 @@ describe("a GitHub App connection", () => {
 
     // The same permissions in another order are the same token.
     offset = 0;
-    await connection.credential(repo, {
-      pull_requests: "write",
-      contents: "read",
-    });
-    await connection.credential(repo, {
-      contents: "read",
-      pull_requests: "write",
-    });
+    await connection.credential(
+      repo,
+      { pull_requests: "write", contents: "read" },
+      "session",
+    );
+    await connection.credential(
+      repo,
+      { contents: "read", pull_requests: "write" },
+      "session",
+    );
     expect(github.tokenRequests.length - before).toBe(4);
   });
 
@@ -180,11 +186,34 @@ describe("a GitHub App connection", () => {
     const { connection } = appConnection();
     const before = github.tokenRequests.length;
     const all = await Promise.all(
-      Array.from({ length: 8 }, () => connection.credential(repo, READ)),
+      Array.from({ length: 8 }, () =>
+        connection.credential(repo, READ, "session"),
+      ),
     );
     expect(new Set(all.map((c) => c.credential.password)).size).toBe(1);
     expect(all.filter((c) => c.fresh)).toHaveLength(1);
     expect(github.tokenRequests.length - before).toBe(1);
+  });
+
+  test("a release read and a session of the same repository and permissions get a token each", async () => {
+    const { connection } = appConnection();
+    const before = github.tokenRequests.length;
+    const release = await connection.credential(
+      repo,
+      READ,
+      "release_instructions",
+    );
+    const session = await connection.credential(repo, READ, "session");
+    expect(release.fresh).toBe(true);
+    expect(session.fresh).toBe(true);
+    expect(session.credential.password).not.toBe(release.credential.password);
+    expect(
+      (await connection.credential(repo, READ, "release_instructions")).fresh,
+    ).toBe(false);
+    expect((await connection.credential(repo, READ, "session")).fresh).toBe(
+      false,
+    );
+    expect(github.tokenRequests.length - before).toBe(2);
   });
 
   test("a failing token endpoint fails the ask, naming the status and GitHub's message", async () => {
@@ -192,7 +221,7 @@ describe("a GitHub App connection", () => {
     const before = github.tokenRequests.length;
     github.failTokens(true);
     try {
-      const error = await connection.credential(repo, READ).then(
+      const error = await connection.credential(repo, READ, "session").then(
         () => null,
         (e: unknown) => e,
       );
@@ -214,16 +243,16 @@ describe("a GitHub App connection", () => {
       github.failTokens(false);
     }
     // Nothing failed is cached: the next ask issues.
-    expect((await connection.credential(repo, READ)).credential.username).toBe(
-      "x-access-token",
-    );
+    expect(
+      (await connection.credential(repo, READ, "session")).credential.username,
+    ).toBe("x-access-token");
   });
 
   test("permissions the installation does not grant are a GitHubPermissionError", async () => {
     const { connection, warnings } = appConnection();
     github.setPermissions({ contents: "read", metadata: "read" });
     try {
-      const refused = await connection.credential(repo, WRITE).then(
+      const refused = await connection.credential(repo, WRITE, "session").then(
         () => null,
         (e: unknown) => e,
       );
@@ -233,7 +262,9 @@ describe("a GitHub App connection", () => {
         { request: "installation token request", status: 422 },
       ]);
       // What it does grant is still issued.
-      expect((await connection.credential(repo, READ)).fresh).toBe(true);
+      expect((await connection.credential(repo, READ, "session")).fresh).toBe(
+        true,
+      );
     } finally {
       github.setPermissions(undefined);
     }
@@ -245,7 +276,7 @@ describe("a GitHub App connection", () => {
       apiBase: `${github.origin}/api/v3/`,
     });
     expect(connection.githubCom).toBe(false);
-    const { credential } = await connection.credential(repo, READ);
+    const { credential } = await connection.credential(repo, READ, "session");
     expect(github.tokenRequests.length - before).toBe(1);
     expect(await connection.api(repo, credential).getRepository()).toEqual({
       id: expect.any(Number),
@@ -258,7 +289,7 @@ describe("a GitHub App connection", () => {
     const calls = spyOn(globalThis, "fetch");
     try {
       const { connection } = appConnection();
-      const { credential } = await connection.credential(repo, READ);
+      const { credential } = await connection.credential(repo, READ, "session");
       await connection.api(repo, credential).getRepository();
       // Another file's unrestored fetch spy can be the one returned here, so
       // only requests to this fake GitHub count.
@@ -376,7 +407,9 @@ describe("the App registered in the console", () => {
     expect(registered.connection()).toBeNull();
     await registered.refresh();
     const before = github.tokenRequests.length;
-    const issued = await registered.connection()?.credential(repo, READ);
+    const issued = await registered
+      .connection()
+      ?.credential(repo, READ, "session");
     expect(issued?.credential.username).toBe("x-access-token");
     const [asked] = github.tokenRequests.slice(before);
     expect(asked).toMatchObject({
@@ -422,8 +455,8 @@ describe("the App registered in the console", () => {
     await registered.refresh();
     const before = github.tokenRequests.length;
     expect(
-      (await registered.connection()?.credential(repo, WRITE))?.credential
-        .username,
+      (await registered.connection()?.credential(repo, WRITE, "session"))
+        ?.credential.username,
     ).toBe("x-access-token");
     expect(asked).toEqual(["author"]);
     expect(github.tokenRequests.slice(before)).toMatchObject([
@@ -440,7 +473,7 @@ describe("the App registered in the console", () => {
     await registered.refresh();
     const asking = registered
       .connection()
-      ?.credential({ owner: "acme", name: "absent" }, READ);
+      ?.credential({ owner: "acme", name: "absent" }, READ, "session");
     await expect(asking).rejects.toThrow(
       new ForgeCredentialError("GitHub App is not installed on acme/absent"),
     );

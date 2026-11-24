@@ -721,7 +721,7 @@ const agents = createAgentService({
   runtimes: installedRuntimeVersions,
   releaseInstructions: wireReleaseInstructions({
     catalog,
-    resolver: () => githubResolver,
+    gate: () => github,
     descriptors: installedDescriptors,
     logger,
   }),

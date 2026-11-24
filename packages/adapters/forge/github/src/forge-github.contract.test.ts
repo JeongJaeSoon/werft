@@ -54,7 +54,11 @@ async function subject(): Promise<ForgeContractSubject> {
     retryAfterBaseMs: 1,
     paced: false,
   });
-  const { credential } = await connection.credential(repo, PERMISSIONS);
+  const { credential } = await connection.credential(
+    repo,
+    PERMISSIONS,
+    "session",
+  );
   const api = connection.api(repo, credential);
   const started = github.apiRequests.length;
   let branches = 0;

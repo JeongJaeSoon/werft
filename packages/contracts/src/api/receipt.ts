@@ -135,7 +135,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // names the App id, never the key.
   "set_github_app",
   "delete_github_app",
-  // A GitHub token issued afresh for a session's work, or refused before it.
+  // A GitHub token issued afresh for a session's work, or refused before it;
+  // or issued for a new release's read of its instruction file (purpose
+  // release_instructions, on the workspace).
   "mint_github_token",
   "set_github_ceiling",
   // How the workspace's pull request bodies are laid out; the receipt keeps a

@@ -1,33 +1,32 @@
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
+  type GitHubApi,
   GitHubCallError,
-  type GitHubConnectionResolver,
+  type GitHubReleaseReadGate,
   type GitTreeEntry,
   type ReleaseInstructionsSource,
-  repoRefOf,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import type { CommittedTree, RuntimeDescriptor } from "@werft-ai/runtime-core";
 
 /**
- * A catalog repository's branch read through its author App, for the
+ * A catalog repository's branch read through the GitHub gate, for the
  * instruction snapshot a new release takes. A repository not on GitHub, or
  * with no App that reaches it, is not read.
  */
 export function wireReleaseInstructions(deps: {
   catalog: Pick<SessionCatalog, "repositories">;
-  /** Read when a release is made: the resolver is wired after the service. */
-  resolver: () => GitHubConnectionResolver;
+  /** Read when a release is made: the gate is wired after the service. */
+  gate: () => GitHubReleaseReadGate;
   descriptors: readonly RuntimeDescriptor[];
   logger: StructuredLogger;
 }): ReleaseInstructionsSource {
   return {
-    async open(repositoryId, runtime) {
+    async open(repositoryId, runtime, release) {
       const entry = Object.hasOwn(deps.catalog.repositories, repositoryId)
         ? deps.catalog.repositories[repositoryId]
         : undefined;
-      const repo = entry === undefined ? null : repoRefOf(entry.url);
-      if (entry === undefined || repo === null) {
+      if (entry === undefined) {
         return { kind: "read_failed", reason: "not_on_github" };
       }
       const failed = (error: unknown) => {
@@ -37,23 +36,16 @@ export function wireReleaseInstructions(deps: {
         });
         return error;
       };
-      const choice = await deps
-        .resolver()
-        .resolve(repositoryId, "author", repo, { pin: false });
-      if (choice.kind === "none") {
-        return { kind: "read_failed", reason: "not_on_github" };
-      }
-      if (choice.kind !== "connection") {
-        failed(new Error(`no author App: ${choice.kind}`));
-        return { kind: "read_failed", reason: "github_failed" };
-      }
-      let api: ReturnType<typeof choice.connection.api>;
+      let api: GitHubApi;
       let head: { commitSha: string; treeSha: string };
       try {
-        const { credential } = await choice.connection.credential(repo, {
-          contents: "read",
-        });
-        api = choice.connection.api(repo, credential);
+        const granted = await deps
+          .gate()
+          .releaseRead({ ...release, repositoryId });
+        if (granted === null) {
+          return { kind: "read_failed", reason: "not_on_github" };
+        }
+        api = granted.api;
         head = await api.getBranchHead(entry.branch);
       } catch (error) {
         if (error instanceof GitHubCallError && error.status === 404) {
