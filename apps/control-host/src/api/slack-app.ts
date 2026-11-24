@@ -83,7 +83,8 @@ Environment: DATABASE_URL and PLATFORM_SECRET_KEY, or PLATFORM_SECRET_KEY_FILE n
              CONSOLE_ORIGIN (the console's public origin: create's OAuth redirect and finalize's events address,
              unless an owner saved one in Settings > Integrations > Slack)
 Test only:   MOCK_SLACK_API_URL (default https://slack.com/api; for the mock Slack stack)
-Exit codes: 0 created, or the agent or workspace already had it, or finalized; 1 unexpected error; 2 usage;
+Exit codes: 0 created, or the agent or workspace already had it, or finalized, or a bot command ran
+            (allow-bot and disallow-bot also exit 0 when the list was already as asked); 1 unexpected error; 2 usage;
             3 the config token is missing or Slack no longer takes it (paste a new one);
             4 agent or workspace not found, or the agent has no created app;
             5 the agent has no active release;
