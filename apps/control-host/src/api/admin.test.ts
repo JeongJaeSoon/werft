@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import type { IdentityStore, IssueSetupLinkInput } from "@werft-ai/platform";
 import {
+  auditLogger,
   auditSetupLinkIssued,
   bootstrapOwner,
   containerLogSink,
@@ -201,6 +202,27 @@ describe("bootstrapOwner", () => {
 });
 
 describe("containerLogSink", () => {
+  test("the audit logger writes even when LOG_LEVEL is error", async () => {
+    const { dir, cleanup } = await scratch();
+    const before = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = "error";
+    try {
+      const path = join(dir, "pid1-stdout");
+      auditSetupLinkIssued(auditLogger(path), {
+        id: "00000000-0000-4000-8000-000000000001",
+        email: "owner@example.com",
+        expiresAt: EXPIRES,
+      });
+      expect(await readFile(path, "utf8")).toContain(
+        '"event":"setup_link_issued"',
+      );
+    } finally {
+      if (before === undefined) delete process.env.LOG_LEVEL;
+      else process.env.LOG_LEVEL = before;
+      await cleanup();
+    }
+  });
+
   test("appends the audit line to the container log", async () => {
     const { dir, cleanup } = await scratch();
     try {

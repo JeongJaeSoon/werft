@@ -109,6 +109,14 @@ export function containerLogSink(path = CONTAINER_LOG_PATH): LogSink {
   };
 }
 
+/**
+ * The audit line's logger. It writes at info whatever LOG_LEVEL the
+ * installation runs at: a link that is issued is always on record.
+ */
+export function auditLogger(path = CONTAINER_LOG_PATH): StructuredLogger {
+  return createLogger({ level: "info", sinks: [containerLogSink(path)] });
+}
+
 /** The audit line of an issued link. Never the token or the link. */
 export function auditSetupLinkIssued(
   logger: StructuredLogger,
@@ -211,7 +219,7 @@ export async function runAdmin(
         bootstrapOwner(args, {
           store: new DatabaseIdentityStore(db),
           consoleOrigin,
-          audit: createLogger({ sinks: [containerLogSink()] }),
+          audit: auditLogger(),
         }),
     );
     if (result.outcome === "owner_exists") {
