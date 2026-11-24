@@ -255,7 +255,7 @@ export interface paths {
         put?: never;
         /**
          * Set a new password with a one-time reset link
-         * @description Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429. While password sign-in is closed, a link an owner issued for anyone but the emergency admin answers 401 like a spent one; one issued for the emergency admin, who still signs in with a password, is taken. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.
+         * @description Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out; only the per-network request limit applies (429). While password sign-in is closed, a link an owner issued for anyone but the emergency admin answers 401 like a spent one; one issued for the emergency admin, who still signs in with a password, is taken. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
@@ -8105,7 +8105,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server" | "delete_conversation_records" | "set_slack_allowed_bots";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "lock_login" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server" | "delete_conversation_records" | "set_slack_allowed_bots";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -12430,6 +12430,22 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. More than 30 of these requests from one client network (an IPv4 address or an IPv6 /64) within a minute, whatever they answered (`Retry-After` is the time left). */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
+                        };
+                    };
+                };
+            };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
@@ -12583,6 +12599,22 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. More than 30 of these requests from one client network (an IPv4 address or an IPv6 /64) within a minute, whatever they answered (`Retry-After` is the time left). Password hashing also shares login's concurrency limit (`Retry-After: 1`). */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
                         };
                     };
                 };
@@ -12766,7 +12798,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. Five failed logins for this email within 15 minutes lock it until the window ends (`Retry-After` is the time left), or too many logins are being checked at once (`Retry-After: 1`). */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. Five failed logins for this email, or 20 failed password checks from one client network (an IPv4 address or an IPv6 /64), within 15 minutes lock that email or network until the window ends (`Retry-After` is the time left); a locked network gets the same answer whatever email it sends. Or too many logins are being checked at once (`Retry-After: 1`). */
             429: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13037,6 +13069,22 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. More than 30 of these requests from one client network (an IPv4 address or an IPv6 /64) within a minute, whatever they answered (`Retry-After` is the time left). */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
+                        };
+                    };
+                };
+            };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. `CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack. */
             503: {
@@ -13214,7 +13262,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. Too many sign-ins are calling providers at once (`Retry-After: 1`). */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. More than 30 of these requests from one client network (an IPv4 address or an IPv6 /64) within a minute, whatever they answered (`Retry-After` is the time left). Or too many sign-ins are calling providers at once (`Retry-After: 1`). */
             429: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13332,7 +13380,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. More than 30 of these requests from one client network (an IPv4 address or an IPv6 /64) within a minute, whatever they answered (`Retry-After` is the time left). Or too many passwords are being hashed at once (`Retry-After: 1`). */
             429: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -28838,7 +28886,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. */
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. More than 30 of these requests from one client network (an IPv4 address or an IPv6 /64) within a minute, whatever they answered (`Retry-After` is the time left). An existing account's password is also counted against its login failure window and the network's (see POST /v1/auth/login). */
             429: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

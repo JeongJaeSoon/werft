@@ -156,6 +156,11 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
+  // Sign-in attempt windows that ended long ago.
+  purgeAuthAttemptWindows(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<number>;
   // Agents no one live administers get their ownerless mark; agents that
   // have someone again lose it.
   reconcileOwnership(options: {
@@ -287,6 +292,14 @@ export async function runReconciler(input: {
   input.logger.info("Expired Slack channel member lists deleted", {
     dry_run: dryRun,
     deleted_count: slackMembersPurged,
+  });
+  const authAttemptsPurged = await input.purgeAuthAttemptWindows({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Ended sign-in attempt windows deleted", {
+    dry_run: dryRun,
+    deleted_count: authAttemptsPurged,
   });
   const ownership = await input.reconcileOwnership({ dryRun, limit });
   input.logger.info("Agent ownership reconciled", {

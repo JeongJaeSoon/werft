@@ -17,8 +17,10 @@ import {
   AGENT_PULL_REQUEST_FORMATTING_VALUES,
   AGENT_STATUS_VALUES,
   AUDIENCE_KIND_VALUES,
+  AUTH_ATTEMPT_KIND_VALUES,
   AUTHORIZATION_OUTCOME_VALUES,
   AUTO_REVIEWED_EVIDENCE_KIND_VALUES,
+  type AuthAttemptKind,
   type AuthorizationAction,
   BINDING_LISTEN_VALUES,
   BINDING_MODE_VALUES,
@@ -581,6 +583,45 @@ export const loginSettings = pgTable(
       "login_settings_emergency_admin_check",
       sql`${table.passwordLogin} = 'on' OR ${table.emergencyAdminUserId} IS NOT NULL`,
     ),
+  ],
+);
+
+/**
+ * Sign-in attempts counted per fixed window and shared by every API replica:
+ * failed password guesses per account and per client network, and requests
+ * to the token routes per client network. `key` is an HMAC of the email or
+ * the network, so neither is stored. `count` keeps counting refused attempts
+ * past the limit, which is how exactly one of them sees the window close.
+ * The reconciler deletes rows a day after their window started, longer than
+ * any window may be set to.
+ */
+export const authAttemptWindows = pgTable(
+  "auth_attempt_windows",
+  {
+    kind: text().$type<AuthAttemptKind>().notNull(),
+    key: text().notNull(),
+    windowStartedAt: timestamp("window_started_at", {
+      withTimezone: true,
+    }).notNull(),
+    /** Admitted attempts: failures, and reservations not yet settled. */
+    count: integer().notNull(),
+    /** Attempts refused because `count` had reached the limit. */
+    refusals: integer().notNull().default(0),
+    /** Whether the last attempt was refused; read back by the same upsert. */
+    refused: boolean().notNull().default(false),
+  },
+  (table) => [
+    primaryKey({
+      name: "auth_attempt_windows_pk",
+      columns: [table.kind, table.key],
+    }),
+    index("auth_attempt_windows_started_idx").on(table.windowStartedAt),
+    check(
+      "auth_attempt_windows_kind_check",
+      sql`${table.kind} IN (${sqlLiterals(AUTH_ATTEMPT_KIND_VALUES)})`,
+    ),
+    check("auth_attempt_windows_count_check", sql`${table.count} >= 0`),
+    check("auth_attempt_windows_refusals_check", sql`${table.refusals} >= 0`),
   ],
 );
 

@@ -994,6 +994,9 @@ export type RouteDeclaration = {
 };
 
 const CONFLICTS = [400, 401, 404, 409];
+// Every sign-in route that takes a token (setup, invite, reset, provider).
+const TOKEN_REQUESTS_LIMITED =
+  "More than 30 of these requests from one client network (an IPv4 address or an IPv6 /64) within a minute, whatever they answered (`Retry-After` is the time left).";
 
 const COMMON_ERROR_CODES: Partial<Record<number, readonly ApiErrorCode[]>> = {
   400: ["BAD_REQUEST"],
@@ -1762,9 +1765,10 @@ export const API_ROUTE_DECLARATIONS = [
       setup_token: "setup-link-token-from-the-setup-link-command",
     },
     success: { status: 204, description: "The link is live." },
-    errors: [400, 401, 413, 503],
+    errors: [400, 401, 413, 429, 503],
     errorNotes: {
       UNAUTHORIZED: "The link is unknown, expired, replaced or already used.",
+      RATE_LIMITED: TOKEN_REQUESTS_LIMITED,
     },
     idempotent: false,
   },
@@ -1798,9 +1802,10 @@ export const API_ROUTE_DECLARATIONS = [
         role: "owner",
       },
     },
-    errors: [400, 401, 409, 413, 503],
+    errors: [400, 401, 409, 413, 429, 503],
     errorCodes: { 409: ["BOOTSTRAP_DONE"] },
     errorNotes: {
+      RATE_LIMITED: `${TOKEN_REQUESTS_LIMITED} Password hashing also shares login's concurrency limit (\`Retry-After: 1\`).`,
       UNAUTHORIZED:
         "`setup_token` is missing, unknown, expired, replaced or already used; checked first, before the rest of the body.",
       BOOTSTRAP_DONE:
@@ -1853,7 +1858,7 @@ export const API_ROUTE_DECLARATIONS = [
       UNAUTHORIZED:
         "Unknown email, wrong password, or a user with no live workspace membership. While password sign-in is closed, also anyone but the emergency admin, right password or not: the answer does not tell which.",
       RATE_LIMITED:
-        "Five failed logins for this email within 15 minutes lock it until the window ends (`Retry-After` is the time left), or too many logins are being checked at once (`Retry-After: 1`).",
+        "Five failed logins for this email, or 20 failed password checks from one client network (an IPv4 address or an IPv6 /64), within 15 minutes lock that email or network until the window ends (`Retry-After` is the time left); a locked network gets the same answer whatever email it sends. Or too many logins are being checked at once (`Retry-After: 1`).",
     },
     idempotent: false,
   },
@@ -1912,9 +1917,10 @@ export const API_ROUTE_DECLARATIONS = [
           "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example",
       },
     },
-    errors: [400, 403, 404, 409, 410, 413, 503],
+    errors: [400, 403, 404, 409, 410, 413, 429, 503],
     errorNotes: {
       NOT_FOUND: "No provider has this id, or it is turned off.",
+      RATE_LIMITED: TOKEN_REQUESTS_LIMITED,
       BACKEND_UNAVAILABLE:
         "`CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack.",
     },
@@ -1960,8 +1966,7 @@ export const API_ROUTE_DECLARATIONS = [
         "The provider is gone or was turned off after the flow started.",
       FORBIDDEN:
         "The request is not from the console's origin, or the account is outside the provider's allowed domains.",
-      RATE_LIMITED:
-        "Too many sign-ins are calling providers at once (`Retry-After: 1`).",
+      RATE_LIMITED: `${TOKEN_REQUESTS_LIMITED} Or too many sign-ins are calling providers at once (\`Retry-After: 1\`).`,
       ALREADY_EXISTS:
         "An invite or a link flow only. `details.reason_code` is `login_method_linked` when a user already has this (issuer, subject), `issuer_linked` when the user linking already has another account of this issuer.",
     },
@@ -1975,11 +1980,14 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "Set a new password with a one-time reset link",
     description:
-      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429. While password sign-in is closed, a link an owner issued for anyone but the emergency admin answers 401 like a spent one; one issued for the emergency admin, who still signs in with a password, is taken. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.",
+      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out; only the per-network request limit applies (429). While password sign-in is closed, a link an owner issued for anyone but the emergency admin answers 401 like a spent one; one issued for the emergency admin, who still signs in with a password, is taken. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.",
     auth: "public",
     body: "PasswordResetRequest",
     success: { status: 200, schema: "PasswordResetResponse" },
     errors: [400, 401, 413, 429, 503],
+    errorNotes: {
+      RATE_LIMITED: `${TOKEN_REQUESTS_LIMITED} Or too many passwords are being hashed at once (\`Retry-After: 1\`).`,
+    },
     idempotent: false,
   },
   {
@@ -5346,6 +5354,7 @@ export const API_ROUTE_DECLARATIONS = [
         "Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start). The answer is the same whoever the invite is for, the emergency admin included, and whatever password was sent.",
       REVISION_CONFLICT:
         "The account is the emergency admin and the invite would turn back on a membership older than the one they sign in through as an owner, in a role other than owner (`details.reason_code: emergency_admin`). The invite is not spent.",
+      RATE_LIMITED: `${TOKEN_REQUESTS_LIMITED} An existing account's password is also counted against its login failure window and the network's (see POST /v1/auth/login).`,
     },
     idempotent: false,
   },

@@ -80,6 +80,8 @@ interface ApiBindings {
   // mid-flight, and re-arms it while it ingests a body so a slow sender is
   // still cut off.
   setIdleTimeout?: (seconds: number) => void;
+  // The socket peer's address, as the server saw it.
+  clientAddress?: string;
 }
 
 export type ApiEnvironment = {

@@ -74,7 +74,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     const identity = new DatabaseIdentityStore(db);
     // Wide enough that the race tests below are not shed.
-    const passwords = new PasswordChecks(undefined, new WorkGate(8, 8));
+    const passwords = new PasswordChecks({ work: new WorkGate(8, 8) });
     const auth = {
       identity,
       passwords,

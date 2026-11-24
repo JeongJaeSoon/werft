@@ -44,9 +44,9 @@ import {
   DatabaseIdentityStore,
   hashWebSessionToken,
   issueSetupToken,
-  LoginLockout,
   WEB_SESSIONS_PER_USER,
 } from "./auth.ts";
+import { MemoryAuthAttemptStore } from "./auth-attempts.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import {
@@ -104,7 +104,9 @@ integration("auth API on PostgreSQL", () => {
     const logger = new StructuredLogger({ sinks: [sink] });
     const auth = {
       identity,
-      passwords: new PasswordChecks(new LoginLockout({ now: () => now })),
+      passwords: new PasswordChecks({
+        store: new MemoryAuthAttemptStore({ now: () => now }),
+      }),
       logger,
     };
     const catalog = testCatalog({

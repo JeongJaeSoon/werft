@@ -17,6 +17,7 @@ import {
   createPostgresAgentWorkspaceMcpStore,
   createPostgresAuditLogReader,
   createPostgresAuditRetention,
+  createPostgresAuthAttemptStore,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
   createPostgresChannelMemberStore,
@@ -204,6 +205,7 @@ import {
 } from "./api-settings.ts";
 import { createApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
+import { AuthAttemptKeys } from "./auth-attempts.ts";
 import {
   installedRuntimeVersions,
   launchableKindsFromEnv,
@@ -1373,7 +1375,21 @@ if (authorizerListener === undefined) {
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
 const identity = new DatabaseIdentityStore(db);
-const passwords = new PasswordChecks();
+// Every replica counts in the same table under the same derived key.
+const passwords = new PasswordChecks({
+  store: createPostgresAuthAttemptStore(db),
+  keys: new AuthAttemptKeys(derivedSecretKey(secretKey, "auth-attempt-keys")),
+  rules: settings.signIn.rules,
+  logger,
+  ...(settings.signIn.clientIpHeader === undefined
+    ? {}
+    : { clientIpHeader: settings.signIn.clientIpHeader }),
+});
+if (settings.signIn.clientIpHeader === undefined) {
+  logger.warn(
+    "CLIENT_IP_HEADER is not set: per-network sign-in limits count the socket peer and skip loopback and private peers",
+  );
+}
 // Providers are settings rows; nothing about them is read from the
 // environment. The redirect URIs are built on CONSOLE_ORIGIN itself.
 const loginProviderAdminStore = createPostgresLoginProviderAdminStore(
@@ -1613,10 +1629,15 @@ const server = Bun.serve({
   maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2,
   fetch(
     request: Request,
-    server: { timeout(r: Request, seconds: number): void },
+    server: {
+      timeout(r: Request, seconds: number): void;
+      requestIP(r: Request): { address: string } | null;
+    },
   ): Response | Promise<Response> {
+    const peer = server.requestIP(request)?.address;
     return app.fetch(request, {
       setIdleTimeout: (seconds: number) => server.timeout(request, seconds),
+      ...(peer === undefined ? {} : { clientAddress: peer }),
     });
   },
 });

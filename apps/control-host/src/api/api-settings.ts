@@ -10,6 +10,10 @@ import {
   DEFAULT_LEASE_TTL_MS,
   installationLimitProblems,
 } from "@werft-ai/platform";
+import {
+  type AuthAttemptRules,
+  DEFAULT_AUTH_ATTEMPT_RULES,
+} from "./auth-attempts.ts";
 
 /**
  * The API's own settings, apart from the installation limits it shares with
@@ -26,7 +30,17 @@ export type ApiSettings = {
     maxStreamsPerOwner?: number;
   };
   webDistDir?: string;
+  signIn: {
+    /** Lower-cased; unset trusts no header. */
+    clientIpHeader?: string;
+    rules: AuthAttemptRules;
+  };
 };
+
+// The reconciler keeps a window's row for a day (auth-attempts.ts in db).
+const MAX_AUTH_WINDOW_SEC = 86_400;
+const MAX_AUTH_LIMIT = 1_000_000;
+const HEADER_NAME = /^[A-Za-z0-9-]+$/;
 
 export class ApiSettingsError extends Error {
   constructor(readonly problems: readonly string[]) {
@@ -59,6 +73,47 @@ export function apiSettingsFromEnv(
       optionalInteger("SSE_MAX_STREAMS_PER_OWNER", { min: 1 }),
     ),
   };
+  const rule = (
+    prefix: string,
+    fallback: { limit: number; windowMs: number },
+  ) => ({
+    limit:
+      read(() =>
+        integerSetting(environment, `${prefix}_LIMIT`, {
+          min: 1,
+          max: MAX_AUTH_LIMIT,
+          default: fallback.limit,
+        }),
+      ) ?? fallback.limit,
+    windowMs:
+      (read(() =>
+        integerSetting(environment, `${prefix}_WINDOW_SEC`, {
+          min: 1,
+          max: MAX_AUTH_WINDOW_SEC,
+          default: fallback.windowMs / 1000,
+        }),
+      ) ?? fallback.windowMs / 1000) * 1000,
+  });
+  const signInRules: AuthAttemptRules = {
+    accountFailures: rule(
+      "LOGIN_ACCOUNT_FAILURE",
+      DEFAULT_AUTH_ATTEMPT_RULES.accountFailures,
+    ),
+    networkFailures: rule(
+      "LOGIN_IP_FAILURE",
+      DEFAULT_AUTH_ATTEMPT_RULES.networkFailures,
+    ),
+    networkRequests: rule(
+      "AUTH_IP_REQUEST",
+      DEFAULT_AUTH_ATTEMPT_RULES.networkRequests,
+    ),
+  };
+  const clientIpHeader = environment.CLIENT_IP_HEADER;
+  if (clientIpHeader !== undefined && !HEADER_NAME.test(clientIpHeader)) {
+    problems.push(
+      "CLIENT_IP_HEADER must be one header name (letters, digits and hyphens), such as CF-Connecting-IP",
+    );
+  }
   // In `none` mode /v1 takes any X-Owner-Id as the caller. With the
   // authorizer on, workers run beside this API and reach it through the
   // proxy, so code inside any of them could act as any owner.
@@ -93,6 +148,12 @@ export function apiSettingsFromEnv(
         : { maxStreamsPerOwner: sse.maxStreamsPerOwner }),
     },
     ...(webDistDir === undefined ? {} : { webDistDir }),
+    signIn: {
+      ...(clientIpHeader === undefined
+        ? {}
+        : { clientIpHeader: clientIpHeader.toLowerCase() }),
+      rules: signInRules,
+    },
   };
 }
 

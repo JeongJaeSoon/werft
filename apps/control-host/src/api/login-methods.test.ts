@@ -195,21 +195,29 @@ function harness(
     body?: unknown;
     cookies?: string[];
     headers?: Record<string, string>;
+    /** The socket peer, as Bun.serve gives it. */
+    clientAddress?: string;
   };
   /** A request from the console, with no session cookie. */
   const request = (method: string, path: string, init: Init = {}) =>
-    app.request(path, {
-      method,
-      headers: {
-        ...BROWSER,
-        ...(init.body === undefined
-          ? {}
-          : { "Content-Type": "application/json" }),
-        ...(init.cookies?.length ? { Cookie: init.cookies.join("; ") } : {}),
-        ...init.headers,
+    app.request(
+      path,
+      {
+        method,
+        headers: {
+          ...BROWSER,
+          ...(init.body === undefined
+            ? {}
+            : { "Content-Type": "application/json" }),
+          ...(init.cookies?.length ? { Cookie: init.cookies.join("; ") } : {}),
+          ...init.headers,
+        },
+        ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       },
-      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-    });
+      init.clientAddress === undefined
+        ? undefined
+        : { clientAddress: init.clientAddress },
+    );
   /** The same from the signed-in person's browser. */
   const mine = (method: string, path: string, init: Init = {}) =>
     request(method, path, {
@@ -347,6 +355,24 @@ describe("a sign-up by invite starts at a provider", () => {
     }).request("POST", inviteStart(), { body });
     expect(down.status).toBe(503);
     expect((await errorOf(down)).code).toBe("BACKEND_UNAVAILABLE");
+  });
+});
+
+describe("token route request limit", () => {
+  test("a network past 30 invite starts a minute is refused", async () => {
+    const h = harness();
+    const start = (clientAddress: string) =>
+      h.request("POST", inviteStart(), {
+        body: { invite_token: `apv_${"0".repeat(64)}` },
+        clientAddress,
+      });
+    for (let i = 0; i < 30; i += 1) {
+      expect((await start("203.0.113.9")).status).not.toBe(429);
+    }
+    const refused = await start("203.0.113.9");
+    expect(refused.status).toBe(429);
+    expect(Number(refused.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect((await start("203.0.113.10")).status).not.toBe(429);
   });
 });
 

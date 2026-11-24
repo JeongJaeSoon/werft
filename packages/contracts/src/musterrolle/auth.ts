@@ -43,6 +43,17 @@ export const CSRF_HEADER_VALUE = "werft-web";
 export const LOGIN_LOCKOUT_ATTEMPTS = 5;
 export const LOGIN_LOCKOUT_WINDOW_MINUTES = 15;
 
+/**
+ * What a sign-in attempt window counts: failed password guesses per account
+ * and per client network, and requests to the token routes per client network.
+ */
+export const AUTH_ATTEMPT_KIND_VALUES = [
+  "account_failure",
+  "ip_failure",
+  "ip_request",
+] as const;
+export type AuthAttemptKind = (typeof AUTH_ATTEMPT_KIND_VALUES)[number];
+
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_BYTES = 1024;
 const utf8 = new TextEncoder();

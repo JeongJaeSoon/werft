@@ -30,8 +30,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // events, the binding status gone and the conversation's channel state and
   // name put ./schemas 65 bytes over 148, so it moves to 149. The GitHub
   // tool descriptions that name git switch -c put ./forms 223 bytes over 146,
-  // so it moves to 147.
-  "./schemas": 149 * 1024,
+  // so it moves to 147. The sign-in attempt kinds and the lock_login receipt
+  // with the Slack allowed bots receipt put ./schemas 1 byte over 149, so it
+  // moves to 150.
+  "./schemas": 150 * 1024,
   "./forms": 147 * 1024,
 };
 

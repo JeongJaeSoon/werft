@@ -122,6 +122,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 3;
       },
+      purgeAuthAttemptWindows: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return 4;
+      },
       reconcileOwnership: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return { flagged: ["agent-a"], cleared: ["agent-b", "agent-c"] };
@@ -251,6 +255,11 @@ describe("reconciler run", () => {
       }),
       expect.objectContaining({
         level: "info",
+        message: "Ended sign-in attempt windows deleted",
+        fields: { dry_run: false, deleted_count: 4 },
+      }),
+      expect.objectContaining({
+        level: "info",
         message: "Agent ownership reconciled",
         fields: {
           dry_run: false,
@@ -350,6 +359,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 1;
       },
+      purgeAuthAttemptWindows: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return 1;
+      },
       reconcileOwnership: async ({ dryRun }) => {
         seen.push(dryRun);
         return { flagged: [], cleared: [] };
@@ -360,6 +373,7 @@ describe("reconciler run", () => {
     });
 
     expect(seen).toEqual([
+      true,
       true,
       true,
       true,
@@ -436,6 +450,7 @@ describe("reconciler run", () => {
         purgeJudgmentBuffer: async () => ({ expired: 0, unlistened: 0 }),
         purgeSlackSourceMarks: async () => ({ deleted: 0, edited: 0 }),
         purgeSlackChannelMembers: async () => 0,
+        purgeAuthAttemptWindows: async () => 0,
         reconcileOwnership: async () => ({ flagged: [], cleared: [] }),
         projectToolCalls: async () => ({
           eventsRead: 10,
@@ -476,6 +491,7 @@ describe("reconciler run", () => {
     const purgeJudgmentBuffer = async () => ({ expired: 0, unlistened: 0 });
     const purgeSlackSourceMarks = async () => ({ deleted: 0, edited: 0 });
     const purgeSlackChannelMembers = async () => 0;
+    const purgeAuthAttemptWindows = async () => 0;
     const reconcileOwnership = async () => ({ flagged: [], cleared: [] });
     const projectToolCalls = async () => ({
       eventsRead: 0,
@@ -512,6 +528,7 @@ describe("reconciler run", () => {
           purgeJudgmentBuffer,
           purgeSlackSourceMarks,
           purgeSlackChannelMembers,
+          purgeAuthAttemptWindows,
           reconcileOwnership,
           projectToolCalls,
         }),
@@ -537,6 +554,7 @@ describe("reconciler run", () => {
         purgeJudgmentBuffer,
         purgeSlackSourceMarks,
         purgeSlackChannelMembers,
+        purgeAuthAttemptWindows,
         reconcileOwnership,
         projectToolCalls,
       }),
@@ -560,6 +578,7 @@ describe("reconciler run", () => {
         purgeJudgmentBuffer,
         purgeSlackSourceMarks,
         purgeSlackChannelMembers,
+        purgeAuthAttemptWindows,
         reconcileOwnership,
         projectToolCalls,
       }),
