@@ -152,6 +152,14 @@ async function managerOf(
   by: string,
   lock: boolean,
 ): Promise<string | undefined> {
+  // The user row first, as a suspension takes it: re-checked after a
+  // membership lock wait, a joined user row is the old snapshot's, so an
+  // account disabled meanwhile would read as live.
+  if (lock) {
+    await db.execute(
+      sql`SELECT id FROM users WHERE email = ${by.toLowerCase()} FOR SHARE`,
+    );
+  }
   return rowsOf<{ id: string }>(
     await db.execute(sql`
       SELECT u.id FROM users u
