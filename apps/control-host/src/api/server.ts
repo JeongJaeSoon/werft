@@ -191,6 +191,7 @@ import {
   wireGitPusher,
 } from "../wiring/github-api.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
+import { wireM1JudgmentRunner } from "../wiring/m1-judgments.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
 import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
@@ -1202,6 +1203,18 @@ const achievementJudge = createAchievementJudge({
         },
       }),
 }).start();
+// M1 judges unmentioned Slack posts for the record (a1/J5), through the same
+// listener; without it no judgment is made and the buffer's posts expire.
+const m1Judgments =
+  judgeEgressUrl === null
+    ? undefined
+    : wireM1JudgmentRunner({
+        db,
+        agents: agentStore,
+        catalog,
+        egressUrl: judgeEgressUrl,
+        logger,
+      }).start();
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -1757,6 +1770,9 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         { name: "pull-request-drain", close: () => pullRequestDrain.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
+        ...(m1Judgments === undefined
+          ? []
+          : [{ name: "m1-judgments", close: () => m1Judgments.stop() }]),
         { name: "event-listener", close: () => notifier.close() },
         ...(operatorTurns === undefined
           ? []

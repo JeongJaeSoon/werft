@@ -431,6 +431,9 @@ async function takeSlackInput(
       ts: input.slackMessage.ts,
       turn: { sessionId: input.sessionId, sequence: input.sequence },
       engagement: input.slackInput.engagement,
+      ...(input.slackInput.judgment === undefined
+        ? {}
+        : { judgment: input.slackInput.judgment }),
     },
   );
 }
