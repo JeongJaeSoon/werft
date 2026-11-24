@@ -34,6 +34,7 @@ import {
   createPostgresSlackSourceMarkStore,
   createPostgresSurfaceBindingStore,
   memberships,
+  receipts,
   secretValues,
   slackApps,
   slackInboundEvents,
@@ -574,6 +575,149 @@ integration(
           .from(slackInstallations)
           .where(eq(slackInstallations.appId, appId));
         expect(install?.status).toBe("revoked");
+      } finally {
+        listener.stop(true);
+      }
+    });
+
+    test("deleting the app with no public events address closes Werft's side, and a late uninstall changes nothing", async () => {
+      const { agentId, appId, workspaceId, caller, slackAppId } =
+        await installed(null);
+      expect(await rowsFor(workspaceId, agentId, appId)).toMatchObject({
+        installations: [{ status: "verified" }],
+        identities: [{ status: "active" }],
+      });
+      const signingSecrets = createSlackSigningSecrets({
+        apps: createPostgresSlackAppStore(db, key),
+        secrets: createPostgresSecretStore(db, key),
+      });
+      // The secret as an events request read it just before the delete.
+      const before = await signingSecrets.forAgent(agentId);
+      if (before === null) throw new Error("no signing secret");
+      const revokesBefore = slack.calls.filter(
+        (call) => call.method === "auth.revoke",
+      ).length;
+
+      const { apps } = services(null);
+      const deleted = await apps.deleteApp(caller, workspaceId, slackAppId);
+      expect(deleted.slack_app.state).toBe("deleted");
+      expect(deleted.slack_cleanup).toEqual({
+        outcome: "done",
+        failed_steps: [],
+        message: null,
+      });
+      expect(
+        slack.calls.filter((call) => call.method === "auth.revoke").length -
+          revokesBefore,
+      ).toBe(1);
+      const closed = await rowsFor(workspaceId, agentId, appId);
+      expect(closed).toMatchObject({
+        botTokens: [],
+        installations: [{ status: "revoked" }],
+        identities: [{ status: "revoked" }],
+      });
+      const [receipt] = await db
+        .select({ result: receipts.result })
+        .from(receipts)
+        .where(
+          and(
+            eq(receipts.ownerId, workspaceId),
+            eq(receipts.operation, "delete_slack_app"),
+          ),
+        );
+      expect(receipt?.result).toMatchObject({
+        slack_app_id: slackAppId,
+        closed: { installations: 1, identities: 1 },
+        slack_cleanup: { outcome: "done" },
+      });
+
+      const events = createSlackEventsService({
+        signingSecrets: createSlackSigningSecrets({
+          apps: createPostgresSlackAppStore(db, key),
+          secrets: createPostgresSecretStore(db, key),
+        }),
+        inbox: createPostgresSlackInboundEventStore(db),
+        apps: createPostgresSlackAppStore(db, key),
+        identities: createPostgresAgentIdentityStore(db),
+        installs: createPostgresSlackInstallStore(db),
+        bindings: createPostgresSurfaceBindingStore(db),
+        sourceMarks: createPostgresSlackSourceMarkStore(db),
+        mirrorEchoes: { matchMirrorEcho: async () => "no_candidate" },
+      });
+      const listener = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          const outcome = await events.receive({
+            agentId,
+            rawBody: new Uint8Array(await request.arrayBuffer()),
+            timestamp: request.headers.get("X-Slack-Request-Timestamp"),
+            signature: request.headers.get("X-Slack-Signature"),
+          });
+          return Response.json(outcome, {
+            status: outcome.kind === "unauthorized" ? 401 : 200,
+          });
+        },
+      });
+      try {
+        const url = `http://127.0.0.1:${listener.port}/v1/slack/events/${agentId}`;
+        // The secret is gone with the app, so nothing can be verified: 401,
+        // however often Slack sends it again.
+        for (const [type, retryNum] of [
+          ["app_uninstalled", undefined],
+          ["app_uninstalled", 1],
+          ["tokens_revoked", 2],
+        ] as const) {
+          const sent = await slack.sendEvent({
+            url,
+            appId,
+            event:
+              type === "tokens_revoked"
+                ? { type, tokens: { bot: ["U0BOT"] } }
+                : { type },
+            ...(retryNum === undefined ? {} : { retryNum }),
+          });
+          expect(sent.status).toBe(401);
+        }
+        expect(await rowsFor(workspaceId, agentId, appId)).toEqual(closed);
+        // One a replica still verified with the secret it had read: 200,
+        // and still nothing changes.
+        const late = createSlackEventsService({
+          signingSecrets: { forAgent: async () => before },
+          inbox: createPostgresSlackInboundEventStore(db),
+          apps: createPostgresSlackAppStore(db, key),
+          identities: createPostgresAgentIdentityStore(db),
+          installs: createPostgresSlackInstallStore(db),
+          bindings: createPostgresSurfaceBindingStore(db),
+          sourceMarks: createPostgresSlackSourceMarkStore(db),
+          mirrorEchoes: { matchMirrorEcho: async () => "no_candidate" },
+        });
+        const cached = Bun.serve({
+          hostname: "127.0.0.1",
+          port: 0,
+          async fetch(request) {
+            const outcome = await late.receive({
+              agentId,
+              rawBody: new Uint8Array(await request.arrayBuffer()),
+              timestamp: request.headers.get("X-Slack-Request-Timestamp"),
+              signature: request.headers.get("X-Slack-Signature"),
+            });
+            return Response.json(outcome, {
+              status: outcome.kind === "unauthorized" ? 401 : 200,
+            });
+          },
+        });
+        try {
+          const sent = await slack.sendEvent({
+            url: `http://127.0.0.1:${cached.port}/v1/slack/events/${agentId}`,
+            appId,
+            event: { type: "app_uninstalled" },
+          });
+          expect(sent.status).toBe(200);
+        } finally {
+          cached.stop(true);
+        }
+        expect(await rowsFor(workspaceId, agentId, appId)).toEqual(closed);
       } finally {
         listener.stop(true);
       }

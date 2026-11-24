@@ -14,6 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **`DELETE /v1/workspaces/{id}/slack/apps/{app_id}`가 Slack의 이벤트를 기다리지 않고 그 앱의 설치·에이전트 Slack identity·채널 binding·아직 안 나간 Slack 메시지(`app_deleted`)·판단 버퍼를 한 transaction에서 닫고, Slack 쪽(`auth.revoke`, `apps.manifest.delete`)은 그 뒤 한 번씩만 해 본다**(JeongJaeSoon/werft#2137). migration은 없다. Slack이 거절하거나 응답이 없어도 삭제는 200이고 새 응답 칸 `slack_cleanup`이 실패한 단계를 알린다. 이때는 Slack 앱 관리 화면(api.slack.com/apps)에서 앱을 직접 지운다. 전에는 같은 경우 503·409(`CONFIG_TOKEN_INVALID`)로 거절했으니, 그 응답으로 다시 시도하던 스크립트는 `slack_cleanup`을 읽는다. 삭제는 receipt `delete_slack_app`(닫은 수, Slack 쪽 결과, 토큰 값 없음)을 남긴다. 이 릴리스 전에 지운 앱의 identity는 `active`로 남아 있을 수 있으니 `GET /v1/agents/{id}/identities`로 보고 `DELETE /v1/agents/{id}/identities/{identity_id}`로 회수한다. 지운 앱으로 `bun run slack-install register`를 부르면 설치를 다시 열지 않는다. 삭제가 bot token을 무효로 했으면 exit 3(Slack이 token을 거절), token이 아직 살아 있으면 exit 5(`revoked`)로 끝나니, 새 앱을 만들어 설치한다.
 - **LocalStack 시험 설치의 api가 재기동으로 빈 bucket에서 기동을 거부하지 않고, 잃은 checkpoint를 포기한 뒤 뜬다. migration `0352_lost_checkpoint_notices`가 새 빈 표 `lost_checkpoint_notices`를 만든다**(JeongJaeSoon/werft#2130). 운영 설치는 그대로다. 기본값 `CHECKPOINT_OBJECTS_LOST=refuse`는 지금처럼 기동을 거부한다.
   - 새 설정 둘이 생긴다. `INSTALLATION_PROFILE`(`production` 기본, `test`)과 `CHECKPOINT_OBJECTS_LOST`(`refuse` 기본, `forget`). chart는 `config.installation.profile`과 `config.checkpoints.objectsLost`다. 두 이름은 `extraEnv`나 `config.limits`로 넣으면 render가 멈춘다.
   - `forget`은 profile이 `test`이고 `AWS_ENDPOINT_URL`의 host 첫 마디가 `localstack`일 때만 받는다. 그 밖의 설치에서 켜면 api가 기동하지 않는다.
