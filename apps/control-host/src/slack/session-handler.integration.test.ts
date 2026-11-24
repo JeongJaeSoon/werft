@@ -3093,10 +3093,9 @@ describe.each(ENGINES)(
     test("an older answer about sharing does not undo a newer one; an equal one passes", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const bindings = createPostgresSurfaceBindingStore(db);
-      const [installation] = await db.select().from(slackInstallations);
       const record = (shared: boolean, at: number) =>
         bindings.recordExternalShared(
-          installation?.id ?? "",
+          fixture.agentId,
           CHANNEL,
           shared,
           new Date(at),
@@ -3108,23 +3107,32 @@ describe.each(ENGINES)(
       expect(await sharedColumn(fixture)).toEqual([false]);
     });
 
-    test("saving a shared channel to listen free is refused by name; mention and off are saved", async () => {
-      const fixture = await agentInSlack("main", { rollout: "on" });
-      slack.channels.set(CHANNEL, { isExtShared: true });
-      const service = createSurfaceBindingService({
+    const bindingService = () => {
+      const store = createPostgresSurfaceBindingStore(db);
+      return createSurfaceBindingService({
         authorization: createAuthorizationPolicy({
           identity: createDatabaseIdentityReader(db),
         }),
-        store: createPostgresSurfaceBindingStore(db),
+        store,
         channels: {
           kindOf: async () => "public_channel",
           ...createSlackChannelSharingReader({
             apps: createPostgresSlackAppStore(db, key),
             secrets: schema.createPostgresSecretStore(db, key),
             slack: createSlackBotApi({ apiUrl: slack.url }),
+            bindings: store,
           }),
         },
       });
+    };
+
+    test("saving a shared channel to listen free is refused by name and drops what was held; mention and off are saved", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, message("100.000100"));
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual(["100.000100"]);
+      slack.channels.set(CHANNEL, { isExtShared: true });
+      const service = bindingService();
       const put = (listen: "free" | "mention" | "off") =>
         service.putSlackBinding(fixture.owner, fixture.agentId, {
           channel_id: CHANNEL,
@@ -3137,10 +3145,28 @@ describe.each(ENGINES)(
         code: "BAD_REQUEST",
         details: { reason_code: "external_shared_channel" },
       });
+      expect(await heldTs(fixture)).toEqual([]);
+      expect(await sharedColumn(fixture)).toEqual([true]);
       expect((await put("mention")).slack_binding.listen).toBe("mention");
       expect((await put("off")).slack_binding.listen).toBe("off");
       slack.channels.set(CHANNEL, { isExtShared: false });
       expect((await put("free")).slack_binding.listen).toBe("free");
+    });
+
+    test("a new binding on a shared channel that names no listen listens to mentions", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const OTHER = "C0SHARED";
+      slack.channels.set(OTHER, { isExtShared: true });
+      try {
+        const saved = await bindingService().putSlackBinding(
+          fixture.owner,
+          fixture.agentId,
+          { channel_id: OTHER, mode: "on", home: false },
+        );
+        expect(saved.slack_binding.listen).toBe("mention");
+      } finally {
+        slack.channels.delete(OTHER);
+      }
     });
   },
 );

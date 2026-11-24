@@ -301,6 +301,9 @@ async function set(
       } else {
         await tx.insert(surfaceBindings).values({
           ...values,
+          ...(input.listen === undefined && input.newListen !== undefined
+            ? { listen: input.newListen }
+            : {}),
           id,
           workspaceId,
           agentId,
@@ -491,26 +494,27 @@ export function createPostgresSurfaceBindingStore(
       channelNotFound(db, installationId, channelId, askedAt),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
-    async recordExternalShared(installationId, channelId, shared, at) {
-      if (!UUID.test(installationId)) return false;
+    async recordExternalShared(agentId, channelId, shared, at) {
+      if (!UUID.test(agentId)) return false;
       return db.transaction(async (tx) => {
         const written = await tx
           .update(surfaceBindings)
           .set({ externalShared: shared, externalSharedAt: at })
           .where(
             and(
-              channelOf(installationId.toLowerCase(), channelId),
+              eq(surfaceBindings.agentId, agentId.toLowerCase()),
+              eq(surfaceBindings.surface, "slack"),
+              eq(surfaceBindings.externalSurfaceId, channelId),
+              isNull(surfaceBindings.revokedAt),
               or(
                 isNull(surfaceBindings.externalSharedAt),
                 lte(surfaceBindings.externalSharedAt, at),
               ),
             ),
           )
-          .returning({ agentId: surfaceBindings.agentId });
-        if (shared) {
-          for (const { agentId } of written) {
-            await dropUnlistenedBuffer(tx, { agentId, channelId });
-          }
+          .returning({ id: surfaceBindings.id });
+        if (shared && written.length > 0) {
+          await dropUnlistenedBuffer(tx, { agentId, channelId });
         }
         return written.length > 0;
       });

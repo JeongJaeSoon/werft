@@ -5,7 +5,7 @@ import { SlackApiError } from "./slack-config-api.ts";
 
 const TEAM = "T0ACME";
 const question = {
-  installationId: "installation-1",
+  agentId: "agent-1",
   teamId: TEAM,
   channelId: "C0OPS",
   slackUserId: "U0PERSON",
@@ -17,6 +17,7 @@ function audienceWith(
   user: () => Promise<Partial<SlackUser>> = async () => ({}),
 ) {
   let clock = 0;
+  let accepts = true;
   const calls: string[] = [];
   const recorded: [string, boolean, number][] = [];
   const audience = createSlackAudience({
@@ -33,7 +34,7 @@ function audienceWith(
     bindings: {
       recordExternalShared: async (_installation, channelId, shared, at) => {
         recorded.push([channelId, shared, at.getTime()]);
-        return true;
+        return accepts;
       },
     },
     logger: { warn: () => {} },
@@ -44,6 +45,9 @@ function audienceWith(
     audience,
     calls,
     recorded,
+    accept: (value: boolean) => {
+      accepts = value;
+    },
     tick: (ms: number) => {
       clock += ms;
     },
@@ -134,5 +138,20 @@ describe("createSlackAudience", () => {
     expect(await guestUnknown.audience.unheardReason(question)).toBe(
       "audience_unconfirmed",
     );
+  });
+
+  test("an answer the binding refuses as older is not kept", async () => {
+    const { audience, calls, accept } = audienceWith(async () => "external");
+    accept(false);
+    expect(await audience.channelSharing(question)).toBe("external");
+    await audience.channelSharing(question);
+    expect(calls).toEqual([
+      "conversations.info C0OPS",
+      "conversations.info C0OPS",
+    ]);
+    accept(true);
+    await audience.channelSharing(question);
+    await audience.channelSharing(question);
+    expect(calls).toHaveLength(3);
   });
 });

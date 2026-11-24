@@ -196,17 +196,18 @@ export function createSurfaceBindingService(deps: {
         throw bindingError("BAD_REQUEST", "dmChannel");
       }
       // People of another organization never agreed to the notice, so a
-      // channel they share listens for mentions only. Unknown, the save goes
-      // on: what is held is judged again on every post.
-      if (
+      // channel they share listens for mentions only: free is refused, and a
+      // new binding that names no setting starts at mention. Unknown, the
+      // save goes on: what is held is judged again on every post.
+      const externalShared =
         request.channel_id !== null &&
-        request.listen === "free" &&
+        (request.listen === "free" || request.listen === undefined) &&
         (await channels.sharingOf(
           caller.ownerId,
           agentId,
           request.channel_id,
-        )) === "external"
-      ) {
+        )) === "external";
+      if (externalShared && request.listen === "free") {
         throw bindingError("BAD_REQUEST", "externalShared");
       }
       const result = await store.set({
@@ -217,6 +218,7 @@ export function createSurfaceBindingService(deps: {
         channelKind,
         mode: request.mode,
         ...(request.listen === undefined ? {} : { listen: request.listen }),
+        ...(externalShared ? { newListen: "mention" as const } : {}),
         home: request.home,
         ceiling: request.ceiling ?? DEFAULT_SURFACE_CEILING,
         managerRoles: MANAGERS,

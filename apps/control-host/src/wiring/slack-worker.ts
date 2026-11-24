@@ -20,6 +20,7 @@ import {
   createSlackMemberLeftHandler,
   createSlackSessionHandler,
   createSlackWelcome,
+  type SlackAudienceCache,
   type SlackInboundHandler,
   type SlackNoticeSink,
   slackBotToken,
@@ -52,6 +53,8 @@ export interface SlackInboundDeps {
   welcomeApps: Param<typeof createSlackWelcome>["apps"];
   welcomeOutbox: Param<typeof createSlackWelcome>["outbox"];
   buffer: JudgmentBufferStore;
+  /** Slack's answers about channels and people, kept across passes. */
+  audienceCache?: SlackAudienceCache;
   logger: StructuredLogger;
 }
 
@@ -71,6 +74,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     slack: slackApi,
     bindings: deps.bindings,
     logger: deps.logger,
+    ...(deps.audienceCache === undefined ? {} : { cache: deps.audienceCache }),
   });
   const sessionHandler = createSlackSessionHandler({
     inbox: deps.inbox,

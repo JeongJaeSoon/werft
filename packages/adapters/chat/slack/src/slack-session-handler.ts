@@ -302,7 +302,7 @@ export function createSlackSessionHandler(
       }
       if (!messageTextSchema.safeParse(event.text).success) return null;
       const unheard = await deps.audience.unheardReason({
-        installationId: agent.installationId,
+        agentId: agent.agentId,
         teamId: claim.teamId,
         channelId: event.channel,
         slackUserId: event.user,

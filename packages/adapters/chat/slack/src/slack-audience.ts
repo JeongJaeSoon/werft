@@ -19,7 +19,7 @@ export const SLACK_AUDIENCE_CACHE_TTL_MS = SLACK_MEMBER_CACHE_TTL_MS;
 const CACHE_LIMIT = 10_000;
 
 export type SlackChannelQuestion = {
-  installationId: string;
+  agentId: string;
   channelId: string;
   /** Null when the app has no bot token: nothing can be confirmed. */
   botToken: string | null;
@@ -55,17 +55,30 @@ export type SlackAudience = {
 
 type Kept<T> = Map<string, { value: T; at: number }>;
 
+/**
+ * What the audience keeps between answers. The slack role makes its handlers
+ * again every pass; one cache made once outlives them.
+ */
+export type SlackAudienceCache = {
+  channels: Kept<SlackChannelSharing>;
+  authors: Kept<SlackUserKind>;
+};
+
+export function createSlackAudienceCache(): SlackAudienceCache {
+  return { channels: new Map(), authors: new Map() };
+}
+
 export function createSlackAudience(deps: {
   slack: Pick<SlackBotApi, "userInfo"> & SlackChannelSharingApi;
   bindings: Pick<SurfaceBindingStore, "recordExternalShared">;
   logger: Pick<SlackInboxLogger, "warn">;
+  cache?: SlackAudienceCache;
   ttlMs?: number;
   now?: () => number;
 }): SlackAudience {
   const ttlMs = deps.ttlMs ?? SLACK_AUDIENCE_CACHE_TTL_MS;
   const now = deps.now ?? Date.now;
-  const channels: Kept<SlackChannelSharing> = new Map();
-  const authors: Kept<SlackUserKind> = new Map();
+  const { channels, authors } = deps.cache ?? createSlackAudienceCache();
 
   function kept<T>(map: Kept<T>, key: string): T | undefined {
     const hit = map.get(key);
@@ -87,7 +100,7 @@ export function createSlackAudience(deps: {
     deps.logger.warn("Slack audience unconfirmed", {
       event: "slack.audience.unconfirmed",
       method,
-      installation_id: question.installationId,
+      agent_id: question.agentId,
       channel_id: question.channelId,
       ...(error instanceof SlackApiError ? { slack_error: error.code } : {}),
     });
@@ -95,7 +108,7 @@ export function createSlackAudience(deps: {
   async function channelSharing(
     question: SlackChannelQuestion,
   ): Promise<SlackChannelSharing | null> {
-    const key = `${question.installationId}:${question.channelId}`;
+    const key = `${question.agentId}:${question.channelId}`;
     if (question.fresh) channels.delete(key);
     const hit = kept(channels, key);
     if (hit !== undefined) return hit;
@@ -111,20 +124,21 @@ export function createSlackAudience(deps: {
       unanswered("conversations.info", question, error);
       return null;
     }
-    await deps.bindings.recordExternalShared(
-      question.installationId,
+    const recorded = await deps.bindings.recordExternalShared(
+      question.agentId,
       question.channelId,
       sharing === "external",
       askedAt,
     );
-    keep(channels, key, sharing);
+    // A newer answer is on the binding already: this one is not kept.
+    if (recorded) keep(channels, key, sharing);
     return sharing;
   }
 
   async function authorKind(
     question: SlackAuthorQuestion,
   ): Promise<SlackUserKind | null> {
-    const key = `${question.installationId}:${question.slackUserId}`;
+    const key = `${question.agentId}:${question.slackUserId}`;
     const hit = kept(authors, key);
     if (hit !== undefined) return hit;
     if (question.botToken === null) return null;

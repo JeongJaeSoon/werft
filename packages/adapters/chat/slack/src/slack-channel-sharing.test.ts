@@ -60,7 +60,7 @@ describe("createSlackChannelSharingHandler", () => {
       await handle(claim({ type, channel: "C0OPS", event_ts: "4.000100" }));
       expect(asked).toEqual([
         {
-          installationId: "installation-1",
+          agentId: "agent-1",
           channelId: "C0OPS",
           botToken: "bot-token-1",
           fresh: true,

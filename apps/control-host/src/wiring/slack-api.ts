@@ -116,6 +116,7 @@ export interface SlackChannelsStageDeps {
   secrets: SlackBotStageDeps["secrets"];
   identities: AgentIdentityStore;
   installs: SurfaceInstallStore;
+  bindings: Pick<SurfaceBindingStore, "recordExternalShared">;
   onTokenRevokedError: (error: unknown) => void;
 }
 
@@ -148,6 +149,7 @@ export function wireSlackChannels(
         apps: deps.appStore,
         secrets: deps.secrets(),
         slack: deps.api,
+        bindings: deps.bindings,
       }),
     },
   };

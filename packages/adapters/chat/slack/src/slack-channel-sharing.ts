@@ -1,4 +1,7 @@
-import { SLACK_CHANNEL_SHARING_EVENT_TYPES } from "@werft-ai/contracts";
+import {
+  SLACK_CHANNEL_SHARING_EVENT_TYPES,
+  type SlackChannelSharing,
+} from "@werft-ai/contracts";
 import {
   type AgentIdentityStore,
   agentForSlackEvent,
@@ -51,7 +54,7 @@ export function createSlackChannelSharingHandler(deps: {
     if (agent.status === "dropped") return;
     const { type, channel } = parsed.data;
     const sharing = await deps.audience.channelSharing({
-      installationId: agent.installationId,
+      agentId: agent.agentId,
       channelId: channel,
       botToken: await deps.botToken(claim.workspaceId, claim.slackAppId),
       fresh: true,
@@ -59,7 +62,7 @@ export function createSlackChannelSharingHandler(deps: {
     if (sharing === null && type === "channel_shared") {
       const us = lifecycleTime(claim);
       await deps.bindings.recordExternalShared(
-        agent.installationId,
+        agent.agentId,
         channel,
         true,
         us === null ? new Date() : new Date(us / 1000),
@@ -70,12 +73,14 @@ export function createSlackChannelSharingHandler(deps: {
 
 /**
  * Channel sharing as the agent's own app sees it, for a binding being saved.
- * Without a secret store, an app or a bot token, nothing can be told.
+ * Without a secret store, an app or a bot token, nothing can be told. An
+ * answer goes on the agent's binding of the channel, as a post's would.
  */
 export function createSlackChannelSharingReader(deps: {
   apps: Pick<SurfaceAppStore, "findForAgent"> | null;
   secrets: Pick<SecretStore, "get"> | null;
   slack: SlackChannelSharingApi;
+  bindings: Pick<SurfaceBindingStore, "recordExternalShared">;
 }): ChannelSharingReadable {
   return {
     async sharingOf(workspaceId, agentId, channelId) {
@@ -84,11 +89,20 @@ export function createSlackChannelSharingReader(deps: {
       if (app === null) return null;
       const token = await slackBotToken(deps.secrets, workspaceId, app.id);
       if (token === null) return null;
+      const askedAt = new Date();
+      let sharing: SlackChannelSharing;
       try {
-        return await deps.slack.channelSharing(token, channelId);
+        sharing = await deps.slack.channelSharing(token, channelId);
       } catch {
         return null;
       }
+      await deps.bindings.recordExternalShared(
+        agentId,
+        channelId,
+        sharing === "external",
+        askedAt,
+      );
+      return sharing;
     },
   };
 }
