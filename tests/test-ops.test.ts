@@ -247,11 +247,13 @@ describe("scripts/test-ops.sh", () => {
     }
 
     // A daemon new enough, and a render of these services and bind sources.
+    // `volume` is the daemon's answer to the quota probe's volume calls.
     async function preflightWith(
       services: Record<
         string,
         { binds: string[]; groupAdd?: number[]; image?: string; user?: string }
       >,
+      volume = "exit 0",
     ) {
       const head = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "HEAD"])
         .stdout.toString()
@@ -290,6 +292,7 @@ describe("scripts/test-ops.sh", () => {
           `echo "$*" >> "${calls}"`,
           '[ "$1" = version ] && { echo 29.0.0; exit 0; }',
           '[ "$1 $2" = "compose version" ] && { echo 2.30.0; exit 0; }',
+          `[ "$1" = volume ] && { ${volume}; }`,
           `case " $* " in *" config --format json "*) cat "${join(dir, "render.json")}"; exit 0;; esac`,
           "exit 1",
           "",
@@ -415,6 +418,44 @@ describe("scripts/test-ops.sh", () => {
       );
       expect(result.stderr).not.toContain(passed);
     });
+
+    cleanTest(
+      "probes the workspace quota with a sized volume and removes it",
+      async () => {
+        const result = await preflightWith({});
+        expect(result.stderr).toContain(passed);
+        const volumeCalls = (await dockerCalls())
+          .split("\n")
+          .filter((line) => line.startsWith("volume "));
+        expect(volumeCalls).toHaveLength(2);
+        const [create, remove] = volumeCalls;
+        const probe = create?.match(
+          /^volume create --driver local --opt size=64m (werft-test-ops-quota-probe-\S+)$/,
+        )?.[1];
+        expect(probe).toBeDefined();
+        expect(remove).toBe(`volume rm ${probe}`);
+      },
+    );
+
+    cleanTest(
+      "stops before the render when the data-root has no prjquota",
+      async () => {
+        const result = await preflightWith(
+          {},
+          'echo "Error response from daemon: quota size requested but no quota support" >&2; exit 1',
+        );
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("no quota support");
+        expect(result.stderr).toContain(
+          "the workspace quota probe failed (above): Docker's data-root must be on XFS mounted with prjquota",
+        );
+        expect(result.stderr).toContain(
+          "https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/prepare-xfs/",
+        );
+        expect(await dockerCalls()).not.toContain("config --format json");
+        expect(await dockerCalls()).not.toContain("volume rm");
+      },
+    );
 
     cleanTest("passes sources made under umask 022", async () => {
       const sql = await file("0000_m0.sql", 0o644);

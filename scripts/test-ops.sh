@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The test-ops installation's lifecycle in one place
 #
-#   scripts/test-ops.sh preflight [<manifest>]  check host, checkout, env file, settings document, and on s3 the bucket
+#   scripts/test-ops.sh preflight [<manifest>]  check host and its workspace quota, checkout, env file, settings document, and on s3 the bucket
 #                                              and S3 key (the deployed release when no manifest is named)
 #   scripts/test-ops.sh deploy <manifest>       preflight, then start a release on an empty host
 #   scripts/test-ops.sh upgrade <manifest> [--approve-sessions <file>]
@@ -522,8 +522,19 @@ check_mount_modes() {
   die "${#closed[@]} path(s) the containers mount cannot be read by the user their container runs as (above). Give that user read access (chmod -R o+rX on the checkout or bundle directory and chmod o+r on the settings document are enough), or make them again under umask 022"
 }
 
-# The loaded manifest against this host. The workspace quota itself is the
-# scheduler's own probe at startup (deploy and upgrade wait for it).
+# The prepare-xfs page's quota probe: the local driver refuses a size option
+# unless the data-root is XFS mounted with prjquota. Only the daemon's answer
+# counts, so a DOCKER_HOST daemon is checked too. The scheduler still runs its
+# full probe at startup (deploy and upgrade wait for it).
+check_workspace_quota() {
+  local probe
+  probe="${PROJECT}-quota-probe-$(date -u +%Y%m%dt%H%M%Sz)-$$"
+  docker volume create --driver local --opt size=64m "$probe" >/dev/null \
+    || die "the workspace quota probe failed (above): Docker's data-root must be on XFS mounted with prjquota; prepare the disk first (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/prepare-xfs/)"
+  docker volume rm "$probe" >/dev/null || log "could not remove the quota probe volume $probe; remove it with docker volume rm $probe"
+}
+
+# The loaded manifest against this host.
 preflight() {
   local head engine compose_version running_port=""
   if [ "$MODE" = bundle ]; then
@@ -551,6 +562,7 @@ preflight() {
     || die "Docker Engine $engine is too old; worker networks need $MIN_ENGINE_MAJOR or newer (gateway_mode_ipv4=isolated)"
   compose_version="$(docker compose version --short 2>/dev/null)" || die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" || die "docker compose $compose_version is too old; $MIN_COMPOSE or newer"
+  check_workspace_quota
   render
   check_mount_modes
   # Before the bucket is touched with what may be another installation's settings.
@@ -569,7 +581,7 @@ preflight() {
     # startup, and deploy and upgrade wait for that.
     log "preflight: object store is LocalStack on port $(printf '%s' "$RENDER" | jq -r '.services.localstack.ports[0].published'), in memory — a restart loses every checkpoint object (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)"
   fi
-  log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, settings $SETTINGS_DIGEST, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
+  log "preflight: passed — Docker Engine $engine, compose $compose_version, workspace quota, store $STORE, source $SOURCE_COMMIT, settings $SETTINGS_DIGEST, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
 }
 
 # --- lifecycle -------------------------------------------------------------------
