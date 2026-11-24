@@ -103,6 +103,8 @@ export const sessionsKo = {
   "session.sourceDeleted": "Slack에서 삭제됨",
   "session.chat.running": "실행 중",
   "session.chat.failed": "실패",
+  "session.chat.workspaceQuotaExceeded":
+    "작업 공간이 한도를 넘어 이 요청을 멈췄습니다. 파일을 줄인 뒤 다시 요청해 주세요.",
   "session.chat.input": "입력",
   "session.chat.result": "결과",
   "session.info.channel": "채널",
@@ -362,6 +364,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.sourceDeleted": "Deleted in Slack",
   "session.chat.running": "Running",
   "session.chat.failed": "Failed",
+  "session.chat.workspaceQuotaExceeded":
+    "The workspace passed its limit, so this request stopped. Remove some files, then ask again.",
   "session.chat.input": "Input",
   "session.chat.result": "Result",
   "session.info.channel": "Channel",
@@ -623,6 +627,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.sourceDeleted": "Slack で削除済み",
   "session.chat.running": "実行中",
   "session.chat.failed": "失敗",
+  "session.chat.workspaceQuotaExceeded":
+    "作業スペースが上限を超えたため、この依頼を止めました。ファイルを減らしてから、もう一度依頼してください。",
   "session.chat.input": "入力",
   "session.chat.result": "結果",
   "session.info.channel": "チャネル",
