@@ -766,6 +766,27 @@ describe("a session whose worker waits for room", () => {
     expect(status()).not.toContain("status:queued");
   });
 
+  test("화면을 연 뒤에 시작한 기다림도 30초 뒤에 자리를 기다린다고 읽는다", () => {
+    jest.useFakeTimers({ now: new Date(at) });
+    const props = {
+      renderLink: (link: object) => <a href="/sessions/abc" {...link} />,
+      messages: { ...ROW_MESSAGES, capacityWait: "room" },
+    };
+    const row = render(
+      <SessionRow session={{ ...waiting, wait_reason: null }} {...props} />,
+    );
+    const status = () =>
+      row.container.querySelector('[data-axis="session"]')?.textContent;
+    act(() => jest.advanceTimersByTime(10 * 60_000));
+    const since = new Date(Date.parse(at) + 10 * 60_000).toISOString();
+    row.rerender(
+      <SessionRow session={{ ...waiting, waiting_since: since }} {...props} />,
+    );
+    expect(status()).toContain("status:queued");
+    act(() => jest.advanceTimersByTime(30_000));
+    expect(status()).toContain("room");
+  });
+
   test("개요 행은 기다림이 없으면 상태 그대로, 30초를 넘긴 기다림은 자리를 기다린다고 읽는다", () => {
     jest.useFakeTimers({ now: new Date(Date.parse(at) + 31_000) });
     const messages = { ...OVERVIEW_MESSAGES, capacityWait: "room" };

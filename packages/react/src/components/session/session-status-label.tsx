@@ -23,14 +23,15 @@ export function useWaitingForCapacity(
     wait?.wait_reason === "waiting_for_capacity" && wait.waiting_since
       ? Date.parse(wait.waiting_since)
       : Number.NaN;
-  const [now, setNow] = useState(Date.now);
-  const remaining = since + CAPACITY_WAIT_SHOWN_MS - now;
+  const [, rerender] = useState(0);
+  const shownAt = since + CAPACITY_WAIT_SHOWN_MS;
   useEffect(() => {
+    const remaining = shownAt - Date.now();
     if (!(remaining > 0)) return;
-    const id = setTimeout(() => setNow(Date.now()), remaining);
+    const id = setTimeout(() => rerender((n) => n + 1), remaining);
     return () => clearTimeout(id);
-  }, [remaining]);
-  return remaining <= 0;
+  }, [shownAt]);
+  return shownAt <= Date.now();
 }
 
 export interface SessionStatusLabelProps {
