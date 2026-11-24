@@ -1,6 +1,8 @@
 import type {
   ChannelSummaryLineId,
+  ConversationId,
   ConversationInputId,
+  ConversationTopicId,
   ConversationTurnId,
   EngagementKind,
   ScopeKey,
@@ -31,6 +33,13 @@ export type ContextFragment = { scope: ScopeKey; sources: SourceKey[] } & (
       at: Date;
     }
   | {
+      /** An answer the agent gave earlier in the topic, by a conversation turn. */
+      kind: "conversation_turn";
+      turnId: ConversationTurnId;
+      answer: string;
+      endedAt: Date;
+    }
+  | {
       kind: "buffered_message";
       inputId: ConversationInputId;
       body: string;
@@ -50,11 +59,26 @@ export type ContextRead = {
 
 /**
  * Reads the fragments of one main conversation: its channel's summary
- * lines, the agent's engagement records and its buffered messages, a
- * message's text read again from where it points. None whose source Slack
+ * lines, the agent's engagement records and its buffered messages, and, for
+ * a topic, the answers of that topic's earlier turns; a message's text and
+ * an answer read again from where they point. None whose source Slack
  * deleted; none when the agent has no such conversation. Only the context
  * assembler reads through it (G1, checked in tests/architecture.test.ts).
  */
 export interface ContextFragmentSource {
-  read(conversation: ConversationKey): Promise<ContextRead>;
+  read(
+    conversation: ConversationKey,
+    options?: { topicId?: ConversationTopicId },
+  ): Promise<ContextRead>;
+  /** The key of the agent's conversation, null when it has none of that id. */
+  conversationOf(ref: {
+    workspaceId: string;
+    agentId: string;
+    conversationId: ConversationId;
+  }): Promise<ConversationKey | null>;
+  /** Whether Slack deleted any of these sources: check place ① for what a live session holds. */
+  anyDeleted(
+    workspaceId: string,
+    sources: readonly SourceKey[],
+  ): Promise<boolean>;
 }

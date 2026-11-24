@@ -46,10 +46,15 @@ function queued(): QueuedConversationTurn {
 }
 
 /** The service over a memory queue, on a clock the test moves. */
-function harness() {
+function harness(
+  topicSessions?: Parameters<
+    typeof createConversationRuntimeTurns
+  >[0]["topicSessions"],
+) {
   let clock = START.getTime();
   const turns = createConversationRuntimeTurns({
     queue: createMemoryConversationTurnQueue(),
+    ...(topicSessions === undefined ? {} : { topicSessions }),
     now: () => new Date(clock),
     // A waiting poll moves the clock instead of the test's time.
     sleep: async (ms) => {
@@ -228,6 +233,69 @@ describe("conversation turns over the memory queue", () => {
       outcome: "failed",
       reason: "not_taken",
     });
+  });
+
+  test("a topic's second turn waits while its first is out, and is taken once that one ends", async () => {
+    const h = harness();
+    const first = await h.enqueue();
+    const second = await h.enqueue({
+      ...queued(),
+      scope: first.scope,
+    });
+    const other = await h.enqueue();
+
+    const a = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    // The second is older than the other topic's, but its topic is busy.
+    const b = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    expect([a?.turn_id, b?.turn_id]).toEqual([first.turn_id, other.turn_id]);
+    expect(await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 })).toBe(
+      null,
+    );
+
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: first.turn_id,
+      leaseId: a?.lease_id as never,
+      result: done,
+    });
+    expect(
+      (await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }))?.turn_id,
+    ).toBe(second.turn_id);
+  });
+
+  test("a turn is handed out through the topic session check, which learns how it ended", async () => {
+    const ended: unknown[] = [];
+    const h = harness({
+      handOut: async (turn) => ({
+        ...turn,
+        fresh_input: { ...turn.fresh_input, text: "assembled" },
+        topic_session: "keep",
+      }),
+      ended: (turnId, completed) => ended.push({ turnId, completed }),
+    });
+    const turn = await h.enqueue();
+
+    const out = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    expect(out?.fresh_input.text).toBe("assembled");
+    expect(out?.topic_session).toBe("keep");
+    const failed: ConversationTurnResult = {
+      outcome: "failed",
+      reason: "engine_failed",
+    };
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: turn.turn_id,
+      leaseId: out?.lease_id as never,
+      result: failed,
+    });
+    // A repeated report is not news to it.
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: turn.turn_id,
+      leaseId: out?.lease_id as never,
+      result: failed,
+    });
+    expect(ended).toEqual([{ turnId: turn.turn_id, completed: false }]);
   });
 
   test("a turn id is queued once, and an unknown one has no end", async () => {

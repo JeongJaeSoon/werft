@@ -13,6 +13,7 @@ import type {
   ConversationTurnReport,
   QueuedConversationTurn,
 } from "../ports/conversation-turn-queue.ts";
+import type { TopicSessionChecks } from "./topic-session-checks.ts";
 
 // How long an ended turn is kept, so a repeated report is still told apart
 // from an unknown one and whoever queued the turn can read how it ended.
@@ -94,9 +95,16 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
 
     async lease({ runtimeId, now, leaseMs }) {
       sweep(now);
+      // One turn of a topic at a time: the next waits for the one out to end.
+      const busy = new Set(
+        [...entries.values()].flatMap((entry) =>
+          entry.state === "leased" ? [entry.turn.scope.topic_id] : [],
+        ),
+      );
       // A Map keeps insertion order: the first queued entry is the oldest.
       for (const [id, entry] of entries) {
         if (entry.state !== "queued") continue;
+        if (busy.has(entry.turn.scope.topic_id)) continue;
         const lease: Lease = {
           id: conversationTurnLeaseIdSchema.parse(crypto.randomUUID()),
           runtimeId,
@@ -176,6 +184,8 @@ export type ConversationRuntimeTurns = ReturnType<
  */
 export function createConversationRuntimeTurns(deps: {
   queue: ConversationTurnQueue;
+  /** Checks a turn's topic session as a runtime takes it, and learns how it ended. */
+  topicSessions?: Pick<TopicSessionChecks, "handOut" | "ended">;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   /** How often a waiting poll looks at the queue again. */
@@ -208,20 +218,31 @@ export function createConversationRuntimeTurns(deps: {
           now: lastPollAt,
           leaseMs,
         });
-        if (turn !== null) return turn;
+        if (turn !== null) {
+          return deps.topicSessions === undefined
+            ? turn
+            : deps.topicSessions.handOut(turn);
+        }
         const left = deadline - now().getTime();
         if (left <= 0 || input.stop?.aborted === true) return null;
         await sleep(Math.min(pollMs, left));
       }
     },
 
-    turnResult(input: {
+    async turnResult(input: {
       runtimeId: ConversationRuntimeId;
       turnId: ConversationTurnId;
       leaseId: ConversationTurnLeaseId;
       result: ConversationTurnResult;
     }): Promise<ConversationTurnReport> {
-      return deps.queue.report({ ...input, now: now() });
+      const recorded = await deps.queue.report({ ...input, now: now() });
+      if (recorded === "recorded") {
+        deps.topicSessions?.ended(
+          input.turnId,
+          input.result.outcome === "completed",
+        );
+      }
+      return recorded;
     },
 
     /** Whether a runtime asked for a turn within the last `withinMs`. */

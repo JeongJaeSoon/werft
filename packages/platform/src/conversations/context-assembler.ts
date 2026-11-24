@@ -1,5 +1,7 @@
 import {
+  type ConversationId,
   type ConversationInputId,
+  type ConversationTopicId,
   type ScopeKey,
   scopeKeyOf,
 } from "@werft-ai/contracts";
@@ -56,9 +58,13 @@ export async function assembleContext(
 async function readContext(
   source: ContextFragmentSource,
   conversation: ConversationKey,
+  topicId?: ConversationTopicId,
 ): Promise<ContextRead> {
   const readable = new Set<string>(readableScopes(conversation));
-  const read = await source.read(conversation);
+  const read = await source.read(
+    conversation,
+    topicId === undefined ? undefined : { topicId },
+  );
   return {
     fragments: read.fragments.filter((fragment) =>
       readable.has(fragment.scope),
@@ -95,6 +101,7 @@ const CUT_ORDER: readonly {
   // The back of the summary: its last lines.
   { kind: "channel_summary_line", from: "last" },
   { kind: "engagement", from: "oldest" },
+  { kind: "conversation_turn", from: "oldest" },
   { kind: "buffered_message", from: "oldest" },
 ];
 
@@ -102,6 +109,7 @@ const CUT_ORDER: readonly {
 const PLACE_ORDER: readonly ContextFragment["kind"][] = [
   "channel_summary_line",
   "engagement",
+  "conversation_turn",
   "buffered_message",
 ];
 
@@ -128,6 +136,8 @@ function timeOf(fragment: ContextFragment): number {
       return fragment.writtenAt.getTime();
     case "engagement":
       return fragment.at.getTime();
+    case "conversation_turn":
+      return fragment.endedAt.getTime();
     case "buffered_message":
       return fragment.receivedAt.getTime();
   }
@@ -143,6 +153,8 @@ export function fragmentText(fragment: ContextFragment): string {
       return fragment.text;
     case "engagement":
       return `${fragment.engagementKind} ${fragment.target.kind === "session" ? fragment.target.sessionId : fragment.target.turnId} ${fragment.at.toISOString()}`;
+    case "conversation_turn":
+      return fragment.answer;
     case "buffered_message":
       return fragment.body;
   }
@@ -291,11 +303,95 @@ export async function assembleCallContext(
     instructions: string;
     current: readonly CurrentPost[];
     capBytes?: number;
+    /** A topic's turn reads that topic's earlier answers too. */
+    topicId?: ConversationTopicId;
   },
 ): Promise<FittedContext & { unreadable: number }> {
-  const read = await readContext(source, conversation);
+  const read = await readContext(source, conversation, input.topicId);
   return {
     ...fitContext({ ...input, fragments: read.fragments }),
     unreadable: read.unreadable,
   };
 }
+
+/** How each kind is named before its text, within PIECE_OVERHEAD_BYTES. */
+const PIECE_LABEL: Record<ContextFragment["kind"], string> = {
+  channel_summary_line: "channel summary",
+  engagement: "took part",
+  conversation_turn: "your earlier answer",
+  buffered_message: "message",
+};
+
+/**
+ * The text the model reads for a fitted context: its instructions, its
+ * pieces in their order, then the current posts. Each piece is framed in at
+ * most PIECE_OVERHEAD_BYTES, so the text is never past the cap it was fitted to.
+ */
+export function renderContext(
+  fitted: Extract<FittedContext, { outcome: "fitted" }>,
+): string {
+  const lines: string[] = [];
+  if (fitted.instructions !== "") lines.push(fitted.instructions);
+  for (const piece of fitted.fragments) {
+    lines.push(`[${PIECE_LABEL[piece.kind]}] ${fragmentText(piece)}`);
+  }
+  for (const post of fitted.current) lines.push(`[now] ${post.body}`);
+  return lines.join("\n");
+}
+
+/** Names one topic of one agent's conversation. */
+export type TopicRef = {
+  workspaceId: string;
+  agentId: string;
+  conversationId: ConversationId;
+  topicId: ConversationTopicId;
+};
+
+export type TopicTurnContext =
+  | {
+      outcome: "assembled";
+      /** What a new session of the topic starts from. */
+      text: string;
+      /** What that text came from. */
+      sources: { keys: SourceKey[]; overflow: boolean };
+    }
+  | { outcome: "unknown_conversation" }
+  | Extract<FittedContext, { outcome: "too_large" }>;
+
+/**
+ * What a conversation turn of a topic is assembled from, through the
+ * fragment source: the context a new session of the topic starts from, and
+ * whether a live session's sources were deleted since it read them.
+ */
+export function topicTurnContexts(source: ContextFragmentSource) {
+  return {
+    async assemble(
+      topic: TopicRef,
+      input: { instructions: string; current: CurrentPost },
+    ): Promise<TopicTurnContext> {
+      const conversation = await source.conversationOf(topic);
+      if (conversation === null) return { outcome: "unknown_conversation" };
+      const fitted = await assembleCallContext(source, conversation, {
+        instructions: input.instructions,
+        current: [input.current],
+        topicId: topic.topicId,
+      });
+      if (fitted.outcome === "too_large") return fitted;
+      return {
+        outcome: "assembled",
+        text: renderContext(fitted),
+        sources: fitted.sources,
+      };
+    },
+
+    anyDeleted(
+      workspaceId: string,
+      sources: readonly SourceKey[],
+    ): Promise<boolean> {
+      return sources.length === 0
+        ? Promise.resolve(false)
+        : source.anyDeleted(workspaceId, sources);
+    },
+  };
+}
+export type TopicTurnContexts = ReturnType<typeof topicTurnContexts>;
