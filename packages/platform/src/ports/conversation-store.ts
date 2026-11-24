@@ -16,9 +16,19 @@ export type JudgmentBufferPlace = {
   channelState: ConversationChannelState;
 };
 
+/** An unbound thread's replies are judged while the agent took part in it this lately (a1/J5). */
+export const ENGAGED_THREAD_WINDOW_MS = 14 * 24 * 60 * 60_000;
+
 /** Reads `JudgmentBufferPlace` for the receive path. */
 export interface JudgmentBufferStore {
   place(key: ChannelConversationKey): Promise<JudgmentBufferPlace>;
+  /**
+   * Whether the agent's engagement records hold a message of the thread,
+   * the last within `ENGAGED_THREAD_WINDOW_MS`.
+   */
+  engagedThread(
+    key: ChannelConversationKey & { threadTs: string },
+  ): Promise<boolean>;
 }
 
 /** What names one main conversation of one agent. */

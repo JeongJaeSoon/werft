@@ -60,6 +60,21 @@ describe("readiness probe", () => {
     expect(await probe()).toEqual({ ready: true });
   }, 30_000);
 
+  test("a ready answer says how many sessions an unclosed start-time forget gave up", async () => {
+    const db = await database(true);
+    const probe = createReadinessProbe({ db, requiredEnv, environment });
+    await db.query(
+      `INSERT INTO lost_checkpoint_notices (session_ids) VALUES ('["a","b"]'), ('["c"]')`,
+    );
+    expect(await probe()).toEqual({
+      ready: true,
+      detail: { checkpoints_forgotten_on_boot: 3 },
+    });
+    // Closed by an administrator: nothing left to say.
+    await db.query("UPDATE lost_checkpoint_notices SET closed_at = now()");
+    expect(await probe()).toEqual({ ready: true });
+  }, 30_000);
+
   test("fails the database check when the query errors or hangs", async () => {
     const down: QueryRunner = {
       query: async () => {

@@ -75,6 +75,14 @@ The API does not start without `S3_BUCKET` and `AWS_REGION` (optionally `AWS_END
 
 If the database has uncollected checkpoint rows but the bucket has no object versions at all (including when only delete markers remain), the API does not start. This happens when only the database survived and the bucket was lost, or when the configuration points to another, empty bucket. Bring the bucket back or point to the original one. Do not change buckets while uncollected checkpoints remain.
 
+Only a test installation has an exception. With `CHECKPOINT_OBJECTS_LOST=forget` (`config.checkpoints.objectsLost: forget` in the chart) the API does not refuse to start in this state: it gives the lost checkpoints up and starts.
+
+- Sessions whose restore point was one of those checkpoints, closed ones aside, move to `recovery_required` and wait for a recovery decision.
+- One warning line in the API log names the number of sessions and their ids.
+- `/readyz` still answers 200, and `detail.checkpoints_forgotten_on_boot` in its body carries that number of sessions.
+
+The API accepts this setting only with `INSTALLATION_PROFILE=test` (`config.installation.profile: test` in the chart) and an `AWS_ENDPOINT_URL` whose host starts with the label `localstack` (`localstack`, `localstack.<namespace>.svc…`). Set anywhere else, the API does not start. It exists for LocalStack, which is empty after every restart, and cannot be used on a production bucket. A bucket that lost only some of its objects is not cleaned up by it either. Releases up to `v0.4.0` do not have this setting.
+
 <a id="저장량" />
 ### Storage use
 

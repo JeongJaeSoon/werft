@@ -19,8 +19,9 @@ export const JUDGMENT_BATCH_DEADLINE_MS = 120_000;
  * M1's cap per agent and channel: at most this many batch judgments in the
  * sliding window just past (Architect Q1). What counts is in
  * `countsAgainstM1Cap` of packages/db judgment-batches.ts: a batch that
- * called the model, or may have (judging, or failed). The mention paths'
- * judgments do not count (Q2).
+ * called the model, or may have (judging, or failed), and the
+ * `m1_engaged` replies' judgments that did (J5). Those of bound threads'
+ * replies do not count (Q2).
  */
 export const M1_CHANNEL_WINDOW_MS = 60 * 60_000;
 export const M1_JUDGMENTS_PER_CHANNEL_WINDOW = 12;
@@ -64,6 +65,12 @@ export type JudgmentBatchResult = {
    * A judgment that took none of its batch fails it instead.
    */
   left: readonly ConversationInputId[];
+  /**
+   * Stopped before the model by a cause that clears by itself (the channel's
+   * concurrency cap): every message goes to a later batch, and this run
+   * judges no more, so the channel is not closed again at once.
+   */
+  deferred?: true;
 };
 
 export interface JudgmentBatchStore {
@@ -141,7 +148,10 @@ export async function runJudgmentBatches(deps: {
       continue;
     }
     const left = new Set(result.left);
-    if (batch.inputs.every((input) => left.has(input.inputId))) {
+    if (
+      result.deferred !== true &&
+      batch.inputs.every((input) => left.has(input.inputId))
+    ) {
       // Taking none of it, the next close would carry the same batch at
       // once: failed, its messages expire unjudged.
       run.failed += 1;
@@ -160,6 +170,7 @@ export async function runJudgmentBatches(deps: {
       continue;
     }
     run.judged += 1;
+    if (result.deferred === true) break;
   }
   return run;
 }

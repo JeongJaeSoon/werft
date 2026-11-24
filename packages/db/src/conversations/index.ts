@@ -4,6 +4,10 @@ export {
   deleteChannelSummary,
   dropChannelSummaryLinesOf,
 } from "./channel-summaries.ts";
+export {
+  engagedJudgmentsInWindow,
+  requestReplyJudgment,
+} from "./conversation-judgments.ts";
 export { createPostgresConversationStore } from "./conversation-store.ts";
 export {
   type BeginConversationTurn,

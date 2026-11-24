@@ -81,6 +81,8 @@ export * from "./ports/conversation-turn-queue.ts";
 export * from "./conversations/conversation-turns.ts";
 export * from "./conversations/topic-session-checks.ts";
 export * from "./conversations/judgment-batches.ts";
+export * from "./conversations/m1-judge.ts";
+export * from "./conversations/m1-judgments.ts";
 export * from "./conversations/source-sets.ts";
 export * from "./ports/engagement-store.ts";
 export * from "./conversations/web-inputs.ts";
