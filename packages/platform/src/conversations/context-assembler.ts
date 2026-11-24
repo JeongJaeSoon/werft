@@ -1,4 +1,5 @@
 import {
+  CONVERSATION_TOPIC_SESSION_MAX_BYTES,
   CONVERSATION_TURN_FRESH_TEXT_MAX,
   type ConversationId,
   type ConversationInputId,
@@ -386,12 +387,18 @@ export function topicTurnContexts(source: ContextFragmentSource) {
           body: input.current.body,
         })),
       });
-      if (text.length > CONVERSATION_TURN_FRESH_TEXT_MAX) {
+      // A new session's first request carries it escaped, beside the engine's
+      // own parts: past half a session's bound it starts from the input alone.
+      const escaped = Buffer.byteLength(JSON.stringify(text));
+      if (
+        text.length > CONVERSATION_TURN_FRESH_TEXT_MAX ||
+        escaped > CONVERSATION_TOPIC_SESSION_MAX_BYTES / 2
+      ) {
         return {
           outcome: "too_large",
           reason: "current_post",
-          bytes: Buffer.byteLength(text),
-          capBytes: CONTEXT_CAP_BYTES,
+          bytes: escaped,
+          capBytes: CONVERSATION_TOPIC_SESSION_MAX_BYTES / 2,
         };
       }
       return { outcome: "assembled", text, sources: fitted.sources };

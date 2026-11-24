@@ -199,18 +199,21 @@ describe("topicTurnContexts", () => {
         current: { ...now, body: long },
       }),
     ).toMatchObject({ outcome: "assembled", text: `[now] ${long}` });
-    // Past what a turn may carry, it is the runtime's to start from the input alone.
-    expect(
-      (
-        await contexts.assemble(topic, {
-          instructions: "",
-          current: {
-            ...now,
-            body: "a".repeat(CONVERSATION_TURN_FRESH_TEXT_MAX),
-          },
-        })
-      ).outcome,
-    ).toBe("too_large");
+    // Past what a turn may carry, or what its first request may once escaped,
+    // it is the runtime's to start from the input alone.
+    for (const body of [
+      "a".repeat(CONVERSATION_TURN_FRESH_TEXT_MAX),
+      String.fromCharCode(0).repeat(9_000),
+    ]) {
+      expect(
+        (
+          await contexts.assemble(topic, {
+            instructions: "",
+            current: { ...now, body },
+          })
+        ).outcome,
+      ).toBe("too_large");
+    }
   });
 
   test("refuses a conversation that is not the agent's, and an input past the cap", async () => {
