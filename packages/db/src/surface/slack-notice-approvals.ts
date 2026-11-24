@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  type ConversationRollout,
+  SETTABLE_CONVERSATION_ROLLOUT_VALUES,
   SLACK_NOTICE_VERSIONS,
   type SlackNoticeApprovalId,
   type SlackNoticeLocale,
@@ -9,6 +11,7 @@ import {
   WORKSPACE_MANAGER_ROLES,
 } from "@werft-ai/contracts";
 import { and, asc, between, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { dropUnlistenedBuffer } from "../conversations/index.ts";
 import { DB_NOW } from "../db-clock.ts";
 import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
@@ -316,6 +319,11 @@ export async function revokeSlackNotice(
       .map((row) => row.id as SlackNoticeApprovalId)
       .sort();
     if (approvalIds.length === 0) return { outcome: "unchanged", approvalIds };
+    await lowerRollout(tx, {
+      ...input,
+      by: { userId: input.by },
+      reason: "notice_revoked",
+    });
     await tx.insert(receipts).values({
       id: randomUUID(),
       ownerId: input.workspaceId,
@@ -443,4 +451,262 @@ export async function managesWorkspace(
     )
     .limit(1);
   return WORKSPACE_MANAGER_ROLES.some((role) => role === row?.role);
+}
+
+type RolloutBy = "operator_cli" | "reconciler" | { userId: string };
+
+/**
+ * Why a switch went to `off` without being asked to: its approval was
+ * revoked, or a pass found it no longer approved (the reasons of
+ * `SlackNoticeJudgment`).
+ */
+type LoweredReason =
+  | "notice_revoked"
+  | Extract<SlackNoticeJudgment, { approved: false }>["reason"];
+
+/**
+ * Sets the agent's switch and writes its receipt; going to `off` removes
+ * every message the agent holds in its judgment buffer, in this transaction.
+ * The caller holds the agent's row lock.
+ */
+async function writeRollout(
+  tx: Database,
+  input: Place & {
+    before: ConversationRollout;
+    after: ConversationRollout;
+    by: RolloutBy;
+    reason: LoweredReason | null;
+    requestId?: string;
+  },
+): Promise<number> {
+  await tx
+    .update(agents)
+    .set({ conversationRollout: input.after })
+    .where(eq(agents.id, input.agentId));
+  const dropped =
+    input.after === "off"
+      ? await dropUnlistenedBuffer(tx, { agentId: input.agentId })
+      : 0;
+  const person = typeof input.by === "string" ? null : input.by.userId;
+  await tx.insert(receipts).values({
+    id: randomUUID(),
+    ownerId: input.workspaceId,
+    operation: "set_conversation_rollout",
+    targetRef: {
+      resource: { kind: "agent", id: input.agentId },
+      workspace_id: input.workspaceId,
+    },
+    status: "succeeded",
+    result: {
+      agent_id: input.agentId,
+      before: input.before,
+      after: input.after,
+      by: person === null ? input.by : "web",
+      reason: input.reason,
+      buffered_dropped: dropped,
+    },
+    ...(person === null ? {} : { actor: actorOf(person) }),
+    requestId: input.requestId ?? null,
+  });
+  return dropped;
+}
+
+/** Lowers a raised switch to `off`; the caller holds the agent's row lock. */
+async function lowerRollout(
+  tx: Database,
+  input: Place & { by: RolloutBy; reason: LoweredReason },
+): Promise<boolean> {
+  const before = await rolloutOf(tx, input);
+  if (before === null || before === "off") return false;
+  await writeRollout(tx, { ...input, before, after: "off" });
+  return true;
+}
+
+export type ConversationRolloutChange =
+  | {
+      /** `unchanged`: the switch already held the value; nothing is written. */
+      outcome: "changed" | "unchanged";
+      before: ConversationRollout;
+      after: ConversationRollout;
+      /** Buffered messages a change to `off` removed. */
+      bufferedDropped: number;
+    }
+  /** `on_unavailable`: `on` is not open yet. */
+  | { outcome: "not_found" | "not_admin" | "on_unavailable" }
+  | {
+      /** The switch leaves `off` only for an agent approved now. */
+      outcome: "not_approved";
+      reason: Extract<SlackNoticeJudgment, { approved: false }>["reason"];
+    };
+
+/**
+ * Changes the agent's conversation switch, by a workspace owner or admin
+ * (`by.userId`, checked under its lock) or the operator CLI. Raising it
+ * needs the agent approved under the published notice, judged under the
+ * agent's lock that a revoke takes too. A change writes one
+ * `set_conversation_rollout` receipt in its transaction; `off` also empties
+ * the agent's judgment buffer.
+ */
+export async function setConversationRollout(
+  db: Database,
+  input: Place & {
+    rollout: ConversationRollout;
+    by: "operator_cli" | { userId: string };
+    requestId?: string;
+  },
+  versions: readonly SlackNoticeVersionEntry[] = SLACK_NOTICE_VERSIONS,
+): Promise<ConversationRolloutChange> {
+  return db.transaction(async (tx) => {
+    if (typeof input.by === "string") {
+      if ((await rolloutOf(tx, input, "update")) === null) {
+        return { outcome: "not_found" };
+      }
+    } else {
+      const refused = await lockAdminAndAgent(tx, input, input.by.userId);
+      if (refused !== null) return { outcome: refused };
+    }
+    if (
+      !SETTABLE_CONVERSATION_ROLLOUT_VALUES.some((v) => v === input.rollout)
+    ) {
+      return { outcome: "on_unavailable" };
+    }
+    const before = await rolloutOf(tx, input);
+    if (before === null) return { outcome: "not_found" };
+    if (input.rollout !== "off") {
+      const judgment = await judgeSlackNotice(tx, input, versions);
+      if (!judgment.approved) {
+        return { outcome: "not_approved", reason: judgment.reason };
+      }
+    }
+    if (before === input.rollout) {
+      return {
+        outcome: "unchanged",
+        before,
+        after: before,
+        bufferedDropped: 0,
+      };
+    }
+    const bufferedDropped = await writeRollout(tx, {
+      ...input,
+      before,
+      after: input.rollout,
+      reason: null,
+    });
+    return {
+      outcome: "changed",
+      before,
+      after: input.rollout,
+      bufferedDropped,
+    };
+  });
+}
+
+/** The live agent's switch, or null for none; `lock` locks its row so. */
+export async function rolloutOf(
+  db: Database,
+  place: Place,
+  lock?: "update" | "share",
+): Promise<ConversationRollout | null> {
+  const query = db
+    .select({ rollout: agents.conversationRollout })
+    .from(agents)
+    .where(
+      and(
+        eq(agents.workspaceId, place.workspaceId),
+        eq(agents.id, place.agentId),
+        notDeleted(agents),
+      ),
+    );
+  const [agent] = await (lock === undefined ? query : query.for(lock));
+  return agent?.rollout ?? null;
+}
+
+export type ConversationGate =
+  | {
+      open: true;
+      rollout: Exclude<ConversationRollout, "off">;
+      approvals: SlackNoticeTeamApproval[];
+    }
+  | {
+      open: false;
+      reason:
+        | "agent_not_found"
+        | "rollout_off"
+        | Extract<SlackNoticeJudgment, { approved: false }>["reason"];
+    };
+
+/**
+ * Whether the agent may take a conversation step now: its switch is raised
+ * and it is approved under the published notice. Asked right before a model
+ * call and right before its result is written. With `lock`, called in the
+ * transaction that writes, it holds the agent's row shared until commit, so
+ * a revoke, a lowering or a change of the switch waits for that write or is
+ * seen by it.
+ */
+export async function conversationGate(
+  db: Database,
+  place: Place,
+  options: {
+    lock?: boolean;
+    versions?: readonly SlackNoticeVersionEntry[];
+  } = {},
+): Promise<ConversationGate> {
+  const rollout = await rolloutOf(
+    db,
+    place,
+    options.lock ? "share" : undefined,
+  );
+  if (rollout === null) return { open: false, reason: "agent_not_found" };
+  if (rollout === "off") return { open: false, reason: "rollout_off" };
+  const judgment = await judgeSlackNotice(
+    db,
+    place,
+    options.versions ?? SLACK_NOTICE_VERSIONS,
+  );
+  if (!judgment.approved) return { open: false, reason: judgment.reason };
+  return { open: true, rollout, approvals: judgment.approvals };
+}
+
+/**
+ * Lowers to `off` the switch of every agent no longer approved under the
+ * published notice (a version that asks for a new approval was published,
+ * or its app left the Slack team), each in its own transaction with its
+ * receipt and its buffer emptied; up to `limit`. A dry run counts them. The
+ * reconciler runs it every pass; the gate already answers no before it does.
+ */
+export async function lowerUnapprovedRollouts(
+  db: Database,
+  options: {
+    dryRun: boolean;
+    limit: number;
+    versions?: readonly SlackNoticeVersionEntry[];
+  },
+): Promise<string[]> {
+  const versions = options.versions ?? SLACK_NOTICE_VERSIONS;
+  const raised = await db
+    .select({ agentId: agents.id, workspaceId: agents.workspaceId })
+    .from(agents)
+    .where(and(ne(agents.conversationRollout, "off"), notDeleted(agents)))
+    .orderBy(asc(agents.id));
+  const lowered: string[] = [];
+  for (const place of raised) {
+    if (lowered.length >= options.limit) break;
+    if ((await judgeSlackNotice(db, place, versions)).approved) continue;
+    if (options.dryRun) {
+      lowered.push(place.agentId);
+      continue;
+    }
+    const done = await db.transaction(async (tx) => {
+      if ((await rolloutOf(tx, place, "update")) === null) return false;
+      const judgment = await judgeSlackNotice(tx, place, versions);
+      if (judgment.approved) return false;
+      return lowerRollout(tx, {
+        ...place,
+        by: "reconciler",
+        reason: judgment.reason,
+      });
+    });
+    if (done) lowered.push(place.agentId);
+  }
+  return lowered;
 }

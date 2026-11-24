@@ -263,6 +263,10 @@ export const RECEIPT_OPERATION_VALUES = [
   // approval rows, never the notice's text.
   "approve_slack_notice",
   "revoke_slack_notice",
+  // An agent's conversation switch changed: by a workspace owner or admin in
+  // the console, the operator CLI, or lowered to `off` when its notice
+  // approval was revoked or stopped counting.
+  "set_conversation_rollout",
 ] as const;
 /**
  * Receipts that settle on the observed absence of the execution they asked

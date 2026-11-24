@@ -195,6 +195,13 @@ export const slackEn = {
   "slack.notice.adminOnly": "Only a workspace owner or admin can approve.",
   "slack.notice.approvedNotice": "Notice approved.",
   "slack.notice.revokedNotice": "Notice approval revoked.",
+  "slack.rollout": "Quiet listening (shadow)",
+  "slack.rolloutHint":
+    "When on, this agent collects the messages of channels set to listen to all messages, judges whether to join in, and only records that judgment. It posts nothing to Slack because of it. Turning it off deletes the collected messages and stops new judgments; the judgment records and channel summaries stay.",
+  "slack.rollout.locked": "Approve the notice to turn this on.",
+  "slack.rollout.adminOnly": "Only a workspace owner or admin can change this.",
+  "slack.rollout.savedOn": "Quiet listening turned on.",
+  "slack.rollout.savedOff": "Quiet listening turned off.",
   "slack.notice.stale":
     "The notice changed in the meantime. Read the new one and approve again.",
   "slack.channelColumn": "Channel",
