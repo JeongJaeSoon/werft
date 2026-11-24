@@ -8,9 +8,10 @@ import { registerConversationRuntimeRoutes } from "./conversation-runtime.ts";
 import { registerWorkerRoutes } from "./worker.ts";
 
 /**
- * Everything the API mounts under /internal. It shares the public listener,
- * so each family must refuse a call without its own bearer; the test beside
- * this walks every route registered here to hold that.
+ * Everything the API mounts under /internal, on the internal listener alone
+ * (createInternalApiApp). That port is not public, but every peer inside
+ * reaches it, so each family still refuses a call without its own bearer;
+ * the test beside this walks every route registered here to hold that.
  */
 export function registerInternalApiRoutes(
   router: ApiRouter,

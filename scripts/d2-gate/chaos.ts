@@ -1,7 +1,7 @@
 /**
  * The D2 gate's fault injector: a pass-through HTTP proxy that
  * sits between workers and the two things they write to — the Worker
- * Gateway (`:3000` → api:3000) and the object store (`:4566` →
+ * Gateway (`:3000` → api:3200) and the object store (`:4566` →
  * localstack:4566). The scheduler hands workers the gateway address, and
  * the API signs the workers' object store requests for this address, which
  * the egress proxy's object store route then sends here; the
@@ -71,7 +71,7 @@ type Entry = {
 const UPSTREAMS: Record<Upstream, { listen: number; target: string }> = {
   gateway: {
     listen: 3000,
-    target: process.env.CHAOS_GATEWAY_TARGET ?? "http://api:3000",
+    target: process.env.CHAOS_GATEWAY_TARGET ?? "http://api:3200",
   },
   s3: {
     listen: 4566,

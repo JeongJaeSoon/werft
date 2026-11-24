@@ -513,9 +513,10 @@ ingress:
 networkPolicy:
   enabled: true
   api:
-    # Peers allowed to reach the public port 3000 besides the egress proxy
-    # (NetworkPolicy `from` entries). Empty allows any source: the Ingress
-    # controller or load balancer reaches pods from outside the namespace.
+    # Peers allowed to reach the public port 3000 (NetworkPolicy `from`
+    # entries). Empty allows any source: the Ingress controller or load
+    # balancer reaches pods from outside the namespace. Workers need none of
+    # it: /internal is on 3200, which admits the egress proxy alone.
     ingressFrom: []
   worker:
     # Workers reach the gateway through the egress proxy, whose NO_PROXY

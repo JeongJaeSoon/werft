@@ -276,6 +276,7 @@ proxy_svc="$(k get svc -l app.kubernetes.io/component=egress-proxy -o name | hea
 proxy="$(cluster_ip "$NAMESPACE" "${proxy_svc#service/}")"
 api="$(cluster_ip "$NAMESPACE" "${fullname}-api")"
 authorizer="$(cluster_ip "$NAMESPACE" "${fullname}-api-authorizer")"
+internal="$(cluster_ip "$NAMESPACE" "${fullname}-api-internal")"
 postgres="$(cluster_ip "$NAMESPACE" postgres)"
 localstack="$(cluster_ip "$NAMESPACE" localstack)"
 dns="$(cluster_ip kube-system kube-dns)"
@@ -311,6 +312,8 @@ done
 # Only the egress proxy may reach these, so the unlabelled Pod is blocked too.
 check k8s-smoke-worker "authorizer ${authorizer}:3100" blocked $(tcp "$authorizer" 3100)
 check k8s-smoke-control "authorizer ${authorizer}:3100" blocked $(tcp "$authorizer" 3100)
+check k8s-smoke-worker "internal ${internal}:3200" blocked $(tcp "$internal" 3200)
+check k8s-smoke-control "internal ${internal}:3200" blocked $(tcp "$internal" 3200)
 # Nothing answers there on kind; on a cloud node the policy is what stops it.
 check k8s-smoke-worker "metadata 169.254.169.254:80" blocked $(tcp 169.254.169.254 80)
 k delete pod k8s-smoke-worker k8s-smoke-control --wait=false >/dev/null

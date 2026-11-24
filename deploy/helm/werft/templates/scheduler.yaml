@@ -61,7 +61,7 @@ spec:
             {{- with include "ap.workerImageEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             - name: WORKER_GATEWAY_URL
-              value: {{ printf "http://%s:3000" (include "ap.apiHost" .) | quote }}
+              value: {{ include "ap.workerGatewayUrl" . | quote }}
             - name: EXECUTION_EGRESS_PROXY_URL
               value: {{ printf "http://%s:3128" (include "ap.proxyHost" .) | quote }}
             - name: EXECUTION_EGRESS_CREDENTIAL_PORT

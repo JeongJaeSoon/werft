@@ -168,7 +168,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-With `--address 127.0.0.1` it listens on this host's loopback only. The worker `/internal` is open on this port too, so do not change the address or open the port in the firewall. If another program uses port 3000 on the host, change the first `3000` and the proxy's upstream together.
+With `--address 127.0.0.1` it listens on this host's loopback only. The console is opened only through the TLS reverse proxy in front, so do not change the address or open the port in the firewall. Workers' `/internal` is not on this Service but on port 3200 of `werft-api-internal`, which this port-forward does not reach (images up to v0.4.0 also serve it on 3000). If another program uses port 3000 on the host, change the first `3000` and the proxy's upstream together.
 
 Keep `Restart=always`. The port-forward attaches to one api Pod. When an upgrade or a restart removes that Pod, it logs `error: lost connection to pod` and exits with status 0, so `Restart=on-failure` does not start it again. Console requests fail until it reconnects. That takes at least the 5 seconds of `RestartSec`, and longer while a new api Pod becomes ready. An enabled unit also starts again after the host reboots.
 

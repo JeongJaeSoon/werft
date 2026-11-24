@@ -160,7 +160,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-`--address 127.0.0.1`이므로 이 호스트의 loopback에서만 받는다. 이 포트에는 worker용 `/internal`도 그대로 열리므로 다른 주소로 바꾸거나 방화벽에서 열지 않는다. 호스트의 3000번을 다른 프로그램이 쓰면 앞의 `3000`과 proxy의 upstream을 함께 바꾼다.
+`--address 127.0.0.1`이므로 이 호스트의 loopback에서만 받는다. 콘솔은 앞의 TLS reverse proxy로만 열므로 다른 주소로 바꾸거나 방화벽에서 열지 않는다. worker용 `/internal`은 이 Service가 아니라 `werft-api-internal`의 3200번에 있어 이 port-forward로는 닿지 않는다(v0.4.0까지의 이미지는 3000번에도 있다). 호스트의 3000번을 다른 프로그램이 쓰면 앞의 `3000`과 proxy의 upstream을 함께 바꾼다.
 
 `Restart=always`는 빼지 않는다. port-forward는 api Pod 하나에 붙는다. 업그레이드나 재시작으로 그 Pod가 사라지면 `error: lost connection to pod`를 남기고 종료 코드 0으로 끝나므로, `Restart=on-failure`로는 다시 뜨지 않는다. 다시 붙기까지 콘솔 요청은 실패한다. 적어도 `RestartSec`의 5초가 걸리고, 새 api Pod가 준비되는 동안 더 길어질 수 있다. `enable`한 unit은 호스트를 다시 켠 뒤에도 뜬다.
 

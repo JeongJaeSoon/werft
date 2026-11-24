@@ -29,13 +29,17 @@ x-logging: &logging
 x-installation-limits: &installation-limits
   EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
 
-# Keep the three listeners and the two internal URLs together. Service
+# Keep the four listeners and the three internal URLs together. Service
 # definitions below only consume these anchors, and tests/images.test.ts
 # verifies that the URL ports still match their listeners.
 x-egress-ports:
   forward: &egress-forward-port "3128"
   credential: &egress-credential-port "3129"
   authorizer: &egress-authorizer-port "3100"
+  # The API's /internal listener, what workers and the conversation runtime
+  # call. Never published: the API's public port has no /internal route.
+  internal-api: &internal-api-port "3200"
+  worker-gateway-url: &worker-gateway-url ${WORKER_GATEWAY_URL:-http://api:3200}
   worker-proxy-url: &worker-proxy-url ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
   proxy-authorizer-url: &proxy-authorizer-url ${EGRESS_AUTHORIZER_URL:-http://api:3100}
 
@@ -160,10 +164,10 @@ services:
       # Nothing public: a worker's one public destination is its provider,
       # which it reaches through the credential route below.
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-}
-      # The worker gateway alone. api:3000 is the compose-run API (`apps`
-      # profile); host.docker.internal stays for an API started on the host
-      # with `bun run --cwd apps/control-host start`.
-      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000}
+      # The worker gateway alone: the API's /internal listener. api:3200 is
+      # the compose-run API (`apps` profile); host.docker.internal stays for
+      # an API started on the host with `bun run --cwd apps/control-host start`.
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3200,host.docker.internal:3200}
       EGRESS_PROXY_PORT: *egress-forward-port
       # The credential routes: workers send their provider and git
       # calls here with an attempt-scoped token, and the proxy puts the
@@ -274,11 +278,10 @@ services:
       # The proxy's lists, read only to warn when the trace collector's host
       # is on one. Same defaults as the egress-proxy service.
       EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-}
-      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000}
-      # api-key, not none: workers reach this listener through the proxy
-      # (api:3000 in EGRESS_PRIVATE_ALLOWLIST) and in `none` mode /v1 takes
-      # any X-Owner-Id as the caller's identity, so a compromised worker could
-      # act as any owner. Issue a key with
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3200,host.docker.internal:3200}
+      # api-key, not none: in `none` mode /v1 takes any X-Owner-Id as the
+      # caller's identity, so anything that reaches this port could act as
+      # any owner. Issue a key with
       # `docker compose exec api bun run apps/control-host/src/api/keys.ts create <owner>
       # --scopes sessions:read,sessions:write`.
       # /internal routes carry their own worker authentication either way.
@@ -297,6 +300,7 @@ services:
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
+      INTERNAL_API_PORT: *internal-api-port
       PLATFORM_SECRET_KEY:
       # The console's public origin, the one source of the addresses people
       # and Slack come back to: the GitHub link callback, Sign in with Slack's
@@ -411,7 +415,7 @@ services:
       # Empty, the runtime refuses to start.
       CONVERSATION_RUNTIME_TOKEN: ${CONVERSATION_RUNTIME_TOKEN:-}
       CONVERSATION_TOPICS_DIR: /conversation
-      WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
+      WORKER_GATEWAY_URL: *worker-gateway-url
       WORKER_EGRESS_CREDENTIAL_URL: http://egress-proxy:3129
       HTTP_PROXY: *worker-proxy-url
       HTTPS_PROXY: *worker-proxy-url
@@ -500,7 +504,7 @@ services:
       DOCKER_HOST: unix:///var/run/docker.sock
       # Workers reach the API only through the proxy; `api` resolves on the
       # default network the proxy also sits on (EGRESS_PRIVATE_ALLOWLIST).
-      WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
+      WORKER_GATEWAY_URL: *worker-gateway-url
       WORKER_IMAGE: ${WORKER_IMAGE:-werft-worker:dev}
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS: ${WORKER_IMAGE_PREVIOUS:-}
