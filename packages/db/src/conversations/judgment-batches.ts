@@ -51,7 +51,6 @@ type Channel = {
 type HeldRow = {
   id: string;
   topic_id: string;
-  conversation_id: string;
   slack_ts: string;
   requester_id: string;
   body: string;
@@ -102,18 +101,32 @@ async function closeChannel(
   if (judging !== undefined) return null;
   // The switch, the agent, the binding and the channel's state, as the
   // buffer holds and keeps a message; and a release to judge with.
+  // What the batch's keys point at, key-share locked before any message row,
+  // so the insert's key checks wait on nothing: one that a delete or an
+  // archive holds is skipped this time, like a held row.
   const [agent] = rowsOf<{ release_id: string | null }>(
     await tx.execute(sql`
       SELECT active_release_id AS release_id FROM agents
-      WHERE id = ${channel.agent_id}::uuid`),
+      WHERE id = ${channel.agent_id}::uuid
+      FOR KEY SHARE SKIP LOCKED`),
   );
   if (!agent?.release_id) return null;
+  const [keys] = rowsOf<{ conversation_id: string }>(
+    await tx.execute(sql`
+      SELECT c.id AS conversation_id
+      FROM conversations c, agent_releases r
+      WHERE c.agent_id = ${channel.agent_id}::uuid AND c.kind = 'channel'
+        AND c.team_id = ${channel.slack_team_id}
+        AND c.channel_id = ${channel.slack_channel_id}
+        AND r.agent_id = ${channel.agent_id}::uuid AND r.id = ${agent.release_id}
+      FOR KEY SHARE SKIP LOCKED`),
+  );
+  if (keys === undefined) return null;
   const rows = rowsOf<HeldRow>(
     await tx.execute(sql`
-      SELECT i.id, i.topic_id, t.conversation_id, i.slack_ts, i.requester_id,
+      SELECT i.id, i.topic_id, i.slack_ts, i.requester_id,
         i.body, i.received_at, i.judgment_batch_id IS NOT NULL AS rate_limited
       FROM conversation_inputs i
-      JOIN conversation_topics t ON t.id = i.topic_id
       LEFT JOIN judgment_batches b ON b.id = i.judgment_batch_id
       WHERE i.agent_id = ${channel.agent_id}::uuid
         AND i.slack_team_id = ${channel.slack_team_id}
@@ -148,8 +161,7 @@ async function closeChannel(
     : freshDue
       ? fresh
       : [];
-  const first = taken[0];
-  if (first === undefined) return null;
+  if (taken.length === 0) return null;
   const state = room ? "judging" : "rate_limited";
   const id = judgmentBatchIdSchema.parse(randomUUID());
   await tx.execute(sql`
@@ -158,7 +170,7 @@ async function closeChannel(
       slack_channel_id, release_id, state, closed_at, ended_at
     ) VALUES (
       ${id}::uuid, ${channel.workspace_id}::uuid, ${channel.agent_id}::uuid,
-      ${first.conversation_id}::uuid, ${channel.slack_team_id},
+      ${keys.conversation_id}::uuid, ${channel.slack_team_id},
       ${channel.slack_channel_id}, ${agent.release_id}, ${state}, ${at},
       ${state === "judging" ? null : at}
     )`);
@@ -195,7 +207,7 @@ async function closeChannel(
       id,
       workspaceId: channel.workspace_id,
       agentId: channel.agent_id,
-      conversationId: first.conversation_id as ConversationId,
+      conversationId: keys.conversation_id as ConversationId,
       teamId: channel.slack_team_id,
       channelId: channel.slack_channel_id,
       releaseId: agent.release_id,
@@ -276,19 +288,13 @@ export function createPostgresJudgmentBatchStore(
         );
         if (ended.length === 0) return "late";
         if (result.left.length > 0) {
-          const left = sql.join(
-            result.left.map((input) => sql`${input}::uuid`),
-            sql`, `,
-          );
-          // Only when the judgment took one of them: a batch left out whole
-          // would close again at once, as often as the pass allows.
           await tx.execute(sql`
             UPDATE conversation_inputs SET judgment_batch_id = NULL
-            WHERE judgment_batch_id = ${id}::uuid AND id IN (${left})
-              AND EXISTS (
-                SELECT 1 FROM conversation_inputs o
-                WHERE o.judgment_batch_id = ${id}::uuid
-                  AND o.id NOT IN (${left}))`);
+            WHERE judgment_batch_id = ${id}::uuid
+              AND id IN (${sql.join(
+                result.left.map((input) => sql`${input}::uuid`),
+                sql`, `,
+              )})`);
         }
         return "finished";
       });

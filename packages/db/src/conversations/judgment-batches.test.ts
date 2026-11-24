@@ -15,6 +15,10 @@ import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+} from "../testing/spec-pins.ts";
 import { createPostgresConversationStore } from "./conversation-store.ts";
 import { createPostgresJudgmentBatchStore } from "./judgment-batches.ts";
 import {
@@ -54,6 +58,13 @@ beforeEach(async () => {
       conversation_rollout, active_release_id, activation_revision)
      VALUES ($1, $2, $3, 'batcher', 'batcher', 'active', 'shadow', $4, 1)`,
     [AGENT, WORKSPACE, randomUUID(), RELEASE],
+  );
+  await client.query(
+    `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
+       repository_id, runtime_config_snapshot, effective_tools, policy_pins,
+       ${RELEASE_SPEC_SQL_COLUMNS})
+     VALUES ($1, $2, $3, $4, 'sample-app', '{}', '{}', '{}', ${releaseSpecSqlValues()})`,
+    [RELEASE, AGENT, randomUUID(), "a".repeat(64)],
   );
   await client.query(
     `INSERT INTO surface_bindings (id, workspace_id, agent_id, surface,
@@ -450,9 +461,36 @@ describe("judgment batches", () => {
     expect(await heldTs()).toEqual([old, kept]);
   });
 
+  test("a message left out is released even when the one judged was deleted meanwhile", async () => {
+    const store = createPostgresJudgmentBatchStore(db);
+    const old = await post(0);
+    const judged = await post(1 * SEC);
+    const closed = await store.closeNext({ now: at(16 * SEC) });
+    if (!closed) throw new Error("no batch");
+    await db.transaction((tx) =>
+      dropBufferedMessage(tx, {
+        workspaceId: WORKSPACE,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: judged,
+      }),
+    );
+    const oldInput = closed.batch.inputs.find((input) => input.ts === old);
+    if (!oldInput) throw new Error("no old input");
+    expect(
+      await store.finish(
+        closed.batch.id,
+        { modelCalled: true, left: [oldInput.inputId] },
+        { now: at(17 * SEC) },
+      ),
+    ).toBe("finished");
+    const next = await store.closeNext({ now: at(17 * SEC) });
+    expect(tsOf(next?.batch)).toEqual([old]);
+  });
+
   test("a batch the judgment left out whole is not closed again; it expires unjudged", async () => {
     const judge = fakeJudge((batch) => ({
-      modelCalled: false,
+      modelCalled: true,
       left: batch.inputs.map((input) => input.inputId),
     }));
     const warned: string[] = [];
@@ -463,8 +501,10 @@ describe("judgment batches", () => {
           warned.push(message);
         },
       }),
-    ).toEqual({ judged: 1, rateLimited: 0, failed: 0 });
+    ).toEqual({ judged: 0, rateLimited: 0, failed: 1 });
     expect(warned).toEqual(["Judgment batch left out whole"]);
+    const states = await client.query("SELECT state FROM judgment_batches");
+    expect(states.rows).toEqual([{ state: "failed" }]);
     expect((await pass(judge.judge, 2 * MIN)).judged).toBe(0);
     expect(await heldTs()).toEqual([ts]);
     expect(

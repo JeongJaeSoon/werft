@@ -193,6 +193,36 @@ integration("judgment batches across workers", () => {
     }
   });
 
+  test("a close racing an archive's agent lock and buffer removal never deadlocks", async () => {
+    const store = createPostgresJudgmentBatchStore(db);
+    for (let round = 0; round < 10; round++) {
+      const place = await heardChannel();
+      for (let n = 0; n < 30; n++) {
+        await quietPost(place, `500.${String(n).padStart(6, "0")}`);
+      }
+      // As agents.ts archives: the agent row first, then its buffer.
+      const archive = db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT 1 FROM agents WHERE id = ${agentId}::uuid FOR UPDATE`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await tx.execute(
+          sql`UPDATE surface_bindings SET listen = 'mention' WHERE agent_id = ${agentId}::uuid AND external_surface_id = ${place.channelId}`,
+        );
+        return dropUnlistenedBuffer(tx, {
+          agentId,
+          channelId: place.channelId,
+        });
+      });
+      const [, dropped] = await Promise.all([store.closeNext(), archive]);
+      expect(dropped).toBe(30);
+      await pool.query(
+        "UPDATE judgment_batches SET state = 'failed', ended_at = now() WHERE slack_channel_id = $1 AND state = 'judging'",
+        [place.channelId],
+      );
+    }
+  });
+
   test("closes racing on one channel make one judging batch", async () => {
     const place = await heardChannel();
     await quietPost(place, "300.000100");
