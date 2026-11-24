@@ -129,7 +129,7 @@ helm get manifest werft -n werft | grep -c codex-seccomp
 
 - **`CODEX_SANDBOX_NOT_INSTALLED`。** chart の `codexSandbox.provider` がまだ `disabled` です。手順 5 の値が values に入っているか確認します。
 - **Codex worker Pod が `Pending`。** ラベルの付いたノードがないか、そのノードに空きがありません。15 分後にその入力が `NO_CAPACITY` で失敗し（セッションは次の入力を受け付けます）、理由に `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed` が加わります。確認の最初のコマンドでラベルの付いたノードを見て、そのノードが `worker.nodeSelector` にも合うか確認します。
-- **メッセージに `seccomp` を含む `CreateContainerError`。** ラベルはあるのに、そのノードにファイルがありません。ファイルのパスや kubelet の root ディレクトリが違うか、ノードのディスクを作り直した場合です。scheduler はメッセージに `seccomp` を含むこのエラーだけを launch の失敗として数え、理由にノード名とプロファイルのパスを残します。その理由は chart の設置 DaemonSet を確認するようにも書きますが、`external` ではそのノードのファイルを確認します。手順 3 をやり直すか、ラベルを外します。
+- **メッセージに `seccomp` を含む `CreateContainerError`。** ラベルはあるのに、そのノードにファイルがありません。ファイルのパスや kubelet の root ディレクトリが違うか、ノードのディスクを作り直した場合です。scheduler はメッセージに `seccomp` を含むこのエラーだけを launch の失敗として数え、理由にノード名とプロファイルのパスを残します。`installer` では、その理由は chart の設置 DaemonSet を確認するよう書きます。`external` にはその DaemonSet がないので、そのノードのファイルとラベルを確認するよう書き、このページを案内します。手順 3 をやり直すか、ラベルを外します。
 - **`auto` セッションが `recovery_required` で、理由に `bwrap:` のエラー。** まず手順 3 の `cmp` で、ノードのファイルがこの chart のファイルと同じか確認します。同じなら、ノードの条件が妨げています。準備のノードの条件を確認します。
 
 <a id="되돌리기" />

@@ -118,7 +118,7 @@ helm get manifest werft -n werft | grep -c codex-seccomp
 
 - **`CODEX_SANDBOX_NOT_INSTALLED`.** chart의 `codexSandbox.provider`가 아직 `disabled`다. 5단계의 값이 values에 들어갔는지 본다.
 - **Codex worker Pod가 `Pending`.** 라벨이 붙은 노드가 없거나, 그 노드에 자리가 없다. 15분 뒤 그 입력이 `NO_CAPACITY`로 실패하고(세션은 다음 입력을 받는다), 이유에 `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed`가 더해진다. 확인의 첫 명령으로 라벨 노드를 보고, 그 노드가 `worker.nodeSelector`에도 맞는지 본다.
-- **메시지에 `seccomp`가 든 `CreateContainerError`.** 라벨은 있는데 그 노드에 파일이 없다. 파일 경로나 kubelet root 디렉터리가 다르거나, 노드 디스크를 새로 만든 경우다. scheduler는 메시지에 `seccomp`가 든 이 오류만 launch 실패로 세고, 이유에 노드 이름과 프로필 경로를 남긴다. 그 이유는 chart의 설치 DaemonSet을 확인하라고도 적는데, `external`에서는 그 노드의 파일을 본다. 3단계를 다시 하거나 라벨을 뗀다.
+- **메시지에 `seccomp`가 든 `CreateContainerError`.** 라벨은 있는데 그 노드에 파일이 없다. 파일 경로나 kubelet root 디렉터리가 다르거나, 노드 디스크를 새로 만든 경우다. scheduler는 메시지에 `seccomp`가 든 이 오류만 launch 실패로 세고, 이유에 노드 이름과 프로필 경로를 남긴다. `installer`에서는 그 이유가 chart의 설치 DaemonSet을 확인하라고 적고, `external`에서는 그 노드의 파일과 라벨을 확인하고 이 페이지를 보라고 적는다. 3단계를 다시 하거나 라벨을 뗀다.
 - **`auto` 세션이 `recovery_required`이고 이유에 `bwrap:` 오류.** 먼저 3단계의 `cmp`로 노드의 파일이 이 chart의 파일과 같은지 본다. 같으면 노드 조건이 막는 것이다. 준비물의 노드 조건을 본다.
 
 ## 되돌리기
