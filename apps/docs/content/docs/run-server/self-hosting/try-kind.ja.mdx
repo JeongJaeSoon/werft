@@ -43,7 +43,7 @@ export KUBECONFIG="$HOME/.kube/werft-try"
 kubectl config current-context
 ```
 
-最後のコマンドが `kind-werft-try` を出力することを確認します。続けて同じシェルで [chart 試験用の DB と object store](/run-server/self-hosting/try-chart-dependencies)の手順 1〜4 に従います。そのページが依存サービスの manifest、Secret、最小の values を本文で示し、手順 4 で公開 chart を設置します。LocalStack の初期化スクリプトはその manifest の ConfigMap `localstack-init` に入っており、リリースバンドル（`werft-test-ops-<tag>.tar.gz`）の `infra/localstack/init/10-create-resources.sh` と同じ bucket を作ります。
+最後のコマンドが `kind-werft-try` を出力することを確認します。続けて同じシェルで [chart 試験用の DB と object store](/run-server/self-hosting/try-chart-dependencies)の手順 1〜4 に従います。そのページは公開 chart の `examples/` にある依存サービスの manifest と最小の values を取り出して使い、Secret を作り、手順 4 で公開 chart を設置します。LocalStack の初期化スクリプトはその manifest の ConfigMap `localstack-init` に入っており、リリースバンドル（`werft-test-ops-<tag>.tar.gz`）の `infra/localstack/init/10-create-resources.sh` と同じファイルです。
 
 最初の owner は、下の[最初の owner を作る](#첫-owner-만들기)で作ります。リンクは DB にあるため、2 個の replica のどちらに届いても使えます。モデル key は Secret に入れません。key は最初の owner がコンソールで入力して DB に保存する値だけで、この試験では key を入れません。実運用の資格情報をこの試験に入れないでください。
 

@@ -7,7 +7,8 @@
 // held to DNS, HTTPS and the database, and the Ingress routing only the
 // api's public paths (the web console's "/" behind an ALB 404 on /internal)
 // on an ALB that is not internet-facing, and the preview
-// flag off in the AWS example. Run from the
+// flag off in the AWS example, and the test dependency examples kept to the
+// chart's defaults. Run from the
 // repository root:
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
 
@@ -3463,10 +3464,107 @@ errors.push(
   }
 }
 
+// The test dependency examples a chart-only reader applies (examples/): the
+// package carries them, the LocalStack init script is the bundle's, the
+// images are kind's, and the values follow the chart's own defaults.
+function checkTestExamples(): string[] {
+  const found: string[] = [];
+  const fail = (message: string) => found.push(`test examples: ${message}`);
+  const deps = "examples/test-deps.yaml";
+  const values = "examples/values-test.yaml";
+  for (const file of [deps, values]) {
+    if (packagedFile(file) !== readFileSync(join(chart, file), "utf8")) {
+      fail(`the package's ${file} is not the chart's`);
+    }
+  }
+  const objects = Bun.YAML.parse(
+    readFileSync(join(chart, deps), "utf8"),
+  ) as (Manifest & { data?: Record<string, string> })[];
+  const init = objects.find((o) => o.kind === "ConfigMap")?.data?.[
+    "10-create-resources.sh"
+  ];
+  if (
+    init !==
+    readFileSync(
+      join(dir, "../../infra/localstack/init/10-create-resources.sh"),
+      "utf8",
+    )
+  ) {
+    fail(
+      "the localstack-init script is not infra/localstack/init/10-create-resources.sh",
+    );
+  }
+  const images = (docs: unknown[]) =>
+    (docs as Manifest[])
+      .filter((m) => m?.kind === "Deployment")
+      .map((m) => podSpecOf(m).containers[0].image)
+      .sort();
+  const kind = Bun.YAML.parse(
+    readFileSync(join(dir, "../kind/deps.yaml"), "utf8"),
+  ) as unknown[];
+  if (JSON.stringify(images(objects)) !== JSON.stringify(images(kind))) {
+    fail(
+      `images ${images(objects)} are not deploy/kind/deps.yaml's ${images(kind)}`,
+    );
+  }
+  const defaults = Bun.YAML.parse(
+    readFileSync(join(chart, "values.yaml"), "utf8"),
+  ) as {
+    config: {
+      aws: { region: string };
+      checkpoints: { bucket: string };
+      egress: { credentialAllowlist: string };
+    };
+  };
+  const example = Bun.YAML.parse(
+    readFileSync(join(chart, values), "utf8"),
+  ) as typeof defaults;
+  const localstack = objects.find(
+    (o) => o.kind === "Deployment" && o.metadata.name === "localstack",
+  );
+  const region = (
+    localstack ? (podSpecOf(localstack).containers[0].env as EnvVar[]) : []
+  ).find((e) => e.name === "AWS_DEFAULT_REGION")?.value;
+  if (region !== defaults.config.aws.region) {
+    fail(
+      `LocalStack makes the bucket in ${region}, the chart reads ${defaults.config.aws.region}`,
+    );
+  }
+  // Every bucket the init script and the readiness probe name is the one the
+  // values hand the api.
+  const named = [
+    init ?? "",
+    JSON.stringify(
+      podSpecOf(localstack ?? objects[0]).containers[0].readinessProbe,
+    ),
+  ].flatMap((text) => [...text.matchAll(/--bucket (\S+)/g)].map((m) => m[1]));
+  const bucket = example.config.checkpoints.bucket;
+  if (named.length === 0 || named.some((name) => name !== bucket)) {
+    fail(
+      `values-test.yaml names ${bucket}, LocalStack names ${[...new Set(named)]}`,
+    );
+  }
+  if (
+    example.config.egress.credentialAllowlist !==
+    `${defaults.config.egress.credentialAllowlist},github.com:443`
+  ) {
+    fail(
+      "values-test.yaml's credentialAllowlist is not the chart default plus github.com:443",
+    );
+  }
+  try {
+    render(["-f", ciDigests, "-f", join(chart, values)]);
+  } catch (error) {
+    fail(String(error));
+  }
+  return found;
+}
+errors.push(...checkTestExamples());
+
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate, the conversation runtime off and on, the worker pre-pull off and on, worker memory sizing (NOTES, small-node example, node reader off and on); ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
+  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate, the conversation runtime off and on, the worker pre-pull off and on, worker memory sizing (NOTES, small-node example, node reader off and on); ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off; the test dependency examples`,
 );

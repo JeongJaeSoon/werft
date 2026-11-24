@@ -66,6 +66,8 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 公開 chart には三つのイメージ digest と worker runtime が含まれます。二つの worker イメージの `images.workers` の項目（repository・digest・runtime・`releasedAt`）は chart の `files/release-images.json` にも含まれ、そこから次の values を作る `files/next-workers.jq` も一緒に入っています。環境ごとの values にこれらを再記入したり `--reuse-values` を使ったりすると、次の chart の新しい値を上書きします。worker runtime は engine・SDK・CLI・profile digest 方式で構成され、イメージ digest 自体とは異なります。
 
+公開 chart は `examples/` に試験用の依存サービスの例も入れています。`test-deps.yaml` は PostgreSQL 16 と `locked` 契約を満たす LocalStack S3 で、`values-test.yaml` はその上に chart を設置する最小の values です。どちらも本番用ではなく、1 行目にそう書いてあります。`v0.4.0` 以前の chart にはありません。使い方は [chart 試験用の DB と object store](/run-server/self-hosting/try-chart-dependencies) にあります。
+
 `unverifiedSources` が残っていれば、該当 Debian ソースが実際には保存されていない可能性もあります。正式リリースと同水準のソース保存保証とは見なさないでください。multi-arch 公開導入前の古い `main-<12>` は amd64 しか含まない場合があるため、ARM サーバーでは index の platform 一覧も確認します。公開が一部しか完了していない、または取得に失敗した三つの digest を一つのデプロイセットとして使わないでください。
 
 <a id="checkout-없이-설치하기-릴리스-번들" />
