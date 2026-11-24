@@ -1,0 +1,137 @@
+---
+title: "Codex sandbox 노드 준비"
+description: "codexSandbox.provider=external로 설치할 클러스터의 노드에 Codex sandbox 프로필과 라벨을 둔다"
+pageId: "P38"
+docType: "작업"
+audience: "클러스터 관리자"
+outcome: "codexSandbox.provider=external로 설치할 클러스터의 노드에 Codex sandbox 프로필과 라벨을 둔다"
+---
+
+## 무엇을 하게 되나
+
+Codex 에이전트의 `auto` 모드는 worker 노드의 seccomp 프로필 파일 하나와 노드 라벨 하나를 요구한다([Codex auto 모드의 샌드박스](/run-server/self-hosting/reference/configuration#api-설정)). chart의 `codexSandbox.provider`가 `installer`이면 chart가 둘을 둔다. 대신 cluster 범위 리소스를 만들므로 설치 담당자에게 cluster 권한이 필요하다. `external`이면 chart는 그 리소스를 하나도 만들지 않고, cluster 관리자가 이 페이지대로 파일과 라벨을 먼저 둔다. 그러면 namespace 권한만 받은 설치 담당자가 chart를 설치할 수 있다.
+
+아래 표는 `installer`일 때 chart가 만드는 리소스와, `external`에서 그 일을 누가 하는지다. 이름은 release와 namespace가 모두 `werft`인 설치의 이름이다. cluster 범위 리소스의 이름은 `<namespace>-<fullname>-codex-seccomp`다.
+
+| `installer`가 만드는 리소스 | 하는 일 | `external`에서 |
+| --- | --- | --- |
+| ConfigMap `werft-codex-seccomp` | chart의 `files/codex-sandbox-seccomp.json`을 담는다 | 관리자가 chart에서 같은 파일을 꺼낸다(1단계) |
+| DaemonSet `werft-codex-seccomp`의 init 컨테이너 `install` | worker 노드마다 `<kubeletDir>/seccomp/werft/codex-sandbox.json`에 그 파일을 쓴다 | 관리자가 노드마다 쓴다(3단계) |
+| 같은 DaemonSet의 컨테이너 `label`, ServiceAccount `werft-codex-seccomp`, ClusterRole·ClusterRoleBinding `werft-werft-codex-seccomp`(Node `patch`) | 파일을 쓴 노드에 라벨 `werft.codex-seccomp-profile=installed`를 붙인다 | 관리자가 `kubectl label`로 붙인다(4단계) |
+| ValidatingAdmissionPolicy·ValidatingAdmissionPolicyBinding `werft-werft-codex-seccomp` | 위 ServiceAccount의 Node 변경을 자기 노드의 이 라벨 하나로 제한한다 | 필요 없다. 관리자가 자기 권한으로 붙인다 |
+| 같은 DaemonSet의 readiness probe | 노드의 파일이 이 chart의 파일과 같은지 본다 | 관리자가 `cmp`로 본다(3단계, 6단계) |
+
+`external`이 바꾸는 chart 렌더링은 둘뿐이다. 위 리소스가 하나도 렌더링되지 않고, scheduler가 `CODEX_SANDBOX_PROVIDER=external`을 받는다. `codexSandbox.installer` 아래 값은 `installer`에서만 쓰인다.
+
+## 준비물
+
+| 항목 | 요구 |
+| --- | --- |
+| chart | `codexSandbox.provider`가 있는 게시 chart. 0.4.0 chart에는 이 값이 없다. 그 chart에서는 `codexSandbox.installer.enabled: false`가 `external`과 같은 일을 한다 |
+| 도구 | `helm` 3 이상, `kubectl`. 관리자 쪽에서 chart를 받는다 |
+| 노드 | Codex worker가 뜰 노드마다 root 권한(SSH 등). 노드 이미지나 구성 관리 도구로 파일을 두어도 된다 |
+| 권한 | Node에 라벨을 붙이는 권한(`nodes`의 `patch`) |
+
+프로필의 경로는 kubelet의 seccomp 디렉터리 기준 `werft/codex-sandbox.json`으로 고정이다. kubelet의 seccomp 디렉터리는 kubelet root 디렉터리 아래 `seccomp`이고, 기본 root는 `/var/lib/kubelet`이다. kubelet을 다른 root 디렉터리로 띄우는 배포판에서는 아래 명령의 `/var/lib/kubelet`을 그 경로로 바꾼다(`installer`의 `codexSandbox.installer.kubeletDir`이 같은 값이다).
+
+프로필이 있어도 노드가 unprivileged user namespace를 막거나 AppArmor가 `mount`를 막으면 `auto` 세션은 거절된다. 노드 조건은 [설정 참조](/run-server/self-hosting/reference/configuration#api-설정)의 "AppArmor가 켜진 호스트"를 먼저 본다.
+
+## 단계
+
+### 1. chart에서 프로필 파일 꺼내기
+
+설치할 chart와 같은 버전에서 꺼낸다. 프로필은 chart마다 다를 수 있다.
+
+```bash
+VERSION='<published-chart-version>'
+helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir werft-chart
+ls -l werft-chart/werft/files/codex-sandbox-seccomp.json
+```
+
+### 2. 노드 고르기
+
+Codex worker Pod는 다른 worker Pod와 같이 chart의 `worker.nodeSelector`·`worker.tolerations`를 따르고, 거기에 더해 라벨이 붙은 노드에만 뜬다. 그래서 `worker.nodeSelector`가 고르는 노드 가운데 Codex worker를 띄울 노드를 고른다. `worker.nodeSelector`가 비어 있으면 모든 노드가 후보다.
+
+```bash
+kubectl get nodes -o wide
+```
+
+노드가 자동으로 늘어나는 클러스터에서는 새 노드에도 파일과 라벨이 함께 있어야 한다. 노드 이미지에 파일을 넣고, 노드 그룹의 라벨 설정으로 같은 라벨을 붙인다.
+
+### 3. 노드마다 파일 두기
+
+1단계의 파일을 노드에 복사한 뒤(`scp` 등) 그 노드에서 실행한다. 아래 명령은 파일이 노드의 현재 디렉터리에 있다고 본다.
+
+```bash
+sudo install -d -m 0755 /var/lib/kubelet/seccomp/werft
+sudo install -m 0644 codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/.codex-sandbox.json.tmp
+sudo mv -f /var/lib/kubelet/seccomp/werft/.codex-sandbox.json.tmp /var/lib/kubelet/seccomp/werft/codex-sandbox.json
+sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
+```
+
+`same`이 나오면 된다. 임시 파일에 쓴 뒤 `mv`로 바꾸는 것은 `installer`와 같다. 그 사이 뜨는 worker가 반쯤 쓴 파일을 읽지 않는다. 파일 이름은 `codex-sandbox.json` 그대로 둔다. 다른 이름이나 다른 디렉터리에 두면 Codex worker 컨테이너가 만들어지지 않는다.
+
+### 4. 라벨 붙이기
+
+3단계를 마친 노드에만 붙인다. 라벨은 "이 노드에 파일이 있다"는 표시다.
+
+```bash
+kubectl label node <node> werft.codex-seccomp-profile=installed
+```
+
+### 5. chart 값
+
+설치 담당자는 설치별 values에 다음을 넣고 [Kubernetes 설치](/run-server/self-hosting/kubernetes#4-설치와-rollout)의 명령으로 설치한다.
+
+```yaml
+codexSandbox:
+  provider: external
+```
+
+### 6. chart를 올릴 때
+
+`installer`는 프로필이 바뀐 chart로 올리면 노드의 파일을 새로 쓴다. `external`에서는 관리자가 한다. 올리기 전에 새 chart에서 1단계처럼 파일을 꺼내 노드에 복사하고, 노드에서 지금 파일과 비교한다.
+
+```bash
+sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
+```
+
+`same`이 아니면 그 노드에서 3단계를 다시 한다. 프로필은 컨테이너를 만들 때 읽히므로, 이미 떠 있는 worker는 그대로 돈다.
+
+## 확인
+
+관리자 쪽에서 라벨이 붙은 노드를 본다. 3단계를 마친 노드만 나와야 한다.
+
+```bash
+kubectl get nodes -l werft.codex-seccomp-profile=installed
+```
+
+설치한 뒤에는 chart가 installer 리소스를 만들지 않았는지 본다. `0`이 나와야 한다.
+
+```bash
+helm get manifest werft -n werft | grep -c codex-seccomp
+```
+
+마지막으로 Codex 에이전트의 `auto` 세션에 메시지를 하나 보낸다. 세션이 `CODEX_SANDBOX_NOT_INSTALLED`나 `recovery_required` 없이 답하면 파일, 라벨, 노드 조건이 모두 맞은 것이다.
+
+## 자주 막히는 곳
+
+- **`CODEX_SANDBOX_NOT_INSTALLED`.** chart의 `codexSandbox.provider`가 아직 `disabled`다. 5단계의 값이 values에 들어갔는지 본다.
+- **Codex worker Pod가 `Pending`.** 라벨이 붙은 노드가 없거나, 그 노드에 자리가 없다. 15분 뒤 세션은 `NO_CAPACITY`로 실패하고, 이유에 `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed`가 더해진다. 확인의 첫 명령으로 라벨 노드를 보고, 그 노드가 `worker.nodeSelector`에도 맞는지 본다.
+- **`CreateContainerError`.** 라벨은 있는데 그 노드에 파일이 없다. 파일 경로나 kubelet root 디렉터리가 다르거나, 노드 디스크를 새로 만든 경우다. scheduler는 이 오류를 launch 실패로 세고, 이유에 노드 이름과 프로필 경로를 남긴다. 그 이유는 chart의 설치 DaemonSet을 확인하라고도 적는데, `external`에서는 그 노드의 파일을 본다. 3단계를 다시 하거나 라벨을 뗀다.
+- **`auto` 세션이 `recovery_required`이고 이유에 `bwrap:` 오류.** 파일과 라벨은 맞고 노드 조건이 막는다. 준비물의 노드 조건을 본다.
+
+## 되돌리기
+
+노드에서 파일을 치울 때는 라벨을 먼저 뗀다. 라벨이 남은 채 파일이 없으면 그 노드에 뜬 Codex worker는 `CreateContainerError`로 실패한다.
+
+```bash
+kubectl label node <node> werft.codex-seccomp-profile-
+sudo rm -f /var/lib/kubelet/seccomp/werft/codex-sandbox.json
+```
+
+둘째 명령은 그 노드에서 실행한다. 나중에 `installer`로 바꾸면 chart의 DaemonSet이 같은 경로에 같은 파일을 쓰고 같은 라벨을 붙이므로, 노드에 남은 파일과 라벨은 그대로 두어도 된다. chart를 지워도 파일과 라벨은 노드에 남는다.
+
+## 다음에 읽을 곳
+
+[Kubernetes 설치](/run-server/self-hosting/kubernetes) → [Codex auto 모드의 샌드박스](/run-server/self-hosting/reference/configuration#api-설정). 버전 변경은 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)를 따른다.

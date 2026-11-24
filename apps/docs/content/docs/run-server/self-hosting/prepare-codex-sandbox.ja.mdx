@@ -1,0 +1,150 @@
+---
+title: "Codex sandbox のノード準備"
+description: "codexSandbox.provider=external で設置するクラスターのノードに Codex sandbox のプロファイルとラベルを置きます"
+pageId: "P38"
+docType: "作業"
+audience: "クラスター管理者"
+outcome: "codexSandbox.provider=external で設置するクラスターのノードに Codex sandbox のプロファイルとラベルを置きます"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+Codex エージェントの `auto` モードは、worker ノードの seccomp プロファイルファイル 1 つとノードラベル 1 つを必要とします（[Codex auto モードのサンドボックス](/run-server/self-hosting/reference/configuration#api-설정)）。chart の `codexSandbox.provider` が `installer` なら chart が両方を置きます。その代わり cluster スコープのリソースを作るため、設置担当者に cluster 権限が必要です。`external` なら chart はそれらのリソースを 1 つも作らず、cluster 管理者がこのページのとおりにファイルとラベルを先に置きます。すると namespace 権限だけを持つ設置担当者が chart を設置できます。
+
+次の表は、`installer` のときに chart が作るリソースと、`external` でその仕事を誰がするかです。名前は release と namespace がどちらも `werft` の設置のものです。cluster スコープのリソースの名前は `<namespace>-<fullname>-codex-seccomp` です。
+
+| `installer` が作るリソース | 役割 | `external` では |
+| --- | --- | --- |
+| ConfigMap `werft-codex-seccomp` | chart の `files/codex-sandbox-seccomp.json` を持ちます | 管理者が chart から同じファイルを取り出します（手順 1） |
+| DaemonSet `werft-codex-seccomp` の init コンテナ `install` | worker ノードごとに `<kubeletDir>/seccomp/werft/codex-sandbox.json` へそのファイルを書きます | 管理者がノードごとに書きます（手順 3） |
+| 同じ DaemonSet のコンテナ `label`、ServiceAccount `werft-codex-seccomp`、ClusterRole・ClusterRoleBinding `werft-werft-codex-seccomp`（Node の `patch`） | ファイルを書いたノードにラベル `werft.codex-seccomp-profile=installed` を付けます | 管理者が `kubectl label` で付けます（手順 4） |
+| ValidatingAdmissionPolicy・ValidatingAdmissionPolicyBinding `werft-werft-codex-seccomp` | 上の ServiceAccount による Node の変更を、自分のノードのこのラベル 1 つに制限します | 不要です。管理者が自分の権限で付けます |
+| 同じ DaemonSet の readiness probe | ノードのファイルがこの chart のファイルと同じかを見ます | 管理者が `cmp` で確認します（手順 3、手順 6） |
+
+`external` が変える chart のレンダリングは 2 つだけです。上のリソースが 1 つもレンダリングされず、scheduler が `CODEX_SANDBOX_PROVIDER=external` を受け取ります。`codexSandbox.installer` の下の値は `installer` のときだけ使われます。
+
+<a id="준비물" />
+## 準備
+
+| 項目 | 要件 |
+| --- | --- |
+| chart | `codexSandbox.provider` を持つ公開 chart。0.4.0 の chart にはこの値がありません。その chart では `codexSandbox.installer.enabled: false` が `external` と同じことをします |
+| ツール | `helm` 3 以上、`kubectl`。chart は管理者側で取得します |
+| ノード | Codex worker が動くノードごとの root 権限（SSH など）。ノードイメージや構成管理ツールでファイルを置いてもかまいません |
+| 権限 | Node にラベルを付ける権限（`nodes` の `patch`） |
+
+プロファイルのパスは kubelet の seccomp ディレクトリを基準に `werft/codex-sandbox.json` で固定です。kubelet の seccomp ディレクトリは kubelet の root ディレクトリの下の `seccomp` で、既定の root は `/var/lib/kubelet` です。kubelet を別の root ディレクトリで動かすディストリビューションでは、以下のコマンドの `/var/lib/kubelet` をそのパスに置き換えます（`installer` の `codexSandbox.installer.kubeletDir` が同じ値です）。
+
+プロファイルがあっても、ノードが unprivileged user namespace を禁止していたり AppArmor が `mount` を禁止していたりすると、`auto` セッションは拒否されます。ノードの条件は、まず[設定リファレンス](/run-server/self-hosting/reference/configuration#api-설정)の「AppArmor が有効なホスト」を確認します。
+
+<a id="단계" />
+## 手順
+
+<a id="1-chart에서-프로필-파일-꺼내기" />
+### 1. chart からプロファイルファイルを取り出す
+
+設置する chart と同じバージョンから取り出します。プロファイルは chart ごとに異なることがあります。
+
+```bash
+VERSION='<published-chart-version>'
+helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir werft-chart
+ls -l werft-chart/werft/files/codex-sandbox-seccomp.json
+```
+
+<a id="2-노드-고르기" />
+### 2. ノードを選ぶ
+
+Codex worker Pod はほかの worker Pod と同じく chart の `worker.nodeSelector`・`worker.tolerations` に従い、さらにラベルの付いたノードにだけ配置されます。そこで `worker.nodeSelector` が選ぶノードのうち、Codex worker を動かすノードを選びます。`worker.nodeSelector` が空なら、すべてのノードが候補です。
+
+```bash
+kubectl get nodes -o wide
+```
+
+ノードが自動で増えるクラスターでは、新しいノードにもファイルとラベルが両方必要です。ノードイメージにファイルを入れ、ノードグループのラベル設定で同じラベルを付けます。
+
+<a id="3-노드마다-파일-두기" />
+### 3. ノードごとにファイルを置く
+
+手順 1 のファイルをノードにコピーしたあと（`scp` など）、そのノードで実行します。以下のコマンドは、ファイルがノードのカレントディレクトリにあるものとしています。
+
+```bash
+sudo install -d -m 0755 /var/lib/kubelet/seccomp/werft
+sudo install -m 0644 codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/.codex-sandbox.json.tmp
+sudo mv -f /var/lib/kubelet/seccomp/werft/.codex-sandbox.json.tmp /var/lib/kubelet/seccomp/werft/codex-sandbox.json
+sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
+```
+
+`same` と出れば完了です。一時ファイルに書いてから `mv` で置き換えるのは `installer` と同じです。その間に起動する worker が書きかけのファイルを読むことはありません。ファイル名は `codex-sandbox.json` のままにします。別の名前や別のディレクトリに置くと、Codex worker コンテナが作られません。
+
+<a id="4-라벨-붙이기" />
+### 4. ラベルを付ける
+
+手順 3 を終えたノードにだけ付けます。ラベルは「このノードにファイルがある」という印です。
+
+```bash
+kubectl label node <node> werft.codex-seccomp-profile=installed
+```
+
+<a id="5-chart-값" />
+### 5. chart の値
+
+設置担当者は設置ごとの values に次を入れ、[Kubernetes 設置](/run-server/self-hosting/kubernetes#4-설치와-rollout)のコマンドで設置します。
+
+```yaml
+codexSandbox:
+  provider: external
+```
+
+<a id="6-chart를-올릴-때" />
+### 6. chart を上げるとき
+
+`installer` は、プロファイルが変わった chart に上げるとノードのファイルを書き直します。`external` では管理者が行います。上げる前に、新しい chart から手順 1 のようにファイルを取り出してノードにコピーし、ノードで現在のファイルと比べます。
+
+```bash
+sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
+```
+
+`same` でなければ、そのノードで手順 3 をやり直します。プロファイルはコンテナを作るときに読まれるので、すでに動いている worker はそのまま動きます。
+
+<a id="확인" />
+## 確認
+
+管理者側でラベルの付いたノードを確認します。手順 3 を終えたノードだけが表示されるはずです。
+
+```bash
+kubectl get nodes -l werft.codex-seccomp-profile=installed
+```
+
+設置後は、chart が installer のリソースを作っていないことを確認します。`0` と出るはずです。
+
+```bash
+helm get manifest werft -n werft | grep -c codex-seccomp
+```
+
+最後に、Codex エージェントの `auto` セッションにメッセージを 1 つ送ります。セッションが `CODEX_SANDBOX_NOT_INSTALLED` や `recovery_required` なしに応答すれば、ファイル、ラベル、ノードの条件がすべて揃っています。
+
+<a id="자주-막히는-곳" />
+## よくあるつまずき
+
+- **`CODEX_SANDBOX_NOT_INSTALLED`。** chart の `codexSandbox.provider` がまだ `disabled` です。手順 5 の値が values に入っているか確認します。
+- **Codex worker Pod が `Pending`。** ラベルの付いたノードがないか、そのノードに空きがありません。15 分後にセッションは `NO_CAPACITY` で失敗し、理由に `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed` が加わります。確認の最初のコマンドでラベルの付いたノードを見て、そのノードが `worker.nodeSelector` にも合うか確認します。
+- **`CreateContainerError`。** ラベルはあるのに、そのノードにファイルがありません。ファイルのパスや kubelet の root ディレクトリが違うか、ノードのディスクを作り直した場合です。scheduler はこのエラーを launch の失敗として数え、理由にノード名とプロファイルのパスを残します。その理由は chart の設置 DaemonSet を確認するようにも書きますが、`external` ではそのノードのファイルを確認します。手順 3 をやり直すか、ラベルを外します。
+- **`auto` セッションが `recovery_required` で、理由に `bwrap:` のエラー。** ファイルとラベルは正しく、ノードの条件が妨げています。準備のノードの条件を確認します。
+
+<a id="되돌리기" />
+## 元に戻す
+
+ノードからファイルを片付けるときは、先にラベルを外します。ラベルが残ったままファイルがないと、そのノードに配置された Codex worker は `CreateContainerError` で失敗します。
+
+```bash
+kubectl label node <node> werft.codex-seccomp-profile-
+sudo rm -f /var/lib/kubelet/seccomp/werft/codex-sandbox.json
+```
+
+2 つ目のコマンドはそのノードで実行します。あとで `installer` に切り替えると、chart の DaemonSet が同じパスに同じファイルを書き、同じラベルを付けるので、ノードに残ったファイルとラベルはそのままでかまいません。chart を削除しても、ファイルとラベルはノードに残ります。
+
+<a id="다음에-읽을-곳" />
+## 次に読むページ
+
+[Kubernetes 設置](/run-server/self-hosting/kubernetes) → [Codex auto モードのサンドボックス](/run-server/self-hosting/reference/configuration#api-설정)。バージョンの変更は [Kubernetes のアップグレード](/run-server/self-hosting/upgrade-kubernetes)に従います。

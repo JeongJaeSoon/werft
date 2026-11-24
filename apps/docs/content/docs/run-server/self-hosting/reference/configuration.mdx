@@ -74,7 +74,7 @@ bubblewrap은 Docker 기본 seccomp(Kubernetes의 `RuntimeDefault`)가 막는 na
 kubectl label node <node> werft.codex-seccomp-profile=installed
 ```
 
-라벨이 없으면 Codex Pod는 그 노드에 배치되지 않고, 라벨을 붙인 노드가 하나도 없으면 `Pending`으로 남는다. 노드에서 파일을 치울 때는 라벨을 먼저 뗀다(`kubectl label node <node> werft.codex-seccomp-profile-`). chart를 지운 뒤 라벨을 모두 떼려면 같은 명령에 `<node>` 대신 `--all`을 준다.
+라벨이 없으면 Codex Pod는 그 노드에 배치되지 않고, 라벨을 붙인 노드가 하나도 없으면 `Pending`으로 남는다. 노드에서 파일을 치울 때는 라벨을 먼저 뗀다(`kubectl label node <node> werft.codex-seccomp-profile-`). chart를 지운 뒤 라벨을 모두 떼려면 같은 명령에 `<node>` 대신 `--all`을 준다. 노드마다 할 명령과 chart를 올릴 때 할 일은 [Codex sandbox 노드 준비](/run-server/self-hosting/prepare-codex-sandbox)에 있다.
 
 **AppArmor가 켜진 호스트.** Docker의 `docker-default`와 containerd의 기본 AppArmor 프로필은 `mount`를 막는다. 그래서 AppArmor가 켜진 호스트(Ubuntu·Debian의 기본값)에서는 seccomp 프로필이 있어도 bubblewrap이 `bwrap: Failed to make / slave: Permission denied`로 실패하고, `auto` 세션은 거절된다. Ubuntu 23.10부터 켜진 `kernel.apparmor_restrict_unprivileged_userns=1`은 AppArmor를 풀어도(`unconfined`) `bwrap: setting up uid map: Permission denied`로 막는다. Ubuntu 24.04와 Docker 28에서 확인한 최소 조건은 Codex 컨테이너에 `docker-default`에 `userns,`·`mount,`·`pivot_root,` 세 규칙을 더한 AppArmor 프로필을 거는 것이다. 이 조건은 sysctl 값과 상관없이 통한다. Werft는 아직 Codex 컨테이너에 AppArmor 프로필을 따로 걸지 않는다. 그래서 이런 호스트에서는 지금 `auto`를 쓸 수 없다. 다른 권한 모드는 쓸 수 있다.
 

@@ -1,0 +1,150 @@
+---
+title: "Prepare nodes for the Codex sandbox"
+description: "Put the Codex sandbox profile and label on the nodes of a cluster installed with codexSandbox.provider=external"
+pageId: "P38"
+docType: "Task"
+audience: "Cluster administrators"
+outcome: "Put the Codex sandbox profile and label on the nodes of a cluster installed with codexSandbox.provider=external"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+The `auto` mode of Codex agents needs one seccomp profile file and one node label on the worker nodes ([Codex auto mode sandbox](/run-server/self-hosting/reference/configuration#api-설정)). With the chart's `codexSandbox.provider` set to `installer`, the chart puts both in place, but it creates cluster-scoped resources, so the installer needs cluster permissions. With `external`, the chart creates none of those resources, and a cluster administrator puts the file and the label in place first by following this page. An installer holding only namespace permissions can then install the chart.
+
+The table below lists the resources the chart creates with `installer`, and who does their job with `external`. The names are those of an installation whose release and namespace are both `werft`. Cluster-scoped resources are named `<namespace>-<fullname>-codex-seccomp`.
+
+| Resource `installer` creates | What it does | With `external` |
+| --- | --- | --- |
+| ConfigMap `werft-codex-seccomp` | Holds the chart's `files/codex-sandbox-seccomp.json` | The administrator takes the same file from the chart (step 1) |
+| Init container `install` of DaemonSet `werft-codex-seccomp` | Writes that file to `<kubeletDir>/seccomp/werft/codex-sandbox.json` on each worker node | The administrator writes it on each node (step 3) |
+| Container `label` of the same DaemonSet, ServiceAccount `werft-codex-seccomp`, ClusterRole and ClusterRoleBinding `werft-werft-codex-seccomp` (Node `patch`) | Labels the node it wrote the file on `werft.codex-seccomp-profile=installed` | The administrator labels it with `kubectl label` (step 4) |
+| ValidatingAdmissionPolicy and ValidatingAdmissionPolicyBinding `werft-werft-codex-seccomp` | Holds the ServiceAccount above to this one label on its own node | Not needed. The administrator labels with their own permissions |
+| Readiness probe of the same DaemonSet | Checks that the node's file is this chart's file | The administrator checks with `cmp` (step 3, step 6) |
+
+`external` changes only two things in the chart's render: none of the resources above is rendered, and the scheduler receives `CODEX_SANDBOX_PROVIDER=external`. The values under `codexSandbox.installer` are used only with `installer`.
+
+<a id="준비물" />
+## Before you begin
+
+| Item | Requirement |
+| --- | --- |
+| Chart | A published chart that has `codexSandbox.provider`. The 0.4.0 chart does not have it. In that chart, `codexSandbox.installer.enabled: false` does what `external` does |
+| Tools | `helm` 3 or later, `kubectl`. The chart is downloaded on the administrator's machine |
+| Nodes | Root access (SSH or similar) on each node that will run Codex workers. A node image or configuration management tool may place the file instead |
+| Permissions | Permission to label Nodes (`patch` on `nodes`) |
+
+The profile path is fixed: `werft/codex-sandbox.json` under the kubelet's seccomp directory. That directory is `seccomp` under the kubelet root directory, and the default root is `/var/lib/kubelet`. On distributions that run the kubelet with another root directory, replace `/var/lib/kubelet` in the commands below with that path (`codexSandbox.installer.kubeletDir` is the same value for `installer`).
+
+Even with the profile in place, `auto` sessions are refused when the node blocks unprivileged user namespaces or AppArmor blocks `mount`. Check the node requirements under "Hosts with AppArmor enabled" in the [configuration reference](/run-server/self-hosting/reference/configuration#api-설정) first.
+
+<a id="단계" />
+## Steps
+
+<a id="1-chart에서-프로필-파일-꺼내기" />
+### 1. Take the profile file from the chart
+
+Take it from the same chart version you install. The profile can differ between charts.
+
+```bash
+VERSION='<published-chart-version>'
+helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir werft-chart
+ls -l werft-chart/werft/files/codex-sandbox-seccomp.json
+```
+
+<a id="2-노드-고르기" />
+### 2. Choose the nodes
+
+Codex worker Pods follow the chart's `worker.nodeSelector` and `worker.tolerations` like other worker Pods, and in addition land only on labelled nodes. Among the nodes `worker.nodeSelector` selects, choose the ones that will run Codex workers. When `worker.nodeSelector` is empty, every node is a candidate.
+
+```bash
+kubectl get nodes -o wide
+```
+
+In clusters whose nodes scale automatically, new nodes need the file and the label too. Put the file in the node image and set the same label through the node group's label settings.
+
+<a id="3-노드마다-파일-두기" />
+### 3. Put the file on each node
+
+Copy the file from step 1 to the node (`scp` or similar), then run the following on that node. The commands assume the file is in the node's current directory.
+
+```bash
+sudo install -d -m 0755 /var/lib/kubelet/seccomp/werft
+sudo install -m 0644 codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/.codex-sandbox.json.tmp
+sudo mv -f /var/lib/kubelet/seccomp/werft/.codex-sandbox.json.tmp /var/lib/kubelet/seccomp/werft/codex-sandbox.json
+sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
+```
+
+`same` means it is done. Writing a temporary file and replacing it with `mv` is what `installer` does: a worker starting meanwhile never reads a half-written file. Keep the file name `codex-sandbox.json`. Under another name or in another directory, the Codex worker container is not created.
+
+<a id="4-라벨-붙이기" />
+### 4. Label the node
+
+Label only the nodes that finished step 3. The label means "this node holds the file".
+
+```bash
+kubectl label node <node> werft.codex-seccomp-profile=installed
+```
+
+<a id="5-chart-값" />
+### 5. Chart value
+
+The installer puts the following in the installation's values and installs with the command in [Kubernetes installation](/run-server/self-hosting/kubernetes#4-설치와-rollout).
+
+```yaml
+codexSandbox:
+  provider: external
+```
+
+<a id="6-chart를-올릴-때" />
+### 6. When upgrading the chart
+
+With `installer`, upgrading to a chart whose profile changed rewrites the file on the nodes. With `external`, the administrator does it. Before upgrading, take the file from the new chart as in step 1, copy it to the node, and compare it with the current file on the node.
+
+```bash
+sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox.json && echo same
+```
+
+If it does not print `same`, repeat step 3 on that node. The profile is read when a container is created, so workers already running keep running.
+
+<a id="확인" />
+## Verify
+
+On the administrator's machine, list the labelled nodes. Only the nodes that finished step 3 should appear.
+
+```bash
+kubectl get nodes -l werft.codex-seccomp-profile=installed
+```
+
+After installing, check that the chart created no installer resources. It should print `0`.
+
+```bash
+helm get manifest werft -n werft | grep -c codex-seccomp
+```
+
+Finally, send one message to an `auto` session of a Codex agent. If the session answers without `CODEX_SANDBOX_NOT_INSTALLED` or `recovery_required`, the file, the label and the node requirements are all in order.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+- **`CODEX_SANDBOX_NOT_INSTALLED`.** The chart's `codexSandbox.provider` is still `disabled`. Check that the value from step 5 is in the values.
+- **Codex worker Pod is `Pending`.** No node carries the label, or the labelled nodes have no room. After 15 minutes the session fails with `NO_CAPACITY`, and its reason adds `Also check that a node carries the Codex sandbox label werft.codex-seccomp-profile=installed`. List the labelled nodes with the first command under Verify, and check that they also match `worker.nodeSelector`.
+- **`CreateContainerError`.** The node carries the label but not the file: the file path or the kubelet root directory differs, or the node's disk was recreated. The scheduler counts this error as a failed launch, and its reason names the node and the profile path. The reason also says to check the chart's installer DaemonSet; with `external`, check the file on that node instead. Repeat step 3, or remove the label.
+- **An `auto` session is `recovery_required` with a `bwrap:` error in its reason.** The file and the label are right, and a node requirement blocks it. Check the node requirements under Before you begin.
+
+<a id="되돌리기" />
+## Roll back
+
+When removing the file from a node, remove the label first. A node with the label but no file fails every Codex worker placed on it with `CreateContainerError`.
+
+```bash
+kubectl label node <node> werft.codex-seccomp-profile-
+sudo rm -f /var/lib/kubelet/seccomp/werft/codex-sandbox.json
+```
+
+Run the second command on that node. If you later switch to `installer`, the chart's DaemonSet writes the same file to the same path and sets the same label, so the file and label left on the nodes can stay. Uninstalling the chart leaves the file and the label on the nodes.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Kubernetes installation](/run-server/self-hosting/kubernetes) → [Codex auto mode sandbox](/run-server/self-hosting/reference/configuration#api-설정). For version changes, follow [Kubernetes upgrade](/run-server/self-hosting/upgrade-kubernetes).
