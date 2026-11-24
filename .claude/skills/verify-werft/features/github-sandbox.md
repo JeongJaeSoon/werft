@@ -153,7 +153,9 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, s
 
 기대: receipt의 `actor`는 플랫폼 쪽 행위자다. `open_pull_request`와 `comment_pull_request`는 그 route를 부른 호출자, 곧 이 절차의 개인 key(`principal.kind: "api_key"`)와 그 소유자(`actor_user_id`)다. `push` receipt는 `actor`가 null이고 `result.approved_by`가 승인한 사람이다. 작성용 App은 receipt가 아니라 GitHub 쪽 결과(PR 작성자, 코멘트 작성자)에서 확인하고, 두 쪽이 서로 어긋나지 않아야 한다. `actor`는 위 DB 조회에 `actor`와 `result->'approved_by'` 칸을 더해 읽는다.
 
-기대: 성공 `mint_github_token` receipt는 토큰을 새로 발급할 때만 남는다. 토큰은 api 프로세스 안에서 저장소와 권한 조합별로 캐시되어(만료 10분 전까지 다시 쓴다), 같은 세션의 다음 turn이나 같은 스택의 다른 세션이 캐시 토큰을 쓰면 receipt가 늘지 않는다. 그래서 같은 스택의 두 번째 세션에는 `mint_github_token` `clone`이 없을 수 있다. api 컨테이너를 재시작하면 캐시가 비어 다음 발급에서 receipt가 새로 남는다.
+기대: 성공 `mint_github_token` receipt는 토큰을 새로 발급할 때만 남는다. 토큰은 api 프로세스 안에서 저장소·권한 조합·용도(세션 작업 / 릴리스의 지시 파일 읽기)별로 캐시되어(만료 10분 전까지 다시 쓴다), 같은 세션의 다음 turn이나 같은 스택의 다른 세션이 캐시 토큰을 쓰면 receipt가 늘지 않는다. 그래서 같은 스택의 두 번째 세션에는 `mint_github_token` `clone`이 없을 수 있다. api 컨테이너를 재시작하면 캐시가 비어 다음 발급에서 receipt가 새로 남는다.
+
+기대: 저장소 지시 파일을 읽는 릴리스(저장소가 있고 `project_settings.claude_md`가 켜진 릴리스)를 만들면 `mint_github_token` succeeded가 하나 남는다. `result.purpose: "release_instructions"`, `permissions: {"contents": "read"}`, `agent_id`·`repository_id`가 있고, 자리(`target_ref`)는 세션이 아니라 그 릴리스의 workspace(`resource.kind: "workspace"`)다. 그래서 에이전트 activity가 아니라 DB에서 본다(`operation = 'mint_github_token' AND result->>'purpose' = 'release_instructions'`). 같은 api 프로세스에서 10분 안에 다시 만든 릴리스는 캐시 토큰을 써서 늘지 않는다. 릴리스 읽기 토큰은 세션 clone과 나누어 캐시하므로, 릴리스 바로 뒤 첫 세션에도 `mint_github_token` `clone` receipt가 있다.
 
 ```sh
 # 7. 정리: 자기 PR 닫기, 스택 내리기(volume 유지), 잠금 놓기

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
+  createGitHubGate,
   GitHubCallError,
   type GitHubConnectionResolver,
+  type GitHubGateReceipt,
+  type GitHubGateStore,
   type GitTreeEntry,
   type SessionCatalog,
   snapshotReleaseInstructions,
@@ -28,6 +31,12 @@ const descriptors = [
   { kind: "claude_agent_sdk", instructionFiles: ["AGENTS.md", "CLAUDE.md"] },
 ] as unknown as RuntimeDescriptor[];
 
+const READER = {
+  ownerId: "workspace-1",
+  agentId: "agent-1",
+  actor: null,
+};
+
 const blob = (name: string, sha: string, size: number, mode = "100644") =>
   ({ name, mode, type: "blob", sha, size }) as GitTreeEntry;
 
@@ -38,6 +47,7 @@ function wired(options: {
   unsized?: string;
 }) {
   const asked: string[] = [];
+  const receipts: GitHubGateReceipt[] = [];
   const warned: unknown[] = [];
   const trees: Record<string, GitTreeEntry[]> = {
     [ROOT_TREE]: [
@@ -107,18 +117,34 @@ function wired(options: {
   } as unknown as StructuredLogger;
   const source = wireReleaseInstructions({
     catalog,
-    resolver: () => resolver,
+    gate: () =>
+      createGitHubGate({
+        store: {
+          recordReceipt: async (receipt: GitHubGateReceipt) => {
+            receipts.push(receipt);
+            return "receipt";
+          },
+        } as unknown as GitHubGateStore,
+        catalog: catalog as SessionCatalog,
+        connections: () => null,
+        resolver,
+      }),
     descriptors,
     logger,
   });
-  return { source, asked, warned };
+  return { source, asked, warned, receipts };
 }
 
 describe("wireReleaseInstructions", () => {
   test("reads the branch's commit with a read-only author token, following a link into a directory", async () => {
-    const { source, asked } = wired({});
+    const { source, asked, receipts } = wired({});
     expect(
-      await snapshotReleaseInstructions(source, "app", "claude_agent_sdk"),
+      await snapshotReleaseInstructions(
+        source,
+        "app",
+        "claude_agent_sdk",
+        READER,
+      ),
     ).toEqual({
       kind: "text",
       repository_id: "app",
@@ -135,6 +161,22 @@ describe("wireReleaseInstructions", () => {
       "tree:1",
       "tree:2",
     ]);
+    // The gate issued the token: its receipt is on the release's workspace.
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        ownerId: "workspace-1",
+        sessionId: null,
+        workspaceId: "workspace-1",
+        operation: "mint_github_token",
+        status: "succeeded",
+        result: expect.objectContaining({
+          purpose: "release_instructions",
+          agent_id: "agent-1",
+          repository_id: "app",
+          permissions: { contents: "read" },
+        }),
+      }),
+    ]);
   });
 
   test("a repository the catalog no longer has, or no App reaches, is not read", async () => {
@@ -143,6 +185,7 @@ describe("wireReleaseInstructions", () => {
         wired({}).source,
         "gone",
         "claude_agent_sdk",
+        READER,
       ),
     ).toEqual({
       kind: "read_failed",
@@ -154,6 +197,7 @@ describe("wireReleaseInstructions", () => {
         wired({ choice: "none" }).source,
         "app",
         "claude_agent_sdk",
+        READER,
       ),
     ).toMatchObject({ kind: "read_failed", reason: "not_on_github" });
   });
@@ -164,11 +208,17 @@ describe("wireReleaseInstructions", () => {
         wired({ branch: "missing" }).source,
         "app",
         "claude_agent_sdk",
+        READER,
       ),
     ).toMatchObject({ kind: "read_failed", reason: "branch_missing" });
     const cut = wired({ truncated: true });
     expect(
-      await snapshotReleaseInstructions(cut.source, "app", "claude_agent_sdk"),
+      await snapshotReleaseInstructions(
+        cut.source,
+        "app",
+        "claude_agent_sdk",
+        READER,
+      ),
     ).toMatchObject({ kind: "read_failed", reason: "github_failed" });
     expect(cut.warned).toHaveLength(1);
   });
@@ -178,6 +228,7 @@ describe("wireReleaseInstructions", () => {
       wired({ unsized: "가".repeat(30_000) }).source,
       "app",
       "claude_agent_sdk",
+      READER,
     );
     expect(snapshot).toMatchObject({ kind: "refused", commit: COMMIT });
     expect(snapshot.kind === "refused" && snapshot.reason).toContain(

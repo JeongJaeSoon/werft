@@ -60,12 +60,15 @@ async function subject(): Promise<PushableSubject> {
     retryAfterBaseMs: 1,
     paced: false,
   });
-  const { credential } = await connection.credential(related, {
-    contents: "write",
-  });
+  const { credential } = await connection.credential(
+    related,
+    { contents: "write" },
+    "session",
+  );
   const { credential: loneCredential } = await connection.credential(
     unrelated,
     { contents: "write" },
+    "session",
   );
   const basic = (login: { username: string; password: string }) =>
     `Basic ${Buffer.from(`${login.username}:${login.password}`).toString("base64")}`;

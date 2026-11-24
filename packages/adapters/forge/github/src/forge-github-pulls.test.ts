@@ -38,14 +38,14 @@ async function appForge() {
     retryAfterBaseMs: 1,
     paced: false,
   });
-  const { credential } = await connection.credential(repo, PULLS);
+  const { credential } = await connection.credential(repo, PULLS, "session");
   return { forge: connection.api(repo, credential), connection, warnings };
 }
 
 /** An App connection's API against a stub server on `port`. */
 async function appForgeAt(port: number | undefined) {
   const { connection: issuer } = await appForge();
-  const { credential } = await issuer.credential(repo, PULLS);
+  const { credential } = await issuer.credential(repo, PULLS, "session");
   const connection = createGitHubConnection({
     apiBase: `http://127.0.0.1:${port}`,
     credentials: { kind: "app", appId: 101, installationId: 202, privateKey },
@@ -215,10 +215,10 @@ describe("GitHub pull requests", () => {
       paced: false,
     });
     const before = github.tokenRequests.length;
-    await fresh.credential(repo, { contents: "write" });
-    const { credential } = await fresh.credential(repo, PULLS);
+    await fresh.credential(repo, { contents: "write" }, "session");
+    const { credential } = await fresh.credential(repo, PULLS, "session");
     await fresh.api(repo, credential).findPullRequestForBranch(head);
-    await fresh.credential(repo, { contents: "write" });
+    await fresh.credential(repo, { contents: "write" }, "session");
     expect(
       github.tokenRequests.slice(before).map((asked) => asked.body),
     ).toEqual([
@@ -674,7 +674,7 @@ describe("GitHub pull requests", () => {
     });
     try {
       const { connection: issuer } = await appForge();
-      const { credential } = await issuer.credential(repo, PULLS);
+      const { credential } = await issuer.credential(repo, PULLS, "session");
       const connection = createGitHubConnection({
         apiBase: `http://127.0.0.1:${stub.port}`,
         credentials: {

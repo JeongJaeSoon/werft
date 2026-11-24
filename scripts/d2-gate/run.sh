@@ -114,14 +114,6 @@ approve_key="$(printf '%s\n' "$release_vars" | sed -n 's/^D2_GATE_APPROVE_KEY=//
 release_id="$(printf '%s\n' "$release_vars" | sed -n 's/^D2_GATE_RELEASE_ID=//p')"
 [ -n "$api_key" ] && [ -n "$approve_key" ] && [ -n "$release_id" ] || { echo "the gate's agent was not released" >&2; exit 1; }
 
-# Making the release read gate-app's instruction file with a token the API
-# then keeps, and a session that clones with a kept token leaves no mint
-# receipt: A-05 expects the session's own. The tokens live in the process,
-# so the API starts again. Its published port changes with it; `port` is
-# asked anew below.
-dc restart api >>"$out/up.log" 2>&1
-dc up -d --wait api >>"$out/up.log" 2>&1
-
 # The reconciler runs as the product runs it, on its own loop.
 dc up -d --wait scheduler reconciler >>"$out/up.log" 2>&1
 
