@@ -58,6 +58,23 @@ describe("Codex sandbox setting", () => {
     ).toEqual({ mode: "enabled", images: [kubernetes.WORKER_IMAGE] });
   });
 
+  test("carries the provider the chart names; an unknown one is refused", () => {
+    const codex = {
+      ...kubernetes,
+      WORKER_IMAGE_RUNTIME: runtime("codex", "0.167.0"),
+    };
+    for (const provider of ["disabled", "installer", "external"]) {
+      expect(sandboxOf({ ...codex, CODEX_SANDBOX_PROVIDER: provider })).toEqual(
+        { mode: "enabled", images: [codex.WORKER_IMAGE], provider },
+      );
+    }
+    expect(() =>
+      sandboxOf({ ...codex, CODEX_SANDBOX_PROVIDER: "helm" }),
+    ).toThrow(
+      "CODEX_SANDBOX_PROVIDER must be installer, external or disabled (got helm)",
+    );
+  });
+
   test("turned off on either backend; anything else is refused", () => {
     expect(sandboxOf({ ...base, CODEX_SANDBOX: "disabled" })).toEqual({
       mode: "disabled",

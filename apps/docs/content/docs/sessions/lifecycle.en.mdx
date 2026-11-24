@@ -72,6 +72,8 @@ A session whose worker is waiting for room to start has `wait_reason` set to `wa
 
 When room frees up, the worker starts and both fields return to `null`. If no room frees up within 15 minutes, the waiting turns end as `failed` and their receipts fail with `NO_CAPACITY`. The session itself does not fail. It returns to `idle` and takes the next message, which starts a new worker that continues the earlier conversation. A session that was resuming (`resuming`) goes back to `paused` with its checkpoint kept, and the resume's receipt fails with `NO_CAPACITY` too. Resume it again later and it continues from that checkpoint. Neither case goes to `recovery_required`.
 
+On a Kubernetes installation, a Codex agent's worker checks for the Codex sandbox before its Pod is created. When the chart's `codexSandbox.provider` is `disabled` (the default), that input's receipt fails at once with `CODEX_SANDBOX_NOT_INSTALLED`. It does not wait, the session returns to `idle` and takes the next message as with `NO_CAPACITY`, and no launch failure is counted. How an administrator sets `installer` or `external` is in the [configuration reference](/run-server/self-hosting/reference/configuration).
+
 ## admission_state
 
 | Value | Meaning |

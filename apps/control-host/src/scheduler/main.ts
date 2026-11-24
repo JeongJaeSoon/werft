@@ -145,6 +145,7 @@ export function exitCodeFor(summary: SchedulerRunSummary): number {
   return summary.launchesBackingOff.length > 0 ||
     summary.launchesQuarantined.length > 0 ||
     summary.launchesNoCapacity.length > 0 ||
+    summary.launchesNoCodexSandbox.length > 0 ||
     summary.replacementsExhausted.length > 0
     ? PASS_DEGRADED_EXIT
     : 0;

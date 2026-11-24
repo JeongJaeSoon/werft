@@ -456,6 +456,21 @@ codexSandbox:
   # on the workers, and every auto session is refused, naming this value;
   # the other permission modes run under RuntimeDefault.
   enabled: true
+  # Who puts the profile on the nodes (with enabled: true):
+  #   disabled  Nobody. The default, because the installer creates
+  #             cluster-scoped objects (a ClusterRole that patches Nodes, its
+  #             binding and an admission policy), which an installer holding
+  #             namespace permissions alone cannot create. The chart creates
+  #             none, and a session on a Codex image fails at once with
+  #             CODEX_SANDBOX_NOT_INSTALLED, naming this value.
+  #   installer The DaemonSet below. Needs cluster-scoped permissions.
+  #   external  A cluster administrator put the profile on the nodes and
+  #             labelled them (the Security Profiles Operator, a node image).
+  #             The chart creates no cluster-scoped object either; Pods wait
+  #             for a labelled node.
+  # Installs that ran the installer before it was off by default set
+  # installer here before upgrading; the old installer.enabled is refused.
+  provider: disabled
   # A DaemonSet that writes the profile (files/codex-sandbox-seccomp.json) to
   # <kubeletDir>/seccomp/werft on each worker node, labels that node
   # werft.codex-seccomp-profile=installed, then sleeps. The writing init
@@ -465,11 +480,10 @@ codexSandbox:
   # as uid 1000 (images.controlHost, for bun) with the directory read-only
   # and a token whose ClusterRole can patch Nodes; a ValidatingAdmissionPolicy
   # (Kubernetes 1.30+) holds it to its own node and that one label. The label
-  # stays when the installer goes, as the file does. Turn it off where the
-  # profile is put on the nodes another way (the Security Profiles Operator,
-  # a node image), and label those nodes yourself.
+  # stays when the installer goes, as the file does. Where the profile is put
+  # on the nodes another way, set provider: external and label those nodes
+  # yourself. Rendered only when provider is installer.
   installer:
-    enabled: true
     kubeletDir: /var/lib/kubelet
     # The image the writing init container runs: empty repository and digest
     # is images.controlHost, which has the shell, cp and mv it needs. Any

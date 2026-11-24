@@ -72,6 +72,8 @@ worker가 들어갈 자리가 없어 시작을 기다리는 세션은 `wait_reas
 
 자리가 나면 worker가 시작하고 두 값은 `null`로 돌아간다. 15분 안에 자리가 나지 않으면 기다리던 turn이 `failed`로 끝나고, 그 입력의 접수는 `NO_CAPACITY`로 실패한다. 세션은 실패로 바뀌지 않는다. `idle`로 돌아가 다음 메시지를 받고, 다음 메시지가 새 worker를 띄워 이전 대화에서 이어 간다. resume 중(`resuming`)이던 세션은 checkpoint를 그대로 두고 `paused`로 돌아가며, resume의 접수도 `NO_CAPACITY`로 실패한다. 잠시 뒤 다시 resume하면 그 checkpoint에서 이어 간다. 어느 쪽도 `recovery_required`로 가지 않는다.
 
+Kubernetes 설치에서 Codex 에이전트의 worker는 Pod를 만들기 전에 Codex sandbox가 있는지 본다. chart의 `codexSandbox.provider`가 `disabled`(기본)면 그 입력의 접수는 곧바로 `CODEX_SANDBOX_NOT_INSTALLED`로 실패한다. 기다리지 않고, 세션은 `NO_CAPACITY`와 같이 `idle`로 돌아가 다음 메시지를 받으며, launch 실패로 세지 않는다. 관리자가 `installer`나 `external`로 바꾸는 방법은 [설정 참조](/run-server/self-hosting/reference/configuration)에 있다.
+
 ## admission_state
 
 | 값 | 뜻 |

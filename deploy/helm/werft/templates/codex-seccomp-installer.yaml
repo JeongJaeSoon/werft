@@ -1,6 +1,6 @@
 {{- /* Outside the if, so a stray localhostProfile is refused in any install. */}}
 {{- $profile := include "ap.codexSeccompProfile" . }}
-{{- if and .Values.codexSandbox.enabled .Values.codexSandbox.installer.enabled }}
+{{- if and .Values.codexSandbox.enabled (eq .Values.codexSandbox.provider "installer") }}
 {{- $installer := .Values.codexSandbox.installer }}
 {{- $source := .Files.Get "files/codex-sandbox-seccomp.json" }}
 {{- $target := printf "/host/%s" (base $profile) }}

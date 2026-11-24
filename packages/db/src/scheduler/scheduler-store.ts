@@ -81,6 +81,7 @@ import {
 } from "../sessions/index.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
 import {
+  codexSandboxNotInstalledCause,
   launchFailedCause,
   noCapacityCause,
   quarantineLaunch,
@@ -660,9 +661,64 @@ export function createPostgresSchedulerStore(
       });
     },
 
+    async giveUpForCodexSandbox(
+      ref: ExecutionRef,
+      detail: string,
+    ): Promise<boolean> {
+      return db.transaction(async (tx) => {
+        // Launch, session, then execution, as `giveUpForCapacity`.
+        const [launch] = await tx
+          .select({ sessionId: workerLaunches.sessionId })
+          .from(workerLaunches)
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+              isNull(workerLaunches.claimedAttemptId),
+              holdsSlot(),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!launch) return false;
+        const [execution] = await tx
+          .select({ desiredState: executions.desiredState })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.id, ref.executionId),
+              eq(executions.generation, ref.generation),
+            ),
+          )
+          .limit(1);
+        if (execution?.desiredState !== DESIRED_RUNNING) return false;
+        await tx
+          .update(workerLaunches)
+          .set({
+            nonceHash: null,
+            capacityWaitSince: null,
+            capacityWaitMessage: null,
+          })
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+            ),
+          );
+        await releaseForCapacity(
+          tx,
+          ref,
+          launch.sessionId,
+          codexSandboxNotInstalledCause(detail),
+        );
+        return true;
+      });
+    },
+
     async giveUpForCapacity(
       ref: ExecutionRef,
       limitMs: number,
+      hint?: string,
     ): Promise<boolean> {
       return db.transaction(async (tx) => {
         // Launch, session, then execution, as `recordLaunchFailure`.
@@ -715,7 +771,7 @@ export function createPostgresSchedulerStore(
           ref,
           launch.sessionId,
           noCapacityCause(
-            `waited ${Math.round(Number(launch.waitedMs) / 1_000)}s for a node with room`,
+            `waited ${Math.round(Number(launch.waitedMs) / 1_000)}s for a node with room${hint ? `. ${hint}` : ""}`,
           ),
         );
         return true;

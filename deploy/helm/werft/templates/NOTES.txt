@@ -16,6 +16,15 @@ Worker memory
 {{- if lt $memoryMb 4608 }}
   Below 4608 MiB, resuming a large transcript with no compaction can reach the limit.
 {{- end }}
+{{- if and .Values.codexSandbox.enabled (eq .Values.codexSandbox.provider "disabled") }}
+
+Codex sandbox
+  codexSandbox.provider is disabled, so this installation has no Codex sandbox: a session
+  on a Codex image fails with CODEX_SANDBOX_NOT_INSTALLED. To use Codex, set
+  codexSandbox.provider=installer (the chart then creates a ClusterRole, its binding and an
+  admission policy, which needs cluster-scoped permissions), or have a cluster admin put the
+  profile on the nodes and label them first, and set codexSandbox.provider=external.
+{{- end }}
 {{- if .Values.scheduler.enabled }}
 {{- if .Values.scheduler.nodeCapacityCheck.enabled }}
   The scheduler log warns at startup for each worker node that holds fewer than two workers.

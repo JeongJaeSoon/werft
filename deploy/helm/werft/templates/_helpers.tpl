@@ -37,6 +37,12 @@ it is refused rather than ignored.
 {{- if hasKey .Values.codexSandbox "localhostProfile" -}}
 {{- fail "codexSandbox.localhostProfile is not a setting: the profile is always werft/codex-sandbox.json under the kubelet's seccomp directory (codexSandbox.installer.kubeletDir moves that directory)" -}}
 {{- end -}}
+{{- if hasKey .Values.codexSandbox.installer "enabled" -}}
+{{- fail "codexSandbox.installer.enabled is removed: the Codex sandbox has codexSandbox.provider instead. installer.enabled=true is provider=installer, installer.enabled=false is provider=external (a cluster administrator puts the profile on the nodes and labels them); the default is disabled, which renders no cluster-scoped object" -}}
+{{- end -}}
+{{- if not (has .Values.codexSandbox.provider (list "disabled" "installer" "external")) -}}
+{{- fail (printf "codexSandbox.provider must be disabled, installer or external (got %v)" .Values.codexSandbox.provider) -}}
+{{- end -}}
 werft/codex-sandbox.json
 {{- end -}}
 
