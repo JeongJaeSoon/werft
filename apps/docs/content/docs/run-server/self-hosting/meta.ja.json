@@ -9,6 +9,7 @@
     "---設置の準備---",
     "prepare-xfs",
     "prepare-checkpoint-bucket",
+    "prepare-codex-sandbox",
     "access",
     "---本番の設置---",
     "single-server",

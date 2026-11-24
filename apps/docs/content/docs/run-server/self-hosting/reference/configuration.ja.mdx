@@ -77,7 +77,7 @@ bubblewrap は、Docker の既定の seccomp（Kubernetes の `RuntimeDefault`�
 kubectl label node <node> werft.codex-seccomp-profile=installed
 ```
 
-ラベルのないノードには Codex Pod が配置されず、ラベルの付いたノードが1つもなければ `Pending` のままです。ノードからファイルを取り除くときは、先にラベルを外します（`kubectl label node <node> werft.codex-seccomp-profile-`）。chart を消したあとラベルをすべて外すには、同じコマンドに `<node>` の代わりに `--all` を渡します。
+ラベルのないノードには Codex Pod が配置されず、ラベルの付いたノードが1つもなければ `Pending` のままです。ノードからファイルを取り除くときは、先にラベルを外します（`kubectl label node <node> werft.codex-seccomp-profile-`）。chart を消したあとラベルをすべて外すには、同じコマンドに `<node>` の代わりに `--all` を渡します。ノードごとのコマンドと chart を上げるときの作業は [Codex sandbox のノード準備](/run-server/self-hosting/prepare-codex-sandbox)にあります。
 
 **AppArmor が有効なホスト。** Docker の `docker-default` と containerd の既定の AppArmor プロファイルは、どちらも `mount` を塞ぎます。そのため AppArmor が有効なホスト（Ubuntu・Debian の既定）では、seccomp プロファイルがあっても bubblewrap が `bwrap: Failed to make / slave: Permission denied` で失敗し、`auto` セッションは拒否されます。Ubuntu 23.10 から有効な `kernel.apparmor_restrict_unprivileged_userns=1` は、AppArmor を外しても（`unconfined`）`bwrap: setting up uid map: Permission denied` で塞ぎます。Ubuntu 24.04 と Docker 28 で確かめた最小の条件は、Codex コンテナに `docker-default` へ `userns,`・`mount,`・`pivot_root,` の3つの規則を加えた AppArmor プロファイルを付けることです。この条件は sysctl の値に関係なく通ります。Werft はまだ Codex コンテナに独自の AppArmor プロファイルを付けません。そのため、こうしたホストではいま `auto` を使えません。ほかの権限モードは使えます。
 
