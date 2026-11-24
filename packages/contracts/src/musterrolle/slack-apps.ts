@@ -329,8 +329,31 @@ export const slackAppSecretParamsSchema = slackAppParamsSchema
   .extend({ purpose: slackAppSecretPurposeSchema })
   .strict();
 
+/** The Slack calls a delete makes once Werft's side is closed, each once. */
+export const SLACK_APP_CLEANUP_STEP_VALUES = [
+  "auth.revoke",
+  "apps.manifest.delete",
+] as const;
+
+/**
+ * What the Slack side of a delete came to. `failed`: the steps named did
+ * not go through and are not tried again, so the app may still be in Slack;
+ * the delete stands.
+ */
+export const slackAppCleanupSchema = z
+  .object({
+    outcome: z.enum(["done", "failed"]),
+    failed_steps: z.array(z.enum(SLACK_APP_CLEANUP_STEP_VALUES)),
+    message: z.string().nullable(),
+  })
+  .strict();
+
 export const deleteSlackAppResponseSchema = z
-  .object({ slack_app: slackAppSchema })
+  .object({
+    slack_app: slackAppSchema,
+    /** Null when the app was already deleted: nothing was tried again. */
+    slack_cleanup: slackAppCleanupSchema.nullable(),
+  })
   .strict();
 
 /**
@@ -459,6 +482,9 @@ export type RecheckSlackAppEventsResponse = z.infer<
 export type DeleteSlackAppResponse = z.infer<
   typeof deleteSlackAppResponseSchema
 >;
+export type SlackAppCleanup = z.infer<typeof slackAppCleanupSchema>;
+export type SlackAppCleanupStep =
+  (typeof SLACK_APP_CLEANUP_STEP_VALUES)[number];
 export type ListWorkspaceSlackAppsResponse = z.infer<
   typeof listWorkspaceSlackAppsResponseSchema
 >;

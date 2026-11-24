@@ -153,6 +153,10 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 
 Slack でアプリを削除すると連携は解除される。`app_uninstalled` イベント、または bot token を含む `tokens_revoked` イベントを受け取ると、インストールが `revoked` になり、そのインストール上の有効な連携も一緒に `revoked` になる(`revoked_at` が入る)。連携のチャンネル binding と認証情報の名前も解放される。コンソールの Slack タブは「接続済み」ではなく「再インストールが必要」を表示する。同じイベントが再度届いても、再インストールの後に遅れて届いても、状態は変わらない。再度インストールすると新しい有効な連携が作られ、以前の連携は解除済みの記録として残る。
 
+Werft が作ったアプリを `DELETE /v1/workspaces/{id}/slack/apps/{app_id}`（コンソール: Slack タブの**危険な操作**の**アプリを削除**）で削除すると、Slack のイベントを待たずに Werft 側を 1 つの transaction ですべて閉じる。アプリのインストールとその有効な連携、チャンネル binding、まだ送っていない Slack メッセージ（`app_deleted` で取り消し）、そのエージェントが聞いていたチャンネルの判断バッファがまとめて閉じられ、保存済みの secret が削除される。1 つでも閉じられなければ何も閉じずにエラーで応答する。アプリは `deleting` のまま残り、同じリクエストでもう一度削除する。実行中のセッションは止めないが、そのセッションがこのアプリに送ろうとするメッセージは `app_deleted` で拒否される。セッションとターンの記録は残る。この削除は `delete_slack_app` receipt に、誰がどのアプリを削除したか、閉じた数、Slack 側の後片付けの結果を残す。トークンの値は残らない。
+
+Werft 側がコミットされた後、Slack に bot token の失効（`auth.revoke`）とアプリの削除（`apps.manifest.delete`）を 1 回ずつだけ依頼する。Slack にもうないトークンやアプリは完了とみなす。どちらかが失敗しても削除は成功（`200`）で、応答の `slack_cleanup` が `failed` と失敗した手順（`failed_steps`）を知らせる。再試行はしないので、Slack のアプリ管理画面（api.slack.com/apps）でアプリを自分で削除する。その後 Slack が `app_uninstalled` や `tokens_revoked` を送っても何も変わらない。署名 secret はアプリと一緒に削除されるので、署名を確認できないリクエストには `401` で応答し、Slack が何度再送しても閉じた状態はそのままである。
+
 イベントが届かない削除もある。bot token で Slack を呼ぶリクエスト(チャンネル一覧、名前の取得、チャンネル binding)が `token_revoked` または `account_inactive` で拒否された場合も、同じ解除を行う。応答は引き続き 409 `SLACK_NOT_INSTALLED` である。削除以外でも起こり得るエラー(`invalid_auth`、`not_authed`、`token_expired`)、429、5xx、通信失敗では状態を変えない。
 
 ## ほかのボットのメンション

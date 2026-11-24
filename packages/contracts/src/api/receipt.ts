@@ -128,6 +128,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // names its purpose and last four characters, never the value.
   "set_slack_secret",
   "delete_slack_secret",
+  // A Slack app deleted through the API: what it closed in Werft and how
+  // the Slack side's cleanup went, never a token.
+  "delete_slack_app",
   // The workspace's GitHub App registered, replaced or removed; the receipt
   // names the App id, never the key.
   "set_github_app",

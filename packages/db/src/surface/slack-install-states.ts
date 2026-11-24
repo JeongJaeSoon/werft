@@ -55,24 +55,35 @@ export function createPostgresSlackInstallStore(
 
     async recordInstallation(input) {
       const key = { appId: input.appId, teamId: input.teamId };
-      const registered = await registerSlackInstallation(db, {
-        ...key,
-        workspaceId: input.workspaceId,
+      return db.transaction(async (tx) => {
+        const registered = await registerSlackInstallation(tx, {
+          ...key,
+          workspaceId: input.workspaceId,
+        });
+        if (registered.outcome === "workspace_conflict") {
+          return { outcome: "workspace_conflict" as const };
+        }
+        // A consent that lands as the app is deleted reopens nothing.
+        if (registered.outcome === "app_deleted") {
+          return { outcome: "revoked" as const };
+        }
+        const verified = await verifySlackInstallation(tx, {
+          ...key,
+          botUserId: input.botUserId,
+        });
+        if (verified.outcome === "not_found") {
+          throw new Error(
+            `Slack installation ${key.appId}/${key.teamId} vanished after registering`,
+          );
+        }
+        if (verified.outcome === "revoked") {
+          return { outcome: "revoked" as const };
+        }
+        return {
+          outcome: "verified" as const,
+          installationId: verified.installation.id,
+        };
       });
-      if (registered.outcome === "workspace_conflict") {
-        return { outcome: "workspace_conflict" };
-      }
-      const verified = await verifySlackInstallation(db, {
-        ...key,
-        botUserId: input.botUserId,
-      });
-      if (verified.outcome === "not_found") {
-        throw new Error(
-          `Slack installation ${key.appId}/${key.teamId} vanished after registering`,
-        );
-      }
-      if (verified.outcome === "revoked") return { outcome: "revoked" };
-      return { outcome: "verified", installationId: verified.installation.id };
     },
 
     async revokeInstallation(key, sentAt) {

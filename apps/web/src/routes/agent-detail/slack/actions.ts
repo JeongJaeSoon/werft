@@ -56,15 +56,21 @@ export function useSlackApp(agentId: string) {
   const remove = useMutation({
     onMutate: () => setNotice(""),
     mutationFn: async () => {
-      if (!record || !me?.workspace) return;
-      await unwrap(
+      if (!record || !me?.workspace) return null;
+      return unwrap(
         client.DELETE("/v1/workspaces/{id}/slack/apps/{app_id}", {
           params: { path: { id: me.workspace.id, app_id: record.id } },
         }),
       );
     },
-    onSuccess: async () => {
-      setNotice(t("slack.deleted"));
+    onSuccess: async (deleted) => {
+      setNotice(
+        t(
+          deleted?.slack_cleanup?.outcome === "failed"
+            ? "slack.deletedCleanupFailed"
+            : "slack.deleted",
+        ),
+      );
       await refresh();
     },
   });
