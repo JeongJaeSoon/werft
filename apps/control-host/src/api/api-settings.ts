@@ -1,8 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
-  type CodexSandboxProvider,
-  codexSandboxProviderSchema,
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
 } from "@werft-ai/contracts";
@@ -33,13 +31,15 @@ export type ApiSettings = {
   };
   webDistDir?: string;
   /** The chart's `codexSandbox.provider`, which the scheduler reads too. */
-  codexSandboxProvider?: CodexSandboxProvider;
+  codexSandboxProvider?: (typeof CODEX_SANDBOX_PROVIDERS)[number];
   signIn: {
     /** Lower-cased; unset trusts no header. */
     clientIpHeader?: string;
     rules: AuthAttemptRules;
   };
 };
+
+const CODEX_SANDBOX_PROVIDERS = ["disabled", "installer", "external"] as const;
 
 // The reconciler keeps a window's row for a day (auth-attempts.ts in db).
 const MAX_AUTH_WINDOW_SEC = 86_400;
@@ -139,10 +139,9 @@ export function apiSettingsFromEnv(
     );
   }
   const provider = environment.CODEX_SANDBOX_PROVIDER;
-  const codexSandboxProvider =
-    provider === undefined || provider === ""
-      ? undefined
-      : codexSandboxProviderSchema.safeParse(provider).data;
+  const codexSandboxProvider = CODEX_SANDBOX_PROVIDERS.find(
+    (known) => known === provider,
+  );
   if (provider && codexSandboxProvider === undefined) {
     problems.push(
       `CODEX_SANDBOX_PROVIDER must be installer, external or disabled (got ${provider})`,

@@ -1,8 +1,6 @@
 export * from "./canonical-json.ts";
 export * from "./error.ts";
 export {
-  type CodexSandboxProvider,
-  codexSandboxProviderSchema,
   DEFAULT_WORKSPACE_ENFORCE,
   type WorkspaceEnforce,
   workspaceEnforceSchema,

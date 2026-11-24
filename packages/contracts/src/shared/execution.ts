@@ -5,18 +5,6 @@ export const workspaceEnforceSchema = z.enum(["warn", "fail", "off"]);
 export type WorkspaceEnforce = z.infer<typeof workspaceEnforceSchema>;
 export const DEFAULT_WORKSPACE_ENFORCE: WorkspaceEnforce = "warn";
 
-/**
- * Who puts the Codex sandbox on a Kubernetes installation's nodes: the
- * chart's `codexSandbox.provider`, read as `CODEX_SANDBOX_PROVIDER`. With
- * `disabled` no Codex worker starts.
- */
-export const codexSandboxProviderSchema = z.enum([
-  "disabled",
-  "installer",
-  "external",
-]);
-export type CodexSandboxProvider = z.infer<typeof codexSandboxProviderSchema>;
-
 export const DEFAULT_WORKER_USER = "1000:1000";
 export const DEFAULT_INSTALLATION_ID = "local";
 export const DEFAULT_WORKSPACE_QUOTA_MB = 4096;
