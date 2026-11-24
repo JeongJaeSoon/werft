@@ -16,6 +16,10 @@ if [ -n "${STUB_FAIL_ONCE:-}" ] && [ ! -e "$STUB_STATE/once-$name" ] && matches 
   echo "$name: stub failure" >&2
   exit 1
 fi
+# STUB_TERM_AFTER: once the command has run, SIGTERM the script that ran it.
+term_after() {
+  if [ -n "${STUB_TERM_AFTER:-}" ] && matches "$STUB_TERM_AFTER" "$*"; then kill -TERM "$PPID"; fi
+}
 mounts="$STUB_STATE/mounts"
 touch "$mounts"
 lookup() { awk -F'|' -v t="$1" '$1 == t { print $2; found = 1 } END { exit !found }' "$mounts"; }

@@ -96,7 +96,8 @@ undo() {
 rollback() {
   set +e
   failed=0
-  local unmounted=1 restored=1 fstab_restored=1
+  # Flags are set before their command, so each undo checks what is really there.
+  local restored=1
   if [ "$started" = 1 ]; then
     # shellcheck disable=SC2086 # unit names
     undo systemctl stop $units
@@ -106,37 +107,42 @@ rollback() {
       undo rm -f "$fstab_backup"
       undo systemctl daemon-reload
     else
-      fstab_restored=0
-      printf 'prepare-xfs: %s still mounts %s at boot; copy %s back over it
-' "$fstab" "$image" "$fstab_backup" >&2
+      # Putting the original back now would let the next boot mount the image over it.
+      printf 'prepare-xfs: %s still mounts %s at boot, so the rest is left as it is; copy %s over %s, then undo the rest by hand\n' "$fstab" "$image" "$fstab_backup" "$fstab" >&2
+      restored=0
     fi
   elif [ "$backing" = 1 ]; then
     undo rm -f "$fstab_backup"
   fi
-  if [ "$mounted" = 1 ]; then
-    undo umount "$data" || unmounted=0
+  if [ "$restored" = 1 ] && [ "$mounted" = 1 ] && mountpoint -q "$data"; then
+    undo umount "$data" || restored=0
   fi
-  if [ "$unmounted" = 1 ]; then
-    if [ "$dir_made" = 1 ]; then undo rmdir "$data" || restored=0; fi
-    if [ "$restored" = 1 ] && [ "$moved" = 1 ]; then undo mv "$old" "$data" || restored=0; fi
-    # Kept once Docker may have written to it, or while fstab still mounts it.
-    if [ "$image_made" = 1 ]; then
-      if [ "$started" = 1 ]; then
-        printf 'prepare-xfs: kept %s: Docker ran on it, and what it wrote since is there
-' "$image" >&2
-      elif [ "$fstab_restored" = 1 ]; then
-        undo rm -f "$image"
-      fi
+  if [ "$restored" = 1 ] && [ "$dir_made" = 1 ] && [ -d "$data" ]; then
+    undo rmdir "$data" || restored=0
+  fi
+  if [ "$restored" = 1 ] && [ "$moved" = 1 ] && [ -e "$old" ]; then
+    if [ -e "$data" ] || [ -L "$data" ]; then
+      printf 'prepare-xfs: %s is there again, so %s is not moved back over it\n' "$data" "$old" >&2
+      failed=1
+      restored=0
+    else
+      undo mv "$old" "$data" || restored=0
     fi
-  else
-    restored=0
+  fi
+  # Kept once Docker may have written to it, and whenever anything above is left.
+  if [ "$image_made" = 1 ]; then
+    if [ "$started" = 1 ]; then
+      printf 'prepare-xfs: kept %s: Docker ran on it, and what it wrote since is there\n' "$image" >&2
+    elif [ "$restored" = 1 ]; then
+      undo rm -f "$image"
+    fi
   fi
   if [ "$stopped" = 1 ]; then
     if [ "$restored" = 1 ]; then
       undo systemctl start docker.service
     else
-      printf 'prepare-xfs: Docker stays stopped: %s is not back in place and starting Docker now would run it on an empty data-root\n' "$data" >&2
-      [ "$moved" = 0 ] || printf 'prepare-xfs: the original data is in %s\n' "$old" >&2
+      printf 'prepare-xfs: Docker stays stopped: %s is not back in place and starting Docker now would run it on the wrong data-root\n' "$data" >&2
+      [ ! -e "$old" ] || printf 'prepare-xfs: the original data is in %s\n' "$old" >&2
       failed=1
     fi
   fi
@@ -259,8 +265,8 @@ systemctl stop $units
 
 if [ -d "$data" ]; then
   begin "move $data to $old"
-  mv "$data" "$old"
   moved=1
+  mv "$data" "$old"
 fi
 
 begin "create the $size image $image"
@@ -270,10 +276,10 @@ truncate -s "$size" "$image"
 mkfs.xfs -q "$image"
 
 begin "mount $image on $data"
-mkdir "$data"
 dir_made=1
-mount -o loop,prjquota "$image" "$data"
+mkdir "$data"
 mounted=1
+mount -o loop,prjquota "$image" "$data"
 fs="$(findmnt -no FSTYPE,OPTIONS "$data")"
 is_quota_xfs "$fs" || { printf 'prepare-xfs: %s mounted as "%s", not XFS with prjquota\n' "$data" "$fs" >&2; exit 1; }
 

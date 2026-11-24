@@ -7,3 +7,4 @@ case "$target" in
   *) opts="${STUB_MOUNT_OPTS:-rw,relatime,attr2,inode64,prjquota}" ;;
 esac
 printf '%s|xfs %s|%s\n' "$target" "$opts" "$img" >>"$mounts"
+term_after "$@"

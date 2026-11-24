@@ -279,23 +279,46 @@ describe("prepare-xfs.sh", () => {
     });
   }
 
-  test("a failed fstab restore keeps the image fstab still mounts", () => {
+  test("a failed fstab restore leaves the rest in place, Docker stopped", () => {
     const result = run([], {
       STUB_VERIFY_REFUSES_ENTRY: "1",
       STUB_FAIL: "cp before-prepare-xfs .*fstab$",
     });
+    const data = join(root, "var/lib/docker");
     expect(result.exitCode).toBe(4);
     expect(result.stderr).toContain("still mounts");
-    expect(existsSync(join(root, "var/lib/docker.xfs.img"))).toBe(true);
+    expect(result.stderr).toContain("Docker stays stopped");
+    expect(readFileSync(join(root, "etc/fstab"), "utf8")).toBe(
+      `${FSTAB}${ENTRY}\n`,
+    );
     expect(
       readFileSync(join(root, "etc/fstab.before-prepare-xfs"), "utf8"),
     ).toBe(FSTAB);
-    expect(
-      readFileSync(join(root, "var/lib/docker/volumes/data/file"), "utf8"),
-    ).toBe("original");
-    expect(existsSync(join(root, "var/lib/docker.old"))).toBe(false);
-    expect(existsSync(join(state, "running"))).toBe(true);
+    expect(readFileSync(join(state, "mounts"), "utf8")).toContain(
+      `${data}|xfs`,
+    );
+    expect(existsSync(`${data}.xfs.img`)).toBe(true);
+    expect(readFileSync(join(`${data}.old`, "volumes/data/file"), "utf8")).toBe(
+      "original",
+    );
+    expect(existsSync(join(state, "running"))).toBe(false);
   });
+
+  // bash runs the TERM trap once the command in hand returns, before the
+  // flag after it would be set: the undo must look at the host, not the flags.
+  const signals: [string, string][] = [
+    ["the move", "mv docker\\.old$"],
+    ["the mount", "mount docker$"],
+  ];
+  for (const [name, pattern] of signals) {
+    test(`a SIGTERM right after ${name} still puts everything back`, () => {
+      const before = snapshot();
+      const result = run([], { STUB_TERM_AFTER: pattern });
+      expect(result.stderr).toContain("exit 130");
+      expect(result.exitCode).toBe(3);
+      expect(snapshot()).toEqual(before);
+    });
+  }
 
   test("a trial mount that will not unmount is left in place, not deleted", () => {
     const result = run(["--dry-run"], { STUB_FAIL: "umount xfs-trial" });
