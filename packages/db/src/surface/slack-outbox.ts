@@ -34,6 +34,7 @@ import {
   gte,
   inArray,
   isNull,
+  lte,
   ne,
   type SQL,
   sql,
@@ -60,6 +61,7 @@ import {
   agents,
   attempts,
   events,
+  executions,
   linkedAccounts,
   pendingRequests,
   pushRequests,
@@ -71,6 +73,7 @@ import {
   surfaceBindings,
   turns,
   users,
+  workerLaunches,
 } from "../schema.ts";
 import {
   actionableNow,
@@ -1251,6 +1254,8 @@ export function createPostgresSlackOutboxStore(
           turnId: turns.sequence,
           sources: turns.sources,
           status: turns.status,
+          terminalReason: turns.terminalReason,
+          sessionPaused: sql<boolean>`${sessions.admissionState} = 'paused'`,
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
           locale: starterLocale,
@@ -1389,6 +1394,55 @@ export function createPostgresSlackOutboxStore(
             })),
         }),
       );
+    },
+
+    async capacityWaits(limit, waitedMs) {
+      // The key the adapter's slackCapacityWaitDedupeKey makes, spelled in SQL.
+      const key = sql`'capacity_wait:' || ${sessionLinks.id} || ':' || ${workerLaunches.executionId} || ':' || ${workerLaunches.generation}`;
+      return db
+        .select({
+          sessionLinkId: sessionLinks.id,
+          sessionId: sessions.id,
+          workspaceId: sessionLinks.workspaceId,
+          agentId: sessionLinks.agentId,
+          slackAppId: slackApps.id,
+          installationId: sessionLinks.installationId,
+          channelId: sessionLinks.channelId,
+          threadTs: sessionLinks.threadId,
+          locale: starterLocale,
+          executionId: workerLaunches.executionId,
+          generation: workerLaunches.generation,
+        })
+        .from(workerLaunches)
+        .innerJoin(executions, eq(executions.id, workerLaunches.executionId))
+        .innerJoin(sessions, eq(sessions.id, workerLaunches.sessionId))
+        .innerJoin(sessionLinks, eq(sessionLinks.sessionId, sessions.id))
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, sessionLinks.installationId),
+        )
+        .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
+        .where(
+          and(
+            isNull(workerLaunches.slotReleasedAt),
+            // Claimed before the pass cleared the wait: it runs already.
+            isNull(workerLaunches.claimedAttemptId),
+            eq(executions.desiredState, "running"),
+            lte(
+              workerLaunches.capacityWaitSince,
+              sql`clock_timestamp() - make_interval(secs => ${waitedMs / 1_000})`,
+            ),
+            // The threads that hear of a turn's failure hear of its wait.
+            isNull(sessionLinks.revokedAt),
+            eq(sessionLinks.muted, false),
+            reportsTurns(sql.raw('"session_links"')),
+            isNull(sessionLinks.closedAt),
+            ne(slackInstallations.status, "revoked"),
+            sql`NOT EXISTS (SELECT 1 FROM ${t} o WHERE o.dedupe_key = ${key})`,
+          ),
+        )
+        .orderBy(asc(workerLaunches.capacityWaitSince))
+        .limit(limit);
     },
 
     async unpromptedRequests(limit) {

@@ -35,8 +35,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // moves to 150. The conversation runtime's turn protocol put ./forms 86
   // bytes over 147, so it moves to 148. The agent list's activation and the
   // counts' inactive put ./schemas 87 bytes over 150, so it moves to 151.
+  // The session's capacity wait fields and the no-capacity turn and notice
+  // keys put ./forms 64 bytes over 148, so it moves to 149.
   "./schemas": 151 * 1024,
-  "./forms": 148 * 1024,
+  "./forms": 149 * 1024,
 };
 
 test("every entry has a budget", () => {
