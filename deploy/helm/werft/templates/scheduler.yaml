@@ -78,6 +78,12 @@ spec:
               value: {{ .Values.worker.cpus | quote }}
             - name: WORKER_MEMORY_MB
               value: {{ .Values.worker.memoryMb | quote }}
+            {{- $idle := toString .Values.worker.idleTimeoutSeconds }}
+            {{- if not (and (regexMatch "^[0-9]+$" $idle) (ge (atoi $idle) 60) (le (atoi $idle) 7200)) }}
+            {{- fail (printf "worker.idleTimeoutSeconds must be an integer from 60 to 7200 (got %s)" $idle) }}
+            {{- end }}
+            - name: WORKER_IDLE_TIMEOUT_SEC
+              value: {{ $idle | quote }}
             - name: EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB
               value: {{ .Values.worker.ephemeralStorageMb | quote }}
             - name: SCHEDULER_NODE_CAPACITY_CHECK

@@ -1,5 +1,6 @@
 export { queueAchievementJudgment } from "./achievement-judgments.ts";
 export { insertBuiltinAchievementTypes } from "./achievement-rules.ts";
+export { contextCoverage, contextGap } from "./context-gap.ts";
 export { CLOSE, openDrainReceipt } from "./drain.ts";
 export { enqueueWithin } from "./enqueue.ts";
 export { hasRestorePoint } from "./pause-policy.ts";

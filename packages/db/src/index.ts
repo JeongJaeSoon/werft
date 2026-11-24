@@ -7,6 +7,7 @@ export * from "./agents/agent-workspace-mcp.ts";
 export * from "./agents/retired-catalog-drafts.ts";
 export * from "./agents.ts";
 export * from "./budget-accounts.ts";
+export * from "./budget-unknown.ts";
 export {
   listUnreleasedLaunchImages,
   listUpgradeSessions,
@@ -102,6 +103,7 @@ export * from "./sessions/execution-revocation.ts";
 export * from "./sessions/interrupt-control.ts";
 export * from "./sessions/lease-reconcile.ts";
 export * from "./sessions/neutral-fields.ts";
+export * from "./sessions/operator-close.ts";
 export { expireParkedGroups } from "./sessions/parked-group.ts";
 export * from "./sessions/pending-control.ts";
 export { createPostgresPendingRequests } from "./sessions/pending-requests.ts";

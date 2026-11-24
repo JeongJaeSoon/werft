@@ -5,6 +5,7 @@ import {
   DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
   DEFAULT_WORKSPACE_QUOTA_MB,
   MIN_WORKSPACE_QUOTA_MB,
+  workerIdleTimeoutSecondsOf,
 } from "@werft-ai/contracts/execution";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import { checkGatewayUrl, parseEgressProxyUrl } from "@werft-ai/platform";
@@ -59,6 +60,11 @@ export type KubernetesBackendConfig = {
    * `WORKER_STOP_GRACE_SEC` so it sizes its drain to fit.
    */
   stopTimeoutSeconds: number;
+  /**
+   * Handed to the worker as `WORKER_IDLE_TIMEOUT_SEC`: how long it waits
+   * for input before it ends. Absent, the worker keeps its own default.
+   */
+  idleTimeoutSeconds?: number;
   /** Deadline for each API server call. */
   requestTimeoutMs: number;
   /** `uid:gid`, numeric and not root. */
@@ -167,6 +173,7 @@ export function kubernetesConfigFromEnv(
       bucket: required(environment, "S3_BUCKET"),
       region: required(environment, "AWS_REGION"),
     },
+    idleTimeoutSeconds: workerIdleTimeoutSecondsOf(environment),
     requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
     stopTimeoutSeconds: DEFAULT_STOP_TIMEOUT_SECONDS,
     storageClass: nonEmpty(environment.EXECUTION_K8S_STORAGE_CLASS),

@@ -3,6 +3,7 @@
 //   bun run src/main.ts <api|metrics>
 //   bun run src/main.ts <scheduler|reconciler|slack> [--once|--health|--serve]
 //   bun run src/main.ts admin bootstrap-owner --email <address> --out <file>
+//   bun run src/main.ts admin close-session <session_id> --reason <text>
 //
 // The role is named, never defaulted, so a container runs what its command
 // says. `scheduler`, `reconciler` and `slack` are services: a supervised loop

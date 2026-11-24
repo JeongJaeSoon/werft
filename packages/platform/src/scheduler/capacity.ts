@@ -1,7 +1,10 @@
 import { CAPACITY_WAIT_LIMIT_MS } from "./options.ts";
 import { fieldsOf, type PassContext, refOf } from "./pass-context.ts";
 import type { ExecutionObservation } from "./ports/execution-backend.ts";
-import type { ActiveExecution } from "./ports/scheduler-store.ts";
+import type {
+  ActiveExecution,
+  ClaimedWorker,
+} from "./ports/scheduler-store.ts";
 
 /**
  * The provider's reason an unclaimed launch's resource has no room, or
@@ -80,11 +83,39 @@ export async function capacityFound(
 }
 
 /**
- * Where room is made for a launch that waits for it, called on every pass
- * while it waits. Nothing makes room yet; taking down the worker that has
- * been idle longest goes here.
+ * Makes room for a launch that waits for it, called on every pass while it
+ * waits: the worker idle longest among those whose room it could take is
+ * asked to go. One at a time — while one is on its way out nothing more is
+ * asked, and a launch still without room once it has gone asks for the
+ * next. A worker with a turn open, a person's answer awaited included, is
+ * never one: only a worker no turn will be cut on is idle.
  */
 async function makeRoom(
-  _ctx: PassContext,
-  _execution: ActiveExecution,
-): Promise<void> {}
+  ctx: PassContext,
+  execution: ActiveExecution,
+): Promise<void> {
+  const { backend, lock, logger, store, summary } = ctx;
+  const waitingImage = execution.image;
+  const frees = (worker: ClaimedWorker) =>
+    waitingImage === null ||
+    worker.image === null ||
+    (backend.makesRoomFor?.(waitingImage, worker.image) ?? true);
+  lock.throwIfAborted();
+  const workers = await store.idleWorkers(execution.backend);
+  if (workers.stopping.some(frees)) return;
+  for (const worker of workers.idle) {
+    if (!frees(worker)) continue;
+    const ref = refOf(worker);
+    lock.throwIfAborted();
+    if (!(await store.requestIdleStop(ref))) continue;
+    summary.idleWorkersStopped.push(ref);
+    logger.info("Idle worker asked to stop; a launch waits for its room", {
+      ...fieldsOf(ref),
+      session_id: worker.sessionId,
+      idle_since: worker.idleSince.toISOString(),
+      for_execution_id: execution.executionId,
+      for_session_id: execution.sessionId,
+    });
+    return;
+  }
+}
