@@ -1,7 +1,11 @@
 import type {
   BudgetAccountId,
   BudgetRootKind,
+  ConversationCallClass,
   ConversationCallId,
+  ConversationCallKey,
+  ConversationId,
+  ConversationTopicId,
 } from "@werft-ai/contracts";
 import type { BudgetRoot, ConversationCalls } from "../limits/index.ts";
 import { CONVERSATION_CALL_PATH } from "../limits/index.ts";
@@ -22,6 +26,14 @@ export type ConversationCallMessage = {
 export type ConversationCallRequest<T> = {
   workspaceId: string;
   agentId: string;
+  conversationId: ConversationId;
+  topicId: ConversationTopicId | null;
+  callClass: ConversationCallClass;
+  /** The agent's active release (an agent_releases id). */
+  releaseId: string | null;
+  /** Unique in the agent with `attempt`; a retry takes the next attempt. */
+  callKey: ConversationCallKey;
+  attempt: number;
   root: BudgetRoot;
   connectionId: string;
   model: string;
@@ -48,6 +60,10 @@ export type ConversationCallResult<T> =
       accountId: BudgetAccountId | null;
     }
   | { outcome: "unknown_agent" }
+  // The conversation is not the agent's, or the topic not the conversation's.
+  | { outcome: "unknown_conversation" }
+  // The agent already has a call of that key and attempt; none is added.
+  | { outcome: "already_issued" }
   // The connection is not one the catalog holds, or serves no Messages.
   | { outcome: "unavailable" }
   // The reservation itself failed; nothing was reserved.
@@ -101,6 +117,12 @@ export function createConversationCallExecutor(deps: {
         issued = await deps.calls.issue({
           workspaceId: input.workspaceId,
           agentId: input.agentId,
+          conversationId: input.conversationId,
+          topicId: input.topicId,
+          callClass: input.callClass,
+          releaseId: input.releaseId,
+          callKey: input.callKey,
+          attempt: input.attempt,
           root: input.root,
           connectionId: input.connectionId,
           model: input.model,
