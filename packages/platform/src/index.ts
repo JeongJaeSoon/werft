@@ -16,6 +16,7 @@ export * from "./checkpoints/checkpoint-collector.ts";
 export * from "./checkpoints/checkpoint-service.ts";
 export * from "./checkpoints/durability.ts";
 export * from "./limits/budget-accounts.ts";
+export * from "./limits/conversation-call-limits.ts";
 export * from "./limits/conversation-calls.ts";
 export * from "./limits/installation-limits.ts";
 export * from "./limits/model-prices.ts";
