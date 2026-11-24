@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CONVERSATION_TOPIC_SESSION_IDLE_MS,
   type ConversationRuntimeTurn,
   conversationRuntimeTurnSchema,
 } from "@werft-ai/contracts";
@@ -27,7 +28,9 @@ import {
   startCredentialProxy,
 } from "../apps/egress-proxy/src/credential.ts";
 import { createProxyLogger } from "../apps/egress-proxy/src/logger.ts";
+import { PermitRelay } from "../apps/worker/src/conversation/permit-relay.ts";
 import { TopicDirectories } from "../apps/worker/src/conversation/topic-directories.ts";
+import { TopicSessions } from "../apps/worker/src/conversation/topic-sessions.ts";
 import { createConversationTurnRunner } from "../apps/worker/src/conversation/turn-runner.ts";
 import { until } from "./until.ts";
 
@@ -64,13 +67,15 @@ let root: string | undefined;
 let provider: FakeAnthropicServer | undefined;
 let authorizer: ReturnType<typeof Bun.serve> | undefined;
 let proxy: CredentialProxyServer | undefined;
+let relay: PermitRelay | undefined;
 
 afterEach(async () => {
+  relay?.stop();
   proxy?.stop();
   authorizer?.stop(true);
   provider?.stop();
   if (root !== undefined) await rm(root, { force: true, recursive: true });
-  root = provider = authorizer = proxy = undefined;
+  root = provider = authorizer = proxy = relay = undefined;
 });
 
 async function stack(
@@ -145,21 +150,28 @@ async function stack(
   const [runtime] = installedRuntimes;
   if (runtime === undefined) throw new Error("no runtime installed");
   const topics = new TopicDirectories(root);
+  let clock = 0;
+  relay = new PermitRelay(`http://127.0.0.1:${proxy.port}/provider`);
+  const sessions = new TopicSessions(topics, relay, { now: () => clock });
   const runner = createConversationTurnRunner({
     runtime,
-    egressCredentialUrl: `http://127.0.0.1:${proxy.port}`,
-    topics,
+    sessions,
+    relay,
     ...(options.limitMs === undefined ? {} : { limitMs: options.limitMs }),
     // A runtime that got past its own count: the engine's stop is far off too.
     ...(options.runnerLimits === false
       ? { modelCallLimit: 100, toolCallLimit: 100 }
       : {}),
   });
-  /** A turn with a fresh permit the authorizer grants, unless `known` is false. */
+  /**
+   * A turn with a fresh permit the authorizer grants, unless `known` is
+   * false. A new session of its topic starts from `fresh`, else `text`.
+   */
   const turn = (
     topicId: string,
     text: string,
     known = true,
+    fresh = text,
   ): ConversationRuntimeTurn & { token: string } => {
     const token = ["wct", crypto.randomUUID()].join("_");
     if (known) {
@@ -187,6 +199,7 @@ async function stack(
         },
         call: { max_tokens: MAX_TOKENS },
         input: { id: crypto.randomUUID(), text },
+        fresh_input: { id: crypto.randomUUID(), text: fresh },
       }),
       token,
     };
@@ -196,11 +209,17 @@ async function stack(
     root,
     provider,
     topics,
+    sessions,
+    runtime,
+    relay,
+    tick: (ms: number) => {
+      clock += ms;
+    },
     runner,
     turn,
+    grants,
     asked,
     reported,
-    grants,
     live,
   };
 }
@@ -216,6 +235,24 @@ async function filesUnder(directory: string): Promise<Map<string, string>> {
   }
   return found;
 }
+
+/** The text each user message of the request ends with: what each turn sent. */
+const userTexts = (request: FakeAnthropicServer["requests"][number]) =>
+  (request.body.messages as { role: unknown; content: unknown }[])
+    .filter((message) => message.role === "user")
+    .map((message) => {
+      const content = message.content;
+      if (typeof content === "string") return content;
+      return (content as { type: unknown; text?: unknown }[])
+        .flatMap((block) =>
+          block.type === "text" &&
+          typeof block.text === "string" &&
+          !block.text.startsWith("<system-reminder>")
+            ? [block.text]
+            : [],
+        )
+        .join("");
+    });
 
 const requestText = (request: FakeAnthropicServer["requests"][number]) =>
   JSON.stringify(request.body);
@@ -296,6 +333,84 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     expect(await stat(probe()).catch(() => null)).toBeNull();
   }, 90_000);
 
+  test("a topic's turn within its lifetime goes on in its engine; past it, or dropped, a new session starts from the assembled context alone", async () => {
+    const s = await stack(() => textReply("noted"));
+    const topic = crypto.randomUUID();
+    const marker = `marker-${crypto.randomUUID()}`;
+    const first = s.turn(
+      topic,
+      `remember ${marker}`,
+      true,
+      `assembled ${marker}`,
+    );
+    expect(await s.runner.run(first, s.live)).toEqual({
+      outcome: "completed",
+      text: "noted",
+    });
+    s.tick(CONVERSATION_TOPIC_SESSION_IDLE_MS - 1);
+    const kept = s.turn(topic, "what did I say?", true, "assembled again");
+    expect(
+      (await s.runner.run({ ...kept, topic_session: "keep" }, s.live)).outcome,
+    ).toBe("completed");
+
+    s.tick(CONVERSATION_TOPIC_SESSION_IDLE_MS);
+    const late = s.turn(
+      topic,
+      "and now?",
+      true,
+      "assembled after the idle time",
+    );
+    expect(
+      (await s.runner.run({ ...late, topic_session: "keep" }, s.live)).outcome,
+    ).toBe("completed");
+
+    const dropped = s.turn(topic, "once more", true, "assembled after a drop");
+    expect(
+      (await s.runner.run({ ...dropped, topic_session: "drop" }, s.live))
+        .outcome,
+    ).toBe("completed");
+
+    // The kept turn's call went out on its own permit, not the first turn's.
+    expect(s.grants.get(kept.token)?.calls.size).toBe(1);
+
+    const [one, two, three, four] = s.provider.requests.map(userTexts);
+    // A new session's first request: the assembled context, and nothing before it.
+    expect(one).toEqual([`assembled ${marker}`]);
+    // The kept turn: the first exchange, then the turn's own input.
+    expect(two).toEqual([`assembled ${marker}`, "what did I say?"]);
+    expect(requestText(s.provider.requests[1] as never)).toContain("noted");
+    expect(three).toEqual(["assembled after the idle time"]);
+    expect(four).toEqual(["assembled after a drop"]);
+    expect(requestText(s.provider.requests[2] as never)).not.toContain(marker);
+  }, 120_000);
+
+  test("a restarted runtime holds no session: its topics start anew, and run", async () => {
+    const s = await stack(() => textReply("noted"));
+    const topic = crypto.randomUUID();
+    await s.runner.run(s.turn(topic, "first"), s.live);
+    expect((await stat(join(s.root, topic))).isDirectory()).toBe(true);
+
+    // The old process is gone, its engine with it; its directory is left.
+    await (await s.sessions.get(topic))?.run.close();
+    // What a new process does first.
+    const restarted = new TopicSessions(s.topics, s.relay);
+    await restarted.reset();
+    expect(await stat(join(s.root, topic)).catch(() => null)).toBeNull();
+    const runner = createConversationTurnRunner({
+      runtime: s.runtime,
+      sessions: restarted,
+      relay: s.relay,
+    });
+    const next = s.turn(topic, "second", true, "assembled for the restart");
+    expect(
+      await runner.run({ ...next, topic_session: "keep" }, s.live),
+    ).toEqual({ outcome: "completed", text: "noted" });
+    expect(userTexts(s.provider.requests[1] as never)).toEqual([
+      "assembled for the restart",
+    ]);
+    await restarted.dropAll();
+  }, 90_000);
+
   test("keeps each topic's files and session to its own directory, and removes them with the topic", async () => {
     const s = await stack(() => textReply("noted"));
     const [topicA, topicB] = [crypto.randomUUID(), crypto.randomUUID()];
@@ -342,7 +457,7 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     }
     expect(await readdir(join(s.root, topicA, "work"))).toEqual([]);
 
-    await s.topics.drop(topicA as never);
+    await s.sessions.drop(topicA as never);
     expect(await stat(join(s.root, topicA)).catch(() => null)).toBeNull();
     // Dropping one topic leaves the other.
     expect((await stat(join(s.root, topicB))).isDirectory()).toBe(true);

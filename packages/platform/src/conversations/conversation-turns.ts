@@ -13,6 +13,11 @@ import type {
   ConversationTurnReport,
   QueuedConversationTurn,
 } from "../ports/conversation-turn-queue.ts";
+import type { TopicSessionChecks } from "./topic-session-checks.ts";
+
+// A lease taken now would outlast the turn's permit.
+const tooLate = (usableUntil: Date | null, now: Date, leaseMs: number) =>
+  usableUntil !== null && now.getTime() + leaseMs > usableUntil.getTime();
 
 // How long an ended turn is kept, so a repeated report is still told apart
 // from an unknown one and whoever queued the turn can read how it ended.
@@ -25,7 +30,13 @@ type Lease = {
 };
 
 type Entry = { turn: QueuedConversationTurn } & (
-  | { state: "queued"; takeBy: Date }
+  | {
+      state: "queued";
+      takeBy: Date;
+      /** How long it may wait from its topic's last turn's end, behind which it queued. */
+      takeMs: number;
+      usableUntil: Date | null;
+    }
   | { state: "leased"; lease: Lease }
   | {
       state: "ended";
@@ -43,12 +54,41 @@ type Entry = { turn: QueuedConversationTurn } & (
  */
 export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   const entries = new Map<ConversationTurnId, Entry>();
+  // When each topic's last turn out ended: a turn queued behind it waits from then.
+  const topicFreedAt = new Map<string, number>();
+
+  const topicBusy = (topicId: string) =>
+    [...entries.values()].some(
+      (entry) =>
+        entry.state === "leased" && entry.turn.scope.topic_id === topicId,
+    );
+  // Kept only while a turn of the topic waits: a later one waits from its own enqueue.
+  const waiting = (topicId: string) =>
+    [...entries.values()].some(
+      (other) =>
+        other.state === "queued" && other.turn.scope.topic_id === topicId,
+    );
+  const freed = (entry: Entry, at: Date) => {
+    const topicId = entry.turn.scope.topic_id;
+    if (waiting(topicId)) topicFreedAt.set(topicId, at.getTime());
+    else topicFreedAt.delete(topicId);
+  };
 
   // A turn nobody took, or whose holder went quiet, ends here: never requeued,
   // since its one-call permit may already be spent.
   function settle(id: ConversationTurnId, entry: Entry, now: Date): Entry {
     let ended: Entry | undefined;
-    if (entry.state === "queued" && now >= entry.takeBy) {
+    const topicId = entry.turn.scope.topic_id;
+    if (
+      entry.state === "queued" &&
+      (tooLate(entry.usableUntil, now, CONVERSATION_TURN_LEASE_MS) ||
+        (!topicBusy(topicId) &&
+          now.getTime() >=
+            Math.max(
+              entry.takeBy.getTime(),
+              (topicFreedAt.get(topicId) ?? 0) + entry.takeMs,
+            )))
+    ) {
       ended = {
         turn: entry.turn,
         state: "ended",
@@ -64,9 +104,11 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
         outcome: { outcome: "failed", reason: "lease_expired" },
         at: now,
       };
+      freed(entry, now);
     }
     if (ended === undefined) return entry;
     entries.set(id, ended);
+    if (!waiting(topicId)) topicFreedAt.delete(topicId);
     return ended;
   }
 
@@ -85,18 +127,32 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   return {
     durable: false,
 
-    async enqueue(turn, takeBy) {
+    async enqueue(turn, takeBy, now = new Date(), usableUntil) {
       if (entries.has(turn.turn_id)) {
         throw new Error(`Conversation turn ${turn.turn_id} is already queued`);
       }
-      entries.set(turn.turn_id, { turn, state: "queued", takeBy });
+      entries.set(turn.turn_id, {
+        turn,
+        state: "queued",
+        takeBy,
+        takeMs: Math.max(0, takeBy.getTime() - now.getTime()),
+        usableUntil: usableUntil ?? null,
+      });
     },
 
     async lease({ runtimeId, now, leaseMs }) {
       sweep(now);
+      // One turn of a topic at a time: the next waits for the one out to end.
+      const busy = new Set(
+        [...entries.values()].flatMap((entry) =>
+          entry.state === "leased" ? [entry.turn.scope.topic_id] : [],
+        ),
+      );
       // A Map keeps insertion order: the first queued entry is the oldest.
       for (const [id, entry] of entries) {
         if (entry.state !== "queued") continue;
+        if (busy.has(entry.turn.scope.topic_id)) continue;
+        if (tooLate(entry.usableUntil, now, leaseMs)) continue;
         const lease: Lease = {
           id: conversationTurnLeaseIdSchema.parse(crypto.randomUUID()),
           runtimeId,
@@ -121,6 +177,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
       if (entry.state === "queued") return "not_holder";
       if (!holds(entry.lease)) return "not_holder";
       if (entry.state === "leased") {
+        freed(entry, now);
         entries.set(turnId, {
           turn: entry.turn,
           state: "ended",
@@ -176,6 +233,8 @@ export type ConversationRuntimeTurns = ReturnType<
  */
 export function createConversationRuntimeTurns(deps: {
   queue: ConversationTurnQueue;
+  /** Checks a turn's topic session as a runtime takes it, and learns how it ended. */
+  topicSessions?: Pick<TopicSessionChecks, "handOut" | "ended">;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   /** How often a waiting poll looks at the queue again. */
@@ -211,8 +270,12 @@ export function createConversationRuntimeTurns(deps: {
           leaseMs,
         });
         if (turn !== null) {
-          await deps.leased?.(turn);
-          return turn;
+          const handed =
+            deps.topicSessions === undefined
+              ? turn
+              : await deps.topicSessions.handOut(turn);
+          await deps.leased?.(handed);
+          return handed;
         }
         const left = deadline - now().getTime();
         if (left <= 0 || input.stop?.aborted === true) return null;
@@ -220,13 +283,20 @@ export function createConversationRuntimeTurns(deps: {
       }
     },
 
-    turnResult(input: {
+    async turnResult(input: {
       runtimeId: ConversationRuntimeId;
       turnId: ConversationTurnId;
       leaseId: ConversationTurnLeaseId;
       result: ConversationTurnResult;
     }): Promise<ConversationTurnReport> {
-      return deps.queue.report({ ...input, now: now() });
+      const recorded = await deps.queue.report({ ...input, now: now() });
+      if (recorded === "recorded") {
+        deps.topicSessions?.ended(
+          input.turnId,
+          input.result.outcome === "completed",
+        );
+      }
+      return recorded;
     },
 
     /** Whether a runtime asked for a turn within the last `withinMs`. */

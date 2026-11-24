@@ -27,6 +27,7 @@ const turn: ConversationRuntimeTurn = conversationRuntimeTurnSchema.parse({
   },
   call: { max_tokens: 1_024 },
   input: { id: crypto.randomUUID(), text: "hello" },
+  fresh_input: { id: crypto.randomUUID(), text: "hello" },
 });
 
 function source(answer: (path: string, body: unknown) => Response) {

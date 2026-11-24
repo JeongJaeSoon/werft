@@ -13,7 +13,7 @@ outcome: "시험 chart를 설치하고 정리한다"
 
 ## 준비물
 
-Docker, kind, Helm 3, kubectl, git, Bun 1.3.14와 저장소 checkout이 필요하다. 설치·제거할 클러스터 이름과 registry 포트가 다른 작업과 겹치지 않아야 한다. NetworkPolicy를 강제하는 kind 버전을 사용한다.
+Docker, kind, Helm 3, kubectl이 필요하다. 1단계의 harness는 git, Bun 1.3.14와 저장소 checkout도 쓴다. 2단계의 게시 chart 시험은 checkout 대신 `curl`, `openssl`과 [chart 시험용 DB와 object store](/run-server/self-hosting/try-chart-dependencies#준비물)의 준비물을 쓴다. 설치·제거할 클러스터 이름과 registry 포트가 다른 작업과 겹치지 않아야 한다. NetworkPolicy를 강제하는 kind 버전을 사용한다.
 
 ## 단계
 
@@ -30,38 +30,17 @@ export KUBECONFIG=~/.cache/werft/kind/werft-try/kubeconfig
 
 ### 2. 게시 chart를 직접 시험하는 경우
 
-harness 대신 게시 패키지를 시험하려면 별도의 클러스터를 만들고 아래 의존성을 준비한다. `VERSION`은 [패키지 계약](/run-server/self-hosting/reference/packages)에서 선택한 정확한 게시 chart 버전이다.
+harness 대신 게시 chart를 시험할 때는 저장소 checkout이 필요 없다. 별도의 kind 클러스터를 만들고, 이 클러스터만 가리키는 kubeconfig를 쓴다.
 
 ```bash
-git clone https://github.com/JeongJaeSoon/werft.git
-cd werft
-kind create cluster --name werft-try
-kubectl create namespace werft
-kubectl -n werft create configmap localstack-init \
-  --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
-kubectl -n werft apply -f deploy/kind/deps.yaml
-kubectl -n werft rollout status deploy/postgres --timeout=300s || exit 1
-kubectl -n werft rollout status deploy/localstack --timeout=300s || exit 1
-SECRETS="$(mktemp -d)"
+kind create cluster --name werft-try --kubeconfig "$HOME/.kube/werft-try"
+export KUBECONFIG="$HOME/.kube/werft-try"
+kubectl config current-context
 ```
 
-다음 명령의 `read -rs`는 프롬프트 없이 입력을 기다린다. 입력할 값은 `deploy/kind/deps.yaml`의 `POSTGRES_PASSWORD`이고, 값을 명령줄에 쓰지 않으려고 터미널에서 읽는다. 터미널 없이 실행하는 스크립트에서는 같은 값을 표준 입력으로 넘겨 이 줄을 채운다. Secret 값은 모두 이 kind 시험용이다. 실서버에는 [Kubernetes 설치의 2. namespace와 Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret)에서 직접 만든 값을 쓴다. Secret을 만든 뒤에는 변수와 임시 디렉터리를 지운다.
+마지막 명령이 `kind-werft-try`를 출력해야 한다. 이어서 같은 셸에서 [chart 시험용 DB와 object store](/run-server/self-hosting/try-chart-dependencies)의 1~4단계를 따른다. 그 페이지가 의존성 manifest, Secret, 최소 values를 본문으로 주고, 4단계에서 게시 chart를 설치한다. LocalStack 초기화 스크립트는 그 manifest의 ConfigMap `localstack-init`에 들어 있으며, 릴리스 번들(`werft-test-ops-<tag>.tar.gz`)의 `infra/localstack/init/10-create-resources.sh`와 같은 bucket을 만든다.
 
-```bash
-read -rs KIND_DB_PASSWORD
-{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
-openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
-openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
-printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
-printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
-kubectl -n werft create secret generic werft --from-file="$SECRETS"
-unset KIND_DB_PASSWORD
-rm -r "${SECRETS:?}"
-helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --timeout 10m
-```
-
-첫 owner는 api Pod가 출력하는 일회용 설정 링크로 만든다(`kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`). 경로만 나오면 port-forward 주소(`http://127.0.0.1:13000`) 뒤에 붙여 연다. 링크는 DB에 있으므로 replica 2개 중 어디에 닿아도 통한다. 모델 key는 Secret에 넣지 않는다. key는 첫 owner가 콘솔에서 넣어 DB에 저장하는 값뿐이고, 이 시험은 key를 넣지 않는다. Secret 디렉터리는 생성 뒤 접근 권한을 0700으로 확인하고, 터미널 없이 실행할 때는 DB 비밀번호를 표준 입력으로 전달한다. 실제 운영 자격 증명을 이 시험에 넣지 않는다. 위 Secret 블록과 fixture chart 시험의 성공을 게시 chart 시험 전체의 성공으로 혼동하지 않는다.
+첫 owner는 api Pod가 출력하는 일회용 설정 링크로 만든다(`kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`). 경로만 나오면 port-forward 주소(`http://127.0.0.1:13000`) 뒤에 붙여 연다. 링크는 DB에 있으므로 replica 2개 중 어디에 닿아도 통한다. 모델 key는 Secret에 넣지 않는다. key는 첫 owner가 콘솔에서 넣어 DB에 저장하는 값뿐이고, 이 시험은 key를 넣지 않는다. 실제 운영 자격 증명을 이 시험에 넣지 않는다.
 
 ## 확인
 
@@ -107,7 +86,7 @@ harness로 만든 경우:
 CLUSTER_NAME=werft-try deploy/kind/up.sh down
 ```
 
-직접 만든 `werft-try` 클러스터는 `kind delete cluster --name werft-try`로 제거한다. 실패했을 때도 이번 시험 클러스터만 정리하고 다른 context의 리소스는 건드리지 않는다.
+직접 만든 `werft-try` 클러스터는 `kind delete cluster --name werft-try --kubeconfig "$HOME/.kube/werft-try"`로 제거한다. 실패했을 때도 이번 시험 클러스터만 정리하고 다른 context의 리소스는 건드리지 않는다.
 
 ## 다음에 읽을 곳
 

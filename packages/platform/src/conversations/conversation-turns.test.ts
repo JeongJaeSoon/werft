@@ -37,14 +37,20 @@ function queued(): QueuedConversationTurn {
     },
     call: { max_tokens: 1_024 },
     input: { id: crypto.randomUUID(), text: "hello" },
+    fresh_input: { id: crypto.randomUUID(), text: "hello" },
   };
 }
 
 /** The service over a memory queue, on a clock the test moves. */
-function harness() {
+function harness(
+  topicSessions?: Parameters<
+    typeof createConversationRuntimeTurns
+  >[0]["topicSessions"],
+) {
   let clock = START.getTime();
   const turns = createConversationRuntimeTurns({
     queue: createMemoryConversationTurnQueue(),
+    ...(topicSessions === undefined ? {} : { topicSessions }),
     now: () => new Date(clock),
     // A waiting poll moves the clock instead of the test's time.
     sleep: async (ms) => {
@@ -59,7 +65,7 @@ function harness() {
     at: () => new Date(clock),
     enqueue(turn = queued(), takeInMs = 30_000) {
       return turns.queue
-        .enqueue(turn, new Date(clock + takeInMs))
+        .enqueue(turn, new Date(clock + takeInMs), new Date(clock))
         .then(() => turn);
     },
   };
@@ -223,6 +229,161 @@ describe("conversation turns over the memory queue", () => {
       outcome: "failed",
       reason: "not_taken",
     });
+  });
+
+  test("a topic's second turn waits while its first is out, and is taken once that one ends", async () => {
+    const h = harness();
+    const first = await h.enqueue();
+    const second = await h.enqueue({
+      ...queued(),
+      scope: first.scope,
+    });
+    const other = await h.enqueue();
+
+    const a = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    // The second is older than the other topic's, but its topic is busy.
+    const b = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    expect([a?.turn_id, b?.turn_id]).toEqual([first.turn_id, other.turn_id]);
+    expect(await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 })).toBe(
+      null,
+    );
+
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: first.turn_id,
+      leaseId: a?.lease_id as never,
+      result: done,
+    });
+    expect(
+      (await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }))?.turn_id,
+    ).toBe(second.turn_id);
+  });
+
+  test("a turn queued behind its topic's turn waits its take time again from that turn's end", async () => {
+    const h = harness();
+    const first = await h.enqueue();
+    const second = await h.enqueue({ ...queued(), scope: first.scope });
+    const a = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+
+    // Past the second's own take time, while the first is still out.
+    h.advance(60_000);
+    expect(await h.turns.queue.outcome(second.turn_id, h.at())).toBe("pending");
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: first.turn_id,
+      leaseId: a?.lease_id as never,
+      result: done,
+    });
+    h.advance(29_000);
+    expect(
+      (await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }))?.turn_id,
+    ).toBe(second.turn_id);
+  });
+
+  test("one queued behind its topic's turn is not taken once a whole lease would outlast its permit", async () => {
+    const h = harness();
+    const usableUntil = new Date(
+      h.at().getTime() + 30_000 + CONVERSATION_TURN_LEASE_MS,
+    );
+    const first = await h.enqueue();
+    const late = { ...queued(), scope: first.scope };
+    await h.turns.queue.enqueue(
+      late,
+      new Date(h.at().getTime() + 30_000),
+      h.at(),
+      usableUntil,
+    );
+    const a = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    h.advance(31_000);
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: first.turn_id,
+      leaseId: a?.lease_id as never,
+      result: done,
+    });
+    expect(
+      await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }),
+    ).toBeNull();
+    expect(await h.turns.queue.outcome(late.turn_id, h.at())).toEqual({
+      outcome: "failed",
+      reason: "not_taken",
+    });
+
+    // Freed in time, the next one is taken with its whole lease inside its permit.
+    const second = await h.enqueue();
+    const soon = { ...queued(), scope: second.scope };
+    const until = new Date(
+      h.at().getTime() + 30_000 + CONVERSATION_TURN_LEASE_MS,
+    );
+    await h.turns.queue.enqueue(
+      soon,
+      new Date(h.at().getTime() + 30_000),
+      h.at(),
+      until,
+    );
+    const b = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    h.advance(20_000);
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: second.turn_id,
+      leaseId: b?.lease_id as never,
+      result: done,
+    });
+    expect(
+      (await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }))?.turn_id,
+    ).toBe(soon.turn_id);
+  });
+
+  test("one queued behind a turn whose lease runs out waits from the lease's end", async () => {
+    const h = harness();
+    const first = await h.enqueue();
+    const second = await h.enqueue({ ...queued(), scope: first.scope });
+    await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    h.advance(CONVERSATION_TURN_LEASE_MS);
+    expect(await h.turns.queue.outcome(first.turn_id, h.at())).toEqual({
+      outcome: "failed",
+      reason: "lease_expired",
+    });
+    h.advance(30_000);
+    expect(await h.turns.queue.outcome(second.turn_id, h.at())).toEqual({
+      outcome: "failed",
+      reason: "not_taken",
+    });
+  });
+
+  test("a turn is handed out through the topic session check, which learns how it ended", async () => {
+    const ended: unknown[] = [];
+    const h = harness({
+      handOut: async (turn) => ({
+        ...turn,
+        fresh_input: { ...turn.fresh_input, text: "assembled" },
+        topic_session: "keep",
+      }),
+      ended: (turnId, completed) => ended.push({ turnId, completed }),
+    });
+    const turn = await h.enqueue();
+
+    const out = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    expect(out?.fresh_input.text).toBe("assembled");
+    expect(out?.topic_session).toBe("keep");
+    const failed: ConversationTurnResult = {
+      outcome: "failed",
+      reason: "engine_failed",
+    };
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: turn.turn_id,
+      leaseId: out?.lease_id as never,
+      result: failed,
+    });
+    // A repeated report is not news to it.
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: turn.turn_id,
+      leaseId: out?.lease_id as never,
+      result: failed,
+    });
+    expect(ended).toEqual([{ turnId: turn.turn_id, completed: false }]);
   });
 
   test("a turn id is queued once, and an unknown one has no end", async () => {

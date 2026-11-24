@@ -14,7 +14,9 @@ import type {
   RuntimeStart,
 } from "@werft-ai/runtime-core";
 import { imageRuntime } from "../composition.ts";
+import { fakePermitRelay } from "../testing/fake-permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
+import { TopicSessions } from "./topic-sessions.ts";
 import {
   CONVERSATION_BUILTIN_TOOLS,
   createConversationTurnRunner,
@@ -49,6 +51,7 @@ const turn: ConversationRuntimeTurn = conversationRuntimeTurnSchema.parse({
   },
   call: { max_tokens: 2_048 },
   input: { id: crypto.randomUUID(), text: "hello" },
+  fresh_input: { id: crypto.randomUUID(), text: "assembled: hello" },
 });
 
 const ended = (
@@ -196,17 +199,20 @@ function playsThenHangs(events: RuntimeEvent[]) {
   return { module, seen };
 }
 
-const runnerOf = (module: RuntimeModule, limitMs?: number) =>
-  createConversationTurnRunner({
+let relay = fakePermitRelay();
+const runnerOf = (module: RuntimeModule, limitMs?: number) => {
+  relay = fakePermitRelay();
+  return createConversationTurnRunner({
     runtime: module,
-    egressCredentialUrl: "http://egress-proxy:3129/",
-    topics: new TopicDirectories(root),
+    sessions: new TopicSessions(new TopicDirectories(root), relay),
+    relay,
     ...(limitMs === undefined ? {} : { limitMs }),
   });
+};
 const live = () => new AbortController().signal;
 
 describe("createConversationTurnRunner", () => {
-  test("starts the engine in the topic's own directory with no tool, every built-in one denied, the call limit and the call's token for the proxy", async () => {
+  test("starts the engine in the topic's own directory with no tool, every built-in one denied, the call limit and its session's key for the relay", async () => {
     const { module, seen } = scripted([said("hel"), said("lo"), ended()]);
 
     expect(await runnerOf(module).run(turn, live())).toEqual({
@@ -231,6 +237,7 @@ describe("createConversationTurnRunner", () => {
       disallowedTools: BUILTIN,
       maxTurns: 8,
       maxOutputTokens: 2_048,
+      compactionOff: true,
     });
     expect(CONVERSATION_BUILTIN_TOOLS).toEqual([]);
     expect(seen.start?.bindings.provider).toEqual({
@@ -238,10 +245,13 @@ describe("createConversationTurnRunner", () => {
       endpoint: "https://api.anthropic.com",
       auth: {
         kind: "egress_token",
-        token: TOKEN,
-        transport: "http://egress-proxy:3129/provider",
+        token: "session-1",
+        transport: relay.url,
       },
     });
+    // The turn's permit rode on the key while it ran, and is gone after.
+    expect(relay.held).toEqual([TOKEN]);
+    expect(relay.permits.get("session-1")).toBeNull();
     // Nothing of a work session rides along: no instructions file, MCP server or transcript mirror.
     expect(seen.start?.bundle).toEqual({
       instructions: [],
@@ -249,8 +259,11 @@ describe("createConversationTurnRunner", () => {
       mcpServers: [],
     });
     expect(seen.start?.bindings.transcript).toBeUndefined();
-    expect(seen.sent).toEqual([{ message: "hello", uuid: turn.input.id }]);
-    expect(seen.closed).toBe(1);
+    // A new session starts from the assembled context, and outlives its turn.
+    expect(seen.sent).toEqual([
+      { message: "assembled: hello", uuid: turn.fresh_input.id },
+    ]);
+    expect(seen.closed).toBe(0);
   });
 
   test("a turn the engine ends in error fails with the engine's word for it", async () => {
