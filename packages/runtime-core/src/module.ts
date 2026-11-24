@@ -68,6 +68,12 @@ export interface RuntimeModule {
    * them.
    */
   readonly eventCodec?: EventCodec;
+  /**
+   * The names of every tool this build's engine has built in, for a host that
+   * denies them all. Absent for an engine that takes no deny rules, which such
+   * a host cannot run.
+   */
+  readonly builtinTools?: readonly string[];
   /** Throws `RuntimeMismatch` for a session made for another build. */
   assertCompatible(runtime: SessionRuntime): void;
   /**

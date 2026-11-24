@@ -873,6 +873,41 @@ describe("startCredentialProxy", () => {
     expect(report?.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
   });
 
+  test("a conversation call's grant takes the engine's ?beta=true, which a title's does not", async () => {
+    const up = upstream(() =>
+      Response.json({
+        id: "msg_1",
+        model: "m-call",
+        usage: { input_tokens: 9, output_tokens: 3 },
+      }),
+    );
+    const auth = authorizer(() =>
+      Response.json({
+        conversation_call_id: "call-1",
+        upstream: {
+          url: `http://upstream.test:${up.port}/base`,
+          headers: [["x-api-key", PROVIDER_KEY]],
+        },
+        request_limits: {
+          path: "/v1/messages",
+          model: "m-call",
+          max_tokens: 64,
+          max_request_bytes: 80,
+        },
+      }),
+    );
+    const server = proxy(auth.url, up.port);
+    const sent = (body: string) =>
+      messages(server.port, { path: "/provider/v1/messages?beta=true", body });
+    expect(
+      (await sent('{"model":"m-call","max_tokens":64,"messages":[]}')).status,
+    ).toBe(200);
+    expect(new URL(up.seen[0]?.url ?? "").search).toBe("?beta=true");
+    // Its limits hold on that request as on any other.
+    expect((await sent('{"model":"m-call","max_tokens":65}')).status).toBe(403);
+    expect(up.seen).toHaveLength(1);
+  });
+
   test("a conversation call's grant is refused on any route but the provider's", async () => {
     const auth = authorizer(() =>
       Response.json({

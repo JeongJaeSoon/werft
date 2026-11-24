@@ -118,6 +118,8 @@ import {
   createAuditLogService,
   createAuthorizationPolicy,
   createCatalogRegistry,
+  createConversationCalls,
+  createConversationRuntimeTurns,
   createCredentialBindingService,
   createDecisionsClient,
   createEnvVariableService,
@@ -135,6 +137,7 @@ import {
   createInviteService,
   createLinkedAccountService,
   createMemberService,
+  createMemoryConversationTurnQueue,
   createModelMoveRunner,
   createOutcomeRefresher,
   createPendingRequestService,
@@ -224,6 +227,13 @@ import {
   extensionBundleObjects,
   extensionBundleSource,
 } from "./checkpoints.ts";
+import {
+  assertConversationTurnDispatch,
+  conversationRuntimeBearer,
+  conversationRuntimeConfigFromEnv,
+  createOperatorConversationTurns,
+  serveOperatorConversationTurns,
+} from "./conversation-runtime.ts";
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
@@ -325,6 +335,7 @@ import { registerSlackInteractionRoutes } from "./routes/surface/slack-interacti
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { registerSlackSettingsRoutes } from "./routes/surface/slack-settings.ts";
 import { registerUsageRoutes } from "./routes/usage/usage.ts";
+import { registerConversationRuntimeRoutes } from "./routes/workers/conversation-runtime.ts";
 import { registerWorkerRoutes } from "./routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
@@ -1228,6 +1239,15 @@ const skills =
           ? {}
           : { gitSources: (workspaceId) => skillGitSync.views(workspaceId) }),
       });
+const conversationCallStore = createPostgresConversationCalls(db);
+// Off unless the runtime's bearer is set. The queue is this process's memory
+// until conversation turns are queued in the database.
+const conversationRuntime = conversationRuntimeConfigFromEnv(process.env);
+const conversationTurnQueue = createMemoryConversationTurnQueue();
+assertConversationTurnDispatch(process.env, conversationTurnQueue);
+const conversationTurns = createConversationRuntimeTurns({
+  queue: conversationTurnQueue,
+});
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   telemetry,
@@ -1301,7 +1321,7 @@ const workers = createWorkerGateway({
     store: judgmentEgress,
     upstream: judgeConnections.upstream,
   },
-  conversationCalls: { store: createPostgresConversationCalls(db) },
+  conversationCalls: { store: conversationCallStore },
   ...(titleEgressUrl === null
     ? {}
     : {
@@ -1591,8 +1611,16 @@ const app = createApiApp({
       ...settings.sse,
     });
   },
-  registerInternalRoutes: (router) =>
-    registerWorkerRoutes(router, workers, new RequestTracing(tracer)),
+  registerInternalRoutes: (router) => {
+    if (conversationRuntime !== null) {
+      registerConversationRuntimeRoutes(router, {
+        turns: conversationTurns,
+        isRuntimeBearer: conversationRuntimeBearer(conversationRuntime.tokens),
+        stop: shutdown.stopWaiting,
+      });
+    }
+    registerWorkerRoutes(router, workers, new RequestTracing(tracer));
+  },
   ...(settings.webDistDir === undefined
     ? {}
     : { webDistDir: settings.webDistDir }),
@@ -1644,6 +1672,23 @@ const server = Bun.serve({
 // With PORT=0 the OS picks the port; this line is the only place it shows.
 logger.info("API listening", { port: server.port });
 
+const operatorTurns =
+  conversationRuntime === null
+    ? undefined
+    : await serveOperatorConversationTurns({
+        socketPath: conversationRuntime.socketPath,
+        operator: createOperatorConversationTurns({
+          turns: conversationTurns,
+          calls: createConversationCalls({
+            store: conversationCallStore,
+            catalog,
+          }),
+          agents: agentStore,
+          catalog,
+        }),
+        logger,
+      });
+
 // Workers send spans here and never to the collector. Off with tracing, so a
 // default installation opens no extra port.
 const ingestListener =
@@ -1674,6 +1719,14 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },
+        ...(operatorTurns === undefined
+          ? []
+          : [
+              {
+                name: "operator-conversation-turns",
+                close: () => operatorTurns.stop(),
+              },
+            ]),
         // Spans already accepted get a bounded time to reach the collector.
         ...(ingestListener === undefined
           ? []

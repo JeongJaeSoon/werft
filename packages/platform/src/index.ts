@@ -74,6 +74,8 @@ export * from "./conversations/context-assembler.ts";
 export * from "./ports/context-fragment-source.ts";
 export * from "./ports/conversation-input-store.ts";
 export * from "./ports/conversation-store.ts";
+export * from "./ports/conversation-turn-queue.ts";
+export * from "./conversations/conversation-turns.ts";
 export * from "./conversations/source-sets.ts";
 export * from "./ports/engagement-store.ts";
 export * from "./conversations/web-inputs.ts";
