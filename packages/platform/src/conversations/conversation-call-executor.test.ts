@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { conversationCallIdSchema } from "@werft-ai/contracts";
+import {
+  conversationCallIdSchema,
+  conversationCallKeySchema,
+  conversationIdSchema,
+  conversationTopicIdSchema,
+} from "@werft-ai/contracts";
 import type { ConversationCalls } from "../limits/index.ts";
 import {
   OutboundRefusedError,
@@ -69,6 +74,12 @@ function harness(options: {
 const request: ConversationCallRequest<string> = {
   workspaceId: crypto.randomUUID(),
   agentId: crypto.randomUUID(),
+  conversationId: conversationIdSchema.parse(crypto.randomUUID()),
+  topicId: conversationTopicIdSchema.parse(crypto.randomUUID()),
+  callClass: "m1",
+  releaseId: "release-1",
+  callKey: conversationCallKeySchema.parse(`${crypto.randomUUID()}:m1`),
+  attempt: 2,
   root: { kind: "none" },
   connectionId: "conn-1",
   model: "claude-haiku-5",
@@ -103,6 +114,12 @@ describe("createConversationCallExecutor", () => {
       {
         workspaceId: request.workspaceId,
         agentId: request.agentId,
+        conversationId: request.conversationId,
+        topicId: request.topicId,
+        callClass: request.callClass,
+        releaseId: request.releaseId,
+        callKey: request.callKey,
+        attempt: request.attempt,
         root: request.root,
         connectionId: request.connectionId,
         model: request.model,
@@ -128,6 +145,11 @@ describe("createConversationCallExecutor", () => {
   test("no such agent, a connection the catalog lacks, and a failed reservation never call the provider", async () => {
     for (const [issue, outcome] of [
       [() => ({ outcome: "unknown_agent" }) as const, "unknown_agent"],
+      [
+        () => ({ outcome: "unknown_conversation" }) as const,
+        "unknown_conversation",
+      ],
+      [() => ({ outcome: "already_issued" }) as const, "already_issued"],
       [() => ({ outcome: "unavailable" }) as const, "unavailable"],
       [
         () => {
