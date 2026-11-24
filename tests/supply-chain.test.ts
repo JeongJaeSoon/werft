@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -543,10 +549,96 @@ describe("images.yml supply-chain", () => {
     expect(JSON.stringify(plan.steps)).toContain("ci-plan.sh");
   });
 
+  test("a pull request builds the images only when it changes an image input", () => {
+    const step = (workflow.jobs.plan?.steps ?? []).find(
+      (s) => (s as { id?: string }).id === "images",
+    );
+    const command = step?.run;
+    if (!command) throw new Error("no images plan step");
+    expect(step?.env).toEqual({
+      DOCS_ONLY: "${{ steps.plan.outputs.docs_only }}",
+      EVENT: "${{ github.event_name }}",
+    });
+    // paths: ci-plan.sh's list in RUNNER_TEMP; null when it wrote none.
+    const decide = (
+      event: string,
+      paths: string[] | null,
+      docsOnly = "false",
+    ) => {
+      const dir = mkdtempSync(join(tmpdir(), "images-plan-"));
+      try {
+        if (paths) {
+          writeFileSync(
+            join(dir, "ci-paths"),
+            paths.map((path) => `${path}\0`).join(""),
+          );
+        }
+        const output = join(dir, "output");
+        writeFileSync(output, "");
+        const run = Bun.spawnSync(["bash", "-e", "-c", command], {
+          env: {
+            PATH: Bun.env.PATH ?? "",
+            RUNNER_TEMP: dir,
+            GITHUB_OUTPUT: output,
+            EVENT: event,
+            DOCS_ONLY: docsOnly,
+          },
+        });
+        if (run.exitCode !== 0) return `exit ${run.exitCode}`;
+        return readFileSync(output, "utf8").trim();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    // docs/api ships in the control-host image, but nothing the build checks
+    // reads it, and ci.yml's e2e builds the same stage.
+    const source = [
+      "apps/control-host/src/api/x.ts",
+      "packages/db/src/y.ts",
+      "docs/api/index.html",
+    ];
+    expect(decide("pull_request", source)).toBe("images=skip");
+    for (const input of [
+      "apps/worker/Dockerfile",
+      ".dockerignore",
+      "bun.lock",
+      "package.json",
+      "packages/db/package.json",
+      "THIRD_PARTY_NOTICES.md",
+      "scripts/third-party-notices.ts",
+      "scripts/image-prune.sh",
+      "apps/worker/git-hooks/werft-hook",
+      "packages/adapters/runtimes/registry/src/index.ts",
+      ".github/workflows/images.yml",
+      ".github/scripts/image-smoke.sh",
+      ".github/scripts/supply-chain-verdict.sh",
+      ".github/vulnerability-exceptions.json",
+    ]) {
+      expect({
+        input,
+        plan: decide("pull_request", [...source, input]),
+      }).toEqual({ input, plan: "images=build" });
+    }
+    // No list: ci-plan.sh kept the full plan.
+    expect(decide("pull_request", null)).toBe("images=build");
+    expect(decide("pull_request", ["README.md"], "true")).toBe("images=skip");
+    // Every other event builds whatever changed, as before.
+    for (const event of ["push", "schedule", "workflow_dispatch"]) {
+      expect(decide(event, source)).toBe("images=build");
+    }
+    expect(decide("push", ["README.md"], "true")).toBe("images=skip");
+    expect(decide("pull_request", source, "")).toBe("exit 1");
+  });
+
   test("a publish waits for it and judges its own digest the same way", () => {
     for (const name of ["publish", "publish-main"]) {
       const publish = workflow.jobs[name];
-      expect(publish?.needs).toEqual(["build", "supply-chain"]);
+      // A pushed tag also waits for its commit's conformance pass.
+      expect(publish?.needs).toEqual(
+        name === "publish"
+          ? ["build", "supply-chain", "tag-conformance"]
+          : ["build", "supply-chain"],
+      );
       // always() would publish past a failed verdict.
       expect(publish?.if).not.toContain("always()");
       const runs = publish?.steps?.map((step) => step.run ?? "") ?? [];

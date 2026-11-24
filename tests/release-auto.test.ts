@@ -162,6 +162,7 @@ describe("the release jobs of a main run", () => {
     expect(jobs["release-gate"]?.steps.map((step) => step.run)).toEqual([
       undefined,
       ".github/scripts/release-auto.sh ci",
+      ".github/scripts/release-auto.sh conformance",
       ".github/scripts/release-auto.sh free",
     ]);
     // Every Debian source is verified, not only warned about, before the approval.
@@ -595,6 +596,174 @@ esac
       });
       expect(slow.code).toBe(1);
       expect(slow.err).toContain("still in_progress");
+    });
+  });
+
+  describe("conformance", () => {
+    // A gh that applies the script's own --jq to API-shaped answers: runs (the
+    // ci.yml runs list) and jobs-<id> (that run's jobs); no file, a failed call.
+    type Run = { id: number; head_sha: string; event: string };
+    type JobRow = { name: string; conclusion: string };
+    type Answers = { runs?: Run[]; jobs?: Record<string, JobRow[]> };
+    const conformanceRun = (answers: Answers) =>
+      sandbox((directory) => {
+        mkdirSync(join(directory, "bin"));
+        if (answers.runs !== undefined) {
+          writeFileSync(
+            join(directory, "runs"),
+            JSON.stringify({ workflow_runs: answers.runs }),
+          );
+        }
+        for (const [id, rows] of Object.entries(answers.jobs ?? {})) {
+          writeFileSync(
+            join(directory, `jobs-${id}`),
+            JSON.stringify({ jobs: rows }),
+          );
+        }
+        writeFileSync(
+          join(directory, "bin", "gh"),
+          `#!/usr/bin/env bash
+printf '%s\\n' "$*" >>"${directory}/calls.log"
+shift
+q=.
+while [ $# -gt 0 ]; do
+  case "$1" in --paginate) ;; --jq) q=$2; shift ;; *) path=$1 ;; esac
+  shift
+done
+case "$path" in
+  */actions/workflows/ci.yml/runs*) f=runs ;;
+  */actions/runs/*/jobs*) f="jobs-$(sed -E 's|.*actions/runs/([0-9]+)/jobs.*|\\1|' <<<"$path")" ;;
+  *) exit 9 ;;
+esac
+[ -e "${directory}/$f" ] || { echo "gh: HTTP 502" >&2; exit 1; }
+jq -r "$q" "${directory}/$f"
+`,
+          { mode: 0o755 },
+        );
+        const run = sh(directory, [script("release-auto.sh"), "conformance"], {
+          GITHUB_SHA: sha,
+        });
+        return {
+          ...run,
+          calls: readFileSync(join(directory, "calls.log"), "utf8")
+            .split("\n")
+            .filter(Boolean),
+        };
+      });
+    const engines = ["claude_agent_sdk", "codex_app_server", "two_engines"];
+    const run = (id: number, event = "push", head = sha): Run => ({
+      id,
+      head_sha: head,
+      event,
+    });
+    const job = (name: string, conclusion = "success"): JobRow => ({
+      name,
+      conclusion,
+    });
+    const suite = (conclusion = "success") =>
+      engines.map((e) => job(`conformance (${e})`, conclusion));
+
+    test("its engines are ci.yml's conformance matrix", () => {
+      const ci = Bun.YAML.parse(
+        readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"),
+      ) as {
+        jobs: Record<string, { strategy?: { matrix: { engine?: string[] } } }>;
+      };
+      expect(ci.jobs.conformance?.strategy?.matrix.engine).toEqual(engines);
+      expect(readFileSync(script("release-auto.sh"), "utf8")).toContain(
+        `conformance_engines=(${engines.join(" ")})`,
+      );
+    });
+
+    test("passes on a push or manual run of this commit whose every engine passed", () => {
+      for (const event of ["push", "workflow_dispatch"]) {
+        const passed = conformanceRun({
+          runs: [run(42, event)],
+          jobs: { "42": [job("check"), ...suite()] },
+        });
+        expect(passed.code).toBe(0);
+        expect(passed.out).toContain("passed in ci.yml run 42");
+        expect(passed.calls[0]).toContain(`head_sha=${sha}`);
+      }
+    });
+
+    test("the newest run is read first, and an older one counts when it lacks an engine", () => {
+      const result = conformanceRun({
+        runs: [run(42), run(43)],
+        jobs: {
+          "43": [
+            job("conformance (claude_agent_sdk)"),
+            job("conformance (codex_app_server)", "failure"),
+            job("conformance (two_engines)", "skipped"),
+          ],
+          "42": suite(),
+        },
+      });
+      expect(result.code).toBe(0);
+      expect(result.out.indexOf("run 43 did not pass")).toBeLessThan(
+        result.out.indexOf("passed in ci.yml run 42"),
+      );
+      expect(result.out).toContain(
+        "run 43 did not pass conformance on: codex_app_server, two_engines",
+      );
+      expect(result.out).toContain("passed in ci.yml run 42");
+    });
+
+    test("a failed, skipped or cancelled engine, a pull_request run, or another commit is no pass", () => {
+      for (const conclusion of ["failure", "skipped", "cancelled"]) {
+        const result = conformanceRun({
+          runs: [run(42)],
+          jobs: { "42": suite(conclusion) },
+        });
+        expect(result.code).toBe(1);
+      }
+      // A pull_request run tests a merge of the head, not this commit.
+      const pr = conformanceRun({
+        runs: [run(42, "pull_request")],
+        jobs: { "42": suite() },
+      });
+      expect(pr.code).toBe(1);
+      expect(pr.calls.some((call) => call.includes("runs/42/jobs"))).toBe(
+        false,
+      );
+      const other = conformanceRun({
+        runs: [run(42, "push", "f".repeat(40))],
+        jobs: { "42": suite() },
+      });
+      expect(other.code).toBe(1);
+      // A job named like an engine but with a suffix is not that engine.
+      const near = conformanceRun({
+        runs: [run(42)],
+        jobs: {
+          "42": engines.map((e) => job(`conformance (${e}) x`)),
+        },
+      });
+      expect(near.code).toBe(1);
+    });
+
+    test("no run or a failed lookup stops the release", () => {
+      const none = conformanceRun({ runs: [] });
+      expect(none.code).toBe(1);
+      expect(none.err).toContain("only=conformance");
+      const lookup = conformanceRun({});
+      expect(lookup.code).toBe(1);
+      expect(lookup.err).toContain("could not read the ci.yml runs");
+      const jobs = conformanceRun({ runs: [run(42)] });
+      expect(jobs.code).toBe(1);
+      expect(jobs.err).toContain("could not read the jobs of ci.yml run 42");
+    });
+
+    test("a pushed tag and the release push both check it before their approval", () => {
+      expect(needsOf("publish")).toContain("tag-conformance");
+      expect(jobs["tag-conformance"]?.if).toBe(jobs.publish?.if);
+      expect(jobs["tag-conformance"]?.permissions).toEqual({
+        contents: "read",
+        actions: "read",
+      });
+      expect(jobs["tag-conformance"]?.steps.map((s) => s.run)).toContain(
+        ".github/scripts/release-auto.sh conformance",
+      );
+      expect(ancestors("release-approve").has("release-gate")).toBe(true);
     });
   });
 

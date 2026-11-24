@@ -1,6 +1,7 @@
 name: Images
 
-# PRs validate amd64; main, tags, scheduled and manual runs validate both architectures.
+# PRs validate amd64, and only when they change an image input (the plan job);
+# main, tags, scheduled and manual runs validate both architectures.
 # Publishing requires the supply-chain verdict; releases also require environment approval.
 on:
   push:
@@ -70,15 +71,46 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
         run: bash .github/scripts/ci-plan.sh
+      # A pull request builds only when it changes what the images are made of
+      # or how this workflow checks them. Any other product change still runs
+      # its images through ci.yml (e2e, quickstart: the same Dockerfiles up to
+      # the runtime stage), and the main push that merges it builds, smokes,
+      # license-checks and scans the digest it publishes (publish-main), which
+      # is the digest a release promotes. supply-chain still runs bun audit.
+      # No path list (a full-validation plan) builds.
       - id: images
         env:
           DOCS_ONLY: ${{ steps.plan.outputs.docs_only }}
+          EVENT: ${{ github.event_name }}
         run: |
           case "$DOCS_ONLY" in
-            true) echo "images=skip" >>"$GITHUB_OUTPUT" ;;
-            false) echo "images=build" >>"$GITHUB_OUTPUT" ;;
+            true) images=skip ;;
+            false) images=build ;;
             *) echo "::error::ci-plan.sh gave no docs_only value" >&2; exit 1 ;;
           esac
+          # ci-plan.sh's list of changed paths, NUL-separated.
+          paths="$RUNNER_TEMP/ci-paths"
+          if [ "$images" = build ] && [ "$EVENT" = pull_request ] && [ -s "$paths" ]; then
+            images=skip
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                Dockerfile* | */Dockerfile* | .dockerignore | \
+                  package.json | */package.json | bun.lock | bunfig.toml | tsconfig.base.json | \
+                  THIRD_PARTY_NOTICES.md | scripts/third-party-notices.ts | scripts/image-prune.sh | \
+                  scripts/fetch-pinned.ts | packages/adapters/runtimes/registry/* | \
+                  apps/worker/git-hooks/* | apps/worker/src/image-runtime.ts | \
+                  scripts/test-ops.sh | infra/test-ops.env.example | tests/fixtures/test-ops-release-manifest.json | \
+                  .github/workflows/images.yml | .github/scripts/ci-plan.sh | .github/scripts/image-*.sh | \
+                  .github/scripts/test-ops-bundle.sh | .github/scripts/supply-chain-verdict.sh | \
+                  .github/vulnerability-exceptions.json)
+                  images=build
+                  echo "images: $path is an image input"
+                  break
+                  ;;
+              esac
+            done <"$paths"
+          fi
+          echo "images=$images" >>"$GITHUB_OUTPUT"
 
   # On a main push the smoke, license and scan steps below are left out:
   # publish-main runs them on the very digest it pushes, the one main-<12>
@@ -287,7 +319,7 @@ jobs:
   # `workflow_dispatch` can name any ref, so the event is checked as well as
   # the ref. The commit must be on main — a tag is not a review.
   publish:
-    needs: [build, supply-chain]
+    needs: [build, supply-chain, tag-conformance]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
@@ -429,6 +461,27 @@ jobs:
           name: debian-sources-${{ matrix.app }}-${{ matrix.arch }}
           path: debian-sources/${{ matrix.app }}-${{ matrix.arch }}.md
           if-no-files-found: error
+
+  # No pull request runs ci.yml's conformance suite, so a pushed tag's commit
+  # must have passed it in a ci.yml run of its own: the main push of a
+  # CHANGELOG release heading runs it, and a manual run with only=conformance
+  # covers any other commit. Before `publish`, so before its approval.
+  tag-conformance:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: ci.yml passed the conformance suite on this commit
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh conformance
 
   sources:
     needs: publish
@@ -846,6 +899,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/release-auto.sh ci
+      # That run planned the suite for this release push (ci.yml `changes`);
+      # this holds the release to its having run and passed on every engine.
+      - name: ci.yml passed the conformance suite on this commit
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh conformance
       - name: The version is still free
         env:
           TAG: ${{ needs.release-detect.outputs.tag }}

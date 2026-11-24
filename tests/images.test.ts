@@ -3709,3 +3709,45 @@ describe("a connection kind's default endpoint", () => {
     });
   }
 });
+
+describe("worker compatibility runs before a release, not on every pull request", () => {
+  type Workflow = {
+    on: Record<string, { paths?: string[]; inputs?: Record<string, unknown> }>;
+    jobs: Record<
+      string,
+      { uses?: string; if?: string; with?: Record<string, string> }
+    >;
+  };
+  const parse = (file: string) =>
+    Bun.YAML.parse(readFileSync(join(root, file), "utf8")) as Workflow;
+  const compat = parse(".github/workflows/worker-compat.yml");
+  const images = parse(".github/workflows/images.yml");
+
+  test("a pull request runs it only when it changes the check itself", () => {
+    expect(compat.on.pull_request?.paths).toEqual([
+      ".github/workflows/worker-compat.yml",
+      ".github/scripts/worker-compat-plan.sh",
+      "tests/compat/**",
+    ]);
+    expect(Object.keys(compat.on)).toContain("schedule");
+  });
+
+  test("both release paths call it with the release being made", () => {
+    expect(Object.keys(compat.on.workflow_call?.inputs ?? {})).toEqual([
+      "release_tag",
+    ]);
+    const callers = Object.entries(images.jobs).filter(
+      ([, job]) => job.uses === "./.github/workflows/worker-compat.yml",
+    );
+    expect(callers.map(([name]) => name).sort()).toEqual([
+      "worker-compat",
+      "worker-compat-release",
+    ]);
+    expect(images.jobs["worker-compat"]?.with?.release_tag).toBe(
+      "${{ github.ref_name }}",
+    );
+    expect(images.jobs["worker-compat-release"]?.with?.release_tag).toBe(
+      "${{ needs.release-detect.outputs.tag }}",
+    );
+  });
+});

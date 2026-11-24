@@ -11,8 +11,10 @@
 #
 # images.yml calls it before either release path promotes an image, with the
 # control-host digest it is about to promote; a failure stops the release.
-# Pull requests (paths below), the schedule and a dispatch build the
-# control-host from the checkout. A dispatch may name the old set itself: a
+# The schedule and a dispatch build the control-host from the checkout. It is
+# a check to pass before a release, not on every pull request: a pull request
+# runs it only when it changes this check itself (paths below); a protocol,
+# worker or migration change meets it in the nightly run and in the release. A dispatch may name the old set itself: a
 # release tag, or main-<12 hex> for main's images of that commit.
 #
 # With no release in the window the run passes and says why in its summary.
@@ -38,11 +40,6 @@ on:
       - .github/workflows/worker-compat.yml
       - .github/scripts/worker-compat-plan.sh
       - tests/compat/**
-      - packages/contracts/src/worker-protocol/**
-      - apps/worker/**
-      - apps/control-host/src/api/routes/workers/**
-      - packages/platform/src/workers/**
-      - packages/db/migrations/**
   schedule:
     - cron: '41 4 * * *'
 
