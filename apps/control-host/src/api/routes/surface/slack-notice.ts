@@ -2,6 +2,7 @@ import {
   agentIdParamsSchema,
   approveSlackNoticeRequestSchema,
   getSlackNoticeResponseSchema,
+  setConversationRolloutRequestSchema,
 } from "@werft-ai/contracts";
 import {
   type ApiRouter,
@@ -14,7 +15,10 @@ import { mapped, requireParams } from "../errors.ts";
 
 export function registerSlackNoticeRoutes(
   router: ApiRouter,
-  notices: Pick<SlackNoticeService, "read" | "approve" | "revoke">,
+  notices: Pick<
+    SlackNoticeService,
+    "read" | "approve" | "revoke" | "setRollout"
+  >,
 ) {
   apiRoute(router, "getSlackNotice", async (context) => {
     const params = requireParams(context, agentIdParamsSchema);
@@ -31,6 +35,18 @@ export function registerSlackNoticeRoutes(
       notices.approve(context.get("caller"), params.id, body),
     );
     return jsonWithSchema(context, getSlackNoticeResponseSchema, approved);
+  });
+
+  apiRoute(router, "setConversationRollout", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      setConversationRolloutRequestSchema,
+    );
+    const set = await mapped(() =>
+      notices.setRollout(context.get("caller"), params.id, body),
+    );
+    return jsonWithSchema(context, getSlackNoticeResponseSchema, set);
   });
 
   apiRoute(router, "revokeSlackNotice", async (context) => {
