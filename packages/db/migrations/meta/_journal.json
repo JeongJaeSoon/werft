@@ -1758,6 +1758,13 @@
       "when": 1795503755068,
       "tag": "0341_judgment_buffer_overflows",
       "breakpoints": true
+    },
+    {
+      "idx": 342,
+      "version": "7",
+      "when": 1795506210692,
+      "tag": "0342_slack_notice_approvals",
+      "breakpoints": true
     }
   ]
 }
