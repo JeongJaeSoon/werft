@@ -13,7 +13,10 @@ import {
 } from "@werft-ai/contracts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
-import type { ChannelKindReadable } from "../surface/ports/channel-kind-readable.ts";
+import type {
+  ChannelKindReadable,
+  ChannelSharingReadable,
+} from "../surface/ports/channel-kind-readable.ts";
 import type {
   SurfaceBindingRecord,
   SurfaceBindingStore,
@@ -74,7 +77,7 @@ export function surfaceBindingView(
 export function createSurfaceBindingService(deps: {
   authorization: AuthorizationPolicy;
   store: SurfaceBindingStore;
-  channels: ChannelKindReadable;
+  channels: ChannelKindReadable & ChannelSharingReadable;
   /** Joins a bound channel; absent where no bot token can be read. */
   join?: ChannelJoinable;
   welcome?: Pick<AgentWelcomable, "welcome">;
@@ -191,6 +194,20 @@ export function createSurfaceBindingService(deps: {
           : await channels.kindOf(caller.ownerId, agentId, request.channel_id);
       if (request.channel_id !== null && channelKind === "dm") {
         throw bindingError("BAD_REQUEST", "dmChannel");
+      }
+      // People of another organization never agreed to the notice, so a
+      // channel they share listens for mentions only. Unknown, the save goes
+      // on: what is held is judged again on every post.
+      if (
+        request.channel_id !== null &&
+        request.listen === "free" &&
+        (await channels.sharingOf(
+          caller.ownerId,
+          agentId,
+          request.channel_id,
+        )) === "external"
+      ) {
+        throw bindingError("BAD_REQUEST", "externalShared");
       }
       const result = await store.set({
         principal: caller,

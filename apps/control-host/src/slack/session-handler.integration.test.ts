@@ -7,7 +7,12 @@ import {
   test,
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { drainSlackInbox, slackConversationKey } from "@werft-ai/chat-slack";
+import {
+  createSlackBotApi,
+  createSlackChannelSharingReader,
+  drainSlackInbox,
+  slackConversationKey,
+} from "@werft-ai/chat-slack";
 import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
@@ -54,6 +59,7 @@ import {
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
+  createSurfaceBindingService,
   SecretKey,
   type SessionCatalog,
   type SurfaceInboundClaim,
@@ -2885,6 +2891,259 @@ describe.each(ENGINES)("Slack judgment buffer on %s", (engine) => {
     expect(await purgeMarks()).toEqual({ deleted: 0, edited: 1 });
   });
 });
+
+// Slack Connect and guests (a1/S7): a channel another organization shares,
+// and a guest's post, are never held, whatever the channel listens to. The
+// mention path stays as it was.
+describe.each(ENGINES)(
+  "Slack Connect and guests in the judgment buffer on %s",
+  (engine) => {
+    useDatabase(engine);
+    const GUEST = "U0GUEST";
+    beforeEach(() => {
+      slack.channels.delete(CHANNEL);
+      slack.users.delete(GUEST);
+      slack.failures.delete("conversations.info");
+    });
+
+    const heldTs = async (fixture: Fixture) =>
+      (
+        await db
+          .select({
+            ts: schema.conversationInputs.slackTs,
+            expiresAt: schema.conversationInputs.bufferExpiresAt,
+          })
+          .from(schema.conversationInputs)
+          .where(eq(schema.conversationInputs.agentId, fixture.agentId))
+          .orderBy(asc(schema.conversationInputs.slackTs))
+      )
+        .filter((row) => row.expiresAt !== null)
+        .map((row) => row.ts);
+    const sharedColumn = async (fixture: Fixture) =>
+      (
+        await db
+          .select({ shared: surfaceBindings.externalShared })
+          .from(surfaceBindings)
+          .where(eq(surfaceBindings.agentId, fixture.agentId))
+      ).map((row) => row.shared);
+    function logged() {
+      const lines: { message: string; fields: Record<string, unknown> }[] = [];
+      const log = createLogger({
+        sinks: [
+          {
+            write({ fields, message }) {
+              lines.push({ fields: { ...fields }, message });
+            },
+          },
+        ],
+      });
+      const notHeld = () =>
+        lines
+          .filter(
+            (line) =>
+              line.message === "Slack message not held for the judgment",
+          )
+          .map((line) => line.fields);
+      return { log, lines, notHeld };
+    }
+    const shareEvent = (type: "channel_shared" | "channel_unshared") => ({
+      type,
+      channel: CHANNEL,
+      ...(type === "channel_shared"
+        ? { connected_team_id: "T0PARTNER" }
+        : { previously_connected_team_id: "T0PARTNER", is_ext_shared: false }),
+      event_ts: lifecycleTs(1),
+    });
+
+    test("a channel another organization shares holds no unmentioned post, its own members' included, and logs why without the text", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.channels.set(CHANNEL, { isExtShared: true });
+      const { log, lines, notHeld } = logged();
+      await deliver(fixture, message("100.000100"));
+      await drain(handler(undefined, log).handle);
+      expect(await heldTs(fixture)).toEqual([]);
+      expect(notHeld()).toEqual([
+        expect.objectContaining({ reason: "external_shared_channel" }),
+      ]);
+      expect(JSON.stringify(lines)).not.toContain("and the next step");
+      expect(await sharedColumn(fixture)).toEqual([true]);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+
+    test("a channel shared only among one Enterprise's own workspaces is held as before", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.channels.set(CHANNEL, { isExtShared: false, isOrgShared: true });
+      await deliver(fixture, message("100.000100"));
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual(["100.000100"]);
+      expect(await sharedColumn(fixture)).toEqual([false]);
+    });
+
+    test("a guest's post is not held, even with guests allowed to ask; a member's beside it is", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await db
+        .update(workspaces)
+        .set({ settings: { slack_guest_enabled: true } })
+        .where(eq(workspaces.id, fixture.workspaceId));
+      slack.users.set(GUEST, { isRestricted: true });
+      const { log, notHeld } = logged();
+      await deliver(fixture, message("100.000100", { user: GUEST }));
+      await deliver(fixture, message("100.000200"));
+      await drain(handler(undefined, log).handle);
+      expect(await heldTs(fixture)).toEqual(["100.000200"]);
+      expect(notHeld()).toEqual([
+        expect.objectContaining({ reason: "guest_author" }),
+      ]);
+    });
+
+    test("channel_shared removes what was held before it, and nothing is held after", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, message("100.000100"));
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual(["100.000100"]);
+      slack.channels.set(CHANNEL, { isExtShared: true });
+      await deliver(fixture, shareEvent("channel_shared"), { thread: false });
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual([]);
+      expect(await sharedColumn(fixture)).toEqual([true]);
+      await deliver(fixture, message("100.000200"));
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual([]);
+    });
+
+    test("channel_shared that Slack cannot confirm still removes what was held", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, message("100.000100"));
+      await drain(handler().handle);
+      slack.failures.set("conversations.info", "internal_error");
+      await deliver(fixture, shareEvent("channel_shared"), { thread: false });
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual([]);
+      expect(await sharedColumn(fixture)).toEqual([true]);
+    });
+
+    test("a post that finds the channel shared, with no event, removes what was held before it", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, message("100.000100"));
+      await drain(handler().handle);
+      slack.channels.set(CHANNEL, { isExtShared: true });
+      await deliver(fixture, message("100.000200"));
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual([]);
+    });
+
+    test("after channel_unshared a channel listening free is held again", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        listen: "free",
+      });
+      slack.channels.set(CHANNEL, { isExtShared: true });
+      await deliver(fixture, message("100.000100"));
+      await drain(handler().handle);
+      slack.channels.set(CHANNEL, { isExtShared: false });
+      await deliver(fixture, shareEvent("channel_unshared"), { thread: false });
+      await drain(handler().handle);
+      expect(await sharedColumn(fixture)).toEqual([false]);
+      await deliver(fixture, message("100.000200"));
+      await drain(handler().handle);
+      expect(await heldTs(fixture)).toEqual(["100.000200"]);
+    });
+
+    test("when Slack cannot say whether the channel is shared, nothing is held", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.failures.set("conversations.info", "internal_error");
+      const { log, notHeld } = logged();
+      await deliver(fixture, message("100.000100"));
+      await drain(handler(undefined, log).handle);
+      expect(await heldTs(fixture)).toEqual([]);
+      expect(notHeld()).toEqual([
+        expect.objectContaining({ reason: "audience_unconfirmed" }),
+      ]);
+    });
+
+    test("in a shared channel a mention and its thread are turns as before, and nothing is held", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.channels.set(CHANNEL, { isExtShared: true });
+      await deliver(fixture, mention("100.000100"));
+      await deliver(
+        fixture,
+        message("100.000200", { thread_ts: "100.000100" }),
+      );
+      await drain(handler().handle);
+      const [session, ...others] = await sessionsOf(fixture);
+      expect(others).toEqual([]);
+      expect((await turnsOf(session?.id)).map((turn) => turn.sequence)).toEqual(
+        [1, 2],
+      );
+      expect(await heldTs(fixture)).toEqual([]);
+    });
+
+    test("a guest's mention follows the guest setting as before", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.users.set(GUEST, { isRestricted: true });
+      const { handle, notices } = handler();
+      await deliver(fixture, mention("100.000100", { user: GUEST }));
+      await drain(handle);
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(notices.map((notice) => notice.reason)).toEqual([
+        "guest_disabled",
+      ]);
+    });
+
+    test("an older answer about sharing does not undo a newer one; an equal one passes", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const bindings = createPostgresSurfaceBindingStore(db);
+      const [installation] = await db.select().from(slackInstallations);
+      const record = (shared: boolean, at: number) =>
+        bindings.recordExternalShared(
+          installation?.id ?? "",
+          CHANNEL,
+          shared,
+          new Date(at),
+        );
+      expect(await record(true, 2000)).toBe(true);
+      expect(await record(false, 1000)).toBe(false);
+      expect(await sharedColumn(fixture)).toEqual([true]);
+      expect(await record(false, 2000)).toBe(true);
+      expect(await sharedColumn(fixture)).toEqual([false]);
+    });
+
+    test("saving a shared channel to listen free is refused by name; mention and off are saved", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.channels.set(CHANNEL, { isExtShared: true });
+      const service = createSurfaceBindingService({
+        authorization: createAuthorizationPolicy({
+          identity: createDatabaseIdentityReader(db),
+        }),
+        store: createPostgresSurfaceBindingStore(db),
+        channels: {
+          kindOf: async () => "public_channel",
+          ...createSlackChannelSharingReader({
+            apps: createPostgresSlackAppStore(db, key),
+            secrets: schema.createPostgresSecretStore(db, key),
+            slack: createSlackBotApi({ apiUrl: slack.url }),
+          }),
+        },
+      });
+      const put = (listen: "free" | "mention" | "off") =>
+        service.putSlackBinding(fixture.owner, fixture.agentId, {
+          channel_id: CHANNEL,
+          mode: "on",
+          listen,
+          home: false,
+        });
+      const refused = await put("free").catch((error: unknown) => error);
+      expect(refused).toMatchObject({
+        code: "BAD_REQUEST",
+        details: { reason_code: "external_shared_channel" },
+      });
+      expect((await put("mention")).slack_binding.listen).toBe("mention");
+      expect((await put("off")).slack_binding.listen).toBe("off");
+      slack.channels.set(CHANNEL, { isExtShared: false });
+      expect((await put("free")).slack_binding.listen).toBe("free");
+    });
+  },
+);
 
 describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
   useDatabase(engine);

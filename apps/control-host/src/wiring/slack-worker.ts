@@ -10,9 +10,11 @@ import type {
 } from "@werft-ai/platform";
 import {
   createRowDelivery,
+  createSlackAudience,
   createSlackBotApi,
   createSlackChannelConversionHandler,
   createSlackChannelLifecycleHandler,
+  createSlackChannelSharingHandler,
   createSlackMemberCacheInvalidator,
   createSlackMemberJoinedHandler,
   createSlackMemberLeftHandler,
@@ -54,7 +56,8 @@ export interface SlackInboundDeps {
 }
 
 /**
- * The member-cache void wraps the channel conversion handler, which wraps
+ * The channel sharing handler wraps the member-cache void, which wraps the
+ * channel conversion handler, which wraps
  * the channel lifecycle handler, which wraps the
  * left-handler, which wraps the joined-handler, which wraps the session
  * handler.
@@ -64,6 +67,11 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
   const botToken = (workspaceId: string, slackAppId: string) =>
     slackBotToken(secrets, workspaceId, slackAppId);
   const slackApi = createSlackBotApi({ apiUrl: deps.apiUrl });
+  const audience = createSlackAudience({
+    slack: slackApi,
+    bindings: deps.bindings,
+    logger: deps.logger,
+  });
   const sessionHandler = createSlackSessionHandler({
     inbox: deps.inbox,
     leaseMs: deps.leaseMs,
@@ -76,6 +84,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     sessionLinks: deps.sessionLinks,
     conversations: deps.conversations,
     buffer: deps.buffer,
+    audience,
     sessions: deps.sessions,
     agentDetails: deps.agentDetails,
     releaseRepositoryUnusable: deps.releaseRepositoryUnusable,
@@ -100,7 +109,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     botToken,
     next: sessionHandler,
   });
-  return createSlackMemberCacheInvalidator({
+  const chain = createSlackMemberCacheInvalidator({
     agents: deps.identities,
     members: deps.members,
     ...(deps.cards === undefined ? {} : { cards: deps.cards }),
@@ -121,6 +130,13 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
         }),
       }),
     }),
+  });
+  return createSlackChannelSharingHandler({
+    agents: deps.identities,
+    audience,
+    bindings: deps.bindings,
+    botToken,
+    next: chain,
   });
 }
 

@@ -231,11 +231,14 @@ async function installedAgent() {
   const bindings = createSurfaceBindingService({
     authorization,
     store: bindingStore,
-    channels: createSlackChannelKinds({
-      apps: appStore,
-      secrets: createPostgresSecretStore(db, key),
-      slack: slackBotApi,
-    }),
+    channels: {
+      ...createSlackChannelKinds({
+        apps: appStore,
+        secrets: createPostgresSecretStore(db, key),
+        slack: slackBotApi,
+      }),
+      sharingOf: async () => "internal",
+    },
     join,
     welcome,
   });

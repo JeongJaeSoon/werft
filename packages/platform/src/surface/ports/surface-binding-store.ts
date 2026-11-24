@@ -354,6 +354,20 @@ export interface SurfaceBindingStore {
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;
   /**
+   * Records whether Slack said another organization shares the channel, as of
+   * `at`, on its live binding: observed state, not a setting, so no revision
+   * and no receipt. An answer older than the one recorded changes nothing; an
+   * equal time passes, so a retried event runs again. Shared, the channel's
+   * held posts are removed in the same transaction, and no post of it is held
+   * until an answer says otherwise. False when nothing was written.
+   */
+  recordExternalShared(
+    installationId: string,
+    channelId: string,
+    shared: boolean,
+    at: Date,
+  ): Promise<boolean>;
+  /**
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.
    * With `expected`, only while the binding still holds it, so a slow

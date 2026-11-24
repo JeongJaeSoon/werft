@@ -132,6 +132,10 @@ export type FakeSlackChannel = {
   isIm?: boolean;
   isPrivate?: boolean;
   isMpim?: boolean;
+  /** Shared with another organization (Slack Connect). */
+  isExtShared?: boolean;
+  /** Shared among one Enterprise's own workspaces. */
+  isOrgShared?: boolean;
 };
 
 export type SendSlackEventInput = {
@@ -501,6 +505,8 @@ export function createFakeSlackWebApi(
           is_im: channel.isIm ?? false,
           is_private: channel.isPrivate ?? false,
           is_mpim: channel.isMpim ?? false,
+          is_ext_shared: channel.isExtShared ?? false,
+          is_org_shared: channel.isOrgShared ?? false,
           ...membershipOf(context, id),
         },
       };
@@ -987,6 +993,30 @@ export function createFakeSlackWebApi(
         }
         listed.members = listed.members.filter((member) => member !== appId);
         return Response.json({ ok: true, bot_user_id: `U${appId}BOT` });
+      }
+      // For curl on the local stack: another organization starts or stops
+      // sharing the channel. The channel_shared or channel_unshared event is
+      // sent with /fake/events.
+      if (url.pathname === "/fake/shares" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          channel_id?: unknown;
+          is_ext_shared?: unknown;
+        } | null;
+        const id = input?.channel_id;
+        if (
+          typeof id !== "string" ||
+          typeof input?.is_ext_shared !== "boolean"
+        ) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        channels.set(id, {
+          ...channels.get(id),
+          isExtShared: input.is_ext_shared,
+        });
+        return Response.json({ ok: true, is_ext_shared: input.is_ext_shared });
       }
       // For curl on the local stack: the channel is converted to private or
       // public, keeping its id as Slack does. The channel_convert_to_* message

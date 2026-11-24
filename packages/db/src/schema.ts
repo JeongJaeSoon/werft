@@ -5204,6 +5204,14 @@ export const surfaceBindings = pgTable(
     /** `surfaceMembershipSchema`; null until Slack was asked. */
     membership: text().$type<SurfaceMembershipState>(),
     membershipError: text("membership_error"),
+    /**
+     * Whether Slack last said another organization shares the channel (Slack
+     * Connect), as of `externalSharedAt`. Observed, not set: no revision, no
+     * receipt. While true, no post of the channel is held, whatever `listen`
+     * says.
+     */
+    externalShared: boolean("external_shared").notNull().default(false),
+    externalSharedAt: timestamp("external_shared_at", { withTimezone: true }),
     revision: integer().notNull().default(1),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })

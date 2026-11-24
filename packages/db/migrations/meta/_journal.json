@@ -1751,6 +1751,13 @@
       "when": 1795499631378,
       "tag": "0340_conversation_call_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 341,
+      "version": "7",
+      "when": 1795504017208,
+      "tag": "0341_surface_bindings_external_shared",
+      "breakpoints": true
     }
   ]
 }

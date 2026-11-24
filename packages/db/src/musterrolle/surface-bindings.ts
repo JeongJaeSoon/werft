@@ -18,7 +18,18 @@ import type {
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
-import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNull,
+  lte,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { findPgError, UUID } from "../control-shared.ts";
 import {
   deleteChannelSummary,
@@ -480,6 +491,31 @@ export function createPostgresSurfaceBindingStore(
       channelNotFound(db, installationId, channelId, askedAt),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
+    async recordExternalShared(installationId, channelId, shared, at) {
+      if (!UUID.test(installationId)) return false;
+      return db.transaction(async (tx) => {
+        const written = await tx
+          .update(surfaceBindings)
+          .set({ externalShared: shared, externalSharedAt: at })
+          .where(
+            and(
+              channelOf(installationId.toLowerCase(), channelId),
+              or(
+                isNull(surfaceBindings.externalSharedAt),
+                lte(surfaceBindings.externalSharedAt, at),
+              ),
+            ),
+          )
+          .returning({ agentId: surfaceBindings.agentId });
+        if (shared) {
+          for (const { agentId } of written) {
+            await dropUnlistenedBuffer(tx, { agentId, channelId });
+          }
+        }
+        return written.length > 0;
+      });
+    },
+
     async setMembership(bindingId, membership, expected, leaveNoted) {
       if (!UUID.test(bindingId)) return;
       const id = bindingId.toLowerCase();
