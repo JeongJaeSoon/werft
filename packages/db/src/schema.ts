@@ -5142,6 +5142,47 @@ export const agentIdentities = pgTable(
   ],
 );
 
+// A workspace owner's or admin's approval of the Slack notice, at one version,
+// for one agent's app as installed in one Slack team. It counts only while the
+// agent's live install is in that team. Rows are never deleted: a revoke sets
+// revoked_at, and a reinstall in another team leaves them unmatched.
+export const slackNoticeApprovals = pgTable(
+  "slack_notice_approvals",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    /** `SLACK_NOTICE_VERSIONS`; the notice's text is not stored. */
+    noticeVersion: integer("notice_version").notNull(),
+    /** No foreign key: the row outlives the account. */
+    approvedBy: uuid("approved_by").notNull(),
+    approvedAt: timestamp("approved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedBy: uuid("revoked_by"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "slack_notice_approvals_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    uniqueIndex("slack_notice_approvals_live_uniq")
+      .on(table.agentId, table.slackTeamId, table.noticeVersion)
+      .where(sql`${table.revokedAt} IS NULL`),
+    check(
+      "slack_notice_approvals_version_check",
+      sql`${table.noticeVersion} >= 1`,
+    ),
+    check(
+      "slack_notice_approvals_revoked_check",
+      sql`(${table.revokedAt} IS NULL) = (${table.revokedBy} IS NULL)`,
+    ),
+  ],
+);
+
 // How an agent answers in one place of a chat surface: a Slack channel of its
 // app's install, or that install's DMs, which share one row with no channel id.
 // Rows are revoked, never deleted; a write replaces the row and bumps

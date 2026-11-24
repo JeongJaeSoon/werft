@@ -266,6 +266,7 @@ describe("database schema", () => {
       "slack_inbound_events",
       "slack_install_states",
       "slack_installations",
+      "slack_notice_approvals",
       "slack_outbox",
       "slack_settings",
       "slack_thread_bot_turns",
