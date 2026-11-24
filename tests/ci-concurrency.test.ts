@@ -40,8 +40,11 @@ const isRelease = (file: string, workflow: Workflow) =>
 // Shared serial groups where only the latest run matters. GitHub keeps only the
 // newest waiting run of a group, so a name belongs here only when a later run
 // rebuilds the whole desired state and so covers a dropped one.
+// A run off main skips its job but would still replace a pending main run in
+// a plain shared group, so it gets a group of its own.
 const LATEST_WINS: Record<string, string> = {
-  "ci-image-mirror": "every run mirrors the whole list of the newest main",
+  "ci-image-mirror-${{ github.ref == 'refs/heads/main' && 'main' || github.run_id }}":
+    "every main run mirrors the whole list as of its own commit",
 };
 
 // Shared serial groups on a release path whose pending run can still be lost.
@@ -66,12 +69,13 @@ describe("release concurrency groups", () => {
     for (const group of groupsOf(entry)) {
       test(`${group.where} never cancels or replaces a release run`, () => {
         const literal = !group.group.includes("{{");
-        if (literal) {
+        const named = [
+          ...Object.keys(LATEST_WINS),
+          ...Object.keys(PENDING_94S_2068),
+        ].includes(group.group);
+        if (literal || named) {
           // A shared group is allowed only when named here, never cancelling.
-          expect([
-            ...Object.keys(LATEST_WINS),
-            ...Object.keys(PENDING_94S_2068),
-          ]).toContain(group.group);
+          expect(named).toBe(true);
           expect(group["cancel-in-progress"]).toBe(false);
           return;
         }
@@ -94,14 +98,7 @@ describe("release concurrency groups", () => {
     workflows
       .filter((w) => isRelease(w.file, w.workflow))
       .flatMap(groupsOf)
-      .map((g) => g.group)
-      .filter((group) => !group.includes("{{"));
-
-  test("a shared group is latest-wins or known pending", () => {
-    for (const group of shared()) {
-      expect(LATEST_WINS[group] ?? PENDING_94S_2068[group]).toBeString();
-    }
-  });
+      .map((g) => g.group);
 
   test("the two lists do not overlap and have no stale names", () => {
     const used = new Set(shared());
