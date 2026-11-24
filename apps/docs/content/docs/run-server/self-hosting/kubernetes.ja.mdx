@@ -92,6 +92,8 @@ worker Pod は `worker.memoryMb`（既定 4608MiB）全体を予約するため�
 
 他の環境と重複しない `installationId` を同じファイルに置きます。`images.*` の digest は公開 chart の値を維持します。DB・S3・Secret・CNI の準備を確認してから進みます。
 
+Codex エージェントを使う設置では、同じファイルに `codexSandbox.provider` を置きます。既定値の `disabled` では、Codex エージェントへの入力が `CODEX_SANDBOX_NOT_INSTALLED` で失敗します。`installer` では chart がノードに sandbox を置くため、cluster スコープのリソースを作る権限が必要です。`external` では、cluster 管理者が [Codex sandbox のノード準備](/run-server/self-hosting/prepare-codex-sandbox)のとおりにノードを先に準備します。
+
 コンソールの公開アドレスは、同じファイルの `api.extraEnv` に `CONSOLE_ORIGIN` として置きます。ブラウザがコンソールを開く origin（`scheme://host[:port]`）です。AWS の内部 ALB ならその Ingress の host、それ以外のクラスタなら[手順 5](#5-aws-밖-클러스터의-콘솔-접속) の reverse proxy のアドレスです。
 
 ```yaml
