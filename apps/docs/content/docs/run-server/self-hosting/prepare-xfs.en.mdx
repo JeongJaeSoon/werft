@@ -68,7 +68,9 @@ The script runs the same preflight again, then in order: stops Docker, moves `/v
 /var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0
 ```
 
-Change the image size with `--size`. The value is in whole GB (for example `--size 100G`). 60G is the combined ceiling for images, logs, and all volumes. Although the file is sparse, the host must have that much free space.
+The script appends this entry to `/etc/fstab` itself, so there is nothing to edit by hand. The `findmnt --verify` in this step can exit 0 and still print two warnings; both are expected. `non-bind mount source /var/lib/docker.xfs.img is a directory or regular file` only says the loop mount source is a regular file. `your fstab has been modified, but systemd still uses the old version` appears because the script runs `systemctl daemon-reload` right after.
+
+Change the image size with `--size`. The value is in whole GB (for example `--size 100G`). 60G is the ceiling for volumes and container logs under `/var/lib/docker`. Docker 29 keeps images and container layers in `/var/lib/containerd`, so they land outside the XFS image (usually on the root disk). Check that free space separately. The XFS image is a sparse file, but the host must have that much free space.
 
 When a step fails, the script undoes the steps before it in reverse: it restores fstab from the backup, unmounts, removes the mount point and image it created, moves the original back to `/var/lib/docker`, and starts Docker again. If Docker already started on the new image, what it wrote is in the image, so the script keeps the image and prints its path.
 

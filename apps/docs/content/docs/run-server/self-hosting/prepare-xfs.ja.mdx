@@ -68,7 +68,9 @@ sudo bash scripts/prepare-xfs.sh
 /var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0
 ```
 
-イメージサイズは `--size` で変更します。値は整数の GB です（例: `--size 100G`）。60G はイメージ・ログ・すべての volume の合計上限です。sparse ファイルですが、ホストにはその分の空きが必要です。
+スクリプトがこの項目を `/etc/fstab` に自分で追記するため、エディタで編集する必要はありません。この段階の `findmnt --verify` は終了コード 0 のまま警告を 2 つ出すことがあり、どちらも正常です。`non-bind mount source /var/lib/docker.xfs.img is a directory or regular file` は、loop mount の source が通常ファイルだという通知です。`your fstab has been modified, but systemd still uses the old version` は、直後にスクリプトが実行する `systemctl daemon-reload` の前なので出ます。
+
+イメージサイズは `--size` で変更します。値は整数の GB です（例: `--size 100G`）。60G は `/var/lib/docker` に入る volume とコンテナログの上限です。Docker 29 はイメージとコンテナ層を `/var/lib/containerd` に置くため、XFS イメージの外（通常はルートディスク）に溜まります。その空きは別に確認します。XFS イメージは sparse ファイルですが、ホストにはその分の空きが必要です。
 
 ある段階が失敗すると、スクリプトはそれより前の段階を逆順に元に戻します。fstab をバックアップから復元し、unmount し、作成した mount ポイントとイメージを削除し、原本を `/var/lib/docker` に戻してから Docker を再び起動します。Docker が新しいイメージで既に起動していた場合、その間に書き込んだ内容がイメージにあるため、イメージは削除せずにそのパスを表示します。
 
