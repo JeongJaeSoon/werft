@@ -10669,6 +10669,36 @@ export interface components {
                         }[];
                     };
                 };
+                instructions_snapshot: ({
+                    /** @constant */
+                    kind: "no_repository";
+                } | {
+                    /** @constant */
+                    kind: "absent";
+                    repository_id: string;
+                    commit: string;
+                } | {
+                    /** @constant */
+                    kind: "text";
+                    repository_id: string;
+                    commit: string;
+                    file: string;
+                    text: string;
+                    bytes: number;
+                    truncated: boolean;
+                } | {
+                    /** @constant */
+                    kind: "refused";
+                    repository_id: string;
+                    commit: string;
+                    reason: string;
+                } | {
+                    /** @constant */
+                    kind: "read_failed";
+                    repository_id: string;
+                    /** @enum {string} */
+                    reason: "not_on_github" | "branch_missing" | "github_failed";
+                }) | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -10722,6 +10752,36 @@ export interface components {
                         }[];
                     };
                 };
+                instructions_snapshot: ({
+                    /** @constant */
+                    kind: "no_repository";
+                } | {
+                    /** @constant */
+                    kind: "absent";
+                    repository_id: string;
+                    commit: string;
+                } | {
+                    /** @constant */
+                    kind: "text";
+                    repository_id: string;
+                    commit: string;
+                    file: string;
+                    text: string;
+                    bytes: number;
+                    truncated: boolean;
+                } | {
+                    /** @constant */
+                    kind: "refused";
+                    repository_id: string;
+                    commit: string;
+                    reason: string;
+                } | {
+                    /** @constant */
+                    kind: "read_failed";
+                    repository_id: string;
+                    /** @enum {string} */
+                    reason: "not_on_github" | "branch_missing" | "github_failed";
+                }) | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -10863,6 +10923,36 @@ export interface components {
                         }[];
                     };
                 };
+                instructions_snapshot: ({
+                    /** @constant */
+                    kind: "no_repository";
+                } | {
+                    /** @constant */
+                    kind: "absent";
+                    repository_id: string;
+                    commit: string;
+                } | {
+                    /** @constant */
+                    kind: "text";
+                    repository_id: string;
+                    commit: string;
+                    file: string;
+                    text: string;
+                    bytes: number;
+                    truncated: boolean;
+                } | {
+                    /** @constant */
+                    kind: "refused";
+                    repository_id: string;
+                    commit: string;
+                    reason: string;
+                } | {
+                    /** @constant */
+                    kind: "read_failed";
+                    repository_id: string;
+                    /** @enum {string} */
+                    reason: "not_on_github" | "branch_missing" | "github_failed";
+                }) | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -10916,6 +11006,36 @@ export interface components {
                         }[];
                     };
                 };
+                instructions_snapshot: ({
+                    /** @constant */
+                    kind: "no_repository";
+                } | {
+                    /** @constant */
+                    kind: "absent";
+                    repository_id: string;
+                    commit: string;
+                } | {
+                    /** @constant */
+                    kind: "text";
+                    repository_id: string;
+                    commit: string;
+                    file: string;
+                    text: string;
+                    bytes: number;
+                    truncated: boolean;
+                } | {
+                    /** @constant */
+                    kind: "refused";
+                    repository_id: string;
+                    commit: string;
+                    reason: string;
+                } | {
+                    /** @constant */
+                    kind: "read_failed";
+                    repository_id: string;
+                    /** @enum {string} */
+                    reason: "not_on_github" | "branch_missing" | "github_failed";
+                }) | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -10999,6 +11119,36 @@ export interface components {
                         }[];
                     };
                 };
+                instructions_snapshot: ({
+                    /** @constant */
+                    kind: "no_repository";
+                } | {
+                    /** @constant */
+                    kind: "absent";
+                    repository_id: string;
+                    commit: string;
+                } | {
+                    /** @constant */
+                    kind: "text";
+                    repository_id: string;
+                    commit: string;
+                    file: string;
+                    text: string;
+                    bytes: number;
+                    truncated: boolean;
+                } | {
+                    /** @constant */
+                    kind: "refused";
+                    repository_id: string;
+                    commit: string;
+                    reason: string;
+                } | {
+                    /** @constant */
+                    kind: "read_failed";
+                    repository_id: string;
+                    /** @enum {string} */
+                    reason: "not_on_github" | "branch_missing" | "github_failed";
+                }) | null;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;

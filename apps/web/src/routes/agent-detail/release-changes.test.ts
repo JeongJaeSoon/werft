@@ -49,6 +49,7 @@ const release = (over: Partial<AgentRelease> = {}): AgentRelease => ({
       actions_allow: [],
     },
   },
+  instructions_snapshot: null,
   created_by: null,
   created_at: "2026-11-04T01:00:00.000Z",
   approved_by: null,

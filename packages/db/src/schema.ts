@@ -6557,7 +6557,7 @@ export const agentVersions = pgTable(
 export const agentReleases = pgTable(
   "agent_releases",
   {
-    // deriveReleaseId: a hash of every column below up to policy_pins.
+    // deriveReleaseId: a hash of every column below up to instructions_snapshot.
     id: text().primaryKey(),
     agentId: uuid("agent_id")
       .notNull()
@@ -6570,6 +6570,8 @@ export const agentReleases = pgTable(
     runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
     effectiveTools: jsonb("effective_tools").notNull(),
     policyPins: jsonb("policy_pins").notNull().default({}),
+    // releaseInstructionsSchema; null on a release made before it was taken.
+    instructionsSnapshot: jsonb("instructions_snapshot"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
