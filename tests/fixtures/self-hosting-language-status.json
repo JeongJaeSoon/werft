@@ -286,6 +286,14 @@
     }
   },
   "P38": {
+    "paths": ["run-server/self-hosting/prepare-codex-sandbox"],
+    "locales": {
+      "ko": "implemented",
+      "en": "implemented",
+      "ja": "implemented"
+    }
+  },
+  "P39": {
     "paths": ["run-server/self-hosting/first-install"],
     "locales": {
       "ko": "implemented",

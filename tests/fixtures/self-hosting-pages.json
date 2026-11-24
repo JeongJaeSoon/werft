@@ -298,6 +298,15 @@
   },
   {
     "id": "P38",
+    "path": "prepare-codex-sandbox",
+    "title": "Codex sandbox 노드 준비",
+    "type": "작업",
+    "audience": "클러스터 관리자",
+    "outcome": "codexSandbox.provider=external로 설치할 클러스터의 노드에 Codex sandbox 프로필과 라벨을 둔다",
+    "codeBlocks": "some"
+  },
+  {
+    "id": "P39",
     "path": "first-install",
     "title": "첫 설치에서 Slack 답까지",
     "type": "설치",

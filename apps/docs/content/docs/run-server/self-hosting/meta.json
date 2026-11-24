@@ -10,6 +10,7 @@
     "---설치 준비---",
     "prepare-xfs",
     "prepare-checkpoint-bucket",
+    "prepare-codex-sandbox",
     "access",
     "---운영 설치---",
     "single-server",

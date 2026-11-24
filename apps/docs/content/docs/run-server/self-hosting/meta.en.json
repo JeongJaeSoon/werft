@@ -10,6 +10,7 @@
     "---Install preparation---",
     "prepare-xfs",
     "prepare-checkpoint-bucket",
+    "prepare-codex-sandbox",
     "access",
     "---Production install---",
     "single-server",
