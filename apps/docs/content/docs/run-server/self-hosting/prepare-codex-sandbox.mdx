@@ -106,7 +106,7 @@ sudo cmp codex-sandbox-seccomp.json /var/lib/kubelet/seccomp/werft/codex-sandbox
 kubectl get nodes -l werft.codex-seccomp-profile=installed
 ```
 
-설치한 뒤에는 chart가 installer 리소스를 만들지 않았는지 본다. `0`이 나와야 한다.
+설치한 뒤에는 chart가 installer 리소스를 만들지 않았는지 본다. `helm`의 오류 없이 `0`만 나와야 한다. `Error:`가 함께 나오면 manifest를 읽지 못한 것이라 `0`은 아무것도 뜻하지 않는다. release 이름과 namespace를 고쳐 다시 돌린다.
 
 ```bash
 helm get manifest werft -n werft | grep -c codex-seccomp

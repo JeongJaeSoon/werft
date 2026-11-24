@@ -116,7 +116,7 @@ On the administrator's machine, list the labelled nodes. Only the nodes that fin
 kubectl get nodes -l werft.codex-seccomp-profile=installed
 ```
 
-After installing, check that the chart created no installer resources. It should print `0`.
+After installing, check that the chart created no installer resources. It should print only `0`, with no error from `helm`. If `Error:` appears too, the manifest was not read and the `0` means nothing: fix the release name and namespace and run it again.
 
 ```bash
 helm get manifest werft -n werft | grep -c codex-seccomp
