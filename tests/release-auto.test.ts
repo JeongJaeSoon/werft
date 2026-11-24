@@ -600,29 +600,43 @@ esac
   });
 
   describe("conformance", () => {
-    // gh answers from files: runs (run ids, one a line) and jobs-<id> (the
-    // names of that run's passed jobs); a missing file is a failed call.
-    type Answers = { runs?: string; jobs?: Record<string, string> };
+    // A gh that applies the script's own --jq to API-shaped answers: runs (the
+    // ci.yml runs list) and jobs-<id> (that run's jobs); no file, a failed call.
+    type Run = { id: number; head_sha: string; event: string };
+    type JobRow = { name: string; conclusion: string };
+    type Answers = { runs?: Run[]; jobs?: Record<string, JobRow[]> };
     const conformanceRun = (answers: Answers) =>
       sandbox((directory) => {
         mkdirSync(join(directory, "bin"));
         if (answers.runs !== undefined) {
-          writeFileSync(join(directory, "runs"), answers.runs);
+          writeFileSync(
+            join(directory, "runs"),
+            JSON.stringify({ workflow_runs: answers.runs }),
+          );
         }
-        for (const [id, names] of Object.entries(answers.jobs ?? {})) {
-          writeFileSync(join(directory, `jobs-${id}`), names);
+        for (const [id, rows] of Object.entries(answers.jobs ?? {})) {
+          writeFileSync(
+            join(directory, `jobs-${id}`),
+            JSON.stringify({ jobs: rows }),
+          );
         }
         writeFileSync(
           join(directory, "bin", "gh"),
           `#!/usr/bin/env bash
 printf '%s\\n' "$*" >>"${directory}/calls.log"
-case "$*" in
-  *actions/workflows/ci.yml/runs*) f=runs ;;
-  *actions/runs/*/jobs*) f="jobs-$(sed -E 's|.*actions/runs/([0-9]+)/jobs.*|\\1|' <<<"$*")" ;;
+shift
+q=.
+while [ $# -gt 0 ]; do
+  case "$1" in --paginate) ;; --jq) q=$2; shift ;; *) path=$1 ;; esac
+  shift
+done
+case "$path" in
+  */actions/workflows/ci.yml/runs*) f=runs ;;
+  */actions/runs/*/jobs*) f="jobs-$(sed -E 's|.*actions/runs/([0-9]+)/jobs.*|\\1|' <<<"$path")" ;;
   *) exit 9 ;;
 esac
 [ -e "${directory}/$f" ] || { echo "gh: HTTP 502" >&2; exit 1; }
-cat "${directory}/$f"
+jq -r "$q" "${directory}/$f"
 `,
           { mode: 0o755 },
         );
@@ -637,8 +651,17 @@ cat "${directory}/$f"
         };
       });
     const engines = ["claude_agent_sdk", "codex_app_server", "two_engines"];
-    const passed = (names: string[]) => names.join("\n");
-    const suite = engines.map((e) => `conformance (${e})`);
+    const run = (id: number, event = "push", head = sha): Run => ({
+      id,
+      head_sha: head,
+      event,
+    });
+    const job = (name: string, conclusion = "success"): JobRow => ({
+      name,
+      conclusion,
+    });
+    const suite = (conclusion = "success") =>
+      engines.map((e) => job(`conformance (${e})`, conclusion));
 
     test("its engines are ci.yml's conformance matrix", () => {
       const ci = Bun.YAML.parse(
@@ -652,54 +675,80 @@ cat "${directory}/$f"
       );
     });
 
-    test("passes on a run of this commit whose every engine passed", () => {
-      const run = conformanceRun({
-        runs: "42",
-        jobs: { "42": passed(["check", ...suite]) },
-      });
-      expect(run.code).toBe(0);
-      expect(run.out).toContain("passed in ci.yml run 42");
-      expect(run.calls[0]).toContain(`head_sha=${sha}`);
-      // A pull_request run tests a merge, not this commit.
-      expect(run.calls[0]).toContain(
-        '(.event == "push" or .event == "workflow_dispatch")',
-      );
+    test("passes on a push or manual run of this commit whose every engine passed", () => {
+      for (const event of ["push", "workflow_dispatch"]) {
+        const passed = conformanceRun({
+          runs: [run(42, event)],
+          jobs: { "42": [job("check"), ...suite()] },
+        });
+        expect(passed.code).toBe(0);
+        expect(passed.out).toContain("passed in ci.yml run 42");
+        expect(passed.calls[0]).toContain(`head_sha=${sha}`);
+      }
     });
 
-    test("an older run counts when the newest lacks an engine", () => {
-      const run = conformanceRun({
-        runs: "43\n42",
+    test("the newest run is read first, and an older one counts when it lacks an engine", () => {
+      const result = conformanceRun({
+        runs: [run(42), run(43)],
         jobs: {
-          "43": passed(["conformance (claude_agent_sdk)"]),
-          "42": passed(suite),
+          "43": [
+            job("conformance (claude_agent_sdk)"),
+            job("conformance (codex_app_server)", "failure"),
+            job("conformance (two_engines)", "skipped"),
+          ],
+          "42": suite(),
         },
       });
-      expect(run.code).toBe(0);
-      expect(run.out).toContain(
+      expect(result.code).toBe(0);
+      expect(result.out.indexOf("run 43 did not pass")).toBeLessThan(
+        result.out.indexOf("passed in ci.yml run 42"),
+      );
+      expect(result.out).toContain(
         "run 43 did not pass conformance on: codex_app_server, two_engines",
       );
-      expect(run.out).toContain("passed in ci.yml run 42");
+      expect(result.out).toContain("passed in ci.yml run 42");
     });
 
-    test("no run, a run without the suite, or a failed lookup stops the release", () => {
-      const none = conformanceRun({ runs: "" });
-      expect(none.code).toBe(1);
-      expect(none.err).toContain("only=conformance");
-      const without = conformanceRun({
-        runs: "42",
-        jobs: { "42": passed(["check", "integration"]) },
+    test("a failed, skipped or cancelled engine, a pull_request run, or another commit is no pass", () => {
+      for (const conclusion of ["failure", "skipped", "cancelled"]) {
+        const result = conformanceRun({
+          runs: [run(42)],
+          jobs: { "42": suite(conclusion) },
+        });
+        expect(result.code).toBe(1);
+      }
+      // A pull_request run tests a merge of the head, not this commit.
+      const pr = conformanceRun({
+        runs: [run(42, "pull_request")],
+        jobs: { "42": suite() },
       });
-      expect(without.code).toBe(1);
+      expect(pr.code).toBe(1);
+      expect(pr.calls.some((call) => call.includes("runs/42/jobs"))).toBe(
+        false,
+      );
+      const other = conformanceRun({
+        runs: [run(42, "push", "f".repeat(40))],
+        jobs: { "42": suite() },
+      });
+      expect(other.code).toBe(1);
       // A job named like an engine but with a suffix is not that engine.
       const near = conformanceRun({
-        runs: "42",
-        jobs: { "42": passed(suite.map((name) => `${name} x`)) },
+        runs: [run(42)],
+        jobs: {
+          "42": engines.map((e) => job(`conformance (${e}) x`)),
+        },
       });
       expect(near.code).toBe(1);
+    });
+
+    test("no run or a failed lookup stops the release", () => {
+      const none = conformanceRun({ runs: [] });
+      expect(none.code).toBe(1);
+      expect(none.err).toContain("only=conformance");
       const lookup = conformanceRun({});
       expect(lookup.code).toBe(1);
       expect(lookup.err).toContain("could not read the ci.yml runs");
-      const jobs = conformanceRun({ runs: "42" });
+      const jobs = conformanceRun({ runs: [run(42)] });
       expect(jobs.code).toBe(1);
       expect(jobs.err).toContain("could not read the jobs of ci.yml run 42");
     });
