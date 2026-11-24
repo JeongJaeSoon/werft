@@ -473,6 +473,7 @@ jobs:
               - tests/verify-werft-response-capture.
               - tests/verify-werft-keycloak.
               - tests/release-auto.
+              - tests/release-versions.
               - tests/schema-subset.
               - tests/sdk-release.
               - tests/supply-chain.

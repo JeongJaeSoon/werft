@@ -350,7 +350,13 @@ if (args[0] === "api") {
     for (const r of state.releases) r.assets = r.assets.filter((a) => String(a.id) !== m[1]);
     save();
   } else if (args.includes("-X") && (m = find(/releases\\/(\\d+)$/))) {
-    release(m[1]).draft = false;
+    const fields = Object.fromEntries(args.flatMap((a, i) => (a === "-f" || a === "-F" ? [args[i + 1].split("=")] : [])));
+    const r = release(m[1]);
+    if (fields.draft === "false") r.draft = false;
+    // As GitHub: publishing marks the release Latest unless told otherwise,
+    // and the mark is refused on a draft or a prerelease.
+    if (fields.make_latest === "true" && (r.draft || r.prerelease)) { console.error("HTTP 422"); process.exit(1); }
+    if ((fields.make_latest ?? (fields.draft === "false" ? "true" : "false")) === "true" && !r.prerelease) state.latest = r.tag_name;
     save();
   } else if ((m = find(/releases\\/assets\\/(\\d+)/))) {
     const a = state.releases.flatMap((r) => r.assets).find((a) => String(a.id) === m[1]);
@@ -359,6 +365,9 @@ if (args[0] === "api") {
     jq(release(m[1]).assets, expr.startsWith(".[]") ? expr.replace(/^\\.\\[\\]/, ".[]") : expr);
   } else if ((m = find(/releases\\/(\\d+)$/))) {
     jq(release(m[1]), expr);
+  } else if (path.endsWith("/releases/latest")) {
+    if (!state.latest) { console.error("HTTP 404"); process.exit(1); }
+    jq(state.releases.find((r) => r.tag_name === state.latest), expr);
   } else if (path.includes("/releases?")) {
     if (state.listFails) { console.error("HTTP 502"); process.exit(1); }
     jq(state.releases, expr);
@@ -384,6 +393,7 @@ type Fake = {
     prerelease?: boolean;
     assets: { id: number; name: string; state: string; content: string }[];
   }[];
+  latest?: string;
   listFails?: boolean;
   uploadFails?: boolean | string;
   createArgs?: string[];
@@ -615,6 +625,130 @@ describe("release-publish.sh", () => {
   });
 });
 
+// The one thing every release shares is GitHub's "Latest" mark. Publishing a
+// release never takes it; one job, in a group shared by all releases, gives it
+// to the highest stable version of all that are published. GitHub drops all
+// but one waiting job of a group, so what these tests hold is that any single
+// run of the script, for whichever release, ends in the same state.
+describe("release-latest.sh", () => {
+  const manifest = build();
+  const published = (id: number, name: string) => ({
+    id,
+    tag_name: name,
+    draft: false,
+    prerelease: name.includes("-"),
+    assets: [],
+  });
+  const start = (): Fake => ({
+    releases: [published(1, "v0.3.0"), published(2, "v0.4.0")],
+    latest: "v0.4.0",
+  });
+  const tags = (state: Fake) =>
+    state.releases.filter((r) => !r.draft).map((r) => r.tag_name);
+
+  function markLatest(initial: Fake) {
+    const dir = mkdtempSync(join(tmpdir(), "release-latest-"));
+    try {
+      const bin = join(dir, "bin");
+      mkdirSync(bin);
+      writeFileSync(join(bin, "gh"), FAKE_GH);
+      chmodSync(join(bin, "gh"), 0o755);
+      const stateFile = join(dir, "state.json");
+      writeFileSync(stateFile, JSON.stringify(initial));
+      const run = Bun.spawnSync(
+        [join(root, ".github/scripts/release-latest.sh")],
+        {
+          env: {
+            ...Bun.env,
+            GH_REPO: "octo/repo",
+            FAKE_STATE: stateFile,
+            PATH: `${bin}:${Bun.env.PATH}`,
+          },
+        },
+      );
+      return {
+        exitCode: run.exitCode,
+        stderr: run.stderr.toString(),
+        state: JSON.parse(readFileSync(stateFile, "utf8")) as Fake,
+      };
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  }
+
+  test("publishing a release does not take the Latest mark", () => {
+    const { exitCode, state } = publish(start(), manifest, "v0.5.0");
+    expect(exitCode).toBe(0);
+    expect(tags(state)).toContain("v0.5.0");
+    expect(state.latest).toBe("v0.4.0");
+  });
+
+  // Each run spawns the fake gh a dozen times; the default 5s is too tight.
+  test.each([
+    ["v0.5.0", "v0.5.1"],
+    ["v0.5.1", "v0.5.0"],
+  ])(
+    "two tags released close together (%s, then %s), one run dropped: both releases stay and Latest is the higher",
+    (one, other) => {
+      // Each release publishes in a group of its own, so both get through.
+      const first = publish(start(), manifest, one);
+      const second = publish(first.state, manifest, other);
+      expect(second.exitCode).toBe(0);
+      // Only one of the two `latest` jobs runs; it is not told which.
+      const { exitCode, state } = markLatest(second.state);
+      expect(exitCode).toBe(0);
+      expect(tags(state)).toEqual(
+        expect.arrayContaining(["v0.4.0", "v0.5.0", "v0.5.1"]),
+      );
+      expect(state.latest).toBe("v0.5.1");
+    },
+    30_000,
+  );
+
+  test("a lower hotfix after a higher version leaves Latest where it is", () => {
+    const hotfix = publish(start(), manifest, "v0.3.5");
+    expect(hotfix.state.latest).toBe("v0.4.0");
+    const { exitCode, state } = markLatest(hotfix.state);
+    expect(exitCode).toBe(0);
+    expect(tags(state)).toContain("v0.3.5");
+    expect(state.latest).toBe("v0.4.0");
+  });
+
+  test("a prerelease or a draft of a higher version is never Latest", () => {
+    const rc = publish(start(), manifest, "v0.5.0-rc.1");
+    const draft = {
+      ...rc.state,
+      releases: [
+        ...rc.state.releases,
+        { ...published(9, "v0.6.0"), draft: true },
+      ],
+    };
+    const { exitCode, state } = markLatest(draft);
+    expect(exitCode).toBe(0);
+    expect(state.latest).toBe("v0.4.0");
+  });
+
+  test("a mark left on a lower release is moved to the highest", () => {
+    const { exitCode, state } = markLatest({ ...start(), latest: "v0.3.0" });
+    expect(exitCode).toBe(0);
+    expect(state.latest).toBe("v0.4.0");
+  });
+
+  test("with no stable release it marks nothing and passes", () => {
+    const { exitCode, state } = markLatest({
+      releases: [published(1, "v0.1.0-rc.1")],
+    });
+    expect(exitCode).toBe(0);
+    expect(state.latest).toBeUndefined();
+  });
+
+  test("a listing that fails is not an empty list", () => {
+    const { exitCode, state } = markLatest({ ...start(), listFails: true });
+    expect(exitCode).not.toBe(0);
+    expect(state.latest).toBe("v0.4.0");
+  });
+});
+
 describe("images.yml release job", () => {
   type Job = {
     if?: string;
@@ -634,7 +768,17 @@ describe("images.yml release job", () => {
       .map(([name]) => name);
     // `release-tag` and `release-publish` are the release by merge's: the same
     // gate comes from release-approve, which they reach through the chart.
-    expect(writers).toEqual(["release", "release-tag", "release-publish"]);
+    // `latest` and `latest-release` mark the Latest release, after theirs
+    // is published.
+    expect(writers).toEqual([
+      "release",
+      "latest",
+      "release-tag",
+      "release-publish",
+      "latest-release",
+    ]);
+    expect(jobs.latest?.needs).toBe("release");
+    expect(jobs.latest?.if).toBe(jobs.release?.if);
     expect(jobs.release?.needs).toBe("chart-publish");
     expect(jobs.release?.if).toBe(jobs.publish?.if);
     expect(jobs.release?.permissions).toEqual({ contents: "write" });
