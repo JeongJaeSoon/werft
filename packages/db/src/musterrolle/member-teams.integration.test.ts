@@ -667,8 +667,11 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     });
     expect(receipt?.createdAt).toBeInstanceOf(Date);
 
-    // The same limit again writes nothing.
+    // The same limit again, as asked or as stored, writes nothing.
     const again = randomUUID();
+    expect(
+      await setLimit(admin, { costUsd: 10.1234567, tokens: null }, again),
+    ).toMatchObject({ outcome: "unchanged" });
     expect(
       await setLimit(admin, { costUsd: 10.123457, tokens: null }, again),
     ).toMatchObject({ outcome: "unchanged" });
