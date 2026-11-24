@@ -12,6 +12,8 @@
 # and the executable guides, which share the plan's flags. helm-chart,
 # k8s-smoke and sdk-pack-smoke are judged one by one: a PR plan may leave
 # k8s-smoke out where a main push keeps it, and then main still runs it.
+# The conformance suite is not reused: no PR runs it, and ci.yml's `changes`
+# plans it for a main push apart from this script.
 # Evidence is the job's own test step having run and passed, not the job's
 # conclusion: a skipped plan ends in a green job as well.
 #
@@ -117,9 +119,6 @@ if [ "$TESTS" = true ]; then
 fi
 if [ "$PRODUCT" = true ]; then
   need step_passed e2e "Alpha path against the compose stack"
-  for engine in claude_agent_sdk codex_app_server two_engines; do
-    need step_passed "conformance (${engine})" "Conformance suite against the compose stack"
-  done
   need step_passed demo "Static build"
   need step_passed ui-pack "Install, type-check, build and render in an empty app"
   if jq -e 'index("docker") != null' <<<"$domains" >/dev/null; then

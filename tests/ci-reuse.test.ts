@@ -67,9 +67,7 @@ const job = (name: string, step?: string, conclusion = "success"): Job => ({
 const fullJobs = (): Job[] => [
   ...domains.map((d) => job(`integration (${d})`, "Tests of this domain")),
   job("e2e", "Alpha path against the compose stack"),
-  ...["claude_agent_sdk", "codex_app_server", "two_engines"].map((e) =>
-    job(`conformance (${e})`, "Conformance suite against the compose stack"),
-  ),
+  // No conformance jobs: no pull request runs that suite, and reuse never asks for it.
   job("demo", "Static build"),
   job("ui-pack", "Install, type-check, build and render in an empty app"),
   job("workspace-quota", "Workspace suite against a quota-capable daemon"),

@@ -633,7 +633,12 @@ describe("images.yml supply-chain", () => {
   test("a publish waits for it and judges its own digest the same way", () => {
     for (const name of ["publish", "publish-main"]) {
       const publish = workflow.jobs[name];
-      expect(publish?.needs).toEqual(["build", "supply-chain"]);
+      // A pushed tag also waits for its commit's conformance pass.
+      expect(publish?.needs).toEqual(
+        name === "publish"
+          ? ["build", "supply-chain", "tag-conformance"]
+          : ["build", "supply-chain"],
+      );
       // always() would publish past a failed verdict.
       expect(publish?.if).not.toContain("always()");
       const runs = publish?.steps?.map((step) => step.run ?? "") ?? [];
