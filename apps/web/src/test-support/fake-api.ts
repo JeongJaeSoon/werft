@@ -12,6 +12,7 @@ import type {
   MemberView,
   WorkspaceRole,
 } from "@werft-ai/contracts";
+import { agentActivationOf } from "@werft-ai/contracts";
 import {
   type QueryScope,
   queryKeysOf,
@@ -57,7 +58,7 @@ export function fakeApi(routes: Record<string, Handler>) {
       repositoriesFrom(routes, key, input);
     if (!handler) return apiError(404, "NOT_FOUND", `no fake for ${key}`);
     // The body was read for the record; a handler gets one it can read again.
-    return handler(
+    const answer = await handler(
       text
         ? new Request(input.url, {
             method: input.method,
@@ -66,6 +67,7 @@ export function fakeApi(routes: Record<string, Handler>) {
           })
         : input,
     );
+    return key === "GET /v1/agents" ? withActivation(answer) : answer;
   };
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
 }
@@ -127,6 +129,25 @@ function repositoriesFrom(
 }
 
 /**
+ * The agent list as the server answers it: an item a test wrote from an
+ * agent row gets the `activation` the server derives (agentActivationOf); one
+ * that names its own keeps it.
+ */
+async function withActivation(answer: Response): Promise<Response> {
+  if (!answer.ok) return answer;
+  const page = (await answer.json()) as {
+    items: Parameters<typeof agentActivationOf>[0][];
+  };
+  return json(answer.status, {
+    ...page,
+    items: page.items.map((item) => ({
+      activation: agentActivationOf(item),
+      ...item,
+    })),
+  });
+}
+
+/**
  * Counts the agent list fake answers, the way the server counts its rows, so
  * a test that fakes only the lists also answers the counts. A refused list
  * refuses the counts too.
@@ -165,6 +186,11 @@ function agentCountsFrom(
         ).length,
         draft: items.filter(
           (a) => a.status !== "archived" && a.active_release_id === null,
+        ).length,
+        inactive: items.filter(
+          (a) =>
+            a.status === "archived" ||
+            (a.status !== "active" && a.active_release_id !== null),
         ).length,
         ownerless: items.filter((a) => a.ownerless === true).length,
       },
