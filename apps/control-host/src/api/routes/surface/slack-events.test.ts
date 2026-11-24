@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createSlackEventsService,
   createSlackSigningSecrets,
+  SLACK_EVENTS_ACK_DEADLINE_MS,
   type SlackEventsService,
 } from "@werft-ai/chat-slack";
 import {
@@ -108,7 +109,7 @@ const service = createSlackEventsService({
   mirrorEchoes: { matchMirrorEcho: async () => "no_candidate" },
 });
 const receives = { count: 0 };
-const counted: SlackEventsService = {
+const counted: Pick<SlackEventsService, "receive"> = {
   receive(request) {
     receives.count += 1;
     return service.receive(request);
@@ -120,7 +121,7 @@ const responses: string[] = [];
 
 function appWith(
   limiter = createSlackEventsLimiter(),
-  events: SlackEventsService = counted,
+  events: Pick<SlackEventsService, "receive"> = counted,
 ) {
   const app = createApiApp({
     authMode: "api-key",
@@ -402,6 +403,65 @@ describe("POST /v1/slack/events/{agent_id}", () => {
     });
     const body = mention();
     expect((await unavailable(AGENT, body, signed(body))).status).toBe(503);
+  });
+
+  test("a database slower than the deadline answers 503 within Slack's 3 s, and the retry records once", async () => {
+    await setup;
+    let open = () => {};
+    const slow = new Promise<void>((done) => {
+      open = done;
+    });
+    const slowInbox = createMemorySlackInboundEventStore();
+    const slowService = createSlackEventsService({
+      signingSecrets,
+      inbox: {
+        ...slowInbox.store,
+        record: async (row) => {
+          await slow;
+          return slowInbox.store.record(row);
+        },
+      },
+      apps: apps.store,
+      identities: identities.store,
+      bindings: {
+        findLiveSlackChannel: async () => null,
+        wasRejected: async () => false,
+      },
+      installs: installs.store,
+      sourceMarks: createMemorySlackSourceMarkStore().store,
+      mirrorEchoes: { matchMirrorEcho: async () => "no_candidate" },
+    });
+    const slowPost = appWith(createSlackEventsLimiter(), slowService);
+    const body = mention("Ev0SLOWDB");
+    const logged = logs.records.length;
+    const started = performance.now();
+    const first = await slowPost(AGENT, body, signed(body));
+    const took = performance.now() - started;
+    expect(first.status).toBe(503);
+    expect(first.headers.get("Retry-After")).toBe("1");
+    expect(took).toBeGreaterThanOrEqual(SLACK_EVENTS_ACK_DEADLINE_MS - 50);
+    expect(took).toBeLessThan(3000);
+    expect(
+      logs.records
+        .slice(logged)
+        .filter(({ message }) => message === "Slack event deferred to retry")
+        .map(({ level, fields }) => [
+          level,
+          fields?.event_id,
+          fields?.team_id,
+          fields?.step,
+        ]),
+    ).toEqual([["warn", "Ev0SLOWDB", TEAM, "record"]]);
+    // The late write commits; Slack's retry finds it and answers 200.
+    open();
+    await Bun.sleep(5);
+    const retry = await slowPost(AGENT, body, {
+      ...signed(body),
+      "X-Slack-Retry-Num": "1",
+      "X-Slack-Retry-Reason": "http_error",
+    });
+    expect(retry.status).toBe(200);
+    expect(slowInbox.rows.size).toBe(1);
   });
 
   test("no secret, signature or message text reaches a log line or an answer", async () => {
