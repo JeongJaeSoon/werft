@@ -42,7 +42,7 @@ integration("slack-notice command on PostgreSQL", () => {
   const agentId = randomUUID();
   const admin = randomUUID();
 
-  async function command(argv: string[]) {
+  async function command(argv: string[], versions?: typeof V1) {
     const out: string[] = [];
     const err: string[] = [];
     const code = await runSlackNotice(argv, {
@@ -50,6 +50,7 @@ integration("slack-notice command on PostgreSQL", () => {
       out: (line) => out.push(line),
       err: (line) => err.push(line),
       openDatabase: async () => ({ db, close: async () => {} }),
+      ...(versions === undefined ? {} : { versions }),
     });
     return { code, out, err };
   }
@@ -100,6 +101,7 @@ integration("slack-notice command on PostgreSQL", () => {
       outcome: "shown",
       agent_id: agentId,
       workspace_id: workspaceId,
+      rollout: "off",
       approved: false,
       reason: "no_notice",
       approvals: [],
@@ -159,10 +161,101 @@ integration("slack-notice command on PostgreSQL", () => {
     }
   });
 
+  test("set-rollout raises the switch of an approved agent and records by operator_cli; on and an unapproved raise exit 4", async () => {
+    const rolloutReceipts = async () =>
+      (
+        await pool.query(
+          "SELECT result, actor FROM receipts WHERE operation = 'set_conversation_rollout' AND target_ref->'resource'->>'id' = $1 ORDER BY created_at",
+          [agentId],
+        )
+      ).rows;
+    await revokeSlackNotice(db, { workspaceId, agentId, by: admin });
+    const refused = await command(
+      ["set-rollout", "--agent", agentId, "--rollout", "shadow"],
+      V1,
+    );
+    expect(refused.code).toBe(SLACK_NOTICE_EXIT.refused);
+    expect(JSON.parse(refused.out[0] ?? "")).toEqual({
+      outcome: "refused",
+      agent_id: agentId,
+      reason_code: "not_approved",
+    });
+    await approveSlackNotice(
+      db,
+      { workspaceId, agentId, by: admin, locale: "ko" },
+      V1,
+    );
+    const on = await command(
+      ["set-rollout", "--agent", agentId, "--rollout", "on"],
+      V1,
+    );
+    expect(on.code).toBe(SLACK_NOTICE_EXIT.refused);
+    expect(JSON.parse(on.out[0] ?? "")).toMatchObject({
+      reason_code: "rollout_on_unavailable",
+    });
+    const raised = await command(
+      ["set-rollout", "--agent", agentId, "--rollout", "shadow"],
+      V1,
+    );
+    expect(raised.code).toBe(SLACK_NOTICE_EXIT.ok);
+    expect(JSON.parse(raised.out[0] ?? "")).toEqual({
+      outcome: "changed",
+      agent_id: agentId,
+      before: "off",
+      after: "shadow",
+      buffered_dropped: 0,
+    });
+    const again = await command(
+      ["set-rollout", "--agent", agentId, "--rollout", "shadow"],
+      V1,
+    );
+    expect(JSON.parse(again.out[0] ?? "")).toMatchObject({
+      outcome: "unchanged",
+    });
+    const shown = await command(["show", "--agent", agentId], V1);
+    expect(JSON.parse(shown.out[0] ?? "")).toMatchObject({
+      rollout: "shadow",
+      approved: true,
+    });
+    const lowered = await command(
+      ["set-rollout", "--agent", agentId, "--rollout", "off"],
+      V1,
+    );
+    expect(JSON.parse(lowered.out[0] ?? "")).toMatchObject({
+      outcome: "changed",
+      after: "off",
+    });
+    expect(await rolloutReceipts()).toEqual([
+      {
+        result: {
+          agent_id: agentId,
+          before: "off",
+          after: "shadow",
+          by: "operator_cli",
+          reason: null,
+          buffered_dropped: 0,
+        },
+        actor: null,
+      },
+      {
+        result: {
+          agent_id: agentId,
+          before: "shadow",
+          after: "off",
+          by: "operator_cli",
+          reason: null,
+          buffered_dropped: 0,
+        },
+        actor: null,
+      },
+    ]);
+  });
+
   test("an unknown agent or workspace exits 3", async () => {
     for (const argv of [
       ["show", "--agent", randomUUID()],
       ["list", "--workspace", randomUUID()],
+      ["set-rollout", "--agent", randomUUID(), "--rollout", "off"],
     ]) {
       const result = await command(argv);
       expect(result.code).toBe(SLACK_NOTICE_EXIT.not_found);
