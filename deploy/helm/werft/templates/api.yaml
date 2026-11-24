@@ -68,6 +68,12 @@ spec:
               value: {{ .Values.config.egress.credentialPrivateAllowlist | quote }}
             - name: AUTH_MODE
               value: {{ .Values.config.authMode | quote }}
+            {{- if .Values.codexSandbox.enabled }}
+            # As the scheduler's: the console warns a Codex agent's admins
+            # when it is disabled.
+            - name: CODEX_SANDBOX_PROVIDER
+              value: {{ .Values.codexSandbox.provider | quote }}
+            {{- end }}
             {{- include "ap.limitsEnv" . | nindent 12 }}
             - name: HEARTBEAT_TTL_SEC
               value: {{ .Values.config.heartbeatTtlSec | quote }}

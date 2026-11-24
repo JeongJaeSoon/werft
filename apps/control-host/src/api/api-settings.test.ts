@@ -30,6 +30,21 @@ describe("apiSettingsFromEnv", () => {
     });
   });
 
+  test("CODEX_SANDBOX_PROVIDER is read as the scheduler reads it", () => {
+    for (const provider of ["disabled", "installer", "external"] as const) {
+      expect(
+        apiSettingsFromEnv({ CODEX_SANDBOX_PROVIDER: provider })
+          .codexSandboxProvider,
+      ).toBe(provider);
+    }
+    expect(
+      apiSettingsFromEnv({ CODEX_SANDBOX_PROVIDER: "" }).codexSandboxProvider,
+    ).toBeUndefined();
+    expect(apiSettingsProblems({ CODEX_SANDBOX_PROVIDER: "helm" })).toEqual([
+      "CODEX_SANDBOX_PROVIDER must be installer, external or disabled (got helm)",
+    ]);
+  });
+
   test("the removed AGENT_ACTION_FLOWS setting is ignored, not parsed", () => {
     expect(apiSettingsFromEnv({ AGENT_ACTION_FLOWS: "yes" })).toEqual(
       apiSettingsFromEnv({}),

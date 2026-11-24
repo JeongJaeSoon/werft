@@ -220,6 +220,7 @@ import { createApiApp, createInternalApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { AuthAttemptKeys } from "./auth-attempts.ts";
 import {
+  codexSandboxMissingFromEnv,
   installedRuntimeVersions,
   launchableKindsFromEnv,
   loadSecretKey,
@@ -1556,6 +1557,10 @@ const auth = {
   loginSettings: loginSettingsStore,
   passwords,
   logger,
+  codexSandboxMissing: codexSandboxMissingFromEnv(
+    process.env,
+    settings.codexSandboxProvider,
+  ),
 };
 const slackInteractions = wireSlackInteractions({
   secrets: slackSecretStore,

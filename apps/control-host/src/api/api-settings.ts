@@ -30,12 +30,16 @@ export type ApiSettings = {
     maxStreamsPerOwner?: number;
   };
   webDistDir?: string;
+  /** The chart's `codexSandbox.provider`, which the scheduler reads too. */
+  codexSandboxProvider?: (typeof CODEX_SANDBOX_PROVIDERS)[number];
   signIn: {
     /** Lower-cased; unset trusts no header. */
     clientIpHeader?: string;
     rules: AuthAttemptRules;
   };
 };
+
+const CODEX_SANDBOX_PROVIDERS = ["disabled", "installer", "external"] as const;
 
 // The reconciler keeps a window's row for a day (auth-attempts.ts in db).
 const MAX_AUTH_WINDOW_SEC = 86_400;
@@ -134,6 +138,15 @@ export function apiSettingsFromEnv(
       "WEB_DIST_DIR must be an absolute path to a directory holding index.html (apps/web's build output)",
     );
   }
+  const provider = environment.CODEX_SANDBOX_PROVIDER;
+  const codexSandboxProvider = CODEX_SANDBOX_PROVIDERS.find(
+    (known) => known === provider,
+  );
+  if (provider && codexSandboxProvider === undefined) {
+    problems.push(
+      `CODEX_SANDBOX_PROVIDER must be installer, external or disabled (got ${provider})`,
+    );
+  }
   if (problems.length > 0) throw new ApiSettingsError(problems);
   return {
     leaseTtlMs: leaseTtlMs as number,
@@ -148,6 +161,7 @@ export function apiSettingsFromEnv(
         : { maxStreamsPerOwner: sse.maxStreamsPerOwner }),
     },
     ...(webDistDir === undefined ? {} : { webDistDir }),
+    ...(codexSandboxProvider === undefined ? {} : { codexSandboxProvider }),
     signIn: {
       ...(clientIpHeader === undefined
         ? {}

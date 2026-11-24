@@ -416,6 +416,7 @@ function harness(
     passwordWork?: WorkGate;
     clientIpHeader?: string;
     loginSettings?: Pick<LoginSettingsStore, "read">;
+    codexSandboxMissing?: boolean;
   } = {},
 ) {
   const identity = new MemoryIdentityStore();
@@ -439,6 +440,9 @@ function harness(
         : {}),
     }),
     ...(options.loginSettings ? { loginSettings: options.loginSettings } : {}),
+    ...(options.codexSandboxMissing
+      ? { codexSandboxMissing: options.codexSandboxMissing }
+      : {}),
   };
   const app = createApiApp({
     authMode: options.authMode ?? "api-key",
@@ -1162,6 +1166,29 @@ describe("login, logout, me", () => {
     membership.disabledAt = null;
     user.disabledAt = new Date();
     expect((await h.login()).status).toBe(401);
+  });
+
+  test("me says Codex workers are refused here, to a session and a key", async () => {
+    const h = harness({ codexSandboxMissing: true });
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    for (const headers of [
+      { Cookie: cookie },
+      { Authorization: `Bearer ${API_KEY}` },
+    ]) {
+      const me = await h.app.request("/v1/auth/me", { headers });
+      expect(me.status).toBe(200);
+      expect(
+        authMeResponseSchema.parse(await me.json()).codex_sandbox_missing,
+      ).toBe(true);
+    }
+
+    const unsaid = harness();
+    await unsaid.bootstrap();
+    const me = await unsaid.app.request("/v1/auth/me", {
+      headers: { Cookie: cookieOf(await unsaid.login()) },
+    });
+    expect("codex_sandbox_missing" in (await me.json())).toBe(false);
   });
 
   test("me returns the user principal, user and workspace; logout revokes", async () => {
