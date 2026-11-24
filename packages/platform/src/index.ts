@@ -71,6 +71,7 @@ export * from "./musterrolle/ports/api-key-store.ts";
 export * from "./ports/catalog-repository-store.ts";
 export * from "./ports/channel-summary-store.ts";
 export * from "./conversations/context-assembler.ts";
+export * from "./conversations/conversation-call-executor.ts";
 export * from "./ports/context-fragment-source.ts";
 export * from "./ports/conversation-input-store.ts";
 export * from "./ports/conversation-store.ts";

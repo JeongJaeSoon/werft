@@ -1107,7 +1107,7 @@ grep -E '\((pass|fail|skip)\)' "$EVIDENCE/ci-<job>.log" | grep -F '<test name>'
 | 경로 | 시험 파일(job) | 대표 줄 | 실제 출력을 처음 낼 epic |
 |---|---|---|---|
 | context 조립(`assembleContext`) | context-assembler(db) | 9-2 1–9행, "a fragment with a deleted source is left out" | a1 |
-| 세션 없는 대화 호출(`createConversationCalls`) | conversation-calls(db), budget-accounts(db) | "two issues at once on an account that holds one: one token, one refusal, no stray row" | 그 호출을 부르는 epic |
+| 세션 없는 대화 호출(`createConversationCalls`) | conversation-calls(db), budget-accounts(db) | "two issues at once on an account that holds one: one token, one refusal, no stray row" | a1(a1/J5의 M1 판단기가 낸다. 실행기와 배선은 a1/J2에서 들어왔고, `tests/a0-deferred-paths.test.ts`의 목록에서 빠졌다) |
 | 웹 입력(`createWebInputService`) | conversation-inputs(db), slack/outbox(surface) | "a retry with the same key and text gets the same input id and number back", "the post's record and its echo arriving at once leave one input and one alias" | 웹 입력 route를 여는 epic(실제 Slack에서 mirror 왕복) |
 | 판정 버퍼 TTL | judgment-buffer(db) | "buffer: nine minutes on it stays", "buffer: ten minutes on it is gone" | 버퍼 스위치를 켜는 epic |
 | 요약 줄 삭제 | channel-summaries(db) | "deleting one of three sources takes its line out of every version…", "a deletion deletes the channel's summary with every version…" | 요약을 쓰는 epic |

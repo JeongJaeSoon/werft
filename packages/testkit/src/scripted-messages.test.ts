@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RecordedRequest } from "./fake-anthropic.ts";
 import {
+  CALL_SPEC_MARKER,
   type GateRequest,
   planOf,
   replyFor,
@@ -148,6 +149,38 @@ describe("scripted Messages API", () => {
     );
     expect(side.content).toEqual([{ type: "text", text: "ok" }]);
     expect(recorded.map((entry) => entry.specId)).toEqual([null, null]);
+  });
+
+  test("a request without tools answers its last user message's call spec; one with tools ignores it", async () => {
+    const recorded: GateRequest[] = [];
+    const call = (id: string, reply: string) =>
+      `judge this ${CALL_SPEC_MARKER}${JSON.stringify({ id, reply })} please`;
+    const answered = await replyFor(
+      request(
+        [
+          { role: "user", content: call("old", "stale") },
+          { role: "assistant", content: "stale" },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: call("c1", "<decision>quiet</decision>") },
+            ],
+          },
+        ],
+        [],
+      ),
+      recorded,
+    );
+    expect(answered.content).toEqual([
+      { type: "text", text: "<decision>quiet</decision>" },
+    ]);
+    const withTools = await replyFor(
+      request([{ role: "user", content: call("c2", "scripted") }]),
+      recorded,
+      "fallback",
+    );
+    expect(withTools.content).toEqual([{ type: "text", text: "fallback" }]);
+    expect(recorded.map((entry) => entry.specId)).toEqual(["c1", null]);
   });
 
   test("lists every prompt's spec the conversation replays, oldest first", () => {

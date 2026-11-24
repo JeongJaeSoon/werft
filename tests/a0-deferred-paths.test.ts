@@ -18,10 +18,6 @@ const deferred = new Map([
     "packages/platform/src/conversations/context-assembler.ts",
   ],
   [
-    "createConversationCalls",
-    "packages/platform/src/limits/conversation-calls.ts",
-  ],
-  [
     "createWebInputService",
     "packages/platform/src/conversations/web-inputs.ts",
   ],
