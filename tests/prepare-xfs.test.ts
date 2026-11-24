@@ -119,6 +119,7 @@ describe("prepare-xfs.sh", () => {
       `${data}|xfs rw,relatime,attr2,inode64,prjquota|${data}.xfs.img\n`,
     );
     expect(result.calls).toContain(`truncate -s 8G ${data}.xfs.img`);
+    expect(statSync(`${data}.xfs.img`).mode & 0o777).toBe(0o600);
     expect(readFileSync(join(data, "volumes/data/file"), "utf8")).toBe(
       "original",
     );
@@ -179,6 +180,11 @@ describe("prepare-xfs.sh", () => {
       "a data-root elsewhere",
       () => ({ STUB_DOCKER_ROOT: "/srv/docker" }),
       "Docker's data-root is /srv/docker",
+    ],
+    [
+      "live-restore on",
+      () => ({ STUB_LIVE_RESTORE: "true" }),
+      "live-restore is on",
     ],
     [
       "an existing image",

@@ -43,7 +43,7 @@ sudo bash scripts/prepare-xfs.sh --dry-run
 dry-run은 사전 검사만 하고 실행할 단계를 출력한다. 호스트는 바꾸지 않는다. 사전 검사는 다음을 본다.
 
 - root로 실행했고 `mkfs.xfs`, `rsync`, `findmnt` 같은 필요한 명령이 있다.
-- Docker가 systemd로 실행 중이고 data-root가 `/var/lib/docker`다. 그 경로는 symlink나 mount 지점이 아니다.
+- Docker가 systemd로 실행 중이고 live-restore가 꺼져 있으며 data-root가 `/var/lib/docker`다. live-restore가 켜져 있으면 Docker를 멈춰도 컨테이너가 계속 쓰므로 거부한다. 그 경로는 symlink나 mount 지점이 아니다.
 - `/var/lib/docker.xfs.img`, `/var/lib/docker.old`, `/etc/fstab.before-prepare-xfs`가 없고, `/etc/fstab`에 `/var/lib/docker` 항목이 없다. 지금의 `/etc/fstab`에서 `findmnt --verify`가 오류를 찾지 않는다.
 - `/var/lib`에 이미지 크기만큼 여유가 있다.
 - 커널이 XFS를 지원하고, 임시 512M 이미지를 loop와 prjquota로 시험 mount할 수 있다. 시험 이미지는 검사 뒤 지운다.

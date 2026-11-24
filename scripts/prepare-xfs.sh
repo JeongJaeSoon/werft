@@ -5,7 +5,7 @@
 #   sudo bash scripts/prepare-xfs.sh [--dry-run] [--size <N>G]
 #
 # The preflight changes nothing: root, the commands, Docker running under
-# systemd with its data-root at /var/lib/docker and not a mount point, none of
+# systemd without live-restore with its data-root at /var/lib/docker and not a mount point, none of
 # the paths this run creates already there, an fstab that findmnt --verify
 # accepts and that has no entry for the data-root, room for the image, kernel XFS support, and a trial loop mount with prjquota
 # of a small temporary image (removed again), so a host that cannot mount the
@@ -186,6 +186,9 @@ if is_quota_xfs "$(findmnt -no FSTYPE,OPTIONS -T "$current" 2>/dev/null)"; then
   refuse "$current is on XFS with prjquota but the quota probe failed (above); inspect Docker before going on"
 fi
 [ "$current" = "$data" ] || refuse "Docker's data-root is $current; this script moves only $data"
+# With live-restore, containers keep running and writing after Docker stops.
+[ "$(docker info -f '{{.LiveRestoreEnabled}}' 2>/dev/null)" = false ] \
+  || refuse "Docker's live-restore is on (or unknown): containers would keep writing to $data while it moves; turn live-restore off in daemon.json and restart Docker first"
 systemctl is-active --quiet docker.service \
   || refuse "docker.service is not active under systemd; this script stops and starts Docker with systemctl"
 if systemctl cat docker.socket >/dev/null 2>&1; then units="docker.socket docker.service"; fi
@@ -272,7 +275,7 @@ fi
 begin "create the $size image $image"
 image_made=1
 # noclobber: a file that appeared since the preflight is not ours to remove.
-(set -C; : >"$image") || { image_made=0; exit 1; }
+(umask 077; set -C; : >"$image") || { image_made=0; exit 1; }
 truncate -s "$size" "$image"
 mkfs.xfs -q "$image"
 

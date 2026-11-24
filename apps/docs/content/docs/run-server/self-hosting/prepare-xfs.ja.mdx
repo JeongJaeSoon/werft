@@ -48,7 +48,7 @@ sudo bash scripts/prepare-xfs.sh --dry-run
 dry-run は事前検査だけを行い、実行する段階を表示します。ホストは変更しません。事前検査は次を確認します。
 
 - root で実行しており、`mkfs.xfs`、`rsync`、`findmnt` などの必要なコマンドがあること。
-- Docker が systemd で動いており、data-root が `/var/lib/docker` であること。そのパスが symlink や mount ポイントではないこと。
+- Docker が systemd で動き、live-restore が無効で、data-root が `/var/lib/docker` であること。live-restore が有効だと Docker を止めてもコンテナが書き込みを続けるため、拒否します。そのパスが symlink や mount ポイントではないこと。
 - `/var/lib/docker.xfs.img`、`/var/lib/docker.old`、`/etc/fstab.before-prepare-xfs` がなく、`/etc/fstab` に `/var/lib/docker` の項目がないこと。現在の `/etc/fstab` で `findmnt --verify` がエラーを見つけないこと。
 - `/var/lib` にイメージサイズ分の空きがあること。
 - カーネルが XFS に対応し、一時的な 512M イメージを loop と prjquota で試験 mount できること。試験イメージは検査の後に削除します。

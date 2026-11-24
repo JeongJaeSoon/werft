@@ -48,7 +48,7 @@ sudo bash scripts/prepare-xfs.sh --dry-run
 A dry run performs only the preflight and prints the steps it would run. It does not change the host. The preflight checks that:
 
 - It runs as root and the commands it needs, such as `mkfs.xfs`, `rsync`, and `findmnt`, are present.
-- Docker runs under systemd with its data-root at `/var/lib/docker`, and that path is neither a symlink nor a mount point.
+- Docker runs under systemd with live-restore off and its data-root at `/var/lib/docker` (with live-restore on, containers keep writing after Docker stops, so the script refuses), and that path is neither a symlink nor a mount point.
 - `/var/lib/docker.xfs.img`, `/var/lib/docker.old`, and `/etc/fstab.before-prepare-xfs` do not exist, and `/etc/fstab` has no `/var/lib/docker` entry. `findmnt --verify` finds no errors in the current `/etc/fstab`.
 - `/var/lib` has free space for the full image size.
 - The kernel supports XFS, and a temporary 512M image can be trial-mounted with loop and prjquota. The trial image is removed after the check.

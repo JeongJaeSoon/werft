@@ -3,7 +3,10 @@
 case "$1" in
   info)
     [ -f "$STUB_STATE/running" ] || exit 1
-    echo "${STUB_DOCKER_ROOT:-$PREPARE_XFS_ROOT/var/lib/docker}"
+    case "$3" in
+      *LiveRestoreEnabled*) echo "${STUB_LIVE_RESTORE:-false}" ;;
+      *) echo "${STUB_DOCKER_ROOT:-$PREPARE_XFS_ROOT/var/lib/docker}" ;;
+    esac
     ;;
   volume)
     [ -f "$STUB_STATE/running" ] || exit 1
