@@ -1358,8 +1358,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       const mainPush =
         "github.event_name == 'push' && github.ref == 'refs/heads/main'";
       expect(concurrency.group).toContain(`(${mainPush} && github.sha)`);
+      // Only PR runs are cancellable; tag, publish and deploy runs never are.
       expect(concurrency["cancel-in-progress"]).toBe(
-        expression(`!(${mainPush})`),
+        expression("github.event_name == 'pull_request'"),
       );
       // Tag promotions serialize repository-wide; two v* tags on one commit
       // share sha-<12>, and the tag check is not atomic.
