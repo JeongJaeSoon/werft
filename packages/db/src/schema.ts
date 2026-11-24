@@ -1129,6 +1129,11 @@ export const slackApps = pgTable(
     eventsError: text("events_error"),
     /** The Request URL last sent to Slack; null until one is. */
     eventsUrl: text("events_url"),
+    /**
+     * When a request signed by this app last arrived, kept to within a
+     * minute; null before any. Unlike events_state it also falls behind when Slack stops.
+     */
+    eventsReceivedAt: timestamp("events_received_at", { withTimezone: true }),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),

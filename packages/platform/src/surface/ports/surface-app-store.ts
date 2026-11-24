@@ -100,7 +100,10 @@ export type BeginDeleteResult =
  * call: `beginAgentApp` records `creating`, `finishCreate` records what
  * Slack answered and seals the app's secrets in the same transaction.
  */
-export type SurfaceEventsCheck = Omit<GetSlackAppResponse["events"], "url">;
+export type SurfaceEventsCheck = Omit<
+  GetSlackAppResponse["events"],
+  "url" | "last_received_at"
+>;
 
 export interface SurfaceAppStore {
   setEvents(
@@ -127,6 +130,15 @@ export interface SurfaceAppStore {
     workspaceId: string,
     slackAppId: string,
     events: SurfaceEventsCheck,
+  ): Promise<void>;
+  /**
+   * Records that a request signed by this app arrived at `at`. A mark at
+   * most a minute old is kept, so a burst of events writes once.
+   */
+  markEventsReceived(
+    workspaceId: string,
+    slackAppId: string,
+    at: Date,
   ): Promise<void>;
   getSettings(
     workspaceId: string,

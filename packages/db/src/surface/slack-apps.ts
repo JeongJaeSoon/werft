@@ -15,7 +15,18 @@ import {
   type SurfaceEventsCheck,
   secretOwnerRef,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import {
@@ -74,6 +85,8 @@ const appOwner = (row: Pick<Row, "id">): SecretOwner => ({
   kind: "slack_app",
   id: row.id,
 });
+
+const EVENTS_RECEIVED_STEP_MS = 60_000;
 
 // One app once Slack has made it, as the conditions of an `and`.
 const createdApp = (workspaceId: string, slackAppId: string) => [
@@ -141,6 +154,9 @@ function recordFrom(
       checked_at: row.eventsCheckedAt?.toISOString() ?? null,
       url: row.eventsUrl,
       ...(row.eventsError === null ? {} : { error: row.eventsError }),
+      ...(row.eventsReceivedAt === null
+        ? {}
+        : { last_received_at: row.eventsReceivedAt.toISOString() }),
     },
     secrets: Object.fromEntries(
       SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose) => [
@@ -368,6 +384,24 @@ export function createPostgresSlackAppStore(
           and(
             ...createdApp(workspaceId, slackAppId),
             ne(slackApps.eventsState, "verified"),
+          ),
+        );
+    },
+    async markEventsReceived(workspaceId, slackAppId, at) {
+      // updated_at is left alone: it says when the app was last changed.
+      await db
+        .update(slackApps)
+        .set({ eventsReceivedAt: at })
+        .where(
+          and(
+            ...createdApp(workspaceId, slackAppId),
+            or(
+              isNull(slackApps.eventsReceivedAt),
+              lt(
+                slackApps.eventsReceivedAt,
+                new Date(at.getTime() - EVENTS_RECEIVED_STEP_MS),
+              ),
+            ),
           ),
         );
     },
