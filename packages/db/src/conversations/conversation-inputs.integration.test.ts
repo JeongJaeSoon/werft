@@ -145,7 +145,7 @@ integration("web inputs in conversation_inputs (0319)", () => {
       },
     ]);
     expect(row).toMatchObject({
-      body: null,
+      body: "  build the report\n",
       slack_mirror: "not_target",
       requester_kind: "user",
       requester_id: member,
