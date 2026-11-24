@@ -1,5 +1,5 @@
 {
-  "id": "8633963f-0814-4e6b-a76e-ef6d7eb10bda",
+  "id": "c64f2f04-3317-4130-97fd-067c86609156",
   "prevId": "2a117181-d31c-4051-a684-dd4ec69ae674",
   "version": "7",
   "dialect": "postgresql",
@@ -5702,6 +5702,44 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_calls_agent_open_idx": {
+          "name": "conversation_calls_agent_open_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"state\" IN ('reserved', 'in_flight')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_calls_requester_open_idx": {
+          "name": "conversation_calls_requester_open_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "requester_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"state\" IN ('reserved', 'in_flight') AND \"conversation_calls\".\"requester_user_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -20084,18 +20122,6 @@
         },
         "last_launch_error": {
           "name": "last_launch_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "capacity_wait_since": {
-          "name": "capacity_wait_since",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "capacity_wait_message": {
-          "name": "capacity_wait_message",
           "type": "text",
           "primaryKey": false,
           "notNull": false

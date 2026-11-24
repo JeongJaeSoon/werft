@@ -226,7 +226,7 @@ function engagement(n: number): ContextFragment {
     scope: OWN,
     sources: [key(`2.${n}`)],
     engagementKind: engagementKindSchema.parse("reply"),
-    sessionId: uuid("e", n),
+    target: { kind: "session", sessionId: uuid("e", n) },
     at: at(n),
   };
 }
@@ -258,7 +258,9 @@ const ids = (fs: ContextFragment[]) =>
     f.kind === "channel_summary_line"
       ? f.lineId
       : f.kind === "engagement"
-        ? f.sessionId
+        ? f.target.kind === "session"
+          ? f.target.sessionId
+          : f.target.turnId
         : f.inputId,
   );
 const fitted = (result: ReturnType<typeof fitContext>) => {

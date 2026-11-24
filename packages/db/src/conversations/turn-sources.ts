@@ -143,8 +143,9 @@ export function sourcesHoldPlace(
 }
 
 /**
- * Whether a turn or a Slack outbox row of the workspace has the message
- * among its sources, so the message's delete or edit mark stays.
+ * Whether a turn, a conversation turn or a Slack outbox row of the
+ * workspace has the message among its sources, so the message's delete or
+ * edit mark stays: a conversation turn holds what its tools read.
  */
 export function sourceSetHoldsMark(mark: {
   workspaceId: SQL;
@@ -157,6 +158,11 @@ export function sourceSetHoldsMark(mark: {
     WHERE st.sources IS NOT NULL
       AND ${sourcesHoldPlace(sql.raw("st.sources"), mark)}
       AND ss.workspace_id = ${mark.workspaceId})
+  OR EXISTS (
+    SELECT 1 FROM conversation_turns ct
+    WHERE ct.sources IS NOT NULL
+      AND ${sourcesHoldPlace(sql.raw("ct.sources"), mark)}
+      AND ct.workspace_id = ${mark.workspaceId})
   OR EXISTS (
     SELECT 1 FROM slack_outbox so
     WHERE so.sources IS NOT NULL

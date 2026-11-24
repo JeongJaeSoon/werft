@@ -5,7 +5,10 @@ import type {
   ListMyTeamsResponse,
   ListTeamsQuery,
   ListTeamsResponse,
+  PutTeamBudgetLimitRequest,
+  PutTeamBudgetLimitResponse,
   SetTeamMemberRoleRequest,
+  TeamBudgetLimitResponse,
   TeamChangeResponse,
   TeamDetail as TeamDetailView,
   TeamView,
@@ -15,6 +18,7 @@ import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import type {
   Team,
   TeamActor,
+  TeamBudgetLimit,
   TeamDetail,
   TeamStore,
 } from "./ports/team-store.ts";
@@ -71,6 +75,11 @@ function detailView(team: TeamDetail): TeamDetailView {
     })),
   };
 }
+
+const budgetLimitView = (limit: TeamBudgetLimit) => ({
+  cost_usd: limit.costUsd,
+  tokens: limit.tokens,
+});
 
 export function createTeamService(deps: {
   authorization: AuthorizationPolicy;
@@ -288,6 +297,45 @@ export function createTeamService(deps: {
           return { team: teamView(result.team), receipt_id: null };
         default:
           return { team: teamView(result.team), receipt_id: receiptId };
+      }
+    },
+
+    // Read and changed by those who manage teams alone: a team's own members
+    // do not see what their agent may spend.
+    async getTeamBudgetLimit(
+      caller: Caller,
+      teamId: string,
+    ): Promise<TeamBudgetLimitResponse> {
+      await manager(caller);
+      const limit = await store.getBudgetLimit(caller.ownerId, teamId);
+      if (!limit) throw NOT_FOUND();
+      return { team_id: teamId, limit: budgetLimitView(limit) };
+    },
+
+    async putTeamBudgetLimit(
+      caller: Caller,
+      teamId: string,
+      request: PutTeamBudgetLimitRequest,
+    ): Promise<PutTeamBudgetLimitResponse> {
+      const actor = await manager(caller);
+      const receiptId = newId();
+      const result = await store.setBudgetLimit({
+        actor,
+        receiptId,
+        teamId,
+        limit: { costUsd: request.cost_usd, tokens: request.tokens },
+      });
+      switch (result.outcome) {
+        case "not_found":
+          throw NOT_FOUND();
+        case "actor_inactive":
+          throw OUTRANKED();
+        default:
+          return {
+            team_id: teamId,
+            limit: budgetLimitView(result.limit),
+            receipt_id: result.outcome === "set" ? receiptId : null,
+          };
       }
     },
 

@@ -187,9 +187,10 @@ integration("conversation call through the egress proxy on PostgreSQL", () => {
     agentId,
     conversationId,
     topicId: null,
-    callClass: "m1",
+    // m2, held by no channel's limit: a call left unknown stays in progress.
+    callClass: "m2",
     releaseId: null,
-    callKey: conversationCallKeySchema.parse(`${crypto.randomUUID()}:m1`),
+    callKey: conversationCallKeySchema.parse(`${crypto.randomUUID()}:m2`),
     attempt: 1,
     root,
     connectionId: CONNECTION,

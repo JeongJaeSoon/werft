@@ -2,6 +2,7 @@ import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
+  backfillWebInputTurns,
   budgetChoiceOfCall,
   closeAgentlessSessions,
   createDatabaseAgentAuthority,
@@ -543,6 +544,33 @@ closeAgentlessSessions(db).then(
   (error: unknown) => {
     logger.warn(
       "Sessions without an agent release could not be read; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
+// Web inputs taken before 0345, or by an older image beside this one, have no
+// turn row; each start gives them one, so one that failed is tried on the next.
+backfillWebInputTurns(db).then(
+  (backfilled) => {
+    if (backfilled.backfilled > 0) {
+      // Keys naming an input are dropped as message bodies.
+      logger.info("Web inputs given their turn rows", {
+        rows: backfilled.backfilled,
+      });
+    }
+    for (const { inputId, error } of backfilled.failed) {
+      logger.warn(
+        "A web input could not be given its turn row; the next start tries again",
+        {
+          row_id: inputId,
+          error_name: error instanceof Error ? error.name : typeof error,
+        },
+      );
+    }
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Web input texts could not be read; the next start tries again",
       { error_name: error instanceof Error ? error.name : typeof error },
     );
   },
@@ -1505,7 +1533,7 @@ const app = createApiApp({
       agentDeleted(db, workspaceId, agentId),
     );
     registerAuthRoutes(router, auth);
-    registerInviteRoutes(router, invites);
+    registerInviteRoutes(router, invites, consoleOrigin);
     registerWorkspaceRoutes(router, {
       authorization,
       retention: createPostgresAuditRetention(db),

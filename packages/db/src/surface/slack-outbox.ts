@@ -41,7 +41,11 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
-import { lockedDeletedSource, outboxSources } from "../conversations/index.ts";
+import {
+  inputTexts,
+  lockedDeletedSource,
+  outboxSources,
+} from "../conversations/index.ts";
 import {
   mirrorsInstructions,
   postsPrompts,
@@ -1061,7 +1065,6 @@ export function createPostgresSlackOutboxStore(
         installation_id: string;
         channel_id: string;
         thread_ts: string;
-        body: string;
         sender_name: string | null;
         sender_slack_user_id: string | null;
         locale: UserLocale | null;
@@ -1069,7 +1072,7 @@ export function createPostgresSlackOutboxStore(
         await db.execute(sql`
         SELECT i.id AS input_id, i.workspace_id, i.agent_id,
           a.id AS slack_app_id, inst.id AS installation_id,
-          p.channel_id, p.thread_ts, i.body,
+          p.channel_id, p.thread_ts,
           u.display_name AS sender_name, la.external_user_id AS sender_slack_user_id,
           u.locale
         FROM conversation_inputs i
@@ -1115,19 +1118,28 @@ export function createPostgresSlackOutboxStore(
         ORDER BY i.received_at, i.id
         LIMIT ${limit}`),
       );
-      return rows.map((row) => ({
-        inputId: row.input_id,
-        workspaceId: row.workspace_id,
-        agentId: row.agent_id,
-        slackAppId: row.slack_app_id,
-        installationId: row.installation_id,
-        channelId: row.channel_id,
-        threadTs: row.thread_ts,
-        body: row.body,
-        senderName: row.sender_name,
-        senderSlackUserId: row.sender_slack_user_id,
-        locale: row.locale,
-      }));
+      const texts = await inputTexts(
+        db,
+        rows.map((row) => row.input_id),
+      );
+      return rows
+        .flatMap((row) => {
+          const body = texts.get(row.input_id);
+          return body === undefined ? [] : [{ ...row, body }];
+        })
+        .map((row) => ({
+          inputId: row.input_id,
+          workspaceId: row.workspace_id,
+          agentId: row.agent_id,
+          slackAppId: row.slack_app_id,
+          installationId: row.installation_id,
+          channelId: row.channel_id,
+          threadTs: row.thread_ts,
+          body: row.body,
+          senderName: row.sender_name,
+          senderSlackUserId: row.sender_slack_user_id,
+          locale: row.locale,
+        }));
     },
 
     async closeOverdueHeld(holdMs) {

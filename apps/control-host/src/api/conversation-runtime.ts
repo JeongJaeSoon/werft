@@ -13,6 +13,7 @@ import {
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
   type AgentStore,
+  type ConversationCallLimit,
   type ConversationCalls,
   type ConversationRuntimeTurns,
   type ConversationTurnOutcome,
@@ -146,6 +147,8 @@ export type OperatorTurnResult =
   | { outcome: "connection_unavailable" }
   // The agent's team budget cannot hold the call.
   | { outcome: "budget_refused" }
+  // Too many calls in progress on the agent or its topic.
+  | { outcome: "concurrency_limited"; limit: ConversationCallLimit }
   | {
       outcome: "ended";
       turn_id: string;
@@ -215,6 +218,9 @@ export function createOperatorConversationTurns(deps: {
         return { outcome: "connection_unavailable" };
       }
       if (issued.outcome === "refused") return { outcome: "budget_refused" };
+      if (issued.outcome === "concurrency_limited") {
+        return { outcome: "concurrency_limited", limit: issued.limit };
+      }
       if (issued.outcome === "unknown_conversation") {
         return { outcome: "unknown_conversation" };
       }

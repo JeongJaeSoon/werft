@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentAdminsView,
   agentAdminChangeResponseSchema,
+  putTeamBudgetLimitResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   type TeamView,
+  teamBudgetLimitResponseSchema,
   teamChangeResponseSchema,
 } from "@werft-ai/contracts";
 import {
@@ -256,6 +258,82 @@ describe("PATCH /v1/teams/{team_id}", () => {
     ] as const) {
       expect(
         (await call(app({ renameTeam: fail }), "PATCH", path, { name: "x" }))
+          .status,
+      ).toBe(status);
+    }
+  });
+});
+
+describe("/v1/teams/{team_id}/budget-limit", () => {
+  const path = `/v1/teams/${TEAM}/budget-limit`;
+  const LIMIT = { cost_usd: 50, tokens: null };
+
+  test("reads the limit, refuses and fails closed", async () => {
+    const read = await call(
+      app({
+        getTeamBudgetLimit: async (_caller, teamId) => ({
+          team_id: teamId,
+          limit: LIMIT,
+        }),
+      }),
+      "GET",
+      path,
+    );
+    expect(read.status).toBe(200);
+    expect(teamBudgetLimitResponseSchema.parse(await read.json())).toEqual({
+      team_id: TEAM,
+      limit: LIMIT,
+    });
+    for (const [fail, status] of [
+      [forbidden, 403],
+      [notFound, 404],
+      [outage, 503],
+    ] as const) {
+      expect(
+        (await call(app({ getTeamBudgetLimit: fail }), "GET", path)).status,
+      ).toBe(status);
+    }
+  });
+
+  test("sets both parts, refuses a bad amount and fails closed", async () => {
+    let asked: unknown;
+    const saved = await call(
+      app({
+        putTeamBudgetLimit: async (_caller, teamId, body) => {
+          asked = body;
+          return { team_id: teamId, limit: body, receipt_id: RECEIPT };
+        },
+      }),
+      "PUT",
+      path,
+      { cost_usd: 12.5, tokens: 1000 },
+    );
+    expect(saved.status).toBe(200);
+    expect(asked).toEqual({ cost_usd: 12.5, tokens: 1000 });
+    expect(
+      putTeamBudgetLimitResponseSchema.parse(await saved.json()).receipt_id,
+    ).toBe(RECEIPT);
+    for (const body of [
+      { cost_usd: -1, tokens: null },
+      { cost_usd: 100_000_000, tokens: null },
+      { cost_usd: null, tokens: 1.5 },
+      { cost_usd: null, tokens: Number.MAX_SAFE_INTEGER + 2 },
+      { cost_usd: "50", tokens: null },
+      { cost_usd: 50 },
+      { ...LIMIT, team_id: TEAM },
+    ]) {
+      expect((await call(app({}), "PUT", path, body)).status).toBe(400);
+    }
+    expect(
+      (await call(app({}), "PUT", path, { ...LIMIT, pad: PAD })).status,
+    ).toBe(413);
+    for (const [fail, status] of [
+      [forbidden, 403],
+      [notFound, 404],
+      [outage, 503],
+    ] as const) {
+      expect(
+        (await call(app({ putTeamBudgetLimit: fail }), "PUT", path, LIMIT))
           .status,
       ).toBe(status);
     }

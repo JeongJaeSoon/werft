@@ -1,12 +1,21 @@
+import type {
+  ConversationCallClass,
+  ConversationId,
+  ConversationKind,
+  ConversationTopicId,
+} from "@werft-ai/contracts";
 import {
   type BudgetRoot,
+  CHANNEL_LIMITED_CLASS,
+  CONVERSATION_CALL_LIMIT_VALUES,
+  CONVERSATION_CALL_LIMITS,
   type ConversationCallIssue,
   type ConversationCallIssueInput,
   type ConversationCallStore,
   chooseBudgetAccount,
   reservationTokens,
 } from "@werft-ai/platform";
-import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import {
   lockBudgetCall,
   markBudgetUnknownIn,
@@ -33,6 +42,120 @@ function requesterUserOf(root: BudgetRoot): string | null {
   if (root.kind === "user") return root.userId;
   if (root.kind === "key" && root.keyKind === "personal") {
     return root.createdByUserId;
+  }
+  return null;
+}
+
+/**
+ * The locks of the keys a call is counted under, sorted. Anything that
+ * moves a call into or out of what a limit counts by a test of the clock
+ * (a first grant before its token expires) takes them too, so an issue
+ * never reads that call on the other side of the change.
+ */
+async function lockConversationCallLimitsIn(
+  tx: Database,
+  call: {
+    workspaceId: string;
+    agentId: string;
+    requesterUserId: string | null;
+  },
+): Promise<void> {
+  const keys = [`agent:${call.agentId}`];
+  if (call.requesterUserId !== null) {
+    keys.push(`requester:${call.workspaceId}:${call.requesterUserId}`);
+  }
+  for (const key of keys.sort()) {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext('conversation_call_limit'), hashtext(${key}))`,
+    );
+  }
+}
+
+/** What one call is counted under while in progress. */
+export type ConversationCallScope = {
+  workspaceId: string;
+  agentId: string;
+  conversationId: ConversationId;
+  conversationKind: ConversationKind;
+  topicId: ConversationTopicId | null;
+  callClass: ConversationCallClass;
+  requesterUserId: string | null;
+};
+
+type LimitReached = Extract<
+  ConversationCallIssue,
+  { outcome: "concurrency_limited" }
+>;
+
+/**
+ * Counts the calls in progress under each of the scope's keys, holding each
+ * key's lock to the end of `tx`: the first key at its limit, or null when the
+ * call fits. A call written in `tx` after a null is counted by the next one.
+ * Take it after the call's own locks and before any budget row; the keys are
+ * taken sorted, so two callers sharing a person never wait on each other.
+ */
+export async function holdConversationCallLimitsIn(
+  tx: Database,
+  scope: ConversationCallScope,
+): Promise<LimitReached | null> {
+  await lockConversationCallLimitsIn(tx, scope);
+  const c = conversationCalls;
+  const ofAgent = eq(c.agentId, scope.agentId);
+  const scoped = {
+    agent: ofAgent,
+    channel:
+      scope.conversationKind === "channel" &&
+      scope.callClass === CHANNEL_LIMITED_CLASS
+        ? and(
+            ofAgent,
+            eq(c.conversationId, scope.conversationId),
+            eq(c.callClass, CHANNEL_LIMITED_CLASS),
+          )
+        : null,
+    topic:
+      scope.topicId === null
+        ? null
+        : and(ofAgent, eq(c.topicId, scope.topicId)),
+    requester:
+      scope.requesterUserId === null
+        ? null
+        : and(
+            eq(c.workspaceId, scope.workspaceId),
+            eq(c.requesterUserId, scope.requesterUserId),
+          ),
+  };
+  const unknown = and(eq(c.state, "in_flight"), isNotNull(c.unknownAt));
+  const counts: Record<string, ReturnType<typeof sql<number>>> = {};
+  for (const limit of CONVERSATION_CALL_LIMIT_VALUES) {
+    const where = scoped[limit];
+    if (!where) continue;
+    counts[limit] = sql<number>`(count(*) FILTER (WHERE ${where}))::int`;
+    counts[`${limit}Unknown`] =
+      sql<number>`(count(*) FILTER (WHERE ${and(where, unknown)}))::int`;
+  }
+  const [row] = await tx
+    .select(counts)
+    .from(c)
+    .where(
+      and(
+        or(
+          and(eq(c.state, "reserved"), gt(c.expiresAt, DB_NOW)),
+          eq(c.state, "in_flight"),
+        ),
+        or(ofAgent, scoped.requester ?? undefined),
+      ),
+    );
+  for (const limit of CONVERSATION_CALL_LIMIT_VALUES) {
+    const inProgress = row?.[limit];
+    if (inProgress === undefined) continue;
+    if (inProgress >= CONVERSATION_CALL_LIMITS[limit]) {
+      return {
+        outcome: "concurrency_limited",
+        limit,
+        inProgress,
+        unknown: row?.[`${limit}Unknown`] ?? 0,
+      };
+    }
   }
   return null;
 }
@@ -81,7 +204,7 @@ function issueIn(
       .limit(1);
     if (!agent) return { outcome: "unknown_agent" };
     const [conversation] = await tx
-      .select({ id: conversations.id })
+      .select({ kind: conversations.kind })
       .from(conversations)
       .where(
         and(
@@ -104,6 +227,17 @@ function issueIn(
         .for("key share");
       if (!topic) return { outcome: "unknown_conversation" };
     }
+    const requesterUserId = requesterUserOf(input.root);
+    const limited = await holdConversationCallLimitsIn(tx, {
+      workspaceId: input.workspaceId,
+      agentId: input.agentId,
+      conversationId: input.conversationId,
+      conversationKind: conversation.kind,
+      topicId: input.topicId,
+      callClass: input.callClass,
+      requesterUserId,
+    });
+    if (limited) return limited;
     const choice = chooseBudgetAccount(input.root, agent.teamId);
     const reserved = await reserveBudgetIn(tx, {
       callId: input.callId,
@@ -133,7 +267,7 @@ function issueIn(
         agentId: input.agentId,
         tokenHash: input.tokenHash,
         rootKind: choice.rootKind,
-        requesterUserId: requesterUserOf(input.root),
+        requesterUserId,
         connectionId: input.connectionId,
         path: input.path,
         model: input.model,
@@ -156,12 +290,13 @@ function issueIn(
 /**
  * Locks, in the one order every writer of a conversation call takes them:
  * an issue's lock on its key and attempt first, then budget-accounts.ts's
- * call lock, then this call's row, then the reservation row and the account
+ * call lock, then this call's row, then its limit keys' locks
+ * (holdConversationCallLimitsIn), then the reservation row and the account
  * row (the budget ledger's own order). The issue holds the account row while
  * it inserts the call's row, which no one can wait on before it commits. It
  * key-share locks the call's topic before that, so the buffer does not drop
- * the topic in between. The grant question takes the call's row alone, never
- * an account.
+ * the topic in between. A first grant takes the call's limit keys' locks and
+ * then the call's row, never an account.
  */
 export function createPostgresConversationCalls(
   db: Database,
@@ -179,6 +314,23 @@ export function createPostgresConversationCalls(
           maxTokens: conversationCalls.maxTokens,
           maxRequestBytes: conversationCalls.maxRequestBytes,
         };
+        // A first grant keeps an unexpired call counted by the limits; one
+        // that expires while the grant waits for their locks is not bound,
+        // as an issue under them may already have left it uncounted.
+        const [unbound] = await tx
+          .select({
+            workspaceId: conversationCalls.workspaceId,
+            agentId: conversationCalls.agentId,
+            requesterUserId: conversationCalls.requesterUserId,
+          })
+          .from(conversationCalls)
+          .where(
+            and(
+              eq(conversationCalls.tokenHash, input.tokenHash),
+              eq(conversationCalls.state, "reserved"),
+            ),
+          );
+        if (unbound) await lockConversationCallLimitsIn(tx, unbound);
         // The first grant binds the token. Its condition is judged again
         // on the row once a concurrent first grant commits, so of two
         // exchanges only one is bound.
@@ -352,6 +504,27 @@ export function createPostgresConversationCalls(
         if (done) unknown++;
       }
       return { unknown };
+    },
+
+    async unknownByAgent({ atLeast, limit }) {
+      const unknown = sql<number>`count(*)::int`;
+      return db
+        .select({
+          workspaceId: conversationCalls.workspaceId,
+          agentId: conversationCalls.agentId,
+          unknown,
+        })
+        .from(conversationCalls)
+        .where(
+          and(
+            eq(conversationCalls.state, "in_flight"),
+            isNotNull(conversationCalls.unknownAt),
+          ),
+        )
+        .groupBy(conversationCalls.workspaceId, conversationCalls.agentId)
+        .having(sql`count(*) >= ${atLeast}`)
+        .orderBy(desc(unknown), conversationCalls.agentId)
+        .limit(limit);
     },
   };
 }

@@ -101,7 +101,11 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
       },
       registerRoutes: (router) => {
         registerAuthRoutes(router, auth);
-        registerInviteRoutes(router, inviteService);
+        registerInviteRoutes(
+          router,
+          inviteService,
+          "https://console.example.com",
+        );
         registerMemberRoutes(
           router,
           createMemberService({
@@ -230,6 +234,9 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
       )
       .then((result) => result.rows);
     expect(plain?.hits).toBe("0");
+    expect(issued.accept_url).toBe(
+      `https://console.example.com${issued.accept_path}`,
+    );
     // Seven days, on the database clock.
     const days =
       (new Date(issued.expires_at).getTime() - Date.now()) / 86_400_000;
@@ -239,6 +246,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     const listed = await send("GET", "/v1/invites", undefined, as(ownerCookie));
     const raw = await listed.text();
     expect(raw).not.toContain(issued.invite_token);
+    expect(raw).not.toContain(issued.accept_path);
     expect(
       listInvitesResponseSchema
         .parse(JSON.parse(raw))
