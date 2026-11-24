@@ -1,5 +1,5 @@
 {
-  "id": "7f02ebf9-c7ec-4960-8757-0ceac0f16bb7",
+  "id": "d4afda37-f751-4f7f-8e75-9197b569eac1",
   "prevId": "90d4da7f-5606-4c3d-98bf-342da1b063d8",
   "version": "7",
   "dialect": "postgresql",
@@ -10611,70 +10611,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.lost_checkpoint_notices": {
-      "name": "lost_checkpoint_notices",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "forgotten_at": {
-          "name": "forgotten_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "session_ids": {
-          "name": "session_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "closed_at": {
-          "name": "closed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "closed_by": {
-          "name": "closed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "lost_checkpoint_notices_closed_by_users_id_fk": {
-          "name": "lost_checkpoint_notices_closed_by_users_id_fk",
-          "tableFrom": "lost_checkpoint_notices",
-          "tableTo": "users",
-          "columnsFrom": ["closed_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "lost_checkpoint_notices_session_ids_check": {
-          "name": "lost_checkpoint_notices_session_ids_check",
-          "value": "jsonb_typeof(\"lost_checkpoint_notices\".\"session_ids\") = 'array'"
-        },
-        "lost_checkpoint_notices_closed_check": {
-          "name": "lost_checkpoint_notices_closed_check",
-          "value": "\"lost_checkpoint_notices\".\"closed_by\" IS NULL OR \"lost_checkpoint_notices\".\"closed_at\" IS NOT NULL"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.mcp_servers": {
       "name": "mcp_servers",
       "schema": "",
@@ -16851,6 +16787,25 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {},

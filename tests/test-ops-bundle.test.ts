@@ -446,6 +446,22 @@ exit 1
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );
+
+  bundleTest(
+    "setup-link refuses an --out inside the bundle before any docker call",
+    () => {
+      rmSync(calls, { force: true });
+      const out = join(unpacked, "owner-link.json");
+      const result = sh(
+        [script(), "setup-link", "--email", "owner@example.com", "--out", out],
+        { env: env() },
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("is inside the release bundle");
+      expect(existsSync(out)).toBe(false);
+      expect(existsSync(calls) ? readFileSync(calls, "utf8") : "").toBe("");
+    },
+  );
 });
 
 describe("a checkout is never a bundle", () => {

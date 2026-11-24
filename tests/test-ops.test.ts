@@ -113,6 +113,11 @@ describe("scripts/test-ops.sh", () => {
     [["backup", "--now"]],
     [["backup", "--stop", "--now"]],
     [["key"]],
+    [["setup-link"]],
+    [["setup-link", "--email", "owner@example.com"]],
+    [["setup-link", "--out", "owner-link.json"]],
+    [["setup-link", "--email", "owner@example.com", "--out"]],
+    [["setup-link", "--email", "owner@example.com", "--out", "f", "x"]],
     [["reseed"]],
     [["reseed", "backups/b", "backups/c"]],
     [["reset"]],
@@ -124,6 +129,19 @@ describe("scripts/test-ops.sh", () => {
     const result = await run(args, env);
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("scripts/test-ops.sh preflight");
+    expect(await dockerCalls()).toBe("");
+  });
+
+  test("setup-link never replaces a file the operator has, touching nothing", async () => {
+    const out = join(dir, "owner-link.json");
+    await writeFile(out, "keep");
+    const result = await run(
+      ["setup-link", "--email", "owner@example.com", "--out", out],
+      env,
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(`setup-link: ${out} exists`);
+    expect(await readFile(out, "utf8")).toBe("keep");
     expect(await dockerCalls()).toBe("");
   });
 

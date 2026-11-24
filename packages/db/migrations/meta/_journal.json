@@ -1811,8 +1811,15 @@
     {
       "idx": 349,
       "version": "7",
-      "when": 1795531739589,
-      "tag": "0349_lost_checkpoint_notices",
+      "when": 1795531555202,
+      "tag": "0349_setup_link_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 350,
+      "version": "7",
+      "when": 1795536880736,
+      "tag": "0350_lost_checkpoint_notices",
       "breakpoints": true
     }
   ]

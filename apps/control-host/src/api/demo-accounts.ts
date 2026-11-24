@@ -261,7 +261,12 @@ export async function seedDemoAccounts(
         const setupTokenHash = hashWebSessionToken(
           randomBytes(32).toString("base64url"),
         );
-        await issueSetupLink(tx, setupTokenHash, 60_000);
+        await issueSetupLink(tx, {
+          id: randomUUID(),
+          tokenHash: setupTokenHash,
+          email: account.email,
+          ttlMs: 60_000,
+        });
         await bootstrapOwner(tx, {
           userId: randomUUID(),
           email: account.email,

@@ -1851,7 +1851,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Create the first owner and default workspace, or recover an owner",
     description:
-      "Allowed only with a live setup link, which the `setup-link` command issues only while no live owner exists (an owner whose account or membership is disabled is not live). The link is spent in the same transaction that makes the owner. On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt.",
+      "Allowed only with a live setup link, which the `admin bootstrap-owner` command issues for one email address only while no live owner exists (an owner whose account or membership is disabled is not live). `email` must be the address the link was issued for. The link is spent in the same transaction that makes the owner. On an empty installation it creates the workspace and writes a `bootstrap_owner` receipt naming the link. On an installation that already has users it adds or restores the owner in the existing workspace, ignores workspace_name and workspace_slug, revokes every web session in the workspace and writes a `recover_owner` receipt.",
     auth: "public",
     body: "BootstrapRequest",
     requestExample: {
@@ -1873,12 +1873,14 @@ export const API_ROUTE_DECLARATIONS = [
         role: "owner",
       },
     },
-    errors: [400, 401, 409, 413, 429, 503],
+    errors: [400, 401, 403, 409, 413, 429, 503],
     errorCodes: { 409: ["BOOTSTRAP_DONE"] },
     errorNotes: {
       RATE_LIMITED: `${TOKEN_REQUESTS_LIMITED} Password hashing also shares login's concurrency limit (\`Retry-After: 1\`).`,
       UNAUTHORIZED:
         "`setup_token` is missing, unknown, expired, replaced or already used; checked first, before the rest of the body.",
+      FORBIDDEN:
+        "`email` is not the address the setup link was issued for. The link stays live.",
       BOOTSTRAP_DONE:
         "The loser of two concurrent bootstraps with the same link: the other one made the owner.",
     },

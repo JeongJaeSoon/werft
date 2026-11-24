@@ -24,6 +24,7 @@ umask 077
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 . scripts/lib/seed-credentials.sh
+. scripts/lib/setup-link-token.sh
 
 if [ -z "${DOCKER_HOST:-}" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
   export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
@@ -80,7 +81,7 @@ up() {
   dc up -d --wait api >>"$state/up.log" 2>&1
   # A fresh stack's one setup link makes the first owner; a kept stack has
   # its owner, and the command issues none.
-  E2E_SETUP_TOKEN="$(dc exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null 2>>"$state/up.log")" || E2E_SETUP_TOKEN=""
+  E2E_SETUP_TOKEN="$(setup_link_token "$E2E_OWNER_EMAIL" dc exec -T api 2>>"$state/up.log")" || E2E_SETUP_TOKEN=""
   export E2E_SETUP_TOKEN="${E2E_SETUP_TOKEN##*#setup=}"
 
   port() { dc port "$1" "$2" | sed 's/.*://'; }
