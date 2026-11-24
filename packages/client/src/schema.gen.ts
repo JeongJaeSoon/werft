@@ -1212,6 +1212,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/installation-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the console says about the installation itself
+         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. `profile` is `INSTALLATION_PROFILE`. `no_disk_quota` is true when the API runs with `EXECUTION_WORKSPACE_QUOTA=off`: worker workspaces have no kernel quota, and each worker measures its own at most once a minute and stops a turn that outgrows the limit. The console then shows a banner on every page, and `GET /readyz` stays ready with `detail.no_disk_quota`.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getInstallationStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/lost-checkpoint-notices/close": {
         parameters: {
             query?: never;
@@ -6304,6 +6326,8 @@ export interface components {
             };
             detail?: {
                 checkpoints_forgotten_on_boot?: number;
+                /** @constant */
+                no_disk_quota?: true;
             };
         };
         CreateSessionResponse: {
@@ -9016,6 +9040,11 @@ export interface components {
                 forgotten_at: string;
                 sessions: number;
             }[];
+        };
+        InstallationStatus: {
+            /** @enum {string} */
+            profile: "production" | "test";
+            no_disk_quota: boolean;
         };
         GetGitHubAppResponse: {
             github_app: {
@@ -21605,6 +21634,80 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["LostCheckpointNotices"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getInstallationStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The installation's profile and disk quota. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "profile": "test",
+                     *       "no_disk_quota": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["InstallationStatus"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
