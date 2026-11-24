@@ -2759,6 +2759,7 @@ const schedulerEnvOf = (manifests: Manifest[]): EnvVar[] =>
       (m) => m.kind === "Deployment" && m.metadata.name.endsWith("-scheduler"),
     ) as Manifest,
   ).containers[0].env;
+const INSTALLER_ON = ["--set", "codexSandbox.provider=installer"];
 const installerOf = (manifests: Manifest[]) => ({
   configMap: manifests.find(
     (m) => m.kind === "ConfigMap" && m.metadata.name.endsWith("-codex-seccomp"),
@@ -2779,9 +2780,56 @@ function checkCodexSandbox(): string[] {
       "files/codex-sandbox-seccomp.json is not the Docker backend's profile",
     );
   }
-  const on = render(["-f", ciDigests]);
-  if (schedulerEnvOf(on).some((v) => v.name.startsWith("CODEX_SANDBOX"))) {
-    fail("on by default, the scheduler is told something about it");
+  // Off by default: a namespace-only installer must be able to install.
+  const byDefault = render(["-f", ciDigests]);
+  if (
+    installerOf(byDefault).daemonSet !== undefined ||
+    installerOf(byDefault).configMap !== undefined
+  ) {
+    fail("the installer renders by default");
+  }
+  const on = render(["-f", ciDigests, ...INSTALLER_ON]);
+  const providerOf = (manifests: Manifest[]) =>
+    schedulerEnvOf(manifests).find((v) => v.name === "CODEX_SANDBOX_PROVIDER")
+      ?.value;
+  if (
+    schedulerEnvOf(on).some((v) => v.name === "CODEX_SANDBOX") ||
+    providerOf(on) !== "installer" ||
+    providerOf(byDefault) !== "disabled"
+  ) {
+    fail("the scheduler is not told the provider (disabled by default)");
+  }
+  // Told by a cluster administrator: nothing of ours in the cluster scope.
+  const external = render([
+    "-f",
+    ciDigests,
+    "--set",
+    "codexSandbox.provider=external",
+  ]);
+  if (
+    installerOf(external).daemonSet !== undefined ||
+    external.some((m) => m.kind.startsWith("Cluster")) ||
+    providerOf(external) !== "external"
+  ) {
+    fail("provider external renders an installer or cluster objects");
+  }
+  for (const args of [
+    ["--set", "codexSandbox.installer.enabled=true"],
+    ["--set", "codexSandbox.installer.enabled=false"],
+  ]) {
+    const { ok, out } = helmTemplate(["-f", ciDigests, ...args]);
+    if (ok || !out.includes("codexSandbox.installer.enabled is removed")) {
+      fail(`${args.join(" ")} is not refused`);
+    }
+  }
+  const unknown = helmTemplate([
+    "-f",
+    ciDigests,
+    "--set",
+    "codexSandbox.provider=helm",
+  ]);
+  if (unknown.ok || !unknown.out.includes("codexSandbox.provider must be")) {
+    fail("an unknown provider is not refused");
   }
   const { configMap, daemonSet } = installerOf(on);
   if (configMap?.data?.["codex-sandbox.json"] !== CODEX_PROFILE) {
@@ -2914,6 +2962,7 @@ function checkCodexSandbox(): string[] {
       render([
         "-f",
         ciDigests,
+        ...INSTALLER_ON,
         "--set",
         "worker.nodeSelector.pool=agents",
         "--set",
@@ -2941,6 +2990,7 @@ function checkCodexSandbox(): string[] {
     render([
       "-f",
       ciDigests,
+      ...INSTALLER_ON,
       "--set",
       "codexSandbox.installer.kubeletDir=/var/lib/k0s/kubelet/",
       "--set",
@@ -2968,19 +3018,14 @@ function checkCodexSandbox(): string[] {
     fail("the installer image replaces the labelling container's");
   }
 
-  const noInstaller = render([
-    "-f",
-    ciDigests,
-    "--set",
-    "codexSandbox.installer.enabled=false",
-  ]);
+  const noInstaller = byDefault;
   if (
     installerOf(noInstaller).daemonSet !== undefined ||
     installerOf(noInstaller).configMap !== undefined ||
     noInstaller.some((m) => m.kind.startsWith("Cluster")) ||
     schedulerEnvOf(noInstaller).some((v) => v.name === "CODEX_SANDBOX")
   ) {
-    fail("the installer turned off still renders, or turns the sandbox off");
+    fail("the installer left off still renders, or turns the sandbox off");
   }
 
   // Off means auto mode off: the workers are told, and refuse it.
@@ -2990,7 +3035,8 @@ function checkCodexSandbox(): string[] {
     installerOf(off).configMap !== undefined ||
     off.some((m) => m.kind.startsWith("Cluster")) ||
     schedulerEnvOf(off).find((v) => v.name === "CODEX_SANDBOX")?.value !==
-      "disabled"
+      "disabled" ||
+    providerOf(off) !== undefined
   ) {
     fail("turned off, the scheduler is not told so or the installer stays");
   }
@@ -3015,6 +3061,7 @@ function checkCodexSandbox(): string[] {
   const unpinned = helmTemplate([
     "-f",
     ciDigests,
+    ...INSTALLER_ON,
     "--set",
     "codexSandbox.installer.image.repository=busybox",
   ]);
@@ -3288,6 +3335,63 @@ function checkWorkerMemorySizing(): string[] {
   return found;
 }
 errors.push(...checkWorkerMemorySizing());
+
+// Cluster-scoped kinds a chart could render: a default install needs
+// namespace permissions alone.
+const CLUSTER_SCOPED_KINDS = new Set([
+  "ClusterRole",
+  "ClusterRoleBinding",
+  "ValidatingAdmissionPolicy",
+  "ValidatingAdmissionPolicyBinding",
+  "ValidatingWebhookConfiguration",
+  "MutatingWebhookConfiguration",
+  "MutatingAdmissionPolicy",
+  "MutatingAdmissionPolicyBinding",
+  "CustomResourceDefinition",
+  "Namespace",
+  "Node",
+  "PersistentVolume",
+  "StorageClass",
+  "PriorityClass",
+  "IngressClass",
+  "RuntimeClass",
+  "CSIDriver",
+  "APIService",
+]);
+
+function checkNoClusterScopedByDefault(): string[] {
+  const found: string[] = [];
+  const kinds = (args: string[]) =>
+    render(["-f", ciDigests, ...args])
+      .filter((m) => CLUSTER_SCOPED_KINDS.has(m.kind))
+      .map((m) => `${m.kind}/${m.metadata.name}`);
+  const plain = kinds([]);
+  if (plain.length > 0) {
+    found.push(
+      `a default render has cluster-scoped objects: ${plain.join(", ")}`,
+    );
+  }
+  // Each opt-in brings its own cluster-scoped objects, and only those.
+  const installer = kinds(["--set", "codexSandbox.provider=installer"]);
+  const reader = kinds(["--set", "scheduler.nodeCapacityCheck.enabled=true"]);
+  if (installer.length !== 4 || reader.length !== 2) {
+    found.push(
+      `the opt-ins do not render their cluster-scoped objects alone: installer ${installer.join(", ")}; node reader ${reader.join(", ")}`,
+    );
+  }
+  if (!notesOf([]).includes("codexSandbox.provider is disabled")) {
+    found.push("NOTES do not say the installation has no Codex sandbox");
+  }
+  if (
+    notesOf(["--set", "codexSandbox.provider=installer"]).includes(
+      "provider is disabled",
+    )
+  ) {
+    found.push("NOTES say the sandbox is disabled when it is not");
+  }
+  return found;
+}
+errors.push(...checkNoClusterScopedByDefault());
 
 const runtimeOn = render([
   "-f",

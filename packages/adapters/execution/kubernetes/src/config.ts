@@ -92,7 +92,17 @@ export type KubernetesBackendConfig = {
    * in tests: nothing changes.
    */
   codexSandbox?:
-    | { mode: "enabled"; images: readonly string[] }
+    | {
+        mode: "enabled";
+        images: readonly string[];
+        /**
+         * Who puts the profile on the nodes, from `CODEX_SANDBOX_PROVIDER`:
+         * `installer` (the chart's DaemonSet), `external` (a cluster
+         * administrator did), or `disabled` (nobody: no Codex worker can
+         * start). Absent: not said, nothing is refused.
+         */
+        provider?: "installer" | "external" | "disabled";
+      }
     | { mode: "disabled" };
 };
 

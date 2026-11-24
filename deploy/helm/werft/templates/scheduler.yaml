@@ -57,6 +57,9 @@ spec:
             {{- if not .Values.codexSandbox.enabled }}
             - name: CODEX_SANDBOX
               value: disabled
+            {{- else }}
+            - name: CODEX_SANDBOX_PROVIDER
+              value: {{ .Values.codexSandbox.provider | quote }}
             {{- end }}
             {{- with include "ap.workerImageEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}

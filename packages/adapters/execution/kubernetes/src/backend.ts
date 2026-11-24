@@ -21,7 +21,10 @@ import {
   type PersistentVolumeClaim,
   type Pod,
 } from "./client.ts";
-import { CODEX_SECCOMP_PROFILE } from "./codex-seccomp.ts";
+import {
+  CODEX_SECCOMP_NODE_LABEL,
+  CODEX_SECCOMP_PROFILE,
+} from "./codex-seccomp.ts";
 import {
   type KubernetesBackendConfig,
   validateKubernetesConfig,
@@ -365,6 +368,26 @@ export class KubernetesBackend implements ExecutionBackend {
       !codexSandboxed(this.config, waitingImage) ||
       codexSandboxed(this.config, image)
     );
+  }
+
+  /** A Codex worker cannot start where the installation has no sandbox. */
+  missingCodexSandbox(image: string): string | undefined {
+    const sandbox = this.config.codexSandbox;
+    if (
+      sandbox?.mode !== "enabled" ||
+      sandbox.provider !== "disabled" ||
+      !codexSandboxed(this.config, image)
+    ) {
+      return undefined;
+    }
+    return "this installation has no Codex sandbox (the chart's codexSandbox.provider is disabled): set codexSandbox.provider=installer, or have a cluster administrator install the sandbox on the nodes first and set it to external. See the Kubernetes upgrade guide of the self-hosting documentation";
+  }
+
+  /** A Codex sandbox Pod waits for labelled nodes in particular. */
+  capacityHint(image: string): string | undefined {
+    return codexSandboxed(this.config, image)
+      ? `Also check that a node carries the Codex sandbox label ${CODEX_SECCOMP_NODE_LABEL.key}=${CODEX_SECCOMP_NODE_LABEL.value}`
+      : undefined;
   }
 
   /**

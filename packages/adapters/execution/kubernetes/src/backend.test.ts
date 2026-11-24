@@ -883,6 +883,43 @@ describe("workspaces", () => {
   });
 });
 
+describe("a Codex worker with no sandbox provider", () => {
+  const CODEX = `registry.local:5000/codex@sha256:${"b".repeat(64)}`;
+  const backendFor = (
+    provider?: "installer" | "external" | "disabled",
+  ): KubernetesBackend =>
+    new KubernetesBackend(
+      {
+        ...testConfig(NS, INSTALLATION),
+        codexSandbox: {
+          mode: "enabled",
+          images: [CODEX],
+          ...(provider ? { provider } : {}),
+        },
+      },
+      new FakeKubernetes().asClient(),
+      testResolver,
+    );
+
+  test("is refused before its Pod exists, for a Codex image only", () => {
+    const disabled = backendFor("disabled");
+    expect(disabled.missingCodexSandbox(CODEX)).toContain(
+      "codexSandbox.provider is disabled",
+    );
+    expect(disabled.missingCodexSandbox(IMAGE)).toBeUndefined();
+    for (const provider of ["installer", "external", undefined] as const) {
+      expect(backendFor(provider).missingCodexSandbox(CODEX)).toBeUndefined();
+    }
+  });
+
+  test("names the node label when it waited for room in vain", () => {
+    expect(backendFor("external").capacityHint(CODEX)).toContain(
+      "werft.codex-seccomp-profile=installed",
+    );
+    expect(backendFor("external").capacityHint(IMAGE)).toBeUndefined();
+  });
+});
+
 describe("makesRoomFor", () => {
   const CODEX = `registry.local:5000/codex@sha256:${"b".repeat(64)}`;
   const backend = new KubernetesBackend(

@@ -1475,6 +1475,42 @@ describe("PostgresSchedulerStore", () => {
         failed_turn_count: 1,
       });
     });
+
+    test("a launch the installation has no Codex sandbox for fails the queued input with CODEX_SANDBOX_NOT_INSTALLED at once", async () => {
+      const { intent, sessionId } = await waitingLaunch();
+      const first = await queueInput(sessionId, 1);
+
+      expect(await store.giveUpForCodexSandbox(intent, "no sandbox")).toBe(
+        true,
+      );
+      expect(await store.giveUpForCodexSandbox(intent, "no sandbox")).toBe(
+        false,
+      );
+
+      const launch = await launchOf(intent.executionId);
+      expect(launch?.launchFailureCount).toBe(0);
+      expect(launch?.nonceHash).toBeNull();
+      expect(await store.desiredStateOf(intent)).toBe("terminated");
+      expect(
+        await db
+          .select({ status: turns.status, reason: turns.terminalReason })
+          .from(turns)
+          .where(eq(turns.sessionId, sessionId)),
+      ).toEqual([{ status: "failed", reason: "codex_sandbox_not_installed" }]);
+      const [receipt] = await db
+        .select()
+        .from(receipts)
+        .where(eq(receipts.id, first.receiptId));
+      expect(receipt?.status).toBe("failed");
+      expect(receipt?.error).toMatchObject({
+        code: "CODEX_SANDBOX_NOT_INSTALLED",
+      });
+      const [session] = await db
+        .select({ admission: sessions.admissionState, status: sessions.status })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      expect(session).toEqual({ admission: "active", status: "idle" });
+    });
   });
 
   test("a resume that found no room in time goes back to paused with its checkpoint", async () => {

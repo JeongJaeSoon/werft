@@ -12,6 +12,8 @@ outcome: "Replace the chart while preserving support windows and worker pins"
 
 Preserve the previous worker pin and support window, read upgrade-check results, then replace the published chart.
 
+> **Do this first: the Codex sandbox.** This chart changes the default of `codexSandbox`. Earlier charts created the installer DaemonSet and a ClusterRole by default; now the default (`codexSandbox.provider: disabled`) creates no cluster-scoped object. Upgraded as is, helm upgrade deletes the ClusterRole and the installer DaemonSet, and a Codex agent's input fails with `CODEX_SANDBOX_NOT_INSTALLED`. **If you use the Codex sandbox, put `codexSandbox.provider: installer` in your values before you upgrade.** An installation that places the profile through the Security Profiles Operator or a node image puts `external`. The old `codexSandbox.installer.enabled` is not accepted, and the render stops while it is set (`installer.enabled=true` is `provider: installer`, `false` is `external`).
+
 <a id="준비물" />
 ## Before you begin
 

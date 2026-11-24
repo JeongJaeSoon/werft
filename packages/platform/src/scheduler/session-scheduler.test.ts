@@ -91,6 +91,7 @@ class MemoryStore implements SchedulerStore {
   readonly quarantined = new Map<string, string>();
   /** Sessions whose launch found no room in time; they wait for input. */
   readonly noCapacity = new Set<string>();
+  readonly noCodexSandbox = new Set<string>();
   readonly launchFailures: Array<{ executionId: string } & LaunchFailureInput> =
     [];
   /** Sessions with a turn that has not ended, as a drain sees them. */
@@ -412,6 +413,24 @@ class MemoryStore implements SchedulerStore {
     row.capacityWaitSince = null;
     row.capacityWaitMessage = null;
     return waited;
+  }
+
+  async giveUpForCodexSandbox(ref: ExecutionRef): Promise<boolean> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.claimed ||
+      row.slotReleased ||
+      row.desiredState !== "running"
+    ) {
+      return false;
+    }
+    row.nonce = null;
+    row.desiredState = "terminated";
+    this.unassigned.delete(row.sessionId);
+    this.noCodexSandbox.add(row.sessionId);
+    return true;
   }
 
   async giveUpForCapacity(
@@ -751,6 +770,7 @@ function nameOf(ref: ExecutionRef): string {
 class FakeBackend implements ExecutionBackend {
   readonly kind = "local_docker" as const;
   makesRoomFor?: (waitingImage: string, image: string) => boolean;
+  missingCodexSandbox?: (image: string) => string | undefined;
   /** Keyed like Docker names the containers: execution id plus generation. */
   readonly containers = new Map<string, Container>();
   readonly ensureCalls: LaunchIntent[] = [];
@@ -5842,6 +5862,25 @@ describe("a launch waiting for room", () => {
 
     expect((await h.run()).idleWorkersStopped).toEqual([]);
     expect(other.row.drainRequestedAt).toBeUndefined();
+  });
+
+  test("refuses a launch with no Codex sandbox before anything is created", async () => {
+    const h = harness();
+    h.backend.missingCodexSandbox = () => "no Codex sandbox here";
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+
+    const summary = await h.run();
+
+    expect(summary.launchesNoCodexSandbox).toHaveLength(1);
+    expect(summary.launched).toEqual([]);
+    expect(h.backend.ensureCalls).toEqual([]);
+    expect(h.store.noCodexSandbox.has(sessionId)).toBe(true);
+    expect(h.store.launchFailures).toEqual([]);
+    expect(h.store.quarantined.size).toBe(0);
+    expect(
+      h.records.some((r) => r.message.includes("CODEX_SANDBOX_NOT_INSTALLED")),
+    ).toBe(true);
   });
 
   test("gives its queued input up after the limit, without a launch failure", async () => {
