@@ -46,6 +46,7 @@ import {
   useWorkspaceSettingsNavGroups,
 } from "../components/app-sidebar.tsx";
 import { FormError } from "../components/auth-page.tsx";
+import { InstallationNotices } from "../components/installation-notices.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { SettingsLayout } from "../components/settings-nav.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -382,6 +383,7 @@ function ShellMain({ children }: { readonly children: ReactNode }) {
   const area = settingsAreaOf(pathname);
   return (
     <Main className="web-shell__main flex w-full min-w-0 flex-col bg-surface md:col-start-2 md:row-start-2">
+      <InstallationNotices />
       {flush ? (
         <div
           data-slot="page-flush"

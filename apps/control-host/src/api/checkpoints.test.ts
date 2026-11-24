@@ -5,14 +5,17 @@ import * as schema from "@werft-ai/db";
 import {
   CHECKPOINT_OBJECTS_LOST_REASON,
   checkpoints,
+  closeLostCheckpointNotices,
   events,
   forgetLostCheckpoints,
   forgetLostCheckpointsAtStart,
   hasUncollectedCheckpoint,
   lostCheckpointNotices,
   OPEN_LOST_CHECKPOINT_SESSIONS_SQL,
+  openLostCheckpointNotices,
   receipts,
   sessions,
+  users,
 } from "@werft-ai/db";
 import { migrate } from "@werft-ai/db/migrate";
 import {
@@ -980,8 +983,36 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
     expect(await openCount()).toBe(3);
   });
 
-  test("a closed notice no longer counts", async () => {
-    await db.update(lostCheckpointNotices).set({ closedAt: new Date() });
+  test("an administrator closes the notices they read; the rest stay open and counted", async () => {
+    const open = await openLostCheckpointNotices(db);
+    expect(open.map((notice) => notice.sessions)).toEqual([2, 1]);
+    const [first, later] = open.map((notice) => notice.id) as [string, string];
+    const [closer, other] = [crypto.randomUUID(), crypto.randomUUID()];
+    await db.insert(users).values(
+      [closer, other].map((id) => ({
+        id,
+        email: `${id}@example.test`,
+        displayName: "Admin",
+      })),
+    );
+    await closeLostCheckpointNotices(db, { ids: [first], closedBy: closer });
+    expect((await openLostCheckpointNotices(db)).map((n) => n.id)).toEqual([
+      later,
+    ]);
+    expect(await openCount()).toBe(1);
+
+    // Closed once: a second close, and an id that names nothing, change
+    // nothing, and who closed first stays.
+    await closeLostCheckpointNotices(db, {
+      ids: [first, crypto.randomUUID()],
+      closedBy: other,
+    });
+    const rows = await db.select().from(lostCheckpointNotices);
+    expect(rows.find((row) => row.id === first)?.closedBy).toBe(closer);
+    expect(rows.find((row) => row.id === later)?.closedAt).toBeNull();
+
+    await closeLostCheckpointNotices(db, { ids: [later], closedBy: other });
+    expect(await openLostCheckpointNotices(db)).toEqual([]);
     expect(await openCount()).toBe(0);
   });
 });
