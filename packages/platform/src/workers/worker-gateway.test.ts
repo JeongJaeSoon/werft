@@ -2883,6 +2883,7 @@ describe("a conversation call's usage report", () => {
       authorizeAtomic: unused,
       releaseExpired: unused,
       markUnknown: unused,
+      unknownByAgent: unused,
       settleAtomic: async (input) => ({
         outcome: replay ? "already_settled" : "settled",
         costUsd: replay ? 0 : input.priceFor({ unmetered }).costUsd,

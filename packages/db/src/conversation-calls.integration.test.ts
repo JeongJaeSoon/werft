@@ -1,6 +1,15 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import {
+  type ConversationCallId,
   type ConversationId,
+  type ConversationTopicId,
   conversationCallIdSchema,
   conversationCallKeySchema,
   conversationIdSchema,
@@ -81,6 +90,7 @@ integration("conversation calls on PostgreSQL", () => {
   let pool: Pool;
   let db: Database;
   let workspaceId: string;
+  let teamId: string;
   let agentId: string;
   let conversationId: ConversationId;
   const TEAM = "T0CALLS";
@@ -96,28 +106,44 @@ integration("conversation calls on PostgreSQL", () => {
     await db
       .insert(workspaces)
       .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "Calls" });
-    const teamId = crypto.randomUUID();
+    teamId = crypto.randomUUID();
     await db
       .insert(memberTeams)
       .values({ id: teamId, workspaceId, name: "team" });
-    agentId = crypto.randomUUID();
-    await db.insert(agents).values({
-      id: agentId,
+    // The agent's own calls (root none) are charged to its team.
+    await saveBudgetLimit(
+      db,
       workspaceId,
-      managingTeamId: teamId,
-      slug: "agent",
-      name: "agent",
-    });
-    conversationId = conversationIdSchema.parse(crypto.randomUUID());
+      { kind: "team", teamId },
+      { costUsd: null, tokens: RESERVE.tokens * 1_000 },
+    );
     await pool.query(
       "INSERT INTO channel_contexts (id, workspace_id, team_id, channel_id) VALUES ($1, $2, $3, $4)",
       [crypto.randomUUID(), workspaceId, TEAM, CHANNEL],
     );
+  }, 60_000);
+
+  // An agent of its own per test, its calls in progress counted apart.
+  async function newAgent() {
+    const id = crypto.randomUUID();
+    await db.insert(agents).values({
+      id,
+      workspaceId,
+      managingTeamId: teamId,
+      slug: `agent-${id}`,
+      name: "agent",
+    });
+    const conversation = conversationIdSchema.parse(crypto.randomUUID());
     await pool.query(
       "INSERT INTO conversations (id, workspace_id, agent_id, kind, team_id, channel_id) VALUES ($1, $2, $3, 'channel', $4, $5)",
-      [conversationId, workspaceId, agentId, TEAM, CHANNEL],
+      [conversation, workspaceId, id, TEAM, CHANNEL],
     );
-  }, 60_000);
+    return { agentId: id, conversationId: conversation };
+  }
+
+  beforeEach(async () => {
+    ({ agentId, conversationId } = await newAgent());
+  });
 
   afterAll(async () => {
     await pool.end();
@@ -126,7 +152,7 @@ integration("conversation calls on PostgreSQL", () => {
 
   const store = () => createPostgresConversationCalls(db);
   const keyOf = () =>
-    conversationCallKeySchema.parse(`${crypto.randomUUID()}:m1`);
+    conversationCallKeySchema.parse(`${crypto.randomUUID()}:m2`);
   const issue = (
     userId: string,
     judgment: { callKey?: ReturnType<typeof keyOf>; topicId?: string } = {},
@@ -139,7 +165,8 @@ integration("conversation calls on PostgreSQL", () => {
         judgment.topicId === undefined
           ? null
           : conversationTopicIdSchema.parse(judgment.topicId),
-      callClass: "m1",
+      // m2, held by no channel's limit.
+      callClass: "m2",
       releaseId: null,
       callKey: judgment.callKey ?? keyOf(),
       attempt: 1,
@@ -352,7 +379,7 @@ integration("conversation calls on PostgreSQL", () => {
     const base = {
       workspaceId,
       topicId: null,
-      callClass: "m1" as const,
+      callClass: "m2" as const,
       releaseId,
       attempt: 1,
       connectionId: CONNECTION,
@@ -420,7 +447,7 @@ integration("conversation calls on PostgreSQL", () => {
       state: "reserved",
       conversationId,
       topicId: null,
-      callClass: "m1",
+      callClass: "m2",
     });
   });
 
@@ -474,6 +501,240 @@ integration("conversation calls on PostgreSQL", () => {
     expect(await accountOf(userId)).toMatchObject({
       spentTokens: reservationTokens(USED),
       reservedTokens: RESERVE.tokens,
+    });
+  });
+
+  describe("concurrency limits", () => {
+    const NO_ONE = { kind: "none" } as const;
+    type Agent = { agentId: string; conversationId: ConversationId };
+    let threads = 0;
+    async function topicOf(agent: Agent) {
+      const topicId = conversationTopicIdSchema.parse(crypto.randomUUID());
+      threads += 1;
+      await pool.query(
+        "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id, conversation_kind, slack_team_id, slack_channel_id, slack_thread_ts) VALUES ($1, $2, $3, $4, 'channel', $5, $6, $7)",
+        [
+          topicId,
+          workspaceId,
+          agent.agentId,
+          agent.conversationId,
+          TEAM,
+          CHANNEL,
+          `200.${String(threads).padStart(6, "0")}`,
+        ],
+      );
+      return topicId;
+    }
+    const callOf = (
+      agent: Agent,
+      options: {
+        callClass?: "m1" | "m2" | "summary";
+        topicId?: ConversationTopicId;
+        root?: { kind: "user"; userId: string } | typeof NO_ONE;
+      } = {},
+    ) => {
+      const callClass = options.callClass ?? "m2";
+      return createConversationCalls({ store: store(), catalog }).issue({
+        workspaceId,
+        agentId: agent.agentId,
+        conversationId: agent.conversationId,
+        topicId: options.topicId ?? null,
+        callClass,
+        releaseId: null,
+        callKey: conversationCallKeySchema.parse(
+          `${crypto.randomUUID()}:${callClass}`,
+        ),
+        attempt: 1,
+        root: options.root ?? NO_ONE,
+        connectionId: CONNECTION,
+        ...LIMITS,
+      });
+    };
+    const outcomes = (
+      results: Awaited<ReturnType<typeof callOf>>[],
+    ): string[] =>
+      results
+        .map((result) =>
+          result.outcome === "concurrency_limited"
+            ? `limited:${result.limit}`
+            : result.outcome,
+        )
+        .sort();
+    const tokenOf = (result: Awaited<ReturnType<typeof callOf>>) => {
+      if (result.outcome !== "issued") throw new Error(result.outcome);
+      return result;
+    };
+    const callsOf = (agent: Agent) =>
+      db
+        .select({ id: conversationCalls.id })
+        .from(conversationCalls)
+        .where(eq(conversationCalls.agentId, agent.agentId));
+    const teamReserved = async () =>
+      (await accountOf(teamId))?.reservedTokens ?? 0;
+    const settle = async (call: {
+      callId: ConversationCallId;
+      token: string;
+    }) => {
+      const exchange = crypto.randomUUID();
+      expect((await grant(call.token, exchange)).outcome).toBe("ok");
+      expect(
+        (
+          await store().settleAtomic({
+            callId: call.callId,
+            exchangeId: exchange,
+            usage: USED,
+            priceFor: () => ({ costUsd: 0.002 }),
+          })
+        ).outcome,
+      ).toBe("settled");
+    };
+
+    test("nine calls of one agent at once: eight are issued, one is limited by the agent and holds nothing", async () => {
+      const agent = { agentId, conversationId };
+      const before = await teamReserved();
+      const results = await Promise.all(
+        Array.from({ length: 9 }, () => callOf(agent)),
+      );
+      expect(outcomes(results)).toEqual([
+        ...Array(8).fill("issued"),
+        "limited:agent",
+      ]);
+      expect(
+        results.find((result) => result.outcome === "concurrency_limited"),
+      ).toEqual({
+        outcome: "concurrency_limited",
+        limit: "agent",
+        inProgress: 8,
+        unknown: 0,
+      });
+      expect(await callsOf(agent)).toHaveLength(8);
+      expect((await teamReserved()) - before).toBe(RESERVE.tokens * 8);
+    });
+
+    test("two M1 calls of one channel at once: one is issued; a summary call beside it is not held", async () => {
+      const agent = { agentId, conversationId };
+      const results = await Promise.all([
+        callOf(agent, { callClass: "m1" }),
+        callOf(agent, { callClass: "m1" }),
+      ]);
+      expect(outcomes(results)).toEqual(["issued", "limited:channel"]);
+      expect((await callOf(agent, { callClass: "summary" })).outcome).toBe(
+        "issued",
+      );
+      // Another agent's M1 in the same channel is its own line.
+      expect(
+        (await callOf(await newAgent(), { callClass: "m1" })).outcome,
+      ).toBe("issued");
+    });
+
+    test("two calls of one topic at once: one is issued; another topic's is issued too", async () => {
+      const agent = { agentId, conversationId };
+      const [one, other] = [await topicOf(agent), await topicOf(agent)];
+      const results = await Promise.all([
+        callOf(agent, { topicId: one }),
+        callOf(agent, { topicId: one }),
+        callOf(agent, { topicId: other }),
+      ]);
+      expect(outcomes(results)).toEqual(["issued", "issued", "limited:topic"]);
+    });
+
+    test("one person's calls on five topics at once: four are issued, one is limited by the person", async () => {
+      const agent = { agentId, conversationId };
+      const root = { kind: "user", userId: crypto.randomUUID() } as const;
+      const topics = await Promise.all(
+        Array.from({ length: 5 }, () => topicOf(agent)),
+      );
+      const results = await Promise.all(
+        topics.map((topicId) => callOf(agent, { topicId, root })),
+      );
+      expect(outcomes(results)).toEqual([
+        ...Array(4).fill("issued"),
+        "limited:requester",
+      ]);
+    });
+
+    test("one person's five calls through two agents at once: four are issued", async () => {
+      const [first, second] = [{ agentId, conversationId }, await newAgent()];
+      const root = { kind: "user", userId: crypto.randomUUID() } as const;
+      const results = await Promise.all(
+        [first, first, first, second, second].map((agent) =>
+          callOf(agent, { root }),
+        ),
+      );
+      expect(outcomes(results)).toEqual([
+        ...Array(4).fill("issued"),
+        "limited:requester",
+      ]);
+    });
+
+    test("a settled call frees its place; so does a token that expired, before and after its release", async () => {
+      const agent = { agentId, conversationId };
+      const first = tokenOf(await callOf(agent, { callClass: "m1" }));
+      expect(await callOf(agent, { callClass: "m1" })).toMatchObject({
+        outcome: "concurrency_limited",
+        limit: "channel",
+      });
+      await settle(first);
+      const second = tokenOf(await callOf(agent, { callClass: "m1" }));
+      await pool.query(
+        "UPDATE conversation_calls SET expires_at = now() - interval '1 second' WHERE id = $1",
+        [second.callId],
+      );
+      // An expired token cannot be used, so it holds no place even before
+      // the reconciler releases it.
+      const third = tokenOf(await callOf(agent, { callClass: "m1" }));
+      await pool.query(
+        "UPDATE conversation_calls SET expires_at = now() - interval '1 second' WHERE id = $1",
+        [third.callId],
+      );
+      expect(
+        (await store().releaseExpired({ limit: 1_000, dryRun: false }))
+          .released,
+      ).toBeGreaterThanOrEqual(2);
+      expect((await callOf(agent, { callClass: "m1" })).outcome).toBe("issued");
+    });
+
+    test("calls of unknown end hold the agent's places, said in the refusal, until a late report settles one", async () => {
+      const agent = { agentId, conversationId };
+      const calls = (
+        await Promise.all(Array.from({ length: 8 }, () => callOf(agent)))
+      ).map(tokenOf);
+      const exchanges = calls.map(() => crypto.randomUUID());
+      for (const [i, call] of calls.entries()) {
+        expect((await grant(call.token, exchanges[i] as string)).outcome).toBe(
+          "ok",
+        );
+      }
+      // Past the exchange lease with no report.
+      await pool.query(
+        "UPDATE conversation_calls SET started_at = now() - interval '1 day' WHERE agent_id = $1",
+        [agent.agentId],
+      );
+      expect(
+        (await store().markUnknown({ limit: 1_000, dryRun: false })).unknown,
+      ).toBeGreaterThanOrEqual(8);
+      expect(await callOf(agent)).toEqual({
+        outcome: "concurrency_limited",
+        limit: "agent",
+        inProgress: 8,
+        unknown: 8,
+      });
+      expect(
+        await store().unknownByAgent({ atLeast: 4, limit: 1_000 }),
+      ).toContainEqual({ workspaceId, agentId: agent.agentId, unknown: 8 });
+      const [late] = calls;
+      if (!late) throw new Error("no call");
+      expect(
+        (
+          await store().settleAtomic({
+            callId: late.callId,
+            exchangeId: exchanges[0] as string,
+            usage: USED,
+            priceFor: () => ({ costUsd: 0.002 }),
+          })
+        ).outcome,
+      ).toBe("settled");
+      expect((await callOf(agent)).outcome).toBe("issued");
     });
   });
 });

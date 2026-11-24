@@ -21,7 +21,7 @@ import {
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import {
   lockBudgetCall,
@@ -159,7 +159,8 @@ async function topicOf(agentId: string, conversationId: ConversationId) {
   return id;
 }
 
-const keyOf = (callClass: ConversationCallClass = "m1") =>
+// m2 by default, held by no channel's limit.
+const keyOf = (callClass: ConversationCallClass = "m2") =>
   conversationCallKeySchema.parse(`${crypto.randomUUID()}:${callClass}`);
 
 type Judgment = Partial<{
@@ -180,7 +181,7 @@ function issue(
   connectionId = CONNECTION,
   judgment: Judgment = {},
 ) {
-  const callClass = judgment.callClass ?? "m1";
+  const callClass = judgment.callClass ?? "m2";
   return calls().issue({
     workspaceId: WORKSPACE,
     agentId,
@@ -823,12 +824,17 @@ describe("what a conversation call is for", () => {
       }),
     ).rejects.toThrow();
     await expect(
-      set({ conversationId, callClass: "m1", callKey: keyOf(), attempt: 0 }),
+      set({
+        conversationId,
+        callClass: "m1",
+        callKey: keyOf("m1"),
+        attempt: 0,
+      }),
     ).rejects.toThrow();
     await set({
       conversationId,
       callClass: "m1",
-      callKey: keyOf(),
+      callKey: keyOf("m1"),
       attempt: 1,
     });
   });
@@ -953,7 +959,7 @@ test("the buffer drops the last input of a topic a call names: the topic goes, t
     state: "reserved",
     conversationId,
     topicId: null,
-    callClass: "m1",
+    callClass: "m2",
   });
   // Sent again after its topic went: still the one call.
   expect(
@@ -963,4 +969,109 @@ test("the buffer drops the last input of a topic a call names: the topic goes, t
     }),
   ).toEqual({ outcome: "already_issued" });
   expect(await db.select().from(budgetReservations)).toHaveLength(1);
+});
+
+describe("a conversation call's concurrency limits", () => {
+  const limitOf = (result: Awaited<ReturnType<typeof issue>>) =>
+    result.outcome === "concurrency_limited" ? result.limit : result.outcome;
+
+  test("each key at its limit refuses the next call by name, with nothing held", async () => {
+    const { agentId, conversationId } = await agentOf();
+    const reservations = async () =>
+      (await db.select().from(budgetReservations)).length;
+    // Channel: one M1 at a time; a summary beside it is not counted.
+    await issued(agentId, person(crypto.randomUUID()), { callClass: "m1" });
+    const held = await reservations();
+    expect(
+      limitOf(
+        await issue(agentId, person(crypto.randomUUID()), CONNECTION, {
+          callClass: "m1",
+        }),
+      ),
+    ).toBe("channel");
+    expect(await reservations()).toBe(held);
+    await issued(agentId, person(crypto.randomUUID()), {
+      callClass: "summary",
+    });
+    // Topic: one call at a time; another topic is its own.
+    const topicId = await topicOf(agentId, conversationId);
+    await issued(agentId, person(crypto.randomUUID()), { topicId });
+    expect(
+      limitOf(
+        await issue(agentId, person(crypto.randomUUID()), CONNECTION, {
+          topicId,
+        }),
+      ),
+    ).toBe("topic");
+    // Person: four over every agent.
+    const userId = crypto.randomUUID();
+    const other = await agentOf();
+    await issued(other.agentId, person(userId));
+    await issued(other.agentId, person(userId));
+    await issued(agentId, person(userId));
+    await issued(agentId, person(userId));
+    expect(limitOf(await issue(other.agentId, person(userId)))).toBe(
+      "requester",
+    );
+    // Agent: eight, the person's two counted among them.
+    for (let i = 0; i < 3; i++) {
+      await issued(agentId, person(crypto.randomUUID()));
+    }
+    expect(await issue(agentId, person(crypto.randomUUID()))).toEqual({
+      outcome: "concurrency_limited",
+      limit: "agent",
+      inProgress: 8,
+      unknown: 0,
+    });
+  });
+
+  test("an expired token holds no place; one of unknown end holds it until settled", async () => {
+    const { agentId } = await agentOf();
+    const calls = [];
+    for (let i = 0; i < 8; i++) {
+      calls.push(await issued(agentId, person(crypto.randomUUID())));
+    }
+    const [expired, ...rest] = calls;
+    if (!expired) throw new Error("no call");
+    await db
+      .update(conversationCalls)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(conversationCalls.id, expired.callId));
+    const ninth = await issued(agentId, person(crypto.randomUUID()));
+    const inFlight = [...rest, ninth];
+    const exchanges = inFlight.map(() => crypto.randomUUID());
+    for (const [i, call] of inFlight.entries()) {
+      expect((await grant(call.token, exchanges[i] as string)).outcome).toBe(
+        "ok",
+      );
+    }
+    await db
+      .update(conversationCalls)
+      .set({ startedAt: new Date(Date.now() - 86_400_000) })
+      .where(
+        and(
+          eq(conversationCalls.agentId, agentId),
+          eq(conversationCalls.state, "in_flight"),
+        ),
+      );
+    expect(
+      (await store().markUnknown({ limit: 100, dryRun: false })).unknown,
+    ).toBe(8);
+    expect(await issue(agentId, person(crypto.randomUUID()))).toEqual({
+      outcome: "concurrency_limited",
+      limit: "agent",
+      inProgress: 8,
+      unknown: 8,
+    });
+    expect(await store().unknownByAgent({ atLeast: 4, limit: 10 })).toEqual([
+      { workspaceId: WORKSPACE, agentId, unknown: 8 },
+    ]);
+    expect(await store().unknownByAgent({ atLeast: 9, limit: 10 })).toEqual([]);
+    const [late] = inFlight;
+    if (!late) throw new Error("no call");
+    expect(
+      (await settle(late.callId, exchanges[0] as string, USED)).outcome,
+    ).toBe("settled");
+    await issued(agentId, person(crypto.randomUUID()));
+  });
 });
