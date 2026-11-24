@@ -542,7 +542,9 @@ export function createAgentService(deps: {
       return failed(
         resolved.error.field === "card.model"
           ? "model_not_in_connection"
-          : "release_refused",
+          : resolved.error.field === "card.judgment_model"
+            ? "judgment_model_not_in_connection"
+            : "release_refused",
       );
     }
     const identity = {

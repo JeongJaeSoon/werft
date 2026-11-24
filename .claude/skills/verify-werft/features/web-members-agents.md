@@ -81,12 +81,12 @@ node $B <run id> open /agents/new                    # /agents/new?new-agent.ste
 node $B <run id> type @0 "Member Helper"             # 이름. 식별자(@1)는 member-helper로 채워진다
                                                      # 담당 팀(@3)은 팀이 하나면 저절로 골라진다. 둘 이상이면 select @3 "$TID"
 node $B <run id> click 다음                          # → ?new-agent.step=job
-node $B <run id> select @1 claude-sonnet-5           # 모델 (@0은 모델 연결 fake-messages, @2는 답변 언어)
+node $B <run id> select @1 claude-sonnet-5           # 모델 (@0은 모델 연결 fake-messages, @2는 판단 모델, @3은 답변 언어)
 node $B <run id> click "저장하고 다음"               # → ?new-agent.step=channels, 에이전트가 켜진 채 만들어진다
 node $B <run id> click "나중에 하기"                 # → /agents/<id>
 ```
 
-상세는 탭 일곱(개요·상세 설정·릴리스·접근·관리자·Slack·GitHub, 주소 `?tab=card|release|access|admins|slack|github`)이다. `@N`은 탭과 상관없이 main 안의 칸을 세고, 편집을 열면 칸 수가 바뀐다. 숨은 칸에는 `type`이 들어가지 않으므로 탭을 주소로 연다: `open "/agents/<id>?tab=card"` → `click "상세 설정 편집"` → `type @1 "…"`(설명) 또는 `select @4 en`(답변 언어) → `click 저장`. `open "/agents/<id>?tab=release"` → `click 되돌리기`(표의 첫 버튼). 대화상자의 같은 이름 버튼은 `click`이 표의 버튼을 먼저 잡으므로 CSS로 누른다: `click '[role=dialog] button:last-child'`. `?tab=admins`의 추가 칸은 고르는 즉시 추가하는 Combobox("이름·이메일·팀 이름으로 찾기")다. owner·admin 브라우저에서 `type '[role=combobox]' "<팀 이름>"` → `click '[role=option]'` → "<팀 이름>을(를) 관리자로 추가했습니다." member에게는 사람·팀 목록을 읽을 권한이 없어 칸이 꺼지고 "구성원 관리 권한이 있어야 할 수 있습니다. … 팀 관리 권한이 있어야 할 수 있습니다. …"가 붙는다.
+상세는 탭 일곱(개요·상세 설정·릴리스·접근·관리자·Slack·GitHub, 주소 `?tab=card|release|access|admins|slack|github`)이다. `@N`은 탭과 상관없이 main 안의 칸을 세고, 편집을 열면 칸 수가 바뀐다. 숨은 칸에는 `type`이 들어가지 않으므로 탭을 주소로 연다: `open "/agents/<id>?tab=card"` → `click "상세 설정 편집"` → `type @1 "…"`(설명) 또는 `select @5 en`(답변 언어. @4는 판단 모델) → `click 저장`. `open "/agents/<id>?tab=release"` → `click 되돌리기`(표의 첫 버튼). 대화상자의 같은 이름 버튼은 `click`이 표의 버튼을 먼저 잡으므로 CSS로 누른다: `click '[role=dialog] button:last-child'`. `?tab=admins`의 추가 칸은 고르는 즉시 추가하는 Combobox("이름·이메일·팀 이름으로 찾기")다. owner·admin 브라우저에서 `type '[role=combobox]' "<팀 이름>"` → `click '[role=option]'` → "<팀 이름>을(를) 관리자로 추가했습니다." member에게는 사람·팀 목록을 읽을 권한이 없어 칸이 꺼지고 "구성원 관리 권한이 있어야 할 수 있습니다. … 팀 관리 권한이 있어야 할 수 있습니다. …"가 붙는다.
 
 충돌에는 release가 셋 필요하다(카드의 답변 언어를 두 번 바꾸면 v2·v3가 생긴다). `browser.mjs`는 탭 하나만 쓰므로 B는 브라우저, A는 API다. 브라우저로 `?tab=release`를 열어 둔 채, A로 `ap_web GET "/v1/agents/<id>"`의 `agent.activation_revision`과 `releases[].id`를 읽고 `ap_web POST "/v1/agents/<id>/activate" '{"release_id":"<v2 id>","expected_revision":<revision>}'` → `200`. 그다음 B에서 v1 행의 되돌리기(`click '[aria-label="릴리스 <v1 label> · fake-messages(으)로 되돌리기"]'`. 같은 초에 만든 release는 label 끝에 `-2`가 붙으므로 부분 일치로 고르지 않는다 → `click '[role=dialog] button:last-child'`) → `409 REVISION_CONFLICT`("Activation revision is N+1, not N")와 위 `activate-conflict` 안내.
 
