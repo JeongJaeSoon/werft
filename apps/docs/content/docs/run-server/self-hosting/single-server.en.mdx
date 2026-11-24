@@ -10,6 +10,8 @@ outcome: "Check readiness on a server using persistent S3"
 <a id="무엇을-하게-되나" />
 ## What you will do
 
+The release to install now is the `v*` release marked Latest on [GitHub Releases](https://github.com/JeongJaeSoon/werft/releases/latest). The default installation method uses the bundle attached to that release, with no checkout ([Get the release bundle](#릴리스-번들로-받기)). The first command in step 1 reads its tag.
+
 Install published images pinned by digest on one Linux server and check `/readyz` and `/docs`. This uses persistent AWS S3. This Compose path does not accept custom endpoints. For another S3-compatible endpoint, follow [Kubernetes installation](/run-server/self-hosting/kubernetes). Choose [Kubernetes](/run-server/self-hosting/kubernetes) if you need high availability.
 
 <a id="준비물" />
@@ -22,11 +24,11 @@ Install published images pinned by digest on one Linux server and check `/readyz
 | Docker Compose | 2.24.6 or later |
 | Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` checks this with the quota probe and stops otherwise. Complete [XFS preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
 | Time | NTP synchronized. Docker starts automatically after reboot |
-| Tools | For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. For a release bundle installation, `jq`, `curl`, `openssl`, `sha256sum`, and `tar` (with gzip). Both need an account with Docker daemon access |
+| Tools | For a release bundle installation, `jq`, `curl`, `openssl`, `sha256sum`, and `tar` (with gzip). For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. Both need an account with Docker daemon access |
 | Object store | Persistent AWS S3 bucket. Compose test-ops supports AWS S3 only, without custom endpoints. Check protection and permissions in [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket) |
 | External access | Download images from `ghcr.io` and Docker Hub without signing in. Sessions connect to `api.anthropic.com` and `github.com` |
 
-There are two ways to install. A repository checkout works for every published tag (`main-<12>`, `v<version>`). A `v*` release can also be installed from the bundle attached to its GitHub Release (`werft-test-ops-<tag>.tar.gz`), with no checkout and no host Bun. Either way, the Compose files and `scripts/test-ops.sh` are read from the downloaded directory, and no image is built. The bundle refuses `upgrade`, `backup`, `reseed`, and `restore-drill`. Run those from a repository checked out at the release's `source_commit`, with the same env file and state directory.
+There are two ways to install. The default is the bundle attached to the GitHub Release of a `v*` release (`werft-test-ops-<tag>.tar.gz`), with no checkout and no host Bun. A repository checkout works for every published tag (`main-<12>`, `v<version>`). Either way, the Compose files and `scripts/test-ops.sh` are read from the downloaded directory, and no image is built. The bundle refuses `upgrade`, `backup`, `reseed`, and `restore-drill`. Run those from a repository checked out at the release's `source_commit`, with the same env file and state directory.
 
 - Prepare the [XFS disk](/run-server/self-hosting/prepare-xfs) and [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) first.
 - Choose an [access path](/run-server/self-hosting/access) before remote bootstrap.
@@ -38,7 +40,37 @@ There are two ways to install. A repository checkout works for every published t
 <a id="1-버전과-소스-고정" />
 ### 1. Pin the version and source
 
-Check the changelog and select a published tag supporting the current settings document, model connection, and secret-key contracts. Replace the two placeholders below with an actual tag and its matching source commit from the [package contract](/run-server/self-hosting/reference/packages). An image main tag is not a Git tag; do not assume it is also the checkout reference.
+Check the changelog and select a published tag supporting the current settings document, model connection, and secret-key contracts. The default is the release marked Latest on [GitHub Releases](https://github.com/JeongJaeSoon/werft/releases). The following command reads its tag. To use another `v*` release, put that tag in `TAG` yourself.
+
+```bash
+TAG="$(curl -fsSL https://api.github.com/repos/JeongJaeSoon/werft/releases/latest | jq -er .tag_name)"
+echo "$TAG"
+```
+
+It must print a tag starting with `v`. An empty line means the lookup failed: check the `curl` error printed with it, then run it again or put the chosen tag in `TAG` yourself.
+
+<a id="릴리스-번들로-받기" />
+#### Get the release bundle
+
+This is the default installation method. Run it in the shell where you set `TAG`. It needs no checkout and no host Bun.
+
+```bash
+BASE="https://github.com/JeongJaeSoon/werft/releases/download/$TAG"
+mkdir -p "$HOME/werft-releases/$TAG"
+cd "$HOME/werft-releases/$TAG"
+curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz"
+curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz.sha256"
+sha256sum -c "werft-test-ops-$TAG.tar.gz.sha256"
+tar -xzf "werft-test-ops-$TAG.tar.gz"
+cd "werft-test-ops-$TAG"
+```
+
+`sha256sum` must print `OK`. The sha256 only catches a damaged download and does not prove where the file came from, so use only files downloaded from this GitHub Release address. The `infra/` and `scripts/` paths in later steps are relative to this directory. The bundle carries the release's `release-manifest.json`, so step 3 does not look up image digests separately.
+
+<a id="저장소-checkout으로-받기" />
+#### Get a repository checkout
+
+To install a published tag that has no bundle, such as `main-<12>`, or to install from a repository checkout, run the following two blocks instead of the bundle block. Replace the two placeholders below with an actual tag and its matching source commit from the [package contract](/run-server/self-hosting/reference/packages). An image main tag is not a Git tag; do not assume it is also the checkout reference.
 
 ```bash
 TAG='<published-image-tag>'
@@ -58,25 +90,6 @@ bun install --frozen-lockfile
 ```
 
 The checkout must match the selected release commit, and dependency installation must succeed. Store the release file outside the checkout to keep the checkout clean.
-
-<a id="릴리스-번들로-받기" />
-#### Get the release bundle
-
-To install a `v*` release without a checkout, run the following instead of the two blocks above. `TAG` is the release tag chosen from the [package contract](/run-server/self-hosting/reference/packages).
-
-```bash
-TAG='<release-tag>'
-BASE="https://github.com/JeongJaeSoon/werft/releases/download/$TAG"
-mkdir -p "$HOME/werft-releases/$TAG"
-cd "$HOME/werft-releases/$TAG"
-curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz"
-curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz.sha256"
-sha256sum -c "werft-test-ops-$TAG.tar.gz.sha256"
-tar -xzf "werft-test-ops-$TAG.tar.gz"
-cd "werft-test-ops-$TAG"
-```
-
-`sha256sum` must print `OK`. The sha256 only catches a damaged download and does not prove where the file came from, so use only files downloaded from this GitHub Release address. The `infra/` and `scripts/` paths in later steps are relative to this directory. The bundle carries the release's `release-manifest.json`, so step 3 does not look up image digests separately.
 
 <a id="2-비밀과-설정-문서" />
 ### 2. Secrets and settings document
@@ -152,7 +165,16 @@ Replace the URL with the public repository you will use. For private repositorie
 <a id="3-release-입력-생성" />
 ### 3. Generate release input
 
-Run this in the shell retaining the selected TAG. `DEPLOYMENT_DIR` is an installation-specific directory outside the checkout.
+Run this in the shell retaining the selected TAG. `DEPLOYMENT_DIR` is an installation-specific directory outside the downloaded directory. If you downloaded the release bundle, run the following in the bundle directory. `manifest` writes the release file from the commit and image digests of the release manifest inside the bundle, plus the settings document's digest.
+
+```bash
+DEPLOYMENT_DIR=/var/lib/werft/test-ops
+scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > "$DEPLOYMENT_DIR/release.json"
+```
+
+Run step 4 and `setup-link` from the bundle directory with the same commands. The bundle's `preflight` and `deploy` refuse the file if its commit or images differ from the bundle's release.
+
+If you used a repository checkout, run the following in the checkout instead of the block above. It writes a file of the same format.
 
 ```bash
 DEPLOYMENT_DIR=/var/lib/werft/test-ops
@@ -170,15 +192,6 @@ jq -n \
 ```
 
 Confirm all three image digests are nonempty.
-
-If you downloaded the release bundle, run the following in the bundle directory instead of the block above. `manifest` writes a file of the same format from the commit and image digests of the release manifest inside the bundle, plus the settings document's digest.
-
-```bash
-DEPLOYMENT_DIR=/var/lib/werft/test-ops
-scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > "$DEPLOYMENT_DIR/release.json"
-```
-
-Run step 4 and `setup-link` from the bundle directory with the same commands. The bundle's `preflight` and `deploy` refuse the file if its commit or images differ from the bundle's release.
 
 <a id="4-s3를-명시해-검사설치" />
 ### 4. Explicitly select S3, check, and install
