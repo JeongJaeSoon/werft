@@ -110,6 +110,13 @@ function routes(app: typeof APP | null = null, installed = false) {
     [`GET ${PATH}/slack-bindings`]: () =>
       json(200, { items: installed ? [BINDING] : [] }),
     [`GET ${PATH}/slack/app/settings`]: () => json(200, { mention_only: true }),
+    [`GET ${PATH}/slack/notice`]: () =>
+      json(200, {
+        notice: null,
+        state: "no_notice",
+        can_approve: true,
+        approvals: [],
+      }),
     [`GET ${PATH}/slack/app/bots`]: () =>
       json(200, { items: [], truncated: false }),
     [`GET ${PATH}/slack/channels`]: () =>
@@ -447,6 +454,7 @@ describe("Slack management", () => {
         .map((link) => link.textContent),
     ).toEqual([
       "Slack",
+      "고지 승인",
       "채널",
       "기본",
       "Slack 앱 생성",
@@ -1428,6 +1436,7 @@ describe("Slack management", () => {
       .getAllByRole("heading", { level: 3 })
       .map((heading) => heading.textContent);
     expect(headings).toEqual([
+      "고지 승인",
       "연결된 채널",
       "기본",
       "Slack 앱 생성",
@@ -2577,7 +2586,7 @@ describe("Slack management", () => {
           .map((link) => link.textContent),
       ).toEqual([
         "Slack",
-        ...(installed ? ["채널", "기본"] : []),
+        ...(installed ? ["고지 승인", "채널", "기본"] : []),
         "Slack 앱 생성",
         ...(app ? ["Slack 앱에 넣을 주소"] : []),
         "자동으로 만든 Slack 앱",
