@@ -1,15 +1,12 @@
 import {
   CONVERSATION_TURN_LEASE_MS,
-  CONVERSATION_TURN_LIMIT_VALUES,
   type ConversationRuntimeId,
   type ConversationRuntimeTurn,
-  type ConversationTurnCallRefusal,
   type ConversationTurnId,
   type ConversationTurnLeaseId,
   type ConversationTurnResult,
   conversationTurnLeaseIdSchema,
 } from "@werft-ai/contracts";
-import type { ConversationTurnLimitReached } from "../limits/ports/conversation-call-store.ts";
 import type {
   ConversationTurnOutcome,
   ConversationTurnQueue,
@@ -166,28 +163,6 @@ function sameResult(
     );
   }
   return false;
-}
-
-/**
- * Which limit ended a turn and who held it there: the server, when it
- * refused a call past the turn's count or the turn's lease ran out; else the
- * runtime, by the reason it reported.
- */
-export function conversationTurnLimitReached(
-  outcome: ConversationTurnOutcome | null,
-  refusal: ConversationTurnCallRefusal | null,
-): ConversationTurnLimitReached | null {
-  if (refusal === "turn_limit") {
-    return { limit: "model_call_limit", by: "server" };
-  }
-  if (outcome?.outcome !== "failed") return null;
-  if (outcome.reason === "lease_expired") {
-    return { limit: "time_limit", by: "server" };
-  }
-  const limit = CONVERSATION_TURN_LIMIT_VALUES.find(
-    (value) => value === outcome.reason,
-  );
-  return limit === undefined ? null : { limit, by: "runner" };
 }
 
 export type ConversationRuntimeTurns = ReturnType<
