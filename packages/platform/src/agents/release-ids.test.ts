@@ -445,6 +445,34 @@ describe("resolveReleaseContent", () => {
     );
   });
 
+  test("refuses a judgment model the connection does not offer", () => {
+    const resolved = resolveReleaseContent(
+      { ...card, judgment_model: "claude-haiku-5" },
+      run,
+    );
+    expect(!resolved.ok && resolved.error.field).toBe("card.judgment_model");
+    expect(!resolved.ok && resolved.error.message).toBe(
+      "model claude-haiku-5 is not a model of connection conn-1",
+    );
+  });
+
+  test("pins a judgment model beside the card's model; none leaves the snapshot as before", () => {
+    const picked = resolveReleaseContent(
+      { ...card, judgment_model: "claude-opus-5" },
+      run,
+    );
+    if (!picked.ok) throw new Error(picked.error.message);
+    expect(picked.content.runtime_config_snapshot).toMatchObject({
+      model: "claude-sonnet-5",
+      judgment_model: "claude-opus-5",
+    });
+    const none = resolveReleaseContent(card, run);
+    if (!none.ok) throw new Error(none.error.message);
+    expect(
+      Object.hasOwn(none.content.runtime_config_snapshot, "judgment_model"),
+    ).toBe(false);
+  });
+
   test("takes a card on any model the connection offers and runs the card's", () => {
     const resolved = resolveReleaseContent(
       { ...card, model: "claude-opus-5" },

@@ -251,6 +251,12 @@ export const agentCardSchema = z
     language: z.enum(AGENT_CARD_LANGUAGE_VALUES).default("follow-user"),
     /** Must be one of the models the release's connection offers. */
     model: z.string().min(1).max(128),
+    /**
+     * The model the agent's conversation judgments and channel summary folds
+     * call, on the release's connection. Absent: `model`. Must be one of the
+     * models the connection offers. Not the workspace's decision model.
+     */
+    judgment_model: z.string().min(1).max(128).optional(),
     capabilities: agentCapabilitiesSchema,
     rules: z.array(agentRuleSchema).default([]),
   })
@@ -1445,6 +1451,15 @@ export function releaseModel(
 ): string | undefined {
   const model = release?.runtime_config_snapshot.model;
   return typeof model === "string" ? model : undefined;
+}
+
+// The model a release's conversation judgments call: its card's judgment
+// model, else its card's.
+export function releaseJudgmentModel(
+  release: Pick<AgentRelease, "runtime_config_snapshot"> | null,
+): string | undefined {
+  const model = release?.runtime_config_snapshot.judgment_model;
+  return typeof model === "string" ? model : releaseModel(release);
 }
 export type CreateAgentRequest = z.infer<typeof createAgentRequestSchema>;
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>;

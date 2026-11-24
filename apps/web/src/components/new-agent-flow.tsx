@@ -451,7 +451,7 @@ export function NewAgentFlow({
       description: detail.agent.description ?? "",
       managingTeamId: detail.agent.managing_team_id,
       managingTeamName: detail.agent.managing_team_name,
-      card: input,
+      card: { ...input, judgmentModel: input.judgmentModel ?? "" },
       connectionId: connection,
       releaseId: releaseId ?? saved?.releaseId ?? null,
       published: detail.agent.active_release_id !== null,

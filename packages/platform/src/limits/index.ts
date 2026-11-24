@@ -7,6 +7,7 @@ export {
   CONVERSATION_CALL_PATH,
   CONVERSATION_CALL_TOKEN_PREFIX,
   type ConversationCalls,
+  type ConversationCallUnavailable,
   hashConversationCallToken,
 } from "./conversation-calls.ts";
 export {
