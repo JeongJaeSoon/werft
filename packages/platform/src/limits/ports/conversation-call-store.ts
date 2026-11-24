@@ -6,6 +6,8 @@ import type {
   ConversationCallKey,
   ConversationId,
   ConversationTopicId,
+  ConversationTurnCallRefusal,
+  ConversationTurnId,
 } from "@werft-ai/contracts";
 import type { BudgetRoot } from "../budget-accounts.ts";
 import type { ConversationCallLimit } from "../conversation-call-limits.ts";
@@ -34,6 +36,44 @@ export interface ConversationCallStore {
     tokenHash: Uint8Array;
     exchangeId: string;
   }): Promise<ConversationCallAuthorization>;
+  /**
+   * Writes a conversation turn `running` and its permit together: neither
+   * reserves anything, each call on the permit does.
+   */
+  issueTurnPermitAtomic(
+    input: ConversationTurnPermitInput,
+  ): Promise<ConversationTurnPermitIssue>;
+  /**
+   * The proxy's grant question on a turn's permit. A new exchange is a new
+   * call of the turn: counted by the call limits, reserved on the account the
+   * turn's root chooses and recorded bound to that exchange, or refused with
+   * nothing held and the refusal kept on the permit. The same exchange asks
+   * again while its call lasts.
+   */
+  authorizeTurnCallAtomic(input: {
+    tokenHash: Uint8Array;
+    exchangeId: string;
+    /** The id the call takes if this exchange is a new one. */
+    callId: ConversationCallId;
+    /**
+     * What one call on the permit holds; null when its connection is not
+     * one this API serves.
+     */
+    reserveFor(permit: {
+      connectionId: string;
+      model: string;
+      maxTokens: number;
+      maxRequestBytes: number;
+    }): { reserve: BudgetAmount; unmetered: boolean } | null;
+  }): Promise<ConversationTurnCallAuthorization>;
+  /**
+   * Ends a running turn without a decision, which also ends its permit, and
+   * says what its last refused call was refused for.
+   */
+  endTurnAtomic(input: { turnId: ConversationTurnId }): Promise<{
+    ended: "recorded" | "already_ended" | "gone";
+    refusal: ConversationTurnCallRefusal | null;
+  }>;
   /** The bound exchange's usage report, settled on the account once. */
   settleAtomic(input: {
     callId: ConversationCallId;
@@ -118,6 +158,54 @@ export type ConversationCallIssue =
   | { outcome: "unknown_conversation" }
   // The agent already has a call of that key and attempt; none is added.
   | { outcome: "already_issued" };
+
+export type ConversationTurnPermitInput = {
+  turnId: ConversationTurnId;
+  tokenHash: Uint8Array;
+  workspaceId: string;
+  agentId: string;
+  conversationId: ConversationId;
+  topicId: ConversationTopicId;
+  /** Whom the turn serves, as its row keeps it. */
+  requester: {
+    kind: "user" | "slack_user" | "slack_bot" | "operator";
+    id: string;
+  };
+  releaseId: string | null;
+  root: BudgetRoot;
+  connectionId: string;
+  path: string;
+  model: string;
+  /** What each call of the turn may use. */
+  maxTokens: number;
+  maxRequestBytes: number;
+  callKey: ConversationCallKey;
+  ttlMs: number;
+};
+
+export type ConversationTurnPermitIssue =
+  | { outcome: "issued"; expiresAt: Date }
+  | { outcome: "unknown_agent" }
+  // The conversation is not the agent's, or the topic not the conversation's.
+  | { outcome: "unknown_conversation" };
+
+export type ConversationTurnCallAuthorization =
+  | (Extract<ConversationCallAuthorization, { outcome: "ok" }> & {
+      turnId: ConversationTurnId;
+    })
+  | {
+      outcome: "refused";
+      turnId: ConversationTurnId;
+      rootKind: BudgetRootKind;
+      accountId: BudgetAccountId | null;
+    }
+  | (Extract<ConversationCallIssue, { outcome: "concurrency_limited" }> & {
+      turnId: ConversationTurnId;
+    })
+  // The permit's connection is gone from this API's catalog.
+  | { outcome: "unavailable" }
+  // Unknown, expired, its turn ended, or the exchange is another call's.
+  | { outcome: "invalid_token" };
 
 export type ConversationCallAuthorization =
   | {
