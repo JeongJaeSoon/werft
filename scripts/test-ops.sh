@@ -13,8 +13,10 @@
 #                                              stop, a compose down, or a host restart that left it down
 #   scripts/test-ops.sh status                  containers, release, /readyz, scheduler and reconciler health, disk
 #   scripts/test-ops.sh key create <owner> --scopes <scope>[,<scope>...] | key revoke <key_id>
-#   scripts/test-ops.sh setup-link              print a one-time link that creates the first owner, only
-#                                              while no owner exists; running it again replaces the link
+#   scripts/test-ops.sh setup-link --email <address> --out <file>
+#                                              write a one-time link that creates the first owner (that
+#                                              address only) to <file>, new and 0600; only while no owner
+#                                              exists; prints the file and the expiry; again replaces it
 #   scripts/test-ops.sh backup [--stop]         stop admissions and writers, scripts/backup.sh, reopen
 #                                              (--stop: leave them stopped, before a planned restart)
 #   scripts/test-ops.sh restore-drill <backup-dir> [--bucket <new-empty-bucket>] [--port-base 25432] [--keep]
@@ -104,7 +106,7 @@ WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,49p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -119,6 +121,8 @@ DRILL_BUCKET=""
 PORT_BASE=25432
 KEEP=0
 STOP=0
+SETUP_EMAIL=""
+SETUP_OUT=""
 case "$VERB" in
   preflight)
     [ $# -le 1 ] || usage
@@ -139,8 +143,28 @@ case "$VERB" in
       esac
     done
     ;;
-  status|start|stop|setup-link)
+  status|start|stop)
     [ $# -eq 0 ] || usage
+    ;;
+  setup-link)
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --email) [ $# -ge 2 ] || usage; SETUP_EMAIL="$2"; shift 2 ;;
+        --out) [ $# -ge 2 ] || usage; SETUP_OUT="$2"; shift 2 ;;
+        *) usage ;;
+      esac
+    done
+    [ -n "$SETUP_EMAIL" ] && [ -n "$SETUP_OUT" ] || usage
+    [ ! -e "$SETUP_OUT" ] || die "setup-link: $SETUP_OUT exists; name a file that does not exist yet"
+    # A file the bundle's SHA256SUMS does not list stops every later run.
+    if [ "$MODE" = bundle ]; then
+      out_dir="$(cd "$(dirname -- "$SETUP_OUT")" 2>/dev/null && pwd -P)" \
+        || die "setup-link: the directory of $SETUP_OUT does not exist"
+      case "$out_dir/" in
+        "$(cd "$BUNDLE_ROOT" && pwd -P)/"*)
+          die "setup-link: $SETUP_OUT is inside the release bundle; write it outside, for example under \$DEPLOYMENT_DIR" ;;
+      esac
+    fi
     ;;
   backup)
     case "$*" in "") ;; --stop) STOP=1 ;; *) usage ;; esac
@@ -751,7 +775,7 @@ deploy() {
   start_apps
   settings_applied
   record_release "$MANIFEST" deploy
-  log "deploy: done — the link that creates the first owner: scripts/test-ops.sh setup-link"
+  log "deploy: done — the link that creates the first owner: scripts/test-ops.sh setup-link --email <address> --out <file>"
   log "deploy: then issue a key with scripts/test-ops.sh key create <owner> --scopes sessions:read,sessions:write"
 }
 
@@ -878,13 +902,35 @@ key() {
   ops_compose exec -T api bun run apps/control-host/src/api/keys.ts "$@" </dev/null
 }
 
-# The link is made inside the API container and printed to this terminal
-# alone; no log holds it.
+# The link is made inside the API container into a 0600 file there, copied to
+# --out on this host and removed from the container. ln makes --out only if
+# it does not exist, from a 0600 mktemp file beside it, so a file the operator
+# already has is never replaced; a directory that appears at --out meanwhile
+# would take the link inside it, so that is undone and refused. This terminal
+# shows the file and the expiry.
 setup_link() {
+  local inner printed expires tmp status=0
   load_current
   render
   check_identity
-  ops_compose exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null
+  inner="/tmp/werft-bootstrap-owner-$$.json"
+  printed="$(ops_compose exec -T api bun run apps/control-host/src/main.ts admin bootstrap-owner \
+    --email "$SETUP_EMAIL" --out "$inner" </dev/null)" || exit $?
+  expires="$(printf '%s\n' "$printed" | sed -n 's/^expires_at: //p')"
+  tmp="$(mktemp "$(dirname -- "$SETUP_OUT")/.setup-link.XXXXXX")" || status=$?
+  if [ "$status" = 0 ]; then
+    { ops_compose exec -T api cat "$inner" </dev/null >"$tmp" && ln "$tmp" "$SETUP_OUT"; } || status=$?
+    if [ -d "$SETUP_OUT" ]; then
+      rm -f "$SETUP_OUT/${tmp##*/}"
+      status=1
+    fi
+    rm -f "$tmp"
+  fi
+  ops_compose exec -T api rm -f "$inner" </dev/null || true
+  [ "$status" = 0 ] \
+    || die "setup-link: the link could not be written to $SETUP_OUT; run setup-link again, which replaces the link"
+  log "setup-link: file: $SETUP_OUT"
+  log "setup-link: expires_at: $expires"
 }
 
 backup() {

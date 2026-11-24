@@ -203,13 +203,13 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.jso
 
 preflight checks bucket protection and scratch version writes, holds, reads, hold release, and deletion. It runs the workspace quota probe first, and the scheduler checks quota again during deploy. Both must succeed and services must become healthy. The object store mode cannot change after the first deploy.
 
-After deploy, get the one-time setup link that creates the first owner. This command prints it once on stdout; it is never written to a log or a file.
+After deploy, get the one-time setup link that creates the first owner, as a file. Give the email address of the person who becomes the owner, and a file name in `DEPLOYMENT_DIR` that does not exist yet. test-ops refuses a path inside the bundle directory, which must hold only the files its SHA256SUMS lists. The file is created with mode 0600, and the screen shows only the file path and the expiry.
 
 ```bash
-scripts/test-ops.sh setup-link
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
 ```
 
-Open the printed link in a browser ([first owner and keys](/run-server/self-hosting/users-and-keys)). If only a path is printed, append it to the console's address. The link stops working once used and expires after 24 hours. If you missed it or it expired, run the command again: it prints a new link and the old one stops working. Once an owner exists, the command prints no link and exits 1.
+Open the file's `accept_url` (or `accept_path` appended to the console's address) and create the owner with the email address given to the command. The way without a browser, and the file's fields, are in [first owner and keys](/run-server/self-hosting/users-and-keys). The link stops working once used and expires after 24 hours. If you lost the file or it expired, run the command again with a new file name: it issues a new link and the old one stops working. Once an owner exists, the command makes neither a link nor a file and exits 1.
 
 <a id="확인" />
 ## Verify
