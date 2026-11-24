@@ -399,7 +399,8 @@ integration("M1 judgment records", () => {
           ts,
           topicId: place.topicId,
           inputId,
-          sessionId: null,
+          // A turn's session; none here, so the reply grades as `m1`.
+          sessionId: randomUUID(),
           rule: { decision: "reply", reason: "default_reply" },
         }),
       );
