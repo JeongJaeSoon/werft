@@ -135,7 +135,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
         registerSessionRoutes(router, service);
         registerReceiptRoutes(router, service);
         registerMemberRoutes(router, members, invites);
-        registerInviteRoutes(router, invites);
+        registerInviteRoutes(router, invites, null);
         registerEventRoutes(router, service, {
           wakeup: {
             wait: (_, signal) =>

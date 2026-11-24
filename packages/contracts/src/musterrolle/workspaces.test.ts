@@ -235,13 +235,29 @@ describe("invites hold no redeemable token", () => {
     const created = createInviteResponseSchema.parse({
       invite_id: INVITE_ID,
       invite_token: "t".repeat(40),
+      accept_path: `/invite/${"t".repeat(40)}`,
+      accept_url: null,
       expires_at: AT,
     });
     expect(created.invite_token).toHaveLength(40);
     expect(
       createInviteResponseSchema.safeParse({
+        ...created,
+        accept_url: `https://console.example.com${created.accept_path}`,
+      }).success,
+    ).toBe(true);
+    expect(
+      createInviteResponseSchema.safeParse({
+        ...created,
+        accept_path: `/bootstrap#setup=${"t".repeat(40)}`,
+      }).success,
+    ).toBe(false);
+    expect(
+      createInviteResponseSchema.safeParse({
         invite_id: INVITE_ID,
         invite_token: "short",
+        accept_path: `/invite/${"t".repeat(40)}`,
+        accept_url: null,
         expires_at: AT,
       }).success,
     ).toBe(false);

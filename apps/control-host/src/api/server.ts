@@ -1533,7 +1533,7 @@ const app = createApiApp({
       agentDeleted(db, workspaceId, agentId),
     );
     registerAuthRoutes(router, auth);
-    registerInviteRoutes(router, invites);
+    registerInviteRoutes(router, invites, consoleOrigin);
     registerWorkspaceRoutes(router, {
       authorization,
       retention: createPostgresAuditRetention(db),
