@@ -232,9 +232,9 @@ If the link opens on "This setup link can't be used", it was already used, is mo
 If `admin bootstrap-owner` ends with `usage: bun run src/main.ts <api|metrics> | …(got admin)`, or `scripts/test-ops.sh setup-link --email …` prints only its usage, the image is from an earlier release (up to `v0.4.0`) that lacks this command. In that image, `bun run apps/control-host/src/api/setup-link.ts` (on a test-ops single server, `scripts/test-ops.sh setup-link` with no arguments) prints the link once on stdout and makes no file. The link is not bound to an email address. To create the owner without a browser, take the output into the token file instead of onto the screen, then follow [Create it without a browser](#브라우저-없이-만들기), skipping only the token step.
 
 ```bash
-(umask 077 && set -C && scripts/test-ops.sh setup-link | sed -n 's/.*#setup=//p' >"$DEPLOYMENT_DIR/owner-setup-token")
-(umask 077 && set -C && kubectl -n werft exec deploy/werft-api -c api -- \
-  bun run apps/control-host/src/api/setup-link.ts | sed -n 's/.*#setup=//p' >owner-setup-token)
+(umask 077 && set -C && { scripts/test-ops.sh setup-link | sed -n 's/.*#setup=//p'; } >"$DEPLOYMENT_DIR/owner-setup-token")
+(umask 077 && set -C && { kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/setup-link.ts | sed -n 's/.*#setup=//p'; } >owner-setup-token)
 ```
 
 The first line is for a test-ops single server; the two lines below it are one command for Kubernetes. Run only the one for your installation. On a test-ops single server, a file inside the bundle directory stops the next run, so the token file goes in `DEPLOYMENT_DIR`; run the commands that follow in that directory too. If `owner-setup-token` is empty, no link came out (as happens when an owner already exists): delete the file and check the command's error.
