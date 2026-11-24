@@ -86,6 +86,8 @@ worker Pod는 `worker.memoryMb`(기본 4608MiB) 전체를 예약하므로 동시
 
 다른 설치와 겹치지 않는 `installationId`를 같은 파일에 둔다. `images.*`의 digest는 게시 chart의 값을 유지한다. DB·S3·Secret·CNI가 준비됐는지 확인한 뒤 진행한다.
 
+Codex 에이전트를 쓰는 설치는 같은 파일에 `codexSandbox.provider`를 둔다. 기본값 `disabled`에서는 Codex 에이전트의 입력이 `CODEX_SANDBOX_NOT_INSTALLED`로 실패한다. `installer`는 chart가 노드에 sandbox를 두고, 그래서 cluster 범위 리소스를 만들 권한이 필요하다. `external`은 cluster 관리자가 [Codex sandbox 노드 준비](/run-server/self-hosting/prepare-codex-sandbox)대로 노드를 먼저 준비한다.
+
 콘솔의 공개 주소는 같은 파일의 `api.extraEnv`에 `CONSOLE_ORIGIN`으로 둔다. 브라우저가 콘솔을 여는 origin(`scheme://host[:port]`)이다. AWS의 내부망 ALB면 그 Ingress의 host이고, 그 밖의 클러스터면 [5단계](#5-aws-밖-클러스터의-콘솔-접속)의 reverse proxy 주소다.
 
 ```yaml

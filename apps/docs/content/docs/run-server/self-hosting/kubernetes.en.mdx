@@ -92,6 +92,8 @@ A worker Pod reserves all of `worker.memoryMb` (default 4608MiB), so concurrent 
 
 Set a unique `installationId` in the same file. Retain the published chart's `images.*` digests. Proceed after checking the database, S3, Secret, and CNI are ready.
 
+An installation that runs Codex agents sets `codexSandbox.provider` in the same file. With the default `disabled`, input to Codex agents fails with `CODEX_SANDBOX_NOT_INSTALLED`. With `installer`, the chart puts the sandbox on the nodes, so it needs permission to create cluster-scoped resources. With `external`, a cluster administrator prepares the nodes first by following [Prepare nodes for the Codex sandbox](/run-server/self-hosting/prepare-codex-sandbox).
+
 Put the console's public address in the same file as `CONSOLE_ORIGIN` under `api.extraEnv`. It is the origin (`scheme://host[:port]`) the browser opens the console on: the Ingress host for an internal ALB on AWS, or the reverse proxy's address from [step 5](#5-aws-밖-클러스터의-콘솔-접속) on other clusters.
 
 ```yaml
