@@ -96,6 +96,8 @@ export interface SlackConfigApi {
   deleteApp(configToken: string, appId: string): Promise<void>;
   /** Resolves while Slack still shows the app to this token's user. */
   exportApp(configToken: string, appId: string): Promise<void>;
+  /** `auth.revoke` with the bot token itself. */
+  revokeBotToken(botToken: string): Promise<void>;
 }
 
 /** What `oauth.v2.access` granted, before it is checked. */
@@ -382,6 +384,14 @@ export function createSlackConfigApi(
       await call(
         "apps.manifest.export",
         { token: configToken, body: { app_id: appId } },
+        z.object({}),
+      );
+    },
+
+    async revokeBotToken(botToken) {
+      await call(
+        "auth.revoke",
+        { token: botToken, body: new URLSearchParams() },
         z.object({}),
       );
     },

@@ -885,8 +885,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete one of the workspace's Slack apps in Slack
-         * @description Deletes the app in Slack (`apps.manifest.delete` with the config token) and its stored secrets; the row stays as `deleted`. Only an app recorded in this workspace's Slack apps can be named. An agent's app takes an owner, an admin or that agent's admin; any other app an owner or admin. An app Slack no longer has counts as deleted. One still being created answers 409 SLACK_APP_CREATING. API keys are refused.
+         * Delete one of the workspace's Slack apps
+         * @description Closes the app in Werft first, in one transaction: the row becomes `deleted`, its stored secrets are dropped, and its installs, the agent identities pinned to them, their channel bindings, its outbox messages not yet being sent (closed as `app_deleted`) and its agent's judgment buffer for those channels are closed, all or nothing, with a `delete_slack_app` receipt (what it closed, never a token); when that fails nothing is closed, the app stays `deleting` and the same request deletes it again. Running sessions and their turns stay; what a running session sends to the app afterwards is refused as `app_deleted`. Then, once each and never again, Slack is asked to revoke the bot token (`auth.revoke`) and to delete the app (`apps.manifest.delete` with the config token); a token or app Slack no longer has counts as done. When either fails, the delete still succeeds and `slack_cleanup` names the failed steps: delete the app in Slack's app management page. An uninstall or token revoke event Slack sends later changes nothing. Only an app recorded in this workspace's Slack apps can be named. An agent's app takes an owner, an admin or that agent's admin; any other app an owner or admin. An app Slack no longer has counts as deleted. One still being created answers 409 SLACK_APP_CREATING. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -5231,6 +5231,7 @@ export interface paths {
          *     - `approve_slack_notice`: `{agent_id, approval_id, slack_team_id, notice_version}`; a workspace owner or admin (the receipt's `actor`) approved the Slack notice at that version for the agent's app in that Slack team.
          *     - `revoke_slack_notice`: `{agent_id, approval_ids, slack_team_ids, notice_versions}`: the approvals the revoke ended; written only when one was live.
          *     - `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`), `operator_cli` (`slack-notice.ts set-rollout`) or `reconciler`; `reason` is null for a change asked for, `notice_revoked` when a revoke lowered it, or `not_approved`, `not_installed` or `no_notice` when a pass found the agent no longer approved; `buffered_dropped` counts the held messages a change to `off` removed.
+         *     - `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.
          *     - `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves; `resolution` is `spent` (charged at what it held) or `refunded` (charged nothing, with its `reason`), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.
          *
          *     Any credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.
@@ -8248,7 +8249,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "bootstrap_owner" | "lock_login" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_team_budget_limit" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server" | "delete_conversation_records" | "set_slack_allowed_bots" | "approve_slack_notice" | "revoke_slack_notice" | "resolve_unknown_budget" | "set_conversation_rollout";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "bootstrap_owner" | "lock_login" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_team_budget_limit" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "delete_slack_app" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server" | "delete_conversation_records" | "set_slack_allowed_bots" | "approve_slack_notice" | "revoke_slack_notice" | "resolve_unknown_budget" | "set_conversation_rollout";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -9619,6 +9620,12 @@ export interface components {
                     slack_bot_token: components["schemas"]["SlackSecretSummary"];
                 };
             };
+            slack_cleanup: {
+                /** @enum {string} */
+                outcome: "done" | "failed";
+                failed_steps: ("auth.revoke" | "apps.manifest.delete")[];
+                message: string | null;
+            } | null;
         };
         ListWorkspaceSlackAppsResponse: {
             items: {
@@ -18767,7 +18774,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted in Slack, or already gone there; the app as now stored, its secrets dropped. */
+            /** @description Closed in Werft; the app as now stored, its secrets dropped. `slack_cleanup` is what Slack's side came to, null when the app was already deleted (nothing is tried again). */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18807,6 +18814,11 @@ export interface operations {
                      *             "updated_by": null
                      *           }
                      *         }
+                     *       },
+                     *       "slack_cleanup": {
+                     *         "outcome": "done",
+                     *         "failed_steps": [],
+                     *         "message": null
                      *       }
                      *     }
                      */
@@ -18873,10 +18885,7 @@ export interface operations {
                     };
                 };
             };
-            /**
-             * @description - `CONFIG_TOKEN_INVALID`: The workspace's Slack App Configuration Token cannot be used. `error.details.reason_code` is `not_set` (none stored), `rejected` (Slack refused it; paste another) or `needs_reentry` (Slack no longer takes the stored token, or a rotation's answer was lost; an owner or admin pastes a new one).
-             *     - `SLACK_APP_CREATING`: The Slack app (the agent's, or the workspace's link app) is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.
-             */
+            /** @description - `SLACK_APP_CREATING`: The Slack app (the agent's, or the workspace's link app) is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`. */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18886,13 +18895,13 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING";
+                            code?: "SLACK_APP_CREATING";
                         };
                     };
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when Slack could not be reached or refused; the app stays `deleting` and the same request retries it. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

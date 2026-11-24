@@ -19,6 +19,15 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
+// These tests have no app rows, so a register always lands on an install.
+const register = async (
+  ...args: Parameters<typeof registerSlackInstallation>
+) => {
+  const result = await registerSlackInstallation(...args);
+  if (result.outcome === "app_deleted") throw new Error("app deleted");
+  return result;
+};
+
 integration("slack_installations on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -55,7 +64,7 @@ integration("slack_installations on PostgreSQL", () => {
     const workspaceId = await newWorkspace();
     const key = newKey();
 
-    const result = await registerSlackInstallation(db, { ...key, workspaceId });
+    const result = await register(db, { ...key, workspaceId });
 
     expect(result.outcome).toBe("registered");
     expect(result.installation).toMatchObject({
@@ -76,8 +85,8 @@ integration("slack_installations on PostgreSQL", () => {
     const workspaceId = await newWorkspace();
     const key = newKey();
 
-    const first = await registerSlackInstallation(db, { ...key, workspaceId });
-    const second = await registerSlackInstallation(db, { ...key, workspaceId });
+    const first = await register(db, { ...key, workspaceId });
+    const second = await register(db, { ...key, workspaceId });
 
     expect(second).toEqual({
       outcome: "existing",
@@ -91,9 +100,7 @@ integration("slack_installations on PostgreSQL", () => {
     const key = newKey();
 
     const results = await Promise.all(
-      Array.from({ length: 8 }, () =>
-        registerSlackInstallation(db, { ...key, workspaceId }),
-      ),
+      Array.from({ length: 8 }, () => register(db, { ...key, workspaceId })),
     );
 
     expect(results.filter((r) => r.outcome === "registered")).toHaveLength(1);
@@ -105,12 +112,12 @@ integration("slack_installations on PostgreSQL", () => {
     const owner = await newWorkspace();
     const other = await newWorkspace();
     const key = newKey();
-    const first = await registerSlackInstallation(db, {
+    const first = await register(db, {
       ...key,
       workspaceId: owner,
     });
 
-    const second = await registerSlackInstallation(db, {
+    const second = await register(db, {
       ...key,
       workspaceId: other,
     });
@@ -125,9 +132,9 @@ integration("slack_installations on PostgreSQL", () => {
   test("the same app in another team is its own installation", async () => {
     const workspaceId = await newWorkspace();
     const key = newKey();
-    await registerSlackInstallation(db, { ...key, workspaceId });
+    await register(db, { ...key, workspaceId });
 
-    const other = await registerSlackInstallation(db, {
+    const other = await register(db, {
       ...key,
       teamId: `${key.teamId}2`,
       workspaceId,
@@ -140,7 +147,7 @@ integration("slack_installations on PostgreSQL", () => {
   test("verify records the bot user and can run again on the next start", async () => {
     const workspaceId = await newWorkspace();
     const key = newKey();
-    await registerSlackInstallation(db, { ...key, workspaceId });
+    await register(db, { ...key, workspaceId });
 
     const verified = await verifySlackInstallation(db, {
       ...key,
@@ -163,7 +170,7 @@ integration("slack_installations on PostgreSQL", () => {
       verified.installation.verifiedAt?.getTime() ?? Infinity,
     );
     // Registering a verified row leaves it verified.
-    const reregistered = await registerSlackInstallation(db, {
+    const reregistered = await register(db, {
       ...key,
       workspaceId,
     });
@@ -182,7 +189,7 @@ integration("slack_installations on PostgreSQL", () => {
   test("revoke is final until the install is registered again, keeping its id", async () => {
     const workspaceId = await newWorkspace();
     const key = newKey();
-    const { installation } = await registerSlackInstallation(db, {
+    const { installation } = await register(db, {
       ...key,
       workspaceId,
     });
@@ -208,13 +215,13 @@ integration("slack_installations on PostgreSQL", () => {
     });
 
     // Another workspace cannot take the revoked install over.
-    const other = await registerSlackInstallation(db, {
+    const other = await register(db, {
       ...key,
       workspaceId: await newWorkspace(),
     });
     expect(other.outcome).toBe("workspace_conflict");
 
-    const reopened = await registerSlackInstallation(db, {
+    const reopened = await register(db, {
       ...key,
       workspaceId,
     });
@@ -235,12 +242,12 @@ integration("slack_installations on PostgreSQL", () => {
     const workspaceId = await newWorkspace();
     for (let round = 0; round < 20; round++) {
       const key = newKey();
-      await registerSlackInstallation(db, { ...key, workspaceId });
+      await register(db, { ...key, workspaceId });
       await revokeSlackInstallation(db, key);
 
       const [verify] = await Promise.all([
         verifySlackInstallation(db, { ...key, botUserId: "U0BOT" }),
-        registerSlackInstallation(db, { ...key, workspaceId }),
+        register(db, { ...key, workspaceId }),
       ]);
 
       if (verify.outcome === "not_found") throw new Error("lost the row");

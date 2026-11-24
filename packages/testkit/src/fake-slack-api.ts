@@ -334,6 +334,8 @@ export function createFakeSlackWebApi(
   // Bot tokens of an app removed in Slack: Slack answers them
   // `token_revoked`, where a token it never issued is `invalid_auth`.
   const revokedBotTokens = new Set<string>();
+  // Apps deleted through apps.manifest.delete, kept to sign a late event.
+  const deletedApps = new Map<string, ReturnType<typeof appOf>>();
 
   const installedBot = (context: Context) => {
     if (revokedBotTokens.has(context.token ?? "")) {
@@ -357,6 +359,14 @@ export function createFakeSlackWebApi(
   };
 
   const methods: Record<string, (context: Context) => object | null> = {
+    "auth.revoke"(context) {
+      const app = installedBot(context);
+      const token = context.token ?? "";
+      app.botTokens.splice(app.botTokens.indexOf(token), 1);
+      revokedBotTokens.add(token);
+      return { revoked: true };
+    },
+
     "auth.test"(context) {
       if (context.token && accessTokens.has(context.token)) {
         return { team_id: teamId, user_id: userId };
@@ -699,7 +709,11 @@ export function createFakeSlackWebApi(
 
     "apps.manifest.delete"(context) {
       configToken(context);
-      apps.delete(appOf(context.params.app_id).appId);
+      const app = appOf(context.params.app_id);
+      apps.delete(app.appId);
+      // Its tokens die with it; an event Slack had queued may still come.
+      for (const token of app.botTokens.splice(0)) revokedBotTokens.add(token);
+      deletedApps.set(app.appId, app);
       return {};
     },
 
@@ -750,7 +764,7 @@ export function createFakeSlackWebApi(
   }
 
   async function sendEvent(input: SendSlackEventInput) {
-    const app = appOf(input.appId);
+    const app = deletedApps.get(input.appId) ?? appOf(input.appId);
     const envelope =
       input.challenge === undefined
         ? slackEventEnvelope({

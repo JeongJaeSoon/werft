@@ -63,6 +63,8 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     // The conversation call's agent, null for a session's call.
     resolve_unknown_budget: { agents: ["agent_id"] },
     approve_slack_notice: { target: "agent", agents: ["agent_id"] },
+    // An agent app's delete targets the agent; the link app's, the workspace.
+    delete_slack_app: { agents: ["agent_id"] },
     revoke_slack_notice: { target: "agent", agents: ["agent_id"] },
     set_conversation_rollout: { target: "agent", agents: ["agent_id"] },
     // A key made for an agent, or revoked.
