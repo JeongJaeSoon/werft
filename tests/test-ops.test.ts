@@ -1151,8 +1151,10 @@ exit 0
         `--env-file ${env.TEST_OPS_ENV_FILE} --profile apps`,
       ),
     ]);
+    // slack reads CONSOLE_ORIGIN too, and maintenance runs nowhere else:
+    // compose starts only the services named and their dependencies.
     expect(up[0]).toEndWith(
-      "up -d --wait --wait-timeout 600 api scheduler reconciler",
+      "up -d --wait --wait-timeout 600 api scheduler reconciler slack maintenance",
     );
     expect(up[0]).not.toContain("--no-recreate");
     expect(await dockerCalls()).not.toMatch(/ (down|stop)( |$)/m);
@@ -1161,11 +1163,59 @@ exit 0
     );
   });
 
+  // An upgrade that stops the writers and then cannot list the sessions
+  // reopens the recorded release. compose creates any service with no
+  // container yet (slack and maintenance on an installation an older start
+  // made), so the reopen must hand compose the recorded images.
+  test("an upgrade that stops short reopens on the recorded release's images", async () => {
+    const docker = await deployedSameWorker();
+    const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+    const target = {
+      ...manifest,
+      images: {
+        ...manifest.images,
+        control_host: manifest.images.control_host.replace(
+          /1{64}/,
+          "5".repeat(64),
+        ),
+        worker: manifest.images.worker.replace(/2{64}/, "6".repeat(64)),
+      },
+    };
+    await writeFile(join(dir, "release.json"), JSON.stringify(target));
+    const listed = join(dir, "listed");
+    await writeFile(
+      join(dir, "bin", "docker"),
+      docker
+        .replace('echo "$*" >> ', 'echo "API_IMAGE=$API_IMAGE $*" >> ')
+        .replace(
+          "esac\nexit 0",
+          `esac\ncase "$*" in *" exec -T postgres psql"*) [ ! -e "${listed}" ] || exit 1; : > "${listed}" ;; esac\nexit 0`,
+        ),
+      { mode: 0o755 },
+    );
+    const result = await run(["upgrade", join(dir, "release.json")], env);
+    expect(result.stderr).toContain("could not list the sessions");
+    expect(result.exitCode).toBe(1);
+    const up = (await dockerCalls())
+      .split("\n")
+      .filter((line) => line.includes(" up -d"));
+    expect(up).toEqual([expect.stringContaining("--no-recreate")]);
+    expect(up[0]).toStartWith(`API_IMAGE=${manifest.images.control_host} `);
+    expect(
+      await readFile(join(dir, "state", "pending.json"), "utf8").catch(
+        () => null,
+      ),
+    ).toBeNull();
+  });
+
   test("stop takes the containers down and never the volumes", async () => {
     await deployedSameWorker();
     const result = await run(["stop"], env);
     expect(result.exitCode).toBe(0);
     const called = await dockerCalls();
+    expect(called).toMatch(
+      / stop api slack scheduler reconciler maintenance$/m,
+    );
     expect(called).toContain("down --remove-orphans");
     expect(called).not.toMatch(/(^| )-v( |$)|--volumes/m);
     expect(await readFile(join(dir, "state", "history.log"), "utf8")).toContain(

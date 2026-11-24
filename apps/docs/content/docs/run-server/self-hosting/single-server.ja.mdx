@@ -124,7 +124,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 | `--settings-document` | 任意。既定値は `/etc/werft/settings.json`。下の設定文書の絶対パス |
 | `--api-port`、`--postgres-port` | 任意。下のポートの表の `TEST_OPS_API_PORT`、`TEST_OPS_POSTGRES_PORT` になります |
 
-`init-config` は `POSTGRES_PASSWORD`（32 文字 hex）、`EGRESS_AUTHORIZER_TOKEN`（48 文字 hex）、`PLATFORM_SECRET_KEY`（64 文字 hex）をランダムな値で埋めます。`EXECUTION_WORKSPACE_QUOTA=on` と provider・Git host の credential allowlist は例の値のままです。`CONSOLE_ORIGIN` とポートは `deploy` の前に決めます。最初の `deploy` がこの値でコンテナを作ります。設置後に変えるには、env ファイルを直して `scripts/test-ops.sh start` で同じ release を再適用します。バンドルでも checkout でもこのコマンドを使い、`upgrade` は要りません。実行中の環境でも、`start` は変わった値を受け取る api・scheduler・reconciler とその依存サービスのコンテナだけを作り直し、volume と記録された release はそのまま残します。`start: done` の行が出れば反映されています。
+`init-config` は `POSTGRES_PASSWORD`（32 文字 hex）、`EGRESS_AUTHORIZER_TOKEN`（48 文字 hex）、`PLATFORM_SECRET_KEY`（64 文字 hex）をランダムな値で埋めます。`EXECUTION_WORKSPACE_QUOTA=on` と provider・Git host の credential allowlist は例の値のままです。`CONSOLE_ORIGIN` とポートは `deploy` の前に決めます。最初の `deploy` がこの値でコンテナを作ります。設置後に変えるには、env ファイルを直して `scripts/test-ops.sh start` で同じ release を再適用します。バンドルでも checkout でもこのコマンドを使い、`upgrade` は要りません。実行中の環境でも、`start` は変わった値を受け取る api・scheduler・reconciler・slack・maintenance とその依存サービスのコンテナだけを作り直し、volume と記録された release はそのまま残します。`start: done` の行が出れば反映されています。
 
 env ファイルを自分で書くには、取得したディレクトリの `infra/test-ops.env.example` を運用者所有の `0600` で `/etc/werft/test-ops.env` にコピーし、エディターで次を設定します。
 

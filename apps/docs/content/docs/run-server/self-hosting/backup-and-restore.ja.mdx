@@ -27,7 +27,7 @@ ComposeのDBとcheckpoint objectをバックアップし、別project・新し�
 scripts/test-ops.sh backup
 ```
 
-api・scheduler・reconciler・workerを止め、DBとobjectを状態ディレクトリの `backups/backup-<timestamp>` にまとめてサービスを再開します。進行turnは中断され後で回収対象になり得るため先に確認します。失敗した `.failed` や未完成の `.partial` を成功本として使いません。保存が完了してもサービス再開に失敗するとコマンドは失敗します。
+api・slack・scheduler・reconciler・maintenance・workerを止め、DBとobjectを状態ディレクトリの `backups/backup-<timestamp>` にまとめてサービスを再開します。進行turnは中断され後で回収対象になり得るため先に確認します。失敗した `.failed` や未完成の `.partial` を成功本として使いません。保存が完了してもサービス再開に失敗するとコマンドは失敗します。
 
 毎日利用の少ない時間と各更新直前に実行します。保管例はホスト14日、暗号化外部保管90日です。新しい成功本が26時間ない、non-zero終了、サービス再開失敗のいずれかで通知します。
 
@@ -56,6 +56,8 @@ docker exec -e CHECKPOINT_GC_DRY_RUN=1 "$API_CONTAINER" \
 ```
 
 API_CONTAINERを今回のstatusとproject labelで特定します。出力の保持・削除対象を確認してから、dry-run用の環境変数を外して実行します。既定Compose projectの他の設置を選ばないでください。Kubernetesはchartの `checkpointGc.schedule` を使います。
+
+単一サーバー設置では、`maintenance` サービスが週 1 回（`MAINTENANCE_INTERVAL_SEC`、既定 604800 秒）checkpoint GC を実行し、続けて session archive を実行します。上の dry-run の確認は最初の自動実行の前に終えます。自動実行も dry-run だけにするには、env ファイルに `CHECKPOINT_GC_DRY_RUN=true` を加えて `scripts/test-ops.sh start` で再適用します。`backup` は実行中 `maintenance` を止めます。
 
 <a id="확인" />
 ## 確認

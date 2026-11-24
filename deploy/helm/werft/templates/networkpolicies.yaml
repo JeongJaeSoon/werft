@@ -33,7 +33,7 @@ spec:
             matchLabels:
               {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 14 }}
       ports:
-        - {protocol: TCP, port: 3000}
+        - {protocol: TCP, port: 3200}
     {{- end }}
 ---
 # The proxy takes connections from workers only; its own egress is open, and
@@ -65,8 +65,9 @@ spec:
         - {protocol: TCP, port: 3128}
         - {protocol: TCP, port: 3129}
 ---
-# 3000 is public (through the Ingress); 3100, the authorizer that hands out
-# catalog credentials, answers the egress proxy alone.
+# 3000 is public (through the Ingress) and has no /internal route; 3100, the
+# authorizer that hands out catalog credentials, and 3200, /internal, answer
+# the egress proxy alone (and workers, with allowDirectGateway).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -83,12 +84,22 @@ spec:
         - {protocol: TCP, port: 3000}
       {{- with .Values.networkPolicy.api.ingressFrom }}
       from:
-        # Workers' gateway calls arrive through the proxy.
-        - podSelector:
-            matchLabels:
-              {{- include "ap.selectorLabels" (dict "root" $ "component" "egress-proxy") | nindent 14 }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
+    # Workers' gateway calls arrive through the proxy.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "ap.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 14 }}
+        {{- if .Values.networkPolicy.worker.allowDirectGateway }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: werft
+              app.kubernetes.io/component: worker
+              werft.installation: {{ $installation | quote }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 3200}
     - from:
         - podSelector:
             matchLabels:
