@@ -248,6 +248,7 @@ Kubernetes-only settings:
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | Optional JSON object |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | Optional JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | Ephemeral-storage requests/limits MiB, default 1024; exceeding it causes kubelet eviction |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | Optional. `true` makes the scheduler log a warning at startup for each node that cannot hold two workers. Unset is `false`; a value other than `true`/`false` refuses startup. Needs permission to read Nodes |
 
 Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. The log masking rule hides the tail line by line. A secret-shaped value hides only the lines it spans. A fragment such as `input:` hides its line and every line after it. The lines before it stay (a URL login in them is still masked). See storage/retention in the repository's Kubernetes execution adapter README.
 
@@ -270,6 +271,7 @@ With deploy/helm/werft ([installation](/run-server/self-hosting/kubernetes)), ch
 | `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`, `worker.workspace.gcMinAgeSec`, `worker.workspace.enforcedByStorage` | Requested size, minimum reclamation age, installation-wide enforcement declaration |
 | `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | Default 1024 |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | `scheduler.nodeCapacityCheck.enabled` | Default `false`. On, the chart gives the scheduler a read-only ClusterRole for Nodes. [Node size warning at startup](/run-server/self-hosting/capacity#설치-때-노드-크기-경고선택) |
 | Installation limits (EXECUTION_SLOT_LIMIT, etc.) | `config.limits` | Same for api/scheduler |
 | `SCHEDULER_*` | `scheduler.intervalSec`, etc. | scheduler.passTimeoutSec/SCHEDULER_PASS_TIMEOUT_SEC default 180, must exceed 150 |
 | `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC`, `SLACK_ROLE_INPUT_HOLD_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec`, `slack.inputHoldSec` | Defaults 2, 60, 3, 90, 10, 60, 3600. `SLACK_ROLE_INPUT_HOLD_SEC` is how many seconds a Slack row waiting for a web input's post waits before it closes unsent. slack.enabled: false omits Deployment |

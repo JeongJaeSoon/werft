@@ -22,7 +22,7 @@ export type OutputLimits = {
   maxFiles: number;
 };
 
-/** Documented in apps/docs/content/docs/run-server/self-hosting/operate/capacity.mdx. */
+/** Documented in apps/docs/content/docs/run-server/self-hosting/capacity.mdx. */
 export const DEFAULT_OUTPUT_LIMITS: OutputLimits = {
   maxFileBytes: 64 * 1024 * 1024,
   maxTotalBytes: 256 * 1024 * 1024,

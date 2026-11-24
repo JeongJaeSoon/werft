@@ -88,6 +88,8 @@ config:
 
 `config.egress.credentialAllowlist` replaces all defaults, so when adding GitHub and checkpoint bucket hosts, include every required provider and package registry again. API and proxy read the same two credential lists.
 
+A worker Pod reserves all of `worker.memoryMb` (default 4608MiB), so concurrent working sessions are about node allocatable / `worker.memoryMb`. With the default, a single node with 16GiB allocatable runs only about two workers. For a small node or a trial install, see the values example in [Small nodes and trial installs](/run-server/self-hosting/capacity#작은-노드와-시험-설치). The NOTES that `helm` prints after installation show this formula too.
+
 Set a unique `installationId` in the same file. Retain the published chart's `images.*` digests. Proceed after checking the database, S3, Secret, and CNI are ready.
 
 <a id="4-설치와-rollout" />

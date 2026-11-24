@@ -80,6 +80,8 @@ spec:
               value: {{ .Values.worker.memoryMb | quote }}
             - name: EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB
               value: {{ .Values.worker.ephemeralStorageMb | quote }}
+            - name: SCHEDULER_NODE_CAPACITY_CHECK
+              value: {{ .Values.scheduler.nodeCapacityCheck.enabled | quote }}
             {{- include "ap.limitsEnv" . | nindent 12 }}
             - name: AWS_REGION
               value: {{ .Values.config.aws.region | quote }}
@@ -175,4 +177,35 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "ap.fullname" . }}-scheduler
     namespace: {{ .Release.Namespace }}
+{{- if .Values.scheduler.nodeCapacityCheck.enabled }}
+{{- /* Cluster-scoped, so named for the namespace too: two releases of one name must not share them. */}}
+{{- $nodeReader := printf "%s-%s-scheduler-node-reader" .Release.Namespace (include "ap.fullname" .) }}
+---
+# Read only, for the startup warning of scheduler.nodeCapacityCheck.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $nodeReader }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $nodeReader }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $nodeReader }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ap.fullname" . }}-scheduler
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- end }}

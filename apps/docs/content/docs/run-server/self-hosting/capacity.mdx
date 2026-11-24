@@ -59,6 +59,50 @@ CPU도 같은 식으로 센다(`worker.cpus`, 기본 1). 보통은 메모리가 
 
 local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_LIMIT`(기본 10)개 worker가 나눠 쓴다. 한도는 cgroup 상한이지 예약이 아니라서 동시에 다 차지 않으면 넘쳐도 돈다. 그래도 slot 수 × 4608MiB가 머신 메모리를 크게 넘으면 OOM이 난다.
 
+#### 작은 노드와 시험 설치
+
+worker Pod는 requests와 limits가 같아서 쉬는 동안에도 `worker.memoryMb` 전체를 예약한다. 그래서 대략 다음 수만큼만 동시에 뜬다.
+
+```text
+concurrent working sessions ≈ node allocatable / worker.memoryMb
+```
+
+같은 노드의 다른 Pod requests만큼 더 준다. chart와 시험용 DB를 함께 올린 단일 노드라면 그 몫이 크다. allocatable 16GiB인 k3s 단일 노드에 기본값 4608MiB로 설치했을 때 동시에 뜬 worker는 둘이었다. 노드마다 allocatable은 다음으로 본다.
+
+```bash
+kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE:.status.allocatable.memory
+```
+
+설치 출력(`helm upgrade --install`이 끝에 적는 NOTES)에도 적용된 `worker.memoryMb`와 이 셈법이 나온다. 자리가 없으면 새 세션은 노드에 자리가 날 때까지 기다린다.
+
+작은 노드나 시험 설치에서는 설치별 values에 더 작은 값을 둔다.
+
+```yaml
+worker:
+  memoryMb: 2048
+```
+
+0.4.0보다 새 chart에는 같은 내용의 `values-small-node.example.yaml`이 들어 있다. `helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar`로 받은 `werft/` 디렉터리에 있고, 설치별 values 뒤에 `-f`로 더 얹는다.
+
+2048MiB는 1절의 절반 기준을 작은 transcript에서만 지킨다. 64–150MiB transcript의 resume peak가 726–839MiB였으므로 절반(1024MiB) 안에 드는 것은 약 150MiB까지다. 그보다 큰 transcript를 compaction 없이 resume하면 한도에 닿을 수 있고, 그러면 worker가 재기동을 반복하다 세션이 `recovery_required`가 된다. 큰 transcript를 다루는 운영 설치에는 기본값을 쓴다.
+
+requests를 limits보다 작게 두는 방법은 지원하지 않는다(아래 ②). 바쁜 worker 여럿이 한꺼번에 OOM으로 죽을 수 있고, turn 중간에 죽는 것은 자리를 기다리는 것보다 나쁘다.
+
+#### 설치 때 노드 크기 경고(선택)
+
+values에 `scheduler.nodeCapacityCheck.enabled: true`를 두면 scheduler가 시작할 때 worker Pod가 뜰 노드(`worker.nodeSelector`·`worker.tolerations`가 고르는 노드, cordon되지 않은 노드)를 읽는다. allocatable이 worker 둘을 받지 못하는 노드마다 scheduler 로그에 경고 `Node holds fewer than 2 workers`를 남긴다. 필드 `node`, `allocatable_mib`, `worker_memory_mb`, `workers_fit`이 함께 나온다.
+
+```bash
+kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node holds fewer'
+```
+
+켜면 chart가 Node를 읽기만 하는 ClusterRole(`nodes` get·list)과 그 binding을 scheduler에 만든다. namespace 권한만 받은 설치자는 ClusterRole을 만들 수 없어 install이 실패하므로 기본은 끔이다. 끄면 ClusterRole을 만들지 않는다. Node를 읽지 못하면 scheduler는 경고를 건너뛰고 `Node capacity check skipped`만 남긴 채 그대로 돈다.
+
+#### conversation runtime Pod
+
+`conversationRuntime.enabled: true`인 설치에서는 conversation runtime Pod도 위 셈의 "다른 Pod requests"에 든다. 지금 request는 `conversationRuntime.resources`(기본 request 512Mi, limit 2Gi)다. 쉬는 엔진의 실측 메모리는 아직 이 문서에 없다.
+
+
 #### 지원되는 변경 선택
 
 | 방법 | 하는 일 | 얻는 것 | 대가 |

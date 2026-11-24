@@ -248,6 +248,7 @@ kubernetes モードだけで読む設定は次のとおりです。
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 任意。JSON object |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 任意。JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker コンテナの ephemeral-storage requests・limits（MiB）。既定 1024。超過すると kubelet が Pod を evict します |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | 任意。`true` なら scheduler が起動時に worker 二つを受け入れられないノードごとに警告ログを記録します。未設定は `false` で、`true`/`false` 以外の値は起動を拒否します。Node を読む権限が必要です |
 
 失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。ログのマスキング規則は tail を行単位で隠します。秘密の形をした値は、その値がまたがる行だけを隠します。`input:` のような断片は、その行から最後までを隠します。それより前の行は残ります（URL の login はその部分だけ隠します）。保存先と保持期間は、リポジトリの Kubernetes 実行アダプターの README（終了理由とログ tail 節）にあります。
 
@@ -270,6 +271,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `EXECUTION_WORKSPACE_QUOTA_MB`、`EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`、`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`、`worker.workspace.gcMinAgeSec`、`worker.workspace.enforcedByStorage` | 要求サイズ・回収最小経過時間・設置全体の強制宣言 |
 | `WORKER_CPUS`、`WORKER_MEMORY_MB` | `worker.cpus`、`worker.memoryMb` | |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | 既定 1024 |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | `scheduler.nodeCapacityCheck.enabled` | 既定 `false`。有効にすると chart は Node を読むだけの ClusterRole を scheduler に作成します。[起動時のノードサイズ警告](/run-server/self-hosting/capacity#설치-때-노드-크기-경고선택) |
 | 設置上限（`EXECUTION_SLOT_LIMIT` など） | `config.limits` | api と scheduler に同じ値 |
 | `SCHEDULER_*` | `scheduler.intervalSec` など | `SCHEDULER_PASS_TIMEOUT_SEC`（`scheduler.passTimeoutSec`、既定 180）は 150 より大きいこと |
 | `SLACK_ROLE_INTERVAL_SEC`、`SLACK_ROLE_PASS_TIMEOUT_SEC`、`SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`、`SLACK_ROLE_HEALTH_STALE_SEC`、`SLACK_ROLE_BATCH_SIZE`、`SLACK_ROLE_LEASE_SEC`、`SLACK_ROLE_INPUT_HOLD_SEC` | `slack.intervalSec`、`slack.passTimeoutSec`、`slack.maxConsecutiveFailures`、`slack.healthStaleSec`、`slack.batchSize`、`slack.leaseSec`、`slack.inputHoldSec` | 既定は 2、60、3、90、10、60、3600。`SLACK_ROLE_INPUT_HOLD_SEC` は、Web 入力の Slack 投稿を待つ行が送らずに閉じるまでの秒数です。`slack.enabled: false` なら slack Deployment を生成しません |

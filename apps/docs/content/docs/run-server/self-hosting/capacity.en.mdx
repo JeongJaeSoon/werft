@@ -66,6 +66,51 @@ Compute CPU the same way (`worker.cpus`, default 1). Memory usually fills first.
 
 On local Docker, `EXECUTION_SLOT_LIMIT` workers (default 10) share one machine's memory. Limits are cgroup ceilings rather than reservations, so overcommit can run if workers do not all fill them simultaneously. OOM still occurs if slots × 4608MiB greatly exceeds machine memory.
 
+<a id="작은-노드와-시험-설치" />
+#### Small nodes and trial installs
+
+A worker Pod's requests equal its limits, so it reserves all of `worker.memoryMb` even while idle. A node therefore runs about this many at once:
+
+```text
+concurrent working sessions ≈ node allocatable / worker.memoryMb
+```
+
+Other Pod requests on the same node reduce it further. On a single node that also runs the chart and a test database, that share is large. A k3s single node with 16GiB allocatable, installed with the 4608MiB default, ran two workers at once. Read each node's allocatable memory with:
+
+```bash
+kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE:.status.allocatable.memory
+```
+
+The installation output (the NOTES that `helm upgrade --install` prints at the end) also shows the applied `worker.memoryMb` and this formula. When no node has room, a new session waits until one does.
+
+For a small node or a trial install, set a smaller value in your installation values:
+
+```yaml
+worker:
+  memoryMb: 2048
+```
+
+Charts newer than 0.4.0 include `values-small-node.example.yaml` with the same content. It is in the `werft/` directory that `helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar` creates; add it with another `-f` after your installation values.
+
+2048MiB keeps the half-limit rule from step 1 for small transcripts only. Resume peaks for 64–150MiB transcripts were 726–839MiB, so transcripts up to about 150MiB stay within half (1024MiB). Resuming a larger transcript with no compaction can reach the limit; the worker then restarts repeatedly until the session becomes `recovery_required`. Use the default for production installations that handle large transcripts.
+
+Setting requests below limits is not supported (② below). Several busy workers could be OOM-killed at once, and dying mid-turn is worse than waiting for room.
+
+<a id="설치-때-노드-크기-경고선택" />
+#### Node size warning at startup (optional)
+
+With `scheduler.nodeCapacityCheck.enabled: true` in your values, the scheduler reads the nodes worker Pods may land on at startup (nodes that `worker.nodeSelector` and `worker.tolerations` select and that are not cordoned). For each node whose allocatable memory cannot hold two workers, it logs the warning `Node holds fewer than 2 workers` with the fields `node`, `allocatable_mib`, `worker_memory_mb`, and `workers_fit`.
+
+```bash
+kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node holds fewer'
+```
+
+Turning it on makes the chart create a read-only ClusterRole for Nodes (`nodes` get and list) and bind it to the scheduler. An installer with namespace-only permissions cannot create a ClusterRole, and the install fails, so the default is off. Off creates no ClusterRole. If the scheduler cannot read the nodes, it skips the warning, logs only `Node capacity check skipped`, and keeps running.
+
+#### Conversation runtime Pod
+
+In an installation with `conversationRuntime.enabled: true`, the conversation runtime Pod also counts as "other Pod requests" above. Its request is `conversationRuntime.resources` (default request 512Mi, limit 2Gi). This page does not yet have a measured memory figure for an idle engine.
+
 <a id="지원되는-변경-선택" />
 #### Supported changes
 

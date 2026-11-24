@@ -66,6 +66,51 @@ CPU も同じ式で数えます（`worker.cpus`、既定 1）。通常はメモ�
 
 local Docker 実行基盤では、一台のメモリを `EXECUTION_SLOT_LIMIT`（既定 10）個の worker で分け合います。上限は cgroup の制限であり予約ではないため、同時に使い切らなければ合計が超過していても動作します。それでも slot 数 × 4608MiB がマシンのメモリを大幅に超えれば OOM が起きます。
 
+<a id="작은-노드와-시험-설치" />
+#### 小さいノードと試験設置
+
+worker Pod は requests と limits が同じなので、待機中も `worker.memoryMb` 全体を予約します。そのため、同時に起動できるのはおおよそ次の数です。
+
+```text
+concurrent working sessions ≈ node allocatable / worker.memoryMb
+```
+
+同じノードの他の Pod の requests の分だけさらに減ります。chart と試験用 DB を一緒に載せた単一ノードでは、その分が大きくなります。allocatable 16GiB の k3s 単一ノードに既定値 4608MiB で設置したとき、同時に起動した worker は二つでした。ノードごとの allocatable は次で確認します。
+
+```bash
+kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE:.status.allocatable.memory
+```
+
+設置出力（`helm upgrade --install` が最後に出力する NOTES）にも、適用された `worker.memoryMb` とこの計算方法が表示されます。空きがなければ、新しいセッションはノードに空きができるまで待ちます。
+
+小さいノードや試験設置では、環境ごとの values に小さい値を置きます。
+
+```yaml
+worker:
+  memoryMb: 2048
+```
+
+0.4.0 より新しい chart には、同じ内容の `values-small-node.example.yaml` が含まれます。`helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar` で取得した `werft/` ディレクトリにあり、環境ごとの values の後ろに `-f` で重ねます。
+
+2048MiB は 1 節の半分基準を小さい transcript でのみ満たします。64–150MiB の transcript の resume peak は 726–839MiB だったため、半分（1024MiB）に収まるのは約 150MiB までです。それより大きい transcript を compaction なしで resume すると上限に達することがあり、worker が再起動を繰り返してセッションが `recovery_required` になります。大きな transcript を扱う運用環境では既定値を使います。
+
+requests を limits より小さくする方法はサポートしていません（下の ②）。忙しい worker が複数同時に OOM で終了することがあり、turn の途中で終了するのは空きを待つより悪い結果です。
+
+<a id="설치-때-노드-크기-경고선택" />
+#### 起動時のノードサイズ警告（任意）
+
+values に `scheduler.nodeCapacityCheck.enabled: true` を置くと、scheduler は起動時に worker Pod が載るノード（`worker.nodeSelector`・`worker.tolerations` が選び、cordon されていないノード）を読みます。allocatable が worker 二つを受け入れられないノードごとに、scheduler ログへ警告 `Node holds fewer than 2 workers` を記録します。フィールド `node`、`allocatable_mib`、`worker_memory_mb`、`workers_fit` も出力されます。
+
+```bash
+kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node holds fewer'
+```
+
+有効にすると、chart は Node を読むだけの ClusterRole（`nodes` の get・list）とその binding を scheduler に作成します。namespace 権限だけを持つ設置者は ClusterRole を作成できず install が失敗するため、既定は無効です。無効なら ClusterRole を作成しません。Node を読めなかった場合、scheduler は警告を省略して `Node capacity check skipped` だけを記録し、そのまま動作します。
+
+#### conversation runtime Pod
+
+`conversationRuntime.enabled: true` の環境では、conversation runtime Pod も上の計算の「他の Pod の requests」に含まれます。現在の request は `conversationRuntime.resources`（既定 request 512Mi、limit 2Gi）です。待機中のエンジンの実測メモリはまだこのページにありません。
+
 <a id="지원되는-변경-선택" />
 #### 変更方法の選択と対応状況
 

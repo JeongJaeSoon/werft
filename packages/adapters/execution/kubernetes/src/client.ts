@@ -110,6 +110,16 @@ export type PersistentVolumeClaim = {
   };
 };
 
+/** The fields of a Node the scheduler's optional capacity check reads. */
+export type Node = {
+  metadata: ObjectMeta;
+  spec?: {
+    unschedulable?: boolean;
+    taints?: Array<{ key: string; value?: string; effect: string }>;
+  };
+  status?: { allocatable?: { memory?: string } };
+};
+
 export type Kind = "pods" | "secrets" | "persistentvolumeclaims";
 
 type ObjectOf<K extends Kind> = K extends "pods"
@@ -166,6 +176,20 @@ export class KubernetesClient {
     );
     if (created === null) throw new Error(`Create of ${kind} returned nothing`);
     return created;
+  }
+
+  /** Cluster-scoped: needs a ClusterRole the chart grants only on request. */
+  async listNodes(labelSelector: Record<string, string>): Promise<Node[]> {
+    const selector = Object.entries(labelSelector)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(",");
+    const list = await this.request<{ items: Node[] }>(
+      "GET",
+      selector === ""
+        ? "/api/v1/nodes"
+        : `/api/v1/nodes?labelSelector=${encodeURIComponent(selector)}`,
+    );
+    return list?.items ?? [];
   }
 
   /**
