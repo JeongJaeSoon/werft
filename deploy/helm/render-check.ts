@@ -296,6 +296,48 @@ function check(
       fail(service, "the authorizer must stay ClusterIP");
     }
   }
+  // /internal is the api's 3200 alone: its own ClusterIP Service, the proxy
+  // the one peer, and where every gateway URL points.
+  const internalRule = apiPolicy?.spec.ingress?.find((rule: PolicyRule) =>
+    rule.ports?.some((p) => p.port === 3200),
+  );
+  if (
+    internalRule?.from?.length !== 1 ||
+    internalRule.from[0].podSelector?.matchLabels?.[
+      "app.kubernetes.io/component"
+    ] !== "egress-proxy" ||
+    internalRule.ports?.length !== 1
+  ) {
+    errors.push(`${label}: api 3200 must admit the egress proxy alone`);
+  }
+  const internalServices = manifests.filter(
+    (m) =>
+      m.kind === "Service" && m.spec.ports.some((p: Port) => p.port === 3200),
+  );
+  const internalService = internalServices[0];
+  if (
+    internalServices.length !== 1 ||
+    internalService.spec.type !== "ClusterIP" ||
+    internalService.spec.ports.length !== 1
+  ) {
+    errors.push(
+      `${label}: exactly one ClusterIP Service carries 3200, and nothing else`,
+    );
+  } else {
+    const gateway = `http://${internalService.metadata.name}:3200`;
+    for (const m of manifests.filter((m) => m.kind === "Deployment")) {
+      for (const container of podSpecOf(m).containers) {
+        for (const variable of container.env ?? []) {
+          if (
+            variable.name === "WORKER_GATEWAY_URL" &&
+            variable.value !== gateway
+          ) {
+            fail(m, `WORKER_GATEWAY_URL is not ${gateway}`);
+          }
+        }
+      }
+    }
+  }
   return errors;
 }
 
@@ -3553,7 +3595,13 @@ function checkTestExamples(): string[] {
     );
   }
   try {
-    render(["-f", ciDigests, "-f", join(chart, values)]);
+    found.push(
+      ...check(
+        "test example",
+        render(["-f", ciDigests, "-f", join(chart, values)]),
+        true,
+      ),
+    );
   } catch (error) {
     fail(String(error));
   }

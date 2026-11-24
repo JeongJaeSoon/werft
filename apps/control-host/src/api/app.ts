@@ -166,7 +166,9 @@ export interface CreateApiAppOptions {
   // attaches ingestThenStopClock itself.
   registerPublicRoutes?: (router: ApiRouter) => void;
   // Mounted under /internal, outside the /v1 API-key middleware; each
-  // internal route family brings its own authentication.
+  // internal route family brings its own authentication. For tests that drive
+  // both from one app: the server mounts these on createInternalApiApp, so
+  // its public listener has none.
   registerInternalRoutes?: (router: ApiRouter) => void;
   // Backs GET /readyz; without one the process reports 503 NOT_READY, so a
   // build that forgot to wire the probe is never routed traffic.
@@ -428,13 +430,12 @@ export const ingestThenStopClock = ingestThenStopClockWithin(
   REQUEST_BODY_MAX_BYTES,
 );
 
-export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
-  const authMode = options.authMode ?? process.env.AUTH_MODE;
-  const keyStore = options.keyStore ?? missingKeyStore;
-  const logger = options.logger ?? createLogger();
-  const app = new OpenAPIHono<ApiEnvironment>({ strict: false });
-  const v1 = new OpenAPIHono<ApiEnvironment>({ strict: false });
-  const tracing = new RequestTracing(options.tracer);
+/** Request id, trace span and completion log, on every listener's app. */
+function useRequestLog(
+  app: ApiRouter,
+  logger: StructuredLogger,
+  tracing: RequestTracing,
+): void {
   app.use("*", async (context, next) => {
     const requestId = crypto.randomUUID();
     const startedAt = performance.now();
@@ -474,6 +475,121 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
       }),
     );
   });
+}
+
+function useErrorHandlers(app: ApiRouter, logger: StructuredLogger): void {
+  app.notFound((context) =>
+    errorResponse(context, 404, "NOT_FOUND", "Resource not found"),
+  );
+  app.onError((error, context) => {
+    if (error instanceof ApiHttpError) {
+      if (error.retryAfterSeconds !== undefined) {
+        context.header("Retry-After", String(error.retryAfterSeconds));
+      }
+      return errorResponse(
+        context,
+        error.status,
+        error.code,
+        error.message,
+        error.retryable,
+        error.details,
+      );
+    }
+    // A limit with no value this release accepts, or settings not read for
+    // too long: what it sets is refused, never run on a default.
+    if (error instanceof InstallationConfigUnavailableError) {
+      return errorResponse(
+        context,
+        503,
+        "BACKEND_UNAVAILABLE",
+        error.message,
+        true,
+      );
+    }
+    // The key lookup in the auth middleware runs before any route, so a
+    // database outage must map to 503 here, not only inside the handlers.
+    if (isStorageUnavailable(error)) {
+      const unavailable = storageUnavailableError();
+      logger.warn("Storage unavailable during API request", {
+        method: context.req.method,
+        path: context.req.path,
+        sqlstate: sqlstateOf(error),
+      });
+      context.header("Retry-After", String(unavailable.retryAfterSeconds));
+      return errorResponse(
+        context,
+        unavailable.status,
+        unavailable.code,
+        unavailable.message,
+        unavailable.retryable,
+      );
+    }
+    logger.error("Unhandled API request error", {
+      error_name: error instanceof Error ? error.name : "UnknownError",
+      method: context.req.method,
+      path: context.req.path,
+    });
+    return errorResponse(
+      context,
+      500,
+      "INTERNAL_ERROR",
+      "Internal server error",
+    );
+  });
+}
+
+function mountInternalRoutes(
+  app: ApiRouter,
+  register: (router: ApiRouter) => void,
+): void {
+  const internal = new OpenAPIHono<ApiEnvironment>({ strict: false });
+  // These routes are outside the /v1 middleware but need the same clock
+  // management, and more of it: the gateway's long poll holds a connection
+  // open for longer than the server's idle default, so a poll that finds
+  // no input would be cut off mid-wait. Each internal family authenticates
+  // itself, so the body is read under the clock and the clock is then
+  // stopped for the handler.
+  // Hono routes on the decoded path, but the ALB's 404 rule for /internal
+  // matches the path as sent, so /%69nternal would pass the ALB through the
+  // console's "/" rule and land here. Only the undecoded prefix counts.
+  internal.use("*", async (context, next) => {
+    const sent = new URL(context.req.url).pathname;
+    if (sent !== "/internal" && !sent.startsWith("/internal/")) {
+      return errorResponse(context, 404, "NOT_FOUND", "Resource not found");
+    }
+    await next();
+  });
+  internal.use("*", ingestThenStopClock);
+  register(internal);
+  app.route("/internal", internal);
+}
+
+/**
+ * The app the internal listener serves: /internal alone, without the
+ * console, /v1, the probes or the API reference, so the public listener
+ * never needs an /internal route.
+ */
+export function createInternalApiApp(options: {
+  logger?: StructuredLogger;
+  tracer?: Tracer;
+  registerInternalRoutes: (router: ApiRouter) => void;
+}): ApiRouter {
+  const logger = options.logger ?? createLogger();
+  const app = new OpenAPIHono<ApiEnvironment>({ strict: false });
+  useRequestLog(app, logger, new RequestTracing(options.tracer));
+  mountInternalRoutes(app, options.registerInternalRoutes);
+  useErrorHandlers(app, logger);
+  return app;
+}
+
+export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
+  const authMode = options.authMode ?? process.env.AUTH_MODE;
+  const keyStore = options.keyStore ?? missingKeyStore;
+  const logger = options.logger ?? createLogger();
+  const app = new OpenAPIHono<ApiEnvironment>({ strict: false });
+  const v1 = new OpenAPIHono<ApiEnvironment>({ strict: false });
+  const tracing = new RequestTracing(options.tracer);
+  useRequestLog(app, logger, tracing);
 
   if (authMode === "none") {
     logger.warn("API authentication is disabled", { auth_mode: "none" });
@@ -644,26 +760,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   }
   app.route("/v1", v1);
   if (options.registerInternalRoutes) {
-    const internal = new OpenAPIHono<ApiEnvironment>({ strict: false });
-    // These routes are outside the /v1 middleware but need the same clock
-    // management, and more of it: the gateway's long poll holds a connection
-    // open for longer than the server's idle default, so a poll that finds
-    // no input would be cut off mid-wait. Each internal family authenticates
-    // itself, so the body is read under the clock and the clock is then
-    // stopped for the handler.
-    // Hono routes on the decoded path, but the ALB's 404 rule for /internal
-    // matches the path as sent, so /%69nternal would pass the ALB through the
-    // console's "/" rule and land here. Only the undecoded prefix counts.
-    internal.use("*", async (context, next) => {
-      const sent = new URL(context.req.url).pathname;
-      if (sent !== "/internal" && !sent.startsWith("/internal/")) {
-        return errorResponse(context, 404, "NOT_FOUND", "Resource not found");
-      }
-      await next();
-    });
-    internal.use("*", ingestThenStopClock);
-    options.registerInternalRoutes(internal);
-    app.route("/internal", internal);
+    mountInternalRoutes(app, options.registerInternalRoutes);
   }
 
   if (options.webDistDir) {
@@ -674,64 +771,6 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     );
   }
 
-  app.notFound((context) =>
-    errorResponse(context, 404, "NOT_FOUND", "Resource not found"),
-  );
-  app.onError((error, context) => {
-    if (error instanceof ApiHttpError) {
-      if (error.retryAfterSeconds !== undefined) {
-        context.header("Retry-After", String(error.retryAfterSeconds));
-      }
-      return errorResponse(
-        context,
-        error.status,
-        error.code,
-        error.message,
-        error.retryable,
-        error.details,
-      );
-    }
-    // A limit with no value this release accepts, or settings not read for
-    // too long: what it sets is refused, never run on a default.
-    if (error instanceof InstallationConfigUnavailableError) {
-      return errorResponse(
-        context,
-        503,
-        "BACKEND_UNAVAILABLE",
-        error.message,
-        true,
-      );
-    }
-    // The key lookup in the auth middleware runs before any route, so a
-    // database outage must map to 503 here, not only inside the handlers.
-    if (isStorageUnavailable(error)) {
-      const unavailable = storageUnavailableError();
-      logger.warn("Storage unavailable during API request", {
-        method: context.req.method,
-        path: context.req.path,
-        sqlstate: sqlstateOf(error),
-      });
-      context.header("Retry-After", String(unavailable.retryAfterSeconds));
-      return errorResponse(
-        context,
-        unavailable.status,
-        unavailable.code,
-        unavailable.message,
-        unavailable.retryable,
-      );
-    }
-    logger.error("Unhandled API request error", {
-      error_name: error instanceof Error ? error.name : "UnknownError",
-      method: context.req.method,
-      path: context.req.path,
-    });
-    return errorResponse(
-      context,
-      500,
-      "INTERNAL_ERROR",
-      "Internal server error",
-    );
-  });
-
+  useErrorHandlers(app, logger);
   return app;
 }

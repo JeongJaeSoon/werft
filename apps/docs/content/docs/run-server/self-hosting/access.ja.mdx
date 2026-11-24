@@ -43,7 +43,7 @@ API（既定 3000）と PostgreSQL（既定 5432）はホスト loopback のみ�
 
 Slack のイベントとボタン・モーダル(interaction)を受け取るには、Slack から届く公開 https 入口が必要です。Slack が呼び出すアドレスは `POST /v1/slack/events/{agent_id}` と `POST /v1/slack/interactions/{agent_id}` の二つだけで、どちらも cookie や API key の代わりにそのエージェントアプリの signing secret の署名を確認します。公開入口はこの二つのパスだけを api に送り、それ以外は proxy で 404 を返します。Slack アプリのインストールとアカウント連携の OAuth redirect は、ブラウザがコンソールのアドレス(`CONSOLE_ORIGIN`)に戻るため、公開入口には開きません。
 
-api の 3000 番ポートには、コンソールと `/v1` API のほかに worker 用の `/internal` もあります。トンネルや proxy で 3000 をまるごと公開すると、`/internal` までインターネットに開きます。そのため公開入口(Slack のパスだけ)とコンソール入口(VPN・IP allowlist の内側)を別の DNS 名に分け、コンソール入口でも `/internal` を塞ぎます。Bun はバックスラッシュを `/` に変えて `/internal` の規則をすり抜けさせるので、どの proxy でも、パスに `\` や `%5C` を含むリクエストは 400 で拒否します。
+api の 3000 番ポートはコンソールと `/v1` API を受けます。worker 用の `/internal` は 3200 番でだけ受け、3000 番に来た `/internal` には api が 404 を返します。3200 番は Compose がホストに割り当てず、chart はクラスタ内の ClusterIP Service でだけ開きます。v0.4.0 までの api イメージは 3000 番にも `/internal` があるため、トンネルや proxy で 3000 をまるごと公開すると、`/internal` までインターネットに開きます。そのため公開入口(Slack のパスだけ)とコンソール入口(VPN・IP allowlist の内側)を別の DNS 名に分け、コンソール入口でも `/internal` を塞ぎます。Bun はバックスラッシュを `/` に変えて `/internal` の規則をすり抜けさせるので、どの proxy でも、パスに `\` や `%5C` を含むリクエストは 400 で拒否します。
 
 次は Compose サーバーで nginx を使って二つの入口を分ける例です。`<hooks-host>` は公開 DNS 名、`<console-host>` は `CONSOLE_ORIGIN` の host、`<allowed-cidr>` はコンソールに入れる範囲です。証明書パスは組織の値を使います。
 
@@ -125,13 +125,13 @@ done
 <a id="웹-콘솔과-internal" />
 ### Web コンソールと `/internal`
 
-Web コンソールは api がポート 3000 で配信します。`ingress.console.enabled: true`（既定 `false`）なら Ingress が `/`（Prefix）を api Service に送ります。同じポートには worker 用の `/internal` もあり、`/` Prefix は `/internal` にも一致します。そのため chart は `/` の前に `/internal`（Prefix）規則を置き、この規則を api ではなく annotation `alb.ingress.kubernetes.io/actions.block-internal` の fixed-response（404、`text/plain`）へ送ります。AWS Load Balancer Controller は長い Prefix を短い Prefix より先に評価するため、`/internal` とその配下には ALB が 404 を返します。`render-check` はこの規則が `/` より前にあり、404 action を参照し、それ以外の経路が api Service の `http`（3000）ポートに届くことを検査します。
+Web コンソールは api がポート 3000 で配信します。`ingress.console.enabled: true`（既定 `false`）なら Ingress が `/`（Prefix）を api Service に送ります。api はこのポートに `/internal` を置きません（v0.4.0 までのイメージは置きます）が、`/` Prefix は `/internal` にも一致します。そのため chart は `/` の前に `/internal`（Prefix）規則を置き、この規則を api ではなく annotation `alb.ingress.kubernetes.io/actions.block-internal` の fixed-response（404、`text/plain`）へ送ります。AWS Load Balancer Controller は長い Prefix を短い Prefix より先に評価するため、`/internal` とその配下には ALB が 404 を返します。`render-check` はこの規則が `/` より前にあり、404 action を参照し、それ以外の経路が api Service の `http`（3000）ポートに届くことを検査します。
 
 この規則は ALB だけで有効です。他の controller は `block-internal` という Service のない経路を飛ばして `/` から `/internal` を公開し得るため、`ingress.className` が `alb` 以外なら chart は render を拒否します。`/internal` 要求を 404 規則の外へ送れる annotation（`alb.ingress.kubernetes.io/` の `actions.*`・`conditions.*`・`transforms.*`・`group.*`、`kubernetes.io/ingress.class`）が `ingress.annotations` にある場合も render を拒否します。IngressClass の `IngressClassParams` がこの Ingress を別の Ingress と同じ group に入れると、先行 Ingress の規則が先に評価されます。そのためコンソールを有効にするときは、`alb` IngressClass が group を強制しないことを確認します（**AWS 専用**）。
 
 **有効化の条件。** api は percent-encoding を decode したパスで route します。ALB path pattern に `%` は使えないため、`/%69nternal/…` のようなパスは `/internal` 規則に一致せず、`/` 規則で api に届きます。api は decode 前のパスが `/internal` で始まるときだけ worker route へ送り、encoding した変種には 404 `NOT_FOUND` を返します。この動作を含む api イメージを使う場合だけ `ingress.console.enabled` を有効にします。
 
-dot segment（`/x/../internal/…`、`/%2e/internal/…`）と逆スラッシュ（`/internal\…`、`/x/..\internal/…`）は、Bun が要求を api に渡す前に `/internal/…` へ整理するため、api は通常の `/internal/…` と区別できません。これを遮断するのは ALB です。ALB は URI を正規化してから規則を評価しますが、文書には正規化対象の詳細がありません。そのためコンソール有効化後、内部ネットワークから次の要求で確認します（**AWS 専用**）。`/%69nternal/x` は api の 404（`application/json`）が期待値です（ALB がこれも正規化して `text/plain` の 404 を返しても安全です）。残りの経路はすべて ALB の 404（`text/plain`）が期待値です。api の `/internal` route は状態によらず `application/json` を返します。従って dot segment や逆スラッシュの経路に `application/json` が返ったら、ALB が api に送ったため、コンソールを再び無効にします（ALB 自身が 400 などのエラーで拒否するのは安全です）。
+dot segment（`/x/../internal/…`、`/%2e/internal/…`）と逆スラッシュ（`/internal\…`、`/x/..\internal/…`）は、Bun が要求を api に渡す前に `/internal/…` へ整理するため、api は通常の `/internal/…` と区別できません。これを遮断するのは ALB です。ALB は URI を正規化してから規則を評価しますが、文書には正規化対象の詳細がありません。そのためコンソール有効化後、内部ネットワークから次の要求で確認します（**AWS 専用**）。`/%69nternal/x` は api の 404（`application/json`）が期待値です（ALB がこれも正規化して `text/plain` の 404 を返しても安全です）。残りの経路はすべて ALB の 404（`text/plain`）が期待値です。api の `/internal` route は状態によらず `application/json` を返します。従って dot segment や逆スラッシュの経路に `application/json` が返ったら、ALB が api に送ったため、コンソールを再び無効にします（ALB 自身が 400 などのエラーで拒否するのは安全です）。3000 番に `/internal` がない api イメージでは、ALB が送った経路にも api が 404 `NOT_FOUND` を返し、worker route には届きません。それでも `application/json` の応答は ALB 規則がその経路を逃したことを示すので、上と同じく扱います。
 
 ```bash
 for p in /internal/x /%69nternal/x /x/../internal/x /%2e/internal/x '/internal\x' '/x/..\internal/x'; do

@@ -30,6 +30,8 @@ spec:
               containerPort: 3000
             - name: authorizer
               containerPort: 3100
+            - name: internal
+              containerPort: 3200
             # Opens only when OTEL_TRACES_EXPORTER=otlp (api.extraEnv).
             - name: trace-ingest
               containerPort: {{ .Values.config.tracing.ingestPort }}
@@ -59,7 +61,7 @@ spec:
             - name: EGRESS_ALLOWLIST
               value: {{ .Values.config.egress.allowlist | quote }}
             - name: EGRESS_PRIVATE_ALLOWLIST
-              value: {{ .Values.config.egress.privateAllowlist | default (printf "%s:3000" (include "ap.apiHost" .)) | quote }}
+              value: {{ include "ap.privateAllowlist" . | quote }}
             - name: EGRESS_CREDENTIAL_ALLOWLIST
               value: {{ .Values.config.egress.credentialAllowlist | quote }}
             - name: EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST
@@ -81,6 +83,8 @@ spec:
               value: "3000"
             - name: EGRESS_AUTHORIZER_PORT
               value: "3100"
+            - name: INTERNAL_API_PORT
+              value: "3200"
             - name: CHECKPOINT_GIT_MEMORY_MB
               value: {{ .Values.config.checkpoints.gitMemoryMb | quote }}
             {{- include "ap.removedCredentialValues" . }}
@@ -130,7 +134,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
 ---
-# The public listener and the worker gateway (through the egress proxy).
+# The public listener. It has no /internal route.
 apiVersion: v1
 kind: Service
 metadata:
@@ -167,3 +171,21 @@ spec:
     - name: authorizer
       port: 3100
       targetPort: authorizer
+---
+# /internal, what workers and the conversation runtime call through the egress
+# proxy. ClusterIP only and apart from the public Service, so no Ingress or
+# load balancer can name it; the NetworkPolicy admits the proxy alone.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ap.apiInternalHost" . }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - name: internal
+      port: 3200
+      targetPort: internal

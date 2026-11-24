@@ -506,4 +506,8 @@ built-in tool denied, which the Codex runtime does not offer.
 {{- end -}}
 
 {{- define "ap.apiHost" -}}{{ include "ap.fullname" . }}-api{{- end -}}
+{{- /* The api's /internal listener, on a ClusterIP Service of its own. */}}
+{{- define "ap.apiInternalHost" -}}{{ include "ap.apiHost" . }}-internal{{- end -}}
+{{- define "ap.workerGatewayUrl" -}}http://{{ include "ap.apiInternalHost" . }}:3200{{- end -}}
+{{- define "ap.privateAllowlist" -}}{{ .Values.config.egress.privateAllowlist | default (printf "%s:3200" (include "ap.apiInternalHost" .)) }}{{- end -}}
 {{- define "ap.proxyHost" -}}{{ include "ap.fullname" . }}-egress-proxy{{- end -}}

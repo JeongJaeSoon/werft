@@ -65,7 +65,7 @@ const internalRoutes = app.routes
     ),
   );
 
-describe("/internal shares the public listener, so every route needs its own bearer", () => {
+describe("every /internal route needs its own bearer", () => {
   test("the table holds both families", () => {
     expect(internalRoutes.map((route) => route.path)).toEqual(
       expect.arrayContaining([
