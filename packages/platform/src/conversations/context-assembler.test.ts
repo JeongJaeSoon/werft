@@ -14,6 +14,7 @@ import {
   CONTEXT_CAP_BYTES,
   type CurrentPost,
   fitContext,
+  fragmentText,
   PIECE_OVERHEAD_BYTES,
   POST_CHAR_LIMIT,
   readableScopes,
@@ -249,12 +250,8 @@ function post(n: number, body: string): CurrentPost {
 }
 const size = (text: string) =>
   PIECE_OVERHEAD_BYTES + new TextEncoder().encode(text).length;
-const fragmentText = (f: ContextFragment) =>
-  f.kind === "channel_summary_line"
-    ? f.text
-    : f.kind === "buffered_message"
-      ? f.body
-      : "";
+const cost = (...fs: ContextFragment[]) =>
+  fs.reduce((sum, f) => sum + size(fragmentText(f)), 0);
 const ids = (fs: ContextFragment[]) =>
   fs.map((f) =>
     f.kind === "channel_summary_line"
@@ -270,7 +267,6 @@ const fitted = (result: ReturnType<typeof fitContext>) => {
 
 describe("fitContext", () => {
   const x = (n: number) => "x".repeat(n);
-  // Each piece below costs 132 bytes.
   const line1 = summaryLine(1, x(100));
   const line2 = summaryLine(2, x(100));
   const eng1 = engagement(3);
@@ -294,7 +290,7 @@ describe("fitContext", () => {
   });
 
   test("over the cap the back of the channel summary goes first", () => {
-    const cap = base + 3 * 132 + 2 * PIECE_OVERHEAD_BYTES;
+    const cap = base + cost(line1, eng1, eng2, buf1, buf2);
     const result = fitted(
       fitContext({
         instructions: "rules",
@@ -307,7 +303,7 @@ describe("fitContext", () => {
   });
 
   test("then the oldest engagement records", () => {
-    const cap = base + 2 * 132 + PIECE_OVERHEAD_BYTES;
+    const cap = base + cost(eng2, buf1, buf2);
     const result = fitted(
       fitContext({
         instructions: "rules",
@@ -320,7 +316,7 @@ describe("fitContext", () => {
   });
 
   test("then the oldest buffered posts", () => {
-    const cap = base + 132;
+    const cap = base + cost(buf2);
     const result = fitted(
       fitContext({
         instructions: "rules",
@@ -338,7 +334,7 @@ describe("fitContext", () => {
         instructions: "rules",
         current: [now],
         fragments: all,
-        capBytes: base + 132,
+        capBytes: base + cost(buf2),
       }),
     );
     expect(result.sources).toEqual({
@@ -403,6 +399,54 @@ describe("fitContext", () => {
     );
   });
 
+  test("long instructions leave the older posts of a batch for later rather than refuse", () => {
+    const older = post(1, x(100));
+    const newer = post(2, x(100));
+    const result = fitted(
+      fitContext({
+        instructions: x(800),
+        current: [older, newer],
+        fragments: [],
+        capBytes: 1000,
+      }),
+    );
+    expect(result.current).toEqual([newer]);
+    expect(result.left).toEqual([older]);
+  });
+
+  test("a post left for a later call is not read as a buffered fragment either", () => {
+    const own = buffered(1, x(100));
+    const older = {
+      ...post(1, x(100)),
+      inputId: conversationInputIdSchema.parse(uuid("f", 1)),
+    };
+    const newer = post(2, x(100));
+    const result = fitted(
+      fitContext({
+        instructions: "",
+        current: [older, newer],
+        fragments: [own],
+        capBytes: 2 * size(x(100)) + 1,
+      }),
+    );
+    expect(result.left).toEqual([older]);
+    expect(result.fragments).toEqual([]);
+  });
+
+  test("the back of the summary is its last lines, whatever their time", () => {
+    const first = summaryLine(9, x(100));
+    const last = summaryLine(1, x(100));
+    const result = fitted(
+      fitContext({
+        instructions: "",
+        current: [now],
+        fragments: [first, last],
+        capBytes: size(now.body) + size("") + cost(first),
+      }),
+    );
+    expect(ids(result.fragments)).toEqual(ids([first]));
+  });
+
   test("a buffered post that is a current post goes in once, as current", () => {
     const own = buffered(7, "same");
     const current = {
@@ -442,7 +486,9 @@ describe("fitContext", () => {
     const text = () =>
       (draw() < 0.5 ? "가" : "a").repeat(Math.floor(draw() * 3000));
     let cuts = 0;
-    for (let world = 0; world < 300; world += 1) {
+    let refused = 0;
+    let leftOut = 0;
+    for (let world = 0; world < 600; world += 1) {
       const fragments = Array.from(
         { length: Math.floor(draw() * 30) },
         (_, n) => {
@@ -458,22 +504,35 @@ describe("fitContext", () => {
         { length: 1 + Math.floor(draw() * 4) },
         (_, n) => post(100 + n, text()),
       );
-      const result = fitContext({
-        instructions: "지침".repeat(Math.floor(draw() * 500)),
-        current,
-        fragments,
-      });
-      if (result.outcome === "too_large") continue;
+      const instructions = "지침".repeat(Math.floor(draw() * 2000));
+      const capBytes =
+        draw() < 0.5
+          ? CONTEXT_CAP_BYTES
+          : 500 + Math.floor(draw() * CONTEXT_CAP_BYTES);
+      const result = fitContext({ instructions, current, fragments, capBytes });
+      const newest = current.at(-1) as CurrentPost;
+      const floor = size(instructions) + size(truncatePost(newest.body));
+      if (result.outcome === "too_large") {
+        // Refused only when nothing it may leave out would make it fit.
+        expect(floor).toBeGreaterThan(capBytes);
+        refused += 1;
+        continue;
+      }
       const recount =
         size(result.instructions) +
         result.current.reduce((sum, p) => sum + size(p.body), 0) +
-        result.fragments.reduce((sum, f) => sum + size(fragmentText(f)), 0);
+        cost(...result.fragments);
       expect(recount).toBe(result.bytes);
-      expect(result.bytes).toBeLessThanOrEqual(CONTEXT_CAP_BYTES);
+      expect(result.bytes).toBeLessThanOrEqual(capBytes);
+      expect(result.current.at(-1)?.inputId).toBe(newest.inputId);
       expect(result.current.length + result.left.length).toBe(current.length);
       if (result.fragments.length < fragments.length) cuts += 1;
+      if (result.left.length > 0) leftOut += 1;
     }
+    // Each branch is reached, so none of the checks is vacuous.
     expect(cuts).toBeGreaterThan(0);
+    expect(refused).toBeGreaterThan(0);
+    expect(leftOut).toBeGreaterThan(0);
   });
 
   test("assembleCallContext still drops another scope's fragment (G1)", async () => {

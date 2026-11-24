@@ -121,12 +121,16 @@ function timeOf(fragment: ContextFragment): number {
   }
 }
 
-function textOf(fragment: ContextFragment): string {
+/**
+ * The text a fragment puts before the model, which the cap is counted on:
+ * the caller renders a piece as this within PIECE_OVERHEAD_BYTES of framing.
+ */
+export function fragmentText(fragment: ContextFragment): string {
   switch (fragment.kind) {
     case "channel_summary_line":
       return fragment.text;
     case "engagement":
-      return "";
+      return `${fragment.engagementKind} ${fragment.sessionId} ${fragment.at.toISOString()}`;
     case "buffered_message":
       return fragment.body;
   }
@@ -181,12 +185,14 @@ export function fitContext(input: {
   const current: CurrentPost[] = [];
   const left: CurrentPost[] = [];
   let currentBytes = 0;
+  // The batch's share, and never more than the instructions leave.
+  const batchBytes = Math.min(
+    Math.floor(capBytes * share),
+    capBytes - instructionBytes,
+  );
   for (const post of [...posts].reverse()) {
     const bytes = pieceBytes(post.body);
-    if (
-      current.length === 0 ||
-      currentBytes + bytes <= Math.floor(capBytes * share)
-    ) {
+    if (current.length === 0 || currentBytes + bytes <= batchBytes) {
       current.unshift(post);
       currentBytes += bytes;
     } else {
@@ -231,14 +237,14 @@ export function fitContext(input: {
     fixed +
     [...byKind.values()]
       .flat()
-      .reduce((sum, piece) => sum + pieceBytes(textOf(piece)), 0);
+      .reduce((sum, piece) => sum + pieceBytes(fragmentText(piece)), 0);
   for (const { kind, from } of CUT_ORDER) {
     const list = byKind.get(kind) ?? [];
     while (bytes > capBytes && list.length > 0) {
       const cut = (
         from === "last" ? list.pop() : list.shift()
       ) as ContextFragment;
-      bytes -= pieceBytes(textOf(cut));
+      bytes -= pieceBytes(fragmentText(cut));
     }
   }
 
