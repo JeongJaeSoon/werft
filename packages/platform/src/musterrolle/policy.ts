@@ -868,16 +868,25 @@ export function createAuthorizationPolicy(
     const sees = async (place: PrivateChannelPlace) => {
       try {
         const agentId = place.agentId.toLowerCase();
+        if (!(await usageFor(reading, workspaceId, agentId)).allowed) {
+          deps.logger?.warn("Private channel hidden; agent usage denied", {
+            event: "session.private_channel.usage_denied",
+            reason: "usage_denied",
+            workspace_id: workspaceId,
+            agent_id: agentId,
+            channel_id: place.channelId,
+          });
+          return false;
+        }
         return (
-          (await usageFor(reading, workspaceId, agentId)).allowed &&
-          (fromChannel(place) ||
-            (members !== undefined &&
-              (await members.isMember({
-                workspaceId,
-                agentId,
-                channelId: place.channelId,
-                userId: principal.id,
-              }))))
+          fromChannel(place) ||
+          (members !== undefined &&
+            (await members.isMember({
+              workspaceId,
+              agentId,
+              channelId: place.channelId,
+              userId: principal.id,
+            })))
         );
       } catch (error) {
         deps.logger?.warn("Private channel access unconfirmed; hidden", {

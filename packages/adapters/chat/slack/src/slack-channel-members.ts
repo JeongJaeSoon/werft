@@ -25,6 +25,7 @@ const PAGE_LIMIT = Math.ceil(
 
 /** Why a member check answered false without knowing; logged, never shown. */
 export type SlackMemberCheckUnconfirmed =
+  | "no_slack_link"
   | "no_bot_token"
   | "rate_limited"
   | "slack_error"
@@ -75,7 +76,16 @@ export function createSlackChannelMembers(deps: {
     } catch {
       return "unconfirmed";
     }
-    if (subject === null) return "unconfirmed";
+    if (subject === null) {
+      deps.logger.warn("Slack channel members unconfirmed; not a member", {
+        event: "slack.member_check.unconfirmed",
+        reason: "no_slack_link" satisfies SlackMemberCheckUnconfirmed,
+        workspace_id: input.workspaceId,
+        agent_id: input.agentId,
+        channel_id: input.channelId,
+      });
+      return "unconfirmed";
+    }
     return slackMembership({ ...input, ...subject });
   }
 
