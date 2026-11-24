@@ -276,6 +276,36 @@ describe("closeSlackApp", () => {
     ).toEqual([]);
   });
 
+  test("a row claimed as the delete ran, after its sweep, is refused at its send", async () => {
+    await createPostgresSlackAppStore(db, key).finishDelete({
+      workspaceId: WORKSPACE,
+      slackAppId: seeded.slackAppId,
+      actor: null,
+    });
+    const late = randomUUID();
+    const fenceId = randomUUID();
+    await client.query(
+      `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id, installation_id, kind, channel_id, thread_ts, body, dedupe_key, status, claim_token, lease_expires_at)
+       VALUES ($1, $2, $3, $4, $5, 'reply', 'C0LATE', '', '{"text":"late"}', $6, 'pending', $7, now() + interval '1 minute')`,
+      [
+        late,
+        WORKSPACE,
+        AGENT,
+        seeded.slackAppId,
+        seeded.installationId,
+        randomUUID(),
+        fenceId,
+      ],
+    );
+    const outbox = createPostgresSlackOutboxStore(db);
+    expect(await outbox.beginSend({ id: late, claimToken: fenceId })).toBe(
+      false,
+    );
+    expect(
+      await rows("SELECT status FROM slack_outbox WHERE id = $1", [late]),
+    ).toEqual([{ status: "pending" }]);
+  });
+
   test("a row a running session enqueues after the delete closes as app_deleted", async () => {
     await createPostgresSlackAppStore(db, key).finishDelete({
       workspaceId: WORKSPACE,

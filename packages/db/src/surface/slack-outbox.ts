@@ -1736,6 +1736,17 @@ export function createPostgresSlackOutboxStore(
 
     beginSend(fence) {
       return db.transaction(async (tx) => {
+        // The install before the row, as an app delete takes them: a delete
+        // that revoked it and has not committed yet is waited for here, so a
+        // row it claimed too late to sweep still never goes out.
+        const [install] = await tx
+          .select({ status: slackInstallations.status })
+          .from(slackInstallations)
+          .where(
+            sql`${slackInstallations.id} = (SELECT installation_id FROM slack_outbox WHERE id = ${fence.id})`,
+          )
+          .for("share");
+        if (install?.status === "revoked") return false;
         const [row] = await tx
           .select({
             workspaceId: t.workspaceId,
