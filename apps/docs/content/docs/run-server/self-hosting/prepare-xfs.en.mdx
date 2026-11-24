@@ -91,6 +91,7 @@ The script ends by checking the data-root, the mount options, and the quota prob
 ## Troubleshooting
 
 - A refusal with `already exists` means an earlier run or manual work left that path. Inspect its contents. Do not resize or reformat an existing image or `/var/lib/docker.old` to reuse it.
+- If a rerun after an undo is refused because `/var/lib/docker.xfs.img` or `/etc/fstab.before-prepare-xfs` already exists, the undo left it behind. When Docker had already run on the new image, the script keeps the image too. Confirm the image holds no data you need, and only after the unmount, the fstab restore and `daemon-reload` are done and `/var/lib/docker` is the original again, remove them with `sudo rm /var/lib/docker.xfs.img /etc/fstab.before-prepare-xfs`. If `/var/lib/docker.old` still exists it is the original: restore it first and do not delete it.
 - A refusal with `the trial XFS loop mount` means this host cannot use loop devices or XFS project quotas. Use another server, or plan a migration onto a separate XFS disk for the Docker data-root.
 - With exit code 4 and the data-root not back in place, the script leaves Docker stopped. Starting Docker in that state uses an empty data-root, so first clean up what the output lists, following [Roll back](#되돌리기), then start it.
 
@@ -99,7 +100,7 @@ The script ends by checking the data-root, the mount options, and the quota prob
 
 Containers, volumes, and data created after restarting Docker on the new XFS are absent from `/var/lib/docker.old`. Returning to the original directory loses those changes. Preserve new data separately first and decide what to restore. Sparse images do not shrink automatically when data is deleted; monitor free space on the host filesystem too.
 
-Stop Docker and its socket. If the new XFS is mounted, confirm no containers are using it before unmounting. Revert the added fstab entry against `/etc/fstab.before-prepare-xfs`, which the script left. `/var/lib/docker.old` is the original. Confirm the original path is empty, restore the original directory, and start Docker. Do not delete the new image or original data; confirm the previous container and volume inventory matches.
+Stop Docker and its socket. If the new XFS is mounted, confirm no containers are using it before unmounting. Revert the added fstab entry against `/etc/fstab.before-prepare-xfs`, which the script left, then run `sudo systemctl daemon-reload` so systemd rereads the restored fstab. `/var/lib/docker.old` is the original. Confirm the original path is empty, restore the original directory, and start Docker. Do not delete the new image or original data; confirm the previous container and volume inventory matches.
 
 For an installation that originally had a data directory, after unmounting and restoring fstab, remove only the empty mount point with `sudo rmdir /var/lib/docker`, then restore it with `sudo mv /var/lib/docker.old /var/lib/docker`. If rmdir fails, investigate without deleting its contents. Do not perform this move on a fresh installation that had no original directory.
 
