@@ -260,13 +260,14 @@ integration("Slack notice service on PostgreSQL", () => {
       { user_id: ws.owner.userId, display_name: "owner person", email: null },
     ] as never);
     for (const work of [
-      notices.approve(ws.agentAdmin.caller, ws.agentId, {
-        notice_version: slackNoticeVersionSchema.parse(1),
-        locale: "ko",
-      }),
-      notices.revoke(ws.agentAdmin.caller, ws.agentId),
+      () =>
+        notices.approve(ws.agentAdmin.caller, ws.agentId, {
+          notice_version: slackNoticeVersionSchema.parse(1),
+          locale: "ko",
+        }),
+      () => notices.revoke(ws.agentAdmin.caller, ws.agentId),
     ]) {
-      expect(await refusal(work)).toEqual({
+      expect(await refusal(work())).toEqual({
         code: "FORBIDDEN",
         reason: "workspace_admin_required",
       });
@@ -281,14 +282,15 @@ integration("Slack notice service on PostgreSQL", () => {
     const other = await setUp();
     const notices = service(V1);
     for (const work of [
-      notices.read(other.owner.caller, ws.agentId),
-      notices.approve(other.owner.caller, ws.agentId, {
-        notice_version: slackNoticeVersionSchema.parse(1),
-        locale: "ko",
-      }),
-      notices.revoke(other.owner.caller, ws.agentId),
+      () => notices.read(other.owner.caller, ws.agentId),
+      () =>
+        notices.approve(other.owner.caller, ws.agentId, {
+          notice_version: slackNoticeVersionSchema.parse(1),
+          locale: "ko",
+        }),
+      () => notices.revoke(other.owner.caller, ws.agentId),
     ]) {
-      expect((await refusal(work)).code).toBe("NOT_FOUND");
+      expect((await refusal(work())).code).toBe("NOT_FOUND");
     }
     const viaKey = await person(ws.workspaceId, "owner", "api");
     expect(await refusal(notices.read(viaKey.caller, ws.agentId))).toEqual({
