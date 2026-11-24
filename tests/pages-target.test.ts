@@ -33,7 +33,7 @@ type Run = {
   at: Exclude<Commit, "c5">;
   /**
    * The head commit of the newest manual run on main in the run list. c5 is
-   * pushed to main after this run's checkout.
+   * pushed to main while the script reads that list.
    */
   manual?: Commit;
   /** That manual run was started after this run, so the list names it first. */
@@ -100,7 +100,10 @@ function ask(tags: Tags, run: Run) {
     const clone = join(directory, "clone");
     git(directory, "clone", "-q", origin, clone);
     git(clone, "checkout", "-q", "--detach", history[run.at]);
+    // c5 exists but is not on main yet: the fake gh pushes it while the script
+    // reads the run list, after this checkout.
     history.c5 = commit("c5");
+    git(origin, "update-ref", "refs/heads/main", history.c4);
 
     // "<id> <attempt> <event> <branch> <commit>", newest first, as the script's
     // --jq prints the list.
@@ -131,6 +134,7 @@ if [ -n "\${FAKE_LIST_FAILS:-}" ]; then echo "gh: HTTP 502" >&2; exit 1; fi
 # The list shows neither this run nor the fix until it has caught up.
 reads=$(cat "${directory}/reads" 2>/dev/null || echo 0)
 echo $((reads + 1)) >"${directory}/reads"
+[ -z "\${FAKE_PUSH:-}" ] || git -C "${origin}" update-ref refs/heads/main "\${FAKE_PUSH}"
 [ "$reads" -lt "\${FAKE_LAGGING}" ] || printf '%s\\n' "\${FAKE_FRESH}"
 printf '%s\\n' "\${FAKE_OLD}"
 `,
@@ -154,6 +158,7 @@ printf '%s\\n' "\${FAKE_OLD}"
         FAKE_FRESH: fresh.join("\n"),
         FAKE_OLD: old.join("\n"),
         FAKE_LIST_FAILS: run.listFails ? "1" : "",
+        FAKE_PUSH: run.manual === "c5" ? history.c5 : "",
       },
     });
     const written = existsSync(output) ? readFileSync(output, "utf8") : "";
@@ -349,7 +354,7 @@ describe("pages-target.sh", () => {
     SLOW,
   );
 
-  // The fix reached main, and its run was started, after this run's checkout.
+  // The fix reaches main, and its run is started, while this run reads the list.
   test(
     "a docs fix merged after this run started is fetched before it is judged",
     () => {
