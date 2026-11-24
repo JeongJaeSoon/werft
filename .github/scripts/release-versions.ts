@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // Which release the things shared by every release follow: the GitHub Release
-// marked "Latest" (release-latest.sh). They follow the highest stable version
+// marked "Latest" (release-latest.sh) and the Pages site (pages-target.sh).
+// They follow the highest stable version
 // of all that exist, never the version of the run that happens to write them,
 // so a hotfix on an older line or a prerelease moves nothing.
 //

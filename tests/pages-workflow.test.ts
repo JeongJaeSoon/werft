@@ -18,12 +18,14 @@ const parse = (file: string) =>
         needs?: string | string[];
         permissions?: Record<string, string>;
         environment?: { name: string };
+        outputs?: Record<string, string>;
         steps?: {
           name?: string;
           run?: string;
           uses?: string;
           id?: string;
           if?: string;
+          env?: Record<string, string>;
           with?: Record<string, string | number>;
           "continue-on-error"?: boolean;
         }[];
@@ -47,10 +49,31 @@ describe("pages.yml", () => {
   });
 
   test("queues deploys instead of cancelling a running one", () => {
+    // One group for the runs that can deploy; any other ref gets its own, or
+    // it would replace a waiting run that can.
     expect(pages.concurrency).toEqual({
-      group: "pages",
+      group:
+        "pages-${{ (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main') && 'deploy' || github.run_id }}",
       "cancel-in-progress": false,
     });
+  });
+
+  test("picks what the site should be before anything is built", () => {
+    const target = pages.jobs.target;
+    expect(target?.needs).toBeUndefined();
+    // The run list holds the manual runs on main.
+    expect(target?.permissions).toEqual({ contents: "read", actions: "read" });
+    expect(target?.outputs).toEqual({ sha: "${{ steps.target.outputs.sha }}" });
+    const steps = target?.steps ?? [];
+    // Ancestry on main needs the whole history and every tag.
+    expect(steps[0]?.with).toEqual({ "fetch-depth": 0 });
+    const pick = steps.find((s) => s.id === "target");
+    expect(pick?.run).toBe(".github/scripts/pages-target.sh");
+    expect(Object.keys(pick?.env ?? {}).sort()).toEqual([
+      "GH_REPO",
+      "GH_TOKEN",
+    ]);
+    expect(pages.jobs.docs?.needs).toEqual(["target"]);
   });
 
   test("only the deploy job can write to Pages, and only from a release tag or main with Pages enabled", () => {
@@ -60,7 +83,7 @@ describe("pages.yml", () => {
       .map(([name]) => name);
     expect(writers).toEqual(["deploy"]);
     const deploy = pages.jobs.deploy;
-    expect(deploy?.needs).toEqual(["docs"]);
+    expect(deploy?.needs).toEqual(["target", "docs"]);
     expect(deploy?.if).toBe(
       "(startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main') && vars.PAGES_ENABLED == 'true'",
     );
@@ -68,8 +91,11 @@ describe("pages.yml", () => {
     // A tag can point anywhere; deploy only reviewed commits, before upload.
     const steps = deploy?.steps ?? [];
     const onMain = steps.findIndex((s) => s.name === "Commit must be on main");
+    expect(steps[onMain]?.env).toEqual({
+      TARGET_SHA: "${{ needs.target.outputs.sha }}",
+    });
     expect(steps[onMain]?.run).toContain(
-      'git merge-base --is-ancestor "$GITHUB_SHA" origin/main',
+      'git merge-base --is-ancestor "$TARGET_SHA" origin/main',
     );
     const firstUpload = steps.findIndex((s) =>
       s.uses?.startsWith("actions/upload-pages-artifact@"),
