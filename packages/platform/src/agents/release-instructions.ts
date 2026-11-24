@@ -1,5 +1,6 @@
 import {
   JUDGMENT_INSTRUCTIONS_MAX_BYTES,
+  type ReceiptActor,
   type ReleaseInstructions,
   type RuntimeKind,
 } from "@werft-ai/contracts";
@@ -13,6 +14,14 @@ type ReadFailure = Extract<
   { kind: "read_failed" }
 >["reason"];
 
+/** Who makes the release the file is read for: its token's receipt names them. */
+export type ReleaseInstructionsReader = {
+  /** The release's workspace. */
+  ownerId: string;
+  agentId: string;
+  actor: ReceiptActor | null;
+};
+
 /** A catalog repository's branch as it is now, to read one file from. */
 export interface ReleaseInstructionsSource {
   /**
@@ -23,6 +32,7 @@ export interface ReleaseInstructionsSource {
   open(
     repositoryId: string,
     runtime: RuntimeKind,
+    reader: ReleaseInstructionsReader,
   ): Promise<
     | {
         kind: "tree";
@@ -61,6 +71,7 @@ export async function snapshotReleaseInstructions(
   source: ReleaseInstructionsSource,
   repositoryId: string | null,
   runtime: RuntimeKind,
+  reader: ReleaseInstructionsReader,
   timeoutMs = RELEASE_INSTRUCTIONS_READ_MS,
 ): Promise<ReleaseInstructions> {
   if (repositoryId === null) return { kind: "no_repository" };
@@ -74,7 +85,7 @@ export async function snapshotReleaseInstructions(
     timer = setTimeout(() => resolve("timeout"), timeoutMs);
   });
   const read = async (): Promise<ReleaseInstructions> => {
-    const opened = await source.open(repositoryId, runtime);
+    const opened = await source.open(repositoryId, runtime, reader);
     if (opened.kind === "read_failed") return failed(opened.reason);
     const { commit } = opened;
     const { file, found } = await namedCommittedInstructions(

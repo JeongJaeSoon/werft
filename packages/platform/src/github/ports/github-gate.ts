@@ -160,9 +160,40 @@ export type GitHubDispatchRecord = {
   ref: string;
 };
 
+/**
+ * What a token is cached for. A release's read of its instruction file never
+ * hands its token to a session's clone, so each first issue for a use leaves
+ * its own `mint_github_token` receipt.
+ */
+export type GitHubTokenUse = "session" | "release_instructions";
+
+/** A new release reading its repository's instruction file. */
+export type GitHubReleaseRead = {
+  /** The release's workspace, where the receipt is written. */
+  ownerId: string;
+  agentId: string;
+  repositoryId: string;
+  actor: ReceiptActor | null;
+};
+
+/** The contents:read access a release read gets; it can only read. */
+export const RELEASE_INSTRUCTIONS_PERMISSIONS: GitHubPermissions =
+  Object.freeze({ contents: "read" });
+
+export interface GitHubReleaseReadGate {
+  /**
+   * The repository and an API holding a `RELEASE_INSTRUCTIONS_PERMISSIONS`
+   * token, or null when the repository is not on GitHub or no App is
+   * registered for it. Throws GitHubUnavailableError when an App is but
+   * cannot be used, and what GitHub throws.
+   */
+  releaseRead(
+    read: GitHubReleaseRead,
+  ): Promise<{ repo: RepoRef; api: GitHubApi } | null>;
+}
+
 export type GitHubGateReceipt = {
   ownerId: string;
-  sessionId: string;
   actor: ReceiptActor | null;
   operation:
     | "mint_github_token"
@@ -173,7 +204,11 @@ export type GitHubGateReceipt = {
   status: "succeeded" | "failed";
   result: Record<string, unknown>;
   error: { code: "GITHUB_REFUSED"; message: string } | null;
-};
+} & (
+  | { sessionId: string }
+  /** A release read: no session yet, so the workspace is the target. */
+  | { sessionId: null; workspaceId: string }
+);
 
 export interface GitHubGateStore {
   context(sessionId: string): Promise<GitHubSessionContext | null>;
@@ -191,13 +226,14 @@ export interface GitHubConnection {
   readonly githubCom: boolean;
   readonly appId: number | null;
   /**
-   * A credential for one repository and permission set; `fresh` when it was
+   * A credential for one repository, permission set and use; `fresh` when it was
    * issued now rather than taken from the cache. GitHub refusing the
    * permissions is GitHubPermissionError.
    */
   credential(
     repo: RepoRef,
     permissions: GitHubPermissions,
+    use: GitHubTokenUse,
   ): Promise<{ credential: GitCredential; fresh: boolean }>;
   /**
    * Whether the App is installed on `repo`, asked with its own JWT; null for

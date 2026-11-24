@@ -31,8 +31,10 @@ import {
   type GitHubGateStore,
   type GitHubGrant,
   GitHubPermissionError,
+  type GitHubReleaseReadGate,
   GitHubUnavailableError,
   type GitHubWork,
+  RELEASE_INSTRUCTIONS_PERMISSIONS,
 } from "../ports/github-gate.ts";
 import {
   createGitHubConnectionResolver,
@@ -55,7 +57,8 @@ const NEEDS_SESSION_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
 ]);
 
 /**
- * The one place a GitHub credential is issued.
+ * The one place a GitHub credential is issued: a session's work, and a new
+ * release's read of its instruction file.
  * Every grant reads the session, its release and agent again, so a switch
  * turned off or a ceiling lowered refuses the next piece of work even when
  * the connection still caches a token for it.
@@ -65,7 +68,7 @@ export function createGitHubGate(deps: {
   catalog: SessionCatalog;
   connections: GitHubConnections;
   resolver?: GitHubConnectionResolver;
-}): GitHubGate {
+}): GitHubGate & GitHubReleaseReadGate {
   const { store, catalog, connections } = deps;
   const resolver =
     deps.resolver ??
@@ -373,6 +376,7 @@ export function createGitHubGate(deps: {
         ({ credential: gitCredential, fresh } = await connection.credential(
           repo,
           needs.permissions,
+          "session",
         ));
       } catch (error) {
         if (error instanceof GitHubPermissionError) {
@@ -440,6 +444,52 @@ export function createGitHubGate(deps: {
           policy: policyFields,
         },
       };
+    },
+
+    async releaseRead(read) {
+      const entry = Object.hasOwn(catalog.repositories, read.repositoryId)
+        ? catalog.repositories[read.repositoryId]
+        : undefined;
+      const repo = entry === undefined ? null : repoRefOf(entry.url);
+      if (repo === null) return null;
+      const choice = await resolver.resolve(read.repositoryId, "author", repo, {
+        pin: false,
+      });
+      if (choice.kind === "none") return null;
+      if (choice.kind !== "connection") {
+        throw new GitHubUnavailableError(
+          `No author App to read: ${choice.kind}`,
+        );
+      }
+      const { connection, connectionId } = choice;
+      const issued = await connection.credential(
+        repo,
+        RELEASE_INSTRUCTIONS_PERMISSIONS,
+        "release_instructions",
+      );
+      if (issued.fresh) {
+        await store.recordReceipt({
+          ownerId: read.ownerId,
+          sessionId: null,
+          workspaceId: read.ownerId,
+          actor: read.actor,
+          operation: "mint_github_token",
+          status: "succeeded",
+          result: {
+            agent_id: read.agentId,
+            repository_id: read.repositoryId,
+            purpose: "release_instructions",
+            role: "author",
+            connection_id: connectionId,
+            ...(choice.pinnedBy === null ? {} : { pinned_by: choice.pinnedBy }),
+            app_id: connection.appId,
+            permissions: RELEASE_INSTRUCTIONS_PERMISSIONS,
+            expires_at: issued.credential.expiresAt?.toISOString() ?? null,
+          },
+          error: null,
+        });
+      }
+      return { repo, api: connection.api(repo, issued.credential) };
     },
 
     async additionalRepositories(sessionId: string): Promise<string[]> {
