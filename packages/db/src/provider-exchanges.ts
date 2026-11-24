@@ -342,10 +342,16 @@ export function createProviderExchangeLedger(
               return { outcome: "conflict" };
             case "replayed":
               // A reservation that outlived its exchange row, whose release
-              // mark the reconciler deleted: what became of it stands.
+              // mark the reconciler deleted: what became of it stands. An
+              // operator's resolve released the row, as the proxy's would.
               return reserved.state === "reserved"
                 ? { outcome: "conflict" }
-                : { outcome: reserved.state };
+                : {
+                    outcome:
+                      reserved.state === "resolved"
+                        ? "released"
+                        : reserved.state,
+                  };
             case "reserved":
               budget = {
                 budgetRootKind: reserved.rootKind,
