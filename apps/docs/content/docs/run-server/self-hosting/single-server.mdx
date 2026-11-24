@@ -18,7 +18,7 @@ Linux 한 대에 게시 이미지를 digest로 고정해 설치하고 `/readyz`�
 | 운영체제 | Linux. `x86_64`와 `arm64` 모두 된다 |
 | Docker Engine | 28 이상 |
 | Docker Compose | 2.24.6 이상 |
-| 디스크 | Docker 데이터 루트가 XFS이고 `prjquota`로 mount돼 있다. `preflight`는 이것을 보지 않는다. 아니면 `deploy`에서 scheduler의 quota 검사가 실패해 설치가 멈춘다. ext4 서버는 [XFS 디스크 준비](/run-server/self-hosting/prepare-xfs)를 먼저 끝낸다. Docker Desktop에서는 쓸 수 없다 |
+| 디스크 | Docker 데이터 루트가 XFS이고 `prjquota`로 mount돼 있다. `preflight`가 quota probe로 이것을 검사하고, 아니면 멈춘다. ext4 서버는 [XFS 디스크 준비](/run-server/self-hosting/prepare-xfs)를 먼저 끝낸다. Docker Desktop에서는 쓸 수 없다 |
 | 시간 | NTP 동기화. 재부팅 뒤 Docker가 자동으로 시작한다 |
 | 도구 | checkout 설치는 `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx 플러그인. 릴리스 번들 설치는 `jq`, `curl`, `openssl`, `sha256sum`, `tar`(gzip 지원). 둘 다 Docker daemon에 접근할 수 있는 계정 |
 | object store | 영속 AWS S3 bucket. Compose test-ops는 AWS S3만 지원하며 사용자 endpoint를 받지 않는다. [bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket)에서 보호 계약과 권한을 확인한다 |
@@ -180,7 +180,7 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh preflight "$DEPLOYMENT_DIR/release.
 TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.json"
 ```
 
-preflight는 bucket 보호 설정과 scratch version의 쓰기·hold·읽기·hold 해제·삭제를 검사한다. quota는 deploy 때 scheduler가 검사한다. 둘 다 성공하고 서비스가 healthy가 되어야 한다. object store 방식은 첫 deploy 뒤 바꿀 수 없다.
+preflight는 bucket 보호 설정과 scratch version의 쓰기·hold·읽기·hold 해제·삭제를 검사한다. workspace quota probe도 먼저 돌리고, deploy 때 scheduler가 quota를 다시 검사한다. 둘 다 성공하고 서비스가 healthy가 되어야 한다. object store 방식은 첫 deploy 뒤 바꿀 수 없다.
 
 deploy 뒤에 첫 owner를 만드는 일회용 설정 링크를 받는다. 링크는 로그나 파일에 남지 않고, 이 명령이 stdout에 한 번 출력한다.
 
