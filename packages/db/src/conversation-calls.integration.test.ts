@@ -714,7 +714,7 @@ integration("conversation calls on PostgreSQL", () => {
           await Bun.sleep(50);
           waiting = (
             await pool.query(
-              "SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+              "SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
             )
           ).rows[0].n;
         }
