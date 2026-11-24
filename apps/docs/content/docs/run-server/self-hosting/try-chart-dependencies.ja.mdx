@@ -236,7 +236,7 @@ PostgreSQL の Pod が入れ替わると DB が、LocalStack のコンテナが�
 
 bucket だけが空になった場合、api は次の起動時に DB に残った未回収の checkpoint を諦めてから起動します。手順 4 の `installation.profile` と `checkpoints.objectsLost` がそう決めます。
 
-- 閉じていないセッションは `recovery_required` になります。
+- 失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になります。
 - `kubectl -n werft logs deploy/werft-api` に `The object store came back empty` で始まる警告が 1 行残り、セッション数と id を記録します。
 - `/readyz` は 200 のままで、本文の `detail.checkpoints_forgotten_on_boot` にそのセッション数が入ります。
 

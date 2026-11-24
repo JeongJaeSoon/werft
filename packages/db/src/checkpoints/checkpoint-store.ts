@@ -90,10 +90,16 @@ const LOST_CHECKPOINT_RECEIPT_ERROR = {
  * recovery_required with its input kept; its open pause or resume receipt
  * fails. Resume and retry_restore refuse, start_fresh goes on without the
  * lost context, close ends the session.
+ *
+ * `stillLost` is for a caller that cannot have every writer stopped: it is
+ * asked once the sessions are locked, when no checkpoint of theirs can commit
+ * any more, and false leaves everything as it is. A bucket found empty before
+ * the call may hold a checkpoint committed since.
  */
 export function forgetLostCheckpoints(
   db: Database,
   now: Date,
+  options: { readonly stillLost?: () => Promise<boolean> } = {},
 ): Promise<LostCheckpoints> {
   return db.transaction(async (tx) => {
     const lost = await tx
@@ -116,6 +122,9 @@ export function forgetLostCheckpoints(
       .where(inArray(sessions.id, ids))
       .orderBy(asc(sessions.id))
       .for("update");
+    if (options.stillLost && !(await options.stillLost())) {
+      return { held: [], unchanged: [] };
+    }
     await tx
       .update(checkpoints)
       .set({ collectedAt: DB_NOW })
@@ -191,16 +200,26 @@ export function forgetLostCheckpoints(
 /**
  * forgetLostCheckpoints for a start that gives the checkpoints up on its own
  * (CHECKPOINT_OBJECTS_LOST=forget), with the row that keeps the loss in
- * /readyz and on the console until an administrator closes it. A start that
- * finds nothing left to forget, because another one got there first, records
- * nothing.
+ * /readyz and on the console until an administrator closes it.
+ *
+ * Other APIs may be running or starting beside this one, so two things are
+ * closed here that the operator command leaves to "run it while the API is
+ * down". One start at a time holds the advisory lock: a second waits, then
+ * reads what the first left, which is nothing, and records nothing.
+ * `stillLost` is the caller's bucket check again, under the session locks
+ * (forgetLostCheckpoints): a checkpoint committed after the first look keeps
+ * everything.
  */
 export function forgetLostCheckpointsAtStart(
   db: Database,
   now: Date,
+  stillLost: () => Promise<boolean>,
 ): Promise<LostCheckpoints> {
   return db.transaction(async (tx) => {
-    const lost = await forgetLostCheckpoints(tx, now);
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended('lost_checkpoints_at_start', 0))`,
+    );
+    const lost = await forgetLostCheckpoints(tx, now, { stillLost });
     const sessionIds = [...lost.held, ...lost.unchanged];
     if (sessionIds.length > 0) {
       await tx.insert(lostCheckpointNotices).values({ sessionIds });

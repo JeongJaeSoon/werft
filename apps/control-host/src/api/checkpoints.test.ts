@@ -819,12 +819,22 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
   const db = drizzle(client, { schema });
   const open = crypto.randomUUID();
   const closed = crypto.randomUUID();
-  const start = (page: Record<string, unknown>) =>
-    checkpointObjectsAtStart(config, {
-      client: { send: async () => page },
+  // One listing per look at the bucket: the last one repeats.
+  const start = (...pages: Record<string, unknown>[]) => {
+    let looks = 0;
+    return checkpointObjectsAtStart(config, {
+      client: {
+        async send() {
+          const page = pages[Math.min(looks, pages.length - 1)];
+          looks += 1;
+          return page ?? {};
+        },
+      },
       hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
-      forget: () => forgetLostCheckpointsAtStart(db, new Date()),
+      forget: (stillLost) =>
+        forgetLostCheckpointsAtStart(db, new Date(), stillLost),
     });
+  };
   const admissionState = async (id: string) =>
     (await db.select().from(sessions).where(eq(sessions.id, id)))[0]
       ?.admissionState;
@@ -874,6 +884,20 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
     expect(await openCount()).toBe(0);
   });
 
+  test("a checkpoint written between the first look and the locks keeps everything", async () => {
+    // Empty when the start decided, an object by the time the sessions are
+    // locked: an API beside this one committed a checkpoint in between.
+    expect(
+      await start(
+        {},
+        { Versions: [{ Key: `${open}/manifest.json`, VersionId: "v2" }] },
+      ),
+    ).toBeUndefined();
+    expect(await hasUncollectedCheckpoint(db)).toBe(true);
+    expect(await admissionState(open)).toBe("stopped");
+    expect(await db.select().from(lostCheckpointNotices)).toHaveLength(0);
+  });
+
   test("an empty bucket starts: the checkpoints are given up, their sessions wait in recovery_required, and the loss is recorded", async () => {
     expect(await start({})).toEqual({ held: [open], unchanged: [closed] });
     expect(await hasUncollectedCheckpoint(db)).toBe(false);
@@ -890,10 +914,9 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
 
   test("the next start, and a second API that starts beside the first, find nothing left and record nothing", async () => {
     expect(await start({})).toBeUndefined();
-    expect(await forgetLostCheckpointsAtStart(db, new Date())).toEqual({
-      held: [],
-      unchanged: [],
-    });
+    expect(
+      await forgetLostCheckpointsAtStart(db, new Date(), async () => true),
+    ).toEqual({ held: [], unchanged: [] });
     expect(await db.select().from(lostCheckpointNotices)).toHaveLength(1);
   });
 

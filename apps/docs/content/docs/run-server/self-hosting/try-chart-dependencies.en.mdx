@@ -236,7 +236,7 @@ When the PostgreSQL Pod is replaced the database is emptied, and when the LocalS
 
 When only the bucket is empty, the api gives up the uncollected checkpoints the database still has at its next start, and starts. `installation.profile` and `checkpoints.objectsLost` from step 4 set that.
 
-- Sessions that are not closed move to `recovery_required`.
+- Sessions whose restore point was one of those checkpoints, closed ones aside, move to `recovery_required`.
 - One warning line in `kubectl -n werft logs deploy/werft-api`, starting with `The object store came back empty`, names the number of sessions and their ids.
 - `/readyz` still answers 200, and `detail.checkpoints_forgotten_on_boot` in its body carries that number of sessions.
 

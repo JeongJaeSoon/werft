@@ -228,7 +228,7 @@ PostgreSQL Pod가 바뀌면 DB가, LocalStack 컨테이너가 다시 시작하�
 
 bucket만 비면 api는 다음에 시작할 때 DB에 남은 미수거 checkpoint를 포기하고 뜬다. 4단계의 `installation.profile`과 `checkpoints.objectsLost`가 그렇게 정한다.
 
-- 닫히지 않은 세션은 `recovery_required`가 된다.
+- 잃은 checkpoint가 복원 지점이던 세션은 닫힌 것을 빼고 `recovery_required`가 된다.
 - `kubectl -n werft logs deploy/werft-api`에 `The object store came back empty`로 시작하는 경고 한 줄이 세션 수와 id를 남긴다.
 - `/readyz`는 200 그대로이고, 본문의 `detail.checkpoints_forgotten_on_boot`에 그 세션 수를 적는다.
 

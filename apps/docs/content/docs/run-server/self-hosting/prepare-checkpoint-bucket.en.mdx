@@ -77,7 +77,7 @@ If the database has uncollected checkpoint rows but the bucket has no object ver
 
 Only a test installation has an exception. With `CHECKPOINT_OBJECTS_LOST=forget` (`config.checkpoints.objectsLost: forget` in the chart) the API does not refuse to start in this state: it gives the lost checkpoints up and starts.
 
-- Sessions that are not closed move to `recovery_required` and wait for a recovery decision.
+- Sessions whose restore point was one of those checkpoints, closed ones aside, move to `recovery_required` and wait for a recovery decision.
 - One warning line in the API log names the number of sessions and their ids.
 - `/readyz` still answers 200, and `detail.checkpoints_forgotten_on_boot` in its body carries that number of sessions.
 

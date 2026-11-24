@@ -503,8 +503,14 @@ export async function checkpointObjectsAtStart(
   config: CheckpointStorageConfig,
   options: {
     readonly hasUncollectedCheckpoint: () => Promise<boolean>;
-    /** Runs only on the `forget` decision. */
-    readonly forget: () => Promise<LostCheckpoints>;
+    /**
+     * Runs only on the `forget` decision. It is handed the decision to make
+     * again once it holds its locks: an API beside this one may have
+     * committed a checkpoint since the bucket was read.
+     */
+    readonly forget: (
+      stillLost: () => Promise<boolean>,
+    ) => Promise<LostCheckpoints>;
     /** Tests substitute a fake; the product path never passes this. */
     readonly client?: S3ClientLike;
   },
@@ -514,8 +520,12 @@ export async function checkpointObjectsAtStart(
     const decision = await lostCheckpointObjectsDecision(config, client);
     if (decision === "present") return undefined;
     if (decision === "forget") {
-      const lost = await options.forget();
-      // Another start may have forgotten them between the two reads.
+      const lost = await options.forget(
+        async () =>
+          (await lostCheckpointObjectsDecision(config, client)) === "forget",
+      );
+      // Nothing when another start forgot them first, or the second look
+      // found an object.
       return lost.held.length + lost.unchanged.length > 0 ? lost : undefined;
     }
     throw new Error(

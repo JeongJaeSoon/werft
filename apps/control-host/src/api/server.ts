@@ -624,7 +624,8 @@ fillSessionParents(db).then(
 if (checkpointStorage !== "disabled") {
   const forgotten = await checkpointObjectsAtStart(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
-    forget: () => forgetLostCheckpointsAtStart(db, new Date()),
+    forget: (stillLost) =>
+      forgetLostCheckpointsAtStart(db, new Date(), stillLost),
   });
   if (forgotten) {
     logger.warn(

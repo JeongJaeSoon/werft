@@ -134,7 +134,7 @@ An upgrade that recreates the LocalStack container may lose objects. Postpone th
 LocalStack loses its in-memory objects whenever its container restarts (a host reboot, a Docker restart, a recreated container). The bucket is made again on every start, but empty. The API of this trial installation does not refuse to start in that state: it gives up the uncollected checkpoints the database still has and starts. After an unplanned reboot there is nothing to do, and `reset` is not the answer.
 
 - The owner, keys, settings and the session list stay.
-- Sessions that are not closed move to `recovery_required`. Decide whether each goes on without its earlier context (`start_fresh`) or is closed (`close`); see the recovery decision in the [API guide](/reference/api-guide).
+- Sessions whose restore point was one of those checkpoints, closed ones aside, move to `recovery_required`. Decide whether each goes on without its earlier context (`start_fresh`) or is closed (`close`); see the recovery decision in the [API guide](/reference/api-guide).
 - One warning line in the API log, starting with `The object store came back empty`, names the number of sessions and their ids.
 - `/readyz` still answers 200, and `detail.checkpoints_forgotten_on_boot` in its body carries that number of sessions.
 

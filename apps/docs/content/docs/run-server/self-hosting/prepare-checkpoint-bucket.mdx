@@ -69,7 +69,7 @@ DB에 수거되지 않은 checkpoint 행이 있는데 bucket에 object version�
 
 시험 설치에만 예외가 있다. `CHECKPOINT_OBJECTS_LOST=forget`(chart는 `config.checkpoints.objectsLost: forget`)이면 API는 이 상태에서 기동을 거부하지 않고, 잃은 checkpoint를 포기한 뒤 뜬다.
 
-- 닫히지 않은 세션은 `recovery_required`가 되어 복구 결정을 기다린다.
+- 잃은 checkpoint가 복원 지점이던 세션은 닫힌 것을 빼고 `recovery_required`가 되어 복구 결정을 기다린다.
 - API 로그에 경고 한 줄이 세션 수와 id를 남긴다.
 - `/readyz`는 200 그대로이고, 본문의 `detail.checkpoints_forgotten_on_boot`에 그 세션 수를 적는다.
 
