@@ -164,6 +164,19 @@ export interface SurfaceAppStore {
     actor: SurfaceAppActor;
     allowedBotUserIds: readonly string[];
   }): Promise<"saved" | "not_found" | "actor_inactive" | "outranked">;
+  /**
+   * The operator CLI's change to the bots the agent answers: one bot added
+   * to or taken off the list as it stands under the row's lock, so two
+   * runs at once do not undo each other. When the list changed, a
+   * `set_slack_allowed_bots` receipt with `by: operator_cli` is written in
+   * the same transaction. `too_many` when the list would pass `max`.
+   */
+  changeAllowedBotAsOperator(input: {
+    workspaceId: string;
+    agentId: string;
+    change: { action: "allow" | "disallow"; botUserId: string };
+    max: number;
+  }): Promise<"not_found" | "too_many" | { before: string[]; after: string[] }>;
   beginAgentApp(input: {
     workspaceId: string;
     agentId: string;

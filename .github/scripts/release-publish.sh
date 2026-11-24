@@ -9,6 +9,10 @@
 # content fails and nothing is overwritten, and a half-done earlier run (draft,
 # missing or unfinished asset) is completed. A *.json file is compared as JSON,
 # any other byte for byte. A lookup that fails is never taken for "absent".
+#
+# Publishing never takes the "Latest" mark: GitHub would give it to whichever
+# release was published last, a hotfix of an older line included. The mark is
+# release-latest.sh's.
 set -euo pipefail
 
 tag="$1"
@@ -115,7 +119,7 @@ for file in "$manifest" "$@"; do
 done
 
 if [ "$draft" = true ]; then
-  gh api -X PATCH "repos/${repo}/releases/${id}" -F draft=false >/dev/null
+  gh api -X PATCH "repos/${repo}/releases/${id}" -F draft=false -f make_latest=false >/dev/null
 fi
 test "$(gh api "repos/${repo}/releases/${id}" --jq .draft)" = false
 echo "${tag} is published with release-manifest.json${*:+ and $*}"

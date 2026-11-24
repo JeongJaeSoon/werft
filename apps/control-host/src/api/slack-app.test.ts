@@ -49,7 +49,69 @@ describe("slack-app command line", () => {
       slack_error: 7,
       events_url_unset: 8,
       key_mismatch: 9,
+      bot_refused: 10,
+      slack_not_installed: 11,
     });
+  });
+
+  test("parses the bot commands, lowercasing the agent and checking the bot id", () => {
+    expect(
+      parseSlackAppCommand([
+        "allow-bot",
+        "--agent",
+        AGENT.toUpperCase(),
+        "--bot",
+        "U0REVIEW",
+      ]),
+    ).toEqual({ command: "allow-bot", agentId: AGENT, botUserId: "U0REVIEW" });
+    expect(
+      parseSlackAppCommand([
+        "disallow-bot",
+        "--agent",
+        AGENT,
+        "--bot",
+        "U0REVIEW",
+      ]),
+    ).toEqual({
+      command: "disallow-bot",
+      agentId: AGENT,
+      botUserId: "U0REVIEW",
+    });
+    expect(parseSlackAppCommand(["list-bots", "--agent", AGENT])).toEqual({
+      command: "list-bots",
+      agentId: AGENT,
+    });
+  });
+
+  test("the bot commands refuse a missing, stray or malformed argument", () => {
+    for (const argv of [
+      ["allow-bot", "--agent", AGENT],
+      ["disallow-bot", "--bot", "U0REVIEW"],
+      ["list-bots", "--agent", AGENT, "--bot", "U0REVIEW"],
+      ["allow-bot", "--agent", "nope", "--bot", "U0REVIEW"],
+      ["allow-bot", "--agent", AGENT, "--bot", "not a bot id"],
+      [
+        "allow-bot",
+        "--agent",
+        AGENT,
+        "--bot",
+        "U0REVIEW",
+        "--workspace",
+        WORKSPACE,
+      ],
+      [
+        "create",
+        "--workspace",
+        WORKSPACE,
+        "--agent",
+        AGENT,
+        "--bot",
+        "U0REVIEW",
+      ],
+      ["finalize", "--agent", AGENT, "--bot", "U0REVIEW"],
+    ]) {
+      expect(() => parseSlackAppCommand(argv)).toThrow(SlackAppUsageError);
+    }
   });
 
   test("parses create with lowercased ids", () => {

@@ -157,6 +157,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   connect_workspace_mcp_server: "워크스페이스 MCP 서버 연결",
   disconnect_workspace_mcp_server: "워크스페이스 MCP 서버 연결 끊기",
   delete_conversation_records: "대화 기록 삭제",
+  set_slack_allowed_bots: "Slack 허용 봇 변경",
   set_slack_secret: "Slack 비밀값 설정",
   delete_slack_secret: "Slack 비밀값 삭제",
 };

@@ -467,12 +467,14 @@ jobs:
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
               - tests/local-sh.
+              - tests/pages-target.
               - tests/pages-workflow.
               - tests/preview-reap.
               - tests/preview-sync.
               - tests/verify-werft-response-capture.
               - tests/verify-werft-keycloak.
               - tests/release-auto.
+              - tests/release-versions.
               - tests/schema-subset.
               - tests/sdk-release.
               - tests/supply-chain.

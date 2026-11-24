@@ -67,6 +67,7 @@ const releaseJobs = [
   "chart-publish-release",
   "release-tag",
   "release-publish",
+  "latest-release",
   "pages-release",
 ];
 
@@ -104,6 +105,7 @@ describe("the release jobs of a main run", () => {
       "chart-publish-release",
       "release-tag",
       "release-publish",
+      "latest-release",
     ]) {
       expect(ancestors(name).has("release-approve")).toBe(true);
     }
@@ -175,9 +177,18 @@ describe("the release jobs of a main run", () => {
     expect(jobs["promote-release"]?.concurrency).toEqual(
       jobs.promote?.concurrency ?? {},
     );
-    expect(jobs["release-publish"]?.concurrency).toEqual(
-      jobs.release?.concurrency ?? {},
-    );
+    // The Release is its tag's alone: the same group name in both chains,
+    // each with the tag it releases.
+    expect(jobs.release?.concurrency).toEqual({
+      group: "images-release-${{ github.ref_name }}",
+      "cancel-in-progress": false,
+    });
+    expect(jobs["release-publish"]?.concurrency).toEqual({
+      group: "images-release-${{ needs.release-detect.outputs.tag }}",
+      "cancel-in-progress": false,
+    });
+    expect(needsOf("latest-release")).toContain("release-publish");
+    expect(jobs["latest-release"]?.steps).toEqual(jobs.latest?.steps ?? []);
     const promote = jobs["promote-release"]?.steps ?? [];
     expect(promote.flatMap((step) => step.with?.name ?? [])).toEqual([
       "staged-digests",

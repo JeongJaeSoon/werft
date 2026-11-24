@@ -137,8 +137,8 @@ test("a job that skips the bun cache restore installs nothing and saves nothing"
     }
   }
   // changes, forbidden-terms, forbidden-terms-threads, helm-chart,
-  // supply-chain, package-retention preview and dry-run
-  expect(skipping).toBe(7);
+  // supply-chain, package-retention preview and dry-run, pages target
+  expect(skipping).toBe(8);
 });
 
 test("unit parts isolate slow Slack fixtures and reject every empty part", async () => {

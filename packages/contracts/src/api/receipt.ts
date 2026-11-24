@@ -253,6 +253,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // An admin's delete of one channel conversation's records (engagements,
   // channel summary, buffer), from the operator CLI: counts only.
   "delete_conversation_records",
+  // The bots an agent answers in Slack changed; the receipt names the agent,
+  // the bot ids added and removed, and the list's size before and after.
+  "set_slack_allowed_bots",
 ] as const;
 /**
  * Receipts that settle on the observed absence of the execution they asked

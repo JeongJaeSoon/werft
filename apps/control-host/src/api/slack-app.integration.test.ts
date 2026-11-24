@@ -7,14 +7,18 @@ import {
 import { BOT_SCOPES, scopesForRole } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  agentIdentities,
   agentReleases,
   agents,
   agentVersions,
+  createPostgresSecretStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackSettingsStore,
   memberships,
+  receipts,
   secretValues,
   slackApps,
+  slackInstallations,
   users,
   workspaces,
 } from "@werft-ai/db";
@@ -404,6 +408,237 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     expect((await run(["finalize", "--agent", bare])).code).toBe(
       SLACK_APP_EXIT.agent_not_found,
     );
+  });
+
+  describe("the allowed bots", () => {
+    const TEAM = "T0CLI";
+    const OWN = "U0OWNBOT";
+    const WERFT = "U0WERFTBOT";
+
+    async function installedAgent() {
+      const workspaceId = await workspaceWithToken();
+      const agentId = await agent(workspaceId);
+      const made = JSON.parse(
+        (await run(create(workspaceId, agentId))).out[0] ?? "{}",
+      );
+      const install = async (id: string, appId: string, botUserId: string) => {
+        await db.insert(slackInstallations).values({
+          id,
+          workspaceId,
+          appId,
+          teamId: TEAM,
+          botUserId,
+          status: "verified",
+          verifiedAt: new Date(),
+        });
+      };
+      const installationId = randomUUID();
+      await install(installationId, made.app_id, OWN);
+      await install(randomUUID(), `AOTHER${randomUUID().slice(0, 8)}`, WERFT);
+      await db.insert(agentIdentities).values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        provider: "slack_bot",
+        installationId,
+        externalPrincipalId: OWN,
+        credentialRef: `slack_app:${installationId}/slack_bot_token`,
+        status: "active",
+      });
+      const token = `xoxb-${randomUUID()}`;
+      await createPostgresSecretStore(db, key).put(
+        {
+          workspaceId,
+          owner: { kind: "slack_app", id: made.slack_app_id },
+          purpose: "slack_bot_token",
+        },
+        token,
+      );
+      slack.apps.get(made.app_id)?.botTokens.push(token);
+      slack.users.set("U0REVIEW", { isBot: true, name: "reviewer" });
+      slack.users.set("U0TRIAGE", { isBot: true, name: "triage" });
+      slack.users.set(OWN, { isBot: true, name: "own" });
+      slack.users.set(WERFT, { isBot: true, name: "other agent" });
+      slack.users.set("U0FOREIGN", {
+        isBot: true,
+        teamId: "T0OTHER",
+        name: "foreign",
+      });
+      return { workspaceId, agentId };
+    }
+
+    const receiptsOf = (workspaceId: string) =>
+      db
+        .select()
+        .from(receipts)
+        .where(eq(receipts.ownerId, workspaceId))
+        .then((rows) =>
+          rows.filter((row) => row.operation === "set_slack_allowed_bots"),
+        );
+
+    test("allow, list and disallow go through the console's check and leave a receipt by operator_cli, once per change", async () => {
+      const { workspaceId, agentId } = await installedAgent();
+      const bots = (verb: string, bot?: string) => [
+        verb,
+        "--agent",
+        agentId,
+        ...(bot === undefined ? [] : ["--bot", bot]),
+      ];
+
+      const allowed = await run(bots("allow-bot", "U0REVIEW"));
+      expect(allowed).toMatchObject({ code: SLACK_APP_EXIT.created, err: [] });
+      expect(JSON.parse(allowed.out[0] ?? "{}")).toEqual({
+        outcome: "changed",
+        agent_id: agentId,
+        bot_user_id: "U0REVIEW",
+        added: ["U0REVIEW"],
+        removed: [],
+        allowed_user_ids: ["U0REVIEW"],
+      });
+      const [receipt] = await receiptsOf(workspaceId);
+      expect(receipt).toMatchObject({
+        status: "succeeded",
+        targetRef: {
+          resource: { kind: "agent", id: agentId },
+          workspace_id: workspaceId,
+        },
+        result: {
+          agent_id: agentId,
+          added: ["U0REVIEW"],
+          removed: [],
+          count_before: 0,
+          count_after: 1,
+          by: "operator_cli",
+        },
+      });
+
+      // Allowing a bot already allowed changes and records nothing.
+      const again = await run(bots("allow-bot", "U0REVIEW"));
+      expect(JSON.parse(again.out[0] ?? "{}")).toMatchObject({
+        outcome: "unchanged",
+        added: [],
+        removed: [],
+        allowed_user_ids: ["U0REVIEW"],
+      });
+      expect(await receiptsOf(workspaceId)).toHaveLength(1);
+
+      await run(bots("allow-bot", "U0TRIAGE"));
+      const listed = await run(bots("list-bots"));
+      expect(listed.code).toBe(SLACK_APP_EXIT.created);
+      expect(JSON.parse(listed.out[0] ?? "{}")).toEqual({
+        agent_id: agentId,
+        truncated: false,
+        items: [
+          {
+            user_id: "U0REVIEW",
+            name: "reviewer",
+            state: "active",
+            allowed: true,
+          },
+          {
+            user_id: "U0TRIAGE",
+            name: "triage",
+            state: "active",
+            allowed: true,
+          },
+        ],
+      });
+
+      // Disallow reads nothing from Slack, so it works with Slack down.
+      const down = await run(
+        bots("disallow-bot", "U0REVIEW"),
+        "http://127.0.0.1:9/api",
+      );
+      expect(JSON.parse(down.out[0] ?? "{}")).toMatchObject({
+        outcome: "changed",
+        added: [],
+        removed: ["U0REVIEW"],
+        allowed_user_ids: ["U0TRIAGE"],
+      });
+      const none = await run(bots("disallow-bot", "U0REVIEW"));
+      expect(JSON.parse(none.out[0] ?? "{}").outcome).toBe("unchanged");
+      const written = await receiptsOf(workspaceId);
+      expect(written).toHaveLength(3);
+      expect(written.map((row) => row.result)).toContainEqual(
+        expect.objectContaining({
+          removed: ["U0REVIEW"],
+          count_before: 2,
+          count_after: 1,
+          by: "operator_cli",
+        }),
+      );
+      const [row] = await db
+        .select({ allowed: agents.slackAllowedBotUserIds })
+        .from(agents)
+        .where(eq(agents.id, agentId));
+      expect(row?.allowed).toEqual(["U0TRIAGE"]);
+    });
+
+    test("two runs at once keep both changes", async () => {
+      const { workspaceId, agentId } = await installedAgent();
+      const both = await Promise.all([
+        run(["allow-bot", "--agent", agentId, "--bot", "U0REVIEW"]),
+        run(["allow-bot", "--agent", agentId, "--bot", "U0TRIAGE"]),
+      ]);
+      expect(both.map((one) => one.code)).toEqual([0, 0]);
+      const [row] = await db
+        .select({ allowed: agents.slackAllowedBotUserIds })
+        .from(agents)
+        .where(eq(agents.id, agentId));
+      expect([...(row?.allowed ?? [])].sort()).toEqual([
+        "U0REVIEW",
+        "U0TRIAGE",
+      ]);
+      expect(await receiptsOf(workspaceId)).toHaveLength(2);
+    });
+
+    test("allow-bot names the reason a bot is refused, with exit 10 and nothing saved or recorded", async () => {
+      const { workspaceId, agentId } = await installedAgent();
+      for (const [bot, reason] of [
+        [OWN, "slack_bot_own"],
+        [WERFT, "slack_bot_werft_agent"],
+        ["U0FOREIGN", "slack_bot_other_team"],
+        ["U0NOBODY", "slack_bot_unknown"],
+      ] as const) {
+        const refused = await run([
+          "allow-bot",
+          "--agent",
+          agentId,
+          "--bot",
+          bot,
+        ]);
+        expect(refused.code).toBe(SLACK_APP_EXIT.bot_refused);
+        expect(refused.out).toEqual([]);
+        expect(refused.err.join("\n")).toContain(
+          `"reason_code":"${reason}","user_ids":["${bot}"]`,
+        );
+      }
+      expect(await receiptsOf(workspaceId)).toEqual([]);
+      const [row] = await db
+        .select({ allowed: agents.slackAllowedBotUserIds })
+        .from(agents)
+        .where(eq(agents.id, agentId));
+      expect(row?.allowed).toEqual([]);
+    });
+
+    test("an agent with no app is 4 and one whose app is not installed is 11", async () => {
+      const workspaceId = await workspaceWithToken();
+      const bare = await agent(workspaceId);
+      expect((await run(["list-bots", "--agent", bare])).code).toBe(
+        SLACK_APP_EXIT.agent_not_found,
+      );
+      const made = await agent(workspaceId);
+      await run(create(workspaceId, made));
+      const open = await run([
+        "allow-bot",
+        "--agent",
+        made,
+        "--bot",
+        "U0REVIEW",
+      ]);
+      expect(open.code).toBe(SLACK_APP_EXIT.slack_not_installed);
+      expect(open.err.join("\n")).toContain("SLACK_NOT_INSTALLED");
+    });
   });
 
   test("nothing printed carries a token or an app secret", () => {
