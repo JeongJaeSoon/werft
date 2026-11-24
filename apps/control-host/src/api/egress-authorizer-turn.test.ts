@@ -58,13 +58,14 @@ let teamId: string;
 let agentId: string;
 let conversationId: string;
 let connectionId: string;
+let catalog: ReturnType<typeof testCatalog>;
 
 beforeEach(async () => {
   client = await migratedPGlite();
   // The agent, its team and its topics alone; their other rows are not under test.
   await client.exec("SET session_replication_role = replica");
   db = drizzle(client, { schema });
-  const catalog = testCatalog({
+  catalog = testCatalog({
     provider: {
       kind: "anthropic",
       endpoint: "https://api.anthropic.invalid",
@@ -466,6 +467,22 @@ describe("a conversation turn's provider calls", () => {
     );
     expect(await callsOf(turn.turnId)).toHaveLength(1);
     expect(await callsOf(late.turnId)).toEqual([]);
+  });
+
+  test("a model gone from the connection since the turn began: no new call on it, and no regrant", async () => {
+    const turn = await operatorTurn();
+    const call = await granted(turn.token);
+    const connection = catalog.connections[connectionId];
+    if (!connection) throw new Error("the test catalog has no connection");
+    (catalog.connections as Record<string, typeof connection>)[connectionId] = {
+      ...connection,
+      models: [],
+    };
+    expect((await providerAsk(turn.token, crypto.randomUUID())).status).toBe(
+      409,
+    );
+    expect((await providerAsk(turn.token, call.exchange)).status).toBe(409);
+    expect(await callsOf(turn.turnId)).toHaveLength(1);
   });
 
   test("the call limits hold at the proxy's ask: one call at a time on a topic, four at a time for a person", async () => {

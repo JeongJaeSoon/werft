@@ -1616,7 +1616,13 @@ export function createWorkerGateway(deps: {
       callId: conversationCallIdSchema.parse(randomUUID()),
       reserveFor(permit) {
         const connection = connectionOf(catalog, permit.connectionId);
-        if (!connection) return null;
+        // The permit outlives the turn's start: the model may since be gone.
+        if (
+          !connection ||
+          !connectionModels(connection).includes(permit.model)
+        ) {
+          return null;
+        }
         // Before anything is held: a path the connection does not serve.
         requireProviderPath(connection.provider.kind, path);
         return {
@@ -1635,7 +1641,9 @@ export function createWorkerGateway(deps: {
         return result;
     }
     const connection = connectionOf(catalog, result.connectionId);
-    if (!connection) moved("call's connection");
+    if (!connection || !connectionModels(connection).includes(result.model)) {
+      return moved("call's connection");
+    }
     requireProviderPath(connection.provider.kind, path);
     return {
       conversation_call_id: result.callId,
