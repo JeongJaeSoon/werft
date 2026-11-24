@@ -14,6 +14,7 @@ import {
 } from "./config.ts";
 import { ConversationHost } from "./conversation-host.ts";
 import { TopicDirectories } from "./topic-directories.ts";
+import { TopicSessions } from "./topic-sessions.ts";
 import { createConversationTurnRunner } from "./turn-runner.ts";
 import { HttpConversationTurnSource } from "./turn-source.ts";
 
@@ -35,7 +36,7 @@ export async function main(
 ): Promise<void> {
   const config = conversationRuntimeConfigFromEnv(environment);
   const logger = createConsoleLogger({ level: environment.LOG_LEVEL });
-  const topics = new TopicDirectories(config.topicsDir);
+  const sessions = new TopicSessions(new TopicDirectories(config.topicsDir));
   const host = new ConversationHost({
     source: new HttpConversationTurnSource({
       baseUrl: config.gatewayUrl,
@@ -47,9 +48,9 @@ export async function main(
     runner: createConversationTurnRunner({
       runtime: imageRuntime(),
       egressCredentialUrl: config.egressCredentialUrl,
-      topics,
+      sessions,
     }),
-    topics,
+    sessions,
     logger,
     statusFile: config.statusFile,
   });

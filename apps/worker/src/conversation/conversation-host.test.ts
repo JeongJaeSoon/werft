@@ -10,7 +10,9 @@ import {
 import { createConsoleLogger } from "../console-logger.ts";
 import { ConversationHost } from "./conversation-host.ts";
 import { HEALTH_STALE_MS, healthy } from "./main.ts";
+import type { AgentRun } from "@werft-ai/runtime-core";
 import { TopicDirectories } from "./topic-directories.ts";
+import { TopicSessions } from "./topic-sessions.ts";
 import type { ConversationTurnRunner } from "./turn-runner.ts";
 import type { ConversationTurnSource } from "./turn-source.ts";
 
@@ -45,25 +47,42 @@ function turnOf(leaseMs = 150_000): ConversationRuntimeTurn {
     },
     call: { id: crypto.randomUUID(), max_tokens: 1_024 },
     input: { id: crypto.randomUUID(), text: INPUT },
+    fresh_input: { id: crypto.randomUUID(), text: INPUT },
   });
 }
 
 type Step = ConversationRuntimeTurn | null | Error;
+
+/** An engine that is started and closed, and plays nothing. */
+const idleRun = () =>
+  ({
+    async *events() {},
+    finishInput() {},
+    async close() {},
+  }) as unknown as AgentRun;
 
 /** A host over a scripted source: it stops itself once the script is spent. */
 function harness(options: {
   script: Step[];
   run?: ConversationTurnRunner["run"];
   report?: (attempt: number) => "recorded" | "refused" | Error;
+  /** Called at each poll, before the script's next step. */
+  onPoll?: (poll: number) => void;
 }) {
   const lines: string[] = [];
   const reports: Array<{ turnId: string; result: ConversationTurnResult }> = [];
   const ran: string[] = [];
-  const topics = new TopicDirectories(root);
+  let clock = 0;
+  const sessions = new TopicSessions(new TopicDirectories(root), {
+    now: () => clock,
+  });
   let attempts = 0;
+  let polls = 0;
   let host: ConversationHost | undefined;
   const source: ConversationTurnSource = {
     async next() {
+      polls += 1;
+      options.onPoll?.(polls);
       const step = options.script.shift();
       if (step === undefined) {
         host?.stop("script spent");
@@ -83,8 +102,8 @@ function harness(options: {
   const runner: ConversationTurnRunner = {
     async run(turn, stop) {
       ran.push(turn.turn_id);
-      // What a real turn leaves: files in its topic's directory.
-      await topics.open(turn.scope.topic_id);
+      // What a real turn leaves: its topic's session, and its directory.
+      await sessions.open(turn.scope.topic_id, idleRun);
       return options.run
         ? options.run(turn, stop)
         : { outcome: "completed", text: ANSWER };
@@ -93,7 +112,7 @@ function harness(options: {
   host = new ConversationHost({
     source,
     runner,
-    topics,
+    sessions,
     logger: createConsoleLogger({ write: (line) => lines.push(line) }),
     statusFile: join(root, "..", `status-${crypto.randomUUID()}.json`),
     retryMs: 1,
@@ -103,7 +122,10 @@ function harness(options: {
     lines,
     reports,
     ran,
-    topics,
+    sessions,
+    tick: (ms: number) => {
+      clock += ms;
+    },
     events: () => lines.map((line) => JSON.parse(line).event),
   };
 }
@@ -123,7 +145,8 @@ describe("ConversationHost", () => {
         result: { outcome: "completed", text: ANSWER },
       },
     ]);
-    // A topic lives for its turn: nothing of either is left.
+    // Stopping drops every session: nothing of either topic is left.
+    expect(h.sessions.size).toBe(0);
     expect(await readdir(root)).toEqual([]);
     expect(h.events()).toEqual([
       "conversation_runtime.started",
@@ -136,6 +159,28 @@ describe("ConversationHost", () => {
       "conversation_runtime.stopping",
       "conversation_runtime.stopped",
     ]);
+  });
+
+  test("between polls, drops a session whose topic has been idle for its lifetime", async () => {
+    const kept: number[] = [];
+    let h: ReturnType<typeof harness> | undefined;
+    // The sweep runs before each poll: after the turn, the clock moves to 9
+    // minutes idle, then to 10.
+    h = harness({
+      script: [turnOf(), null, null],
+      onPoll: (poll) => {
+        if (poll === 2) h?.tick(9 * 60_000);
+        if (poll === 3) {
+          kept.push(h?.sessions.size ?? -1);
+          h?.tick(60_000);
+        }
+        if (poll === 4) kept.push(h?.sessions.size ?? -1);
+      },
+    });
+
+    await h.host.run();
+
+    expect(kept).toEqual([1, 0]);
   });
 
   test("logs a turn by its ids and outcome, never its input, its answer or its token", async () => {
@@ -268,7 +313,7 @@ describe("ConversationHost", () => {
         },
       },
       runner: { run: async () => ({ outcome: "completed", text: "" }) },
-      topics: new TopicDirectories(topicsRoot),
+      sessions: new TopicSessions(new TopicDirectories(topicsRoot)),
       logger: createConsoleLogger({ write: (line) => lines.push(line) }),
       statusFile,
     });

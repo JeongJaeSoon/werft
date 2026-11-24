@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CONVERSATION_TOPIC_SESSION_IDLE_MS,
   type ConversationRuntimeTurn,
   conversationRuntimeTurnSchema,
 } from "@werft-ai/contracts";
@@ -27,6 +28,7 @@ import {
 } from "../apps/egress-proxy/src/credential.ts";
 import { createProxyLogger } from "../apps/egress-proxy/src/logger.ts";
 import { TopicDirectories } from "../apps/worker/src/conversation/topic-directories.ts";
+import { TopicSessions } from "../apps/worker/src/conversation/topic-sessions.ts";
 import { createConversationTurnRunner } from "../apps/worker/src/conversation/turn-runner.ts";
 import { until } from "./until.ts";
 
@@ -138,16 +140,22 @@ async function stack(replies: ReplyResolver) {
   const [runtime] = installedRuntimes;
   if (runtime === undefined) throw new Error("no runtime installed");
   const topics = new TopicDirectories(root);
+  let clock = 0;
+  const sessions = new TopicSessions(topics, { now: () => clock });
   const runner = createConversationTurnRunner({
     runtime,
     egressCredentialUrl: `http://127.0.0.1:${proxy.port}`,
-    topics,
+    sessions,
   });
-  /** A turn with a fresh one-call token the authorizer grants, unless `known` is false. */
+  /**
+   * A turn with a fresh one-call token the authorizer grants, unless `known`
+   * is false. A new session of its topic starts from `fresh`, else `text`.
+   */
   const turn = (
     topicId: string,
     text: string,
     known = true,
+    fresh = text,
   ): ConversationRuntimeTurn & { token: string } => {
     const token = ["wec", crypto.randomUUID()].join("_");
     const callId = crypto.randomUUID();
@@ -171,12 +179,29 @@ async function stack(replies: ReplyResolver) {
         },
         call: { id: callId, max_tokens: MAX_TOKENS },
         input: { id: crypto.randomUUID(), text },
+        fresh_input: { id: crypto.randomUUID(), text: fresh },
       }),
       token,
     };
   };
   const live = new AbortController().signal;
-  return { root, provider, topics, runner, turn, asked, reported, live };
+  return {
+    root,
+    provider,
+    topics,
+    sessions,
+    runtime,
+    egressCredentialUrl: `http://127.0.0.1:${proxy.port}`,
+    tick: (ms: number) => {
+      clock += ms;
+    },
+    runner,
+    turn,
+    grants,
+    asked,
+    reported,
+    live,
+  };
 }
 
 /** Every regular file under `directory`, with its text. */
@@ -190,6 +215,24 @@ async function filesUnder(directory: string): Promise<Map<string, string>> {
   }
   return found;
 }
+
+/** The text each user message of the request ends with: what each turn sent. */
+const userTexts = (request: FakeAnthropicServer["requests"][number]) =>
+  (request.body.messages as { role: unknown; content: unknown }[])
+    .filter((message) => message.role === "user")
+    .map((message) => {
+      const content = message.content;
+      if (typeof content === "string") return content;
+      return (content as { type: unknown; text?: unknown }[])
+        .flatMap((block) =>
+          block.type === "text" &&
+          typeof block.text === "string" &&
+          !block.text.startsWith("<system-reminder>")
+            ? [block.text]
+            : [],
+        )
+        .join("");
+    });
 
 const requestText = (request: FakeAnthropicServer["requests"][number]) =>
   JSON.stringify(request.body);
@@ -275,6 +318,87 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     expect(await stat(probe()).catch(() => null)).toBeNull();
   }, 90_000);
 
+  test("a topic's turn within its lifetime goes on in its engine; past it, or dropped, a new session starts from the assembled context alone", async () => {
+    const s = await stack(() => textReply("noted"));
+    const topic = crypto.randomUUID();
+    const marker = `marker-${crypto.randomUUID()}`;
+    const first = s.turn(
+      topic,
+      `remember ${marker}`,
+      true,
+      `assembled ${marker}`,
+    );
+    expect(await s.runner.run(first, s.live)).toEqual({
+      outcome: "completed",
+      text: "noted",
+    });
+    // Until the engine reads each turn's permit on each request (94S-2115),
+    // the session's first token stands in for the next turn's.
+    const regrant = () => {
+      const grant = s.grants.get(first.token);
+      if (grant !== undefined) grant.exchange = null;
+    };
+
+    regrant();
+    s.tick(CONVERSATION_TOPIC_SESSION_IDLE_MS - 1);
+    const kept = s.turn(topic, "what did I say?", true, "assembled again");
+    expect(
+      (await s.runner.run({ ...kept, topic_session: "keep" }, s.live)).outcome,
+    ).toBe("completed");
+
+    s.tick(CONVERSATION_TOPIC_SESSION_IDLE_MS);
+    const late = s.turn(
+      topic,
+      "and now?",
+      true,
+      "assembled after the idle time",
+    );
+    expect(
+      (await s.runner.run({ ...late, topic_session: "keep" }, s.live)).outcome,
+    ).toBe("completed");
+
+    const dropped = s.turn(topic, "once more", true, "assembled after a drop");
+    expect(
+      (await s.runner.run({ ...dropped, topic_session: "drop" }, s.live))
+        .outcome,
+    ).toBe("completed");
+
+    const [one, two, three, four] = s.provider.requests.map(userTexts);
+    // A new session's first request: the assembled context, and nothing before it.
+    expect(one).toEqual([`assembled ${marker}`]);
+    // The kept turn: the first exchange, then the turn's own input.
+    expect(two).toEqual([`assembled ${marker}`, "what did I say?"]);
+    expect(requestText(s.provider.requests[1] as never)).toContain("noted");
+    expect(three).toEqual(["assembled after the idle time"]);
+    expect(four).toEqual(["assembled after a drop"]);
+    expect(requestText(s.provider.requests[2] as never)).not.toContain(marker);
+  }, 120_000);
+
+  test("a restarted runtime holds no session: its topics start anew, and run", async () => {
+    const s = await stack(() => textReply("noted"));
+    const topic = crypto.randomUUID();
+    await s.runner.run(s.turn(topic, "first"), s.live);
+    expect((await stat(join(s.root, topic))).isDirectory()).toBe(true);
+
+    // What a new process does first.
+    const restarted = new TopicSessions(s.topics);
+    await restarted.reset();
+    expect(await stat(join(s.root, topic)).catch(() => null)).toBeNull();
+    const runner = createConversationTurnRunner({
+      runtime: s.runtime,
+      egressCredentialUrl: s.egressCredentialUrl,
+      sessions: restarted,
+    });
+    const next = s.turn(topic, "second", true, "assembled for the restart");
+    expect(
+      await runner.run({ ...next, topic_session: "keep" }, s.live),
+    ).toEqual({ outcome: "completed", text: "noted" });
+    expect(userTexts(s.provider.requests[1] as never)).toEqual([
+      "assembled for the restart",
+    ]);
+    await restarted.dropAll();
+  }, 90_000);
+
   test("keeps each topic's files and session to its own directory, and removes them with the topic", async () => {
     const s = await stack(() => textReply("noted"));
     const [topicA, topicB] = [crypto.randomUUID(), crypto.randomUUID()];
@@ -321,7 +445,7 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     }
     expect(await readdir(join(s.root, topicA, "work"))).toEqual([]);
 
-    await s.topics.drop(topicA as never);
+    await s.sessions.drop(topicA as never);
     expect(await stat(join(s.root, topicA)).catch(() => null)).toBeNull();
     // Dropping one topic leaves the other.
     expect((await stat(join(s.root, topicB))).isDirectory()).toBe(true);

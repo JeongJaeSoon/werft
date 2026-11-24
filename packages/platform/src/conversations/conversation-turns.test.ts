@@ -41,6 +41,7 @@ function queued(): QueuedConversationTurn {
       max_tokens: 1_024,
     },
     input: { id: crypto.randomUUID(), text: "hello" },
+    fresh_input: { id: crypto.randomUUID(), text: "hello" },
   };
 }
 

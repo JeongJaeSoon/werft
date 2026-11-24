@@ -15,6 +15,7 @@ import type {
 } from "@werft-ai/runtime-core";
 import { imageRuntime } from "../composition.ts";
 import { TopicDirectories } from "./topic-directories.ts";
+import { TopicSessions } from "./topic-sessions.ts";
 import {
   CONVERSATION_BUILTIN_TOOLS,
   createConversationTurnRunner,
@@ -49,6 +50,7 @@ const turn: ConversationRuntimeTurn = conversationRuntimeTurnSchema.parse({
   },
   call: { id: crypto.randomUUID(), max_tokens: 2_048 },
   input: { id: crypto.randomUUID(), text: "hello" },
+  fresh_input: { id: crypto.randomUUID(), text: "assembled: hello" },
 });
 
 const ended = (
@@ -137,7 +139,7 @@ const runnerOf = (module: RuntimeModule, limitMs?: number) =>
   createConversationTurnRunner({
     runtime: module,
     egressCredentialUrl: "http://egress-proxy:3129/",
-    topics: new TopicDirectories(root),
+    sessions: new TopicSessions(new TopicDirectories(root)),
     ...(limitMs === undefined ? {} : { limitMs }),
   });
 const live = () => new AbortController().signal;
@@ -168,6 +170,7 @@ describe("createConversationTurnRunner", () => {
       disallowedTools: BUILTIN,
       maxTurns: 1,
       maxOutputTokens: 2_048,
+      compactionOff: true,
     });
     expect(CONVERSATION_BUILTIN_TOOLS).toEqual([]);
     expect(seen.start?.bindings.provider).toEqual({
@@ -186,8 +189,11 @@ describe("createConversationTurnRunner", () => {
       mcpServers: [],
     });
     expect(seen.start?.bindings.transcript).toBeUndefined();
-    expect(seen.sent).toEqual([{ message: "hello", uuid: turn.input.id }]);
-    expect(seen.closed).toBe(1);
+    // A new session starts from the assembled context, and outlives its turn.
+    expect(seen.sent).toEqual([
+      { message: "assembled: hello", uuid: turn.fresh_input.id },
+    ]);
+    expect(seen.closed).toBe(0);
   });
 
   test("a turn the engine ends in error fails with the engine's word for it", async () => {
