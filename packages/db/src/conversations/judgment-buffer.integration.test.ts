@@ -316,27 +316,42 @@ integration("judgment buffer races", () => {
     expect(waited).toBe(true);
   });
 
-  test("many holds at once leave no more than the limit", async () => {
+  test("many holds at once, each holding its topic as the inbox does, leave no more than the limit and no empty topic", async () => {
     const place = await heardChannel();
     const topics = await Promise.all(
       [1, 2, 3, 4, 5, 6, 7, 8].map(async (n) => ({
         channelId: place.channelId,
         topicId: await topicOf(agentId, place.channelId, `400.00000${n}`),
-        ts: tsOf(n),
+        ts: tsOf(10 + n),
       })),
     );
+    // An older post in each topic, so a hold's overflow removes the last
+    // row of topics other holds have locked.
+    for (const [n, topic] of topics.entries()) {
+      await db.transaction((tx) => hold(tx, topic, tsOf(n + 1), { limit: 8 }));
+    }
     const outcomes = await Promise.all(
       topics.map((topic) =>
-        db.transaction((tx) => hold(tx, topic, topic.ts, { limit: 3 })),
+        db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT id FROM conversation_topics WHERE id = ${topic.topicId}::uuid FOR UPDATE`,
+          );
+          return hold(tx, topic, topic.ts, { limit: 3 });
+        }),
       ),
     );
     expect(outcomes.every((held) => held.outcome === "held")).toBe(true);
-    expect(outcomes.reduce((sum, held) => sum + held.dropped, 0)).toBe(5);
+    expect(outcomes.reduce((sum, held) => sum + held.dropped, 0)).toBe(13);
     expect(await heldTsIn(place.channelId)).toEqual([
-      tsOf(6),
-      tsOf(7),
-      tsOf(8),
+      tsOf(16),
+      tsOf(17),
+      tsOf(18),
     ]);
-    expect(await droppedIn(place.channelId)).toBe(5);
+    expect(await droppedIn(place.channelId)).toBe(13);
+    const { rows: empty } = await pool.query(
+      "SELECT t.id FROM conversation_topics t WHERE t.slack_channel_id = $1 AND NOT EXISTS (SELECT 1 FROM conversation_inputs i WHERE i.topic_id = t.id)",
+      [place.channelId],
+    );
+    expect(empty).toEqual([]);
   });
 });
