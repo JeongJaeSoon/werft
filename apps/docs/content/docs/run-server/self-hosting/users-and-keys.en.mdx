@@ -23,7 +23,46 @@ Complete [installation](/run-server/self-hosting) and [access configuration](/ru
 
 ### 1. Create the first owner
 
-The operator gets a one-time setup link on the installation: `scripts/test-ops.sh setup-link` on a test-ops single server, `kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts` on Kubernetes, and `docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts` on other compose setups. The command prints the link once on stdout, only while no live owner exists, and never writes it to a log or a file. With `CONSOLE_ORIGIN` set it prints a full URL; otherwise it prints the `/bootstrap#setup=…` path, which you append to the console's address. Open the link in a browser and enter the owner details and workspace name. The link stops working once used and expires after 24 hours. Running the command again makes the old link stop working and prints a new one. While an owner exists, the command makes no link and exits 1. Sign in at `/login`.
+The operator gets the first owner's one-time setup link as a file, from a command on the installation. The command is in the api image and takes only the email address of the person who becomes the owner. No password goes in a command argument or an environment variable: whoever opens the link sets it. The link never appears on screen; the screen shows only the file path and the expiry.
+
+On a test-ops single server, write it straight to a new file on the host. `DEPLOYMENT_DIR` is the per-installation directory set in [single-server installation](/run-server/self-hosting/single-server); a path inside the bundle directory is refused.
+
+```bash
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
+```
+
+On other compose setups, make the file inside the api container, copy it to the host, and delete the container's copy.
+
+```bash
+docker compose --profile apps exec -T api \
+  bun run apps/control-host/src/main.ts admin bootstrap-owner \
+  --email <owner-email> --out /tmp/owner-link.json
+(umask 077 && set -C && docker compose --profile apps exec -T api cat /tmp/owner-link.json >owner-link.json)
+docker compose --profile apps exec -T api rm -f /tmp/owner-link.json
+```
+
+On Kubernetes, first follow [Check the installation's context, namespace and fullname](/run-server/self-hosting/kubernetes#준비물). `werft` below is that example installation name. Pick one Pod first so all three commands reach the same Pod.
+
+```bash
+POD="$(kubectl -n werft get pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api -o name | head -n 1)"
+kubectl -n werft exec "$POD" -c api -- \
+  bun run apps/control-host/src/main.ts admin bootstrap-owner \
+  --email <owner-email> --out /tmp/owner-link.json
+(umask 077 && set -C && kubectl -n werft exec "$POD" -c api -- cat /tmp/owner-link.json >owner-link.json)
+kubectl -n werft exec "$POD" -c api -- rm -f /tmp/owner-link.json
+```
+
+The file is created new with mode 0600. If a file of that name exists, the command refuses instead of overwriting it. The file holds, as JSON, the same fields as the [member invite](/members#api-응답) response.
+
+| Field | Contents |
+| --- | --- |
+| `accept_path` | The path of the setup screen, of the form `/bootstrap#setup=<setup_token>` |
+| `accept_url` | `accept_path` appended to `CONSOLE_ORIGIN`. `null` when `CONSOLE_ORIGIN` is not set |
+| `expires_at` | When the link expires |
+
+With a browser, open `accept_url` (or `accept_path` appended directly to the console's origin) and enter the owner details and workspace name. Without a browser, take the value after `#setup=` as `setup_token` and send it with the owner details to `POST /v1/auth/bootstrap`. The request body is in the API reference the installation serves (`/docs`). Either way, the email address must be the one given to the command. Any other address is refused with `403`, and the link stays usable. Then sign in at `/login` and delete the link file.
+
+The link stops working once used and expires after 24 hours. Running the command again makes the old link stop working and issues a new one. While an owner exists, the command makes neither a link nor a file and exits 1. Each run leaves one `setup_link_issued` line in the api container's log (`docker compose logs api`, `kubectl logs`). The line holds only the link id, the email address and the expiry, never the token or the link. When the link creates the first workspace, that workspace's first receipt (`bootstrap_owner`) records the link's id and when it was made.
 
 <a id="2-사용자별-key-발급" />
 ### 2. Issue per-user keys

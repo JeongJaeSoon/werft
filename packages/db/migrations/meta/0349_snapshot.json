@@ -1,5 +1,5 @@
 {
-  "id": "73aa1e57-ed6b-4fe9-a64f-4c2d9988d268",
+  "id": "d4afda37-f751-4f7f-8e75-9197b569eac1",
   "prevId": "90d4da7f-5606-4c3d-98bf-342da1b063d8",
   "version": "7",
   "dialect": "postgresql",
@@ -1933,12 +1933,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "instructions_snapshot": {
-          "name": "instructions_snapshot",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_by": {
           "name": "created_by",
@@ -16793,6 +16787,25 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {},
