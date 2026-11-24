@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **LocalStack 시험 설치의 api가 재기동으로 빈 bucket에서 기동을 거부하지 않고, 잃은 checkpoint를 포기한 뒤 뜬다. migration `0347_lost_checkpoint_notices`가 새 빈 표 `lost_checkpoint_notices`를 만든다**(JeongJaeSoon/werft#2130). 운영 설치는 그대로다. 기본값 `CHECKPOINT_OBJECTS_LOST=refuse`는 지금처럼 기동을 거부한다.
+  - 새 설정 둘이 생긴다. `INSTALLATION_PROFILE`(`production` 기본, `test`)과 `CHECKPOINT_OBJECTS_LOST`(`refuse` 기본, `forget`). chart는 `config.installation.profile`과 `config.checkpoints.objectsLost`다. 두 이름은 `extraEnv`나 `config.limits`로 넣으면 render가 멈춘다.
+  - `forget`은 profile이 `test`이고 `AWS_ENDPOINT_URL`의 host 첫 마디가 `localstack`일 때만 받는다. 그 밖의 설치에서 켜면 api가 기동하지 않는다.
+  - Compose의 LocalStack layer(`TEST_OPS_OBJECT_STORE=localstack`)는 두 값을 스스로 준다. 그 설치에서 `stop` 뒤 `start`나 재부팅을 하면 닫히지 않은 세션이 `recovery_required`가 된다. 맥락을 지키려면 `backup --stop` 뒤 `start`가 아니라 `reseed`를 쓴다.
+  - chart로 LocalStack을 쓰는 시험 설치는 values에 `config.installation.profile: test`와 `config.checkpoints.objectsLost: forget`을 더한다. 더하지 않으면 지금처럼 기동을 거부한다.
+  - 포기한 세션 수는 api의 warn 로그 한 줄과 `/readyz` 본문의 `detail.checkpoints_forgotten_on_boot`에 남는다. `/readyz`의 상태 코드와 `status`·`checks`는 그대로다. 본문을 통째로 비교하던 검사는 새 칸 `detail`을 허용한다.
 - **migration `0346_judgment_batches`가 새 빈 표 `judgment_batches`(판단 묶음)·`judgment_channel_tallies`(채널별 상한 넘김·판단 못 함 수)를 만들고, `conversation_inputs`에 nullable 칸 `judgment_batch_id`를 더한다**(JeongJaeSoon/werft#2119). 있는 줄은 다시 쓰지 않고 색인은 `CONCURRENTLY`로 만든다. reconciler 로그 `Judgment buffer purged`에 `unjudged_count`(10분 기한에 판단 없이 지운 글 수)와 `batches_count`(60분이 지나 지운 묶음 줄 수)가 더해진다. 묶음을 닫고 판단하는 pass는 아직 어느 role에도 배선되지 않아 동작은 그대로다.
 - **migration `0342_slack_notice_approvals`가 새 빈 표 `slack_notice_approvals`(Slack 고지 승인 기록)를 만들고, 운영자 명령 `slack-notice.ts`(`show --agent`·`list --workspace`, 보기만)가 들어온다**(JeongJaeSoon/werft#2113). 있는 행은 다시 쓰지 않고, 기존 에이전트에는 승인 기록이 없다. 아직 고지 판이 없어 모든 에이전트가 "승인 없음"이다. 에이전트의 대화 스위치(`conversation_rollout`)는 바뀌지 않는다. 승인과 철회는 receipt `approve_slack_notice`·`revoke_slack_notice`로 남는다.
 - **migration `0341_judgment_buffer_overflows`가 새 표 `judgment_buffer_overflows`를 만들고, 판단 버퍼에 에이전트 × 채널당 상한(설치 설정 `judgment_buffer_limit_per_channel`, 기본 100)이 생긴다**(JeongJaeSoon/werft#2114). 새 빈 표라 기존 표는 다시 쓰지 않는다. 상한을 넘으면 그 채널에서 가장 오래된 글부터 지우고, 지운 수를 표에 쌓고 `slack` role 로그에 `Judgment buffer over limit` 한 줄을 남긴다. 상한은 아직 콘솔 화면에 없고 `PATCH /v1/installation-config`로 바꾼다.
