@@ -690,6 +690,7 @@ if (import.meta.main) {
     out: (line) => console.log(line),
     err: (line) => console.error(line),
     logger: createLogger({
+      level: "warn",
       sinks: [{ write: (record) => console.error(JSON.stringify(record)) }],
     }),
     loadKey: async (env) =>
