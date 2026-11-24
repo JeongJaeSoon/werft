@@ -48,14 +48,27 @@ async function gateOpenIn(
     ...(versions === undefined ? {} : { versions }),
   });
   if (!gate.open) return false;
-  const [shared] = rowsOf(
+  // Locked, a share recorded meanwhile waits for the write, whose rows its
+  // buffer drop then finds.
+  const bindings = rowsOf<{ external_shared: boolean }>(
     await db.execute(sql`
-      SELECT 1 FROM surface_bindings
+      SELECT external_shared FROM surface_bindings
       WHERE agent_id = ${place.agentId}::uuid AND surface = 'slack'
-        AND external_surface_id = ${place.channelId} AND external_shared
-      LIMIT 1`),
+        AND external_surface_id = ${place.channelId}
+      ${lock ? sql`FOR SHARE` : sql``}`),
   );
-  return shared === undefined;
+  return !bindings.some((binding) => binding.external_shared);
+}
+
+/**
+ * The gate a reply's waiting judgment is written under, in the transaction
+ * that receives it: closed, the reply asks for no judgment.
+ */
+export function m1GateOpenForWrite(
+  tx: Database,
+  place: M1Place,
+): Promise<boolean> {
+  return gateOpenIn(tx, place, true, undefined);
 }
 
 /** A record's verdict and what it read, as its columns hold them. */

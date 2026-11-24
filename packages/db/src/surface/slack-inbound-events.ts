@@ -17,6 +17,7 @@ import {
 import type { Database } from "../queries.ts";
 import { slackInboundEvents, slackInstallations } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
+import { m1GateOpenForWrite } from "./m1-judgments.ts";
 import { released } from "./slack-shared.ts";
 
 const t = slackInboundEvents;
@@ -202,7 +203,22 @@ export function createPostgresSlackInboundEventStore(
           });
         if (row === undefined) return false;
         if (input === undefined) return true;
-        if ("buffered" in input) {
+        // First, under the agent's lock: a judgment asked for while the gate
+        // is closed writes nothing, and a reply held for it is not held.
+        let received = input;
+        if (
+          input.judgment !== undefined &&
+          !(await m1GateOpenForWrite(tx, {
+            ...row,
+            channelId: input.channelId,
+          }))
+        ) {
+          if ("buffered" in input) return true;
+          const { judgment: _closed, ...rest } = input;
+          received = rest;
+        }
+        if ("buffered" in received) {
+          const input = received;
           // One taker per topic at a time, so the topic's highest number plus
           // one is free.
           const topic = await tx.execute(sql`
@@ -232,7 +248,7 @@ export function createPostgresSlackInboundEventStore(
           }
           return true;
         }
-        await takeSlackTurnInput(tx, row, input);
+        await takeSlackTurnInput(tx, row, received);
         return true;
       });
       // After the commit, so a rolled-back hold logs nothing.
