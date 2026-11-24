@@ -91,7 +91,7 @@ sudo bash scripts/prepare-xfs.sh
 ## よくある問題
 
 - `already exists` で拒否された場合は、以前の実行や手作業が残したパスです。中身を調べます。イメージや `/var/lib/docker.old` をサイズ変更や mkfs で再利用しないでください。
-- 元に戻した後の再実行で `/var/lib/docker.xfs.img` や `/etc/fstab.before-prepare-xfs` が既にあるとして拒否された場合は、直前の巻き戻しが残したファイルです。Docker が新しいイメージで既に動いていた場合は、スクリプトもイメージを削除しません。イメージに残すべきデータがないことを確認し、unmount、fstab の復元、`daemon-reload` が終わって `/var/lib/docker` が原本に戻った後にだけ、`sudo rm /var/lib/docker.xfs.img /etc/fstab.before-prepare-xfs` で削除します。`/var/lib/docker.old` が残っていれば原本なので、削除せず先に戻します。
+- 元に戻した後の再実行で `/var/lib/docker.xfs.img` や `/etc/fstab.before-prepare-xfs` が既にあるとして拒否された場合は、直前の巻き戻しが残したファイルです。Docker が新しいイメージで既に動いていた場合は、スクリプトもイメージを削除しません。イメージに残すべきデータがないことを確認し、unmount、fstab の復元、`daemon-reload` が終わって `/var/lib/docker` が原本に戻った後にだけ、`sudo rm -f /var/lib/docker.xfs.img /etc/fstab.before-prepare-xfs` で削除します。`/var/lib/docker.old` が残っていれば原本なので、削除せず先に戻します。
 - `the trial XFS loop mount` で拒否された場合、このホストでは loop デバイスや XFS project quota を使えません。別のサーバーを使うか、Docker data-root 用の XFS ディスクを別に用意する移行計画を立てます。
 - 終了コード 4 で data-root が元の位置に戻っていない場合、スクリプトは Docker を止めたままにします。この状態で Docker を起動すると空の data-root を使うため、出力に記された残りの状態を[元に戻す](#되돌리기)の順で片付けてから起動します。
 
