@@ -1,0 +1,11 @@
+# History findings reviewed as example values (OpenAPI request example, verify-skill demo login). One fingerprint each; no path or rule allowlist.
+5e63133a97705bc8443a0e4971f3ea2e40e7c0e8:apps/control-host/src/api/openapi.ts:generic-api-key:353
+5e63133a97705bc8443a0e4971f3ea2e40e7c0e8:docs/api/index.html:generic-api-key:3996
+5e63133a97705bc8443a0e4971f3ea2e40e7c0e8:docs/openapi.json:generic-api-key:3986
+5ecee6a95c796dce55350cf2e766cc668ac36081:.claude/skills/verify-agent-platform/features/web-login.md:generic-api-key:31
+5ecee6a95c796dce55350cf2e766cc668ac36081:.claude/skills/verify-agent-platform/features/web-login.md:generic-api-key:38
+5ecee6a95c796dce55350cf2e766cc668ac36081:.claude/skills/verify-agent-platform/features/web-login.md:generic-api-key:40
+bb0cb501b2e02011101b573bbd1587ed425fc024:apps/control-host/src/api/openapi.ts:generic-api-key:533
+bb0cb501b2e02011101b573bbd1587ed425fc024:apps/web/src/api/schema.gen.ts:generic-api-key:3428
+bb0cb501b2e02011101b573bbd1587ed425fc024:docs/api/index.html:generic-api-key:8534
+bb0cb501b2e02011101b573bbd1587ed425fc024:docs/openapi.json:generic-api-key:8524
