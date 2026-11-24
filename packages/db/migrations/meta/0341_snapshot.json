@@ -1,5 +1,5 @@
 {
-  "id": "77b4cabb-ed27-4c44-bd6b-4272682b2396",
+  "id": "5a39c248-765f-46fc-b878-a9d332f4d4d1",
   "prevId": "e9681799-a42b-43ea-84c1-46033248a7d5",
   "version": "7",
   "dialect": "postgresql",
@@ -9040,6 +9040,79 @@
       },
       "isRLSEnabled": false
     },
+    "public.judgment_buffer_overflows": {
+      "name": "judgment_buffer_overflows",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slack_team_id": {
+          "name": "slack_team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slack_channel_id": {
+          "name": "slack_channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dropped_count": {
+          "name": "dropped_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_dropped_at": {
+          "name": "last_dropped_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "judgment_buffer_overflows_agent_fk": {
+          "name": "judgment_buffer_overflows_agent_fk",
+          "tableFrom": "judgment_buffer_overflows",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "judgment_buffer_overflows_pk": {
+          "name": "judgment_buffer_overflows_pk",
+          "columns": ["agent_id", "slack_team_id", "slack_channel_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "judgment_buffer_overflows_count_check": {
+          "name": "judgment_buffer_overflows_count_check",
+          "value": "\"judgment_buffer_overflows\".\"dropped_count\" > 0"
+        },
+        "judgment_buffer_overflows_slack_check": {
+          "name": "judgment_buffer_overflows_slack_check",
+          "value": "\"judgment_buffer_overflows\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"judgment_buffer_overflows\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.linked_accounts": {
       "name": "linked_accounts",
       "schema": "",
@@ -18004,19 +18077,6 @@
         "membership_error": {
           "name": "membership_error",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_shared": {
-          "name": "external_shared",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "external_shared_at": {
-          "name": "external_shared_at",
-          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

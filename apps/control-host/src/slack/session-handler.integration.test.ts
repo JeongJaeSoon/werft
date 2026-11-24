@@ -81,7 +81,7 @@ import {
   settingsCatalog,
   settingsDocument,
 } from "../testing/settings.ts";
-import { slackCatalog, slackSessionHandler } from "./main.ts";
+import { slackCatalog, slackInbox, slackSessionHandler } from "./main.ts";
 
 const APP_ID = "A0NOTES";
 const TEAM = "T0ACME";
@@ -440,9 +440,12 @@ function handler(
   };
 }
 
-async function drain(handle: ReturnType<typeof handler>["handle"]) {
+async function drain(
+  handle: ReturnType<typeof handler>["handle"],
+  inbox: SurfaceInboundEventStore = createPostgresSlackInboundEventStore(db),
+) {
   return drainSlackInbox({
-    inbox: createPostgresSlackInboundEventStore(db),
+    inbox,
     handler: handle,
     logger,
     batchSize: 10,
@@ -2660,6 +2663,79 @@ describe.each(ENGINES)("Slack judgment buffer on %s", (engine) => {
       expect(payloads.map((row) => row.payload)).toEqual([null, null]);
     });
   }
+
+  /** Rows of any table whose text holds `needle`, by table: a dump's view. */
+  async function tablesHolding(needle: string) {
+    const { rows: tables } = (await db.execute(
+      sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
+    )) as unknown as { rows: { table_name: string }[] };
+    const holding: string[] = [];
+    for (const { table_name } of tables) {
+      const { rows } = (await db.execute(
+        sql`SELECT 1 FROM ${sql.identifier(table_name)} r WHERE r::text LIKE ${`%${needle}%`} LIMIT 1`,
+      )) as unknown as { rows: unknown[] };
+      if (rows.length > 0) holding.push(table_name);
+    }
+    return holding;
+  }
+
+  test("past the installation's buffer limit, the oldest held posts go whole, the channel counts them, and nothing keeps their text", async () => {
+    const fixture = await agentInSlack("main", { rollout: "shadow" });
+    expect(
+      await schema
+        .createPostgresInstallationConfigStore(db)
+        .importValue("judgment_buffer_limit_per_channel", 2),
+    ).toBe(true);
+    const logs: { message: string; fields?: Record<string, unknown> }[] = [];
+    const inbox = slackInbox(db, {
+      info: (message, fields) => logs.push({ message, fields: { ...fields } }),
+      warn: () => {},
+    });
+    const { handle } = handler();
+    const posts = ["100.000100", "100.000200", "100.000300"];
+    for (const ts of posts) {
+      await deliver(fixture, message(ts, { text: `post-${ts}-text` }));
+    }
+    await drain(handle, inbox);
+    expect(await heldTs(fixture)).toEqual(["100.000200", "100.000300"]);
+    const overflows = await db.select().from(schema.judgmentBufferOverflows);
+    expect(overflows.map(({ lastDroppedAt: _, ...row }) => row)).toEqual([
+      {
+        workspaceId: fixture.workspaceId,
+        agentId: fixture.agentId,
+        slackTeamId: TEAM,
+        slackChannelId: CHANNEL,
+        droppedCount: 1,
+      },
+    ]);
+    expect(
+      logs.filter((line) => line.message === "Judgment buffer over limit"),
+    ).toEqual([
+      {
+        message: "Judgment buffer over limit",
+        fields: {
+          workspace_id: fixture.workspaceId,
+          agent_id: fixture.agentId,
+          channel_id: CHANNEL,
+          dropped_count: 1,
+        },
+      },
+    ]);
+    expect(await tablesHolding("post-100.000100-text")).toEqual([]);
+    // The scan finds a text that is kept, so an empty one above means gone.
+    expect(await tablesHolding("post-100.000300-text")).toEqual([
+      "conversation_inputs",
+    ]);
+
+    // One more post adds to the same count.
+    await deliver(fixture, message("100.000400"));
+    await drain(handle, inbox);
+    expect(await heldTs(fixture)).toEqual(["100.000300", "100.000400"]);
+    const [count] = await db
+      .select({ dropped: schema.judgmentBufferOverflows.droppedCount })
+      .from(schema.judgmentBufferOverflows);
+    expect(count?.dropped).toBe(2);
+  });
 
   test("switched on, a mention is answered as before and its thread stays a session's; the mention is not held", async () => {
     const fixture = await agentInSlack("main", { rollout: "on" });

@@ -46,6 +46,7 @@ const DEFAULTS: InstallationConfig = {
   session_archive_dry_run: entry(true),
   workspace_stopped_ttl_sec: entry(86_400),
   workspace_paused_ttl_sec: entry(86_400),
+  judgment_buffer_limit_per_channel: entry(100),
   session_archive: { available: true, reason: null },
 };
 
@@ -762,15 +763,19 @@ describe("limitValueOf", () => {
   });
 
   test("each range and variable name equals the contract's", async () => {
-    const { INSTALLATION_CONFIG, INSTALLATION_CONFIG_KEYS } = await import(
-      "@werft-ai/contracts"
-    );
+    const {
+      INSTALLATION_CONFIG,
+      INSTALLATION_CONFIG_KEYS,
+      installationConfigEnvOf,
+    } = await import("@werft-ai/contracts");
     expect(
       [
         ...NUMBER_LIMITS.map((limit) => limit.key),
         "workspace_enforce",
         "session_archive_after_days",
         "session_archive_dry_run",
+        // Not on this screen yet: saved through the API.
+        "judgment_buffer_limit_per_channel",
       ].sort(),
     ).toEqual([...INSTALLATION_CONFIG_KEYS].sort());
     const archive = INSTALLATION_CONFIG.session_archive_after_days;
@@ -793,7 +798,9 @@ describe("limitValueOf", () => {
     }
     for (const limit of NUMBER_LIMITS) {
       const rule = INSTALLATION_CONFIG[limit.key];
-      expect(limit.env).toBe(rule.env);
+      expect<string | undefined>(limit.env).toBe(
+        installationConfigEnvOf(limit.key),
+      );
       const probes = [
         limit.min - 1,
         limit.min,

@@ -4,6 +4,7 @@ import {
   type InstallationConfigEntries,
   type InstallationConfigKey,
   type InstallationConfigValues,
+  installationConfigEnvOf,
 } from "@werft-ai/contracts";
 import {
   createPostgresInstallationConfigStore,
@@ -79,15 +80,18 @@ export async function carryInstallationConfig(
   env: Record<string, string | undefined>,
   store: Pick<InstallationConfigStore, "readAll" | "importValue">,
 ): Promise<{ warnings: string[] }> {
-  const present = INSTALLATION_CONFIG_KEYS.filter(
-    (key) => !envUnset(key, env[INSTALLATION_CONFIG[key].env] ?? ""),
-  );
+  const present = INSTALLATION_CONFIG_KEYS.flatMap((key) => {
+    const name = installationConfigEnvOf(key);
+    return name !== undefined && !envUnset(key, env[name] ?? "")
+      ? [{ key, name }]
+      : [];
+  });
   if (present.length === 0) return { warnings: [] };
   const saved = await store.readAll();
   const warnings: string[] = [];
   const ignored: string[] = [];
-  for (const key of present) {
-    const { env: name, schema } = INSTALLATION_CONFIG[key];
+  for (const { key, name } of present) {
+    const { schema } = INSTALLATION_CONFIG[key];
     if (key in saved) {
       ignored.push(name);
       continue;

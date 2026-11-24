@@ -3,6 +3,7 @@ import {
   INSTALLATION_CONFIG,
   INSTALLATION_CONFIG_KEYS,
   type InstallationConfigKey,
+  installationConfigEnvOf,
 } from "./installation-config.ts";
 
 const past = Number.MAX_SAFE_INTEGER + 1;
@@ -21,6 +22,7 @@ const rejected: Record<InstallationConfigKey, unknown[]> = {
   session_archive_dry_run: ["true", 1, 0, null],
   workspace_stopped_ttl_sec: [-1, 1.5, 315_360_001, "86400"],
   workspace_paused_ttl_sec: [-1, 1.5, 315_360_001, "86400"],
+  judgment_buffer_limit_per_channel: [0, 1.5, 100_001, "100"],
 };
 
 const accepted: Record<InstallationConfigKey, unknown[]> = {
@@ -36,6 +38,7 @@ const accepted: Record<InstallationConfigKey, unknown[]> = {
   session_archive_dry_run: [true, false],
   workspace_stopped_ttl_sec: [0, 86_400, 315_360_000],
   workspace_paused_ttl_sec: [0, 86_400, 315_360_000],
+  judgment_buffer_limit_per_channel: [1, 100, 100_000],
 };
 
 test("each key holds the range its env variable held", () => {
@@ -59,7 +62,8 @@ test("each default is one its own rule accepts", () => {
 
 test("a carried-in value that failed is a row no rule accepts", () => {
   for (const key of INSTALLATION_CONFIG_KEYS) {
-    const { schema, env } = INSTALLATION_CONFIG[key];
+    const { schema } = INSTALLATION_CONFIG[key];
+    const env = installationConfigEnvOf(key) ?? key;
     expect(schema.safeParse({ refused_env: env }).success, key).toBe(false);
   }
 });
