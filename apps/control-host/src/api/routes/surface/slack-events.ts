@@ -10,6 +10,7 @@ import {
   apiRoute,
   ingestThenStopClockWithin,
   jsonWithSchema,
+  storageUnavailableError,
 } from "../../app.ts";
 import type { SlackEventsLimiter } from "../../rate-limit.ts";
 
@@ -34,7 +35,7 @@ const retryReasonOf = (header: string | undefined) =>
 export function registerSlackEventRoutes(
   router: ApiRouter,
   deps: {
-    events: SlackEventsService;
+    events: Pick<SlackEventsService, "receive">;
     limiter: SlackEventsLimiter;
     logger?: StructuredLogger;
   },
@@ -76,6 +77,16 @@ export function registerSlackEventRoutes(
           throw new ApiHttpError(401, "UNAUTHORIZED", REFUSED);
         case "bad_request":
           throw new ApiHttpError(400, "BAD_REQUEST", "Not a Slack event");
+        case "unavailable": {
+          logger?.warn("Slack event deferred to retry", {
+            agent_id: agentId,
+            team_id: outcome.teamId ?? null,
+            event_id: outcome.eventId ?? null,
+            step: outcome.step,
+            ...retry,
+          });
+          throw storageUnavailableError();
+        }
         case "challenge":
           return jsonWithSchema(context, slackEventsResponseSchema, {
             challenge: outcome.challenge,

@@ -34,6 +34,11 @@ import {
 import { slackRequestSignature } from "./slack-signature.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * How long a verified event may take to be recorded before it is answered
+ * 503 instead: under Slack's 3 seconds, so its retry is the one that lands.
+ */
+export const SLACK_EVENTS_ACK_DEADLINE_MS = 2_500;
 /** Bounds how long another API replica keeps a deleted app's secret. */
 export const SLACK_SIGNING_SECRET_TTL_MS = 60_000;
 
@@ -182,9 +187,28 @@ export async function verifySlackRequest(
   return check === "ok" ? { agentId, app } : null;
 }
 
+/** The store step a verified envelope is waiting on. */
+export type SlackEventsStep =
+  | "mark_received"
+  | "mark_verified"
+  | "seen"
+  | "classify"
+  | "mirror_echo"
+  | "record";
+
+/** Stops an envelope at its next step once `signal` aborts. */
+export type SlackEventsRun = { signal: AbortSignal; step: SlackEventsStep };
+
 export type SlackEventsOutcome =
   | { kind: "unauthorized" }
   | { kind: "bad_request" }
+  /** Not recorded within the deadline; Slack's retry is told apart by event_id. */
+  | {
+      kind: "unavailable";
+      step: SlackEventsStep;
+      eventId?: string;
+      teamId?: string;
+    }
   | { kind: "challenge"; challenge: string }
   | {
       kind: "ack";
@@ -357,6 +381,36 @@ function hasBotTokens(event: SlackEventCallback["event"]): boolean {
   return Array.isArray(tokens?.bot) && tokens.bot.length > 0;
 }
 
+/** An envelope's app, as a transport that proved the sender names it. */
+export type SlackEventsAppRef = Omit<SlackEventsApp, "signingSecret">;
+
+export type SlackVerifiedEnvelope = {
+  agentId: string;
+  app: SlackEventsAppRef;
+  body: unknown;
+};
+
+function jsonOf(rawBody: Uint8Array): unknown {
+  try {
+    return JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(rawBody),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+/** What an unparsed body says it is, for the log of an unanswered event. */
+function idsOf(body: unknown): { eventId?: string; teamId?: string } {
+  const fields = body as { event_id?: unknown; team_id?: unknown } | undefined;
+  const eventId = shortString(fields?.event_id);
+  const teamId = shortString(fields?.team_id);
+  return {
+    ...(eventId === undefined ? {} : { eventId }),
+    ...(teamId === undefined ? {} : { teamId }),
+  };
+}
+
 export type SlackEventsService = ReturnType<typeof createSlackEventsService>;
 
 export function createSlackEventsService(deps: {
@@ -369,14 +423,16 @@ export function createSlackEventsService(deps: {
   sourceMarks: SlackSourceMarkStore;
   /** Links an uncertain mirror to its post when Slack sends the post back. */
   mirrorEchoes: Pick<SurfaceOutboxStore, "matchMirrorEcho">;
+  ackDeadlineMs?: number;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
+  const ackDeadlineMs = deps.ackDeadlineMs ?? SLACK_EVENTS_ACK_DEADLINE_MS;
 
   // This app's own post that names a mirror's request: its ts is that
   // mirror's, if exactly one uncertain mirror has the id. Text never counts.
   async function matchMirrorEcho(
-    app: SlackEventsApp,
+    app: SlackEventsAppRef,
     event: SlackEventCallback["event"],
   ) {
     const correlationId = metadataOf(event)?.correlation_id;
@@ -403,10 +459,16 @@ export function createSlackEventsService(deps: {
 
   async function classify(
     agentId: string,
-    app: SlackEventsApp,
+    app: SlackEventsAppRef,
     envelope: SlackEventCallback,
+    go: () => void,
   ): Promise<Classified> {
     const { event } = envelope;
+    // Each store call starts only while the request is still answerable.
+    const at = <T>(call: () => Promise<T>) => {
+      go();
+      return call();
+    };
     if (envelope.api_app_id !== app.appId) {
       return { status: "dropped", dropReason: "app_mismatch" };
     }
@@ -422,15 +484,14 @@ export function createSlackEventsService(deps: {
         envelope.event_time === undefined
           ? null
           : new Date(envelope.event_time * 1000);
-      return (await deps.installs.revokeInstallation(key, sentAt)) ===
+      return (await at(() => deps.installs.revokeInstallation(key, sentAt))) ===
         "not_found"
         ? { status: "dropped", dropReason: "not_installed" }
         : { status: "processed" };
     }
-    const resolved = await agentForSlackEvent(deps.identities, {
-      ...key,
-      agentId,
-    });
+    const resolved = await at(() =>
+      agentForSlackEvent(deps.identities, { ...key, agentId }),
+    );
     if (resolved.status === "dropped") {
       return { status: "dropped", dropReason: resolved.reason };
     }
@@ -450,9 +511,11 @@ export function createSlackEventsService(deps: {
               ? now()
               : new Date(envelope.event_time * 1000),
       };
-      await (change.kind === "deleted"
-        ? deps.sourceMarks.markDeleted(mark)
-        : deps.sourceMarks.markEdited(mark, change.text));
+      await at(() =>
+        change.kind === "deleted"
+          ? deps.sourceMarks.markDeleted(mark)
+          : deps.sourceMarks.markEdited(mark, change.text),
+      );
       return { status: "processed", marked: true };
     }
     // member_joined_channel names the bot when it is invited; the
@@ -523,9 +586,9 @@ export function createSlackEventsService(deps: {
         return { status: "dropped", dropReason: "message_subtype" };
       }
       if (typeof event.channel === "string" && event.channel_type !== "im") {
-        const bound = await deps.bindings.findLiveSlackChannel(
-          resolved.installationId,
-          event.channel,
+        const channel = event.channel;
+        const bound = await at(() =>
+          deps.bindings.findLiveSlackChannel(resolved.installationId, channel),
         );
         // The bot left this channel: whatever arrives (a late event, a
         // mention) takes no text and no answer, since the bot is not there.
@@ -561,9 +624,8 @@ export function createSlackEventsService(deps: {
           // live binding is told apart by what became of its last one.
           (bound === null &&
             event.channel_type !== "channel" &&
-            (await deps.bindings.wasRejected(
-              resolved.installationId,
-              event.channel,
+            (await at(() =>
+              deps.bindings.wasRejected(resolved.installationId, channel),
             )));
         if (unapproved) {
           const mentioned =
@@ -590,119 +652,170 @@ export function createSlackEventsService(deps: {
     return { status: "received" };
   }
 
+  /**
+   * Handles an envelope whose sender is already proven: by the request
+   * signature over HTTP, or by the connection a Socket Mode transport would
+   * hold. `body` is the parsed JSON, undefined when it was not readable.
+   */
+  async function receiveEnvelope(
+    verified: SlackVerifiedEnvelope,
+    run?: SlackEventsRun,
+  ): Promise<SlackEventsOutcome> {
+    const { agentId, app, body } = verified;
+    const next = (step: SlackEventsStep) => {
+      run?.signal.throwIfAborted();
+      if (run) run.step = step;
+    };
+    next("mark_received");
+    // Before the body is read: only the sender's proof says Slack reached here.
+    await deps.apps.markEventsReceived(app.workspaceId, app.slackAppId, now());
+
+    const parsed = slackEventEnvelopeSchema.safeParse(body);
+    if (!parsed.success) return { kind: "bad_request" };
+    const verification = slackUrlVerificationSchema.safeParse(parsed.data);
+    const reached = () =>
+      deps.apps.setEventsUnlessVerified(app.workspaceId, app.slackAppId, {
+        state: "verified",
+        checked_at: now().toISOString(),
+      });
+    if (verification.success) {
+      next("mark_verified");
+      await reached();
+      return { kind: "challenge", challenge: verification.data.challenge };
+    }
+    if (parsed.data.type !== "event_callback") {
+      return { kind: "ack", result: "ignored" };
+    }
+    // A malformed callback also matches the catch-all envelope member.
+    const callback = slackEventCallbackSchema.safeParse(parsed.data);
+    if (!callback.success) return { kind: "bad_request" };
+    // Slack sends callbacks only to a verified URL, so the first one also
+    // settles an app whose challenge was never seen here.
+    next("mark_verified");
+    await reached();
+    const envelope: SlackEventCallback = callback.data;
+    const ids = { eventId: envelope.event_id, teamId: envelope.team_id };
+    next("seen");
+    if (await deps.inbox.seen(envelope.api_app_id, envelope.event_id)) {
+      return { kind: "ack", result: "duplicate", ...ids };
+    }
+
+    next("classify");
+    const classified = await classify(agentId, app, envelope, () =>
+      run?.signal.throwIfAborted(),
+    );
+    const base = {
+      workspaceId: app.workspaceId,
+      agentId,
+      slackAppId: app.slackAppId,
+      teamId: envelope.team_id,
+      appId: envelope.api_app_id,
+      eventId: envelope.event_id,
+      eventType: envelope.event.type,
+      eventSubtype: envelope.event.subtype ?? null,
+      eventTime:
+        envelope.event_time === undefined
+          ? null
+          : new Date(envelope.event_time * 1000),
+    };
+    const { token: _token, ...unredacted } = envelope;
+    const payload =
+      classified.status !== "dropped" &&
+      "redact" in classified &&
+      classified.redact !== undefined
+        ? {
+            ...unredacted,
+            event: redactedEvent(
+              envelope.event,
+              classified.redact.botUserId,
+              classified.redact.mention,
+            ),
+          }
+        : unredacted;
+    const row: SurfaceInboundEventInput =
+      classified.status === "dropped"
+        ? { ...base, ...classified, dropFields: dropFields(envelope.event) }
+        : "marked" in classified
+          ? {
+              ...base,
+              status: "processed",
+              payload: null,
+              conversationKey: null,
+            }
+          : {
+              ...base,
+              status: classified.status,
+              payload,
+              conversationKey: slackConversationKey(
+                app.slackAppId,
+                envelope.event,
+              ),
+            };
+    // Before the record: a match that throws leaves the event to Slack's
+    // retry, which a recorded event would answer as a duplicate.
+    if (
+      classified.status === "dropped" &&
+      classified.dropReason === "own_bot_user"
+    ) {
+      next("mirror_echo");
+      await matchMirrorEcho(app, envelope.event);
+    }
+    next("record");
+    const result = await deps.inbox.record(row);
+    return {
+      kind: "ack",
+      result,
+      ...ids,
+      status: classified.status,
+      ...(classified.status === "dropped"
+        ? { reason: classified.dropReason }
+        : {}),
+    };
+  }
+
+  /**
+   * Runs the envelope, and past the deadline answers `unavailable` and stops
+   * it at its next step. A record already sent may still commit; Slack's retry
+   * then finds it by event_id, so the event is kept once.
+   */
+  async function withinAckDeadline(
+    verified: SlackVerifiedEnvelope,
+  ): Promise<SlackEventsOutcome> {
+    const deadline = new AbortController();
+    const run: SlackEventsRun = {
+      signal: deadline.signal,
+      step: "mark_received",
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((done) => {
+      timer = setTimeout(() => {
+        deadline.abort();
+        done("late");
+      }, ackDeadlineMs);
+    });
+    const work = receiveEnvelope(verified, run);
+    try {
+      const first = await Promise.race([work, late]);
+      if (first !== "late") return first;
+    } finally {
+      clearTimeout(timer);
+    }
+    // Its failure, an abort or the slow store's, is Slack's retry to repair.
+    work.catch(() => {});
+    return { kind: "unavailable", step: run.step, ...idsOf(verified.body) };
+  }
+
   return {
+    receiveEnvelope,
     async receive(request: SlackSignedRequest): Promise<SlackEventsOutcome> {
       const verified = await verifySlackRequest(deps, request, now);
       if (verified === null) return { kind: "unauthorized" };
-      const { agentId, app } = verified;
-      // Before the body is read: only the signature says Slack reached here.
-      await deps.apps.markEventsReceived(
-        app.workspaceId,
-        app.slackAppId,
-        now(),
-      );
-
-      let body: unknown;
-      try {
-        body = JSON.parse(
-          new TextDecoder("utf-8", { fatal: true }).decode(request.rawBody),
-        );
-      } catch {
-        return { kind: "bad_request" };
-      }
-      const parsed = slackEventEnvelopeSchema.safeParse(body);
-      if (!parsed.success) return { kind: "bad_request" };
-      const verification = slackUrlVerificationSchema.safeParse(parsed.data);
-      const reached = () =>
-        deps.apps.setEventsUnlessVerified(app.workspaceId, app.slackAppId, {
-          state: "verified",
-          checked_at: now().toISOString(),
-        });
-      if (verification.success) {
-        await reached();
-        return { kind: "challenge", challenge: verification.data.challenge };
-      }
-      if (parsed.data.type !== "event_callback") {
-        return { kind: "ack", result: "ignored" };
-      }
-      // A malformed callback also matches the catch-all envelope member.
-      const callback = slackEventCallbackSchema.safeParse(parsed.data);
-      if (!callback.success) return { kind: "bad_request" };
-      // Slack sends callbacks only to a verified URL, so the first one also
-      // settles an app whose challenge was never seen here.
-      await reached();
-      const envelope: SlackEventCallback = callback.data;
-      const ids = { eventId: envelope.event_id, teamId: envelope.team_id };
-      if (await deps.inbox.seen(envelope.api_app_id, envelope.event_id)) {
-        return { kind: "ack", result: "duplicate", ...ids };
-      }
-
-      const classified = await classify(agentId, app, envelope);
-      const base = {
-        workspaceId: app.workspaceId,
-        agentId,
-        slackAppId: app.slackAppId,
-        teamId: envelope.team_id,
-        appId: envelope.api_app_id,
-        eventId: envelope.event_id,
-        eventType: envelope.event.type,
-        eventSubtype: envelope.event.subtype ?? null,
-        eventTime:
-          envelope.event_time === undefined
-            ? null
-            : new Date(envelope.event_time * 1000),
-      };
-      const { token: _token, ...unredacted } = envelope;
-      const payload =
-        classified.status !== "dropped" &&
-        "redact" in classified &&
-        classified.redact !== undefined
-          ? {
-              ...unredacted,
-              event: redactedEvent(
-                envelope.event,
-                classified.redact.botUserId,
-                classified.redact.mention,
-              ),
-            }
-          : unredacted;
-      const row: SurfaceInboundEventInput =
-        classified.status === "dropped"
-          ? { ...base, ...classified, dropFields: dropFields(envelope.event) }
-          : "marked" in classified
-            ? {
-                ...base,
-                status: "processed",
-                payload: null,
-                conversationKey: null,
-              }
-            : {
-                ...base,
-                status: classified.status,
-                payload,
-                conversationKey: slackConversationKey(
-                  app.slackAppId,
-                  envelope.event,
-                ),
-              };
-      // Before the record: a match that throws leaves the event to Slack's
-      // retry, which a recorded event would answer as a duplicate.
-      if (
-        classified.status === "dropped" &&
-        classified.dropReason === "own_bot_user"
-      ) {
-        await matchMirrorEcho(app, envelope.event);
-      }
-      const result = await deps.inbox.record(row);
-      return {
-        kind: "ack",
-        result,
-        ...ids,
-        status: classified.status,
-        ...(classified.status === "dropped"
-          ? { reason: classified.dropReason }
-          : {}),
-      };
+      const { signingSecret: _, ...app } = verified.app;
+      return withinAckDeadline({
+        agentId: verified.agentId,
+        app,
+        body: jsonOf(request.rawBody),
+      });
     },
   };
 }
