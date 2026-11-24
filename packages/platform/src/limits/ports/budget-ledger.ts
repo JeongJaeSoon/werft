@@ -49,6 +49,10 @@ export type BudgetSettleResult =
   | "settled"
   // Already settled: the first settlement stands.
   | "already_settled"
+  // Resolved by an operator first: the difference from what that charged
+  // was added as the call's one adjustment, now or by an earlier report.
+  | "adjusted"
+  | "already_adjusted"
   | "unknown";
 
 export type BudgetReleaseResult =
@@ -56,4 +60,6 @@ export type BudgetReleaseResult =
   | "already_released"
   // Settled first: what it cost stands, and nothing is released.
   | "settled"
+  // An operator resolved it first: what that charged stands.
+  | "resolved"
   | "unknown";
