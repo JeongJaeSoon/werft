@@ -1010,6 +1010,10 @@ export function createPostgresSlackAppStore(
       return db.transaction(async (tx) => {
         const row = await lockedApp(tx, workspaceId, slackAppId);
         if (!row) throw new Error(`Slack app ${slackAppId} not found`);
+        // Two deletes can both begin; the one that waited here finds it done.
+        if (row.state === "deleted") {
+          return { outcome: "settled" as const, app: await recordOf(tx, row) };
+        }
         const by = receiptBy(input.actor);
         const closedBy = by === "operator_cli" ? null : by.userId;
         const closed = await closeSlackApp(tx, {
@@ -1076,6 +1080,7 @@ export function createPostgresSlackAppStore(
               }),
         });
         return {
+          outcome: "deleted" as const,
           app: await recordOf(tx, updated),
           closed,
           botToken,

@@ -2,7 +2,11 @@ import type { SurfaceInstallStore } from "@werft-ai/platform";
 import { and, eq, lt } from "drizzle-orm";
 import { revokeInstallationIdentities } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
-import { slackInstallations, slackInstallStates } from "../schema.ts";
+import {
+  slackApps,
+  slackInstallations,
+  slackInstallStates,
+} from "../schema.ts";
 import { forgetInstallationMembers } from "./slack-channel-members.ts";
 import {
   registerSlackInstallation,
@@ -55,24 +59,50 @@ export function createPostgresSlackInstallStore(
 
     async recordInstallation(input) {
       const key = { appId: input.appId, teamId: input.teamId };
-      const registered = await registerSlackInstallation(db, {
-        ...key,
-        workspaceId: input.workspaceId,
+      return db.transaction(async (tx) => {
+        // A delete locks the app before it closes the app's installs, so a
+        // consent landing as the app goes waits here and reopens nothing.
+        const owners = await tx
+          .select({ state: slackApps.state })
+          .from(slackApps)
+          .where(
+            and(
+              eq(slackApps.workspaceId, input.workspaceId),
+              eq(slackApps.appId, input.appId),
+            ),
+          )
+          .for("share");
+        if (
+          owners.some(
+            ({ state }) => state === "deleting" || state === "deleted",
+          )
+        ) {
+          return { outcome: "revoked" as const };
+        }
+        const registered = await registerSlackInstallation(tx, {
+          ...key,
+          workspaceId: input.workspaceId,
+        });
+        if (registered.outcome === "workspace_conflict") {
+          return { outcome: "workspace_conflict" as const };
+        }
+        const verified = await verifySlackInstallation(tx, {
+          ...key,
+          botUserId: input.botUserId,
+        });
+        if (verified.outcome === "not_found") {
+          throw new Error(
+            `Slack installation ${key.appId}/${key.teamId} vanished after registering`,
+          );
+        }
+        if (verified.outcome === "revoked") {
+          return { outcome: "revoked" as const };
+        }
+        return {
+          outcome: "verified" as const,
+          installationId: verified.installation.id,
+        };
       });
-      if (registered.outcome === "workspace_conflict") {
-        return { outcome: "workspace_conflict" };
-      }
-      const verified = await verifySlackInstallation(db, {
-        ...key,
-        botUserId: input.botUserId,
-      });
-      if (verified.outcome === "not_found") {
-        throw new Error(
-          `Slack installation ${key.appId}/${key.teamId} vanished after registering`,
-        );
-      }
-      if (verified.outcome === "revoked") return { outcome: "revoked" };
-      return { outcome: "verified", installationId: verified.installation.id };
     },
 
     async revokeInstallation(key, sentAt) {

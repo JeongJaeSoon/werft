@@ -101,13 +101,17 @@ export type SurfaceAppClosed = {
   buffered: number;
 };
 
-export type FinishDeleteResult = {
-  app: SurfaceAppRecord;
-  closed: SurfaceAppClosed;
-  /** The bot token the app held; null when it was never installed. */
-  botToken: string | null;
-  receiptId: string;
-};
+/** `settled`: another delete finished first; nothing was closed now. */
+export type FinishDeleteResult =
+  | { outcome: "settled"; app: SurfaceAppRecord }
+  | {
+      outcome: "deleted";
+      app: SurfaceAppRecord;
+      closed: SurfaceAppClosed;
+      /** The bot token the app held; null when it was never installed. */
+      botToken: string | null;
+      receiptId: string;
+    };
 
 export type BeginDeleteResult =
   | { outcome: "begun" | "settled" | "creating"; app: SurfaceAppRecord }

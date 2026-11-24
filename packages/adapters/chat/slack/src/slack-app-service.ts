@@ -799,6 +799,10 @@ export function createSlackAppService(deps: {
         slackAppId,
         actor: actorOf(caller, action),
       });
+      if (finished.outcome === "settled") {
+        // A delete that ran alongside closed it and tried Slack's side.
+        return { slack_app: slackAppView(finished.app), slack_cleanup: null };
+      }
       if (finished.app.agentId !== null) {
         deps.onAgentAppChanged?.(finished.app.agentId);
       }

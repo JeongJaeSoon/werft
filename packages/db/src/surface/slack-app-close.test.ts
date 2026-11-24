@@ -328,6 +328,7 @@ describe("finishDelete", () => {
       slackAppId: seeded.slackAppId,
       actor: null,
     });
+    if (finished.outcome !== "deleted") throw new Error("not deleted");
     expect(finished.botToken).toBe(bot);
     expect(finished.app.state).toBe("deleted");
     expect(finished.closed).toEqual({
@@ -393,5 +394,52 @@ describe("finishDelete", () => {
         seeded.slackAppId,
       ]),
     ).toEqual([{ state: "created" }]);
+  });
+
+  test("a second delete that began alongside finds it done: no second close or receipt", async () => {
+    const store = createPostgresSlackAppStore(db, key);
+    const input = {
+      workspaceId: WORKSPACE,
+      slackAppId: seeded.slackAppId,
+      actor: null,
+    };
+    expect((await store.finishDelete(input)).outcome).toBe("deleted");
+    const before = await snapshot();
+    const second = await store.finishDelete(input);
+    expect(second.outcome).toBe("settled");
+    expect(second.app.state).toBe("deleted");
+    expect(await snapshot()).toEqual(before);
+    expect(
+      await rows(
+        "SELECT count(*)::int AS n FROM receipts WHERE operation = 'delete_slack_app'",
+      ),
+    ).toEqual([{ n: 1 }]);
+  });
+
+  test("an install consent that lands after the delete reopens nothing", async () => {
+    await createPostgresSlackAppStore(db, key).finishDelete({
+      workspaceId: WORKSPACE,
+      slackAppId: seeded.slackAppId,
+      actor: null,
+    });
+    const before = await snapshot();
+    const installs = createPostgresSlackInstallStore(db);
+    for (const teamId of [TEAM, "T0LATE"]) {
+      expect(
+        await installs.recordInstallation({
+          workspaceId: WORKSPACE,
+          appId: seeded.appId,
+          teamId,
+          botUserId: "U0LATEBOT",
+        }),
+      ).toEqual({ outcome: "revoked" });
+    }
+    expect(await snapshot()).toEqual(before);
+    expect(
+      await rows(
+        "SELECT team_id, status FROM slack_installations WHERE app_id = $1 ORDER BY team_id",
+        [seeded.appId],
+      ),
+    ).toEqual([{ team_id: TEAM, status: "revoked" }]);
   });
 });

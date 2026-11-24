@@ -612,6 +612,9 @@ export function createMemorySlackAppStore(input: {
       if (!row || row.workspaceId !== workspaceId) {
         throw new Error("no such Slack app");
       }
+      if (row.state === "deleted") {
+        return { outcome: "settled" as const, app: record(row) };
+      }
       const botToken =
         input.secrets.values.get(
           input.secrets.slotKey(slot(row, "slack_bot_token")),
@@ -623,6 +626,7 @@ export function createMemorySlackAppStore(input: {
       const receiptId = crypto.randomUUID();
       deleteReceipts.set(receiptId, null);
       return {
+        outcome: "deleted" as const,
         app: record(row),
         closed: {
           installations: 0,
