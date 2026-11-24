@@ -31,6 +31,15 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
+// These tests have no app rows, so a register always lands on an install.
+const register = async (
+  ...args: Parameters<typeof registerSlackInstallation>
+) => {
+  const result = await registerSlackInstallation(...args);
+  if (result.outcome === "app_deleted") throw new Error("app deleted");
+  return result;
+};
+
 integration("slack_channel_member_cache on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -67,7 +76,7 @@ integration("slack_channel_member_cache on PostgreSQL", () => {
       appId: `A${randomUUID().slice(0, 8).toUpperCase()}`,
       teamId: `T${randomUUID().slice(0, 8).toUpperCase()}`,
     };
-    const { installation } = await registerSlackInstallation(db, {
+    const { installation } = await register(db, {
       ...key,
       workspaceId,
     });
@@ -323,7 +332,7 @@ integration("slack_channel_member_cache on PostgreSQL", () => {
     ).toBe(false);
 
     // Installed again under the same row: the old read is still refused.
-    await registerSlackInstallation(db, {
+    await register(db, {
       ...t.key,
       workspaceId: t.workspaceId,
     });

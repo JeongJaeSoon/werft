@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
-import { slackInstallations } from "../schema.ts";
+import { slackApps, slackInstallations } from "../schema.ts";
 
 export type SlackInstallationStatus = "pending" | "verified" | "revoked";
 
@@ -24,7 +24,9 @@ export type RegisterSlackInstallationResult =
   | { outcome: "registered"; installation: SlackInstallation }
   | { outcome: "existing"; installation: SlackInstallation }
   // The app is already installed in this team for another workspace.
-  | { outcome: "workspace_conflict"; installation: SlackInstallation };
+  | { outcome: "workspace_conflict"; installation: SlackInstallation }
+  // Werft deleted this app: its installs stay closed.
+  | { outcome: "app_deleted" };
 
 export type VerifySlackInstallationResult =
   | { outcome: "verified"; installation: SlackInstallation }
@@ -75,42 +77,61 @@ export async function registerSlackInstallation(
   db: Database,
   input: SlackInstallationKey & { workspaceId: string },
 ): Promise<RegisterSlackInstallationResult> {
-  const [registered] = await db
-    .insert(slackInstallations)
-    .values({
-      id: randomUUID(),
-      workspaceId: input.workspaceId,
-      appId: input.appId,
-      teamId: input.teamId,
-      status: "pending",
-      createdAt: DB_NOW,
-    })
-    .onConflictDoUpdate({
-      target: [slackInstallations.appId, slackInstallations.teamId],
-      set: {
+  return db.transaction(async (tx) => {
+    // A delete locks its app before it closes the app's installs: a register
+    // that waited here finds it deleted, and one that went first is closed by it.
+    const owners = await tx
+      .select({ state: slackApps.state })
+      .from(slackApps)
+      .where(
+        and(
+          eq(slackApps.workspaceId, input.workspaceId),
+          eq(slackApps.appId, input.appId),
+        ),
+      )
+      .for("share");
+    if (
+      owners.some(({ state }) => state === "deleting" || state === "deleted")
+    ) {
+      return { outcome: "app_deleted" as const };
+    }
+    const [registered] = await tx
+      .insert(slackInstallations)
+      .values({
+        id: randomUUID(),
+        workspaceId: input.workspaceId,
+        appId: input.appId,
+        teamId: input.teamId,
         status: "pending",
-        botUserId: null,
-        verifiedAt: null,
-        revokedAt: null,
-      },
-      setWhere: sql`${slackInstallations.status} = 'revoked' AND ${slackInstallations.workspaceId} = excluded.workspace_id`,
-    })
-    .returning(columns);
-  if (registered) {
-    return { outcome: "registered", installation: registered };
-  }
-  // A conflict the update skipped: the row exists and is live, or belongs to
-  // another workspace. It cannot vanish in between, since rows are never
-  // deleted.
-  const existing = await findSlackInstallation(db, input);
-  if (!existing) {
-    throw new Error(
-      `Slack installation ${input.appId}/${input.teamId} conflicted but is missing`,
-    );
-  }
-  return existing.workspaceId === input.workspaceId
-    ? { outcome: "existing", installation: existing }
-    : { outcome: "workspace_conflict", installation: existing };
+        createdAt: DB_NOW,
+      })
+      .onConflictDoUpdate({
+        target: [slackInstallations.appId, slackInstallations.teamId],
+        set: {
+          status: "pending",
+          botUserId: null,
+          verifiedAt: null,
+          revokedAt: null,
+        },
+        setWhere: sql`${slackInstallations.status} = 'revoked' AND ${slackInstallations.workspaceId} = excluded.workspace_id`,
+      })
+      .returning(columns);
+    if (registered) {
+      return { outcome: "registered", installation: registered };
+    }
+    // A conflict the update skipped: the row exists and is live, or belongs to
+    // another workspace. It cannot vanish in between, since rows are never
+    // deleted.
+    const existing = await findSlackInstallation(tx, input);
+    if (!existing) {
+      throw new Error(
+        `Slack installation ${input.appId}/${input.teamId} conflicted but is missing`,
+      );
+    }
+    return existing.workspaceId === input.workspaceId
+      ? { outcome: "existing", installation: existing }
+      : { outcome: "workspace_conflict", installation: existing };
+  });
 }
 
 /**

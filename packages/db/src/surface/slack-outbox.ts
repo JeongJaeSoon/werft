@@ -84,6 +84,7 @@ import {
 } from "../sessions/index.ts";
 import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
+import { SLACK_OUTBOX_APP_DELETED } from "./slack-app-close.ts";
 import { channelLeft } from "./slack-channel-left.ts";
 import {
   closeHeldOfFailedMirror,
@@ -1690,7 +1691,16 @@ export function createPostgresSlackOutboxStore(
       return db.transaction(async (tx) => {
         const closed = await tx
           .update(t)
-          .set({ status: "failed", errorCode: "not_addressed", ...released })
+          .set({
+            status: "failed",
+            // A row enqueued after its app's delete, by a session still
+            // running, is refused for that.
+            errorCode: sql`CASE WHEN EXISTS (
+              SELECT 1 FROM slack_apps a
+              WHERE a.id = ${t.slackAppId} AND a.state = 'deleted'
+            ) THEN ${SLACK_OUTBOX_APP_DELETED} ELSE 'not_addressed' END`,
+            ...released,
+          })
           .where(
             and(
               eq(t.status, "pending"),
@@ -1780,6 +1790,17 @@ export function createPostgresSlackOutboxStore(
 
     beginSend(fence) {
       return db.transaction(async (tx) => {
+        // The install before the row, as an app delete takes them: a delete
+        // that revoked it and has not committed yet is waited for here, so a
+        // row it claimed too late to sweep still never goes out.
+        const [install] = await tx
+          .select({ status: slackInstallations.status })
+          .from(slackInstallations)
+          .where(
+            sql`${slackInstallations.id} = (SELECT installation_id FROM slack_outbox WHERE id = ${fence.id})`,
+          )
+          .for("share");
+        if (install?.status === "revoked") return false;
         const [row] = await tx
           .select({
             workspaceId: t.workspaceId,

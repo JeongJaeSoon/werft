@@ -125,6 +125,8 @@ export const slackJa = {
   "slack.deleteWarning":
     "Slack からアプリを削除し、保存した認証情報も削除します。元に戻せません。もう一度接続すると新しいアプリが作られます。",
   "slack.deleted": "Slack アプリを削除しました。",
+  "slack.deletedCleanupFailed":
+    "Werft では Slack アプリを削除しましたが、Slack 側の後片付けに失敗しました。Slack のアプリ管理画面（api.slack.com/apps）でアプリを削除してください。",
   "slack.revoke": "接続を解除",
   "slack.revokeTitle": "Slack の接続を解除",
   "slack.revokeWarning":
