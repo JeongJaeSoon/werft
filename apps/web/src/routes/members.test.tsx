@@ -628,6 +628,8 @@ describe("구성원 화면", () => {
         json(201, {
           invite_id: "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
           invite_token: token,
+          accept_path: "/invite/test",
+          accept_url: null,
           expires_at: "2026-10-18T00:00:00.000Z",
         }),
     });
@@ -776,6 +778,8 @@ describe("구성원 화면", () => {
           json(201, {
             invite_id: pendingInvite.id,
             invite_token: "k".repeat(43),
+            accept_path: "/invite/test",
+            accept_url: null,
             expires_at: "2026-10-18T00:00:00.000Z",
           }),
       });

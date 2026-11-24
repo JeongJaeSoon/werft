@@ -18,6 +18,9 @@ export const conversationInputIdSchema = z
   .uuid()
   .brand<"ConversationInputId">();
 export type ConversationInputId = z.infer<typeof conversationInputIdSchema>;
+/** One judgment batch: buffered messages of a channel judged together. */
+export const judgmentBatchIdSchema = z.uuid().brand<"JudgmentBatchId">();
+export type JudgmentBatchId = z.infer<typeof judgmentBatchIdSchema>;
 /**
  * A new value for each request that posts a web input's Slack mirror, sent
  * in the post's message metadata, so the post Slack sends back names the one
@@ -85,6 +88,45 @@ export const ENGAGEMENT_KIND_VALUES = [
 ] as const;
 export const engagementKindSchema = z.enum(ENGAGEMENT_KIND_VALUES);
 export type EngagementKind = z.infer<typeof engagementKindSchema>;
+
+/**
+ * What wrote a conversation turn's row: `web_input` is a web input's, made
+ * when it was taken to hold its text, `received` with no decision until a
+ * turn runs on it; `m2` is a turn the conversation runtime ran. A count of
+ * turns or judgments leaves the `received` ones out.
+ */
+export const CONVERSATION_TURN_ORIGIN_VALUES = ["web_input", "m2"] as const;
+export type ConversationTurnOrigin =
+  (typeof CONVERSATION_TURN_ORIGIN_VALUES)[number];
+
+/**
+ * Where a conversation turn's row is: `running` until it ends `decided`
+ * (with one decision), `no_decision` (a limit or a failure ended it first)
+ * or `voided_by_delete` (a message it read was deleted before its result was
+ * written).
+ */
+export const CONVERSATION_TURN_STATE_VALUES = [
+  "received",
+  "running",
+  "decided",
+  "no_decision",
+  "voided_by_delete",
+] as const;
+export type ConversationTurnState =
+  (typeof CONVERSATION_TURN_STATE_VALUES)[number];
+
+/** The one decision a conversation turn ends with. */
+export const CONVERSATION_TURN_DECISION_VALUES = [
+  "reply",
+  "route_to_task",
+  "spawn_task",
+  "no_reply",
+] as const;
+export type ConversationTurnDecision =
+  (typeof CONVERSATION_TURN_DECISION_VALUES)[number];
+
+/** Most characters of a conversation turn's decision reason; the DB checks the same. */
+export const CONVERSATION_TURN_REASON_MAX = 1000;
 
 /**
  * Why a message carries a delete mark: Slack deleted it, or an admin deleted

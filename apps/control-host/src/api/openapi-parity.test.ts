@@ -172,7 +172,7 @@ function apiApp() {
     },
     registerRoutes: (router) => {
       registerAuthRoutes(router, auth);
-      registerInviteRoutes(router, {} as InviteService);
+      registerInviteRoutes(router, {} as InviteService, null);
       registerSessionRoutes(router, {} as SessionService);
       registerSessionShareRoutes(
         router,

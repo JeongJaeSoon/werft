@@ -1,6 +1,7 @@
 import type {
   ChannelSummaryLineId,
   ConversationInputId,
+  ConversationTurnId,
   EngagementKind,
   ScopeKey,
 } from "@werft-ai/contracts";
@@ -23,7 +24,10 @@ export type ContextFragment = { scope: ScopeKey; sources: SourceKey[] } & (
   | {
       kind: "engagement";
       engagementKind: EngagementKind;
-      sessionId: string;
+      /** What the agent took part through: a session, or a conversation turn. */
+      target:
+        | { kind: "session"; sessionId: string }
+        | { kind: "conversation_turn"; turnId: ConversationTurnId };
       at: Date;
     }
   | {

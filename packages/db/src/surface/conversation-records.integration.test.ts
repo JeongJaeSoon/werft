@@ -270,7 +270,13 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     expect(result).toEqual({
       outcome: "deleted",
       workspaceId,
-      counts: { engagements: 1, summaryLines: 1, buffered: 1, marked: 1 },
+      counts: {
+        engagements: 1,
+        summaryLines: 1,
+        buffered: 1,
+        turns: 0,
+        marked: 1,
+      },
       sessionsStopped: [holder.sessionId],
     });
     expect(await recordsLeft(place)).toEqual({
@@ -331,6 +337,7 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
           engagements: 1,
           summary_lines: 1,
           buffered: 1,
+          turns: 0,
           marked: 1,
           by: "operator_cli",
         },
@@ -345,7 +352,13 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     expect(again).toEqual({
       outcome: "unchanged",
       workspaceId,
-      counts: { engagements: 0, summaryLines: 0, buffered: 0, marked: 0 },
+      counts: {
+        engagements: 0,
+        summaryLines: 0,
+        buffered: 0,
+        turns: 0,
+        marked: 0,
+      },
       sessionsStopped: [],
     });
     expect(
@@ -374,7 +387,13 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
 
     expect(result).toMatchObject({
       outcome: "deleted",
-      counts: { engagements: 0, summaryLines: 0, buffered: 1, marked: 0 },
+      counts: {
+        engagements: 0,
+        summaryLines: 0,
+        buffered: 1,
+        turns: 0,
+        marked: 0,
+      },
       sessionsStopped: [],
     });
     expect(
@@ -435,7 +454,13 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     expect(bLock).toBe("locked");
     expect(await deleting).toMatchObject({
       outcome: "deleted",
-      counts: { engagements: 0, summaryLines: 0, buffered: 1, marked: 1 },
+      counts: {
+        engagements: 0,
+        summaryLines: 0,
+        buffered: 1,
+        turns: 0,
+        marked: 1,
+      },
     });
     expect((await recordsLeft(place)).buffered).toBe(0);
   }, 30_000);
@@ -451,7 +476,13 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     });
     expect(result).toMatchObject({
       outcome: "dry_run",
-      counts: { engagements: 1, summaryLines: 0, buffered: 1, marked: 1 },
+      counts: {
+        engagements: 1,
+        summaryLines: 0,
+        buffered: 1,
+        turns: 0,
+        marked: 1,
+      },
     });
     expect(await recordsLeft(place)).toMatchObject({
       engagements: 1,

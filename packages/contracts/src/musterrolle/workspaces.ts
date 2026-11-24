@@ -288,6 +288,10 @@ export const createInviteResponseSchema = z
   .object({
     invite_id: inviteIdSchema,
     invite_token: z.string().min(32).max(256),
+    /** The console path that accepts the invite; it carries the token. */
+    accept_path: z.string().startsWith("/invite/").max(512),
+    /** `accept_path` on CONSOLE_ORIGIN; null when that is unset. */
+    accept_url: z.string().url().max(2048).nullable(),
     expires_at: timestampSchema,
   })
   .strict();

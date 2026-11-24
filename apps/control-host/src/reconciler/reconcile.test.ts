@@ -112,7 +112,7 @@ describe("reconciler run", () => {
       },
       purgeJudgmentBuffer: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
-        return { expired: 9, unlistened: 1 };
+        return { expired: 9, unjudged: 4, unlistened: 1, batches: 3 };
       },
       purgeSlackSourceMarks: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
@@ -152,7 +152,12 @@ describe("reconciler run", () => {
     expect(result.webSessionsDeleted).toBe(6);
     expect(result.envStartsPurged).toBe(4);
     expect(result.slackInboundPayloadsPurged).toBe(8);
-    expect(result.judgmentBufferPurged).toEqual({ expired: 9, unlistened: 1 });
+    expect(result.judgmentBufferPurged).toEqual({
+      expired: 9,
+      unjudged: 4,
+      unlistened: 1,
+      batches: 3,
+    });
     expect(result.slackSourceMarksPurged).toEqual({ deleted: 3, edited: 2 });
     expect(result.slackMembersPurged).toBe(3);
     expect(sink.records).toEqual([
@@ -241,7 +246,13 @@ describe("reconciler run", () => {
       expect.objectContaining({
         level: "info",
         message: "Judgment buffer purged",
-        fields: { dry_run: false, expired_count: 9, unlistened_count: 1 },
+        fields: {
+          dry_run: false,
+          expired_count: 9,
+          unjudged_count: 4,
+          unlistened_count: 1,
+          batches_count: 3,
+        },
       }),
       expect.objectContaining({
         level: "info",
@@ -349,7 +360,7 @@ describe("reconciler run", () => {
       },
       purgeJudgmentBuffer: async ({ dryRun }) => {
         seen.push(dryRun);
-        return { expired: 2, unlistened: 0 };
+        return { expired: 2, unjudged: 0, unlistened: 0, batches: 0 };
       },
       purgeSlackSourceMarks: async ({ dryRun }) => {
         seen.push(dryRun);
@@ -447,7 +458,12 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions: async () => 0,
         purgeExpiredEnvStart: async () => 0,
         purgeFailedSlackInboundPayloads: async () => 0,
-        purgeJudgmentBuffer: async () => ({ expired: 0, unlistened: 0 }),
+        purgeJudgmentBuffer: async () => ({
+          expired: 0,
+          unjudged: 0,
+          unlistened: 0,
+          batches: 0,
+        }),
         purgeSlackSourceMarks: async () => ({ deleted: 0, edited: 0 }),
         purgeSlackChannelMembers: async () => 0,
         purgeAuthAttemptWindows: async () => 0,
@@ -488,7 +504,12 @@ describe("reconciler run", () => {
     const deleteExpiredWebSessions = async () => 0;
     const purgeExpiredEnvStart = async () => 0;
     const purgeFailedSlackInboundPayloads = async () => 0;
-    const purgeJudgmentBuffer = async () => ({ expired: 0, unlistened: 0 });
+    const purgeJudgmentBuffer = async () => ({
+      expired: 0,
+      unjudged: 0,
+      unlistened: 0,
+      batches: 0,
+    });
     const purgeSlackSourceMarks = async () => ({ deleted: 0, edited: 0 });
     const purgeSlackChannelMembers = async () => 0;
     const purgeAuthAttemptWindows = async () => 0;

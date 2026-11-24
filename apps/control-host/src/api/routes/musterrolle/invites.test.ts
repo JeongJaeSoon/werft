@@ -8,6 +8,7 @@ import {
   listInvitesResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
+import { createLogger } from "@werft-ai/observability";
 import {
   type AcceptInviteInput,
   type AuthorizationPolicy,
@@ -132,6 +133,8 @@ function app(
     person?: boolean;
     lockout?: Lockout;
     loginSettings?: Pick<LoginSettingsStore, "read">;
+    consoleOrigin?: string;
+    logLines?: string[];
   } = {},
 ) {
   const service = createInviteService({
@@ -151,8 +154,19 @@ function app(
           revokeInvite: (caller, id) =>
             service.revokeInvite(asPerson(caller), id),
         };
+  const lines = options.logLines;
   return createApiApp({
     authMode: "none",
+    ...(lines
+      ? {
+          logger: createLogger({
+            level: "debug",
+            sinks: [
+              { write: (record) => void lines.push(JSON.stringify(record)) },
+            ],
+          }),
+        }
+      : {}),
     registerPublicRoutes: (router) =>
       registerPublicInviteRoutes(router, {
         invites: store,
@@ -174,7 +188,8 @@ function app(
           ? { loginSettings: options.loginSettings }
           : {}),
       }),
-    registerRoutes: (router) => registerInviteRoutes(router, routed),
+    registerRoutes: (router) =>
+      registerInviteRoutes(router, routed, options.consoleOrigin ?? null),
   });
 }
 
@@ -222,6 +237,41 @@ describe("POST /v1/invites", () => {
     expect(body.invite_token).toMatch(/^apv_[A-Za-z0-9_-]{43}$/);
     expect(stored).toEqual(hashWebSessionToken(body.invite_token));
     expect(body.expires_at).toBe(PENDING.expiresAt.toISOString());
+  });
+
+  test("gives the accept URL on CONSOLE_ORIGIN and logs no token", async () => {
+    const logLines: string[] = [];
+    const response = await send(
+      app(inviteStore(), {
+        consoleOrigin: "https://console.example.com",
+        logLines,
+      }),
+      "/v1/invites",
+      "POST",
+      { email: "invitee@example.com", role: "member" },
+    );
+    expect(response.status).toBe(201);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const body = createInviteResponseSchema.parse(await response.json());
+    expect(body.accept_path).toBe(`/invite/${body.invite_token}`);
+    expect(body.accept_url).toBe(
+      `https://console.example.com/invite/${body.invite_token}`,
+    );
+    expect(logLines.length).toBeGreaterThan(0);
+    const logged = logLines.join("\n");
+    expect(logged).not.toContain(body.invite_token.slice(4));
+    expect(logged).not.toContain("/invite/");
+  });
+
+  test("without CONSOLE_ORIGIN gives the path alone", async () => {
+    const response = await send(app(), "/v1/invites", "POST", {
+      email: "invitee@example.com",
+      role: "member",
+    });
+    expect(response.status).toBe(201);
+    const body = createInviteResponseSchema.parse(await response.json());
+    expect(body.accept_path).toBe(`/invite/${body.invite_token}`);
+    expect(body.accept_url).toBeNull();
   });
 
   test("an address that is already a member, or a bad body, is refused", async () => {

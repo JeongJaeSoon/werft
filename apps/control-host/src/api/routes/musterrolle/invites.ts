@@ -46,9 +46,15 @@ export function generateInviteToken(): string {
   return `apv_${randomBytes(32).toString("base64url")}`;
 }
 
+/** The console route that accepts an invite (apps/web `/invite/$token`). */
+export function inviteAcceptPath(token: string): string {
+  return `/invite/${encodeURIComponent(token)}`;
+}
+
 export function registerInviteRoutes(
   router: ApiRouter,
   service: Pick<InviteService, "issueInvite" | "listInvites" | "revokeInvite">,
+  consoleOrigin: string | null,
 ) {
   apiRoute(router, "createInvite", async (context) => {
     const body = await parseJsonBody(context, createInviteRequestSchema);
@@ -60,6 +66,7 @@ export function registerInviteRoutes(
         tokenHash: hashWebSessionToken(token),
       }),
     );
+    const acceptPath = inviteAcceptPath(token);
     context.header("Cache-Control", "no-store");
     return jsonWithSchema(
       context,
@@ -67,6 +74,11 @@ export function registerInviteRoutes(
       {
         invite_id: invite.id,
         invite_token: token,
+        accept_path: acceptPath,
+        accept_url:
+          consoleOrigin === null
+            ? null
+            : new URL(acceptPath, consoleOrigin).toString(),
         expires_at: invite.expiresAt.toISOString(),
       },
       201,
