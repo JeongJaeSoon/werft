@@ -243,8 +243,14 @@ describe("에이전트 상세 탭", () => {
       "자격 증명",
       "MCP",
       "모델",
+      "판단 모델",
       "답변 언어",
     ]);
+    // A card naming no judgment model runs its judgments on the card's model.
+    expect(
+      within(summary).getByText("판단 모델", { selector: "dt" })
+        .nextElementSibling?.textContent,
+    ).toBe("카드 모델 사용");
     expect(
       within(summary).getByText("릴리스", { selector: "dt" }).nextElementSibling
         ?.textContent,

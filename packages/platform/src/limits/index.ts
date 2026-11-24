@@ -8,6 +8,7 @@ export {
   CONVERSATION_CALL_TOKEN_PREFIX,
   CONVERSATION_TURN_PERMIT_TOKEN_PREFIX,
   type ConversationCalls,
+  type ConversationCallUnavailable,
   conversationCallReserve,
   hashConversationCallToken,
 } from "./conversation-calls.ts";

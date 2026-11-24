@@ -27,7 +27,7 @@ import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { testCatalog } from "../testing/catalog.ts";
+import { TEST_MODEL, testCatalog } from "../testing/catalog.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
@@ -44,7 +44,7 @@ import {
 // Built here so no literal reads as a credential.
 const BEARER = ["conversation", "turn", "authorizer", "bearer"].join("-");
 const WORKSPACE = "00000000-0000-4000-8000-0000000000c4";
-const MODEL = "claude-haiku-4-5";
+const MODEL = TEST_MODEL;
 const LIMITS = { model: MODEL, maxTokens: 128, maxRequestBytes: 2_048 };
 const RESERVE = conversationCallReserve(LIMITS);
 

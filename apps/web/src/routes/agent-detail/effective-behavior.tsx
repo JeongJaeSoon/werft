@@ -39,6 +39,8 @@ export function saveFailureText(t: Translate, reason: string | null): string {
   switch (reason) {
     case "model_not_in_connection":
       return t("agent.save.reason.model_not_in_connection");
+    case "judgment_model_not_in_connection":
+      return t("agent.save.reason.judgment_model_not_in_connection");
     case "credential_unbound":
       return t("agent.save.reason.credential_unbound");
     case "release_refused":

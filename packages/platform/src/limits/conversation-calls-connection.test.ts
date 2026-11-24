@@ -4,7 +4,10 @@ import {
   conversationIdSchema,
 } from "@werft-ai/contracts";
 import type { SessionCatalog } from "../catalog/index.ts";
-import { createConversationCalls } from "./conversation-calls.ts";
+import {
+  createConversationCalls,
+  judgmentCallOf,
+} from "./conversation-calls.ts";
 import type { ConversationCallStore } from "./ports/conversation-call-store.ts";
 
 const MODEL = "claude-haiku-4-5";
@@ -26,7 +29,7 @@ const catalog = {
   },
 } as unknown as Pick<SessionCatalog, "connections">;
 
-function issueWith(connectionId: string) {
+function issueWith(connectionId: string, model = MODEL) {
   const reached: string[] = [];
   const store = {
     issueAtomic: async (input: { connectionId: string }) => {
@@ -48,11 +51,15 @@ function issueWith(connectionId: string) {
       attempt: 1,
       root: { kind: "none" },
       connectionId,
-      model: MODEL,
+      model,
       maxTokens: 256,
       maxRequestBytes: 4_096,
     })
-    .then((result) => ({ outcome: result.outcome, reached }));
+    .then((result) => ({
+      outcome: result.outcome,
+      ...("reason" in result ? { reason: result.reason } : {}),
+      reached,
+    }));
 }
 
 describe("a conversation call runs only on a connection the installation holds", () => {
@@ -74,6 +81,7 @@ describe("a conversation call runs only on a connection the installation holds",
     ]) {
       expect(await issueWith(id)).toEqual({
         outcome: "unavailable",
+        reason: "connection_missing",
         reached: [],
       });
     }
@@ -82,7 +90,68 @@ describe("a conversation call runs only on a connection the installation holds",
   test("a listed connection that serves no Messages is unavailable", async () => {
     expect(await issueWith("conn-responses")).toEqual({
       outcome: "unavailable",
+      reason: "connection_missing",
       reached: [],
+    });
+  });
+
+  test("a model off the connection's list is unavailable before anything is reserved", async () => {
+    expect(await issueWith("conn-anthropic", "claude-haiku-3")).toEqual({
+      outcome: "unavailable",
+      reason: "model_removed",
+      reached: [],
+    });
+  });
+});
+
+describe("an agent's judgment calls use its release's judgment model", () => {
+  const release = (
+    snapshot: Record<string, unknown>,
+    connection_id = "conn-anthropic",
+  ) => ({
+    id: "sha256:release",
+    connection_id,
+    runtime_config_snapshot: { model: MODEL, ...snapshot },
+  });
+
+  test("the judgment model when the card names one", () => {
+    const catalogWith = {
+      connections: {
+        "conn-anthropic": {
+          provider: provider("anthropic"),
+          models: [MODEL, "claude-opus-4-5"],
+        },
+      },
+    } as unknown as Pick<SessionCatalog, "connections">;
+    expect(
+      judgmentCallOf(
+        catalogWith,
+        release({ model: "claude-opus-4-5", judgment_model: MODEL }),
+      ),
+    ).toEqual({
+      outcome: "ready",
+      releaseId: "sha256:release",
+      connectionId: "conn-anthropic",
+      model: MODEL,
+    });
+  });
+
+  test("the card's model when it names none", () => {
+    expect(judgmentCallOf(catalog, release({}))).toEqual({
+      outcome: "ready",
+      releaseId: "sha256:release",
+      connectionId: "conn-anthropic",
+      model: MODEL,
+    });
+  });
+
+  test("a judgment model off the list or a connection gone is a reason, not a fallback", () => {
+    expect(
+      judgmentCallOf(catalog, release({ judgment_model: "claude-haiku-3" })),
+    ).toEqual({ outcome: "unavailable", reason: "model_removed" });
+    expect(judgmentCallOf(catalog, release({}, "conn-gone"))).toEqual({
+      outcome: "unavailable",
+      reason: "connection_missing",
     });
   });
 });
