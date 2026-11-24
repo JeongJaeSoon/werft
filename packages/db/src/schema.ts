@@ -715,6 +715,14 @@ export const setupLinks = pgTable("setup_links", {
   tokenHash: bytea("token_hash").primaryKey(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   epoch: bigint("epoch", { mode: "number" }).notNull(),
+  // Null on a link issued before 0349 (or by an image before it): such a link
+  // has no id and takes any email.
+  id: uuid(),
+  /** The only address the link makes an owner for. */
+  email: text(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 // Advanced by trigger `setup_link_epoch_bump` whenever a live owner stops being

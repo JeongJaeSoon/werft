@@ -116,8 +116,11 @@ echo "VERIFY_API=http://127.0.0.1:${api##*:}" >>"$run/state.env"
 # The first owner's one-time setup link, on an empty stack only (a demo run
 # has its owner, and the command issues none). state.env keeps the part
 # after #setup=; the console opens /bootstrap#setup=<it>.
-if link=$(docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null 2>/dev/null); then
-  printf 'VERIFY_SETUP_TOKEN=%q\n' "${link##*#setup=}" >>"$run/state.env"
+# web-user.mjs bootstraps `owner` as owner@example.test.
+# shellcheck source=../lib/setup-link-token.sh
+. "$repo/scripts/lib/setup-link-token.sh"
+if link=$(setup_link_token owner@example.test docker compose --profile apps exec -T api 2>/dev/null); then
+  printf 'VERIFY_SETUP_TOKEN=%q\n' "$link" >>"$run/state.env"
 fi
 echo "run id: $run_id" >&2
 echo "$run"
