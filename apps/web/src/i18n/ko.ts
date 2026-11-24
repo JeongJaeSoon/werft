@@ -204,6 +204,20 @@ export const slackKo = {
     "그사이 고지가 바뀌었습니다. 새 고지를 읽고 다시 승인하세요.",
   "slack.channelColumn": "채널",
   "slack.useColumn": "사용",
+  "slack.listenColumn": "듣기",
+  "slack.listen.free": "모든 글",
+  "slack.listen.mention": "멘션에만",
+  "slack.listen.off": "듣지 않음",
+  "slack.listenOf": "{channel} 듣기",
+  "slack.listenHint":
+    "듣기 설정은 에이전트의 대화 스위치를 켠 뒤부터 적용됩니다.",
+  "slack.listenSaved": "듣기 설정을 저장했습니다.",
+  "slack.listenSavedDropped":
+    "듣기 설정을 저장했습니다. 이 채널에 쌓인 판단 대기 글은 지웠습니다.",
+  "slack.listenRefused": "저장 안 됨",
+  "slack.listenFailed": "{channel}의 듣기 설정을 저장하지 못했습니다. {reason}",
+  "slack.listenExternalShared":
+    "{channel}: 외부 조직과 공유한 채널은 멘션으로만 들을 수 있습니다. 멘션에만이나 듣지 않음으로 정하세요.",
   "slack.basic": "기본",
   "slack.advanced": "고급",
   "slack.homeChannel": "홈 채널",
