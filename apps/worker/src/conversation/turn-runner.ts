@@ -37,9 +37,9 @@ function providerMessageId(data: unknown): string | null {
 
 /**
  * A turn runs in its topic's directory, on a fresh engine process: the
- * engine reads its provider token once at start, and a turn's token is good
- * for one call. Its provider call goes to the egress proxy with that token,
- * and the proxy adds the credential this process never holds.
+ * engine reads its provider token, the turn's permit, once at start. Each
+ * provider call goes to the egress proxy with it, and the proxy adds the
+ * credential this process never holds.
  */
 export function createConversationTurnRunner(deps: {
   runtime: RuntimeModule;

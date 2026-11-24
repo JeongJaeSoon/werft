@@ -8,6 +8,8 @@ import type {
   ConversationTopicId,
   ConversationTurnCallRefusal,
   ConversationTurnId,
+  ConversationTurnLimit,
+  ConversationTurnLimitSide,
 } from "@werft-ai/contracts";
 import type { BudgetRoot } from "../budget-accounts.ts";
 import type { ConversationCallLimit } from "../conversation-call-limits.ts";
@@ -68,12 +70,24 @@ export interface ConversationCallStore {
   }): Promise<ConversationTurnCallAuthorization>;
   /**
    * Ends a running turn without a decision, which also ends its permit, and
-   * says what its last refused call was refused for.
+   * says what its last refused call was refused for. `limitReached` says,
+   * from that refusal, which limit ended the turn, kept on its row.
    */
-  endTurnAtomic(input: { turnId: ConversationTurnId }): Promise<{
+  endTurnAtomic(input: {
+    turnId: ConversationTurnId;
+    limitReached?: (
+      refusal: ConversationTurnCallRefusal | null,
+    ) => ConversationTurnLimitReached | null;
+  }): Promise<{
     ended: "recorded" | "already_ended" | "gone";
     refusal: ConversationTurnCallRefusal | null;
+    limit: ConversationTurnLimitReached | null;
   }>;
+  /** Ends the turn's permit no later than `withinMs` from now. */
+  boundTurnPermitAtomic(input: {
+    turnId: ConversationTurnId;
+    withinMs: number;
+  }): Promise<void>;
   /** The bound exchange's usage report, settled on the account once. */
   settleAtomic(input: {
     callId: ConversationCallId;
@@ -189,6 +203,12 @@ export type ConversationTurnPermitIssue =
   // The conversation is not the agent's, or the topic not the conversation's.
   | { outcome: "unknown_conversation" };
 
+/** The limit that ended a turn, and who held the turn there. */
+export type ConversationTurnLimitReached = {
+  limit: ConversationTurnLimit;
+  by: ConversationTurnLimitSide;
+};
+
 export type ConversationTurnCallAuthorization =
   | (Extract<ConversationCallAuthorization, { outcome: "ok" }> & {
       turnId: ConversationTurnId;
@@ -202,6 +222,8 @@ export type ConversationTurnCallAuthorization =
   | (Extract<ConversationCallIssue, { outcome: "concurrency_limited" }> & {
       turnId: ConversationTurnId;
     })
+  // The turn had made as many calls as a turn may.
+  | { outcome: "turn_limited"; turnId: ConversationTurnId }
   // The permit's connection is gone from this API's catalog.
   | { outcome: "unavailable" }
   // Unknown, expired, its turn ended, or the exchange is another call's.

@@ -304,6 +304,8 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 
 migration `0345_conversation_turns` が会話ターンの記録の表 `conversation_turns` を加え、`conversation_engagements`・`conversation_calls`・`conversation_inputs` にその表を指す欄 `conversation_turn_id` を、`conversation_inputs` に `body_sha256` を加える。外部キーと検査は `NOT VALID` で加えてから別に検証し、インデックスは `CONCURRENTLY` で作るので、表を長く止めない。上げるときにすることはない。このリリースには人のメッセージで会話ターンを動かす経路がないので、Slack のメンションと返信、Web・API のセッションの動作は変わらない。
 
+migration `0348_conversation_turn_limits` は `conversation_turns` に、上限に達して終わったターンの上限（`limit_reached`）と、その上限を守った側（`limit_reached_by`）の 2 つの欄を加える。既定値のない空の欄なので行を書き直さず、検査は `NOT VALID` で加えてから別に検証する。上げるときにすることはない。
+
 - Web 入力の本文は、その入力の会話ターンの行（種類 `web_input`、状態 `received`）から読む。入力受付の行はその行を指し、本文の SHA-256 を持つ。同じメッセージキーの再送はこのハッシュで比べる。サポート期間内の前のイメージが読めるよう、入力受付の行も本文をそのまま持ち、後のリリースが消す。
 - 前のリリース（上げるあいだ一緒に動く前のイメージを含む）が受け付けた Web 入力には、api の起動ごとに回る整理が一つずつターンの行を作る。その数はログ `Web inputs given their turn rows` に残る。作れなかった入力は入力 id と一緒に警告として残り、次の起動でもう一度試す。対象の行がなければ何も書かない。
 - [管理者削除](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)はその会話の会話ターンの記録も削除し、出力と receipt に削除した数 `turns` を加える。Web 入力のターンの行は削除しない。

@@ -16,6 +16,7 @@ import {
   type AgentStore,
   type ConversationCalls,
   type ConversationRuntimeTurns,
+  type ConversationTurnLimitReached,
   type ConversationTurnOutcome,
   type ConversationTurnQueue,
   connectionOf,
@@ -152,6 +153,8 @@ export type OperatorTurnResult =
       // The last call the turn asked for was refused, and why: the turn
       // ended on it.
       refused?: ConversationTurnCallRefusal;
+      // The limit that ended the turn, and who held it there.
+      limit_reached?: ConversationTurnLimitReached;
     };
 
 /**
@@ -252,7 +255,7 @@ export function createOperatorConversationTurns(deps: {
         await deps.calls.endTurn(turnId);
         throw error;
       }
-      const ended = await deps.calls.endTurn(turnId);
+      const ended = await deps.calls.endTurn(turnId, turn ?? undefined);
       // Queued just above, so it has an end.
       if (turn === null)
         throw new Error(`Conversation turn ${turnId} vanished`);
@@ -261,6 +264,7 @@ export function createOperatorConversationTurns(deps: {
         turn_id: turnId,
         turn,
         ...(ended.refusal === null ? {} : { refused: ended.refusal }),
+        ...(ended.limit === null ? {} : { limit_reached: ended.limit }),
       };
     },
   };

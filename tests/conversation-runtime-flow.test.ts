@@ -75,7 +75,7 @@ afterEach(async () => {
 
 async function stack(
   replies: ReplyResolver,
-  options: { calls?: number; limitMs?: number } = {},
+  options: { calls?: number; limitMs?: number; runnerLimits?: boolean } = {},
 ) {
   root = await realpath(await mkdtemp(join(tmpdir(), "conversation-flow-")));
   provider = startFakeAnthropicServer(replies);
@@ -150,6 +150,10 @@ async function stack(
     egressCredentialUrl: `http://127.0.0.1:${proxy.port}`,
     topics,
     ...(options.limitMs === undefined ? {} : { limitMs: options.limitMs }),
+    // A runtime that got past its own count: the engine's stop is far off too.
+    ...(options.runnerLimits === false
+      ? { modelCallLimit: 100, toolCallLimit: 100 }
+      : {}),
   });
   /** A turn with a fresh permit the authorizer grants, unless `known` is false. */
   const turn = (
@@ -281,19 +285,11 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
       s.live,
     );
 
-    // The tool call went nowhere, and the call after it found the turn's
-    // one-call token spent.
-    expect(shell).toEqual({
-      outcome: "failed",
-      reason: "engine_failed",
-      detail: "api_error",
-    });
-    expect(write).toEqual({
-      outcome: "failed",
-      reason: "engine_failed",
-      detail: "api_error",
-    });
-    expect(s.provider.requests).toHaveLength(2);
+    // Each tool call went nowhere: the model was told so and called again,
+    // and the first turn ended on its third call's answer.
+    expect(shell).toEqual({ outcome: "completed", text: "done" });
+    expect(write).toEqual({ outcome: "completed", text: "done" });
+    expect(s.provider.requests).toHaveLength(4);
     for (const request of s.provider.requests) {
       expect(request.body.tools ?? []).toEqual([]);
     }
@@ -447,4 +443,21 @@ describe("a conversation turn's limits, counted by the runner on the pinned engi
     ).toBe(true);
     expect(s.provider.requests).toHaveLength(1);
   }, 60_000);
+});
+
+describe("a conversation turn's limits behind a runtime that does not count", () => {
+  test("its calls stop at the permit's count, whatever the runtime asks for", async () => {
+    const s = await stack(
+      (_request, index) => toolReply("Bash", { command: `echo ${index}` }),
+      // The server's count of a turn's calls, as the permit holds it.
+      { calls: 8, runnerLimits: false },
+    );
+
+    const ended = await s.runner.run(s.turn(crypto.randomUUID(), "go"), s.live);
+
+    expect(ended).toMatchObject({ outcome: "failed", reason: "engine_failed" });
+    expect(s.provider.requests).toHaveLength(8);
+    expect(s.asked.filter((ask) => !ask.granted)).toHaveLength(1);
+    expect(await processesUnder(s.root)).toEqual([]);
+  }, 120_000);
 });

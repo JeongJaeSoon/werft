@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  CONVERSATION_TURN_LIMIT_VALUES,
   conversationIdSchema,
   conversationTopicIdSchema,
 } from "../domain/conversation.ts";
@@ -45,15 +46,6 @@ export const CONVERSATION_TURN_TEXT_MAX = 16_000;
 export const CONVERSATION_TURN_MODEL_CALL_LIMIT = 8;
 /** How many tool calls one conversation turn may make, whatever their outcome. */
 export const CONVERSATION_TURN_TOOL_CALL_LIMIT = 12;
-
-/** Which of a turn's limits cut it. */
-export const CONVERSATION_TURN_LIMIT_VALUES = [
-  "model_call_limit",
-  "tool_call_limit",
-  "time_limit",
-] as const;
-export type ConversationTurnLimit =
-  (typeof CONVERSATION_TURN_LIMIT_VALUES)[number];
 
 /**
  * What bounds a turn: the one topic, of the one conversation of the one

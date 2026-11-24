@@ -1,12 +1,15 @@
 import {
   CONVERSATION_TURN_LEASE_MS,
+  CONVERSATION_TURN_LIMIT_VALUES,
   type ConversationRuntimeId,
   type ConversationRuntimeTurn,
+  type ConversationTurnCallRefusal,
   type ConversationTurnId,
   type ConversationTurnLeaseId,
   type ConversationTurnResult,
   conversationTurnLeaseIdSchema,
 } from "@werft-ai/contracts";
+import type { ConversationTurnLimitReached } from "../limits/ports/conversation-call-store.ts";
 import type {
   ConversationTurnOutcome,
   ConversationTurnQueue,
@@ -165,6 +168,28 @@ function sameResult(
   return false;
 }
 
+/**
+ * Which limit ended a turn and who held it there: the server, when it
+ * refused a call past the turn's count or the turn's lease ran out; else the
+ * runtime, by the reason it reported.
+ */
+export function conversationTurnLimitReached(
+  outcome: ConversationTurnOutcome | null,
+  refusal: ConversationTurnCallRefusal | null,
+): ConversationTurnLimitReached | null {
+  if (refusal === "turn_limit") {
+    return { limit: "model_call_limit", by: "server" };
+  }
+  if (outcome?.outcome !== "failed") return null;
+  if (outcome.reason === "lease_expired") {
+    return { limit: "time_limit", by: "server" };
+  }
+  const limit = CONVERSATION_TURN_LIMIT_VALUES.find(
+    (value) => value === outcome.reason,
+  );
+  return limit === undefined ? null : { limit, by: "runner" };
+}
+
 export type ConversationRuntimeTurns = ReturnType<
   typeof createConversationRuntimeTurns
 >;
@@ -181,6 +206,8 @@ export function createConversationRuntimeTurns(deps: {
   /** How often a waiting poll looks at the queue again. */
   pollMs?: number;
   leaseMs?: number;
+  /** Told of each turn as it is leased, before the runtime has it. */
+  leased?: (turn: ConversationRuntimeTurn, leaseMs: number) => Promise<void>;
 }) {
   const now = deps.now ?? (() => new Date());
   const sleep =
@@ -208,7 +235,10 @@ export function createConversationRuntimeTurns(deps: {
           now: lastPollAt,
           leaseMs,
         });
-        if (turn !== null) return turn;
+        if (turn !== null) {
+          await deps.leased?.(turn, leaseMs);
+          return turn;
+        }
         const left = deadline - now().getTime();
         if (left <= 0 || input.stop?.aborted === true) return null;
         await sleep(Math.min(pollMs, left));

@@ -16,6 +16,8 @@ import {
   connectionOf,
   type SessionCatalog,
 } from "../catalog/index.ts";
+import { conversationTurnLimitReached } from "../conversations/conversation-turns.ts";
+import type { ConversationTurnOutcome } from "../ports/conversation-turn-queue.ts";
 import { hashToken } from "../token-hash.ts";
 import type { BudgetRoot } from "./budget-accounts.ts";
 import type { ProviderUsage } from "./model-prices.ts";
@@ -293,8 +295,19 @@ export function createConversationCalls(deps: {
      * Ends a turn issued here once its runtime is done with it, and its
      * permit with it: no call is granted on it after this.
      */
-    endTurn(turnId: ConversationTurnId) {
-      return deps.store.endTurnAtomic({ turnId });
+    endTurn(turnId: ConversationTurnId, outcome?: ConversationTurnOutcome) {
+      return deps.store.endTurnAtomic({
+        turnId,
+        limitReached: (refusal) =>
+          conversationTurnLimitReached(outcome ?? null, refusal),
+      });
+    },
+    /**
+     * Holds a turn's permit to its runtime's lease: once the lease is out,
+     * no call is granted on it, whatever the runtime does.
+     */
+    boundTurnPermit(turnId: ConversationTurnId, withinMs: number) {
+      return deps.store.boundTurnPermitAtomic({ turnId, withinMs });
     },
   };
 }

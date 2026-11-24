@@ -1279,6 +1279,13 @@ const conversationTurnQueue = createMemoryConversationTurnQueue();
 assertConversationTurnDispatch(process.env, conversationTurnQueue);
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
+  // A turn's calls end with its runtime's lease, the turn's time limit as
+  // the server holds it.
+  leased: (turn, leaseMs) =>
+    conversationCallStore.boundTurnPermitAtomic({
+      turnId: turn.turn_id,
+      withinMs: leaseMs,
+    }),
 });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),

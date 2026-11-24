@@ -11,6 +11,7 @@ import {
 } from "@werft-ai/contracts";
 import type { QueuedConversationTurn } from "../ports/conversation-turn-queue.ts";
 import {
+  conversationTurnLimitReached,
   createConversationRuntimeTurns,
   createMemoryConversationTurnQueue,
 } from "./conversation-turns.ts";
@@ -232,5 +233,72 @@ describe("conversation turns over the memory queue", () => {
     expect(
       await h.turns.ended(conversationTurnIdSchema.parse(crypto.randomUUID())),
     ).toBeNull();
+  });
+});
+
+describe("the limit a conversation turn ended on", () => {
+  test("each turn leased is told, with its lease, before the runtime has it", async () => {
+    const told: Array<[string, number]> = [];
+    const turns = createConversationRuntimeTurns({
+      queue: createMemoryConversationTurnQueue(),
+      now: () => START,
+      leased: async (turn, leaseMs) => {
+        told.push([turn.turn_id, leaseMs]);
+      },
+    });
+    const turn = queued();
+    await turns.queue.enqueue(turn, new Date(START.getTime() + 30_000));
+    expect(told).toEqual([]);
+    await turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    expect(told).toEqual([[turn.turn_id, CONVERSATION_TURN_LEASE_MS]]);
+    // A poll that finds nothing tells nothing.
+    await turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    expect(told).toHaveLength(1);
+  });
+
+  test("is the server's when it refused a call past the count or the lease ran out, the runner's by its report otherwise", () => {
+    expect(
+      conversationTurnLimitReached(
+        { outcome: "failed", reason: "engine_failed" },
+        "turn_limit",
+      ),
+    ).toEqual({ limit: "model_call_limit", by: "server" });
+    // The server's refusal wins over the runner's own word for it.
+    expect(
+      conversationTurnLimitReached(
+        { outcome: "failed", reason: "model_call_limit" },
+        "turn_limit",
+      ),
+    ).toEqual({ limit: "model_call_limit", by: "server" });
+    expect(
+      conversationTurnLimitReached(
+        { outcome: "failed", reason: "lease_expired" },
+        null,
+      ),
+    ).toEqual({ limit: "time_limit", by: "server" });
+    for (const limit of [
+      "model_call_limit",
+      "tool_call_limit",
+      "time_limit",
+    ] as const) {
+      expect(
+        conversationTurnLimitReached(
+          { outcome: "failed", reason: limit },
+          null,
+        ),
+      ).toEqual({ limit, by: "runner" });
+    }
+    for (const reason of [
+      "engine_failed",
+      "runtime_failed",
+      "interrupted",
+      "not_taken",
+    ] as const) {
+      expect(
+        conversationTurnLimitReached({ outcome: "failed", reason }, "budget"),
+      ).toBeNull();
+    }
+    expect(conversationTurnLimitReached(done, null)).toBeNull();
+    expect(conversationTurnLimitReached(null, null)).toBeNull();
   });
 });

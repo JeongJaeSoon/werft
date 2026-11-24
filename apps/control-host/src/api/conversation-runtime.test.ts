@@ -11,6 +11,7 @@ import {
 import { createLogger } from "@werft-ai/observability";
 import {
   type ConversationCalls,
+  conversationTurnLimitReached,
   createConversationRuntimeTurns,
   createMemoryConversationTurnQueue,
 } from "@werft-ai/platform";
@@ -178,9 +179,14 @@ function operatorHarness(
               expiresAt: new Date(now().getTime() + 120_000),
             };
       },
-      async endTurn(turnId) {
+      async endTurn(turnId, outcome) {
         ended.push(turnId);
-        return { ended: "recorded", refusal: options.refusal ?? null };
+        const refusal = options.refusal ?? null;
+        return {
+          ended: "recorded",
+          refusal,
+          limit: conversationTurnLimitReached(outcome ?? null, refusal),
+        };
       },
     },
     agents: {
