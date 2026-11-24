@@ -47,14 +47,22 @@ const app = createApiApp({
     }),
 });
 
+// Middleware is registered as ALL and takes next; an endpoint mounted with
+// all() is ALL too, so it is called with both a read and a write.
 const internalRoutes = app.routes
   .filter(
-    (route) => route.method !== "ALL" && route.path.startsWith("/internal/"),
+    (route) =>
+      (route.path === "/internal" || route.path.startsWith("/internal/")) &&
+      !(route.method === "ALL" && route.handler.length > 1),
   )
-  .map((route) => ({
-    method: route.method,
-    path: route.path.replace(/:[^/]+/g, "x"),
-  }));
+  .flatMap((route) =>
+    (route.method === "ALL" ? ["GET", "POST"] : [route.method]).map(
+      (method) => ({
+        method,
+        path: route.path.replace(/:[^/]+/g, "x").replace(/\*/g, "x"),
+      }),
+    ),
+  );
 
 describe("/internal shares the public listener, so every route needs its own bearer", () => {
   test("the table holds both families", () => {

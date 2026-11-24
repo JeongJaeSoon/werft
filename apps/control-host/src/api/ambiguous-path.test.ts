@@ -63,6 +63,8 @@ describe("ambiguousPathGuard on a real listener", () => {
     "/v1/sessions",
     "/internal/worker/heartbeat",
     "/v1/search?q=a%5Cb",
+    // An outputs path is one percent-encoded segment.
+    "/v1/sessions/x/outputs/out%2Freport.md",
   ])("%s reaches the handler", async (path) => {
     const { server, reached } = guarded();
     const answer = await sendRaw(server.port ?? 0, path);
