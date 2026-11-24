@@ -53,6 +53,8 @@ const LATEST_WINS: Record<string, string> = {
     "every main run mirrors the whole list as of its own commit",
   "release-latest":
     "every run marks the highest stable of all published releases Latest",
+  "pages-${{ (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main') && 'deploy' || github.run_id }}":
+    "every run deploys the site its tags and manual runs call for, not its own ref",
 };
 
 // Serial groups of one release. Jobs share one only when they release the same
@@ -66,17 +68,7 @@ const PER_RELEASE: Record<string, string> = {
     "the GitHub Release of the tag a main run releases",
 };
 
-// Shared serial groups on a release path whose pending run can still be lost.
-// Known pending under 94S-2068: not allowed, only documented, so the test keeps
-// passing until each is fixed. Remove a name here when its group is fixed.
-const PENDING_94S_2068: Record<string, string> = {
-  pages:
-    "deploys its own ref, so a later run of an older ref replaces a newer one",
-};
-
-const NAMED = [LATEST_WINS, PER_RELEASE, PENDING_94S_2068].flatMap((list) =>
-  Object.keys(list),
-);
+const NAMED = [LATEST_WINS, PER_RELEASE].flatMap((list) => Object.keys(list));
 
 const groupsOf = ({ file, workflow }: (typeof workflows)[number]) => [
   ...(workflow.concurrency ? [{ where: file, ...workflow.concurrency }] : []),
@@ -208,5 +200,43 @@ describe("images.yml release groups", () => {
       .filter((line) => line.includes("draft=false") && line.includes("PATCH"));
     expect(publishes).toHaveLength(1);
     expect(publishes[0]).toContain("-f make_latest=false");
+  });
+});
+
+describe("pages.yml deploys what the site should be, not the run's ref", () => {
+  const pages = workflows.find((w) => w.file === "pages.yml")?.workflow;
+  const jobs = (pages?.jobs ?? {}) as Record<
+    string,
+    Job & {
+      needs?: string[];
+      steps?: { uses?: string; with?: Record<string, string | number> }[];
+    }
+  >;
+  const target = "${{ needs.target.outputs.sha }}";
+
+  test("every job after `target` checks out the commit it picked", () => {
+    const others = Object.entries(jobs).filter(([name]) => name !== "target");
+    expect(others.map(([name]) => name)).toEqual(["docs", "deploy"]);
+    for (const [, job] of others) {
+      expect(job.needs).toContain("target");
+      const checkouts = (job.steps ?? []).filter((step) =>
+        step.uses?.startsWith("actions/checkout@"),
+      );
+      expect(checkouts).toHaveLength(1);
+      expect(checkouts[0]?.with?.ref).toBe(target);
+    }
+  });
+
+  test("nothing a run builds or deploys is chosen by its own ref or commit", () => {
+    for (const [name, job] of Object.entries(jobs)) {
+      if (name === "target") continue;
+      for (const step of job.steps ?? []) {
+        const text = JSON.stringify([step.run, step.env, step.with]);
+        expect(text).not.toContain("GITHUB_SHA");
+        expect(text).not.toContain("GITHUB_REF");
+        expect(text).not.toContain("github.sha");
+        expect(text).not.toContain("github.ref");
+      }
+    }
   });
 });
