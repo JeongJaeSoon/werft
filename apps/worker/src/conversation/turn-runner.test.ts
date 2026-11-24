@@ -51,11 +51,15 @@ const turn: ConversationRuntimeTurn = conversationRuntimeTurnSchema.parse({
   input: { id: crypto.randomUUID(), text: "hello" },
 });
 
-const ended = (isError = false, reason?: string): RuntimeEvent => ({
+const ended = (
+  isError = false,
+  reason?: string,
+  abortedByStop = false,
+): RuntimeEvent => ({
   type: "turn.ended",
   turn: {
     isError,
-    abortedByStop: false,
+    abortedByStop,
     budgetExceeded: false,
     ...(reason === undefined ? {} : { failure: { reason } }),
     engineResult: {},
@@ -95,10 +99,7 @@ function scripted(events: RuntimeEvent[] | "hang" | "throw") {
         await new Promise<void>((resolve) => {
           abort = resolve;
         });
-        yield {
-          ...ended(true),
-          turn: { ...ended(true).turn, abortedByStop: true },
-        } as RuntimeEvent;
+        yield ended(true, undefined, true);
         return;
       }
       if (events !== "throw") yield* events;
@@ -244,7 +245,7 @@ describe("createConversationTurnRunner", () => {
       { ...module, builtinTools: undefined },
       { ...module, eventCodec: undefined },
     ]) {
-      expect(() => runnerOf(lacking as RuntimeModule)).toThrow(
+      expect(() => runnerOf(lacking as unknown as RuntimeModule)).toThrow(
         /cannot serve conversation turns/,
       );
     }

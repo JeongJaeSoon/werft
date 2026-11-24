@@ -38,6 +38,7 @@ import {
 } from "../scripts/third-party-notices.ts";
 import {
   COMPOSE_RENDER_TIMEOUT_MS,
+  CONVERSATION_RUNTIME,
   CORE,
   DATADOG_OVERLAY,
   FAKE_MODEL,
@@ -2579,6 +2580,102 @@ const composeServices = (path: string) =>
 /** The local stack's services as infra/compose.yml merges them. */
 const localStack = () => layeredServices<ComposeService>(LOCAL_LAYERS);
 
+describe("the conversation runtime in compose", () => {
+  type RuntimeService = ComposeService & {
+    cap_drop?: string[];
+    networks?: string[];
+    profiles?: string[] | null;
+    security_opt?: string[];
+    tmpfs?: string[];
+    user?: string;
+  };
+  const core = servicesOf(CORE) as Record<string, RuntimeService>;
+  const runtime = core["conversation-runtime"];
+  const layers = [...LOCAL_LAYERS, FAKE_MODEL];
+  const on = layeredServices<RuntimeService>([...layers, CONVERSATION_RUNTIME]);
+
+  test("is off, and the API without its bearer, unless the overlay is laid over the stack", () => {
+    expect(runtime?.profiles).toEqual(["conversation-runtime"]);
+    const off = layeredServices<RuntimeService>(layers);
+    expect(off.api?.environment?.CONVERSATION_RUNTIME_TOKEN).toBe(
+      "$" + "{CONVERSATION_RUNTIME_TOKEN:-}",
+    );
+    // The overlay resets the profile away.
+    expect(on["conversation-runtime"]?.profiles).toEqual([]);
+    // One value on both sides.
+    expect(on.api?.environment?.CONVERSATION_RUNTIME_TOKEN).toMatch(
+      /^\$\{CONVERSATION_RUNTIME_TOKEN:-.{32,}\}$/,
+    );
+    expect(
+      on["conversation-runtime"]?.environment?.CONVERSATION_RUNTIME_TOKEN,
+    ).toBe(on.api?.environment?.CONVERSATION_RUNTIME_TOKEN);
+  });
+
+  test("runs the worker image on its conversation entry point, locked down, with no volume, port or key", () => {
+    expect(runtime?.image).toBe(core.worker?.image);
+    expect(runtime?.build).toBeUndefined();
+    expect(runtime?.command).toEqual([
+      "bun",
+      "run",
+      "apps/worker/src/conversation/main.ts",
+    ]);
+    expect(existsSync(join(root, "apps/worker/src/conversation/main.ts"))).toBe(
+      true,
+    );
+    expect(runtime?.read_only).toBe(true);
+    expect(runtime?.user).toBe("1000:1000");
+    expect(runtime?.cap_drop).toEqual(["ALL"]);
+    expect(runtime?.security_opt).toEqual(["no-new-privileges:true"]);
+    // No workspace volume, no checkout, no Docker socket: tmpfs alone.
+    expect(runtime?.volumes).toBeUndefined();
+    expect(runtime?.tmpfs?.map((mount) => mount.split(":")[0])).toEqual([
+      "/tmp",
+      "/conversation",
+    ]);
+    expect(runtime?.ports).toBeUndefined();
+    // Its bearer and where the API and the proxy are; no provider, repository,
+    // database or master key in any layer.
+    for (const service of [runtime, on["conversation-runtime"]]) {
+      expect(Object.keys(service?.environment ?? {}).sort()).toEqual([
+        "CONVERSATION_RUNTIME_TOKEN",
+        "CONVERSATION_TOPICS_DIR",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LOG_LEVEL",
+        "NO_PROXY",
+        "WORKER_EGRESS_CREDENTIAL_URL",
+        "WORKER_GATEWAY_URL",
+      ]);
+      expect(service?.env_file).toBeUndefined();
+    }
+  });
+
+  test("shares an internal network with the egress proxy alone, which is its only way out", () => {
+    const networks = (
+      Bun.YAML.parse(read(CORE)) as {
+        networks: Record<string, { internal?: boolean } | null>;
+      }
+    ).networks;
+    expect(networks["conversation-runtime"]).toEqual({ internal: true });
+    expect(runtime?.networks).toEqual(["conversation-runtime"]);
+    expect(runtime?.environment?.HTTP_PROXY).toBe(
+      core.scheduler?.environment?.EXECUTION_EGRESS_PROXY_URL,
+    );
+    // Without the overlay the proxy is not on it, and no stack has the network.
+    expect(core["egress-proxy"]?.networks).toBeUndefined();
+    const members = Object.entries(on)
+      .filter(([, service]) =>
+        service.networks?.includes("conversation-runtime"),
+      )
+      .map(([name]) => name);
+    expect(members.sort()).toEqual(["conversation-runtime", "egress-proxy"]);
+    expect(on["egress-proxy"]?.networks).toEqual([
+      "default",
+      "conversation-runtime",
+    ]);
+  });
+});
+
 describe("compose publishes nothing beyond loopback and runs pinned images", () => {
   const services = localStack();
   const restore = composeServices("infra/compose.restore.yml");
@@ -2733,6 +2830,11 @@ function render(
 // installation that adds to it and loosens nothing.
 describe("compose layers", () => {
   const core = servicesOf(CORE);
+  // What a stack runs of it: the conversation runtime stays behind its
+  // profile until its overlay is laid over.
+  const coreServices = Object.keys(core)
+    .filter((name) => name !== "conversation-runtime")
+    .sort();
   const LOCAL_DEPENDENCIES = ["localstack", "local-s3-init", "fake-messages"];
   const APP_IMAGES = {
     API_IMAGE: `registry.invalid/control-host@sha256:${"a".repeat(64)}`,
@@ -3108,13 +3210,15 @@ describe("compose layers", () => {
       });
       const { exitCode, stderr, model } = render(LOCAL_LAYERS);
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-      // Without their overlays, the fake Messages API and the fake Responses
-      // API (infra/compose.codex-worker.yml) stay behind their profiles.
+      // Without their overlays, the fake Messages API, the fake Responses
+      // API (infra/compose.codex-worker.yml) and the conversation runtime
+      // stay behind their profiles.
       const merged = Object.fromEntries(
         Object.entries(localStack()).filter(
           ([, service]) =>
             !service.profiles?.includes("fake-model") &&
-            !service.profiles?.includes("fake-responses"),
+            !service.profiles?.includes("fake-responses") &&
+            !service.profiles?.includes("conversation-runtime"),
         ),
       );
       const services = model?.services ?? {};
@@ -3303,7 +3407,7 @@ describe("compose layers", () => {
       const { exitCode, stderr, model } = render(S3_LAYERS, TEST_OPS_REQUIRED);
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
       const services = model?.services ?? {};
-      expect(Object.keys(services).sort()).toEqual(Object.keys(core).sort());
+      expect(Object.keys(services).sort()).toEqual(coreServices);
       const expected: Record<string, string> = {
         migrate: APP_IMAGES.API_IMAGE,
         api: APP_IMAGES.API_IMAGE,
@@ -3651,7 +3755,7 @@ describe("compose layers", () => {
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
       const services = model?.services ?? {};
       expect(Object.keys(services).sort()).toEqual(
-        [...Object.keys(core), "localstack"].sort(),
+        [...coreServices, "localstack"].sort(),
       );
       expect(services.localstack?.image).toBe(
         "localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7",
