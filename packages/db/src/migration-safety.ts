@@ -31,6 +31,7 @@ export const GROWING_TABLES: readonly string[] = [
   "executions",
   "github_workflow_dispatches",
   "idempotency_keys",
+  "judgment_batches",
   "memory_candidate_releases",
   "memory_candidates",
   "memory_derivations",

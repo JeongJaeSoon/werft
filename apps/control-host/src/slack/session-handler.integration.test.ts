@@ -2948,9 +2948,14 @@ describe.each(ENGINES)("Slack judgment buffer on %s", (engine) => {
         dryRun: true,
         now: later,
       }),
-    ).toEqual({ expired: 2, unlistened: 0 });
+    ).toEqual({ expired: 2, unjudged: 2, unlistened: 0, batches: 0 });
     expect(await heldTs(fixture)).toHaveLength(2);
-    expect(await purge(later)).toEqual({ expired: 2, unlistened: 0 });
+    expect(await purge(later)).toEqual({
+      expired: 2,
+      unjudged: 2,
+      unlistened: 0,
+      batches: 0,
+    });
     expect(await heldTs(fixture)).toEqual([]);
   });
 

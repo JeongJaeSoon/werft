@@ -5,6 +5,7 @@ import type {
   JudgmentBufferPlace,
   JudgmentBufferStore,
 } from "@werft-ai/platform";
+import { M1_CHANNEL_WINDOW_MS } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -30,7 +31,11 @@ type SlackMessage = SlackChannelOf<{ ts: string }>;
  * organization, and its conversation is not archived or deleted. The receive path asks the same through the
  * handling table; this is its database side, for what changes afterwards.
  */
-function stillListened(row: { agentId: SQL; channelId: SQL; topicId: SQL }) {
+export function stillListened(row: {
+  agentId: SQL;
+  channelId: SQL;
+  topicId: SQL;
+}) {
   return sql`(EXISTS (
     SELECT 1 FROM agents a
     WHERE a.id = ${row.agentId} AND a.status = 'active'
@@ -47,7 +52,7 @@ function stillListened(row: { agentId: SQL; channelId: SQL; topicId: SQL }) {
     WHERE t.id = ${row.topicId} AND c.channel_state <> 'active'))`;
 }
 
-const rowColumns = {
+export const rowColumns = {
   agentId: sql.raw("i.agent_id"),
   channelId: sql.raw("i.slack_channel_id"),
   topicId: sql.raw("i.topic_id"),
@@ -59,17 +64,63 @@ const rowColumns = {
  * left: it is taking an input. Returns how many rows went.
  */
 async function dropBuffered(tx: Database, where: SQL): Promise<number> {
-  const gone = rowsOf<{ topic_id: string }>(
+  return (await dropBufferedRows(tx, where)).length;
+}
+
+type DroppedRow = SlackChannelOf<{
+  topic_id: string;
+  agentId: string;
+  judged: boolean;
+}>;
+
+async function dropBufferedRows(
+  tx: Database,
+  where: SQL,
+): Promise<DroppedRow[]> {
+  const gone = rowsOf<DroppedRow>(
     await tx.execute(sql`
       DELETE FROM conversation_inputs i
       WHERE i.buffer_expires_at IS NOT NULL AND ${where}
-      RETURNING i.topic_id`),
+      RETURNING i.topic_id, i.workspace_id AS "workspaceId",
+        i.agent_id AS "agentId", i.slack_team_id AS "teamId",
+        i.slack_channel_id AS "channelId",
+        EXISTS (
+          SELECT 1 FROM judgment_batches b
+          WHERE b.id = i.judgment_batch_id AND b.state = 'judged'
+            AND b.model_called) AS judged`),
   );
-  if (gone.length === 0) return 0;
+  if (gone.length === 0) return gone;
   // In one order, so two removals never wait on each other.
   const topics = [...new Set(gone.map((row) => row.topic_id))].sort();
   for (const topicId of topics) await dropTopicIfEmpty(tx, topicId);
-  return gone.length;
+  return gone;
+}
+
+/** Adds the expired messages no judgment read to their channels' tallies. */
+async function tallyUnjudged(tx: Database, gone: readonly DroppedRow[]) {
+  const byChannel = new Map<string, DroppedRow & { count: number }>();
+  for (const row of gone) {
+    if (row.judged) continue;
+    const key = `${row.agentId}:${row.teamId}:${row.channelId}`;
+    const seen = byChannel.get(key);
+    if (seen) seen.count += 1;
+    else byChannel.set(key, { ...row, count: 1 });
+  }
+  // In one order, so two passes never wait on each other.
+  for (const [, row] of [...byChannel].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    await tx.execute(sql`
+      INSERT INTO judgment_channel_tallies (
+        workspace_id, agent_id, slack_team_id, slack_channel_id,
+        unjudged_count, updated_at
+      ) VALUES (
+        ${row.workspaceId}::uuid, ${row.agentId}::uuid, ${row.teamId},
+        ${row.channelId}, ${row.count}, now()
+      )
+      ON CONFLICT (agent_id, slack_team_id, slack_channel_id) DO UPDATE SET
+        unjudged_count = judgment_channel_tallies.unjudged_count + EXCLUDED.unjudged_count,
+        updated_at = EXCLUDED.updated_at`);
+  }
+  return [...byChannel.values()].reduce((sum, row) => sum + row.count, 0);
 }
 
 /**
@@ -299,16 +350,28 @@ export async function holdBufferedInput(
   return { outcome: "not_held", dropped: 0 };
 }
 
+/** What one purge of the judgment buffer removed. */
+export type JudgmentBufferPurge = {
+  expired: number;
+  /** Of `expired`, the messages no judgment that called the model read. */
+  unjudged: number;
+  unlistened: number;
+  /** Ended judgment batches past M1's cap window. */
+  batches: number;
+};
+
 /**
  * Removes buffered rows whose time is up (by `now`, the database clock when
  * unset) or whose channel the agent no longer listens to, up to `limit`,
- * with the topics they leave empty. Returns how many of each it removed; a
- * dry run counts them. The reconciler runs it every pass.
+ * with the topics they leave empty, adding the expired ones no judgment
+ * read to their channels' tallies; then ended judgment batches past M1's
+ * window, which no buffered row outlives. Returns how many of each it
+ * removed; a dry run counts them. The reconciler runs it every pass.
  */
 export async function purgeJudgmentBuffer(
   db: Database,
   options: { limit: number; dryRun: boolean; now?: Date },
-): Promise<{ expired: number; unlistened: number }> {
+): Promise<JudgmentBufferPurge> {
   const now =
     options.now === undefined
       ? sql`now()`
@@ -320,25 +383,47 @@ export async function purgeJudgmentBuffer(
     LIMIT ${options.limit}`;
   const expiredRows = sql`i.buffer_expires_at <= ${now}`;
   const unlistenedRows = sql`i.buffer_expires_at > ${now} AND NOT ${stillListened(rowColumns)}`;
+  const endedBatches = sql`
+    SELECT b.id FROM judgment_batches b
+    WHERE b.state <> 'judging'
+      AND b.closed_at <= ${now} - make_interval(secs => ${M1_CHANNEL_WINDOW_MS / 1000})
+    ORDER BY b.closed_at
+    LIMIT ${options.limit}`;
   if (options.dryRun) {
     const count = async (which: SQL) =>
       rowsOf(await db.execute(pick(which))).length;
+    const [unjudged] = rowsOf<{ count: number | string }>(
+      await db.execute(sql`
+        SELECT count(*) AS count FROM conversation_inputs i
+        WHERE i.id IN (${pick(expiredRows)})
+          AND NOT EXISTS (
+            SELECT 1 FROM judgment_batches b
+            WHERE b.id = i.judgment_batch_id AND b.state = 'judged'
+              AND b.model_called)`),
+    );
     return {
       expired: await count(expiredRows),
+      unjudged: Number(unjudged?.count ?? 0),
       unlistened: await count(unlistenedRows),
+      batches: rowsOf(await db.execute(endedBatches)).length,
     };
   }
-  const purge = (which: SQL) =>
-    db.transaction((tx) =>
-      dropBuffered(
-        tx,
-        sql`i.id IN (${pick(which)} FOR UPDATE OF i SKIP LOCKED)`,
-      ),
-    );
-  return {
-    expired: await purge(expiredRows),
-    unlistened: await purge(unlistenedRows),
-  };
+  const locked = (which: SQL) =>
+    sql`i.id IN (${pick(which)} FOR UPDATE OF i SKIP LOCKED)`;
+  const expired = await db.transaction(async (tx) => {
+    const gone = await dropBufferedRows(tx, locked(expiredRows));
+    return { expired: gone.length, unjudged: await tallyUnjudged(tx, gone) };
+  });
+  const unlistened = await db.transaction((tx) =>
+    dropBuffered(tx, locked(unlistenedRows)),
+  );
+  const batches = rowsOf(
+    await db.execute(sql`
+      DELETE FROM judgment_batches
+      WHERE id IN (${endedBatches} FOR UPDATE OF b SKIP LOCKED)
+      RETURNING id`),
+  ).length;
+  return { ...expired, unlistened, batches };
 }
 
 export function createPostgresJudgmentBufferStore(

@@ -20,9 +20,11 @@ export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
 export * from "./conversations/conversation-store.ts";
 export * from "./conversations/engagements.ts";
+export { createPostgresJudgmentBatchStore } from "./conversations/judgment-batches.ts";
 export {
   createPostgresJudgmentBufferStore,
   JUDGMENT_BUFFER_TTL_MS,
+  type JudgmentBufferPurge,
   purgeJudgmentBuffer,
 } from "./conversations/judgment-buffer.ts";
 export * from "./conversations/session-parents.ts";

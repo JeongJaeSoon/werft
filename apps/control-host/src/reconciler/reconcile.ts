@@ -1,6 +1,7 @@
 import { integerSetting } from "@werft-ai/contracts/settings";
 import type {
   AnnouncedInputReturn,
+  JudgmentBufferPurge,
   OwnershipReconciled,
   ReconciledInterrupt,
   ReconciledLease,
@@ -35,8 +36,9 @@ export type ReconcilerRun = {
   envStartsPurged: number;
   // Failed Slack inbox rows whose payload this pass cleared.
   slackInboundPayloadsPurged: number;
-  // Buffered Slack messages past their time, or of a channel no longer heard.
-  judgmentBufferPurged: { expired: number; unlistened: number };
+  // Buffered Slack messages past their time (and of those, the unjudged), or
+  // of a channel no longer heard; and ended judgment batches past M1's window.
+  judgmentBufferPurged: JudgmentBufferPurge;
   // Marks of deleted and edited Slack messages nothing points at.
   slackSourceMarksPurged: { deleted: number; edited: number };
   slackMembersPurged: number;
@@ -144,7 +146,7 @@ export async function runReconciler(input: {
   purgeJudgmentBuffer(options: {
     dryRun: boolean;
     limit: number;
-  }): Promise<{ expired: number; unlistened: number }>;
+  }): Promise<JudgmentBufferPurge>;
   // Delete and edit marks of Slack messages nothing points at, made more
   // than the judgment buffer's lifetime and an hour ago.
   purgeSlackSourceMarks(options: {
@@ -274,7 +276,9 @@ export async function runReconciler(input: {
   input.logger.info("Judgment buffer purged", {
     dry_run: dryRun,
     expired_count: judgmentBufferPurged.expired,
+    unjudged_count: judgmentBufferPurged.unjudged,
     unlistened_count: judgmentBufferPurged.unlistened,
+    batches_count: judgmentBufferPurged.batches,
   });
   const slackSourceMarksPurged = await input.purgeSlackSourceMarks({
     dryRun,
