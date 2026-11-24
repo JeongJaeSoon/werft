@@ -5677,6 +5677,7 @@ export interface components {
             session_archive_dry_run?: boolean;
             workspace_stopped_ttl_sec?: number;
             workspace_paused_ttl_sec?: number;
+            judgment_buffer_limit_per_channel?: number;
         };
         SetLoginProviderSecretRequest: {
             value: string;
@@ -8718,6 +8719,12 @@ export interface components {
                 saved: boolean;
                 blocked: boolean;
             };
+            judgment_buffer_limit_per_channel: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
             session_archive: {
                 available: boolean;
                 reason: ("object_store_disabled" | "unversioned") | null;
@@ -8793,6 +8800,12 @@ export interface components {
                 blocked: boolean;
             };
             workspace_paused_ttl_sec: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            judgment_buffer_limit_per_channel: {
                 value: number;
                 default: number;
                 saved: boolean;
@@ -20843,6 +20856,12 @@ export interface operations {
                      *         "saved": false,
                      *         "blocked": false
                      *       },
+                     *       "judgment_buffer_limit_per_channel": {
+                     *         "value": 100,
+                     *         "default": 100,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
                      *       "session_archive": {
                      *         "available": true,
                      *         "reason": null
@@ -21001,6 +21020,12 @@ export interface operations {
                      *       "workspace_paused_ttl_sec": {
                      *         "value": 86400,
                      *         "default": 86400,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "judgment_buffer_limit_per_channel": {
+                     *         "value": 100,
+                     *         "default": 100,
                      *         "saved": false,
                      *         "blocked": false
                      *       },

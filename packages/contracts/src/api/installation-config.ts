@@ -16,13 +16,20 @@ export const SESSION_COST_LIMIT_USD_MAX = 1_000_000;
 export const SESSION_ARCHIVE_AFTER_DAYS_MIN = 30;
 export const SESSION_ARCHIVE_AFTER_DAYS_MAX = 3650;
 
+/**
+ * Unmentioned Slack messages one agent holds per channel for the judgment;
+ * past it the oldest go (a1, Architect Q22). Set from the shadow records.
+ */
+export const JUDGMENT_BUFFER_LIMIT_PER_CHANNEL = 100;
+
 /** Ten years: past any session a person comes back to. */
 export const WORKSPACE_TTL_SEC_MAX = 3650 * 24 * 60 * 60;
 
 /**
  * The settings of the whole installation an owner keeps in the console, by
  * key. `env` is the variable they were read from before: migrate carries it
- * in once, while the key has no saved value, and nothing reads it again.
+ * in once, while the key has no saved value, and nothing reads it again. A
+ * key born in the console has none.
  */
 export const INSTALLATION_CONFIG = {
   /** How long a registered permission or question takes answers. */
@@ -124,7 +131,20 @@ export const INSTALLATION_CONFIG = {
     schema: z.number().int().min(0).max(WORKSPACE_TTL_SEC_MAX),
     default: 86_400,
   },
+  /** Held unmentioned Slack messages per agent and channel; the oldest go past it. */
+  judgment_buffer_limit_per_channel: {
+    schema: z.number().int().min(1).max(100_000),
+    default: JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+  },
 } as const;
+
+/** The env variable a key was read from before, if it ever was. */
+export function installationConfigEnvOf(
+  key: InstallationConfigKey,
+): string | undefined {
+  const entry = INSTALLATION_CONFIG[key];
+  return "env" in entry ? entry.env : undefined;
+}
 
 export type InstallationConfigKey = keyof typeof INSTALLATION_CONFIG;
 
@@ -186,6 +206,9 @@ export const installationConfigEntriesSchema = z
     session_archive_dry_run: entrySchema(rule("session_archive_dry_run")),
     workspace_stopped_ttl_sec: entrySchema(rule("workspace_stopped_ttl_sec")),
     workspace_paused_ttl_sec: entrySchema(rule("workspace_paused_ttl_sec")),
+    judgment_buffer_limit_per_channel: entrySchema(
+      rule("judgment_buffer_limit_per_channel"),
+    ),
   } satisfies Record<InstallationConfigKey, z.ZodType>)
   .strict();
 
@@ -210,6 +233,9 @@ export const updateInstallationConfigRequestSchema = z
     session_archive_dry_run: rule("session_archive_dry_run").optional(),
     workspace_stopped_ttl_sec: rule("workspace_stopped_ttl_sec").optional(),
     workspace_paused_ttl_sec: rule("workspace_paused_ttl_sec").optional(),
+    judgment_buffer_limit_per_channel: rule(
+      "judgment_buffer_limit_per_channel",
+    ).optional(),
   } satisfies Record<InstallationConfigKey, z.ZodType>)
   .strict();
 

@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import type { ConversationTopicId } from "@werft-ai/contracts";
+import {
+  type ConversationTopicId,
+  JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+} from "@werft-ai/contracts";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -22,7 +25,8 @@ import {
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 // Races a single-connection engine cannot show: a hold against the change
-// that stops the channel being heard, and two removals emptying one topic.
+// that stops the channel being heard, two removals emptying one topic, and
+// holds at once against the channel's limit.
 integration("judgment buffer races", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -58,55 +62,77 @@ integration("judgment buffer races", () => {
   }, 60_000);
 
   /** A channel bound in use and listening free, with one thread's topic. */
-  async function heardChannel() {
-    const channelId = `C${String(++channelSeq).padStart(6, "0")}`;
+  async function heardChannel(
+    agent = agentId,
+    channelId = `C${String(++channelSeq).padStart(6, "0")}`,
+    threadTs = "100.000100",
+  ) {
     await pool.query(
       `INSERT INTO surface_bindings (id, workspace_id, agent_id, surface,
         installation_id, external_surface_id, surface_kind, mode, listen,
         ceiling_actions, ceiling_disclosure, status)
        VALUES ($1, $2, $3, 'slack', $4, $5, 'public_channel', 'on', 'free',
         '{}', 'full', 'ready')`,
-      [randomUUID(), workspaceId, agentId, installationId, channelId],
+      [randomUUID(), workspaceId, agent, installationId, channelId],
     );
+    return { channelId, topicId: await topicOf(agent, channelId, threadTs) };
+  }
+
+  /** The topic of a thread in a channel the agent hears. */
+  async function topicOf(agent: string, channelId: string, threadTs: string) {
     const store = createPostgresConversationStore(db);
     const conversation = await store.findOrCreateConversation({
       kind: "channel",
       workspaceId,
-      agentId,
+      agentId: agent,
       teamId: TEAM,
       channelId,
     });
     const topic = await store.findOrCreateThreadTopic(conversation.id, {
       teamId: TEAM,
       channelId,
-      threadTs: "100.000100",
+      threadTs,
     });
-    return { channelId, topicId: topic.id as ConversationTopicId };
+    return topic.id as ConversationTopicId;
   }
 
   const hold = (
     tx: Database,
     place: { channelId: string; topicId: ConversationTopicId },
     ts: string,
+    options: { limit?: number; agent?: string } = {},
   ) =>
     holdBufferedInput(
       tx,
-      { workspaceId, agentId, teamId: TEAM },
+      { workspaceId, agentId: options.agent ?? agentId, teamId: TEAM },
       {
         topicId: place.topicId,
         channelId: place.channelId,
         ts,
         buffered: { body: "unheard", slackUserId: "U0PERSON" },
       },
+      options.limit ?? JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
     );
 
-  const heldIn = async (channelId: string) =>
+  const heldTsIn = async (channelId: string, agent = agentId) =>
     (
-      await pool.query(
-        "SELECT slack_ts FROM conversation_inputs WHERE slack_channel_id = $1 AND buffer_expires_at IS NOT NULL",
-        [channelId],
+      await pool.query<{ slack_ts: string }>(
+        "SELECT slack_ts FROM conversation_inputs WHERE slack_channel_id = $1 AND agent_id = $2 AND buffer_expires_at IS NOT NULL ORDER BY slack_ts::numeric",
+        [channelId, agent],
       )
-    ).rows.length;
+    ).rows.map((row) => row.slack_ts);
+  const heldIn = async (channelId: string) =>
+    (await heldTsIn(channelId)).length;
+  const droppedIn = async (channelId: string, agent = agentId) =>
+    Number(
+      (
+        await pool.query<{ dropped_count: string }>(
+          "SELECT dropped_count FROM judgment_buffer_overflows WHERE slack_channel_id = $1 AND agent_id = $2",
+          [channelId, agent],
+        )
+      ).rows[0]?.dropped_count ?? 0,
+    );
+  const tsOf = (n: number) => `200.${String(n).padStart(6, "0")}`;
   const topicsIn = async (channelId: string) =>
     (
       await pool.query(
@@ -159,7 +185,7 @@ integration("judgment buffer races", () => {
     const waited = await waitingOnLock();
     committed.open();
     await stopping;
-    expect(await holding).toBe("not_held");
+    expect((await holding).outcome).toBe("not_held");
     expect(await heldIn(place.channelId)).toBe(0);
     expect(await topicsIn(place.channelId)).toBe(0);
     expect(waited).toBe(true);
@@ -182,7 +208,7 @@ integration("judgment buffer races", () => {
     });
     const waited = await waitingOnLock();
     committed.open();
-    expect(await holding).toBe("held");
+    expect((await holding).outcome).toBe("held");
     expect(await stopping).toBe(1);
     expect(await heldIn(place.channelId)).toBe(0);
     expect(await topicsIn(place.channelId)).toBe(0);
@@ -217,5 +243,100 @@ integration("judgment buffer races", () => {
     expect([await first, await second]).toEqual([1, 1]);
     expect(await topicsIn(place.channelId)).toBe(0);
     expect(waited).toBe(true);
+  });
+  test("the post past the limit removes the channel's oldest one and counts it; other channels and agents keep theirs", async () => {
+    const place = await heardChannel();
+    const other = await heardChannel();
+    const otherAgent = randomUUID();
+    await pool.query(
+      "INSERT INTO agents (id, workspace_id, managing_team_id, slug, name, status, conversation_rollout) SELECT $1, workspace_id, managing_team_id, 'other', 'other', 'active', 'shadow' FROM agents WHERE id = $2",
+      [otherAgent, agentId],
+    );
+    const shared = await heardChannel(otherAgent, place.channelId);
+    await db.transaction((tx) => hold(tx, other, tsOf(1)));
+    await db.transaction((tx) =>
+      hold(tx, shared, tsOf(1), { agent: otherAgent }),
+    );
+    for (let n = 1; n <= JUDGMENT_BUFFER_LIMIT_PER_CHANNEL; n += 1) {
+      expect(await db.transaction((tx) => hold(tx, place, tsOf(n)))).toEqual({
+        outcome: "held",
+        dropped: 0,
+      });
+    }
+    expect(await droppedIn(place.channelId)).toBe(0);
+    const past = JUDGMENT_BUFFER_LIMIT_PER_CHANNEL + 1;
+    expect(await db.transaction((tx) => hold(tx, place, tsOf(past)))).toEqual({
+      outcome: "held",
+      dropped: 1,
+    });
+    const kept = await heldTsIn(place.channelId);
+    expect(kept).toHaveLength(JUDGMENT_BUFFER_LIMIT_PER_CHANNEL);
+    expect(kept[0]).toBe(tsOf(2));
+    expect(kept.at(-1)).toBe(tsOf(past));
+    expect(await droppedIn(place.channelId)).toBe(1);
+    expect(await heldTsIn(other.channelId)).toEqual([tsOf(1)]);
+    expect(await heldTsIn(place.channelId, otherAgent)).toEqual([tsOf(1)]);
+    expect(await droppedIn(other.channelId)).toBe(0);
+    expect(await droppedIn(place.channelId, otherAgent)).toBe(0);
+  });
+
+  test("a lower limit is the one kept to", async () => {
+    const place = await heardChannel();
+    for (let n = 1; n <= 4; n += 1) {
+      await db.transaction((tx) => hold(tx, place, tsOf(n), { limit: 2 }));
+    }
+    expect(await heldTsIn(place.channelId)).toEqual([tsOf(3), tsOf(4)]);
+    expect(await droppedIn(place.channelId)).toBe(2);
+  });
+
+  test("a hold while another holds in the channel waits for it, and the two keep to the limit", async () => {
+    const place = await heardChannel();
+    const second = {
+      channelId: place.channelId,
+      topicId: await topicOf(agentId, place.channelId, "300.000100"),
+    };
+    const ready = gate();
+    const committed = gate();
+    const first = db.transaction(async (tx) => {
+      const held = await hold(tx, place, tsOf(1), { limit: 1 });
+      ready.open();
+      await committed.opened;
+      return held;
+    });
+    await ready.opened;
+    const next = db.transaction((tx) =>
+      hold(tx, second, tsOf(2), { limit: 1 }),
+    );
+    const waited = await waitingOnLock();
+    committed.open();
+    expect(await first).toEqual({ outcome: "held", dropped: 0 });
+    expect(await next).toEqual({ outcome: "held", dropped: 1 });
+    expect(await heldTsIn(place.channelId)).toEqual([tsOf(2)]);
+    expect(await droppedIn(place.channelId)).toBe(1);
+    expect(waited).toBe(true);
+  });
+
+  test("many holds at once leave no more than the limit", async () => {
+    const place = await heardChannel();
+    const topics = await Promise.all(
+      [1, 2, 3, 4, 5, 6, 7, 8].map(async (n) => ({
+        channelId: place.channelId,
+        topicId: await topicOf(agentId, place.channelId, `400.00000${n}`),
+        ts: tsOf(n),
+      })),
+    );
+    const outcomes = await Promise.all(
+      topics.map((topic) =>
+        db.transaction((tx) => hold(tx, topic, topic.ts, { limit: 3 })),
+      ),
+    );
+    expect(outcomes.every((held) => held.outcome === "held")).toBe(true);
+    expect(outcomes.reduce((sum, held) => sum + held.dropped, 0)).toBe(5);
+    expect(await heldTsIn(place.channelId)).toEqual([
+      tsOf(6),
+      tsOf(7),
+      tsOf(8),
+    ]);
+    expect(await droppedIn(place.channelId)).toBe(5);
   });
 });
