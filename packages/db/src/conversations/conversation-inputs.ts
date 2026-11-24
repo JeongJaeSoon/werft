@@ -14,6 +14,7 @@ import type {
 import { sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
+import { insertWebInputTurn, webInputBodyHash } from "./conversation-turns.ts";
 
 type InputRow = {
   id: string;
@@ -21,7 +22,6 @@ type InputRow = {
   seq: number;
   requester_id: string;
   slack_mirror: ConversationInputSlackMirror;
-  body: string;
 };
 
 function receiptOf(row: InputRow): WebInputReceipt {
@@ -79,17 +79,21 @@ export function createPostgresConversationInputStore(
           FOR SHARE`),
       );
       if (membership === undefined) return { outcome: "not_member" };
-      const [earlier] = rowsOf<InputRow>(
+      // Compared on the text's hash as written, no trimming or normalizing,
+      // so the text itself is not read again; one taken before 0345 and not
+      // yet moved by the start pass is hashed here.
+      const bodyHash = webInputBodyHash(request.body);
+      const [earlier] = rowsOf<InputRow & { same_body: boolean }>(
         await tx.execute(sql`
-          SELECT id, topic_id, seq, requester_id, slack_mirror, body
+          SELECT id, topic_id, seq, requester_id, slack_mirror,
+            COALESCE(body_sha256, sha256(convert_to(body, 'UTF8'))) = ${bodyHash} AS same_body
           FROM conversation_inputs
           WHERE agent_id = ${agentId}::uuid AND requester_kind = 'user'
             AND requester_id = ${userId}
             AND client_message_id = ${request.clientMessageId}`),
       );
       if (earlier !== undefined) {
-        // Compared as written: no trimming, no normalizing.
-        return earlier.body === request.body
+        return earlier.same_body
           ? { outcome: "replayed", receipt: receiptOf(earlier) }
           : { outcome: "body_mismatch" };
       }
@@ -147,20 +151,33 @@ export function createPostgresConversationInputStore(
         if (topic === undefined) return { outcome: "topic_not_found" };
         topicId = topic.id;
       }
+      // The text goes to the input's turn row, which the input row points at;
+      // the input row keeps a copy for an image before 0345.
+      const turnId = await insertWebInputTurn(tx, {
+        workspaceId: request.workspaceId,
+        agentId,
+        conversationId: request.conversationId,
+        topicId: topicId as ConversationTopicId,
+        requesterUserId: userId,
+        body: request.body,
+      });
       const [row] = rowsOf<InputRow>(
         await tx.execute(sql`
           INSERT INTO conversation_inputs (
             id, workspace_id, agent_id, topic_id, seq,
             requester_kind, requester_id,
-            client_message_id, body, slack_mirror
+            client_message_id, body, body_sha256, conversation_turn_id,
+            slack_mirror
           )
           SELECT ${randomUUID()}::uuid, ${request.workspaceId}::uuid,
             ${agentId}::uuid, ${topicId}::uuid,
             COALESCE(MAX(i.seq), 0) + 1,
             'user', ${userId},
-            ${request.clientMessageId}, ${request.body}, ${slackMirror}
+            ${request.clientMessageId}, ${request.body}, ${bodyHash},
+            ${turnId}::uuid,
+            ${slackMirror}
           FROM conversation_inputs i WHERE i.topic_id = ${topicId}::uuid
-          RETURNING id, topic_id, seq, requester_id, slack_mirror, body`),
+          RETURNING id, topic_id, seq, requester_id, slack_mirror`),
       );
       if (row === undefined)
         throw new Error("input row is missing after its insert");
