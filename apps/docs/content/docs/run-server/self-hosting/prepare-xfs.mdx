@@ -62,7 +62,9 @@ sudo bash scripts/prepare-xfs.sh
 /var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0
 ```
 
-이미지 크기는 `--size`로 바꾼다. 값은 정수 GB다(예: `--size 100G`). 60G는 이미지·로그·모든 volume의 합계 천장이다. sparse 파일이지만 호스트에 그만큼의 여유가 있어야 한다.
+스크립트가 이 항목을 `/etc/fstab`에 직접 덧붙이므로 편집기로 고칠 필요가 없다. 이 단계의 `findmnt --verify`는 종료 코드 0이면서 경고 2개를 낼 수 있고, 둘 다 정상이다. `non-bind mount source /var/lib/docker.xfs.img is a directory or regular file`은 loop로 mount하는 source가 일반 파일이라는 알림이다. `your fstab has been modified, but systemd still uses the old version`은 systemd가 바뀐 fstab을 아직 다시 읽지 않아서 나오며, 스크립트가 바로 다음에 `systemctl daemon-reload`를 실행한다.
+
+이미지 크기는 `--size`로 바꾼다. 값은 정수 GB다(예: `--size 100G`). 60G는 `/var/lib/docker`에 들어가는 volume과 컨테이너 로그가 나눠 쓰는 합계 천장이다. 파일시스템 metadata도 공간을 쓰므로 실제 데이터 여유는 이보다 작다. Docker 29 이상을 새로 설치해 containerd image store(기본값)를 쓰면 이미지와 컨테이너 층은 `/var/lib/containerd`에 쌓여 XFS 이미지 밖(보통 루트 디스크)을 쓴다. 그 여유는 따로 확인한다. XFS 이미지는 sparse 파일이지만 호스트에 그만큼의 여유가 있어야 한다.
 
 한 단계가 실패하면 스크립트가 그 앞의 단계를 거꾸로 되돌린다. fstab을 백업본으로 복원하고, unmount하고, 만든 mount 지점과 이미지를 지우고, 원본을 `/var/lib/docker`로 되돌린 뒤 Docker를 다시 시작한다. Docker가 새 이미지에서 이미 시작됐다면 그동안 쓴 내용이 이미지에 있으므로 이미지는 지우지 않고 그 경로를 출력한다.
 
@@ -81,6 +83,7 @@ sudo bash scripts/prepare-xfs.sh
 ## 자주 막히는 곳
 
 - `already exists`로 거부되면 앞선 실행이나 수동 작업이 남긴 경로다. 내용을 조사한다. 이미지나 `/var/lib/docker.old`를 크기 변경이나 mkfs로 재사용하지 않는다.
+- 되돌린 뒤 다시 실행했는데 `/var/lib/docker.xfs.img`나 `/etc/fstab.before-prepare-xfs`가 이미 있다고 거부되면, 앞선 되돌리기가 남긴 파일이다. Docker가 새 이미지에서 이미 돌았다면 스크립트도 이미지를 지우지 않는다. 이미지에 보존할 데이터가 없음을 확인하고, unmount와 fstab 복원·`daemon-reload`가 끝나 `/var/lib/docker`가 원본으로 돌아온 뒤에만 `sudo rm -f /var/lib/docker.xfs.img /etc/fstab.before-prepare-xfs`로 지운다. `/var/lib/docker.old`가 남아 있으면 원본이므로 지우지 말고 먼저 되돌린다.
 - `the trial XFS loop mount`로 거부되면 이 호스트에서는 loop 장치나 XFS project quota를 쓸 수 없다. 다른 서버를 쓰거나, Docker data-root용 XFS 디스크를 따로 붙이는 이전 계획을 세운다.
 - 종료 코드 4이고 data-root가 제자리에 돌아오지 않았으면 스크립트는 Docker를 멈춘 채 둔다. 이 상태에서 Docker를 시작하면 빈 data-root를 사용하므로, 출력에 적힌 남은 상태를 [되돌리기](#되돌리기)의 순서로 정리한 뒤 시작한다.
 
@@ -88,7 +91,7 @@ sudo bash scripts/prepare-xfs.sh
 
 Docker를 새 XFS에서 다시 시작한 뒤 만든 컨테이너·volume·데이터는 `/var/lib/docker.old`에 없다. 원본 디렉터리로 되돌리면 그 변경을 잃으므로 먼저 새 데이터를 별도로 보존하고 복구할 대상을 결정한다. sparse 이미지는 삭제한 데이터만큼 자동으로 줄어들지 않으므로 호스트 파일시스템 여유도 감시한다.
 
-Docker와 socket을 중지한다. 새 XFS가 mount돼 있으면 사용 중인 컨테이너가 없음을 확인한 뒤 unmount하고, 추가된 fstab 항목을 스크립트가 남긴 `/etc/fstab.before-prepare-xfs`와 대조해 되돌린다. `/var/lib/docker.old`가 원본이다. 원래 경로가 비어 있음을 확인한 뒤 원본을 되돌리고 Docker를 시작한다. 새 이미지나 원본을 삭제하지 말고 기존 컨테이너·volume 목록이 맞는지 확인한다.
+Docker와 socket을 중지한다. 새 XFS가 mount돼 있으면 사용 중인 컨테이너가 없음을 확인한 뒤 unmount하고, 추가된 fstab 항목을 스크립트가 남긴 `/etc/fstab.before-prepare-xfs`와 대조해 되돌린 뒤 `sudo systemctl daemon-reload`로 systemd가 복원된 fstab을 다시 읽게 한다. `/var/lib/docker.old`가 원본이다. 원래 경로가 비어 있음을 확인한 뒤 원본을 되돌리고 Docker를 시작한다. 새 이미지나 원본을 삭제하지 말고 기존 컨테이너·volume 목록이 맞는지 확인한다.
 
 원래 데이터 디렉터리가 있었던 설치에서 unmount와 fstab 복원이 끝난 뒤에는 비어 있는 mount 지점만 `sudo rmdir /var/lib/docker`로 제거하고 `sudo mv /var/lib/docker.old /var/lib/docker`로 되돌린다. rmdir가 실패하면 안의 데이터를 지우지 말고 조사한다. 원본이 없었던 새 설치에는 이 이동을 실행하지 않는다.
 
