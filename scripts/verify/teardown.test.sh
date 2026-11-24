@@ -19,9 +19,17 @@ echo "$*" >>"$FAKE_DOCKER_LOG"
 [ -z "${FAKE_DOCKER_IN_USE:-}" ] || [ "$*" != "ps -aq --filter volume=$FAKE_DOCKER_IN_USE" ] || echo c-in-use
 # FAKE_DOCKER_PS_VOLUME_FAIL fails only the in-use check, after every listing succeeded.
 [ -z "${FAKE_DOCKER_PS_VOLUME_FAIL:-}" ] || case "$*" in "ps -aq --filter volume="*) exit 1 ;; esac
+# A file per existing volume in FAKE_DOCKER_VOLS holds its labels as JSON.
+case "$*" in
+  "volume ls -q --filter name=^"*) n="$*"; n=${n##*name=^}; n=${n%\$}; [ ! -f "$FAKE_DOCKER_VOLS/$n" ] || echo "$n" ;;
+  "volume inspect --format "*) cat "$FAKE_DOCKER_VOLS/${!#}" ;;
+  "volume rm "*) rm -f "$FAKE_DOCKER_VOLS/$3" ;;
+esac
 exit 0
 EOF
 chmod +x "$scratch/bin/docker"
+mkdir -p "$scratch/vols"
+export FAKE_DOCKER_VOLS=$scratch/vols
 export FAKE_DOCKER_LOG=$log PATH="$scratch/bin:$PATH"
 unset EXECUTION_VOLUME_LABEL_NAMESPACE EXECUTION_VOLUME_NAME_PREFIX
 
@@ -150,6 +158,58 @@ grep -q "ps -aq --filter volume=werft-ws-$p-s1-aaaa" "$log"; check "rm-volumes.s
 grep -q "could not tell whether a container uses werft-ws-$p-s1-aaaa; left" "$scratch/rm.out"; check "rm-volumes.sh: a failing in-use check names the volume" 0 $?
 grep -q '^volume rm werft-ws-' "$log"; check "rm-volumes.sh: a failing in-use check removes no workspace" 1 $?
 [ -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: a failing in-use check keeps ports.yml" 0 $?
+
+# rm-volumes.sh: anonymous volumes, proven by the run's container labels, not by name.
+hex() { printf "$1%.0s" $(seq 1 64); }
+a_ok=$(hex a); a_demo=$(hex b); a_plain=$(hex c); a_busy=$(hex d); a_unlisted=$(hex e); a_ok2=$(hex f)
+demo=verify-ap-20261031-094644-90075
+printf '{"com.docker.volume.anonymous":""}' >"$scratch/vols/$a_ok"
+printf '{"com.docker.volume.anonymous":""}' >"$scratch/vols/$a_ok2"
+printf '{"com.docker.compose.project":"%s","com.docker.volume.anonymous":""}' "$demo" >"$scratch/vols/$a_demo"
+printf '{}' >"$scratch/vols/$a_plain"
+printf '{"com.docker.volume.anonymous":""}' >"$scratch/vols/$a_busy"
+printf '{"com.docker.volume.anonymous":""}' >"$scratch/vols/$a_unlisted"
+printf '  volume  %s\n  volume  %s\n  volume  %s\n  volume  %s\n  volume  %s_pgdata\n  volume  werft-fresh-data\n  volume  %s\n' \
+  "$a_ok" "$a_demo" "$a_plain" "$a_busy" "$demo" "$a_ok2" >"$VERIFY_AP_ROOT/$id/evidence/teardown-targets.txt"
+: >"$VERIFY_AP_ROOT/$id/ports.yml"
+: >"$log"
+bash "$here/rm-volumes.sh" --dry-run "$id" >"$scratch/rm.out" 2>&1; check "rm-volumes.sh: dry run exits 0" 0 $?
+grep -q '^volume rm' "$log"; check "rm-volumes.sh: dry run removes nothing" 1 $?
+grep -q "would remove: $a_ok" "$scratch/rm.out"; check "rm-volumes.sh: dry run lists the anonymous volume it would remove" 0 $?
+[ -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: dry run keeps ports.yml" 0 $?
+: >"$log"
+FAKE_DOCKER_IN_USE=$a_busy bash "$here/rm-volumes.sh" "$id" >"$scratch/rm.out" 2>&1; check "rm-volumes.sh: anonymous volumes exit 0" 0 $?
+grep -qx "volume rm $a_ok" "$log"; check "rm-volumes.sh: removes an anonymous volume the run's containers mounted" 0 $?
+grep -qx "volume rm $a_ok2" "$log"; check "rm-volumes.sh: removes a second anonymous volume" 0 $?
+[ "$(grep -c '^volume rm' "$log")" = 2 ]; check "rm-volumes.sh: removes only those two" 0 $?
+grep -q "not an unlabelled anonymous volume): $a_demo" "$scratch/rm.out"; check "rm-volumes.sh: a volume labelled for the 4620 demo is left" 0 $?
+grep -q "not an unlabelled anonymous volume): $a_plain" "$scratch/rm.out"; check "rm-volumes.sh: a volume without the anonymous marker is left" 0 $?
+grep -q "a container still uses it): $a_busy" "$scratch/rm.out"; check "rm-volumes.sh: an anonymous volume in use is left" 0 $?
+grep -q "$a_unlisted" "$log"; check "rm-volumes.sh: an anonymous volume no container of the run mounted is never touched" 1 $?
+grep -Eq "^volume rm (werft-fresh|$demo)" "$log"; check "rm-volumes.sh: demo and werft-fresh names are never removed" 1 $?
+grep -Eq -- ' -f|prune|--force|--context|-H |machine' "$log"; check "rm-volumes.sh: no force, prune, context or machine flag" 1 $?
+
+# A volume labelled for another installation under any label namespace is left.
+a_other=$(hex 9)
+printf '{"com.docker.volume.anonymous":"","custom.installation":"other,%s"}' "$demo" >"$scratch/vols/$a_other"
+printf '  volume  %s\n' "$a_other" >"$VERIFY_AP_ROOT/$id/evidence/teardown-targets.txt"
+: >"$VERIFY_AP_ROOT/$id/ports.yml"
+: >"$log"
+EXECUTION_VOLUME_LABEL_NAMESPACE=werft bash "$here/rm-volumes.sh" "$id" >"$scratch/rm.out" 2>&1; check "rm-volumes.sh: other installation label exits 0" 0 $?
+grep -q "not an unlabelled anonymous volume): $a_other" "$scratch/rm.out"; check "rm-volumes.sh: another installation's label is honoured under any namespace" 0 $?
+grep -q '^volume rm' "$log"; check "rm-volumes.sh: other installation label removed nothing" 1 $?
+
+# The 4620 demo as the run itself is refused before any docker call that removes.
+demo_id=20261031-094644-90075
+mkdir -p "$VERIFY_AP_ROOT/$demo_id/evidence"
+printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVERIFY_REPO=%s\n' "$demo" "$demo" "$scratch" >"$VERIFY_AP_ROOT/$demo_id/state.env"
+printf '  volume  %s\n  volume  %s_pgdata\n' "$a_ok" "$demo" >"$VERIFY_AP_ROOT/$demo_id/evidence/teardown-targets.txt"
+printf '{"com.docker.volume.anonymous":""}' >"$scratch/vols/$a_ok"
+: >"$VERIFY_AP_ROOT/$demo_id/ports.yml"
+: >"$log"
+bash "$here/rm-volumes.sh" "$demo_id" >/dev/null 2>&1; check "rm-volumes.sh: the demo stack as the run is refused" 1 $?
+grep -q '^volume rm' "$log"; check "rm-volumes.sh: the demo stack removed nothing" 1 $?
+[ -f "$VERIFY_AP_ROOT/$demo_id/ports.yml" ]; check "rm-volumes.sh: the demo stack keeps its ports.yml" 0 $?
 
 # The skill never tells the agent to build ids.sh from Bash (Write tool only).
 grep -rEq '>>? *"?\$(\{VERIFY_RUN\}|VERIFY_RUN)/ids\.sh' "$here" "$here/../../.claude/skills/verify-werft" --include='*.md' --include='*.sh'; check "skill docs: no redirect into ids.sh" 1 $?
