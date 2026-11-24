@@ -15,7 +15,7 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { queueDatabaseUrl } from "./database-url.ts";
-import type { PassLoopRoleName } from "./pass-loop/loop.ts";
+import type { PassLoopLogger, PassLoopRoleName } from "./pass-loop/loop.ts";
 
 const ROLES = ["api", "metrics", "scheduler", "reconciler", "slack"] as const;
 const MODES = ["--once", "--health", "--serve"] as const;
@@ -132,6 +132,7 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
   const level = logLevelFromEnv(process.env.LOG_LEVEL);
   let passEnv: Record<string, string> | undefined;
   let everyImageRetracted = false;
+  let checkNodes: ((logger: PassLoopLogger) => Promise<void>) | undefined;
   // The passes would refuse a bad setting one by one; refuse it here, once.
   if (role === "scheduler") {
     const { assertPassOutlastsStop, schedulerConfigFromEnv } = await import(
@@ -140,9 +141,8 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     const { QUOTA_PREFLIGHT_MARKER_ENV } = await import(
       "./scheduler/quota-preflight.ts"
     );
-    const { execution, image, retractedImages } = schedulerConfigFromEnv(
-      process.env,
-    );
+    const { execution, image, resources, retractedImages } =
+      schedulerConfigFromEnv(process.env);
     everyImageRetracted = retractedImages.some(
       (retracted) => retracted.image === image,
     );
@@ -151,6 +151,10 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     const marker = `${config.statusFile}.quota-verified`;
     await rm(marker, { force: true });
     passEnv = { [QUOTA_PREFLIGHT_MARKER_ENV]: marker };
+    const { nodeCapacityCheckFor } = await import(
+      "./scheduler/node-capacity.ts"
+    );
+    checkNodes = nodeCapacityCheckFor(process.env, execution, resources);
   } else if (role === "slack") {
     const { slackRoleStartup } = await import("./slack/main.ts");
     await slackRoleStartup(process.env);
@@ -167,6 +171,7 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
       {},
     );
   }
+  await checkNodes?.(logger);
   if (role === "slack") {
     const { slackApiUrlWarnings } = await import("./api/slack-config.ts");
     for (const warning of slackApiUrlWarnings(process.env)) {
