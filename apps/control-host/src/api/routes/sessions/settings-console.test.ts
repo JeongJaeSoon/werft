@@ -369,3 +369,46 @@ describe("settings console writes", () => {
     });
   }
 });
+
+describe("POST /v1/installation/settings/connections takes only an API key", () => {
+  const body = {
+    id: "console",
+    kind: "anthropic",
+    auth_kind: "api_key",
+    value: "[REDACTED]-key",
+  };
+
+  test("a login, subscription or unknown kind of credential is 400 and never reaches the service", async () => {
+    const asked: unknown[] = [];
+    const settings = {
+      createConnection: async (...args: unknown[]) => {
+        asked.push(args);
+        return CHANGED;
+      },
+    } as Partial<SettingsConsoleService>;
+    for (const refused of [
+      { ...body, auth_kind: "oauth" },
+      { ...body, auth_kind: "subscription" },
+      { ...body, kind: "claude_ai" },
+      { ...body, kind: "bedrock" },
+      { ...body, oauth_token: "[REDACTED]" },
+      { ...body, session_key: "[REDACTED]" },
+    ]) {
+      const response = await request(
+        settings,
+        "POST",
+        `${BASE}/connections`,
+        refused,
+      );
+      expect(response.status).toBe(400);
+      expect(
+        apiErrorResponseSchema.safeParse(await response.json()).success,
+      ).toBe(true);
+    }
+    expect(asked).toEqual([]);
+    expect(
+      (await request(settings, "POST", `${BASE}/connections`, body)).status,
+    ).toBe(201);
+    expect(asked).toHaveLength(1);
+  });
+});
