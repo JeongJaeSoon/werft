@@ -167,6 +167,26 @@ describe("worker Pod", () => {
     ).toEqual(pod);
   });
 
+  test("the operator's idle lifetime reaches the worker, and none is set without one", () => {
+    const envOf = (idleTimeoutSeconds?: number) =>
+      (
+        podFor(
+          idleTimeoutSeconds === undefined
+            ? config
+            : { ...config, idleTimeoutSeconds },
+          intent,
+          "secret-name",
+          "fingerprint",
+          PROXY_ADDRESS,
+        ) as PodShape
+      ).spec.containers[0]?.env.find((e) => e.name === ENV.idleTimeout);
+    expect(envOf(600)).toEqual({
+      name: "WORKER_IDLE_TIMEOUT_SEC",
+      value: "600",
+    });
+    expect(envOf()).toBeUndefined();
+  });
+
   test("a Pod given the sandbox's profile is placed only on a node labelled as holding it", () => {
     const sandboxed = podFor(
       { ...config, codexSandbox: { mode: "enabled", images: [intent.image] } },

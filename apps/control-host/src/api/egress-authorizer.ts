@@ -511,6 +511,21 @@ export function createEgressAuthorizer(deps: {
     if (called !== null && "outcome" in called) {
       // A turn's call refused with nothing held: the turn ends on it, and
       // its permit keeps why.
+      if (called.outcome === "turn_limited") {
+        // A runtime that got past its own count of the turn's calls.
+        deps.logger.warn("Conversation turn call refused", {
+          turn_id: called.turnId,
+          refused_by: "turn_limit",
+        });
+        throw new WorkerGatewayError(
+          403,
+          "FORBIDDEN",
+          "The conversation turn has made as many provider calls as a turn may",
+          false,
+          undefined,
+          "conversation_turn_call_limit",
+        );
+      }
       deps.logger.info("Conversation turn call refused", {
         turn_id: called.turnId,
         refused_by: called.outcome === "refused" ? "budget" : "concurrency",

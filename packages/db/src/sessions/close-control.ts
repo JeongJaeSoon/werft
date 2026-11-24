@@ -42,6 +42,9 @@ import { recordEvent, recordStatus } from "./session-events.ts";
 
 const SESSION_CLOSED_SUBTYPE = "session_closed";
 
+/** Who closed a session from the API container's operator command. */
+export const OPERATOR_CLI = "operator_cli";
+
 type SessionRow = typeof sessions.$inferSelect;
 
 /**
@@ -119,8 +122,8 @@ export async function finishClose(
  */
 export function closeAtomic(
   db: Database,
-  input: CloseSessionInput,
-): Promise<CloseSessionResult> {
+  input: CloseSessionInput & { by?: typeof OPERATOR_CLI },
+): Promise<CloseSessionResult & { into?: "closing" | "closed" }> {
   const sessionId = input.sessionId.toLowerCase();
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
@@ -233,7 +236,10 @@ export function closeAtomic(
       extra: {
         admission_state: into,
         reason: input.reason,
-        actor: { owner_id: input.principal.ownerId },
+        actor:
+          input.by === undefined
+            ? { owner_id: input.principal.ownerId }
+            : { kind: "operator", by: input.by },
       },
       turnRowId: null,
       now,
@@ -266,6 +272,6 @@ export function closeAtomic(
       payloadHash: input.payloadHash,
       receiptId,
     });
-    return { outcome: "accepted", response };
+    return { outcome: "accepted", response, into };
   });
 }

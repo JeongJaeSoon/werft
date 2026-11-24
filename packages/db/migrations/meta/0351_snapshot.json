@@ -1,5 +1,5 @@
 {
-  "id": "a038e420-96af-4c2a-97d0-ffc7fd3933e8",
+  "id": "5af69620-6213-400f-906f-bf7d6af496ff",
   "prevId": "afb9b881-d3ef-4636-a4cd-65dbf35677ab",
   "version": "7",
   "dialect": "postgresql",
@@ -6512,308 +6512,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.conversation_judgments": {
-      "name": "conversation_judgments",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "grade": {
-          "name": "grade",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_team_id": {
-          "name": "slack_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_channel_id": {
-          "name": "slack_channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "refs": {
-          "name": "refs",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sources": {
-          "name": "sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "judgment_batch_id": {
-          "name": "judgment_batch_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "input_id": {
-          "name": "input_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "release_id": {
-          "name": "release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "call_key": {
-          "name": "call_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "prompt_version": {
-          "name": "prompt_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decision": {
-          "name": "decision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rule_decision": {
-          "name": "rule_decision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rule_reason": {
-          "name": "rule_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "claimed_at": {
-          "name": "claimed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "judged_at": {
-          "name": "judged_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "conversation_judgments_input_uniq": {
-          "name": "conversation_judgments_input_uniq",
-          "columns": [
-            {
-              "expression": "input_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"conversation_judgments\".\"input_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_judgments_waiting_idx": {
-          "name": "conversation_judgments_waiting_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_judgments\".\"outcome\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_judgments_channel_idx": {
-          "name": "conversation_judgments_channel_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_judgments_batch_idx": {
-          "name": "conversation_judgments_batch_idx",
-          "columns": [
-            {
-              "expression": "judgment_batch_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_judgments\".\"judgment_batch_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_judgments_agent_fk": {
-          "name": "conversation_judgments_agent_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_judgments_conversation_fk": {
-          "name": "conversation_judgments_conversation_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "conversations",
-          "columnsFrom": ["conversation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "conversation_judgments_release_fk": {
-          "name": "conversation_judgments_release_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "agent_releases",
-          "columnsFrom": ["agent_id", "release_id"],
-          "columnsTo": ["agent_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_judgments_batch_fk": {
-          "name": "conversation_judgments_batch_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "judgment_batches",
-          "columnsFrom": ["judgment_batch_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "conversation_judgments_input_fk": {
-          "name": "conversation_judgments_input_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "conversation_inputs",
-          "columnsFrom": ["input_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "conversation_judgments_grade_check": {
-          "name": "conversation_judgments_grade_check",
-          "value": "\"conversation_judgments\".\"grade\" IN ('buffer_m1','m1','m1_to_task','m1_engaged')"
-        },
-        "conversation_judgments_slack_check": {
-          "name": "conversation_judgments_slack_check",
-          "value": "\"conversation_judgments\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_judgments\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND cardinality(\"conversation_judgments\".\"refs\") >= 1"
-        },
-        "conversation_judgments_verdict_check": {
-          "name": "conversation_judgments_verdict_check",
-          "value": "CASE \"conversation_judgments\".\"outcome\"\n        WHEN 'judged' THEN \"conversation_judgments\".\"decision\" IN ('speak','quiet') AND \"conversation_judgments\".\"reason\" IN ('not_for_agent','human_conversation','already_handled','out_of_scope','needs_agent','unclear')\n        WHEN 'not_called' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('budget_refused','concurrency_limited','rate_limited','input_too_large','no_active_release','model_unavailable')\n        WHEN 'failed' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('timed_out','unreachable','provider_error','malformed')\n        ELSE \"conversation_judgments\".\"outcome\" IS NULL AND \"conversation_judgments\".\"decision\" IS NULL AND \"conversation_judgments\".\"reason\" IS NULL\n      END AND (\"conversation_judgments\".\"outcome\" IS NULL) = (\"conversation_judgments\".\"judged_at\" IS NULL)"
-        },
-        "conversation_judgments_rule_check": {
-          "name": "conversation_judgments_rule_check",
-          "value": "CASE WHEN \"conversation_judgments\".\"grade\" = 'buffer_m1'\n        THEN \"conversation_judgments\".\"rule_decision\" IS NULL AND \"conversation_judgments\".\"rule_reason\" IS NULL AND \"conversation_judgments\".\"outcome\" IS NOT NULL\n        ELSE \"conversation_judgments\".\"rule_decision\" IN ('reply','skip','none') AND \"conversation_judgments\".\"rule_reason\" IN ('addressed_to_other_user','default_reply','stray_reply') AND (\"conversation_judgments\".\"rule_decision\" = 'none') = (\"conversation_judgments\".\"grade\" = 'm1_engaged')\n      END"
-        },
-        "conversation_judgments_call_check": {
-          "name": "conversation_judgments_call_check",
-          "value": "\"conversation_judgments\".\"attempts\" >= 0 AND (\"conversation_judgments\".\"call_key\" IS NULL OR \"conversation_judgments\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m1$') AND (\"conversation_judgments\".\"attempts\" = 0 OR \"conversation_judgments\".\"call_key\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.conversation_topics": {
       "name": "conversation_topics",
       "schema": "",
@@ -7212,6 +6910,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "limit_reached": {
+          "name": "limit_reached",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "limit_reached_by": {
+          "name": "limit_reached_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -7326,6 +7036,10 @@
         "conversation_turns_decision_check": {
           "name": "conversation_turns_decision_check",
           "value": "\"conversation_turns\".\"decision\" IN ('reply','route_to_task','spawn_task','no_reply')"
+        },
+        "conversation_turns_limit_check": {
+          "name": "conversation_turns_limit_check",
+          "value": "(\"conversation_turns\".\"limit_reached\" IS NULL) = (\"conversation_turns\".\"limit_reached_by\" IS NULL) AND (\"conversation_turns\".\"limit_reached\" IS NULL OR (\"conversation_turns\".\"state\" = 'no_decision' AND \"conversation_turns\".\"limit_reached\" IN ('model_call_limit','tool_call_limit','time_limit') AND \"conversation_turns\".\"limit_reached_by\" IN ('runner','server')))"
         },
         "conversation_turns_shape_check": {
           "name": "conversation_turns_shape_check",

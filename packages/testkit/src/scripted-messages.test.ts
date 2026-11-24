@@ -211,3 +211,55 @@ describe("scripted Messages API", () => {
     expect(specIdsIn([{ role: "user", content: "hi" }])).toEqual([]);
   });
 });
+
+describe("a conversation call's script", () => {
+  test("asks for its steps' tool calls one per call, then gives its reply", async () => {
+    const recorded: GateRequest[] = [];
+    const prompt = `go ${CALL_SPEC_MARKER}${JSON.stringify({
+      id: "loop",
+      reply: "done",
+      steps: [
+        { tool: "Bash", input: { command: "a" } },
+        { tool: "Bash", input: { command: "b" } },
+      ],
+    })}`;
+    const first = await replyFor(
+      request([{ role: "user", content: prompt }], []),
+      recorded,
+    );
+    expect(first).toMatchObject({ stopReason: "tool_use" });
+    const second = await replyFor(
+      request([{ role: "user", content: prompt }, toolResult("t0")], []),
+      recorded,
+    );
+    expect(second.content).toMatchObject([
+      { type: "tool_use", name: "Bash", input: { command: "b" } },
+    ]);
+    const last = await replyFor(
+      request(
+        [{ role: "user", content: prompt }, toolResult("t0"), toolResult("t1")],
+        [],
+      ),
+      recorded,
+    );
+    expect(last.content).toEqual([{ type: "text", text: "done" }]);
+    expect(recorded.map((entry) => [entry.specId, entry.step])).toEqual([
+      ["loop", 0],
+      ["loop", 1],
+      ["loop", 2],
+    ]);
+    // A later prompt of its own without a spec is answered by the fallback.
+    const plain = await replyFor(
+      request(
+        [
+          { role: "user", content: prompt },
+          { role: "user", content: [{ type: "text", text: "plain" }] },
+        ],
+        [],
+      ),
+      recorded,
+      "fallback",
+    );
+    expect(plain.content).toEqual([{ type: "text", text: "fallback" }]);
+  });
+});

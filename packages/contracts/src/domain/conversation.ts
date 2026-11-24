@@ -115,6 +115,29 @@ export const CONVERSATION_TURN_STATE_VALUES = [
 export type ConversationTurnState =
   (typeof CONVERSATION_TURN_STATE_VALUES)[number];
 
+/**
+ * Which of its limits ended a conversation turn: its provider calls, its
+ * tool calls or its time.
+ */
+export const CONVERSATION_TURN_LIMIT_VALUES = [
+  "model_call_limit",
+  "tool_call_limit",
+  "time_limit",
+] as const;
+export type ConversationTurnLimit =
+  (typeof CONVERSATION_TURN_LIMIT_VALUES)[number];
+
+/**
+ * Who held a turn to its limit: the runtime's own count, or the server's
+ * behind it, which a runtime that got past its count meets.
+ */
+export const CONVERSATION_TURN_LIMIT_SIDE_VALUES = [
+  "runner",
+  "server",
+] as const;
+export type ConversationTurnLimitSide =
+  (typeof CONVERSATION_TURN_LIMIT_SIDE_VALUES)[number];
+
 /** The one decision a conversation turn ends with. */
 export const CONVERSATION_TURN_DECISION_VALUES = [
   "reply",

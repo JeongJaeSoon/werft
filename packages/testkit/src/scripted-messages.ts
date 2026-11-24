@@ -21,7 +21,17 @@ import {
 export const SPEC_MARKER = "GATE-SPEC ";
 export const CALL_SPEC_MARKER = "CALL-SPEC ";
 
-export type CallSpec = { id: string; reply: string };
+/**
+ * A conversation call's script: `reply` answers it, after `steps` when
+ * there are any, each a tool call the reply asks for whether or not the
+ * request offered that tool, one per call after the spec's prompt.
+ */
+export type CallSpec = {
+  id: string;
+  reply: string;
+  delayMs?: number;
+  steps?: GateStep[];
+};
 
 export type GateStep = {
   delayMs?: number;
@@ -148,19 +158,36 @@ export function specIdsIn(messages: readonly unknown[]): string[] {
   return ids;
 }
 
-/** The call spec in the last user message's text, or null. */
-export function callSpecOf(messages: readonly Message[]): CallSpec | null {
-  const last = [...messages]
-    .reverse()
-    .find((message) => message?.role === "user");
-  if (last === undefined) return null;
-  for (const block of blocksOf(last)) {
-    if (block.type !== "text" || block.text === undefined) continue;
-    const marker = block.text.indexOf(CALL_SPEC_MARKER);
-    if (marker < 0) continue;
-    return JSON.parse(
-      firstJsonObject(block.text.slice(marker + CALL_SPEC_MARKER.length)),
-    ) as CallSpec;
+/**
+ * The call spec in the text of the last user message that has text, and how
+ * many tool results came after it; null when that text carries none.
+ */
+export function callPlanOf(
+  messages: readonly Message[],
+): { spec: CallSpec; step: number } | null {
+  let step = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role !== "user") continue;
+    const blocks = blocksOf(message);
+    const texts = blocks.filter(
+      (block) => block.type === "text" && block.text !== undefined,
+    );
+    if (texts.length === 0) {
+      step += blocks.filter((block) => block.type === "tool_result").length;
+      continue;
+    }
+    for (const block of texts) {
+      const marker = block.text?.indexOf(CALL_SPEC_MARKER) ?? -1;
+      if (marker < 0) continue;
+      const spec = JSON.parse(
+        firstJsonObject(
+          (block.text ?? "").slice(marker + CALL_SPEC_MARKER.length),
+        ),
+      ) as CallSpec;
+      return { spec, step };
+    }
+    return null;
   }
   return null;
 }
@@ -189,14 +216,14 @@ export function replyFor(
   const messages = (request.body.messages ?? []) as Message[];
   const hasTools = (request.body.tools ?? []).length > 0;
   const plan = hasTools ? planOf(messages) : null;
-  const call = hasTools ? null : callSpecOf(messages);
+  const call = hasTools ? null : callPlanOf(messages);
   recorded.push({
     at: new Date().toISOString(),
     hasTools,
     index: recorded.length,
     messages,
-    specId: plan?.spec.id ?? call?.id ?? null,
-    step: plan?.step ?? null,
+    specId: plan?.spec.id ?? call?.spec.id ?? null,
+    step: plan?.step ?? call?.step ?? null,
     system: request.body.system,
     // A deferred tool is not in front of the model until a search loads it.
     tools: (request.body.tools ?? []).flatMap((tool) => {
@@ -208,7 +235,19 @@ export function replyFor(
     }),
     found: toolReferencesIn(messages),
   });
-  if (call !== null) return textReply(call.reply);
+  if (call !== null) {
+    const next = call.spec.steps?.[call.step];
+    const reply =
+      next === undefined
+        ? textReply(call.spec.reply)
+        : toolReply(
+            next.tool,
+            next.input,
+            `toolu_call_${call.spec.id}_${call.step}`,
+          );
+    const delayMs = next === undefined ? call.spec.delayMs : next.delayMs;
+    return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
+  }
   if (plan === null) return textReply(fallback);
   const { spec, step } = plan;
   const next = spec.steps[step];
