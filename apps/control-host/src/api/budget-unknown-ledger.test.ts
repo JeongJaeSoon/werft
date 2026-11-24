@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   type ConversationCallId,
   type ConversationId,
@@ -32,18 +33,11 @@ import {
   reservationTokens,
   type SessionCatalog,
 } from "@werft-ai/platform";
-import {
-  createTempDatabase,
-  type TempDatabase,
-  testDatabaseUrl,
-} from "@werft-ai/testkit/postgres";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/pglite";
 import { runUnknownBudgetReport } from "../reconciler/budget-unknown.ts";
 import { runBudgetUnknown } from "./budget-unknown.ts";
-
-const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const MODEL = "claude-haiku-4-5";
 const LIMITS = { model: MODEL, maxTokens: 256, maxRequestBytes: 4_096 };
@@ -82,9 +76,12 @@ function usage(inputTokens: number, outputTokens: number): ProviderUsage {
 const SMALL = { usage: usage(100, 10), costUsd: 0.0001 };
 const LARGE = { usage: usage(10_000, 1_000), costUsd: 1 };
 
-integration("the operator's resolve of reservations of unknown end", () => {
-  let database: TempDatabase;
-  let pool: Pool;
+/**
+ * The operator command over a migrated database: what it lists against what
+ * the reconciler logs, what a resolve writes, and what a late report adds.
+ */
+describe("the operator's resolve of reservations of unknown end", () => {
+  let pool: PGlite;
   let db: Database;
   let workspaceId: string;
   let teamId: string;
@@ -96,8 +93,7 @@ integration("the operator's resolve of reservations of unknown end", () => {
   let thread = 0;
 
   beforeAll(async () => {
-    database = await createTempDatabase({ prefix: "budget_unknown_it" });
-    pool = new Pool({ connectionString: database.url, max: 8 });
+    pool = await migratedPGlite();
     db = drizzle(pool, { schema }) as unknown as Database;
     workspaceId = crypto.randomUUID();
     await pool.query(
@@ -137,9 +133,8 @@ integration("the operator's resolve of reservations of unknown end", () => {
   }, 60_000);
 
   afterAll(async () => {
-    await pool.end();
-    await database.drop();
-  }, 60_000);
+    await pool.close();
+  });
 
   async function command(...argv: string[]) {
     const out: string[] = [];
@@ -247,13 +242,23 @@ integration("the operator's resolve of reservations of unknown end", () => {
       .select()
       .from(budgetAdjustments)
       .where(eq(budgetAdjustments.callId, callId));
+  type ReceiptRow = {
+    xid: string;
+    target_ref: unknown;
+    result: Record<string, unknown>;
+  };
   const receiptOf = async (callId: string) =>
     (
-      await pool.query(
+      await pool.query<ReceiptRow>(
         "SELECT *, xmin::text AS xid FROM receipts WHERE operation = 'resolve_unknown_budget' AND result->>'call_id' = $1",
         [callId],
       )
     ).rows;
+  const oneReceiptOf = async (callId: string) => {
+    const rows = await receiptOf(callId);
+    expect(rows).toHaveLength(1);
+    return rows[0] as ReceiptRow;
+  };
 
   test("list says what the reconciler logs: per account and the total", async () => {
     const agent = await newAgent();
@@ -356,7 +361,7 @@ integration("the operator's resolve of reservations of unknown end", () => {
       .from(conversationCalls)
       .where(eq(conversationCalls.id, call.callId));
     expect(row?.state).toBe("resolved");
-    const [receipt] = await receiptOf(call.callId);
+    const receipt = await oneReceiptOf(call.callId);
     expect(receipt).toMatchObject({
       owner_id: workspaceId,
       status: "succeeded",
@@ -373,11 +378,11 @@ integration("the operator's resolve of reservations of unknown end", () => {
         run_id: done.line?.run_id,
       },
     });
-    const xid = await pool.query(
+    const xid = await pool.query<{ xid: string }>(
       "SELECT xmin::text AS xid FROM budget_reservations WHERE call_id = $1",
       [call.callId],
     );
-    expect(receipt.xid).toBe(xid.rows[0].xid);
+    expect(xid.rows).toEqual([{ xid: receipt.xid }]);
   });
 
   test("--refund needs a reason; with one it gives the hold back and the receipt keeps the reason", async () => {
@@ -416,7 +421,7 @@ integration("the operator's resolve of reservations of unknown end", () => {
     expect(after.reservedTokens).toBe(before.reservedTokens - RESERVE.tokens);
     expect(after.spentTokens).toBe(before.spentTokens);
     expect(after.spentCostUsd).toBeCloseTo(before.spentCostUsd, 6);
-    const [receipt] = await receiptOf(call.callId);
+    const receipt = await oneReceiptOf(call.callId);
     expect(receipt.result).toMatchObject({
       resolution: "refunded",
       reason: "the provider billed nothing",
@@ -693,7 +698,7 @@ integration("the operator's resolve of reservations of unknown end", () => {
       outcome: "resolved",
       call_kind: "conversation",
     });
-    const [receipt] = await receiptOf(callId);
+    const receipt = await oneReceiptOf(callId);
     expect(receipt.result.conversation_turn_id).toBe(turnId);
     expect((await report({ callId, exchangeId }, SMALL)).outcome).toBe(
       "settled",
@@ -754,7 +759,7 @@ integration("the operator's resolve of reservations of unknown end", () => {
       .from(providerExchanges)
       .where(eq(providerExchanges.exchangeId, exchangeId));
     expect(exchange?.releasedAt).not.toBeNull();
-    const [receipt] = await receiptOf(exchangeId);
+    const receipt = await oneReceiptOf(exchangeId);
     expect(receipt.result).toMatchObject({
       call_kind: "session",
       session_id: sessionId,
@@ -806,7 +811,7 @@ integration("the operator's resolve of reservations of unknown end", () => {
     );
     await store().markUnknown({ limit: 1_000, dryRun: false });
     await command("resolve", "--call", issued.callId, "--by", ADMIN);
-    const [receipt] = await receiptOf(issued.callId);
+    const receipt = await oneReceiptOf(issued.callId);
     expect(receipt.target_ref).toEqual({
       resource: { kind: "team", id: teamId },
       workspace_id: workspaceId,
