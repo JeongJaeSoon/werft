@@ -112,7 +112,13 @@ export type SurfaceBindingRecord = {
 };
 
 export type SetSurfaceBindingResult =
-  | { outcome: "set"; binding: SurfaceBindingRecord; receiptId: string }
+  | {
+      outcome: "set";
+      binding: SurfaceBindingRecord;
+      receiptId: string;
+      /** Messages the channel held for judgment that the save dropped. */
+      droppedBuffered: number;
+    }
   | { outcome: "agent_not_found" }
   // The agent has no live identity, so no install to bind a channel of.
   | { outcome: "not_installed" }

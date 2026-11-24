@@ -82,7 +82,11 @@ describe("PUT /v1/agents/{id}/slack-bindings", () => {
       app({
         putSlackBinding: async (_caller, agentId, request) => {
           asked = { agentId, request };
-          return { slack_binding: VIEW, receipt_id: RECEIPT };
+          return {
+            slack_binding: VIEW,
+            receipt_id: RECEIPT,
+            dropped_buffered: 2,
+          };
         },
       }),
       { channel_id: null, channel_kind: "dm", mode: "off" },
@@ -91,6 +95,7 @@ describe("PUT /v1/agents/{id}/slack-bindings", () => {
     expect(putSlackBindingResponseSchema.parse(await response.json())).toEqual({
       slack_binding: VIEW,
       receipt_id: RECEIPT,
+      dropped_buffered: 2,
     });
     // `home` defaults off; no ceiling means the service's default.
     expect(asked).toEqual({

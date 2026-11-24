@@ -560,7 +560,8 @@ describe("Slack management", () => {
       name: "채널 ID: C123에서 사용",
     });
     expect(within(list).getAllByRole("switch")).toEqual([use]);
-    expect(list.textContent).not.toContain("멘션");
+    // The agent's mention-only setting is not a channel's.
+    expect(list.textContent).not.toContain("멘션했을 때만");
     expect(list.textContent).not.toContain("꺼짐");
     expect(use.getAttribute("aria-checked")).toBe("true");
     const puts = () =>
@@ -572,6 +573,126 @@ describe("Slack management", () => {
     await user.click(use);
     await waitFor(() => expect(use.getAttribute("aria-checked")).toBe("true"));
     expect(puts()).toEqual(["off", "on"]);
+  });
+
+  test("shows each channel's listening and sends listen only when it is changed", async () => {
+    // As the server leaves a channel shared with another organization.
+    let row: typeof BINDING = { ...BINDING, listen: "mention" };
+    let dropped = 0;
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        row = { ...row, mode: body.mode, listen: body.listen ?? row.listen };
+        return json(200, {
+          slack_binding: row,
+          receipt_id: ID,
+          dropped_buffered: dropped,
+        });
+      },
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const listen = (await within(list).findByRole("combobox", {
+      name: "채널 ID: C123 듣기",
+    })) as HTMLSelectElement;
+    expect(listen.value).toBe("mention");
+    expect(
+      [...listen.options].map((option) => [option.value, option.textContent]),
+    ).toEqual([
+      ["free", "모든 글"],
+      ["mention", "멘션에만"],
+      ["off", "듣지 않음"],
+    ]);
+    const bodies = () =>
+      api.calls
+        .filter((call) => call.method === "PUT")
+        .map((call) => call.body as Record<string, unknown>);
+
+    const use = within(list).getByRole("switch");
+    await user.click(use);
+    await waitFor(() => expect(use.getAttribute("aria-checked")).toBe("false"));
+    // A0's regression: a save that does not touch listening sends none.
+    expect(bodies()).toHaveLength(1);
+    expect("listen" in (bodies()[0] ?? {})).toBe(false);
+    expect(listen.value).toBe("mention");
+
+    await user.selectOptions(listen, "free");
+    await waitFor(() => expect(listen.value).toBe("free"));
+    expect(bodies()[1]).toMatchObject({
+      channel_id: "C123",
+      mode: "off",
+      listen: "free",
+      home: true,
+    });
+    await waitFor(() =>
+      expect(screen.getByText("듣기 설정을 저장했습니다.")).toBeDefined(),
+    );
+
+    dropped = 2;
+    await user.selectOptions(listen, "off");
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "듣기 설정을 저장했습니다. 이 채널에 쌓인 판단 대기 글은 지웠습니다.",
+        ),
+      ).toBeDefined(),
+    );
+    expect(bodies()[2]).toMatchObject({ listen: "off" });
+    expect(bodies()).toHaveLength(3);
+  });
+
+  test("names the channel whose listening was refused, beside its select too, and keeps its value", async () => {
+    const other: typeof BINDING = {
+      ...BINDING,
+      id: "00000000-0000-4000-8000-0000000000bb",
+      external_surface_id: "C0OTHER",
+      home: false,
+    };
+    const row: typeof BINDING = { ...BINDING, listen: "mention" };
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row, other] }),
+      [`PUT ${PATH}/slack-bindings`]: () =>
+        apiError(400, "BAD_REQUEST", "internal message", false, {
+          reason_code: "external_shared_channel",
+        }),
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const listen = (await within(list).findByRole("combobox", {
+      name: "채널 ID: C123 듣기",
+    })) as HTMLSelectElement;
+    await user.selectOptions(listen, "free");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "채널 ID: C123: 외부 조직과 공유한 채널은 멘션으로만 들을 수 있습니다. 멘션에만이나 듣지 않음으로 정하세요.",
+    );
+    expect(listen.value).toBe("mention");
+    expect(listen.getAttribute("aria-invalid")).toBe("true");
+    expect(listen.getAttribute("aria-describedby")).toBe(alert.id);
+    const untouched = within(list).getByRole("combobox", {
+      name: "채널 ID: C0OTHER 듣기",
+    });
+    expect(untouched.getAttribute("aria-invalid")).toBe("false");
+    expect(within(list).getAllByText("저장 안 됨")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("internal message");
+  });
+
+  test("a member reads each channel's listening without a way to change it", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      // Not the managing team's lead: no binding.manage on this agent.
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [{ ...BINDING, listen: "off" }] }),
+    });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    await waitFor(() => expect(list.textContent).toContain("듣지 않음"));
+    expect(within(list).queryAllByRole("combobox")).toHaveLength(0);
+    expect(within(list).queryAllByRole("switch")).toHaveLength(0);
   });
 
   test("shows the public or private tag beside the channel name in the list and beside the action in the picker", async () => {
