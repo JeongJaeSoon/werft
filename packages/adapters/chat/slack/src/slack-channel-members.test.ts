@@ -187,6 +187,28 @@ describe("Slack channel member check", () => {
     expect(await failing.ask(MEMBER)).toBe(true);
   });
 
+  test("a user with no Slack link is unconfirmed without asking Slack, and logged", async () => {
+    const t = setup();
+    expect(
+      await t.members.membership({
+        workspaceId: WORKSPACE,
+        agentId: AGENT,
+        channelId: t.inside.id,
+        userId: UNLINKED,
+      }),
+    ).toBe("unconfirmed");
+    expect(t.memberCalls()).toBe(0);
+    expect(t.warnings).toEqual([
+      {
+        event: "slack.member_check.unconfirmed",
+        reason: "no_slack_link",
+        workspace_id: WORKSPACE,
+        agent_id: AGENT,
+        channel_id: t.inside.id,
+      },
+    ]);
+  });
+
   test("a store that throws answers false too", async () => {
     const t = setup();
     t.memory.store.cached = async () => {
