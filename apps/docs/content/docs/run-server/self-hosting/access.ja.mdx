@@ -55,9 +55,9 @@ server {
     ssl_certificate     <certificate-path>;
     ssl_certificate_key <certificate-key-path>;
 
-    location ~ ^/v1/slack/(events|interactions)/[0-9a-f-]+$ {
+    location ~ "^/v1/slack/(events|interactions)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" {
         limit_except POST { deny all; }
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3000$uri;
         proxy_set_header Host $http_host;
     }
 
@@ -98,7 +98,7 @@ server {
 }
 ```
 
-- 公開入口の `location` は、nginx が正規化したパスが二つの Slack パスのどちらかと `agent_id`(小文字の UUID)だけでできているときに一致します。`..` やバックスラッシュを含むパスは一致せず 404 になり、POST 以外のリクエストは 403 になります。
+- 公開入口の `location` は、nginx がデコード・正規化したパスが二つの Slack パスのどちらかに `agent_id`(小文字の UUID)が付いた形のときだけ一致します。api には元のリクエスト行ではなく、その正規化したパス(`$uri`)を渡すため、`..` やバックスラッシュを混ぜても api に届くのは Slack のパスだけです。それ以外は 404、POST 以外のリクエストは 403 です。query は渡しません。Slack に送るアドレスには query がありません。
 - コンソール入口は `/internal` とその下を 404 で返します。nginx は `/%69nternal/x` のようにエンコードしたパスや `/x/../internal/x` をデコード・正規化してから `location` を選ぶので、これらも 404 です。nginx はバックスラッシュをパスの区切りとして扱いませんが、api の前の Bun は `/` に変えるため、`/x/..\internal/x` が `/internal/x` になります。そのためリクエスト行に `\` や `%5C` があれば 400 で拒否します。
 - `Host` は `$http_host` で、ブラウザが送った値をポートまでそのまま渡します。`$host` はポートを落とすので、443 以外のポートでコンソールを開くと変更要求が `Origin` と一致せず拒否されます。
 - イベントストリーム(SSE)が通るコンソール入口は buffering を無効にし、read・send timeout を 1 時間にします。

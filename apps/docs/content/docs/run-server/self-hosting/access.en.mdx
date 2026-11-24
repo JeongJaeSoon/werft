@@ -53,9 +53,9 @@ server {
     ssl_certificate     <certificate-path>;
     ssl_certificate_key <certificate-key-path>;
 
-    location ~ ^/v1/slack/(events|interactions)/[0-9a-f-]+$ {
+    location ~ "^/v1/slack/(events|interactions)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" {
         limit_except POST { deny all; }
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3000$uri;
         proxy_set_header Host $http_host;
     }
 
@@ -96,7 +96,7 @@ server {
 }
 ```
 
-- The public entrance's `location` matches only when the path nginx normalized is one of the two Slack paths followed by an `agent_id` (a lowercase UUID). A path with `..` or a backslash does not match and gets 404; a request other than POST gets 403.
+- The public entrance's `location` matches only when the path nginx decoded and normalized is one of the two Slack paths followed by an `agent_id` (a lowercase UUID). The api is sent that normalized path (`$uri`), not the original request line, so whatever `..` or backslashes a request mixes in, only a Slack path reaches the api. Everything else gets 404, and a request other than POST gets 403. The query is not forwarded; the addresses Slack is sent have none.
 - The console entrance answers `/internal` and everything under it with 404. nginx decodes and normalizes encoded paths such as `/%69nternal/x` and `/x/../internal/x` before choosing a `location`, so those get 404 too. nginx does not treat a backslash as a path separator, but Bun in front of the api turns it into `/`, making `/x/..\internal/x` into `/internal/x`. So a request line with `\` or `%5C` is refused with 400.
 - `Host` is passed as `$http_host`, the browser's value with its port. `$host` drops the port, so a console on a port other than 443 would have its changes refused for not matching `Origin`.
 - The console entrance carries the event stream (SSE), so it turns buffering off and sets read and send timeouts of 1 hour.
