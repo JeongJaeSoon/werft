@@ -169,6 +169,36 @@ export const slackJa = {
   "slack.appName": "{name} アプリ",
   "slack.appMenu": "Slack アプリのメニュー",
   "slack.basicHint": "このエージェントが DM とメンションにどう反応するかです。",
+  "slack.notice": "告知の承認",
+  "slack.noticeHint":
+    "このエージェントが Slack チャンネルの投稿を聞く前に、ワークスペースの owner・admin が下の告知を読んで承認します。",
+  "slack.notice.state.no_notice": "告知の準備中",
+  "slack.notice.state.not_installed": "インストール前",
+  "slack.notice.state.not_approved": "未承認",
+  "slack.notice.state.reapproval_required": "再承認が必要",
+  "slack.notice.state.approved": "承認済み",
+  "slack.notice.placeholder":
+    "公開された告知はまだありません。告知が公開されると、ここで読んで承認できます。",
+  "slack.notice.notInstalled": "Slack アプリをインストールすると承認できます。",
+  "slack.notice.reapprovalHint":
+    "告知が変わったため、再承認が必要です。再承認するまで、このエージェントはチャンネルの投稿を聞きません。",
+  "slack.notice.languageNote": "この告知は日本語と韓国語で提供しています。",
+  "slack.notice.language": "告知の言語",
+  "slack.notice.version": "告知 第{version}版",
+  "slack.notice.approvals": "承認の記録",
+  "slack.notice.team": "Slack チーム {team}",
+  "slack.notice.older": "以前の版",
+  "slack.notice.approve": "承認",
+  "slack.notice.reapprove": "再承認",
+  "slack.notice.revoke": "承認を取り消す",
+  "slack.notice.revokeConsequence":
+    "再承認するまで、このエージェントは Slack チャンネルの投稿を聞きません。",
+  "slack.notice.adminOnly":
+    "承認できるのはワークスペースの owner・admin だけです。",
+  "slack.notice.approvedNotice": "告知を承認しました。",
+  "slack.notice.revokedNotice": "告知の承認を取り消しました。",
+  "slack.notice.stale":
+    "その間に告知が変わりました。新しい告知を読んで、もう一度承認してください。",
   "slack.channelColumn": "チャンネル",
   "slack.useColumn": "使用",
   "slack.basic": "基本",

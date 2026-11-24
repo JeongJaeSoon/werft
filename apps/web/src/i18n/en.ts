@@ -167,6 +167,36 @@ export const slackEn = {
   "slack.appName": "{name} app",
   "slack.appMenu": "Slack app menu",
   "slack.basicHint": "How this agent answers direct messages and mentions.",
+  "slack.notice": "Notice approval",
+  "slack.noticeHint":
+    "Before this agent listens to messages in Slack channels, a workspace owner or admin reads and approves the notice below.",
+  "slack.notice.state.no_notice": "No notice yet",
+  "slack.notice.state.not_installed": "Not installed",
+  "slack.notice.state.not_approved": "Not approved",
+  "slack.notice.state.reapproval_required": "Approval needed again",
+  "slack.notice.state.approved": "Approved",
+  "slack.notice.placeholder":
+    "No notice has been published yet. Once one is, you can read and approve it here.",
+  "slack.notice.notInstalled": "Install the Slack app to approve the notice.",
+  "slack.notice.reapprovalHint":
+    "The notice changed and needs a new approval. Until then this agent does not listen to channel messages.",
+  "slack.notice.languageNote":
+    "This notice is available in Japanese and Korean.",
+  "slack.notice.language": "Notice language",
+  "slack.notice.version": "Notice version {version}",
+  "slack.notice.approvals": "Approvals",
+  "slack.notice.team": "Slack team {team}",
+  "slack.notice.older": "Earlier version",
+  "slack.notice.approve": "Approve",
+  "slack.notice.reapprove": "Approve again",
+  "slack.notice.revoke": "Revoke approval",
+  "slack.notice.revokeConsequence":
+    "This agent stops listening to Slack channel messages until the notice is approved again.",
+  "slack.notice.adminOnly": "Only a workspace owner or admin can approve.",
+  "slack.notice.approvedNotice": "Notice approved.",
+  "slack.notice.revokedNotice": "Notice approval revoked.",
+  "slack.notice.stale":
+    "The notice changed in the meantime. Read the new one and approve again.",
   "slack.channelColumn": "Channel",
   "slack.useColumn": "In use",
   "slack.basic": "Basic",
