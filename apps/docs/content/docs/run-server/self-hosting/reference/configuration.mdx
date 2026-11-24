@@ -151,6 +151,7 @@ worker는 claim 때 자기 이미지가 실제로 싣는 조합을 보낸다. �
 |---|---|---|
 | `WORKER_CPUS` | 1 | worker 하나의 CPU 몫. 0.01 이상 |
 | `WORKER_MEMORY_MB` | 4608 | worker 하나의 메모리 한도(MiB). 압축 없는 512MiB transcript를 resume한 엔진이 한도의 절반 아래에 들도록 잡은 값이다. 개발용 `.env.example`의 2048은 이 기준을 충족하지 않으므로 큰 transcript 복원 시험에서는 그 줄을 지우거나 4608로 바꾼다 |
+| `WORKER_IDLE_TIMEOUT_SEC` | 1800 | 입력이 없는 worker가 끝나기 전에 기다리는 시간(초). 60~7200 밖의 값이면 scheduler가 시작하지 않는다. 그동안 worker는 자리를 쥐고 있다. Kubernetes에서는 새 세션의 worker Pod가 자리가 없어 못 뜨면, 이 시간을 기다리지 않고 가장 오래 쉰 worker를 하나씩 내린다. 턴이 열린 worker는 내리지 않는다. 사람의 답을 기다리는 턴도 열린 턴이다. 내려간 세션은 다음 입력이 오면 새 worker로 checkpoint에서 이어진다 |
 | `WORKER_PIDS_LIMIT` | 512 | worker 하나의 PID 한도. compose는 넘기지 않는다 |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | worker의 숫자 `uid[:gid]`. uid나 gid가 0이면 기동을 거부한다. worker 이미지의 `/workspace` 소유자와 같아야 한다 |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | tmpfs로 마운트하는 HOME. 절대 경로 |
@@ -194,7 +195,7 @@ API 컨테이너의 메모리는 checkpoint bundle 검증이 정한다. 검증�
 
 compose의 Postgres는 `POSTGRES_USER`(`postgres`)·`POSTGRES_PASSWORD`(`dev`)·`POSTGRES_DB`(`sessions`)로 만들고, 모든 서비스가 같은 값으로 DSN을 만든다.
 
-worker는 아래 값도 env로 읽는다. 하지만 scheduler가 넘기지 않으므로 운영에서는 코드 기본값으로 고정이다. `WORKER_ANSWER_POLL_SEC`(1), `WORKER_ATTACH_FETCH_TIMEOUT_SEC`(300, 세션 도중 붙인 저장소 하나를 받아 오는 시간), `WORKER_ATTACH_FETCH_MAX_MB`(2048, 그 저장소를 받은 scratch mirror의 크기), `WORKER_CLAIM_TIMEOUT_SEC`(60), `WORKER_DRAIN_TIMEOUT_SEC`(100, stop 유예 안으로 줄어든다), `WORKER_HEARTBEAT_INTERVAL_SEC`(5), `WORKER_IDLE_TIMEOUT_SEC`(1800), `WORKER_LEASE_SAFETY_MARGIN_SEC`(10), `WORKER_NEXT_INPUT_RETRY_SEC`(60), `WORKER_NEXT_INPUT_WAIT_SEC`(20), `WORKER_REQUEST_TIMEOUT_SEC`(30), `WORKER_STARTUP_TIMEOUT_SEC`(3600), `WORKER_CLAUDE_CONFIG_DIR`(`$HOME/.claude`).
+worker는 아래 값도 env로 읽는다. 하지만 scheduler가 넘기지 않으므로 운영에서는 코드 기본값으로 고정이다. `WORKER_ANSWER_POLL_SEC`(1), `WORKER_ATTACH_FETCH_TIMEOUT_SEC`(300, 세션 도중 붙인 저장소 하나를 받아 오는 시간), `WORKER_ATTACH_FETCH_MAX_MB`(2048, 그 저장소를 받은 scratch mirror의 크기), `WORKER_CLAIM_TIMEOUT_SEC`(60), `WORKER_DRAIN_TIMEOUT_SEC`(100, stop 유예 안으로 줄어든다), `WORKER_HEARTBEAT_INTERVAL_SEC`(5), `WORKER_LEASE_SAFETY_MARGIN_SEC`(10), `WORKER_NEXT_INPUT_RETRY_SEC`(60), `WORKER_NEXT_INPUT_WAIT_SEC`(20), `WORKER_REQUEST_TIMEOUT_SEC`(30), `WORKER_STARTUP_TIMEOUT_SEC`(3600), `WORKER_CLAUDE_CONFIG_DIR`(`$HOME/.claude`).
 
 ## 감독 루프
 
@@ -261,6 +262,7 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 | `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy의 label 값이기도 하다 |
 | `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`, `worker.workspace.gcMinAgeSec`, `worker.workspace.enforcedByStorage` | 요청 크기·회수 최소 나이·설치 전체 강제 선언 |
 | `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
+| `WORKER_IDLE_TIMEOUT_SEC` | `worker.idleTimeoutSeconds` | 60~7200 밖이면 chart가 렌더를 거부한다 |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | 기본 1024 |
 | 설치 상한(`EXECUTION_SLOT_LIMIT` 등) | `config.limits` | api와 scheduler에 같은 값 |
 | `SCHEDULER_*` | `scheduler.intervalSec` 등 | `SCHEDULER_PASS_TIMEOUT_SEC`(`scheduler.passTimeoutSec`, 기본 180)는 150보다 커야 한다 |

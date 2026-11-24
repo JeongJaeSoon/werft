@@ -238,6 +238,12 @@ export interface ExecutionBackend {
    */
   assertReplaceable?(intent: LaunchIntent): Promise<void>;
   /**
+   * Whether stopping a worker running `image` can free room a launch of
+   * `waitingImage` may take: a Pod held to labelled nodes is helped only
+   * by a worker on them. Optional: absent, every worker can.
+   */
+  makesRoomFor?(waitingImage: string, image: string): boolean;
+  /**
    * Workspaces this backend created and still holds. Optional as a pair: a
    * backend whose workspaces are reclaimed by the platform underneath it
    * leaves both out, and the scheduler then runs no workspace GC at all.

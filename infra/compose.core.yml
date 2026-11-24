@@ -527,6 +527,7 @@ services:
       EXECUTION_VOLUME_NAME_PREFIX: ${EXECUTION_VOLUME_NAME_PREFIX:-}
       WORKER_CPUS: ${WORKER_CPUS:-1}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-4608}
+      WORKER_IDLE_TIMEOUT_SEC: ${WORKER_IDLE_TIMEOUT_SEC:-1800}
       # The bucket and region the scheduler names to each worker. No key and
       # no endpoint: workers reach the object store through the proxy's
       # object store route, signed by the API.
