@@ -63,6 +63,27 @@ function turnsOn(detail: AgentDetail, release: AgentRelease): boolean {
 
 type Receipt = components["schemas"]["Receipt"];
 
+/** Why the release's conversation judgments read less of the instruction file than sessions do. */
+function InstructionsNote({ release }: { readonly release: AgentRelease }) {
+  const { t } = useI18n();
+  // `== null`: an API from before the snapshot omits it mid-rollout.
+  const snapshot = release.instructions_snapshot;
+  if (snapshot == null) return null;
+  const note =
+    snapshot.kind === "read_failed"
+      ? t("agent.releases.instructionsReadFailed")
+      : snapshot.kind === "refused"
+        ? t("agent.releases.instructionsRefused")
+        : snapshot.kind === "text" && snapshot.truncated
+          ? t("agent.releases.instructionsTruncated")
+          : null;
+  return note === null ? null : (
+    <Text as="span" variant="sub" className="wrap-anywhere">
+      {note}
+    </Text>
+  );
+}
+
 function McpChangeLines({ receipt }: { readonly receipt: Receipt }) {
   const { t } = useI18n();
   const change = mcpChange(receipt, t);
@@ -293,6 +314,7 @@ export function Releases({
                         </span>
                       </Text>
                       {changes}
+                      <InstructionsNote release={item} />
                       {/* GridTable's narrowAt={860}, where the other columns drop. */}
                       <span className="hidden [@container(max-width:860px)]:flex">
                         {status}

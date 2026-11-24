@@ -7,6 +7,7 @@ import type {
   ListAgentsQuery,
   ListAgentsResponse,
   ListConnectionOptionsResponse,
+  ReleaseInstructions,
   UpdateAgentRequest,
 } from "@werft-ai/contracts";
 import {
@@ -84,6 +85,10 @@ import {
   type ReleaseRun,
   resolveReleaseContent,
 } from "./release-ids.ts";
+import {
+  type ReleaseInstructionsSource,
+  snapshotReleaseInstructions,
+} from "./release-instructions.ts";
 import { type InstalledRuntimes, releaseRunOf } from "./release-run.ts";
 import { buildSpecSource, releaseSpecRecord } from "./release-spec.ts";
 
@@ -236,6 +241,8 @@ export function createAgentService(deps: {
   ) => Promise<RepositoryCeiling | null>;
   /** The runtime version a new release of each kind runs. */
   runtimes: InstalledRuntimes;
+  /** Where a new release's instruction file is read; absent, none is. */
+  releaseInstructions?: ReleaseInstructionsSource;
   extensions?: SessionExtensionsDeps;
 }) {
   const { authorization, store, catalog, credentials } = deps;
@@ -253,6 +260,18 @@ export function createAgentService(deps: {
     });
     return checked.ok ? null : checked.refusal;
   }
+  // A release whose sessions never read the file has none to snapshot.
+  const instructionsSnapshot = (
+    repositoryId: string | null,
+    run: ReleaseRun,
+  ): Promise<ReleaseInstructions | null> =>
+    deps.releaseInstructions === undefined || !run.project_settings.claude_md
+      ? Promise.resolve(null)
+      : snapshotReleaseInstructions(
+          deps.releaseInstructions,
+          repositoryId,
+          run.runtime.kind,
+        );
   const AGENT_MANAGERS = MANAGEMENT_ROLES["agent.manage"] ?? [];
   // Who names any live team as an agent's managing team, as setManagingTeam.
   const TEAM_ASSIGNERS = MANAGEMENT_ROLES["agent.admin.manage"] ?? [];
@@ -562,6 +581,7 @@ export function createAgentService(deps: {
         ...resolved.content.policy_pins,
         ...(github === undefined ? {} : { github }),
       },
+      instructions_snapshot: await instructionsSnapshot(repositoryId, run),
     };
     const releaseId = deriveReleaseId(identity);
     const inserted = await store.insertRelease({
@@ -1297,6 +1317,7 @@ export function createAgentService(deps: {
           ...resolved.content.policy_pins,
           ...(github === undefined ? {} : { github }),
         },
+        instructions_snapshot: await instructionsSnapshot(repositoryId, run),
       };
       const result = await store.insertRelease({
         principal: caller,
