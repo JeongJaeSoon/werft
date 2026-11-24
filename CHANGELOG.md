@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **api가 `/internal`(worker·대화 런타임이 부르는 경로)을 공개 포트 3000이 아니라 새 포트 3200(`INTERNAL_API_PORT`)에서만 받는다. 3000번으로 온 `/internal`은 404다**(JeongJaeSoon/werft#PRNUM). migration은 없다. 3000을 터널이나 proxy로 열어도 `/internal`은 따라 열리지 않는다.
+- **api가 `/internal`(worker·대화 런타임이 부르는 경로)을 공개 포트 3000이 아니라 새 포트 3200(`INTERNAL_API_PORT`)에서만 받는다. 3000번으로 온 `/internal`은 404다**(JeongJaeSoon/werft#2165). migration은 없다. 3000을 터널이나 proxy로 열어도 `/internal`은 따라 열리지 않는다.
   - Compose: 기본값을 쓰는 설치는 할 일이 없다. scheduler·대화 런타임의 `WORKER_GATEWAY_URL`은 `http://api:3200`, egress proxy와 api의 `EGRESS_PRIVATE_ALLOWLIST`는 `api:3200,host.docker.internal:3200`이 기본이다. 3200은 호스트에 묶지 않는다. 두 값을 직접 준 설치는 `api:3000`을 `api:3200`으로 바꾼다. 바꾸지 않으면 새 worker가 gateway에 닿지 못해 세션이 시작하지 않는다.
   - Helm: api에 ClusterIP Service `<fullname>-api-internal`(3200)이 생기고, `WORKER_GATEWAY_URL`과 `config.egress.privateAllowlist`의 기본값이 그쪽을 가리킨다. `config.egress.privateAllowlist`를 직접 준 설치는 `<fullname>-api:3000`을 `<fullname>-api-internal:3200`으로 바꾼다. NetworkPolicy는 3200에 egress-proxy만 들이고(`networkPolicy.worker.allowDirectGateway`면 worker도), `networkPolicy.api.ingressFrom`을 준 설치의 3000에는 egress-proxy가 더는 자동으로 들어가지 않는다.
   - 올릴 때 돌고 있던 worker는 앞선 주소(3000)로 gateway를 부르므로 gateway 호출이 실패한다(새 api의 404, 또는 새 proxy의 거절 403). 세션이 돌지 않을 때 올린다.
