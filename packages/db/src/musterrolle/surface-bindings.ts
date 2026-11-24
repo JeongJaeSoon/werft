@@ -24,6 +24,7 @@ import {
   desc,
   eq,
   isNull,
+  lt,
   lte,
   ne,
   notInArray,
@@ -508,7 +509,10 @@ export function createPostgresSurfaceBindingStore(
               isNull(surfaceBindings.revokedAt),
               or(
                 isNull(surfaceBindings.externalSharedAt),
-                lte(surfaceBindings.externalSharedAt, at),
+                // At the same instant a share wins: holding is what must not slip.
+                shared
+                  ? lte(surfaceBindings.externalSharedAt, at)
+                  : lt(surfaceBindings.externalSharedAt, at),
               ),
             ),
           )

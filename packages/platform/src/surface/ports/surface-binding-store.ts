@@ -360,8 +360,9 @@ export interface SurfaceBindingStore {
   /**
    * Records whether Slack said another organization shares the channel, as of
    * `at`, on the agent's live binding of it: observed state, not a setting, so no revision
-   * and no receipt. An answer older than the one recorded changes nothing; an
-   * equal time passes, so a retried event runs again. Shared, the channel's
+   * and no receipt. An answer older than the one recorded changes nothing. A
+   * share at an equal time passes, so a retried channel_shared runs again; an
+   * unshare at an equal time does not undo a share. Shared, the channel's
    * held posts are removed in the same transaction, and no post of it is held
    * until an answer says otherwise. False when nothing was written.
    */

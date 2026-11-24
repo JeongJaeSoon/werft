@@ -3183,7 +3183,7 @@ describe.each(ENGINES)(
       ]);
     });
 
-    test("an older answer about sharing does not undo a newer one; an equal one passes", async () => {
+    test("an older answer about sharing does not undo a newer one; at the same instant a share wins", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const bindings = createPostgresSurfaceBindingStore(db);
       const record = (shared: boolean, at: number) =>
@@ -3195,9 +3195,12 @@ describe.each(ENGINES)(
         );
       expect(await record(true, 2000)).toBe(true);
       expect(await record(false, 1000)).toBe(false);
+      expect(await record(false, 2000)).toBe(false);
       expect(await sharedColumn(fixture)).toEqual([true]);
-      expect(await record(false, 2000)).toBe(true);
+      expect(await record(false, 2001)).toBe(true);
       expect(await sharedColumn(fixture)).toEqual([false]);
+      expect(await record(true, 2001)).toBe(true);
+      expect(await sharedColumn(fixture)).toEqual([true]);
     });
 
     const bindingService = () => {
