@@ -37,13 +37,20 @@ export type ContextFragment = { scope: ScopeKey; sources: SourceKey[] } & (
 
 export type ContextFragmentKind = ContextFragment["kind"];
 
+/** What a source read for one conversation. */
+export type ContextRead = {
+  fragments: ContextFragment[];
+  /** Left out: their text could not be read again where it points (deleted, no access). */
+  unreadable: number;
+};
+
 /**
  * Reads the fragments of one main conversation: its channel's summary
- * lines, the agent's engagement records and its buffered messages. None
- * whose source Slack deleted; none when the agent has no such
- * conversation. Only the context assembler reads through it (G1, checked
- * in tests/architecture.test.ts).
+ * lines, the agent's engagement records and its buffered messages, a
+ * message's text read again from where it points. None whose source Slack
+ * deleted; none when the agent has no such conversation. Only the context
+ * assembler reads through it (G1, checked in tests/architecture.test.ts).
  */
 export interface ContextFragmentSource {
-  fragmentsOf(conversation: ConversationKey): Promise<ContextFragment[]>;
+  read(conversation: ConversationKey): Promise<ContextRead>;
 }

@@ -567,6 +567,39 @@ describe("모델 연결", () => {
     ]);
   });
 
+  test("the add dialog asks for an API key only: no claude.ai login or subscription field, for any kind", async () => {
+    renderAt(CONNECTIONS_PAGE, routes());
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    const kind = within(dialog).getByLabelText<HTMLSelectElement>("종류");
+    for (const value of [...kind.options].map((option) => option.value)) {
+      await user.selectOptions(kind, value);
+      const fields = [
+        ...dialog.querySelectorAll<HTMLInputElement>("input, select, textarea"),
+      ].map((field) => field.name);
+      expect(fields).toContain("value");
+      for (const name of fields) {
+        expect([
+          "id",
+          "kind",
+          "endpoint",
+          "billing",
+          "auth_kind",
+          "value",
+        ]).toContain(name);
+      }
+      const auth =
+        dialog.querySelector<HTMLSelectElement>('[name="auth_kind"]');
+      expect(
+        auth === null ? [] : [...auth.options].map((option) => option.value),
+      ).toEqual(value === "litellm" ? ["api_key", "bearer"] : []);
+      expect(dialog.textContent ?? "").not.toMatch(
+        /claude\.ai|구독|subscription|oauth|로그인|login/i,
+      );
+    }
+  });
+
   describe("a connection's models are picked from what its provider lists", () => {
     const DISCOVER = (id: string) => `${CONNECTIONS}/${id}/models/discover`;
     const DEFAULTS = {

@@ -168,7 +168,7 @@ Slack でアプリを削除すると連携は解除される。`app_uninstalled`
 
 `GET /v1/agents/{id}/slack/app/bots` は `items` と `truncated` を返す。各項目に `user_id`・`name`・`state`(`active`・`gone`)・`allowed` があり、`truncated` が `true` なら Slack の一覧を最後まで読めなかったことを示す。`PUT` は `{ "allowed_user_ids": ["U0..."] }` でリスト全体を置き換え、エージェント管理者が Web セッションで呼ぶ。新しく加える ID を受け付けられなければ 400 で、`details.reason_code` が理由を示す: `slack_bot_own`(エージェント自身のボット)、`slack_bot_werft_agent`(同じ Werft のほかのエージェントのボット)、`slack_bot_other_team`(ほかのチームのボット)、`slack_bot_unknown`(有効なボットではない)。`details.user_ids` にその理由で拒否した ID が入る。アプリがインストールされていなければ 409 `SLACK_NOT_INSTALLED`、Slack の 429 は `Retry-After` 付きの 503 になる。
 
-テストと復旧では、データベースに触れる運用者が API コンテナーで `bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>`、`allow-bot --agent <agent_id> --bot <bot_user_id>`、`disallow-bot --agent <agent_id> --bot <bot_user_id>` を使える。普段はコンソールで変更する。`allow-bot` は上と同じ検査(`slack_bot_own`・`slack_bot_werft_agent`・`slack_bot_other_team`・`slack_bot_unknown`)を通し、拒否すると終了コード 10 で終わる。リストが変わると `by` が `operator_cli` の receipt `set_slack_allowed_bots` が残る。すでに許可した Bot をもう一度許可しても、許可していない Bot を外しても、何も変わらず receipt も残らない。API は引き続き Web セッション専用で、API キーでは開かない。
+テストと復旧では、データベースに触れる運用者が API コンテナーで `bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>`、`allow-bot --agent <agent_id> --bot <bot_user_id>`、`disallow-bot --agent <agent_id> --bot <bot_user_id>` を使える。普段はコンソールで変更する。`allow-bot` は上と同じ検査(`slack_bot_own`・`slack_bot_werft_agent`・`slack_bot_other_team`・`slack_bot_unknown`)を通し、拒否すると終了コード 10 で終わる。リストが変わると `by` が `operator_cli` の receipt `set_slack_allowed_bots` が残る（コンソールで変えた場合は `by` が `web` で、`actor` が変えたユーザー）。すでに許可した Bot をもう一度許可しても、許可していない Bot を外しても、何も変わらず receipt も残らない。API は引き続き Web セッション専用で、API キーでは開かない。
 
 ## チャンネル参加とデプロイの歓迎メッセージ
 

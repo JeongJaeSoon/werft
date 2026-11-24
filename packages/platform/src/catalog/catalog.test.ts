@@ -11,6 +11,7 @@ import {
   type CatalogProviderConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
   catalogConnectionsSchema,
+  catalogProviderSchema,
   connectionModels,
   describeConfigError,
   type JudgeProvider,
@@ -651,5 +652,38 @@ describe("remote MCP servers", () => {
         Read: "allow",
       }),
     ).toEqual(["mcp__fake__whoami"]);
+  });
+});
+
+describe("a connection holds the installation's own API key", () => {
+  const entry = (kind: string, authKind: string) => ({
+    kind,
+    endpoint: "https://api.example.invalid",
+    auth: { kind: authKind, stored: "connection:main" },
+  });
+  const accepted = (kind: string) =>
+    ["api_key", "bearer", "oauth", "subscription", "claude_ai"].filter(
+      (authKind) =>
+        catalogProviderSchema.safeParse(entry(kind, authKind)).success,
+    );
+
+  test("each kind takes an API key; only litellm also takes a bearer token", () => {
+    expect({
+      anthropic: accepted("anthropic"),
+      litellm: accepted("litellm"),
+      openai_responses: accepted("openai_responses"),
+      openai_decisions: accepted("openai_decisions"),
+    }).toEqual({
+      anthropic: ["api_key"],
+      litellm: ["api_key", "bearer"],
+      openai_responses: ["api_key"],
+      openai_decisions: ["api_key"],
+    });
+  });
+
+  test("a claude.ai or third-party cloud kind is no connection", () => {
+    for (const kind of ["claude_ai", "claude_code", "bedrock", "vertex"]) {
+      expect(accepted(kind)).toEqual([]);
+    }
   });
 });

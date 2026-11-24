@@ -105,6 +105,15 @@ export async function writeAllowedBotsReceipt(
   });
 }
 
+function receiptBy(
+  actor: SurfaceAppActor,
+): "operator_cli" | { userId: string } {
+  if (actor === null) return "operator_cli";
+  const userId = actor.principal.actor?.userId;
+  if (!userId) throw new Error("actor without a user passed actorRefusal");
+  return { userId };
+}
+
 const LIVE_STATES = ["creating", "created", "deleting"] as const;
 
 const secretSlot = (
@@ -532,17 +541,36 @@ export function createPostgresSlackAppStore(
           input.actor,
         );
         if (refused) return refused;
-        const [row] = await tx
-          .update(agents)
-          .set({ slackAllowedBotUserIds: [...input.allowedBotUserIds] })
+        const agentId = input.agentId.toLowerCase();
+        const [current] = await tx
+          .select({ allowed: agents.slackAllowedBotUserIds })
+          .from(agents)
           .where(
             and(
               eq(agents.workspaceId, input.workspaceId),
-              eq(agents.id, input.agentId.toLowerCase()),
+              eq(agents.id, agentId),
             ),
           )
-          .returning({ id: agents.id });
-        return row ? ("saved" as const) : ("not_found" as const);
+          .for("update");
+        if (!current) return "not_found" as const;
+        const after = [...input.allowedBotUserIds];
+        await tx
+          .update(agents)
+          .set({ slackAllowedBotUserIds: after })
+          .where(
+            and(
+              eq(agents.workspaceId, input.workspaceId),
+              eq(agents.id, agentId),
+            ),
+          );
+        await writeAllowedBotsReceipt(tx, {
+          workspaceId: input.workspaceId,
+          agentId,
+          by: receiptBy(input.actor),
+          before: current.allowed,
+          after,
+        });
+        return "saved" as const;
       });
     },
     changeAllowedBotAsOperator(input) {

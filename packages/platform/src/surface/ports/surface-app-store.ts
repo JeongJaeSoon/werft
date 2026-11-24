@@ -158,6 +158,11 @@ export interface SurfaceAppStore {
     workspaceId: string,
     agentId: string,
   ): Promise<AgentBotAllowList | null>;
+  /**
+   * The console's save of the whole list, replaced under the row's lock. When
+   * the list changed, a `set_slack_allowed_bots` receipt for the acting user
+   * is written in the same transaction; the same list writes none.
+   */
   putAllowedBots(input: {
     workspaceId: string;
     agentId: string;

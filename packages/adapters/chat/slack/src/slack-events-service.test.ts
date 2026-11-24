@@ -32,7 +32,19 @@ const BOT_USER = "U0EVENTSBOT";
 const NOW = new Date("2026-10-24T10:00:00.000Z");
 const NOW_SECONDS = Math.floor(NOW.getTime() / 1000);
 
-function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
+function world(
+  options: {
+    linkTo?: string;
+    withSecret?: boolean;
+    ackDeadlineMs?: number;
+    // Each call of the method waits for this before it reaches the store.
+    hold?: {
+      seen?: Promise<void>;
+      record?: Promise<void>;
+      resolve?: Promise<void>;
+    };
+  } = {},
+) {
   const secrets = createMemorySecretStore();
   const agents = new Map(
     [AGENT, OTHER_AGENT, BARE_AGENT].map((id) => [
@@ -95,11 +107,31 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
   const readyChannels = new Map<string, "public_channel" | "private_channel">();
   const rejectedChannels = new Set<string>();
   const echoes: unknown[] = [];
+  const held = options.hold ?? {};
   const service = createSlackEventsService({
     signingSecrets,
-    inbox: inbox.store,
+    inbox: {
+      ...inbox.store,
+      seen: async (...args) => {
+        await held.seen;
+        return inbox.store.seen(...args);
+      },
+      record: async (row) => {
+        await held.record;
+        return inbox.store.record(row);
+      },
+    },
+    ...(options.ackDeadlineMs === undefined
+      ? {}
+      : { ackDeadlineMs: options.ackDeadlineMs }),
     apps: apps.store,
-    identities: identities.store,
+    identities: {
+      ...identities.store,
+      resolveSlackEvent: async (...args) => {
+        await held.resolve;
+        return identities.store.resolveSlackEvent(...args);
+      },
+    },
     installs: installs.store,
     sourceMarks: marks.store,
     mirrorEchoes: {
@@ -422,6 +454,98 @@ describe("Slack events service", () => {
     expect(row && "payload" in row ? row.payload?.token : "none").toBe(
       undefined,
     );
+  });
+
+  test("the verified-envelope entry records what the HTTP path records", async () => {
+    const overHttp = world();
+    await overHttp.install();
+    const direct = world();
+    await direct.install();
+    const body = overHttp.event(MENTION, { eventId: "Ev0ENTRY" });
+    const app = { workspaceId: WORKSPACE, slackAppId: APP_ROW, appId: APP_ID };
+    const viaEntry = await direct.service.receiveEnvelope({
+      agentId: AGENT,
+      app,
+      body: JSON.parse(body),
+    });
+    expect(viaEntry).toEqual(
+      await overHttp.service.receive(overHttp.signed(body)),
+    );
+    expect(viaEntry).toMatchObject({ kind: "ack", result: "recorded" });
+    expect([...direct.inbox.rows.values()]).toEqual([
+      ...overHttp.inbox.rows.values(),
+    ]);
+    expect(
+      await direct.service.receiveEnvelope({
+        agentId: AGENT,
+        app,
+        body: undefined,
+      }),
+    ).toEqual({ kind: "bad_request" });
+  });
+
+  test("a store slower than the deadline answers unavailable, records nothing, and the retry records once", async () => {
+    let open = () => {};
+    const seen = new Promise<void>((done) => {
+      open = done;
+    });
+    const w = world({ ackDeadlineMs: 20, hold: { seen } });
+    await w.install();
+    const body = w.event(MENTION, { eventId: "Ev0SLOWSEEN" });
+    expect(await w.service.receive(w.signed(body))).toEqual({
+      kind: "unavailable",
+      step: "seen",
+      eventId: "Ev0SLOWSEEN",
+      teamId: TEAM,
+    });
+    open();
+    await Bun.sleep(5);
+    expect(w.inbox.calls.record).toBe(0);
+    expect(await w.service.receive(w.signed(body))).toMatchObject({
+      kind: "ack",
+      result: "recorded",
+    });
+    expect(w.inbox.rows.size).toBe(1);
+  });
+
+  test("a record that commits after the deadline is found by Slack's retry", async () => {
+    let open = () => {};
+    const record = new Promise<void>((done) => {
+      open = done;
+    });
+    const w = world({ ackDeadlineMs: 20, hold: { record } });
+    await w.install();
+    const body = w.event(MENTION, { eventId: "Ev0SLOWRECORD" });
+    expect(await w.service.receive(w.signed(body))).toMatchObject({
+      kind: "unavailable",
+      step: "record",
+    });
+    open();
+    await Bun.sleep(5);
+    expect(w.inbox.rows.size).toBe(1);
+    expect(await w.service.receive(w.signed(body))).toMatchObject({
+      kind: "ack",
+      result: "duplicate",
+    });
+    expect(w.inbox.rows.size).toBe(1);
+  });
+
+  test("past the deadline no later store call starts, even inside classification", async () => {
+    let open = () => {};
+    const resolve = new Promise<void>((done) => {
+      open = done;
+    });
+    const w = world({ ackDeadlineMs: 20, hold: { resolve } });
+    await w.install();
+    const body = w.event(DELETED, { eventId: "Ev0SLOWRESOLVE" });
+    expect(await w.service.receive(w.signed(body))).toMatchObject({
+      kind: "unavailable",
+      step: "classify",
+    });
+    open();
+    await Bun.sleep(5);
+    expect(w.marks.deleted.size).toBe(0);
+    expect(w.inbox.calls.record).toBe(0);
   });
 
   test("a 70 KiB event is stored", async () => {
