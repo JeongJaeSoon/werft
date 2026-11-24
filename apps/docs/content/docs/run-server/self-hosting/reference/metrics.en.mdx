@@ -41,6 +41,8 @@ The prefix is `werft_`, defined in one place in the code.
 | `werft_provider_cost_usd_total` | counter | `model`, `priced_by` | Estimated provider cost (USD), excluding Kubernetes infrastructure costs |
 | `werft_launch_queue_sessions` | gauge | None | Sessions waiting for worker launch |
 | `werft_launch_queue_oldest_wait_seconds` | gauge | None | Longest session wait in the launch queue; 0 when empty |
+| `werft_sessions_waiting_for_capacity` | gauge | None | Sessions whose worker Pod is up but has no node with room, so it waits to start. Kubernetes has marked the Pod `Unschedulable` |
+| `werft_session_no_capacity_failures_total` | counter | None | Times a session's waiting input failed with `NO_CAPACITY` because no room freed up within 15 minutes |
 | `werft_input_queue_oldest_age_seconds` | gauge | None | Age of the oldest input not yet taken by a worker; 0 when empty |
 
 `tool_calls` is a gauge because tool outcomes can change later. A late result changes `unknown` to `ok` or `failed`; an earlier result arriving later can replace the existing outcome. A decrease in a counter would look like a reset and distort increments. Use `tool_calls_total` for call count increases and `tool_calls` for outcome ratios.
@@ -87,6 +89,9 @@ The first matching row determines `state`. Each session matches exactly one row,
 
 - **Launch queue:** sessions the scheduler can launch in the next pass, counted using the same SQL conditions: launchable admission, no execution reclamation/takeover, within cost/token limits, restore retry time elapsed, and no launch holding a slot. Limits come from the same `config.limits` as the scheduler. Wait time starts at `unassigned_sessions.signaled_at`.
 - **Input queue:** inputs in `queue_messages` not taken by any worker whose visibility time has passed. This matches Compose's `werft.queue.oldest_age_seconds`.
+- **Waiting for room:** measured from the first time the scheduler sees the worker Pod's `PodScheduled` condition as `Unschedulable`. While it waits, the scheduler neither recreates nor replaces that Pod. After 15 minutes it fails the waiting input and takes the Pod down. The session waits for its next input and, since this is not counted as a launch failure, does not go to `recovery_required`. The scheduler logs `Execution waiting for capacity; no node has room` (warn) when the wait begins, `Execution still waiting for capacity` (warn) whenever the reason Kubernetes gives changes, and `Execution found no capacity in time; queued input failed with NO_CAPACITY` (error) when it gives up. The reason Kubernetes gives (the same text as the Pod's `FailedScheduling` event) is in `fields.unschedulable_reason`.
+
+The chart ships no alerting rules. Example Prometheus rules are in [Collect metrics](/run-server/self-hosting/collect-metrics#5-경보-규칙-예시).
 
 <a id="라벨-규칙" />
 ## Label rules

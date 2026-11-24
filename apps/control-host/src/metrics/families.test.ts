@@ -23,6 +23,8 @@ function snapshot(
     sessions: [],
     settledTurns: [],
     outcomeUnknownTurns: 0,
+    waitingForCapacity: 0,
+    noCapacityFailures: 0,
     toolCalls: [],
     providerUsage: [],
     launchQueue: { sessions: 0, oldestWaitSeconds: 0 },
@@ -123,6 +125,8 @@ const ALLOWED_LABELS: Record<string, string[]> = {
   provider_cost_usd_total: ["model", "priced_by"],
   launch_queue_sessions: [],
   launch_queue_oldest_wait_seconds: [],
+  sessions_waiting_for_capacity: [],
+  session_no_capacity_failures_total: [],
   input_queue_oldest_age_seconds: [],
 };
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;

@@ -74,6 +74,22 @@ port-forward はバックグラウンドで実行し、今回の PID だけを�
 
 メトリクス名が変わった場合、以前の alias を期待せず、Datadog の定義・クエリ・フィルターと Prometheus のルールを[メトリクス契約](/run-server/self-hosting/reference/metrics)の名前に変更します。変更した rules が実際の新しい series を読み取ることを確認します。
 
+<a id="5-경보-규칙-예시" />
+### 5. アラートルールの例
+
+chart はアラートルール（PrometheusRule）を含みません。次は worker が入る node が足りないときに知らせる Prometheus ルールの例です。しきい値と期間はインストールに合わせます。メトリクスの意味は[メトリクス契約](/run-server/self-hosting/reference/metrics)にあります。
+
+```yaml
+groups:
+  - name: werft-capacity
+    rules:
+      - alert: WerftSessionsWaitingForCapacity
+        expr: werft_sessions_waiting_for_capacity > 0
+        for: 5m
+      - alert: WerftNoCapacityFailures
+        expr: increase(werft_session_no_capacity_failures_total[1h]) > 0
+```
+
 <a id="확인" />
 ## 確認
 
