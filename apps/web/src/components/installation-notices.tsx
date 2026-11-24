@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, unwrap } from "@werft-ai/client";
+import { ApiError, unwrap } from "@werft-ai/client";
 import type {
   InstallationStatus,
   LostCheckpointNotices,
@@ -14,6 +14,17 @@ import { FormError } from "./auth-page.tsx";
 
 // Another owner or admin may close it, and a restart may add to it.
 const NOTICES_REFETCH_MS = 60_000;
+
+/**
+ * How often an open console asks again whether the disk quota is off: a
+ * failed ask during an API restart keeps the polling, a server from before
+ * the route ends it.
+ */
+export function installationStatusRefetchMs(error: unknown): number | false {
+  return error instanceof ApiError && error.code === "NOT_FOUND"
+    ? false
+    : NOTICES_REFETCH_MS;
+}
 
 /** What one close takes (closeLostCheckpointNoticesRequestSchema). */
 const CLOSE_BATCH = 100;
@@ -55,10 +66,9 @@ export function InstallationNotices() {
       ) as Promise<InstallationStatus>,
     enabled: manages,
     // Fixed for the life of an API process, but a restart can change it under
-    // an open console; a server from before it is 404.
+    // an open console.
     retry: false,
-    refetchInterval: (query) =>
-      query.state.status === "error" ? false : NOTICES_REFETCH_MS,
+    refetchInterval: (query) => installationStatusRefetchMs(query.state.error),
   });
   const close = useMutation<LostCheckpointNotices, ApiError, string[]>({
     // Everything that was read and nothing else, as many at a time as one

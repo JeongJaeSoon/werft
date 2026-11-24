@@ -334,3 +334,26 @@ describe("the banner for an installation without a disk quota", () => {
     }
   }
 });
+
+describe("how often an open console asks for the installation status", () => {
+  test("a failed ask during an API restart keeps asking; a server without the route ends it", async () => {
+    const { ApiError } = await import("@werft-ai/client");
+    const { installationStatusRefetchMs } = await import(
+      "./installation-notices.tsx"
+    );
+    expect(installationStatusRefetchMs(null)).toBe(60_000);
+    expect(
+      installationStatusRefetchMs(
+        new ApiError(0, "NETWORK_ERROR", "fetch failed"),
+      ),
+    ).toBe(60_000);
+    expect(
+      installationStatusRefetchMs(new ApiError(503, "NOT_READY", "starting")),
+    ).toBe(60_000);
+    expect(
+      installationStatusRefetchMs(
+        new ApiError(404, "NOT_FOUND", "Resource not found"),
+      ),
+    ).toBe(false);
+  });
+});
