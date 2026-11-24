@@ -306,13 +306,15 @@ describe("agent service", () => {
         return new Map([[AGENT, summary]]);
       },
     });
+    // A draft: its status says the record exists, its activation that
+    // nobody can talk to it yet.
     expect((await service.listAgents(owner, PAGE)).items).toEqual([
-      detail.agent,
+      { ...detail.agent, activation: "draft" },
     ]);
     expect(asked).toEqual([]);
     expect(
       (await service.listAgents(owner, { ...PAGE, include: "summary" })).items,
-    ).toEqual([{ ...detail.agent, summary }]);
+    ).toEqual([{ ...detail.agent, activation: "draft", summary }]);
     expect(asked).toEqual([[AGENT]]);
   });
 

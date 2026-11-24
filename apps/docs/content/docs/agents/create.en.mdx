@@ -140,6 +140,16 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 The list returns agents oldest first, `limit` at a time (default 50, at most 100). Send the response's `next_cursor` back as `cursor` for the next page; it is `null` on the last one. Without `cursor` you get the first page only. With `q` (up to 200 characters) you get only agents whose name or slug contains it, ignoring case; with `ids`, agent IDs joined by commas (up to 100), you get only those agents. With `connection_id` you get only agents whose active release runs on that connection; an agent with no active release is left out. In every case the next page comes by the same `cursor`. `GET /v1/agents/counts` returns how many agents the list holds read to its end (`all`), how many of them you administer yourself or through a team (`administered`), how many are on through an active release (`active`), and how many are drafts, not archived but with no active release yet (`draft`), and how many no one administers (`ownerless`). Both need the same permission as the list, and API keys are refused. With `ownerless=true` the list returns only the agents no one administers ([Agents with no administrator](/agents/permissions#agents-with-no-administrator)).
 
+Each agent in the list has a `status` and an `activation`. `status` is the state of the agent's record, so a draft that was never switched on is `active` too. Do not use it to tell whether an agent is on. Read `activation` for that: `active` once an active release lets people talk to it, `draft` before. It follows the same rule as `active` and `draft` in `GET /v1/agents/counts`.
+
+```bash
+curl -sS "$API/v1/agents?limit=50" "${WEB[@]}" | jq -c '.items[] | {slug, status, activation}'
+```
+
+```text
+{"slug":"research-bot","status":"active","activation":"active"}
+```
+
 ## Try it before you publish
 
 An agent with an active release is **published**; one without is **unpublished**. An unpublished agent is seen only by its admins (direct admins, members of its admin teams, the team leads of its responsible team) and the workspace's owners and admins. Members of its responsible team and of its usage teams do not find it in the list or the counts, and its detail is 404. Once published, it is seen as before.

@@ -542,6 +542,40 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     ).toBe("FORBIDDEN");
   });
 
+  test("activation says what counts counts each agent as, while a draft's status stays active", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const draft = await newAgent(agentsService, owner);
+    const released = await newAgent(agentsService, owner);
+    const v1 = released.versions[0];
+    if (!v1) throw new Error("no version 1");
+    const { release } = await agentsService.createRelease(
+      owner,
+      released.agent.id,
+      { version_id: v1.id, connection_id: TEST_CONNECTION_ID },
+    );
+    await agentsService.activateAgent(owner, released.agent.id, {
+      release_id: release.id,
+      expected_revision: -1,
+    });
+
+    const { counts } = await agentsService.countAgents(owner);
+    expect([counts.active, counts.draft]).toEqual([1, 1]);
+    for (const include of [undefined, "summary"] as const) {
+      const page = await agentsService.listAgents(owner, {
+        ...PAGE,
+        ...(include === undefined ? {} : { include }),
+      });
+      expect(
+        page.items.map((agent) => [agent.id, agent.status, agent.activation]),
+      ).toEqual([
+        [draft.agent.id, "active", "draft"],
+        [released.agent.id, "active", "active"],
+      ]);
+    }
+  });
+
   test("a page's summaries say what reading each agent, its admins and bindings one by one says", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");

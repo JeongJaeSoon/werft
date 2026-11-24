@@ -460,6 +460,40 @@ describe("에이전트 목록", () => {
     ).toEqual([false, false, false, true]);
   });
 
+  test("켜졌는지는 status가 아니라 activation으로 읽는다", async () => {
+    const base = agentServer().detail().agent;
+    const row = (name: string, activation: "draft" | "active") => ({
+      ...base,
+      id: crypto.randomUUID(),
+      slug: name,
+      name,
+      status: "active" as const,
+      // Set either way, so only activation tells the two apart.
+      active_release_id: crypto.randomUUID(),
+      activation_revision: 0,
+      activation,
+    });
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () =>
+        json(200, {
+          items: [row("off", "draft"), row("on", "active")],
+          next_cursor: null,
+        }),
+    });
+    await screen.findByRole("link", { name: "off" });
+    await waitFor(() =>
+      expect(
+        ["off", "on"].map(
+          (name) =>
+            stateOf(screen.getByRole("link", { name }))?.getAttribute(
+              "data-state",
+            ) ?? null,
+        ),
+      ).toEqual(["draft", "active"]),
+    );
+  });
+
   test("구성원은 전체 목록 대신 안내를 보고, 새 에이전트는 만들 수 있다", async () => {
     const { history } = renderAt("/agents", {
       "GET /v1/auth/me": () => json(200, memberMe()),

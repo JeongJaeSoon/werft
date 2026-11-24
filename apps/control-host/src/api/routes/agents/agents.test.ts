@@ -307,7 +307,7 @@ describe("GET /v1/agents", () => {
     const response = await send(app(), "GET", "/v1/agents");
     expect(response.status).toBe(200);
     expect(listAgentsResponseSchema.parse(await response.json())).toEqual({
-      items: [detail.agent],
+      items: [{ ...detail.agent, activation: "draft" }],
       next_cursor: null,
     });
   });
@@ -444,7 +444,7 @@ describe("GET /v1/agents", () => {
     );
 
     expect(await service("agent").listAgents(key, { limit: 50 })).toEqual({
-      items: [detail.agent],
+      items: [{ ...detail.agent, activation: "draft" }],
       next_cursor: null,
     });
     expect(asked).toEqual([["session.submit", AGENT]]);

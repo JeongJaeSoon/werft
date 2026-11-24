@@ -57,7 +57,7 @@ export function fakeApi(routes: Record<string, Handler>) {
       repositoriesFrom(routes, key, input);
     if (!handler) return apiError(404, "NOT_FOUND", `no fake for ${key}`);
     // The body was read for the record; a handler gets one it can read again.
-    return handler(
+    const answer = await handler(
       text
         ? new Request(input.url, {
             method: input.method,
@@ -66,6 +66,7 @@ export function fakeApi(routes: Record<string, Handler>) {
           })
         : input,
     );
+    return key === "GET /v1/agents" ? withActivation(answer) : answer;
   };
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
 }
@@ -124,6 +125,28 @@ function repositoriesFrom(
       })),
     });
   };
+}
+
+/**
+ * The agent list as the server answers it: an item a test wrote from an
+ * agent row gets the `activation` the server derives (agentActivationOf); one
+ * that names its own keeps it.
+ */
+async function withActivation(answer: Response): Promise<Response> {
+  if (!answer.ok) return answer;
+  const page = (await answer.json()) as {
+    items: { status: string; active_release_id: string | null }[];
+  };
+  return json(answer.status, {
+    ...page,
+    items: page.items.map((item) => ({
+      activation:
+        item.status === "active" && item.active_release_id !== null
+          ? "active"
+          : "draft",
+      ...item,
+    })),
+  });
 }
 
 /**

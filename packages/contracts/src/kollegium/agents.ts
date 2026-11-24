@@ -1205,7 +1205,7 @@ export type AgentChannel = (typeof AGENT_CHANNEL_VALUES)[number];
 /**
  * What a list shows of an agent beyond its row, read in one go for the page
  * so a list of cards does not ask once per agent. Only with
- * `include=summary`; without it the items are exactly `agentSchema`.
+ * `include=summary`; without it the items are `agentSchema` and `activation`.
  */
 export const agentSummarySchema = z
   .object({
@@ -1267,8 +1267,35 @@ export const agentSummarySchema = z
   })
   .strict();
 
+/**
+ * Whether people can talk to the agent: `active` exactly where
+ * `GET /v1/agents/counts` counts it in `active` (status `active` with an
+ * `active_release_id`), `draft` otherwise.
+ */
+export const AGENT_ACTIVATION_VALUES = ["draft", "active"] as const;
+export const agentActivationSchema = z.enum(AGENT_ACTIVATION_VALUES);
+export type AgentActivation = z.infer<typeof agentActivationSchema>;
+
+export function agentActivationOf(
+  agent: Pick<Agent, "status" | "active_release_id">,
+): AgentActivation {
+  return agent.status === "active" && agent.active_release_id !== null
+    ? "active"
+    : "draft";
+}
+
 export const agentListItemSchema = agentSchema
-  .extend({ summary: agentSummarySchema.optional() })
+  .extend({
+    status: agentStatusSchema.meta({
+      description:
+        "The record's state: `active` for every agent that exists, whether or not it was ever switched on. Do not read it as switched on; read `activation`.",
+    }),
+    activation: agentActivationSchema.meta({
+      description:
+        "Whether people can talk to the agent: `active` once a release is active (the agents `GET /v1/agents/counts` counts in `active`), `draft` before (those it counts in `draft`).",
+    }),
+    summary: agentSummarySchema.optional(),
+  })
   .strict();
 
 export const AGENT_SEARCH_MAX_CHARS = 200;

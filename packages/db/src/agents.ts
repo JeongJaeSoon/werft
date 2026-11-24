@@ -6,7 +6,6 @@ import {
   type AgentVersion,
   agentReleaseSchema,
   behaviorKey,
-  type ListAgentsResponse,
   type ReceiptOperation,
   storedAgentCardSchema,
   type WorkspaceRole,
@@ -472,7 +471,7 @@ function visibleTo(db: Database, workspaceId: string, userId: string) {
 
 export function createPostgresAgentStore(db: Database): AgentStore {
   return {
-    async list(workspaceId, query, reader): Promise<ListAgentsResponse> {
+    async list(workspaceId, query, reader) {
       const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
       const rows = await db
         .select({
