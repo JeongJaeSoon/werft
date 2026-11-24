@@ -9,8 +9,10 @@ import {
   Link,
   SegmentedControl,
   SegmentedControlItem,
+  SettingRow,
   SettingsSection,
   Skeleton,
+  Switch,
   TableTime,
   Text,
 } from "@werft-ai/ui";
@@ -272,6 +274,21 @@ export function SlackNoticeSection({
           {approve.error ? (
             <FieldError>{noticeFailure(approve.error, t)}</FieldError>
           ) : null}
+          <SlackRolloutRow
+            agentId={agentId}
+            data={data}
+            onSaved={(view) =>
+              saved(
+                view,
+                t(
+                  view.rollout === "off"
+                    ? "slack.rollout.savedOff"
+                    : "slack.rollout.savedOn",
+                ),
+              )
+            }
+            onStale={() => void cache.invalidateQueries({ queryKey: key })}
+          />
         </div>
       )}
       <ConfirmDialog
@@ -291,6 +308,88 @@ export function SlackNoticeSection({
       </ConfirmDialog>
     </SettingsSection>
   );
+}
+
+/**
+ * The agent's conversation switch, off or shadow. It is raised only once the
+ * notice is approved and can always be lowered; the server lowers it by
+ * itself when the approval stops counting.
+ */
+function SlackRolloutRow({
+  agentId,
+  data,
+  onSaved,
+  onStale,
+}: {
+  readonly agentId: string;
+  readonly data: Notice;
+  readonly onSaved: (view: Notice) => void;
+  readonly onStale: () => void;
+}) {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const change = useMutation({
+    mutationFn: (rollout: Notice["rollout"]) =>
+      unwrap(
+        client.POST("/v1/agents/{id}/slack/notice/rollout", {
+          params: { path: { id: agentId } },
+          body: { rollout },
+        }),
+      ),
+    onSuccess: onSaved,
+    // Refused because the approval changed under the reader: show it now.
+    onError: onStale,
+  });
+  const raised = data.rollout !== "off";
+  const locked = !raised && data.state !== "approved";
+  const unavailable = locked || change.isPending;
+  return (
+    <SettingRow
+      title={t("slack.rollout")}
+      description={t("slack.rolloutHint")}
+      status={
+        <Text as="span" variant="sub">
+          {t(raised ? "slack.on" : "slack.off")}
+        </Text>
+      }
+      meta={
+        <>
+          {!data.can_approve ? (
+            <Text as="span" variant="sub">
+              {t("slack.rollout.adminOnly")}
+            </Text>
+          ) : locked ? (
+            <Text as="span" variant="sub">
+              {t("slack.rollout.locked")}
+            </Text>
+          ) : null}
+          {change.error ? (
+            <FieldError>{rolloutFailure(change.error, t)}</FieldError>
+          ) : null}
+        </>
+      }
+      control={
+        data.can_approve ? (
+          <Switch
+            aria-label={t("slack.rollout")}
+            checked={raised}
+            aria-disabled={unavailable}
+            onCheckedChange={(checked) => {
+              if (!unavailable) change.mutate(checked ? "shadow" : "off");
+            }}
+          />
+        ) : null
+      }
+    />
+  );
+}
+
+function rolloutFailure(error: unknown, t: Translate): string {
+  const reason = (error as { details?: { reason_code?: unknown } } | null)
+    ?.details?.reason_code;
+  if (reason === "notice_not_approved" || reason === "no_notice")
+    return t("slack.rollout.locked");
+  return slackFailure(error, t);
 }
 
 function noticeFailure(error: unknown, t: Translate): string {
