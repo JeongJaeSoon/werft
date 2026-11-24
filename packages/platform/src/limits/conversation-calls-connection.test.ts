@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+  conversationCallKeySchema,
+  conversationIdSchema,
+} from "@werft-ai/contracts";
 import type { SessionCatalog } from "../catalog/index.ts";
 import { createConversationCalls } from "./conversation-calls.ts";
 import type { ConversationCallStore } from "./ports/conversation-call-store.ts";
@@ -34,6 +38,14 @@ function issueWith(connectionId: string) {
     .issue({
       workspaceId: "00000000-0000-4000-8000-0000000000c2",
       agentId: "00000000-0000-4000-8000-0000000000a1",
+      conversationId: conversationIdSchema.parse(
+        "00000000-0000-4000-8000-0000000000b1",
+      ),
+      topicId: null,
+      callClass: "m1",
+      releaseId: null,
+      callKey: conversationCallKeySchema.parse("input-1:m1"),
+      attempt: 1,
       root: { kind: "none" },
       connectionId,
       model: MODEL,

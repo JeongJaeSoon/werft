@@ -34,17 +34,22 @@ import {
   type BudgetReservationState,
   type BudgetRootKind,
   CHANNEL_SUMMARY_LINE_TEXT_MAX,
+  CONVERSATION_CALL_CLASS_VALUES,
   CONVERSATION_CALL_STATE_VALUES,
   CONVERSATION_CHANNEL_STATE_VALUES,
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
   CONVERSATION_ROLLOUT_VALUES,
+  type ConversationCallClass,
   type ConversationCallId,
+  type ConversationCallKey,
   type ConversationCallState,
   type ConversationChannelState,
+  type ConversationId,
   type ConversationInputId,
   type ConversationInputSlackMirror,
   type ConversationKind,
+  type ConversationTopicId,
   DELETED_SOURCE_REASON_VALUES,
   type DeletedSourceReason,
   ENDED_ATTEMPT_STATES,
@@ -3750,6 +3755,18 @@ export const conversationCalls = pgTable(
     // In flight past the lease with no report: its end is unknown, still
     // held. Older images ignore it and treat the row as in flight.
     unknownAt: timestamp("unknown_at", { withTimezone: true }),
+    // What the call is for. All empty on a row an image from before these
+    // columns issued; a call with a key has the rest but its topic and
+    // release.
+    conversationId: uuid("conversation_id").$type<ConversationId>(),
+    // Emptied when the buffer drops the topic; the call stays.
+    topicId: uuid("topic_id").$type<ConversationTopicId>(),
+    callClass: text("call_class").$type<ConversationCallClass>(),
+    // The agent's active release when the call was issued.
+    releaseId: text("release_id"),
+    callKey: text("call_key").$type<ConversationCallKey>(),
+    // A retry keeps the key and takes the next attempt.
+    attempt: integer(),
   },
   (table) => [
     uniqueIndex("conversation_calls_token_uniq").on(table.tokenHash),
@@ -3760,6 +3777,43 @@ export const conversationCalls = pgTable(
     index("conversation_calls_in_flight_started_idx")
       .on(table.startedAt)
       .where(sql`${table.state} = 'in_flight' AND ${table.unknownAt} IS NULL`),
+    // Nulls are distinct, so the rows with no key never collide.
+    uniqueIndex("conversation_calls_call_key_uniq").on(
+      table.agentId,
+      table.callKey,
+      table.attempt,
+    ),
+    // For the topic FK's ON DELETE, so dropping a topic reads no other row.
+    index("conversation_calls_topic_idx")
+      .on(table.topicId)
+      .where(sql`${table.topicId} IS NOT NULL`),
+    foreignKey({
+      name: "conversation_calls_conversation_fk",
+      columns: [table.conversationId],
+      foreignColumns: [conversations.id],
+    }),
+    foreignKey({
+      name: "conversation_calls_topic_fk",
+      columns: [table.topicId],
+      foreignColumns: [conversationTopics.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "conversation_calls_release_fk",
+      columns: [table.agentId, table.releaseId],
+      foreignColumns: [agentReleases.agentId, agentReleases.id],
+    }),
+    check(
+      "conversation_calls_call_class_check",
+      sql`${table.callClass} IN (${sql.raw(sqlList(CONVERSATION_CALL_CLASS_VALUES))})`,
+    ),
+    // A key names its class, as conversationCallKeySchema reads it.
+    check(
+      "conversation_calls_call_key_check",
+      sql`CASE WHEN ${table.callKey} IS NULL
+        THEN ${table.conversationId} IS NULL AND ${table.topicId} IS NULL AND ${table.callClass} IS NULL AND ${table.releaseId} IS NULL AND ${table.attempt} IS NULL
+        ELSE ${table.conversationId} IS NOT NULL AND ${table.callClass} IS NOT NULL AND ${table.attempt} IS NOT NULL AND ${table.attempt} >= 1 AND ${table.callKey} ~ ('^[A-Za-z0-9_-]{1,128}:' || ${table.callClass} || '$')
+      END`,
+    ),
     check(
       "conversation_calls_root_kind_check",
       sql`${table.rootKind} IN (${sql.raw(sqlList(BUDGET_ROOT_KIND_VALUES))})`,
