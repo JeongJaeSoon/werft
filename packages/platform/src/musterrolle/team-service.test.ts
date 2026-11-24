@@ -126,6 +126,14 @@ function recordingStore() {
     async get() {
       return { ...TEAM_ROW, members: [] };
     },
+    async getBudgetLimit(_workspaceId, teamId) {
+      calls.push(`budget:${teamId}`);
+      return { costUsd: 50, tokens: null };
+    },
+    async setBudgetLimit(input) {
+      calls.push(`set_budget:${input.actor.userId}`);
+      return { outcome: "set", limit: input.limit };
+    },
     async listJoined(workspaceId, userId, query) {
       calls.push(`joined:${workspaceId}:${userId}:${JSON.stringify(query)}`);
       return { items: [{ ...TEAM_ROW, role: "lead" }], nextCursor: null };
@@ -185,6 +193,11 @@ const CHANGES = {
     s.teams.addTeamMember(c, TEAM, USERS.member),
   remove: (s: ReturnType<typeof services>, c: Caller) =>
     s.teams.removeTeamMember(c, TEAM, USERS.team_member),
+  "set the budget limit of": (s: ReturnType<typeof services>, c: Caller) =>
+    s.teams.putTeamBudgetLimit(c, TEAM, { cost_usd: 50, tokens: null }),
+  // A team's own members do not read what its agents may spend.
+  "read the budget limit of": (s: ReturnType<typeof services>, c: Caller) =>
+    s.teams.getTeamBudgetLimit(c, TEAM),
 };
 
 describe("team.manage by role (design 4.1, D23)", () => {
@@ -286,6 +299,46 @@ describe("team.manage by role (design 4.1, D23)", () => {
     expect(
       await teams.renameTeam(owner, TEAM, { name: "research" }),
     ).toMatchObject({ receipt_id: null });
+  });
+});
+
+test("a team's budget limit: what is set, unchanged and a gone team", async () => {
+  const { store } = recordingStore();
+  let outcome: "set" | "unchanged" | "not_found" | "actor_inactive" = "set";
+  const teams = createTeamService({
+    authorization: createAuthorizationPolicy({ agents }),
+    newId: () => "019a0000-0000-7000-8000-0000000000e1",
+    store: {
+      ...store,
+      async setBudgetLimit(input) {
+        return outcome === "set" || outcome === "unchanged"
+          ? { outcome, limit: input.limit }
+          : { outcome };
+      },
+      async getBudgetLimit() {
+        return null;
+      },
+    },
+  });
+  const owner = caller("owner");
+  const ask = () =>
+    teams.putTeamBudgetLimit(owner, TEAM, { cost_usd: 12.5, tokens: 1000 });
+  expect(await ask()).toEqual({
+    team_id: TEAM,
+    limit: { cost_usd: 12.5, tokens: 1000 },
+    receipt_id: "019a0000-0000-7000-8000-0000000000e1",
+  });
+  outcome = "unchanged";
+  expect(await ask()).toMatchObject({ receipt_id: null });
+  outcome = "not_found";
+  expect(await refusal(ask())).toMatchObject({ code: "NOT_FOUND" });
+  outcome = "actor_inactive";
+  expect(await refusal(ask())).toEqual({
+    code: "FORBIDDEN",
+    details: { reason_code: "role" },
+  });
+  expect(await refusal(teams.getTeamBudgetLimit(owner, TEAM))).toMatchObject({
+    code: "NOT_FOUND",
   });
 });
 
