@@ -72,6 +72,7 @@ import {
   webSessionCookie,
   webSessionInput,
 } from "../../auth.ts";
+import type { ClientNetwork } from "../../client-address.ts";
 import type { PasswordChecks } from "../../password-checks.ts";
 import {
   type ProviderLogin,
@@ -115,8 +116,9 @@ const INVALID_CREDENTIALS = "Invalid email or password";
 const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
 // The recovery routes keep no failure window. Their tokens are 256 bits
 // (a setup link carries 32 random bytes), so a window adds nothing against
-// guessing, and with no address to key it on it would be one window for
-// every caller: anyone could keep recovery answering 429.
+// guessing, and one with no address to key it on would be one window for
+// every caller. Each network's request window (admitTokenRequest) is what
+// bounds the hashing one network can make them do.
 
 // The token is read on its own and checked before the rest of the body is
 // validated, so a caller without it learns nothing about the schema and gets
@@ -215,10 +217,12 @@ async function reauthenticate(
   },
   who: { userId: string; email: string },
   password: string,
+  client: ClientNetwork | null,
 ): Promise<string> {
   const {
     value: { found, verified },
-  } = await deps.passwords.guess(who.email, async () => {
+    reservation,
+  } = await deps.passwords.guess(who.email, client, async () => {
     const found = await storageMapped(() =>
       deps.identity.findUserForLogin(who.email),
     );
@@ -237,7 +241,7 @@ async function reauthenticate(
     deps.logger?.warn("Password check failed", { user_id: who.userId });
     throw new ApiHttpError(403, "FORBIDDEN", "Current password is incorrect");
   }
-  deps.passwords.succeeded(who.email);
+  await reservation.succeeded();
   return found.passwordHash;
 }
 
@@ -269,6 +273,7 @@ export function registerPublicAuthRoutes(
   });
 
   apiRoute(router, "checkSetupLink", ingestThenStopClock, async (context) => {
+    await passwords.admitTokenRequest(passwords.clientOf(context));
     const body = await parseJsonBody(context, setupLinkCheckRequestSchema);
     const live = await storageMapped(() =>
       deps.identity.setupLinkIsLive(hashWebSessionToken(body.setup_token)),
@@ -278,6 +283,7 @@ export function registerPublicAuthRoutes(
   });
 
   apiRoute(router, "bootstrap", ingestThenStopClock, async (context) => {
+    await passwords.admitTokenRequest(passwords.clientOf(context));
     const raw = await parseJsonBody(context, setupTokenOnlySchema);
     const token = typeof raw.setup_token === "string" ? raw.setup_token : null;
     // A live link exists only while no live owner does, so a caller without
@@ -338,6 +344,7 @@ export function registerPublicAuthRoutes(
   });
 
   apiRoute(router, "resetPassword", ingestThenStopClock, async (context) => {
+    await passwords.admitTokenRequest(passwords.clientOf(context));
     const body = await parseJsonBody(context, passwordResetRequestSchema);
     const receiptId = randomUUID();
     const reset = await passwords.hashing(async () => {
@@ -378,7 +385,7 @@ export function registerPublicAuthRoutes(
     const {
       value: { found, verified, live },
       reservation,
-    } = await passwords.guess(email, async () => {
+    } = await passwords.guess(email, passwords.clientOf(context), async () => {
       const found = await storageMapped(() =>
         deps.identity.findUserForLogin(email),
       );
@@ -429,7 +436,7 @@ export function registerPublicAuthRoutes(
       deps.logger?.warn("Login failed", { has_user: true });
       throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
     }
-    passwords.succeeded(email);
+    await reservation.succeeded();
     const { expiresAt } = created;
     setWebSessionCookie(context, token, expiresAt);
     return jsonWithSchema(context, loginResponseSchema, {
@@ -475,6 +482,7 @@ export function registerPublicAuthRoutes(
         throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
       }
       const { id } = requireParams(context, loginProviderParamsSchema);
+      await passwords.admitTokenRequest(passwords.clientOf(context));
       const body = await parseJsonBody(
         context,
         startProviderInviteRequestSchema,
@@ -521,6 +529,7 @@ export function registerPublicAuthRoutes(
       if (violation) {
         throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
       }
+      await passwords.admitTokenRequest(passwords.clientOf(context));
       const body = await parseJsonBody(
         context,
         providerLoginCallbackRequestSchema,
@@ -1132,6 +1141,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
       },
       { userId: principal.id, email: session.email },
       body.current_password,
+      deps.passwords.clientOf(context),
     );
     const token = generatePasswordResetToken();
     const issued = await storageMapped(() =>

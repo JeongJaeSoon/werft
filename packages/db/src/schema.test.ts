@@ -164,6 +164,7 @@ describe("database schema", () => {
       "approval_checkpoint_voids",
       "approval_checkpoints",
       "attempts",
+      "auth_attempt_windows",
       "authz_decisions",
       "bootstrap_token_uses",
       "budget_accounts",

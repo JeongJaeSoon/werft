@@ -31,6 +31,12 @@ API는 설치 상한 말고도 아래 값을 기동 때 한 parser로 읽는다.
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 양의 정수 |
 | `LOG_LEVEL` | `info` | `debug`·`info`·`warn`·`error`(대소문자 무관, 빈 값은 `info`). scheduler·reconciler loop와 egress-proxy도 같은 규칙으로 기동을 거부한다. worker는 scheduler의 값을 받는다 |
 | `WEB_DIST_DIR` | 없음(웹 콘솔을 서빙하지 않음). control-host 이미지는 `/app/apps/web/dist` | `index.html`이 있는 절대 경로. 웹 콘솔(`apps/web`)의 빌드 결과다 |
+| `LOGIN_ACCOUNT_FAILURE_LIMIT` · `LOGIN_ACCOUNT_FAILURE_WINDOW_SEC` | 5 · 900 | 횟수는 1 이상 1,000,000 이하, 창은 1 이상 86400초 이하. 이메일 하나의 비밀번호 실패 수와 그 창 |
+| `LOGIN_IP_FAILURE_LIMIT` · `LOGIN_IP_FAILURE_WINDOW_SEC` | 20 · 900 | 같은 범위. 클라이언트 네트워크 하나(IPv4는 주소 하나, IPv6는 /64)의 비밀번호 실패 수와 그 창 |
+| `AUTH_IP_REQUEST_LIMIT` · `AUTH_IP_REQUEST_WINDOW_SEC` | 30 · 60 | 같은 범위. token을 받는 로그인 route(setup link, 초대, 비밀번호 재설정, 로그인 provider)에 네트워크 하나가 보내는 요청 수와 그 창. 성공한 요청도 센다 |
+| `CLIENT_IP_HEADER` | 없음(소켓 peer 주소로 센다) | 앞단 proxy가 클라이언트 주소를 쓰는 헤더 이름 하나(영문·숫자·`-`). Cloudflare Tunnel 뒤라면 `CF-Connecting-IP` |
+
+로그인 시도는 모든 API replica가 DB 표 하나에서 함께 센다. 창은 첫 시도부터 정해진 길이만큼이고, 이메일과 주소는 원문 없이 HMAC으로만 남는다. 맞는 비밀번호로 들어오면 그 이메일의 실패 수는 지워진다. 계정이 잠기는 순간 그 계정이 속한 살아 있는 workspace마다 `lock_login` receipt가 창당 하나 남는다. 없는 이메일이나 네트워크가 잠기면 `Login locked` 경고 로그 한 줄만 남고, 응답은 있는 이메일과 같다. `CLIENT_IP_HEADER`가 없으면 소켓 peer 주소로 센다. 터널이나 proxy 뒤에서는 그 주소가 사설·loopback 주소라 모든 사용자가 한 주소로 보인다. 그래서 그때는 네트워크 창을 건너뛰고(처음 건너뛸 때 경고 한 줄) 이메일 창만 적용한다. 헤더를 정하면 그 헤더의 마지막 항목만 믿는다. 앞단 proxy가 그 헤더를 늘 덮어쓰는 구성에서만 정한다.
 
 모든 `/v1` 응답은 `api.request.completed`를 남긴다. 실제 id가 없는 Hono `route_template`, `method`, `status`, 인증과 route 처리를 포함한 `duration_ms`, `operation=api_request`, `outcome`, `reason_code`가 있고 `request_id`는 log context에 있다. request body·credential·provider key는 넣지 않는다. terminate 요청은 같은 `request_id`의 `Terminate control transaction completed`도 남기며, 여기에는 pool checkout, binding·launch·session lock, 각 SQL, commit 또는 rollback, control transaction 전체의 millisecond 계측이 들어간다. 배포 환경에서 수락 지연을 조사할 때는 두 로그를 `request_id`로 묶어 어느 단계가 느렸는지 판단한다.
 

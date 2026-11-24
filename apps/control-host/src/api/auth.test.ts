@@ -12,6 +12,7 @@ import {
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import type { AuthAttemptKey } from "@werft-ai/platform";
 import {
   BootstrapDoneError,
   type BootstrapInput,
@@ -35,13 +36,13 @@ import {
   hashPassword,
   hashWebSessionToken,
   issueSetupToken,
-  LoginLockout,
   SETUP_LINK_TTL_MS,
   unauthenticatedPrincipal,
   WEB_SESSION_TTL_MS,
   WEB_SESSIONS_PER_USER,
   WorkGate,
 } from "./auth.ts";
+import { MemoryAuthAttemptStore } from "./auth-attempts.ts";
 import {
   REQUEST_IDLE_TIMEOUT_SECONDS,
   RESPONSE_IDLE_TIMEOUT_SECONDS,
@@ -397,8 +398,9 @@ const API_KEY_RECORD = {
 function harness(
   options: {
     authMode?: string;
-    lockout?: LoginLockout;
+    attempts?: MemoryAuthAttemptStore;
     passwordWork?: WorkGate;
+    clientIpHeader?: string;
     loginSettings?: Pick<LoginSettingsStore, "read">;
   } = {},
 ) {
@@ -414,7 +416,14 @@ function harness(
   const auth = {
     identity,
     logger,
-    passwords: new PasswordChecks(options.lockout, options.passwordWork),
+    passwords: new PasswordChecks({
+      logger,
+      ...(options.attempts ? { store: options.attempts } : {}),
+      ...(options.passwordWork ? { work: options.passwordWork } : {}),
+      ...(options.clientIpHeader
+        ? { clientIpHeader: options.clientIpHeader }
+        : {}),
+    }),
     ...(options.loginSettings ? { loginSettings: options.loginSettings } : {}),
   };
   const app = createApiApp({
@@ -447,12 +456,34 @@ function harness(
       });
     },
   });
-  const json = (path: string, body: unknown, headers: HeadersInit = {}) =>
-    app.request(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
-    });
+  const json = (
+    path: string,
+    body: unknown,
+    headers: HeadersInit = {},
+    clientAddress?: string,
+  ) =>
+    app.request(
+      path,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      },
+      clientAddress === undefined ? undefined : { clientAddress },
+    );
+  // A sign-in from one socket peer, with any proxy headers given.
+  const loginFrom = (
+    clientAddress: string,
+    email: string,
+    password: string,
+    headers: Record<string, string> = {},
+  ) =>
+    json(
+      "/v1/auth/login",
+      { email, password },
+      { ...BROWSER, ...headers },
+      clientAddress,
+    );
   const bootstrap = (overrides: Record<string, unknown> = {}) =>
     json("/v1/auth/bootstrap", {
       setup_token: SETUP_TOKEN,
@@ -465,7 +496,7 @@ function harness(
     });
   const login = (email = "owner@example.com", password = PASSWORD) =>
     json("/v1/auth/login", { email, password }, BROWSER);
-  return { app, identity, sink, json, bootstrap, login, hooks };
+  return { app, identity, sink, json, bootstrap, login, loginFrom, hooks };
 }
 
 const BROWSER = { "X-Requested-With": "werft-web" };
@@ -595,7 +626,7 @@ describe("bootstrap", () => {
 
   test("failed attempts never lock out the live link", async () => {
     const h = harness({
-      lockout: new LoginLockout({ now: () => 1_000_000 }),
+      attempts: new MemoryAuthAttemptStore({ now: () => 1_000_000 }),
     });
     for (let i = 0; i < 10; i += 1) {
       expect(
@@ -640,6 +671,63 @@ describe("bootstrap", () => {
       setup_token: SETUP_TOKEN,
     });
     expect(spent.status).toBe(401);
+  });
+
+  test("token routes refuse a network past 30 requests a minute", async () => {
+    const h = harness();
+    const check = (clientAddress: string) =>
+      h.json(
+        "/v1/auth/setup-link/check",
+        { setup_token: "z".repeat(40) },
+        {},
+        clientAddress,
+      );
+    for (let i = 0; i < 30; i += 1) {
+      expect((await check("203.0.113.9")).status).toBe(401);
+    }
+    const refused = await check("203.0.113.9");
+    expect(refused.status).toBe(429);
+    expect(Number(refused.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect((await check("203.0.113.10")).status).toBe(401);
+    // One window for every token route: bootstrap is refused before its body.
+    expect(
+      (await h.json("/v1/auth/bootstrap", {}, {}, "203.0.113.9")).status,
+    ).toBe(429);
+  });
+
+  test("a locked network gets one answer for a known and an unknown email", async () => {
+    const h = harness();
+    expect((await h.bootstrap()).status).toBe(201);
+    for (let i = 0; i < 20; i += 1) {
+      const miss = await h.loginFrom(
+        "203.0.113.9",
+        `guess${i}@example.com`,
+        "not-the-password",
+      );
+      expect(miss.status).toBe(401);
+    }
+    const answer = async (email: string) => {
+      const response = await h.loginFrom("203.0.113.9", email, PASSWORD);
+      return {
+        status: response.status,
+        retryAfter: response.headers.get("Retry-After"),
+        // Only the request id differs between any two answers.
+        body: {
+          ...apiErrorResponseSchema.parse(await response.json()).error,
+          request_id: null,
+        },
+      };
+    };
+    const [known, unknown] = [
+      await answer("owner@example.com"),
+      await answer("nobody@example.com"),
+    ];
+    expect(known.status).toBe(429);
+    expect(unknown).toEqual(known);
+    // The right password from another network still gets in.
+    expect(
+      (await h.loginFrom("198.51.100.1", "owner@example.com", PASSWORD)).status,
+    ).toBe(200);
   });
 });
 
@@ -788,7 +876,7 @@ describe("account recovery", () => {
 
   test("failed redemptions never lock out a valid link", async () => {
     const h = harness({
-      lockout: new LoginLockout({ now: () => 1_000_000 }),
+      attempts: new MemoryAuthAttemptStore({ now: () => 1_000_000 }),
     });
     const { issue } = await withMember(h);
     for (let i = 0; i < 10; i += 1) {
@@ -825,7 +913,7 @@ describe("account recovery", () => {
 
   test("issuing needs the issuer's current password, counted like a login", async () => {
     // Shared between the public and session routes, as server.ts wires it.
-    const h = harness({ lockout: new LoginLockout() });
+    const h = harness({ attempts: new MemoryAuthAttemptStore() });
     const { issue, member, workspace, ownerCookie } = await withMember(h);
     expect((await issue(member.id, ownerCookie, workspace.id, {})).status).toBe(
       400,
@@ -1203,28 +1291,31 @@ describe("login, logout, me", () => {
 });
 
 describe("login lockout", () => {
-  test("holds at most maxKeys addresses, evicting the least recently failed", () => {
+  test("the memory store holds at most maxKeys windows, dropping the one touched longest ago", async () => {
     let now = 0;
-    const lockout = new LoginLockout({ maxKeys: 3, now: () => now });
+    const store = new MemoryAuthAttemptStore({ maxKeys: 3, now: () => now });
+    const rule = { limit: 4, windowMs: 60_000 };
+    const take = (key: string) =>
+      store.take("account_failure", key as AuthAttemptKey, rule);
     for (const key of ["a", "b", "c"]) {
       now += 1;
-      lockout.recordFailure(key);
+      await take(key);
     }
-    expect(lockout.size).toBe(3);
+    expect(store.size).toBe(3);
     now += 1;
-    lockout.recordFailure("a"); // a becomes the most recent
+    await take("a"); // a becomes the most recent
     now += 1;
-    lockout.recordFailure("d"); // evicts b, the least recently failed
-    expect(lockout.size).toBe(3);
-    for (let i = 0; i < 4; i += 1) lockout.recordFailure("b");
-    expect(lockout.retryAfterMs("b")).toBe(0); // b restarted from zero
-    for (let i = 0; i < 4; i += 1) lockout.recordFailure("a");
-    expect(lockout.retryAfterMs("a")).toBeGreaterThan(0); // a kept its two
+    await take("d"); // drops b, touched longest ago
+    expect(store.size).toBe(3);
+    for (let i = 0; i < 3; i += 1) await take("b");
+    expect((await take("b")).admitted).toBe(true); // b restarted from zero
+    for (let i = 0; i < 2; i += 1) await take("a");
+    expect((await take("a")).admitted).toBe(false); // a kept its two
   });
 
   test("a concurrent burst cannot run more guesses than the limit", async () => {
-    const lockout = new LoginLockout({ now: () => 1_000_000 });
-    const h = harness({ lockout });
+    const lockout = new MemoryAuthAttemptStore({ now: () => 1_000_000 });
+    const h = harness({ attempts: lockout });
     await h.bootstrap();
     const statuses = (
       await Promise.all(
@@ -1240,7 +1331,7 @@ describe("login lockout", () => {
     // (packages/db covers when). Seven tries in a row, right and wrong.
     const tries = async (password: string) => {
       const h = harness({
-        lockout: new LoginLockout({ now: () => 1_000_000 }),
+        attempts: new MemoryAuthAttemptStore({ now: () => 1_000_000 }),
       });
       await h.bootstrap();
       h.identity.createWebSession = async () => null;
@@ -1285,7 +1376,7 @@ describe("login lockout", () => {
     };
     const tries = async (password: string) => {
       const h = harness({
-        lockout: new LoginLockout({ now: () => 1_000_000 }),
+        attempts: new MemoryAuthAttemptStore({ now: () => 1_000_000 }),
         loginSettings: closed,
       });
       await h.bootstrap();
@@ -1332,8 +1423,8 @@ describe("login lockout", () => {
   });
 
   test("an outage while the session is made does not spend the budget", async () => {
-    const lockout = new LoginLockout({ now: () => 1_000_000 });
-    const h = harness({ lockout });
+    const lockout = new MemoryAuthAttemptStore({ now: () => 1_000_000 });
+    const h = harness({ attempts: lockout });
     await h.bootstrap();
     const createWebSession = h.identity.createWebSession.bind(h.identity);
     h.identity.createWebSession = async () => {
@@ -1348,9 +1439,9 @@ describe("login lockout", () => {
   });
 
   test("an outage reading the password switch is a 503, and not a guess", async () => {
-    const lockout = new LoginLockout({ now: () => 1_000_000 });
+    const lockout = new MemoryAuthAttemptStore({ now: () => 1_000_000 });
     const h = harness({
-      lockout,
+      attempts: lockout,
       loginSettings: {
         read: async () => {
           throw Object.assign(new Error("connection lost"), { code: "08006" });
@@ -1365,7 +1456,9 @@ describe("login lockout", () => {
   });
 
   test("a sign-in that makes a session clears the count of failures before it", async () => {
-    const h = harness({ lockout: new LoginLockout({ now: () => 1_000_000 }) });
+    const h = harness({
+      attempts: new MemoryAuthAttemptStore({ now: () => 1_000_000 }),
+    });
     await h.bootstrap();
     for (let i = 0; i < 4; i += 1) {
       expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
@@ -1378,8 +1471,8 @@ describe("login lockout", () => {
   });
 
   test("a storage outage does not spend the budget, even in a concurrent burst", async () => {
-    const lockout = new LoginLockout({ now: () => 1_000_000 });
-    const h = harness({ lockout });
+    const lockout = new MemoryAuthAttemptStore({ now: () => 1_000_000 });
+    const h = harness({ attempts: lockout });
     await h.bootstrap();
     const findUserForLogin = h.identity.findUserForLogin;
     h.identity.findUserForLogin = async () => {
@@ -1404,8 +1497,8 @@ describe("login lockout", () => {
   });
 
   test("distinct unknown emails cannot run more password work than the gate admits", async () => {
-    const lockout = new LoginLockout({ now: () => 1_000_000 });
-    const h = harness({ lockout, passwordWork: new WorkGate(1, 2) });
+    const lockout = new MemoryAuthAttemptStore({ now: () => 1_000_000 });
+    const h = harness({ attempts: lockout, passwordWork: new WorkGate(1, 2) });
     await h.bootstrap();
     let inFlight = 0;
     let peak = 0;
@@ -1460,28 +1553,29 @@ describe("login lockout", () => {
     expect(gate.running).toBe(0);
   });
 
-  test("release gives back only its own attempt and is a no-op after clear", () => {
-    let now = 1_000_000;
-    const lockout = new LoginLockout({ attempts: 2, now: () => now });
-    const first = lockout.reserve("a");
-    now += 1;
-    const second = lockout.reserve("a");
-    expect(lockout.reserve("a").retryAfterMs).toBeGreaterThan(0);
-    first.release();
-    first.release();
-    const third = lockout.reserve("a");
-    expect(third.retryAfterMs).toBe(0);
-    lockout.clear("a");
-    second.release();
-    third.release();
-    expect(lockout.size).toBe(0);
-    expect(lockout.reserve("a").retryAfterMs).toBe(0);
+  test("giveBack uncounts an admitted attempt only while the window has refused none", async () => {
+    const store = new MemoryAuthAttemptStore({ now: () => 1_000_000 });
+    const rule = { limit: 2, windowMs: 60_000 };
+    const key = "a" as AuthAttemptKey;
+    const take = () => store.take("account_failure", key, rule);
+    const first = await take();
+    await take();
+    if (!first.admitted) throw new Error("the first attempt was refused");
+    await store.giveBack("account_failure", key, first.window, rule.limit);
+    expect((await take()).admitted).toBe(true);
+    expect(await take()).toMatchObject({ admitted: false, closedNow: true });
+    // A closed window stays closed: giving back no longer reopens it, so no
+    // later refusal can be the first again.
+    await store.giveBack("account_failure", key, first.window, rule.limit);
+    expect(await take()).toMatchObject({ admitted: false, closedNow: false });
+    await store.clear("account_failure", key);
+    expect((await take()).admitted).toBe(true);
   });
 
   test("the sixth failed attempt inside the window is 429, and success clears it", async () => {
     let now = 1_000_000;
-    const lockout = new LoginLockout({ now: () => now });
-    const h = harness({ lockout });
+    const lockout = new MemoryAuthAttemptStore({ now: () => now });
+    const h = harness({ attempts: lockout });
     await h.bootstrap();
     for (let i = 0; i < 5; i += 1) {
       expect((await h.login("owner@example.com", WRONG)).status).toBe(401);

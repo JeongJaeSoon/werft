@@ -21,7 +21,8 @@ import {
   type LoginSettingsStore,
 } from "@werft-ai/platform";
 import { errorOf } from "../../../testing/api-error.ts";
-import { hashPassword, hashWebSessionToken, LoginLockout } from "../../auth.ts";
+import { hashPassword, hashWebSessionToken } from "../../auth.ts";
+import { MemoryAuthAttemptStore } from "../../auth-attempts.ts";
 import { PasswordChecks } from "../../password-checks.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerInviteRoutes, registerPublicInviteRoutes } from "./invites.ts";
@@ -118,12 +119,18 @@ function asPerson(caller: Caller): Caller {
   };
 }
 
+type Lockout = { store: MemoryAuthAttemptStore; limit: number };
+const lockoutOf = (limit: number): Lockout => ({
+  store: new MemoryAuthAttemptStore(),
+  limit,
+});
+
 function app(
   store: InviteStore = inviteStore(),
   options: {
     authorization?: AuthorizationPolicy;
     person?: boolean;
-    lockout?: LoginLockout;
+    lockout?: Lockout;
     loginSettings?: Pick<LoginSettingsStore, "read">;
   } = {},
 ) {
@@ -150,7 +157,19 @@ function app(
       registerPublicInviteRoutes(router, {
         invites: store,
         identity: { findWorkspace: async () => WORKSPACE_ROW },
-        passwords: new PasswordChecks(options.lockout),
+        passwords: new PasswordChecks(
+          options.lockout
+            ? {
+                store: options.lockout.store,
+                rules: {
+                  accountFailures: {
+                    limit: options.lockout.limit,
+                    windowMs: 15 * 60_000,
+                  },
+                },
+              }
+            : {},
+        ),
         ...(options.loginSettings
           ? { loginSettings: options.loginSettings }
           : {}),
@@ -482,7 +501,7 @@ describe("POST /v1/invites/accept", () => {
   });
 
   test("a wrong password for an existing account is refused, then locked out", async () => {
-    const api = app(existing(), { lockout: new LoginLockout({ attempts: 1 }) });
+    const api = app(existing(), { lockout: lockoutOf(1) });
     const wrong = { token: TOKEN, password: "not the password" };
     const first = await accept(api, wrong);
     expect(first.status).toBe(401);
@@ -554,7 +573,7 @@ describe("POST /v1/invites/accept", () => {
     };
     // An address with an account, and one without.
     for (const store of [existing, inviteStore]) {
-      const lockout = new LoginLockout({ attempts: 1 });
+      const lockout = lockoutOf(1);
       let asked = 0;
       const api = app(
         store({
@@ -586,7 +605,7 @@ describe("POST /v1/invites/accept", () => {
       expect(answers[1]).toEqual(answers[0]);
       expect(answers[2]).toEqual(answers[0]);
       expect(asked).toBe(0);
-      expect(lockout.size).toBe(0);
+      expect(lockout.store.size).toBe(0);
     }
   });
 
@@ -598,7 +617,7 @@ describe("POST /v1/invites/accept", () => {
         return { outcome: "password_closed" };
       },
     });
-    const lockout = new LoginLockout({ attempts: 1 });
+    const lockout = lockoutOf(1);
     const api = app(store, {
       lockout,
       loginSettings: {
@@ -646,7 +665,7 @@ describe("POST /v1/invites/accept", () => {
     });
     expect(await shown(await accept(other))).toEqual(wrongShown);
     expect(asked).toBe(0);
-    expect(lockout.size).toBe(0);
+    expect(lockout.store.size).toBe(0);
   });
 
   test("a right password clears the failures before it only by being accepted", async () => {
@@ -660,7 +679,7 @@ describe("POST /v1/invites/accept", () => {
             ? {}
             : { acceptInvite: async () => ({ outcome }) },
         ),
-        { lockout: new LoginLockout({ attempts: 3 }) },
+        { lockout: lockoutOf(3) },
       );
       expect((await accept(api, wrong)).status).toBe(401);
       const right = await accept(api);
@@ -682,11 +701,11 @@ describe("POST /v1/invites/accept", () => {
       async () => ({ outcome: "expired" }) as const,
       outage,
     ]) {
-      const lockout = new LoginLockout({ attempts: 1 });
+      const lockout = lockoutOf(1);
       const api = app(existing({ acceptInvite }), { lockout });
       const first = await accept(api);
       expect(first.status).not.toBe(429);
-      expect(lockout.size).toBe(0);
+      expect(lockout.store.size).toBe(0);
       expect((await accept(api)).status).toBe(first.status);
     }
   });

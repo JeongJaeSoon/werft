@@ -30,12 +30,14 @@ import {
   generateWebSessionToken,
   hashPassword,
   hashWebSessionToken,
-  type LoginReservation,
   setWebSessionCookie,
   verifyPassword,
   webSessionInput,
 } from "../../auth.ts";
-import type { PasswordChecks } from "../../password-checks.ts";
+import type {
+  PasswordChecks,
+  PasswordReservation,
+} from "../../password-checks.ts";
 import { mapped, requireParams } from "../errors.ts";
 import { passwordClosedTo, workspaceView } from "./auth.ts";
 
@@ -137,10 +139,13 @@ export function registerPublicInviteRoutes(
     if (violation) {
       throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
     }
+    const client = deps.passwords.clientOf(context);
+    await deps.passwords.admitTokenRequest(client);
     const body = await parseJsonBody(context, acceptInviteRequestSchema);
     const tokenHash = hashWebSessionToken(body.token);
-    // An unknown token is a 256-bit guess, so it is not rate limited; it
-    // answers like a revoked one.
+    // An unknown token is a 256-bit guess, so it keeps no failure window
+    // (the network's request window above counts it); it answers like a
+    // revoked one.
     const peek = await deps.invites.peekInvite(tokenHash);
     if (peek.outcome !== "pending") {
       throw peek.outcome === "used" ? inviteUsed() : inviteExpired();
@@ -157,9 +162,9 @@ export function registerPublicInviteRoutes(
     }
     let account: AcceptInviteInput["account"];
     // The existing account's guess, counted until the invite is accepted.
-    let reservation: LoginReservation | undefined;
+    let reservation: PasswordReservation | undefined;
     if (existing) {
-      const guessed = await deps.passwords.guess(peek.email, () =>
+      const guessed = await deps.passwords.guess(peek.email, client, () =>
         verifyPassword(password, existing.passwordHash),
       );
       reservation = guessed.reservation;
@@ -197,7 +202,7 @@ export function registerPublicInviteRoutes(
         throw error;
       });
     if (result.outcome === "accepted") {
-      if (existing) deps.passwords.succeeded(peek.email);
+      await reservation?.succeeded();
     } else if (
       result.outcome !== "account_changed" &&
       result.outcome !== "password_closed"

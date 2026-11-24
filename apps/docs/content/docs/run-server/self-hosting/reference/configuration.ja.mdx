@@ -34,6 +34,12 @@ API は設置上限以外に次の値を起動時に一つの parser で読み�
 | `SSE_MAX_STREAMS`・`SSE_MAX_STREAMS_PER_OWNER`・`SSE_REPLAY_MAX_BYTES` | 256・8・1 MiB | 正の整数 |
 | `LOG_LEVEL` | `info` | `debug`・`info`・`warn`・`error`（大文字・小文字不問、空値は `info`）。scheduler・reconciler loop と egress-proxy も同じ規則で起動を拒否します。worker は scheduler の値を受け取ります |
 | `WEB_DIST_DIR` | なし（Web コンソールを配信しない）。control-host イメージは `/app/apps/web/dist` | `index.html` のある絶対パス。Web コンソール（`apps/web`）のビルド結果です |
+| `LOGIN_ACCOUNT_FAILURE_LIMIT` · `LOGIN_ACCOUNT_FAILURE_WINDOW_SEC` | 5 · 900 | 回数 1〜1,000,000、窓 1〜86400 秒。メールアドレス 1 つあたりのパスワード失敗数とその窓です |
+| `LOGIN_IP_FAILURE_LIMIT` · `LOGIN_IP_FAILURE_WINDOW_SEC` | 20 · 900 | 同じ範囲。クライアントネットワーク 1 つ（IPv4 はアドレス 1 つ、IPv6 は /64）あたりのパスワード失敗数とその窓です |
+| `AUTH_IP_REQUEST_LIMIT` · `AUTH_IP_REQUEST_WINDOW_SEC` | 30 · 60 | 同じ範囲。token を受け取るサインイン route（setup link、招待、パスワード再設定、サインイン provider）へのネットワーク 1 つあたりのリクエスト数とその窓です。成功したリクエストも数えます |
+| `CLIENT_IP_HEADER` | なし（ソケットの peer アドレスで数える） | 前段の proxy がクライアントアドレスを書くヘッダー名 1 つ（英数字と `-`）。Cloudflare Tunnel の後ろなら `CF-Connecting-IP` |
+
+サインインの試行は、すべての API replica が DB の表 1 つで共有して数えます。窓は最初の試行から決まった長さで、メールアドレスとアドレスは原文なしの HMAC だけを残します。正しいパスワードで入るとそのメールアドレスの失敗数は消えます。アカウントがロックされた時点で、そのアカウントが属する有効な workspace ごとに `lock_login` receipt が窓ごとに 1 つ残ります。存在しないメールアドレスやネットワークがロックされたときは `Login locked` の警告ログ 1 行だけが残り、応答は存在するメールアドレスと同じです。`CLIENT_IP_HEADER` がなければソケットの peer アドレスで数えます。トンネルや proxy の後ろではそのアドレスがプライベート・loopback になり全ユーザーが 1 つのアドレスに見えるため、その場合はネットワークの窓を飛ばし（最初に飛ばしたとき警告 1 行）、メールアドレスの窓だけを適用します。ヘッダーを設定するとその最後の項目だけを信頼します。前段の proxy が常にそのヘッダーを上書きする構成でだけ設定してください。
 
 すべての `/v1` 応答は `api.request.completed` を記録します。実 id を含まない Hono の `route_template`、`method`、`status`、認証と route 処理を含む `duration_ms`、`operation=api_request`、`outcome`、`reason_code` があり、`request_id` は log context にあります。request body・credential・provider key は含めません。terminate 要求は同じ `request_id` の `Terminate control transaction completed` も記録し、pool checkout、binding・launch・session lock、各 SQL、commit または rollback、control transaction 全体の millisecond 計測を含みます。デプロイ環境で受理遅延を調べるときは、両ログを `request_id` で結び、遅い段階を特定します。
 

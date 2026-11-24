@@ -2,8 +2,6 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
-  LOGIN_LOCKOUT_ATTEMPTS,
-  LOGIN_LOCKOUT_WINDOW_MINUTES,
   type Principal,
   SESSION_SCOPE_VALUES,
   SETUP_LINK_TTL_HOURS,
@@ -54,7 +52,6 @@ export const WEB_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const WEB_SESSION_RENEW_AFTER_MS = 60 * 60 * 1000;
 // Live sessions one user may hold; the next login drops the oldest.
 export const WEB_SESSIONS_PER_USER = 10;
-const LOGIN_LOCKOUT_WINDOW_MS = LOGIN_LOCKOUT_WINDOW_MINUTES * 60 * 1000;
 
 export class DatabaseIdentityStore implements IdentityStore {
   constructor(private readonly db: Database) {}
@@ -191,17 +188,14 @@ export async function issueSetupToken(
 }
 
 // ---------------------------------------------------------------------------
-// Login lockout
+// Sign-in attempt limits
 // ---------------------------------------------------------------------------
-
-const LOGIN_LOCKOUT_MAX_KEYS = 10_000;
 
 // Each argon2id verify holds ~64 MiB and a core for tens of milliseconds,
 // and an unknown email still runs one against the dummy hash, so rotating
-// addresses walks straight past the per-email lockout. This bounds the
-// work one process admits no matter how many addresses are tried.
-// Per-client (IP) and cross-replica limits need the ingress's view of the
-// client and are left to the deployment.
+// addresses walks straight past the per-account window, and rotating
+// networks past the per-network one. This bounds the work one process
+// admits no matter how many are tried.
 const PASSWORD_WORK_CONCURRENCY = 4;
 const PASSWORD_WORK_QUEUE = 64;
 
@@ -254,111 +248,6 @@ export class WorkGate {
         this.active -= 1;
       }
     };
-  }
-}
-
-/**
- * Per-email failure window, in process memory. Two replicas keep two
- * windows, so the effective limit is attempts × replicas; a shared store is
- * the trigger for moving this to the database. The map holds at most
- * `maxKeys` addresses: past that, the address whose failure was recorded
- * longest ago is dropped, so a spray of distinct emails costs the attacker
- * their own lockouts, not the process its memory.
- */
-export interface LoginReservation {
-  retryAfterMs: number;
-  /** Give the attempt back; a no-op once cleared, evicted or released. */
-  release(): void;
-}
-
-export class LoginLockout {
-  // Map iteration is insertion order; a key is re-inserted on every failure
-  // so the first key is always the least recently failed one.
-  private readonly failures = new Map<string, number[]>();
-
-  constructor(
-    private readonly options: {
-      attempts?: number;
-      windowMs?: number;
-      maxKeys?: number;
-      now?: () => number;
-    } = {},
-  ) {}
-
-  private get attempts() {
-    return this.options.attempts ?? LOGIN_LOCKOUT_ATTEMPTS;
-  }
-  private get windowMs() {
-    return this.options.windowMs ?? LOGIN_LOCKOUT_WINDOW_MS;
-  }
-  private get maxKeys() {
-    return this.options.maxKeys ?? LOGIN_LOCKOUT_MAX_KEYS;
-  }
-  private now() {
-    return (this.options.now ?? Date.now)();
-  }
-
-  get size(): number {
-    return this.failures.size;
-  }
-
-  private live(key: string): number[] {
-    const cutoff = this.now() - this.windowMs;
-    const kept = (this.failures.get(key) ?? []).filter((at) => at > cutoff);
-    if (kept.length === 0) {
-      this.failures.delete(key);
-    }
-    return kept;
-  }
-
-  /** Milliseconds until the caller may try again, or 0 when not locked. */
-  retryAfterMs(key: string): number {
-    const live = this.live(key);
-    if (live.length < this.attempts) return 0;
-    const oldest = live[live.length - this.attempts] ?? this.now();
-    return Math.max(1, oldest + this.windowMs - this.now());
-  }
-
-  recordFailure(key: string): void {
-    const live = this.live(key);
-    live.push(this.now());
-    // Only the last `attempts` stamps can ever matter to retryAfterMs.
-    const kept = live.slice(-this.attempts);
-    this.failures.delete(key);
-    if (this.failures.size >= this.maxKeys) {
-      const eldest = this.failures.keys().next().value;
-      if (eldest !== undefined) {
-        this.failures.delete(eldest);
-      }
-    }
-    this.failures.set(key, kept);
-  }
-
-  /**
-   * Check and count one attempt in a single synchronous step. A zero
-   * `retryAfterMs` means the attempt was admitted and already counted as a
-   * failure: clear() on success, release() when it failed for a reason that
-   * is not a guess (storage down). Otherwise nothing was counted.
-   */
-  reserve(key: string): LoginReservation {
-    const wait = this.retryAfterMs(key);
-    if (wait > 0) return { retryAfterMs: wait, release: () => {} };
-    this.recordFailure(key);
-    const stamp = this.failures.get(key)?.at(-1);
-    return {
-      retryAfterMs: 0,
-      release: () => {
-        const stamps = this.failures.get(key);
-        const index = stamp === undefined ? -1 : (stamps?.indexOf(stamp) ?? -1);
-        if (!stamps || index < 0) return;
-        stamps.splice(index, 1);
-        if (stamps.length === 0) this.failures.delete(key);
-      },
-    };
-  }
-
-  clear(key: string): void {
-    this.failures.delete(key);
   }
 }
 

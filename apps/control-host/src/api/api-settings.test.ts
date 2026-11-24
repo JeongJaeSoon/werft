@@ -20,6 +20,13 @@ describe("apiSettingsFromEnv", () => {
       leaseTtlMs: 30_000,
       logLevel: "info",
       sse: {},
+      signIn: {
+        rules: {
+          accountFailures: { limit: 5, windowMs: 900_000 },
+          networkFailures: { limit: 20, windowMs: 900_000 },
+          networkRequests: { limit: 30, windowMs: 60_000 },
+        },
+      },
     });
   });
 
@@ -42,6 +49,13 @@ describe("apiSettingsFromEnv", () => {
       leaseTtlMs: 45_000,
       logLevel: "debug",
       sse: { batchMaxBytes: 65_536, maxStreams: 512, maxStreamsPerOwner: 16 },
+      signIn: {
+        rules: {
+          accountFailures: { limit: 5, windowMs: 900_000 },
+          networkFailures: { limit: 20, windowMs: 900_000 },
+          networkRequests: { limit: 30, windowMs: 60_000 },
+        },
+      },
     });
   });
 
@@ -54,6 +68,39 @@ describe("apiSettingsFromEnv", () => {
     ["SSE_REPLAY_MAX_BYTES", "1.5"],
     ["LOG_LEVEL", "inf0"],
     ["HEARTBEAT_TTL_SEC", "10"],
+  ])("%s=%p stops the API", (name, value) => {
+    expect(() => apiSettingsFromEnv({ [name]: value })).toThrow(name);
+  });
+
+  test("reads the sign-in limits and the client address header", () => {
+    expect(
+      apiSettingsFromEnv({
+        LOGIN_ACCOUNT_FAILURE_LIMIT: "3",
+        LOGIN_ACCOUNT_FAILURE_WINDOW_SEC: "600",
+        LOGIN_IP_FAILURE_LIMIT: "50",
+        LOGIN_IP_FAILURE_WINDOW_SEC: "3600",
+        AUTH_IP_REQUEST_LIMIT: "100",
+        AUTH_IP_REQUEST_WINDOW_SEC: "120",
+        CLIENT_IP_HEADER: "CF-Connecting-IP",
+      }).signIn,
+    ).toEqual({
+      clientIpHeader: "cf-connecting-ip",
+      rules: {
+        accountFailures: { limit: 3, windowMs: 600_000 },
+        networkFailures: { limit: 50, windowMs: 3_600_000 },
+        networkRequests: { limit: 100, windowMs: 120_000 },
+      },
+    });
+  });
+
+  test.each([
+    ["LOGIN_ACCOUNT_FAILURE_LIMIT", "0"],
+    ["LOGIN_IP_FAILURE_LIMIT", "1000001"],
+    ["AUTH_IP_REQUEST_LIMIT", "ten"],
+    ["LOGIN_ACCOUNT_FAILURE_WINDOW_SEC", "86401"],
+    ["AUTH_IP_REQUEST_WINDOW_SEC", ""],
+    ["CLIENT_IP_HEADER", ""],
+    ["CLIENT_IP_HEADER", "X-Forwarded-For, CF-Connecting-IP"],
   ])("%s=%p stops the API", (name, value) => {
     expect(() => apiSettingsFromEnv({ [name]: value })).toThrow(name);
   });
