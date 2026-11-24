@@ -1,5 +1,5 @@
 {
-  "id": "1019167c-6871-44b1-9e86-4db00f9435c8",
+  "id": "90d4da7f-5606-4c3d-98bf-342da1b063d8",
   "prevId": "9fb41fb8-c05b-49ac-aa42-1d9ee3720641",
   "version": "7",
   "dialect": "postgresql",
@@ -6789,18 +6789,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "limit_reached": {
-          "name": "limit_reached",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "limit_reached_by": {
-          "name": "limit_reached_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -6915,10 +6903,6 @@
         "conversation_turns_decision_check": {
           "name": "conversation_turns_decision_check",
           "value": "\"conversation_turns\".\"decision\" IN ('reply','route_to_task','spawn_task','no_reply')"
-        },
-        "conversation_turns_limit_check": {
-          "name": "conversation_turns_limit_check",
-          "value": "(\"conversation_turns\".\"limit_reached\" IS NULL) = (\"conversation_turns\".\"limit_reached_by\" IS NULL) AND (\"conversation_turns\".\"limit_reached\" IS NULL OR (\"conversation_turns\".\"state\" = 'no_decision' AND \"conversation_turns\".\"limit_reached\" IN ('model_call_limit','tool_call_limit','time_limit') AND \"conversation_turns\".\"limit_reached_by\" IN ('runner','server')))"
         },
         "conversation_turns_shape_check": {
           "name": "conversation_turns_shape_check",
@@ -20920,6 +20904,18 @@
         },
         "last_launch_error": {
           "name": "last_launch_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "capacity_wait_since": {
+          "name": "capacity_wait_since",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "capacity_wait_message": {
+          "name": "capacity_wait_message",
           "type": "text",
           "primaryKey": false,
           "notNull": false

@@ -118,6 +118,25 @@ export async function failResume(
 }
 
 /**
+ * A resume whose worker found no room in time goes back to `paused`, its
+ * checkpoint untouched, and its receipt fails: the user resumes again later.
+ * Not an operator's decision, unlike failResume.
+ */
+export async function returnResumeToPaused(
+  tx: Database,
+  input: { sessionId: string; error: ReceiptError; now: Date },
+) {
+  await tx
+    .update(sessions)
+    .set({ admissionState: "paused", updatedAt: input.now })
+    .where(eq(sessions.id, input.sessionId));
+  await tx
+    .update(receipts)
+    .set({ status: "failed", error: input.error, updatedAt: input.now })
+    .where(openResumeReceipt(input.sessionId));
+}
+
+/**
  * Claimed launches a resume may spend before a worker reports ready. An exit
  * before ready says nothing about the checkpoint on its own (a deploy's
  * SIGTERM, a workspace fetch that timed out), and no input was handed out,

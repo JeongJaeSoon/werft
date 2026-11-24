@@ -1,4 +1,9 @@
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
+import {
+  capacityFound,
+  capacityShortageOf,
+  waitForCapacity,
+} from "./capacity.ts";
 import { confirmGone, kill, killRequested } from "./kill.ts";
 import {
   giveBackCause,
@@ -87,6 +92,10 @@ async function reconcile(
       session_id: execution.sessionId,
       termination_reason: observed.terminationReason ?? null,
     });
+  }
+  const shortage = capacityShortageOf(execution, observed);
+  if (execution.capacityWaitSince !== null && shortage === undefined) {
+    await capacityFound(ctx, execution, observed);
   }
   const up = observed.found && observed.state !== "terminated";
   if (up && (await killRequested(ctx, execution))) {
@@ -178,7 +187,10 @@ async function reconcile(
     up &&
     !execution.claimed &&
     execution.nonceExpiresAt !== null &&
-    execution.nonceExpired
+    execution.nonceExpired &&
+    // Waiting for room holds the credential open; a resource whose wait
+    // began only after it expired is waited on, not replaced.
+    shortage === undefined
   ) {
     // The bootstrap door shut before anyone came through it. The resource
     // cannot be handed a second credential while it runs — the one it holds
@@ -366,6 +378,14 @@ async function reconcile(
       "the provider never answered the launch and no resource was created",
       execution.nonceFingerprint,
     );
+    return;
+  }
+  if (shortage !== undefined) {
+    // Created and waiting for a node with room. Ensuring it again changes
+    // nothing, and replacing it waits for the same room.
+    lock.throwIfAborted();
+    await store.recordObservation(ref, observed);
+    await waitForCapacity(ctx, execution, shortage.message);
     return;
   }
   const running = up && observed.state !== "pending";

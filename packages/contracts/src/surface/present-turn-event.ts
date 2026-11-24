@@ -40,6 +40,8 @@ export type TurnEventMessageKey =
   | "session.event.kind.error"
   | "session.event.error.modelNotAllowed"
   | "session.event.error.modelConnectionRemoved"
+  | "session.event.noCapacity"
+  | "session.event.noCapacityPaused"
   | "session.event.modelMigrated"
   | "session.event.workerImageReplaced"
   | `session.event.approvalCheckpointFailed.${ApprovalCheckpointFailure}`
@@ -401,6 +403,20 @@ function present(
   if (!data) return GENERIC;
   switch (event.event) {
     case "status": {
+      // Kept as a literal: this file stays free of the zod-bearing error.ts.
+      if (data.code === "NO_CAPACITY") {
+        return {
+          label: message("session.event.kind.status"),
+          summary: [
+            message(
+              data.admission_state === "paused"
+                ? "session.event.noCapacityPaused"
+                : "session.event.noCapacity",
+            ),
+          ],
+          error: true,
+        };
+      }
       const phase = phaseMessage(data.phase);
       return phase
         ? { label: message("session.event.kind.status"), summary: [phase] }
