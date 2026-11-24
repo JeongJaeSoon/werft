@@ -415,7 +415,27 @@ export async function purgeJudgmentBuffer(
   const locked = (which: SQL) =>
     sql`i.id IN (${pick(which)} FOR UPDATE OF i SKIP LOCKED)`;
   const expired = await db.transaction(async (tx) => {
-    const gone = await dropBufferedRows(tx, locked(expiredRows));
+    // The agents the tallies' keys point at, key-share locked before any
+    // row goes, so their insert waits on nothing; an agent an archive holds
+    // is skipped, and the archive removes its rows itself.
+    const agents = rowsOf<{ id: string }>(
+      await tx.execute(sql`
+        SELECT a.id FROM agents a
+        WHERE a.id IN (SELECT i.agent_id FROM (${pick(expiredRows)}) p
+          JOIN conversation_inputs i ON i.id = p.id)
+        ORDER BY a.id
+        FOR KEY SHARE SKIP LOCKED`),
+    );
+    if (agents.length === 0) return { expired: 0, unjudged: 0 };
+    const gone = await dropBufferedRows(
+      tx,
+      locked(
+        sql`${expiredRows} AND i.agent_id IN (${sql.join(
+          agents.map((agent) => sql`${agent.id}::uuid`),
+          sql`, `,
+        )})`,
+      ),
+    );
     return { expired: gone.length, unjudged: await tallyUnjudged(tx, gone) };
   });
   const unlistened = await db.transaction((tx) =>

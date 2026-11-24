@@ -22,7 +22,11 @@ import {
 } from "../testing/spec-pins.ts";
 import { createPostgresConversationStore } from "./conversation-store.ts";
 import { createPostgresJudgmentBatchStore } from "./judgment-batches.ts";
-import { dropUnlistenedBuffer, holdBufferedInput } from "./judgment-buffer.ts";
+import {
+  dropUnlistenedBuffer,
+  holdBufferedInput,
+  purgeJudgmentBuffer,
+} from "./judgment-buffer.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -220,6 +224,43 @@ integration("judgment batches across workers", () => {
         "UPDATE judgment_batches SET state = 'failed', ended_at = now() WHERE slack_channel_id = $1 AND state = 'judging'",
         [place.channelId],
       );
+    }
+  });
+
+  test("an expiry purge racing an archive never deadlocks", async () => {
+    for (let round = 0; round < 10; round++) {
+      const place = await heardChannel();
+      for (let n = 0; n < 30; n++) {
+        await quietPost(place, `600.${String(n).padStart(6, "0")}`);
+      }
+      await pool.query(
+        "UPDATE conversation_inputs SET buffer_expires_at = now() - interval '1 second' WHERE slack_channel_id = $1",
+        [place.channelId],
+      );
+      // A channel with no tally yet, so the purge inserts one.
+      await pool.query(
+        "DELETE FROM judgment_channel_tallies WHERE slack_channel_id = $1",
+        [place.channelId],
+      );
+      const archive = db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT 1 FROM agents WHERE id = ${agentId}::uuid FOR UPDATE`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await tx.execute(
+          sql`UPDATE surface_bindings SET listen = 'mention' WHERE agent_id = ${agentId}::uuid AND external_surface_id = ${place.channelId}`,
+        );
+        return dropUnlistenedBuffer(tx, {
+          agentId,
+          channelId: place.channelId,
+        });
+      });
+      const [purged, dropped] = await Promise.all([
+        purgeJudgmentBuffer(db, { limit: 100, dryRun: false }),
+        archive,
+      ]);
+      // Every row went once, by one or the other.
+      expect(purged.expired + dropped).toBe(30);
     }
   });
 
