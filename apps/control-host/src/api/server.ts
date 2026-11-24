@@ -553,15 +553,16 @@ closeAgentlessSessions(db).then(
 backfillWebInputTurns(db).then(
   (backfilled) => {
     if (backfilled.backfilled > 0) {
+      // Keys naming an input are dropped as message bodies.
       logger.info("Web inputs given their turn rows", {
-        inputs: backfilled.backfilled,
+        rows: backfilled.backfilled,
       });
     }
     for (const { inputId, error } of backfilled.failed) {
       logger.warn(
         "A web input could not be given its turn row; the next start tries again",
         {
-          input_id: inputId,
+          row_id: inputId,
           error_name: error instanceof Error ? error.name : typeof error,
         },
       );

@@ -36,7 +36,8 @@ export async function insertWebInputTurn(
     topicId: ConversationTopicId;
     requesterUserId: string;
     body: string;
-    receivedAt?: Date | string;
+    /** A timestamptz's text, kept to the microsecond. */
+    receivedAt?: string;
   },
 ): Promise<ConversationTurnId> {
   const id = randomUUID() as ConversationTurnId;
@@ -48,7 +49,7 @@ export async function insertWebInputTurn(
       ${id}::uuid, ${input.workspaceId}::uuid, ${input.agentId}::uuid,
       ${input.conversationId}::uuid, ${input.topicId}::uuid, 'web_input',
       'received', 'user', ${input.requesterUserId}, ${input.body},
-      COALESCE(${input.receivedAt === undefined ? null : new Date(input.receivedAt).toISOString()}::timestamptz, now())
+      COALESCE(${input.receivedAt ?? null}::timestamptz, now())
     )`);
   return id;
 }
@@ -253,11 +254,11 @@ function backfillOne(
       conversation_id: ConversationId;
       requester_id: string;
       body: string;
-      received_at: Date | string;
+      received_at: string;
     }>(
       await tx.execute(sql`
         SELECT i.workspace_id, i.agent_id, i.topic_id, t.conversation_id,
-          i.requester_id, i.body, i.received_at
+          i.requester_id, i.body, i.received_at::text AS received_at
         FROM conversation_inputs i
         JOIN conversation_topics t ON t.id = i.topic_id
         WHERE i.id = ${inputId}::uuid

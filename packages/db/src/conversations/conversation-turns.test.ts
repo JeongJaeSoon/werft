@@ -494,8 +494,11 @@ describe("conversation turns (0344)", () => {
           body: string | null;
           body_sha256: Uint8Array;
           input_text: string;
+          same_time: boolean;
         }>(
-          `SELECT i.body, i.body_sha256, t.input_text FROM conversation_inputs i
+          `SELECT i.body, i.body_sha256, t.input_text,
+             t.created_at = i.received_at AS same_time
+           FROM conversation_inputs i
            JOIN conversation_turns t ON t.id = i.conversation_turn_id
            WHERE i.id = $1`,
           [oldId],
@@ -503,6 +506,7 @@ describe("conversation turns (0344)", () => {
       ).rows;
       expect(moved?.body).toBe("written before");
       expect(moved?.input_text).toBe("written before");
+      expect(moved?.same_time).toBe(true);
       expect(
         Buffer.from(moved?.body_sha256 ?? []).equals(
           webInputBodyHash("written before"),
