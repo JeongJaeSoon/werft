@@ -58,6 +58,7 @@ import {
   type ConversationId,
   type ConversationInputId,
   type ConversationInputSlackMirror,
+  type ConversationJudgmentId,
   type ConversationKind,
   type ConversationTopicId,
   type ConversationTurnCallRefusal,
@@ -83,10 +84,23 @@ import {
   type GitHubCeiling,
   type GitHubFeatures,
   type GitHubPackagesAllowEntry,
+  JUDGMENT_FAILED_REASON_VALUES,
+  JUDGMENT_GRADE_VALUES,
+  JUDGMENT_NOT_CALLED_REASON_VALUES,
+  JUDGMENT_RULE_DECISION_VALUES,
+  JUDGMENT_RULE_REASON_VALUES,
+  type JudgmentGrade,
+  type JudgmentOutcome,
+  type JudgmentReason,
+  type JudgmentRuleDecision,
+  type JudgmentRuleReason,
   KILL_RECEIPT_OPERATIONS,
   LINKED_ACCOUNT_PROVIDER_VALUES,
   LINKED_ACCOUNT_REVOKED_REASON_VALUES,
   LINKED_ACCOUNT_STATUS_VALUES,
+  M1_DECISION_VALUES,
+  M1_MODEL_REASON_VALUES,
+  type M1Decision,
   MCP_RESERVED_SERVER_NAMES,
   MEMORY_BODY_MAX_BYTES,
   MEMORY_SCAN_STATUS_VALUES,
@@ -6157,6 +6171,128 @@ export const judgmentBatches = pgTable(
       table.closedAt,
     ),
     index("judgment_batches_closed_idx").on(table.closedAt),
+  ],
+);
+
+/**
+ * One M1 judgment (a1/J5): a batch's, or one unmentioned reply's with what
+ * the current path did with it beside. Slack ts, codes and ids only, never
+ * a message's text, a reason in words or the model's answer, so a deleted
+ * message's mark never waits for it. A reply's row is written with its
+ * turn (or its hold, for one with no turn) and judged after: `outcome` empty
+ * until then. Its calls are the conversation_calls rows of `call_key`.
+ */
+export const conversationJudgments = pgTable(
+  "conversation_judgments",
+  {
+    id: uuid().$type<ConversationJudgmentId>().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    conversationId: uuid("conversation_id").$type<ConversationId>().notNull(),
+    grade: text().$type<JudgmentGrade>().notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    slackChannelId: text("slack_channel_id").notNull(),
+    /** The ts of each message judged, oldest first. */
+    refs: text().array().notNull(),
+    /** What the judgment read, set when judged. */
+    sources: jsonb().$type<StoredSourceSet>(),
+    // A batch's, emptied when the batch is purged; the record stays.
+    judgmentBatchId: uuid("judgment_batch_id"),
+    // A reply's input, emptied when a held one is removed.
+    inputId: uuid("input_id").$type<ConversationInputId>(),
+    releaseId: text("release_id"),
+    callKey: text("call_key").$type<ConversationCallKey>(),
+    /** Calls issued for it, each reserved and settled on its own. */
+    attempts: integer().notNull().default(0),
+    promptVersion: integer("prompt_version").notNull(),
+    outcome: text().$type<JudgmentOutcome>(),
+    decision: text().$type<M1Decision>(),
+    reason: text().$type<JudgmentReason>(),
+    ruleDecision: text("rule_decision").$type<JudgmentRuleDecision>(),
+    ruleReason: text("rule_reason").$type<JudgmentRuleReason>(),
+    // A reply's judge took it; one taken too long ago is given up.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    judgedAt: timestamp("judged_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "conversation_judgments_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "conversation_judgments_conversation_fk",
+      columns: [table.conversationId],
+      foreignColumns: [conversations.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "conversation_judgments_release_fk",
+      columns: [table.agentId, table.releaseId],
+      foreignColumns: [agentReleases.agentId, agentReleases.id],
+    }),
+    foreignKey({
+      name: "conversation_judgments_batch_fk",
+      columns: [table.judgmentBatchId],
+      foreignColumns: [judgmentBatches.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "conversation_judgments_input_fk",
+      columns: [table.inputId],
+      foreignColumns: [conversationInputs.id],
+    }).onDelete("set null"),
+    check(
+      "conversation_judgments_grade_check",
+      sql`${table.grade} IN (${sql.raw(sqlList(JUDGMENT_GRADE_VALUES))})`,
+    ),
+    check(
+      "conversation_judgments_slack_check",
+      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND cardinality(${table.refs}) >= 1`,
+    ),
+    // Judged all at once, and a reason of the outcome's own set: the model's
+    // six for a judged one, which alone may speak.
+    check(
+      "conversation_judgments_verdict_check",
+      sql`CASE ${table.outcome}
+        WHEN 'judged' THEN ${table.decision} IN (${sql.raw(sqlList(M1_DECISION_VALUES))}) AND ${table.reason} IN (${sql.raw(sqlList(M1_MODEL_REASON_VALUES))})
+        WHEN 'not_called' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_NOT_CALLED_REASON_VALUES))})
+        WHEN 'failed' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_FAILED_REASON_VALUES))})
+        ELSE ${table.outcome} IS NULL AND ${table.decision} IS NULL AND ${table.reason} IS NULL
+      END AND (${table.outcome} IS NULL) = (${table.judgedAt} IS NULL)`,
+    ),
+    // A batch is written judged and has no current path beside it; a reply
+    // has the rule's answer, or none when it makes no turn.
+    check(
+      "conversation_judgments_rule_check",
+      sql`CASE WHEN ${table.grade} = 'buffer_m1'
+        THEN ${table.ruleDecision} IS NULL AND ${table.ruleReason} IS NULL AND ${table.outcome} IS NOT NULL
+        ELSE ${table.ruleDecision} IN (${sql.raw(sqlList(JUDGMENT_RULE_DECISION_VALUES))}) AND ${table.ruleReason} IN (${sql.raw(sqlList(JUDGMENT_RULE_REASON_VALUES))}) AND (${table.ruleDecision} = 'none') = (${table.grade} = 'm1_engaged')
+      END`,
+    ),
+    check(
+      "conversation_judgments_call_check",
+      sql`${table.attempts} >= 0 AND (${table.callKey} IS NULL OR ${table.callKey} ~ '^[A-Za-z0-9_-]{1,128}:m1$') AND (${table.attempts} = 0 OR ${table.callKey} IS NOT NULL)`,
+    ),
+    // A reply is judged once.
+    uniqueIndex("conversation_judgments_input_uniq")
+      .on(table.inputId)
+      .where(sql`${table.inputId} IS NOT NULL`),
+    // The replies waiting for their judge.
+    index("conversation_judgments_waiting_idx")
+      .on(table.createdAt)
+      .where(sql`${table.outcome} IS NULL`),
+    // A channel's records, newest last: its counts and the M1 cap's window.
+    index("conversation_judgments_channel_idx").on(
+      table.agentId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.createdAt,
+    ),
+    index("conversation_judgments_batch_idx")
+      .on(table.judgmentBatchId)
+      .where(sql`${table.judgmentBatchId} IS NOT NULL`),
   ],
 );
 

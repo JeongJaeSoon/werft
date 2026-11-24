@@ -340,6 +340,10 @@ export async function deleteConversationRecords(
           );
           if (!within(turnTs, seen.touched)) throw new RecordsMoved();
           const buffered = await dropBufferedInputs(tx, records.bufferedIds);
+          // M1's judgments name the posts they judged: they go with them.
+          await tx.execute(sql`
+            DELETE FROM conversation_judgments
+            WHERE conversation_id = ${conversation.id}::uuid`);
           const result = {
             engagements,
             summaryLines: summary.lines,
