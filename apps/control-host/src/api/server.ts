@@ -1281,6 +1281,13 @@ const conversationTurnQueue = createMemoryConversationTurnQueue();
 assertConversationTurnDispatch(process.env, conversationTurnQueue);
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
+  // A turn's calls end with its runtime's lease, the turn's time limit as
+  // the server holds it: at the lease's own end, however late this runs.
+  leased: (turn) =>
+    conversationCallStore.boundTurnPermitAtomic({
+      turnId: turn.turn_id,
+      until: new Date(turn.lease_expires_at),
+    }),
   // What a topic's live session read, in this process's memory like the queue.
   topicSessions: createTopicSessionChecks({
     contexts: createPostgresTopicTurnContexts(db),

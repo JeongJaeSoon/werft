@@ -44,6 +44,8 @@ import {
   CONVERSATION_ROLLOUT_VALUES,
   CONVERSATION_TURN_CALL_REFUSAL_VALUES,
   CONVERSATION_TURN_DECISION_VALUES,
+  CONVERSATION_TURN_LIMIT_SIDE_VALUES,
+  CONVERSATION_TURN_LIMIT_VALUES,
   CONVERSATION_TURN_ORIGIN_VALUES,
   CONVERSATION_TURN_REASON_MAX,
   CONVERSATION_TURN_STATE_VALUES,
@@ -61,6 +63,8 @@ import {
   type ConversationTurnCallRefusal,
   type ConversationTurnDecision,
   type ConversationTurnId,
+  type ConversationTurnLimit,
+  type ConversationTurnLimitSide,
   type ConversationTurnOrigin,
   type ConversationTurnState,
   DELETED_SOURCE_REASON_VALUES,
@@ -5769,6 +5773,9 @@ export const conversationTurns = pgTable(
       .notNull()
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    // The limit that ended a turn without a decision, and who held it there.
+    limitReached: text("limit_reached").$type<ConversationTurnLimit>(),
+    limitReachedBy: text("limit_reached_by").$type<ConversationTurnLimitSide>(),
   },
   (table) => [
     foreignKey({
@@ -5816,6 +5823,10 @@ export const conversationTurns = pgTable(
     check(
       "conversation_turns_decision_check",
       sql`${table.decision} IN (${sql.raw(sqlList(CONVERSATION_TURN_DECISION_VALUES))})`,
+    ),
+    check(
+      "conversation_turns_limit_check",
+      sql`(${table.limitReached} IS NULL) = (${table.limitReachedBy} IS NULL) AND (${table.limitReached} IS NULL OR (${table.state} = 'no_decision' AND ${table.limitReached} IN (${sql.raw(sqlList(CONVERSATION_TURN_LIMIT_VALUES))}) AND ${table.limitReachedBy} IN (${sql.raw(sqlList(CONVERSATION_TURN_LIMIT_SIDE_VALUES))})))`,
     ),
     // A web input's row is its text and nothing else; a runtime's turn has
     // no input text, a decision once decided, an answer only with one, and
