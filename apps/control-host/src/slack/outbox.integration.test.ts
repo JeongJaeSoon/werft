@@ -1077,7 +1077,29 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass();
     expect(posted()).toEqual([]);
 
+    // Claimed before the scheduler cleared the wait: no notice.
+    await db.insert(attempts).values({
+      id: "attempt-claimed",
+      sessionId,
+      executionId: launch.executionId,
+      leaseEpoch: 0,
+      executionGeneration: launch.generation,
+      authRevision: 0,
+      state: "running",
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "attempt-claimed" })
+      .where(eq(workerLaunches.executionId, launch.executionId));
     await waitingFor(31_000);
+    await outboxPass();
+    expect(posted()).toEqual([]);
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: null })
+      .where(eq(workerLaunches.executionId, launch.executionId));
+
     await outboxPass();
     await outboxPass();
     expect(posted().map((message) => message.text)).toEqual([

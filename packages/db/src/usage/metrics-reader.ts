@@ -252,6 +252,8 @@ async function readWaitingForCapacity(db: Database) {
       and(
         isNull(workerLaunches.slotReleasedAt),
         isNotNull(workerLaunches.capacityWaitSince),
+        // A worker that claimed it is no longer waiting, cleared or not.
+        isNull(workerLaunches.claimedAttemptId),
         eq(executions.desiredState, "running"),
       ),
     );

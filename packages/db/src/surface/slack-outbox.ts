@@ -1424,6 +1424,8 @@ export function createPostgresSlackOutboxStore(
         .where(
           and(
             isNull(workerLaunches.slotReleasedAt),
+            // Claimed before the pass cleared the wait: it runs already.
+            isNull(workerLaunches.claimedAttemptId),
             eq(executions.desiredState, "running"),
             lte(
               workerLaunches.capacityWaitSince,

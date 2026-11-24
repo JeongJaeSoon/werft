@@ -1647,6 +1647,7 @@ export function createPostgresSessionReader(
               inArray(workerLaunches.sessionId, ids),
               isNull(workerLaunches.slotReleasedAt),
               isNotNull(workerLaunches.capacityWaitSince),
+              isNull(workerLaunches.claimedAttemptId),
               eq(executions.desiredState, "running"),
             ),
           )
