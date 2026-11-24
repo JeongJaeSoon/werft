@@ -6,7 +6,6 @@ import {
   type AgentVersion,
   agentReleaseSchema,
   behaviorKey,
-  type ListAgentsResponse,
   type ReceiptOperation,
   storedAgentCardSchema,
   type WorkspaceRole,
@@ -472,7 +471,7 @@ function visibleTo(db: Database, workspaceId: string, userId: string) {
 
 export function createPostgresAgentStore(db: Database): AgentStore {
   return {
-    async list(workspaceId, query, reader): Promise<ListAgentsResponse> {
+    async list(workspaceId, query, reader) {
       const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
       const rows = await db
         .select({
@@ -590,6 +589,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           )}))::int`,
           active: sql<number>`(count(*) filter (where ${agents.status} = 'active' and ${agents.activeReleaseId} is not null))::int`,
           draft: sql<number>`(count(*) filter (where ${agents.status} <> 'archived' and ${agents.activeReleaseId} is null))::int`,
+          inactive: sql<number>`(count(*) filter (where ${agents.status} = 'archived' or (${agents.status} <> 'active' and ${agents.activeReleaseId} is not null)))::int`,
           ownerless: sql<number>`(count(*) filter (where ${ownerlessNow(db)}))::int`,
         })
         .from(agents)
@@ -605,6 +605,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         administered: row?.administered ?? 0,
         active: row?.active ?? 0,
         draft: row?.draft ?? 0,
+        inactive: row?.inactive ?? 0,
         ownerless: row?.ownerless ?? 0,
       };
     },

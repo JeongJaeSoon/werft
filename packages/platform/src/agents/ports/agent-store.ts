@@ -8,7 +8,6 @@ import type {
   AgentVersion,
   CountAgentsResponse,
   ListAgentsQuery,
-  ListAgentsResponse,
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
@@ -161,7 +160,7 @@ export interface AgentStore {
     workspaceId: string,
     query: ListAgentsQuery,
     reader: AgentReader,
-  ): Promise<ListAgentsResponse>;
+  ): Promise<{ items: Agent[]; next_cursor: string | null }>;
   /**
    * The list summary of each agent named whose settings `viewer` may read
    * (agent.settings_read), keyed by id, read for the whole page at once; any
