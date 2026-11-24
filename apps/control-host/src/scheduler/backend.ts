@@ -15,6 +15,7 @@ import {
   reclaimWorkspaces,
 } from "@werft-ai/platform";
 import type { SchedulerExecution } from "./config.ts";
+import { nodeCapacityCheckFromEnv } from "./node-capacity.ts";
 import { verifyWorkspaceQuotaOnce } from "./quota-preflight.ts";
 
 export type PreflightContext = Omit<ReclaimOptions, "backend"> & {
@@ -57,7 +58,10 @@ export async function schedulerBackendFor(
   // Network isolation is the chart's NetworkPolicy and the workspace ceiling
   // the PVC's size: nothing here for the scheduler to probe.
   return {
-    backend: new KubernetesBackend(config, client),
+    backend: new KubernetesBackend(
+      { ...config, readsNodes: nodeCapacityCheckFromEnv(environment) },
+      client,
+    ),
     preflight: async () => {},
   };
 }
