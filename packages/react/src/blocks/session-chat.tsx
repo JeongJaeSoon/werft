@@ -2,6 +2,7 @@ import {
   eventToolCall,
   eventToolResult,
   presentTurnEvent,
+  TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
   type TurnSummary,
 } from "@werft-ai/contracts";
 import {
@@ -38,6 +39,8 @@ export type ChatItem =
       readonly error: boolean;
       /** The turn's instruction was deleted in Slack: its replies are held back. */
       readonly withheld?: true;
+      /** The run stopped the turn for outgrowing its workspace; no event says so. */
+      readonly workspaceQuotaExceeded?: true;
     }
   | {
       readonly kind: "tool";
@@ -195,6 +198,22 @@ export function chatItems(
         result: null,
       });
     }
+  }
+  for (const turn of turns ?? []) {
+    if (
+      turn.status !== "failed" ||
+      turn.terminal_reason !== TURN_WORKSPACE_QUOTA_EXCEEDED_REASON
+    ) {
+      continue;
+    }
+    items.push({
+      kind: "reply",
+      id: `quota:${turn.turn_id}`,
+      at: turn.ended_at ?? turn.created_at,
+      text: "",
+      error: true,
+      workspaceQuotaExceeded: true,
+    });
   }
   // Stable: a turn's message stays ahead of the events it started.
   return items
@@ -371,6 +390,8 @@ export function SessionChat({
                     <span className="text-muted-foreground">
                       {t("session.sourceDeleted")}
                     </span>
+                  ) : item.workspaceQuotaExceeded ? (
+                    t("session.chat.workspaceQuotaExceeded")
                   ) : item.error ? (
                     <span className="whitespace-pre-wrap">{item.text}</span>
                   ) : (

@@ -20,7 +20,7 @@ Linux 試験サーバーに LocalStack を使う Compose 環境を設置しま�
 | OS | Linux。`x86_64` と `arm64` の両方に対応します |
 | Docker Engine | 28 以上 |
 | Docker Compose | 2.24.6 以上 |
-| ディスク | Docker データルートが XFS で、`prjquota` 付きで mount されていること。`preflight` が quota probe でこれを確認し、満たさなければ止まります。ext4 サーバーでは先に [XFS ディスクの準備](/run-server/self-hosting/prepare-xfs)を完了します。Docker Desktop では使えません |
+| ディスク | Docker データルートが XFS で、`prjquota` 付きで mount されていること。`preflight` が quota probe でこれを確認し、満たさなければ止まります。ext4 サーバーでは先に [XFS ディスクの準備](/run-server/self-hosting/prepare-xfs)を完了します。XFS を用意できないサーバーでは手順 2 の「XFS なしで試験する」に従います。Docker Desktop では使えません |
 | 時刻 | NTP 同期。再起動後に Docker が自動起動すること |
 | ツール | checkout 設置では `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。リリースバンドル設置では `jq`、`curl`、`openssl`、`sha256sum`、`tar`(gzip 対応)。どちらも Docker daemon にアクセスできるアカウント |
 | 外部 | `ghcr.io` と Docker Hub からイメージを取得できること。パッケージはログイン不要です。セッションは `api.anthropic.com` と `github.com` にアクセスします |
@@ -99,6 +99,19 @@ sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 }
 ```
 
+<a id="xfs-없이-시험하기" />
+#### XFS なしで試験する
+
+XFS を用意できないサーバー（コンテナ型サーバー、隔離 VM など）では試験モードで設置します。このモードは運用に使いません。`/etc/werft/test-ops.env` の `EXECUTION_WORKSPACE_QUOTA=on` を `EXECUTION_WORKSPACE_QUOTA=off` に変えます。すると次が変わります。
+
+- `preflight` と `deploy` は quota probe を省きます。`preflight: passed` の行に `no workspace quota (test mode, not for production)` が出ます。
+- カーネルの quota がないため、worker が自分の作業領域を測ります。測るのは 1 分に 1 回までです。`EXECUTION_WORKSPACE_QUOTA_MB`（既定 4096）または `EXECUTION_WORKSPACE_QUOTA_INODES`（既定 1,000,000）を超えると、コンソールの作業領域の容量設定（`WORKSPACE_ENFORCE`）に関係なくその turn を止めます。セッションは残るので、ファイルを減らしてから再度依頼します。二つの測定の間は一時的に上限を超えることがあります。
+- `/readyz` は 200 のままで、本文の `detail.no_disk_quota` が `true` になります。
+- コンソールは owner・admin にすべての画面の上部に「試験モード: ディスク quota なし、運用不可」を表示します。この帯は閉じられません。
+- api は起動時に、scheduler は pass ごとにログへ警告を残します。
+
+`off` は LocalStack ストアでだけ受け付けます。`TEST_OPS_OBJECT_STORE=s3` なら `preflight` が `off is for the LocalStack store only` で止まります。
+
 <a id="3-release-입력과-설치" />
 ### 3. release 入力と設置
 
@@ -109,7 +122,7 @@ TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh preflight /var/lib/werft/te
 TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh deploy /var/lib/werft/test-ops/release.json
 ```
 
-quota 検査とサービス health が成功する必要があります。モデル key は設置後にコンソールへ入力します。
+quota 検査（試験モードでは省きます）とサービス health が成功する必要があります。モデル key は設置後にコンソールへ入力します。
 
 <a id="확인" />
 ## 確認

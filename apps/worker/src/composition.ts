@@ -72,6 +72,7 @@ export type WorkerComposition = {
   workspaceQuota?: {
     observer: WorkspaceObserver;
     limits: WorkspaceQuotaLimits;
+    enforce?: "fail";
   };
 };
 

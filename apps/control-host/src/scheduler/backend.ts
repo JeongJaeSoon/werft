@@ -77,7 +77,9 @@ async function dockerPreflight(
     // a daemon that cannot carry one — stops the process instead.
     logger.warn(
       "Worker workspaces have no disk or inode quota (EXECUTION_WORKSPACE_QUOTA=off); " +
-        "a runaway worker can fill this daemon's disk or exhaust its inodes",
+        "each worker measures its own at most once a minute and stops a turn that outgrows " +
+        `${docker.workspaceQuota.sizeBytes} bytes or ${docker.workspaceQuota.inodes} inodes, ` +
+        "so a workspace can pass them between two measurements",
     );
   }
   // Before anything is launched: without exactly one running proxy there

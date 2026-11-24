@@ -52,7 +52,11 @@ test("the Kubernetes backend tells the worker exactly what the Docker backend te
       volumeLabelNamespace: "werft",
       volumeNamePrefix: "werft-ws-",
       workspaceGcMinAgeMs: 0,
-      workspaceQuota: { mode: "off" },
+      workspaceQuota: {
+        mode: "off",
+        sizeBytes: 4096 * 1024 * 1024,
+        inodes: 1_000_000,
+      },
     },
     intent,
     NONCE,
@@ -63,6 +67,8 @@ test("the Kubernetes backend tells the worker exactly what the Docker backend te
   const observations = [
     ENV.workspaceMountDir,
     ENV.workspaceQuotaBytes,
+    // Docker's own measured limit; Kubernetes leaves inodes to the worker's default.
+    ENV.workspaceQuotaInodes,
     ENV.workspaceQuotaMode,
   ];
   const common = (values: string[]) =>

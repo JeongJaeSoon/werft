@@ -301,8 +301,14 @@ export async function checkRender(
     problems.push(
       `EXECUTION_INSTALLATION_ID must name this installation, not ${JSON.stringify(installation)} (local is the local stack's)`,
     );
-  if (env("scheduler", "EXECUTION_WORKSPACE_QUOTA") !== "on")
-    problems.push("EXECUTION_WORKSPACE_QUOTA must be on (xfs with prjquota)");
+  const quota = env("scheduler", "EXECUTION_WORKSPACE_QUOTA");
+  // off, the test mode without an xfs disk, only beside LocalStack.
+  if (quota !== "on" && !(quota === "off" && options.store === "localstack"))
+    problems.push(
+      options.store === "localstack"
+        ? "EXECUTION_WORKSPACE_QUOTA must be on (xfs with prjquota) or off (test mode, not for production)"
+        : "EXECUTION_WORKSPACE_QUOTA must be on (xfs with prjquota); off is for the LocalStack store only",
+    );
 
   const bucket = env("api", "S3_BUCKET") ?? "";
   const region = env("api", "AWS_REGION") ?? "";

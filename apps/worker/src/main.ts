@@ -6,9 +6,23 @@ import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
 import { createConsoleLogger } from "./console-logger.ts";
 import { denySameUserInspection } from "./process-hardening.ts";
 import type { WorkerHost, WorkerRunSummary } from "./worker-host.ts";
+import type { WorkspaceLimitEvidence } from "./workspace-limit-mode.ts";
 import { WorkspaceObserver } from "./workspace-observer.ts";
 
 const DRAIN_SIGNALS = ["SIGTERM", "SIGINT"] as const;
+
+/**
+ * EXECUTION_WORKSPACE_QUOTA=off leaves no kernel quota, so the measurement is
+ * what holds the limit: it stops the turn whatever the console's
+ * WORKSPACE_ENFORCE says, and measures at most once a minute.
+ */
+export function measuredOnlyLimits(evidence: WorkspaceLimitEvidence): {
+  observer: { minimumIntervalMs?: number };
+  host: { enforce?: "fail" };
+} {
+  if (evidence.localQuota !== "off") return { observer: {}, host: {} };
+  return { observer: { minimumIntervalMs: 60_000 }, host: { enforce: "fail" } };
+}
 
 /**
  * The worker process. It owns one session for as long as its lease holds, and
@@ -26,14 +40,23 @@ export async function main(
       "Codex auto mode's sandbox is turned off: auto sessions here are refused; other modes run",
     );
   }
+  const measured = measuredOnlyLimits(config.workspace.evidence);
   const observer = new WorkspaceObserver(
-    { root: config.workspace.mountDir, evidence: config.workspace.evidence },
+    {
+      root: config.workspace.mountDir,
+      evidence: config.workspace.evidence,
+      ...measured.observer,
+    },
     logger,
   );
   observer.start();
   const host = createWorkerHost(config, {
     logger,
-    workspaceQuota: { observer, limits: config.workspace.quota },
+    workspaceQuota: {
+      observer,
+      limits: config.workspace.quota,
+      ...measured.host,
+    },
   });
   const release = drainOnSignals(host);
   try {

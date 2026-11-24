@@ -42,6 +42,8 @@ export interface CreateReadinessProbeOptions {
   // timeouts of its own (see createProbePool in pool.ts); it abandons the
   // promise, so the runner itself must free the connection.
   readonly timeoutMs?: number;
+  // EXECUTION_WORKSPACE_QUOTA=off: still ready, and says so in the detail.
+  readonly noDiskQuota?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 2_000;
@@ -161,8 +163,12 @@ export function createReadinessProbe(
     } catch (error) {
       return { ready: false, check: "database", reason: describe(error) };
     }
-    return forgotten > 0
-      ? { ready: true, detail: { checkpoints_forgotten_on_boot: forgotten } }
+    const detail = {
+      ...(forgotten > 0 ? { checkpoints_forgotten_on_boot: forgotten } : {}),
+      ...(options.noDiskQuota ? { no_disk_quota: true as const } : {}),
+    };
+    return Object.keys(detail).length > 0
+      ? { ready: true, detail }
       : { ready: true };
   };
 }

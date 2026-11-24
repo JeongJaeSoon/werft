@@ -12,10 +12,14 @@ import {
 export type WorkspaceObserverOptions = {
   root: string;
   evidence?: WorkspaceLimitEvidence;
+  /** The shortest gap between two measurements; 30 seconds when unset. */
+  minimumIntervalMs?: number;
 };
 
-export const measurementInterval = (durationMs: number): number =>
-  Math.max(30_000, durationMs * 10);
+export const measurementInterval = (
+  durationMs: number,
+  minimumMs = 30_000,
+): number => Math.max(minimumMs, durationMs * 10);
 
 export class WorkspaceObserver {
   private readonly controller = new AbortController();
@@ -24,7 +28,7 @@ export class WorkspaceObserver {
   private running = false;
   private stopped = false;
   private nextStart = 0;
-  private intervalMs = 30_000;
+  private intervalMs: number;
   private lastComplete: number;
   private errors = 0;
   private classified = false;
@@ -67,6 +71,7 @@ export class WorkspaceObserver {
     private readonly maximumAgeMs = 600_000,
   ) {
     this.lastComplete = now();
+    this.intervalMs = options.minimumIntervalMs ?? 30_000;
   }
 
   start(): void {
@@ -152,7 +157,10 @@ export class WorkspaceObserver {
         for (const listener of this.classificationListeners) listener(mode);
         this.classificationListeners.clear();
       }
-      this.intervalMs = measurementInterval(result.durationMs);
+      this.intervalMs = measurementInterval(
+        result.durationMs,
+        this.options.minimumIntervalMs,
+      );
       if (result.complete) {
         this.lastComplete = this.now();
         this.lastUsage = result;

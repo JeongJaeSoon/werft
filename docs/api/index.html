@@ -4567,6 +4567,10 @@
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
+              },
+              "no_disk_quota": {
+                "type": "boolean",
+                "const": true
               }
             },
             "additionalProperties": false
@@ -17972,6 +17976,26 @@
         },
         "required": [
           "notices"
+        ],
+        "additionalProperties": false
+      },
+      "InstallationStatus": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "enum": [
+              "production",
+              "test"
+            ]
+          },
+          "no_disk_quota": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profile",
+          "no_disk_quota"
         ],
         "additionalProperties": false
       },
@@ -55301,6 +55325,154 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/LostCheckpointNotices"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/installation-status": {
+      "get": {
+        "operationId": "getInstallationStatus",
+        "tags": [
+          "Installation settings"
+        ],
+        "summary": "What the console says about the installation itself",
+        "description": "Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. `profile` is `INSTALLATION_PROFILE`. `no_disk_quota` is true when the API runs with `EXECUTION_WORKSPACE_QUOTA=off`: worker workspaces have no kernel quota, and each worker measures its own at most once a minute and stops a turn that outgrows the limit. The console then shows a banner on every page, and `GET /readyz` stays ready with `detail.no_disk_quota`.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The installation's profile and disk quota.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "profile": "test",
+                  "no_disk_quota": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/InstallationStatus"
                 }
               }
             }

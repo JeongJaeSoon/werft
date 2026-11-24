@@ -7,6 +7,7 @@ export * from "./github-work.ts";
 export * from "./health.ts";
 export * from "./installation-config.ts";
 export * from "./installation-settings.ts";
+export * from "./installation-status.ts";
 export * from "./lost-checkpoint-notices.ts";
 export * from "./neutral-event.ts";
 export * from "./output.ts";
