@@ -237,4 +237,77 @@ integration("conversation turn calls on PostgreSQL", () => {
     );
     expect(open.rows[0]?.n).toBe(4);
   });
+
+  // Until another session is queued on a lock of this database.
+  async function untilWaiting(): Promise<void> {
+    for (let n = 0; n < 250; n++) {
+      const { rows } = await pool.query(
+        "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+      );
+      if ((rows[0]?.n ?? 0) > 0) return;
+      await Bun.sleep(20);
+    }
+    throw new Error("no call came to wait on the lock");
+  }
+
+  test("a turn ended while its call waits on the permit: the call is refused", async () => {
+    const turn = await permit(operator, await newTopic());
+    const ending = await pool.connect();
+    try {
+      await ending.query("BEGIN");
+      await ending.query(
+        "SELECT 1 FROM conversation_turn_permits WHERE turn_id = $1 FOR UPDATE",
+        [turn.turnId],
+      );
+      await ending.query(
+        "UPDATE conversation_turns SET state = 'no_decision', ended_at = clock_timestamp() WHERE id = $1",
+        [turn.turnId],
+      );
+      const asked = ask(turn.token);
+      await untilWaiting();
+      await ending.query("COMMIT");
+      expect((await asked).outcome).toBe("invalid_token");
+    } finally {
+      ending.release();
+    }
+    const rows = await db
+      .select({ id: conversationCalls.id })
+      .from(conversationCalls)
+      .where(eq(conversationCalls.conversationTurnId, turn.turnId));
+    expect(rows).toHaveLength(0);
+  });
+
+  test("a permit that runs out while its call waits on the limits: the call is refused and holds nothing", async () => {
+    const turn = await permit(operator, await newTopic());
+    await pool.query(
+      "UPDATE conversation_turn_permits SET expires_at = clock_timestamp() + interval '1 second' WHERE turn_id = $1",
+      [turn.turnId],
+    );
+    const callId = conversationCallIdSchema.parse(crypto.randomUUID());
+    const holding = await pool.connect();
+    try {
+      await holding.query("BEGIN");
+      await holding.query(
+        "SELECT pg_advisory_xact_lock(hashtext('conversation_call_limit'), hashtext($1))",
+        [`agent:${agentId}`],
+      );
+      const asked = ask(turn.token, callId);
+      await untilWaiting();
+      await Bun.sleep(1_200);
+      await holding.query("COMMIT");
+      expect((await asked).outcome).toBe("invalid_token");
+    } finally {
+      holding.release();
+    }
+    const rows = await db
+      .select({ id: conversationCalls.id })
+      .from(conversationCalls)
+      .where(eq(conversationCalls.conversationTurnId, turn.turnId));
+    expect(rows).toHaveLength(0);
+    const held = await pool.query(
+      "SELECT count(*)::int AS n FROM budget_reservations WHERE call_id = $1",
+      [callId],
+    );
+    expect(held.rows[0]?.n).toBe(0);
+  });
 });

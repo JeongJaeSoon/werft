@@ -101,6 +101,9 @@ type LimitReached = Extract<
  * Take it after the call's own locks and before any budget row; the keys are
  * taken sorted, so two callers sharing a person never wait on each other.
  */
+/** Thrown to take back what a turn call held when its permit ran out meanwhile. */
+class TurnPermitLapsed extends Error {}
+
 export async function holdConversationCallLimitsIn(
   tx: Database,
   scope: ConversationCallScope,
@@ -449,7 +452,7 @@ export function createPostgresConversationCalls(
     },
 
     authorizeTurnCallAtomic(input) {
-      return db.transaction(
+      const granted = db.transaction(
         async (tx): Promise<ConversationTurnCallAuthorization> => {
           const p = conversationTurnPermits;
           const t = conversationTurns;
@@ -469,7 +472,6 @@ export function createPostgresConversationCalls(
               callKey: p.callKey,
               calls: p.calls,
               expiresAt: p.expiresAt,
-              state: t.state,
               workspaceId: t.workspaceId,
               agentId: t.agentId,
               conversationId: t.conversationId,
@@ -505,7 +507,13 @@ export function createPostgresConversationCalls(
           if (again) return { outcome: "ok", turnId: permit.turnId, ...again };
           // Read after the lock, not in its statement (db-clock.ts).
           const now = await dbNow(tx);
-          if (permit.state !== "running" || permit.expiresAt <= now) {
+          // Its own statement: a turn ended while this waited on the permit
+          // reads as running in the statement that took it.
+          const [turn] = await tx
+            .select({ state: t.state })
+            .from(t)
+            .where(eq(t.id, permit.turnId));
+          if (turn?.state !== "running" || permit.expiresAt <= now) {
             return { outcome: "invalid_token" };
           }
           const [taken] = await tx
@@ -580,6 +588,9 @@ export function createPostgresConversationCalls(
               `conversation call ${input.callId}: its id was already reserved`,
             );
           }
+          // The lock waits above may have outlived the permit.
+          if (permit.expiresAt <= (await dbNow(tx)))
+            throw new TurnPermitLapsed();
           const [row] = await tx
             .insert(c)
             .values({
@@ -617,6 +628,12 @@ export function createPostgresConversationCalls(
           return { outcome: "ok", turnId: permit.turnId, ...row };
         },
       );
+      return granted.catch((error: unknown) => {
+        if (error instanceof TurnPermitLapsed) {
+          return { outcome: "invalid_token" as const };
+        }
+        throw error;
+      });
     },
 
     endTurnAtomic({ turnId }) {
