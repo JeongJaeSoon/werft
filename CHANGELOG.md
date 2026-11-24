@@ -14,17 +14,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-<<<<<<< HEAD
 - **api가 `/internal`(worker·대화 런타임이 부르는 경로)을 공개 포트 3000이 아니라 새 포트 3200(`INTERNAL_API_PORT`)에서만 받는다. 3000번으로 온 `/internal`은 404다**(JeongJaeSoon/werft#PRNUM). migration은 없다. 3000을 터널이나 proxy로 열어도 `/internal`은 따라 열리지 않는다.
   - Compose: 기본값을 쓰는 설치는 할 일이 없다. scheduler·대화 런타임의 `WORKER_GATEWAY_URL`은 `http://api:3200`, egress proxy와 api의 `EGRESS_PRIVATE_ALLOWLIST`는 `api:3200,host.docker.internal:3200`이 기본이다. 3200은 호스트에 묶지 않는다. 두 값을 직접 준 설치는 `api:3000`을 `api:3200`으로 바꾼다. 바꾸지 않으면 새 worker가 gateway에 닿지 못해 세션이 시작하지 않는다.
   - Helm: api에 ClusterIP Service `<fullname>-api-internal`(3200)이 생기고, `WORKER_GATEWAY_URL`과 `config.egress.privateAllowlist`의 기본값이 그쪽을 가리킨다. `config.egress.privateAllowlist`를 직접 준 설치는 `<fullname>-api:3000`을 `<fullname>-api-internal:3200`으로 바꾼다. NetworkPolicy는 3200에 egress-proxy만 들이고(`networkPolicy.worker.allowDirectGateway`면 worker도), `networkPolicy.api.ingressFrom`을 준 설치의 3000에는 egress-proxy가 더는 자동으로 들어가지 않는다.
   - 올릴 때 돌고 있던 worker는 앞선 주소(3000)로 gateway를 부르므로 gateway 호출이 실패한다(새 api의 404, 또는 새 proxy의 거절 403). 세션이 돌지 않을 때 올린다.
-=======
 - **Kubernetes chart의 Codex sandbox 설치기가 기본으로 꺼지고, 값이 `codexSandbox.provider`(`disabled` 기본 | `installer` | `external`)로 바뀐다. Codex sandbox를 쓰면 올리기 전에 values에 `codexSandbox.provider: installer`를 넣어라**(JeongJaeSoon/werft#2156). 기본 render에는 cluster 범위 리소스가 하나도 없어, namespace 권한만 받은 설치자도 `helm install`을 할 수 있다.
   - 넣지 않고 올리면 helm upgrade가 설치 DaemonSet, ClusterRole, ClusterRoleBinding, admission 정책을 지우고, Codex 에이전트의 입력은 Pod를 만들기 전에 `CODEX_SANDBOX_NOT_INSTALLED`로 실패한다(`NO_CAPACITY`와 같이 세션은 `idle`로 돌아가고 launch 실패로 세지 않는다). 노드에 둔 profile 파일과 라벨은 그대로 남는다.
   - `codexSandbox.installer.enabled`는 없어졌고 남아 있으면 render가 멈춘다. `true`는 `provider: installer`, `false`(SPO나 노드 이미지로 profile을 두는 설치)는 `provider: external`이다. `external`은 chart가 cluster 범위 리소스를 만들지 않고, `installer`는 지금처럼 ClusterRole, ClusterRoleBinding, admission 정책을 만든다.
   - `NOTES.txt`가 꺼져 있을 때 한 줄을 늘 보인다. 새 실패 코드 `CODEX_SANDBOX_NOT_INSTALLED`가 세션 API, 콘솔, Slack 스레드에 나온다.
->>>>>>> origin/main
 - **`DELETE /v1/workspaces/{id}/slack/apps/{app_id}`가 Slack의 이벤트를 기다리지 않고 그 앱의 설치·에이전트 Slack identity·채널 binding·아직 안 나간 Slack 메시지(`app_deleted`)·판단 버퍼를 한 transaction에서 닫고, Slack 쪽(`auth.revoke`, `apps.manifest.delete`)은 그 뒤 한 번씩만 해 본다**(JeongJaeSoon/werft#2137). migration은 없다. Slack이 거절하거나 응답이 없어도 삭제는 200이고 새 응답 칸 `slack_cleanup`이 실패한 단계를 알린다. 이때는 Slack 앱 관리 화면(api.slack.com/apps)에서 앱을 직접 지운다. 전에는 같은 경우 503·409(`CONFIG_TOKEN_INVALID`)로 거절했으니, 그 응답으로 다시 시도하던 스크립트는 `slack_cleanup`을 읽는다. 삭제는 receipt `delete_slack_app`(닫은 수, Slack 쪽 결과, 토큰 값 없음)을 남긴다. 이 릴리스 전에 지운 앱의 identity는 `active`로 남아 있을 수 있으니 `GET /v1/agents/{id}/identities`로 보고 `DELETE /v1/agents/{id}/identities/{identity_id}`로 회수한다. 지운 앱으로 `bun run slack-install register`를 부르면 설치를 다시 열지 않는다. 삭제가 bot token을 무효로 했으면 exit 3(Slack이 token을 거절), token이 아직 살아 있으면 exit 5(`revoked`)로 끝나니, 새 앱을 만들어 설치한다.
 - **LocalStack 시험 설치의 api가 재기동으로 빈 bucket에서 기동을 거부하지 않고, 잃은 checkpoint를 포기한 뒤 뜬다. migration `0352_lost_checkpoint_notices`가 새 빈 표 `lost_checkpoint_notices`를 만든다**(JeongJaeSoon/werft#2130). 운영 설치는 그대로다. 기본값 `CHECKPOINT_OBJECTS_LOST=refuse`는 지금처럼 기동을 거부한다.
   - 새 설정 둘이 생긴다. `INSTALLATION_PROFILE`(`production` 기본, `test`)과 `CHECKPOINT_OBJECTS_LOST`(`refuse` 기본, `forget`). chart는 `config.installation.profile`과 `config.checkpoints.objectsLost`다. 두 이름은 `extraEnv`나 `config.limits`로 넣으면 render가 멈춘다.
