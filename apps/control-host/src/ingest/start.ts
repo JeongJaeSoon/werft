@@ -3,6 +3,7 @@
 // the same thing from the same ports.
 
 import type { ContentMode, TracingSettings } from "@werft-ai/observability";
+import type { AmbiguousPathGuard } from "../api/ambiguous-path.ts";
 import { ForwardQueue } from "./forward-queue.ts";
 import { createIngestHandler } from "./listener.ts";
 import type {
@@ -36,6 +37,7 @@ export interface StartIngestDeps {
   /** 0 asks the OS for a free port. */
   readonly port?: number;
   readonly contentMode?: () => ContentMode;
+  readonly guard: AmbiguousPathGuard;
 }
 
 export function startIngestListener(deps: StartIngestDeps): IngestListener {
@@ -61,7 +63,7 @@ export function startIngestListener(deps: StartIngestDeps): IngestListener {
     // Bun cuts a larger body before the handler runs; this is the only
     // place the ingest limit is set, apart from the public API's own.
     maxRequestBodySize: ingest.maxRequestBytes,
-    fetch: handler,
+    fetch: deps.guard.front("telemetry-ingest", handler),
   });
   return {
     get port() {
