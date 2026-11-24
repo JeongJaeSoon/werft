@@ -24,16 +24,16 @@ The model key and the Slack token are values a person gets and pastes into the c
 | A model provider key. Claude agents use an Anthropic API key, Codex agents an OpenAI API key | 4 | Owner |
 | A Slack account that can create apps in the Slack workspace, and the Refresh Token of an App Configuration Token that account got at api.slack.com/apps | 5 | Owner or admin |
 | Slack permission to install the agent's app in the workspace. If the workspace requires admin approval for app installs, a Slack admin who approves it | 7 | Owner or agent manager |
-| The Slack channel the agent answers in | 7, 9 | Agent manager |
+| The public Slack channel the agent answers in | 7, 9 | Agent manager |
 | A Werft account and a Slack account for the person who mentions the agent | 8, 9 | Person who mentions |
 
 ## Steps [#단계]
 
 ### 1. Install the server [#1-서버-설치]
 
-Pick a method in [Choose an install method](/run-server/self-hosting). For a single server, finish [Prepare an XFS disk](/run-server/self-hosting/prepare-xfs) and [Prepare the checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket), then follow [Single-server install](/run-server/self-hosting/single-server). For Kubernetes, follow [Kubernetes install](/run-server/self-hosting/kubernetes); if a trial cluster has no database and bucket, first set up [Trial database and object store for the chart](/run-server/self-hosting/try-chart-dependencies).
+Pick a method in [Choose an install method](/run-server/self-hosting). For a single server, finish [Prepare an XFS disk](/run-server/self-hosting/prepare-xfs) and [Prepare the checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket), then follow [Single-server install](/run-server/self-hosting/single-server). For Kubernetes, follow [Kubernetes install](/run-server/self-hosting/kubernetes). On a trial cluster with no production data, [Trial database and object store for the chart](/run-server/self-hosting/try-chart-dependencies) does everything from the database and bucket to the chart install.
 
-Set `CONSOLE_ORIGIN` in this step: [step 2, secrets and settings document](/run-server/self-hosting/single-server#2-비밀과-설정-문서) for a single server, [step 3, per-install values](/run-server/self-hosting/kubernetes#3-설치별-values) for Kubernetes. Without it the install and sign-in work, but the console cannot create Slack apps.
+Set `CONSOLE_ORIGIN` in this step: [step 2, secrets and settings document](/run-server/self-hosting/single-server#2-비밀과-설정-문서) for a single server, `api.extraEnv` in [step 3, per-install values](/run-server/self-hosting/kubernetes#3-설치별-values) for Kubernetes. A trial install adds the same value to `values-test.yaml`. Without it the install and sign-in work, but the console cannot create Slack apps.
 
 Go on once `/readyz` returns `200` as the install page's verification section shows.
 
@@ -68,7 +68,7 @@ A new installation has no teams, and an agent needs a responsible team. The owne
 
 ### 7. Install the Slack app and pick a home channel [#7-slack-앱-설치와-홈-채널]
 
-In the **Connect channels** step or the agent's **Slack** tab, follow items 1 to 3 of [Connect Slack in the console](/integrations/slack-console). Choose **Create and install Slack app**, install the app on Slack's consent screen, and on the screen you return to pick the channel the agent answers in under **Choose home channel**. The server adds the bot to a public channel. For a private channel, first invite the bot in Slack with `/invite @<agent slug>`.
+In the **Connect channels** step or the agent's **Slack** tab, follow items 1 to 3 of [Connect Slack in the console](/integrations/slack-console). Choose **Create and install Slack app**, install the app on Slack's consent screen, and on the screen you return to pick the channel the agent answers in under **Choose home channel**. Pick a public channel for the first check. The server adds the bot to a public channel. A private channel can be used only after you invite the bot in Slack with `/invite @<agent slug>` and an owner or admin also approves the channel; until then it cannot be the home channel.
 
 Go on once the **Slack** card's badge is **Connected** and the **Events Request URL** under **Addresses for a Slack app** is verified.
 
@@ -92,7 +92,7 @@ The first install is done when the agent's answer appears in the thread of the m
 | --- | --- |
 | **Create and install Slack app** is off | Read the reason under the button. If the token is missing or must be registered again, go back to step 5. If the console address is unknown, set `CONSOLE_ORIGIN` from step 1 |
 | The Events Request URL stays awaiting verification or failed to register | Slack cannot reach the public entrance. Fix the public entrance from step 2, then choose **Recheck** in the **Slack** tab |
-| A mention gets no answer | In the channel table of the **Slack** tab, check that the channel is connected and **In use** is on. For a private channel, check that the bot was invited. The **Slack needs attention** link in the agent list names what is left |
+| A mention gets no answer | In the channel table of the **Slack** tab, check that the channel is connected and **In use** is on. For a private channel, check that the bot was invited and an owner or admin approved it. The **Slack needs attention** link in the agent list names what is left |
 | A notice asks to link an account instead of an answer | The Slack account of the person who mentioned is not linked. Follow step 8 |
 | An error says the model connection has no usable key | Put a key in the connection from step 4 |
 
