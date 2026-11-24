@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
+import {
+  conversationCallKeySchema,
+  conversationIdSchema,
+} from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresConversationCalls,
@@ -32,6 +36,7 @@ let db: PgliteDatabase<typeof schema>;
 let authorize: (request: Request) => Promise<Response>;
 let issue: ReturnType<typeof createConversationCalls>["issue"];
 let agentId: string;
+let conversationId: string;
 let connectionId: string;
 
 beforeEach(async () => {
@@ -83,6 +88,15 @@ beforeEach(async () => {
     slug: "agent",
     name: "agent",
   });
+  conversationId = crypto.randomUUID();
+  await db.insert(schema.conversations).values({
+    id: conversationId,
+    workspaceId: WORKSPACE,
+    agentId,
+    kind: "channel",
+    teamId: "T0CALLS",
+    channelId: "C0CALLS",
+  });
 });
 
 afterEach(async () => {
@@ -111,6 +125,12 @@ async function issued() {
   const result = await issue({
     workspaceId: WORKSPACE,
     agentId,
+    conversationId: conversationIdSchema.parse(conversationId),
+    topicId: null,
+    callClass: "m1",
+    releaseId: null,
+    callKey: conversationCallKeySchema.parse(`${crypto.randomUUID()}:m1`),
+    attempt: 1,
     root: { kind: "user", userId: crypto.randomUUID() },
     connectionId,
     model: MODEL,

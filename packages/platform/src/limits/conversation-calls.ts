@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 import {
+  type ConversationCallClass,
   type ConversationCallId,
+  type ConversationCallKey,
+  type ConversationId,
+  type ConversationTopicId,
   conversationCallIdSchema,
 } from "@werft-ai/contracts";
 import { connectionOf, type SessionCatalog } from "../catalog/index.ts";
@@ -78,6 +82,14 @@ export function createConversationCalls(deps: {
     async issue(input: {
       workspaceId: string;
       agentId: string;
+      conversationId: ConversationId;
+      topicId: ConversationTopicId | null;
+      callClass: ConversationCallClass;
+      /** The agent's active release (an agent_releases id). */
+      releaseId: string | null;
+      /** Unique in the agent with `attempt`; a retry takes the next attempt. */
+      callKey: ConversationCallKey;
+      attempt: number;
       root: BudgetRoot;
       connectionId: string;
       model: string;
@@ -87,10 +99,16 @@ export function createConversationCalls(deps: {
       for (const [name, value] of [
         ["maxTokens", input.maxTokens],
         ["maxRequestBytes", input.maxRequestBytes],
+        ["attempt", input.attempt],
       ] as const) {
         if (!Number.isSafeInteger(value) || value < 1) {
           throw new RangeError(`${name} must be a positive integer: ${value}`);
         }
+      }
+      if (!input.callKey.endsWith(`:${input.callClass}`)) {
+        throw new RangeError(
+          `call key ${input.callKey} is not of class ${input.callClass}`,
+        );
       }
       const connection = connectionOf(deps.catalog, input.connectionId);
       if (!connection || connection.provider.kind === "openai_responses") {

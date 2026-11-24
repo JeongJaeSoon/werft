@@ -2222,6 +2222,49 @@ describe("startCredentialProxy", () => {
       expect(all).not.toContain(WORKER_TOKEN);
     });
 
+    test("keeps out a conversation call's body, which may echo its prompt", async () => {
+      const prompt = "channel-text-the-upstream-echoes";
+      const up = upstream(
+        () => new Response(`refused: ${prompt}`, { status: 401 }),
+      );
+      const auth = authorizer(() =>
+        Response.json({
+          conversation_call_id: "call-1",
+          upstream: {
+            url: `http://upstream.test:${up.port}`,
+            headers: [["x-api-key", PROVIDER_KEY]],
+          },
+          request_limits: {
+            path: "/v1/messages",
+            model: "m-call",
+            max_tokens: 64,
+            max_request_bytes: 1_024,
+          },
+        }),
+      );
+      const lines: string[] = [];
+      const server = proxy(auth.url, up.port, {
+        logger: createProxyLogger("debug", (line) => lines.push(line)),
+      });
+      const response = await messages(server.port, {
+        path: "/provider/v1/messages",
+        body: JSON.stringify({
+          model: "m-call",
+          max_tokens: 64,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      expect(response.status).toBe(401);
+      const [record] = refusals(lines);
+      expect(record?.fields).toMatchObject({
+        status: 401,
+        upstream_error_withheld: true,
+        upstream_error_withheld_reason: "conversation_call",
+      });
+      expect(record?.fields).not.toHaveProperty("upstream_error");
+      expect(lines.join("\n")).not.toContain(prompt);
+    });
+
     test("keeps out a body that echoes the credential", async () => {
       const up = upstream(
         (request) =>
