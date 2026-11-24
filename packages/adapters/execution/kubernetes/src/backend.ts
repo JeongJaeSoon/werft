@@ -320,7 +320,10 @@ export class KubernetesBackend implements ExecutionBackend {
     }
     // A container that cannot be created for want of its seccomp profile is
     // retried by the kubelet forever; read as dead, it is a launch failure.
-    const missingProfile = missingSeccompProfileOf(pod);
+    const missingProfile = missingSeccompProfileOf(
+      pod,
+      this.config.codexSandbox,
+    );
     const state =
       missingProfile !== undefined && stateOf(pod) === "pending"
         ? "terminated"
@@ -963,7 +966,10 @@ export function workspaceClaimProblem(
  * CRI-O: `unable to load local profile`, both under CreateContainerError),
  * which on this chart means the node has no Codex sandbox profile.
  */
-export function missingSeccompProfileOf(pod: Pod): string | undefined {
+export function missingSeccompProfileOf(
+  pod: Pod,
+  sandbox?: KubernetesBackendConfig["codexSandbox"],
+): string | undefined {
   const waiting = pod.status?.containerStatuses?.find(
     (status) => status.name === CONTAINER_NAME,
   )?.state?.waiting;
@@ -971,11 +977,14 @@ export function missingSeccompProfileOf(pod: Pod): string | undefined {
   if (waiting?.reason !== "CreateContainerError" || !/seccomp/i.test(message)) {
     return undefined;
   }
-  return (
-    `CreateContainerError: node ${pod.spec.nodeName ?? "<unknown>"} has no Codex sandbox seccomp profile ` +
-    `(<kubelet>/seccomp/${CODEX_SECCOMP_PROFILE}), which the chart's codex-seccomp installer DaemonSet writes ` +
-    `to each worker node; check that DaemonSet runs there. Runtime: ${message.slice(0, 300)}`
-  );
+  const node = pod.spec.nodeName ?? "<unknown>";
+  const profile = `<kubelet>/seccomp/${CODEX_SECCOMP_PROFILE}`;
+  // `external` installs have no installer DaemonSet to point at.
+  const remedy =
+    sandbox?.mode === "enabled" && sandbox.provider === "external"
+      ? `codexSandbox.provider is external, so a cluster administrator places it: check that the file exists on that node and that the node label ${CODEX_SECCOMP_NODE_LABEL.key}=${CODEX_SECCOMP_NODE_LABEL.value} is only on nodes that have it. See "Prepare nodes for the Codex sandbox" in the self-hosting documentation`
+      : "which the chart's codex-seccomp installer DaemonSet writes to each worker node; check that DaemonSet runs there";
+  return `CreateContainerError: node ${node} has no Codex sandbox seccomp profile (${profile}), ${remedy}. Runtime: ${message.slice(0, 300)}`;
 }
 
 /** Bounds what one log line carries of the scheduler's message. */

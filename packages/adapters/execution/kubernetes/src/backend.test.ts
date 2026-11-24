@@ -16,6 +16,7 @@ import {
 } from "./backend.ts";
 import { KubernetesApiError } from "./client.ts";
 import { CODEX_SECCOMP_NODE_LABEL } from "./codex-seccomp.ts";
+import type { KubernetesBackendConfig } from "./config.ts";
 import {
   ANNOTATIONS,
   legacyIsolationStampFor,
@@ -39,10 +40,13 @@ const CLAIM_NAMING = {
 const IMAGE = `registry.local:5000/worker@sha256:${"a".repeat(64)}`;
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 
-function setup() {
+function setup(codexSandbox?: KubernetesBackendConfig["codexSandbox"]) {
   const api = new FakeKubernetes();
   const backend = new KubernetesBackend(
-    testConfig(NS, INSTALLATION),
+    {
+      ...testConfig(NS, INSTALLATION),
+      ...(codexSandbox ? { codexSandbox } : {}),
+    },
     api.asClient(),
     testResolver,
   );
@@ -571,8 +575,47 @@ describe("inspect", () => {
     expect(observed.exitCode).toBeUndefined();
   });
 
+  test("under codexSandbox.provider external the missing-profile reason names the node file, the label and the docs page, not the installer", async () => {
+    const { api, backend } = setup({
+      mode: "enabled",
+      images: [IMAGE],
+      provider: "external",
+    });
+    const { intent } = intentFor();
+    await backend.ensureExecution(intent);
+    const pod = api.objects.get(`${NS}/pods/${podName}`);
+    if (pod === undefined) throw new Error("the worker Pod was not created");
+    (pod.spec as { nodeName?: string }).nodeName = "node-7";
+    api.setPhase(NS, podName, "Pending", {
+      containerStatuses: [
+        {
+          name: "worker",
+          state: {
+            waiting: {
+              message: "cannot load seccomp profile",
+              reason: "CreateContainerError",
+            },
+          },
+        },
+      ],
+    });
+    const { terminationReason } = await backend.inspect(intent);
+    expect(terminationReason).toStartWith(
+      "CreateContainerError: node node-7 has no Codex sandbox seccomp profile (<kubelet>/seccomp/werft/codex-sandbox.json), codexSandbox.provider is external",
+    );
+    expect(terminationReason).toContain(
+      "node label werft.codex-seccomp-profile=installed",
+    );
+    expect(terminationReason).toContain("Prepare nodes for the Codex sandbox");
+    expect(terminationReason).not.toContain("DaemonSet");
+  });
+
   test("a worker whose node lacks the Codex seccomp profile reads as dead, naming the profile and the installer", async () => {
-    const { api, backend } = setup();
+    const { api, backend } = setup({
+      mode: "enabled",
+      images: [IMAGE],
+      provider: "installer",
+    });
     const { intent } = intentFor();
     await backend.ensureExecution(intent);
     const pod = api.objects.get(`${NS}/pods/${podName}`);
