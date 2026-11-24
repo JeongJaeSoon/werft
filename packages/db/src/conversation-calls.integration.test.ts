@@ -260,6 +260,9 @@ integration("conversation calls on PostgreSQL", () => {
 
   test("a release and a first grant of an expiring token at once: the call is one or the other, its reservation with it", async () => {
     for (let round = 0; round < 10; round++) {
+      // A granted call stays in flight, so each round has an agent of its
+      // own, clear of the agent's limit.
+      ({ agentId, conversationId } = await newAgent());
       const userId = crypto.randomUUID();
       const call = await issued(userId);
       // Expires while the two race: either may see it first.
