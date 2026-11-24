@@ -984,8 +984,10 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
   });
 
   test("an administrator closes the notices they read; the rest stay open and counted", async () => {
-    const open = await openLostCheckpointNotices(db);
+    const open = await openLostCheckpointNotices(db, 100);
     expect(open.map((notice) => notice.sessions)).toEqual([2, 1]);
+    // One read answers as many as one close takes, the oldest first.
+    expect(await openLostCheckpointNotices(db, 1)).toEqual(open.slice(0, 1));
     const [first, later] = open.map((notice) => notice.id) as [string, string];
     const [closer, other] = [crypto.randomUUID(), crypto.randomUUID()];
     await db.insert(users).values(
@@ -996,9 +998,9 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
       })),
     );
     await closeLostCheckpointNotices(db, { ids: [first], closedBy: closer });
-    expect((await openLostCheckpointNotices(db)).map((n) => n.id)).toEqual([
-      later,
-    ]);
+    expect((await openLostCheckpointNotices(db, 100)).map((n) => n.id)).toEqual(
+      [later],
+    );
     expect(await openCount()).toBe(1);
 
     // Closed once: a second close, and an id that names nothing, change
@@ -1012,7 +1014,7 @@ describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () =>
     expect(rows.find((row) => row.id === later)?.closedAt).toBeNull();
 
     await closeLostCheckpointNotices(db, { ids: [later], closedBy: other });
-    expect(await openLostCheckpointNotices(db)).toEqual([]);
+    expect(await openLostCheckpointNotices(db, 100)).toEqual([]);
     expect(await openCount()).toBe(0);
   });
 });

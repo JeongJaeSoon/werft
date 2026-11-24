@@ -12,9 +12,15 @@ export const lostCheckpointNoticeSchema = z.object({
   sessions: z.number().int().positive(),
 });
 
-/** The notices nobody has closed yet, oldest first. */
+/** As many as one read answers and one close takes. */
+export const LOST_CHECKPOINT_NOTICES_MAX = 100;
+
+/**
+ * The notices nobody has closed yet, oldest first. Past the limit the rest
+ * follow once these are closed.
+ */
 export const lostCheckpointNoticesSchema = z.object({
-  notices: z.array(lostCheckpointNoticeSchema),
+  notices: z.array(lostCheckpointNoticeSchema).max(LOST_CHECKPOINT_NOTICES_MAX),
 });
 export type LostCheckpointNotices = z.infer<typeof lostCheckpointNoticesSchema>;
 
@@ -23,7 +29,9 @@ export type LostCheckpointNotices = z.infer<typeof lostCheckpointNoticesSchema>;
  * were read stays open.
  */
 export const closeLostCheckpointNoticesRequestSchema = z
-  .object({ ids: z.array(z.uuid()).min(1).max(100) })
+  .object({
+    ids: z.array(z.uuid()).min(1).max(LOST_CHECKPOINT_NOTICES_MAX),
+  })
   .strict();
 export type CloseLostCheckpointNoticesRequest = z.infer<
   typeof closeLostCheckpointNoticesRequestSchema

@@ -248,9 +248,10 @@ export interface OpenLostCheckpointNotice {
   readonly sessions: number;
 }
 
-/** The starts no administrator has closed yet, oldest first. */
+/** The starts no administrator has closed yet, oldest first, `limit` at most. */
 export async function openLostCheckpointNotices(
   db: Database,
+  limit: number,
 ): Promise<OpenLostCheckpointNotice[]> {
   const rows = await db
     .select({
@@ -263,7 +264,8 @@ export async function openLostCheckpointNotices(
     .orderBy(
       asc(lostCheckpointNotices.forgottenAt),
       asc(lostCheckpointNotices.id),
-    );
+    )
+    .limit(limit);
   return rows.map((row) => ({
     id: row.id,
     forgottenAt: row.forgottenAt,

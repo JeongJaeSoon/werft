@@ -1,4 +1,7 @@
-import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
+import {
+  LOST_CHECKPOINT_NOTICES_MAX,
+  REQUEST_BODY_MAX_BYTES,
+} from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
@@ -809,7 +812,7 @@ const installationConfigAdmin = createInstallationConfigAdmin({
 const lostCheckpointNoticesAdmin = createLostCheckpointNoticesAdmin({
   authorization,
   store: {
-    open: () => openLostCheckpointNotices(db),
+    open: () => openLostCheckpointNotices(db, LOST_CHECKPOINT_NOTICES_MAX),
     close: (input) => closeLostCheckpointNotices(db, input),
   },
 });

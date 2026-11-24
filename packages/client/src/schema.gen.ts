@@ -1199,7 +1199,7 @@ export interface paths {
         };
         /**
          * Checkpoints a test installation gave up at start
-         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. One entry for each start at which the API gave up the checkpoints an emptied object store held (`CHECKPOINT_OBJECTS_LOST=forget`, accepted only on a test installation whose object store is LocalStack) and that nobody has closed yet, oldest first. The console shows them as a banner on every page, and `GET /readyz` counts their sessions in `detail.checkpoints_forgotten_on_boot`. Empty on an installation that never gave any up.
+         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. One entry for each start at which the API gave up the checkpoints an emptied object store held (`CHECKPOINT_OBJECTS_LOST=forget`, accepted only on a test installation whose object store is LocalStack) and that nobody has closed yet, oldest first, 100 at most: the rest follow once these are closed. The console shows them as a banner on every page, and `GET /readyz` counts their sessions in `detail.checkpoints_forgotten_on_boot`. Empty on an installation that never gave any up.
          *
          *     **Auth:** cookie session only; no scope.
          */

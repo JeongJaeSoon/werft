@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { focusManager } from "@tanstack/react-query";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -54,7 +55,7 @@ describe("the banner for checkpoints a test installation gave up at start", () =
     await waitFor(() =>
       expect(api.calls.some((call) => call.path === "/v1/sessions")).toBe(true),
     );
-    expect(banner()).toBeNull();
+    expect(banner() === null).toBe(true);
     expect(
       api.calls.filter((call) => call.path === "/v1/lost-checkpoint-notices"),
     ).toEqual([]);
@@ -75,11 +76,11 @@ describe("the banner for checkpoints a test installation gave up at start", () =
           api.calls.some((call) => call.path === "/v1/lost-checkpoint-notices"),
         ).toBe(true),
       );
-      expect(banner()).toBeNull();
+      expect(banner() === null).toBe(true);
       // The page keeps its place as the first thing in <main>.
       expect(
-        document.getElementById("main")?.querySelector("[data-slot]"),
-      ).not.toBeNull();
+        document.getElementById("main")?.querySelector("[data-slot]") != null,
+      ).toBe(true);
     }
   });
 
@@ -92,7 +93,7 @@ describe("the banner for checkpoints a test installation gave up at start", () =
     await screen.findByText(TEXT);
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "닫기" }));
-    await waitFor(() => expect(banner()).toBeNull());
+    await waitFor(() => expect(banner() === null).toBe(true));
     expect(
       api.calls
         .filter((call) => call.method === "POST")
@@ -116,6 +117,38 @@ describe("the banner for checkpoints a test installation gave up at start", () =
         "시험 설치: 다시 켜서 세션 4개의 맥락을 잃었습니다",
       ),
     ).toBeDefined();
+  });
+
+  test("closed by another administrator, it goes when this one comes back to the page", async () => {
+    let open = true;
+    renderAt("/", {
+      [ME]: () => json(200, me()),
+      [NOTICES]: () => json(200, open ? twoStarts : { notices: [] }),
+    });
+    await screen.findByText(TEXT);
+    open = false;
+    // Away and back: the tab's queries read again.
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await waitFor(() => expect(banner() === null).toBe(true));
+    focusManager.setFocused(undefined);
+  });
+
+  test("the shell is told how tall it is while it shows, for the pages that fill the screen", async () => {
+    renderAt("/", {
+      [ME]: () => json(200, me()),
+      [NOTICES]: () => json(200, twoStarts),
+      [CLOSE]: () => json(200, { notices: [] }),
+    });
+    await screen.findByText(TEXT);
+    const main = document.getElementById("main") as HTMLElement;
+    expect(main.style.getPropertyValue("--werft-shell-notice-h")).toBe(
+      `${(banner() as HTMLElement).offsetHeight}px`,
+    );
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(banner() === null).toBe(true));
+    expect(main.style.getPropertyValue("--werft-shell-notice-h")).toBe("");
   });
 
   test("a close the server refuses keeps the banner and says so", async () => {

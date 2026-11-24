@@ -113,10 +113,10 @@ export interface SessionOutputsSummary {
 }
 
 // The chat keeps the composer on screen: the frame takes the screen under
-// the top bar and only the chat scrolls. min-content lets a screen too short
+// the top bar and the shell's notice, and only the chat scrolls. min-content lets a screen too short
 // for that fall back to the page scroll. The outputs tab scrolls the page.
 const CHAT_FRAME =
-  "h-[calc(100dvh-var(--werft-topbar-h))] min-h-min pb-4 [&>[data-slot=page-frame-body]]:min-h-0";
+  "h-[calc(100dvh-var(--werft-topbar-h)-var(--werft-shell-notice-h))] min-h-min pb-4 [&>[data-slot=page-frame-body]]:min-h-0";
 
 export function SessionDetail({
   id,
