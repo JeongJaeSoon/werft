@@ -717,6 +717,47 @@ describe("Slack management", () => {
     );
   });
 
+  test("shows no listening hint when the switch cannot be read", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/notice`]: () => json(503, { code: "UNAVAILABLE" }),
+    });
+    await screen.findByRole("table", { name: "연결된 채널" });
+    await waitFor(() =>
+      expect(
+        api.calls.some((call) => call.path.endsWith("/slack/notice")),
+      ).toBe(true),
+    );
+    expect(document.body.textContent).not.toContain(
+      "듣기 설정은 에이전트의 대화 스위치를 켠 뒤부터 적용됩니다.",
+    );
+  });
+
+  test("drops the listening hint when the owner raises the switch", async () => {
+    let current = {
+      notice: null,
+      state: "approved",
+      rollout: "off",
+      can_approve: true,
+      approvals: [],
+    };
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/notice`]: () => json(200, current),
+      [`POST ${PATH}/slack/notice/rollout`]: async (request: Request) => {
+        current = { ...current, ...(await request.json()) };
+        return json(200, current);
+      },
+    });
+    const user = await setupUser();
+    const hint = "듣기 설정은 에이전트의 대화 스위치를 켠 뒤부터 적용됩니다.";
+    await waitFor(() => expect(document.body.textContent).toContain(hint));
+    await user.click(
+      await screen.findByRole("switch", { name: "조용히 듣기 (shadow)" }),
+    );
+    await waitFor(() => expect(document.body.textContent).not.toContain(hint));
+  });
+
   test("a member reads each channel's listening without a way to change it", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
