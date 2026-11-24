@@ -11,6 +11,8 @@ import {
   SLACK_BINDING_MESSAGES,
   type SlackAgentWarning,
   type SlackApp,
+  type SlackAppCleanup,
+  type SlackAppCleanupStep,
   type SlackAppSettings,
   type SlackBot,
   type SlackBotRefusal,
@@ -54,6 +56,8 @@ const WORKSPACE_ACTION = "workspace.manage" as const;
 /** Longer than the create call's timeout plus the write after it. */
 export const SLACK_APP_CREATE_STALE_MS = 60_000;
 const FINISH_ATTEMPTS = 3;
+const SLACK_CLEANUP_FAILED_MESSAGE =
+  "Werft closed the app, but Slack's side could not be cleaned up: delete the app in Slack's app management page (api.slack.com/apps)";
 
 const FORBIDDEN_WEB_ONLY = () =>
   new SessionServiceError(
@@ -755,7 +759,7 @@ export function createSlackAppService(deps: {
       slackAppId: string,
     ): Promise<DeleteSlackAppResponse> {
       if (workspaceId !== caller.ownerId) throw NOT_FOUND();
-      const { apps, tokens } = ready();
+      const { apps } = ready();
       const found = await apps.find(workspaceId, slackAppId);
       if (found === null) throw NOT_FOUND();
       const action =
@@ -784,36 +788,45 @@ export function createSlackAppService(deps: {
         case "creating":
           throw creating(begun.app, true);
         case "settled":
-          return { slack_app: slackAppView(begun.app) };
+          // Already deleted: the Slack side was tried then, not again.
+          return { slack_app: slackAppView(begun.app), slack_cleanup: null };
       }
       const appId = begun.app.appId;
       if (appId === null) throw new Error("deleting Slack app has no app id");
+      // Werft's side closes first, whatever Slack can be reached for.
+      const finished = await apps.finishDelete({
+        workspaceId,
+        slackAppId,
+        actor: actorOf(caller, action),
+      });
+      if (finished.outcome === "settled") {
+        // A delete that ran alongside closed it and tried Slack's side.
+        return { slack_app: slackAppView(finished.app), slack_cleanup: null };
+      }
+      if (finished.app.agentId !== null) {
+        deps.onAgentAppChanged?.(finished.app.agentId);
+      }
+      const slackCleanup = await cleanUpInSlack(workspaceId, {
+        appId,
+        maker: begun.app.createdByTokenUser,
+        botToken: finished.botToken,
+      });
       try {
-        await tokens.withToken(workspaceId, (token) =>
-          api.deleteApp(token, appId),
+        await apps.recordDeleteCleanup(
+          workspaceId,
+          finished.receiptId,
+          slackCleanup,
         );
       } catch (error) {
-        if (!(error instanceof SlackApiError)) throw error;
-        const gone =
-          error.answered &&
-          (SLACK_APP_GONE_CODES.has(error.code) ||
-            // Slack answers delete for an app removed in its own UI with
-            // no_permission, which a foreign app gets too: export decides.
-            (error.code === "no_permission" &&
-              begun.app.createdByTokenUser !== null &&
-              (await slackLacksApp(api, tokens, workspaceId, {
-                appId,
-                maker: begun.app.createdByTokenUser,
-              }))));
-        if (!gone) {
-          throw error.answered
-            ? refuse(error)
-            : answerLost("apps.manifest.delete");
-        }
+        deps.logger?.warn("Slack app delete cleanup not recorded", {
+          slack_app_id: slackAppId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
-      const deleted = await apps.finishDelete(workspaceId, slackAppId);
-      if (deleted.agentId !== null) deps.onAgentAppChanged?.(deleted.agentId);
-      return { slack_app: slackAppView(deleted) };
+      return {
+        slack_app: slackAppView(finished.app),
+        slack_cleanup: slackCleanup,
+      };
     },
 
     /**
@@ -856,6 +869,63 @@ export function createSlackAppService(deps: {
     },
   };
   return service;
+
+  /**
+   * After a delete committed: `auth.revoke` with the app's bot token, then
+   * `apps.manifest.delete`, each once. A token or app Slack no longer has
+   * counts as done. A failure is named, never tried again.
+   */
+  async function cleanUpInSlack(
+    workspaceId: string,
+    app: { appId: string; maker: string | null; botToken: string | null },
+  ): Promise<SlackAppCleanup> {
+    const { tokens } = ready();
+    const failed: SlackAppCleanupStep[] = [];
+    const note = (step: SlackAppCleanupStep, error: unknown) => {
+      failed.push(step);
+      deps.logger?.warn("Slack app delete: Slack-side cleanup failed", {
+        method: step,
+        app_id: app.appId,
+        ...(error instanceof SlackApiError
+          ? { slack_error: error.code, answered: error.answered }
+          : { error: error instanceof Error ? error.name : "unknown" }),
+      });
+    };
+    if (app.botToken !== null) {
+      const botToken = app.botToken;
+      try {
+        await api.revokeBotToken(botToken);
+      } catch (error) {
+        if (!isTokenGone(error)) note("auth.revoke", error);
+      }
+    }
+    try {
+      await tokens.withToken(workspaceId, (token) =>
+        api.deleteApp(token, app.appId),
+      );
+    } catch (error) {
+      const gone =
+        error instanceof SlackApiError &&
+        error.answered &&
+        (SLACK_APP_GONE_CODES.has(error.code) ||
+          // Slack answers delete for an app removed in its own UI with
+          // no_permission, which a foreign app gets too: export decides.
+          (error.code === "no_permission" &&
+            app.maker !== null &&
+            (await slackLacksApp(api, tokens, workspaceId, {
+              appId: app.appId,
+              maker: app.maker,
+            }).catch(() => false))));
+      if (!gone) note("apps.manifest.delete", error);
+    }
+    return failed.length === 0
+      ? { outcome: "done", failed_steps: [], message: null }
+      : {
+          outcome: "failed",
+          failed_steps: failed,
+          message: SLACK_CLEANUP_FAILED_MESSAGE,
+        };
+  }
 
   async function updateAgentAppManifest(
     workspaceId: string,

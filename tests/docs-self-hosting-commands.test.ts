@@ -125,6 +125,30 @@ describe("self-hosting command fixtures", () => {
     }
   });
 
+  // An agent running the install is stopped by any command that names the
+  // env file, so step 2 runs init-config, which needs no file name.
+  test.each(["single-server", "try-localstack"])(
+    "%s step 2 makes the env file with init-config, naming no env file",
+    (page) => {
+      for (const suffix of ["", ".en", ".ja"]) {
+        const text = readFileSync(join(root, `${page}${suffix}.mdx`), "utf8");
+        const start = text.indexOf("### 2.");
+        const end = text.indexOf("### 3.", start);
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+        const commands = [
+          ...text
+            .slice(start, end)
+            .matchAll(/^\x60\x60\x60bash\n([\s\S]*?)^\x60\x60\x60$/gm),
+        ]
+          .map((match) => match[1] ?? "")
+          .join("\n");
+        expect(commands).toContain("scripts/test-ops.sh init-config");
+        expect(commands).not.toContain(".env");
+      }
+    },
+  );
+
   test("the kind trial verify block exits non-zero when any request fails", () => {
     const run = (suffix: string, failing: string[]) => {
       const text = readFileSync(join(root, `try-kind${suffix}.mdx`), "utf8");
