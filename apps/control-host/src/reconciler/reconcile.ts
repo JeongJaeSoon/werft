@@ -36,6 +36,9 @@ export type ReconcilerRun = {
   envStartsPurged: number;
   // Failed Slack inbox rows whose payload this pass cleared.
   slackInboundPayloadsPurged: number;
+  // Agents whose conversation switch this pass lowered to off: their notice
+  // approval no longer counts.
+  rolloutsLowered: string[];
   // Buffered Slack messages past their time (and of those, the unjudged), or
   // of a channel no longer heard; and ended judgment batches past M1's window.
   judgmentBufferPurged: JudgmentBufferPurge;
@@ -140,6 +143,13 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
+  // Raised conversation switches of agents no longer approved under the
+  // published Slack notice go to off, their buffers emptied. Before the
+  // buffer purge, which then has nothing of theirs left.
+  lowerUnapprovedRollouts(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<string[]>;
   // Unmentioned Slack messages held for the judgment, whole, once their 10
   // minutes are up or the agent stopped hearing their channel. Before the
   // marks below, which a buffered message keeps.
@@ -269,6 +279,15 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     purged_count: slackInboundPayloadsPurged,
   });
+  const rolloutsLowered = await input.lowerUnapprovedRollouts({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Unapproved conversation switches lowered", {
+    dry_run: dryRun,
+    lowered_count: rolloutsLowered.length,
+    agent_ids: rolloutsLowered,
+  });
   const judgmentBufferPurged = await input.purgeJudgmentBuffer({
     dryRun,
     limit,
@@ -348,6 +367,7 @@ export async function runReconciler(input: {
     webSessionsDeleted,
     envStartsPurged,
     slackInboundPayloadsPurged,
+    rolloutsLowered,
     judgmentBufferPurged,
     slackSourceMarksPurged,
     slackMembersPurged,
