@@ -1268,20 +1268,29 @@ export const agentSummarySchema = z
   .strict();
 
 /**
- * Whether people can talk to the agent: `active` exactly where
- * `GET /v1/agents/counts` counts it in `active` (status `active` with an
- * `active_release_id`), `draft` otherwise.
+ * Which `GET /v1/agents/counts` bucket the agent is in: `active` (status
+ * `active` with an `active_release_id`: people can talk to it), `draft`
+ * (not archived, no `active_release_id` yet), or `inactive` (everything
+ * else: paused with a release, or archived). Clients read a value they do
+ * not know as not switched on.
  */
-export const AGENT_ACTIVATION_VALUES = ["draft", "active"] as const;
+export const AGENT_ACTIVATION_INACTIVE = "inactive";
+export const AGENT_ACTIVATION_VALUES = [
+  "draft",
+  "active",
+  AGENT_ACTIVATION_INACTIVE,
+] as const;
 export const agentActivationSchema = z.enum(AGENT_ACTIVATION_VALUES);
 export type AgentActivation = z.infer<typeof agentActivationSchema>;
 
 export function agentActivationOf(
   agent: Pick<Agent, "status" | "active_release_id">,
 ): AgentActivation {
-  return agent.status === "active" && agent.active_release_id !== null
-    ? "active"
-    : "draft";
+  if (agent.status === "active" && agent.active_release_id !== null)
+    return "active";
+  if (agent.status !== "archived" && agent.active_release_id === null)
+    return "draft";
+  return AGENT_ACTIVATION_INACTIVE;
 }
 
 export const agentListItemSchema = agentSchema
@@ -1292,7 +1301,7 @@ export const agentListItemSchema = agentSchema
     }),
     activation: agentActivationSchema.meta({
       description:
-        "Whether people can talk to the agent: `active` once a release is active (the agents `GET /v1/agents/counts` counts in `active`), `draft` before (those it counts in `draft`).",
+        "Whether people can talk to the agent, by the buckets of `GET /v1/agents/counts`: `active` once a release is active and the agent is not paused (counted in `active`), `draft` before any release (counted in `draft`), `inactive` for a paused agent that has a release or an archived one (counted in neither).",
     }),
     summary: agentSummarySchema.optional(),
   })
@@ -1345,6 +1354,10 @@ export const countAgentsResponseSchema = z.object({
       draft: agentCountSchema.meta({
         description:
           "How many of `all` are not `archived` and have no `active_release_id` yet.",
+      }),
+      inactive: agentCountSchema.meta({
+        description:
+          "How many of `all` are in neither `active` nor `draft`: paused with an `active_release_id`, or archived. `active`, `draft` and `inactive` add up to `all`.",
       }),
       ownerless: agentCountSchema.meta({
         description:

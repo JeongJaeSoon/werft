@@ -559,6 +559,7 @@ integration("the managing team on PostgreSQL", () => {
       administered: 0,
       active: 0,
       draft: 0,
+      inactive: 0,
       ownerless: 0,
     });
     for (const read of settings) {

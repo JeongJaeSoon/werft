@@ -950,7 +950,7 @@ describe("agent list summary", () => {
     ).toBe(false);
   });
 
-  test("activation is active only where counts counts the agent active", () => {
+  test("activation is the counts bucket the agent falls in", () => {
     const of = (
       status: "active" | "paused" | "archived",
       active_release_id: string | null,
@@ -960,7 +960,12 @@ describe("agent list summary", () => {
       of("active", "sha256:a"),
       of("paused", "sha256:a"),
       of("archived", "sha256:a"),
-    ]).toEqual(["draft", "active", "draft", "draft"]);
+    ]).toEqual(["draft", "active", "inactive", "inactive"]);
+    // Each value is one counts bucket: a paused draft is still a draft.
+    expect([of("paused", null), of("archived", null)]).toEqual([
+      "draft",
+      "inactive",
+    ]);
   });
 
   test("names the engine and the channels, and nothing else as a channel", () => {

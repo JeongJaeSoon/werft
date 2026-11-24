@@ -12,6 +12,7 @@ import type {
   MemberView,
   WorkspaceRole,
 } from "@werft-ai/contracts";
+import { agentActivationOf } from "@werft-ai/contracts";
 import {
   type QueryScope,
   queryKeysOf,
@@ -135,15 +136,12 @@ function repositoriesFrom(
 async function withActivation(answer: Response): Promise<Response> {
   if (!answer.ok) return answer;
   const page = (await answer.json()) as {
-    items: { status: string; active_release_id: string | null }[];
+    items: Parameters<typeof agentActivationOf>[0][];
   };
   return json(answer.status, {
     ...page,
     items: page.items.map((item) => ({
-      activation:
-        item.status === "active" && item.active_release_id !== null
-          ? "active"
-          : "draft",
+      activation: agentActivationOf(item),
       ...item,
     })),
   });
@@ -188,6 +186,11 @@ function agentCountsFrom(
         ).length,
         draft: items.filter(
           (a) => a.status !== "archived" && a.active_release_id === null,
+        ).length,
+        inactive: items.filter(
+          (a) =>
+            a.status === "archived" ||
+            (a.status !== "active" && a.active_release_id !== null),
         ).length,
         ownerless: items.filter((a) => a.ownerless === true).length,
       },

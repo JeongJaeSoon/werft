@@ -589,6 +589,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           )}))::int`,
           active: sql<number>`(count(*) filter (where ${agents.status} = 'active' and ${agents.activeReleaseId} is not null))::int`,
           draft: sql<number>`(count(*) filter (where ${agents.status} <> 'archived' and ${agents.activeReleaseId} is null))::int`,
+          inactive: sql<number>`(count(*) filter (where ${agents.status} = 'archived' or (${agents.status} <> 'active' and ${agents.activeReleaseId} is not null)))::int`,
           ownerless: sql<number>`(count(*) filter (where ${ownerlessNow(db)}))::int`,
         })
         .from(agents)
@@ -604,6 +605,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         administered: row?.administered ?? 0,
         active: row?.active ?? 0,
         draft: row?.draft ?? 0,
+        inactive: row?.inactive ?? 0,
         ownerless: row?.ownerless ?? 0,
       };
     },

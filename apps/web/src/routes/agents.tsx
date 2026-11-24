@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
 import type {
   Agent,
+  AgentActivation,
   AgentListItem,
   CountAgentsResponse,
 } from "@werft-ai/contracts";
@@ -361,18 +362,23 @@ function administeredWithSummaries(
 ): readonly AgentListItem[] | undefined {
   if (agents === undefined) return undefined;
   const byId = new Map(listed?.map((item) => [item.id, item]));
-  // A row the list left out has no activation; contracts' agentActivationOf
-  // rule, which the web may not import as a value.
   return agents.map(
     (agent) =>
-      byId.get(agent.id) ?? {
-        ...agent,
-        activation:
-          agent.status === "active" && agent.active_release_id !== null
-            ? "active"
-            : "draft",
-      },
+      byId.get(agent.id) ?? { ...agent, activation: activationOf(agent) },
   );
+}
+
+/**
+ * For a row the list left out: contracts' agentActivationOf, which the web
+ * may not import as a value. Typed by AgentActivation, so a renamed value
+ * fails the type check here.
+ */
+function activationOf(agent: Agent): AgentActivation {
+  if (agent.status === "active" && agent.active_release_id !== null)
+    return "active";
+  if (agent.status !== "archived" && agent.active_release_id === null)
+    return "draft";
+  return "inactive";
 }
 
 /**

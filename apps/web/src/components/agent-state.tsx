@@ -19,9 +19,8 @@ export function agentState(agent: AgentSummary): AgentState {
 
 /** As the list says it: `status` stays `active` on a draft, `activation` does not. */
 export function listedAgentState(agent: ListedAgent): AgentState {
-  return agent.status === "active" && agent.activation === "draft"
-    ? "draft"
-    : agent.status;
+  if (agent.activation === "draft") return "draft";
+  return agent.status;
 }
 
 const STATE_VARIANT = {

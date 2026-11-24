@@ -493,14 +493,28 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // fixture team has no lead, so only the two the owner administers have
     // someone; the owner's role counts for none of the others.
     expect(await agentsService.countAgents(owner)).toEqual({
-      counts: { all: 6, administered: 2, active: 0, draft: 6, ownerless: 4 },
+      counts: {
+        all: 6,
+        administered: 2,
+        active: 0,
+        draft: 6,
+        inactive: 0,
+        ownerless: 4,
+      },
     });
     await db
       .update(agents)
       .set({ status: "archived" })
       .where(eq(agents.id, removedFromTeam ?? ""));
     expect(await agentsService.countAgents(owner)).toEqual({
-      counts: { all: 6, administered: 2, active: 0, draft: 5, ownerless: 3 },
+      counts: {
+        all: 6,
+        administered: 2,
+        active: 0,
+        draft: 5,
+        inactive: 1,
+        ownerless: 3,
+      },
     });
     expect(
       (
@@ -530,38 +544,68 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // A disabled member reads no agent either.
     expect(
       await createPostgresAgentStore(db).count(workspaceId, { userId }),
-    ).toEqual({ all: 0, administered: 0, active: 0, draft: 0, ownerless: 0 });
+    ).toEqual({
+      all: 0,
+      administered: 0,
+      active: 0,
+      draft: 0,
+      inactive: 0,
+      ownerless: 0,
+    });
 
     // A member outside every agent finds none of them, in the list or counts.
     const member = await person(workspaceId, "member");
     expect(await agentsService.countAgents(member)).toEqual({
-      counts: { all: 0, administered: 0, active: 0, draft: 0, ownerless: 0 },
+      counts: {
+        all: 0,
+        administered: 0,
+        active: 0,
+        draft: 0,
+        inactive: 0,
+        ownerless: 0,
+      },
     });
     expect(
       await codeOf(agentsService.countAgents(serviceKey(workspaceId))),
     ).toBe("FORBIDDEN");
   });
 
-  test("activation says what counts counts each agent as, while a draft's status stays active", async () => {
+  test("activation is the counts bucket each listed agent is in, while a draft's status stays active", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const agentsService = service();
-    const draft = await newAgent(agentsService, owner);
-    const released = await newAgent(agentsService, owner);
-    const v1 = released.versions[0];
-    if (!v1) throw new Error("no version 1");
-    const { release } = await agentsService.createRelease(
-      owner,
-      released.agent.id,
-      { version_id: v1.id, connection_id: TEST_CONNECTION_ID },
-    );
-    await agentsService.activateAgent(owner, released.agent.id, {
-      release_id: release.id,
-      expected_revision: -1,
-    });
+    async function releasedAgent() {
+      const created = await newAgent(agentsService, owner);
+      const v1 = created.versions[0];
+      if (!v1) throw new Error("no version 1");
+      const { release } = await agentsService.createRelease(
+        owner,
+        created.agent.id,
+        { version_id: v1.id, connection_id: TEST_CONNECTION_ID },
+      );
+      await agentsService.activateAgent(owner, created.agent.id, {
+        release_id: release.id,
+        expected_revision: -1,
+      });
+      return created.agent.id;
+    }
+    const draft = (await newAgent(agentsService, owner)).agent.id;
+    const live = await releasedAgent();
+    // As scripts/dev/demo-rich-seed.ts leaves them: a status written over a
+    // released agent, with no deleted_at, so both stay listed.
+    const paused = await releasedAgent();
+    const archived = await releasedAgent();
+    await db
+      .update(agents)
+      .set({ status: "paused" })
+      .where(eq(agents.id, paused));
+    await db
+      .update(agents)
+      .set({ status: "archived" })
+      .where(eq(agents.id, archived));
 
     const { counts } = await agentsService.countAgents(owner);
-    expect([counts.active, counts.draft]).toEqual([1, 1]);
+    expect([counts.active, counts.draft, counts.inactive]).toEqual([1, 1, 2]);
     for (const include of [undefined, "summary"] as const) {
       const page = await agentsService.listAgents(owner, {
         ...PAGE,
@@ -570,9 +614,16 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       expect(
         page.items.map((agent) => [agent.id, agent.status, agent.activation]),
       ).toEqual([
-        [draft.agent.id, "active", "draft"],
-        [released.agent.id, "active", "active"],
+        [draft, "active", "draft"],
+        [live, "active", "active"],
+        [paused, "paused", "inactive"],
+        [archived, "archived", "inactive"],
       ]);
+      // The three buckets add up to the rows listed, as to counts.all.
+      expect(counts.active + counts.draft + counts.inactive).toBe(
+        page.items.length,
+      );
+      expect(counts.all).toBe(page.items.length);
     }
   });
 

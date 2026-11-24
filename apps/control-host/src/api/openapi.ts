@@ -5723,6 +5723,7 @@ export const API_ROUTE_DECLARATIONS = [
           administered: 3,
           active: 97,
           draft: 24,
+          inactive: 7,
           ownerless: 1,
         },
       },

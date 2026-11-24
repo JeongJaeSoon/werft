@@ -10130,10 +10130,10 @@ export interface components {
                 /** Format: date-time */
                 updated_at: string;
                 /**
-                 * @description Whether people can talk to the agent: `active` once a release is active (the agents `GET /v1/agents/counts` counts in `active`), `draft` before (those it counts in `draft`).
+                 * @description Whether people can talk to the agent, by the buckets of `GET /v1/agents/counts`: `active` once a release is active and the agent is not paused (counted in `active`), `draft` before any release (counted in `draft`), `inactive` for a paused agent that has a release or an archived one (counted in neither).
                  * @enum {string}
                  */
-                activation: "draft" | "active";
+                activation: "draft" | "active" | "inactive";
                 summary?: {
                     version: {
                         version_no: number;
@@ -10166,6 +10166,8 @@ export interface components {
                 active: number;
                 /** @description How many of `all` are not `archived` and have no `active_release_id` yet. */
                 draft: number;
+                /** @description How many of `all` are in neither `active` nor `draft`: paused with an `active_release_id`, or archived. `active`, `draft` and `inactive` add up to `all`. */
+                inactive: number;
                 /** @description How many of `all` no one live administers now (`ownerless` true). */
                 ownerless: number;
             };
@@ -31218,6 +31220,7 @@ export interface operations {
                      *         "administered": 3,
                      *         "active": 97,
                      *         "draft": 24,
+                     *         "inactive": 7,
                      *         "ownerless": 1
                      *       }
                      *     }
