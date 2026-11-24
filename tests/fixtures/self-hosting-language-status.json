@@ -277,6 +277,14 @@
       "ja": "implemented"
     }
   },
+  "P37": {
+    "paths": ["run-server/self-hosting/try-chart-dependencies"],
+    "locales": {
+      "ko": "implemented",
+      "en": "implemented",
+      "ja": "implemented"
+    }
+  },
   "H01": {
     "paths": ["run-server/self-hosting/operate/session-data-flow"],
     "held": true,

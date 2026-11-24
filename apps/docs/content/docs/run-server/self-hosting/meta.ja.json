@@ -5,6 +5,7 @@
     "---試用の設置---",
     "try-kind",
     "try-localstack",
+    "try-chart-dependencies",
     "---設置の準備---",
     "prepare-xfs",
     "prepare-checkpoint-bucket",

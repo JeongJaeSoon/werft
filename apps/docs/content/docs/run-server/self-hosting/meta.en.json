@@ -5,6 +5,7 @@
     "---Trial install---",
     "try-kind",
     "try-localstack",
+    "try-chart-dependencies",
     "---Install preparation---",
     "prepare-xfs",
     "prepare-checkpoint-bucket",
