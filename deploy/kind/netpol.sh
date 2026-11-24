@@ -94,6 +94,7 @@ proxy_svc="$(k get svc -l app.kubernetes.io/component=egress-proxy -o name | hea
 proxy="$(cluster_ip "$NAMESPACE" "${proxy_svc#service/}")"
 api="$(cluster_ip "$NAMESPACE" "${fullname}-api")"
 authorizer="$(cluster_ip "$NAMESPACE" "${fullname}-api-authorizer")"
+internal="$(cluster_ip "$NAMESPACE" "${fullname}-api-internal")"
 postgres="$(cluster_ip "$NAMESPACE" postgres)"
 localstack="$(cluster_ip "$NAMESPACE" localstack)"
 dns="$(cluster_ip kube-system kube-dns)"
@@ -147,6 +148,7 @@ matrix() {
   expect netpol-worker "HTTP through ${proxy}:3128" "$w_proxy" sh -c "$via_proxy"
   expect netpol-worker "api ${api}:3000" "$w_rest" $(tcp "$api" 3000)
   expect netpol-worker "authorizer ${authorizer}:3100" "$w_rest" $(tcp "$authorizer" 3100)
+  expect netpol-worker "internal ${internal}:3200" "$w_rest" $(tcp "$internal" 3200)
   expect netpol-worker "postgres ${postgres}:5432" "$w_rest" $(tcp "$postgres" 5432)
   expect netpol-worker "localstack ${localstack}:4566" "$w_rest" $(tcp "$localstack" 4566)
   expect netpol-worker "dns ${dns}:53/tcp" "$w_rest" $(tcp "$dns" 53)
@@ -157,6 +159,7 @@ matrix() {
   expect netpol-control "egress-proxy ${proxy}:3128" "$c_proxy" $(tcp "$proxy" 3128)
   expect netpol-control "api ${api}:3000" "$c_rest" $(tcp "$api" 3000)
   expect netpol-control "authorizer ${authorizer}:3100" "$c_authz" $(tcp "$authorizer" 3100)
+  expect netpol-control "internal ${internal}:3200" "$c_authz" $(tcp "$internal" 3200)
   expect netpol-control "postgres ${postgres}:5432" "$c_rest" $(tcp "$postgres" 5432)
   expect netpol-control "kube-apiserver ${apiserver}:443" "$c_rest" $(tcp "$apiserver" 443)
   expect netpol-control "outside ${OUTSIDE_ADDRESS}" "$c_rest" $(tcp "$outside_host" "$outside_port")

@@ -36,7 +36,7 @@ spec:
             - name: EGRESS_ALLOWLIST
               value: {{ .Values.config.egress.allowlist | quote }}
             - name: EGRESS_PRIVATE_ALLOWLIST
-              value: {{ .Values.config.egress.privateAllowlist | default (printf "%s:3000" (include "ap.apiHost" .)) | quote }}
+              value: {{ include "ap.privateAllowlist" . | quote }}
             - name: EGRESS_PROXY_PORT
               value: "3128"
             - name: EGRESS_CREDENTIAL_PORT

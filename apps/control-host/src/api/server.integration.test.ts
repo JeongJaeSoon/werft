@@ -49,9 +49,14 @@ const POLL_INTERVAL_MS = 100;
 function serverStdout(stream: ReadableStream<Uint8Array>): {
   text: Promise<string>;
   port: Promise<number | undefined>;
+  internalPort: Promise<number | undefined>;
   catalogLoaded: Promise<boolean>;
 } {
   let found: (port: number | undefined) => void = () => {};
+  let foundInternal: (port: number | undefined) => void = () => {};
+  const internalPort = new Promise<number | undefined>((resolve) => {
+    foundInternal = resolve;
+  });
   const port = new Promise<number | undefined>((resolve) => {
     found = resolve;
   });
@@ -73,16 +78,21 @@ function serverStdout(stream: ReadableStream<Uint8Array>): {
         const line = all.slice(scanned, newline);
         scanned = newline + 1;
         if (line.includes('"Session catalog loaded"')) loaded(true);
+        if (line.includes('"Internal API listening"')) {
+          const record = JSON.parse(line) as { fields?: { port?: number } };
+          foundInternal(record.fields?.port);
+        }
         if (!line.includes('"API listening"')) continue;
         const record = JSON.parse(line) as { fields?: { port?: number } };
         found(record.fields?.port);
       }
     }
     found(undefined);
+    foundInternal(undefined);
     loaded(false);
     return all + decoder.decode();
   })();
-  return { text, port, catalogLoaded };
+  return { text, port, internalPort, catalogLoaded };
 }
 
 // Waits for the server to report its port, then polls `path` on it until the
@@ -254,6 +264,7 @@ async function refusedStart(
       SESSION_COST_LIMIT_USD: "25",
       STORAGE_LIMIT_BYTES: "1073741824",
       PORT: "0",
+      INTERNAL_API_PORT: "0",
       PLATFORM_SECRET_KEY: MASTER_KEY,
       ...env,
     },
@@ -407,6 +418,7 @@ integration("API server on PostgreSQL", () => {
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
+          INTERNAL_API_PORT: "0",
           PLATFORM_SECRET_KEY: MASTER_KEY,
         },
         stdout: "pipe",
@@ -631,6 +643,7 @@ integration("API server on PostgreSQL", () => {
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
+          INTERNAL_API_PORT: "0",
           PLATFORM_SECRET_KEY: MASTER_KEY,
         },
         stdout: "pipe",
@@ -830,6 +843,7 @@ integration("API server on PostgreSQL", () => {
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
+          INTERNAL_API_PORT: "0",
           PLATFORM_SECRET_KEY: MASTER_KEY,
         },
         stdout: "pipe",
@@ -840,12 +854,15 @@ integration("API server on PostgreSQL", () => {
       const waitMs = 20_000;
       let exitCode: number | undefined;
       try {
-        const { port } = await waitForServer(server, stdout, serverStderr, {
+        await waitForServer(server, stdout, serverStderr, {
           path: "/healthz",
           headers: {},
         });
+        // The long poll is held by the internal listener, which drains too.
+        const internalPort = await stdout.internalPort;
+        if (internalPort === undefined) throw new Error("no internal port");
         const poll = fetch(
-          `http://127.0.0.1:${port}/internal/worker/next-input`,
+          `http://127.0.0.1:${internalPort}/internal/worker/next-input`,
           {
             method: "POST",
             headers: {
@@ -945,6 +962,7 @@ integration("API server on PostgreSQL", () => {
           MAX_TURN_SECONDS: "0",
           PROVIDER_MAX_RETRIES: "",
           PORT: "0",
+          INTERNAL_API_PORT: "0",
         },
         stdout: "pipe",
         stderr: "pipe",

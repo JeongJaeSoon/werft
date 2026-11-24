@@ -177,10 +177,11 @@ egress-proxy와 API의 authorizer listener는 아래 값을 읽는다. 목록 �
 | `EGRESS_CREDENTIAL_PORT` | 3129 | 별도 키 없음 | credential route 포트 |
 | `LOG_LEVEL` | `info` | `config.logLevel` | 로그 수준. API와 같은 형식 |
 | `EGRESS_ALLOWLIST` | 빈 목록 | `config.egress.allowlist` | forward public 목적지의 쉼표 구분 `host:port`. credential·redirect 목록과 중복 금지 |
-| `EGRESS_PRIVATE_ALLOWLIST` | Compose: `api:3000,host.docker.internal:3000`. chart: API Service의 3000 | `config.egress.privateAllowlist`(비면 API Service) | forward private 목적지. link-local·reserved 주소는 허용하지 않음. 두 forward 목록이 모두 비면 proxy 기동 거부 |
+| `EGRESS_PRIVATE_ALLOWLIST` | Compose: `api:3200,host.docker.internal:3200`. chart: API internal Service(`<fullname>-api-internal`)의 3200 | `config.egress.privateAllowlist`(비면 API internal Service) | forward private 목적지. link-local·reserved 주소는 허용하지 않음. 두 forward 목록이 모두 비면 proxy 기동 거부 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | Compose(core·local): `api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443`. 단일 서버(test-ops): 기본값 없음, 필수. chart: core·local과 같은 기본값 | `config.egress.credentialAllowlist` | API·proxy의 credential public 목적지. test-ops는 값이 없으면 Compose가 실패함. 값이 기본값을 통째로 대체하므로 GitHub·checkpoint bucket host를 넣을 때 필요한 항목을 모두 다시 적음 |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | chart·Compose core proxy: 빈 목록. Compose core API·local proxy 레이어: `fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566` | `config.egress.credentialPrivateAllowlist` | proxy 거절, API의 워크스페이스 MCP 사설 주소 허용과 콘솔 경고에 쓰는 private 목적지. test-ops LocalStack 경로는 `localstack:4566`이 필수이며 예시도 이 값만 사용. local-model 오버레이는 `fake-git:3000,localstack:4566,ollama.internal:11434,litellm:4000`. 운영 설치는 시험 host를 사용하지 않음 |
 | `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` | 빈 목록 | `config.egress.packagesRedirectAllowlist` | packages redirect와 Git LFS 객체의 public 목적지. 자격 증명 없이 받으며 forward 목록과 중복 금지 |
+| `INTERNAL_API_PORT` | 3200 | 별도 키 없음 | API의 `/internal` listener 포트. worker와 대화 런타임이 egress proxy를 거쳐 부른다. 공개 포트(`PORT`, 3000)에는 `/internal` route가 없다. Compose는 호스트에 묶지 않고, chart는 ClusterIP Service `<fullname>-api-internal`로만 열며 NetworkPolicy로 egress-proxy만 들인다 |
 | `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | 별도 키 없음 | API authorizer listener 주소 |
 | `EGRESS_AUTHORIZER_PORT` | API 코드: 미설정 시 listener 없음. Compose·chart: 3100 | 자동 생성 | API에서는 토큰과 함께 설정하거나 둘 다 생략. `AUTH_MODE=none`과 함께 쓰면 기동 거부 |
 | `EGRESS_AUTHORIZER_URL` | proxy 코드: 없음. Compose: `http://api:3100`, chart: API authorizer Service | 자동 생성 | http/https URL. proxy에서는 토큰과 함께 설정하거나 둘 다 생략. API listener 포트와 일치해야 함 |
@@ -261,7 +262,7 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 | `EXECUTION_K8S_IMAGE_PULL_SECRETS` | `images.pullSecrets` | 제어 영역 Pod에도 같은 Secret을 쓴다 |
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR`, `EXECUTION_K8S_WORKER_TOLERATIONS` | `worker.nodeSelector`, `worker.tolerations` | JSON으로 바꿔 넣는다 |
 | `WORKER_IMAGE` | `images.registry`, `images.worker.*` | `<registry>/<repository>@<digest>`. digest가 없으면 render가 실패한다 |
-| `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT` | 없음 | api Service의 3000, egress-proxy Service의 3128, 3129 |
+| `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT` | 없음 | api internal Service(`<fullname>-api-internal`)의 3200, egress-proxy Service의 3128, 3129 |
 | `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy의 label 값이기도 하다 |
 | `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`, `worker.workspace.gcMinAgeSec`, `worker.workspace.enforcedByStorage` | 요청 크기·회수 최소 나이·설치 전체 강제 선언 |
 | `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
@@ -292,7 +293,7 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 
 | 리소스 | 수 | 비고 |
 |---|---|---|
-| api Deployment + Service(3000) + authorizer Service(3100) | 2 | 3100은 egress-proxy만 닿는다(NetworkPolicy). Ingress는 3000의 `/v1`·`/docs`·`/healthz`·`/readyz`만 route한다. worker용 `/internal`은 열지 않는다. 웹 콘솔 `/`는 `ingress.console.enabled`로 더한다([접속 경로](/run-server/self-hosting/access)) |
+| api Deployment + Service(3000) + authorizer Service(3100) + internal Service(3200) | 2 | 3100과 3200은 egress-proxy만 닿는다(NetworkPolicy). Ingress는 3000의 `/v1`·`/docs`·`/healthz`·`/readyz`만 route한다. worker용 `/internal`은 3200에만 있고 3000에는 없다. 웹 콘솔 `/`는 `ingress.console.enabled`로 더한다([접속 경로](/run-server/self-hosting/access)) |
 | scheduler Deployment + Role/RoleBinding | 1, `Recreate` | worker Pod·nonce Secret·workspace PVC를 같은 namespace에서만 만들고 지운다 |
 | reconciler Deployment | 1 | |
 | slack Deployment | 1 | Slack inbox를 비운다. `slack.enabled: false`면 없다. 바깥으로는 DNS(53), 443, DB 포트(`networkPolicy.slack.databasePort`, 기본 5432)로만 나간다 |
@@ -395,11 +396,11 @@ API만 읽는 설정이다. 기본은 꺼짐이고, 키를 하나도 주지 않�
 OTEL_TRACES_EXPORTER=otlp
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com:4318
 TRACE_INGEST_URL=http://api:4319
-EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
+EGRESS_PRIVATE_ALLOWLIST=api:3200,host.docker.internal:3200,api:4319
 ```
 
-- **Compose.** 위 값을 compose를 띄우는 셸이나 `.env`에 두면 api 컨테이너에 같은 이름으로 넘어간다. worker가 ingest로 가는 길도 egress proxy를 지나므로 `EGRESS_PRIVATE_ALLOWLIST`의 기본값 `api:3000,host.docker.internal:3000`에 `api:<TRACE_INGEST_PORT>`를 더한다.
-- **Kubernetes.** 키는 `api.extraEnv`에 준다. 포트는 Service와 NetworkPolicy도 알아야 하므로 `config.tracing.ingestPort`(기본 `4319`)로만 바꾸고 `TRACE_INGEST_PORT`는 주지 않는다. `TRACE_INGEST_URL`은 `http://<api Service 이름>:4319`이고, `config.egress.privateAllowlist`를 `<api Service 이름>:3000,<api Service 이름>:4319`로 지정한다.
+- **Compose.** 위 값을 compose를 띄우는 셸이나 `.env`에 두면 api 컨테이너에 같은 이름으로 넘어간다. worker가 ingest로 가는 길도 egress proxy를 지나므로 `EGRESS_PRIVATE_ALLOWLIST`의 기본값 `api:3200,host.docker.internal:3200`에 `api:<TRACE_INGEST_PORT>`를 더한다.
+- **Kubernetes.** 키는 `api.extraEnv`에 준다. 포트는 Service와 NetworkPolicy도 알아야 하므로 `config.tracing.ingestPort`(기본 `4319`)로만 바꾸고 `TRACE_INGEST_PORT`는 주지 않는다. `TRACE_INGEST_URL`은 `http://<api Service 이름>:4319`이고, `config.egress.privateAllowlist`를 `<api Service 이름>-internal:3200,<api Service 이름>:4319`로 지정한다.
 - worker는 수집기로 직접 가지 않는다. 수집기 host를 `EGRESS_PRIVATE_ALLOWLIST`나 `EGRESS_ALLOWLIST`에 넣으면 api가 기동할 때 경고를 남긴다. `OTEL_*` 키는 worker와 엔진에 넘어가지 않는다.
 
 **수집기 쪽 조건.**

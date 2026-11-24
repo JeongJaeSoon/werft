@@ -603,7 +603,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // The worker gateway alone.
     expect(
       forwarded.every((entry) =>
-        /^(api|host\.docker\.internal):3000$/.test(entry),
+        /^(api|host\.docker\.internal):3200$/.test(entry),
       ),
     ).toBe(true);
 
@@ -2542,8 +2542,8 @@ esac
     expect(compose).toContain(
       '- "127.0.0.1:$' + '{TEST_OPS_API_PORT:-3000}:3000"',
     );
-    // Workers reach api:3000 through the proxy; `none` would let them pick
-    // any owner with X-Owner-Id.
+    // `none` would let anything that reaches the port pick any owner with
+    // X-Owner-Id.
     expect(compose).toContain("AUTH_MODE: $" + "{AUTH_MODE:-api-key}");
     // `up` runs migrate, so no service may take an ambient DATABASE_URL.
     for (const file of [

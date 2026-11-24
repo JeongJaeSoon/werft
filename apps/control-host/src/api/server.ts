@@ -1,4 +1,3 @@
-import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
@@ -217,7 +216,7 @@ import {
   apiReadinessConfigProblems,
   apiSettingsFromEnv,
 } from "./api-settings.ts";
-import { createApiApp } from "./app.ts";
+import { createApiApp, createInternalApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { AuthAttemptKeys } from "./auth-attempts.ts";
 import {
@@ -268,6 +267,7 @@ import {
   noDiskQuotaWarning,
 } from "./installation-status.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
+import { internalApiPortFromEnv, serveApiApp } from "./listeners.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
 import { createLostCheckpointNoticesAdmin } from "./lost-checkpoint-notices.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
@@ -1730,22 +1730,6 @@ const app = createApiApp({
       ...settings.sse,
     });
   },
-  registerInternalRoutes: (router) =>
-    registerInternalApiRoutes(router, {
-      workers,
-      tracing: new RequestTracing(tracer),
-      stop: shutdown.stopWaiting,
-      ...(conversationRuntime === null
-        ? {}
-        : {
-            conversationRuntime: {
-              turns: conversationTurns,
-              isRuntimeBearer: conversationRuntimeBearer(
-                conversationRuntime.tokens,
-              ),
-            },
-          }),
-    }),
   ...(settings.webDistDir === undefined
     ? {}
     : { webDistDir: settings.webDistDir }),
@@ -1774,32 +1758,42 @@ const app = createApiApp({
 // above REQUEST_DEADLINE_MS around database work (deadline.ts answers 503
 // first), on while it ingests a body (under BODY_DEADLINE_MS), and back to
 // the default once the response is decided.
-const server = Bun.serve({
+const server = serveApiApp(app, {
+  listener: "api",
   port: Number(process.env.PORT ?? 3000),
-  // Bun's own cap (default 128 MiB) applies before any handler runs and
-  // answers without the API's error envelope, so it sits above the contract
-  // limit: the app produces the documented 413 up to twice the limit, and
-  // only a grossly oversized upload is cut at the transport.
-  maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2,
-  fetch: ambiguousPaths.front(
-    "api",
-    (
-      request: Request,
-      server: {
-        timeout(r: Request, seconds: number): void;
-        requestIP(r: Request): { address: string } | null;
-      },
-    ): Response | Promise<Response> => {
-      const peer = server.requestIP(request)?.address;
-      return app.fetch(request, {
-        setIdleTimeout: (seconds: number) => server.timeout(request, seconds),
-        ...(peer === undefined ? {} : { clientAddress: peer }),
-      });
-    },
-  ),
+  guard: ambiguousPaths,
 });
 // With PORT=0 the OS picks the port; this line is the only place it shows.
 logger.info("API listening", { port: server.port });
+
+// Workers and the conversation runtime call /internal here, through the
+// egress proxy; the public listener above has no /internal route at all.
+const internalApp = createInternalApiApp({
+  logger,
+  tracer,
+  registerInternalRoutes: (router) =>
+    registerInternalApiRoutes(router, {
+      workers,
+      tracing: new RequestTracing(tracer),
+      stop: shutdown.stopWaiting,
+      ...(conversationRuntime === null
+        ? {}
+        : {
+            conversationRuntime: {
+              turns: conversationTurns,
+              isRuntimeBearer: conversationRuntimeBearer(
+                conversationRuntime.tokens,
+              ),
+            },
+          }),
+    }),
+});
+const internalServer = serveApiApp(internalApp, {
+  listener: "internal",
+  port: internalApiPortFromEnv(process.env),
+  guard: ambiguousPaths,
+});
+logger.info("Internal API listening", { port: internalServer.port });
 
 const operatorTurns =
   conversationRuntime === null
@@ -1838,6 +1832,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       // gets its answer, and one refused after the stop rides its grace.
       [
         server,
+        internalServer,
         ...(authorizerListener === undefined ? [] : [authorizerListener]),
         ...(ingestListener === undefined ? [] : [ingestListener]),
       ],

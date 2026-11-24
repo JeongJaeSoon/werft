@@ -48,7 +48,7 @@ spec:
             - name: CONVERSATION_TOPICS_DIR
               value: /conversation
             - name: WORKER_GATEWAY_URL
-              value: {{ printf "http://%s:3000" (include "ap.apiHost" .) | quote }}
+              value: {{ include "ap.workerGatewayUrl" . | quote }}
             - name: WORKER_EGRESS_CREDENTIAL_URL
               value: {{ printf "http://%s:3129" $proxy | quote }}
             - name: HTTP_PROXY
