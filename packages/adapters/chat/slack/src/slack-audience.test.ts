@@ -81,35 +81,52 @@ describe("createSlackAudience", () => {
     },
   );
 
-  test("answers are kept for the cache time, then asked again; a kept answer is not recorded again", async () => {
+  test("a person's kind is kept for the cache time; an unshared channel is asked about every post", async () => {
     const { audience, calls, recorded, tick } = audienceWith(
       async () => "internal",
     );
     await audience.unheardReason(question);
     tick(999);
     await audience.unheardReason(question);
-    expect(calls).toHaveLength(2);
     tick(1);
     await audience.unheardReason(question);
     expect(calls).toEqual([
       "conversations.info C0OPS",
       "users.info U0PERSON",
       "conversations.info C0OPS",
+      "conversations.info C0OPS",
       "users.info U0PERSON",
     ]);
-    expect(recorded.map(([, , at]) => at)).toEqual([0, 1000]);
+    expect(recorded.map(([, , at]) => at)).toEqual([0, 999, 1000]);
+  });
+
+  test("a channel shared with no event after it is caught on the next post, and the share is kept", async () => {
+    let sharing: SlackChannelSharing = "internal";
+    const { audience, calls } = audienceWith(async () => sharing);
+    expect(await audience.unheardReason(question)).toBeNull();
+    sharing = "external";
+    expect(await audience.unheardReason(question)).toBe(
+      "external_shared_channel",
+    );
+    sharing = "internal";
+    expect(await audience.unheardReason(question)).toBe(
+      "external_shared_channel",
+    );
+    expect(
+      calls.filter((call) => call.startsWith("conversations")),
+    ).toHaveLength(2);
   });
 
   test("a fresh question asks Slack whatever is kept", async () => {
-    let sharing: SlackChannelSharing = "internal";
+    let sharing: SlackChannelSharing = "external";
     const { audience, recorded } = audienceWith(async () => sharing);
     await audience.channelSharing(question);
-    sharing = "external";
-    expect(await audience.channelSharing(question)).toBe("internal");
+    sharing = "internal";
+    expect(await audience.channelSharing(question)).toBe("external");
     expect(await audience.channelSharing({ ...question, fresh: true })).toBe(
-      "external",
+      "internal",
     );
-    expect(recorded.map(([, shared]) => shared)).toEqual([false, true]);
+    expect(recorded.map(([, shared]) => shared)).toEqual([true, false]);
   });
 
   test("Slack not answering, or no bot token, is unconfirmed and keeps nothing", async () => {

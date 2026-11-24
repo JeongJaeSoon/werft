@@ -8,9 +8,11 @@ import {
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  createSlackAudienceCache,
   createSlackBotApi,
   createSlackChannelSharingReader,
   drainSlackInbox,
+  type SlackAudienceCache,
   slackConversationKey,
 } from "@werft-ai/chat-slack";
 import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
@@ -408,6 +410,7 @@ const rootMessage = (ts: string) =>
 function handler(
   inbox?: Pick<SurfaceInboundEventStore, "renew">,
   log: typeof logger = logger,
+  audienceCache?: SlackAudienceCache,
 ) {
   const notices = createMemorySlackNoticeSink();
   // A pass reads the catalog before its first event (main); here each event
@@ -428,6 +431,7 @@ function handler(
     notices: notices.sink,
     slackApiUrl: slack.url,
     ...(inbox === undefined ? {} : { inbox }),
+    ...(audienceCache === undefined ? {} : { audienceCache }),
   });
   return {
     notices: notices.notices,
@@ -3152,6 +3156,19 @@ describe.each(ENGINES)(
         [1, 2],
       );
       expect(await heldTs(fixture)).toEqual([]);
+    });
+
+    test("with one cache across passes, a channel shared with no event is caught on the next post and its held posts go", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const cache = createSlackAudienceCache();
+      await deliver(fixture, message("100.000100"));
+      await drain(handler(undefined, logger, cache).handle);
+      expect(await heldTs(fixture)).toEqual(["100.000100"]);
+      slack.channels.set(CHANNEL, { isExtShared: true });
+      await deliver(fixture, message("100.000200"));
+      await drain(handler(undefined, logger, cache).handle);
+      expect(await heldTs(fixture)).toEqual([]);
+      expect(await sharedColumn(fixture)).toEqual([true]);
     });
 
     test("a guest's mention follows the guest setting as before", async () => {

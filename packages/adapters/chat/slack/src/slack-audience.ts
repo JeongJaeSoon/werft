@@ -14,7 +14,7 @@ import {
 } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 
-/** How long an answer about a channel or a person is reused, as the member list is. */
+/** How long a share or a person's kind is reused, as the member list is. */
 export const SLACK_AUDIENCE_CACHE_TTL_MS = SLACK_MEMBER_CACHE_TTL_MS;
 const CACHE_LIMIT = 10_000;
 
@@ -130,8 +130,9 @@ export function createSlackAudience(deps: {
       sharing === "external",
       askedAt,
     );
-    // A newer answer is on the binding already: this one is not kept.
-    if (recorded) keep(channels, key, sharing);
+    // Only a share is kept: a kept "internal" would let posts be held after a
+    // share whose event never came. Nor is an answer older than the binding's.
+    if (recorded && sharing === "external") keep(channels, key, sharing);
     return sharing;
   }
 
