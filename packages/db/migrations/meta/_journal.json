@@ -1765,6 +1765,13 @@
       "when": 1795506210692,
       "tag": "0342_slack_notice_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 343,
+      "version": "7",
+      "when": 1795507042026,
+      "tag": "0343_surface_bindings_external_shared",
+      "breakpoints": true
     }
   ]
 }
