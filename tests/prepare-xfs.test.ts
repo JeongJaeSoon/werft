@@ -140,6 +140,16 @@ describe("prepare-xfs.sh", () => {
     ).toBe(false);
   });
 
+  test("an fstab whose last line has no newline keeps the entry on a line of its own", () => {
+    const fstab = "UUID=fixture / ext4 defaults 0 1\n# last line";
+    writeFileSync(join(root, "etc/fstab"), fstab);
+    const result = run();
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(join(root, "etc/fstab"), "utf8")).toBe(
+      `${fstab}\n${ENTRY}\n`,
+    );
+  });
+
   test("an already prepared data-root needs nothing", () => {
     const before = snapshot();
     const result = run([], { STUB_ROOT_FS: "xfs rw,relatime,prjquota" });
@@ -309,6 +319,7 @@ describe("prepare-xfs.sh", () => {
   const signals: [string, string][] = [
     ["the move", "mv docker\\.old$"],
     ["the mount", "mount docker$"],
+    ["the image is sized", "truncate docker\\.xfs\\.img$"],
   ];
   for (const [name, pattern] of signals) {
     test(`a SIGTERM right after ${name} still puts everything back`, () => {

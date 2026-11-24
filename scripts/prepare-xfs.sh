@@ -270,8 +270,9 @@ if [ -d "$data" ]; then
 fi
 
 begin "create the $size image $image"
-(set -C; : >"$image")
 image_made=1
+# noclobber: a file that appeared since the preflight is not ours to remove.
+(set -C; : >"$image") || { image_made=0; exit 1; }
 truncate -s "$size" "$image"
 mkfs.xfs -q "$image"
 
@@ -292,6 +293,8 @@ begin "add the mount to $fstab"
 backing=1
 cp -p "$fstab" "$fstab_backup"
 fstab_changed=1
+# A last line without its newline (a comment, say) would swallow the entry.
+if [ -s "$fstab" ] && [ -n "$(tail -c 1 "$fstab")" ]; then printf '\n' >>"$fstab"; fi
 printf '%s\n' "$entry" >>"$fstab"
 findmnt --verify --tab-file "$fstab"
 systemctl daemon-reload

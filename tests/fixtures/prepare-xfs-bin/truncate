@@ -1,3 +1,4 @@
 #!/bin/sh
 . "$(dirname "$0")/stub-lib.sh"
 : >>"$3"
+term_after "$@"
