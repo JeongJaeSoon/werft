@@ -82,6 +82,15 @@ images:
 #   AWS_ACCESS_KEY_ID,
 #   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store),
 #                           only while objectStoreKeys is true
+#   CONVERSATION_RUNTIME_TOKEN
+#                           api and the conversation runtime, only while
+#                           conversationRuntime.enabled: the bearer that opens
+#                           the runtime's two routes on the api and nothing
+#                           else (`openssl rand -hex 32`). To rotate it, put
+#                           the old value in
+#                           CONVERSATION_RUNTIME_TOKEN_PREVIOUS (api only,
+#                           optional) and the new one here, restart both, then
+#                           remove the old one.
 #   PLATFORM_SECRET_KEY     api and slack, required: the master key stored
 #                           credentials are encrypted under
 #                           (`openssl rand -hex 32`)
@@ -260,6 +269,24 @@ egressProxy:
   tolerations: []
   affinity: {}
   extraEnv: {}
+
+# The conversation runtime: one Pod of the worker image (the newest Claude
+# one) on its conversation entry point, for every agent's conversation turns.
+# Off: nothing sends it a person's message yet, and an operator's
+# `conversation-turn` command in the api Pod is the one way a turn starts.
+# It is held as a worker Pod is (egress proxy only, no DNS, no provider key),
+# on the worker Pods' nodes (worker.nodeSelector, worker.tolerations), and
+# needs CONVERSATION_RUNTIME_TOKEN in the Secret. Its turns are queued in one
+# api process's memory, so with api.replicas above 1 an operator's turn is
+# refused from the api Pods the runtime is not asking.
+conversationRuntime:
+  enabled: false
+  # Above the few seconds it takes to cut a running turn and report it.
+  terminationGracePeriodSeconds: 30
+  # One engine at a time beside the loop, and the topics' in-memory directory.
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 2Gi}
 
 # A pre-install/pre-upgrade hook: the schema is migrated before any new pod
 # of the release starts.

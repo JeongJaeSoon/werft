@@ -48,8 +48,21 @@ export type RuntimeStartConfig = RuntimeMode & {
    */
   maxBudgetUsd?: number;
   maxTurns?: number;
+  /**
+   * The most output tokens one provider request may ask for. A caller whose
+   * provider call was reserved with a cap passes it, so the engine never asks
+   * for more than was held. Unset leaves the engine's own default. Never part
+   * of a checkpoint's fingerprint.
+   */
+  maxOutputTokens?: number;
   model: string;
   permissionMode: PermissionMode;
+  /**
+   * Where the engine puts its temporary files, for a caller that keeps each
+   * run's files apart; unset is the host's own. Never part of a checkpoint's
+   * fingerprint.
+   */
+  tmpDir?: string;
   /**
    * The user variables the session's engine side runs with, from the claim's
    * `runtime_config.env`. An adapter applies them the way its descriptor's

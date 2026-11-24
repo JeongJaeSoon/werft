@@ -14,6 +14,8 @@ export const TEST_OPS_LAYERS = [CORE, "infra/compose.test-ops.yml"] as const;
 export const REAL_MODEL = "infra/compose.real-model.yml";
 /** Over the local stack, for `--fake-model` and the free runs. */
 export const FAKE_MODEL = "infra/compose.fake-model.yml";
+/** Over a test stack: runs the conversation runtime, which is off without it. */
+export const CONVERSATION_RUNTIME = "infra/compose.conversation-runtime.yml";
 export const DATADOG_OVERLAY = "infra/compose.datadog.yml";
 export const TEST_OPS_STORE_LAYERS = {
   localstack: "infra/compose.test-ops.localstack.yml",

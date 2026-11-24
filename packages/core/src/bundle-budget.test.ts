@@ -32,9 +32,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // tool descriptions that name git switch -c put ./forms 223 bytes over 146,
   // so it moves to 147. The sign-in attempt kinds and the lock_login receipt
   // with the Slack allowed bots receipt put ./schemas 1 byte over 149, so it
-  // moves to 150.
+  // moves to 150. The conversation runtime's turn protocol put ./forms 86
+  // bytes over 147, so it moves to 148.
   "./schemas": 150 * 1024,
-  "./forms": 147 * 1024,
+  "./forms": 148 * 1024,
 };
 
 test("every entry has a budget", () => {

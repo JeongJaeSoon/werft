@@ -298,6 +298,7 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 | NetworkPolicy | 5 | worker는 egress-proxy로만 나간다. 제어 영역 Pod 중 바깥 연결을 막는 것은 slack 하나다 |
 | Ingress, ExternalSecret | 선택 | `ingress.enabled`, `secrets.externalSecret.enabled` |
 | metrics Deployment + Service(9464) + NetworkPolicy | 선택, 1, `Recreate` | `metrics.enabled`. 플랫폼 지표를 낸다([플랫폼 지표](/run-server/self-hosting/collect-metrics)) |
+| conversation-runtime Deployment + NetworkPolicy | 선택, 1, `Recreate` | `conversationRuntime.enabled`. 기본은 꺼짐이다. worker 이미지(가장 새 Claude 이미지)를 worker node에서 돌리고, egress proxy로만 나간다([대화 런타임](#대화-런타임)) |
 
 ## Secret과 AWS values
 
@@ -414,6 +415,25 @@ EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
 - 호출은 세션의 연결과 모델로 provider route를 지나므로, 비용은 첫 turn의 usage와 세션 상한에 들어간다. proxy는 `/v1/messages`, 세션의 모델, `max_tokens` 64 이하인 요청만 보낸다.
 - API는 이 URL의 host:port에만 보내고(메타데이터·link-local 주소는 거절), redirect는 따라가지 않으며 25초 뒤 끊는다.
 - 사용자가 준 제목이나 `PATCH /v1/sessions/{id}`로 바꾼 제목은 덮어쓰지 않는다. 호출이 실패하거나 답이 비면 첫 메시지 제목이 남는다.
+
+## 대화 런타임
+
+대화 런타임은 worker 이미지를 대화용 진입점(`apps/worker/src/conversation/main.ts`)으로 띄운 process 하나다. 설치 안 모든 에이전트의 대화 턴을 함께 돌린다. 기본은 꺼져 있고, 시험 스택에서만 켠다. 사람의 메시지를 이 런타임으로 넘기는 길은 아직 없다. 턴은 운영자가 api 컨테이너에서 `bun run apps/control-host/src/api/conversation-turn.ts`를 돌릴 때만 시작한다.
+
+- 런타임은 provider 키를 갖지 않는다. 턴마다 한 번짜리 호출 허가를 받아 egress proxy의 credential route로 보내고, proxy가 키를 붙인다. 한 턴은 provider를 한 번만 부른다.
+- workspace volume과 저장소 checkout이 없다. 주제마다 메모리 안 임시 디렉터리를 쓰고, 턴이 끝나면 지운다. 엔진에는 도구를 주지 않는다.
+- 런타임은 egress proxy만 만난다. DNS도 쓰지 않는다. API에는 forward proxy를 거쳐 다음 턴을 물어 오고, 런타임으로 들어오는 연결은 없다.
+- 켜는 법: compose는 `infra/compose.conversation-runtime.yml`을 스택 위에 얹는다. Helm은 `conversationRuntime.enabled: true`로 두고 Secret에 `CONVERSATION_RUNTIME_TOKEN`을 넣는다. replica는 1이다.
+- 턴은 지금 API process 하나의 메모리에 줄 선다. API를 다시 띄우면 줄 선 턴이 없어진다. API replica가 둘 이상이면, 런타임이 묻고 있지 않은 replica에서 돌린 운영자 명령은 `no_runtime`으로 거절된다.
+
+| 변수 | 읽는 곳 | 기본값 | 허용 범위 |
+|---|---|---|---|
+| `CONVERSATION_RUNTIME_TOKEN` | api, 대화 런타임(같은 값) | 없음 | 최소 32자. 런타임의 두 route(`/internal/conversation-runtime/next-turn`, `/internal/conversation-runtime/turn-result`)만 여는 bearer다. 다른 `/internal` route에 내면 403이다. api에 없으면 두 route와 운영자 명령이 꺼지고, 런타임에 없으면 런타임이 기동을 거부한다. Helm에서는 Secret의 같은 이름 key |
+| `CONVERSATION_RUNTIME_TOKEN_PREVIOUS` | api | 없음 | 바꾸는 중인 옛 bearer. 새 값과 함께 받는다. 옛 값을 여기에, 새 값을 `CONVERSATION_RUNTIME_TOKEN`에 두고 api와 런타임을 다시 띄운 뒤 이 값을 지운다 |
+| `CONVERSATION_TURN_DISPATCH` | api | `false` | 사람의 메시지를 대화 턴으로 넘기는 스위치. 끈 채로 둔다. 턴 줄이 메모리에 있는 동안 켜면 api가 기동을 거부한다 |
+| `CONVERSATION_TURN_SOCKET` | api | `/tmp/werft-conversation-turns.sock` | 운영자 명령이 api에 턴을 맡기는 unix socket 경로. 같은 컨테이너 안에서만 닿는다 |
+| `CONVERSATION_TOPICS_DIR` | 대화 런타임 | compose와 chart는 `/conversation` | 주제별 임시 디렉터리를 만드는 tmpfs 경로. 필수 |
+| `CONVERSATION_STATUS_FILE` | 대화 런타임 | `/tmp/conversation-runtime-status.json` | 런타임이 api에 마지막으로 닿은 때를 적는 파일. healthcheck(`main.ts --health`)가 읽고, 200초 넘게 묵으면 unhealthy다 |
 
 ## 설정 문서 가져오기·내보내기
 

@@ -467,5 +467,31 @@ rides in ap.workerRuntimeEnv, so only single-image settings render here.
 {{- end }}
 {{- end -}}
 
+{{/*
+The image the conversation runtime runs: the newest Claude worker image that
+is not retracted. Its turns need an engine that can be started with every
+built-in tool denied, which the Codex runtime does not offer.
+*/}}
+{{- define "ap.conversationRuntimeImage" -}}
+{{- if .Values.images.workers -}}
+{{- $image := "" -}}
+{{- range $index, $entry := .Values.images.workers -}}
+{{- if and (not $image) (kindIs "map" $entry) (kindIs "map" $entry.runtime) (eq $entry.runtime.engine "claude") (not (eq $entry.retracted true)) -}}
+{{- $image = include "ap.imageRef" (dict "root" $ "label" (printf "images.workers[%d]" $index) "image" $entry) -}}
+{{- end -}}
+{{- end -}}
+{{- if not $image -}}
+{{- fail "conversationRuntime.enabled needs a Claude worker image: images.workers lists none that is not retracted" -}}
+{{- end -}}
+{{- $image -}}
+{{- else -}}
+{{- $runtime := .Values.images.worker.runtime -}}
+{{- if and $runtime (ne (toString $runtime.engine) "claude") -}}
+{{- fail "conversationRuntime.enabled needs a Claude worker image: images.worker.runtime.engine is not claude" -}}
+{{- end -}}
+{{- include "ap.image" (dict "root" . "name" "worker") -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "ap.apiHost" -}}{{ include "ap.fullname" . }}-api{{- end -}}
 {{- define "ap.proxyHost" -}}{{ include "ap.fullname" . }}-egress-proxy{{- end -}}

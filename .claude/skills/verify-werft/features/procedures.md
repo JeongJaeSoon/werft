@@ -1116,6 +1116,31 @@ grep -E '\((pass|fail|skip)\)' "$EVIDENCE/ci-<job>.log" | grep -F '<test name>'
 
 실제 Slack(개발 워크스페이스)에서만 보이는 것은 mock으로 대신하지 않는다. `conversations.members`의 실제 응답, metadata가 붙은 mirror 왕복, tombstone 원본 필드는 bot token을 여는 단계가 필요하므로 오너가 직접 돌린다.
 
+## P-CONVERSATION-RUNTIME — 대화 런타임의 턴 하나
+
+전제: mock Slack run에 런타임 overlay를 더해 띄운다. `up.sh infra/compose.mock-slack.yml infra/compose.conversation-runtime.yml`(P-SLACK-SETUP처럼 버리는 `PLATFORM_SECRET_KEY`를 같은 호출에서 준다). doctor 목록에 `conversation-runtime running healthy`가 있어야 한다. P-SLACK-SETUP까지 끝낸 뒤, owner의 Slack 사람(`U0MOCK`)을 잇고(P-A0의 `a0_link owner U0MOCK`), 채널 하나를 만들어 binding `on`으로 켜고, 멘션 하나를 보낸다. 그 멘션이 대화와 주제 행을 만든다. 운영자 명령은 그 둘의 id를 받는다. DB는 읽기만 한다. 런타임 컨테이너의 환경을 읽는 probe는 쓰지 않는다(agent-guard가 막는다).
+
+```sh
+# Actor: stack operator. a0_mock·a0_val·a0_sql은 P-A0의 것.
+PUB=$(a0_mock /fake/channels "$(jq -nc --arg app "$APP" '{app_id:$app, channels:[{name:"t2-runtime", bot_member:true, user_ids:["U0MOCK"]}]}')" | jq -r '.channels[0].id')
+ap_as owner
+ap_web PUT "/v1/agents/$AID/slack-bindings" "{\"channel_id\":\"$PUB\",\"mode\":\"on\",\"home\":true}"
+node "$U" "$RUN" slack-event "$AID" mention "$PUB" 2
+a0_val "select c.id, t.id from conversations c join conversation_topics t on t.conversation_id=c.id where c.agent_id='$AID'"   # CID|TOPIC을 ids.sh에 적는다
+ap_compose exec -T api bun run apps/control-host/src/api/conversation-turn.ts --workspace "$WS" --agent "$AID" --conversation "$CID" --topic "$TOPIC" --text 'CALL-SPEC {"id":"t2-verify","reply":"conversation runtime verify"}'; echo "exit=$?"
+ap_compose logs --no-log-prefix conversation-runtime | grep conversation_turn
+ap_compose logs --no-log-prefix api | grep "Operator conversation turn"
+a0_sql "select root_kind, requester_user_id, call_class, call_key, state, tokens from conversation_calls"
+ap_compose exec -T api bun -e 'const r = await fetch("http://fake-messages:4011/requests?spec=t2-verify"); console.log(await r.text())'
+ap_compose logs --no-log-prefix egress-proxy | grep conversation_call_id
+docker inspect "$(ap_compose ps -q conversation-runtime)" --format 'readonly={{.HostConfig.ReadonlyRootfs}} mounts={{len .Mounts}} networks={{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+ap_compose exec -T conversation-runtime sh -c 'ls -A /conversation | wc -l'
+```
+
+기대: 명령은 `{"outcome":"ended",…,"turn":{"outcome":"completed","text":"conversation runtime verify"}}`와 exit 0. 런타임 로그는 `conversation_turn.started`·`ended`(`outcome:"completed"`)·`reported`(`reported:"recorded"`) 세 줄이고 id만 있다(입력·답·토큰 없음). API 로그 한 줄에 `operator_user`·`operator_host`와 `turn_outcome:"completed"`. 원장은 한 줄: `root_kind` `key`, `requester_user_id` 비어 있음, `call_class` `m2`, `call_key` `operator-<turn id>:m2`, `state` `settled`. 운영자 턴은 `call_key`의 `operator-` 접두어로 다른 호출과 갈린다. fake 모델 기록은 `spec_id:"t2-verify"`, `tools:[]` 한 건. proxy 로그는 `purpose:"provider"`와 그 호출 id, status 200. inspect는 `readonly=true mounts=0`이고 network는 `…_conversation-runtime` 하나다. 주제 디렉터리는 0개.
+
+런타임을 끄면 거절된다. `ap_compose stop conversation-runtime` 뒤 45초(런타임이 묻는 간격의 두 배)를 기다려 같은 명령을 돌리면 `{"outcome":"no_runtime"}`와 exit 3이고 원장 줄 수는 그대로다. overlay 없이 띄운 run에서는 exit 4("The conversation runtime is off for this API")다. 런타임 안에서 다른 서비스로 직접 가는 길이 없는 것은 `ap_compose exec -T conversation-runtime bun -e`로 `node:net` 연결을 시도해 본다: `egress-proxy:3128`·`3129`만 열리고 `api`·`postgres`·`fake-messages`는 이름이 풀리지 않는다. 소스: `apps/control-host/src/api/conversation-runtime.ts`, `conversation-turn.ts`, `apps/worker/src/conversation/`.
+
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 
 전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh scripts/verify/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.

@@ -178,8 +178,10 @@ export function runtimeEnvironment(
     | "claudeConfigDir"
     | "gitEnvironment"
     | "home"
+    | "maxOutputTokens"
     | "profile"
     | "providerMaxRetries"
+    | "tmpDir"
     | "trustedCaBundle"
     | "userEnvironment"
   >,
@@ -202,7 +204,7 @@ export function runtimeEnvironment(
     HOME: config.home,
     LANG: host.LANG ?? "en_US.UTF-8",
     PATH: host.PATH,
-    TMPDIR: host.TMPDIR ?? tmpdir(),
+    TMPDIR: config.tmpDir ?? host.TMPDIR ?? tmpdir(),
   };
   for (const name of HOST_PROXY_VARIABLES) {
     const value = host[name];
@@ -213,6 +215,9 @@ export function runtimeEnvironment(
   }
   if (config.providerMaxRetries !== undefined) {
     environment.CLAUDE_CODE_MAX_RETRIES = String(config.providerMaxRetries);
+  }
+  if (config.maxOutputTokens !== undefined) {
+    environment.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(config.maxOutputTokens);
   }
   if (config.trustedCaBundle !== undefined) {
     environment.NODE_EXTRA_CA_CERTS = config.trustedCaBundle;

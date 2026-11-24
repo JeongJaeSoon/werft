@@ -308,6 +308,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | NetworkPolicy | 5 | worker は egress-proxy だけにアクセスします。制御領域 Pod で外部接続を遮断するのは slack だけです |
 | Ingress、ExternalSecret | 任意 | `ingress.enabled`、`secrets.externalSecret.enabled` |
 | metrics Deployment + Service（9464）+ NetworkPolicy | 任意、1、`Recreate` | `metrics.enabled`。プラットフォームメトリクスを返します（[プラットフォームメトリクス](/run-server/self-hosting/collect-metrics)） |
+| conversation-runtime Deployment + NetworkPolicy | 任意、1、`Recreate` | `conversationRuntime.enabled`。既定では無効です。worker イメージ（最新の Claude イメージ）を worker node で実行し、egress proxy にのみ出ていきます（[会話ランタイム](#대화-런타임)） |
 
 <a id="secret과-aws-values" />
 ## Secret と AWS values
@@ -426,6 +427,25 @@ EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
 - 呼び出しはセッションの接続とモデルで provider route を通るため、費用は最初の turn の usage とセッション上限に入ります。proxy は `/v1/messages`、セッションのモデル、`max_tokens` 64 以下のリクエストだけを送ります。
 - API はこの URL の host:port にだけ送り（メタデータ・link-local アドレスは拒否）、redirect には従わず、25 秒で打ち切ります。
 - 利用者が付けたタイトルや `PATCH /v1/sessions/{id}` で変えたタイトルは上書きしません。呼び出しが失敗するか回答が空なら、最初のメッセージのタイトルが残ります。
+
+## 会話ランタイム [#대화-런타임]
+
+会話ランタイムは、worker イメージを会話用のエントリポイント（`apps/worker/src/conversation/main.ts`）で起動した 1 つの process です。インストール内のすべてのエージェントの会話ターンを実行します。既定では無効で、テストスタックでのみ有効にします。人のメッセージをこのランタイムへ渡す経路はまだありません。ターンは、運用者が api コンテナで `bun run apps/control-host/src/api/conversation-turn.ts` を実行したときだけ始まります。
+
+- ランタイムは provider キーを持ちません。ターンごとに 1 回限りの呼び出し許可を受け取り、egress proxy の credential route へ送ります。キーは proxy が付けます。1 ターンは provider を 1 回だけ呼び出します。
+- workspace volume もリポジトリの checkout もありません。トピックごとにメモリ上の一時ディレクトリを使い、ターンが終わると削除します。エンジンにはツールを渡しません。
+- ランタイムが到達できるのは egress proxy だけで、DNS も使いません。API には forward proxy 経由で次のターンを問い合わせ、ランタイムへ入ってくる接続はありません。
+- 有効にする方法: compose では `infra/compose.conversation-runtime.yml` をスタックに重ねます。Helm では `conversationRuntime.enabled: true` とし、Secret に `CONVERSATION_RUNTIME_TOKEN` を入れます。replica は 1 です。
+- ターンは現在、1 つの API process のメモリ上に並びます。API を再起動すると並んでいたターンは失われます。API の replica が 2 つ以上の場合、ランタイムが問い合わせていない replica で実行した運用者コマンドは `no_runtime` で拒否されます。
+
+| 変数 | 読む場所 | 既定値 | 許容範囲 |
+|---|---|---|---|
+| `CONVERSATION_RUNTIME_TOKEN` | api、会話ランタイム（同じ値） | なし | 32 文字以上。ランタイムの 2 つの route（`/internal/conversation-runtime/next-turn`、`/internal/conversation-runtime/turn-result`）だけを開く bearer です。ほかの `/internal` route に送ると 403 になります。api にない場合は 2 つの route と運用者コマンドが無効になり、ランタイムにない場合はランタイムが起動を拒否します。Helm では Secret の同名の key です |
+| `CONVERSATION_RUNTIME_TOKEN_PREVIOUS` | api | なし | 交換中の古い bearer。新しい値と並べて受け付けます。古い値をここに、新しい値を `CONVERSATION_RUNTIME_TOKEN` に置き、api とランタイムを再起動したあと、この値を削除します |
+| `CONVERSATION_TURN_DISPATCH` | api | `false` | 人のメッセージを会話ターンへ渡すスイッチ。無効のままにします。ターンの待ち行列がメモリ上にある間に有効にすると、api は起動を拒否します |
+| `CONVERSATION_TURN_SOCKET` | api | `/tmp/werft-conversation-turns.sock` | 運用者コマンドが api にターンを渡す unix socket のパス。同じコンテナ内からのみ到達できます |
+| `CONVERSATION_TOPICS_DIR` | 会話ランタイム | compose と chart では `/conversation` | トピックごとの一時ディレクトリを作る tmpfs のパス。必須です |
+| `CONVERSATION_STATUS_FILE` | 会話ランタイム | `/tmp/conversation-runtime-status.json` | ランタイムが最後に api へ到達した時刻を書くファイル。healthcheck（`main.ts --health`）が読み、200 秒より古いと unhealthy になります |
 
 ## 設定文書のインポートとエクスポート [#설정-문서-가져오기내보내기]
 

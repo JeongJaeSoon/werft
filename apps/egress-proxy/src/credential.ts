@@ -288,7 +288,8 @@ const PROVIDER_PATHS = new Set([
 // The achievement judge's one call, made by the API with a judgment token.
 const JUDGMENT_PATH = "/decisions/v1/decisions";
 // Claude Code asks for the beta surface with `?beta=true`; nothing else.
-const PROVIDER_QUERIES = new Set(["", "?beta=true"]);
+const ENGINE_QUERY = "?beta=true";
+const PROVIDER_QUERIES = new Set(["", ENGINE_QUERY]);
 
 const OBJECT_STORE_PREFIX = "/object-store";
 
@@ -780,8 +781,16 @@ function outsideLimits(
   limits: RequestLimits,
   route: { path: string; search: string },
   body: Uint8Array | null,
+  /**
+   * The grant is a conversation call's, which the engine of a conversation
+   * turn makes as it makes every Messages call: with `?beta=true`.
+   */
+  engineQuery: boolean,
 ): string | null {
-  if (route.path !== limits.path || route.search !== "") {
+  if (
+    route.path !== limits.path ||
+    (route.search !== "" && !(engineQuery && route.search === ENGINE_QUERY))
+  ) {
     return "this grant covers one provider path";
   }
   if (
@@ -2411,6 +2420,7 @@ export function startCredentialProxy(
             limits,
             route,
             read instanceof Uint8Array ? read : null,
+            authorized.grant.conversationCallId !== null,
           );
           if (outside !== null) {
             release();
