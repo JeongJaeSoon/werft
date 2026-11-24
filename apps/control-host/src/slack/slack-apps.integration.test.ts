@@ -535,16 +535,21 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         expect(await receiptsOf(workspaceId)).toHaveLength(2);
       });
 
-      test("a refused actor or an unknown agent leaves no receipt and no change", async () => {
+      test("a refused actor leaves no receipt and no change; an unknown agent is not found", async () => {
         const workspaceId = await workspace();
         const agentId = await agent(workspaceId, false);
         const member = await person(workspaceId, "member");
+        const owner = await person(workspaceId, "owner");
         const actor = { principal: member.principal, managerRoles: BINDERS };
+        const ownerActor = {
+          principal: owner.principal,
+          managerRoles: BINDERS,
+        };
         expect(await put(workspaceId, agentId, actor, ["U0A"])).toBe(
           "outranked",
         );
-        expect(await put(workspaceId, randomUUID(), actor, ["U0A"])).not.toBe(
-          "saved",
+        expect(await put(workspaceId, randomUUID(), ownerActor, ["U0A"])).toBe(
+          "not_found",
         );
         expect(await receiptsOf(workspaceId)).toHaveLength(0);
         expect(
@@ -553,26 +558,40 @@ integration("Slack apps and the config token on PostgreSQL", () => {
         ).toEqual([]);
       });
 
-      test("saves at once each see the list the other left, so receipts chain", async () => {
+      test("a save waits for the row lock, then builds on the list the other save left", async () => {
         const workspaceId = await workspace();
         const agentId = await agent(workspaceId, false);
         const owner = await person(workspaceId, "owner");
         const actor = { principal: owner.principal, managerRoles: BINDERS };
-        await Promise.all([
-          put(workspaceId, agentId, actor, ["U0A"]),
-          put(workspaceId, agentId, actor, ["U0B"]),
-        ]);
-        const rows = await receiptsOf(workspaceId);
-        const final =
-          (await store().getAllowedBots(workspaceId, agentId))
-            ?.allowedBotUserIds ?? [];
-        expect(rows).toHaveLength(2);
-        // Without the lock both would read [] and both write count_before 0.
-        expect(rows.map((row) => row.result.count_before).sort()).toEqual([
-          0, 1,
-        ]);
-        expect(rows.some((row) => row.result.removed.length === 1)).toBe(true);
-        expect(final).toHaveLength(1);
+        let release: () => void = () => {};
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let locked: () => void = () => {};
+        const holding = new Promise<void>((resolve) => {
+          locked = resolve;
+        });
+        const other = db.transaction(async (tx) => {
+          await tx
+            .update(agents)
+            .set({ slackAllowedBotUserIds: ["U0A"] })
+            .where(eq(agents.id, agentId));
+          locked();
+          await gate;
+        });
+        await holding;
+        const save = put(workspaceId, agentId, actor, ["U0B"]);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        release();
+        await other;
+        expect(await save).toBe("saved");
+        const [row] = await receiptsOf(workspaceId);
+        // Without the lock the save would have read [] and recorded count_before 0.
+        expect(row?.result).toMatchObject({
+          count_before: 1,
+          count_after: 1,
+          removed: ["U0A"],
+        });
       });
     });
 
