@@ -1,0 +1,73 @@
+{{- if .Values.worker.prePull.enabled }}
+{{- $prePull := .Values.worker.prePull }}
+{{- /* The images sessions launch on, validated as the scheduler reads them. */}}
+{{- $images := list }}
+{{- if .Values.images.workers }}
+{{- range (include "ap.workerImages" . | fromJsonArray) }}
+{{- if not .retracted }}
+{{- $images = append $images .image }}
+{{- end }}
+{{- end }}
+{{- else }}
+{{- $images = append $images (include "ap.image" (dict "root" . "name" "worker")) }}
+{{- if .Values.images.workerPrevious.digest }}
+{{- $images = append $images (include "ap.image" (dict "root" . "name" "workerPrevious")) }}
+{{- end }}
+{{- end }}
+# Pulls each worker image onto every worker node, so the first session there
+# does not wait for it: one init container per image, which only runs
+# `true`, then a container that sleeps. A node is Ready here once it holds
+# them all. A changed image list rolls the Pods, pulling the new images.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "ap.fullname" . }}-worker-prepull
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "worker-prepull") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "worker-prepull") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "worker-prepull") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 5
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- range $index, $image := $images }}
+        - name: pull-{{ $index }}
+          image: {{ $image }}
+          imagePullPolicy: {{ $.Values.images.pullPolicy }}
+          command: ["true"]
+          resources:
+            {{- toYaml $prePull.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" $ | nindent 12 }}
+        {{- end }}
+      containers:
+        - name: wait
+          image: {{ include "ap.image" (dict "root" . "name" "controlHost") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done
+          resources:
+            {{- toYaml $prePull.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+      {{- with (default .Values.worker.nodeSelector $prePull.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (default .Values.worker.tolerations $prePull.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
