@@ -17,6 +17,7 @@ import {
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import {
+  CODEX_CHECKPOINT_ENGINE,
   equivalentToolCatalogVersions,
   installedDescriptors,
   installedToolCatalogs,
@@ -80,6 +81,26 @@ export function launchableKindsFromEnv(
       installedDescriptors.find((descriptor) => descriptor.kind === kind)
         ?.checkpointEngine ?? null,
     ).length > 0;
+}
+
+/**
+ * Whether the scheduler refuses every Codex worker before it starts, by its
+ * own rule: the sandbox is on, the chart's `CODEX_SANDBOX_PROVIDER` is
+ * `disabled`, and a configured image declares the Codex engine (one with no
+ * declared runtime is not sandboxed, so not refused).
+ */
+export function codexSandboxMissingFromEnv(
+  env: Record<string, string | undefined>,
+  provider: string | undefined,
+): boolean {
+  return (
+    provider === "disabled" &&
+    env.CODEX_SANDBOX !== "disabled" &&
+    (configuredImageRuntimesFromEnv(env)?.some(
+      (runtime) => runtime.engine === CODEX_CHECKPOINT_ENGINE,
+    ) ??
+      false)
+  );
 }
 
 /** The catalog a one-off job reads: the installation's settings, read once. */

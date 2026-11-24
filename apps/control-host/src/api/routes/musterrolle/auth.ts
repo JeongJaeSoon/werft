@@ -109,6 +109,8 @@ export interface AuthRouteDeps {
   loginMethods?: LoginMethodStore;
   /** Absent: the login page is told passwords are open to everyone. */
   loginSettings?: Pick<LoginSettingsStore, "read">;
+  /** GET /v1/auth/me says Codex workers are refused here. */
+  codexSandboxMissing?: boolean;
 }
 
 const LINK_SESSION_MAX_AGE_MS = LOGIN_LINK_SESSION_MAX_AGE_MINUTES * 60 * 1000;
@@ -1213,6 +1215,9 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
   });
 
   apiRoute(router, "getAuthMe", async (context) => {
+    const codexSandbox = deps.codexSandboxMissing
+      ? { codex_sandbox_missing: true as const }
+      : {};
     const principal = context.get("principal");
     const session = context.get("webSession");
     if (principal.kind === "user" && session) {
@@ -1239,6 +1244,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         workspace: workspaceView(workspace),
         scopes: principal.scopes,
         permissions: permissionsOf(principal.role),
+        ...codexSandbox,
       });
     }
     const workspaceId =
@@ -1256,6 +1262,7 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
       workspace: workspace ? workspaceView(workspace) : null,
       scopes: principal.scopes,
       permissions: [],
+      ...codexSandbox,
     });
   });
 }

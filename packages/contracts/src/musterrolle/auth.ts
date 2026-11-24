@@ -233,6 +233,12 @@ export const authMeResponseSchema = z
      * holds more on that agent than this says; an API key holds none.
      */
     permissions: z.array(authorizationActionSchema),
+    /**
+     * True where the scheduler refuses every Codex worker before it starts
+     * (`CODEX_SANDBOX_NOT_INSTALLED`), so a screen can warn a Codex agent's
+     * admins; absent otherwise.
+     */
+    codex_sandbox_missing: z.literal(true).exactOptional(),
   })
   .strict()
   .superRefine((response, ctx) => {

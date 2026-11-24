@@ -3765,7 +3765,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "The authenticated principal, user and workspace",
     description:
-      "Says who the credential authenticates as and what it may do: the principal with its scopes, the workspace, and for a cookie session the user and the management actions its role holds (`permissions`). An API key has no user, so `user` is null and `permissions` is empty; `workspace` is the key's workspace, or null for a legacy key that predates workspaces. The web app boots from this. It changes nothing.",
+      "Says who the credential authenticates as and what it may do: the principal with its scopes, the workspace, and for a cookie session the user and the management actions its role holds (`permissions`). An API key has no user, so `user` is null and `permissions` is empty; `workspace` is the key's workspace, or null for a legacy key that predates workspaces. `codex_sandbox_missing` is true where every Codex worker is refused before it starts (`CODEX_SANDBOX_NOT_INSTALLED`): the chart's `codexSandbox.provider` is `disabled` and a worker image declares the Codex engine. The console then warns a Codex agent's admins; the field is absent otherwise. The web app boots from this. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
