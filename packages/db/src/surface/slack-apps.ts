@@ -1008,7 +1008,19 @@ export function createPostgresSlackAppStore(
       const workspaceId = input.workspaceId.toLowerCase();
       const slackAppId = input.slackAppId.toLowerCase();
       return db.transaction(async (tx) => {
-        const row = await lockedApp(tx, workspaceId, slackAppId);
+        // NO KEY UPDATE, not lockedApp's FOR UPDATE: an outbox insert holds a
+        // binding this close revokes and takes the app's key share for its
+        // foreign key; FOR UPDATE would wait on it while it waits here.
+        const [row] = await tx
+          .select()
+          .from(slackApps)
+          .where(
+            and(
+              eq(slackApps.id, slackAppId),
+              eq(slackApps.workspaceId, workspaceId),
+            ),
+          )
+          .for("no key update");
         if (!row) throw new Error(`Slack app ${slackAppId} not found`);
         // Two deletes can both begin; the one that waited here finds it done.
         if (row.state === "deleted") {

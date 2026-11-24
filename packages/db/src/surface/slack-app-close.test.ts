@@ -17,6 +17,7 @@ import { writeSecretInTx } from "../secrets/index.ts";
 import { closeSlackApp } from "./slack-app-close.ts";
 import { createPostgresSlackAppStore } from "./slack-apps.ts";
 import { createPostgresSlackInstallStore } from "./slack-install-states.ts";
+import { registerSlackInstallation } from "./slack-installations.ts";
 import { createPostgresSlackOutboxStore } from "./slack-outbox.ts";
 
 let client: PGlite;
@@ -416,7 +417,7 @@ describe("finishDelete", () => {
     ).toEqual([{ n: 1 }]);
   });
 
-  test("an install consent that lands after the delete reopens nothing", async () => {
+  test("an install consent or an operator register after the delete reopens nothing", async () => {
     await createPostgresSlackAppStore(db, key).finishDelete({
       workspaceId: WORKSPACE,
       slackAppId: seeded.slackAppId,
@@ -434,6 +435,14 @@ describe("finishDelete", () => {
         }),
       ).toEqual({ outcome: "revoked" });
     }
+    // The operator CLI's `slack-install register` registers directly.
+    expect(
+      await registerSlackInstallation(db, {
+        workspaceId: WORKSPACE,
+        appId: seeded.appId,
+        teamId: TEAM,
+      }),
+    ).toEqual({ outcome: "app_deleted" });
     expect(await snapshot()).toEqual(before);
     expect(
       await rows(
