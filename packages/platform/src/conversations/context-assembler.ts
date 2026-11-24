@@ -316,6 +316,31 @@ export async function assembleCallContext(
   };
 }
 
+/**
+ * What a judgment call reads, through the fragment source: the context of
+ * its conversation, by `assembleCallContext`.
+ */
+export function judgmentContexts(source: ContextFragmentSource) {
+  return {
+    async assemble(
+      ref: {
+        workspaceId: string;
+        agentId: string;
+        conversationId: ConversationId;
+      },
+      input: Parameters<typeof assembleCallContext>[2],
+    ): Promise<
+      | Awaited<ReturnType<typeof assembleCallContext>>
+      | { outcome: "unknown_conversation" }
+    > {
+      const conversation = await source.conversationOf(ref);
+      if (conversation === null) return { outcome: "unknown_conversation" };
+      return assembleCallContext(source, conversation, input);
+    },
+  };
+}
+export type JudgmentContexts = ReturnType<typeof judgmentContexts>;
+
 /** How each kind is named before its text, within PIECE_OVERHEAD_BYTES. */
 const PIECE_LABEL: Record<ContextFragment["kind"], string> = {
   channel_summary_line: "channel summary",

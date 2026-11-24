@@ -36,6 +36,21 @@ describe("GET /readyz", () => {
     });
   });
 
+  test("passes the probe's detail on, and leaves the key out without one", async () => {
+    const response = await app({
+      ready: true,
+      detail: { checkpoints_forgotten_on_boot: 2 },
+    }).request("/readyz");
+    expect(response.status).toBe(200);
+    expect(readyResponseSchema.parse(await response.json())).toEqual({
+      status: "ready",
+      checks: { database: "ok", schema: "ok", config: "ok" },
+      detail: { checkpoints_forgotten_on_boot: 2 },
+    });
+    const plain = await app({ ready: true }).request("/readyz");
+    expect(await plain.json()).not.toHaveProperty("detail");
+  });
+
   test("answers 503 NOT_READY naming the failed check", async () => {
     // A request id holding the digits a leak check once looked for.
     const uuid = spyOn(crypto, "randomUUID").mockReturnValue(

@@ -17,6 +17,10 @@ export const shellKo = {
   "shell.waitingNone": "답변 대기 없음",
   "shell.breadcrumb": "위치",
   "shell.menuTrail": "메뉴 위치",
+  "shell.lostCheckpoints":
+    "시험 설치: 다시 켜서 세션 {count}개의 맥락을 잃었습니다",
+  "shell.lostCheckpoints.close": "닫기",
+  "shell.lostCheckpoints.closeFailed": "닫지 못했습니다.",
 };
 
 export const shellEn: Record<keyof typeof shellKo, string> = {
@@ -38,6 +42,10 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
   "shell.waitingNone": "Nothing waiting for an answer",
   "shell.breadcrumb": "Breadcrumb",
   "shell.menuTrail": "Menu breadcrumb",
+  "shell.lostCheckpoints":
+    "Test installation: a restart lost the context of {count} sessions",
+  "shell.lostCheckpoints.close": "Close",
+  "shell.lostCheckpoints.closeFailed": "Could not close it.",
 };
 
 export const shellJa: Record<keyof typeof shellKo, string> = {
@@ -59,4 +67,8 @@ export const shellJa: Record<keyof typeof shellKo, string> = {
   "shell.waitingNone": "回答待ちはありません",
   "shell.breadcrumb": "現在地",
   "shell.menuTrail": "メニューの現在地",
+  "shell.lostCheckpoints":
+    "試験インストール: 再起動でセッション{count}件のコンテキストを失いました",
+  "shell.lostCheckpoints.close": "閉じる",
+  "shell.lostCheckpoints.closeFailed": "閉じられませんでした。",
 };

@@ -240,6 +240,8 @@ export function createConversationRuntimeTurns(deps: {
   /** How often a waiting poll looks at the queue again. */
   pollMs?: number;
   leaseMs?: number;
+  /** Told of each turn as it is leased, before the runtime has it. */
+  leased?: (turn: ConversationRuntimeTurn) => Promise<void>;
 }) {
   const now = deps.now ?? (() => new Date());
   const sleep =
@@ -268,9 +270,12 @@ export function createConversationRuntimeTurns(deps: {
           leaseMs,
         });
         if (turn !== null) {
-          return deps.topicSessions === undefined
-            ? turn
-            : deps.topicSessions.handOut(turn);
+          const handed =
+            deps.topicSessions === undefined
+              ? turn
+              : await deps.topicSessions.handOut(turn);
+          await deps.leased?.(handed);
+          return handed;
         }
         const left = deadline - now().getTime();
         if (left <= 0 || input.stop?.aborted === true) return null;

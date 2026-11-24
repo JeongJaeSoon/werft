@@ -4,7 +4,10 @@
 # (claude-sessions), which the API signs for with LocalStack's own key.
 #
 # LocalStack keeps S3 in memory. A restart of its container, of Docker or of
-# the host loses every checkpoint object, and the API then refuses to start
+# the host loses every checkpoint object. The API is set below to give the
+# lost checkpoints up at its next start instead of refusing to start; their
+# sessions wait in recovery_required. To keep them over a planned restart,
+# take `backup --stop` first: the writers then stay down
 # until `test-ops.sh reseed` puts a backup's objects back or
 # `test-ops.sh reset` empties the installation.
 services:
@@ -18,6 +21,10 @@ services:
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:?EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must name localstack:4566}
   api:
     environment:
+      # Fixed, not interpolated: the API accepts forget only on a trial
+      # installation whose object store is LocalStack, which is this layer.
+      INSTALLATION_PROFILE: test
+      CHECKPOINT_OBJECTS_LOST: forget
       AWS_ENDPOINT_URL: http://localstack:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test

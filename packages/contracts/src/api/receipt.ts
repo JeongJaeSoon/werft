@@ -128,6 +128,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // names its purpose and last four characters, never the value.
   "set_slack_secret",
   "delete_slack_secret",
+  // A Slack app deleted through the API: what it closed in Werft and how
+  // the Slack side's cleanup went, never a token.
+  "delete_slack_app",
   // The workspace's GitHub App registered, replaced or removed; the receipt
   // names the App id, never the key.
   "set_github_app",
@@ -266,6 +269,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // approval rows, never the notice's text.
   "approve_slack_notice",
   "revoke_slack_notice",
+  // An operator closing one budget reservation of unknown end, from the
+  // operator CLI: the call, its account, spent or refunded, and the reason.
+  "resolve_unknown_budget",
   // An agent's conversation switch changed: by a workspace owner or admin in
   // the console, the operator CLI, or lowered to `off` when its notice
   // approval was revoked or stopped counting.

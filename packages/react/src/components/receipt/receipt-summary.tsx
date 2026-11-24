@@ -160,10 +160,12 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   disconnect_workspace_mcp_server: "워크스페이스 MCP 서버 연결 끊기",
   delete_conversation_records: "대화 기록 삭제",
   set_slack_allowed_bots: "Slack 허용 봇 변경",
+  resolve_unknown_budget: "끝을 모르는 예산 예약 풀기",
   approve_slack_notice: "Slack 고지 승인",
   revoke_slack_notice: "Slack 고지 승인 철회",
   set_conversation_rollout: "에이전트 대화 스위치 변경",
   set_slack_secret: "Slack 비밀값 설정",
+  delete_slack_app: "Slack 앱 삭제",
   delete_slack_secret: "Slack 비밀값 삭제",
 };
 

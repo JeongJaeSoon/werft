@@ -9,7 +9,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { join, posix } from "node:path";
+import { join } from "node:path";
 import type {
   AdditionalWorkspaceRepository,
   CheckpointRef,
@@ -17,6 +17,9 @@ import type {
   WorkspaceRepository,
 } from "@werft-ai/contracts";
 import {
+  type CommittedInstructions,
+  type CommittedTree,
+  firstCommittedInstructions,
   planWorkspacePreparation,
   type WorkspaceObservation,
   type WorkspacePlan,
@@ -119,17 +122,10 @@ async function bytesUnder(path: string): Promise<number> {
   return total;
 }
 
-/**
- * Past this the run is refused rather than handed part of the file: a cut can
- * drop the rule that mattered or end one mid-sentence, and a model cannot
- * tell a truncated policy from a complete one.
- */
-export const COMMITTED_INSTRUCTIONS_MAX_BYTES = 64 * 1024;
-
-export type CommittedInstructions =
-  | { kind: "text"; text: string }
-  | { kind: "absent" }
-  | { kind: "refused"; reason: string };
+export {
+  COMMITTED_INSTRUCTIONS_MAX_BYTES,
+  type CommittedInstructions,
+} from "@werft-ai/runtime-core";
 
 /** The instruction file as read, and the commit it was read from. */
 export type PinnedInstructions = {
@@ -881,28 +877,6 @@ async function sweepWorkerScratch(root: string): Promise<void> {
 /** `mkdtemp`'s six characters: the restored checkpoint directory has none. */
 const WORKER_SCRATCH_NAME = /^werft-[a-z]+-[A-Za-z0-9]{6}$/;
 
-/** Enough for a CLAUDE.md -> AGENTS.md -> docs/... chain; more is a loop. */
-const MAX_LINK_HOPS = 8;
-/** Linux's PATH_MAX: no checkout could create a link to anything longer. */
-const MAX_LINK_TARGET_BYTES = 4096;
-
-/**
- * The first of the root instruction files `files` (AGENTS.md, else CLAUDE.md
- * for the Claude runtime) that the tree at `rev` has, read from git's object
- * store in `cwd` — never from a working tree, which the engine writes. A file
- * that is only an `@<other file>` line stands for that file, so a CLAUDE.md
- * importing AGENTS.md is read once. A committed symlink is
- * followed only to another path in the same tree (`CLAUDE.md -> AGENTS.md`
- * is ordinary); one that leaves it, loops, or ends at anything but a file is
- * refused, as is a file past the cap or one git cannot read. Refused, not
- * thrown: whether the run wants the file at all is the run config's call, made
- * later, and a session that never asked for it must not fail over it.
- *
- * Left out, against what the engine itself loads: `.claude/CLAUDE.md`,
- * `CLAUDE.local.md`, `.claude/rules/`, nested directories' files and `@`
- * imports — each is another path to resolve the same way, worth adding when
- * a repository the platform serves depends on one.
- */
 /**
  * Resolves `rev` to the commit it names now and reads `file` from that
  * commit, so the text and the commit a checkpoint later pins are the same.
@@ -931,6 +905,12 @@ async function pinInstructions(
   };
 }
 
+/**
+ * The root instruction file at `rev`, read from git's object store in `cwd`
+ * by `firstCommittedInstructions`'s rules. Refused, not thrown: whether the
+ * run wants the file at all is the run config's call, made later, and a
+ * session that never asked for it must not fail over it.
+ */
 export async function readCommittedInstructions(
   git: Git,
   cwd: string,
@@ -939,7 +919,7 @@ export async function readCommittedInstructions(
   signal: AbortSignal,
 ): Promise<CommittedInstructions> {
   try {
-    return await firstCommittedInstructions(git, cwd, rev, files);
+    return await firstCommittedInstructions(gitTree(git, cwd, rev), files);
   } catch (error) {
     // A stop is the preparation's to report. Anything else that goes wrong
     // with this file is only the business of a run that asks for it.
@@ -951,127 +931,50 @@ export async function readCommittedInstructions(
   }
 }
 
-// A file the tree has wins, even when it is refused: falling through to the
-// next name would hand the run rules the repository ranks below the broken one.
-async function firstCommittedInstructions(
-  git: Git,
-  cwd: string,
-  rev: string,
-  files: readonly string[],
-): Promise<CommittedInstructions> {
-  for (const file of files) {
-    const found = await resolveCommittedInstructions(git, cwd, rev, file);
-    if (found.kind === "absent") continue;
-    if (found.kind !== "text") return found;
-    const imported = /^@(\S+)$/.exec(found.text.trim())?.[1];
-    // One hop only, so two files importing each other cannot loop.
-    return imported !== undefined &&
-      imported !== file &&
-      files.includes(imported)
-      ? resolveCommittedInstructions(git, cwd, rev, imported)
-      : found;
-  }
-  return { kind: "absent" };
-}
-
-async function resolveCommittedInstructions(
-  git: Git,
-  cwd: string,
-  rev: string,
-  file: string,
-): Promise<CommittedInstructions> {
-  let path = file;
-  for (let hop = 0; hop <= MAX_LINK_HOPS; hop++) {
-    const listed = await git(
-      ["--literal-pathspecs", "ls-tree", "--full-tree", "-z", rev, "--", path],
-      { cwd },
-    );
-    if (listed.code !== 0) {
-      return {
-        kind: "refused",
-        reason: `git ls-tree failed (exit ${listed.code}): ${listed.stderr.trim()}`,
-      };
-    }
-    // A pathspec naming a directory lists what is in it; only an entry for
-    // exactly this path is the file (a link to nothing lists nothing).
-    const entry = /^(\d+) (\w+) ([0-9a-f]+)\t([^\0]*)\0/.exec(listed.stdout);
-    if (entry === null || entry[4] !== path) return { kind: "absent" };
-    const [, mode, type, object] = entry as unknown as [
-      string,
-      string,
-      string,
-      string,
-    ];
-    if (mode === "120000") {
-      // Sized before it is read, like the file itself: on a reuse this runs
-      // against a mirror before any checkout, where no filesystem limit on
-      // link targets stands between a huge blob and this process's memory.
-      const size = await git(["cat-file", "-s", object], { cwd });
-      if (size.code !== 0) {
-        return {
-          kind: "refused",
-          reason: `git cat-file failed (exit ${size.code}): ${size.stderr.trim()}`,
-        };
-      }
-      if (Number(size.stdout.trim()) > MAX_LINK_TARGET_BYTES) {
-        return { kind: "refused", reason: "it links to an overlong path" };
-      }
-      const target = await git(["cat-file", "blob", object], { cwd });
-      if (target.code !== 0) {
-        return {
-          kind: "refused",
-          reason: `git cat-file failed (exit ${target.code}): ${target.stderr.trim()}`,
-        };
-      }
-      // A link is an arbitrary blob; no filesystem path holds a NUL.
-      if (target.stdout.includes("\0")) {
-        return { kind: "refused", reason: "it links to a malformed path" };
-      }
-      const next = posix.normalize(
-        posix.join(posix.dirname(path), target.stdout),
+/**
+ * The tree at `rev` as `cwd`'s object store holds it — never a working
+ * tree, which the engine writes.
+ */
+function gitTree(git: Git, cwd: string, rev: string): CommittedTree {
+  const run = async (args: string[], what: string) => {
+    const result = await git(args, { cwd });
+    if (result.code !== 0) {
+      throw new Error(
+        `git ${what} failed (exit ${result.code}): ${result.stderr.trim()}`,
       );
-      if (
-        posix.isAbsolute(target.stdout) ||
-        next === ".." ||
-        next.startsWith("../")
-      ) {
-        return { kind: "refused", reason: "it links outside the repository" };
-      }
-      // A pathspec that names a directory this way lists everything in it —
-      // unbounded output from a read that runs for every session — and
-      // whatever it names is no file anyway.
-      if (next === "." || next.endsWith("/")) {
-        return { kind: "refused", reason: "it is not a regular file" };
-      }
-      path = next;
-      continue;
     }
-    if (type !== "blob") {
-      return { kind: "refused", reason: "it is not a regular file" };
-    }
-    const size = await git(["cat-file", "-s", object], { cwd });
-    if (size.code !== 0) {
-      return {
-        kind: "refused",
-        reason: `git cat-file failed (exit ${size.code}): ${size.stderr.trim()}`,
-      };
-    }
-    if (Number(size.stdout.trim()) > COMMITTED_INSTRUCTIONS_MAX_BYTES) {
-      return {
-        kind: "refused",
-        reason: `it is larger than ${COMMITTED_INSTRUCTIONS_MAX_BYTES} bytes`,
-      };
-    }
-    const blob = await git(["cat-file", "blob", object], { cwd });
-    if (blob.code !== 0) {
-      return {
-        kind: "refused",
-        reason: `git cat-file failed (exit ${blob.code}): ${blob.stderr.trim()}`,
-      };
-    }
-    return { kind: "text", text: blob.stdout };
-  }
-  return { kind: "refused", reason: "it links through too many symlinks" };
+    return result.stdout;
+  };
+  return {
+    async entry(path) {
+      const listed = await run(
+        [
+          "--literal-pathspecs",
+          "ls-tree",
+          "--full-tree",
+          "-z",
+          rev,
+          "--",
+          path,
+        ],
+        "ls-tree",
+      );
+      // A pathspec naming a directory lists what is in it; only an entry for
+      // exactly this path is the file (a link to nothing lists nothing).
+      const entry = /^(\d+) (\w+) ([0-9a-f]+)\t([^\0]*)\0/.exec(listed);
+      if (entry === null || entry[4] !== path) return null;
+      const [, mode, type, object] = entry as unknown as [
+        string,
+        string,
+        string,
+        string,
+      ];
+      return { mode, type, object };
+    },
+    size: async (object) =>
+      Number((await run(["cat-file", "-s", object], "cat-file")).trim()),
+    read: (object) => run(["cat-file", "blob", object], "cat-file"),
+  };
 }
 
 type Secret = {

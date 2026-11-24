@@ -23,6 +23,7 @@ describe("kubernetesConfigFromEnv", () => {
       namespace: "agents",
       nodeSelector: {},
       objectStore: { bucket: "sessions", region: "ap-northeast-1" },
+      idleTimeoutSeconds: 1800,
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 120,
       storageClass: null,
@@ -146,6 +147,23 @@ describe("kubernetesConfigFromEnv", () => {
     expect(() =>
       kubernetesConfigFromEnv({ ...BASE, ...extra }, noFile),
     ).toThrow(message);
+  });
+
+  test("reads the worker idle lifetime, refusing it outside 60 to 7200", () => {
+    expect(
+      kubernetesConfigFromEnv(
+        { ...BASE, WORKER_IDLE_TIMEOUT_SEC: "600" },
+        () => "agents",
+      ).idleTimeoutSeconds,
+    ).toBe(600);
+    for (const value of ["59", "7201"]) {
+      expect(() =>
+        kubernetesConfigFromEnv(
+          { ...BASE, WORKER_IDLE_TIMEOUT_SEC: value },
+          () => "agents",
+        ),
+      ).toThrow("WORKER_IDLE_TIMEOUT_SEC must be an integer from 60 to 7200");
+    }
   });
 
   test("requires the shared worker settings", () => {

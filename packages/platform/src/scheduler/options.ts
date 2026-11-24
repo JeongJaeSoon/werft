@@ -213,6 +213,12 @@ export type SchedulerRunSummary = {
    */
   launchesNoCapacity: ExecutionRef[];
   /**
+   * Idle workers asked to go this pass so a launch waiting for room gets
+   * theirs. Each stops at its next poll; its session waits for its next
+   * input, as after an idle timeout.
+   */
+  idleWorkersStopped: ExecutionRef[];
+  /**
    * Unclaimed launches whose resource was to be built again on a retracted
    * image: given back instead, so their sessions choose an image afresh.
    */

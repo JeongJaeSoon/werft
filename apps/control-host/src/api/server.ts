@@ -5,6 +5,7 @@ import {
   backfillWebInputTurns,
   budgetChoiceOfCall,
   closeAgentlessSessions,
+  closeLostCheckpointNotices,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAchievementJudgments,
@@ -87,9 +88,11 @@ import {
   createPostgresWorkspaceMcpStore,
   createProviderExchangeLedger,
   fillSessionParents,
+  forgetLostCheckpointsAtStart,
   hasUncollectedCheckpoint,
   moveSummaryLinks,
   newSessionGitHubReaders,
+  openLostCheckpointNotices,
   reconcileRetiredCatalogDrafts,
   slackAppKind,
   workspaceRepositoryCeiling,
@@ -179,6 +182,7 @@ import {
   settingsJudgeConnections,
   withConsoleRepositories,
 } from "@werft-ai/platform";
+import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
 import {
@@ -191,6 +195,8 @@ import {
   wireGitPusher,
 } from "../wiring/github-api.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
+import { wireM1JudgmentRunner } from "../wiring/m1-judgments.ts";
+import { wireReleaseInstructions } from "../wiring/release-instructions.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
 import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
@@ -203,6 +209,7 @@ import {
   wireSlackServices,
 } from "../wiring/slack-api.ts";
 import { createAccountLinkCookies } from "./account-link-cookie.ts";
+import { ambiguousPathGuard } from "./ambiguous-path.ts";
 import {
   API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
@@ -222,9 +229,9 @@ import {
   archivedEventSource,
   assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,
-  assertCheckpointObjectsPresent,
   checkpointGitMemoryBytesFromEnv,
   checkpointObjectRouteSigner,
+  checkpointObjectsAtStart,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
   extensionBundleObjects,
@@ -256,6 +263,7 @@ import {
 import { leftOutReporter, settingsSource } from "./installation-settings.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { createLoginSettingsAdmin } from "./login-settings.ts";
+import { createLostCheckpointNoticesAdmin } from "./lost-checkpoint-notices.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { endpointProblem } from "./oidc/provider-http.ts";
 import { oneHostOutbound } from "./outbound-http.ts";
@@ -290,6 +298,7 @@ import {
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
 import { registerInstallationConfigRoutes } from "./routes/limits/installation-config.ts";
+import { registerLostCheckpointNoticeRoutes } from "./routes/limits/lost-checkpoint-notices.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
@@ -339,8 +348,7 @@ import { registerSlackNoticeRoutes } from "./routes/surface/slack-notice.ts";
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { registerSlackSettingsRoutes } from "./routes/surface/slack-settings.ts";
 import { registerUsageRoutes } from "./routes/usage/usage.ts";
-import { registerConversationRuntimeRoutes } from "./routes/workers/conversation-runtime.ts";
-import { registerWorkerRoutes } from "./routes/workers/worker.ts";
+import { registerInternalApiRoutes } from "./routes/workers/internal.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
 import {
@@ -623,9 +631,22 @@ fillSessionParents(db).then(
   },
 );
 if (checkpointStorage !== "disabled") {
-  await assertCheckpointObjectsPresent(checkpointStorage, {
+  const forgotten = await checkpointObjectsAtStart(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+    forget: (stillLost) =>
+      forgetLostCheckpointsAtStart(db, new Date(), stillLost),
   });
+  if (forgotten) {
+    logger.warn(
+      "The object store came back empty, so the checkpoints it held were given up at start (CHECKPOINT_OBJECTS_LOST=forget); the recovery_required sessions wait for a recovery decision",
+      {
+        bucket: checkpointStorage.bucket,
+        sessions: forgotten.held.length + forgotten.unchanged.length,
+        recovery_required: forgotten.held,
+        unchanged: forgotten.unchanged,
+      },
+    );
+  }
 }
 const checkpoints = createApiCheckpoints(
   db,
@@ -684,6 +705,12 @@ const agents = createAgentService({
   welcome: slackWelcome,
   keys: createPostgresWorkspaceKeyStore(db),
   runtimes: installedRuntimeVersions,
+  releaseInstructions: wireReleaseInstructions({
+    catalog,
+    resolver: () => githubResolver,
+    descriptors: installedDescriptors,
+    logger,
+  }),
   extensions: extensionDeps,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);
@@ -789,6 +816,13 @@ const installationConfigAdmin = createInstallationConfigAdmin({
   source: installationConfig,
   store: installationConfigStore,
   sessionArchive: sessionArchiveStatusOf(checkpointStorage),
+});
+const lostCheckpointNoticesAdmin = createLostCheckpointNoticesAdmin({
+  authorization,
+  store: {
+    open: () => openLostCheckpointNotices(db),
+    close: (input) => closeLostCheckpointNotices(db, input),
+  },
 });
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {
@@ -1202,6 +1236,18 @@ const achievementJudge = createAchievementJudge({
         },
       }),
 }).start();
+// M1 judges unmentioned Slack posts for the record (a1/J5), through the same
+// listener; without it no judgment is made and the buffer's posts expire.
+const m1Judgments =
+  judgeEgressUrl === null
+    ? undefined
+    : wireM1JudgmentRunner({
+        db,
+        agents: agentStore,
+        catalog,
+        egressUrl: judgeEgressUrl,
+        logger,
+      }).start();
 const interrupts = createInterruptService({
   authorization,
   store: createPostgresTurnInterrupts(db, { logger }),
@@ -1281,6 +1327,13 @@ const conversationTurnQueue = createMemoryConversationTurnQueue();
 assertConversationTurnDispatch(process.env, conversationTurnQueue);
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
+  // A turn's calls end with its runtime's lease, the turn's time limit as
+  // the server holds it: at the lease's own end, however late this runs.
+  leased: (turn) =>
+    conversationCallStore.boundTurnPermitAtomic({
+      turnId: turn.turn_id,
+      until: new Date(turn.lease_expires_at),
+    }),
   // What a topic's live session read, in this process's memory like the queue.
   topicSessions: createTopicSessionChecks({
     contexts: createPostgresTopicTurnContexts(db),
@@ -1392,30 +1445,37 @@ const workers = createWorkerGateway({
     stopWaiting: shutdown.stopWaiting,
   },
 });
+// Shared by every listener below, so the count is the process's.
+const ambiguousPaths = ambiguousPathGuard(logger);
 const authorizerListener =
   egressAuthorizer === null
     ? undefined
     : Bun.serve({
         hostname: egressAuthorizer.hostname,
         port: egressAuthorizer.port,
-        fetch: createEgressAuthorizer({
-          gateway: workers,
-          logger,
-          exchanges: createProviderExchangeLedger(db, {
-            admits: async () =>
-              admitsReservations(await installationConfig.sessionBudget()),
+        fetch: ambiguousPaths.front(
+          "egress-authorizer",
+          createEgressAuthorizer({
+            gateway: workers,
+            logger,
+            exchanges: createProviderExchangeLedger(db, {
+              admits: async () =>
+                admitsReservations(await installationConfig.sessionBudget()),
+            }),
+            budgetOf: (call) => budgetChoiceOfCall(db, call),
+            ...(githubMcpGrantKey === null
+              ? {}
+              : {
+                  githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
+                }),
+            ...(checkpointStorage === "disabled"
+              ? {}
+              : {
+                  objectStore: checkpointObjectRouteSigner(checkpointStorage),
+                }),
+            token: egressAuthorizer.token,
           }),
-          budgetOf: (call) => budgetChoiceOfCall(db, call),
-          ...(githubMcpGrantKey === null
-            ? {}
-            : {
-                githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
-              }),
-          ...(checkpointStorage === "disabled"
-            ? {}
-            : { objectStore: checkpointObjectRouteSigner(checkpointStorage) }),
-          token: egressAuthorizer.token,
-        }),
+        ),
       });
 if (authorizerListener === undefined) {
   logger.warn(
@@ -1576,6 +1636,7 @@ const app = createApiApp({
     registerLoginSettingsRoutes(router, loginSettingsAdmin);
     registerSlackSettingsRoutes(router, slackSettingsAdmin);
     registerInstallationConfigRoutes(router, installationConfigAdmin);
+    registerLostCheckpointNoticeRoutes(router, lostCheckpointNoticesAdmin);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,
@@ -1650,16 +1711,22 @@ const app = createApiApp({
       ...settings.sse,
     });
   },
-  registerInternalRoutes: (router) => {
-    if (conversationRuntime !== null) {
-      registerConversationRuntimeRoutes(router, {
-        turns: conversationTurns,
-        isRuntimeBearer: conversationRuntimeBearer(conversationRuntime.tokens),
-        stop: shutdown.stopWaiting,
-      });
-    }
-    registerWorkerRoutes(router, workers, new RequestTracing(tracer));
-  },
+  registerInternalRoutes: (router) =>
+    registerInternalApiRoutes(router, {
+      workers,
+      tracing: new RequestTracing(tracer),
+      stop: shutdown.stopWaiting,
+      ...(conversationRuntime === null
+        ? {}
+        : {
+            conversationRuntime: {
+              turns: conversationTurns,
+              isRuntimeBearer: conversationRuntimeBearer(
+                conversationRuntime.tokens,
+              ),
+            },
+          }),
+    }),
   ...(settings.webDistDir === undefined
     ? {}
     : { webDistDir: settings.webDistDir }),
@@ -1694,19 +1761,22 @@ const server = Bun.serve({
   // limit: the app produces the documented 413 up to twice the limit, and
   // only a grossly oversized upload is cut at the transport.
   maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2,
-  fetch(
-    request: Request,
-    server: {
-      timeout(r: Request, seconds: number): void;
-      requestIP(r: Request): { address: string } | null;
+  fetch: ambiguousPaths.front(
+    "api",
+    (
+      request: Request,
+      server: {
+        timeout(r: Request, seconds: number): void;
+        requestIP(r: Request): { address: string } | null;
+      },
+    ): Response | Promise<Response> => {
+      const peer = server.requestIP(request)?.address;
+      return app.fetch(request, {
+        setIdleTimeout: (seconds: number) => server.timeout(request, seconds),
+        ...(peer === undefined ? {} : { clientAddress: peer }),
+      });
     },
-  ): Response | Promise<Response> {
-    const peer = server.requestIP(request)?.address;
-    return app.fetch(request, {
-      setIdleTimeout: (seconds: number) => server.timeout(request, seconds),
-      ...(peer === undefined ? {} : { clientAddress: peer }),
-    });
-  },
+  ),
 });
 // With PORT=0 the OS picks the port; this line is the only place it shows.
 logger.info("API listening", { port: server.port });
@@ -1726,6 +1796,7 @@ const operatorTurns =
           catalog,
         }),
         logger,
+        guard: ambiguousPaths,
       });
 
 // Workers send spans here and never to the collector. Off with tracing, so a
@@ -1733,7 +1804,7 @@ const operatorTurns =
 const ingestListener =
   tracingSettings === undefined || otelTracer === undefined
     ? undefined
-    : await startTelemetryIngest(tracingSettings, db, logger);
+    : await startTelemetryIngest(tracingSettings, db, logger, ambiguousPaths);
 if (ingestListener !== undefined) {
   logger.info("Telemetry ingest listening", { port: ingestListener.port });
 }
@@ -1757,6 +1828,9 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         { name: "pull-request-drain", close: () => pullRequestDrain.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
+        ...(m1Judgments === undefined
+          ? []
+          : [{ name: "m1-judgments", close: () => m1Judgments.stop() }]),
         { name: "event-listener", close: () => notifier.close() },
         ...(operatorTurns === undefined
           ? []

@@ -30,10 +30,16 @@ export const BUDGET_LIMIT_SUBJECT_VALUES = [
 ] as const;
 export type BudgetLimitSubject = (typeof BUDGET_LIMIT_SUBJECT_VALUES)[number];
 
+/**
+ * `resolved`: an operator closed a reservation whose end was unknown, as
+ * spent or refunded (BudgetUnknownResolution). A late report then adds a
+ * budget adjustment and leaves the row as it is.
+ */
 export const BUDGET_RESERVATION_STATE_VALUES = [
   "reserved",
   "settled",
   "released",
+  "resolved",
 ] as const;
 export type BudgetReservationState =
   (typeof BUDGET_RESERVATION_STATE_VALUES)[number];
@@ -42,16 +48,26 @@ export type BudgetReservationState =
  * A provider call that serves no session (a conversation call): held on a
  * budget account when its token is issued, `in_flight` once the proxy used
  * the token, `settled` by the usage report. An unused token's reservation
- * is `released` when it expires.
+ * is `released` when it expires. A call in flight whose end was unknown is
+ * `resolved` when an operator closes its reservation.
  */
 export const CONVERSATION_CALL_STATE_VALUES = [
   "reserved",
   "in_flight",
   "settled",
   "released",
+  "resolved",
 ] as const;
 export type ConversationCallState =
   (typeof CONVERSATION_CALL_STATE_VALUES)[number];
+
+/**
+ * How an operator closed a reservation of unknown end: charged at what it
+ * held (the default, never charging an unknown call less), or given back.
+ */
+export const BUDGET_UNKNOWN_RESOLUTION_VALUES = ["spent", "refunded"] as const;
+export type BudgetUnknownResolution =
+  (typeof BUDGET_UNKNOWN_RESOLUTION_VALUES)[number];
 
 /**
  * Why a conversation turn's permit was refused a call, as its row keeps it:

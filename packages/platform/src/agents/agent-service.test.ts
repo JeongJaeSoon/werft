@@ -24,6 +24,7 @@ import type {
   AgentStore,
 } from "./ports/agent-store.ts";
 import { deriveReleaseId } from "./release-ids.ts";
+import type { ReleaseInstructionsSource } from "./release-instructions.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000b1";
@@ -188,6 +189,7 @@ function serviceOver(
   store: AgentStore,
   connection: CatalogConnection = CONNECTION,
   unbound: Record<string, string[]> = {},
+  releaseInstructions?: ReleaseInstructionsSource,
 ) {
   return createAgentService({
     authorization: createAuthorizationPolicy(),
@@ -197,7 +199,36 @@ function serviceOver(
       unboundRefs: async (_workspaceId, releaseId) => unbound[releaseId] ?? [],
     },
     runtimes: TEST_RUNTIMES,
+    ...(releaseInstructions === undefined ? {} : { releaseInstructions }),
   });
+}
+
+/** A repository whose AGENTS.md reads `text` at `commit`; null: GitHub fails. */
+function branchAt(state: {
+  commit: string;
+  text: string | null;
+}): ReleaseInstructionsSource {
+  return {
+    open: async () => {
+      if (state.text === null) {
+        return { kind: "read_failed", reason: "github_failed" };
+      }
+      const text = state.text;
+      return {
+        kind: "tree",
+        commit: state.commit,
+        files: ["AGENTS.md", "CLAUDE.md"],
+        tree: {
+          entry: async (path) =>
+            path === "AGENTS.md"
+              ? { mode: "100644", type: "blob", object: "blob" }
+              : null,
+          size: async () => new TextEncoder().encode(text).length,
+          read: async () => text,
+        },
+      };
+    },
+  };
 }
 
 const person = (role: "owner" | "member") =>
@@ -342,6 +373,62 @@ describe("agent service", () => {
       release,
     );
     expect(again).toEqual({ release: first.release, created: false });
+  });
+
+  test("a release keeps the instruction file its repository's branch has now, and a push makes the next one new", async () => {
+    const branch = { commit: "a".repeat(40), text: "first" as string | null };
+    const service = serviceOver(
+      memoryStore().store,
+      CONNECTION,
+      {},
+      branchAt(branch),
+    );
+    const first = await service.createRelease(owner, AGENT, release);
+    expect(first.release.instructions_snapshot).toEqual({
+      kind: "text",
+      repository_id: "sample-app",
+      commit: "a".repeat(40),
+      file: "AGENTS.md",
+      text: "first",
+      bytes: 5,
+      truncated: false,
+    });
+    expect((await service.createRelease(owner, AGENT, release)).created).toBe(
+      false,
+    );
+
+    branch.commit = "b".repeat(40);
+    branch.text = "second";
+    const pushed = await service.createRelease(owner, AGENT, release);
+    expect(pushed.created).toBe(true);
+    expect(pushed.release.id).not.toBe(first.release.id);
+
+    // GitHub failing does not stop the release; it says so instead.
+    branch.text = null;
+    const failed = await service.createRelease(owner, AGENT, release);
+    expect(failed.created).toBe(true);
+    expect(failed.release.instructions_snapshot).toEqual({
+      kind: "read_failed",
+      repository_id: "sample-app",
+      reason: "github_failed",
+    });
+
+    const none = await service.createRelease(owner, AGENT, {
+      version_id: VERSION,
+      connection_id: "conn-1",
+    });
+    expect(none.release.instructions_snapshot).toEqual({
+      kind: "no_repository",
+    });
+  });
+
+  test("without a source a release takes no snapshot, under the id it always had", async () => {
+    const made = await serviceOver(memoryStore().store).createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    expect(made.release.instructions_snapshot).toBeNull();
   });
 
   test("a release names the repository its sessions work on, one the catalog holds, or none", async () => {

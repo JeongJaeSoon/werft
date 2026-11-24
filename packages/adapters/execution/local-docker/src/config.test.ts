@@ -24,6 +24,7 @@ describe("localDockerConfigFromEnv", () => {
         region: "ap-northeast-1",
       },
       requestTimeoutMs: 30_000,
+      idleTimeoutSeconds: 1800,
       stopTimeoutSeconds: 120,
       tmpfsSizeBytes: 256 * 1024 * 1024,
       user: "1000:1000",

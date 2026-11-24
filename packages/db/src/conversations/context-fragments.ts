@@ -12,6 +12,8 @@ import {
   type ContextFragmentSource,
   type ContextRead,
   type ConversationKey,
+  type JudgmentContexts,
+  judgmentContexts,
   type SourceKey,
   sourceSetOf,
   storedSourceSet,
@@ -56,6 +58,11 @@ const conversationColumns = (alias: string) => {
   return sql`${c}.workspace_id, ${c}.agent_id, ${c}.kind, ${c}.team_id,
     ${c}.channel_id, ${c}.person_user_id`;
 };
+
+/** A judgment call's context, read through the assembler (G1). */
+export function createPostgresJudgmentContexts(db: Database): JudgmentContexts {
+  return judgmentContexts(createPostgresContextFragmentSource(db));
+}
 
 /** A topic turn's context and checks, read through the assembler (G1). */
 export function createPostgresTopicTurnContexts(

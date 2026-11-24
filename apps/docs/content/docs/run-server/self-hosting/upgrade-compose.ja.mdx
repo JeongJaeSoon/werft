@@ -304,6 +304,8 @@ migration `0305_drop_unused_tables` が `catalog_authority`・`owner_workspace_m
 
 migration `0345_conversation_turns` が会話ターンの記録の表 `conversation_turns` を加え、`conversation_engagements`・`conversation_calls`・`conversation_inputs` にその表を指す欄 `conversation_turn_id` を、`conversation_inputs` に `body_sha256` を加える。外部キーと検査は `NOT VALID` で加えてから別に検証し、インデックスは `CONCURRENTLY` で作るので、表を長く止めない。上げるときにすることはない。このリリースには人のメッセージで会話ターンを動かす経路がないので、Slack のメンションと返信、Web・API のセッションの動作は変わらない。
 
+migration `0351_conversation_turn_limits` は `conversation_turns` に、上限に達して終わったターンの上限（`limit_reached`）と、その上限を守った側（`limit_reached_by`）の 2 つの欄を加える。既定値のない空の欄なので行を書き直さず、検査は `NOT VALID` で加えてから別に検証する。上げるときにすることはない。
+
 - Web 入力の本文は、その入力の会話ターンの行（種類 `web_input`、状態 `received`）から読む。入力受付の行はその行を指し、本文の SHA-256 を持つ。同じメッセージキーの再送はこのハッシュで比べる。サポート期間内の前のイメージが読めるよう、入力受付の行も本文をそのまま持ち、後のリリースが消す。
 - 前のリリース（上げるあいだ一緒に動く前のイメージを含む）が受け付けた Web 入力には、api の起動ごとに回る整理が一つずつターンの行を作る。その数はログ `Web inputs given their turn rows` に残る。作れなかった入力は入力 id と一緒に警告として残り、次の起動でもう一度試す。対象の行がなければ何も書かない。
 - [管理者削除](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제)はその会話の会話ターンの記録も削除し、出力と receipt に削除した数 `turns` を加える。Web 入力のターンの行は削除しない。
@@ -371,6 +373,14 @@ migration `0334_input_mirror` が、`slack_outbox` に種類 `input_mirror` と�
 - 人の返信が投稿結果の記録より先に処理され、そのスレッドがすでに別の話題になっているまれな場合、二つの話題はまとめない。slack ロールが `warn` ログ `Slack mirror opened a thread another topic already holds; the topics stay apart` を残す。
 - DM の新しい話題は、その人の DM チャンネルを知っている話題があるときだけ投稿される。なければ入力は Slack に映らないまま待つ。
 - CHECK と外部キーは `NOT VALID` で追加し、別の文で検証する。サポート期間内のイメージに戻しても問題ない。
+
+<a id="끝을-모르는-예약을-운영자가-푸는-릴리스" />
+### 終わりのわからない予約を運用者が解消するリリース
+
+migration `0350_unknown_budget_resolution` が `budget_reservations` に nullable の列 `resolution` と状態の値 `resolved` を、`conversation_calls` に状態の値 `resolved` を加え、遅れた報告の調整行を置く空の表 `budget_adjustments` を作る。変わった CHECK は `NOT VALID` で加え直してから別に検証するので、表を長くロックしない。上げるときにすることはなく、運用者がコマンドで解消するまで動作は変わらない。
+
+- 運用者コマンド `budget-unknown.ts`(`list`・`resolve`)が入る。使い方は[終わりのわからない予算予約の解消](/run-server/self-hosting/reference/storage#끝을-모르는-예산-예약-풀기)にある。解消した予約ごとに receipt `resolve_unknown_budget` が残る。
+- サポート期間内のイメージに戻してもよい。ただし解消した予約に遅れた報告が来ると、古いイメージはその報告を保存できず失敗で答え、報告は再試行される。戻している間はコマンドで解消しない。
 
 <a id="끝을-모르는-호출을-표시하고-에이전트-스스로-하는-일을-먼저-멈추는-릴리스" />
 ### 終わりのわからない呼び出しを示し、エージェント自身の仕事を先に止めるリリース

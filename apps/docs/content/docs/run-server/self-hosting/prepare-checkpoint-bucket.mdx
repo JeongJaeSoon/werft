@@ -67,6 +67,15 @@ API는 `S3_BUCKET`·`AWS_REGION`(선택 `AWS_ENDPOINT_URL`)이 없으면 기동�
 
 DB에 수거되지 않은 checkpoint 행이 있는데 bucket에 object version이 하나도 없으면(delete marker만 남은 경우 포함) API는 기동하지 않는다. DB만 남고 bucket을 잃었거나, 설정이 다른 빈 bucket을 가리키는 경우다. bucket을 되살리거나 원래 bucket을 가리키게 한다. 미수거 checkpoint가 있는 동안 bucket을 바꾸지 않는다.
 
+시험 설치에만 예외가 있다. `CHECKPOINT_OBJECTS_LOST=forget`(chart는 `config.checkpoints.objectsLost: forget`)이면 API는 이 상태에서 기동을 거부하지 않고, 잃은 checkpoint를 포기한 뒤 뜬다.
+
+- 잃은 checkpoint가 복원 지점이던 세션은 닫힌 것을 빼고 `recovery_required`가 되어 복구 결정을 기다린다.
+- API 로그에 경고 한 줄이 세션 수와 id를 남긴다.
+- `/readyz`는 200 그대로이고, 본문의 `detail.checkpoints_forgotten_on_boot`에 그 세션 수를 적는다.
+- 콘솔은 owner·admin에게 모든 화면 맨 위에 "시험 설치: 다시 켜서 세션 N개의 맥락을 잃었습니다"를 보인다. 그중 한 사람이 **닫기**를 누르면 모두에게서 사라지고 `/readyz`의 수에서도 빠진다. 세션은 `recovery_required`에 그대로 남는다.
+
+API는 이 설정을 `INSTALLATION_PROFILE=test`(chart는 `config.installation.profile: test`)이고 `AWS_ENDPOINT_URL`의 host 첫 마디가 `localstack`일 때만 받는다(`localstack`, `localstack.<namespace>.svc…`). 그 밖의 설치에서 켜면 기동하지 않는다. 다시 뜰 때마다 비는 LocalStack을 위한 설정이며 운영 bucket에는 쓸 수 없다. object가 일부만 없는 bucket은 이 설정으로도 정리하지 않는다. `v0.4.0` 이하 릴리스에는 이 설정이 없다.
+
 ### 저장량
 
 checkpoint가 쓰는 바이트는 실행 한도의 저장량에 세지 않는다. `locked`에서는 모든 version에 hold가 걸려 있어 GC가 hold를 풀고 지우기 전까지 lifecycle 규칙으로도 줄지 않는다. 저장량은 주간 checkpoint GC와 bucket 크기 관찰로 관리한다.

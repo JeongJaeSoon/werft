@@ -5,11 +5,17 @@ import * as schema from "@werft-ai/db";
 import {
   CHECKPOINT_OBJECTS_LOST_REASON,
   checkpoints,
+  closeLostCheckpointNotices,
   events,
   forgetLostCheckpoints,
+  forgetLostCheckpointsAtStart,
   hasUncollectedCheckpoint,
+  lostCheckpointNotices,
+  OPEN_LOST_CHECKPOINT_SESSIONS_SQL,
+  openLostCheckpointNotices,
   receipts,
   sessions,
+  users,
 } from "@werft-ai/db";
 import { migrate } from "@werft-ai/db/migrate";
 import {
@@ -32,9 +38,9 @@ import { drizzle } from "drizzle-orm/pglite";
 import {
   type ApiCheckpointServiceDependencies,
   assertCheckpointBucketEncryption,
-  assertCheckpointObjectsPresent,
   type CheckpointStorageConfig,
   checkpointGitMemoryBytesFromEnv,
+  checkpointObjectsAtStart,
   checkpointStorageConfigFromEnv,
   createApiCheckpointService,
   createApiCheckpoints,
@@ -302,6 +308,76 @@ describe("API checkpoint composition", () => {
     );
   });
 
+  test("gives lost checkpoints up at start only on a test installation whose object store is LocalStack", () => {
+    const full = {
+      AWS_ACCESS_KEY_ID: "id",
+      AWS_REGION: "ap-northeast-1",
+      AWS_SECRET_ACCESS_KEY: "s",
+      S3_BUCKET: "claude-sessions",
+    };
+    const lost = (extra: Record<string, string>) => {
+      const config = checkpointStorageConfigFromEnv({ ...full, ...extra });
+      return config === "disabled" ? config : config.objectsLost;
+    };
+    const trial = {
+      AWS_ENDPOINT_URL: "http://localstack:4566",
+      INSTALLATION_PROFILE: "test",
+    };
+    expect(lost({})).toBeUndefined();
+    expect(lost(trial)).toBeUndefined();
+    expect(lost({ ...trial, CHECKPOINT_OBJECTS_LOST: " " })).toBeUndefined();
+    expect(lost({ CHECKPOINT_OBJECTS_LOST: "refuse" })).toBeUndefined();
+    expect(lost({ ...trial, CHECKPOINT_OBJECTS_LOST: "forget" })).toBe(
+      "forget",
+    );
+    // The Service name as a pod in another namespace reaches it.
+    expect(
+      lost({
+        ...trial,
+        AWS_ENDPOINT_URL: "http://localstack.werft.svc.cluster.local:4566",
+        CHECKPOINT_OBJECTS_LOST: "forget",
+      }),
+    ).toBe("forget");
+    expect(() => lost({ CHECKPOINT_OBJECTS_LOST: "drop" })).toThrow(
+      /^CHECKPOINT_OBJECTS_LOST must be "refuse" \(default\) or "forget", not drop$/,
+    );
+
+    // A production installation refuses it, whatever the object store.
+    const production =
+      /^CHECKPOINT_OBJECTS_LOST=forget gives up lost checkpoints without asking, so it is accepted only on a test installation: INSTALLATION_PROFILE must be test$/;
+    for (const profile of [undefined, "", "production"]) {
+      expect(() =>
+        lost({
+          AWS_ENDPOINT_URL: "http://localstack:4566",
+          CHECKPOINT_OBJECTS_LOST: "forget",
+          ...(profile === undefined ? {} : { INSTALLATION_PROFILE: profile }),
+        }),
+      ).toThrow(production);
+    }
+    // So does a test installation on any store that is not LocalStack: AWS
+    // itself, another host, or a host that only contains the name.
+    const notLocalstack =
+      /^CHECKPOINT_OBJECTS_LOST=forget is accepted only when the object store is LocalStack, which empties on a restart: the host of AWS_ENDPOINT_URL must start with the label localstack$/;
+    for (const endpoint of [
+      undefined,
+      "http://minio:9000",
+      "https://s3.ap-northeast-1.amazonaws.com",
+      "http://my-localstack:4566",
+      "http://s3.localstack.example:4566",
+    ]) {
+      expect(() =>
+        lost({
+          CHECKPOINT_OBJECTS_LOST: "forget",
+          INSTALLATION_PROFILE: "test",
+          ...(endpoint === undefined ? {} : { AWS_ENDPOINT_URL: endpoint }),
+        }),
+      ).toThrow(notLocalstack);
+    }
+    expect(() => lost({ INSTALLATION_PROFILE: "staging" })).toThrow(
+      /^INSTALLATION_PROFILE must be "production" \(default\) or "test", not staging$/,
+    );
+  });
+
   test("reads the object store from the environment and refuses a silent absence", () => {
     const full = {
       AWS_ACCESS_KEY_ID: "id",
@@ -504,10 +580,15 @@ describe("checkpoint objects present at startup", () => {
       return page;
     },
   });
+  let forgot = 0;
   const run = (page: Record<string, unknown>) =>
-    assertCheckpointObjectsPresent(config, {
+    checkpointObjectsAtStart(config, {
       client: bucketListing(page),
       hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+      forget: async () => {
+        forgot += 1;
+        return { held: [], unchanged: [] };
+      },
     });
 
   beforeAll(async () => {
@@ -544,6 +625,8 @@ describe("checkpoint objects present at startup", () => {
     await expect(
       run({ DeleteMarkers: [{ Key: "manifest.json", VersionId: "dm" }] }),
     ).rejects.toThrow(refusal);
+    // Refusing is the default: nothing is given up.
+    expect(forgot).toBe(0);
   });
 
   test("starts when the bucket still holds a version", async () => {
@@ -707,7 +790,7 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
     ]);
     // The startup guard now lets the API start on the empty bucket.
     listed = 0;
-    await assertCheckpointObjectsPresent(config, {
+    await checkpointObjectsAtStart(config, {
       client: {
         async send() {
           listed += 1;
@@ -715,6 +798,7 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
         },
       },
       hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+      forget: () => forgetLostCheckpoints(db, new Date()),
     });
     expect(listed).toBe(0);
   });
@@ -723,5 +807,212 @@ describe("forgetting the checkpoints an emptied bucket lost", () => {
     listed = 0;
     expect(await forget({})).toEqual({ held: [], unchanged: [] });
     expect(listed).toBe(0);
+  });
+});
+
+describe("checkpoints given up at start (CHECKPOINT_OBJECTS_LOST=forget)", () => {
+  const config: CheckpointStorageConfig = {
+    bucket: "claude-sessions",
+    endpoint: "http://localstack:4566",
+    objectsLost: "forget",
+    protection: "locked",
+    region: "ap-northeast-1",
+  };
+  const client = new PGlite();
+  const db = drizzle(client, { schema });
+  const open = crypto.randomUUID();
+  const closed = crypto.randomUUID();
+  // One listing per look at the bucket: the last one repeats.
+  const start = (...pages: Record<string, unknown>[]) => {
+    let looks = 0;
+    return checkpointObjectsAtStart(config, {
+      client: {
+        async send() {
+          const page = pages[Math.min(looks, pages.length - 1)];
+          looks += 1;
+          return page ?? {};
+        },
+      },
+      hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+      forget: (stillLost) =>
+        forgetLostCheckpointsAtStart(db, new Date(), stillLost),
+    });
+  };
+  const admissionState = async (id: string) =>
+    (await db.select().from(sessions).where(eq(sessions.id, id)))[0]
+      ?.admissionState;
+  const openCount = async () =>
+    (await client.query<{ n: number }>(OPEN_LOST_CHECKPOINT_SESSIONS_SQL))
+      .rows[0]?.n;
+
+  beforeAll(async () => {
+    await migrate(db, {
+      migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
+    });
+    for (const [id, state] of [
+      [open, "stopped"],
+      [closed, "closed"],
+    ] as const) {
+      await db.insert(sessions).values({
+        id,
+        ownerId: "owner",
+        repoUrl: "https://example.invalid/repo.git",
+        branch: `session/${id}`,
+        status: "stopped",
+        admissionState: state,
+        checkpointRevision: 1,
+      });
+      await db.insert(checkpoints).values({
+        sessionId: id,
+        revision: 1,
+        manifestRef: `s3://claude-sessions/${id}/manifest.json`,
+        manifestSha256: "sha256",
+      });
+    }
+  }, 30_000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  test("a bucket that lost only some objects is not forgotten: the API starts as before", async () => {
+    // One session's manifest is still there, the other's is gone.
+    expect(
+      await start({
+        Versions: [{ Key: `${closed}/manifest.json`, VersionId: "v1" }],
+      }),
+    ).toBeUndefined();
+    expect(await hasUncollectedCheckpoint(db)).toBe(true);
+    expect(await admissionState(open)).toBe("stopped");
+    expect(await openCount()).toBe(0);
+  });
+
+  test("a checkpoint written between the first look and the locks keeps everything", async () => {
+    // Empty when the start decided, an object by the time the sessions are
+    // locked: an API beside this one committed a checkpoint in between.
+    expect(
+      await start(
+        {},
+        { Versions: [{ Key: `${open}/manifest.json`, VersionId: "v2" }] },
+      ),
+    ).toBeUndefined();
+    expect(await hasUncollectedCheckpoint(db)).toBe(true);
+    expect(await admissionState(open)).toBe("stopped");
+    expect(await db.select().from(lostCheckpointNotices)).toHaveLength(0);
+  });
+
+  test("a second look the bucket never answers fails the start with nothing given up", async () => {
+    let looks = 0;
+    await expect(
+      checkpointObjectsAtStart(config, {
+        client: {
+          send() {
+            looks += 1;
+            // The first look answers "empty"; the second hangs.
+            return looks === 1 ? Promise.resolve({}) : new Promise(() => {});
+          },
+        },
+        hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+        forget: (stillLost) =>
+          forgetLostCheckpointsAtStart(db, new Date(), stillLost),
+        secondLookDeadlineMs: 20,
+      }),
+    ).rejects.toThrow(
+      "Checkpoint bucket claude-sessions did not answer within 20 ms when it was read again before giving up its lost checkpoints; nothing was given up",
+    );
+    expect(looks).toBe(2);
+    expect(await hasUncollectedCheckpoint(db)).toBe(true);
+    expect(await admissionState(open)).toBe("stopped");
+    expect(await db.select().from(lostCheckpointNotices)).toHaveLength(0);
+  });
+
+  test("an empty bucket starts: the checkpoints are given up, their sessions wait in recovery_required, and the loss is recorded", async () => {
+    expect(await start({})).toEqual({ held: [open], unchanged: [closed] });
+    expect(await hasUncollectedCheckpoint(db)).toBe(false);
+    expect(await admissionState(open)).toBe("recovery_required");
+    expect(await admissionState(closed)).toBe("closed");
+    const notices = await db.select().from(lostCheckpointNotices);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ closedAt: null, closedBy: null });
+    expect([...(notices[0]?.sessionIds ?? [])].sort()).toEqual(
+      [open, closed].sort(),
+    );
+    expect(await openCount()).toBe(2);
+  });
+
+  test("the next start, and a second API that starts beside the first, find nothing left and record nothing", async () => {
+    expect(await start({})).toBeUndefined();
+    expect(
+      await forgetLostCheckpointsAtStart(db, new Date(), async () => true),
+    ).toEqual({ held: [], unchanged: [] });
+    expect(await db.select().from(lostCheckpointNotices)).toHaveLength(1);
+  });
+
+  test("a start PostgreSQL picked as a deadlock victim runs again, second look included", async () => {
+    const victim = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id: victim,
+      ownerId: "owner",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${victim}`,
+      status: "stopped",
+      admissionState: "stopped",
+      checkpointRevision: 1,
+    });
+    await db.insert(checkpoints).values({
+      sessionId: victim,
+      revision: 1,
+      manifestRef: `s3://claude-sessions/${victim}/manifest.json`,
+      manifestSha256: "sha256",
+    });
+    let looks = 0;
+    expect(
+      await forgetLostCheckpointsAtStart(db, new Date(), async () => {
+        looks += 1;
+        if (looks === 1) {
+          throw Object.assign(new Error("deadlock detected"), {
+            code: "40P01",
+          });
+        }
+        return true;
+      }),
+    ).toEqual({ held: [victim], unchanged: [] });
+    expect(looks).toBe(2);
+    // The first attempt was rolled back whole: one more row, not two.
+    expect(await db.select().from(lostCheckpointNotices)).toHaveLength(2);
+    expect(await openCount()).toBe(3);
+  });
+
+  test("an administrator closes the notices they read; the rest stay open and counted", async () => {
+    const open = await openLostCheckpointNotices(db);
+    expect(open.map((notice) => notice.sessions)).toEqual([2, 1]);
+    const [first, later] = open.map((notice) => notice.id) as [string, string];
+    const [closer, other] = [crypto.randomUUID(), crypto.randomUUID()];
+    await db.insert(users).values(
+      [closer, other].map((id) => ({
+        id,
+        email: `${id}@example.test`,
+        displayName: "Admin",
+      })),
+    );
+    await closeLostCheckpointNotices(db, { ids: [first], closedBy: closer });
+    expect((await openLostCheckpointNotices(db)).map((n) => n.id)).toEqual([
+      later,
+    ]);
+    expect(await openCount()).toBe(1);
+
+    // Closed once: a second close, and an id that names nothing, change
+    // nothing, and who closed first stays.
+    await closeLostCheckpointNotices(db, {
+      ids: [first, crypto.randomUUID()],
+      closedBy: other,
+    });
+    const rows = await db.select().from(lostCheckpointNotices);
+    expect(rows.find((row) => row.id === first)?.closedBy).toBe(closer);
+    expect(rows.find((row) => row.id === later)?.closedAt).toBeNull();
+
+    await closeLostCheckpointNotices(db, { ids: [later], closedBy: other });
+    expect(await openLostCheckpointNotices(db)).toEqual([]);
+    expect(await openCount()).toBe(0);
   });
 });

@@ -50,6 +50,7 @@ import {
   bootstrapRequestSchema,
   bootstrapResponseSchema,
   checkSkillResponseSchema,
+  closeLostCheckpointNoticesRequestSchema,
   closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
@@ -194,6 +195,7 @@ import {
   loginSettingsResponseSchema,
   lookupSlackChannelsQuerySchema,
   lookupSlackChannelsResponseSchema,
+  lostCheckpointNoticesSchema,
   memberLimitsResponseSchema,
   memberParamsSchema,
   memberUserParamsSchema,
@@ -489,6 +491,7 @@ const requestComponents = {
   UpdateLoginSettingsRequest: updateLoginSettingsRequestSchema,
   UpdateSlackSettingsRequest: updateSlackSettingsRequestSchema,
   UpdateInstallationConfigRequest: updateInstallationConfigRequestSchema,
+  CloseLostCheckpointNoticesRequest: closeLostCheckpointNoticesRequestSchema,
   SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   ListAuditEventsQuery: listAuditEventsQuerySchema,
@@ -630,6 +633,7 @@ const responseComponents = {
   UpdateSlackSettingsResponse: updateSlackSettingsResponseSchema,
   InstallationConfig: installationConfigSchema,
   UpdateInstallationConfigResponse: updateInstallationConfigResponseSchema,
+  LostCheckpointNotices: lostCheckpointNoticesSchema,
   GetGitHubAppResponse: getGitHubAppResponseSchema,
   StartGitHubAppManifestResponse: startGitHubAppManifestResponseSchema,
   CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
@@ -1458,6 +1462,21 @@ const SETTINGS_DOCUMENT_EXAMPLE = {
   },
 };
 
+const NOTICE_MANAGER =
+  "Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes.";
+
+const EXAMPLE_LOST_CHECKPOINT_NOTICE_ID =
+  "5b2e8c1d-4f7a-4a3b-9e6d-0c1f2a3b4d5e";
+const LOST_CHECKPOINT_NOTICES_EXAMPLE = {
+  notices: [
+    {
+      id: EXAMPLE_LOST_CHECKPOINT_NOTICE_ID,
+      forgotten_at: "2026-11-24T09:12:44.000Z",
+      sessions: 3,
+    },
+  ],
+};
+
 const SETTINGS_OWNER =
   "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes.";
 
@@ -1750,7 +1769,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Health",
     summary: "DB, schema and config readiness",
     description:
-      "Runs the readiness checks in order and stops at the first failure: `database` (the database answers), `schema` (the applied migrations include every migration of this build) and `config` (required settings and limits are valid). Use it as a readiness probe: a 503 means do not route traffic here. The execution backend is not checked. From the moment the process starts shutting down it answers 503 too.",
+      "Runs the readiness checks in order and stops at the first failure: `database` (the database answers), `schema` (the applied migrations include every migration of this build) and `config` (required settings and limits are valid). Use it as a readiness probe: a 503 means do not route traffic here. The execution backend is not checked. From the moment the process starts shutting down it answers 503 too. A ready answer may carry `detail`, facts an operator should know that do not make the instance unready; a key appears only while it applies. `checkpoints_forgotten_on_boot` is the number of sessions whose checkpoints a start gave up on an emptied object store (`CHECKPOINT_OBJECTS_LOST=forget`, test installations only), until an administrator closes the notice.",
     success: {
       status: 200,
       schema: "ReadyResponse",
@@ -3174,15 +3193,15 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/workspaces/{id}/slack/apps/{app_id}",
     operationId: "deleteSlackApp",
     tag: "Workspace settings",
-    summary: "Delete one of the workspace's Slack apps in Slack",
+    summary: "Delete one of the workspace's Slack apps",
     description:
-      "Deletes the app in Slack (`apps.manifest.delete` with the config token) and its stored secrets; the row stays as `deleted`. Only an app recorded in this workspace's Slack apps can be named. An agent's app takes an owner, an admin or that agent's admin; any other app an owner or admin. An app Slack no longer has counts as deleted. One still being created answers 409 SLACK_APP_CREATING. API keys are refused.",
+      "Closes the app in Werft first, in one transaction: the row becomes `deleted`, its stored secrets are dropped, and its installs, the agent identities pinned to them, their channel bindings, its outbox messages not yet being sent (closed as `app_deleted`) and its agent's judgment buffer for those channels are closed, all or nothing, with a `delete_slack_app` receipt (what it closed, never a token); when that fails nothing is closed, the app stays `deleting` and the same request deletes it again. Running sessions and their turns stay; what a running session sends to the app afterwards is refused as `app_deleted`. Then, once each and never again, Slack is asked to revoke the bot token (`auth.revoke`) and to delete the app (`apps.manifest.delete` with the config token); a token or app Slack no longer has counts as done. When either fails, the delete still succeeds and `slack_cleanup` names the failed steps: delete the app in Slack's app management page. An uninstall or token revoke event Slack sends later changes nothing. Only an app recorded in this workspace's Slack apps can be named. An agent's app takes an owner, an admin or that agent's admin; any other app an owner or admin. An app Slack no longer has counts as deleted. One still being created answers 409 SLACK_APP_CREATING. API keys are refused.",
     auth: "session",
     success: {
       status: 200,
       schema: "DeleteSlackAppResponse",
       description:
-        "Deleted in Slack, or already gone there; the app as now stored, its secrets dropped.",
+        "Closed in Werft; the app as now stored, its secrets dropped. `slack_cleanup` is what Slack's side came to, null when the app was already deleted (nothing is tried again).",
       example: {
         slack_app: {
           ...EXAMPLE_SLACK_APP,
@@ -3208,14 +3227,11 @@ export const API_ROUTE_DECLARATIONS = [
             },
           },
         },
+        slack_cleanup: { outcome: "done", failed_steps: [], message: null },
       },
     },
     errors: [401, 403, 404, 409, 503],
-    errorCodes: { 409: ["CONFIG_TOKEN_INVALID", "SLACK_APP_CREATING"] },
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when Slack could not be reached or refused; the app stays `deleting` and the same request retries it.",
-    },
+    errorCodes: { 409: ["SLACK_APP_CREATING"] },
     idempotent: false,
   },
   {
@@ -3668,6 +3684,41 @@ export const API_ROUTE_DECLARATIONS = [
       BAD_REQUEST:
         "Also when a value is outside its key's range or of another type; `details.issues[].path` names that key. An unknown key is reported on the body itself, with an empty `path`.",
     },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/lost-checkpoint-notices",
+    operationId: "listLostCheckpointNotices",
+    tag: "Installation settings",
+    summary: "Checkpoints a test installation gave up at start",
+    description: `${NOTICE_MANAGER} One entry for each start at which the API gave up the checkpoints an emptied object store held (\`CHECKPOINT_OBJECTS_LOST=forget\`, accepted only on a test installation whose object store is LocalStack) and that nobody has closed yet, oldest first. The console shows them as a banner on every page, and \`GET /readyz\` counts their sessions in \`detail.checkpoints_forgotten_on_boot\`. Empty on an installation that never gave any up.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "LostCheckpointNotices",
+      description: "The notices still open.",
+      example: LOST_CHECKPOINT_NOTICES_EXAMPLE,
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/lost-checkpoint-notices/close",
+    operationId: "closeLostCheckpointNotices",
+    tag: "Installation settings",
+    summary: "Close the notices of checkpoints given up at start",
+    description: `${NOTICE_MANAGER} Closes the named notices for the whole installation and records who closed them: the banner goes for everyone and \`GET /readyz\` stops counting them. The sessions stay in \`recovery_required\` until each gets its recovery decision. Send the ids that were read, so a start that gave up more after the read stays open; one request takes up to 100, and a longer list goes in several. An id that names no open notice changes nothing.`,
+    auth: "session",
+    body: "CloseLostCheckpointNoticesRequest",
+    requestExample: { ids: [EXAMPLE_LOST_CHECKPOINT_NOTICE_ID] },
+    success: {
+      status: 200,
+      schema: "LostCheckpointNotices",
+      description: "The notices still open after the close.",
+      example: { notices: [] },
+    },
+    errors: [400, 401, 403, 503],
     idempotent: false,
   },
   {
@@ -9260,7 +9311,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (the workspace has not allowed merging; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n- `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.\n- `approve_slack_notice`: `{agent_id, approval_id, slack_team_id, notice_version}`; a workspace owner or admin (the receipt's `actor`) approved the Slack notice at that version for the agent's app in that Slack team.\n- `revoke_slack_notice`: `{agent_id, approval_ids, slack_team_ids, notice_versions}`: the approvals the revoke ended; written only when one was live.\n- `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`), `operator_cli` (`slack-notice.ts set-rollout`) or `reconciler`; `reason` is null for a change asked for, `notice_revoked` when a revoke lowered it, or `not_approved`, `not_installed` or `no_notice` when a pass found the agent no longer approved; `buffered_dropped` counts the held messages a change to `off` removed.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (the workspace has not allowed merging; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n- `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.\n- `approve_slack_notice`: `{agent_id, approval_id, slack_team_id, notice_version}`; a workspace owner or admin (the receipt's `actor`) approved the Slack notice at that version for the agent's app in that Slack team.\n- `revoke_slack_notice`: `{agent_id, approval_ids, slack_team_ids, notice_versions}`: the approvals the revoke ended; written only when one was live.\n- `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`), `operator_cli` (`slack-notice.ts set-rollout`) or `reconciler`; `reason` is null for a change asked for, `notice_revoked` when a revoke lowered it, or `not_approved`, `not_installed` or `no_notice` when a pass found the agent no longer approved; `buffered_dropped` counts the held messages a change to `off` removed.\n- `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.\n- `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves; `resolution` is `spent` (charged at what it held) or `refunded` (charged nothing, with its `reason`), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
     scope: "read",
     success: {
       status: 200,

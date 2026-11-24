@@ -156,6 +156,7 @@ worker は claim 時に、実際に自分のイメージに含む組み合わせ
 |---|---|---|
 | `WORKER_CPUS` | 1 | 一つの worker の CPU 割り当て。0.01 以上 |
 | `WORKER_MEMORY_MB` | 4608 | 一つの worker のメモリ上限（MiB）。非圧縮の 512MiB transcript を resume したエンジンが上限の半分未満に収まるよう決めた値です。開発用 `.env.example` の 2048 は基準を満たさないため、大きな transcript の復元試験では `WORKER_MEMORY_MB` の行を削除するか 4608 に変えます |
+| `WORKER_IDLE_TIMEOUT_SEC` | 1800 | 入力のない worker が終わるまで待つ秒数です。その間 worker は場所を確保したままです。60〜7200 の範囲外なら scheduler は起動しません。Kubernetes では、新しいセッションの worker Pod が場所不足で起動できないとき、この時間を待たずに最も長く休んでいる worker を一つずつ止めます。ターンが開いている worker は止めません。人の回答を待つターンも開いたターンです。止めたセッションは次の入力で新しい worker が checkpoint から続けます |
 | `WORKER_PIDS_LIMIT` | 512 | 一つの worker の PID 上限。compose は渡しません |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | worker の数値 `uid[:gid]`。uid または gid が 0 なら起動拒否。worker イメージの `/workspace` 所有者と一致する必要があります |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | tmpfs で mount する HOME。絶対パス |
@@ -199,7 +200,7 @@ API コンテナのメモリは checkpoint bundle 検証によって決まりま
 
 compose の Postgres は `POSTGRES_USER`（`postgres`）・`POSTGRES_PASSWORD`（`dev`）・`POSTGRES_DB`（`sessions`）で作り、すべてのサービスが同じ値で DSN を作ります。
 
-worker は次も env から読みますが、scheduler が渡さないため運用ではコード既定値に固定です。`WORKER_ANSWER_POLL_SEC`（1）、`WORKER_ATTACH_FETCH_TIMEOUT_SEC`（300、セッション途中で追加した一つのリポジトリの取得時間）、`WORKER_ATTACH_FETCH_MAX_MB`（2048、そのリポジトリの scratch mirror サイズ）、`WORKER_CLAIM_TIMEOUT_SEC`（60）、`WORKER_DRAIN_TIMEOUT_SEC`（100、stop 猶予内に短縮）、`WORKER_HEARTBEAT_INTERVAL_SEC`（5）、`WORKER_IDLE_TIMEOUT_SEC`（1800）、`WORKER_LEASE_SAFETY_MARGIN_SEC`（10）、`WORKER_NEXT_INPUT_RETRY_SEC`（60）、`WORKER_NEXT_INPUT_WAIT_SEC`（20）、`WORKER_REQUEST_TIMEOUT_SEC`（30）、`WORKER_STARTUP_TIMEOUT_SEC`（3600）、`WORKER_CLAUDE_CONFIG_DIR`（`$HOME/.claude`）。
+worker は次も env から読みますが、scheduler が渡さないため運用ではコード既定値に固定です。`WORKER_ANSWER_POLL_SEC`（1）、`WORKER_ATTACH_FETCH_TIMEOUT_SEC`（300、セッション途中で追加した一つのリポジトリの取得時間）、`WORKER_ATTACH_FETCH_MAX_MB`（2048、そのリポジトリの scratch mirror サイズ）、`WORKER_CLAIM_TIMEOUT_SEC`（60）、`WORKER_DRAIN_TIMEOUT_SEC`（100、stop 猶予内に短縮）、`WORKER_HEARTBEAT_INTERVAL_SEC`（5）、`WORKER_LEASE_SAFETY_MARGIN_SEC`（10）、`WORKER_NEXT_INPUT_RETRY_SEC`（60）、`WORKER_NEXT_INPUT_WAIT_SEC`（20）、`WORKER_REQUEST_TIMEOUT_SEC`（30）、`WORKER_STARTUP_TIMEOUT_SEC`（3600）、`WORKER_CLAUDE_CONFIG_DIR`（`$HOME/.claude`）。
 
 <a id="감독-루프" />
 ## 監督ループ
@@ -248,6 +249,7 @@ kubernetes モードだけで読む設定は次のとおりです。
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 任意。JSON object |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 任意。JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker コンテナの ephemeral-storage requests・limits（MiB）。既定 1024。超過すると kubelet が Pod を evict します |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | 任意。`true` なら scheduler が起動時に worker 二つを受け入れられないノードごとに警告ログを記録します。未設定は `false` で、`true`/`false` 以外の値は起動を拒否します。Node を読む権限が必要です |
 
 失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。ログのマスキング規則は tail を行単位で隠します。秘密の形をした値は、その値がまたがる行だけを隠します。`input:` のような断片は、その行から最後までを隠します。それより前の行は残ります（URL の login はその部分だけ隠します）。保存先と保持期間は、リポジトリの Kubernetes 実行アダプターの README（終了理由とログ tail 節）にあります。
 
@@ -269,7 +271,9 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy の label 値でもあります |
 | `EXECUTION_WORKSPACE_QUOTA_MB`、`EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`、`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`、`worker.workspace.gcMinAgeSec`、`worker.workspace.enforcedByStorage` | 要求サイズ・回収最小経過時間・設置全体の強制宣言 |
 | `WORKER_CPUS`、`WORKER_MEMORY_MB` | `worker.cpus`、`worker.memoryMb` | |
+| `WORKER_IDLE_TIMEOUT_SEC` | `worker.idleTimeoutSeconds` | 60〜7200 の範囲外なら chart は描画を拒否します |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | 既定 1024 |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | `scheduler.nodeCapacityCheck.enabled` | 既定 `false`。有効にすると chart は Node を読むだけの ClusterRole を scheduler に作成します。[起動時のノードサイズ警告](/run-server/self-hosting/capacity#설치-때-노드-크기-경고선택) |
 | 設置上限（`EXECUTION_SLOT_LIMIT` など） | `config.limits` | api と scheduler に同じ値 |
 | `SCHEDULER_*` | `scheduler.intervalSec` など | `SCHEDULER_PASS_TIMEOUT_SEC`（`scheduler.passTimeoutSec`、既定 180）は 150 より大きいこと |
 | `SLACK_ROLE_INTERVAL_SEC`、`SLACK_ROLE_PASS_TIMEOUT_SEC`、`SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`、`SLACK_ROLE_HEALTH_STALE_SEC`、`SLACK_ROLE_BATCH_SIZE`、`SLACK_ROLE_LEASE_SEC`、`SLACK_ROLE_INPUT_HOLD_SEC` | `slack.intervalSec`、`slack.passTimeoutSec`、`slack.maxConsecutiveFailures`、`slack.healthStaleSec`、`slack.batchSize`、`slack.leaseSec`、`slack.inputHoldSec` | 既定は 2、60、3、90、10、60、3600。`SLACK_ROLE_INPUT_HOLD_SEC` は、Web 入力の Slack 投稿を待つ行が送らずに閉じるまでの秒数です。`slack.enabled: false` なら slack Deployment を生成しません |

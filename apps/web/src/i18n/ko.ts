@@ -132,6 +132,8 @@ export const slackKo = {
   "slack.deleteWarning":
     "Slack에서 앱을 지우고 저장한 자격도 삭제합니다. 되돌릴 수 없고, 다시 연결하면 새 앱이 생깁니다.",
   "slack.deleted": "Slack 앱을 삭제했습니다.",
+  "slack.deletedCleanupFailed":
+    "Werft에서는 Slack 앱을 삭제했지만 Slack 쪽 정리에 실패했습니다. Slack 앱 관리 화면(api.slack.com/apps)에서 앱을 지워 주세요.",
   "slack.revoke": "연결 해제",
   "slack.revokeTitle": "Slack 연결 해제",
   "slack.revokeWarning":

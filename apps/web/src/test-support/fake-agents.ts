@@ -485,6 +485,7 @@ export function seedRelease(
     runtime_config_snapshot: { model },
     effective_tools: { tools: ["Read"], mcp: [] },
     policy_pins: {},
+    instructions_snapshot: null,
     created_by: createdBy,
     created_at: `2026-10-11T01:0${n}:00.000Z`,
     approved_by: null,

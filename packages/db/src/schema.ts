@@ -28,11 +28,13 @@ import {
   BUDGET_OWNER_KIND_VALUES,
   BUDGET_RESERVATION_STATE_VALUES,
   BUDGET_ROOT_KIND_VALUES,
+  BUDGET_UNKNOWN_RESOLUTION_VALUES,
   type BudgetAccountId,
   type BudgetLimitSubject,
   type BudgetOwnerKind,
   type BudgetReservationState,
   type BudgetRootKind,
+  type BudgetUnknownResolution,
   CHANNEL_SUMMARY_LINE_TEXT_MAX,
   CONVERSATION_CALL_CLASS_VALUES,
   CONVERSATION_CALL_STATE_VALUES,
@@ -42,6 +44,8 @@ import {
   CONVERSATION_ROLLOUT_VALUES,
   CONVERSATION_TURN_CALL_REFUSAL_VALUES,
   CONVERSATION_TURN_DECISION_VALUES,
+  CONVERSATION_TURN_LIMIT_SIDE_VALUES,
+  CONVERSATION_TURN_LIMIT_VALUES,
   CONVERSATION_TURN_ORIGIN_VALUES,
   CONVERSATION_TURN_REASON_MAX,
   CONVERSATION_TURN_STATE_VALUES,
@@ -54,11 +58,14 @@ import {
   type ConversationId,
   type ConversationInputId,
   type ConversationInputSlackMirror,
+  type ConversationJudgmentId,
   type ConversationKind,
   type ConversationTopicId,
   type ConversationTurnCallRefusal,
   type ConversationTurnDecision,
   type ConversationTurnId,
+  type ConversationTurnLimit,
+  type ConversationTurnLimitSide,
   type ConversationTurnOrigin,
   type ConversationTurnState,
   DELETED_SOURCE_REASON_VALUES,
@@ -77,10 +84,23 @@ import {
   type GitHubCeiling,
   type GitHubFeatures,
   type GitHubPackagesAllowEntry,
+  JUDGMENT_FAILED_REASON_VALUES,
+  JUDGMENT_GRADE_VALUES,
+  JUDGMENT_NOT_CALLED_REASON_VALUES,
+  JUDGMENT_RULE_DECISION_VALUES,
+  JUDGMENT_RULE_REASON_VALUES,
+  type JudgmentGrade,
+  type JudgmentOutcome,
+  type JudgmentReason,
+  type JudgmentRuleDecision,
+  type JudgmentRuleReason,
   KILL_RECEIPT_OPERATIONS,
   LINKED_ACCOUNT_PROVIDER_VALUES,
   LINKED_ACCOUNT_REVOKED_REASON_VALUES,
   LINKED_ACCOUNT_STATUS_VALUES,
+  M1_DECISION_VALUES,
+  M1_MODEL_REASON_VALUES,
+  type M1Decision,
   MCP_RESERVED_SERVER_NAMES,
   MEMORY_BODY_MAX_BYTES,
   MEMORY_SCAN_STATUS_VALUES,
@@ -3245,6 +3265,35 @@ export const checkpoints = pgTable(
   ],
 );
 
+// One row per API start that gave up the checkpoints an emptied object store
+// lost (CHECKPOINT_OBJECTS_LOST=forget, accepted only on a test installation
+// whose object store is LocalStack). /readyz and the console count the
+// sessions of the rows no administrator has closed yet.
+export const lostCheckpointNotices = pgTable(
+  "lost_checkpoint_notices",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    forgottenAt: timestamp("forgotten_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Every session whose checkpoints were given up, whether it now waits in
+    // recovery_required or kept its state.
+    sessionIds: jsonb("session_ids").$type<string[]>().notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedBy: uuid("closed_by").references(() => users.id),
+  },
+  (table) => [
+    check(
+      "lost_checkpoint_notices_session_ids_check",
+      sql`jsonb_typeof(${table.sessionIds}) = 'array'`,
+    ),
+    check(
+      "lost_checkpoint_notices_closed_check",
+      sql`${table.closedBy} IS NULL OR ${table.closedAt} IS NOT NULL`,
+    ),
+  ],
+);
+
 // What `verify-restore` found when it asked, for one checkpoint, whether the
 // image set that stays after an image change can restore it. A row binds
 // to the manifest it read (`manifest_sha256`), the candidate digests it
@@ -3666,7 +3715,8 @@ export const budgetAccounts = pgTable(
 // root kind. A settled or released row stays, so the same id does not
 // count twice. unknown_at marks a reserved row whose call was used and not
 // reported within its lease: still held. Older images ignore the column and
-// settle or release the row as reserved.
+// settle or release the row as reserved. An operator resolves such a row:
+// settled_* is then what it charged, and resolution says which way.
 export const budgetReservations = pgTable(
   "budget_reservations",
   {
@@ -3698,6 +3748,7 @@ export const budgetReservations = pgTable(
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     unknownAt: timestamp("unknown_at", { withTimezone: true }),
+    resolution: text().$type<BudgetUnknownResolution>(),
   },
   (table) => [
     index("budget_reservations_account_idx").on(table.accountId),
@@ -3720,7 +3771,11 @@ export const budgetReservations = pgTable(
     ),
     check(
       "budget_reservations_settled_check",
-      sql`CASE WHEN ${table.state} = 'settled' THEN ${table.settledCostUsd} IS NOT NULL AND ${table.settledTokens} IS NOT NULL ELSE ${table.settledCostUsd} IS NULL AND ${table.settledTokens} IS NULL END`,
+      sql`CASE WHEN ${table.state} IN ('settled', 'resolved') THEN ${table.settledCostUsd} IS NOT NULL AND ${table.settledTokens} IS NOT NULL ELSE ${table.settledCostUsd} IS NULL AND ${table.settledTokens} IS NULL END`,
+    ),
+    check(
+      "budget_reservations_resolution_check",
+      sql`(${table.state} = 'resolved') = (${table.resolution} IS NOT NULL) AND ${table.resolution} IN (${sql.raw(sqlList(BUDGET_UNKNOWN_RESOLUTION_VALUES))})`,
     ),
     check(
       "budget_reservations_nonneg_check",
@@ -3729,6 +3784,49 @@ export const budgetReservations = pgTable(
     check(
       "budget_reservations_unmetered_check",
       sql`NOT ${table.unmetered} OR (${table.costUsd} = 0 AND coalesce(${table.settledCostUsd}, 0) = 0)`,
+    ),
+  ],
+);
+
+// The one adjustment of a reservation an operator resolved, written when its
+// late report came: the report's amount and its difference from what the
+// resolve charged, added to the spent of the reservation's own account and
+// month, however long ago that was. Keyed by the call, so a report repeated
+// adds nothing more.
+export const budgetAdjustments = pgTable(
+  "budget_adjustments",
+  {
+    callId: text("call_id")
+      .primaryKey()
+      .references(() => budgetReservations.callId),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    accountId: uuid("account_id")
+      .$type<BudgetAccountId>()
+      .references(() => budgetAccounts.id),
+    reportedCostUsd: numeric("reported_cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+    reportedTokens: bigint("reported_tokens", { mode: "number" }).notNull(),
+    // Signed: negative gives back part of what the resolve charged.
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+    tokens: bigint({ mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("budget_adjustments_account_idx").on(table.accountId),
+    check(
+      "budget_adjustments_amount_check",
+      sql`${budgetCostOk(table.reportedCostUsd)} AND ${budgetTokensOk(table.reportedTokens)} AND ${table.costUsd} <> 'NaN' AND ${table.tokens} BETWEEN -9007199254740991 AND 9007199254740991`,
     ),
   ],
 );
@@ -3880,6 +3978,7 @@ export const conversationCalls = pgTable(
         WHEN 'reserved' THEN ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
         WHEN 'in_flight' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
         WHEN 'settled' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NOT NULL
+        WHEN 'resolved' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
         ELSE ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
       END`,
     ),
@@ -5717,6 +5816,9 @@ export const conversationTurns = pgTable(
       .notNull()
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    // The limit that ended a turn without a decision, and who held it there.
+    limitReached: text("limit_reached").$type<ConversationTurnLimit>(),
+    limitReachedBy: text("limit_reached_by").$type<ConversationTurnLimitSide>(),
   },
   (table) => [
     foreignKey({
@@ -5764,6 +5866,10 @@ export const conversationTurns = pgTable(
     check(
       "conversation_turns_decision_check",
       sql`${table.decision} IN (${sql.raw(sqlList(CONVERSATION_TURN_DECISION_VALUES))})`,
+    ),
+    check(
+      "conversation_turns_limit_check",
+      sql`(${table.limitReached} IS NULL) = (${table.limitReachedBy} IS NULL) AND (${table.limitReached} IS NULL OR (${table.state} = 'no_decision' AND ${table.limitReached} IN (${sql.raw(sqlList(CONVERSATION_TURN_LIMIT_VALUES))}) AND ${table.limitReachedBy} IN (${sql.raw(sqlList(CONVERSATION_TURN_LIMIT_SIDE_VALUES))})))`,
     ),
     // A web input's row is its text and nothing else; a runtime's turn has
     // no input text, a decision once decided, an answer only with one, and
@@ -6069,6 +6175,128 @@ export const judgmentBatches = pgTable(
 );
 
 /**
+ * One M1 judgment (a1/J5): a batch's, or one unmentioned reply's with what
+ * the current path did with it beside. Slack ts, codes and ids only, never
+ * a message's text, a reason in words or the model's answer, so a deleted
+ * message's mark never waits for it. A reply's row is written with its
+ * turn (or its hold, for one with no turn) and judged after: `outcome` empty
+ * until then. Its calls are the conversation_calls rows of `call_key`.
+ */
+export const conversationJudgments = pgTable(
+  "conversation_judgments",
+  {
+    id: uuid().$type<ConversationJudgmentId>().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    conversationId: uuid("conversation_id").$type<ConversationId>().notNull(),
+    grade: text().$type<JudgmentGrade>().notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    slackChannelId: text("slack_channel_id").notNull(),
+    /** The ts of each message judged, oldest first. */
+    refs: text().array().notNull(),
+    /** What the judgment read, set when judged. */
+    sources: jsonb().$type<StoredSourceSet>(),
+    // A batch's, emptied when the batch is purged; the record stays.
+    judgmentBatchId: uuid("judgment_batch_id"),
+    // A reply's input, emptied when a held one is removed.
+    inputId: uuid("input_id").$type<ConversationInputId>(),
+    releaseId: text("release_id"),
+    callKey: text("call_key").$type<ConversationCallKey>(),
+    /** Calls issued for it, each reserved and settled on its own. */
+    attempts: integer().notNull().default(0),
+    promptVersion: integer("prompt_version").notNull(),
+    outcome: text().$type<JudgmentOutcome>(),
+    decision: text().$type<M1Decision>(),
+    reason: text().$type<JudgmentReason>(),
+    ruleDecision: text("rule_decision").$type<JudgmentRuleDecision>(),
+    ruleReason: text("rule_reason").$type<JudgmentRuleReason>(),
+    // A reply's judge took it; one taken too long ago is given up.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    judgedAt: timestamp("judged_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "conversation_judgments_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    foreignKey({
+      name: "conversation_judgments_conversation_fk",
+      columns: [table.conversationId],
+      foreignColumns: [conversations.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "conversation_judgments_release_fk",
+      columns: [table.agentId, table.releaseId],
+      foreignColumns: [agentReleases.agentId, agentReleases.id],
+    }),
+    foreignKey({
+      name: "conversation_judgments_batch_fk",
+      columns: [table.judgmentBatchId],
+      foreignColumns: [judgmentBatches.id],
+    }).onDelete("set null"),
+    foreignKey({
+      name: "conversation_judgments_input_fk",
+      columns: [table.inputId],
+      foreignColumns: [conversationInputs.id],
+    }).onDelete("set null"),
+    check(
+      "conversation_judgments_grade_check",
+      sql`${table.grade} IN (${sql.raw(sqlList(JUDGMENT_GRADE_VALUES))})`,
+    ),
+    check(
+      "conversation_judgments_slack_check",
+      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND cardinality(${table.refs}) >= 1`,
+    ),
+    // Judged all at once, and a reason of the outcome's own set: the model's
+    // six for a judged one, which alone may speak.
+    check(
+      "conversation_judgments_verdict_check",
+      sql`CASE ${table.outcome}
+        WHEN 'judged' THEN ${table.decision} IN (${sql.raw(sqlList(M1_DECISION_VALUES))}) AND ${table.reason} IN (${sql.raw(sqlList(M1_MODEL_REASON_VALUES))})
+        WHEN 'not_called' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_NOT_CALLED_REASON_VALUES))})
+        WHEN 'failed' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_FAILED_REASON_VALUES))})
+        ELSE ${table.outcome} IS NULL AND ${table.decision} IS NULL AND ${table.reason} IS NULL
+      END AND (${table.outcome} IS NULL) = (${table.judgedAt} IS NULL)`,
+    ),
+    // A batch is written judged and has no current path beside it; a reply
+    // has the rule's answer, or none when it makes no turn.
+    check(
+      "conversation_judgments_rule_check",
+      sql`CASE WHEN ${table.grade} = 'buffer_m1'
+        THEN ${table.ruleDecision} IS NULL AND ${table.ruleReason} IS NULL AND ${table.outcome} IS NOT NULL
+        ELSE ${table.ruleDecision} IN (${sql.raw(sqlList(JUDGMENT_RULE_DECISION_VALUES))}) AND ${table.ruleReason} IN (${sql.raw(sqlList(JUDGMENT_RULE_REASON_VALUES))}) AND (${table.ruleDecision} = 'none') = (${table.grade} = 'm1_engaged')
+      END`,
+    ),
+    check(
+      "conversation_judgments_call_check",
+      sql`${table.attempts} >= 0 AND (${table.callKey} IS NULL OR ${table.callKey} ~ '^[A-Za-z0-9_-]{1,128}:m1$') AND (${table.attempts} = 0 OR ${table.callKey} IS NOT NULL)`,
+    ),
+    // A reply is judged once.
+    uniqueIndex("conversation_judgments_input_uniq")
+      .on(table.inputId)
+      .where(sql`${table.inputId} IS NOT NULL`),
+    // The replies waiting for their judge.
+    index("conversation_judgments_waiting_idx")
+      .on(table.createdAt)
+      .where(sql`${table.outcome} IS NULL`),
+    // A channel's records, newest last: its counts and the M1 cap's window.
+    index("conversation_judgments_channel_idx").on(
+      table.agentId,
+      table.slackTeamId,
+      table.slackChannelId,
+      table.createdAt,
+    ),
+    index("conversation_judgments_batch_idx")
+      .on(table.judgmentBatchId)
+      .where(sql`${table.judgmentBatchId} IS NOT NULL`),
+  ],
+);
+
+/**
  * Per agent and Slack channel: how many batches went past M1's cap, and how
  * many buffered messages expired without a judgment. Counts only.
  */
@@ -6329,7 +6557,7 @@ export const agentVersions = pgTable(
 export const agentReleases = pgTable(
   "agent_releases",
   {
-    // deriveReleaseId: a hash of every column below up to policy_pins.
+    // deriveReleaseId: a hash of every column below up to instructions_snapshot.
     id: text().primaryKey(),
     agentId: uuid("agent_id")
       .notNull()
@@ -6342,6 +6570,8 @@ export const agentReleases = pgTable(
     runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
     effectiveTools: jsonb("effective_tools").notNull(),
     policyPins: jsonb("policy_pins").notNull().default({}),
+    // releaseInstructionsSchema; null on a release made before it was taken.
+    instructionsSnapshot: jsonb("instructions_snapshot"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
