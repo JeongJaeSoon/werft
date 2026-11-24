@@ -25,7 +25,7 @@ outcome: "公開 chart で運用サーバーを設置します"
 
 chart とパッケージの選び方は[配布パッケージ契約](/run-server/self-hosting/reference/packages)に従います。AWS 以外の endpoint では `config.aws.endpointUrl` と credential allowlist を併せて設定し、保護契約を確認します。
 
-chart は PostgreSQL、object store、Secret の値を作りません。worker Pod も作らず、scheduler がセッションごとに作ります。公開イメージは `linux/amd64` と `linux/arm64` を含む index なので、ノードが自分のアーキテクチャを取得します。
+chart は PostgreSQL、object store、Secret の値を作りません。試験用に両方をクラスタ内に立てるには [chart 試験用の DB と object store](/run-server/self-hosting/try-chart-dependencies) に従います。worker Pod も作らず、scheduler がセッションごとに作ります。公開イメージは `linux/amd64` と `linux/arm64` を含む index なので、ノードが自分のアーキテクチャを取得します。
 
 chart は Git サーバーも作りません。設定文書のリポジトリ URL は worker から egress proxy 経由で到達できる必要があります。kind の試験 Git サーバーは運用リポジトリではありません。
 
