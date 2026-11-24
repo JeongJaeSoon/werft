@@ -21,7 +21,7 @@ export type TopicSession = {
   run: AgentRun;
   /** The run's one event stream, read turn by turn. */
   events: AsyncIterator<RuntimeEvent>;
-  /** What the session has been sent and has said, in UTF-8 bytes. */
+  /** Its last request and the answer to it, in bytes as a request body carries them: what the next request grows from. */
   bytes: number;
   lastUsedAt: number;
 };

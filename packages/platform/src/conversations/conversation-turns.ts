@@ -58,13 +58,14 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
         entry.state === "leased" && entry.turn.scope.topic_id === topicId,
     );
   // Kept only while a turn of the topic waits: a later one waits from its own enqueue.
-  const freed = (entry: Entry, at: Date) => {
-    const topicId = entry.turn.scope.topic_id;
-    const waiting = [...entries.values()].some(
+  const waiting = (topicId: string) =>
+    [...entries.values()].some(
       (other) =>
         other.state === "queued" && other.turn.scope.topic_id === topicId,
     );
-    if (waiting) topicFreedAt.set(topicId, at.getTime());
+  const freed = (entry: Entry, at: Date) => {
+    const topicId = entry.turn.scope.topic_id;
+    if (waiting(topicId)) topicFreedAt.set(topicId, at.getTime());
     else topicFreedAt.delete(topicId);
   };
 
@@ -101,6 +102,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
     }
     if (ended === undefined) return entry;
     entries.set(id, ended);
+    if (!waiting(topicId)) topicFreedAt.delete(topicId);
     return ended;
   }
 

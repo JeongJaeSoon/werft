@@ -27,9 +27,13 @@ export interface ConversationTurnRunner {
 export const CONVERSATION_BUILTIN_TOOLS: readonly string[] = [];
 
 const utf8 = new TextEncoder();
-const bytesOf = (text: string) => utf8.encode(text).length;
+// As a request body carries it: quoted and escaped.
+const bytesOf = (text: string) => utf8.encode(JSON.stringify(text)).length;
 
-/** Whether a turn goes on in the topic's live session rather than a new one. */
+// What a request adds around the next input: the two messages' own wrapping,
+// and what the engine attaches to a prompt.
+const TURN_OVERHEAD_BYTES = 1_024;
+
 // The engine was started on one model, provider and output cap: a turn on
 // others starts its own.
 const startedFor = (turn: ConversationRuntimeTurn) =>
@@ -40,6 +44,7 @@ const startedFor = (turn: ConversationRuntimeTurn) =>
     turn.call.max_tokens,
   ]);
 
+/** Whether a turn goes on in the topic's live session rather than a new one. */
 function goesOn(
   session: TopicSession | null,
   turn: ConversationRuntimeTurn,
@@ -50,7 +55,7 @@ function goesOn(
     session.startedFor === startedFor(turn) &&
     // No check, or one that could not be made, drops it.
     turn.topic_session === "keep" &&
-    session.bytes + bytesOf(turn.input.text) <= maxBytes
+    session.bytes + bytesOf(turn.input.text) + TURN_OVERHEAD_BYTES <= maxBytes
   );
 }
 
@@ -66,7 +71,7 @@ function goesOn(
 export function createConversationTurnRunner(deps: {
   runtime: RuntimeModule;
   sessions: TopicSessions;
-  relay: Pick<PermitRelay, "hold" | "release" | "url">;
+  relay: Pick<PermitRelay, "hold" | "release" | "url" | "requestBytes">;
   limitMs?: number;
   maxBytes?: number;
 }): ConversationTurnRunner {
@@ -216,7 +221,12 @@ export function createConversationTurnRunner(deps: {
         deps.relay.release(session.permitKey);
       }
       if (result.outcome === "completed") {
-        session.bytes += bytesOf(sent.text) + bytesOf(result.text);
+        // The relay saw the request whole, the engine's own parts with it.
+        session.bytes =
+          Math.max(
+            deps.relay.requestBytes(session.permitKey),
+            session.bytes + bytesOf(sent.text),
+          ) + bytesOf(result.text);
         session.lastUsedAt = sessions.now();
       } else {
         // Where a failed or cut turn left the engine is not known.

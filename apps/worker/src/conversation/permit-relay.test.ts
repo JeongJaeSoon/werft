@@ -47,6 +47,9 @@ describe("PermitRelay", () => {
     expect(calls[0]?.headers.get("x-api-key")).toBe("permit-1");
     expect(calls[0]?.headers.get("anthropic-version")).toBe("2023-06-01");
     expect(calls[0]?.body).toBe('{"model":"m"}');
+    expect(relay.requestBytes(key)).toBe(13);
+    relay.close(key);
+    expect(relay.requestBytes(key)).toBe(0);
   });
 
   test("a later turn's requests carry that turn's permit", async () => {

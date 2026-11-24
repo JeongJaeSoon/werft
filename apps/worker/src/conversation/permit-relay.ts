@@ -26,6 +26,7 @@ const DROPPED_HEADERS = [
  */
 export class PermitRelay {
   private readonly permits = new Map<string, string | null>();
+  private readonly sizes = new Map<string, number>();
   private readonly server: ReturnType<typeof Bun.serve>;
   private readonly call: RelayFetch;
 
@@ -70,6 +71,12 @@ export class PermitRelay {
 
   close(key: string): void {
     this.permits.delete(key);
+    this.sizes.delete(key);
+  }
+
+  /** The body of the session's last request passed on, in bytes: what the next one grows from. */
+  requestBytes(key: string): number {
+    return this.sizes.get(key) ?? 0;
   }
 
   stop(): void {
@@ -99,14 +106,15 @@ export class PermitRelay {
     const headers = new Headers(request.headers);
     for (const name of DROPPED_HEADERS) headers.delete(name);
     headers.set("x-api-key", permit);
+    // Read whole: the permit bounds a request's size, which the session is kept under.
+    const body = await request.arrayBuffer();
+    if (key !== undefined) this.sizes.set(key, body.byteLength);
     const response = await this.call(
       `${this.upstream.replace(/\/$/, "")}${url.pathname}${url.search}`,
       {
         method: request.method,
         headers,
-        body: request.body,
-        // @ts-expect-error: Bun's fetch streams a request body with it.
-        duplex: "half",
+        body: body.byteLength === 0 ? null : body,
         signal: request.signal,
       },
     );

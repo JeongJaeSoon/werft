@@ -215,16 +215,20 @@ describe("a topic's session", () => {
     ]);
   });
 
-  test("is new, never compacted, once what it was sent and said would pass its size", async () => {
-    // "context: one" + "ok" is 14 bytes; "two" would make it 17.
-    const s = setup({ maxBytes: 16 });
+  test("is new, never compacted, once its next request would pass its size", async () => {
+    // Quoted, "context: one" and "ok" are 18 bytes; "two" and a turn's 1,024
+    // of wrapping would make the next request 1,047.
+    const s = setup({ maxBytes: 1_047 });
     const t = topic();
     await s.run(turnOf(t, "one"));
+    // What the relay saw the engine send counts over what it was given.
+    s.relay.sizes.set([...s.relay.permits.keys()][0] ?? "", 2_000);
     await s.run(turnOf(t, "two", "keep"));
+    await s.run(turnOf(t, "three", "keep"));
 
     expect(s.runs.map((run) => run.sent)).toEqual([
-      ["context: one"],
-      ["context: two"],
+      ["context: one", "two"],
+      ["context: three"],
     ]);
   });
 
