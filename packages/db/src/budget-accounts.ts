@@ -114,7 +114,8 @@ async function currentPeriodStart(tx: Database): Promise<string> {
 }
 
 // The scale of the cost columns, so a replay compares what was stored.
-const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
+export const toStoredCost = (costUsd: number) =>
+  Math.round(costUsd * 1e6) / 1e6;
 
 function ownerColumns(owner: BudgetOwner) {
   return owner.kind === "user"

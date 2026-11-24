@@ -9,8 +9,10 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createBudgetLedger } from "../budget-accounts.ts";
 import * as schema from "../schema.ts";
 import {
+  budgetLimits,
   memberships,
   memberTeamMembers,
   memberTeams,
@@ -592,5 +594,117 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
         name: "third",
       }),
     ).rejects.toThrow();
+  });
+  test("owners and admins set a team's monthly budget limit; its agent's own work runs within it", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(db, workspaceId, "owner");
+    const admin = await person(db, workspaceId, "admin");
+    const plain = await person(db, workspaceId, "member");
+    const team = await newTeam(owner);
+    const ledger = createBudgetLedger(db);
+    const ownWork = (costUsd: number) =>
+      ledger.reserve({
+        callId: randomUUID(),
+        workspaceId,
+        choice: { rootKind: "none", owner: { kind: "team", teamId: team.id } },
+        reserve: { costUsd, tokens: 0 },
+        unmetered: false,
+      });
+    const setLimit = (
+      by: Caller,
+      limit: { costUsd: number | null; tokens: number | null },
+      receiptId = randomUUID(),
+    ) =>
+      teams().setBudgetLimit({
+        actor: acting(by),
+        receiptId,
+        teamId: team.id,
+        limit,
+      });
+
+    // No limit: the agent's own work is refused, as before.
+    expect(await teams().getBudgetLimit(workspaceId, team.id)).toEqual({
+      costUsd: null,
+      tokens: null,
+    });
+    expect((await ownWork(1)).outcome).toBe("refused");
+
+    // A member does not set it; nothing is written.
+    expect(await setLimit(plain, { costUsd: 10, tokens: null })).toEqual({
+      outcome: "actor_inactive",
+    });
+    expect((await ownWork(1)).outcome).toBe("refused");
+
+    const receiptId = randomUUID();
+    expect(
+      await setLimit(owner, { costUsd: 10.1234567, tokens: null }, receiptId),
+    ).toEqual({ outcome: "set", limit: { costUsd: 10.123457, tokens: null } });
+    expect(await teams().getBudgetLimit(workspaceId, team.id)).toEqual({
+      costUsd: 10.123457,
+      tokens: null,
+    });
+    // Within the limit (root none stops at 80% of it) it runs; past it not.
+    expect((await ownWork(5)).outcome).toBe("reserved");
+    expect((await ownWork(4)).outcome).toBe("refused");
+
+    // Who changed it and when is on the receipt.
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, receiptId));
+    expect(receipt).toMatchObject({
+      ownerId: workspaceId,
+      operation: "set_team_budget_limit",
+      status: "succeeded",
+      result: {
+        from: { cost_usd: null, tokens: null },
+        to: { cost_usd: 10.123457, tokens: null },
+      },
+    });
+    expect(receipt?.actor).toMatchObject({ actor_user_id: idOf(owner) });
+    expect(receipt?.targetRef).toMatchObject({
+      resource: { kind: "team", id: team.id },
+    });
+    expect(receipt?.createdAt).toBeInstanceOf(Date);
+
+    // The same limit again writes nothing.
+    const again = randomUUID();
+    expect(
+      await setLimit(admin, { costUsd: 10.123457, tokens: null }, again),
+    ).toMatchObject({ outcome: "unchanged" });
+    expect(
+      await db.select().from(receipts).where(eq(receipts.id, again)),
+    ).toEqual([]);
+
+    // An admin raises it; then takes it off, and the agent's work stops.
+    expect(
+      (await setLimit(admin, { costUsd: 100, tokens: 1000 })).outcome,
+    ).toBe("set");
+    expect((await ownWork(4)).outcome).toBe("reserved");
+    expect(
+      (await setLimit(admin, { costUsd: null, tokens: null })).outcome,
+    ).toBe("set");
+    expect(
+      await db
+        .select()
+        .from(budgetLimits)
+        .where(eq(budgetLimits.workspaceId, workspaceId)),
+    ).toEqual([]);
+    expect((await ownWork(1)).outcome).toBe("refused");
+
+    // A team of another workspace, or a deleted one, is not found.
+    const other = await workspace();
+    expect(await teams().getBudgetLimit(other, team.id)).toBeNull();
+    expect(
+      await teams().delete({
+        actor: acting(owner),
+        receiptId: randomUUID(),
+        teamId: team.id,
+      }),
+    ).toEqual({ outcome: "deleted" });
+    expect(await setLimit(owner, { costUsd: 1, tokens: null })).toEqual({
+      outcome: "not_found",
+    });
+    expect(await teams().getBudgetLimit(workspaceId, team.id)).toBeNull();
   });
 });

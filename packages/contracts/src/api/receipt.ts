@@ -83,6 +83,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "remove_team_member",
   "set_team_member_role",
   "set_agent_managing_team",
+  // A team's monthly budget limit, set, changed or taken off.
+  "set_team_budget_limit",
   // Who may use an agent: its scope and teams.
   "set_agent_usage",
   // What a caller may do through an agent, per caller target.
