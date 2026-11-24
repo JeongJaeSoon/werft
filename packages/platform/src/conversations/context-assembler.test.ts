@@ -414,6 +414,22 @@ describe("fitContext", () => {
     expect(result.left).toEqual([older]);
   });
 
+  test("past the first post that does not fit, every older post waits, small or not", () => {
+    const small = post(1, x(10));
+    const big = post(2, x(300));
+    const newest = post(3, x(100));
+    const result = fitted(
+      fitContext({
+        instructions: "",
+        current: [small, big, newest],
+        fragments: [],
+        capBytes: 2 * (size(x(100)) + size(x(10))),
+      }),
+    );
+    expect(result.current).toEqual([newest]);
+    expect(result.left).toEqual([small, big]);
+  });
+
   test("a post left for a later call is not read as a buffered fragment either", () => {
     const own = buffered(1, x(100));
     const older = {

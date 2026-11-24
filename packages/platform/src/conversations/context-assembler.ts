@@ -192,7 +192,11 @@ export function fitContext(input: {
   );
   for (const post of [...posts].reverse()) {
     const bytes = pieceBytes(post.body);
-    if (current.length === 0 || currentBytes + bytes <= batchBytes) {
+    // Once one does not fit, every older one waits too: a batch is the newest run.
+    if (
+      left.length === 0 &&
+      (current.length === 0 || currentBytes + bytes <= batchBytes)
+    ) {
       current.unshift(post);
       currentBytes += bytes;
     } else {
