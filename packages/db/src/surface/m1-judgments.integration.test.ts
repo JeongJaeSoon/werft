@@ -384,4 +384,55 @@ integration("M1 judgment records", () => {
     }
     expect(grades).toEqual(["m1_to_task", "m1"]);
   });
+  test("a bound reply writes no waiting row with the switch off or in a shared channel", async () => {
+    const request = async (
+      place: Place,
+      inputId: ConversationInputId,
+      ts: string,
+    ) => {
+      await db.transaction((tx) =>
+        requestReplyJudgment(tx, {
+          workspaceId,
+          agentId,
+          teamId: TEAM,
+          channelId: place.channelId,
+          ts,
+          topicId: place.topicId,
+          inputId,
+          sessionId: null,
+          rule: { decision: "reply", reason: "default_reply" },
+        }),
+      );
+      return (
+        await pool.query(
+          "SELECT 1 FROM conversation_judgments WHERE input_id = $1",
+          [inputId],
+        )
+      ).rows.length;
+    };
+    const shared = await channel();
+    const sharedInput = await hold(shared, "800.000001", "reply");
+    await pool.query(
+      "UPDATE surface_bindings SET external_shared = true WHERE external_surface_id = $1",
+      [shared.channelId],
+    );
+    expect(await request(shared, sharedInput, "800.000001")).toBe(0);
+
+    const place = await channel();
+    const offInput = await hold(place, "800.000002", "reply");
+    const onInput = await hold(place, "800.000003", "reply");
+    await pool.query(
+      "UPDATE agents SET conversation_rollout = 'off' WHERE id = $1",
+      [agentId],
+    );
+    try {
+      expect(await request(place, offInput, "800.000002")).toBe(0);
+    } finally {
+      await pool.query(
+        "UPDATE agents SET conversation_rollout = 'shadow' WHERE id = $1",
+        [agentId],
+      );
+    }
+    expect(await request(place, onInput, "800.000003")).toBe(1);
+  });
 });

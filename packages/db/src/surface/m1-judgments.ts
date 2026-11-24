@@ -103,8 +103,25 @@ async function dropReply(
   }
 }
 
-/** How many judgments of the channel count against M1's cap at `at`. */
+/**
+ * How many judgments of the channel count against M1's cap at `at`, read
+ * under the lock its batches are closed under: a batch counting at once sees
+ * this reply's claim, or this count waits for the batch.
+ */
 async function countedInWindow(
+  db: Database,
+  row: Pick<WaitingRow, "agent_id" | "slack_team_id" | "slack_channel_id">,
+  at: SQL,
+): Promise<number> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext('judgment_batch'), hashtext(${`${row.agent_id}:${row.slack_team_id}:${row.slack_channel_id}`}::text))`,
+    );
+    return countIn(tx, row, at);
+  });
+}
+
+async function countIn(
   db: Database,
   row: Pick<WaitingRow, "agent_id" | "slack_team_id" | "slack_channel_id">,
   at: SQL,
@@ -190,6 +207,7 @@ export function createPostgresM1JudgmentStore(
             WHERE id = (
               SELECT id FROM conversation_judgments
               WHERE outcome IS NULL AND claimed_at IS NULL
+                AND created_at > ${at} - ${secs(JUDGMENT_BUFFER_TTL_MS)}
               ORDER BY created_at
               LIMIT 1
               FOR UPDATE SKIP LOCKED)

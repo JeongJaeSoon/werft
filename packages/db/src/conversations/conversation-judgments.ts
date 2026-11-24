@@ -83,6 +83,14 @@ export async function requestReplyJudgment(
       ${input.channelId}, ARRAY[${input.ts}]::text[], ${input.inputId}::uuid,
       ${M1_PROMPT_VERSION}, ${input.rule.decision}, ${input.rule.reason}
     FROM conversation_topics t
+    JOIN agents a ON a.id = t.agent_id
     WHERE t.id = ${input.topicId}::uuid
+      -- The gate as far as this transaction can see it; the judge asks it
+      -- again, notice approval included, before the call and the record.
+      AND a.conversation_rollout <> 'off'
+      AND NOT EXISTS (
+        SELECT 1 FROM surface_bindings b
+        WHERE b.agent_id = t.agent_id AND b.surface = 'slack'
+          AND b.external_surface_id = ${input.channelId} AND b.external_shared)
     ON CONFLICT (input_id) WHERE input_id IS NOT NULL DO NOTHING`);
 }
