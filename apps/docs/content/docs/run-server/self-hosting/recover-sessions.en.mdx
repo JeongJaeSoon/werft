@@ -86,6 +86,14 @@ Sessions without checkpoints follow the same rule. A worker exiting after claim 
 - SIGTERM-drained workers do not count either. Their release contains `stop_kind: "drain"`.
 - **Deployment order:** update the control-host image (`API_IMAGE`, shared by api/scheduler) first, then `WORKER_IMAGE`. Strict worker protocol request schemas make old APIs reject new worker fields with 400. A fallback exists only for `platform_tool_trust` (remove the rejected field and resend once), not for other new fields. The upgrade to the profile removal release is an exception: change both images together in one upgrade, because old workers cannot read the new control-host's answers ([Upgrade order of the profile removal release](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)).
 
+<a id="작업-자리를-기다리는-세션" />
+#### Sessions waiting for room
+
+When Kubernetes finds no node for a worker Pod (Pod condition `PodScheduled` is `False` with reason `Unschedulable`, Pod event `FailedScheduling`), the session waits instead of failing. The session API's `wait_reason` becomes `waiting_for_capacity` and `werft_sessions_waiting_for_capacity` rises. The scheduler log `Execution waiting for capacity; no node has room` carries the reason Kubernetes gives in `fields.unschedulable_reason` (for example `0/1 nodes are available: 1 Insufficient memory.`).
+- While it waits, the scheduler neither recreates nor replaces that Pod. When room frees up, the same Pod starts.
+- If no room frees up within 15 minutes, the waiting input fails with `NO_CAPACITY` and the Pod is taken down. The session returns to `idle` and this does not count as a launch failure. When the user sends again, a new Pod continues the session. A session that was resuming goes back to `paused` with its checkpoint, and resuming it again continues from there. There is no recovery decision for an operator to make.
+- If this happens often, add nodes or check that the worker Pod's resource requests fit on a node.
+
 <a id="3-interrupt-뒤-결과-불명" />
 ### 3. Unknown outcomes after interrupt
 

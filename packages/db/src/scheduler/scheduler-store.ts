@@ -6,6 +6,7 @@ import {
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   ActiveExecution,
+  CapacityWait,
   DrainState,
   ExecutionObservation,
   ExecutionRef,
@@ -76,7 +77,12 @@ import {
   restoreRetryDue,
 } from "../sessions/index.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
-import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
+import {
+  launchFailedCause,
+  noCapacityCause,
+  quarantineLaunch,
+  releaseForCapacity,
+} from "./launch-quarantine.ts";
 
 /** A connection the pass lock can live on for as long as the pass runs. */
 export type PassLockClient = {
@@ -184,6 +190,11 @@ export function awaitingLaunch(db: Database, budget: SessionBudget): SQL {
         .where(and(eq(workerLaunches.sessionId, sessions.id), holdsSlot())),
     ),
   ) as SQL;
+}
+
+/** How long the launch has waited for room, in ms on the database clock. */
+function waitedSinceCapacityWait() {
+  return sql<number>`(extract(epoch from (${DB_NOW} - ${workerLaunches.capacityWaitSince})) * 1000)::float8`;
 }
 
 export function createPostgresSchedulerStore(
@@ -536,6 +547,150 @@ export function createPostgresSchedulerStore(
       return revoked.length === 1;
     },
 
+    async recordCapacityWait(
+      ref: ExecutionRef,
+      message: string,
+    ): Promise<CapacityWait | null> {
+      return db.transaction(async (tx) => {
+        const [launch] = await tx
+          .select({
+            message: workerLaunches.capacityWaitMessage,
+            since: workerLaunches.capacityWaitSince,
+          })
+          .from(workerLaunches)
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!launch) return null;
+        const [row] = await tx
+          .update(workerLaunches)
+          .set({
+            capacityWaitSince: sql`coalesce(${workerLaunches.capacityWaitSince}, ${DB_NOW})`,
+            capacityWaitMessage: message.slice(0, LAUNCH_ERROR_MAX_CHARS),
+            // A resource that finds room late still holds this credential,
+            // so the door stays open while the wait lasts.
+            nonceExpiresAt: sql`greatest(${workerLaunches.nonceExpiresAt}, ${fromDbNow(nonceTtlMs)})`,
+          })
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+              isNull(workerLaunches.claimedAttemptId),
+              isNotNull(workerLaunches.nonceHash),
+              holdsSlot(),
+              launchStillWanted(tx),
+            ),
+          )
+          .returning({
+            since: workerLaunches.capacityWaitSince,
+            waitedMs: waitedSinceCapacityWait(),
+          });
+        if (!row || row.since === null) return null;
+        const began = launch.since === null;
+        return {
+          since: row.since,
+          waitedMs: Math.max(0, Math.round(Number(row.waitedMs))),
+          began,
+          previousMessage: began ? null : launch.message,
+        };
+      });
+    },
+
+    async clearCapacityWait(ref: ExecutionRef): Promise<number | null> {
+      return db.transaction(async (tx) => {
+        const [launch] = await tx
+          .select({ waitedMs: waitedSinceCapacityWait() })
+          .from(workerLaunches)
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+              isNotNull(workerLaunches.capacityWaitSince),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!launch) return null;
+        await tx
+          .update(workerLaunches)
+          .set({ capacityWaitSince: null, capacityWaitMessage: null })
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+            ),
+          );
+        return Math.max(0, Math.round(Number(launch.waitedMs)));
+      });
+    },
+
+    async giveUpForCapacity(
+      ref: ExecutionRef,
+      limitMs: number,
+    ): Promise<boolean> {
+      return db.transaction(async (tx) => {
+        // Launch, session, then execution, as `recordLaunchFailure`.
+        const [launch] = await tx
+          .select({
+            sessionId: workerLaunches.sessionId,
+            waitedMs: waitedSinceCapacityWait(),
+          })
+          .from(workerLaunches)
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+              isNull(workerLaunches.claimedAttemptId),
+              isNotNull(workerLaunches.capacityWaitSince),
+              holdsSlot(),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!launch || Number(launch.waitedMs) < limitMs) return false;
+        const [execution] = await tx
+          .select({ desiredState: executions.desiredState })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.id, ref.executionId),
+              eq(executions.generation, ref.generation),
+            ),
+          )
+          .limit(1);
+        if (execution?.desiredState !== DESIRED_RUNNING) return false;
+        // Shut the door: a resource that finds room now must not bind to a
+        // session whose input was just failed.
+        await tx
+          .update(workerLaunches)
+          .set({
+            nonceHash: null,
+            capacityWaitSince: null,
+            capacityWaitMessage: null,
+          })
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+            ),
+          );
+        await releaseForCapacity(
+          tx,
+          ref,
+          launch.sessionId,
+          noCapacityCause(
+            `waited ${Math.round(Number(launch.waitedMs) / 1_000)}s for a node with room`,
+          ),
+        );
+        return true;
+      });
+    },
+
     async requestReplacement(
       ref: ExecutionRef,
       reason: ReplaceReason,
@@ -838,6 +993,7 @@ export function createPostgresSchedulerStore(
       const rows = await db
         .select({
           backend: workerLaunches.backend,
+          capacityWaitSince: workerLaunches.capacityWaitSince,
           claimedAttemptId: workerLaunches.claimedAttemptId,
           desiredState: executions.desiredState,
           executionId: workerLaunches.executionId,
@@ -869,6 +1025,7 @@ export function createPostgresSchedulerStore(
       // operation id; the scheduler closes them out rather than relaunching.
       return rows.map((row) => ({
         backend: backendKindOf(row.backend),
+        capacityWaitSince: row.capacityWaitSince,
         claimed: row.claimedAttemptId !== null,
         desiredState:
           row.desiredState === "terminated" ? "terminated" : "running",

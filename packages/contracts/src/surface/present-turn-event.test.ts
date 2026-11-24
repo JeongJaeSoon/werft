@@ -299,6 +299,22 @@ describe("presentTurnEvent", () => {
     ).toMatchObject({ fold: "debug" });
   });
 
+  test("a status that gave up for want of room says so, and whether the session went back to paused", () => {
+    const given = (admission_state: string) =>
+      presentTurnEvent({
+        event: "status",
+        data: { phase: "idle", code: "NO_CAPACITY", admission_state },
+      });
+    expect(given("active")).toEqual({
+      label: { key: "session.event.kind.status" },
+      summary: [{ key: "session.event.noCapacity" }],
+      error: true,
+    });
+    expect(given("paused").summary).toEqual([
+      { key: "session.event.noCapacityPaused" },
+    ]);
+  });
+
   test("an attempt cut for a removed model says so by key, other errors keep their text", () => {
     const cut = {
       code: contracts.MODEL_NOT_ALLOWED_EVENT_CODE,

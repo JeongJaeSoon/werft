@@ -38,6 +38,8 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 | `werft_provider_cost_usd_total` | counter | `model`, `priced_by` | provider 추정 비용(USD). Kubernetes 인프라 비용이 아니다 |
 | `werft_launch_queue_sessions` | gauge | 없음 | worker launch를 기다리는 세션 수 |
 | `werft_launch_queue_oldest_wait_seconds` | gauge | 없음 | launch 대기열에서 가장 오래 기다린 세션의 대기 시간. 비면 0 |
+| `werft_sessions_waiting_for_capacity` | gauge | 없음 | worker Pod를 띄웠지만 들어갈 node가 없어 시작을 기다리는 세션 수. Kubernetes가 Pod를 `Unschedulable`로 둔 경우다 |
+| `werft_session_no_capacity_failures_total` | counter | 없음 | 15분을 기다려도 자리가 나지 않아 기다리던 입력을 `NO_CAPACITY`로 실패시킨 횟수 |
 | `werft_input_queue_oldest_age_seconds` | gauge | 없음 | worker가 아직 가져가지 않은 입력 중 가장 오래된 것의 나이. 비면 0 |
 
 `tool_calls`가 counter가 아니라 gauge인 이유: 도구 결과는 나중에 바뀔 수 있다. 결과 이벤트가 늦게 도착하면 `unknown`이 `ok`나 `failed`가 되고, 더 이른 결과가 뒤에 도착하면 기존 결과를 바꾼다. counter 값이 줄면 수집기가 reset으로 읽어 증가량이 튄다. 호출 수의 증가량은 `tool_calls_total`로 보고, 결과별 비율은 `tool_calls`로 본다.
@@ -80,6 +82,9 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 
 - **launch 대기열**: scheduler가 다음 pass에 worker를 띄울 수 있는 세션이다. scheduler와 같은 SQL 조건으로 센다. launch 가능한 admission, 실행 회수·takeover 없음, 비용·토큰 상한 안, restore 재시도 시각 지남, 슬롯을 잡은 launch 없음. 상한은 scheduler와 같은 `config.limits`에서 읽는다. 대기 시간은 `unassigned_sessions.signaled_at`부터 잰다.
 - **입력 대기열**: `queue_messages` 중 아무 worker도 가져가지 않았고 보일 시각이 지난 입력이다. compose의 `werft.queue.oldest_age_seconds`와 뜻이 같다.
+- **자리 대기**: worker Pod의 `PodScheduled` 조건이 `Unschedulable`인 것을 scheduler가 처음 본 때부터 잰다. 기다리는 동안 scheduler는 그 Pod를 다시 만들거나 교체하지 않는다. 15분이 지나면 기다리던 입력을 실패시키고 Pod를 내린다. 세션은 다음 입력을 기다리며, launch 실패로 세지 않으므로 `recovery_required`로 가지 않는다. scheduler 로그에는 기다리기 시작할 때 `Execution waiting for capacity; no node has room`(warn)이, Kubernetes가 적은 이유가 바뀔 때 `Execution still waiting for capacity`(warn)가, 포기할 때 `Execution found no capacity in time; queued input failed with NO_CAPACITY`(error)가 남는다. Kubernetes가 적은 이유(Pod 이벤트 `FailedScheduling`과 같은 글)는 `fields.unschedulable_reason`에 있다.
+
+chart는 경보 규칙을 싣지 않는다. Prometheus 규칙 예시는 [지표 수집](/run-server/self-hosting/collect-metrics#5-경보-규칙-예시)에 있다.
 
 ## 라벨 규칙
 

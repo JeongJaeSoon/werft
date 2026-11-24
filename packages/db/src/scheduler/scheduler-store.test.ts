@@ -345,6 +345,7 @@ describe("PostgresSchedulerStore", () => {
     expect(active).toEqual([
       {
         backend: "local_docker",
+        capacityWaitSince: null,
         claimed: false,
         desiredState: "running",
         executionId: intent.executionId,
@@ -369,6 +370,7 @@ describe("PostgresSchedulerStore", () => {
       },
       {
         backend: "local_docker",
+        capacityWaitSince: null,
         claimed: false,
         desiredState: "running",
         executionId: "exec-legacy",
@@ -1354,6 +1356,202 @@ describe("PostgresSchedulerStore", () => {
     expect(
       (await store.inspectDemand({ limit: 10 })).eligibleSessionIds,
     ).toEqual([]);
+  });
+
+  describe("a launch waiting for room", () => {
+    const NO_ROOM = "0/1 nodes are available: 1 Insufficient memory.";
+    const LIMIT_MS = 15 * 60_000;
+
+    async function waitingLaunch() {
+      const sessionId = await insertUnassigned({ status: "queued" });
+      const intent = await store.reserveLaunch({
+        ...SPEC,
+        backend: "kubernetes",
+        now: NOW,
+        sessionId,
+        slotLimit: 10,
+      });
+      if (!intent) throw new Error("no intent");
+      await store.issueBootstrapNonce(intent);
+      return { intent, sessionId };
+    }
+
+    const launchOf = async (executionId: string) => {
+      const [launch] = await db
+        .select()
+        .from(workerLaunches)
+        .where(eq(workerLaunches.executionId, executionId));
+      return launch;
+    };
+
+    test("is begun once, keeps its start, and holds the credential open", async () => {
+      const { intent } = await waitingLaunch();
+      await db
+        .update(workerLaunches)
+        .set({ nonceExpiresAt: new Date(Date.now() + 1_000) })
+        .where(eq(workerLaunches.executionId, intent.executionId));
+
+      const first = await store.recordCapacityWait(intent, NO_ROOM);
+      expect(first).toMatchObject({ began: true, previousMessage: null });
+      const second = await store.recordCapacityWait(intent, "other words");
+      expect(second).toMatchObject({ began: false, previousMessage: NO_ROOM });
+      expect(second?.since).toEqual(first?.since as Date);
+
+      const launch = await launchOf(intent.executionId);
+      expect(launch?.capacityWaitMessage).toBe("other words");
+      // Ten minutes from now, not the second the test left it.
+      expect(launch?.nonceExpiresAt?.getTime()).toBeGreaterThan(
+        Date.now() + 9 * 60_000,
+      );
+      const [active] = await store.listActiveExecutions("kubernetes");
+      expect(active?.capacityWaitSince).toEqual(first?.since as Date);
+
+      expect(await store.clearCapacityWait(intent)).toBeGreaterThanOrEqual(0);
+      expect(await store.clearCapacityWait(intent)).toBeNull();
+      expect(
+        (await launchOf(intent.executionId))?.capacityWaitSince,
+      ).toBeNull();
+    });
+
+    test("is not recorded for a launch a worker claimed or one asked to go", async () => {
+      const { intent } = await waitingLaunch();
+      await db
+        .update(executions)
+        .set({ desiredState: "terminated" })
+        .where(eq(executions.id, intent.executionId));
+      expect(await store.recordCapacityWait(intent, NO_ROOM)).toBeNull();
+    });
+
+    test("past the limit fails the queued input with NO_CAPACITY and leaves the session waiting for input", async () => {
+      const { intent, sessionId } = await waitingLaunch();
+      const first = await queueInput(sessionId, 1);
+      await store.recordCapacityWait(intent, NO_ROOM);
+
+      // Not yet: the wait began a moment ago.
+      expect(await store.giveUpForCapacity(intent, LIMIT_MS)).toBe(false);
+      await db
+        .update(workerLaunches)
+        .set({ capacityWaitSince: new Date(Date.now() - LIMIT_MS - 1_000) })
+        .where(eq(workerLaunches.executionId, intent.executionId));
+      expect(await store.giveUpForCapacity(intent, LIMIT_MS)).toBe(true);
+      expect(await store.giveUpForCapacity(intent, LIMIT_MS)).toBe(false);
+
+      const launch = await launchOf(intent.executionId);
+      // No launch failure is counted, the door is shut, the wait is over.
+      expect(launch?.launchFailureCount).toBe(0);
+      expect(launch?.nonceHash).toBeNull();
+      expect(launch?.capacityWaitSince).toBeNull();
+      expect(await store.desiredStateOf(intent)).toBe("terminated");
+      expect(
+        await db
+          .select({ status: turns.status, reason: turns.terminalReason })
+          .from(turns)
+          .where(eq(turns.sessionId, sessionId)),
+      ).toEqual([{ status: "failed", reason: "no_capacity" }]);
+      const [receipt] = await db
+        .select()
+        .from(receipts)
+        .where(eq(receipts.id, first.receiptId));
+      expect(receipt?.status).toBe("failed");
+      expect(receipt?.error).toMatchObject({ code: "NO_CAPACITY" });
+      const [session] = await db
+        .select({ admission: sessions.admissionState, status: sessions.status })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      expect(session).toEqual({ admission: "active", status: "idle" });
+      expect(
+        await db
+          .select()
+          .from(unassignedSessions)
+          .where(eq(unassignedSessions.sessionId, sessionId)),
+      ).toEqual([]);
+      const [event] = await db
+        .select({ payload: events.payload })
+        .from(events)
+        .where(eq(events.sessionId, sessionId));
+      expect(event?.payload).toMatchObject({
+        phase: "idle",
+        code: "NO_CAPACITY",
+        failed_turn_count: 1,
+      });
+    });
+  });
+
+  test("a resume that found no room in time goes back to paused with its checkpoint", async () => {
+    const sessionId = await insertUnassigned({
+      admissionState: "resuming",
+      checkpointRevision: 3,
+      status: "queued",
+    });
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "kubernetes",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    await store.issueBootstrapNonce(intent);
+    const resumeReceipt = crypto.randomUUID();
+    await db.insert(receipts).values({
+      id: resumeReceipt,
+      ownerId: "owner-a",
+      operation: "resume",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      status: "accepted",
+    });
+    const input = await queueInput(sessionId, 1);
+    await store.recordCapacityWait(intent, "0/1 nodes are available.");
+    await db
+      .update(workerLaunches)
+      .set({ capacityWaitSince: new Date(Date.now() - 16 * 60_000) })
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(await store.giveUpForCapacity(intent, 15 * 60_000)).toBe(true);
+
+    const [session] = await db
+      .select({
+        admission: sessions.admissionState,
+        checkpoint: sessions.checkpointRevision,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    // Never recovery_required, and the checkpoint it would resume from stays.
+    expect(session).toEqual({
+      admission: "paused",
+      checkpoint: 3,
+      status: "idle",
+    });
+    const byId = async (id: string) =>
+      (await db.select().from(receipts).where(eq(receipts.id, id)))[0];
+    expect(await byId(resumeReceipt)).toMatchObject({
+      status: "failed",
+      error: { code: "NO_CAPACITY" },
+    });
+    expect(await byId(input.receiptId)).toMatchObject({
+      status: "failed",
+      error: { code: "NO_CAPACITY" },
+    });
+    expect(
+      await db
+        .select({ reason: turns.terminalReason })
+        .from(turns)
+        .where(eq(turns.sessionId, sessionId)),
+    ).toEqual([{ reason: "no_capacity" }]);
+    const [launch] = await db
+      .select({ failures: workerLaunches.launchFailureCount })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, intent.executionId));
+    expect(launch?.failures).toBe(0);
+    const [event] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, sessionId));
+    expect(event?.payload).toMatchObject({
+      admission_state: "paused",
+      code: "NO_CAPACITY",
+      phase: "idle",
+    });
   });
 
   test("settling a replacement leaves one asked for since alone", async () => {

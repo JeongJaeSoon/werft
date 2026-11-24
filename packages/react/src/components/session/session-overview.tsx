@@ -23,6 +23,7 @@ import {
 import { Globe, SquareTerminal } from "lucide-react";
 import type { JSX, ReactNode } from "react";
 import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
+import { useWaitingForCapacity } from "./session-status-label.tsx";
 
 /**
  * Title, agent, channel, status, started, duration. At 820px of table width
@@ -134,6 +135,8 @@ export interface SessionOverviewRowMessages {
   readonly admission: (state: AdmissionState) => string;
   /** The axis name a screen reader hears before the status. */
   readonly statusAxis: string;
+  /** Read in place of the status once the worker has waited long for room. */
+  readonly capacityWait?: string | undefined;
   /** Names the channel icon: "Slack", "웹 콘솔", "API". */
   readonly channel: (channel: SurfaceKind) => string;
   /** The duration of a session still at work: "진행 중". */
@@ -242,6 +245,7 @@ export function SessionOverviewRow({
       ? messages.sourceDeleted
       : undefined;
   const name = session.title ?? withheld ?? session.id;
+  const waitingForCapacity = useWaitingForCapacity(session);
   const admission = QUIET_ADMISSION.has(session.admission_state)
     ? null
     : session.admission_state;
@@ -322,7 +326,9 @@ export function SessionOverviewRow({
       <GridTableCell className="flex-wrap gap-1">
         <span className="sr-only">{messages.statusAxis}: </span>
         <Badge variant={STATUS_VARIANT[session.status]}>
-          {messages.status(session.status)}
+          {waitingForCapacity && messages.capacityWait
+            ? messages.capacityWait
+            : messages.status(session.status)}
         </Badge>
         {admission ? (
           <Badge variant={admission === "recovery_required" ? "red" : "gray"}>
