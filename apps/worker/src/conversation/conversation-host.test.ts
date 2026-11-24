@@ -43,7 +43,7 @@ function turnOf(leaseMs = 150_000): ConversationRuntimeTurn {
       endpoint: "https://api.anthropic.com",
       auth: { kind: "egress_token", token: TOKEN },
     },
-    call: { id: crypto.randomUUID(), max_tokens: 1_024 },
+    call: { max_tokens: 1_024 },
     input: { id: crypto.randomUUID(), text: INPUT },
   });
 }
@@ -146,7 +146,6 @@ describe("ConversationHost", () => {
 
     const all = h.lines.join("\n");
     expect(all).toContain(turn.turn_id);
-    expect(all).toContain(turn.call.id);
     expect(all).toContain(turn.scope.topic_id);
     expect(all).not.toContain(INPUT);
     expect(all).not.toContain(ANSWER);

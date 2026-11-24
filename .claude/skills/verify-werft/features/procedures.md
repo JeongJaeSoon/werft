@@ -1167,14 +1167,16 @@ a0_val "select c.id, t.id from conversations c join conversation_topics t on t.c
 ap_compose exec -T api bun run apps/control-host/src/api/conversation-turn.ts --workspace "$WS" --agent "$AID" --conversation "$CID" --topic "$TOPIC" --text 'CALL-SPEC {"id":"t2-verify","reply":"conversation runtime verify"}'; echo "exit=$?"
 ap_compose logs --no-log-prefix conversation-runtime | grep conversation_turn
 ap_compose logs --no-log-prefix api | grep "Operator conversation turn"
-a0_sql "select root_kind, requester_user_id, call_class, call_key, state, tokens from conversation_calls"
+a0_sql "select root_kind, requester_user_id, call_class, call_key, attempt, state, tokens, conversation_turn_id from conversation_calls"
+a0_sql "select origin, state, requester_kind from conversation_turns where origin = 'm2'"
+a0_sql "select calls, refusal, expires_at > now() as live from conversation_turn_permits"
 ap_compose exec -T api bun -e 'const r = await fetch("http://fake-messages:4011/requests?spec=t2-verify"); console.log(await r.text())'
 ap_compose logs --no-log-prefix egress-proxy | grep conversation_call_id
 docker inspect "$(ap_compose ps -q conversation-runtime)" --format 'readonly={{.HostConfig.ReadonlyRootfs}} mounts={{len .Mounts}} networks={{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}'
 ap_compose exec -T conversation-runtime sh -c 'ls -A /conversation | wc -l'
 ```
 
-기대: 명령은 `{"outcome":"ended",…,"turn":{"outcome":"completed","text":"conversation runtime verify"}}`와 exit 0. 런타임 로그는 `conversation_turn.started`·`ended`(`outcome:"completed"`)·`reported`(`reported:"recorded"`) 세 줄이고 id만 있다(입력·답·토큰 없음). API 로그 한 줄에 `operator_user`·`operator_host`와 `turn_outcome:"completed"`. 원장은 한 줄: `root_kind` `key`, `requester_user_id` 비어 있음, `call_class` `m2`, `call_key` `operator-<turn id>:m2`, `state` `settled`. 운영자 턴은 `call_key`의 `operator-` 접두어로 다른 호출과 갈린다. fake 모델 기록은 `spec_id:"t2-verify"`, `tools:[]` 한 건. proxy 로그는 `purpose:"provider"`와 그 호출 id, status 200. inspect는 `readonly=true mounts=0`이고 network는 `…_conversation-runtime` 하나다. 주제 디렉터리는 0개.
+기대: 명령은 `{"outcome":"ended",…,"turn":{"outcome":"completed","text":"conversation runtime verify"}}`와 exit 0. 런타임 로그는 `conversation_turn.started`·`ended`(`outcome:"completed"`)·`reported`(`reported:"recorded"`) 세 줄이고 id만 있다(입력·답·토큰 없음). API 로그 한 줄에 `operator_user`·`operator_host`와 `turn_outcome:"completed"`. 원장은 턴의 provider 호출마다 한 줄이고(fake 모델 턴은 한 줄), 줄마다 proxy가 그 요청을 물을 때 예약되어 따로 정산된다: `root_kind` `key`, `requester_user_id` 비어 있음, `call_class` `m2`, `call_key` `operator-<turn id>:m2`, `attempt`는 턴 안 호출 순번(1부터), `state` `settled`, `conversation_turn_id`는 명령이 출력한 `turn_id`. 턴 줄은 `m2`·`no_decision`·`operator`, 허가 줄은 `calls`가 원장 줄 수와 같고 `refusal` 비어 있음. 운영자 턴은 `call_key`의 `operator-` 접두어로 다른 호출과 갈린다. fake 모델 기록은 `spec_id:"t2-verify"`, `tools:[]` 한 건. proxy 로그는 `purpose:"provider"`와 그 호출 id, status 200. inspect는 `readonly=true mounts=0`이고 network는 `…_conversation-runtime` 하나다. 주제 디렉터리는 0개.
 
 런타임을 끄면 거절된다. `ap_compose stop conversation-runtime` 뒤 45초(런타임이 묻는 간격의 두 배)를 기다려 같은 명령을 돌리면 `{"outcome":"no_runtime"}`와 exit 3이고 원장 줄 수는 그대로다. overlay 없이 띄운 run에서는 exit 4("The conversation runtime is off for this API")다. 런타임 안에서 다른 서비스로 직접 가는 길이 없는 것은 `ap_compose exec -T conversation-runtime bun -e`로 `node:net` 연결을 시도해 본다: `egress-proxy:3128`·`3129`만 열리고 `api`·`postgres`·`fake-messages`는 이름이 풀리지 않는다. 소스: `apps/control-host/src/api/conversation-runtime.ts`, `conversation-turn.ts`, `apps/worker/src/conversation/`.
 
