@@ -20,9 +20,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ui-release-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  # A release run waiting on approval must not be cancelled by a second push.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ui-release-${{ github.run_id }}
+  # A release run waiting on approval must not be cancelled or replaced by a
+  # second push: each run has a group of its own.
+  cancel-in-progress: false
 
 jobs:
   build:

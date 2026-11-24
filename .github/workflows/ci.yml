@@ -439,6 +439,7 @@ jobs:
               - tests/module-load.
               - tests/message-keys.
               - tests/korean-copy.
+              - tests/ci-concurrency.
               - tests/ci-images.
               - tests/ci-services.
               - tests/ci-plan.

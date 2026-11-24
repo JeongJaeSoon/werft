@@ -1354,10 +1354,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     });
 
     test("a later merge neither drops nor interrupts a main commit", () => {
-      // A commit's own group, or the next merge replaces its pending run.
-      const mainPush =
-        "github.event_name == 'push' && github.ref == 'refs/heads/main'";
-      expect(concurrency.group).toContain(`(${mainPush} && github.sha)`);
+      // A run's own group, or the next run replaces its pending one.
+      expect(concurrency.group).toBe(
+        `images-${expression("github.event_name")}-${expression(
+          "github.event.pull_request.number || github.run_id",
+        )}`,
+      );
       // Only PR runs are cancellable; tag, publish and deploy runs never are.
       expect(concurrency["cancel-in-progress"]).toBe(
         expression("github.event_name == 'pull_request'"),

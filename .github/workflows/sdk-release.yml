@@ -17,7 +17,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: sdk-release-${{ github.event_name }}-${{ github.ref }}-${{ inputs.version }}
+  # One group per run: a pending publish must not be replaced by a later one.
+  group: sdk-release-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
