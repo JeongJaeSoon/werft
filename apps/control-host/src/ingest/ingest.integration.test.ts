@@ -194,9 +194,9 @@ describe("two ports, one batch", () => {
     expect(refused === undefined || refused.status === 413).toBe(true);
   });
 
-  test("the public server's own cap is still the one in server.ts", async () => {
+  test("the API listeners' own cap is still the one in listeners.ts", async () => {
     const source = await Bun.file(
-      new URL("../api/server.ts", import.meta.url),
+      new URL("../api/listeners.ts", import.meta.url),
     ).text();
     expect(source).toContain("maxRequestBodySize: REQUEST_BODY_MAX_BYTES * 2");
     expect(source).not.toContain("TRACE_INGEST_MAX_REQUEST_BYTES");
