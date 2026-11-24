@@ -56,11 +56,10 @@ The link response and each item of `GET /v1/linked-accounts` also carry the name
 | 409 `LINK_TAKEN` | That Slack account is already linked to someone else |
 | 409 `LINK_EXISTS` | I already have a link for the same team |
 
-When the workspace has no account-link app, the first link start makes it on the spot. If Slack's answer to that creation is lost (timeout, dropped connection, failed save), the app stays in creation and every later link start answers `409 SLACK_APP_CREATING`. After 60 seconds `details.uncertain: true` is added. Then check api.slack.com/apps for an app made at that time and delete it, and run the following inside the API container to give up the lost creation and make a new app. It prints one JSON line. Exit code `6` means the app is still being created (under 60 seconds) or is being deleted.
+When the workspace has no account-link app, the first link start makes it on the spot. If Slack's answer to that creation is lost (timeout, dropped connection, failed save), the app stays in creation and every later link start answers `409 SLACK_APP_CREATING`. After 60 seconds `details.uncertain: true` is added. Then check api.slack.com/apps for an app made at that time and delete it, and run the following in the API container ([Run operator commands](#run-operator-commands)) to give up the lost creation and make a new app. It prints one JSON line. Exit code `6` means the app is still being created (under 60 seconds) or is being deleted.
 
 ```bash
-docker compose --profile apps exec -T api \
-  bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$WORKSPACE_ID" --replace-uncertain
+bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$WORKSPACE_ID" --replace-uncertain
 ```
 
 ## Notice language
@@ -97,9 +96,54 @@ An instruction started or sent from Slack (a mention, a DM or a thread reply) ke
 
 Private channels and DMs keep only the link too; no more of the message is stored (the text received as an instruction stays in the turn's `message` as before). The link opens only for people who can read that message in Slack. Sessions and instructions from before links were kept, and an instruction Slack gave no link for, read `null` and show no link.
 
+## Run operator commands
+
+The operator commands on this page (`slack-app.ts`, `slack-install.ts`) are in the api image and reach the installation's database through the api container's database settings. The host needs no repository checkout and no Bun. Run them in the api container for your install method. The examples use `list-bots`.
+
+On a [single-server installation](/run-server/self-hosting/single-server) (the test-ops bundle), find the api container by the installation's compose project label. `werft-test-ops` is the default of `TEST_OPS_PROJECT`; if you installed with another value, use that. The command must print one container id.
+
+```bash
+API_CONTAINER="$(docker ps -q --filter label=com.docker.compose.project=werft-test-ops --filter label=com.docker.compose.service=api)"
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>
+```
+
+On [Kubernetes](/run-server/self-hosting/kubernetes), first [check the installation's context, namespace and fullname](/run-server/self-hosting/kubernetes#준비물). `werft` below is that page's example installation name.
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>
+```
+
+On the local stack of a repository checkout, run it in the checkout.
+
+```bash
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>
+```
+
 ## Register a Slack installation
 
-This is the operator's terminal path. Given a Slack app installed in a Slack workspace, register the installation with that app's bot token. A console flow that creates and installs the Slack app for you comes in a later version. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed (`verified`) installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it.
+Usually you do not need this. The console's **Create and install Slack app** ([Connect Slack in the console](/integrations/slack-console)) makes the agent's app and, once Slack consent is given, records a confirmed (`verified`) installation. This CLI is the operator's terminal path for an app made by hand in Slack and installed in a Slack workspace: it registers the installation with that app's bot token. The CLI asks Slack (`auth.test`, `bots.info`) for the team, the bot user, and the app, and records a confirmed installation. The app needs the bot scope `users:read`. Pass the token only in the `SLACK_BOT_TOKEN` environment variable. The CLI never takes the token as an argument and never prints it. The commands below read the token without showing it and hand it to the api container without putting it in a command argument.
+
+On a single-server installation (the test-ops bundle), find the api container as in [Run operator commands](#run-operator-commands) and pass the shell's value with `docker exec -e`.
+
+```bash
+API_CONTAINER="$(docker ps -q --filter label=com.docker.compose.project=werft-test-ops --filter label=com.docker.compose.service=api)"
+read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
+docker exec -e SLACK_BOT_TOKEN "$API_CONTAINER" \
+  bun run apps/control-host/src/api/slack-install.ts register --workspace "$WS" --app-id A0123ABCD
+unset SLACK_BOT_TOKEN
+```
+
+On Kubernetes, `kubectl exec` has no option to pass an environment variable, so pass the token on stdin; the shell in the container reads that line into `SLACK_BOT_TOKEN`.
+
+```bash
+read -rs SLACK_BOT_TOKEN
+printf '%s\n' "$SLACK_BOT_TOKEN" | kubectl -n werft exec -i deploy/werft-api -c api -- sh -c \
+  'IFS= read -r SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN && exec bun run apps/control-host/src/api/slack-install.ts register --workspace "$1" --app-id "$2"' \
+  sh "$WS" A0123ABCD
+unset SLACK_BOT_TOKEN
+```
+
+On the local stack, use the checkout's package script.
 
 ```bash
 read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
@@ -130,7 +174,7 @@ Running the same command again re-confirms the same installation (`registration:
 
 Agent administrators, including workspace owners and admins, call these endpoints with a web session. `GET /v1/agents/{id}/slack/app` includes `event_url` and `events`. The absolute event URL is the https address the server computes from the console's public address (`CONSOLE_ORIGIN`) plus `/v1/slack/events/{agent_id}`; a server whose events enter apart from the console uses the address an owner saved as the events entrance under **Settings > Integrations > Slack** (`PUT /v1/slack-settings`) instead. It is null when none can be computed. `events.state` is `pending`, `verified`, or `failed`. It turns `pending` when the install finalize puts this address in the manifest as the Request URL, and `events.url` keeps the address sent (null before any). An app that is already `verified` stays `verified` when the address is sent again, also when the address changes, because Slack keeps a verified Request URL verified across a manifest update without checking it again; if Slack refuses the update to a changed address, it turns `failed`. It turns `verified` when the first request signed with that app's signing secret (`url_verification` or an event) arrives. A `url_verification` gets its challenge back, and nothing else, once its signature and timestamp check out. A failed manifest registration turns it `failed` with a safe `error` code. `checked_at` is when the state last changed, or null.
 
-Still `pending` after finalize means Slack has not reached the address yet. Public DNS may not resolve it yet, or Slack may not have checked a URL set through the manifest. `POST /v1/agents/{id}/slack/app/events/recheck` (**Recheck** under **Addresses for a Slack app** in the console's Slack tab) sends the manifest with its Request URL again. If it stays `pending`, press Verify (or Retry) for the Request URL on the Event Subscriptions page of the Slack app's settings. Once the address has been sent, the console's Slack tab shows the same notice with a link to that page while it is `pending`. On a local stack opened with `scripts/slack-funnel.sh on`, wait until its last line, a public DNS check (dns.google, cloudflare-dns.com), no longer warns before you create the Slack app.
+Still `pending` after finalize means Slack has not reached the address yet. Public DNS may not resolve it yet, or Slack may not have checked a URL set through the manifest. `POST /v1/agents/{id}/slack/app/events/recheck` (**Recheck** under **Addresses for a Slack app** in the console's Slack tab) sends the manifest with its Request URL again. If it stays `pending`, press Verify (or Retry) for the Request URL on the Event Subscriptions page of the Slack app's settings. Once the address has been sent, the console's Slack tab shows the same notice with a link to that page while it is `pending`. On a local stack opened with `scripts/slack-funnel.sh on`, wait until its last line, a public DNS check (dns.google, cloudflare-dns.com), no longer warns before you create the Slack app. On a single-server or Kubernetes installation, create it once the public https address opened through [access](/run-server/self-hosting/access) resolves in public DNS.
 
 `GET /v1/agents/{id}/slack/app/manifest` returns `manifest_yaml`, generated from the current agent and server configuration without secret values.
 
@@ -149,7 +193,7 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
   -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
 ```
 
-Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. The operator creates an installation with the registration CLI above.
+Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. The console's **Create and install Slack app** creates the installation after Slack consent. For an app made by hand, the operator creates it with [Register a Slack installation](#register-a-slack-installation).
 
 Removing the app in Slack disconnects the agent. An `app_uninstalled` event, or a `tokens_revoked` event that names a bot token, marks the installation `revoked` and revokes the agent's active link to it too (`revoked_at` is set). The link's channel bindings and credential name are released with it. The console's Slack tab shows "Reinstall required" instead of "Connected". The same event arriving again, or arriving late after a reinstall, changes nothing. Installing again creates a new active link; the old one stays as a revoked record.
 
@@ -172,7 +216,7 @@ An agent can answer mentions from other bots, not only from people. It takes onl
 
 `GET /v1/agents/{id}/slack/app/bots` returns `items` and `truncated`. Each item has `user_id`, `name`, `state` (`active` or `gone`) and `allowed`; `truncated` is `true` when Slack's list could not be read to the end. `PUT` replaces the whole list with `{ "allowed_user_ids": ["U0..."] }` and is called by an agent manager with a web session. An added ID that cannot be taken is a 400, and `details.reason_code` says why: `slack_bot_own` (the agent's own bot), `slack_bot_werft_agent` (another agent's bot in the same Werft), `slack_bot_other_team` (a bot of another team) or `slack_bot_unknown` (not a live bot). `details.user_ids` holds the IDs refused for that reason. Without an installed app it is a 409 `SLACK_NOT_INSTALLED`, and a Slack 429 is a 503 with `Retry-After`.
 
-For tests and recovery, an operator with database access can run `bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>`, `allow-bot --agent <agent_id> --bot <bot_user_id>` and `disallow-bot --agent <agent_id> --bot <bot_user_id>` in the API container. The console is the normal place to change the list. `allow-bot` makes the same checks as above (`slack_bot_own`, `slack_bot_werft_agent`, `slack_bot_other_team`, `slack_bot_unknown`) and exits 10 when it refuses. A change writes a `set_slack_allowed_bots` receipt with `by` `operator_cli` (a change in the console writes it with `by` `web` and the user as `actor`); allowing a bot already allowed, or removing one that is not, changes nothing and writes no receipt. The API stays web-session only and takes no API key.
+For tests and recovery, an operator with database access can run `bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>`, `allow-bot --agent <agent_id> --bot <bot_user_id>` and `disallow-bot --agent <agent_id> --bot <bot_user_id>` in the API container ([Run operator commands](#run-operator-commands)). The console is the normal place to change the list. `allow-bot` makes the same checks as above (`slack_bot_own`, `slack_bot_werft_agent`, `slack_bot_other_team`, `slack_bot_unknown`) and exits 10 when it refuses. A change writes a `set_slack_allowed_bots` receipt with `by` `operator_cli` (a change in the console writes it with `by` `web` and the user as `actor`); allowing a bot already allowed, or removing one that is not, changes nothing and writes no receipt. The API stays web-session only and takes no API key.
 
 ## Channel joins and the deployment welcome
 
@@ -191,7 +235,7 @@ When a release is first deployed, the home channel gets `안녕하세요, <agent
 
 ## Channel archive, rename and delete
 
-The agent app receives a channel being archived (`channel_archive`, `group_archive`), unarchived (`channel_unarchive`, `group_unarchive`), renamed (`channel_rename`, `group_rename`) and deleted (`channel_deleted`, `group_deleted`). `channel_*` events are for public channels and `group_*` for private ones. They come on scopes the app already holds, so there is no new scope; by Slack's documentation, adding events on scopes an app holds needs no reinstall. An app made before these events were added receives them once its manifest is sent again with **Recheck** (`POST /v1/agents/{id}/slack/app/events/recheck`). To send it without the console, run `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` in the API container. When the manifest sent again asks for a scope the install lacks and Slack answers that the permissions changed, Recheck's answer (`reinstall_required: true`) and the console's notice say to install the app again.
+The agent app receives a channel being archived (`channel_archive`, `group_archive`), unarchived (`channel_unarchive`, `group_unarchive`), renamed (`channel_rename`, `group_rename`) and deleted (`channel_deleted`, `group_deleted`). `channel_*` events are for public channels and `group_*` for private ones. They come on scopes the app already holds, so there is no new scope; by Slack's documentation, adding events on scopes an app holds needs no reinstall. An app made before these events were added receives them once its manifest is sent again with **Recheck** (`POST /v1/agents/{id}/slack/app/events/recheck`). To send it without the console, run `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` in the API container ([Run operator commands](#run-operator-commands)). When the manifest sent again asks for a scope the install lacks and Slack answers that the permissions changed, Recheck's answer (`reinstall_required: true`) and the console's notice say to install the app again.
 
 The app also receives `channel_shared` and `channel_unshared`, sent when a channel starts or stops being shared with another organization. They come on `channels:read` and `groups:read`, which the app already holds, so no reinstall is needed; an app made before these events were added receives them after a Recheck, as above. Before the events arrive, whether a channel is shared is asked of Slack when its messages come in.
 

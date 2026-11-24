@@ -56,11 +56,10 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack
 | 409 `LINK_TAKEN` | その Slack アカウントは別の人に連携されている |
 | 409 `LINK_EXISTS` | 同じチームに自分の連携がすでにある |
 
-アカウント連携用アプリがなければ、最初の連携開始がその場でアプリを作る。Slack の作成応答を失うと（タイムアウト、接続切れ、保存失敗）アプリは作成中のまま残り、その後の連携開始はすべて `409 SLACK_APP_CREATING` になる。60 秒を過ぎると `details.uncertain: true` が付く。そのとき api.slack.com/apps でその時刻に作られたアプリを確認して削除し、API コンテナの中で次を実行して、失われた作成をあきらめて新しく作る。出力は JSON 一行である。終了コード `6` は、アプリがまだ作成中（60 秒前）か削除中であることを示す。
+アカウント連携用アプリがなければ、最初の連携開始がその場でアプリを作る。Slack の作成応答を失うと（タイムアウト、接続切れ、保存失敗）アプリは作成中のまま残り、その後の連携開始はすべて `409 SLACK_APP_CREATING` になる。60 秒を過ぎると `details.uncertain: true` が付く。そのとき api.slack.com/apps でその時刻に作られたアプリを確認して削除し、API コンテナーで次を実行して([運用者コマンドの実行](#運用者コマンドの実行))、失われた作成をあきらめて新しく作る。出力は JSON 一行である。終了コード `6` は、アプリがまだ作成中（60 秒前）か削除中であることを示す。
 
 ```bash
-docker compose --profile apps exec -T api \
-  bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$WORKSPACE_ID" --replace-uncertain
+bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$WORKSPACE_ID" --replace-uncertain
 ```
 
 ## 通知の言語
@@ -97,9 +96,54 @@ Slack のメンション·DM·スレッドの返信で始めた、または送�
 
 プライベートチャンネルと DM もリンクだけを残し、メッセージ本文はそれ以上保存しない(指示として受け取った文はこれまでどおり turn の `message` にある)。リンクは Slack でそのメッセージを読める人にだけ開く。リンクを残す前に作ったセッション·指示と、Slack がリンクを返さなかった指示は `null` で、画面にリンクは出ない。
 
+## 運用者コマンドの実行
+
+このページの運用者コマンド(`slack-app.ts`、`slack-install.ts`)は api イメージの中にあり、api コンテナーの DB 設定でその設置の DB に接続する。ホストにリポジトリの checkout や Bun は要らない。設置方法ごとに api コンテナーで次のように実行する。例は `list-bots` である。
+
+[単一サーバー設置](/run-server/self-hosting/single-server)(test-ops バンドル)では、この設置の compose project label で api コンテナーを探す。`werft-test-ops` は `TEST_OPS_PROJECT` の既定値なので、別の値で設置した場合はその値に置き換える。コンテナー id が一行出力されなければならない。
+
+```bash
+API_CONTAINER="$(docker ps -q --filter label=com.docker.compose.project=werft-test-ops --filter label=com.docker.compose.service=api)"
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>
+```
+
+[Kubernetes](/run-server/self-hosting/kubernetes) では、まず[設置の context・namespace・fullname の確認](/run-server/self-hosting/kubernetes#준비물)に従う。下の `werft` はその例の設置名である。
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>
+```
+
+リポジトリ checkout のローカルスタックでは、checkout で実行する。
+
+```bash
+docker compose --profile apps exec -T api bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>
+```
+
 ## Slack インストールの登録
 
-運用者がターミナルで使う経路である。Slack ワークスペースにインストール済みの Slack アプリがあれば、そのアプリの bot token でインストールを登録する。コンソールで Slack アプリを自動で作成・インストールする流れは次のバージョンで入る。CLI が Slack の `auth.test`·`bots.info` でチーム、bot ユーザー、アプリを確認し、確認済み(`verified`)のインストールを残す。アプリには bot scope `users:read` が必要である。token は環境変数 `SLACK_BOT_TOKEN` でのみ渡す。CLI は token を引数で受け取らず、出力もしない。
+普通はこの登録は要らない。コンソールの **Slack アプリを作成してインストール**([コンソールで Slack に接続する](/integrations/slack-console))がエージェントのアプリを作り、Slack の同意が終わると確認済み(`verified`)のインストールを残す。この CLI は、Slack で手作業で作ってワークスペースにインストールしたアプリを、運用者がターミナルで登録する経路である。そのアプリの bot token でインストールを登録する。CLI が Slack の `auth.test`·`bots.info` でチーム、bot ユーザー、アプリを確認し、確認済みのインストールを残す。アプリには bot scope `users:read` が必要である。token は環境変数 `SLACK_BOT_TOKEN` でのみ渡す。CLI は token を引数で受け取らず、出力もしない。下のコマンドは token を画面に出さずに読み、コマンド引数に入れずに api コンテナーへ渡す。
+
+単一サーバー設置(test-ops バンドル)では、[運用者コマンドの実行](#運用者コマンドの実行)のように api コンテナーを探し、`docker exec -e` でシェルの値を渡す。
+
+```bash
+API_CONTAINER="$(docker ps -q --filter label=com.docker.compose.project=werft-test-ops --filter label=com.docker.compose.service=api)"
+read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
+docker exec -e SLACK_BOT_TOKEN "$API_CONTAINER" \
+  bun run apps/control-host/src/api/slack-install.ts register --workspace "$WS" --app-id A0123ABCD
+unset SLACK_BOT_TOKEN
+```
+
+Kubernetes では `kubectl exec` に環境変数を渡すオプションがないので、token を stdin で渡し、コンテナー内のシェルがその行を `SLACK_BOT_TOKEN` として読む。
+
+```bash
+read -rs SLACK_BOT_TOKEN
+printf '%s\n' "$SLACK_BOT_TOKEN" | kubectl -n werft exec -i deploy/werft-api -c api -- sh -c \
+  'IFS= read -r SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN && exec bun run apps/control-host/src/api/slack-install.ts register --workspace "$1" --app-id "$2"' \
+  sh "$WS" A0123ABCD
+unset SLACK_BOT_TOKEN
+```
+
+ローカルスタックでは checkout の package script を使う。
 
 ```bash
 read -rs SLACK_BOT_TOKEN && export SLACK_BOT_TOKEN
@@ -130,7 +174,7 @@ unset SLACK_BOT_TOKEN
 
 owner・admin を含むエージェント管理者が Web セッションで呼び出す。`GET /v1/agents/{id}/slack/app` は `event_url` と `events` を返す。イベント URL は、サーバーがコンソールの公開アドレス(`CONSOLE_ORIGIN`)から計算した https アドレスに `/v1/slack/events/{agent_id}` を付けた絶対 URL である。イベントの入口をコンソールと別にしているサーバーは、owner が **設定 > 連携 > Slack** の「イベントの入口アドレス」に保存したアドレス(`PUT /v1/slack-settings`)を使う。計算できなければ null になる。`events.state` は `pending`・`verified`・`failed` である。インストール finalize が manifest にこのアドレスを Request URL として入れると `pending` になり、`events.url` に送ったアドレスが残る(送る前は null)。すでに `verified` のアプリは、アドレスをもう一度入れても、アドレスが変わっても `verified` のままである。Slack は manifest 更新で変わった Request URL を確認し直さず、確認済みのまま扱うためである。変わったアドレスへの更新を Slack が拒否すると `failed` になる。そのアプリの signing secret で署名されたリクエスト(`url_verification` またはイベント)が初めて届くと `verified` になる。`url_verification` には署名と時刻を確認したうえで challenge の値だけを返す。manifest 登録に失敗すると `failed` になり、秘密値を含まない `error` コードを返す。`checked_at` は状態が最後に変わった時刻(まだなければ null)である。
 
-finalize 後も `pending` なら、Slack はまだこのアドレスを確認できていない。公開 DNS がまだアドレスを解決できないこともあれば、Slack が manifest で入れた URL を確認していないこともある。`POST /v1/agents/{id}/slack/app/events/recheck`(コンソールの Slack タブ **Slack アプリに入れるアドレス** の **再確認**)は manifest を Request URL とともにもう一度送る。それでも `pending` なら、Slack アプリ設定の Event Subscriptions 画面で Request URL の Verify(または Retry)を押す。コンソールの Slack タブは、アドレスを送った後 `pending` の間、同じ案内とその画面へのリンクを表示する。ローカルスタックで `scripts/slack-funnel.sh on` でアドレスを公開した場合は、最後の行の公開 DNS チェック(dns.google・cloudflare-dns.com)の警告が消えるまで待ってから Slack アプリを作成する。
+finalize 後も `pending` なら、Slack はまだこのアドレスを確認できていない。公開 DNS がまだアドレスを解決できないこともあれば、Slack が manifest で入れた URL を確認していないこともある。`POST /v1/agents/{id}/slack/app/events/recheck`(コンソールの Slack タブ **Slack アプリに入れるアドレス** の **再確認**)は manifest を Request URL とともにもう一度送る。それでも `pending` なら、Slack アプリ設定の Event Subscriptions 画面で Request URL の Verify(または Retry)を押す。コンソールの Slack タブは、アドレスを送った後 `pending` の間、同じ案内とその画面へのリンクを表示する。ローカルスタックで `scripts/slack-funnel.sh on` でアドレスを公開した場合は、最後の行の公開 DNS チェック(dns.google・cloudflare-dns.com)の警告が消えるまで待ってから Slack アプリを作成する。単一サーバーや Kubernetes の設置では、[アクセス経路](/run-server/self-hosting/access)で開いた公開 https アドレスが公開 DNS で解決できてから作成する。
 
 `GET /v1/agents/{id}/slack/app/manifest` は現在のエージェントとサーバー設定から生成した `manifest_yaml` を返す。秘密値は含まない。
 
@@ -149,7 +193,7 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
   -d '{"provider": "slack_bot", "app_id": "A0APP", "team_id": "T0TEAM", "credential_ref": "slack/research-bot-token"}'
 ```
 
-確認済みの Slack インストールがない場合は 409 `SLACK_NOT_INSTALLED` になる。インストールは運用者が上の登録 CLI で作成する。
+確認済みの Slack インストールがない場合は 409 `SLACK_NOT_INSTALLED` になる。インストールはコンソールの **Slack アプリを作成してインストール** が Slack の同意の後に作成する。手作業で作ったアプリは、運用者が[Slack インストールの登録](#slack-インストールの登録)で作成する。
 
 Slack でアプリを削除すると連携は解除される。`app_uninstalled` イベント、または bot token を含む `tokens_revoked` イベントを受け取ると、インストールが `revoked` になり、そのインストール上の有効な連携も一緒に `revoked` になる(`revoked_at` が入る)。連携のチャンネル binding と認証情報の名前も解放される。コンソールの Slack タブは「接続済み」ではなく「再インストールが必要」を表示する。同じイベントが再度届いても、再インストールの後に遅れて届いても、状態は変わらない。再度インストールすると新しい有効な連携が作られ、以前の連携は解除済みの記録として残る。
 
@@ -172,7 +216,7 @@ Werft 側がコミットされた後、Slack に bot token の失効（`auth.rev
 
 `GET /v1/agents/{id}/slack/app/bots` は `items` と `truncated` を返す。各項目に `user_id`・`name`・`state`(`active`・`gone`)・`allowed` があり、`truncated` が `true` なら Slack の一覧を最後まで読めなかったことを示す。`PUT` は `{ "allowed_user_ids": ["U0..."] }` でリスト全体を置き換え、エージェント管理者が Web セッションで呼ぶ。新しく加える ID を受け付けられなければ 400 で、`details.reason_code` が理由を示す: `slack_bot_own`(エージェント自身のボット)、`slack_bot_werft_agent`(同じ Werft のほかのエージェントのボット)、`slack_bot_other_team`(ほかのチームのボット)、`slack_bot_unknown`(有効なボットではない)。`details.user_ids` にその理由で拒否した ID が入る。アプリがインストールされていなければ 409 `SLACK_NOT_INSTALLED`、Slack の 429 は `Retry-After` 付きの 503 になる。
 
-テストと復旧では、データベースに触れる運用者が API コンテナーで `bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>`、`allow-bot --agent <agent_id> --bot <bot_user_id>`、`disallow-bot --agent <agent_id> --bot <bot_user_id>` を使える。普段はコンソールで変更する。`allow-bot` は上と同じ検査(`slack_bot_own`・`slack_bot_werft_agent`・`slack_bot_other_team`・`slack_bot_unknown`)を通し、拒否すると終了コード 10 で終わる。リストが変わると `by` が `operator_cli` の receipt `set_slack_allowed_bots` が残る（コンソールで変えた場合は `by` が `web` で、`actor` が変えたユーザー）。すでに許可した Bot をもう一度許可しても、許可していない Bot を外しても、何も変わらず receipt も残らない。API は引き続き Web セッション専用で、API キーでは開かない。
+テストと復旧では、データベースに触れる運用者が API コンテナーで([運用者コマンドの実行](#運用者コマンドの実行)) `bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>`、`allow-bot --agent <agent_id> --bot <bot_user_id>`、`disallow-bot --agent <agent_id> --bot <bot_user_id>` を使える。普段はコンソールで変更する。`allow-bot` は上と同じ検査(`slack_bot_own`・`slack_bot_werft_agent`・`slack_bot_other_team`・`slack_bot_unknown`)を通し、拒否すると終了コード 10 で終わる。リストが変わると `by` が `operator_cli` の receipt `set_slack_allowed_bots` が残る（コンソールで変えた場合は `by` が `web` で、`actor` が変えたユーザー）。すでに許可した Bot をもう一度許可しても、許可していない Bot を外しても、何も変わらず receipt も残らない。API は引き続き Web セッション専用で、API キーでは開かない。
 
 ## チャンネル参加とデプロイの歓迎メッセージ
 
@@ -191,7 +235,7 @@ release が初めてデプロイされると、home チャンネルに`안녕하
 
 ## チャンネルのアーカイブ・名前変更・削除
 
-エージェントのアプリは、チャンネルのアーカイブ(`channel_archive`・`group_archive`)、アーカイブ解除(`channel_unarchive`・`group_unarchive`)、名前変更(`channel_rename`・`group_rename`)、削除(`channel_deleted`・`group_deleted`)のイベントを受け取る。`channel_*` は公開チャンネル、`group_*` は非公開チャンネルのものだ。アプリがすでに持つ scope で届くイベントなので、新しい scope はない。Slack のドキュメントでは、すでに持つ scope のイベントを追加するのに再インストールは要らない。これらのイベントより前に作ったアプリは、**再確認**(`POST /v1/agents/{id}/slack/app/events/recheck`)で manifest を送り直すと受け取るようになる。コンソールを使わずに送るには、API コンテナーで `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` を実行する。送り直した manifest がインストールにない scope を求め、Slack が権限が変わったと答えた場合は、再確認の応答(`reinstall_required: true`)とコンソールの案内がアプリの再インストールを求める。
+エージェントのアプリは、チャンネルのアーカイブ(`channel_archive`・`group_archive`)、アーカイブ解除(`channel_unarchive`・`group_unarchive`)、名前変更(`channel_rename`・`group_rename`)、削除(`channel_deleted`・`group_deleted`)のイベントを受け取る。`channel_*` は公開チャンネル、`group_*` は非公開チャンネルのものだ。アプリがすでに持つ scope で届くイベントなので、新しい scope はない。Slack のドキュメントでは、すでに持つ scope のイベントを追加するのに再インストールは要らない。これらのイベントより前に作ったアプリは、**再確認**(`POST /v1/agents/{id}/slack/app/events/recheck`)で manifest を送り直すと受け取るようになる。コンソールを使わずに送るには、API コンテナーで([運用者コマンドの実行](#運用者コマンドの実行)) `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` を実行する。送り直した manifest がインストールにない scope を求め、Slack が権限が変わったと答えた場合は、再確認の応答(`reinstall_required: true`)とコンソールの案内がアプリの再インストールを求める。
 
 チャンネルがほかの組織と共有されたとき、共有が終わったときに届く `channel_shared`・`channel_unshared` も受け取る。アプリがすでに持つ `channels:read`・`groups:read` で届くイベントなので再インストールは要らず、これらのイベントより前に作ったアプリは上と同じく再確認で受け取るようになる。イベントが届く前でも、共有されているかはチャンネルの投稿が届いたときに Slack に問い合わせて知る。
 
