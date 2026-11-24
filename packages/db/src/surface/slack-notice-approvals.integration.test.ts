@@ -22,11 +22,16 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
+const TEXT = {
+  body: ["notice"],
+  policyLink: { label: "policy", href: "https://docs.example.test/data" },
+};
 const entry = (
   version: number,
   requiresReapproval: boolean,
 ): SlackNoticeVersionEntry => ({
   version: slackNoticeVersionSchema.parse(version),
+  text: { ko: TEXT, ja: TEXT },
   requiresReapproval,
 });
 const V1 = [entry(1, true)];
@@ -157,7 +162,13 @@ integration("Slack notice approvals on PostgreSQL", () => {
 
     const approved = await approveSlackNotice(
       db,
-      { workspaceId: ws.id, agentId, by: ws.admin, requestId: "req-notice-1" },
+      {
+        workspaceId: ws.id,
+        agentId,
+        by: ws.admin,
+        locale: "ko",
+        requestId: "req-notice-1",
+      },
       V1,
     );
     const [added] = addedOf(approved);
@@ -227,7 +238,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     expect(
       await approveSlackNotice(
         db,
-        { workspaceId: ws.id, agentId, by: ws.owner },
+        { workspaceId: ws.id, agentId, by: ws.owner, locale: "ko" },
         V1,
       ),
     ).toEqual({ outcome: "unchanged", version: 1, added: [] } as never);
@@ -243,7 +254,12 @@ integration("Slack notice approvals on PostgreSQL", () => {
     await install(ws, other, "T0NOTICEB");
     await approveSlackNotice(
       db,
-      { workspaceId: ws.id, agentId: approvedAgent, by: ws.owner },
+      {
+        workspaceId: ws.id,
+        agentId: approvedAgent,
+        by: ws.owner,
+        locale: "ko",
+      },
       V1,
     );
     expect(
@@ -265,7 +281,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     const agentId = await agent(ws);
     await install(ws, agentId, "T0NOTICEC");
     const place = { workspaceId: ws.id, agentId };
-    await approveSlackNotice(db, { ...place, by: ws.admin }, V1);
+    await approveSlackNotice(db, { ...place, by: ws.admin, locale: "ko" }, V1);
 
     expect(await judgeSlackNotice(db, place, V2)).toMatchObject({
       approved: true,
@@ -276,7 +292,11 @@ integration("Slack notice approvals on PostgreSQL", () => {
       reason: "not_approved",
     });
 
-    const again = await approveSlackNotice(db, { ...place, by: ws.admin }, V3);
+    const again = await approveSlackNotice(
+      db,
+      { ...place, by: ws.admin, locale: "ko" },
+      V3,
+    );
     expect(again).toMatchObject({ outcome: "approved", version: 3 });
     expect(await judgeSlackNotice(db, place, V3)).toMatchObject({
       approved: true,
@@ -291,7 +311,11 @@ integration("Slack notice approvals on PostgreSQL", () => {
     await install(ws, agentId, "T0NOTICED");
     const place = { workspaceId: ws.id, agentId };
     const [approved] = addedOf(
-      await approveSlackNotice(db, { ...place, by: ws.admin }, V1),
+      await approveSlackNotice(
+        db,
+        { ...place, by: ws.admin, locale: "ko" },
+        V1,
+      ),
     );
 
     const revoked = await revokeSlackNotice(db, { ...place, by: ws.owner });
@@ -329,7 +353,11 @@ integration("Slack notice approvals on PostgreSQL", () => {
 
     // Approving after a revoke makes a new row.
     const [back] = addedOf(
-      await approveSlackNotice(db, { ...place, by: ws.admin }, V1),
+      await approveSlackNotice(
+        db,
+        { ...place, by: ws.admin, locale: "ko" },
+        V1,
+      ),
     );
     expect(back.approvalId).not.toBe(approved.approvalId);
     expect((await judgeSlackNotice(db, place, V1)).approved).toBe(true);
@@ -341,7 +369,9 @@ integration("Slack notice approvals on PostgreSQL", () => {
     await install(ws, agentId, "T0NOTICEE");
     const place = { workspaceId: ws.id, agentId };
     for (const by of [ws.member, ws.disabledAdmin, otherWs.admin]) {
-      expect(await approveSlackNotice(db, { ...place, by }, V1)).toEqual({
+      expect(
+        await approveSlackNotice(db, { ...place, by, locale: "ko" }, V1),
+      ).toEqual({
         outcome: "not_admin",
       });
       expect(await revokeSlackNotice(db, { ...place, by })).toEqual({
@@ -352,7 +382,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     expect(
       await approveSlackNotice(
         db,
-        { workspaceId: otherWs.id, agentId, by: otherWs.admin },
+        { workspaceId: otherWs.id, agentId, by: otherWs.admin, locale: "ko" },
         V1,
       ),
     ).toEqual({ outcome: "not_found" });
@@ -369,7 +399,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     await install(otherWs, theirs, "T0NOTICEF");
     await approveSlackNotice(
       db,
-      { workspaceId: ws.id, agentId: mine, by: ws.admin },
+      { workspaceId: ws.id, agentId: mine, by: ws.admin, locale: "ko" },
       V1,
     );
     expect(
@@ -410,7 +440,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
       let settled = false;
       const approval = approveSlackNotice(
         db,
-        { ...place, by: admin },
+        { ...place, by: admin, locale: "ko" },
         V1,
       ).finally(() => {
         settled = true;
@@ -431,7 +461,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     const agentId = await agent(ws);
     const place = { workspaceId: ws.id, agentId };
     await install(ws, agentId, "T0NOTICEG");
-    await approveSlackNotice(db, { ...place, by: ws.admin }, V1);
+    await approveSlackNotice(db, { ...place, by: ws.admin, locale: "ko" }, V1);
 
     await uninstall(agentId);
     expect(await judgeSlackNotice(db, place, V1)).toEqual({
@@ -439,7 +469,11 @@ integration("Slack notice approvals on PostgreSQL", () => {
       reason: "not_installed",
     });
     expect(
-      await approveSlackNotice(db, { ...place, by: ws.admin }, V1),
+      await approveSlackNotice(
+        db,
+        { ...place, by: ws.admin, locale: "ko" },
+        V1,
+      ),
     ).toEqual({ outcome: "not_installed" });
 
     await install(ws, agentId, "T0NOTICEG");
@@ -465,7 +499,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     const agentId = await agent(ws);
     const place = { workspaceId: ws.id, agentId };
     await install(ws, agentId, "T0NOTICEK");
-    await approveSlackNotice(db, { ...place, by: ws.admin }, V1);
+    await approveSlackNotice(db, { ...place, by: ws.admin, locale: "ko" }, V1);
     expect((await judgeSlackNotice(db, place, V1)).approved).toBe(true);
 
     // The same app installed in a second team: that organization has not
@@ -479,7 +513,11 @@ integration("Slack notice approvals on PostgreSQL", () => {
     }
 
     const added = addedOf(
-      await approveSlackNotice(db, { ...place, by: ws.admin }, V1),
+      await approveSlackNotice(
+        db,
+        { ...place, by: ws.admin, locale: "ko" },
+        V1,
+      ),
     );
     expect(added.map((row) => row.slackTeamId)).toEqual(["T0NOTICEL"]);
     const judged = await judgeSlackNotice(db, place, V1);
@@ -492,7 +530,11 @@ integration("Slack notice approvals on PostgreSQL", () => {
     // A version that asks again: one approval writes a row and a receipt for
     // each team, in one transaction.
     const both = addedOf(
-      await approveSlackNotice(db, { ...place, by: ws.owner }, V3),
+      await approveSlackNotice(
+        db,
+        { ...place, by: ws.owner, locale: "ko" },
+        V3,
+      ),
     );
     expect(both.map((row) => row.slackTeamId)).toEqual([
       "T0NOTICEK",
@@ -516,7 +558,11 @@ integration("Slack notice approvals on PostgreSQL", () => {
       reason: "no_notice",
     });
     expect(
-      await approveSlackNotice(db, { ...place, by: ws.admin }, []),
+      await approveSlackNotice(
+        db,
+        { ...place, by: ws.admin, locale: "ko" },
+        [],
+      ),
     ).toEqual({ outcome: "no_notice" });
     // The published list is empty until the first notice is written.
     expect(await judgeSlackNotice(db, place)).toEqual({
@@ -531,7 +577,7 @@ integration("Slack notice approvals on PostgreSQL", () => {
     const agentId = await agent(ws);
     await install(ws, agentId, "T0NOTICEJ");
     const place = { workspaceId: ws.id, agentId };
-    await approveSlackNotice(db, { ...place, by: ws.admin }, V1);
+    await approveSlackNotice(db, { ...place, by: ws.admin, locale: "ko" }, V1);
     await pool.query(
       "UPDATE agents SET status = 'archived', deleted_at = now(), deleted_by = $2 WHERE id = $1",
       [agentId, ws.owner],
@@ -541,7 +587,11 @@ integration("Slack notice approvals on PostgreSQL", () => {
       reason: "not_installed",
     });
     expect(
-      await approveSlackNotice(db, { ...place, by: ws.admin }, V1),
+      await approveSlackNotice(
+        db,
+        { ...place, by: ws.admin, locale: "ko" },
+        V1,
+      ),
     ).toEqual({ outcome: "not_found" });
   });
 });
