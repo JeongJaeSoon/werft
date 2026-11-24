@@ -98,7 +98,7 @@ kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node
 
 켜면 chart가 Node를 읽기만 하는 ClusterRole(`nodes` get·list)과 그 binding을 scheduler에 만든다. namespace 권한만 받은 설치자는 ClusterRole을 만들 수 없어 install이 실패하므로 기본은 끔이다. 끄면 이 ClusterRole을 만들지 않는다. Node를 읽지 못하면 scheduler는 경고를 건너뛰고 `Node capacity check skipped`만 남긴 채 그대로 돈다.
 
-켜면 쉬는 worker 내리기도 Node를 읽는다. Codex sandbox Pod는 Codex 라벨(`werft.codex-seccomp-profile=installed`) 노드에만 뜬다. 그 Pod가 자리를 기다리면 라벨 노드 위의 쉬는 worker를 일반 worker까지 후보로 본다. 끄면 sandbox worker만 후보다. 그래서 라벨 노드가 쉬는 일반 worker로 차 있으면 sandbox Pod는 자리를 얻지 못하고, 15분 뒤 `no_capacity`로 실패한다. Node를 읽지 못한 pass는 아무 worker도 내리지 않고 경고 `Could not tell which idle workers free room for a waiting launch`를 남긴다.
+켜면 쉬는 worker 내리기도 Node를 읽는다. Codex sandbox Pod는 Codex 라벨(`werft.codex-seccomp-profile=installed`) 노드에만 뜬다. 그 Pod가 자리를 기다리면 `worker.nodeSelector`가 고르는 라벨 노드 위의 쉬는 worker를 일반 worker까지 후보로 본다. 끄면 sandbox worker만 후보다. 그래서 라벨 노드가 쉬는 일반 worker로 차 있으면 sandbox Pod는 자리를 얻지 못하고, 15분 뒤 `no_capacity`로 실패한다. Node를 읽지 못한 pass는 아무 worker도 내리지 않고 경고 `Could not tell which idle workers free room for a waiting launch`를 남긴다.
 
 #### conversation runtime Pod
 

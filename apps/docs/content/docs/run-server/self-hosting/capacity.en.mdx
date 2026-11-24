@@ -107,7 +107,7 @@ kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node
 
 Turning it on makes the chart create a read-only ClusterRole for Nodes (`nodes` get and list) and bind it to the scheduler. An installer with namespace-only permissions cannot create a ClusterRole, and the install fails, so the default is off. Off creates no such ClusterRole. If the scheduler cannot read the nodes, it skips the warning, logs only `Node capacity check skipped`, and keeps running.
 
-On, stopping idle workers reads Nodes too. A Codex sandbox Pod schedules only onto nodes labelled `werft.codex-seccomp-profile=installed`. While one waits for room, every idle worker on a labelled node is a candidate, not only sandbox workers. Off, only sandbox workers are; a labelled node full of idle non-sandbox workers then gives the sandbox Pod no room, and it fails with `no_capacity` after 15 minutes. A pass that cannot read the nodes stops no worker and logs the warning `Could not tell which idle workers free room for a waiting launch`.
+On, stopping idle workers reads Nodes too. A Codex sandbox Pod schedules only onto nodes labelled `werft.codex-seccomp-profile=installed`. While one waits for room, every idle worker on a labelled node that `worker.nodeSelector` selects is a candidate, not only sandbox workers. Off, only sandbox workers are; a labelled node full of idle non-sandbox workers then gives the sandbox Pod no room, and it fails with `no_capacity` after 15 minutes. A pass that cannot read the nodes stops no worker and logs the warning `Could not tell which idle workers free room for a waiting launch`.
 
 #### Conversation runtime Pod
 
