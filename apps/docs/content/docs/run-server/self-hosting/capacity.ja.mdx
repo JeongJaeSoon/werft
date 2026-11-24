@@ -109,7 +109,7 @@ kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node
 
 #### conversation runtime Pod
 
-`conversationRuntime.enabled: true` の環境では、conversation runtime Pod も上の計算の「他の Pod の requests」に含まれます。現在の request は `conversationRuntime.resources`（既定 request 512Mi、limit 2Gi）です。待機中のエンジンの実測メモリはまだこのページにありません。
+`conversationRuntime.enabled: true` の環境では、conversation runtime Pod も上の計算の「他の Pod の requests」に含まれます。既定の `conversationRuntime.resources` は request と limit がともに 2560Mi です。ランタイム一つは主題セッションを 8 個まで保持し、一つのターンを終えて待機中のエンジン一つは RSS 約 215MiB でした（macOS arm64 で測定した値）。エンジン 8 個、ランタイム loop、主題ディレクトリの tmpfs（256Mi）と余裕を合わせた値です。単一ノードでは、worker の分からこの分が減ります。
 
 <a id="지원되는-변경-선택" />
 #### 変更方法の選択と対応状況

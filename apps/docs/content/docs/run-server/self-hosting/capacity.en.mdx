@@ -109,7 +109,7 @@ Turning it on makes the chart create a read-only ClusterRole for Nodes (`nodes` 
 
 #### Conversation runtime Pod
 
-In an installation with `conversationRuntime.enabled: true`, the conversation runtime Pod also counts as "other Pod requests" above. Its request is `conversationRuntime.resources` (default request 512Mi, limit 2Gi). This page does not yet have a measured memory figure for an idle engine.
+In an installation with `conversationRuntime.enabled: true`, the conversation runtime Pod also counts as "other Pod requests" above. The default `conversationRuntime.resources` is 2560Mi for both request and limit. One runtime keeps up to 8 topic sessions, and one engine idle after a turn measured about 215MiB RSS (on macOS arm64). The value adds 8 engines, the runtime loop, the topic directory tmpfs (256Mi), and headroom. On a single node, this much comes out of the workers' share.
 
 <a id="지원되는-변경-선택" />
 #### Supported changes

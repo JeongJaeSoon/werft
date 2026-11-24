@@ -100,7 +100,7 @@ kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node
 
 #### conversation runtime Pod
 
-`conversationRuntime.enabled: true`인 설치에서는 conversation runtime Pod도 위 셈의 "다른 Pod requests"에 든다. 지금 request는 `conversationRuntime.resources`(기본 request 512Mi, limit 2Gi)다. 쉬는 엔진의 실측 메모리는 아직 이 문서에 없다.
+`conversationRuntime.enabled: true`인 설치에서는 conversation runtime Pod도 위 셈의 "다른 Pod requests"에 든다. 기본 `conversationRuntime.resources`는 request와 limit 모두 2560Mi다. 런타임 하나가 주제 세션을 8개까지 두고, 한 턴을 마치고 쉬는 엔진 하나가 RSS 약 215MiB였다(macOS arm64에서 잰 값). 엔진 8개, 런타임 loop, 주제 디렉터리 tmpfs(256Mi)와 여유를 더한 값이다. 단일 노드라면 worker 몫에서 이만큼 빠진다.
 
 
 #### 지원되는 변경 선택
