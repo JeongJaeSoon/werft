@@ -125,6 +125,33 @@ describe("self-hosting command fixtures", () => {
     }
   });
 
+  test("the kind trial verify block exits non-zero when any request fails", () => {
+    const run = (suffix: string, failing: string[]) => {
+      const text = readFileSync(join(root, `try-kind${suffix}.mdx`), "utf8");
+      const block = [
+        ...text.matchAll(/^\x60\x60\x60bash\n([\s\S]*?)^\x60\x60\x60$/gm),
+      ]
+        .map((match) => match[1] ?? "")
+        .find((block) => block.includes("/readyz"));
+      expect(block).toBeDefined();
+      return spawnSync("bash", [], {
+        input: [
+          "kubectl() { sleep 30; }",
+          `curl() { case "$*" in ${failing.map((path) => `*${path}`).join("|") || "NONE"}) return 22 ;; esac; }`,
+          "sleep() { :; }",
+          block,
+        ].join("\n"),
+        encoding: "utf8",
+        timeout: 10000,
+      }).status;
+    };
+    for (const suffix of ["", ".en", ".ja"]) {
+      expect(run(suffix, [])).toBe(0);
+      expect(run(suffix, ["/readyz"])).not.toBe(0);
+      expect(run(suffix, ["/docs"])).not.toBe(0);
+    }
+  });
+
   test("the worker pre-pull block prints every worker image reference", () => {
     const block = blocks("kubernetes", "bash").find((block) =>
       block.includes("crictl pull"),
