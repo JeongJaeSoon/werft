@@ -248,6 +248,7 @@ export function createOperatorConversationTurns(deps: {
           },
           takeBy,
           now(),
+          issued.expiresAt,
         );
         turn = await deps.turns.ended(turnId);
       } catch (error) {

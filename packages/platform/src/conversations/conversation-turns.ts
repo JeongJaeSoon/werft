@@ -15,6 +15,10 @@ import type {
 } from "../ports/conversation-turn-queue.ts";
 import type { TopicSessionChecks } from "./topic-session-checks.ts";
 
+// A lease taken now would outlast the turn's permit.
+const tooLate = (usableUntil: Date | null, now: Date, leaseMs: number) =>
+  usableUntil !== null && now.getTime() + leaseMs > usableUntil.getTime();
+
 // How long an ended turn is kept, so a repeated report is still told apart
 // from an unknown one and whoever queued the turn can read how it ended.
 const ENDED_TURN_KEPT_MS = 10 * 60_000;
@@ -31,6 +35,7 @@ type Entry = { turn: QueuedConversationTurn } & (
       takeBy: Date;
       /** How long it may wait from its topic's last turn's end, behind which it queued. */
       takeMs: number;
+      usableUntil: Date | null;
     }
   | { state: "leased"; lease: Lease }
   | {
@@ -76,12 +81,13 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
     const topicId = entry.turn.scope.topic_id;
     if (
       entry.state === "queued" &&
-      !topicBusy(topicId) &&
-      now.getTime() >=
-        Math.max(
-          entry.takeBy.getTime(),
-          (topicFreedAt.get(topicId) ?? 0) + entry.takeMs,
-        )
+      (tooLate(entry.usableUntil, now, CONVERSATION_TURN_LEASE_MS) ||
+        (!topicBusy(topicId) &&
+          now.getTime() >=
+            Math.max(
+              entry.takeBy.getTime(),
+              (topicFreedAt.get(topicId) ?? 0) + entry.takeMs,
+            )))
     ) {
       ended = {
         turn: entry.turn,
@@ -121,7 +127,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   return {
     durable: false,
 
-    async enqueue(turn, takeBy, now = new Date()) {
+    async enqueue(turn, takeBy, now = new Date(), usableUntil) {
       if (entries.has(turn.turn_id)) {
         throw new Error(`Conversation turn ${turn.turn_id} is already queued`);
       }
@@ -130,6 +136,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
         state: "queued",
         takeBy,
         takeMs: Math.max(0, takeBy.getTime() - now.getTime()),
+        usableUntil: usableUntil ?? null,
       });
     },
 
@@ -145,6 +152,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
       for (const [id, entry] of entries) {
         if (entry.state !== "queued") continue;
         if (busy.has(entry.turn.scope.topic_id)) continue;
+        if (tooLate(entry.usableUntil, now, leaseMs)) continue;
         const lease: Lease = {
           id: conversationTurnLeaseIdSchema.parse(crypto.randomUUID()),
           runtimeId,

@@ -46,12 +46,15 @@ export interface ConversationTurnQueue {
   readonly durable: boolean;
   /**
    * Queues a turn a runtime must take before `takeBy`. Queued behind another
-   * turn of its topic, it waits as long again from that turn's end.
+   * turn of its topic, it waits as long again from that turn's end, but is
+   * never taken once a whole lease would outlast `usableUntil`, when its
+   * permit ends.
    */
   enqueue(
     turn: QueuedConversationTurn,
     takeBy: Date,
     now?: Date,
+    usableUntil?: Date,
   ): Promise<void>;
   /** Leases the oldest waiting turn to `runtimeId`, or null when none waits. */
   lease(input: {

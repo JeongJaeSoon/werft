@@ -280,6 +280,60 @@ describe("conversation turns over the memory queue", () => {
     ).toBe(second.turn_id);
   });
 
+  test("one queued behind its topic's turn is not taken once a whole lease would outlast its permit", async () => {
+    const h = harness();
+    const usableUntil = new Date(
+      h.at().getTime() + 30_000 + CONVERSATION_TURN_LEASE_MS,
+    );
+    const first = await h.enqueue();
+    const late = { ...queued(), scope: first.scope };
+    await h.turns.queue.enqueue(
+      late,
+      new Date(h.at().getTime() + 30_000),
+      h.at(),
+      usableUntil,
+    );
+    const a = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    h.advance(31_000);
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: first.turn_id,
+      leaseId: a?.lease_id as never,
+      result: done,
+    });
+    expect(
+      await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }),
+    ).toBeNull();
+    expect(await h.turns.queue.outcome(late.turn_id, h.at())).toEqual({
+      outcome: "failed",
+      reason: "not_taken",
+    });
+
+    // Freed in time, the next one is taken with its whole lease inside its permit.
+    const second = await h.enqueue();
+    const soon = { ...queued(), scope: second.scope };
+    const until = new Date(
+      h.at().getTime() + 30_000 + CONVERSATION_TURN_LEASE_MS,
+    );
+    await h.turns.queue.enqueue(
+      soon,
+      new Date(h.at().getTime() + 30_000),
+      h.at(),
+      until,
+    );
+    const b = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    h.advance(20_000);
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: second.turn_id,
+      leaseId: b?.lease_id as never,
+      result: done,
+    });
+    expect(
+      (await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }))?.turn_id,
+    ).toBe(soon.turn_id);
+  });
+
   test("one queued behind a turn whose lease runs out waits from the lease's end", async () => {
     const h = harness();
     const first = await h.enqueue();
