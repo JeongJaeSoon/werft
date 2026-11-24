@@ -152,8 +152,15 @@ export type PrivateChannelSlack = {
   kindOf(
     place: ChannelSessionPlace,
   ): Promise<{ kind: ChannelKindNow } | { unconfirmed: string }>;
-  /** Every member's Slack id; null when the list cannot be read whole. */
-  memberIds(place: ChannelSessionPlace): Promise<readonly string[] | null>;
+  /** Every member's Slack id; a short reason when the list cannot be read whole. */
+  memberIds(
+    place: ChannelSessionPlace,
+  ): Promise<{ memberIds: readonly string[] } | { unconfirmed: string }>;
+};
+
+/** Where a reason is logged: the command's stdout is one line of JSON. */
+export type PrivateChannelSessionsLogger = {
+  warn(message: string, fields: Record<string, string>): void;
 };
 
 export type PrivateChannelSessionsIo = {
@@ -167,6 +174,7 @@ export type PrivateChannelSessionsIo = {
     databaseUrl: string,
   ) => Promise<{ db: Database; close(): Promise<void> }>;
   openSlack?: (db: Database, key: SecretKey) => PrivateChannelSlack;
+  logger?: PrivateChannelSessionsLogger;
 };
 
 /**
@@ -177,6 +185,29 @@ const KEY_MISMATCH = "master_key_mismatch";
 
 /** Why a channel went unread when its agent has no Slack install. */
 const NOT_INSTALLED = "SLACK_NOT_INSTALLED";
+
+const SAFE_NAME = /^[A-Za-z0-9_]{1,64}$/;
+
+/**
+ * A short class of why the member list went unread: Slack's own error code,
+ * how the call failed without one, or only the name of any other error. Never
+ * a message, a header or a body, which may carry what Slack was sent.
+ */
+function memberReasonOf(error: unknown): string {
+  if (error instanceof SecretDecryptError) return KEY_MISMATCH;
+  if (
+    error instanceof Error &&
+    (error.name === "SlackApiError" || error.name === "SlackRateLimitedError")
+  ) {
+    const { code, failure } = error as { code?: unknown; failure?: unknown };
+    if (typeof code === "string" && SAFE_NAME.test(code)) {
+      return failure === "slack_error" ? `slack_error:${code}` : code;
+    }
+    return "slack_call_failed";
+  }
+  const name = error instanceof Error ? error.name : "";
+  return `exception:${SAFE_NAME.test(name) ? name : "Error"}`;
+}
 
 type BindingKind = "public_channel" | "private_channel" | "unknown";
 
@@ -221,7 +252,7 @@ export function slackOfAgents(deps: {
           place.workspaceId,
           place.agentId,
         );
-        if (token === null) return null;
+        if (token === null) return { unconfirmed: "no_bot_token" };
         const members = new Set<string>();
         let cursor: string | null = null;
         do {
@@ -230,12 +261,14 @@ export function slackOfAgents(deps: {
             cursor,
           });
           for (const id of page.memberIds) members.add(id);
-          if (members.size > SLACK_CHANNEL_MEMBER_LIMIT) return null;
+          if (members.size > SLACK_CHANNEL_MEMBER_LIMIT) {
+            return { unconfirmed: "too_many_members" };
+          }
           cursor = page.nextCursor;
         } while (cursor !== null);
-        return [...members];
-      } catch {
-        return null;
+        return { memberIds: [...members] };
+      } catch (error) {
+        return { unconfirmed: memberReasonOf(error) };
       }
     },
   };
@@ -250,7 +283,30 @@ type PlannedSession = {
   people_losing: number;
   key_turns: number;
   members_unconfirmed: boolean;
+  /** Present with members_unconfirmed: why the list went unread. */
+  members_unconfirmed_reason?: string;
 };
+
+type MemberRead = Awaited<ReturnType<PrivateChannelSlack["memberIds"]>>;
+
+/** The member list, with one warning line when it cannot be read. */
+async function readMembers(
+  slack: PrivateChannelSlack,
+  place: ChannelSessionPlace,
+  logger: PrivateChannelSessionsLogger | undefined,
+): Promise<MemberRead> {
+  const read = await slack.memberIds(place);
+  if ("unconfirmed" in read) {
+    logger?.warn("Channel members unconfirmed; no one is kept", {
+      event: "private_channel_sessions.member_check.unconfirmed",
+      reason: read.unconfirmed,
+      workspace_id: place.workspaceId,
+      agent_id: place.agentId,
+      channel_id: place.channelId,
+    });
+  }
+  return read;
+}
 
 // Who sees a session now (the one predicate every read uses) and who still
 // would once it is private_channel: a member who may use the agent, with a
@@ -260,10 +316,12 @@ async function peopleLosing(
   db: Database,
   place: ChannelSessionPlace,
   sessionIds: readonly string[],
-  memberIds: readonly string[] | null,
-): Promise<{ losing: Map<string, number>; unconfirmed: boolean }> {
+  read: MemberRead | null,
+): Promise<{ losing: Map<string, number>; unconfirmed: string | null }> {
   const losing = new Map(sessionIds.map((id) => [id, 0]));
-  if (sessionIds.length === 0) return { losing, unconfirmed: false };
+  if (sessionIds.length === 0) return { losing, unconfirmed: null };
+  const memberIds =
+    read !== null && "memberIds" in read ? read.memberIds : null;
   const authority = createDatabaseAgentAuthority(db);
   const subjects = createPostgresChannelMemberStore(db);
   const people = await db
@@ -306,13 +364,22 @@ async function peopleLosing(
     if (keeps) continue;
     for (const { id } of seen) losing.set(id, (losing.get(id) ?? 0) + 1);
   }
-  return { losing, unconfirmed: memberIds === null };
+  return {
+    losing,
+    unconfirmed:
+      read === null
+        ? "not_read"
+        : "unconfirmed" in read
+          ? read.unconfirmed
+          : null,
+  };
 }
 
 async function run(
   command: PrivateChannelSessionsCommand,
   db: Database,
   slack: PrivateChannelSlack,
+  logger: PrivateChannelSessionsLogger | undefined,
 ): Promise<{
   exit: number;
   keyMismatch: boolean;
@@ -350,7 +417,7 @@ async function run(
     if (command.command === "apply") {
       let reason = "failed";
       let bound: BindingKind = "unknown";
-      let members: readonly string[] | null = null;
+      let members: MemberRead | null = null;
       // Asked inside the move, after its lock on the channel: a binding
       // changed meanwhile is read as it is now.
       const changed = await bindings.channelKindChanged(
@@ -360,7 +427,7 @@ async function run(
           if ("kind" in now) {
             // Read before the sessions are locked, for who loses them.
             if (now.kind === "private_channel") {
-              members = await slack.memberIds(place);
+              members = await readMembers(slack, place, logger);
             }
             return now.kind;
           }
@@ -474,9 +541,11 @@ async function run(
             db,
             place,
             narrowing,
-            narrowing.length === 0 ? null : await slack.memberIds(place),
+            narrowing.length === 0
+              ? null
+              : await readMembers(slack, place, logger),
           )
-        : { losing: new Map<string, number>(), unconfirmed: true };
+        : { losing: new Map<string, number>(), unconfirmed: null };
     for (const move of bound === null ? plan.moves : []) {
       planned.push({
         session_id: move.sessionId,
@@ -485,7 +554,11 @@ async function run(
         to: move.to,
         people_losing: losing.get(move.sessionId) ?? 0,
         key_turns: keyTurns(move),
-        members_unconfirmed: move.to === "private_channel" && unconfirmed,
+        members_unconfirmed:
+          move.to === "private_channel" && unconfirmed !== null,
+        ...(move.to === "private_channel" && unconfirmed !== null
+          ? { members_unconfirmed_reason: unconfirmed }
+          : {}),
       });
     }
     for (const skip of plan.skipped) {
@@ -583,6 +656,7 @@ export async function runPrivateChannelSessions(
         command,
         database.db,
         slack,
+        io.logger,
       );
       io.out(JSON.stringify(line));
       // The JSON names the channels; this line says what to do about them.
@@ -615,6 +689,10 @@ if (import.meta.main) {
     env: process.env,
     out: (line) => console.log(line),
     err: (line) => console.error(line),
+    logger: createLogger({
+      level: "warn",
+      sinks: [{ write: (record) => console.error(JSON.stringify(record)) }],
+    }),
     loadKey: async (env) =>
       masterKeyConfigured(env) ? loadSecretKey(env) : null,
     async openDatabase(databaseUrl) {

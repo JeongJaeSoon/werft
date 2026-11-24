@@ -7,6 +7,7 @@ import {
   type SecretOwnerRef,
   sealSecret,
 } from "@werft-ai/platform";
+import { createSlackBotApi } from "../wiring/chat-slack.ts";
 import {
   PRIVATE_CHANNEL_SESSIONS_EXIT,
   PrivateChannelSessionsUsageError,
@@ -141,5 +142,77 @@ describe("slackOfAgents", () => {
       api,
     });
     expect(await broken.kindOf(place)).toEqual({ unconfirmed: "failed" });
+  });
+
+  describe("memberIds says why the list went unread", () => {
+    const readable = (fetchImpl: typeof fetch) => {
+      const commandKey = newKey();
+      const sealed = sealSecret(commandKey, fields, "bot-token-for-test");
+      return slackOfAgents({
+        apps: { findForAgent: app },
+        secrets: { get: async () => openSecret(commandKey, fields, sealed) },
+        api: createSlackBotApi({ fetch: fetchImpl }),
+      });
+    };
+    const answer = (body: unknown, status = 200) =>
+      (async () => Response.json(body, { status })) as unknown as typeof fetch;
+
+    test("a Slack error answer gives its code", async () => {
+      const slack = readable(answer({ ok: false, error: "missing_scope" }));
+      expect(await slack.memberIds(place)).toEqual({
+        unconfirmed: "slack_error:missing_scope",
+      });
+    });
+
+    test("rate limiting, an HTTP failure and no answer are told apart", async () => {
+      expect(await readable(answer({}, 429)).memberIds(place)).toEqual({
+        unconfirmed: "slack_error:ratelimited",
+      });
+      expect(await readable(answer("<html>", 502)).memberIds(place)).toEqual({
+        unconfirmed: "http_502",
+      });
+      const down = (async () => {
+        throw new TypeError("connect ECONNREFUSED with the token in it");
+      }) as unknown as typeof fetch;
+      expect(await readable(down).memberIds(place)).toEqual({
+        unconfirmed: "unreachable",
+      });
+    });
+
+    test("more than 10,000 members is too_many_members, after following every cursor", async () => {
+      let pages = 0;
+      const ids = (page: number) =>
+        Array.from({ length: 1000 }, (_, n) => `U${page * 1000 + n}`);
+      const many = (async () => {
+        const page = pages;
+        pages += 1;
+        return Response.json({
+          ok: true,
+          members: ids(page),
+          response_metadata: { next_cursor: `c${page}` },
+        });
+      }) as unknown as typeof fetch;
+      expect(await readable(many).memberIds(place)).toEqual({
+        unconfirmed: "too_many_members",
+      });
+      expect(pages).toBe(11);
+    });
+
+    test("any other error leaves only its name", async () => {
+      const key = newKey();
+      const sealed = sealSecret(key, fields, "bot-token-for-test");
+      const again = slackOfAgents({
+        apps: { findForAgent: app },
+        secrets: { get: async () => openSecret(key, fields, sealed) },
+        api: {
+          channelMembers: async () => {
+            throw new RangeError("sk-secret-in-the-message");
+          },
+        } as never,
+      });
+      expect(await again.memberIds(place)).toEqual({
+        unconfirmed: "exception:RangeError",
+      });
+    });
   });
 });

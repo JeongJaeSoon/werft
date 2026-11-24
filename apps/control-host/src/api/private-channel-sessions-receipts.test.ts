@@ -31,7 +31,7 @@ const slack: PrivateChannelSlack = {
   kindOf: async (place) => ({
     kind: place.channelId === "C1" ? "private_channel" : "public_channel",
   }),
-  memberIds: async () => [],
+  memberIds: async () => ({ memberIds: [] }),
 };
 
 async function run() {
