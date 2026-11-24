@@ -440,8 +440,8 @@ services:
       - /conversation:uid=1000,gid=1000,mode=0700
       - /workspace:ro,size=4k
     restart: unless-stopped
-    # One engine at a time beside the loop.
-    mem_limit: 2048m
+    # Up to 8 live topic engines (~215 MiB each) beside the loop, as the chart's.
+    mem_limit: 2560m
 
   # The control host's scheduler role: the same pass loop as the
   # reconciler below (apps/control-host/src/pass-loop), one scheduling pass
