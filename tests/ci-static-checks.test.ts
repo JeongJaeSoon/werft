@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 type Step = {
@@ -181,6 +189,7 @@ test("static checks keep one cache writer and report independent failures", () =
     expect.stringContaining("actions/checkout@"),
     "plan",
     "sdk",
+    "conformance",
     "reuse",
     "./.github/actions/bun-setup",
     "units",
@@ -479,7 +488,8 @@ test("required integration never treats an unplanned skip as success", () => {
     EVENT: "pull_request",
     ONLY: "all",
     E2E: "success",
-    CONFORMANCE: "success",
+    CONFORMANCE_PLAN: "false",
+    CONFORMANCE: "skipped",
     QUICKSTART: "success",
   };
   expect(verdict("integration", product)).toBe(0);
@@ -502,6 +512,7 @@ test("required integration never treats an unplanned skip as success", () => {
 });
 
 test("integration refuses cancelled heavy jobs even after every domain passed", () => {
+  // A pull request: the conformance suite is not planned and never runs.
   const passed = {
     PLAN: "success",
     TESTS: "true",
@@ -510,14 +521,61 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
     EVENT: "pull_request",
     ONLY: "all",
     E2E: "success",
-    CONFORMANCE: "success",
+    CONFORMANCE_PLAN: "false",
+    CONFORMANCE: "skipped",
     QUICKSTART: "success",
   };
-  for (const key of ["E2E", "CONFORMANCE", "QUICKSTART"]) {
+  expect(verdict("integration", passed)).toBe(0);
+  for (const key of ["E2E", "QUICKSTART"]) {
     for (const result of ["failure", "cancelled", "skipped", ""]) {
       expect(verdict("integration", { ...passed, [key]: result })).not.toBe(0);
     }
   }
+  // An unplanned suite that ran anyway, or a plan a pull request cannot have.
+  for (const result of ["success", "failure", "cancelled", ""]) {
+    expect(verdict("integration", { ...passed, CONFORMANCE: result })).not.toBe(
+      0,
+    );
+  }
+  expect(
+    verdict("integration", {
+      ...passed,
+      CONFORMANCE_PLAN: "true",
+      CONFORMANCE: "success",
+    }),
+  ).not.toBe(0);
+  // A release push and a manual run of everything must run and pass it.
+  const release = {
+    ...passed,
+    EVENT: "push",
+    CONFORMANCE_PLAN: "true",
+    CONFORMANCE: "success",
+  };
+  expect(verdict("integration", release)).toBe(0);
+  expect(
+    verdict("integration", { ...release, EVENT: "workflow_dispatch" }),
+  ).toBe(0);
+  for (const event of ["push", "workflow_dispatch"]) {
+    for (const result of ["failure", "cancelled", "skipped", ""]) {
+      expect(
+        verdict("integration", {
+          ...release,
+          EVENT: event,
+          CONFORMANCE: result,
+        }),
+      ).not.toBe(0);
+    }
+  }
+  for (const plan of ["", "maybe"]) {
+    expect(
+      verdict("integration", { ...release, CONFORMANCE_PLAN: plan }),
+    ).not.toBe(0);
+  }
+  // An ordinary main push plans none; a manual run of everything always does.
+  expect(verdict("integration", { ...passed, EVENT: "push" })).toBe(0);
+  expect(
+    verdict("integration", { ...passed, EVENT: "workflow_dispatch" }),
+  ).not.toBe(0);
   const manual = {
     ...passed,
     EVENT: "workflow_dispatch",
@@ -537,16 +595,15 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
   );
   expect(verdict("integration", { ...manual, ONLY: "all" })).not.toBe(0);
   expect(verdict("integration", { ...manual, RESULT: "failure" })).not.toBe(0);
-  expect(verdict("integration", { ...passed, EVENT: "push" })).toBe(0);
-  expect(
-    verdict("integration", { ...passed, EVENT: "workflow_dispatch" }),
-  ).toBe(0);
   for (const key of ["EVENT", "ONLY"]) {
     expect(verdict("integration", { ...passed, [key]: "" })).not.toBe(0);
   }
   const env = workflow.jobs.integration?.steps[0]?.env;
   expect(env?.E2E).toBe(`\${{ needs.e2e.result }}`);
   expect(env?.CONFORMANCE).toBe(`\${{ needs.conformance.result }}`);
+  expect(env?.CONFORMANCE_PLAN).toBe(
+    `\${{ needs.changes.outputs.conformance }}`,
+  );
   expect(env?.QUICKSTART).toBe(`\${{ needs.quickstart.result }}`);
   expect(env?.EVENT).toBe(`\${{ github.event_name }}`);
   expect(env?.ONLY).toBe(`\${{ github.event.inputs.only || 'all' }}`);
@@ -691,7 +748,8 @@ test("a reused PR run passes the required gates only with its URL", () => {
     PLAN: "success",
     RESULT: "skipped",
     E2E: "success",
-    CONFORMANCE: "success",
+    CONFORMANCE_PLAN: "false",
+    CONFORMANCE: "skipped",
     QUICKSTART: "success",
     EVENT: "push",
     ONLY: "all",
@@ -704,7 +762,8 @@ test("a reused PR run passes the required gates only with its URL", () => {
   expect(
     verdict("integration", { ...integration, REUSED: "" }, "verdict"),
   ).not.toBe(0);
-  for (const job of ["e2e", "conformance"]) {
+  // conformance is planned apart from reuse (see the conformance plan test).
+  for (const job of ["e2e"]) {
     const plan = { PLAN: "success", PRODUCT: "false", DOCS_ONLY: "false" };
     expect(verdict(job, { ...plan, REUSED: reused })).toBe(0);
     expect(verdict(job, { ...plan, REUSED: "" })).not.toBe(0);
@@ -724,6 +783,53 @@ test("a reused PR run passes the required gates only with its URL", () => {
   expect(workflow.jobs["agent-sdk-compat"]?.if).toContain(
     "(needs.changes.outputs.product == 'true' || needs.changes.outputs.reused != '')",
   );
+});
+
+test("the conformance suite runs on a release push or a manual run, never on a pull request", () => {
+  const changes = workflow.jobs.changes;
+  expect(changes?.outputs?.conformance).toBe(
+    `\${{ steps.conformance.outputs.run }}`,
+  );
+  const job = workflow.jobs.conformance;
+  expect(job?.needs).toBe("changes");
+  expect(job?.if).toContain("needs.changes.outputs.conformance == 'true'");
+  const command = changes?.steps.find((s) => s.id === "conformance")?.run;
+  if (!command) throw new Error("no conformance plan step");
+  // detect, stood in for: what it prints and how it exits. It must not write
+  // its own `tag=` into this step's outputs.
+  const plan = (env: Record<string, string>, detect = "exit 9") => {
+    const dir = mkdtempSync(join(tmpdir(), "conformance-plan-"));
+    try {
+      mkdirSync(join(dir, ".github/scripts"), { recursive: true });
+      writeFileSync(
+        join(dir, ".github/scripts/release-auto.sh"),
+        `echo "tag=from-detect" >>"$GITHUB_OUTPUT"\n${detect}\n`,
+      );
+      const output = join(dir, "output");
+      writeFileSync(output, "");
+      const run = Bun.spawnSync(["bash", "-e", "-c", command], {
+        cwd: dir,
+        env: { PATH: Bun.env.PATH ?? "", GITHUB_OUTPUT: output, ...env },
+      });
+      expect(run.exitCode).toBe(0);
+      return readFileSync(output, "utf8");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  expect(plan({ EVENT: "pull_request", ONLY: "all" })).toBe("run=false\n");
+  expect(plan({ EVENT: "workflow_dispatch", ONLY: "all" })).toBe("run=true\n");
+  expect(plan({ EVENT: "workflow_dispatch", ONLY: "conformance" })).toBe(
+    "run=true\n",
+  );
+  expect(plan({ EVENT: "workflow_dispatch", ONLY: "integration" })).toBe(
+    "run=false\n",
+  );
+  const push = { EVENT: "push", ONLY: "all" };
+  expect(plan(push, 'echo "release tag: none"')).toBe("run=false\n");
+  expect(plan(push, 'echo "release tag: v1.2.3"')).toBe("run=true\n");
+  // A push detect cannot read is treated as a release.
+  expect(plan(push, "exit 1")).toBe("run=true\n");
 });
 
 test("an integration domain no changed path reaches runs no step but its gate", () => {

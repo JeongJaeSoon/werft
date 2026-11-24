@@ -54,6 +54,7 @@ jobs:
       sdk_pack: ${{ steps.reuse.outputs.sdk_pack == 'true' && 'false' || steps.sdk.outputs.run }}
       reused: ${{ steps.reuse.outputs.reused }}
       unit_parts: ${{ steps.units.outputs.matrix }}
+      conformance: ${{ steps.conformance.outputs.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,6 +82,35 @@ jobs:
               esac
             done <"$RUNNER_TEMP/sdk-pack-paths"
           fi
+          echo "run=$run" >>"$GITHUB_OUTPUT"
+      # The conformance suite runs before a release, not on every pull request:
+      # on the main push that adds a CHANGELOG `## vX.Y.Z` (the push images.yml
+      # releases from; release-auto.sh conformance holds the release to this
+      # run) and on a manual run that selects it. A push whose release detect
+      # cannot read runs it as well.
+      - id: conformance
+        name: Plan the conformance suite
+        env:
+          EVENT: ${{ github.event_name }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=false
+          case "$EVENT:$ONLY" in
+            workflow_dispatch:all | workflow_dispatch:conformance) run=true ;;
+            push:*)
+              if found=$(GITHUB_OUTPUT=/dev/null bash .github/scripts/release-auto.sh detect); then
+                [ "$found" = "release tag: none" ] || run=true
+              else
+                echo "::warning::could not read a release from this push; running the conformance suite"
+                run=true
+              fi
+              ;;
+          esac
+          echo "conformance: run=$run"
           echo "run=$run" >>"$GITHUB_OUTPUT"
       - id: reuse
         name: Reuse the PR run that tested this tree
@@ -657,6 +687,7 @@ jobs:
           RESULT: ${{ needs.integration-domain.result }}
           E2E: ${{ needs.e2e.result }}
           CONFORMANCE: ${{ needs.conformance.result }}
+          CONFORMANCE_PLAN: ${{ needs.changes.outputs.conformance }}
           QUICKSTART: ${{ needs.quickstart.result }}
           EVENT: ${{ github.event_name }}
           ONLY: ${{ github.event.inputs.only || 'all' }}
@@ -666,9 +697,11 @@ jobs:
           REUSED: ${{ needs.changes.outputs.reused }}
         run: |
           [ "$PLAN" = success ] || exit 1
-          case "$EVENT:$ONLY:$E2E:$CONFORMANCE:$QUICKSTART" in
-            pull_request:all:success:success:success | push:all:success:success:success | workflow_dispatch:all:success:success:success) ;;
-            workflow_dispatch:integration:skipped:skipped:skipped) ;;
+          # Conformance runs where `changes` planned it (never on a pull request).
+          case "$EVENT:$ONLY:$E2E:$CONFORMANCE_PLAN:$CONFORMANCE:$QUICKSTART" in
+            pull_request:all:success:false:skipped:success | push:all:success:false:skipped:success) ;;
+            push:all:success:true:success:success | workflow_dispatch:all:success:true:success:success) ;;
+            workflow_dispatch:integration:skipped:false:skipped:skipped) ;;
             *) echo "::error::required scenario or guide jobs did not pass"; exit 1 ;;
           esac
           case "$TESTS:$DOCS_ONLY:$RESULT:${REUSED:+reused}" in
@@ -996,12 +1029,15 @@ jobs:
   # The engine-parametrized conformance suite (tests/conformance): the same
   # scenarios on each runtime engine's own worker image and fake provider.
   # The two engines run in parallel as matrix entries rather than one after
-  # the other in a single job.
+  # the other in a single job. No pull request runs it: `changes` plans it for
+  # a release push and a manual run, `integration` holds the result to that
+  # plan, and release-auto.sh conformance holds a release to its pass.
   conformance:
     name: conformance (${{ matrix.engine }})
     needs: changes
     if: >-
       !cancelled()
+      && needs.changes.outputs.conformance == 'true'
       && contains(fromJSON('["all","conformance"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -1012,69 +1048,27 @@ jobs:
         # (tests/conformance/two-engines.e2e.ts), not the suite again.
         engine: [claude_agent_sdk, codex_app_server, two_engines]
     steps:
-      - name: Validate product test plan
-        if: '!cancelled()'
-        env:
-          PLAN: ${{ needs.changes.result }}
-          PRODUCT: ${{ needs.changes.outputs.product }}
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-          REUSED: ${{ needs.changes.outputs.reused }}
-        run: |
-          [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY:${REUSED:+reused}" in
-            true:false:) echo "conformance: product inputs changed; running the suite" ;;
-            false:true:) echo "conformance: documentation-only PR; product inputs unchanged" ;;
-            false:false:reused) echo "conformance: the PR run that tested this exact tree passed it: ${REUSED}" ;;
-            *) echo "::error::invalid product test plan"; exit 1 ;;
-          esac
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        uses: ./.github/actions/bun-setup
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        run: bun install --frozen-lockfile
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        uses: ./.github/actions/image-cache
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        id: scenario
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/image-cache
+      - id: scenario
         name: Conformance suite against the compose stack
         env:
           E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
           E2E_COMPOSE_CACHE: tests/e2e/compose.ci-cache.yml
           E2E_OUT: ${{ runner.temp }}/conformance
         run: tests/e2e/run.sh --conformance ${{ matrix.engine }}
-      - if: '!cancelled() && needs.changes.outputs.product == ''true'''
+      - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
-      - if: always() && needs.changes.outputs.product == 'true'
+      - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conformance-record-${{ matrix.engine }}
           path: ${{ runner.temp }}/conformance
           if-no-files-found: ignore
           retention-days: 14
-      - id: verdict
-        name: Required scenario verdict
-        if: always() && !cancelled()
-        env:
-          PLAN: ${{ needs.changes.result }}
-          PRODUCT: ${{ needs.changes.outputs.product }}
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-          REUSED: ${{ needs.changes.outputs.reused }}
-          SCENARIO: ${{ steps.scenario.outcome }}
-        run: |
-          [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY:$SCENARIO:${REUSED:+reused}" in
-            true:false:success:) echo "conformance: suite passed" ;;
-            false:true:skipped:) echo "conformance: intentionally omitted for documentation-only inputs" ;;
-            false:false:skipped:reused) echo "conformance: passed in the PR run that tested this exact tree: ${REUSED}" ;;
-            *) echo "::error::required conformance suite did not pass"; exit 1 ;;
-          esac
-      - id: cancelled
-        if: cancelled()
-        run: |
-          echo "::error::workflow was cancelled"
-          exit 1
 
   # Execute both guides as written, with the CI mirror compose overlay.
   quickstart:
