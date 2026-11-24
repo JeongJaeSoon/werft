@@ -247,11 +247,13 @@ describe("scripts/test-ops.sh", () => {
     }
 
     // A daemon new enough, and a render of these services and bind sources.
+    // `volume` is the daemon's answer to the quota probe's volume calls.
     async function preflightWith(
       services: Record<
         string,
         { binds: string[]; groupAdd?: number[]; image?: string; user?: string }
       >,
+      volume = "exit 0",
     ) {
       const head = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "HEAD"])
         .stdout.toString()
@@ -290,6 +292,7 @@ describe("scripts/test-ops.sh", () => {
           `echo "$*" >> "${calls}"`,
           '[ "$1" = version ] && { echo 29.0.0; exit 0; }',
           '[ "$1 $2" = "compose version" ] && { echo 2.30.0; exit 0; }',
+          `[ "$1" = volume ] && { ${volume}; }`,
           `case " $* " in *" config --format json "*) cat "${join(dir, "render.json")}"; exit 0;; esac`,
           "exit 1",
           "",
@@ -415,6 +418,44 @@ describe("scripts/test-ops.sh", () => {
       );
       expect(result.stderr).not.toContain(passed);
     });
+
+    cleanTest(
+      "probes the workspace quota with a sized volume and removes it",
+      async () => {
+        const result = await preflightWith({});
+        expect(result.stderr).toContain(passed);
+        const volumeCalls = (await dockerCalls())
+          .split("\n")
+          .filter((line) => line.startsWith("volume "));
+        expect(volumeCalls).toHaveLength(2);
+        const [create, remove] = volumeCalls;
+        const probe = create?.match(
+          /^volume create --driver local --opt size=64m (werft-test-ops-quota-probe-\S+)$/,
+        )?.[1];
+        expect(probe).toBeDefined();
+        expect(remove).toBe(`volume rm ${probe}`);
+      },
+    );
+
+    cleanTest(
+      "stops before the render when the data-root has no prjquota",
+      async () => {
+        const result = await preflightWith(
+          {},
+          'echo "Error response from daemon: quota size requested but no quota support" >&2; exit 1',
+        );
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("no quota support");
+        expect(result.stderr).toContain(
+          "the workspace quota probe failed (above): Docker's data-root must be on XFS mounted with prjquota",
+        );
+        expect(result.stderr).toContain(
+          "https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/prepare-xfs/",
+        );
+        expect(await dockerCalls()).not.toContain("config --format json");
+        expect(await dockerCalls()).not.toContain("volume rm");
+      },
+    );
 
     cleanTest("passes sources made under umask 022", async () => {
       const sql = await file("0000_m0.sql", 0o644);
@@ -621,6 +662,28 @@ exit 0
     },
   );
 
+  // A full disk fails the quota probe too; the scheduler that start and
+  // upgrade bring up is what reclaims finished workspaces then.
+  test.each(["start", "upgrade"])(
+    "%s does not run the quota probe",
+    async (verb) => {
+      const docker = await deployedSameWorker();
+      await writeFile(
+        join(dir, "bin", "docker"),
+        docker.replace(
+          "esac\nexit 0",
+          'esac\ncase "$*" in "volume create"*) exit 1 ;; esac\nexit 0',
+        ),
+        { mode: 0o755 },
+      );
+      const args =
+        verb === "start" ? [verb] : [verb, join(dir, "release.json")];
+      const result = await run(args, env);
+      expect(result.exitCode).toBe(0);
+      expect(await dockerCalls()).not.toContain("volume create");
+    },
+  );
+
   test("deploy still refuses a host with a recorded release", async () => {
     await deployedSameWorker();
     const result = await run(["deploy", join(dir, "release.json")], env);
@@ -741,6 +804,23 @@ exit 0
     expect(missing.stderr).toContain(
       "the database does not hold the settings document",
     );
+  });
+
+  test("deploy stops at the quota probe before anything starts", async () => {
+    await freshHost();
+    const docker = await readFile(join(dir, "bin", "docker"), "utf8");
+    await writeFile(
+      join(dir, "bin", "docker"),
+      docker.replace(
+        "esac\nexit 0",
+        'esac\ncase "$*" in "volume create"*) exit 1 ;; esac\nexit 0',
+      ),
+      { mode: 0o755 },
+    );
+    const result = await run(["deploy", join(dir, "release.json")], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("the workspace quota probe failed");
+    expect(await dockerCalls()).not.toContain(" up ");
   });
 
   test("deploy with the document in the database records the release", async () => {
