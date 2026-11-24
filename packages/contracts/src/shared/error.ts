@@ -36,6 +36,9 @@ export const API_ERROR_CODE_VALUES = [
   "TURN_NOT_STARTED",
   "BACKEND_UNAVAILABLE",
   "LAUNCH_FAILED",
+  // No node had room for the session's worker in time; the queued input
+  // failed and the session waits for its next one.
+  "NO_CAPACITY",
   // The session's connection, model or repository is no longer in the
   // catalog, so no worker may run it until an operator restores it.
   "CATALOG_MISMATCH",

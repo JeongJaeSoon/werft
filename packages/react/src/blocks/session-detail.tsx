@@ -308,6 +308,8 @@ export function SessionDetail({
               <SessionStatusLabel
                 status={detail.status}
                 label={t(`sessions.status.${detail.status}`)}
+                capacityWait={detail}
+                capacityWaitLabel={t("sessions.capacityWait")}
                 axisLabel={t("sessions.column.status")}
                 className="shrink-0 whitespace-nowrap"
               />

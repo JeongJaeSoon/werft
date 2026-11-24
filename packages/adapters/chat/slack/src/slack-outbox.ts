@@ -17,6 +17,7 @@ import {
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import {
+  enqueueSlackCapacityWaits,
   enqueueSlackInputMirrors,
   enqueueSlackInstructions,
   enqueueSlackPrompts,
@@ -213,6 +214,12 @@ export async function drainSlackOutbox(deps: {
   });
   drain.enqueued += await enqueueSlackInputMirrors({
     outbox: deps.outbox,
+    limit: deps.batchSize,
+  });
+  // Before the answers: a wait that ran out is told before its failure.
+  drain.enqueued += await enqueueSlackCapacityWaits({
+    outbox: deps.outbox,
+    consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,
   });
   drain.enqueued += await enqueueSlackTurnAnswers({

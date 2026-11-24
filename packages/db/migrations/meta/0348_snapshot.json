@@ -1,5 +1,5 @@
 {
-  "id": "78e42e31-c00f-4df6-a641-e5fae435aef1",
+  "id": "90d4da7f-5606-4c3d-98bf-342da1b063d8",
   "prevId": "9fb41fb8-c05b-49ac-aa42-1d9ee3720641",
   "version": "7",
   "dialect": "postgresql",
@@ -3845,117 +3845,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.budget_adjustments": {
-      "name": "budget_adjustments",
-      "schema": "",
-      "columns": {
-        "call_id": {
-          "name": "call_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reported_cost_usd": {
-          "name": "reported_cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reported_tokens": {
-          "name": "reported_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_usd": {
-          "name": "cost_usd",
-          "type": "numeric(14, 6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tokens": {
-          "name": "tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "budget_adjustments_account_idx": {
-          "name": "budget_adjustments_account_idx",
-          "columns": [
-            {
-              "expression": "account_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "budget_adjustments_call_id_budget_reservations_call_id_fk": {
-          "name": "budget_adjustments_call_id_budget_reservations_call_id_fk",
-          "tableFrom": "budget_adjustments",
-          "tableTo": "budget_reservations",
-          "columnsFrom": ["call_id"],
-          "columnsTo": ["call_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "budget_adjustments_workspace_id_workspaces_id_fk": {
-          "name": "budget_adjustments_workspace_id_workspaces_id_fk",
-          "tableFrom": "budget_adjustments",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "budget_adjustments_account_id_budget_accounts_id_fk": {
-          "name": "budget_adjustments_account_id_budget_accounts_id_fk",
-          "tableFrom": "budget_adjustments",
-          "tableTo": "budget_accounts",
-          "columnsFrom": ["account_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "budget_adjustments_amount_check": {
-          "name": "budget_adjustments_amount_check",
-          "value": "(\"budget_adjustments\".\"reported_cost_usd\" >= 0 AND \"budget_adjustments\".\"reported_cost_usd\" <> 'NaN') AND \"budget_adjustments\".\"reported_tokens\" BETWEEN 0 AND 9007199254740991 AND \"budget_adjustments\".\"cost_usd\" <> 'NaN' AND \"budget_adjustments\".\"tokens\" BETWEEN -9007199254740991 AND 9007199254740991"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.budget_limits": {
       "name": "budget_limits",
       "schema": "",
@@ -4118,12 +4007,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "resolution": {
-          "name": "resolution",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -4189,7 +4072,7 @@
         },
         "budget_reservations_state_check": {
           "name": "budget_reservations_state_check",
-          "value": "\"budget_reservations\".\"state\" IN ('reserved','settled','released','resolved')"
+          "value": "\"budget_reservations\".\"state\" IN ('reserved','settled','released')"
         },
         "budget_reservations_ended_check": {
           "name": "budget_reservations_ended_check",
@@ -4197,11 +4080,7 @@
         },
         "budget_reservations_settled_check": {
           "name": "budget_reservations_settled_check",
-          "value": "CASE WHEN \"budget_reservations\".\"state\" IN ('settled', 'resolved') THEN \"budget_reservations\".\"settled_cost_usd\" IS NOT NULL AND \"budget_reservations\".\"settled_tokens\" IS NOT NULL ELSE \"budget_reservations\".\"settled_cost_usd\" IS NULL AND \"budget_reservations\".\"settled_tokens\" IS NULL END"
-        },
-        "budget_reservations_resolution_check": {
-          "name": "budget_reservations_resolution_check",
-          "value": "(\"budget_reservations\".\"state\" = 'resolved') = (\"budget_reservations\".\"resolution\" IS NOT NULL) AND \"budget_reservations\".\"resolution\" IN ('spent','refunded')"
+          "value": "CASE WHEN \"budget_reservations\".\"state\" = 'settled' THEN \"budget_reservations\".\"settled_cost_usd\" IS NOT NULL AND \"budget_reservations\".\"settled_tokens\" IS NOT NULL ELSE \"budget_reservations\".\"settled_cost_usd\" IS NULL AND \"budget_reservations\".\"settled_tokens\" IS NULL END"
         },
         "budget_reservations_nonneg_check": {
           "name": "budget_reservations_nonneg_check",
@@ -5982,7 +5861,7 @@
         },
         "conversation_calls_state_check": {
           "name": "conversation_calls_state_check",
-          "value": "\"conversation_calls\".\"state\" IN ('reserved','in_flight','settled','released','resolved')"
+          "value": "\"conversation_calls\".\"state\" IN ('reserved','in_flight','settled','released')"
         },
         "conversation_calls_limits_check": {
           "name": "conversation_calls_limits_check",
@@ -5990,7 +5869,7 @@
         },
         "conversation_calls_state_columns_check": {
           "name": "conversation_calls_state_columns_check",
-          "value": "CASE \"conversation_calls\".\"state\"\n        WHEN 'reserved' THEN \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'in_flight' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'settled' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NOT NULL\n        WHEN 'resolved' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NULL\n        ELSE \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NULL\n      END"
+          "value": "CASE \"conversation_calls\".\"state\"\n        WHEN 'reserved' THEN \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'in_flight' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'settled' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NOT NULL\n        ELSE \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NULL\n      END"
         },
         "conversation_calls_settled_check": {
           "name": "conversation_calls_settled_check",
@@ -21025,6 +20904,18 @@
         },
         "last_launch_error": {
           "name": "last_launch_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "capacity_wait_since": {
+          "name": "capacity_wait_since",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "capacity_wait_message": {
+          "name": "capacity_wait_message",
           "type": "text",
           "primaryKey": false,
           "notNull": false

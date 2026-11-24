@@ -26,6 +26,7 @@ export const sessionsKo = {
   "sessions.status.idle": "쉬는 중",
   "sessions.status.failed": "실패",
   "sessions.status.stopped": "멈춤",
+  "sessions.capacityWait": "작업 자리를 기다리는 중",
 
   "sessions.admission.active": "열림",
   "sessions.admission.pausing": "일시 정지 중",
@@ -223,6 +224,10 @@ export const sessionsKo = {
   "session.event.kind.error": "오류",
   "session.event.error.modelNotAllowed":
     "{model}이(가) 연결의 모델 목록에서 제외되어 이 세션의 모델 요청이 차단되었습니다. 관리자에게 모델 목록 복원을 요청하거나, 다른 모델로 새 세션을 시작하세요.",
+  "session.event.noCapacity":
+    "자리가 없어 시작하지 못했습니다. 기다리던 입력은 실패했습니다.",
+  "session.event.noCapacityPaused":
+    "자리가 없어 다시 시작하지 못했습니다. 세션은 일시 정지 상태로 두었습니다.",
   "session.event.error.modelConnectionRemoved":
     "{model}을(를) 쓰던 모델 연결이 꺼지거나 없어져 이 세션의 모델 요청이 차단되었습니다. 관리자에게 연결 복원을 요청하거나, 다른 연결로 만든 릴리스로 새 세션을 시작하세요.",
   "session.event.modelMigrated":
@@ -278,6 +283,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.status.idle": "Idle",
   "sessions.status.failed": "Failed",
   "sessions.status.stopped": "Stopped",
+  "sessions.capacityWait": "Waiting for room to run this",
 
   "sessions.admission.active": "Open",
   "sessions.admission.pausing": "Pausing",
@@ -479,6 +485,10 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.error": "Error",
   "session.event.error.modelNotAllowed":
     "Model requests for this session were blocked because {model} is no longer on its connection's model list. Ask an administrator to restore access, or start a new session with another model.",
+  "session.event.noCapacity":
+    "There was no room to start. The waiting input failed.",
+  "session.event.noCapacityPaused":
+    "There was no room to resume. The session stays paused.",
   "session.event.error.modelConnectionRemoved":
     "Model requests for this session were blocked because the model connection that served {model} was disabled or is gone. Ask an administrator to restore it, or start a new session on a release that uses another connection.",
   "session.event.modelMigrated":
@@ -535,6 +545,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "sessions.status.idle": "入力待ち",
   "sessions.status.failed": "失敗",
   "sessions.status.stopped": "停止",
+  "sessions.capacityWait": "作業の空きを待っています",
 
   "sessions.admission.active": "受付中",
   "sessions.admission.pausing": "一時停止中",
@@ -728,6 +739,10 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.error": "エラー",
   "session.event.error.modelNotAllowed":
     "{model} が接続のモデル一覧から外れたため、このセッションのモデルリクエストがブロックされました。管理者に許可の復元を依頼するか、別のモデルで新しいセッションを開始してください。",
+  "session.event.noCapacity":
+    "空きがなく開始できませんでした。待っていた入力は失敗しました。",
+  "session.event.noCapacityPaused":
+    "空きがなく再開できませんでした。セッションは一時停止のままです。",
   "session.event.error.modelConnectionRemoved":
     "{model} を使っていたモデル接続が無効になったかなくなったため、このセッションのモデルリクエストがブロックされました。管理者に復元を依頼するか、別の接続のリリースで新しいセッションを開始してください。",
   "session.event.modelMigrated":
