@@ -23,7 +23,7 @@ Compose 설치의 DB와 checkpoint object를 백업하고 별도 project·새 �
 scripts/test-ops.sh backup
 ```
 
-명령은 api·scheduler·reconciler·worker를 멈춰 DB와 object를 상태 디렉터리의 `backups/backup-<시각>`에 묶은 뒤 서비스를 다시 연다. 진행 중 turn은 끊기고 이후 회수 대상이 될 수 있으므로 시작 전에 확인한다. 실패본 `.failed`, 미완성 `.partial`은 성공본으로 사용하지 않는다. 백업이 끝나도 서비스를 다시 열지 못하면 명령은 실패한다.
+명령은 api·slack·scheduler·reconciler·maintenance·worker를 멈춰 DB와 object를 상태 디렉터리의 `backups/backup-<시각>`에 묶은 뒤 서비스를 다시 연다. 진행 중 turn은 끊기고 이후 회수 대상이 될 수 있으므로 시작 전에 확인한다. 실패본 `.failed`, 미완성 `.partial`은 성공본으로 사용하지 않는다. 백업이 끝나도 서비스를 다시 열지 못하면 명령은 실패한다.
 
 매일 사용이 적은 시간과 매 업그레이드 직전에 실행한다. 예시 보존 정책은 호스트 14일·암호화한 외부 보관소 90일이다. 새 성공본이 26시간 없거나 명령이 non-zero거나 서비스 재개 실패면 알림을 보낸다.
 

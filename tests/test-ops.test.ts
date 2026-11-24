@@ -1151,8 +1151,10 @@ exit 0
         `--env-file ${env.TEST_OPS_ENV_FILE} --profile apps`,
       ),
     ]);
+    // slack reads CONSOLE_ORIGIN too, and maintenance runs nowhere else:
+    // compose starts only the services named and their dependencies.
     expect(up[0]).toEndWith(
-      "up -d --wait --wait-timeout 600 api scheduler reconciler",
+      "up -d --wait --wait-timeout 600 api scheduler reconciler slack maintenance",
     );
     expect(up[0]).not.toContain("--no-recreate");
     expect(await dockerCalls()).not.toMatch(/ (down|stop)( |$)/m);
@@ -1166,6 +1168,9 @@ exit 0
     const result = await run(["stop"], env);
     expect(result.exitCode).toBe(0);
     const called = await dockerCalls();
+    expect(called).toMatch(
+      / stop api slack scheduler reconciler maintenance$/m,
+    );
     expect(called).toContain("down --remove-orphans");
     expect(called).not.toMatch(/(^| )-v( |$)|--volumes/m);
     expect(await readFile(join(dir, "state", "history.log"), "utf8")).toContain(

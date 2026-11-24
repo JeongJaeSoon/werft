@@ -27,7 +27,7 @@ ComposeのDBとcheckpoint objectをバックアップし、別project・新し�
 scripts/test-ops.sh backup
 ```
 
-api・scheduler・reconciler・workerを止め、DBとobjectを状態ディレクトリの `backups/backup-<timestamp>` にまとめてサービスを再開します。進行turnは中断され後で回収対象になり得るため先に確認します。失敗した `.failed` や未完成の `.partial` を成功本として使いません。保存が完了してもサービス再開に失敗するとコマンドは失敗します。
+api・slack・scheduler・reconciler・maintenance・workerを止め、DBとobjectを状態ディレクトリの `backups/backup-<timestamp>` にまとめてサービスを再開します。進行turnは中断され後で回収対象になり得るため先に確認します。失敗した `.failed` や未完成の `.partial` を成功本として使いません。保存が完了してもサービス再開に失敗するとコマンドは失敗します。
 
 毎日利用の少ない時間と各更新直前に実行します。保管例はホスト14日、暗号化外部保管90日です。新しい成功本が26時間ない、non-zero終了、サービス再開失敗のいずれかで通知します。
 
