@@ -40,6 +40,12 @@ export const ACCEPTED: readonly {
   },
   {
     problem:
+      'error $.error.code: the receiver refuses "CODEX_SANDBOX_NOT_INSTALLED"',
+    why: "No route answers it: the scheduler writes it onto the receipts of input whose launch it refused before creating the worker, which only receipt reads on API and console routes return; no worker route reads a receipt.",
+    proof: "packages/db/src/scheduler/scheduler-store.test.ts",
+  },
+  {
+    problem:
       "/bootstrap-claim response $.runtime_config.mcp_servers: the receiver's maxItems is 2; the sender's is 10",
     why: "Only a worker that announced workspace_mcp gets workspace servers; a claim from a worker without it is refused, retryable, before anything is bound, so it still gets at most the catalog server and github.",
     proof: "packages/platform/src/workers/worker-gateway-workspace-mcp.test.ts",

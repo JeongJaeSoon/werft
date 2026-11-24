@@ -42,6 +42,7 @@ export type TurnEventMessageKey =
   | "session.event.error.modelConnectionRemoved"
   | "session.event.noCapacity"
   | "session.event.noCapacityPaused"
+  | "session.event.codexSandboxNotInstalled"
   | "session.event.modelMigrated"
   | "session.event.workerImageReplaced"
   | `session.event.approvalCheckpointFailed.${ApprovalCheckpointFailure}`
@@ -414,6 +415,13 @@ function present(
                 : "session.event.noCapacity",
             ),
           ],
+          error: true,
+        };
+      }
+      if (data.code === "CODEX_SANDBOX_NOT_INSTALLED") {
+        return {
+          label: message("session.event.kind.status"),
+          summary: [message("session.event.codexSandboxNotInstalled")],
           error: true,
         };
       }

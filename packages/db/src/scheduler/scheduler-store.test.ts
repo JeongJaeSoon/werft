@@ -1475,6 +1475,130 @@ describe("PostgresSchedulerStore", () => {
         failed_turn_count: 1,
       });
     });
+
+    test("a launch the installation has no Codex sandbox for fails the queued input with CODEX_SANDBOX_NOT_INSTALLED at once", async () => {
+      const { intent, sessionId } = await waitingLaunch();
+      const first = await queueInput(sessionId, 1);
+
+      expect(await store.giveUpForCodexSandbox(intent, "no sandbox")).toBe(
+        true,
+      );
+      expect(await store.giveUpForCodexSandbox(intent, "no sandbox")).toBe(
+        false,
+      );
+
+      const launch = await launchOf(intent.executionId);
+      expect(launch?.launchFailureCount).toBe(0);
+      expect(launch?.nonceHash).toBeNull();
+      expect(await store.desiredStateOf(intent)).toBe("terminated");
+      expect(
+        await db
+          .select({ status: turns.status, reason: turns.terminalReason })
+          .from(turns)
+          .where(eq(turns.sessionId, sessionId)),
+      ).toEqual([{ status: "failed", reason: "codex_sandbox_not_installed" }]);
+      const [receipt] = await db
+        .select()
+        .from(receipts)
+        .where(eq(receipts.id, first.receiptId));
+      expect(receipt?.status).toBe("failed");
+      expect(receipt?.error).toMatchObject({
+        code: "CODEX_SANDBOX_NOT_INSTALLED",
+      });
+      const [session] = await db
+        .select({ admission: sessions.admissionState, status: sessions.status })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      expect(session).toEqual({ admission: "active", status: "idle" });
+    });
+  });
+
+  test("a launch a worker claimed, or one asked to go, is not refused for the sandbox", async () => {
+    const claimedSession = await insertUnassigned({});
+    const claimed = await store.reserveLaunch({
+      ...SPEC,
+      backend: "kubernetes",
+      now: NOW,
+      sessionId: claimedSession,
+      slotLimit: 10,
+    });
+    if (!claimed) throw new Error("no intent");
+    await db.insert(attempts).values({
+      authRevision: 1,
+      executionGeneration: claimed.generation,
+      executionId: claimed.executionId,
+      id: "att-claimed",
+      leaseEpoch: 1,
+      leaseExpiresAt: NOW,
+      sessionId: claimedSession,
+      state: "running",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "att-claimed" })
+      .where(eq(workerLaunches.executionId, claimed.executionId));
+    expect(await store.giveUpForCodexSandbox(claimed, "no sandbox")).toBe(
+      false,
+    );
+    expect(await store.desiredStateOf(claimed)).toBe("running");
+
+    const askedSession = await insertUnassigned({});
+    const asked = await store.reserveLaunch({
+      ...SPEC,
+      backend: "kubernetes",
+      now: NOW,
+      sessionId: askedSession,
+      slotLimit: 10,
+    });
+    if (!asked) throw new Error("no intent");
+    await db
+      .update(executions)
+      .set({ desiredState: "terminated" })
+      .where(eq(executions.id, asked.executionId));
+    expect(await store.giveUpForCodexSandbox(asked, "no sandbox")).toBe(false);
+  });
+
+  test("a launch with no Codex sandbox that was a resume goes back to paused with its checkpoint, and is refused once", async () => {
+    const sessionId = await insertUnassigned({
+      admissionState: "resuming",
+      checkpointRevision: 3,
+      status: "queued",
+    });
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "kubernetes",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("no intent");
+    await store.issueBootstrapNonce(intent);
+    await db.insert(receipts).values({
+      id: crypto.randomUUID(),
+      ownerId: "owner-a",
+      operation: "resume",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      status: "accepted",
+    });
+    await queueInput(sessionId, 1);
+    expect(await store.giveUpForCodexSandbox(intent, "no sandbox")).toBe(true);
+    // Its kill is written: a second refusal finds nothing to do.
+    expect(await store.giveUpForCodexSandbox(intent, "no sandbox")).toBe(false);
+
+    const [session] = await db
+      .select({
+        admission: sessions.admissionState,
+        checkpoint: sessions.checkpointRevision,
+        status: sessions.status,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    // Never recovery_required, and the checkpoint it would resume from stays.
+    expect(session).toEqual({
+      admission: "paused",
+      checkpoint: 3,
+      status: "idle",
+    });
   });
 
   test("a resume that found no room in time goes back to paused with its checkpoint", async () => {

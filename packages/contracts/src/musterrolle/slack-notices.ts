@@ -22,6 +22,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
   noCapacity: "지금 자리가 없어 시작하지 못했어요. 잠시 뒤 다시 요청해 주세요",
   noCapacityPaused:
     "자리가 없어 다시 시작하지 못했어요. 세션은 일시 정지 상태로 두었으니 잠시 뒤 다시 시작해 주세요",
+  codexSandboxNotInstalled:
+    "이 에이전트의 실행 환경(Codex sandbox)이 이 설치에 없어요. 관리자에게 알려 주세요",
   repositoryRequired:
     "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
   releaseUnavailable:
@@ -69,6 +71,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "今は空きがなく開始できませんでした。しばらくしてからもう一度リクエストしてください",
     noCapacityPaused:
       "空きがなく再開できませんでした。セッションは一時停止のままにしてあるので、しばらくしてからもう一度再開してください",
+    codexSandboxNotInstalled:
+      "このエージェントの実行環境（Codex サンドボックス）がこの環境にありません。管理者に知らせてください",
     repositoryRequired:
       "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
     releaseUnavailable:
@@ -107,6 +111,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "There was no room to start this right now. Please ask again in a little while",
     noCapacityPaused:
       "There was no room to resume this. The session stays paused; please resume it again in a little while",
+    codexSandboxNotInstalled:
+      "This agent's runtime (the Codex sandbox) is not installed here. Tell an administrator",
     repositoryRequired:
       "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
     releaseUnavailable:

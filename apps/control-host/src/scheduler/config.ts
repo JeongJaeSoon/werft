@@ -31,6 +31,7 @@ type ImageRuntime = NonNullable<SchedulerOptions["imageRuntime"]>;
 export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {
     CODEX_SANDBOX?: string | undefined;
+    CODEX_SANDBOX_PROVIDER?: string | undefined;
     DATABASE_URL?: string | undefined;
     EXECUTION_BACKEND?: string | undefined;
     LOG_LEVEL?: string | undefined;
@@ -176,7 +177,11 @@ function configuredImages(
 }
 
 type CodexSandbox =
-  | { mode: "enabled"; images: string[] }
+  | {
+      mode: "enabled";
+      images: string[];
+      provider?: "installer" | "external" | "disabled";
+    }
   | { mode: "disabled" };
 
 export const CODEX_SANDBOX_DISABLED_WARNING =
@@ -200,6 +205,18 @@ function codexSandboxFromEnv(
   if (value && value !== "enabled") {
     throw new Error(`CODEX_SANDBOX must be enabled or disabled (got ${value})`);
   }
+  const provider = environment.CODEX_SANDBOX_PROVIDER;
+  if (
+    provider !== undefined &&
+    provider !== "" &&
+    provider !== "installer" &&
+    provider !== "external" &&
+    provider !== "disabled"
+  ) {
+    throw new Error(
+      `CODEX_SANDBOX_PROVIDER must be installer, external or disabled (got ${provider})`,
+    );
+  }
   const declared = [
     ...(images.imageRuntime === undefined
       ? []
@@ -212,6 +229,7 @@ function codexSandboxFromEnv(
     images: declared
       .filter(({ runtime }) => runtime.engine === CODEX_CHECKPOINT_ENGINE)
       .map(({ image }) => image),
+    ...(provider ? { provider } : {}),
   };
 }
 
