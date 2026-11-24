@@ -44,8 +44,15 @@ export interface ConversationTurnQueue {
    * process. A queue that is not serves a single API process only.
    */
   readonly durable: boolean;
-  /** Queues a turn a runtime must take before `takeBy`. */
-  enqueue(turn: QueuedConversationTurn, takeBy: Date): Promise<void>;
+  /**
+   * Queues a turn a runtime must take before `takeBy`. Queued behind another
+   * turn of its topic, it waits as long again from that turn's end.
+   */
+  enqueue(
+    turn: QueuedConversationTurn,
+    takeBy: Date,
+    now?: Date,
+  ): Promise<void>;
   /** Leases the oldest waiting turn to `runtimeId`, or null when none waits. */
   lease(input: {
     runtimeId: ConversationRuntimeId;

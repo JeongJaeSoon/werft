@@ -69,7 +69,7 @@ function harness(
     at: () => new Date(clock),
     enqueue(turn = queued(), takeInMs = 30_000) {
       return turns.queue
-        .enqueue(turn, new Date(clock + takeInMs))
+        .enqueue(turn, new Date(clock + takeInMs), new Date(clock))
         .then(() => turn);
     },
   };
@@ -261,6 +261,44 @@ describe("conversation turns over the memory queue", () => {
     expect(
       (await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }))?.turn_id,
     ).toBe(second.turn_id);
+  });
+
+  test("a turn queued behind its topic's turn waits its take time again from that turn's end", async () => {
+    const h = harness();
+    const first = await h.enqueue();
+    const second = await h.enqueue({ ...queued(), scope: first.scope });
+    const a = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+
+    // Past the second's own take time, while the first is still out.
+    h.advance(60_000);
+    expect(await h.turns.queue.outcome(second.turn_id, h.at())).toBe("pending");
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: first.turn_id,
+      leaseId: a?.lease_id as never,
+      result: done,
+    });
+    h.advance(29_000);
+    expect(
+      (await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }))?.turn_id,
+    ).toBe(second.turn_id);
+  });
+
+  test("one queued behind a turn whose lease runs out waits from the lease's end", async () => {
+    const h = harness();
+    const first = await h.enqueue();
+    const second = await h.enqueue({ ...queued(), scope: first.scope });
+    await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    h.advance(CONVERSATION_TURN_LEASE_MS);
+    expect(await h.turns.queue.outcome(first.turn_id, h.at())).toEqual({
+      outcome: "failed",
+      reason: "lease_expired",
+    });
+    h.advance(30_000);
+    expect(await h.turns.queue.outcome(second.turn_id, h.at())).toEqual({
+      outcome: "failed",
+      reason: "not_taken",
+    });
   });
 
   test("a turn is handed out through the topic session check, which learns how it ended", async () => {

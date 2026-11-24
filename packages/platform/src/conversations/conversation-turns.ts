@@ -26,7 +26,12 @@ type Lease = {
 };
 
 type Entry = { turn: QueuedConversationTurn } & (
-  | { state: "queued"; takeBy: Date }
+  | {
+      state: "queued";
+      takeBy: Date;
+      /** How long it may wait from its topic's last turn's end, behind which it queued. */
+      takeMs: number;
+    }
   | { state: "leased"; lease: Lease }
   | {
       state: "ended";
@@ -44,12 +49,31 @@ type Entry = { turn: QueuedConversationTurn } & (
  */
 export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   const entries = new Map<ConversationTurnId, Entry>();
+  // When each topic's last turn out ended: a turn queued behind it waits from then.
+  const topicFreedAt = new Map<string, number>();
+
+  const topicBusy = (topicId: string) =>
+    [...entries.values()].some(
+      (entry) =>
+        entry.state === "leased" && entry.turn.scope.topic_id === topicId,
+    );
+  const freed = (entry: Entry, at: Date) =>
+    topicFreedAt.set(entry.turn.scope.topic_id, at.getTime());
 
   // A turn nobody took, or whose holder went quiet, ends here: never requeued,
   // since its one-call permit may already be spent.
   function settle(id: ConversationTurnId, entry: Entry, now: Date): Entry {
     let ended: Entry | undefined;
-    if (entry.state === "queued" && now >= entry.takeBy) {
+    const topicId = entry.turn.scope.topic_id;
+    if (
+      entry.state === "queued" &&
+      !topicBusy(topicId) &&
+      now.getTime() >=
+        Math.max(
+          entry.takeBy.getTime(),
+          (topicFreedAt.get(topicId) ?? 0) + entry.takeMs,
+        )
+    ) {
       ended = {
         turn: entry.turn,
         state: "ended",
@@ -65,6 +89,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
         outcome: { outcome: "failed", reason: "lease_expired" },
         at: now,
       };
+      freed(entry, now);
     }
     if (ended === undefined) return entry;
     entries.set(id, ended);
@@ -86,11 +111,16 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   return {
     durable: false,
 
-    async enqueue(turn, takeBy) {
+    async enqueue(turn, takeBy, now = new Date()) {
       if (entries.has(turn.turn_id)) {
         throw new Error(`Conversation turn ${turn.turn_id} is already queued`);
       }
-      entries.set(turn.turn_id, { turn, state: "queued", takeBy });
+      entries.set(turn.turn_id, {
+        turn,
+        state: "queued",
+        takeBy,
+        takeMs: Math.max(0, takeBy.getTime() - now.getTime()),
+      });
     },
 
     async lease({ runtimeId, now, leaseMs }) {
@@ -129,6 +159,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
       if (entry.state === "queued") return "not_holder";
       if (!holds(entry.lease)) return "not_holder";
       if (entry.state === "leased") {
+        freed(entry, now);
         entries.set(turnId, {
           turn: entry.turn,
           state: "ended",
