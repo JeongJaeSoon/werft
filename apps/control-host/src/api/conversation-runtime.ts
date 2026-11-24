@@ -5,6 +5,7 @@ import {
   CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
   CONVERSATION_TURN_LEASE_MS,
   CONVERSATION_TURN_TEXT_MAX,
+  type ConversationTurnCallRefusal,
   conversationIdSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
@@ -13,7 +14,6 @@ import {
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
   type AgentStore,
-  type ConversationCallLimit,
   type ConversationCalls,
   type ConversationRuntimeTurns,
   type ConversationTurnOutcome,
@@ -145,26 +145,25 @@ export type OperatorTurnResult =
   | { outcome: "no_active_release" }
   // The release's connection is gone, or serves no Messages.
   | { outcome: "connection_unavailable" }
-  // The agent's team budget cannot hold the call.
-  | { outcome: "budget_refused" }
-  // Too many calls in progress on the agent or its topic.
-  | { outcome: "concurrency_limited"; limit: ConversationCallLimit }
   | {
       outcome: "ended";
       turn_id: string;
-      call_id: string;
       turn: ConversationTurnOutcome;
+      // The last call the turn asked for was refused, and why: the turn
+      // ended on it.
+      refused?: ConversationTurnCallRefusal;
     };
 
 /**
- * Starts one conversation turn for an operator: reserves its one provider
- * call on the agent's team as an operator's call, queues the turn for the
- * runtime and waits for how it ends. The only way a turn starts until
- * people's messages dispatch them.
+ * Starts one conversation turn for an operator: writes the turn and its
+ * permit, queues the turn for the runtime, waits for how it ends and then
+ * ends the turn's row and permit. Each provider call the turn makes is
+ * reserved on the agent's team as an operator's call when the proxy asks.
+ * The only way a turn starts until people's messages dispatch them.
  */
 export function createOperatorConversationTurns(deps: {
   turns: ConversationRuntimeTurns;
-  calls: Pick<ConversationCalls, "issueForOperator">;
+  calls: Pick<ConversationCalls, "issueOperatorTurn" | "endTurn">;
   agents: Pick<AgentStore, "get">;
   catalog: Pick<SessionCatalog, "connections">;
   now?: () => Date;
@@ -172,8 +171,8 @@ export function createOperatorConversationTurns(deps: {
   const now = deps.now ?? (() => new Date());
   return {
     async run(request: OperatorTurnRequest): Promise<OperatorTurnResult> {
-      // Before anything is reserved: a turn nobody takes holds its
-      // reservation until the permit expires.
+      // Before the turn is written: one nobody takes stays running until
+      // its wait ends.
       if (
         !deps.turns.runtimePolledWithin(2 * CONVERSATION_NEXT_TURN_MAX_WAIT_MS)
       ) {
@@ -196,14 +195,13 @@ export function createOperatorConversationTurns(deps: {
         return { outcome: "connection_unavailable" };
       }
       const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
-      const issued = await deps.calls.issueForOperator({
+      const issued = await deps.calls.issueOperatorTurn({
         workspaceId: request.workspace_id,
         agentId: request.agent_id,
         conversationId: request.conversation_id,
         topicId: request.topic_id,
-        // The turn's one call.
-        callClass: "m2",
         turnId,
+        operator: `${request.operator.user}@${request.operator.host}`,
         // Valid for as long as the turn may wait and then run.
         ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
         releaseId: release.id,
@@ -217,54 +215,55 @@ export function createOperatorConversationTurns(deps: {
       if (issued.outcome === "unavailable") {
         return { outcome: "connection_unavailable" };
       }
-      if (issued.outcome === "refused") return { outcome: "budget_refused" };
-      if (issued.outcome === "concurrency_limited") {
-        return { outcome: "concurrency_limited", limit: issued.limit };
-      }
       if (issued.outcome === "unknown_conversation") {
         return { outcome: "unknown_conversation" };
       }
-      if (issued.outcome === "already_issued") {
-        throw new Error(`A call is already issued for turn ${turnId}`);
+      let turn: ConversationTurnOutcome | null;
+      try {
+        const takeBy = new Date(
+          Math.min(
+            now().getTime() + OPERATOR_TURN_TAKE_MS,
+            issued.expiresAt.getTime(),
+          ),
+        );
+        await deps.turns.queue.enqueue(
+          {
+            turn_id: turnId,
+            scope: {
+              workspace_id: request.workspace_id,
+              agent_id: request.agent_id,
+              conversation_id: request.conversation_id,
+              topic_id: request.topic_id,
+            },
+            model,
+            provider: {
+              kind: connection.provider.kind,
+              endpoint: connection.provider.endpoint,
+              auth: { kind: "egress_token", token: issued.token },
+            },
+            call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
+            input: { id: crypto.randomUUID(), text: request.text },
+            // Assembled when a runtime takes the turn.
+            fresh_input: { id: crypto.randomUUID(), text: request.text },
+          },
+          takeBy,
+          now(),
+        );
+        turn = await deps.turns.ended(turnId);
+      } catch (error) {
+        // A turn that could not be queued or waited for gets no more calls.
+        await deps.calls.endTurn(turnId);
+        throw error;
       }
-      const takeBy = new Date(
-        Math.min(
-          now().getTime() + OPERATOR_TURN_TAKE_MS,
-          issued.expiresAt.getTime(),
-        ),
-      );
-      await deps.turns.queue.enqueue(
-        {
-          turn_id: turnId,
-          scope: {
-            workspace_id: request.workspace_id,
-            agent_id: request.agent_id,
-            conversation_id: request.conversation_id,
-            topic_id: request.topic_id,
-          },
-          model,
-          provider: {
-            kind: connection.provider.kind,
-            endpoint: connection.provider.endpoint,
-            auth: { kind: "egress_token", token: issued.token },
-          },
-          call: { id: issued.callId, max_tokens: OPERATOR_TURN_MAX_TOKENS },
-          input: { id: crypto.randomUUID(), text: request.text },
-          // Assembled when a runtime takes the turn.
-          fresh_input: { id: crypto.randomUUID(), text: request.text },
-        },
-        takeBy,
-        now(),
-      );
-      const turn = await deps.turns.ended(turnId);
+      const ended = await deps.calls.endTurn(turnId);
       // Queued just above, so it has an end.
       if (turn === null)
         throw new Error(`Conversation turn ${turnId} vanished`);
       return {
         outcome: "ended",
         turn_id: turnId,
-        call_id: issued.callId,
         turn,
+        ...(ended.refusal === null ? {} : { refused: ended.refusal }),
       };
     },
   };
@@ -311,7 +310,9 @@ export async function serveOperatorConversationTurns(deps: {
           ...(result.outcome === "ended"
             ? {
                 turn_id: result.turn_id,
-                call_id: result.call_id,
+                ...(result.refused === undefined
+                  ? {}
+                  : { turn_refused: result.refused }),
                 turn_outcome: result.turn.outcome,
                 ...("reason" in result.turn
                   ? { turn_failure: result.turn.reason }

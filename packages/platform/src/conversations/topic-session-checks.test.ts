@@ -38,7 +38,7 @@ function turnOf(topicId = scope.topic_id): ConversationRuntimeTurn {
       endpoint: "https://api.anthropic.com",
       auth: { kind: "egress_token", token: ["wec", "t"].join("_") },
     },
-    call: { max_tokens: 1_024, id: crypto.randomUUID() },
+    call: { max_tokens: 1_024 },
     input: { id: crypto.randomUUID(), text: "hi" },
     fresh_input: { id: crypto.randomUUID(), text: "hi" },
   });

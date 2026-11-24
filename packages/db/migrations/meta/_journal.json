@@ -1793,6 +1793,13 @@
       "when": 1795516164459,
       "tag": "0346_judgment_batches",
       "breakpoints": true
+    },
+    {
+      "idx": 347,
+      "version": "7",
+      "when": 1795518038757,
+      "tag": "0347_conversation_turn_permits",
+      "breakpoints": true
     }
   ]
 }

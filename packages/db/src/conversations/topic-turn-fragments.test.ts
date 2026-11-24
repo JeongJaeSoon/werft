@@ -298,7 +298,7 @@ describe("topic turn fragments", () => {
           endpoint: "https://api.anthropic.com",
           auth: { kind: "egress_token", token: ["wec", "t"].join("_") },
         },
-        call: { id: randomUUID(), max_tokens: 1_024 },
+        call: { max_tokens: 1_024 },
         input: { id: randomUUID(), text },
         fresh_input: { id: randomUUID(), text },
       });

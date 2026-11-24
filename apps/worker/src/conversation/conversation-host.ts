@@ -86,7 +86,6 @@ export class ConversationHost {
       lease_id: turn.lease_id,
       agent_id: turn.scope.agent_id,
       topic_id: turn.scope.topic_id,
-      call_id: turn.call.id,
       model: turn.model,
     };
     logger.info("conversation_turn.started", fields);

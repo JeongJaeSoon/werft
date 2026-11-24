@@ -124,7 +124,7 @@ function turnOf(
       endpoint: "https://api.anthropic.com",
       auth: { kind: "egress_token", token: ["wec", "t"].join("_") },
     },
-    call: { id: crypto.randomUUID(), max_tokens: 1_024 },
+    call: { max_tokens: 1_024 },
     input: { id: crypto.randomUUID(), text },
     fresh_input: { id: crypto.randomUUID(), text: `context: ${text}` },
     ...(check === undefined ? {} : { topic_session: check }),

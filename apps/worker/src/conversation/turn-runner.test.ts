@@ -49,7 +49,7 @@ const turn: ConversationRuntimeTurn = conversationRuntimeTurnSchema.parse({
     endpoint: "https://api.anthropic.com",
     auth: { kind: "egress_token", token: TOKEN },
   },
-  call: { id: crypto.randomUUID(), max_tokens: 2_048 },
+  call: { max_tokens: 2_048 },
   input: { id: crypto.randomUUID(), text: "hello" },
   fresh_input: { id: crypto.randomUUID(), text: "assembled: hello" },
 });

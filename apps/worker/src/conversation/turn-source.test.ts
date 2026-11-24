@@ -25,7 +25,7 @@ const turn: ConversationRuntimeTurn = conversationRuntimeTurnSchema.parse({
     endpoint: "https://api.anthropic.com",
     auth: { kind: "egress_token", token: ["wec", "one-call"].join("_") },
   },
-  call: { id: crypto.randomUUID(), max_tokens: 1_024 },
+  call: { max_tokens: 1_024 },
   input: { id: crypto.randomUUID(), text: "hello" },
   fresh_input: { id: crypto.randomUUID(), text: "hello" },
 });
