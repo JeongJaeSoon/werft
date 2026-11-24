@@ -5683,7 +5683,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The workspace's agents",
     description:
-      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A member lists only the agents they are inside (owners and admins every agent, anyone else the agents they administer or whose managing team they are a live member of), and of those not a private agent they may not use, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out), `ownerless=true` the agents no one live administers now (`ownerless` true: no admin of its own, no live member of an admin team and no lead of its live managing team; workspace owners and admins do not count); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.",
+      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A member lists only the agents they are inside (owners and admins every agent, anyone else the agents they administer or whose managing team they are a live member of), and of those not a private agent they may not use, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start), each agent's row being its information (name, slug, description, managing team id and name, status, active release id) and its `activation`. `status` is the record's state, as before (a draft never switched on is `active` too), and does not say whether the agent is switched on: `activation` does, `active` for the agents `GET /v1/agents/counts` counts in `active` and `draft` for those it counts in `draft`. `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out), `ownerless=true` the agents no one live administers now (`ownerless` true: no admin of its own, no live member of an admin team and no lead of its live managing team; workspace owners and admins do not count); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.",
     // A key needs sessions:write here, the right to start a session on the
     // agent it finds; a person's role holds it.
     scope: "write",
@@ -5693,7 +5693,7 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "ListAgentsResponse",
       description: "One page of agents.",
       example: {
-        items: [EXAMPLE_AGENT],
+        items: [{ ...EXAMPLE_AGENT, activation: "draft" }],
         next_cursor:
           "eyJjcmVhdGVkX2F0IjoiMjAyNi0xMC0xMSAwODowMDowMCswMCIsImlkIjoiOGQyYzRmMWEtNmIzZS00YTlkLWI3YzUtMmUxZjBhOWI4YzdkIn0",
       },
@@ -5720,6 +5720,7 @@ export const API_ROUTE_DECLARATIONS = [
           administered: 3,
           active: 97,
           draft: 24,
+          inactive: 7,
           ownerless: 1,
         },
       },

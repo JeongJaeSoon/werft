@@ -13,11 +13,13 @@ import {
   type ActivateAgentRequest,
   type ActivateAgentResponse,
   type ActivationCredentialUnboundDetails,
+  type Agent,
   type AgentCard,
   type AgentDetail,
   type AgentGitHub,
   type AgentRelease,
   type AgentVersion,
+  agentActivationOf,
   type BehaviorValues,
   envNameProblem,
   GITHUB_CEILING_NONE,
@@ -451,7 +453,11 @@ export function createAgentService(deps: {
       (query.connection_id === undefined ||
         detail.active_release?.connection_id === query.connection_id) &&
       (query.ownerless === undefined || own.ownerless);
-    return { items: kept ? [own] : [], next_cursor: null };
+    return { items: kept ? [listed(own)] : [], next_cursor: null };
+  }
+
+  function listed(agent: Agent) {
+    return { ...agent, activation: agentActivationOf(agent) };
   }
 
   function refusalCode(error: unknown): string | null {
@@ -1014,7 +1020,8 @@ export function createAgentService(deps: {
       }
       const reader = await agentReader(caller);
       const page = await store.list(caller.ownerId, query, reader);
-      if (query.include !== "summary") return page;
+      if (query.include !== "summary")
+        return { ...page, items: page.items.map(listed) };
       // The store leaves out each agent whose settings the caller may not
       // read; that row goes without a summary. Sessions are counted only
       // where the caller could list them.
@@ -1027,7 +1034,7 @@ export function createAgentService(deps: {
         ...page,
         items: page.items.map((agent) => {
           const summary = summaries.get(agent.id);
-          return summary ? { ...agent, summary } : agent;
+          return summary ? { ...listed(agent), summary } : listed(agent);
         }),
       };
     },

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
 import type {
   Agent,
+  AgentActivation,
   AgentListItem,
   CountAgentsResponse,
 } from "@werft-ai/contracts";
@@ -52,7 +53,10 @@ import {
   OwnerlessBadge,
 } from "../components/agent-ownerless.tsx";
 import { agentRefusal } from "../components/agent-refusal.ts";
-import { AgentStateText, agentState } from "../components/agent-state.tsx";
+import {
+  AgentStateText,
+  listedAgentState,
+} from "../components/agent-state.tsx";
 import {
   CursorListFailure,
   type GoToPage,
@@ -358,7 +362,23 @@ function administeredWithSummaries(
 ): readonly AgentListItem[] | undefined {
   if (agents === undefined) return undefined;
   const byId = new Map(listed?.map((item) => [item.id, item]));
-  return agents.map((agent) => byId.get(agent.id) ?? agent);
+  return agents.map(
+    (agent) =>
+      byId.get(agent.id) ?? { ...agent, activation: activationOf(agent) },
+  );
+}
+
+/**
+ * For a row the list left out: contracts' agentActivationOf, which the web
+ * may not import as a value. Typed by AgentActivation, so a renamed value
+ * fails the type check here.
+ */
+function activationOf(agent: Agent): AgentActivation {
+  if (agent.status === "active" && agent.active_release_id !== null)
+    return "active";
+  if (agent.status !== "archived" && agent.active_release_id === null)
+    return "draft";
+  return "inactive";
 }
 
 /**
@@ -426,7 +446,7 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
       {agents.map((agent) => (
         <GridTableRow
           key={agent.id}
-          inactive={agentState(agent) === "archived"}
+          inactive={listedAgentState(agent) === "archived"}
           className={OPENS_ROW}
         >
           <GridTableCell>
