@@ -388,6 +388,19 @@ export function createMemorySlackAppStore(input: {
       allowedBots.set(change.agentId, [...change.allowedBotUserIds]);
       return "saved";
     },
+    async changeAllowedBotAsOperator(change) {
+      const agent = input.agents.get(change.agentId);
+      if (agent?.workspaceId !== change.workspaceId) return "not_found";
+      const before = [...(allowedBots.get(change.agentId) ?? [])];
+      const { action, botUserId } = change.change;
+      const after =
+        action === "allow"
+          ? [...new Set([...before, botUserId])]
+          : before.filter((id) => id !== botUserId);
+      if (after.length > change.max) return "too_many";
+      allowedBots.set(change.agentId, after);
+      return { before, after };
+    },
     async beginAgentApp(begin) {
       const agent = input.agents.get(begin.agentId);
       if (!agent || agent.workspaceId !== begin.workspaceId) {
