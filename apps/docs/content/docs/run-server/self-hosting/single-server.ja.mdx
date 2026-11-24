@@ -94,22 +94,46 @@ checkout は選んだ release の commit で、依存関係のインストール
 <a id="2-비밀과-설정-문서" />
 ### 2. 秘密情報と設定文書
 
-秘密の値はリポジトリ外の env ファイルだけに置きます。運用者だけが読める必要があります。group や other に権限があるとスクリプトが拒否します。
+秘密の値はリポジトリ外の env ファイル `/etc/werft/test-ops.env` だけに置きます。`init-config` が取得したディレクトリの例のファイルからこのファイルを新しく作り、ランダムな秘密の値と引数で受け取った値を入れます。ファイルは運用者だけが読める `0600` で作られ、値は画面に表示されません。ファイルがすでにあれば上書きせずに拒否します。以降のコマンドは group や other に権限がある env ファイルを拒否します。
+
+先に設定ディレクトリと状態ディレクトリを運用者の所有にします。
 
 ```bash
-sudo mkdir -p /etc/werft
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 755 -o "$USER" /etc/werft
 sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 ```
 
-エディターで `/etc/werft/test-ops.env` を開き、次を設定します。`sed -i` のように一時ファイルを作るツールは `/etc/werft` で `Permission denied` となるため、その場で書き込むエディターを使います。
+bucket の API 資格情報はコマンドライン引数では受け取らず、このシェルの環境変数 `AWS_ACCESS_KEY_ID` と `AWS_SECRET_ACCESS_KEY` から読みます。シェルの履歴に残らないよう `read -s` で入力して export します。placeholder は下の表の値に置き換えます。
+
+```bash
+read -rs -p 'AWS_ACCESS_KEY_ID: ' AWS_ACCESS_KEY_ID; echo
+read -rs -p 'AWS_SECRET_ACCESS_KEY: ' AWS_SECRET_ACCESS_KEY; echo
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh init-config \
+  --console-origin '<console-origin>' --aws-region '<region>' --s3-bucket '<bucket>'
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+```
+
+`init-config: wrote /etc/werft/test-ops.env` で始まる行が出力されるはずです。拒否されると `error:` の行に理由が出て、ファイルは作られません。
+
+| 引数 | 値 |
+| --- | --- |
+| `--console-origin` | 必須。ブラウザが開くコンソールの origin で、`CONSOLE_ORIGIN` になります。形式は `https://host[:port]` で、パスと末尾の `/` は付けません。SSH tunnel で開くなら `http://127.0.0.1:<tunnel port>` を指定します。http は `127.0.0.1`、`localhost`、`[::1]` でだけ受け付けます。この値がないと、コンソールから GitHub App を作る「GitHub で作成」ボタンが無効になり、Slack アカウント連携のリダイレクトと Slack のイベントアドレスを計算できないため Slack 連携が無効になり、[SSO ログイン](/run-server/self-hosting/sso)のプロバイダーも作成できません |
+| `--aws-region`、`--s3-bucket` | S3 の設置では必須。準備した AWS bucket の region と名前で、`AWS_REGION`、`S3_BUCKET` になります。credential allowlist に `<bucket>.s3.<region>.amazonaws.com:443`（ドットを含む bucket 名では `s3.<region>.amazonaws.com:443`）を加え、private credential allowlist を空にします |
+| `--installation-id` | 任意。既定値は `test-ops`。同じ Docker daemon の他の設置と重複しない id。`local` はローカルスタックの id なので使えません。デプロイ後に変更しません |
+| `--settings-document` | 任意。既定値は `/etc/werft/settings.json`。下の設定文書の絶対パス |
+| `--api-port`、`--postgres-port` | 任意。下のポートの表の `TEST_OPS_API_PORT`、`TEST_OPS_POSTGRES_PORT` になります |
+
+`init-config` は `POSTGRES_PASSWORD`（32 文字 hex）、`EGRESS_AUTHORIZER_TOKEN`（48 文字 hex）、`PLATFORM_SECRET_KEY`（64 文字 hex）をランダムな値で埋めます。`EXECUTION_WORKSPACE_QUOTA=on` と provider・Git host の credential allowlist は例の値のままです。設置後に `CONSOLE_ORIGIN` を変えたら、`start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します。バンドルは `upgrade` を拒否するため、このコマンドはそのリリースの `source_commit` を checkout したリポジトリで、同じ env ファイルと状態ディレクトリのまま実行します。
+
+env ファイルを自分で書くには、取得したディレクトリの `infra/test-ops.env.example` を運用者所有の `0600` で `/etc/werft/test-ops.env` にコピーし、エディターで次を設定します。
 
 | 変数 | 値 |
 | --- | --- |
 | `POSTGRES_PASSWORD` | ランダムな値。英字、数字、`.` `_` `~` `-` だけを使います |
 | `EGRESS_AUTHORIZER_TOKEN` | 32 文字以上のランダムな値 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。失うと保存した資格情報を読めなくなります。この設置はキーをこの変数で受け取るため、キーをファイルで渡す `PLATFORM_SECRET_KEY_FILE` は一緒に置きません。両方あってキーが違うと api と slack は起動しません |
-| `CONSOLE_ORIGIN` | コンソールから GitHub App を作るときに必要な、ブラウザのコンソール origin（`scheme://host[:port]`）。なければ「GitHub で作成」ボタンは無効です。Slack アカウント連携のリダイレクトと Slack のイベントアドレスもこの値から計算します(なければ Slack 連携は無効です)。[SSO ログイン](/run-server/self-hosting/sso)のプロバイダーの redirect URI もこの値から作り、なければプロバイダーを作成できません。env の例にはこの行がないため、自分で追加します。SSH tunnel で開くなら `http://127.0.0.1:<tunnel port>` を指定します。設置後の追加・変更は `start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します |
+| `CONSOLE_ORIGIN` | `--console-origin` と同じ値。env の例にはこの行がないため、自分で追加します |
 
 例の LocalStack 値を運用 S3 の値に変更します。秘密をコマンドラインやログへ出力しないでください。
 
@@ -123,7 +147,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `EGRESS_CREDENTIAL_ALLOWLIST` | provider・Git host と `<bucket>.s3.<region>.amazonaws.com:443`。ドットを含む bucket 名では `s3.<region>.amazonaws.com:443` |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | 空の値。`localstack:4566` を削除します |
 
-ホストのポートがすでに使われている場合は、env ファイルに次を入れます。値を指定しなければ既定値を使い、どの値でも `127.0.0.1` にだけ開きます。
+ホストのポートがすでに使われている場合は、`init-config` のポート引数で渡すか、env ファイルに次を入れます。値を指定しなければ既定値を使い、どの値でも `127.0.0.1` にだけ開きます。
 
 | 変数 | 既定値 | 値 |
 | --- | --- | --- |

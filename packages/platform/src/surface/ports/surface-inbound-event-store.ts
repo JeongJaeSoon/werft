@@ -3,6 +3,7 @@ import type {
   EngagementKind,
   SlackInboundDropFields,
   SlackInboundDropReason,
+  ThreadReplyRule,
 } from "@werft-ai/contracts";
 
 /**
@@ -79,6 +80,8 @@ export type InboundInputReceipt = {
   turn: { sessionId: string; sequence: number };
   /** How the agent took the message, kept beside the input for the session. */
   engagement: EngagementKind;
+  /** An unmentioned reply M1 judges too, with what the current path's rule said. */
+  judgment?: { rule: ThreadReplyRule };
 };
 
 /**
@@ -92,6 +95,11 @@ export type BufferedInputReceipt = {
   channelId: string;
   ts: string;
   buffered: { body: string; slackUserId: string };
+  /**
+   * Held for its own judgment, not a batch's: a reply in a thread the agent
+   * took part in that has no session, which makes no turn.
+   */
+  judgment?: "m1_engaged";
 };
 
 /** What a write after a claim is fenced on. */

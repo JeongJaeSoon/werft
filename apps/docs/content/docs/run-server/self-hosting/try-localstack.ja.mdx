@@ -57,15 +57,17 @@ bun install --frozen-lockfile
 <a id="2-시험-설정" />
 ### 2. 試験設定
 
-秘密の値はリポジトリ外の env ファイルだけに置きます。運用者だけが読める必要があります。group や other に権限があるとスクリプトが拒否します。
+秘密の値はリポジトリ外の env ファイル `/etc/werft/test-ops.env` だけに置きます。次のブロックは設定ディレクトリと状態ディレクトリを運用者の所有にし、`init-config` で例のファイルからこのファイルを新しく作ります。ファイルは運用者だけが読める `0600` で作られ、ランダムな秘密の値は画面に表示されません。ファイルがすでにあれば上書きせずに拒否します。`<console-origin>` にはブラウザが開くコンソールの origin を入れます。SSH tunnel なら `http://127.0.0.1:<tunnel port>` です。
 
 ```bash
-sudo mkdir -p /etc/werft
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 755 -o "$USER" /etc/werft
 sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
+TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh init-config --console-origin '<console-origin>'
 ```
 
-エディターで `/etc/werft/test-ops.env` を開き、次を設定します。`sed -i` のように一時ファイルを作るツールは `/etc/werft` で `Permission denied` となるため、その場で書き込むエディターを使います。
+`init-config: wrote /etc/werft/test-ops.env` で始まる行が出力されるはずです。引数と埋める値は[単一サーバー設置の 2 番目の手順](/run-server/self-hosting/single-server#2-비밀과-설정-문서)と同じで、S3 の引数の代わりに `--localstack-port` で LocalStack のホストポートを変えられます。例の値の `EXECUTION_INSTALLATION_ID=test-ops`、`PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`、`EXECUTION_WORKSPACE_QUOTA=on`、private credential allowlist `localstack:4566` をそのまま使い、AWS key・region・bucket 変数は空のままにします。
+
+env ファイルを自分で書くには、`infra/test-ops.env.example` を運用者所有の `0600` で `/etc/werft/test-ops.env` にコピーし、エディターで次を設定します。
 
 | 変数 | 値 |
 | --- | --- |
@@ -73,7 +75,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `EGRESS_AUTHORIZER_TOKEN` | 32 文字以上のランダムな値 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。失うと保存した資格情報を読めなくなります |
 
-`EXECUTION_INSTALLATION_ID=test-ops`、`PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`、`EXECUTION_WORKSPACE_QUOTA=on` を使います。credential allowlist は `api.anthropic.com:443,github.com:443`、private credential allowlist は `localstack:4566` です。AWS key・region・bucket 変数は例のまま空にします。LocalStack は固定の試験 key と `claude-sessions` bucket を使います。
+`CONSOLE_ORIGIN` は自分で追加します。`EXECUTION_INSTALLATION_ID=test-ops`、`PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`、`EXECUTION_WORKSPACE_QUOTA=on` を使います。credential allowlist は `api.anthropic.com:443,github.com:443`、private credential allowlist は `localstack:4566` です。AWS key・region・bucket 変数は例のまま空にします。LocalStack は固定の試験 key と `claude-sessions` bucket を使います。
 
 設定文書は `/etc/werft/settings.json` に置き、セッションが使う GitHub リポジトリを書きます。最初の `deploy` が空のインストールに一度だけ入れ、その後は文書を直しても取り込まれないため、設定はコンソールで変更します。秘密情報は含みません。リポジトリ URL だけを実際の値に変更します。例は公開リポジトリ用です。リポジトリ項目には `"auth": { "kind": "github_app" }` が必要です。なければ `preflight` が文書全体を拒否し、設置を止めます。非公開リポジトリは、そのリポジトリに GitHub App をインストールします（[GitHub](/integrations/github)）。
 

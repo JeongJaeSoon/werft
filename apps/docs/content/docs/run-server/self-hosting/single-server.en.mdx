@@ -94,22 +94,46 @@ The checkout must match the selected release commit, and dependency installation
 <a id="2-비밀과-설정-문서" />
 ### 2. Secrets and settings document
 
-Keep secrets only in an env file outside the repository, readable only by operators. The script rejects group or other permissions.
+Keep secrets only in the env file `/etc/werft/test-ops.env`, outside the repository. `init-config` makes this file anew from the example in the downloaded directory and fills in random secrets and the values you pass. The file is created `0600`, readable by the operator alone, and no value is shown on screen. If the file already exists, it is refused, never replaced. Later commands refuse an env file with group or other permissions.
+
+First make the settings directory and the state directory the operator's.
 
 ```bash
-sudo mkdir -p /etc/werft
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 755 -o "$USER" /etc/werft
 sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 ```
 
-Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools such as `sed -i` create temporary files and fail with `Permission denied` in `/etc/werft`; use an editor that writes in place.
+The bucket's API credentials are not taken as command-line arguments; they are read from this shell's environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Enter them with `read -s` and export them, so they stay out of the shell history. Replace the placeholders with the values in the table below.
+
+```bash
+read -rs -p 'AWS_ACCESS_KEY_ID: ' AWS_ACCESS_KEY_ID; echo
+read -rs -p 'AWS_SECRET_ACCESS_KEY: ' AWS_SECRET_ACCESS_KEY; echo
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh init-config \
+  --console-origin '<console-origin>' --aws-region '<region>' --s3-bucket '<bucket>'
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+```
+
+A line starting with `init-config: wrote /etc/werft/test-ops.env` must appear. On a refusal, an `error:` line gives the reason and no file is made.
+
+| Argument | Value |
+| --- | --- |
+| `--console-origin` | Required. The origin of the console as the browser opens it; it becomes `CONSOLE_ORIGIN`. The form is `https://host[:port]`, with no path and no trailing `/`. For an SSH tunnel, use `http://127.0.0.1:<tunnel port>`; http is taken only on `127.0.0.1`, `localhost` and `[::1]`. Without it, the Create on GitHub button that makes a GitHub App in the console is disabled, the Slack account-link redirect and the Slack events address cannot be computed so Slack linking is off, and no [SSO sign-in](/run-server/self-hosting/sso) provider can be created |
+| `--aws-region`, `--s3-bucket` | Required on an S3 install. The prepared AWS bucket's region and name; they become `AWS_REGION` and `S3_BUCKET`. It adds `<bucket>.s3.<region>.amazonaws.com:443` (for a dotted bucket name, `s3.<region>.amazonaws.com:443`) to the credential allowlist and empties the private credential allowlist |
+| `--installation-id` | Optional. Defaults to `test-ops`. An id no other installation on the same Docker daemon uses. `local` is the local stack's and is refused. Do not change it after deployment |
+| `--settings-document` | Optional. Defaults to `/etc/werft/settings.json`. The absolute path of the settings document below |
+| `--api-port`, `--postgres-port` | Optional. They become `TEST_OPS_API_PORT` and `TEST_OPS_POSTGRES_PORT` in the port table below |
+
+`init-config` fills `POSTGRES_PASSWORD` (32 hex characters), `EGRESS_AUTHORIZER_TOKEN` (48 hex characters) and `PLATFORM_SECRET_KEY` (64 hex characters) with random values. `EXECUTION_WORKSPACE_QUOTA=on` and the provider and Git host credential allowlist keep the example's values. To change `CONSOLE_ORIGIN` after installation, reapply the current release with `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`, rather than `start`. The bundle refuses `upgrade`, so run it from a repository checked out at the release's `source_commit`, with the same env file and state directory.
+
+To write the env file yourself, copy `infra/test-ops.env.example` from the downloaded directory to `/etc/werft/test-ops.env`, owned by the operator with mode `0600`, and fill in the following in an editor.
 
 | Variable | Value |
 | --- | --- |
 | `POSTGRES_PASSWORD` | Random value using only letters, digits, `.`, `_`, `~`, and `-` |
 | `EGRESS_AUTHORIZER_TOKEN` | Random value of at least 32 characters |
 | `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`. Losing it prevents reading stored credentials. This installation takes the key from this variable, so do not also set `PLATFORM_SECRET_KEY_FILE` (the key in a file); when both are set and the keys differ, api and slack do not start |
-| `CONSOLE_ORIGIN` | The browser console origin (`scheme://host[:port]`) required to create a GitHub App through the console. Without it, the Create on GitHub button is disabled. The Slack account-link redirect and the Slack events address are computed from it too (without it, Slack linking is off). The redirect URI of [SSO sign-in](/run-server/self-hosting/sso) providers is built from it as well; without it, no provider can be created. Add this line yourself; it is absent from the example env file. For an SSH tunnel, use `http://127.0.0.1:<tunnel port>`. To apply additions or changes after installation, reapply the current release with `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`, rather than `start` |
+| `CONSOLE_ORIGIN` | The value of `--console-origin`. Add this line yourself; it is absent from the example env file |
 
 Replace the example LocalStack values with production S3 values. Do not print secrets in command lines or logs.
 
@@ -123,7 +147,7 @@ Replace the example LocalStack values with production S3 values. Do not print se
 | `EGRESS_CREDENTIAL_ALLOWLIST` | Provider/Git hosts plus `<bucket>.s3.<region>.amazonaws.com:443`. For dotted bucket names, use `s3.<region>.amazonaws.com:443` |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | Empty. Remove `localstack:4566` |
 
-If a host port is already in use, put the following in the env file. Without a value the default is used, and any value opens on `127.0.0.1` only.
+If a host port is already in use, pass it in a port argument of `init-config` or put the following in the env file. Without a value the default is used, and any value opens on `127.0.0.1` only.
 
 | Variable | Default | Value |
 | --- | --- | --- |
