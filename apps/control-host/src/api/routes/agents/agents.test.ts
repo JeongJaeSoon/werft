@@ -143,6 +143,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
       administered: 0,
       active: 1,
       draft: 0,
+      inactive: 0,
       ownerless: 0,
     }),
     summaries: async () => new Map(),
@@ -307,7 +308,7 @@ describe("GET /v1/agents", () => {
     const response = await send(app(), "GET", "/v1/agents");
     expect(response.status).toBe(200);
     expect(listAgentsResponseSchema.parse(await response.json())).toEqual({
-      items: [detail.agent],
+      items: [{ ...detail.agent, activation: "draft" }],
       next_cursor: null,
     });
   });
@@ -444,7 +445,7 @@ describe("GET /v1/agents", () => {
     );
 
     expect(await service("agent").listAgents(key, { limit: 50 })).toEqual({
-      items: [detail.agent],
+      items: [{ ...detail.agent, activation: "draft" }],
       next_cursor: null,
     });
     expect(asked).toEqual([["session.submit", AGENT]]);
@@ -496,6 +497,7 @@ describe("GET /v1/agents/counts", () => {
             administered: 3,
             active: 410,
             draft: 80,
+            inactive: 9,
             ownerless: 2,
           };
         },
@@ -509,6 +511,7 @@ describe("GET /v1/agents/counts", () => {
         administered: 3,
         active: 410,
         draft: 80,
+        inactive: 9,
         ownerless: 2,
       },
     });

@@ -153,6 +153,7 @@ function scripted(script: Script) {
       administered: 0,
       active: 0,
       draft: 0,
+      inactive: 0,
       ownerless: 0,
     }),
     summaries: async () => new Map(),

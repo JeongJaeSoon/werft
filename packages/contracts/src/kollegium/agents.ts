@@ -1205,7 +1205,7 @@ export type AgentChannel = (typeof AGENT_CHANNEL_VALUES)[number];
 /**
  * What a list shows of an agent beyond its row, read in one go for the page
  * so a list of cards does not ask once per agent. Only with
- * `include=summary`; without it the items are exactly `agentSchema`.
+ * `include=summary`; without it the items are `agentSchema` and `activation`.
  */
 export const agentSummarySchema = z
   .object({
@@ -1267,8 +1267,44 @@ export const agentSummarySchema = z
   })
   .strict();
 
+/**
+ * Which `GET /v1/agents/counts` bucket the agent is in: `active` (status
+ * `active` with an `active_release_id`: people can talk to it), `draft`
+ * (not archived, no `active_release_id` yet), or `inactive` (everything
+ * else: paused with a release, or archived). Clients read a value they do
+ * not know as not switched on.
+ */
+export const AGENT_ACTIVATION_INACTIVE = "inactive";
+export const AGENT_ACTIVATION_VALUES = [
+  "draft",
+  "active",
+  AGENT_ACTIVATION_INACTIVE,
+] as const;
+export const agentActivationSchema = z.enum(AGENT_ACTIVATION_VALUES);
+export type AgentActivation = z.infer<typeof agentActivationSchema>;
+
+export function agentActivationOf(
+  agent: Pick<Agent, "status" | "active_release_id">,
+): AgentActivation {
+  if (agent.status === "active" && agent.active_release_id !== null)
+    return "active";
+  if (agent.status !== "archived" && agent.active_release_id === null)
+    return "draft";
+  return AGENT_ACTIVATION_INACTIVE;
+}
+
 export const agentListItemSchema = agentSchema
-  .extend({ summary: agentSummarySchema.optional() })
+  .extend({
+    status: agentStatusSchema.meta({
+      description:
+        "The record's state, as before: a draft that was never switched on is `active` too. Do not read it as switched on; read `activation`.",
+    }),
+    activation: agentActivationSchema.meta({
+      description:
+        "Whether people can talk to the agent, by the buckets of `GET /v1/agents/counts`: `active` once a release is active and the agent is not paused (counted in `active`), `draft` before any release (counted in `draft`), `inactive` for a paused agent that has a release or an archived one (counted in neither). More values may come within v1: read a value you do not know as not switched on.",
+    }),
+    summary: agentSummarySchema.optional(),
+  })
   .strict();
 
 export const AGENT_SEARCH_MAX_CHARS = 200;
@@ -1318,6 +1354,10 @@ export const countAgentsResponseSchema = z.object({
       draft: agentCountSchema.meta({
         description:
           "How many of `all` are not `archived` and have no `active_release_id` yet.",
+      }),
+      inactive: agentCountSchema.meta({
+        description:
+          "How many of `all` are in neither `active` nor `draft`: paused with an `active_release_id`, or archived. `active`, `draft` and `inactive` add up to `all`.",
       }),
       ownerless: agentCountSchema.meta({
         description:

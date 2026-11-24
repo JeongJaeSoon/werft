@@ -10,6 +10,8 @@ outcome: "永続 S3 を使うサーバーの ready 応答を確認します"
 <a id="무엇을-하게-되나" />
 ## 作業内容
 
+いま設置するリリースは、[GitHub Releases](https://github.com/JeongJaeSoon/werft/releases/latest) で Latest と表示された `v*` リリースです。既定の設置方法は、そのリリースに添付されたバンドルで checkout なしに設置することです([リリースバンドルを取得する](#릴리스-번들로-받기))。手順 1 の最初のコマンドがそのタグを読みます。
+
 一台の Linux に公開イメージを digest で固定して設置し、`/readyz` と `/docs` の応答を確認します。永続 AWS S3 を使います。この Compose 経路は独自 endpoint を指定できません。他の S3 互換 endpoint が必要なら [Kubernetes 設置](/run-server/self-hosting/kubernetes)に従います。高可用性が必要なら [Kubernetes](/run-server/self-hosting/kubernetes)を選びます。
 
 <a id="준비물" />
@@ -22,11 +24,11 @@ outcome: "永続 S3 を使うサーバーの ready 応答を確認します"
 | Docker Compose | 2.24.6 以上 |
 | ディスク | Docker データルートが XFS で、`prjquota` 付きで mount されていること。`preflight` が quota probe でこれを確認し、満たさなければ止まります。ext4 サーバーでは先に [XFS ディスクの準備](/run-server/self-hosting/prepare-xfs)を完了します。Docker Desktop では使えません |
 | 時刻 | NTP 同期。再起動後に Docker が自動起動すること |
-| ツール | checkout 設置では `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。リリースバンドル設置では `jq`、`curl`、`openssl`、`sha256sum`、`tar`(gzip 対応)。どちらも Docker daemon にアクセスできるアカウント |
+| ツール | リリースバンドル設置では `jq`、`curl`、`openssl`、`sha256sum`、`tar`(gzip 対応)。checkout 設置では `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。どちらも Docker daemon にアクセスできるアカウント |
 | object store | 永続 AWS S3 bucket。Compose test-ops は AWS S3 のみに対応し、独自 endpoint は指定できません。[bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)で保護契約と権限を確認します |
 | 外部 | `ghcr.io` と Docker Hub からイメージを取得できること。パッケージはログイン不要です。セッションは `api.anthropic.com` と `github.com` にアクセスします |
 
-設置方法は二つです。リポジトリ checkout はすべての公開タグ(`main-<12>`、`v<version>`)に使えます。`v*` リリースは、GitHub Release に添付されたバンドル(`werft-test-ops-<tag>.tar.gz`)で checkout とホストの Bun なしに設置できます。どちらでも compose ファイルと `scripts/test-ops.sh` は取得したディレクトリから読み、イメージはビルドしません。バンドルは `upgrade`、`backup`、`reseed`、`restore-drill` を拒否します。これらは同じ env ファイルと状態ディレクトリのまま、そのリリースの `source_commit` を checkout したリポジトリで実行します。
+設置方法は二つです。既定は `v*` リリースの GitHub Release に添付されたバンドル(`werft-test-ops-<tag>.tar.gz`)で、checkout とホストの Bun なしに設置します。リポジトリ checkout はすべての公開タグ(`main-<12>`、`v<version>`)に使えます。どちらでも compose ファイルと `scripts/test-ops.sh` は取得したディレクトリから読み、イメージはビルドしません。バンドルは `upgrade`、`backup`、`reseed`、`restore-drill` を拒否します。これらは同じ env ファイルと状態ディレクトリのまま、そのリリースの `source_commit` を checkout したリポジトリで実行します。
 
 - まず [XFS ディスク](/run-server/self-hosting/prepare-xfs)と [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)を準備します。
 - リモート bootstrap 前に[アクセス経路](/run-server/self-hosting/access)を決めます。
@@ -38,7 +40,37 @@ outcome: "永続 S3 を使うサーバーの ready 応答を確認します"
 <a id="1-버전과-소스-고정" />
 ### 1. バージョンとソースの固定
 
-現在の設定文書・モデル接続・秘密 key 契約に対応する公開タグを、変更履歴と照合して選びます。次の二つの placeholder を、[パッケージ契約](/run-server/self-hosting/reference/packages)で得た実際のタグと、同じソース commit に置き換えます。イメージの main タグは Git タグではないため、checkout 値と同じとは考えないでください。
+現在の設定文書・モデル接続・秘密 key 契約に対応する公開タグを、変更履歴と照合して選びます。既定は [GitHub Releases](https://github.com/JeongJaeSoon/werft/releases) で Latest と表示されたリリースです。次のコマンドがそのタグを読みます。別の `v*` リリースを使うときは、`TAG` にそのタグを直接入れます。
+
+```bash
+TAG="$(curl -fsSL https://api.github.com/repos/JeongJaeSoon/werft/releases/latest | jq -er .tag_name)"
+echo "$TAG"
+```
+
+`v` で始まるタグが出力される必要があります。空行が出たら取得に失敗しています。一緒に出た `curl` のエラーを確認し、再実行するか、選んだタグを `TAG` に直接入れます。
+
+<a id="릴리스-번들로-받기" />
+#### リリースバンドルを取得する
+
+既定の設置方法です。`TAG` を決めたシェルで実行します。checkout とホストの Bun は不要です。
+
+```bash
+BASE="https://github.com/JeongJaeSoon/werft/releases/download/$TAG"
+mkdir -p "$HOME/werft-releases/$TAG"
+cd "$HOME/werft-releases/$TAG"
+curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz"
+curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz.sha256"
+sha256sum -c "werft-test-ops-$TAG.tar.gz.sha256"
+tar -xzf "werft-test-ops-$TAG.tar.gz"
+cd "werft-test-ops-$TAG"
+```
+
+`sha256sum` が `OK` を出力する必要があります。sha256 はダウンロード中の破損だけを検出し、出所は証明しないため、この GitHub Release のアドレスから取得したファイルだけを使います。以降の手順の `infra/` と `scripts/` のパスはこのディレクトリが基準です。バンドルにはそのリリースの `release-manifest.json` が入っているため、手順 3 でイメージ digest を別に調べません。
+
+<a id="저장소-checkout으로-받기" />
+#### リポジトリ checkout を取得する
+
+`main-<12>` のようにバンドルのない公開タグを設置するとき、またはリポジトリ checkout で設置するときは、バンドルのブロックの代わりに次の二つのブロックを実行します。次の二つの placeholder を、[パッケージ契約](/run-server/self-hosting/reference/packages)で得た実際のタグと、同じソース commit に置き換えます。イメージの main タグは Git タグではないため、checkout 値と同じとは考えないでください。
 
 ```bash
 TAG='<published-image-tag>'
@@ -58,25 +90,6 @@ bun install --frozen-lockfile
 ```
 
 checkout は選んだ release の commit で、依存関係のインストールが成功している必要があります。release ファイルは checkout 外に保存し、clean checkout 条件を維持します。
-
-<a id="릴리스-번들로-받기" />
-#### リリースバンドルを取得する
-
-`v*` リリースを checkout なしで設置するときは、上の二つのブロックの代わりに次を実行します。`TAG` は[パッケージ契約](/run-server/self-hosting/reference/packages)で選んだリリースタグです。
-
-```bash
-TAG='<release-tag>'
-BASE="https://github.com/JeongJaeSoon/werft/releases/download/$TAG"
-mkdir -p "$HOME/werft-releases/$TAG"
-cd "$HOME/werft-releases/$TAG"
-curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz"
-curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz.sha256"
-sha256sum -c "werft-test-ops-$TAG.tar.gz.sha256"
-tar -xzf "werft-test-ops-$TAG.tar.gz"
-cd "werft-test-ops-$TAG"
-```
-
-`sha256sum` が `OK` を出力する必要があります。sha256 はダウンロード中の破損だけを検出し、出所は証明しないため、この GitHub Release のアドレスから取得したファイルだけを使います。以降の手順の `infra/` と `scripts/` のパスはこのディレクトリが基準です。バンドルにはそのリリースの `release-manifest.json` が入っているため、手順 3 でイメージ digest を別に調べません。
 
 <a id="2-비밀과-설정-문서" />
 ### 2. 秘密情報と設定文書
@@ -152,7 +165,16 @@ sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 <a id="3-release-입력-생성" />
 ### 3. release 入力の生成
 
-選んだ TAG を保持したシェルで実行します。`DEPLOYMENT_DIR` は checkout 外の環境別ディレクトリです。
+選んだ TAG を保持したシェルで実行します。`DEPLOYMENT_DIR` は取得したディレクトリの外にある環境別ディレクトリです。リリースバンドルで取得した場合は、バンドルのディレクトリで次を実行します。`manifest` は、バンドル内のリリース manifest の commit とイメージ digest に設定文書の digest を加え、release ファイルを作ります。
+
+```bash
+DEPLOYMENT_DIR=/var/lib/werft/test-ops
+scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > "$DEPLOYMENT_DIR/release.json"
+```
+
+手順 4 と `setup-link` も、バンドルのディレクトリで同じコマンドを実行します。バンドルの `preflight` と `deploy` は、このファイルの commit やイメージがバンドルのリリースと違えば拒否します。
+
+リポジトリ checkout で取得した場合は、上のブロックの代わりに checkout で次を実行します。同じ形式のファイルを作ります。
 
 ```bash
 DEPLOYMENT_DIR=/var/lib/werft/test-ops
@@ -170,15 +192,6 @@ jq -n \
 ```
 
 三つのイメージ digest がすべて空でないことを確認します。
-
-リリースバンドルで取得した場合は、上のブロックの代わりにバンドルのディレクトリで次を実行します。`manifest` は、バンドル内のリリース manifest の commit とイメージ digest に設定文書の digest を加え、同じ形式のファイルを作ります。
-
-```bash
-DEPLOYMENT_DIR=/var/lib/werft/test-ops
-scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > "$DEPLOYMENT_DIR/release.json"
-```
-
-手順 4 と `setup-link` も、バンドルのディレクトリで同じコマンドを実行します。バンドルの `preflight` と `deploy` は、このファイルの commit やイメージがバンドルのリリースと違えば拒否します。
 
 <a id="4-s3를-명시해-검사설치" />
 ### 4. S3 を明示して検査・設置
