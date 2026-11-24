@@ -1,0 +1,3 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+lookup "$2" >/dev/null

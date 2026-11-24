@@ -1,0 +1,10 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+lookup "$1" >/dev/null || exit 32
+# What was written under the mount point stays in the image, out of sight.
+img="$(awk -F'|' -v t="$1" '$1 == t { print $3 }' "$mounts")"
+store="$STUB_STATE/image$(printf '%s' "$img" | tr / _)"
+mkdir -p "$store"
+find "$1" -mindepth 1 -maxdepth 1 -exec mv {} "$store/" \;
+grep -v "^$1|" "$mounts" >"$mounts.new" || true
+mv "$mounts.new" "$mounts"

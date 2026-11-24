@@ -57,6 +57,7 @@ const EXPECTED_FILES = [
   "release-manifest.json",
   "scripts/lib/backup-lib.sh",
   "scripts/lib/test-ops.ts",
+  "scripts/prepare-xfs.sh",
   "scripts/test-ops.sh",
 ];
 

@@ -10,12 +10,18 @@ outcome: "原本を保持し、quota を使える Docker ディスクを準備�
 <a id="무엇을-하게-되나" />
 ## 作業内容
 
-Docker data-root を XFS prjquota 上に配置し、workspace の byte・inode 上限を強制します。既存のディスク、イメージ、Docker データは保持します。
+Docker data-root を XFS prjquota 上に配置し、workspace の byte・inode 上限を強制します。既存のディスク、イメージ、Docker データは保持します。リリースバンドルの `scripts/prepare-xfs.sh` が事前検査から確認までを一度に行い、ある段階が失敗するとそれより前の段階を元に戻します。
 
 <a id="준비물" />
 ## 準備
 
-運用に使う Linux サーバーで最初に実行します（先に別の試験サーバーで検証してください）。root 権限、xfsprogs・rsync、原本全体を保管できる空間、メンテナンス時間が必要です。`/var/lib/docker.xfs.img` と `/var/lib/docker.old` が既にある場合、次の作成手順は実行しません。Docker Desktop はこの設置経路に対応していません。
+運用に使う Linux サーバーで実行します（先に別の試験サーバーで検証してください）。root 権限、systemd で動いている Docker Engine、xfsprogs・rsync、原本全体を保管できる空間、メンテナンス時間が必要です。スクリプトは[リリースバンドル](/run-server/self-hosting/single-server#릴리스-번들로-받기)を展開したディレクトリの `scripts/prepare-xfs.sh` です。リポジトリの checkout にも同じパスにあります。Docker Desktop はこの設置経路に対応していません。
+
+xfsprogs と rsync はディストリビューションのパッケージ管理ツールでインストールします。apt を使うディストリビューションでは次のとおりです。
+
+```bash
+sudo apt-get install -y xfsprogs rsync
+```
 
 <a id="단계" />
 ## 手順
@@ -28,81 +34,72 @@ findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"
 P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
 ```
 
-XFS と prjquota が既に適用され、probe が成功すれば、新しいイメージの作成は飛ばします。quota probe が失敗したら、原因を解消するまで deploy しません。
+XFS と prjquota が既に適用され、probe が成功すれば、このページの残りは飛ばします。この状態ではスクリプトも何も変更せずに終了します。quota probe が失敗したら、原因を解消するまで deploy しません。
 
-<a id="2-기존-경로를-보호하고-이미지-생성" />
-### 2. 既存パスを保護してイメージを作成
+<a id="2-dry-run으로-사전-검사" />
+### 2. dry-run で事前検査
 
-次のブロックは subshell 内で実行します。どの段階でも失敗したら、後続コマンドは実行しません。イメージが既にある場合、サイズ変更や mkfs で再利用しないでください。他の mount がある、または Docker データルートが別のパスの場合は、この例を適用せず、そのパス用の移行計画を立てます。
+バンドルのディレクトリで実行します。
 
 ```bash
-(
-  set -eu
-  DOCKER_ROOT="$(docker info -f '{{.DockerRootDir}}')"
-  test "$DOCKER_ROOT" = /var/lib/docker
-  sudo test ! -L /var/lib/docker
-  sudo test ! -e /var/lib/docker.xfs.img
-  sudo test ! -L /var/lib/docker.xfs.img
-  sudo test ! -e /var/lib/docker.old
-  sudo test ! -L /var/lib/docker.old
-  if mountpoint -q /var/lib/docker; then
-    echo "Docker data-root is already mounted; inspect it before proceeding" >&2
-    exit 1
-  fi
-  sudo apt-get install -y xfsprogs rsync
-  sudo systemctl stop docker docker.socket
-  if sudo test -d /var/lib/docker; then
-    sudo mv /var/lib/docker /var/lib/docker.old
-  fi
-  sudo sh -c 'set -C; : > "$1"' sh /var/lib/docker.xfs.img
-  sudo truncate -s 60G /var/lib/docker.xfs.img
-  sudo mkfs.xfs -q /var/lib/docker.xfs.img
-  sudo mkdir -p /var/lib/docker
-  sudo mount -o loop,prjquota /var/lib/docker.xfs.img /var/lib/docker
-  findmnt -no FSTYPE,OPTIONS /var/lib/docker
-  if sudo test -d /var/lib/docker.old; then
-    sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/
-  fi
-)
+sudo bash scripts/prepare-xfs.sh --dry-run
 ```
 
-60G はイメージ、ログ、すべての volume を合わせた上限です。sparse ファイルですが、ホストにその分の空き容量が必要です。dnf を使うディストリビューションでは、パッケージのインストールコマンドだけを合わせます。
+dry-run は事前検査だけを行い、実行する段階を表示します。ホストは変更しません。事前検査は次を確認します。
 
-<a id="3-영구-mount와-docker-시작" />
-### 3. 永続 mount と Docker の起動
+- root で実行しており、`mkfs.xfs`、`rsync`、`findmnt` などの必要なコマンドがあること。
+- Docker が systemd で動き、live-restore が無効で、data-root が `/var/lib/docker` であること。live-restore が有効だと Docker を止めてもコンテナが書き込みを続けるため、拒否します。そのパスが symlink や mount ポイントではないこと。
+- `/var/lib/docker.xfs.img`、`/var/lib/docker.old`、`/etc/fstab.before-prepare-xfs` がなく、`/etc/fstab` に `/var/lib/docker` の項目がないこと。現在の `/etc/fstab` で `findmnt --verify` がエラーを見つけないこと。
+- `/var/lib` にイメージサイズ分の空きがあること。
+- カーネルが XFS に対応し、一時的な 512M イメージを loop と prjquota で試験 mount できること。試験イメージは検査の後に削除します。
 
-管理者用エディターで `/etc/fstab` の既存内容をバックアップし、次の項目を**一度だけ**追加します。既存の data-root 項目と重複する場合は追加しません。
+検査が一つでも失敗すると、理由と `nothing was changed` を表示し、終了コード 1 で終わります。loop デバイスや XFS 対応がないサーバー（コンテナ型サーバーなど）は、Docker を止める前にここで止まります。
+
+<a id="3-디스크-준비-실행" />
+### 3. ディスクの準備を実行
+
+```bash
+sudo bash scripts/prepare-xfs.sh
+```
+
+スクリプトは同じ事前検査をもう一度行い、次を順に実行します。Docker の停止、`/var/lib/docker` から `/var/lib/docker.old` への移動、60G の sparse イメージ `/var/lib/docker.xfs.img` の作成と `mkfs.xfs`、`loop,prjquota` での mount、原本のコピー（`rsync -aHAX`）、`/etc/fstab` を `/etc/fstab.before-prepare-xfs` にバックアップしてから次の項目の追加と `findmnt --verify`、Docker の起動、data-root・mount・quota probe の確認。
 
 ```text
 /var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0
 ```
 
-```bash
-sudo findmnt --verify
-findmnt -no FSTYPE,OPTIONS /var/lib/docker
-sudo systemctl start docker
-```
+イメージサイズは `--size` で変更します。値は整数の GB です（例: `--size 100G`）。60G はイメージ・ログ・すべての volume の合計上限です。sparse ファイルですが、ホストにはその分の空きが必要です。
 
-fstab の検査と mount の確認に成功してから Docker を起動します。
+ある段階が失敗すると、スクリプトはそれより前の段階を逆順に元に戻します。fstab をバックアップから復元し、unmount し、作成した mount ポイントとイメージを削除し、原本を `/var/lib/docker` に戻してから Docker を再び起動します。Docker が新しいイメージで既に起動していた場合、その間に書き込んだ内容がイメージにあるため、イメージは削除せずにそのパスを表示します。
+
+| 終了コード | 意味 |
+| --- | --- |
+| 0 | 準備が完了した。または既に準備済みで何も変更していない |
+| 1 | 事前検査が拒否した。何も変更していない |
+| 2 | 引数が正しくない |
+| 3 | ある段階が失敗し、すべて元に戻した。Docker は元の data-root で再び動いている |
+| 4 | ある段階が失敗し、元に戻す処理も一部失敗した。残った状態を出力に記す |
 
 <a id="확인" />
 ## 確認
 
-最初の quota probe を再実行します。`xfs`・`prjquota` と probe 成功の両方が必要です。`df -h`、`df -i`、`xfs_quota -x -c 'report -p'` で余裕を確認します。
+スクリプトは最後に data-root、mount オプション、quota probe を確認します。手順 1 のコマンドを再実行すれば、`xfs`・`prjquota` と probe の成功を自分で確認できます。`df -h`、`df -i`、`xfs_quota -x -c 'report -p'` で空き容量を確認します。
 
 <a id="자주-막히는-곳" />
 ## よくある問題
 
-既存イメージや移行前ディレクトリがあれば、直ちに止めて内容を調査します。コピーや mount の失敗後に Docker を起動すると空の data-root を使う可能性があるため、原因を解消する前には起動しません。
+- `already exists` で拒否された場合は、以前の実行や手作業が残したパスです。中身を調べます。イメージや `/var/lib/docker.old` をサイズ変更や mkfs で再利用しないでください。
+- `the trial XFS loop mount` で拒否された場合、このホストでは loop デバイスや XFS project quota を使えません。別のサーバーを使うか、Docker data-root 用の XFS ディスクを別に用意する移行計画を立てます。
+- 終了コード 4 で data-root が元の位置に戻っていない場合、スクリプトは Docker を止めたままにします。この状態で Docker を起動すると空の data-root を使うため、出力に記された残りの状態を[元に戻す](#되돌리기)の順で片付けてから起動します。
 
 <a id="되돌리기" />
 ## 元に戻す
 
-新しい XFS で Docker を再起動した後に作成したコンテナ、volume、データは `/var/lib/docker.old` にはありません。原本ディレクトリへ戻すとその変更を失うため、先に新しいデータを別途保持し、復旧する対象を決めます。sparse イメージはデータを削除してもその分自動では縮まないため、ホストファイルシステムの空き容量も監視します。
+新しい XFS で Docker を再起動した後に作成したコンテナ・volume・データは `/var/lib/docker.old` にありません。原本ディレクトリに戻すとその変更を失うため、先に新しいデータを別途保存し、復元する対象を決めます。sparse イメージは削除したデータの分だけ自動では縮まないため、ホストのファイルシステムの空き容量も監視します。
 
-Docker と socket を停止します。新しい XFS が mount されていれば、使用中のコンテナがないことを確認して unmount し、追加した fstab 項目をバックアップと照合して戻します。原本は `/var/lib/docker.old` です。元のパスが空であることを確認して原本を戻し、Docker を起動します。新しいイメージも原本も削除せず、既存コンテナ・volume の一覧が正しいことを確認します。
+Docker と socket を停止します。新しい XFS が mount されていれば、使用中のコンテナがないことを確認してから unmount し、追加された fstab の項目をスクリプトが残した `/etc/fstab.before-prepare-xfs` と照合して戻します。`/var/lib/docker.old` が原本です。元のパスが空であることを確認してから原本を戻し、Docker を起動します。新しいイメージや原本を削除せず、既存のコンテナ・volume の一覧が合っているか確認します。
 
-元のデータディレクトリがあった環境では、unmount と fstab 復元後、空の mount ポイントだけを `sudo rmdir /var/lib/docker` で削除し、`sudo mv /var/lib/docker.old /var/lib/docker` で戻します。rmdir が失敗したら、中のデータを削除せず調査します。原本がなかった新規環境ではこの移動を実行しません。
+元のデータディレクトリがあった環境では、unmount と fstab の復元が終わった後、空の mount ポイントだけを `sudo rmdir /var/lib/docker` で削除し、`sudo mv /var/lib/docker.old /var/lib/docker` で戻します。rmdir が失敗したら中のデータを削除せずに調べます。原本がなかった新規環境では、この移動を実行しません。
 
 <a id="다음에-읽을-곳" />
 ## 次に読む

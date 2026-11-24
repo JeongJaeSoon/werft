@@ -1,0 +1,3 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/fixture 1 1 %s 1%% /\n' "${STUB_AVAIL_KB:-999999999}"

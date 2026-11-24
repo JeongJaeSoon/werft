@@ -769,8 +769,10 @@ function nameOf(ref: ExecutionRef): string {
 
 class FakeBackend implements ExecutionBackend {
   readonly kind = "local_docker" as const;
-  makesRoomFor?: (waitingImage: string, image: string) => boolean;
   missingCodexSandbox?: (image: string) => string | undefined;
+  workersFreeingRoomFor?: NonNullable<
+    ExecutionBackend["workersFreeingRoomFor"]
+  >;
   /** Keyed like Docker names the containers: execution id plus generation. */
   readonly containers = new Map<string, Container>();
   readonly ensureCalls: LaunchIntent[] = [];
@@ -5853,7 +5855,7 @@ describe("a launch waiting for room", () => {
   test("asks no worker whose room the launch could not take", async () => {
     const h = harness();
     const other = claimedWorker(h, "exec-other", 1_000);
-    h.backend.makesRoomFor = () => false;
+    h.backend.workersFreeingRoomFor = async () => [];
     const [sessionId] = h.store.addUnassigned(1);
     if (!sessionId) throw new Error("no session");
     h.backend.createPendingFor.add(sessionId);
@@ -5862,6 +5864,43 @@ describe("a launch waiting for room", () => {
 
     expect((await h.run()).idleWorkersStopped).toEqual([]);
     expect(other.row.drainRequestedAt).toBeUndefined();
+  });
+
+  test("a launch refused for want of a Codex sandbox never asks which idle workers free room", async () => {
+    const h = harness();
+    const idle = claimedWorker(h, "exec-idle", 1_000);
+    let asked = 0;
+    h.backend.workersFreeingRoomFor = async (_image, workers) => {
+      asked += 1;
+      return [...workers];
+    };
+    h.backend.missingCodexSandbox = () => "no Codex sandbox here";
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+
+    await h.run();
+    const summary = await h.run();
+
+    expect(asked).toBe(0);
+    expect(summary.waitingForCapacity).toEqual([]);
+    expect(summary.idleWorkersStopped).toEqual([]);
+    expect(idle.row.drainRequestedAt).toBeUndefined();
+    expect(h.store.noCodexSandbox.has(sessionId)).toBe(true);
+  });
+
+  test("a launch the sandbox provider allows still asks which idle workers free room", async () => {
+    const h = harness();
+    const there = claimedWorker(h, "exec-there", 1_000);
+    h.backend.missingCodexSandbox = () => undefined;
+    h.backend.workersFreeingRoomFor = async (_image, workers) => [...workers];
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.createPendingFor.add(sessionId);
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+    await h.run();
+
+    expect((await h.run()).idleWorkersStopped).toEqual([there.ref]);
   });
 
   test("refuses a launch with no Codex sandbox before anything is created", async () => {
@@ -5881,6 +5920,51 @@ describe("a launch waiting for room", () => {
     expect(
       h.records.some((r) => r.message.includes("CODEX_SANDBOX_NOT_INSTALLED")),
     ).toBe(true);
+  });
+  test("asks the worker idle longest among those the backend says free room", async () => {
+    const h = harness();
+    const elsewhere = claimedWorker(h, "exec-elsewhere", 1_000);
+    const there = claimedWorker(h, "exec-there", 2_000);
+    const asked: string[][] = [];
+    h.backend.workersFreeingRoomFor = async (_waitingImage, workers) => {
+      asked.push(workers.map((worker) => worker.executionId));
+      return workers.filter((worker) => worker.executionId === "exec-there");
+    };
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.createPendingFor.add(sessionId);
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+    await h.run();
+
+    expect((await h.run()).idleWorkersStopped).toEqual([there.ref]);
+    expect(elsewhere.row.drainRequestedAt).toBeUndefined();
+    expect(asked.at(-1)).toEqual(["exec-elsewhere", "exec-there"]);
+  });
+
+  test("asks no worker, and says so, when the backend cannot tell which free room", async () => {
+    const h = harness();
+    const idle = claimedWorker(h, "exec-idle", 1_000);
+    h.backend.workersFreeingRoomFor = async () => {
+      throw new Error("nodes is forbidden");
+    };
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.createPendingFor.add(sessionId);
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+    await h.run();
+
+    const summary = await h.run();
+
+    expect(summary.idleWorkersStopped).toEqual([]);
+    expect(summary.waitingForCapacity).toHaveLength(1);
+    expect(idle.row.drainRequestedAt).toBeUndefined();
+    expect(
+      h.records.find(
+        (r) =>
+          r.message ===
+          "Could not tell which idle workers free room for a waiting launch; none is asked to stop this pass",
+      )?.fields,
+    ).toMatchObject({ error: "nodes is forbidden" });
   });
 
   test("gives its queued input up after the limit, without a launch failure", async () => {

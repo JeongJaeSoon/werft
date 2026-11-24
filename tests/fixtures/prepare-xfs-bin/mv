@@ -1,0 +1,4 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+/bin/mv "$@" || exit
+term_after "$@"

@@ -1,0 +1,3 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+echo "${STUB_UID:-0}"

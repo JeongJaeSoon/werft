@@ -238,11 +238,15 @@ export interface ExecutionBackend {
    */
   assertReplaceable?(intent: LaunchIntent): Promise<void>;
   /**
-   * Whether stopping a worker running `image` can free room a launch of
-   * `waitingImage` may take: a Pod held to labelled nodes is helped only
-   * by a worker on them. Optional: absent, every worker can.
+   * Of `workers`, in their order, those whose stop can free room a launch
+   * of `waitingImage` may take: a Pod held to labelled nodes is helped only
+   * by a worker on them. Throws when it cannot tell. Optional: absent,
+   * every worker can.
    */
-  makesRoomFor?(waitingImage: string, image: string): boolean;
+  workersFreeingRoomFor?<W extends ExecutionRef & { image: string | null }>(
+    waitingImage: string,
+    workers: readonly W[],
+  ): Promise<W[]>;
   /**
    * Why a worker of `image` can never start here for want of a Codex
    * sandbox the installation did not provide, or undefined when nothing is

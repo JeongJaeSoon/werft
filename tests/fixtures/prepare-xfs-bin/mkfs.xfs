@@ -1,0 +1,3 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+[ -f "$2" ] && printf XFS >>"$2"

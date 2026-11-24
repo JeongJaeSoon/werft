@@ -361,13 +361,42 @@ export class KubernetesBackend implements ExecutionBackend {
   /**
    * A Codex sandbox Pod goes only to a node labelled for the profile, so
    * only a worker there frees room it can take; any other Pod can go to any
-   * worker node, labelled or not.
+   * worker node, labelled or not. Without Node reads, a sandbox worker is
+   * the one known to be there. With them, it is any worker whose Pod runs
+   * on a labelled node matching `nodeSelector`; one not placed on a node
+   * holds no room there.
    */
-  makesRoomFor(waitingImage: string, image: string): boolean {
-    return (
-      !codexSandboxed(this.config, waitingImage) ||
-      codexSandboxed(this.config, image)
+  async workersFreeingRoomFor<
+    W extends ExecutionRef & { image: string | null },
+  >(waitingImage: string, workers: readonly W[]): Promise<W[]> {
+    const { config, client } = this;
+    if (!codexSandboxed(config, waitingImage)) return [...workers];
+    if (config.readsNodes !== true) {
+      return workers.filter(
+        (worker) =>
+          worker.image === null || codexSandboxed(config, worker.image),
+      );
+    }
+    const { key, value } = CODEX_SECCOMP_NODE_LABEL;
+    // A selector that asks for another value leaves the Pod no node at all.
+    const selected = config.nodeSelector[key];
+    if (selected !== undefined && selected !== value) return [];
+    const [nodes, pods] = await Promise.all([
+      client.listNodes({ ...config.nodeSelector, [key]: value }),
+      client.list(
+        config.namespace,
+        "pods",
+        selectorFor("worker", config.installationId),
+      ),
+    ]);
+    const labelled = new Set(nodes.map((node) => node.metadata.name));
+    const nodeOf = new Map(
+      pods.map((pod) => [pod.metadata.name, pod.spec.nodeName]),
     );
+    return workers.filter((worker) => {
+      const node = nodeOf.get(podNameFor(worker, config.installationId));
+      return node !== undefined && labelled.has(node);
+    });
   }
 
   /** A Codex worker cannot start where the installation has no sandbox. */

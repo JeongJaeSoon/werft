@@ -233,6 +233,8 @@ scheduler:
   # fewer than two workers of worker.memoryMb. true also creates a ClusterRole
   # that reads Nodes, bound to the scheduler, which a namespace-only installer
   # cannot create; false creates none. A failed read is logged and skipped.
+  # true also lets a Codex sandbox Pod waiting for room stop any idle worker
+  # on a node labelled for its profile, not only a sandbox worker.
   nodeCapacityCheck:
     enabled: false
 

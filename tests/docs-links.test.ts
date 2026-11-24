@@ -494,6 +494,8 @@ describe("Operator settings", () => {
       "MOCK_SLACK_USER_ID",
       "MOCK_SLACK_USER_NAME",
       "SLACK_FUNNEL_HTTPS_PORT",
+      // tests/prepare-xfs.test.ts runs scripts/prepare-xfs.sh on a scratch root.
+      "PREPARE_XFS_ROOT",
       // scripts/restore.sh exports these from its --port-base.
       "RESTORE_GIT_HOST_PORT",
       "RESTORE_LOCALSTACK_PORT",
