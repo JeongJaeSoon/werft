@@ -1,0 +1,2 @@
+scripts:
+  setup: bun install --frozen-lockfile
