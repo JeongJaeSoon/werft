@@ -251,6 +251,29 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/conversation-reco
 - **もう一度呼ぶ。** 結果は同じです。削除するものがなければ何も書かず `unchanged` です。前の実行が削除の後、セッションを止める前に途切れていたら、もう一度呼んだときにそのセッションを止めます。
 - **監査。** 削除したものがあれば、監査ログに receipt `delete_conversation_records` が一行残ります。行為者は `--by` の人、対象はその会話、結果は削除した行数です。
 
+<a id="끝을-모르는-예산-예약-풀기" />
+## 終わりのわからない予算予約の解消
+
+lease(5 分)以内に使用量の報告が来ず、終わりのわからない呼び出し(`unknown_at`)の予約は、遅れた報告が来るまで口座に押さえられたままです。たまって口座やエージェントが止まったら、運用者がこのコマンドで確認して解消します。API route はありません。API コンテナでコマンドを実行できる運用者が、組織の管理者(owner・admin)を `--by` に指定して実行します。セッションの呼び出しと会話呼び出し(会話ターンの呼び出しを含む)を同じコマンドで扱います。
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts list --limit 20
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts resolve --account <budget-account-id> --by admin@example.com --dry-run
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts resolve --call <call-id> --by admin@example.com
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts resolve --call <call-id> --by admin@example.com --refund --reason "provider never billed"
+```
+
+- **`list`。** 終わりのわからない予約を最も多く押さえている口座と、すべての口座の合計を、reconciler のログ(`Budget reservations of unknown end held`・`... reported`)と同じ名前、同じ数で出します(`accounts` の `unknown_count`・`held_cost_usd`・`held_tokens`、`total`)。`lines` は予約ごとの行で、印の古いものから並びます。呼び出し id(`call_id`)、種類(`call_kind`: `session`・`conversation`、どちらの台帳にも行がなければ `unlinked`)、口座とその月、押さえている金額、セッション id またはエージェント・会話ターンの id です。`--account` で一つの口座の行だけを見て、`--limit`(既定 100、最大 1000)で数を決めます。何も書きません。
+- **`resolve`。** `--call`(複数回指定できます)で選んだ予約を解消するか、`--account` でその口座の古いものから `--limit` 件(既定・最大 100)を解消します。一回に 100 件までで、残りがあればもう一度実行します。予約ごとに別々にコミットします。
+  - 既定では押さえた分を使ったものとして確定します(`resolution: "spent"`)。終わりのわからない呼び出しを少なく課金しないためです。`--refund` は 0 に戻し(`refunded`)、`--reason` が必要です。理由のない `--refund` は終了コード 2 で拒否し、何も変えません。
+  - どちらでも口座の予約から外れ、その呼び出しは進行中として数えなくなります。会話呼び出しは状態が `resolved` になって同時呼び出しの上限から外れ、セッションの呼び出しは台帳の行が解放されます。その口座とエージェントはすぐに新しい呼び出しを受けます。
+  - 終わりのわからない予約でない行(精算済み、または lease が更新された行)は `not_unknown` として残し、触りません。存在しない id は `not_found` です。
+  - `--dry-run` は解消する行と金額(`would_resolve`)だけを出し、何も書きません。
+- **`--by`。** 選んだ予約が属するすべてのワークスペースで無効化されていない owner か admin のアドレスです。一つでも違えば何も書かず `not_admin`(終了コード 4)で終わります。実行中にロールを失うと、その場で止まり、`stopped_at` に止まった呼び出し id を出します(終了コード 4)。
+- **監査。** 解消した予約ごとに receipt `resolve_unknown_budget` が一行、その予約を解消するトランザクションの中で残ります。行為者は `--by` の人、対象は口座の持ち主(人かチーム、口座がなければワークスペース)で、結果に呼び出し、口座とその月、確定した側(`resolution`)、理由(`reason`)、押さえていた金額と課金した金額、実行 id(`run_id`)が入ります。時刻は receipt の `created_at` です。
+- **遅れた報告。** 解消した後に報告が来ても予約を開き直しません。実際の値と解消時に課金した値の差を、調整行(`budget_adjustments`)一つとして元の予約の口座に加えます。少なく使った報告は差を返し、多く使った報告と `--refund` で解消した行の報告は追加で課金します。調整は元の予約の月に付くので、月が変わった後に来ても今月の使用額は変わりません。調整行は元の予約の呼び出し id をキーに一度だけできます。同じ報告がもう一度来ても重ねて書きません。
+- **出力。** stdout に JSON 一行です。`resolve` は `outcome`(`resolved`、解消したものがなければ `unchanged`、`--dry-run` なら `dry_run`、`not_admin`)、`run_id`、`resolution`、解消した数 `resolved`、行ごとの結果 `lines` を出します。終了コードは 0 完了(解消するものがないときも)、1 予期しないエラー、2 使い方、4 拒否です。
+
 ## セッションイベントの保管
 
 長く休止したセッションのイベント行を checkpoint bucket に移す週次の job です。イベント以外の行は変えず、API は移した後も同じ応答を返します。

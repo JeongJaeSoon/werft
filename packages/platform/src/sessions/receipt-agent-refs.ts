@@ -60,6 +60,8 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     set_agent_workspace_mcp: { ...ON_AGENT, agents: ["agent_id"] },
     set_agent_pull_request_settings: { ...ON_AGENT, agents: ["agent_id"] },
     set_slack_allowed_bots: { target: "agent", agents: ["agent_id"] },
+    // The conversation call's agent, null for a session's call.
+    resolve_unknown_budget: { agents: ["agent_id"] },
     approve_slack_notice: { target: "agent", agents: ["agent_id"] },
     revoke_slack_notice: { target: "agent", agents: ["agent_id"] },
     set_conversation_rollout: { target: "agent", agents: ["agent_id"] },

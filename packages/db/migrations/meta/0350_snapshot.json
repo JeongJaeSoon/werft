@@ -1,5 +1,5 @@
 {
-  "id": "e354f361-350f-4732-836c-e89593399c90",
+  "id": "afb9b881-d3ef-4636-a4cd-65dbf35677ab",
   "prevId": "d4afda37-f751-4f7f-8e75-9197b569eac1",
   "version": "7",
   "dialect": "postgresql",
@@ -3845,6 +3845,117 @@
       },
       "isRLSEnabled": false
     },
+    "public.budget_adjustments": {
+      "name": "budget_adjustments",
+      "schema": "",
+      "columns": {
+        "call_id": {
+          "name": "call_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reported_cost_usd": {
+          "name": "reported_cost_usd",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reported_tokens": {
+          "name": "reported_tokens",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tokens": {
+          "name": "tokens",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "budget_adjustments_account_idx": {
+          "name": "budget_adjustments_account_idx",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "budget_adjustments_call_id_budget_reservations_call_id_fk": {
+          "name": "budget_adjustments_call_id_budget_reservations_call_id_fk",
+          "tableFrom": "budget_adjustments",
+          "tableTo": "budget_reservations",
+          "columnsFrom": ["call_id"],
+          "columnsTo": ["call_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "budget_adjustments_workspace_id_workspaces_id_fk": {
+          "name": "budget_adjustments_workspace_id_workspaces_id_fk",
+          "tableFrom": "budget_adjustments",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "budget_adjustments_account_id_budget_accounts_id_fk": {
+          "name": "budget_adjustments_account_id_budget_accounts_id_fk",
+          "tableFrom": "budget_adjustments",
+          "tableTo": "budget_accounts",
+          "columnsFrom": ["account_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "budget_adjustments_amount_check": {
+          "name": "budget_adjustments_amount_check",
+          "value": "(\"budget_adjustments\".\"reported_cost_usd\" >= 0 AND \"budget_adjustments\".\"reported_cost_usd\" <> 'NaN') AND \"budget_adjustments\".\"reported_tokens\" BETWEEN 0 AND 9007199254740991 AND \"budget_adjustments\".\"cost_usd\" <> 'NaN' AND \"budget_adjustments\".\"tokens\" BETWEEN -9007199254740991 AND 9007199254740991"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.budget_limits": {
       "name": "budget_limits",
       "schema": "",
@@ -4007,6 +4118,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "resolution": {
+          "name": "resolution",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -4072,7 +4189,7 @@
         },
         "budget_reservations_state_check": {
           "name": "budget_reservations_state_check",
-          "value": "\"budget_reservations\".\"state\" IN ('reserved','settled','released')"
+          "value": "\"budget_reservations\".\"state\" IN ('reserved','settled','released','resolved')"
         },
         "budget_reservations_ended_check": {
           "name": "budget_reservations_ended_check",
@@ -4080,7 +4197,11 @@
         },
         "budget_reservations_settled_check": {
           "name": "budget_reservations_settled_check",
-          "value": "CASE WHEN \"budget_reservations\".\"state\" = 'settled' THEN \"budget_reservations\".\"settled_cost_usd\" IS NOT NULL AND \"budget_reservations\".\"settled_tokens\" IS NOT NULL ELSE \"budget_reservations\".\"settled_cost_usd\" IS NULL AND \"budget_reservations\".\"settled_tokens\" IS NULL END"
+          "value": "CASE WHEN \"budget_reservations\".\"state\" IN ('settled', 'resolved') THEN \"budget_reservations\".\"settled_cost_usd\" IS NOT NULL AND \"budget_reservations\".\"settled_tokens\" IS NOT NULL ELSE \"budget_reservations\".\"settled_cost_usd\" IS NULL AND \"budget_reservations\".\"settled_tokens\" IS NULL END"
+        },
+        "budget_reservations_resolution_check": {
+          "name": "budget_reservations_resolution_check",
+          "value": "(\"budget_reservations\".\"state\" = 'resolved') = (\"budget_reservations\".\"resolution\" IS NOT NULL) AND \"budget_reservations\".\"resolution\" IN ('spent','refunded')"
         },
         "budget_reservations_nonneg_check": {
           "name": "budget_reservations_nonneg_check",
@@ -5861,7 +5982,7 @@
         },
         "conversation_calls_state_check": {
           "name": "conversation_calls_state_check",
-          "value": "\"conversation_calls\".\"state\" IN ('reserved','in_flight','settled','released')"
+          "value": "\"conversation_calls\".\"state\" IN ('reserved','in_flight','settled','released','resolved')"
         },
         "conversation_calls_limits_check": {
           "name": "conversation_calls_limits_check",
@@ -5869,7 +5990,7 @@
         },
         "conversation_calls_state_columns_check": {
           "name": "conversation_calls_state_columns_check",
-          "value": "CASE \"conversation_calls\".\"state\"\n        WHEN 'reserved' THEN \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'in_flight' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'settled' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NOT NULL\n        ELSE \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NULL\n      END"
+          "value": "CASE \"conversation_calls\".\"state\"\n        WHEN 'reserved' THEN \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'in_flight' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NULL AND \"conversation_calls\".\"usage\" IS NULL\n        WHEN 'settled' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NOT NULL\n        WHEN 'resolved' THEN \"conversation_calls\".\"exchange_id\" IS NOT NULL AND \"conversation_calls\".\"started_at\" IS NOT NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NULL\n        ELSE \"conversation_calls\".\"exchange_id\" IS NULL AND \"conversation_calls\".\"started_at\" IS NULL AND \"conversation_calls\".\"ended_at\" IS NOT NULL AND \"conversation_calls\".\"usage\" IS NULL\n      END"
         },
         "conversation_calls_settled_check": {
           "name": "conversation_calls_settled_check",
@@ -6387,308 +6508,6 @@
         "conversation_inputs_slack_check": {
           "name": "conversation_inputs_slack_check",
           "value": "(\"conversation_inputs\".\"slack_team_id\" IS NULL AND \"conversation_inputs\".\"slack_channel_id\" IS NULL AND \"conversation_inputs\".\"slack_ts\" IS NULL) OR (\"conversation_inputs\".\"slack_team_id\" IS NOT NULL AND \"conversation_inputs\".\"slack_channel_id\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_inputs\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_inputs\".\"slack_ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.conversation_judgments": {
-      "name": "conversation_judgments",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "grade": {
-          "name": "grade",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_team_id": {
-          "name": "slack_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_channel_id": {
-          "name": "slack_channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "refs": {
-          "name": "refs",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sources": {
-          "name": "sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "judgment_batch_id": {
-          "name": "judgment_batch_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "input_id": {
-          "name": "input_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "release_id": {
-          "name": "release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "call_key": {
-          "name": "call_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "prompt_version": {
-          "name": "prompt_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decision": {
-          "name": "decision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rule_decision": {
-          "name": "rule_decision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rule_reason": {
-          "name": "rule_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "claimed_at": {
-          "name": "claimed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "judged_at": {
-          "name": "judged_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "conversation_judgments_input_uniq": {
-          "name": "conversation_judgments_input_uniq",
-          "columns": [
-            {
-              "expression": "input_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"conversation_judgments\".\"input_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_judgments_waiting_idx": {
-          "name": "conversation_judgments_waiting_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_judgments\".\"outcome\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_judgments_channel_idx": {
-          "name": "conversation_judgments_channel_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "conversation_judgments_batch_idx": {
-          "name": "conversation_judgments_batch_idx",
-          "columns": [
-            {
-              "expression": "judgment_batch_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_judgments\".\"judgment_batch_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "conversation_judgments_agent_fk": {
-          "name": "conversation_judgments_agent_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_judgments_conversation_fk": {
-          "name": "conversation_judgments_conversation_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "conversations",
-          "columnsFrom": ["conversation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "conversation_judgments_release_fk": {
-          "name": "conversation_judgments_release_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "agent_releases",
-          "columnsFrom": ["agent_id", "release_id"],
-          "columnsTo": ["agent_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "conversation_judgments_batch_fk": {
-          "name": "conversation_judgments_batch_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "judgment_batches",
-          "columnsFrom": ["judgment_batch_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "conversation_judgments_input_fk": {
-          "name": "conversation_judgments_input_fk",
-          "tableFrom": "conversation_judgments",
-          "tableTo": "conversation_inputs",
-          "columnsFrom": ["input_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "conversation_judgments_grade_check": {
-          "name": "conversation_judgments_grade_check",
-          "value": "\"conversation_judgments\".\"grade\" IN ('buffer_m1','m1','m1_to_task','m1_engaged')"
-        },
-        "conversation_judgments_slack_check": {
-          "name": "conversation_judgments_slack_check",
-          "value": "\"conversation_judgments\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_judgments\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND cardinality(\"conversation_judgments\".\"refs\") >= 1"
-        },
-        "conversation_judgments_verdict_check": {
-          "name": "conversation_judgments_verdict_check",
-          "value": "CASE \"conversation_judgments\".\"outcome\"\n        WHEN 'judged' THEN \"conversation_judgments\".\"decision\" IN ('speak','quiet') AND \"conversation_judgments\".\"reason\" IN ('not_for_agent','human_conversation','already_handled','out_of_scope','needs_agent','unclear')\n        WHEN 'not_called' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('budget_refused','concurrency_limited','rate_limited','input_too_large','no_active_release','model_unavailable')\n        WHEN 'failed' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('timed_out','unreachable','provider_error','malformed')\n        ELSE \"conversation_judgments\".\"outcome\" IS NULL AND \"conversation_judgments\".\"decision\" IS NULL AND \"conversation_judgments\".\"reason\" IS NULL\n      END AND (\"conversation_judgments\".\"outcome\" IS NULL) = (\"conversation_judgments\".\"judged_at\" IS NULL)"
-        },
-        "conversation_judgments_rule_check": {
-          "name": "conversation_judgments_rule_check",
-          "value": "CASE WHEN \"conversation_judgments\".\"grade\" = 'buffer_m1'\n        THEN \"conversation_judgments\".\"rule_decision\" IS NULL AND \"conversation_judgments\".\"rule_reason\" IS NULL AND \"conversation_judgments\".\"outcome\" IS NOT NULL\n        ELSE \"conversation_judgments\".\"rule_decision\" IN ('reply','skip','none') AND \"conversation_judgments\".\"rule_reason\" IN ('addressed_to_other_user','default_reply','stray_reply') AND (\"conversation_judgments\".\"rule_decision\" = 'none') = (\"conversation_judgments\".\"grade\" = 'm1_engaged')\n      END"
-        },
-        "conversation_judgments_call_check": {
-          "name": "conversation_judgments_call_check",
-          "value": "\"conversation_judgments\".\"attempts\" >= 0 AND (\"conversation_judgments\".\"call_key\" IS NULL OR \"conversation_judgments\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m1$') AND (\"conversation_judgments\".\"attempts\" = 0 OR \"conversation_judgments\".\"call_key\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
