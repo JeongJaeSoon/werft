@@ -151,6 +151,15 @@ describe("prepare-xfs.sh", () => {
     );
   });
 
+  test("docker calls go to the local daemon whatever DOCKER_HOST or the context says", () => {
+    const result = run(["--dry-run"], {
+      DOCKER_HOST: "tcp://remote.example:2375",
+      DOCKER_CONTEXT: "remote",
+    });
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
   test("an already prepared data-root needs nothing", () => {
     const before = snapshot();
     const result = run([], { STUB_ROOT_FS: "xfs rw,relatime,prjquota" });

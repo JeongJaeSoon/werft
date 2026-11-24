@@ -60,6 +60,11 @@ while [ $# -gt 0 ]; do
 done
 [[ "$size" =~ ^[1-9][0-9]*G$ ]] || { echo "prepare-xfs: --size takes whole gigabytes, such as 60G" >&2; exit 2; }
 
+# Every docker call goes to the local daemon systemctl stops and starts, never
+# to a DOCKER_HOST or context elsewhere.
+export DOCKER_HOST=unix:///var/run/docker.sock
+unset DOCKER_CONTEXT
+
 note() { printf 'prepare-xfs: %s\n' "$*"; }
 refuse() {
   printf 'prepare-xfs: refused: %s\n' "$*" >&2

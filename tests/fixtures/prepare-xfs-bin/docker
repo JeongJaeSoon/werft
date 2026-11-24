@@ -1,5 +1,7 @@
 #!/bin/sh
 . "$(dirname "$0")/stub-lib.sh"
+[ "$DOCKER_HOST" = unix:///var/run/docker.sock ] && [ -z "${DOCKER_CONTEXT:-}" ] \
+  || { echo "docker: not the local daemon (DOCKER_HOST=$DOCKER_HOST)" >&2; exit 1; }
 case "$1" in
   info)
     [ -f "$STUB_STATE/running" ] || exit 1
