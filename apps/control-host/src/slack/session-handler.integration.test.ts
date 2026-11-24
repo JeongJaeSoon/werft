@@ -2961,6 +2961,78 @@ describe.each(ENGINES)("Slack judgment buffer on %s", (engine) => {
     });
   }
 
+  test("the switch lowered to off empties the agent's buffer and holds no later post, and keeps its judged batch and the channel summary", async () => {
+    const fixture = await agentInSlack("main", { rollout: "shadow" });
+    await deliver(fixture, message("100.000100"));
+    await drain(handler().handle);
+    const [held] = await db
+      .select({ id: schema.conversationInputs.id })
+      .from(schema.conversationInputs)
+      .where(eq(schema.conversationInputs.agentId, fixture.agentId));
+    if (held === undefined) throw new Error("not held");
+    const batches = schema.createPostgresJudgmentBatchStore(db);
+    const judgedAt = new Date(Date.now() + 61_000);
+    const closed = await batches.closeNext({ now: judgedAt });
+    if (closed?.outcome !== "judging") throw new Error("no batch");
+    expect(
+      await batches.finish(
+        closed.batch.id,
+        { modelCalled: true, left: [] },
+        { now: judgedAt },
+      ),
+    ).toBe("finished");
+    const place = {
+      workspaceId: fixture.workspaceId,
+      teamId: TEAM,
+      channelId: CHANNEL,
+    };
+    const summaries = schema.createPostgresChannelSummaryStore(db);
+    expect(
+      (
+        await summaries.append({
+          place,
+          expectedVersion: 0,
+          agentId: fixture.agentId,
+          lines: [
+            { text: "asked for the next step", inputId: held.id as never },
+          ],
+        })
+      ).outcome,
+    ).toBe("written");
+
+    expect(
+      await schema.setConversationRollout(db, {
+        workspaceId: fixture.workspaceId,
+        agentId: fixture.agentId,
+        rollout: "off",
+        by: "operator_cli",
+      }),
+    ).toEqual({
+      outcome: "changed",
+      before: "shadow",
+      after: "off",
+      bufferedDropped: 1,
+    });
+    expect(await heldTs(fixture)).toEqual([]);
+    await deliver(fixture, message("100.000200"));
+    await drain(handler().handle);
+    expect(await heldTs(fixture)).toEqual([]);
+    expect(
+      await batches.closeNext({ now: new Date(Date.now() + 120_000) }),
+    ).toBeNull();
+    expect(
+      (await summaries.read(place))?.lines.map((line) => line.text),
+    ).toEqual(["asked for the next step"]);
+    expect(
+      (
+        await db
+          .select({ state: schema.judgmentBatches.state })
+          .from(schema.judgmentBatches)
+          .where(eq(schema.judgmentBatches.agentId, fixture.agentId))
+      ).map((row) => row.state),
+    ).toEqual(["judged"]);
+  });
+
   test("the pass counts what it removed, expired or unheard, and a dry run removes nothing", async () => {
     const fixture = await agentInSlack("main", { rollout: "on" });
     await deliver(fixture, message("100.000100"));

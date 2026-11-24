@@ -161,6 +161,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   set_slack_allowed_bots: "Slack 허용 봇 변경",
   approve_slack_notice: "Slack 고지 승인",
   revoke_slack_notice: "Slack 고지 승인 철회",
+  set_conversation_rollout: "에이전트 대화 스위치 변경",
   set_slack_secret: "Slack 비밀값 설정",
   delete_slack_secret: "Slack 비밀값 삭제",
 };

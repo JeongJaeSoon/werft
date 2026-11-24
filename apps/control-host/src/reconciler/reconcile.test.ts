@@ -110,6 +110,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 8;
       },
+      lowerUnapprovedRollouts: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return ["agent-r"];
+      },
       purgeJudgmentBuffer: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return { expired: 9, unjudged: 4, unlistened: 1, batches: 3 };
@@ -152,6 +156,7 @@ describe("reconciler run", () => {
     expect(result.webSessionsDeleted).toBe(6);
     expect(result.envStartsPurged).toBe(4);
     expect(result.slackInboundPayloadsPurged).toBe(8);
+    expect(result.rolloutsLowered).toEqual(["agent-r"]);
     expect(result.judgmentBufferPurged).toEqual({
       expired: 9,
       unjudged: 4,
@@ -242,6 +247,11 @@ describe("reconciler run", () => {
         level: "info",
         message: "Failed Slack inbound payloads purged",
         fields: { dry_run: false, purged_count: 8 },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Unapproved conversation switches lowered",
+        fields: { dry_run: false, lowered_count: 1, agent_ids: ["agent-r"] },
       }),
       expect.objectContaining({
         level: "info",
@@ -358,6 +368,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 1;
       },
+      lowerUnapprovedRollouts: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return [];
+      },
       purgeJudgmentBuffer: async ({ dryRun }) => {
         seen.push(dryRun);
         return { expired: 2, unjudged: 0, unlistened: 0, batches: 0 };
@@ -384,6 +398,7 @@ describe("reconciler run", () => {
     });
 
     expect(seen).toEqual([
+      true,
       true,
       true,
       true,
@@ -458,6 +473,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions: async () => 0,
         purgeExpiredEnvStart: async () => 0,
         purgeFailedSlackInboundPayloads: async () => 0,
+        lowerUnapprovedRollouts: async () => [],
         purgeJudgmentBuffer: async () => ({
           expired: 0,
           unjudged: 0,
@@ -504,6 +520,7 @@ describe("reconciler run", () => {
     const deleteExpiredWebSessions = async () => 0;
     const purgeExpiredEnvStart = async () => 0;
     const purgeFailedSlackInboundPayloads = async () => 0;
+    const lowerUnapprovedRollouts = async () => [];
     const purgeJudgmentBuffer = async () => ({
       expired: 0,
       unjudged: 0,
@@ -546,6 +563,7 @@ describe("reconciler run", () => {
           deleteExpiredWebSessions,
           purgeExpiredEnvStart,
           purgeFailedSlackInboundPayloads,
+          lowerUnapprovedRollouts,
           purgeJudgmentBuffer,
           purgeSlackSourceMarks,
           purgeSlackChannelMembers,
@@ -572,6 +590,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
         purgeFailedSlackInboundPayloads,
+        lowerUnapprovedRollouts,
         purgeJudgmentBuffer,
         purgeSlackSourceMarks,
         purgeSlackChannelMembers,
@@ -596,6 +615,7 @@ describe("reconciler run", () => {
         deleteExpiredWebSessions,
         purgeExpiredEnvStart,
         purgeFailedSlackInboundPayloads,
+        lowerUnapprovedRollouts,
         purgeJudgmentBuffer,
         purgeSlackSourceMarks,
         purgeSlackChannelMembers,
