@@ -113,7 +113,15 @@ values に `slack.enabled: false` を置いた環境では、ループから `sl
 
 初回設置が失敗したら、値を直して同じコマンドを再実行します。Deployment が作成された段階で失敗し、worker イメージを変えた場合はアップグレード検査規則が適用されます。セッションがなければ [Kubernetes の削除](/run-server/self-hosting/remove-kubernetes)で環境を整理し、やり直します。
 
-最初のセッションは、worker Pod が動くノードが worker イメージを取得するあいだ遅くなります。イメージは数百 MB です（0.4.0 の Claude worker は約 395 MB）。worker Pod はノードにすでにあるイメージを取得し直さないため、事前に取得しておけます。下の最初のコマンドは、この chart の worker イメージのアドレス（Claude worker、Codex worker）を 1 行に一つずつ出力します。worker を動かすノードごとに、エージェントが使うエンジンのアドレスを `<worker-image>` に入れて取得します。
+最初のセッションは、worker Pod が動くノードが worker イメージを取得するあいだ遅くなります。イメージは数百 MB です（0.4.0 の Claude worker は約 395 MB）。worker Pod はノードにすでにあるイメージを取得し直さないため、事前に取得しておけます。
+
+chart に任せるには、環境ごとの values に `worker.prePull.enabled: true` を置きます。chart が worker ノード（`worker.nodeSelector`・`worker.tolerations` が選ぶノード）ごとに DaemonSet Pod を動かし、セッションが使う worker イメージをすべて取得します。アップグレードでイメージが変わると、新しいイメージを取得し直します。ノードの Pod は、イメージをすべて取得した後に Ready になります。
+
+```bash
+kubectl -n werft rollout status ds/werft-worker-prepull --timeout=600s
+```
+
+この値のない chart（0.4.0 まで）は、values に書いても何もしません。その chart では、ノードで直接取得します。下の最初のコマンドは、この chart の worker イメージのアドレス（Claude worker、Codex worker）を 1 行に一つずつ出力します。worker を動かすノードごとに、エージェントが使うエンジンのアドレスを `<worker-image>` に入れて取得します。
 
 ```bash
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
