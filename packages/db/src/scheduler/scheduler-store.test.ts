@@ -1513,6 +1513,51 @@ describe("PostgresSchedulerStore", () => {
     });
   });
 
+  test("a launch a worker claimed, or one asked to go, is not refused for the sandbox", async () => {
+    const claimedSession = await insertUnassigned({});
+    const claimed = await store.reserveLaunch({
+      ...SPEC,
+      backend: "kubernetes",
+      now: NOW,
+      sessionId: claimedSession,
+      slotLimit: 10,
+    });
+    if (!claimed) throw new Error("no intent");
+    await db.insert(attempts).values({
+      authRevision: 1,
+      executionGeneration: claimed.generation,
+      executionId: claimed.executionId,
+      id: "att-claimed",
+      leaseEpoch: 1,
+      leaseExpiresAt: NOW,
+      sessionId: claimedSession,
+      state: "running",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "att-claimed" })
+      .where(eq(workerLaunches.executionId, claimed.executionId));
+    expect(await store.giveUpForCodexSandbox(claimed, "no sandbox")).toBe(
+      false,
+    );
+    expect(await store.desiredStateOf(claimed)).toBe("running");
+
+    const askedSession = await insertUnassigned({});
+    const asked = await store.reserveLaunch({
+      ...SPEC,
+      backend: "kubernetes",
+      now: NOW,
+      sessionId: askedSession,
+      slotLimit: 10,
+    });
+    if (!asked) throw new Error("no intent");
+    await db
+      .update(executions)
+      .set({ desiredState: "terminated" })
+      .where(eq(executions.id, asked.executionId));
+    expect(await store.giveUpForCodexSandbox(asked, "no sandbox")).toBe(false);
+  });
+
   test("a launch with no Codex sandbox that was a resume goes back to paused with its checkpoint, and is refused once", async () => {
     const sessionId = await insertUnassigned({
       admissionState: "resuming",
