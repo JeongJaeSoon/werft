@@ -3516,10 +3516,19 @@ function checkTestExamples(): string[] {
       `LocalStack makes the bucket in ${region}, the chart reads ${defaults.config.aws.region}`,
     );
   }
-  if (
-    example.config.checkpoints.bucket !== defaults.config.checkpoints.bucket
-  ) {
-    fail("values-test.yaml names another bucket than the init script makes");
+  // Every bucket the init script and the readiness probe name is the one the
+  // values hand the api.
+  const named = [
+    init ?? "",
+    JSON.stringify(
+      podSpecOf(localstack ?? objects[0]).containers[0].readinessProbe,
+    ),
+  ].flatMap((text) => [...text.matchAll(/--bucket (\S+)/g)].map((m) => m[1]));
+  const bucket = example.config.checkpoints.bucket;
+  if (named.length === 0 || named.some((name) => name !== bucket)) {
+    fail(
+      `values-test.yaml names ${bucket}, LocalStack names ${[...new Set(named)]}`,
+    );
   }
   if (
     example.config.egress.credentialAllowlist !==
