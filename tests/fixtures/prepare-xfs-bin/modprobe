@@ -1,0 +1,3 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+exit "${STUB_MODPROBE_RC:-0}"

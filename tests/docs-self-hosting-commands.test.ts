@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import pages from "./fixtures/self-hosting-pages.json";
 
@@ -28,35 +22,6 @@ function blocks(path: string, languages: string) {
 }
 
 describe("self-hosting command fixtures", () => {
-  test("an existing XFS image stops before any mutation", () => {
-    const scratch = join(import.meta.dir, "../.selfhost-verify");
-    mkdirSync(scratch, { recursive: true });
-    const dir = mkdtempSync(join(scratch, "xfs-"));
-    const image = join(dir, "docker.xfs.img");
-    writeFileSync(image, "original workspace data");
-    try {
-      const block = blocks("prepare-xfs", "bash").find((block) =>
-        block.includes("set -eu"),
-      );
-      expect(block).toBeDefined();
-      const input = [
-        `docker() { printf '%s\\n' '${dir}/docker'; }`,
-        'sudo() { if [ "$1" = test ]; then "$@"; else echo "mutation attempted"; return 99; fi; }',
-        block?.replaceAll("/var/lib/docker", `${dir}/docker`),
-      ].join("\n");
-      const result = spawnSync("bash", [], {
-        input,
-        encoding: "utf8",
-        timeout: 5000,
-      });
-      expect(result.status).toBe(1);
-      expect(result.stdout).not.toContain("mutation attempted");
-      expect(readFileSync(image, "utf8")).toBe("original workspace data");
-    } finally {
-      rmSync(dir, { recursive: true });
-    }
-  });
-
   test("shell examples parse after replacing reader placeholders", () => {
     let checked = 0;
     for (const page of pages) {
