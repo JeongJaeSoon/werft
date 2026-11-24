@@ -254,7 +254,13 @@ integration("an agent's judgment model on PostgreSQL", () => {
     expect(moved.release.status).toBe("applied");
     const second = moved.agent.active_release_id as string;
     expect(second).not.toBe(first);
-    const two = await judge(agentId, conversationId, catalogOf(ALL));
+    // A channel holds one M1 call in progress at a time, so each call takes a
+    // conversation of its own.
+    const two = await judge(
+      agentId,
+      await conversationOf(agentId),
+      catalogOf(ALL),
+    );
     if (two.outcome !== "issued") throw new Error(two.outcome);
     expect(await ledgerOf(two.callId)).toEqual({
       releaseId: second,
@@ -265,7 +271,11 @@ integration("an agent's judgment model on PostgreSQL", () => {
     const cleared = await service().updateAgent(owner, agentId, {
       card: card(),
     });
-    const three = await judge(agentId, conversationId, catalogOf(ALL));
+    const three = await judge(
+      agentId,
+      await conversationOf(agentId),
+      catalogOf(ALL),
+    );
     if (three.outcome !== "issued") throw new Error(three.outcome);
     expect(await ledgerOf(three.callId)).toEqual({
       releaseId: cleared.agent.active_release_id,
