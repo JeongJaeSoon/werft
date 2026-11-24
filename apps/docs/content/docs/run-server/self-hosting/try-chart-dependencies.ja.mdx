@@ -46,7 +46,7 @@ kubectl -n werft create secret generic werft-test-postgres \
 <a id="2-postgresql과-object-store" />
 ### 2. PostgreSQL と object store
 
-次の内容を `werft-test-deps.yaml` として保存します。PostgreSQL は公式 `postgres:16` イメージで、DB 名は `sessions` です。object store は S3 だけを動かす LocalStack で、起動時に init スクリプトが bucket `claude-sessions` を Object Lock(versioning も一緒に有効になります)と既定の暗号化 SSE-S3(`AES256`)付きで作ります。api は起動時にこの 3 つを確認し、1 つでも欠けると起動を拒否します。LocalStack の readiness probe も同じものを確認します。
+次の内容を `werft-test-deps.yaml` として保存します。PostgreSQL は公式 `postgres:16` イメージで、DB 名は `sessions` です。object store は S3 だけを動かす LocalStack で、起動時に init スクリプトが bucket `claude-sessions` を Object Lock(versioning も一緒に有効になります)と既定の暗号化 SSE-S3(`AES256`)付きで作ります。api は起動時にこの 3 つを確認し、1 つでも欠けると起動を拒否します。LocalStack の readiness probe は Object Lock の設定と既定の暗号化が `AES256` であることを確認します。
 
 ```yaml
 # Test only: PostgreSQL and LocalStack keep their data in the Pod.
@@ -230,6 +230,8 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
 ## よくある問題
 
 ノードや依存の Pod が再起動すると DB と bucket が空になります。PostgreSQL が空になると `/readyz` が 503 `schema check failed` を返します。DB に未回収の checkpoint が残ったまま bucket だけが空になると、api は起動を拒否します。この試験設置は修復せず、下の「元に戻す」で削除して手順 1 から作り直します。
+
+手順 1〜3 の途中で止めてシェルを閉じるときは、先に `rm -r "${SECRETS:?}"` でパスワードの入った一時ディレクトリを削除します。
 
 `helm upgrade --install` は 2 つの依存の rollout が終わってから実行します。手順 2 の `rollout status` が失敗したら、`kubectl -n werft describe pod -l app=localstack` と `kubectl -n werft logs deploy/localstack` でイメージ pull や init スクリプトのエラーを確認します。
 

@@ -46,7 +46,7 @@ Keep using this shell through step 3. Step 3 removes the `SECRETS` directory.
 <a id="2-postgresql과-object-store" />
 ### 2. PostgreSQL and object store
 
-Save the following as `werft-test-deps.yaml`. PostgreSQL is the official `postgres:16` image with a database named `sessions`. The object store is LocalStack running S3 only. At startup its init script creates the bucket `claude-sessions` with Object Lock (which also turns on versioning) and default SSE-S3 encryption (`AES256`). The api checks all three at startup and refuses to start if any is missing. The LocalStack readiness probe checks the same.
+Save the following as `werft-test-deps.yaml`. PostgreSQL is the official `postgres:16` image with a database named `sessions`. The object store is LocalStack running S3 only. At startup its init script creates the bucket `claude-sessions` with Object Lock (which also turns on versioning) and default SSE-S3 encryption (`AES256`). The api checks all three at startup and refuses to start if any is missing. The LocalStack readiness probe checks the Object Lock configuration and that the default encryption is `AES256`.
 
 ```yaml
 # Test only: PostgreSQL and LocalStack keep their data in the Pod.
@@ -230,6 +230,8 @@ This check shows an empty test installation is ready. It does not prove backup a
 ## Troubleshooting
 
 When a node or a dependency Pod restarts, the database and the bucket are emptied. With an empty PostgreSQL, `/readyz` returns 503 `schema check failed`. If the database still has uncollected checkpoints and only the bucket is empty, the api refuses to start. Do not repair this test installation: remove it with the roll back steps below and start again from step 1.
+
+If you stop between steps 1 and 3 and close the shell, first remove the temporary directory holding the password with `rm -r "${SECRETS:?}"`.
 
 Run `helm upgrade --install` only after both dependencies have rolled out. If a `rollout status` in step 2 fails, look for image pull or init script errors with `kubectl -n werft describe pod -l app=localstack` and `kubectl -n werft logs deploy/localstack`.
 
