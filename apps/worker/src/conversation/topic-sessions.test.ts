@@ -14,6 +14,7 @@ import type {
   RuntimeEvent,
   RuntimeModule,
 } from "@werft-ai/runtime-core";
+import { fakePermitRelay } from "../testing/fake-permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
 import { TopicSessions } from "./topic-sessions.ts";
 import { createConversationTurnRunner } from "./turn-runner.ts";
@@ -133,19 +134,21 @@ function turnOf(
 function setup(options: { maxBytes?: number; limit?: number } = {}) {
   let clock = 0;
   const e = engine();
-  const sessions = new TopicSessions(new TopicDirectories(root), {
+  const relay = fakePermitRelay();
+  const sessions = new TopicSessions(new TopicDirectories(root), relay, {
     now: () => clock,
     ...(options.limit === undefined ? {} : { limit: options.limit }),
   });
   const runner = createConversationTurnRunner({
     runtime: e.module,
-    egressCredentialUrl: "http://egress-proxy:3129",
     sessions,
+    relay,
     ...(options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }),
   });
   const live = new AbortController().signal;
   return {
     ...e,
+    relay,
     sessions,
     run: (turn: ConversationRuntimeTurn) => runner.run(turn, live),
     tick: (ms: number) => {
@@ -207,8 +210,8 @@ describe("a topic's session", () => {
     const e = engine(() => (fail ? null : "ok"));
     const runner = createConversationTurnRunner({
       runtime: e.module,
-      egressCredentialUrl: "http://egress-proxy:3129",
       sessions: s.sessions,
+      relay: s.relay,
     });
     const live = new AbortController().signal;
     const t = topic();

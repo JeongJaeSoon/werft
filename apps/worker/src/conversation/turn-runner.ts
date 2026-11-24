@@ -6,6 +6,7 @@ import {
   type ConversationTurnResult,
 } from "@werft-ai/contracts";
 import type { RuntimeModule } from "@werft-ai/runtime-core";
+import type { PermitRelay } from "./permit-relay.ts";
 import type { TopicSession, TopicSessions } from "./topic-sessions.ts";
 
 /** Runs one conversation turn to its end; never throws for a turn that failed. */
@@ -47,15 +48,14 @@ function goesOn(
  * control host's check keeps it and it has not grown past `maxBytes`, which
  * is sent the turn's input; else a new engine in a new, empty directory, sent
  * the context the control host assembled. The engine never compacts nor
- * resumes a conversation. Its provider calls go to the egress proxy with the
- * token it started on, and the proxy adds the credential this process never
- * holds.
+ * resumes a conversation. Its provider calls go through the relay, which
+ * carries the running turn's permit to the egress proxy; the proxy adds the
+ * credential this process never holds.
  */
 export function createConversationTurnRunner(deps: {
   runtime: RuntimeModule;
-  /** The egress proxy's credential listener. */
-  egressCredentialUrl: string;
   sessions: TopicSessions;
+  relay: Pick<PermitRelay, "hold" | "release" | "url">;
   limitMs?: number;
   maxBytes?: number;
 }): ConversationTurnRunner {
@@ -74,7 +74,7 @@ export function createConversationTurnRunner(deps: {
       const topicId = turn.scope.topic_id;
       const live = await sessions.get(topicId);
       const continued = goesOn(live, turn, maxBytes);
-      const start = (directory: TopicSession["directory"]) =>
+      const start = (directory: TopicSession["directory"], permitKey: string) =>
         deps.runtime
           .createRuntime({
             stateDir: directory.stateDir,
@@ -104,10 +104,11 @@ export function createConversationTurnRunner(deps: {
               provider: {
                 kind: turn.provider.kind,
                 endpoint: turn.provider.endpoint,
+                // The session's key: the relay puts each turn's permit in its place.
                 auth: {
                   kind: "egress_token",
-                  token: turn.provider.auth.token,
-                  transport: `${deps.egressCredentialUrl.replace(/\/$/, "")}/provider`,
+                  token: permitKey,
+                  transport: deps.relay.url,
                 },
               },
             },
@@ -125,6 +126,7 @@ export function createConversationTurnRunner(deps: {
       }
       const { run } = session;
       const sent = continued ? turn.input : turn.fresh_input;
+      deps.relay.hold(session.permitKey, turn.provider.auth.token);
       let cut: "timed_out" | "interrupted" | null = null;
       const timer = setTimeout(() => {
         cut ??= "timed_out";
@@ -198,6 +200,7 @@ export function createConversationTurnRunner(deps: {
       } finally {
         clearTimeout(timer);
         stop.removeEventListener("abort", onStop);
+        deps.relay.release(session.permitKey);
       }
       if (result.outcome === "completed") {
         session.bytes += bytesOf(sent.text) + bytesOf(result.text);

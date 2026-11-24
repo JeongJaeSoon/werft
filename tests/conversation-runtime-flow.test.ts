@@ -27,6 +27,7 @@ import {
   startCredentialProxy,
 } from "../apps/egress-proxy/src/credential.ts";
 import { createProxyLogger } from "../apps/egress-proxy/src/logger.ts";
+import { PermitRelay } from "../apps/worker/src/conversation/permit-relay.ts";
 import { TopicDirectories } from "../apps/worker/src/conversation/topic-directories.ts";
 import { TopicSessions } from "../apps/worker/src/conversation/topic-sessions.ts";
 import { createConversationTurnRunner } from "../apps/worker/src/conversation/turn-runner.ts";
@@ -62,13 +63,15 @@ let root: string | undefined;
 let provider: FakeAnthropicServer | undefined;
 let authorizer: ReturnType<typeof Bun.serve> | undefined;
 let proxy: CredentialProxyServer | undefined;
+let relay: PermitRelay | undefined;
 
 afterEach(async () => {
+  relay?.stop();
   proxy?.stop();
   authorizer?.stop(true);
   provider?.stop();
   if (root !== undefined) await rm(root, { force: true, recursive: true });
-  root = provider = authorizer = proxy = undefined;
+  root = provider = authorizer = proxy = relay = undefined;
 });
 
 async function stack(replies: ReplyResolver) {
@@ -141,12 +144,9 @@ async function stack(replies: ReplyResolver) {
   if (runtime === undefined) throw new Error("no runtime installed");
   const topics = new TopicDirectories(root);
   let clock = 0;
-  const sessions = new TopicSessions(topics, { now: () => clock });
-  const runner = createConversationTurnRunner({
-    runtime,
-    egressCredentialUrl: `http://127.0.0.1:${proxy.port}`,
-    sessions,
-  });
+  relay = new PermitRelay(`http://127.0.0.1:${proxy.port}/provider`);
+  const sessions = new TopicSessions(topics, relay, { now: () => clock });
+  const runner = createConversationTurnRunner({ runtime, sessions, relay });
   /**
    * A turn with a fresh one-call token the authorizer grants, unless `known`
    * is false. A new session of its topic starts from `fresh`, else `text`.
@@ -191,7 +191,7 @@ async function stack(replies: ReplyResolver) {
     topics,
     sessions,
     runtime,
-    egressCredentialUrl: `http://127.0.0.1:${proxy.port}`,
+    relay,
     tick: (ms: number) => {
       clock += ms;
     },
@@ -332,14 +332,6 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
       outcome: "completed",
       text: "noted",
     });
-    // Until the engine reads each turn's permit on each request (94S-2115),
-    // the session's first token stands in for the next turn's.
-    const regrant = () => {
-      const grant = s.grants.get(first.token);
-      if (grant !== undefined) grant.exchange = null;
-    };
-
-    regrant();
     s.tick(CONVERSATION_TOPIC_SESSION_IDLE_MS - 1);
     const kept = s.turn(topic, "what did I say?", true, "assembled again");
     expect(
@@ -363,6 +355,9 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
         .outcome,
     ).toBe("completed");
 
+    // The kept turn's call went out on its own permit, not the first turn's.
+    expect(s.grants.get(kept.token)?.exchange).not.toBeNull();
+
     const [one, two, three, four] = s.provider.requests.map(userTexts);
     // A new session's first request: the assembled context, and nothing before it.
     expect(one).toEqual([`assembled ${marker}`]);
@@ -381,13 +376,13 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     expect((await stat(join(s.root, topic))).isDirectory()).toBe(true);
 
     // What a new process does first.
-    const restarted = new TopicSessions(s.topics);
+    const restarted = new TopicSessions(s.topics, s.relay);
     await restarted.reset();
     expect(await stat(join(s.root, topic)).catch(() => null)).toBeNull();
     const runner = createConversationTurnRunner({
       runtime: s.runtime,
-      egressCredentialUrl: s.egressCredentialUrl,
       sessions: restarted,
+      relay: s.relay,
     });
     const next = s.turn(topic, "second", true, "assembled for the restart");
     expect(

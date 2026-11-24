@@ -9,6 +9,7 @@ import {
 } from "@werft-ai/contracts";
 import type { AgentRun } from "@werft-ai/runtime-core";
 import { createConsoleLogger } from "../console-logger.ts";
+import { fakePermitRelay } from "../testing/fake-permit-relay.ts";
 import { ConversationHost } from "./conversation-host.ts";
 import { HEALTH_STALE_MS, healthy } from "./main.ts";
 import { TopicDirectories } from "./topic-directories.ts";
@@ -73,9 +74,13 @@ function harness(options: {
   const reports: Array<{ turnId: string; result: ConversationTurnResult }> = [];
   const ran: string[] = [];
   let clock = 0;
-  const sessions = new TopicSessions(new TopicDirectories(root), {
-    now: () => clock,
-  });
+  const sessions = new TopicSessions(
+    new TopicDirectories(root),
+    fakePermitRelay(),
+    {
+      now: () => clock,
+    },
+  );
   let attempts = 0;
   let polls = 0;
   let host: ConversationHost | undefined;
@@ -313,7 +318,10 @@ describe("ConversationHost", () => {
         },
       },
       runner: { run: async () => ({ outcome: "completed", text: "" }) },
-      sessions: new TopicSessions(new TopicDirectories(topicsRoot)),
+      sessions: new TopicSessions(
+        new TopicDirectories(topicsRoot),
+        fakePermitRelay(),
+      ),
       logger: createConsoleLogger({ write: (line) => lines.push(line) }),
       statusFile,
     });

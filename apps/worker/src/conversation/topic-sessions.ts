@@ -4,6 +4,7 @@ import {
   type ConversationTopicId,
 } from "@werft-ai/contracts";
 import type { AgentRun, RuntimeEvent } from "@werft-ai/runtime-core";
+import type { PermitRelay } from "./permit-relay.ts";
 import type { TopicDirectories, TopicDirectory } from "./topic-directories.ts";
 
 /**
@@ -13,6 +14,8 @@ import type { TopicDirectories, TopicDirectory } from "./topic-directories.ts";
 export type TopicSession = {
   topicId: ConversationTopicId;
   directory: TopicDirectory;
+  /** The key its engine was started with, which the relay trades for a turn's permit. */
+  permitKey: string;
   run: AgentRun;
   /** The run's one event stream, read turn by turn. */
   events: AsyncIterator<RuntimeEvent>;
@@ -36,6 +39,7 @@ export class TopicSessions {
 
   constructor(
     readonly topics: TopicDirectories,
+    readonly relay: Pick<PermitRelay, "open" | "close" | "url">,
     options: { idleMs?: number; limit?: number; now?: () => number } = {},
   ) {
     this.idleMs = options.idleMs ?? CONVERSATION_TOPIC_SESSION_IDLE_MS;
@@ -62,11 +66,11 @@ export class TopicSessions {
   /**
    * A new session of the topic, any old one dropped first, and the one idle
    * longest when the runtime holds its limit. `start` is given the topic's
-   * new, empty directory.
+   * new, empty directory and the session's permit key.
    */
   async open(
     topicId: ConversationTopicId,
-    start: (directory: TopicDirectory) => AgentRun,
+    start: (directory: TopicDirectory, permitKey: string) => AgentRun,
   ): Promise<TopicSession> {
     await this.drop(topicId);
     while (this.live.size >= this.limit) {
@@ -76,16 +80,19 @@ export class TopicSessions {
       await this.drop(oldest.topicId);
     }
     const directory = await this.topics.open(topicId);
+    const permitKey = this.relay.open();
     let run: AgentRun;
     try {
-      run = start(directory);
+      run = start(directory, permitKey);
     } catch (error) {
+      this.relay.close(permitKey);
       await this.topics.drop(topicId);
       throw error;
     }
     const session: TopicSession = {
       topicId,
       directory,
+      permitKey,
       run,
       events: run.events()[Symbol.asyncIterator](),
       bytes: 0,
@@ -100,6 +107,7 @@ export class TopicSessions {
     const session = this.live.get(topicId);
     this.live.delete(topicId);
     if (session !== undefined) {
+      this.relay.close(session.permitKey);
       try {
         session.run.finishInput();
       } catch {}

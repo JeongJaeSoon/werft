@@ -14,6 +14,7 @@ import type {
   RuntimeStart,
 } from "@werft-ai/runtime-core";
 import { imageRuntime } from "../composition.ts";
+import { fakePermitRelay } from "../testing/fake-permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
 import { TopicSessions } from "./topic-sessions.ts";
 import {
@@ -135,17 +136,20 @@ function scripted(events: RuntimeEvent[] | "hang" | "throw") {
   return { module, seen };
 }
 
-const runnerOf = (module: RuntimeModule, limitMs?: number) =>
-  createConversationTurnRunner({
+let relay = fakePermitRelay();
+const runnerOf = (module: RuntimeModule, limitMs?: number) => {
+  relay = fakePermitRelay();
+  return createConversationTurnRunner({
     runtime: module,
-    egressCredentialUrl: "http://egress-proxy:3129/",
-    sessions: new TopicSessions(new TopicDirectories(root)),
+    sessions: new TopicSessions(new TopicDirectories(root), relay),
+    relay,
     ...(limitMs === undefined ? {} : { limitMs }),
   });
+};
 const live = () => new AbortController().signal;
 
 describe("createConversationTurnRunner", () => {
-  test("starts the engine in the topic's own directory with no tool, every built-in one denied, one provider call and the call's token for the proxy", async () => {
+  test("starts the engine in the topic's own directory with no tool, every built-in one denied, one provider call and its session's key for the relay", async () => {
     const { module, seen } = scripted([said("hel"), said("lo"), ended()]);
 
     expect(await runnerOf(module).run(turn, live())).toEqual({
@@ -178,10 +182,13 @@ describe("createConversationTurnRunner", () => {
       endpoint: "https://api.anthropic.com",
       auth: {
         kind: "egress_token",
-        token: TOKEN,
-        transport: "http://egress-proxy:3129/provider",
+        token: "session-1",
+        transport: relay.url,
       },
     });
+    // The turn's permit rode on the key while it ran, and is gone after.
+    expect(relay.held).toEqual([TOKEN]);
+    expect(relay.permits.get("session-1")).toBeNull();
     // Nothing of a work session rides along: no instructions file, MCP server or transcript mirror.
     expect(seen.start?.bundle).toEqual({
       instructions: [],
