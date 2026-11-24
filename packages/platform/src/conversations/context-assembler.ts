@@ -6,6 +6,7 @@ import {
 import type {
   ContextFragment,
   ContextFragmentSource,
+  ContextRead,
 } from "../ports/context-fragment-source.ts";
 import type { ConversationKey } from "../ports/conversation-store.ts";
 import { mergeSources, type SourceKey } from "./source-sets.ts";
@@ -49,10 +50,21 @@ export async function assembleContext(
   source: ContextFragmentSource,
   conversation: ConversationKey,
 ): Promise<ContextFragment[]> {
+  return (await readContext(source, conversation)).fragments;
+}
+
+async function readContext(
+  source: ContextFragmentSource,
+  conversation: ConversationKey,
+): Promise<ContextRead> {
   const readable = new Set<string>(readableScopes(conversation));
-  return (await source.fragmentsOf(conversation)).filter((fragment) =>
-    readable.has(fragment.scope),
-  );
+  const read = await source.read(conversation);
+  return {
+    fragments: read.fragments.filter((fragment) =>
+      readable.has(fragment.scope),
+    ),
+    unreadable: read.unreadable,
+  };
 }
 
 /** The cut's start value: design v3's 8k tokens, as UTF-8 request bytes. */
@@ -269,7 +281,8 @@ export function fitContext(input: {
 
 /**
  * What one call reads: the conversation's fragments past G1 and check
- * place ① (assembleContext), laid out and cut to the cap (fitContext).
+ * place ① (assembleContext), laid out and cut to the cap (fitContext), and
+ * how many the source could not read again.
  */
 export async function assembleCallContext(
   source: ContextFragmentSource,
@@ -279,9 +292,10 @@ export async function assembleCallContext(
     current: readonly CurrentPost[];
     capBytes?: number;
   },
-): Promise<FittedContext> {
-  return fitContext({
-    ...input,
-    fragments: await assembleContext(source, conversation),
-  });
+): Promise<FittedContext & { unreadable: number }> {
+  const read = await readContext(source, conversation);
+  return {
+    ...fitContext({ ...input, fragments: read.fragments }),
+    unreadable: read.unreadable,
+  };
 }

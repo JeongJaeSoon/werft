@@ -474,6 +474,20 @@ integration("context assembler (G1, 9-2 leak table)", () => {
     );
   });
 
+  test("the read counts what it left out because its source is gone", async () => {
+    const channel = newChannel();
+    const key = channelKey(channel);
+    const line = await summed(key, "kept");
+    const goneEngaged = await engaged(key);
+    const goneHeld = await buffered(key);
+    await deleteMark(channel, goneEngaged);
+    await deleteMark(channel, goneHeld.ts);
+    const read = await source.read(key);
+    expect(read.unreadable).toBe(2);
+    expect(read.fragments).toHaveLength(1);
+    expect(read.fragments[0]).toMatchObject({ lineId: line.lineId });
+  });
+
   test("a buffered message whose time is up is not read before the purge removes it", async () => {
     const channel = newChannel();
     const live = await buffered(channelKey(channel), "live", 600);

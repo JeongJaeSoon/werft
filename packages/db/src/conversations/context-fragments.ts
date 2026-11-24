@@ -7,6 +7,7 @@ import {
 import {
   type ContextFragment,
   type ContextFragmentSource,
+  type ContextRead,
   type ConversationKey,
   type SourceKey,
   storedSourceSet,
@@ -53,7 +54,7 @@ export function createPostgresContextFragmentSource(
   db: Database,
 ): ContextFragmentSource {
   return {
-    fragmentsOf(key: ConversationKey) {
+    read(key: ConversationKey): Promise<ContextRead> {
       return db.transaction(async (tx) => {
         const [conversation] = rowsOf<ConversationColumns & { id: string }>(
           await tx.execute(sql`
@@ -67,7 +68,7 @@ export function createPostgresContextFragmentSource(
                   : sql`c.person_user_id = ${key.personUserId}::uuid`
               }`),
         );
-        if (conversation === undefined) return [];
+        if (conversation === undefined) return { fragments: [], unreadable: 0 };
         const fragments: ContextFragment[] = [];
 
         // Every agent of the channel reads its one summary (9-2).
@@ -150,7 +151,6 @@ export function createPostgresContextFragmentSource(
         const buffered = rowsOf<
           ConversationColumns & {
             input_id: ConversationInputId;
-            body: string;
             requester_kind: string;
             requester_id: string;
             received_at: Date | string;
@@ -160,7 +160,7 @@ export function createPostgresContextFragmentSource(
           }
         >(
           await tx.execute(sql`
-            SELECT i.id AS input_id, i.body, i.requester_kind, i.requester_id,
+            SELECT i.id AS input_id, i.requester_kind, i.requester_id,
               i.received_at, i.slack_team_id, i.slack_channel_id, i.slack_ts,
               ${conversationColumns("c")}
             FROM conversation_inputs i
@@ -171,7 +171,17 @@ export function createPostgresContextFragmentSource(
               AND i.buffer_expires_at > now()
             ORDER BY i.received_at, i.id`),
         );
+        const texts = await textsAt(
+          tx,
+          buffered.map((row) => row.input_id),
+        );
+        let unreadable = 0;
         for (const row of buffered) {
+          const body = texts.get(row.input_id);
+          if (body === undefined) {
+            unreadable += 1;
+            continue;
+          }
           fragments.push({
             kind: "buffered_message",
             scope: scopeOfRow(row),
@@ -186,16 +196,44 @@ export function createPostgresContextFragmentSource(
               },
             ],
             inputId: row.input_id,
-            body: row.body,
+            body,
             poster: { kind: row.requester_kind, id: row.requester_id },
             receivedAt: new Date(row.received_at),
           });
         }
 
-        return withoutDeletedSources(tx, conversation.workspace_id, fragments);
+        const kept = await withoutDeletedSources(
+          tx,
+          conversation.workspace_id,
+          fragments,
+        );
+        return {
+          fragments: kept,
+          unreadable: unreadable + fragments.length - kept.length,
+        };
       });
     },
   };
+}
+
+/**
+ * Reads a message's text again from where it points. The one place the
+ * assembler's read leans on a stored copy: today the input row's body; one
+ * it cannot read is not in the map.
+ */
+async function textsAt(
+  tx: Database,
+  inputIds: readonly ConversationInputId[],
+): Promise<Map<ConversationInputId, string>> {
+  if (inputIds.length === 0) return new Map();
+  const rows = rowsOf<{ id: ConversationInputId; body: string | null }>(
+    await tx.execute(sql`
+      SELECT id, body FROM conversation_inputs
+      WHERE id = ANY(${`{${inputIds.join(",")}}`}::uuid[])`),
+  );
+  return new Map(
+    rows.flatMap((row) => (row.body === null ? [] : [[row.id, row.body]])),
+  );
 }
 
 /**

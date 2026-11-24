@@ -41,6 +41,10 @@ function random(seed: number) {
 const uuid = (prefix: string, n: number) =>
   `00000000-0000-4000-8000-${prefix}${String(n).padStart(12 - prefix.length, "0")}`;
 
+const sourceOf = (fragments: ContextFragment[], unreadable = 0) => ({
+  read: async () => ({ fragments, unreadable }),
+});
+
 function fragment(scope: ScopeKey, n: number): ContextFragment {
   return {
     kind: "buffered_message",
@@ -113,7 +117,7 @@ describe("assembleContext (G1)", () => {
       3,
     );
     const result = await assembleContext(
-      { fragmentsOf: async () => [own, otherChannel, person] },
+      sourceOf([own, otherChannel, person]),
       conversation,
     );
     expect(result).toEqual([own]);
@@ -171,10 +175,7 @@ describe("assembleContext (G1)", () => {
       );
       for (const conversation of conversations) {
         const readable = new Set<string>(readableScopes(conversation));
-        const result = await assembleContext(
-          { fragmentsOf: async () => fragments },
-          conversation,
-        );
+        const result = await assembleContext(sourceOf(fragments), conversation);
         for (const piece of result)
           expect(readable.has(piece.scope)).toBe(true);
         expect(result).toEqual(
@@ -561,13 +562,13 @@ describe("fitContext", () => {
         channelId: "C2",
       }),
     } as ContextFragment;
-    const result = fitted(
-      await assembleCallContext(
-        { fragmentsOf: async () => [buf1, other] },
-        CHANNEL,
-        { instructions: "rules", current: [now] },
-      ),
+    const assembled = await assembleCallContext(
+      sourceOf([buf1, other], 2),
+      CHANNEL,
+      { instructions: "rules", current: [now] },
     );
-    expect(ids(result.fragments)).toEqual(ids([buf1]));
+    expect(ids(fitted(assembled).fragments)).toEqual(ids([buf1]));
+    // What the source could not read again is counted, not hidden.
+    expect(assembled.unreadable).toBe(2);
   });
 });
