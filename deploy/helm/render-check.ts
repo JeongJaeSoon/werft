@@ -2742,7 +2742,9 @@ const installerOf = (manifests: Manifest[]) => ({
   configMap: manifests.find(
     (m) => m.kind === "ConfigMap" && m.metadata.name.endsWith("-codex-seccomp"),
   ),
-  daemonSet: manifests.find((m) => m.kind === "DaemonSet"),
+  daemonSet: manifests.find(
+    (m) => m.kind === "DaemonSet" && m.metadata.name.endsWith("-codex-seccomp"),
+  ),
 });
 
 function checkCodexSandbox(): string[] {
@@ -3005,6 +3007,131 @@ function checkCodexSandbox(): string[] {
 }
 errors.push(...checkCodexSandbox());
 
+// The worker pre-pull: off unless asked; on, every image a session can
+// launch on, each in a container that runs `true` held down like the rest,
+// on the nodes the workers land on.
+function checkWorkerPrePull(): string[] {
+  const found: string[] = [];
+  const fail = (message: string) => found.push(`worker pre-pull: ${message}`);
+  const prePullOf = (args: string[]) =>
+    render(["-f", ciDigests, ...args]).find(
+      (m) =>
+        m.kind === "DaemonSet" && m.metadata.name.endsWith("-worker-prepull"),
+    )?.spec.template.spec;
+  const on = ["--set", "worker.prePull.enabled=true"];
+  if (prePullOf([]) !== undefined) fail("renders by default");
+  // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+  const pulled = (pod: any): string[] =>
+    (pod?.initContainers ?? []).map((c: { image: string }) => c.image);
+  const workerImage = (digit: string, repository = "werft-worker") =>
+    `ghcr.io/jeongjaesoon/${repository}@sha256:${digit.repeat(64)}`;
+
+  const single = prePullOf(on);
+  if (JSON.stringify(pulled(single)) !== JSON.stringify([workerImage("3")])) {
+    fail(`images.worker alone pulls ${JSON.stringify(pulled(single))}`);
+  }
+  // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+  const hardened = (c: any) => {
+    const sc = c?.securityContext ?? {};
+    return (
+      sc.runAsNonRoot === true &&
+      sc.allowPrivilegeEscalation === false &&
+      sc.readOnlyRootFilesystem === true &&
+      JSON.stringify(sc.capabilities) === '{"drop":["ALL"]}' &&
+      sc.seccompProfile?.type === "RuntimeDefault" &&
+      DIGEST_REF.test(c?.image ?? "") &&
+      Boolean(c?.resources?.requests?.memory && c?.resources?.limits?.memory) &&
+      (c?.volumeMounts ?? []).length === 0
+    );
+  };
+  if (
+    single === undefined ||
+    single.automountServiceAccountToken !== false ||
+    single.hostNetwork === true ||
+    single.hostPID === true ||
+    (single.volumes ?? []).length !== 0 ||
+    single.securityContext?.runAsNonRoot !== true ||
+    single.securityContext?.seccompProfile?.type !== "RuntimeDefault" ||
+    single.containers.length !== 1 ||
+    ![...single.initContainers, ...single.containers].every(hardened) ||
+    JSON.stringify(single.initContainers[0].command) !== '["true"]'
+  ) {
+    fail(`not held down: ${JSON.stringify(single)}`);
+  }
+
+  const withPrevious = pulled(
+    prePullOf([
+      ...on,
+      "--set",
+      `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
+      "--set-json",
+      `images.workerPrevious.runtime=${JSON.stringify(LISTED_RUNTIME)}`,
+      "--set-json",
+      `images.worker.runtime=${JSON.stringify(LISTED_RUNTIME)}`,
+    ]),
+  );
+  if (
+    JSON.stringify(withPrevious) !==
+    JSON.stringify([workerImage("3"), workerImage("4")])
+  ) {
+    fail(`images.workerPrevious is not pulled too: ${withPrevious}`);
+  }
+
+  const listed = pulled(
+    prePullOf([
+      ...on,
+      "--set",
+      "images.registry=registry.local",
+      ...listInstead([
+        listedWorker({
+          digest: `sha256:${"9".repeat(64)}`,
+          releasedAt: "2026-11-11T00:00:00Z",
+          retracted: true,
+        }),
+        CODEX_LISTED,
+        listedWorker(),
+      ]),
+    ]),
+  );
+  const expected = [
+    `registry.local/reg/codex@sha256:${"e".repeat(64)}`,
+    `registry.local/reg/worker@sha256:${"5".repeat(64)}`,
+  ];
+  if (JSON.stringify(listed) !== JSON.stringify(expected)) {
+    fail(
+      `a list pulls ${JSON.stringify(listed)}, not its unretracted images ${JSON.stringify(expected)}`,
+    );
+  }
+  const placed = prePullOf([
+    ...on,
+    "--set",
+    "worker.nodeSelector.pool=agents",
+    "--set",
+    "worker.tolerations[0].key=agents",
+    "--set",
+    "worker.tolerations[0].operator=Exists",
+  ]);
+  if (
+    placed?.nodeSelector?.pool !== "agents" ||
+    placed?.tolerations?.[0]?.key !== "agents"
+  ) {
+    fail("does not follow worker.nodeSelector and tolerations");
+  }
+  if (
+    prePullOf([
+      ...on,
+      "--set",
+      "worker.nodeSelector.pool=agents",
+      "--set",
+      "worker.prePull.nodeSelector.pool=pull",
+    ])?.nodeSelector?.pool !== "pull"
+  ) {
+    fail("worker.prePull.nodeSelector does not win");
+  }
+  return found;
+}
+errors.push(...checkWorkerPrePull());
+
 const runtimeOn = render([
   "-f",
   ciDigests,
@@ -3054,5 +3181,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate, the conversation runtime off and on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
+  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate, the conversation runtime off and on, the worker pre-pull off and on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
 );

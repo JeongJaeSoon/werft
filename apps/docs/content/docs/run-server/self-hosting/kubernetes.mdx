@@ -106,7 +106,15 @@ values에 `slack.enabled: false`를 둔 설치는 반복문에서 `slack`을 뺀
 
 첫 설치가 실패하면 값을 고치고 같은 명령을 다시 실행한다. Deployment까지 생긴 실패에서 worker 이미지를 바꿨다면 업그레이드 검사 규칙이 적용된다. 세션이 없다면 [Kubernetes 제거](/run-server/self-hosting/remove-kubernetes)로 설치를 정리한 뒤 다시 시작한다.
 
-첫 세션은 worker Pod가 뜰 노드가 worker 이미지를 받는 동안 늦다. 이미지는 수백 MB다(0.4.0의 Claude worker는 약 395 MB). worker Pod는 노드에 이미 있는 이미지를 다시 받지 않으므로 미리 받아 둘 수 있다. 아래 첫 명령은 이 chart의 worker 이미지 주소(Claude worker, Codex worker)를 한 줄에 하나씩 적는다. worker를 띄울 노드마다 에이전트가 쓰는 엔진의 주소를 `<worker-image>` 자리에 넣어 받는다.
+첫 세션은 worker Pod가 뜰 노드가 worker 이미지를 받는 동안 늦다. 이미지는 수백 MB다(0.4.0의 Claude worker는 약 395 MB). worker Pod는 노드에 이미 있는 이미지를 다시 받지 않으므로 미리 받아 둘 수 있다.
+
+chart에 맡기려면 설치별 values에 `worker.prePull.enabled: true`를 둔다. chart가 worker 노드(`worker.nodeSelector`·`worker.tolerations`가 고르는 노드)마다 DaemonSet Pod를 띄워 세션이 쓸 worker 이미지를 모두 받는다. 업그레이드로 이미지가 바뀌면 새 이미지를 다시 받는다. 노드의 Pod는 이미지를 다 받은 뒤 Ready가 된다.
+
+```bash
+kubectl -n werft rollout status ds/werft-worker-prepull --timeout=600s
+```
+
+이 값이 없는 chart(0.4.0까지)는 이 값을 values에 적어도 아무것도 하지 않는다. 그런 chart에서는 노드에서 직접 받는다. 아래 첫 명령은 이 chart의 worker 이미지 주소(Claude worker, Codex worker)를 한 줄에 하나씩 적는다. worker를 띄울 노드마다 에이전트가 쓰는 엔진의 주소를 `<worker-image>` 자리에 넣어 받는다.
 
 ```bash
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
