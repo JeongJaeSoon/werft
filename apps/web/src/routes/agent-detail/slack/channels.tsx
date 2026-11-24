@@ -53,7 +53,12 @@ import { type MessageKey, useI18n } from "../../../i18n/i18n.tsx";
 import { reasonCodeOf } from "../../workspace-slack.tsx";
 import type { SlackApp } from "./actions.ts";
 import { Outcome, RecheckButton, RecheckError } from "./app.tsx";
-import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
+import {
+  slackKey,
+  useSlackBindings,
+  useSlackChannels,
+  useSlackNotice,
+} from "./queries.ts";
 import {
   type Binding,
   type BindingChange,
@@ -215,6 +220,8 @@ export function SlackChannels({
   const pickerOpener = useRef<HTMLButtonElement | null>(null);
   const lockAction = useRef<HTMLDivElement>(null);
   const locked = lockedApp !== null;
+  // Said only once the switch is known to be off, so it never flashes on load.
+  const switchOff = useSlackNotice(agentId).data?.rollout === "off";
   // A lock that arrives with the picker open closes it.
   useEffect(() => {
     if (locked) setPicking(false);
@@ -397,7 +404,7 @@ export function SlackChannels({
             {homeStep ? <p className="m-0">{t("slack.homeStepHint")}</p> : null}
             {/* A channel's replies follow no session sharing (agent-rbac (b)). */}
             <p className="m-0">{t("slack.channelsAudience")}</p>
-            <p className="m-0">{t("slack.listenHint")}</p>
+            {switchOff ? <p className="m-0">{t("slack.listenHint")}</p> : null}
           </>
         }
         actions={actions}
