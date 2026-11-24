@@ -4,6 +4,7 @@ import {
   DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
   DEFAULT_WORKSPACE_QUOTA_MB,
   MIN_WORKSPACE_QUOTA_MB,
+  workerIdleTimeoutSecondsOf,
 } from "@werft-ai/contracts/execution";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import { checkGatewayUrl, parseEgressProxyUrl } from "@werft-ai/platform";
@@ -84,6 +85,11 @@ export type LocalDockerBackendConfig = {
    * `WORKER_STOP_GRACE_SEC` so it sizes its drain to fit. 120 by default.
    */
   stopTimeoutSeconds: number;
+  /**
+   * Handed to the worker as `WORKER_IDLE_TIMEOUT_SEC`: how long it waits
+   * for input before it ends. Absent, the worker keeps its own default.
+   */
+  idleTimeoutSeconds?: number;
   tmpfsSizeBytes: number;
   /** `uid:gid`; must not be root. */
   user: string;
@@ -228,6 +234,7 @@ export function localDockerConfigFromEnv(
         : integerSetting(environment, "EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC", {
             min: 1,
           }) * 1_000,
+    idleTimeoutSeconds: workerIdleTimeoutSecondsOf(environment),
     stopTimeoutSeconds: stopGrace(
       integerSetting(environment, "EXECUTION_DOCKER_STOP_TIMEOUT_SEC", {
         min: 1,

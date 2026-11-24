@@ -373,6 +373,14 @@ worker:
   # a transcript at the 512 MiB checkpoint limit stays under half of it.
   # Sessions per node and how to trade them off: apps/docs/content/docs/run-server/self-hosting/operate/capacity.mdx.
   memoryMb: 4608
+  # Seconds a worker with no input stays up before it ends, keeping its
+  # memoryMb reserved on the node until then: an integer from 60 to 7200.
+  # The scheduler hands it to the worker Pods as WORKER_IDLE_TIMEOUT_SEC.
+  # When a new session's Pod finds no room, the scheduler also stops the
+  # worker idle longest without waiting for this, one at a time; a worker
+  # with a turn open is never stopped. A stopped or timed-out session's
+  # next message starts a new worker that resumes from its checkpoint.
+  idleTimeoutSeconds: 1800
   # Node disk a worker may use outside its PVC (mostly its log), request
   # and limit both; past it the kubelet evicts the Pod.
   ephemeralStorageMb: 1024
