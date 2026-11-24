@@ -25,22 +25,32 @@ const script = join(
 );
 
 type Tags = Record<string, "c1" | "c2" | "c3" | "c4" | "side">;
+type Commit = "c1" | "c2" | "c3" | "c4" | "c5" | "side";
 type Run = {
   /** The ref and event the run was started on. */
   ref: string;
   event?: "push" | "workflow_dispatch";
-  at: keyof History;
-  /** The head commit of the newest manual run on main in the run list. */
-  manual?: keyof History;
+  at: Exclude<Commit, "c5">;
+  /**
+   * The head commit of the newest manual run on main in the run list. c5 is
+   * pushed to main after this run's checkout.
+   */
+  manual?: Commit;
+  /** That manual run was started after this run, so the list names it first. */
+  manualIsNewer?: boolean;
   listFails?: boolean;
   /** How many reads of the run list do not show this run, or the fix, yet. */
   lagging?: number;
+  /** This run is a rerun: its attempt, and the attempt the list shows. */
+  attempt?: number;
+  listedAttempt?: number;
 };
-type History = Record<"c1" | "c2" | "c3" | "c4" | "side", string>;
+type History = Record<Commit, string>;
 
 /**
  * main is c1 - c2 - c3 - c4; `side` branches off c1 and is never merged.
- * Tags are annotated, as the release makes them.
+ * Tags are annotated, as the release makes them. The run list holds older
+ * runs of other kinds around the ones a test names.
  */
 function ask(tags: Tags, run: Run) {
   const directory = mkdtempSync(join(tmpdir(), "pages-target-"));
@@ -81,6 +91,7 @@ function ask(tags: Tags, run: Run) {
       c2: commit("c2"),
       c3: commit("c3"),
       c4: commit("c4"),
+      c5: "",
     };
     for (const [name, at] of Object.entries(tags)) {
       git(origin, "tag", "-a", "-m", name, name, history[at]);
@@ -89,6 +100,25 @@ function ask(tags: Tags, run: Run) {
     const clone = join(directory, "clone");
     git(directory, "clone", "-q", origin, clone);
     git(clone, "checkout", "-q", "--detach", history[run.at]);
+    history.c5 = commit("c5");
+
+    // "<id> <attempt> <event> <branch> <commit>", newest first, as the script's
+    // --jq prints the list.
+    const event = run.event ?? "push";
+    const branch = run.ref.replace(/^refs\/(heads|tags)\//, "");
+    const attempt = run.attempt ?? 1;
+    const own = `4242 ${run.listedAttempt ?? attempt} ${event} ${branch} ${history[run.at]}`;
+    const manual = run.manual
+      ? [
+          `${run.manualIsNewer ? 4300 : 4100} 1 workflow_dispatch main ${history[run.manual]}`,
+        ]
+      : [];
+    const fresh = run.manualIsNewer ? [...manual, own] : [own, ...manual];
+    const old = [
+      `3003 1 workflow_dispatch v1.3.0 ${c1}`,
+      `3002 1 push main ${history.c4}`,
+      `3001 2 workflow_dispatch side ${side}`,
+    ];
 
     const bin = join(directory, "bin");
     mkdirSync(bin);
@@ -100,13 +130,9 @@ printf '%s\\n' "$*" >>"${calls}"
 if [ -n "\${FAKE_LIST_FAILS:-}" ]; then echo "gh: HTTP 502" >&2; exit 1; fi
 # The list shows neither this run nor the fix until it has caught up.
 reads=$(cat "${directory}/reads" 2>/dev/null || echo 0)
-case "$*" in
-  *branch=main*) [ "$reads" -le "\${FAKE_LAGGING}" ] || printf '%s' "\${FAKE_MANUAL}" ;;
-  *)
-    echo $((reads + 1)) >"${directory}/reads"
-    [ "$reads" -lt "\${FAKE_LAGGING}" ] || printf '%s' "\${GITHUB_RUN_ID}"
-    ;;
-esac
+echo $((reads + 1)) >"${directory}/reads"
+[ "$reads" -lt "\${FAKE_LAGGING}" ] || printf '%s\\n' "\${FAKE_FRESH}"
+printf '%s\\n' "\${FAKE_OLD}"
 `,
     );
     chmodSync(join(bin, "gh"), 0o755);
@@ -121,10 +147,12 @@ esac
         GITHUB_SHA: history[run.at],
         GITHUB_EVENT_NAME: run.event ?? "push",
         GITHUB_RUN_ID: "4242",
+        GITHUB_RUN_ATTEMPT: String(attempt),
         GITHUB_OUTPUT: output,
         PAGES_LIST_POLL_SECONDS: "0",
         FAKE_LAGGING: String(run.lagging ?? 0),
-        FAKE_MANUAL: run.manual ? history[run.manual] : "",
+        FAKE_FRESH: fresh.join("\n"),
+        FAKE_OLD: old.join("\n"),
         FAKE_LIST_FAILS: run.listFails ? "1" : "",
       },
     });
@@ -156,8 +184,9 @@ describe("pages-target.sh", () => {
       const got = ask(released, { ref: "refs/tags/v1.4.0", at: "c2" });
       expect(got.stderr).toBe("");
       expect(got).toMatchObject({ exitCode: 0, at: "c2", source: "v1.4.0" });
+      // Every run of the workflow, all pages: this run may be far down.
       expect(got.calls).toContain(
-        "repos/octo/repo/actions/workflows/pages.yml/runs?event=workflow_dispatch&branch=main&per_page=1",
+        "api --paginate repos/octo/repo/actions/workflows/pages.yml/runs?per_page=100",
       );
     },
     SLOW,
@@ -204,17 +233,23 @@ describe("pages-target.sh", () => {
   );
 
   test(
-    "a manual run on main deploys its own commit, even before the run list shows it",
+    "a manual run on main deploys its own commit, or a newer manual run's",
     () => {
-      for (const manual of [undefined, "c3"] as const) {
-        const got = ask(released, {
-          ref: "refs/heads/main",
-          event: "workflow_dispatch",
-          at: "c4",
-          manual,
-        });
-        expect(got).toMatchObject({ exitCode: 0, at: "c4", source: "main" });
-      }
+      const own = ask(released, {
+        ref: "refs/heads/main",
+        event: "workflow_dispatch",
+        at: "c3",
+      });
+      expect(own).toMatchObject({ exitCode: 0, at: "c3", source: "main" });
+      // A later one is already waiting behind this run.
+      const newer = ask(released, {
+        ref: "refs/heads/main",
+        event: "workflow_dispatch",
+        at: "c3",
+        manual: "c4",
+        manualIsNewer: true,
+      });
+      expect(newer).toMatchObject({ exitCode: 0, at: "c4", source: "main" });
     },
     SLOW,
   );
@@ -273,11 +308,7 @@ describe("pages-target.sh", () => {
         { ref: "refs/tags/v1.3.1", at: "c1", manual: "c3", lagging: 2 },
       );
       expect(got).toMatchObject({ exitCode: 0, at: "c3", source: "main" });
-      const calls = got.calls.trim().split("\n");
-      expect(calls.filter((call) => call.includes("per_page=30"))).toHaveLength(
-        3,
-      );
-      expect(calls.at(-1)).toContain("branch=main");
+      expect(got.calls.trim().split("\n")).toHaveLength(3);
     },
     SLOW,
   );
@@ -292,8 +323,42 @@ describe("pages-target.sh", () => {
         lagging: 99,
       });
       expect(got.exitCode).toBe(1);
-      expect(got.stderr).toContain("does not show this run (4242)");
+      expect(got.stderr).toContain("does not show this run (4242, attempt 1)");
       expect(got.at).toBeUndefined();
+    },
+    SLOW,
+  );
+
+  // The list shows this run from its first attempt, which says nothing about
+  // a fix started since.
+  test(
+    "a rerun trusts the run list only once it shows this attempt",
+    () => {
+      const tags: Tags = { ...released, "v1.3.1": "c1" };
+      const rerun = {
+        ref: "refs/tags/v1.3.1",
+        at: "c1",
+        manual: "c3",
+      } as const;
+      const stale = ask(tags, { ...rerun, attempt: 2, listedAttempt: 1 });
+      expect(stale.exitCode).toBe(1);
+      expect(stale.stderr).toContain("attempt 2");
+      const caught = ask(tags, { ...rerun, attempt: 2 });
+      expect(caught).toMatchObject({ exitCode: 0, at: "c3", source: "main" });
+    },
+    SLOW,
+  );
+
+  // The fix reached main, and its run was started, after this run's checkout.
+  test(
+    "a docs fix merged after this run started is fetched before it is judged",
+    () => {
+      const got = ask(released, {
+        ref: "refs/tags/v1.4.0",
+        at: "c2",
+        manual: "c5",
+      });
+      expect(got).toMatchObject({ exitCode: 0, at: "c5", source: "main" });
     },
     SLOW,
   );

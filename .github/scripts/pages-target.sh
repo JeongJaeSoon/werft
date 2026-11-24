@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Picks the commit the Pages site is built from: `pages-target.sh`, in a full
 # clone whose `origin` is the repository, with GH_REPO, GH_TOKEN (actions:
-# read) and GITHUB_RUN_ID set. Writes `sha=` and `source=` to GITHUB_OUTPUT.
+# read), GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT set. Writes `sha=` and
+# `source=` to GITHUB_OUTPUT.
 #
 # There is one site, and the runs of pages.yml wait in one group where GitHub
 # keeps a single waiting run and drops the rest. So a run does not deploy the
@@ -33,6 +34,31 @@ is_ancestor() {
   return "$status"
 }
 
+# The runs of pages.yml, newest first, as "<id> <attempt> <event> <branch>
+# <commit>". The list trails new runs by a moment. A docs fix this run replaced
+# while both waited was started before this attempt, so the list is trusted
+# only once it shows this attempt. (A run started after it deploys for itself.)
+run_id="${GITHUB_RUN_ID:?}"
+attempt="${GITHUB_RUN_ATTEMPT:?}"
+[[ "$run_id" =~ ^[0-9]+$ && "$attempt" =~ ^[0-9]+$ ]] || fail "'${run_id}' attempt '${attempt}' is not a run"
+runs=""
+listed=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  runs="$(gh api --paginate "repos/${repo}/actions/workflows/pages.yml/runs?per_page=100" \
+    --jq '.workflow_runs[] | "\(.id) \(.run_attempt) \(.event) \(.head_branch) \(.head_sha)"')" \
+    || fail "could not read the runs of pages.yml"
+  # Here-strings, not pipes: a reader that stops early would fail the pipe.
+  listed="$(awk -v id="$run_id" -v attempt="$attempt" '$1 == id && $2 >= attempt { print $1 }' <<<"$runs")"
+  [ -z "$listed" ] || break
+  sleep "${PAGES_LIST_POLL_SECONDS:-5}"
+done
+[ -n "$listed" ] || fail "the run list does not show this run (${run_id}, attempt ${attempt}) yet, so it may not show a docs fix either"
+# The newest manual run on main, from the same answer. Its commit is the docs
+# fix someone asked for, whether or not that run got to deploy.
+manual="$(awk '$3 == "workflow_dispatch" && $4 == "main" && !seen { print $5; seen = 1 }' <<<"$runs")"
+
+# After the list: main only moves forward, so every commit the list names on
+# main is in this fetch.
 git fetch --quiet --force --tags origin "+refs/heads/main:refs/remotes/origin/main" \
   || fail "could not fetch main and the tags"
 
@@ -59,42 +85,17 @@ if [ -n "$release" ]; then
   source="$release"
 fi
 
-# The run list trails new runs by a moment. A docs fix this run replaced while
-# both waited was started before this run, so the list is trusted only once it
-# shows this run. (A run started after this one deploys for itself.)
-run_id="${GITHUB_RUN_ID:?}"
-[[ "$run_id" =~ ^[0-9]+$ ]] || fail "'${run_id}' is not a run id"
-listed=""
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  listed="$(gh api "repos/${repo}/actions/workflows/pages.yml/runs?per_page=30" \
-    --jq ".workflow_runs[] | select(.id == ${run_id}) | .id")" || fail "could not read the runs of pages.yml"
-  [ -z "$listed" ] || break
-  sleep "${PAGES_LIST_POLL_SECONDS:-5}"
-done
-[ -n "$listed" ] || fail "the run list does not show this run (${run_id}) yet, so it may not show a docs fix either"
-
-# The newest manual run on main. Its commit is the docs fix someone asked for,
-# whether or not that run got to deploy.
-manual="$(gh api "repos/${repo}/actions/workflows/pages.yml/runs?event=workflow_dispatch&branch=main&per_page=1" \
-  --jq '.workflow_runs[0].head_sha // ""')" || fail "could not read the manual runs of pages.yml"
-own=""
-# This run itself, should the list not show it yet.
-if [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ] && [ "${GITHUB_REF:-}" = refs/heads/main ]; then
-  own="${GITHUB_SHA:?}"
-fi
-for commit in $manual $own; do
-  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail "'${commit}' is not a commit id"
-  if ! git cat-file -e "${commit}^{commit}" 2>/dev/null || ! is_ancestor "$commit" origin/main; then
-    echo "manual run commit ${commit} is not on main: not a candidate"
-    continue
-  fi
-  # Newer on main than the choice so far. Two commits of which neither holds
-  # the other leave the choice as it is.
-  if [ -z "$target" ] || { [ "$commit" != "$target" ] && is_ancestor "$target" "$commit"; }; then
-    target="$commit"
+if [ -n "$manual" ]; then
+  [[ "$manual" =~ ^[0-9a-f]{40}$ ]] || fail "'${manual}' is not a commit id"
+  if ! git cat-file -e "${manual}^{commit}" 2>/dev/null || ! is_ancestor "$manual" origin/main; then
+    echo "manual run commit ${manual} is not on main: not a candidate"
+  # Newer on main than the release. Two commits of which neither holds the
+  # other leave the release.
+  elif [ -z "$target" ] || { [ "$manual" != "$target" ] && is_ancestor "$target" "$manual"; }; then
+    target="$manual"
     source=main
   fi
-done
+fi
 [ -n "$target" ] || fail "no stable release tag on main and no manual run on main: nothing to deploy"
 
 echo "the site is ${source} at ${target}; this run was started on ${GITHUB_REF:-an unknown ref}"
