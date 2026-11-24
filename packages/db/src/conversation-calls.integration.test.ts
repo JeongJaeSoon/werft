@@ -708,7 +708,17 @@ integration("conversation calls on PostgreSQL", () => {
         const granting = grant(first.token, crypto.randomUUID()).finally(() => {
           settled = true;
         });
-        await Bun.sleep(300);
+        // The grant's session waits on the advisory lock the holder has.
+        let waiting = 0;
+        for (let i = 0; i < 50 && waiting === 0; i++) {
+          await Bun.sleep(50);
+          waiting = (
+            await pool.query(
+              "SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+            )
+          ).rows[0].n;
+        }
+        expect(waiting).toBe(1);
         expect(settled).toBe(false);
         await pool.query(
           "UPDATE conversation_calls SET expires_at = now() - interval '1 second' WHERE id = $1",
