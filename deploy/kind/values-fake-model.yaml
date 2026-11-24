@@ -7,6 +7,9 @@ config:
 worker:
   workspace:
     gcMinAgeSec: 0
+# On, so the smoke sees it reach the api through the proxy with no resolver.
+conversationRuntime:
+  enabled: true
 scheduler:
   extraEnv:
     # A stopped session's workspace goes on the next pass, so the smoke sees

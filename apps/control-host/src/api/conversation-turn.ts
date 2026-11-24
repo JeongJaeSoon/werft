@@ -2,8 +2,10 @@
 // ended. Run inside the API's container, whose operator socket it reaches:
 //
 //   bun run apps/control-host/src/api/conversation-turn.ts \
-//     --workspace <id> --agent <id> --topic <id> --text <text>
+//     --workspace <id> --agent <id> --conversation <id> --topic <id> \
+//     --text <text>
 //
+// The conversation is one of the agent's and the topic one of its topics.
 // The turn's one provider call is reserved on the agent's team budget, like
 // any call the agent makes on its own. Until people's messages dispatch
 // turns, this is the only way one starts.
@@ -27,7 +29,7 @@ export const CONVERSATION_TURN_EXIT = {
 } as const;
 
 const USAGE =
-  "usage: conversation-turn.ts --workspace <id> --agent <id> --topic <id> --text <text>";
+  "usage: conversation-turn.ts --workspace <id> --agent <id> --conversation <id> --topic <id> --text <text>";
 
 export async function main(
   args: readonly string[],
@@ -41,6 +43,7 @@ export async function main(
       options: {
         workspace: { type: "string" },
         agent: { type: "string" },
+        conversation: { type: "string" },
         topic: { type: "string" },
         text: { type: "string" },
       },
@@ -53,6 +56,7 @@ export async function main(
   const request = operatorTurnRequestSchema.safeParse({
     workspace_id: values.workspace,
     agent_id: values.agent,
+    conversation_id: values.conversation,
     topic_id: values.topic,
     text: values.text,
   });

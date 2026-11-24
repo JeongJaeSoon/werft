@@ -9,7 +9,7 @@ import {
 } from "@werft-ai/contracts";
 import { createConsoleLogger } from "../console-logger.ts";
 import { ConversationHost } from "./conversation-host.ts";
-import { healthy } from "./main.ts";
+import { HEALTH_STALE_MS, healthy } from "./main.ts";
 import { TopicDirectories } from "./topic-directories.ts";
 import type { ConversationTurnRunner } from "./turn-runner.ts";
 import type { ConversationTurnSource } from "./turn-source.ts";
@@ -34,6 +34,7 @@ function turnOf(leaseMs = 150_000): ConversationRuntimeTurn {
     scope: {
       workspace_id: crypto.randomUUID(),
       agent_id: crypto.randomUUID(),
+      conversation_id: crypto.randomUUID(),
       topic_id: crypto.randomUUID(),
     },
     model: "claude-haiku-5",
@@ -279,13 +280,13 @@ describe("ConversationHost", () => {
     expect(
       await healthy(
         { CONVERSATION_STATUS_FILE: statusFile },
-        Date.parse(polled_at) + 119_000,
+        Date.parse(polled_at) + HEALTH_STALE_MS - 1_000,
       ),
     ).toBe(true);
     expect(
       await healthy(
         { CONVERSATION_STATUS_FILE: statusFile },
-        Date.parse(polled_at) + 121_000,
+        Date.parse(polled_at) + HEALTH_STALE_MS + 1_000,
       ),
     ).toBe(false);
   });

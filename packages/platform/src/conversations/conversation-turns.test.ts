@@ -4,6 +4,7 @@ import {
   CONVERSATION_TURN_LIMIT_MS,
   type ConversationTurnResult,
   conversationCallIdSchema,
+  conversationIdSchema,
   conversationRuntimeIdSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
@@ -26,6 +27,7 @@ function queued(): QueuedConversationTurn {
     scope: {
       workspace_id: crypto.randomUUID(),
       agent_id: crypto.randomUUID(),
+      conversation_id: conversationIdSchema.parse(crypto.randomUUID()),
       topic_id: conversationTopicIdSchema.parse(crypto.randomUUID()),
     },
     model: "claude-haiku-5",

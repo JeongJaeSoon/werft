@@ -301,6 +301,14 @@ if [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.E2E_
   kubectl -n "$NAMESPACE" patch secret werft --patch-file "$seed_patch" >/dev/null
   rm -f "${seed_patch:?}"
 fi
+# The conversation runtime's bearer, which the api and the runtime both read
+# (values-fake-model.yaml turns the runtime on). A Secret from before it gets one.
+if [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.CONVERSATION_RUNTIME_TOKEN}}set{{end}}')" != set ]; then
+  bearer_patch="$(mktemp)"
+  printf '{"data":{"CONVERSATION_RUNTIME_TOKEN":"%s"}}' "$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')" >"$bearer_patch"
+  kubectl -n "$NAMESPACE" patch secret werft --patch-file "$bearer_patch" >/dev/null
+  rm -f "${bearer_patch:?}"
+fi
 # Kept unexported for the seed below, so no command before it inherits it.
 kind_model_key="${ANTHROPIC_API_KEY:-}"
 unset ANTHROPIC_API_KEY

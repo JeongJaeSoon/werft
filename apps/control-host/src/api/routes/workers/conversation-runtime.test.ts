@@ -4,6 +4,7 @@ import {
   CONVERSATION_TURN_LEASE_MS,
   type ConversationRuntimeTurn,
   conversationCallIdSchema,
+  conversationIdSchema,
   conversationNextTurnResponseSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
@@ -77,6 +78,7 @@ function harness() {
         scope: {
           workspace_id: crypto.randomUUID(),
           agent_id: crypto.randomUUID(),
+          conversation_id: conversationIdSchema.parse(crypto.randomUUID()),
           topic_id: conversationTopicIdSchema.parse(crypto.randomUUID()),
         },
         model: "claude-haiku-5",

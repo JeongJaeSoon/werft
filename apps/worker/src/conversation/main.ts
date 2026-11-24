@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import {
   CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
+  CONVERSATION_TURN_LEASE_MS,
   conversationRuntimeIdSchema,
 } from "@werft-ai/contracts";
 import { imageRuntime } from "../composition.ts";
@@ -17,9 +18,11 @@ import { createConversationTurnRunner } from "./turn-runner.ts";
 import { HttpConversationTurnSource } from "./turn-source.ts";
 
 const STOP_SIGNALS = ["SIGTERM", "SIGINT"] as const;
-// A poll is held for up to the wait and its request timeout; two missed in a
-// row is a runtime that no longer reaches the control host.
-const HEALTH_STALE_MS = 120_000;
+// No poll is made while a turn runs, which its lease bounds, and the poll
+// after it is held for up to the wait and its request timeout. Staler than
+// all of that is a loop that no longer reaches the control host.
+export const HEALTH_STALE_MS =
+  CONVERSATION_TURN_LEASE_MS + CONVERSATION_NEXT_TURN_MAX_WAIT_MS + 30_000;
 
 /**
  * The conversation runtime: the worker image started on this entry point

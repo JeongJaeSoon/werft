@@ -4,6 +4,8 @@ import {
   agentIdSchema,
   CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
   CONVERSATION_TURN_TEXT_MAX,
+  conversationCallKeySchema,
+  conversationIdSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
   workspaceIdSchema,
@@ -118,6 +120,7 @@ export const operatorTurnRequestSchema = z
   .object({
     workspace_id: workspaceIdSchema,
     agent_id: agentIdSchema,
+    conversation_id: conversationIdSchema,
     topic_id: conversationTopicIdSchema,
     text: z.string().min(1).max(CONVERSATION_TURN_TEXT_MAX),
   })
@@ -129,6 +132,8 @@ export type OperatorTurnResult =
   // No runtime has asked for a turn lately: none is running, or none reaches this API.
   | { outcome: "no_runtime" }
   | { outcome: "unknown_agent" }
+  // The conversation is not the agent's, or the topic not the conversation's.
+  | { outcome: "unknown_conversation" }
   | { outcome: "no_active_release" }
   // The release's connection is gone, or serves no Messages.
   | { outcome: "connection_unavailable" }
@@ -180,9 +185,17 @@ export function createOperatorConversationTurns(deps: {
       ) {
         return { outcome: "connection_unavailable" };
       }
+      const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
       const issued = await deps.calls.issue({
         workspaceId: request.workspace_id,
         agentId: request.agent_id,
+        conversationId: request.conversation_id,
+        topicId: request.topic_id,
+        callClass: "m2",
+        releaseId: release.id,
+        // The turn's one call.
+        callKey: conversationCallKeySchema.parse(`${turnId}:m2`),
+        attempt: 1,
         // Nobody asked for it in a conversation: the agent's team pays.
         root: { kind: "none" },
         connectionId: release.connection_id,
@@ -196,7 +209,12 @@ export function createOperatorConversationTurns(deps: {
         return { outcome: "connection_unavailable" };
       }
       if (issued.outcome === "refused") return { outcome: "budget_refused" };
-      const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
+      if (issued.outcome === "unknown_conversation") {
+        return { outcome: "unknown_conversation" };
+      }
+      if (issued.outcome === "already_issued") {
+        throw new Error(`A call is already issued for turn ${turnId}`);
+      }
       const takeBy = new Date(
         Math.min(
           now().getTime() + OPERATOR_TURN_TAKE_MS,
@@ -209,6 +227,7 @@ export function createOperatorConversationTurns(deps: {
           scope: {
             workspace_id: request.workspace_id,
             agent_id: request.agent_id,
+            conversation_id: request.conversation_id,
             topic_id: request.topic_id,
           },
           model,

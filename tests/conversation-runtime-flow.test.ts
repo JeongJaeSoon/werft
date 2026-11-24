@@ -160,6 +160,7 @@ async function stack(replies: ReplyResolver) {
         scope: {
           workspace_id: crypto.randomUUID(),
           agent_id: crypto.randomUUID(),
+          conversation_id: crypto.randomUUID(),
           topic_id: topicId,
         },
         model: MODEL,

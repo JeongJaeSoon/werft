@@ -43,6 +43,16 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: PLATFORM_SECRET_KEY
+            {{- if .Values.conversationRuntime.enabled }}
+            {{- include "ap.secretEnv" (dict "root" . "key" "CONVERSATION_RUNTIME_TOKEN") | nindent 12 }}
+            # A bearer being rotated out, taken beside the current one.
+            - name: CONVERSATION_RUNTIME_TOKEN_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: CONVERSATION_RUNTIME_TOKEN_PREVIOUS
+                  optional: true
+            {{- end }}
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             # The same lists the proxy enforces. The API only reads them to warn
             # when the trace collector's host is on one (workers must not reach it).

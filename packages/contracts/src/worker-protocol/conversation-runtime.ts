@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { conversationCallIdSchema } from "../domain/budget.ts";
-import { conversationTopicIdSchema } from "../domain/conversation.ts";
+import {
+  conversationIdSchema,
+  conversationTopicIdSchema,
+} from "../domain/conversation.ts";
 import {
   agentIdSchema,
   timestampSchema,
@@ -41,13 +44,15 @@ export const CONVERSATION_NEXT_TURN_MAX_WAIT_MS = 20_000;
 export const CONVERSATION_TURN_TEXT_MAX = 16_000;
 
 /**
- * What bounds a turn: the one topic of the one agent it runs for. Its working
- * directory is keyed by it, and so is every tool call it makes.
+ * What bounds a turn: the one topic, of the one conversation of the one
+ * agent, it runs for. Its working directory is keyed by the topic, and so is
+ * every tool call it makes.
  */
 export const conversationTurnScopeSchema = z
   .object({
     workspace_id: workspaceIdSchema,
     agent_id: agentIdSchema,
+    conversation_id: conversationIdSchema,
     topic_id: conversationTopicIdSchema,
   })
   .strict();

@@ -312,6 +312,12 @@ services:
       # repository call is refused.
       EGRESS_AUTHORIZER_PORT: *egress-authorizer-port
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
+      # The conversation runtime's bearer. Set, the API serves that runtime's
+      # two routes and an operator's conversation-turn command; empty, neither.
+      # _PREVIOUS is a bearer being rotated out, taken beside the current one
+      # until the runtime has restarted on the new value.
+      CONVERSATION_RUNTIME_TOKEN: ${CONVERSATION_RUNTIME_TOKEN:-}
+      CONVERSATION_RUNTIME_TOKEN_PREVIOUS: ${CONVERSATION_RUNTIME_TOKEN_PREVIOUS:-}
       # Where the API sends the call that names a session after its first
       # turn: the proxy's credential listener, which meters it on the
       # session. Empty turns it off and sessions keep their first message.
@@ -385,6 +391,53 @@ services:
     tmpfs:
       - /tmp:uid=1000,gid=1000
       - /home/bun:uid=1000,gid=1000
+
+  # The conversation runtime: the worker image started on its other entry
+  # point, one process for every agent's conversation turns. Off here: the
+  # overlay compose.conversation-runtime.yml turns it on, puts the egress
+  # proxy on its network and gives it and the API their shared bearer. That
+  # network is internal and holds the proxy alone, so the runtime asks the
+  # API for turns through the forward proxy and sends each turn's one
+  # provider call to the credential route with that turn's token. It holds
+  # no provider key, mounts no volume and checks out nothing, and nothing
+  # connects to it.
+  conversation-runtime:
+    image: ${WORKER_IMAGE:-werft-worker:dev}
+    logging: *logging
+    profiles: ["conversation-runtime"]
+    command: ["bun", "run", "apps/worker/src/conversation/main.ts"]
+    environment:
+      # Opens the API's two conversation runtime routes and nothing else.
+      # Empty, the runtime refuses to start.
+      CONVERSATION_RUNTIME_TOKEN: ${CONVERSATION_RUNTIME_TOKEN:-}
+      CONVERSATION_TOPICS_DIR: /conversation
+      WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
+      WORKER_EGRESS_CREDENTIAL_URL: http://egress-proxy:3129
+      HTTP_PROXY: *worker-proxy-url
+      HTTPS_PROXY: *worker-proxy-url
+      # The credential routes are the proxy's own, not behind its forward port.
+      NO_PROXY: localhost,127.0.0.1,::1,egress-proxy
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks: [conversation-runtime]
+    # Healthy while its loop keeps reaching the API.
+    healthcheck:
+      test: ["CMD", "bun", "run", "apps/worker/src/conversation/main.ts", "--health"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    read_only: true
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # Each topic's directory is made under /conversation and removed with the
+    # topic; none outlives the container.
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+      - /conversation:uid=1000,gid=1000,mode=0700
+    restart: unless-stopped
+    # One engine at a time beside the loop.
+    mem_limit: 2048m
 
   # The control host's scheduler role: the same pass loop as the
   # reconciler below (apps/control-host/src/pass-loop), one scheduling pass
@@ -632,6 +685,10 @@ networks:
   # Worker networks are not declared here: the scheduler creates one per
   # worker (internal, IPv6 off) and removes it with the worker.
   default:
+  # The conversation runtime's, with the egress proxy as its one other member
+  # (compose.conversation-runtime.yml): no route off it but through the proxy.
+  conversation-runtime:
+    internal: true
 
 volumes:
   postgres-data:

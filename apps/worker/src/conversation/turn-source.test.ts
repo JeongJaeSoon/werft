@@ -16,6 +16,7 @@ const turn: ConversationRuntimeTurn = conversationRuntimeTurnSchema.parse({
   scope: {
     workspace_id: crypto.randomUUID(),
     agent_id: crypto.randomUUID(),
+    conversation_id: crypto.randomUUID(),
     topic_id: crypto.randomUUID(),
   },
   model: "claude-haiku-5",

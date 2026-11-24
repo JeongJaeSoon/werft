@@ -31,7 +31,9 @@ const PREVIOUS = ["runtime", "bearer", "previous", "0123456789abcdef"].join(
 const CALL_TOKEN = ["wec", "one-call"].join("_");
 const WORKSPACE = crypto.randomUUID();
 const AGENT = crypto.randomUUID();
+const CONVERSATION = crypto.randomUUID();
 const TOPIC = crypto.randomUUID();
+const RELEASE = "release-1";
 const runtimeId = conversationRuntimeIdSchema.parse(crypto.randomUUID());
 
 describe("conversationRuntimeConfigFromEnv", () => {
@@ -181,6 +183,7 @@ function operatorHarness(
             "release" in options
               ? options.release
               : {
+                  id: RELEASE,
                   connection_id: "anthropic",
                   runtime_config_snapshot: { model: "claude-haiku-5" },
                 },
@@ -208,6 +211,7 @@ function operatorHarness(
   const request = {
     workspace_id: WORKSPACE,
     agent_id: AGENT,
+    conversation_id: CONVERSATION,
     topic_id: TOPIC,
     text: "hello there",
   } as never;
@@ -229,7 +233,12 @@ describe("an operator's conversation turn", () => {
     const turn = await h.turns.nextTurn({ runtimeId, waitMs: 2_000 });
     if (turn === null) throw new Error("the turn was not queued");
     expect(turn).toMatchObject({
-      scope: { workspace_id: WORKSPACE, agent_id: AGENT, topic_id: TOPIC },
+      scope: {
+        workspace_id: WORKSPACE,
+        agent_id: AGENT,
+        conversation_id: CONVERSATION,
+        topic_id: TOPIC,
+      },
       model: "claude-haiku-5",
       provider: {
         kind: "anthropic",
@@ -258,6 +267,12 @@ describe("an operator's conversation turn", () => {
       {
         workspaceId: WORKSPACE,
         agentId: AGENT,
+        conversationId: CONVERSATION as never,
+        topicId: TOPIC as never,
+        callClass: "m2",
+        releaseId: RELEASE,
+        callKey: `${turn.turn_id}:m2` as never,
+        attempt: 1,
         root: { kind: "none" },
         connectionId: "anthropic",
         model: "claude-haiku-5",
@@ -316,6 +331,13 @@ describe("an operator's conversation turn", () => {
       outcome: "budget_refused",
     });
     expect(await refused.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
+    const elsewhere = await polled(
+      operatorHarness({ issue: () => ({ outcome: "unknown_conversation" }) }),
+    );
+    expect(await elsewhere.operator.run(elsewhere.request)).toEqual({
+      outcome: "unknown_conversation",
+    });
+    expect(await elsewhere.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
   });
 });
 
@@ -325,6 +347,8 @@ describe("the conversation-turn command", () => {
     WORKSPACE,
     "--agent",
     AGENT,
+    "--conversation",
+    CONVERSATION,
     "--topic",
     TOPIC,
     "--text",

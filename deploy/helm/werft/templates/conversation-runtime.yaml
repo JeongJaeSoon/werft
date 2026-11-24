@@ -1,0 +1,105 @@
+{{- if .Values.conversationRuntime.enabled }}
+{{- $health := list "bun" "run" "apps/worker/src/conversation/main.ts" "--health" -}}
+{{- /* The proxy Service's address, from the Service variables the kubelet
+sets: the Pod has no resolver to ask for its name. */ -}}
+{{- $proxy := printf "$(%s_SERVICE_HOST)" (include "ap.proxyHost" . | upper | replace "-" "_") -}}
+# The conversation runtime: the worker image on its other entry point, one
+# process for every agent's conversation turns. It asks the api for turns
+# through the egress proxy and sends each turn's one provider call to the
+# proxy's credential route with that turn's token: no provider key, no
+# workspace volume, no checkout, and nothing connects to it. One replica: a
+# second would need a topic's turns kept to one of them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ap.fullname" . }}-conversation-runtime
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "conversation-runtime") | nindent 4 }}
+spec:
+  replicas: 1
+  # Never two at once: the old one's turn is cut and reported before the new one asks.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ap.selectorLabels" (dict "root" . "component" "conversation-runtime") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ap.labels" (dict "root" . "component" "conversation-runtime") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ap.fullname" . }}-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.conversationRuntime.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "ap.podSecurityContext" . | nindent 8 }}
+      {{- include "ap.imagePullSecrets" . | nindent 6 }}
+      # As a worker Pod: a name lookup is a way out too, so no resolver.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: ["127.0.0.1"]
+      containers:
+        - name: conversation-runtime
+          image: {{ include "ap.conversationRuntimeImage" . }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          args: ["bun", "run", "apps/worker/src/conversation/main.ts"]
+          env:
+            {{- include "ap.secretEnv" (dict "root" . "key" "CONVERSATION_RUNTIME_TOKEN") | nindent 12 }}
+            - name: CONVERSATION_TOPICS_DIR
+              value: /conversation
+            - name: WORKER_GATEWAY_URL
+              value: {{ printf "http://%s:3000" (include "ap.apiHost" .) | quote }}
+            - name: WORKER_EGRESS_CREDENTIAL_URL
+              value: {{ printf "http://%s:3129" $proxy | quote }}
+            - name: HTTP_PROXY
+              value: {{ printf "http://%s:3128" $proxy | quote }}
+            - name: HTTPS_PROXY
+              value: {{ printf "http://%s:3128" $proxy | quote }}
+            # The credential routes are the proxy's own, not behind its forward port.
+            - name: NO_PROXY
+              value: {{ printf "localhost,127.0.0.1,::1,%s" $proxy | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+          # Healthy while its loop keeps reaching the api.
+          startupProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 24
+          readinessProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: {{ toJson $health }}
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.conversationRuntime.resources | nindent 12 }}
+          securityContext:
+            {{- include "ap.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "ap.tmpMount" . | nindent 12 }}
+            - name: topics
+              mountPath: /conversation
+      volumes:
+        {{- include "ap.tmpVolume" . | nindent 8 }}
+        # Each topic's directory, removed with the topic and gone with the Pod.
+        - name: topics
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
