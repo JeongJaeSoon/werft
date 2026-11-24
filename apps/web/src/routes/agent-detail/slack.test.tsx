@@ -681,6 +681,42 @@ describe("Slack management", () => {
     expect(document.body.textContent).not.toContain("internal message");
   });
 
+  test("says listening applies after the conversation switch only while the switch is off", async () => {
+    const hint = "듣기 설정은 에이전트의 대화 스위치를 켠 뒤부터 적용됩니다.";
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/notice`]: () =>
+        json(200, {
+          notice: null,
+          state: "not_approved",
+          rollout: "off",
+          can_approve: true,
+          approvals: [],
+        }),
+    });
+    await screen.findByRole("table", { name: "연결된 채널" });
+    await waitFor(() => expect(document.body.textContent).toContain(hint));
+  });
+
+  test("hides the listening hint once the conversation switch is raised", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/notice`]: () =>
+        json(200, {
+          notice: null,
+          state: "approved",
+          rollout: "shadow",
+          can_approve: true,
+          approvals: [],
+        }),
+    });
+    await screen.findByRole("table", { name: "연결된 채널" });
+    await screen.findByText("조용히 듣기 (shadow)");
+    expect(document.body.textContent).not.toContain(
+      "듣기 설정은 에이전트의 대화 스위치를 켠 뒤부터 적용됩니다.",
+    );
+  });
+
   test("a member reads each channel's listening without a way to change it", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
