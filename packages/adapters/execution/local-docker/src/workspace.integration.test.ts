@@ -13,6 +13,7 @@ import {
 import type { LocalDockerBackendConfig, WorkspaceQuota } from "./config.ts";
 import { DockerApiError, DockerClient } from "./docker-client.ts";
 import {
+  OFF_QUOTA,
   quotaForTestDaemon,
   removeWorkerNetworks,
   startStandInProxy,
@@ -358,7 +359,7 @@ integration("workspace volumes against a real daemon", () => {
 
   test("the opt-out asks the daemon for nothing", async () => {
     const off = new LocalDockerBackend(
-      { ...backendConfig(), workspaceQuota: { mode: "off" } },
+      { ...backendConfig(), workspaceQuota: OFF_QUOTA },
       client,
     );
     await expect(off.verifyWorkspaceQuota()).resolves.toBeUndefined();

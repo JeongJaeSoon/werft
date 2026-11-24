@@ -2,6 +2,7 @@ import { describeExecutionBackendContract } from "@werft-ai/platform/testing/exe
 import { LocalDockerBackend } from "./backend.ts";
 import { DockerClient } from "./docker-client.ts";
 import {
+  OFF_QUOTA,
   removeInstallation,
   startStandInProxy,
   testDockerHost,
@@ -43,7 +44,7 @@ describeExecutionBackendContract("LocalDockerBackend", {
         workspaceGcMinAgeMs: 0,
         // See backend.integration.test.ts: the quota is covered by
         // workspace.integration.test.ts on a daemon that can carry one.
-        workspaceQuota: { mode: "off" },
+        workspaceQuota: OFF_QUOTA,
       },
       client,
     );

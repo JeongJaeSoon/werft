@@ -185,6 +185,7 @@ describe("WorkerHost workspace quota", () => {
     enforce?: "warn" | "fail" | "off",
     baseline = 50,
     overrides: Parameters<typeof harness>[1] = {},
+    hostEnforce?: "fail",
   ) {
     let listener:
       | ((usage: WorkspaceMeasurement, mode: WorkspaceLimitMode) => void)
@@ -222,7 +223,11 @@ describe("WorkerHost workspace quota", () => {
       {
         ...overrides,
         gateway,
-        workspaceQuota: { observer, limits: { bytes: 100, inodes: 10 } },
+        workspaceQuota: {
+          observer,
+          limits: { bytes: 100, inodes: 10 },
+          ...(hostEnforce === undefined ? {} : { enforce: hostEnforce }),
+        },
       },
     );
     return {
@@ -250,6 +255,22 @@ describe("WorkerHost workspace quota", () => {
     h.late(999);
     expect(h.gateway.finalized).toHaveLength(1);
   });
+
+  test.each([undefined, "warn", "off"] as const)(
+    "a host without a kernel quota stops the growing turn under the %s policy",
+    async (policy) => {
+      const h = quotaHarness(policy, 50, {}, "fail");
+      h.gateway.enqueue("write a large file");
+      const running = h.host.runLoop();
+      await waitFor(() => h.runtime.inputs.length === 1, "the input");
+      h.emit(101);
+      const summary = await running;
+      expect(summary.turns).toEqual([
+        { turnId: "1", status: "failed", reason: "workspace_quota_exceeded" },
+      ]);
+      expect(summary.outcome).toBe("idle");
+    },
+  );
 
   test("classification is durably published even when enforcement is off", async () => {
     const h = quotaHarness("off");

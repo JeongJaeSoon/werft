@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **`EXECUTION_WORKSPACE_QUOTA=off`가 "quota 없음"에서 "커널 quota 대신 측정으로 막음"으로 바뀐다. off인 Docker 설치의 worker는 콘솔의 `WORKSPACE_ENFORCE`와 상관없이 `fail`로 돈다**(JeongJaeSoon/werft#2168). migration은 없다. 로컬 개발 compose(`infra/compose.core.yml`)의 기본값도 `off`다.
+  - worker가 작업 공간을 1분에 한 번보다 자주 재지 않는 주기로 재고, `EXECUTION_WORKSPACE_QUOTA_MB`(기본 4096) 또는 `EXECUTION_WORKSPACE_QUOTA_INODES`(기본 1,000,000)를 넘은 turn을 `workspace_quota_exceeded`로 멈춘다. 세션은 남아 다음 입력을 받고, 세션 대화에는 한도를 넘어 요청을 멈췄으니 파일을 줄인 뒤 다시 요청하라는 문구가 나온다. 두 값은 이제 `off`에서도 읽고 같은 범위를 검사하므로, `off`와 함께 1024보다 작은 `EXECUTION_WORKSPACE_QUOTA_MB`를 둔 설치는 scheduler가 기동하지 않는다.
+  - api가 같은 변수를 읽는다(Compose는 api에도 넘긴다). 기동 때 warn을 남기고, `/readyz`는 200 그대로 본문에 `detail.no_disk_quota: true`를 더한다. 본문을 통째로 비교하던 검사는 이 칸을 허용한다.
+  - 콘솔은 owner·admin에게 모든 화면 맨 위에 닫을 수 없는 띠를 보인다. 시험 설치(`INSTALLATION_PROFILE=test`)는 "시험 모드: 디스크 quota 없음, 운영 불가", 그 밖의 설치는 XFS quota를 켜라는 문구다. 새 route는 `GET /v1/installation-status`이고 로그인한 owner·admin만 쓴다.
+  - `scripts/test-ops.sh`는 LocalStack 저장소에서 `off`를 받고 `preflight`·`deploy`의 quota probe를 건너뛴다. XFS가 없는 서버도 LocalStack 시험 설치를 할 수 있다. S3 저장소에서는 지금처럼 `on`만 받는다.
+  - 운영 설치에서 `off`를 막지는 않는다. 운영 설치는 XFS quota(`on`)를 쓴다.
 - **Kubernetes chart의 Codex sandbox 설치기가 기본으로 꺼지고, 값이 `codexSandbox.provider`(`disabled` 기본 | `installer` | `external`)로 바뀐다. Codex sandbox를 쓰면 올리기 전에 values에 `codexSandbox.provider: installer`를 넣어라**(JeongJaeSoon/werft#2156). 기본 render에는 cluster 범위 리소스가 하나도 없어, namespace 권한만 받은 설치자도 `helm install`을 할 수 있다.
   - 넣지 않고 올리면 helm upgrade가 설치 DaemonSet, ClusterRole, ClusterRoleBinding, admission 정책을 지우고, Codex 에이전트의 입력은 Pod를 만들기 전에 `CODEX_SANDBOX_NOT_INSTALLED`로 실패한다(`NO_CAPACITY`와 같이 세션은 `idle`로 돌아가고 launch 실패로 세지 않는다). 노드에 둔 profile 파일과 라벨은 그대로 남는다.
   - `codexSandbox.installer.enabled`는 없어졌고 남아 있으면 render가 멈춘다. `true`는 `provider: installer`, `false`(SPO나 노드 이미지로 profile을 두는 설치)는 `provider: external`이다. `external`은 chart가 cluster 범위 리소스를 만들지 않고, `installer`는 지금처럼 ClusterRole, ClusterRoleBinding, admission 정책을 만든다.

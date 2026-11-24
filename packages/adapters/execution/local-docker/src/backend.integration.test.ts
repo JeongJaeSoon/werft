@@ -16,6 +16,7 @@ import {
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
 import {
+  OFF_QUOTA,
   removeInstallation,
   startStandInProxy,
   testDockerHost,
@@ -94,7 +95,7 @@ integration("LocalDockerBackend against a real daemon", () => {
     // Neither Docker Desktop nor a stock Linux runner puts its storage on a
     // quota-capable filesystem; the quota itself is covered by
     // workspace.integration.test.ts, which probes for one first.
-    workspaceQuota: { mode: "off" },
+    workspaceQuota: OFF_QUOTA,
   });
   const backend = new LocalDockerBackend(backendConfig(), client);
 
@@ -163,6 +164,8 @@ integration("LocalDockerBackend against a real daemon", () => {
         `${ENV.workspaceDir}=/workspace`,
         `${ENV.workspaceMountDir}=/workspace`,
         `${ENV.workspaceQuotaMode}=off`,
+        `${ENV.workspaceQuotaBytes}=${OFF_QUOTA.sizeBytes}`,
+        `${ENV.workspaceQuotaInodes}=${OFF_QUOTA.inodes}`,
         `${ENV.bootstrapNonce}=${await intent.issueBootstrapNonce()}`,
         `${ENV.executionGeneration}=${intent.generation}`,
         `${ENV.executionId}=${intent.executionId}`,

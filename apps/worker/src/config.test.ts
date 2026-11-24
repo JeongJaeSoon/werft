@@ -37,6 +37,20 @@ describe("workerConfigFromEnv", () => {
     expect(config.runtime.providerMaxRetries).toBe(2);
   });
 
+  test("takes the workspace limits the scheduler passed, the defaults otherwise", () => {
+    expect(
+      workerConfigFromEnv({
+        ...launched,
+        WORKER_WORKSPACE_QUOTA_BYTES: "2048",
+        WORKER_WORKSPACE_QUOTA_INODES: "5000",
+      }).workspace.quota,
+    ).toEqual({ bytes: 2048, inodes: 5000 });
+    expect(
+      workerConfigFromEnv({ ...launched, WORKER_WORKSPACE_QUOTA_INODES: "-1" })
+        .workspace.quota,
+    ).toEqual({ bytes: 4096 * 1024 * 1024, inodes: 1_000_000 });
+  });
+
   test("keeps the design's default timers", () => {
     expect(workerConfigFromEnv(launched).timeouts).toEqual({
       answerPollIntervalMs: 1_000,

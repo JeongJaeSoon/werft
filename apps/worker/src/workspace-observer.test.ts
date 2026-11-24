@@ -50,6 +50,8 @@ test("classification is replayed to a host that claims after sampling and never 
 test("interval targets at most ten percent duty with a thirty second floor", () => {
   expect(measurementInterval(300)).toBe(30_000);
   expect(measurementInterval(8000)).toBe(80_000);
+  expect(measurementInterval(300, 60_000)).toBe(60_000);
+  expect(measurementInterval(8000, 60_000)).toBe(80_000);
 });
 
 test("fresh baselines coalesce and a scan never notifies a later turn's watcher", async () => {
