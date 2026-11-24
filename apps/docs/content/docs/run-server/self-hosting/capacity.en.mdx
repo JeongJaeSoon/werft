@@ -105,7 +105,7 @@ With `scheduler.nodeCapacityCheck.enabled: true` in your values, the scheduler r
 kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node holds fewer'
 ```
 
-Turning it on makes the chart create a read-only ClusterRole for Nodes (`nodes` get and list) and bind it to the scheduler. An installer with namespace-only permissions cannot create a ClusterRole, and the install fails, so the default is off. Off creates no ClusterRole. If the scheduler cannot read the nodes, it skips the warning, logs only `Node capacity check skipped`, and keeps running.
+Turning it on makes the chart create a read-only ClusterRole for Nodes (`nodes` get and list) and bind it to the scheduler. An installer with namespace-only permissions cannot create a ClusterRole, and the install fails, so the default is off. Off creates no such ClusterRole. If the scheduler cannot read the nodes, it skips the warning, logs only `Node capacity check skipped`, and keeps running.
 
 #### Conversation runtime Pod
 

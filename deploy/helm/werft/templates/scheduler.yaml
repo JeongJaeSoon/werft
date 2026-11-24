@@ -178,8 +178,8 @@ subjects:
     name: {{ include "ap.fullname" . }}-scheduler
     namespace: {{ .Release.Namespace }}
 {{- if .Values.scheduler.nodeCapacityCheck.enabled }}
-{{- /* Cluster-scoped, so named for the namespace too: two releases of one name must not share them. */}}
-{{- $nodeReader := printf "%s-%s-scheduler-node-reader" .Release.Namespace (include "ap.fullname" .) }}
+{{- /* Cluster-scoped: named for the namespace and fullname both, hashed apart so "team"+"prod-werft" and "team-prod"+"werft" do not meet. */}}
+{{- $nodeReader := printf "%s-scheduler-node-reader-%s" (include "ap.fullname" .) (printf "%s/%s" .Release.Namespace (include "ap.fullname" .) | sha256sum | trunc 10) }}
 ---
 # Read only, for the startup warning of scheduler.nodeCapacityCheck.
 apiVersion: rbac.authorization.k8s.io/v1

@@ -105,7 +105,7 @@ values に `scheduler.nodeCapacityCheck.enabled: true` を置くと、scheduler 
 kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node holds fewer'
 ```
 
-有効にすると、chart は Node を読むだけの ClusterRole（`nodes` の get・list）とその binding を scheduler に作成します。namespace 権限だけを持つ設置者は ClusterRole を作成できず install が失敗するため、既定は無効です。無効なら ClusterRole を作成しません。Node を読めなかった場合、scheduler は警告を省略して `Node capacity check skipped` だけを記録し、そのまま動作します。
+有効にすると、chart は Node を読むだけの ClusterRole（`nodes` の get・list）とその binding を scheduler に作成します。namespace 権限だけを持つ設置者は ClusterRole を作成できず install が失敗するため、既定は無効です。無効ならこの ClusterRole を作成しません。Node を読めなかった場合、scheduler は警告を省略して `Node capacity check skipped` だけを記録し、そのまま動作します。
 
 #### conversation runtime Pod
 

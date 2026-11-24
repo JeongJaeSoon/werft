@@ -3161,7 +3161,7 @@ function checkWorkerMemorySizing(): string[] {
     manifests.filter(
       (m) =>
         (m.kind === "ClusterRole" || m.kind === "ClusterRoleBinding") &&
-        m.metadata.name.endsWith("-scheduler-node-reader"),
+        /-scheduler-node-reader-[0-9a-f]{10}$/.test(m.metadata.name),
     );
   const schedulerEnv = (manifests: Manifest[]) => {
     const deployment = manifests.find(
@@ -3212,6 +3212,34 @@ function checkWorkerMemorySizing(): string[] {
   }
   if (schedulerEnv(on).SCHEDULER_NODE_CAPACITY_CHECK !== "true") {
     fail("the scheduler is not told the check is on");
+  }
+  // Cluster-scoped names: these two installs must not claim one object.
+  const nameIn = (namespace: string, release: string) =>
+    readers(
+      Bun.YAML.parse(
+        spawnSync(
+          "helm",
+          [
+            "template",
+            release,
+            chart,
+            "-n",
+            namespace,
+            "-f",
+            ciDigests,
+            "--set",
+            "scheduler.nodeCapacityCheck.enabled=true",
+          ],
+          { encoding: "utf8" },
+        ).stdout,
+      ) as Manifest[],
+    )[0]?.metadata.name;
+  const [first, second] = [
+    nameIn("team", "prod-werft"),
+    nameIn("team-prod", "werft"),
+  ];
+  if (first === undefined || first === second) {
+    fail(`two installs share the node reader name ${first}`);
   }
 
   const small = render(["-f", ciDigests, "-f", smallNodeExample]);
