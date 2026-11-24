@@ -43,7 +43,7 @@ export KUBECONFIG="$HOME/.kube/werft-try"
 kubectl config current-context
 ```
 
-The last command must print `kind-werft-try`. Then, in the same shell, follow steps 1 to 4 of [Test database and object store for the chart](/run-server/self-hosting/try-chart-dependencies). That page gives the dependency manifest, the Secret, and minimal values in its text, and step 4 installs the published chart. The LocalStack init script is in that manifest's ConfigMap `localstack-init`, and it creates the same bucket as `infra/localstack/init/10-create-resources.sh` in the release bundle (`werft-test-ops-<tag>.tar.gz`).
+The last command must print `kind-werft-try`. Then, in the same shell, follow steps 1 to 4 of [Test database and object store for the chart](/run-server/self-hosting/try-chart-dependencies). That page copies the dependency manifest and minimal values from the published chart's `examples/`, creates the Secret, and installs the published chart in step 4. The LocalStack init script is in that manifest's ConfigMap `localstack-init`, and it is the same file as `infra/localstack/init/10-create-resources.sh` in the release bundle (`werft-test-ops-<tag>.tar.gz`).
 
 Create the first owner in [Create the first owner](#첫-owner-만들기) below. The link is kept in the database, so it works on either of the 2 replicas. Do not put a model key in the Secret. A key is only ever a value the first owner enters on the console and that is stored in the database, and this test enters none. Do not put production credentials in this test.
 

@@ -66,6 +66,8 @@ Installers obtain image lines for [single-server installation](/run-server/self-
 
 Published charts include all three image digests and worker runtime. The two worker images' `images.workers` entries (repository, digest, runtime, `releasedAt`) are also in the chart's `files/release-images.json`, beside `files/next-workers.jq`, which builds the next values from them. Repeating these in installation values or using `--reuse-values` overrides the next chart's new values. Worker runtime consists of engine/SDK/CLI/profile digest scheme; it is distinct from the image digest.
 
+Published charts also carry test dependency examples under `examples/`. `test-deps.yaml` is PostgreSQL 16 and a LocalStack S3 that meets the `locked` contract, and `values-test.yaml` is the minimal values that install the chart over them. Neither is for production, as their first line says. Charts up to `v0.4.0` do not have them. [Test database and object store for the chart](/run-server/self-hosting/try-chart-dependencies) shows how to use them.
+
 Nonempty `unverifiedSources` can mean the corresponding Debian sources were not actually archived. Do not treat this as the source-archive guarantee of an official release. Old `main-<12>` images from before multi-architecture publication may contain only amd64; check index platforms on ARM servers too. Do not combine three digests into a deployment set if publication is incomplete or a lookup failed.
 
 <a id="checkout-없이-설치하기-릴리스-번들" />

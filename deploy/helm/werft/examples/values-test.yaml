@@ -1,0 +1,21 @@
+# TEST ONLY. Not for production: the least values that install this chart over
+# test-deps.yaml in the same namespace. The checkpoint bucket is LocalStack's,
+# kept in memory.
+installationId: werft-try
+config:
+  # When the LocalStack Pod restarts its bucket comes back empty; with these
+  # two the api gives the lost checkpoints up at its next start instead of
+  # refusing to start.
+  installation:
+    profile: test
+  aws:
+    endpointUrl: http://localstack:4566
+  checkpoints:
+    bucket: claude-sessions
+    objectsLost: forget
+  egress:
+    # Replaces the chart's default list as a whole: the default list, then
+    # github.com:443. Add any other Git host the sessions use.
+    credentialAllowlist: "api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443"
+    # LocalStack is a private address inside the cluster.
+    credentialPrivateAllowlist: "localstack:4566"
