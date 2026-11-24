@@ -1,0 +1,249 @@
+---
+title: "Test database and object store for the chart"
+description: "Run PostgreSQL and an object store inside the cluster to try the published chart on its own"
+pageId: "P37"
+docType: "Task"
+audience: "Cluster test operators"
+outcome: "Run PostgreSQL and an object store inside the cluster to try the published chart on its own"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+On a cluster where you try the published chart without a repository checkout, run one PostgreSQL 16 and one object store (LocalStack) that meets the `locked` contract, then create the Secret and minimal values and install the chart.
+
+**This is for testing only. Do not use it in production.** Both dependencies keep their data inside the Pod. When a Pod restarts, the database and the checkpoint objects are gone and that installation cannot be used again. For production, prepare a persistent PostgreSQL and a [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) and follow [Install on Kubernetes](/run-server/self-hosting/kubernetes).
+
+<a id="준비물" />
+## Before you begin
+
+| Item | Requirement |
+| --- | --- |
+| Cluster | A test cluster with no production data. A CNI that enforces NetworkPolicy |
+| Tools | `helm` 3, `kubectl`, `curl`, `openssl` |
+| External access | Pull from `ghcr.io` (chart and Werft images) and Docker Hub (`postgres` and `localstack/localstack` images) without signing in |
+
+First confirm that `kubectl config current-context` and `KUBECONFIG` select this test cluster. The examples use `werft` for both namespace and release, and put both dependencies in the same namespace. Both Services are ClusterIP, so nothing outside the cluster reaches them, and the chart's worker NetworkPolicy keeps worker Pods off them too.
+
+<a id="단계" />
+## Steps
+
+<a id="1-namespace와-db-비밀번호" />
+### 1. Namespace and database password
+
+Create Secret values in a temporary directory with one file per key, so values stay out of the command line and shell history. The directory `mktemp -d` creates is readable only by you (`0700`).
+
+```bash
+kubectl create namespace werft
+SECRETS="$(mktemp -d)"
+openssl rand -hex 24 | tr -d '\n' > "$SECRETS/POSTGRES_PASSWORD"
+kubectl -n werft create secret generic werft-test-postgres \
+  --from-file=POSTGRES_PASSWORD="$SECRETS/POSTGRES_PASSWORD"
+```
+
+Keep using this shell through step 3. Step 3 removes the `SECRETS` directory.
+
+<a id="2-postgresql과-object-store" />
+### 2. PostgreSQL and object store
+
+Save the following as `werft-test-deps.yaml`. PostgreSQL is the official `postgres:16` image with a database named `sessions`. The object store is LocalStack running S3 only. At startup its init script creates the bucket `claude-sessions` with Object Lock (which also turns on versioning) and default SSE-S3 encryption (`AES256`). The api checks all three at startup and refuses to start if any is missing. The LocalStack readiness probe checks the same.
+
+```yaml
+# Test only: PostgreSQL and LocalStack keep their data in the Pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: localstack-init
+data:
+  10-create-resources.sh: |
+    #!/bin/sh
+    set -eu
+    if ! awslocal s3api head-bucket --bucket claude-sessions >/dev/null 2>&1; then
+      awslocal s3api create-bucket \
+        --bucket claude-sessions \
+        --create-bucket-configuration "LocationConstraint=${AWS_DEFAULT_REGION}" \
+        --object-lock-enabled-for-bucket
+    fi
+    awslocal s3api put-bucket-encryption \
+      --bucket claude-sessions \
+      --server-side-encryption-configuration \
+      '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels: {app: postgres}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+          env:
+            - {name: POSTGRES_DB, value: sessions}
+            - {name: POSTGRES_USER, value: postgres}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: werft-test-postgres, key: POSTGRES_PASSWORD}
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U postgres -d sessions"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: {app: postgres}
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localstack
+  labels: {app: localstack}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: localstack}
+  template:
+    metadata:
+      labels: {app: localstack}
+    spec:
+      containers:
+        - name: localstack
+          image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+          env:
+            - {name: SERVICES, value: s3}
+            - {name: AWS_DEFAULT_REGION, value: ap-northeast-1}
+          ports:
+            - containerPort: 4566
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  awslocal s3api get-object-lock-configuration --bucket claude-sessions >/dev/null &&
+                  [ "$(awslocal s3api get-bucket-encryption --bucket claude-sessions
+                  --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm'
+                  --output text)" = AES256 ]
+            periodSeconds: 5
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: init
+              mountPath: /etc/localstack/init/ready.d
+      volumes:
+        - name: init
+          configMap:
+            name: localstack-init
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack
+spec:
+  selector: {app: localstack}
+  ports:
+    - port: 4566
+```
+
+`AWS_DEFAULT_REGION` must match the chart's `config.aws.region` default, `ap-northeast-1`. If you have the release bundle, this init script creates the same bucket as the bundle's `infra/localstack/init/10-create-resources.sh`.
+
+```bash
+kubectl -n werft apply -f werft-test-deps.yaml
+kubectl -n werft rollout status deploy/postgres --timeout=300s
+kubectl -n werft rollout status deploy/localstack --timeout=300s
+```
+
+Go on only when both commands end with `successfully rolled out`. LocalStack becomes ready only after the bucket exists.
+
+### 3. Werft Secret
+
+Create the same keys as [Install on Kubernetes, 2. Namespace and Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret) in the directory from step 1. `DATABASE_URL` points at the `postgres` Service with the password from step 1. LocalStack does not check keys, so the object store keys are `test`. The `POSTGRES_PASSWORD` file is removed first so it does not end up in the Werft Secret.
+
+```bash
+{ printf 'postgresql://postgres:'; cat "$SECRETS/POSTGRES_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+rm "$SECRETS/POSTGRES_PASSWORD"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+rm -r "${SECRETS:?}"
+```
+
+Use these values for this test installation only. Do not put production credentials in it.
+
+<a id="4-최소-values와-설치" />
+### 4. Minimal values and install
+
+Save the following as `values-try.yaml`.
+
+```yaml
+installationId: werft-try
+config:
+  aws:
+    endpointUrl: http://localstack:4566
+  checkpoints:
+    bucket: claude-sessions
+  egress:
+    credentialAllowlist: "api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443"
+    credentialPrivateAllowlist: "localstack:4566"
+```
+
+`endpointUrl` sends the api to LocalStack instead of AWS. LocalStack is a private address inside the cluster, so it goes in `credentialPrivateAllowlist`. `credentialAllowlist` replaces the default as a whole, so the example lists the full default and adds `github.com:443`. If you use another Git host, add it too. Everything else uses the chart defaults.
+
+`VERSION` is the exact published chart version you chose from the [deployment package contract](/run-server/self-hosting/reference/packages).
+
+```bash
+VERSION='<published-chart-version>'
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-try.yaml --timeout 10m
+```
+
+<a id="확인" />
+## Verify
+
+Run the rollout check in [Install on Kubernetes, 4. Install and roll out](/run-server/self-hosting/kubernetes#4-설치와-rollout) and the ready and docs check in [Verify](/run-server/self-hosting/kubernetes#확인) as they are. You are done when database, schema and config are ok in the ready body and `/readyz` and `/docs` return 200. For the first owner and keys, follow [Create the first owner and issue user keys](/run-server/self-hosting/users-and-keys).
+
+This check shows an empty test installation is ready. It does not prove backup and restore of a production database or the protection contract of a production bucket.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+When a node or a dependency Pod restarts, the database and the bucket are emptied. With an empty PostgreSQL, `/readyz` returns 503 `schema check failed`. If the database still has uncollected checkpoints and only the bucket is empty, the api refuses to start. Do not repair this test installation: remove it with the roll back steps below and start again from step 1.
+
+Run `helm upgrade --install` only after both dependencies have rolled out. If a `rollout status` in step 2 fails, look for image pull or init script errors with `kubectl -n werft describe pod -l app=localstack` and `kubectl -n werft logs deploy/localstack`.
+
+<a id="되돌리기" />
+## Roll back
+
+```bash
+helm -n werft uninstall werft
+kubectl delete namespace werft
+```
+
+Deleting the namespace removes the worker Pods, workspace PVCs, both dependencies and the Secrets with it. Make sure it is the `werft` namespace of this test cluster before you delete it. To remove a production installation, follow [Stop and remove Kubernetes](/run-server/self-hosting/remove-kubernetes).
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Install on Kubernetes](/run-server/self-hosting/kubernetes), [Prepare a checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket).

@@ -286,5 +286,14 @@
     "audience": "설치 owner",
     "outcome": "공급자별 입력 값과 화면의 이유 코드를 찾는다",
     "codeBlocks": "none"
+  },
+  {
+    "id": "P37",
+    "path": "try-chart-dependencies",
+    "title": "chart 시험용 DB와 object store",
+    "type": "작업",
+    "audience": "클러스터 시험 담당자",
+    "outcome": "게시 chart만으로 시험할 PostgreSQL과 object store를 클러스터 안에 세운다",
+    "codeBlocks": "some"
   }
 ]

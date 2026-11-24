@@ -5,6 +5,7 @@
     "---시험 설치---",
     "try-kind",
     "try-localstack",
+    "try-chart-dependencies",
     "---설치 준비---",
     "prepare-xfs",
     "prepare-checkpoint-bucket",

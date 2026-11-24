@@ -23,7 +23,7 @@ outcome: "게시 chart로 운영 서버를 설치한다"
 
 chart와 패키지의 선택 방법은 [배포 패키지 계약](/run-server/self-hosting/reference/packages)을 따른다. AWS 이외 endpoint는 `config.aws.endpointUrl`와 credential allowlist를 함께 맞추고 보호 계약을 확인한다.
 
-chart는 PostgreSQL, object store, Secret 값을 만들지 않는다. worker Pod도 만들지 않는다. scheduler가 세션마다 만든다. 게시 이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이므로 노드가 자기 아키텍처를 받는다.
+chart는 PostgreSQL, object store, Secret 값을 만들지 않는다. 시험용으로 둘을 클러스터 안에 세우려면 [chart 시험용 DB와 object store](/run-server/self-hosting/try-chart-dependencies)를 따른다. worker Pod도 만들지 않는다. scheduler가 세션마다 만든다. 게시 이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이므로 노드가 자기 아키텍처를 받는다.
 
 Git 서버도 chart가 만들지 않는다. 설정 문서의 저장소 URL은 worker가 egress proxy로 닿을 수 있어야 한다. kind의 시험 Git 서버는 운영 저장소가 아니다.
 
