@@ -33,8 +33,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // so it moves to 147. The sign-in attempt kinds and the lock_login receipt
   // with the Slack allowed bots receipt put ./schemas 1 byte over 149, so it
   // moves to 150. The conversation runtime's turn protocol put ./forms 86
-  // bytes over 147, so it moves to 148.
-  "./schemas": 150 * 1024,
+  // bytes over 147, so it moves to 148. The session's capacity wait fields
+  // and the no-capacity turn and notice keys put ./schemas 20 bytes over 150,
+  // so it moves to 151.
+  "./schemas": 151 * 1024,
   "./forms": 148 * 1024,
 };
 
