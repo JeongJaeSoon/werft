@@ -1,7 +1,10 @@
 import {
   CONVERSATION_TURN_LIMIT_MS,
+  CONVERSATION_TURN_MODEL_CALL_LIMIT,
   CONVERSATION_TURN_TEXT_MAX,
+  CONVERSATION_TURN_TOOL_CALL_LIMIT,
   type ConversationRuntimeTurn,
+  type ConversationTurnLimit,
   type ConversationTurnResult,
 } from "@werft-ai/contracts";
 import type { RuntimeModule } from "@werft-ai/runtime-core";
@@ -24,6 +27,14 @@ export interface ConversationTurnRunner {
  */
 export const CONVERSATION_BUILTIN_TOOLS: readonly string[] = [];
 
+/** The provider's id for the message an event's block is from, when it gave one. */
+function providerMessageId(data: unknown): string | null {
+  const message = (data as { message?: { id?: unknown } } | null)?.message;
+  return typeof message?.id === "string" && message.id !== ""
+    ? message.id
+    : null;
+}
+
 /**
  * A turn runs in its topic's directory, on a fresh engine process: the
  * engine reads its provider token once at start, and a turn's token is good
@@ -36,6 +47,8 @@ export function createConversationTurnRunner(deps: {
   egressCredentialUrl: string;
   topics: TopicDirectories;
   limitMs?: number;
+  modelCallLimit?: number;
+  toolCallLimit?: number;
 }): ConversationTurnRunner {
   const { builtinTools, eventCodec } = deps.runtime;
   if (builtinTools === undefined || eventCodec === undefined) {
@@ -44,6 +57,9 @@ export function createConversationTurnRunner(deps: {
     );
   }
   const limitMs = deps.limitMs ?? CONVERSATION_TURN_LIMIT_MS;
+  const modelCallLimit =
+    deps.modelCallLimit ?? CONVERSATION_TURN_MODEL_CALL_LIMIT;
+  const toolCallLimit = deps.toolCallLimit ?? CONVERSATION_TURN_TOOL_CALL_LIMIT;
 
   return {
     async run(turn, stop) {
@@ -66,8 +82,8 @@ export function createConversationTurnRunner(deps: {
             permissionMode: "dontAsk",
             tools: CONVERSATION_BUILTIN_TOOLS,
             disallowedTools: builtinTools,
-            // One provider call: the turn's token covers no second one.
-            maxTurns: 1,
+            // The engine's own stop at the call limit, behind the count below.
+            maxTurns: modelCallLimit,
             maxOutputTokens: turn.call.max_tokens,
           },
           bindings: {
@@ -84,15 +100,16 @@ export function createConversationTurnRunner(deps: {
           },
           bundle: { instructions: [], repoInstructions: null, mcpServers: [] },
         });
-      let cut: "timed_out" | "interrupted" | null = null;
-      const timer = setTimeout(() => {
-        cut ??= "timed_out";
-        run.abort();
-      }, limitMs);
-      const onStop = () => {
-        cut ??= "interrupted";
+      // The first cut is the turn's reason; the abort that follows it ends
+      // the engine's events with a turn.ended of its own.
+      let cut: ConversationTurnLimit | "interrupted" | null = null;
+      const cutAt = (why: ConversationTurnLimit | "interrupted") => {
+        if (cut !== null) return;
+        cut = why;
         run.abort();
       };
+      const timer = setTimeout(() => cutAt("time_limit"), limitMs);
+      const onStop = () => cutAt("interrupted");
       if (stop.aborted) onStop();
       else stop.addEventListener("abort", onStop, { once: true });
       const failed = (
@@ -114,7 +131,23 @@ export function createConversationTurnRunner(deps: {
         await run.ready();
         run.send({ message: turn.input.text, uuid: turn.input.id });
         let text = "";
+        // Counted on the engine's events, not left to its settings: a provider
+        // call is one provider message, each of whose blocks comes as an event
+        // of its own and may come after another block's tool result. Without
+        // a message id, a call is the model speaking after the turn began or
+        // after tool results went back to it.
+        let modelCalls = 0;
+        const providerMessages = new Set<string>();
+        let awaitingCall = true;
+        const toolCalls = new Set<string>();
         for await (const event of run.events()) {
+          if (event.type === "tool.called") {
+            toolCalls.add(event.toolCallId);
+            if (toolCalls.size > toolCallLimit) cutAt("tool_call_limit");
+            // Its result could go nowhere but to a call past the limit.
+            else if (modelCalls >= modelCallLimit) cutAt("model_call_limit");
+            continue;
+          }
           if (event.type === "approval.requested") {
             // Not reached in dontAsk; refused if an engine ever asks.
             await run.answer({
@@ -125,7 +158,20 @@ export function createConversationTurnRunner(deps: {
             });
             continue;
           }
-          if (event.type === "public" && event.event.event === "assistant") {
+          if (event.type === "public") {
+            const kind = event.event.event;
+            if (kind === "tool_result") awaitingCall = true;
+            if (kind !== "assistant" && kind !== "tool_use") continue;
+            const callId = providerMessageId(event.event.data);
+            if (
+              callId === null ? awaitingCall : !providerMessages.has(callId)
+            ) {
+              if (callId !== null) providerMessages.add(callId);
+              awaitingCall = false;
+              modelCalls += 1;
+              if (modelCalls > modelCallLimit) cutAt("model_call_limit");
+            }
+            if (kind === "tool_use") continue;
             const neutral = eventCodec.withNeutralFields(event.event);
             const said = (neutral.data as { text?: unknown }).text;
             if (typeof said === "string") text += said;
@@ -133,7 +179,12 @@ export function createConversationTurnRunner(deps: {
           }
           if (event.type !== "turn.ended") continue;
           if (event.turn.isError || event.turn.abortedByStop) {
-            return failed("engine_failed", event.turn.failure?.reason);
+            const engineWord = event.turn.failure?.reason;
+            // The engine stopped at its own copy of the call limit first.
+            if (engineWord === "error_max_turns") {
+              return failed("model_call_limit");
+            }
+            return failed("engine_failed", engineWord);
           }
           return cut === null
             ? {

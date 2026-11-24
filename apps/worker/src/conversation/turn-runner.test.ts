@@ -96,9 +96,11 @@ function scripted(events: RuntimeEvent[] | "hang" | "throw") {
     send: (input: unknown) => seen.sent.push(input),
     async *events() {
       if (events === "hang") {
-        await new Promise<void>((resolve) => {
-          abort = resolve;
-        });
+        if (seen.aborted === 0) {
+          await new Promise<void>((resolve) => {
+            abort = resolve;
+          });
+        }
         yield ended(true, undefined, true);
         return;
       }
@@ -133,6 +135,67 @@ function scripted(events: RuntimeEvent[] | "hang" | "throw") {
   return { module, seen };
 }
 
+/** One provider call that asks for `tools` tool calls, then their results. */
+const toolRound = (round: number, tools = 1): RuntimeEvent[] => {
+  const ids = Array.from(
+    { length: tools },
+    (_, index) => `toolu_${round}_${index}`,
+  );
+  return [
+    ...ids.flatMap((id): RuntimeEvent[] => [
+      {
+        type: "public",
+        event: {
+          id: id,
+          event: "tool_use",
+          data: {
+            type: "assistant",
+            message: { content: [{ type: "tool_use", id, name: "probe" }] },
+          },
+        },
+      } as RuntimeEvent,
+      { type: "tool.called", toolCallId: id, tool: "probe" },
+    ]),
+    // The engine answers every call of a response together.
+    ...ids.map(
+      (id) =>
+        ({
+          type: "public",
+          event: {
+            id: "result",
+            event: "tool_result",
+            data: { type: "tool_result", tool_use_id: id },
+          },
+        }) as RuntimeEvent,
+    ),
+  ];
+};
+
+/** A run that plays `events`, then waits to be aborted unless it ends first. */
+function playsThenHangs(events: RuntimeEvent[]) {
+  const scriptedRun = scripted("hang");
+  const { module, seen } = scriptedRun;
+  const created = module.createRuntime;
+  (module as { createRuntime: unknown }).createRuntime = (
+    deps: RuntimeHostDeps,
+  ) => {
+    const runtime = created(deps);
+    return {
+      start: (start: RuntimeStart) => {
+        const run = runtime.start(start);
+        const hang = run.events.bind(run);
+        return Object.assign(run, {
+          async *events() {
+            yield* events;
+            yield* hang();
+          },
+        });
+      },
+    };
+  };
+  return { module, seen };
+}
+
 const runnerOf = (module: RuntimeModule, limitMs?: number) =>
   createConversationTurnRunner({
     runtime: module,
@@ -143,7 +206,7 @@ const runnerOf = (module: RuntimeModule, limitMs?: number) =>
 const live = () => new AbortController().signal;
 
 describe("createConversationTurnRunner", () => {
-  test("starts the engine in the topic's own directory with no tool, every built-in one denied, one provider call and the call's token for the proxy", async () => {
+  test("starts the engine in the topic's own directory with no tool, every built-in one denied, the call limit and the call's token for the proxy", async () => {
     const { module, seen } = scripted([said("hel"), said("lo"), ended()]);
 
     expect(await runnerOf(module).run(turn, live())).toEqual({
@@ -166,7 +229,7 @@ describe("createConversationTurnRunner", () => {
       permissionMode: "dontAsk",
       tools: [],
       disallowedTools: BUILTIN,
-      maxTurns: 1,
+      maxTurns: 8,
       maxOutputTokens: 2_048,
     });
     expect(CONVERSATION_BUILTIN_TOOLS).toEqual([]);
@@ -191,11 +254,11 @@ describe("createConversationTurnRunner", () => {
   });
 
   test("a turn the engine ends in error fails with the engine's word for it", async () => {
-    const { module } = scripted([ended(true, "error_max_turns")]);
+    const { module } = scripted([ended(true, "error_during_execution")]);
     expect(await runnerOf(module).run(turn, live())).toEqual({
       outcome: "failed",
       reason: "engine_failed",
-      detail: "error_max_turns",
+      detail: "error_during_execution",
     });
     // A reason that is not a plain code is left out rather than passed on.
     const { module: wordy } = scripted([ended(true, "The provider said: no")]);
@@ -219,14 +282,96 @@ describe("createConversationTurnRunner", () => {
     });
   });
 
-  test("a turn past its limit is cut and fails as timed out", async () => {
+  test("a turn past its time limit is cut and fails on the time limit", async () => {
     const { module, seen } = scripted("hang");
     expect(await runnerOf(module, 20).run(turn, live())).toEqual({
       outcome: "failed",
-      reason: "timed_out",
+      reason: "time_limit",
     });
     expect(seen.aborted).toBe(1);
     expect(seen.closed).toBe(1);
+  });
+
+  test("the eighth provider call asking for a tool cuts the turn before a ninth, on the model call limit", async () => {
+    const rounds = Array.from({ length: 8 }, (_, round) => toolRound(round));
+    const { module, seen } = playsThenHangs(rounds.flat());
+    expect(await runnerOf(module).run(turn, live())).toEqual({
+      outcome: "failed",
+      reason: "model_call_limit",
+    });
+    expect(seen.aborted).toBe(1);
+    expect(seen.closed).toBe(1);
+  });
+
+  test("a ninth provider call the engine makes anyway, past a call it was not told of, cuts the turn on the model call limit", async () => {
+    // Tool results with no tool.called before them: the count of tool calls
+    // never saw these calls, the count of provider calls does.
+    const results = (round: number): RuntimeEvent =>
+      ({
+        type: "public",
+        event: {
+          id: "result",
+          event: "tool_result",
+          data: { type: "tool_result", tool_use_id: `toolu_${round}` },
+        },
+      }) as RuntimeEvent;
+    const { module, seen } = playsThenHangs([
+      ...Array.from({ length: 8 }, (_, round) => [
+        said(`call ${round}`),
+        // Two blocks of one response are one call.
+        said("same call"),
+        results(round),
+      ]).flat(),
+      said("ninth"),
+    ]);
+    expect(await runnerOf(module).run(turn, live())).toEqual({
+      outcome: "failed",
+      reason: "model_call_limit",
+    });
+    expect(seen.aborted).toBe(1);
+  });
+
+  test("the thirteenth tool call cuts the turn on the tool call limit, even within one provider call", async () => {
+    const { module, seen } = playsThenHangs([
+      ...toolRound(0, 6),
+      ...toolRound(1, 6),
+      ...toolRound(2, 1),
+    ]);
+    expect(await runnerOf(module).run(turn, live())).toEqual({
+      outcome: "failed",
+      reason: "tool_call_limit",
+    });
+    expect(seen.aborted).toBe(1);
+
+    const atOnce = playsThenHangs(toolRound(0, 13));
+    expect(await runnerOf(atOnce.module).run(turn, live())).toEqual({
+      outcome: "failed",
+      reason: "tool_call_limit",
+    });
+  });
+
+  test("a turn within its limits ends as the engine ends it", async () => {
+    // Eight provider calls and twelve tool calls: every limit, none past it.
+    const { module, seen } = scripted([
+      ...[2, 2, 2, 2, 2, 1, 1].flatMap((tools, round) =>
+        toolRound(round, tools),
+      ),
+      said("done"),
+      ended(),
+    ]);
+    expect(await runnerOf(module).run(turn, live())).toEqual({
+      outcome: "completed",
+      text: "done",
+    });
+    expect(seen.aborted).toBe(0);
+  });
+
+  test("the engine stopping at its own copy of the call limit is the model call limit", async () => {
+    const { module } = scripted([ended(true, "error_max_turns")]);
+    expect(await runnerOf(module).run(turn, live())).toEqual({
+      outcome: "failed",
+      reason: "model_call_limit",
+    });
   });
 
   test("a stop cuts the turn, which fails as interrupted", async () => {

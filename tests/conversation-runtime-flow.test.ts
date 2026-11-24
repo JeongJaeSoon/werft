@@ -20,6 +20,7 @@ import {
   startFakeAnthropicServer,
   textReply,
   toolReply,
+  toolsReply,
 } from "@werft-ai/testkit/fake-anthropic";
 import {
   type CredentialProxyServer,
@@ -54,7 +55,8 @@ const PROVIDER_KEY = [
 const MODEL = "claude-sonnet-4-5";
 const MAX_TOKENS = 1_024;
 
-type Grant = { callId: string; exchange: string | null };
+// A turn permit's stand-in: good for up to `calls` exchanges, one call each.
+type Grant = { callId: string; exchanges: Set<string>; calls: number };
 
 let root: string | undefined;
 let provider: FakeAnthropicServer | undefined;
@@ -69,7 +71,10 @@ afterEach(async () => {
   root = provider = authorizer = proxy = undefined;
 });
 
-async function stack(replies: ReplyResolver) {
+async function stack(
+  replies: ReplyResolver,
+  options: { calls?: number; limitMs?: number } = {},
+) {
   root = await realpath(await mkdtemp(join(tmpdir(), "conversation-flow-")));
   provider = startFakeAnthropicServer(replies);
   const upstreamPort = Number(new URL(provider.url).port);
@@ -96,16 +101,16 @@ async function stack(replies: ReplyResolver) {
       const { token } = (await request.json()) as { token: string };
       const exchange = request.headers.get("x-werft-exchange-id");
       const grant = grants.get(token);
-      // A one-call token: bound to the first exchange that presents it.
+      // Taken by the first exchanges that present it, as many as it covers.
       const granted =
         grant !== undefined &&
         exchange !== null &&
-        (grant.exchange === null || grant.exchange === exchange);
+        (grant.exchanges.has(exchange) || grant.exchanges.size < grant.calls);
       asked.push({ token, granted });
       if (!granted || grant === undefined) {
         return new Response("unknown", { status: 401 });
       }
-      grant.exchange = exchange;
+      grant.exchanges.add(exchange);
       return Response.json({
         conversation_call_id: grant.callId,
         upstream: {
@@ -142,6 +147,7 @@ async function stack(replies: ReplyResolver) {
     runtime,
     egressCredentialUrl: `http://127.0.0.1:${proxy.port}`,
     topics,
+    ...(options.limitMs === undefined ? {} : { limitMs: options.limitMs }),
   });
   /** A turn with a fresh one-call token the authorizer grants, unless `known` is false. */
   const turn = (
@@ -151,7 +157,13 @@ async function stack(replies: ReplyResolver) {
   ): ConversationRuntimeTurn & { token: string } => {
     const token = ["wec", crypto.randomUUID()].join("_");
     const callId = crypto.randomUUID();
-    if (known) grants.set(token, { callId, exchange: null });
+    if (known) {
+      grants.set(token, {
+        callId,
+        exchanges: new Set(),
+        calls: options.calls ?? 1,
+      });
+    }
     return {
       ...conversationRuntimeTurnSchema.parse({
         turn_id: crypto.randomUUID(),
@@ -257,16 +269,17 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
       s.live,
     );
 
-    // Each turn ended where its one call did: the tool call went nowhere.
+    // The tool call went nowhere, and the call after it found the turn's
+    // one-call token spent.
     expect(shell).toEqual({
       outcome: "failed",
       reason: "engine_failed",
-      detail: "error_max_turns",
+      detail: "api_error",
     });
     expect(write).toEqual({
       outcome: "failed",
       reason: "engine_failed",
-      detail: "error_max_turns",
+      detail: "api_error",
     });
     expect(s.provider.requests).toHaveLength(2);
     for (const request of s.provider.requests) {
@@ -326,4 +339,100 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     // Dropping one topic leaves the other.
     expect((await stat(join(s.root, topicB))).isDirectory()).toBe(true);
   }, 90_000);
+});
+
+/** The processes whose command line names `directory`: the engine a topic started. */
+async function processesUnder(directory: string): Promise<string[]> {
+  const listed = await Bun.$`ps -axww -o command=`.quiet().text();
+  return listed.split("\n").filter((line) => line.includes(directory));
+}
+
+describe("a conversation turn's limits, counted by the runner on the pinned engine", () => {
+  test("a turn whose every call asks for a tool is cut before its ninth provider call, and leaves no engine running", async () => {
+    const s = await stack(
+      (_request, index) => toolReply("Bash", { command: `echo ${index}` }),
+      // A ninth call the engine sends before the cut lands is the server's
+      // to refuse, as the turn's permit does.
+      { calls: 8 },
+    );
+    const turn = s.turn(crypto.randomUUID(), "keep going");
+
+    expect(await s.runner.run(turn, s.live)).toEqual({
+      outcome: "failed",
+      reason: "model_call_limit",
+    });
+    expect(s.provider.requests).toHaveLength(8);
+    expect(await processesUnder(s.root)).toEqual([]);
+  }, 120_000);
+
+  test("a response asking for thirteen tool calls cuts the turn before any of them runs", async () => {
+    const s = await stack(
+      () =>
+        toolsReply(
+          Array.from({ length: 13 }, (_, index) => ({
+            id: `toolu_${index}`,
+            name: "Bash",
+            input: { command: `echo ${index}` },
+          })),
+        ),
+      { calls: 1 },
+    );
+
+    expect(
+      await s.runner.run(s.turn(crypto.randomUUID(), "all at once"), s.live),
+    ).toEqual({ outcome: "failed", reason: "tool_call_limit" });
+    expect(s.provider.requests).toHaveLength(1);
+    expect(await processesUnder(s.root)).toEqual([]);
+  }, 90_000);
+
+  test("a turn within its limits ends on the model's answer", async () => {
+    const s = await stack(
+      (_request, index) =>
+        index < 3
+          ? toolsReply(
+              Array.from({ length: 4 }, (_, call) => ({
+                id: `toolu_${index}_${call}`,
+                name: "Bash",
+                input: { command: "true" },
+              })),
+            )
+          : textReply("done"),
+      { calls: 4 },
+    );
+
+    expect(
+      await s.runner.run(s.turn(crypto.randomUUID(), "go"), s.live),
+    ).toEqual({ outcome: "completed", text: "done" });
+    // Twelve tool calls over four provider calls: both counts at their limit or under.
+    expect(s.provider.requests).toHaveLength(4);
+  }, 90_000);
+
+  test("a turn still waiting on its provider call at the time limit is cut there, and leaves no engine running", async () => {
+    let seenEngine: string[] = [];
+    let s: Awaited<ReturnType<typeof stack>> | undefined;
+    s = await stack(
+      async () => {
+        seenEngine = await processesUnder(s?.root ?? "/nowhere");
+        await Bun.sleep(20_000);
+        return textReply("too late");
+      },
+      { limitMs: 3_000 },
+    );
+    const turn = s.turn(crypto.randomUUID(), "take your time");
+
+    expect(await s.runner.run(turn, s.live)).toEqual({
+      outcome: "failed",
+      reason: "time_limit",
+    });
+    // The check sees an engine while one runs, and none once the turn is cut.
+    expect(seenEngine.length).toBeGreaterThan(0);
+    expect(
+      await until(
+        async () =>
+          (await processesUnder(s?.root ?? "")).length === 0 || undefined,
+        "the engine gone",
+      ),
+    ).toBe(true);
+    expect(s.provider.requests).toHaveLength(1);
+  }, 60_000);
 });

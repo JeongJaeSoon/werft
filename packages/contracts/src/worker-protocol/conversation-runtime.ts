@@ -42,6 +42,19 @@ export const CONVERSATION_TURN_LEASE_MS = CONVERSATION_TURN_LIMIT_MS + 30_000;
 /** The longest a poll for the next turn is held open. */
 export const CONVERSATION_NEXT_TURN_MAX_WAIT_MS = 20_000;
 export const CONVERSATION_TURN_TEXT_MAX = 16_000;
+/** How many provider calls one conversation turn may make. */
+export const CONVERSATION_TURN_MODEL_CALL_LIMIT = 8;
+/** How many tool calls one conversation turn may make, whatever their outcome. */
+export const CONVERSATION_TURN_TOOL_CALL_LIMIT = 12;
+
+/** Which of a turn's limits cut it. */
+export const CONVERSATION_TURN_LIMIT_VALUES = [
+  "model_call_limit",
+  "tool_call_limit",
+  "time_limit",
+] as const;
+export type ConversationTurnLimit =
+  (typeof CONVERSATION_TURN_LIMIT_VALUES)[number];
 
 /**
  * What bounds a turn: the one topic, of the one conversation of the one
@@ -92,8 +105,8 @@ export const CONVERSATION_TURN_FAILURE_VALUES = [
   "engine_failed",
   // The runtime could not start or drive the engine.
   "runtime_failed",
-  // The runtime cut the turn at its lease.
-  "timed_out",
+  // The runtime cut the turn at one of its limits.
+  ...CONVERSATION_TURN_LIMIT_VALUES,
   // The runtime was stopping.
   "interrupted",
 ] as const;
