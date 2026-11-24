@@ -25,12 +25,14 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { transactionWithBindingRetry } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { openResumeReceipt } from "../resume-control.ts";
 import {
   attempts,
   checkpoints,
+  lostCheckpointNotices,
   pushIntents,
   pushRequests,
   receipts,
@@ -89,10 +91,16 @@ const LOST_CHECKPOINT_RECEIPT_ERROR = {
  * recovery_required with its input kept; its open pause or resume receipt
  * fails. Resume and retry_restore refuse, start_fresh goes on without the
  * lost context, close ends the session.
+ *
+ * `stillLost` is for a caller that cannot have every writer stopped: it is
+ * asked once the sessions are locked, when no checkpoint of theirs can commit
+ * any more, and false leaves everything as it is. A bucket found empty before
+ * the call may hold a checkpoint committed since.
  */
 export function forgetLostCheckpoints(
   db: Database,
   now: Date,
+  options: { readonly stillLost?: () => Promise<boolean> } = {},
 ): Promise<LostCheckpoints> {
   return db.transaction(async (tx) => {
     const lost = await tx
@@ -115,6 +123,9 @@ export function forgetLostCheckpoints(
       .where(inArray(sessions.id, ids))
       .orderBy(asc(sessions.id))
       .for("update");
+    if (options.stillLost && !(await options.stillLost())) {
+      return { held: [], unchanged: [] };
+    }
     await tx
       .update(checkpoints)
       .set({ collectedAt: DB_NOW })
@@ -186,6 +197,49 @@ export function forgetLostCheckpoints(
     return { held, unchanged };
   });
 }
+
+/**
+ * forgetLostCheckpoints for a start that gives the checkpoints up on its own
+ * (CHECKPOINT_OBJECTS_LOST=forget), with the row that keeps the loss in
+ * /readyz and on the console until an administrator closes it.
+ *
+ * Other APIs may be running or starting beside this one, so two things are
+ * closed here that the operator command leaves to "run it while the API is
+ * down". One start at a time holds the advisory lock: a second waits, then
+ * reads what the first left, which is nothing, and records nothing.
+ * `stillLost` is the caller's bucket check again, under the session locks
+ * (forgetLostCheckpoints): a checkpoint committed after the first look keeps
+ * everything. It must be quick, since those locks are held while it runs.
+ *
+ * forgetLostCheckpoints locks a dispatch signal before its session, and the
+ * control paths that clear the signal hold the session first. With the API
+ * down that never meets; here it can, so a deadlock victim runs again
+ * (transactionWithBindingRetry), `stillLost` included.
+ */
+export function forgetLostCheckpointsAtStart(
+  db: Database,
+  now: Date,
+  stillLost: () => Promise<boolean>,
+): Promise<LostCheckpoints> {
+  return transactionWithBindingRetry(db, async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended('lost_checkpoints_at_start', 0))`,
+    );
+    const lost = await forgetLostCheckpoints(tx, now, { stillLost });
+    const sessionIds = [...lost.held, ...lost.unchanged];
+    if (sessionIds.length > 0) {
+      await tx.insert(lostCheckpointNotices).values({ sessionIds });
+    }
+    return lost;
+  });
+}
+
+/**
+ * How many sessions the starts no administrator has closed yet gave up
+ * checkpoints for: one row, `n`.
+ */
+export const OPEN_LOST_CHECKPOINT_SESSIONS_SQL =
+  "SELECT COALESCE(SUM(jsonb_array_length(session_ids)), 0)::int AS n FROM lost_checkpoint_notices WHERE closed_at IS NULL";
 
 /**
  * The checkpoint pointer on PostgreSQL, read with the helpers a turn's finalize

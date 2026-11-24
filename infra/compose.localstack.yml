@@ -9,9 +9,10 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
     ports:
       - "127.0.0.1:${TEST_OPS_LOCALSTACK_PORT:-4566}:4566"
-    # No data volume: LocalStack keeps S3 in memory, so the bucket is gone
-    # with the container whatever is mounted. The API refuses to
-    # start on an empty bucket the database still holds checkpoints for.
+    # No data volume: LocalStack keeps S3 in memory, so the objects are gone
+    # with the container whatever is mounted, and the init script below makes
+    # the bucket again, empty, on every start. What the API does on an empty
+    # bucket the database still holds checkpoints for is CHECKPOINT_OBJECTS_LOST.
     volumes:
       - ./localstack/init/10-create-resources.sh:/etc/localstack/init/ready.d/10-create-resources.sh:ro
     healthcheck:

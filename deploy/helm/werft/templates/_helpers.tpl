@@ -113,6 +113,10 @@ imagePullSecrets:
   value: {{ .Values.config.checkpoints.protection | quote }}
 - name: CHECKPOINT_OBJECT_ENCRYPTION_CHECK
   value: {{ .Values.config.checkpoints.encryptionCheck | quote }}
+- name: CHECKPOINT_OBJECTS_LOST
+  value: {{ .Values.config.checkpoints.objectsLost | quote }}
+- name: INSTALLATION_PROFILE
+  value: {{ .Values.config.installation.profile | quote }}
 {{- with .Values.config.aws.endpointUrl }}
 - name: AWS_ENDPOINT_URL
   value: {{ . | quote }}
@@ -252,6 +256,8 @@ SDK reads its own (AWS_ENDPOINT_URL_S3, AWS_ROLE_ARN, AWS_PROFILE, ...).
   "CHECKPOINT_OBJECT_STORE" "config.checkpoints.objectStore"
   "CHECKPOINT_OBJECT_PROTECTION" "config.checkpoints.protection"
   "CHECKPOINT_OBJECT_ENCRYPTION_CHECK" "config.checkpoints.encryptionCheck"
+  "CHECKPOINT_OBJECTS_LOST" "config.checkpoints.objectsLost"
+  "INSTALLATION_PROFILE" "config.installation.profile"
 -}}
 {{- range $name := sortAlpha $names -}}
 {{- if hasKey $keys $name -}}

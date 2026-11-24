@@ -1,15 +1,17 @@
-import type { ReadinessCheck } from "@werft-ai/contracts";
+import type { ReadinessCheck, ReadyDetail } from "@werft-ai/contracts";
 import {
   APPLIED_MIGRATIONS_SQL,
   expectedMigrationHead,
   expectedMigrations,
   type MigrationEntry,
   type MigrationHead,
+  OPEN_LOST_CHECKPOINT_SESSIONS_SQL,
 } from "@werft-ai/db";
 import { messageOf as describe } from "@werft-ai/platform";
 
 export type ReadinessResult =
-  | { ready: true }
+  // `detail` is what an operator should know about a ready instance.
+  | { ready: true; detail?: ReadyDetail }
   // "shutdown" is the process withdrawing itself (shutdown.ts), not a
   // failed dependency, so it is not one of the checks a ready answer lists.
   | { ready: false; check: ReadinessCheck | "shutdown"; reason: string };
@@ -91,7 +93,8 @@ function migrationDrift(
   return null;
 }
 
-// database → schema → config, stopping at the first failure. Nothing here
+// database → schema → config, stopping at the first failure, then what a
+// ready answer adds: the sessions a start gave up checkpoints for. Nothing here
 // touches the execution backend: api.md keeps backend health out of readiness.
 export function createReadinessProbe(
   options: CreateReadinessProbeOptions,
@@ -148,6 +151,18 @@ export function createReadinessProbe(
         reason: `configuration: ${problems.join(", ")}`,
       };
     }
-    return { ready: true };
+    let forgotten: number;
+    try {
+      const result = await withTimeout(
+        options.db.query(OPEN_LOST_CHECKPOINT_SESSIONS_SQL),
+        timeoutMs,
+      );
+      forgotten = Number(result.rows[0]?.n ?? 0);
+    } catch (error) {
+      return { ready: false, check: "database", reason: describe(error) };
+    }
+    return forgotten > 0
+      ? { ready: true, detail: { checkpoints_forgotten_on_boot: forgotten } }
+      : { ready: true };
   };
 }
