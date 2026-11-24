@@ -193,31 +193,43 @@ integration("conversation turn calls on PostgreSQL", () => {
     expect(rows).toHaveLength(1);
   });
 
-  test("eight calls of one turn at once: one is granted and numbered, the rest refused with nothing held", async () => {
+  test("eight calls of one turn at once: the turn counts once, so each is granted, numbered and held on its own", async () => {
     const turn = await permit(operator, await newTopic());
     const ids = Array.from({ length: 8 }, () =>
       conversationCallIdSchema.parse(crypto.randomUUID()),
     );
     const outcomes = await Promise.all(ids.map((id) => ask(turn.token, id)));
-    expect(outcomes.filter((o) => o.outcome === "ok")).toHaveLength(1);
-    expect(
-      outcomes.filter((o) => o.outcome === "concurrency_limited"),
-    ).toHaveLength(7);
+    expect(outcomes.filter((o) => o.outcome === "ok")).toHaveLength(8);
     const rows = await db
       .select()
       .from(conversationCalls)
       .where(eq(conversationCalls.conversationTurnId, turn.turnId));
-    expect(rows.map((row) => row.attempt)).toEqual([1]);
+    expect(rows.map((row) => row.attempt).sort((a, b) => a - b)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
     const [kept] = await db
       .select()
       .from(conversationTurnPermits)
       .where(eq(conversationTurnPermits.turnId, turn.turnId));
-    expect(kept).toMatchObject({ calls: 1, refusal: "concurrency" });
+    expect(kept).toMatchObject({ calls: 8, refusal: null });
     const held = await pool.query(
       "SELECT count(*)::int AS n FROM budget_reservations WHERE call_id = ANY($1::text[])",
       [ids],
     );
-    expect(held.rows[0]?.n).toBe(1);
+    expect(held.rows[0]?.n).toBe(8);
+  });
+
+  test("another turn on the topic is still refused while the first turn's calls are open", async () => {
+    const topic = await newTopic();
+    const first = await permit(operator, topic);
+    expect((await ask(first.token)).outcome).toBe("ok");
+    expect((await ask(first.token)).outcome).toBe("ok");
+    const beside = await permit(operator, topic);
+    expect(await ask(beside.token)).toMatchObject({
+      outcome: "concurrency_limited",
+      limit: "topic",
+      inProgress: 2,
+    });
   });
 
   test("a person's five calls at once, each on a topic of its own: four are granted, the fifth refused by the person's limit", async () => {

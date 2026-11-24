@@ -473,6 +473,8 @@ describe("a conversation turn's provider calls", () => {
     const first = await operatorTurn(topic);
     const beside = await operatorTurn(topic);
     await granted(first.token);
+    // The turn counts once: its next call need not wait for the last to settle.
+    await granted(first.token);
     const limited = await providerAsk(beside.token, crypto.randomUUID());
     expect(limited.status).toBe(403);
     expect(await limited.json()).toMatchObject({

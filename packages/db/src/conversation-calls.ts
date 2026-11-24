@@ -5,6 +5,7 @@ import type {
   ConversationKind,
   ConversationTopicId,
   ConversationTurnCallRefusal,
+  ConversationTurnId,
 } from "@werft-ai/contracts";
 import {
   type BudgetChoice,
@@ -20,7 +21,18 @@ import {
   chooseBudgetAccount,
   reservationTokens,
 } from "@werft-ai/platform";
-import { and, desc, eq, gt, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   lockBudgetCall,
   markBudgetUnknownIn,
@@ -87,7 +99,12 @@ export type ConversationCallScope = {
   topicId: ConversationTopicId | null;
   callClass: ConversationCallClass;
   requesterUserId: string | null;
+  /** A turn counts once under each limit, however many of its calls are open. */
+  conversationTurnId?: ConversationTurnId;
 };
+
+/** Thrown to take back what a turn call held when its permit ran out meanwhile. */
+class TurnPermitLapsed extends Error {}
 
 type LimitReached = Extract<
   ConversationCallIssue,
@@ -101,9 +118,6 @@ type LimitReached = Extract<
  * Take it after the call's own locks and before any budget row; the keys are
  * taken sorted, so two callers sharing a person never wait on each other.
  */
-/** Thrown to take back what a turn call held when its permit ran out meanwhile. */
-class TurnPermitLapsed extends Error {}
-
 export async function holdConversationCallLimitsIn(
   tx: Database,
   scope: ConversationCallScope,
@@ -135,6 +149,13 @@ export async function holdConversationCallLimitsIn(
           ),
   };
   const unknown = and(eq(c.state, "in_flight"), isNotNull(c.unknownAt));
+  const otherTurn =
+    scope.conversationTurnId === undefined
+      ? undefined
+      : or(
+          isNull(c.conversationTurnId),
+          ne(c.conversationTurnId, scope.conversationTurnId),
+        );
   const counts: Record<string, ReturnType<typeof sql<number>>> = {};
   for (const limit of CONVERSATION_CALL_LIMIT_VALUES) {
     const where = scoped[limit];
@@ -153,6 +174,7 @@ export async function holdConversationCallLimitsIn(
           eq(c.state, "in_flight"),
         ),
         or(ofAgent, scoped.requester ?? undefined),
+        otherTurn,
       ),
     );
   for (const limit of CONVERSATION_CALL_LIMIT_VALUES) {
@@ -540,6 +562,7 @@ export function createPostgresConversationCalls(
             topicId: permit.topicId,
             callClass: "m2",
             requesterUserId: permit.requesterUserId,
+            conversationTurnId: permit.turnId,
           });
           if (limited) {
             await refuse("concurrency");
