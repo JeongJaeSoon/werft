@@ -469,7 +469,7 @@ describe("a conversation turn's provider calls", () => {
     expect(await callsOf(late.turnId)).toEqual([]);
   });
 
-  test("a model gone from the connection since the turn began: no new call on it, and no regrant", async () => {
+  test("a model gone from the connection since the turn began: no new call on it, while the call already made carries on and settles", async () => {
     const turn = await operatorTurn();
     const call = await granted(turn.token);
     const connection = catalog.connections[connectionId];
@@ -481,7 +481,8 @@ describe("a conversation turn's provider calls", () => {
     expect((await providerAsk(turn.token, crypto.randomUUID())).status).toBe(
       409,
     );
-    expect((await providerAsk(turn.token, call.exchange)).status).toBe(409);
+    expect((await providerAsk(turn.token, call.exchange)).status).toBe(200);
+    expect((await report(call)).status).toBe(200);
     expect(await callsOf(turn.turnId)).toHaveLength(1);
   });
 

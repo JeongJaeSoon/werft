@@ -1640,10 +1640,10 @@ export function createWorkerGateway(deps: {
       case "concurrency_limited":
         return result;
     }
+    // No model check here: the call is committed by now, and a regrant
+    // carries on one already sent.
     const connection = connectionOf(catalog, result.connectionId);
-    if (!connection || !connectionModels(connection).includes(result.model)) {
-      return moved("call's connection");
-    }
+    if (!connection) moved("call's connection");
     requireProviderPath(connection.provider.kind, path);
     return {
       conversation_call_id: result.callId,
