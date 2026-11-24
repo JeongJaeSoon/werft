@@ -117,6 +117,18 @@ export function slackRoleSettings(environment: Environment): {
   };
 }
 
+/** The inbox a pass drains, holding to the installation's buffer limit. */
+export function slackInbox(
+  db: Database,
+  logger: Pick<StructuredLogger, "info" | "warn">,
+) {
+  const config = installationConfigOf(db, logger);
+  return createPostgresSlackInboundEventStore(db, {
+    bufferLimit: () => config.get("judgment_buffer_limit_per_channel"),
+    logger,
+  });
+}
+
 export function slackRoleStartup(environment: Environment): {
   secretKey: SecretKey;
 } {
@@ -354,7 +366,7 @@ export async function main(
       neutralize: eventNeutralizer(logger),
     });
     const drain = await drainSlackInbox({
-      inbox: createPostgresSlackInboundEventStore(db),
+      inbox: slackInbox(db, logger),
       handler: slackSessionHandler({
         db,
         pool,

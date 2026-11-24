@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
   SLACK_INBOUND_EVENT_STATUS_VALUES,
   type SlackInboundEventStatus,
 } from "@werft-ai/contracts";
@@ -44,7 +45,16 @@ const order = (alias: string) =>
 
 export function createPostgresSlackInboundEventStore(
   db: Database,
+  options: {
+    /** Read before each buffered hold; a throw leaves the row to its lease. */
+    bufferLimit?: () => Promise<number>;
+    logger?: {
+      info(message: string, fields?: Record<string, unknown>): void;
+    };
+  } = {},
 ): SurfaceInboundEventStore {
+  const bufferLimit =
+    options.bufferLimit ?? (async () => JUDGMENT_BUFFER_LIMIT_PER_CHANNEL);
   return {
     async seen(appId, eventId) {
       const [row] = await db
@@ -176,8 +186,11 @@ export function createPostgresSlackInboundEventStore(
       return row ?? null;
     },
 
-    complete(fence, input) {
-      return db.transaction(async (tx) => {
+    async complete(fence, input) {
+      const limit =
+        input !== undefined && "buffered" in input ? await bufferLimit() : null;
+      let overLimit: Record<string, string | number> | null = null;
+      const done = await db.transaction(async (tx) => {
         const [row] = await tx
           .update(t)
           .set({ status: "processed", payload: null, ...released })
@@ -203,12 +216,30 @@ export function createPostgresSlackInboundEventStore(
               `topic ${input.topicId} is no topic of the event's agent`,
             );
           }
-          await holdBufferedInput(tx, row, input);
+          const hold = await holdBufferedInput(
+            tx,
+            row,
+            input,
+            limit ?? JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+          );
+          if (hold.dropped > 0) {
+            overLimit = {
+              workspace_id: row.workspaceId,
+              agent_id: row.agentId,
+              channel_id: input.channelId,
+              dropped_count: hold.dropped,
+            };
+          }
           return true;
         }
         await takeSlackTurnInput(tx, row, input);
         return true;
       });
+      // After the commit, so a rolled-back hold logs nothing.
+      if (overLimit !== null) {
+        options.logger?.info("Judgment buffer over limit", overLimit);
+      }
+      return done;
     },
 
     async drop(fence, reason) {

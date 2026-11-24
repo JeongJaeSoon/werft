@@ -5719,6 +5719,44 @@ export const conversationInputs = pgTable(
 );
 
 /**
+ * How many held messages an agent lost in one Slack channel to the judgment
+ * buffer's limit, oldest first, for the shadow records the limit is set by.
+ * No message, text or poster: the count and when it last grew.
+ */
+export const judgmentBufferOverflows = pgTable(
+  "judgment_buffer_overflows",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    slackChannelId: text("slack_channel_id").notNull(),
+    droppedCount: bigint("dropped_count", { mode: "number" }).notNull(),
+    lastDroppedAt: timestamp("last_dropped_at", {
+      withTimezone: true,
+    }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "judgment_buffer_overflows_pk",
+      columns: [table.agentId, table.slackTeamId, table.slackChannelId],
+    }),
+    foreignKey({
+      name: "judgment_buffer_overflows_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "judgment_buffer_overflows_count_check",
+      sql`${table.droppedCount} > 0`,
+    ),
+    check(
+      "judgment_buffer_overflows_slack_check",
+      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
+    ),
+  ],
+);
+
+/**
  * That an agent took part in a Slack message: no text, no thread, no link.
  * The thread is held once, by the session's link or the conversation turn the
  * row points at, exactly one of the two.

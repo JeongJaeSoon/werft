@@ -208,6 +208,7 @@ describe("database schema", () => {
       "idempotency_keys",
       "installation_config",
       "invites",
+      "judgment_buffer_overflows",
       "linked_accounts",
       "login_methods",
       "login_providers",

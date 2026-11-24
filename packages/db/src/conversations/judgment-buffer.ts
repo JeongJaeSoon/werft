@@ -13,13 +13,15 @@ import { lockSlackSourceMark } from "./source-mark-lock.ts";
 /** How long an unmentioned message stays in the judgment buffer (decision 24). */
 export const JUDGMENT_BUFFER_TTL_MS = 10 * 60_000;
 
-/** One Slack message in one workspace. */
-type SlackMessage = {
+/** One Slack channel in one workspace, with what else names the row. */
+type SlackChannelOf<T> = T & {
   workspaceId: string;
   teamId: string;
   channelId: string;
-  ts: string;
 };
+
+/** One Slack message in one workspace. */
+type SlackMessage = SlackChannelOf<{ ts: string }>;
 
 /**
  * Whether the agent still holds unmentioned messages of the channel: it is
@@ -165,17 +167,64 @@ export async function editBufferedMessage(
 }
 
 /**
+ * Keeps the agent's `limit` newest held messages of the channel (by Slack
+ * ts) and removes the rest whole, adding how many went to the channel's
+ * overflow count. Holds of one agent and channel take this in turn, so
+ * however many commit at once the channel never keeps more than `limit`.
+ */
+async function keepChannelLimit(
+  tx: Database,
+  channel: SlackChannelOf<{ agentId: string }>,
+  limit: number,
+): Promise<number> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('judgment_buffer_limit'), hashtext(${`${channel.agentId}:${channel.teamId}:${channel.channelId}`}::text))`,
+  );
+  const dropped = await dropBuffered(
+    tx,
+    sql`i.id IN (
+      SELECT o.id FROM conversation_inputs o
+      WHERE o.buffer_expires_at IS NOT NULL
+        AND o.agent_id = ${channel.agentId}::uuid
+        AND o.slack_team_id = ${channel.teamId}
+        AND o.slack_channel_id = ${channel.channelId}
+      ORDER BY o.slack_ts::numeric DESC, o.id DESC
+      OFFSET ${limit})`,
+  );
+  if (dropped === 0) return 0;
+  await tx.execute(sql`
+    INSERT INTO judgment_buffer_overflows (
+      workspace_id, agent_id, slack_team_id, slack_channel_id,
+      dropped_count, last_dropped_at
+    ) VALUES (
+      ${channel.workspaceId}::uuid, ${channel.agentId}::uuid,
+      ${channel.teamId}, ${channel.channelId}, ${dropped}, now()
+    )
+    ON CONFLICT (agent_id, slack_team_id, slack_channel_id) DO UPDATE SET
+      dropped_count = judgment_buffer_overflows.dropped_count + EXCLUDED.dropped_count,
+      last_dropped_at = EXCLUDED.last_dropped_at`);
+  return dropped;
+}
+
+/** What a hold did, and how many older messages the channel's limit took. */
+export type HoldOutcome = {
+  outcome: "held" | "marked" | "not_held";
+  dropped: number;
+};
+
+/**
  * Holds a message in the buffer, in the transaction that completes its inbox
- * row. Nothing is held when the message has a delete or an edit mark
- * already (its event came late; an edit's text is kept nowhere), when the
- * agent already has the message, or when the channel stopped listening since
- * the receive path judged it.
+ * row, then keeps the channel within `limit`. Nothing is held when the
+ * message has a delete or an edit mark already (its event came late; an
+ * edit's text is kept nowhere), when the agent already has the message, or
+ * when the channel stopped listening since the receive path judged it.
  */
 export async function holdBufferedInput(
   tx: Database,
   row: { workspaceId: string; agentId: string; teamId: string },
   input: BufferedInputReceipt,
-): Promise<"held" | "marked" | "not_held"> {
+  limit: number,
+): Promise<HoldOutcome> {
   const message = {
     workspaceId: row.workspaceId,
     teamId: row.teamId,
@@ -198,7 +247,7 @@ export async function holdBufferedInput(
   const dropEmptyTopic = () => dropTopicIfEmpty(tx, input.topicId);
   if (marked !== undefined) {
     await dropEmptyTopic();
-    return "marked";
+    return { outcome: "marked", dropped: 0 };
   }
   // What stops the listening updates one of these rows: shared, they make
   // that change wait for this hold, or this hold see it once committed, so
@@ -237,9 +286,16 @@ export async function holdBufferedInput(
         DO NOTHING
       RETURNING id`),
   );
-  if (held.length > 0) return "held";
+  if (held.length > 0) {
+    const dropped = await keepChannelLimit(
+      tx,
+      { ...message, agentId: row.agentId },
+      limit,
+    );
+    return { outcome: "held", dropped };
+  }
   await dropEmptyTopic();
-  return "not_held";
+  return { outcome: "not_held", dropped: 0 };
 }
 
 /**

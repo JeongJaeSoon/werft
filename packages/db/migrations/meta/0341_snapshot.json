@@ -1,5 +1,5 @@
 {
-  "id": "a6ef53ff-26f6-4b48-a6df-4b845268ec15",
+  "id": "5a39c248-765f-46fc-b878-a9d332f4d4d1",
   "prevId": "e9681799-a42b-43ea-84c1-46033248a7d5",
   "version": "7",
   "dialect": "postgresql",
@@ -9040,6 +9040,79 @@
       },
       "isRLSEnabled": false
     },
+    "public.judgment_buffer_overflows": {
+      "name": "judgment_buffer_overflows",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slack_team_id": {
+          "name": "slack_team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slack_channel_id": {
+          "name": "slack_channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dropped_count": {
+          "name": "dropped_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_dropped_at": {
+          "name": "last_dropped_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "judgment_buffer_overflows_agent_fk": {
+          "name": "judgment_buffer_overflows_agent_fk",
+          "tableFrom": "judgment_buffer_overflows",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "judgment_buffer_overflows_pk": {
+          "name": "judgment_buffer_overflows_pk",
+          "columns": ["agent_id", "slack_team_id", "slack_channel_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "judgment_buffer_overflows_count_check": {
+          "name": "judgment_buffer_overflows_count_check",
+          "value": "\"judgment_buffer_overflows\".\"dropped_count\" > 0"
+        },
+        "judgment_buffer_overflows_slack_check": {
+          "name": "judgment_buffer_overflows_slack_check",
+          "value": "\"judgment_buffer_overflows\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"judgment_buffer_overflows\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.linked_accounts": {
       "name": "linked_accounts",
       "schema": "",
@@ -17091,122 +17164,6 @@
         "slack_installations_revoked_check": {
           "name": "slack_installations_revoked_check",
           "value": "(\"slack_installations\".\"status\" = 'revoked') = (\"slack_installations\".\"revoked_at\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.slack_notice_approvals": {
-      "name": "slack_notice_approvals",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_team_id": {
-          "name": "slack_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "notice_version": {
-          "name": "notice_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "approved_by": {
-          "name": "approved_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "approved_at": {
-          "name": "approved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "revoked_by": {
-          "name": "revoked_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "slack_notice_approvals_live_uniq": {
-          "name": "slack_notice_approvals_live_uniq",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "notice_version",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"slack_notice_approvals\".\"revoked_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "slack_notice_approvals_agent_fk": {
-          "name": "slack_notice_approvals_agent_fk",
-          "tableFrom": "slack_notice_approvals",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "slack_notice_approvals_version_check": {
-          "name": "slack_notice_approvals_version_check",
-          "value": "\"slack_notice_approvals\".\"notice_version\" >= 1"
-        },
-        "slack_notice_approvals_revoked_check": {
-          "name": "slack_notice_approvals_revoked_check",
-          "value": "(\"slack_notice_approvals\".\"revoked_at\" IS NULL) = (\"slack_notice_approvals\".\"revoked_by\" IS NULL)"
         }
       },
       "isRLSEnabled": false
