@@ -71,6 +71,7 @@ import {
   workerImageRefusals,
   workerLaunches,
 } from "../schema.ts";
+import { contextCoverage, contextGap } from "../sessions/context-gap.ts";
 import {
   hasRestorePoint,
   holdIncompatibleBeforeLaunch,
@@ -1061,6 +1062,17 @@ export function createPostgresSchedulerStore(
           .where(eq(workerLaunches.executionId, ref.executionId))
           .limit(1);
         if (idle?.idle !== true) return false;
+        // Its checkpoint must cover every turn it ran: a worker gone with a
+        // turn uncovered leaves its session to an operator, not to its next
+        // input.
+        const [row] = await tx
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, session.id))
+          .limit(1);
+        if (!row || contextGap(row, await contextCoverage(tx, row))) {
+          return false;
+        }
         await tx
           .update(workerLaunches)
           .set({ drainRequestedAt: DB_NOW })

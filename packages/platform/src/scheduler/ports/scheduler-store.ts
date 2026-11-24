@@ -237,7 +237,8 @@ export type ClaimedWorker = ExecutionRef & {
 export type IdleWorkers = {
   /**
    * Idle, longest first: no turn open or queued on the session, past its
-   * startup, its last checkpoint committed, and no drain asked yet.
+   * startup, no checkpoint failure pending, and no drain asked yet.
+   * `requestIdleStop` also requires a checkpoint covering every turn run.
    */
   idle: Array<ClaimedWorker & { idleSince: Date }>;
   /** Asked to drain and still holding their slot: room on its way. */
@@ -474,8 +475,8 @@ export interface SchedulerStore {
   /**
    * Asks an idle worker to go so its room goes to a launch that has none:
    * the `requestDrain` record, written only while the worker is idle as
-   * `IdleWorkers.idle` means it, judged under the lock a worker's
-   * next-input takes. From then it is handed no turn, and its next poll
+   * `IdleWorkers.idle` means it and its checkpoint covers every turn it
+   * ran, judged under the lock a worker's next-input takes. From then it is handed no turn, and its next poll
    * tells it to stop, the way an idle timeout ends it. False when it is not
    * idle any more, or the launch moved on.
    */

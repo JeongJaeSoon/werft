@@ -192,7 +192,7 @@ describe("launch drain", () => {
 
 describe("idle stop", () => {
   /** A claimed session whose first turn ran and finished. */
-  async function idleSession() {
+  async function idleSession(withCheckpoint = true) {
     const claimed = await claimedSession();
     const { principal, scope } = claimed;
     const first = await gateway.nextInput(principal, scope);
@@ -208,7 +208,13 @@ describe("idle stop", () => {
         result: null,
         usage: null,
       },
-      checkpoint: null,
+      checkpoint: withCheckpoint
+        ? {
+            revision: 0,
+            manifest_ref: `manifests/${scope.session_id}/0`,
+            manifest_sha256: "c".repeat(64),
+          }
+        : null,
     });
     return claimed;
   }
@@ -265,6 +271,13 @@ describe("idle stop", () => {
       (await store.idleWorkers("local_docker")).idle.map((w) => w.executionId),
     ).not.toContain(idle.ref.executionId);
     expect(await store.requestIdleStop(idle.ref)).toBe(false);
+  });
+
+  test("a worker whose last turn no checkpoint covers is not asked to stop", async () => {
+    const { ref } = await idleSession(false);
+    const store = schedulerStore();
+    expect(await store.requestIdleStop(ref)).toBe(false);
+    expect(await drainRequestedAt(ref.executionId)).toBeNull();
   });
 
   test("a session whose checkpoint did not commit is not idle", async () => {
