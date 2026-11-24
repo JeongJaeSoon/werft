@@ -17,7 +17,7 @@ type Workflow = {
 };
 
 const workflows = readdirSync(dir)
-  .filter((file) => file.endsWith(".yml"))
+  .filter((file) => /\.ya?ml$/.test(file))
   .map((file) => ({
     file,
     workflow: Bun.YAML.parse(readFileSync(join(dir, file), "utf8")) as Workflow,
@@ -64,16 +64,17 @@ describe("release concurrency groups", () => {
           expect(group["cancel-in-progress"]).toBe(false);
           return;
         }
-        // Only a pull request run may share a group: its newer push cancels it.
-        expect(group.group).toContain("github.run_id");
-        const stripped = group.group.replace(
-          /\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}/,
-          "",
+        // A pull request run is grouped by its PR number so a newer push
+        // cancels it; every other run is grouped by its own run id.
+        const hasPr = "pull_request" in entry.workflow.on;
+        const pr = String.raw`\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}`;
+        const own = String.raw`\$\{\{ github\.run_id \}\}`;
+        const event = String.raw`(\$\{\{ github\.event_name \}\}-)?`;
+        const shape = new RegExp(`^[a-z0-9-]+-${event}${hasPr ? pr : own}$`);
+        expect(group.group).toMatch(shape);
+        expect(group["cancel-in-progress"]).toBe(
+          hasPr ? PR_ONLY_CANCEL : false,
         );
-        expect(stripped).not.toMatch(
-          /github\.(ref|sha|event\.inputs|ref_name)|inputs\./,
-        );
-        expect([false, PR_ONLY_CANCEL]).toContain(group["cancel-in-progress"]);
       });
     }
   }
