@@ -246,9 +246,9 @@ export async function agentSummaries(
       ),
     );
   // A hand-made app linked through POST /v1/agents/{id}/identities has no
-  // slack_apps row, so the channel reads the identity. Deleting a created
-  // app leaves its identity active until Slack sends app_uninstalled, which
-  // a deleted app may never send.
+  // slack_apps row, so the channel reads the identity. A created app's
+  // delete revokes its identity; one deleted before that did may still have
+  // it active, hence the deleted app check.
   const slackInstalled = new Set(
     (
       await db

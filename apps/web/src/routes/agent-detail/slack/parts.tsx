@@ -142,8 +142,8 @@ export function SlackDangerRows({
         title={t("slack.deleteTitle")}
         description={t("slack.deleteWarning")}
         actionLabel={t("workspace.delete")}
-        // A delete Slack refused leaves the app "deleting"; asking
-        // again is how it finishes.
+        // A delete that failed in Werft leaves the app "deleting";
+        // asking again is how it finishes.
         disabled={busy || record?.state === "creating" || !me?.workspace}
         onAction={onDelete}
       />

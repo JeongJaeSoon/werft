@@ -214,7 +214,8 @@ export type SlackInstallOutcome =
       otherWorkspaceId: string;
       otherStatus: SlackInstallationStatus;
     }
-  | { outcome: "revoked"; installationId: string };
+  | { outcome: "revoked"; installationId: string }
+  | { outcome: "app_deleted" };
 
 async function installSlackApp(
   db: Database,
@@ -229,6 +230,7 @@ async function installSlackApp(
     ...key,
     workspaceId,
   });
+  if (registered.outcome === "app_deleted") return { outcome: "app_deleted" };
   if (registered.outcome === "workspace_conflict") {
     return {
       outcome: "workspace_conflict",
@@ -346,6 +348,11 @@ export async function runSlackInstall(
         return fail(
           SLACK_INSTALL_EXIT.revoked,
           `revoked: installation ${result.installationId} (${where}) was revoked while registering; run again to reopen it`,
+        );
+      case "app_deleted":
+        return fail(
+          SLACK_INSTALL_EXIT.revoked,
+          `revoked: ${where} is a Slack app Werft deleted; create a new app to install again`,
         );
       case "verified":
         io.out(

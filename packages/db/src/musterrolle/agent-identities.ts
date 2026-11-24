@@ -230,7 +230,7 @@ async function revokeIdentityRow(
     "id" | "workspaceId" | "agentId" | "installationId"
   >,
   revokedBy: string | null,
-): Promise<void> {
+): Promise<number> {
   await tx
     .update(agentIdentities)
     .set({
@@ -242,7 +242,7 @@ async function revokeIdentityRow(
     .where(eq(agentIdentities.id, identity.id));
   // The agent's channels in that install go with it: the next agent the
   // install is linked to starts from none, and cannot write these.
-  await tx
+  const bindings = await tx
     .update(surfaceBindings)
     .set({
       status: "revoked",
@@ -257,23 +257,27 @@ async function revokeIdentityRow(
         eq(surfaceBindings.installationId, identity.installationId),
         isNull(surfaceBindings.revokedAt),
       ),
-    );
+    )
+    .returning({ id: surfaceBindings.id });
   await releaseCredentialRefs(tx, {
     workspaceId: identity.workspaceId,
     target: "agent_identity",
     targetId: identity.id,
   });
+  return bindings.length;
 }
 
 /**
- * Revokes the install's active identity when Slack took the install away,
- * with no person acting. The caller holds the install row's lock. Nothing
- * is active on a repeat, so a repeat changes nothing.
+ * Revokes the install's active identity, with its bindings, when Slack took
+ * the install away (no person acting) or its app was deleted (`revokedBy`).
+ * The caller holds the install row's lock. Nothing is active on a repeat,
+ * so a repeat changes nothing. Returns how many of each it closed.
  */
 export async function revokeInstallationIdentities(
   tx: Database,
   installationId: string,
-): Promise<void> {
+  revokedBy: string | null = null,
+): Promise<{ identities: number; bindings: number }> {
   const active = await tx
     .select({
       id: agentIdentities.id,
@@ -288,8 +292,13 @@ export async function revokeInstallationIdentities(
         eq(agentIdentities.status, "active"),
       ),
     )
+    .orderBy(asc(agentIdentities.id))
     .for("update");
-  for (const identity of active) await revokeIdentityRow(tx, identity, null);
+  let bindings = 0;
+  for (const identity of active) {
+    bindings += await revokeIdentityRow(tx, identity, revokedBy);
+  }
+  return { identities: active.length, bindings };
 }
 
 /**
