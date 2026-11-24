@@ -2,6 +2,7 @@
 // only the names other domains use, not a barrel over the directory.
 
 export type { BudgetRoot } from "./budget-accounts.ts";
+export type { ConversationCallLimit } from "./conversation-call-limits.ts";
 export {
   CONVERSATION_CALL_PATH,
   CONVERSATION_CALL_TOKEN_PREFIX,

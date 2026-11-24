@@ -8,6 +8,7 @@ import type {
   ConversationTopicId,
 } from "@werft-ai/contracts";
 import type { BudgetRoot } from "../budget-accounts.ts";
+import type { ConversationCallLimit } from "../conversation-call-limits.ts";
 import type { ProviderUsage } from "../model-prices.ts";
 import type { BudgetAmount } from "./budget-ledger.ts";
 
@@ -59,6 +60,14 @@ export interface ConversationCallStore {
     /** Counts what it would mark, and writes nothing. */
     dryRun: boolean;
   }): Promise<{ unknown: number }>;
+  /**
+   * The agents holding at least `atLeast` calls of unknown end, the most
+   * first, at most `limit` of them.
+   */
+  unknownByAgent(input: {
+    atLeast: number;
+    limit: number;
+  }): Promise<{ workspaceId: string; agentId: string; unknown: number }[]>;
 }
 
 export type ConversationCallIssueInput = {
@@ -93,6 +102,15 @@ export type ConversationCallIssue =
       outcome: "refused";
       rootKind: BudgetRootKind;
       accountId: BudgetAccountId | null;
+    }
+  // One of the call's keys already has its limit of calls in progress
+  // (conversation-call-limits.ts); nothing is reserved.
+  | {
+      outcome: "concurrency_limited";
+      limit: ConversationCallLimit;
+      inProgress: number;
+      // How many of those are of unknown end.
+      unknown: number;
     }
   // No such agent in that workspace.
   | { outcome: "unknown_agent" }
