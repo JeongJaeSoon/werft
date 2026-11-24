@@ -107,7 +107,7 @@ curl --max-time 10 -sS -w '\n%{http_code}\n' "$API/v1/auth/bootstrap" \
 | 상태 | 뜻과 할 일 |
 | --- | --- |
 | `400` | 본문의 칸이 틀렸다(비밀번호 길이, slug 꼴 등). 링크는 남으므로 `owner-bootstrap.json`을 지우고 본문 만들기부터 다시 한다 |
-| `401` | 링크를 이미 썼거나, 24시간이 지났거나, 명령을 다시 실행해 바뀌었다. owner가 없으면 `owner-link.json`과 `owner-setup-token`을 지우고 링크 명령부터 다시 한다 |
+| `401` | 링크를 이미 썼거나, 24시간이 지났거나, 명령을 다시 실행해 바뀌었다. owner가 없으면 `owner-link.json`, `owner-setup-token`, `owner-bootstrap.json`을 지우고 링크 명령부터 다시 한다 |
 | `403` | 이메일 주소가 링크 명령에 준 주소와 다르다. 링크는 남는다 |
 | `409` | 같은 링크로 먼저 온 요청이 owner를 만들었다 |
 | `429` | 요청이 너무 잦다. 잠시 뒤 다시 보낸다 |
@@ -219,12 +219,12 @@ owner·admin에게도 공유 범위 밖 세션은 목록·상세·turn에 보이
 `admin bootstrap-owner`가 `usage: bun run src/main.ts <api|metrics> | …(got admin)`으로 끝나거나 `scripts/test-ops.sh setup-link --email …`이 사용법만 출력하면, 이 명령이 없는 이전 릴리스(`v0.4.0`까지)의 이미지다. 그 이미지에서는 `bun run apps/control-host/src/api/setup-link.ts`(test-ops 단일 서버는 인자 없는 `scripts/test-ops.sh setup-link`)가 링크를 stdout에 한 번 출력하고 파일은 만들지 않는다. 링크는 이메일 주소에 묶이지 않는다. 브라우저 없이 만들려면 출력을 화면에 내지 말고 토큰 파일로 받은 뒤 [브라우저 없이 만들기](#브라우저-없이-만들기)에서 토큰 꺼내기만 건너뛰고 따른다.
 
 ```bash
-(umask 077 && set -C && scripts/test-ops.sh setup-link | sed -n 's/.*#setup=//p' >owner-setup-token)
+(umask 077 && set -C && scripts/test-ops.sh setup-link | sed -n 's/.*#setup=//p' >"$DEPLOYMENT_DIR/owner-setup-token")
 (umask 077 && set -C && kubectl -n werft exec deploy/werft-api -c api -- \
   bun run apps/control-host/src/api/setup-link.ts | sed -n 's/.*#setup=//p' >owner-setup-token)
 ```
 
-첫 줄은 test-ops 단일 서버, 그 아래 두 줄은 Kubernetes의 한 명령이다. 설치에 맞는 것 하나만 실행한다. `owner-setup-token`이 비어 있으면 링크가 나오지 않은 것이므로(owner가 이미 있으면 그렇다) 파일을 지우고 명령의 오류를 확인한다.
+첫 줄은 test-ops 단일 서버, 그 아래 두 줄은 Kubernetes의 한 명령이다. 설치에 맞는 것 하나만 실행한다. test-ops 단일 서버는 번들 디렉터리 안에 파일을 두면 다음 실행이 멈추므로 토큰 파일을 `DEPLOYMENT_DIR`에 만들고, 이어지는 명령도 그 디렉터리에서 실행한다. `owner-setup-token`이 비어 있으면 링크가 나오지 않은 것이므로(owner가 이미 있으면 그렇다) 파일을 지우고 명령의 오류를 확인한다.
 
 ## 되돌리기
 

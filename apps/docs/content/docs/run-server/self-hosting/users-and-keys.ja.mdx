@@ -112,7 +112,7 @@ curl --max-time 10 -sS -w '\n%{http_code}\n' "$API/v1/auth/bootstrap" \
 | 状態 | 意味と対処 |
 | --- | --- |
 | `400` | 本文の項目が正しくありません（パスワードの長さ、slug の形など）。リンクは残るので、`owner-bootstrap.json` を削除して本文の作成からやり直します |
-| `401` | リンクはすでに使われたか、24 時間が過ぎたか、コマンドの再実行で置き換わっています。owner がいなければ、`owner-link.json` と `owner-setup-token` を削除し、リンクのコマンドからやり直します |
+| `401` | リンクはすでに使われたか、24 時間が過ぎたか、コマンドの再実行で置き換わっています。owner がいなければ、`owner-link.json`、`owner-setup-token`、`owner-bootstrap.json` を削除し、リンクのコマンドからやり直します |
 | `403` | メールアドレスがリンクのコマンドに渡したアドレスと違います。リンクは残ります |
 | `409` | 同じリンクで先に届いたリクエストが owner を作りました |
 | `429` | リクエストが多すぎます。少し待って送り直します |
@@ -232,12 +232,12 @@ owner・admin でも、共有範囲外のセッションは一覧・詳細・tur
 `admin bootstrap-owner` が `usage: bun run src/main.ts <api|metrics> | …(got admin)` で終わるか、`scripts/test-ops.sh setup-link --email …` が使い方だけを出力する場合、そのイメージはこのコマンドがない以前のリリース（`v0.4.0` まで）のものです。そのイメージでは、`bun run apps/control-host/src/api/setup-link.ts`（test-ops 単一サーバーでは引数なしの `scripts/test-ops.sh setup-link`）がリンクを stdout に一度だけ出力し、ファイルは作りません。リンクはメールアドレスに結び付きません。ブラウザなしで作るには、出力を画面に出さずにトークンのファイルに受け取り、[ブラウザなしで作る](#브라우저-없이-만들기)のトークンの取り出しだけを飛ばして進めます。
 
 ```bash
-(umask 077 && set -C && scripts/test-ops.sh setup-link | sed -n 's/.*#setup=//p' >owner-setup-token)
+(umask 077 && set -C && scripts/test-ops.sh setup-link | sed -n 's/.*#setup=//p' >"$DEPLOYMENT_DIR/owner-setup-token")
 (umask 077 && set -C && kubectl -n werft exec deploy/werft-api -c api -- \
   bun run apps/control-host/src/api/setup-link.ts | sed -n 's/.*#setup=//p' >owner-setup-token)
 ```
 
-最初の行は test-ops 単一サーバー用、その下の 2 行は Kubernetes 用の 1 つのコマンドです。設置に合うものを 1 つだけ実行します。`owner-setup-token` が空なら、リンクは出ていません（owner がすでにいる場合など）。ファイルを削除し、コマンドのエラーを確かめます。
+最初の行は test-ops 単一サーバー用、その下の 2 行は Kubernetes 用の 1 つのコマンドです。設置に合うものを 1 つだけ実行します。test-ops 単一サーバーでは、バンドルのディレクトリの中にファイルを置くと次の実行が止まるため、トークンのファイルは `DEPLOYMENT_DIR` に作り、続くコマンドもそのディレクトリで実行します。`owner-setup-token` が空なら、リンクは出ていません（owner がすでにいる場合など）。ファイルを削除し、コマンドのエラーを確かめます。
 
 <a id="되돌리기" />
 ## 元に戻す
