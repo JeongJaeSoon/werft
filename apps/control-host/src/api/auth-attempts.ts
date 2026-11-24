@@ -67,7 +67,7 @@ export class MemoryAuthAttemptStore implements AuthAttemptStore {
   // the first key is the one touched longest ago.
   private readonly windows = new Map<
     string,
-    { startedAt: number; count: number }
+    { startedAt: number; count: number; refusals: number }
   >();
   readonly locks: Array<{
     email: string;
@@ -103,24 +103,25 @@ export class MemoryAuthAttemptStore implements AuthAttemptStore {
     let window = this.windows.get(id);
     this.windows.delete(id);
     if (window === undefined || window.startedAt <= now - rule.windowMs) {
-      window = { startedAt: now, count: 0 };
+      window = { startedAt: now, count: 0, refusals: 0 };
     }
     if (this.windows.size >= (this.options.maxKeys ?? MEMORY_MAX_KEYS)) {
       const eldest = this.windows.keys().next().value;
       if (eldest !== undefined) this.windows.delete(eldest);
     }
-    window.count += 1;
     this.windows.set(id, window);
-    if (window.count <= rule.limit) {
+    if (window.count < rule.limit) {
+      window.count += 1;
       return {
         admitted: true,
         window: String(window.startedAt) as AuthAttemptWindowRef,
       };
     }
+    window.refusals += 1;
     return {
       admitted: false,
       retryAfterMs: Math.max(1, window.startedAt + rule.windowMs - now),
-      closedNow: window.count === rule.limit + 1,
+      closedNow: window.refusals === 1,
       windowStartedAt: new Date(window.startedAt),
     };
   }
@@ -129,17 +130,14 @@ export class MemoryAuthAttemptStore implements AuthAttemptStore {
     kind: AuthAttemptKind,
     key: AuthAttemptKey,
     ref: AuthAttemptWindowRef,
-    upTo: number | null,
   ): Promise<void> {
     const window = this.windows.get(`${kind}:${key}`);
-    if (
-      window &&
-      String(window.startedAt) === ref &&
-      window.count >= 1 &&
-      (upTo === null || window.count <= upTo)
-    ) {
+    if (window && String(window.startedAt) === ref && window.count >= 1) {
       window.count -= 1;
-      if (window.count === 0) this.windows.delete(`${kind}:${key}`);
+      // A window that refused stays, or its next refusal would be its first.
+      if (window.count === 0 && window.refusals === 0) {
+        this.windows.delete(`${kind}:${key}`);
+      }
     }
   }
 

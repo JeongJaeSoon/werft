@@ -17,15 +17,18 @@ export type AuthAttemptTake =
   | {
       admitted: false;
       retryAfterMs: number;
-      /** True for the first refusal of the window, and for no other. */
+      /**
+       * True for the first refusal of the window, and for no other, even
+       * when attempts given back opened it again in between.
+       */
       closedNow: boolean;
       windowStartedAt: Date;
     };
 
 /**
  * Fixed-window attempt counters, shared by every API replica. A window opens
- * at the first attempt and holds `limit` of them; the rest are refused until
- * it ends.
+ * at the first attempt and admits `limit` of them not given back; the rest
+ * are refused, and not counted, until it ends.
  */
 export interface AuthAttemptStore {
   take(
@@ -34,16 +37,15 @@ export interface AuthAttemptStore {
     rule: AuthAttemptRule,
   ): Promise<AuthAttemptTake>;
   /**
-   * Uncounts an admitted attempt, nothing once its window has ended. With
-   * `upTo` only while the count is at most that, so a window that refused
-   * one stays closed until it ends; with null whatever the count, so it can
-   * open again (and close, and report closing, again).
+   * Uncounts an admitted attempt, nothing once its window has ended. A
+   * window that refused attempts opens again once enough are given back:
+   * refusals are not counted, so a burst refused while right passwords or
+   * an outage were in flight leaves nothing behind.
    */
   giveBack(
     kind: AuthAttemptKind,
     key: AuthAttemptKey,
     window: AuthAttemptWindowRef,
-    upTo: number | null,
   ): Promise<void>;
   clear(kind: AuthAttemptKind, key: AuthAttemptKey): Promise<void>;
   /**

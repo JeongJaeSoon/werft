@@ -1,5 +1,5 @@
 {
-  "id": "47f54311-4b64-4715-a851-74d4f9730a3e",
+  "id": "6b987845-532d-44d0-8c85-236e25eb0d92",
   "prevId": "24415675-874b-4e34-9cfa-fc47aaa34a6d",
   "version": "7",
   "dialect": "postgresql",
@@ -3399,6 +3399,20 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "refusals": {
+          "name": "refusals",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "refused": {
+          "name": "refused",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
       "indexes": {
@@ -3435,6 +3449,10 @@
         "auth_attempt_windows_count_check": {
           "name": "auth_attempt_windows_count_check",
           "value": "\"auth_attempt_windows\".\"count\" >= 0"
+        },
+        "auth_attempt_windows_refusals_check": {
+          "name": "auth_attempt_windows_refusals_check",
+          "value": "\"auth_attempt_windows\".\"refusals\" >= 0"
         }
       },
       "isRLSEnabled": false

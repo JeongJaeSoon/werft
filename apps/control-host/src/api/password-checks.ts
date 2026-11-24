@@ -149,12 +149,12 @@ export class PasswordChecks {
         this.rules.accountFailures,
         email,
       ).catch((error: unknown) => {
-        this.giveBack("ip_failure", network, this.rules.networkFailures);
+        this.giveBack("ip_failure", network);
         throw error;
       });
       const release = () => {
-        this.giveBack("ip_failure", network, this.rules.networkFailures);
-        this.giveBack("account_failure", account, this.rules.accountFailures);
+        this.giveBack("ip_failure", network);
+        this.giveBack("account_failure", account);
       };
       try {
         return {
@@ -163,7 +163,7 @@ export class PasswordChecks {
             release,
             succeeded: async () => {
               await this.store.clear("account_failure", account.key);
-              this.giveBack("ip_failure", network, this.rules.networkFailures);
+              this.giveBack("ip_failure", network);
             },
           },
         };
@@ -230,16 +230,10 @@ export class PasswordChecks {
   private giveBack(
     kind: "ip_failure" | "account_failure",
     taken: Taken | null,
-    rule: AuthAttemptRule,
   ): void {
     if (taken === null) return;
-    // A network's window is shared by everyone behind one NAT: right
-    // passwords and outages give back even after it refused, or a burst of
-    // them would lock the network with no failure in it. An account's stays
-    // closed (its right password clears it), so its lock has one receipt.
-    const upTo = kind === "ip_failure" ? null : rule.limit;
     void this.store
-      .giveBack(kind, taken.key, taken.window, upTo)
+      .giveBack(kind, taken.key, taken.window)
       .catch((error: unknown) => {
         this.logger?.warn("Sign-in attempt not given back", {
           kind,

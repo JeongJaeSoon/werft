@@ -108,38 +108,43 @@ describe("createPostgresAuthAttemptStore", () => {
     const first = await store.take("account_failure", KEY, RULE);
     if (!first.admitted) throw new Error("expected admission");
     await store.take("account_failure", KEY, RULE);
-    await store.giveBack("account_failure", KEY, first.window, RULE.limit);
+    await store.giveBack("account_failure", KEY, first.window);
     expect(await count()).toBe(1);
     // Another window's reference leaves this window alone.
     await store.giveBack(
       "account_failure",
       KEY,
       "2000-01-01 00:00:00+00" as AuthAttemptWindowRef,
-      RULE.limit,
     );
     expect(await count()).toBe(1);
-    // Once refused, the window stays closed whatever is given back.
-    for (let i = 0; i < 3; i += 1)
-      await store.take("account_failure", KEY, RULE);
-    expect(await count()).toBe(4);
-    await store.giveBack("account_failure", KEY, first.window, RULE.limit);
-    expect(await count()).toBe(4);
     await store.clear("account_failure", KEY);
     expect(await count()).toBeUndefined();
   });
 
-  test("without a ceiling, giving back opens a closed window again", async () => {
+  test("refusals are not counted: giving back opens a closed window, which reports closing once", async () => {
     const admitted = [];
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       admitted.push(await store.take("ip_failure", KEY, RULE));
     }
-    expect(admitted.at(-1)?.admitted).toBe(false);
-    for (const one of admitted) {
-      if (one.admitted)
-        await store.giveBack("ip_failure", KEY, one.window, null);
+    // Many refusals while the three are in flight leave the count alone.
+    const refused = [];
+    for (let i = 0; i < 10; i += 1) {
+      refused.push(await store.take("ip_failure", KEY, RULE));
     }
-    expect(await count()).toBe(1);
-    expect((await store.take("ip_failure", KEY, RULE)).admitted).toBe(true);
+    expect(refused.map((one) => one.admitted)).toEqual(Array(10).fill(false));
+    expect(await count()).toBe(3);
+    for (const one of admitted) {
+      if (one.admitted) await store.giveBack("ip_failure", KEY, one.window);
+    }
+    expect(await count()).toBe(0);
+    for (let i = 0; i < 3; i += 1) {
+      expect((await store.take("ip_failure", KEY, RULE)).admitted).toBe(true);
+    }
+    // Closed again in the same window: not its first refusal.
+    expect(await store.take("ip_failure", KEY, RULE)).toMatchObject({
+      admitted: false,
+      closedNow: false,
+    });
   });
 
   test("writes a lock receipt on each live membership of a live account", async () => {

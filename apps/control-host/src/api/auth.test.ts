@@ -1553,7 +1553,7 @@ describe("login lockout", () => {
     expect(gate.running).toBe(0);
   });
 
-  test("giveBack uncounts an admitted attempt only while the window has refused none", async () => {
+  test("giveBack uncounts an admitted attempt, and a window reports closing once", async () => {
     const store = new MemoryAuthAttemptStore({ now: () => 1_000_000 });
     const rule = { limit: 2, windowMs: 60_000 };
     const key = "a" as AuthAttemptKey;
@@ -1561,12 +1561,16 @@ describe("login lockout", () => {
     const first = await take();
     await take();
     if (!first.admitted) throw new Error("the first attempt was refused");
-    await store.giveBack("account_failure", key, first.window, rule.limit);
-    expect((await take()).admitted).toBe(true);
+    await store.giveBack("account_failure", key, first.window);
+    const third = await take();
+    expect(third.admitted).toBe(true);
     expect(await take()).toMatchObject({ admitted: false, closedNow: true });
-    // A closed window stays closed: giving back no longer reopens it, so no
-    // later refusal can be the first again.
-    await store.giveBack("account_failure", key, first.window, rule.limit);
+    expect(await take()).toMatchObject({ admitted: false, closedNow: false });
+    // Giving back opens it again; closing again is not reported again.
+    if (third.admitted) {
+      await store.giveBack("account_failure", key, third.window);
+    }
+    expect((await take()).admitted).toBe(true);
     expect(await take()).toMatchObject({ admitted: false, closedNow: false });
     await store.clear("account_failure", key);
     expect((await take()).admitted).toBe(true);

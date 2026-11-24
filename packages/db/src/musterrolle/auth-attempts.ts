@@ -11,8 +11,7 @@ import { rowsOf } from "../statement-rows.ts";
 
 const windows = authAttemptWindows;
 
-// Refused attempts keep counting, so only the first of them sees the count
-// reach limit + 1; the cap only keeps the integer column from overflowing.
+// Only keeps the refusal count from overflowing its integer column.
 const COUNT_CAP = 2_147_483_647;
 
 /** Longer than any window may be set to (api-settings caps them at a day). */
@@ -29,26 +28,32 @@ export function createPostgresAuthAttemptStore(db: Database): AuthAttemptStore {
     async take(kind, key, rule) {
       // One statement per attempt: the row lock orders concurrent attempts
       // on every replica, and the database clock alone dates the window.
+      // SET reads the row as it was, so `refused` says whether this attempt
+      // found the window full. A refusal is not counted in `count`: only
+      // admitted attempts are, and each of those can be given back.
       const ended = sql`${windows.windowStartedAt} <= excluded.window_started_at - ${millis(rule.windowMs)}`;
+      const full = sql`${windows.count} >= ${rule.limit}`;
       const result = await db.execute(sql`
-        INSERT INTO ${windows} (kind, key, window_started_at, count)
-        VALUES (${kind}, ${key}, clock_timestamp(), 1)
+        INSERT INTO ${windows} (kind, key, window_started_at, count, refusals, refused)
+        VALUES (${kind}, ${key}, clock_timestamp(), 1, 0, false)
         ON CONFLICT (kind, key) DO UPDATE SET
           window_started_at = CASE WHEN ${ended} THEN excluded.window_started_at ELSE ${windows.windowStartedAt} END,
-          count = CASE WHEN ${ended} THEN 1 ELSE least(${windows.count} + 1, ${COUNT_CAP}) END
-        RETURNING count,
+          count = CASE WHEN ${ended} THEN 1 WHEN ${full} THEN ${windows.count} ELSE ${windows.count} + 1 END,
+          refusals = CASE WHEN ${ended} THEN 0 WHEN ${full} THEN least(${windows.refusals} + 1, ${COUNT_CAP}) ELSE ${windows.refusals} END,
+          refused = CASE WHEN ${ended} THEN false ELSE ${full} END
+        RETURNING refused, refusals,
           window_started_at::text AS window_ref,
           (extract(epoch FROM window_started_at) * 1000)::text AS started_ms,
           (extract(epoch FROM window_started_at + ${millis(rule.windowMs)} - clock_timestamp()) * 1000)::text AS left_ms`);
       const [row] = rowsOf<{
-        count: number | string;
+        refused: boolean;
+        refusals: number | string;
         window_ref: string;
         started_ms: string;
         left_ms: string;
       }>(result);
       if (!row) throw new Error("auth attempt upsert returned no row");
-      const count = Number(row.count);
-      if (count <= rule.limit) {
+      if (!row.refused) {
         // The text form keeps the microseconds a Date would drop.
         return {
           admitted: true,
@@ -58,12 +63,12 @@ export function createPostgresAuthAttemptStore(db: Database): AuthAttemptStore {
       return {
         admitted: false,
         retryAfterMs: Math.max(1, Math.ceil(Number(row.left_ms))),
-        closedNow: count === rule.limit + 1,
+        closedNow: Number(row.refusals) === 1,
         windowStartedAt: new Date(Number(row.started_ms)),
       };
     },
 
-    async giveBack(kind, key, window, upTo) {
+    async giveBack(kind, key, window) {
       await db
         .update(windows)
         .set({ count: sql`${windows.count} - 1` })
@@ -71,9 +76,7 @@ export function createPostgresAuthAttemptStore(db: Database): AuthAttemptStore {
           and(
             keyOf(kind, key),
             sql`${windows.windowStartedAt} = ${window}::timestamptz`,
-            upTo === null
-              ? sql`${windows.count} >= 1`
-              : sql`${windows.count} BETWEEN 1 AND ${upTo}`,
+            sql`${windows.count} >= 1`,
           ),
         );
     },

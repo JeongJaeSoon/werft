@@ -42,7 +42,7 @@ describe("PasswordChecks on Postgres", () => {
     env: { clientAddress: address },
     req: { raw: new Request("http://api.test/", { headers: entries }) },
   });
-  /** A wrong password: [REDACTED], never succeeded. */
+  /** A wrong password: counted, never succeeded. */
   const fail = (checks: PasswordChecks, email: string, address: string) =>
     checks.guess(email, checks.clientOf(from(address)), async () => false);
   const refusal = async (attempt: Promise<unknown>) => {
@@ -174,7 +174,7 @@ describe("PasswordChecks on Postgres", () => {
     ).toHaveLength(1);
   });
 
-  test("with the header set, the client it names is [REDACTED]", async () => {
+  test("with the header set, the client it names is counted", async () => {
     const checks = replica("cf-connecting-ip");
     const via = (ip: string, email: string) =>
       checks.guess(
@@ -189,7 +189,7 @@ describe("PasswordChecks on Postgres", () => {
     await via("198.51.100.8", known);
   });
 
-  test("IPv6 clients are [REDACTED] per /64", async () => {
+  test("IPv6 clients are counted per /64", async () => {
     const checks = replica();
     for (let i = 0; i < 20; i += 1) {
       await fail(
@@ -213,7 +213,7 @@ describe("PasswordChecks on Postgres", () => {
     ]);
     expect(refused.retryAfterSeconds).toBeLessThanOrEqual(60);
     await checks.admitTokenRequest(checks.clientOf(from("203.0.113.5")));
-    // Un[REDACTED] (a private peer without the header) is never refused.
+    // Uncounted (a private peer without the header) is never refused.
     const tunnel = checks.clientOf(from("127.0.0.1"));
     for (let i = 0; i < 31; i += 1) await checks.admitTokenRequest(tunnel);
   });
@@ -243,7 +243,7 @@ describe("PasswordChecks on Postgres", () => {
       open = resolve;
     });
     // Twenty people behind one NAT, each with their right password, all
-    // still being checked when a twenty-first arrives.
+    // still being checked while twenty more arrive.
     const inFlight = Array.from({ length: 20 }, (_, i) =>
       checks.guess(`member${i}@example.com`, network, async () => {
         await held;
@@ -251,13 +251,47 @@ describe("PasswordChecks on Postgres", () => {
       }),
     );
     await Bun.sleep(50);
-    await refusal(checks.guess("late@example.com", network, async () => false));
+    for (let i = 0; i < 20; i += 1) {
+      await refusal(
+        checks.guess(`late${i}@example.com`, network, async () => false),
+      );
+    }
     open();
     for (const { reservation } of await Promise.all(inFlight)) {
       await reservation.succeeded();
     }
     await Bun.sleep(50);
     await checks.guess("next@example.com", network, async () => false);
+  });
+
+  test("an outage in flight gives an account back after it refused", async () => {
+    const checks = new PasswordChecks({
+      store: schema.createPostgresAuthAttemptStore(db),
+      keys: new AuthAttemptKeys(secret),
+      logger: new StructuredLogger({ sinks: [sink] }),
+      work: new WorkGate(32, 64),
+    });
+    const network = checks.clientOf(from("203.0.113.9"));
+    let fail = (_: Error) => {};
+    const down = new Promise<never>((_, reject) => {
+      fail = reject;
+    });
+    const inFlight = Array.from({ length: 5 }, () =>
+      checks.guess(known, network, () => down).catch(() => "outage"),
+    );
+    await Bun.sleep(50);
+    await refusal(checks.guess(known, network, async () => false));
+    fail(new Error("database gone"));
+    expect(await Promise.all(inFlight)).toEqual(Array(5).fill("outage"));
+    await Bun.sleep(50);
+    const { reservation } = await checks.guess(
+      known,
+      network,
+      async () => true,
+    );
+    await reservation.succeeded();
+    // The refusal while it was full locked it once, and once only.
+    expect(await receipts()).toHaveLength(1);
   });
 
   test("a receipt that cannot be written logs no email", async () => {

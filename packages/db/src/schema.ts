@@ -603,7 +603,12 @@ export const authAttemptWindows = pgTable(
     windowStartedAt: timestamp("window_started_at", {
       withTimezone: true,
     }).notNull(),
+    /** Admitted attempts: failures, and reservations not yet settled. */
     count: integer().notNull(),
+    /** Attempts refused because `count` had reached the limit. */
+    refusals: integer().notNull().default(0),
+    /** Whether the last attempt was refused; read back by the same upsert. */
+    refused: boolean().notNull().default(false),
   },
   (table) => [
     primaryKey({
@@ -616,6 +621,7 @@ export const authAttemptWindows = pgTable(
       sql`${table.kind} IN (${sqlLiterals(AUTH_ATTEMPT_KIND_VALUES)})`,
     ),
     check("auth_attempt_windows_count_check", sql`${table.count} >= 0`),
+    check("auth_attempt_windows_refusals_check", sql`${table.refusals} >= 0`),
   ],
 );
 
