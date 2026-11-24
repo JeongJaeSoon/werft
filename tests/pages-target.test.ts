@@ -33,6 +33,8 @@ type Run = {
   /** The head commit of the newest manual run on main in the run list. */
   manual?: keyof History;
   listFails?: boolean;
+  /** How many reads of the run list do not show this run, or the fix, yet. */
+  lagging?: number;
 };
 type History = Record<"c1" | "c2" | "c3" | "c4" | "side", string>;
 
@@ -96,7 +98,15 @@ function ask(tags: Tags, run: Run) {
       `#!/usr/bin/env bash
 printf '%s\\n' "$*" >>"${calls}"
 if [ -n "\${FAKE_LIST_FAILS:-}" ]; then echo "gh: HTTP 502" >&2; exit 1; fi
-printf '%s' "\${FAKE_MANUAL:-}"
+# The list shows neither this run nor the fix until it has caught up.
+reads=$(cat "${directory}/reads" 2>/dev/null || echo 0)
+case "$*" in
+  *branch=main*) [ "$reads" -le "\${FAKE_LAGGING}" ] || printf '%s' "\${FAKE_MANUAL}" ;;
+  *)
+    echo $((reads + 1)) >"${directory}/reads"
+    [ "$reads" -lt "\${FAKE_LAGGING}" ] || printf '%s' "\${GITHUB_RUN_ID}"
+    ;;
+esac
 `,
     );
     chmodSync(join(bin, "gh"), 0o755);
@@ -110,7 +120,10 @@ printf '%s' "\${FAKE_MANUAL:-}"
         GITHUB_REF: run.ref,
         GITHUB_SHA: history[run.at],
         GITHUB_EVENT_NAME: run.event ?? "push",
+        GITHUB_RUN_ID: "4242",
         GITHUB_OUTPUT: output,
+        PAGES_LIST_POLL_SECONDS: "0",
+        FAKE_LAGGING: String(run.lagging ?? 0),
         FAKE_MANUAL: run.manual ? history[run.manual] : "",
         FAKE_LIST_FAILS: run.listFails ? "1" : "",
       },
@@ -251,6 +264,40 @@ describe("pages-target.sh", () => {
     SLOW,
   );
 
+  // The fix was replaced a moment ago and the list has not caught up.
+  test(
+    "reads the docs fix only once the run list shows this run",
+    () => {
+      const got = ask(
+        { ...released, "v1.3.1": "c1" },
+        { ref: "refs/tags/v1.3.1", at: "c1", manual: "c3", lagging: 2 },
+      );
+      expect(got).toMatchObject({ exitCode: 0, at: "c3", source: "main" });
+      const calls = got.calls.trim().split("\n");
+      expect(calls.filter((call) => call.includes("per_page=30"))).toHaveLength(
+        3,
+      );
+      expect(calls.at(-1)).toContain("branch=main");
+    },
+    SLOW,
+  );
+
+  test(
+    "a run list that never shows this run fails the run",
+    () => {
+      const got = ask(released, {
+        ref: "refs/tags/v1.4.0",
+        at: "c2",
+        manual: "c3",
+        lagging: 99,
+      });
+      expect(got.exitCode).toBe(1);
+      expect(got.stderr).toContain("does not show this run (4242)");
+      expect(got.at).toBeUndefined();
+    },
+    SLOW,
+  );
+
   test(
     "a run list that cannot be read fails the run instead of dropping the fix",
     () => {
@@ -260,7 +307,7 @@ describe("pages-target.sh", () => {
         listFails: true,
       });
       expect(got.exitCode).toBe(1);
-      expect(got.stderr).toContain("could not read the manual runs");
+      expect(got.stderr).toContain("could not read the runs of pages.yml");
       expect(got.at).toBeUndefined();
     },
     SLOW,

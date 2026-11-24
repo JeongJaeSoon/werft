@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Picks the commit the Pages site is built from: `pages-target.sh`, in a full
-# clone whose `origin` is the repository, with GH_REPO and GH_TOKEN set
-# (actions: read). Writes `sha=` and `source=` to GITHUB_OUTPUT.
+# clone whose `origin` is the repository, with GH_REPO, GH_TOKEN (actions:
+# read) and GITHUB_RUN_ID set. Writes `sha=` and `source=` to GITHUB_OUTPUT.
 #
 # There is one site, and the runs of pages.yml wait in one group where GitHub
 # keeps a single waiting run and drops the rest. So a run does not deploy the
@@ -37,8 +37,10 @@ git fetch --quiet --force --tags origin "+refs/heads/main:refs/remotes/origin/ma
   || fail "could not fetch main and the tags"
 
 # A tag can point anywhere; only a commit on main was reviewed.
+all="$(git tag --list 'v*')" || fail "could not list the tags"
 tags=""
 while IFS= read -r tag; do
+  [ -n "$tag" ] || continue
   commit="$(git rev-parse --verify --quiet "refs/tags/${tag}^{commit}")" \
     || fail "tag ${tag} names no commit"
   if is_ancestor "$commit" origin/main; then
@@ -46,7 +48,7 @@ while IFS= read -r tag; do
   else
     echo "${tag} is not on main: not a candidate"
   fi
-done < <(git tag --list 'v*')
+done <<<"$all"
 
 release="$(printf '%s' "$tags" | bun "${here}/release-versions.ts" latest)" \
   || fail "could not pick the highest release"
@@ -56,6 +58,20 @@ if [ -n "$release" ]; then
   target="$(git rev-parse --verify "refs/tags/${release}^{commit}")"
   source="$release"
 fi
+
+# The run list trails new runs by a moment. A docs fix this run replaced while
+# both waited was started before this run, so the list is trusted only once it
+# shows this run. (A run started after this one deploys for itself.)
+run_id="${GITHUB_RUN_ID:?}"
+[[ "$run_id" =~ ^[0-9]+$ ]] || fail "'${run_id}' is not a run id"
+listed=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  listed="$(gh api "repos/${repo}/actions/workflows/pages.yml/runs?per_page=30" \
+    --jq ".workflow_runs[] | select(.id == ${run_id}) | .id")" || fail "could not read the runs of pages.yml"
+  [ -z "$listed" ] || break
+  sleep "${PAGES_LIST_POLL_SECONDS:-5}"
+done
+[ -n "$listed" ] || fail "the run list does not show this run (${run_id}) yet, so it may not show a docs fix either"
 
 # The newest manual run on main. Its commit is the docs fix someone asked for,
 # whether or not that run got to deploy.
