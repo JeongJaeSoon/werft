@@ -480,12 +480,19 @@ integration("context assembler (G1, 9-2 leak table)", () => {
     const line = await summed(key, "kept");
     const goneEngaged = await engaged(key);
     const goneHeld = await buffered(key);
+    const first = await buffered(key, "first");
+    const second = await buffered(key, "second");
     await deleteMark(channel, goneEngaged);
     await deleteMark(channel, goneHeld.ts);
     const read = await source.read(key);
     expect(read.unreadable).toBe(2);
-    expect(read.fragments).toHaveLength(1);
+    expect(read.fragments).toHaveLength(3);
     expect(read.fragments[0]).toMatchObject({ lineId: line.lineId });
+    // Each text read again lands on its own input.
+    expect(read.fragments.slice(1)).toMatchObject([
+      { inputId: first.id, body: "first" },
+      { inputId: second.id, body: "second" },
+    ]);
   });
 
   test("a buffered message whose time is up is not read before the purge removes it", async () => {
