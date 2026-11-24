@@ -204,7 +204,7 @@ integration("conversation turn calls on PostgreSQL", () => {
       .select()
       .from(conversationCalls)
       .where(eq(conversationCalls.conversationTurnId, turn.turnId));
-    expect(rows.map((row) => row.attempt).sort((a, b) => a - b)).toEqual([
+    expect(rows.map((row) => row.attempt).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8,
     ]);
     const [kept] = await db
@@ -228,8 +228,18 @@ integration("conversation turn calls on PostgreSQL", () => {
     expect(await ask(beside.token)).toMatchObject({
       outcome: "concurrency_limited",
       limit: "topic",
-      inProgress: 2,
+      inProgress: 1,
     });
+  });
+
+  test("a person's turn with four calls open counts once: their turn on another topic is granted", async () => {
+    const userId = crypto.randomUUID();
+    const busy = await permit({ kind: "user", userId }, await newTopic());
+    for (let n = 0; n < 4; n++) {
+      expect((await ask(busy.token)).outcome).toBe("ok");
+    }
+    const other = await permit({ kind: "user", userId }, await newTopic());
+    expect((await ask(other.token)).outcome).toBe("ok");
   });
 
   test("a person's five calls at once, each on a topic of its own: four are granted, the fifth refused by the person's limit", async () => {

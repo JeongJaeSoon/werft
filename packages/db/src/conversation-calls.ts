@@ -157,12 +157,15 @@ export async function holdConversationCallLimitsIn(
           ne(c.conversationTurnId, scope.conversationTurnId),
         );
   const counts: Record<string, ReturnType<typeof sql<number>>> = {};
+  // A turn's calls count as the turn, once; a call of no turn as itself.
+  const unit = sql`COALESCE(${c.conversationTurnId}, ${c.id})`;
   for (const limit of CONVERSATION_CALL_LIMIT_VALUES) {
     const where = scoped[limit];
     if (!where) continue;
-    counts[limit] = sql<number>`(count(*) FILTER (WHERE ${where}))::int`;
+    counts[limit] =
+      sql<number>`(count(DISTINCT ${unit}) FILTER (WHERE ${where}))::int`;
     counts[`${limit}Unknown`] =
-      sql<number>`(count(*) FILTER (WHERE ${and(where, unknown)}))::int`;
+      sql<number>`(count(DISTINCT ${unit}) FILTER (WHERE ${and(where, unknown)}))::int`;
   }
   const [row] = await tx
     .select(counts)
