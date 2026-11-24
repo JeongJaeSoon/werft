@@ -107,6 +107,8 @@ kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node
 
 有効にすると、chart は Node を読むだけの ClusterRole（`nodes` の get・list）とその binding を scheduler に作成します。namespace 権限だけを持つ設置者は ClusterRole を作成できず install が失敗するため、既定は無効です。無効ならこの ClusterRole を作成しません。Node を読めなかった場合、scheduler は警告を省略して `Node capacity check skipped` だけを記録し、そのまま動作します。
 
+有効にすると、休んでいる worker を止める処理も Node を読みます。Codex sandbox Pod は `werft.codex-seccomp-profile=installed` ラベルのノードにだけ起動します。その Pod が場所を待つ間は、ラベルのノード上の休んでいる worker が sandbox worker でなくてもすべて候補です。無効なら sandbox worker だけが候補です。そのためラベルのノードが休んでいる通常の worker で埋まっていると sandbox Pod は場所を得られず、15 分後に `no_capacity` で失敗します。Node を読めなかった pass はどの worker も止めず、警告 `Could not tell which idle workers free room for a waiting launch` を記録します。
+
 #### conversation runtime Pod
 
 `conversationRuntime.enabled: true` の環境では、conversation runtime Pod も上の計算の「他の Pod の requests」に含まれます。既定の `conversationRuntime.resources` は request と limit がともに 2560Mi です。ランタイム一つは主題セッションを 8 個まで保持し、一つのターンを終えて待機中のエンジン一つは RSS 約 215MiB でした（macOS arm64 で測定した値）。エンジン 8 個、ランタイム loop、主題ディレクトリの tmpfs（256Mi）と余裕を合わせた値です。単一ノードでは、worker の分からこの分が減ります。

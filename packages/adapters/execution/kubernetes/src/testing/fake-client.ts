@@ -8,6 +8,7 @@ import {
   KubernetesApiError,
   type KubernetesClient,
   KubernetesTimeoutError,
+  type Node,
 } from "../client.ts";
 
 type Stored = { metadata: Record<string, unknown> & { name: string } } & Record<
@@ -17,7 +18,7 @@ type Stored = { metadata: Record<string, unknown> & { name: string } } & Record<
 
 export type FakeCall = {
   verb: string;
-  kind: Kind;
+  kind: Kind | "nodes";
   name?: string;
   body?: unknown;
 };
@@ -26,7 +27,11 @@ export class FakeKubernetes {
   readonly objects = new Map<string, Stored>();
   readonly calls: FakeCall[] = [];
   /** Throws instead of answering the next matching call, once. */
-  readonly failures: Array<{ verb: string; kind: Kind; error: Error }> = [];
+  readonly failures: Array<{
+    verb: string;
+    kind: Kind | "nodes";
+    error: Error;
+  }> = [];
 
   asClient(): KubernetesClient {
     return this as unknown as KubernetesClient;
@@ -36,7 +41,7 @@ export class FakeKubernetes {
     return `${namespace}/${kind}/${name}`;
   }
 
-  private fail(verb: string, kind: Kind): void {
+  private fail(verb: string, kind: Kind | "nodes"): void {
     const index = this.failures.findIndex(
       (f) => f.verb === verb && f.kind === kind,
     );
@@ -161,6 +166,21 @@ export class FakeKubernetes {
     const uid = crypto.randomUUID();
     object.metadata.uid = uid;
     return uid;
+  }
+
+  /** Cluster-scoped, so kept outside `objects`; `listNodes` filters them. */
+  readonly nodes: Node[] = [];
+
+  async listNodes(selector: Record<string, string>) {
+    this.calls.push({ body: selector, kind: "nodes", verb: "list" });
+    this.fail("list", "nodes");
+    return this.nodes
+      .filter((node) =>
+        Object.entries(selector).every(
+          ([k, v]) => node.metadata.labels?.[k] === v,
+        ),
+      )
+      .map((node) => structuredClone(node));
   }
 
   removeRaw(namespace: string, kind: Kind, name: string): void {

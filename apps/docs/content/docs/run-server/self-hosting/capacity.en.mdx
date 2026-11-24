@@ -107,6 +107,8 @@ kubectl -n werft logs deploy/werft-scheduler | grep -E 'Node capacity check|Node
 
 Turning it on makes the chart create a read-only ClusterRole for Nodes (`nodes` get and list) and bind it to the scheduler. An installer with namespace-only permissions cannot create a ClusterRole, and the install fails, so the default is off. Off creates no such ClusterRole. If the scheduler cannot read the nodes, it skips the warning, logs only `Node capacity check skipped`, and keeps running.
 
+On, stopping idle workers reads Nodes too. A Codex sandbox Pod schedules only onto nodes labelled `werft.codex-seccomp-profile=installed`. While one waits for room, every idle worker on a labelled node is a candidate, not only sandbox workers. Off, only sandbox workers are; a labelled node full of idle non-sandbox workers then gives the sandbox Pod no room, and it fails with `no_capacity` after 15 minutes. A pass that cannot read the nodes stops no worker and logs the warning `Could not tell which idle workers free room for a waiting launch`.
+
 #### Conversation runtime Pod
 
 In an installation with `conversationRuntime.enabled: true`, the conversation runtime Pod also counts as "other Pod requests" above. The default `conversationRuntime.resources` is 2560Mi for both request and limit. One runtime keeps up to 8 topic sessions, and one engine idle after a turn measured about 215MiB RSS (on macOS arm64). The value adds 8 engines, the runtime loop, the topic directory tmpfs (256Mi), and headroom. On a single node, this much comes out of the workers' share.

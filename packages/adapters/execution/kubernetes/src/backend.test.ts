@@ -15,10 +15,12 @@ import {
   WorkspaceClaimError,
 } from "./backend.ts";
 import { KubernetesApiError } from "./client.ts";
+import { CODEX_SECCOMP_NODE_LABEL } from "./codex-seccomp.ts";
 import {
   ANNOTATIONS,
   legacyIsolationStampFor,
   podNameFor,
+  selectorFor,
   workspaceClaimNameFor,
 } from "./specs.ts";
 import { FakeKubernetes } from "./testing/fake-client.ts";
@@ -883,21 +885,124 @@ describe("workspaces", () => {
   });
 });
 
-describe("makesRoomFor", () => {
+describe("workersFreeingRoomFor", () => {
   const CODEX = `registry.local:5000/codex@sha256:${"b".repeat(64)}`;
-  const backend = new KubernetesBackend(
-    {
-      ...testConfig(NS, INSTALLATION),
-      codexSandbox: { mode: "enabled", images: [CODEX] },
-    },
-    new FakeKubernetes().asClient(),
-    testResolver,
-  );
+  const LABELLED = { [CODEX_SECCOMP_NODE_LABEL.key]: "installed" };
 
-  test("a sandbox Pod waits for a sandbox worker's node, any other for any worker", () => {
-    expect(backend.makesRoomFor(CODEX, CODEX)).toBe(true);
-    expect(backend.makesRoomFor(CODEX, IMAGE)).toBe(false);
-    expect(backend.makesRoomFor(IMAGE, IMAGE)).toBe(true);
-    expect(backend.makesRoomFor(IMAGE, CODEX)).toBe(true);
+  function setupWith(readsNodes?: boolean) {
+    const api = new FakeKubernetes();
+    const backend = new KubernetesBackend(
+      {
+        ...testConfig(NS, INSTALLATION),
+        codexSandbox: { mode: "enabled", images: [CODEX] },
+        nodeSelector: { pool: "workers" },
+        ...(readsNodes === undefined ? {} : { readsNodes }),
+      },
+      api.asClient(),
+      testResolver,
+    );
+    return { api, backend };
+  }
+
+  function worker(executionId: string, image: string | null) {
+    return { executionId, generation: 1, image };
+  }
+
+  /** A worker Pod of this installation, placed on `nodeName` when given. */
+  async function placed(
+    api: FakeKubernetes,
+    ref: { executionId: string; generation: number },
+    nodeName?: string,
+  ) {
+    await api.create(NS, "pods", {
+      metadata: {
+        labels: selectorFor("worker", INSTALLATION),
+        name: podNameFor(ref, INSTALLATION),
+      },
+      spec: nodeName === undefined ? {} : { nodeName },
+    });
+  }
+
+  test("without Node reads, a sandbox Pod waits for a sandbox worker, any other for any worker", async () => {
+    for (const readsNodes of [undefined, false]) {
+      const { api, backend } = setupWith(readsNodes);
+      const workers = [
+        worker("e-codex", CODEX),
+        worker("e-plain", IMAGE),
+        worker("e-unknown", null),
+      ];
+      expect(
+        (await backend.workersFreeingRoomFor(CODEX, workers)).map(
+          (w) => w.executionId,
+        ),
+      ).toEqual(["e-codex", "e-unknown"]);
+      expect(await backend.workersFreeingRoomFor(IMAGE, workers)).toEqual(
+        workers,
+      );
+      expect(api.calls).toEqual([]);
+    }
+  });
+
+  test("with Node reads, a sandbox Pod waits for any worker on a labelled node, in order", async () => {
+    const { api, backend } = setupWith(true);
+    api.nodes.push(
+      { metadata: { labels: { ...LABELLED, pool: "workers" }, name: "n-a" } },
+      { metadata: { labels: { pool: "workers" }, name: "n-b" } },
+      // Labelled, but not one a worker Pod may land on.
+      { metadata: { labels: { ...LABELLED, pool: "other" }, name: "n-c" } },
+    );
+    const plainOnLabelled = worker("e-plain-a", IMAGE);
+    const codexOnLabelled = worker("e-codex-a", CODEX);
+    const plainElsewhere = worker("e-plain-b", IMAGE);
+    const plainOnOther = worker("e-plain-c", IMAGE);
+    const unplaced = worker("e-pending", IMAGE);
+    const gone = worker("e-gone", IMAGE);
+    await placed(api, plainOnLabelled, "n-a");
+    await placed(api, codexOnLabelled, "n-a");
+    await placed(api, plainElsewhere, "n-b");
+    await placed(api, plainOnOther, "n-c");
+    await placed(api, unplaced);
+    api.calls.length = 0;
+
+    const freeing = await backend.workersFreeingRoomFor(CODEX, [
+      plainElsewhere,
+      plainOnLabelled,
+      unplaced,
+      gone,
+      plainOnOther,
+      codexOnLabelled,
+    ]);
+
+    expect(freeing).toEqual([plainOnLabelled, codexOnLabelled]);
+    // One read of each, the Nodes by the worker's selector and the label.
+    expect(api.calls).toEqual([
+      {
+        body: { ...LABELLED, pool: "workers" },
+        kind: "nodes",
+        verb: "list",
+      },
+      { kind: "pods", verb: "list" },
+    ]);
+  });
+
+  test("with Node reads, any other Pod still waits for any worker, and reads nothing", async () => {
+    const { api, backend } = setupWith(true);
+    const workers = [worker("e-plain", IMAGE), worker("e-codex", CODEX)];
+    expect(await backend.workersFreeingRoomFor(IMAGE, workers)).toEqual(
+      workers,
+    );
+    expect(api.calls).toEqual([]);
+  });
+
+  test("a Node read that fails is thrown, not read as no room", async () => {
+    const { api, backend } = setupWith(true);
+    api.failures.push({
+      error: new KubernetesApiError(403, "GET", "/api/v1/nodes", "forbidden"),
+      kind: "nodes",
+      verb: "list",
+    });
+    expect(
+      backend.workersFreeingRoomFor(CODEX, [worker("e-plain", IMAGE)]),
+    ).rejects.toThrow("forbidden");
   });
 });
