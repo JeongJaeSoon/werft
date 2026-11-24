@@ -81,7 +81,7 @@ concurrent working sessions ≈ node allocatable / worker.memoryMb
 kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE:.status.allocatable.memory
 ```
 
-設置出力（`helm upgrade --install` が最後に出力する NOTES）にも、適用された `worker.memoryMb` とこの計算方法が表示されます。空きがなければ、新しいセッションはノードに空きができるまで待ちます。
+設置出力（`helm upgrade --install` が最後に出力する NOTES）にも、適用された `worker.memoryMb` とこの計算方法が表示されます。空きがなければ、新しいセッションはノードに空きができるまで待ち、15 分を過ぎると待っていた入力が `NO_CAPACITY` で失敗します（[作業の空きを待つセッション](/run-server/self-hosting/recover-sessions#작업-자리를-기다리는-세션)）。
 
 小さいノードや試験設置では、環境ごとの values に小さい値を置きます。
 

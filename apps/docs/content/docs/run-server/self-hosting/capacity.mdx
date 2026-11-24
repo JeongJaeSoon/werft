@@ -73,7 +73,7 @@ concurrent working sessions ≈ node allocatable / worker.memoryMb
 kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE:.status.allocatable.memory
 ```
 
-설치 출력(`helm upgrade --install`이 끝에 적는 NOTES)에도 적용된 `worker.memoryMb`와 이 셈법이 나온다. 자리가 없으면 새 세션은 노드에 자리가 날 때까지 기다린다.
+설치 출력(`helm upgrade --install`이 끝에 적는 NOTES)에도 적용된 `worker.memoryMb`와 이 셈법이 나온다. 자리가 없으면 새 세션은 노드에 자리가 날 때까지 기다리고, 15분이 지나면 기다리던 입력이 `NO_CAPACITY`로 실패한다([작업 자리를 기다리는 세션](/run-server/self-hosting/recover-sessions#작업-자리를-기다리는-세션)).
 
 작은 노드나 시험 설치에서는 설치별 values에 더 작은 값을 둔다.
 

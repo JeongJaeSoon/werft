@@ -81,7 +81,7 @@ Other Pod requests on the same node reduce it further. On a single node that als
 kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE:.status.allocatable.memory
 ```
 
-The installation output (the NOTES that `helm upgrade --install` prints at the end) also shows the applied `worker.memoryMb` and this formula. When no node has room, a new session waits until one does.
+The installation output (the NOTES that `helm upgrade --install` prints at the end) also shows the applied `worker.memoryMb` and this formula. When no node has room, a new session waits until one does; after 15 minutes the waiting input fails with `NO_CAPACITY` ([Sessions waiting for room](/run-server/self-hosting/recover-sessions#작업-자리를-기다리는-세션)).
 
 For a small node or a trial install, set a smaller value in your installation values:
 
