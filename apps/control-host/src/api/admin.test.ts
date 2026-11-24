@@ -2,14 +2,19 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorCloseResult } from "@werft-ai/db";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import type { IdentityStore, IssueSetupLinkInput } from "@werft-ai/platform";
 import {
+  ADMIN_USAGE,
   auditLogger,
   auditSetupLinkIssued,
   bootstrapOwner,
+  closeSession,
   containerLogSink,
+  describeCloseSessionResult,
   parseBootstrapOwnerArgs,
+  parseCloseSessionArgs,
   setupLinkFile,
 } from "./admin.ts";
 
@@ -265,4 +270,140 @@ describe("containerLogSink", () => {
       stderr.mockRestore();
     }
   });
+});
+
+const SESSION = "0b6f3c1e-8d2a-4e5f-9a7b-1c2d3e4f5a6b";
+
+describe("parseCloseSessionArgs", () => {
+  test("takes the session id lowercased and the reason trimmed", () => {
+    expect(
+      parseCloseSessionArgs([
+        "close-session",
+        SESSION.toUpperCase(),
+        "--reason",
+        "  idle worker holds the node ",
+      ]),
+    ).toEqual({ sessionId: SESSION, reason: "idle worker holds the node" });
+  });
+
+  test.each([
+    [["close-session"]],
+    [["close-session", "not-a-uuid", "--reason", "r"]],
+    [["close-session", SESSION]],
+    [["close-session", SESSION, "--reason", "   "]],
+    [["close-session", SESSION, "--reason", "r", "extra"]],
+    [["close-session", SESSION, "--reason", "r", "--force"]],
+  ])("refuses %j with the usage", (argv) => {
+    expect(() => parseCloseSessionArgs(argv)).toThrow(ADMIN_USAGE);
+  });
+});
+
+describe("describeCloseSessionResult", () => {
+  const cases: [OperatorCloseResult, boolean, string][] = [
+    [
+      {
+        outcome: "accepted",
+        ownerId: "ws-1",
+        receiptId: "r-1",
+        receiptStatus: "accepted",
+        admissionState: "closing",
+      },
+      true,
+      `closing ${SESSION} owner=ws-1 receipt=r-1 receipt_status=accepted`,
+    ],
+    [
+      {
+        outcome: "accepted",
+        ownerId: "ws-1",
+        receiptId: "r-2",
+        receiptStatus: "succeeded",
+        admissionState: "closed",
+      },
+      true,
+      `closed ${SESSION} owner=ws-1 receipt=r-2 receipt_status=succeeded`,
+    ],
+    [{ outcome: "already_closed" }, true, `already_closed ${SESSION}`],
+    [
+      { outcome: "closing", receiptId: null },
+      true,
+      `closing ${SESSION} receipt=none`,
+    ],
+    [{ outcome: "not_found" }, false, `session ${SESSION} not found`],
+  ];
+  test.each(cases)("%j", (result, ok, line) => {
+    expect(describeCloseSessionResult(SESSION, result)).toEqual({ ok, line });
+  });
+
+  test.each([
+    [{ outcome: "recovery_required" }, "recovery close"],
+    [{ outcome: "checkpoint_unavailable" }, "grants.ts revoke"],
+    [{ outcome: "unsupported" }, "legacy pod binding"],
+    [{ outcome: "rejected", admissionState: "terminating" }, "is terminating"],
+  ] as [OperatorCloseResult, string][])(
+    "%j is a refusal that says what to do",
+    (result, says) => {
+      const described = describeCloseSessionResult(SESSION, result);
+      expect(described.ok).toBe(false);
+      expect(described.line).toContain(says);
+    },
+  );
+});
+
+describe("closeSession", () => {
+  const AT = new Date("2026-11-25T03:00:00.000Z");
+
+  test("audits an accepted close with who and when", async () => {
+    const sink = new MemoryLogSink();
+    const inputs: unknown[] = [];
+    const result = await closeSession(
+      { sessionId: SESSION, reason: "idle worker" },
+      {
+        close: async (input) => {
+          inputs.push(input);
+          return {
+            outcome: "accepted",
+            ownerId: "ws-1",
+            receiptId: "r-1",
+            receiptStatus: "accepted",
+            admissionState: "closing",
+          };
+        },
+        audit: createLogger({ sinks: [sink] }),
+        now: () => AT,
+      },
+    );
+    expect(result.outcome).toBe("accepted");
+    expect(inputs).toEqual([
+      { sessionId: SESSION, reason: "idle worker", now: AT },
+    ]);
+    expect(sink.records).toHaveLength(1);
+    expect(sink.records[0]).toMatchObject({
+      event: "session_close_requested",
+      fields: {
+        by: "operator_cli",
+        session_id: SESSION,
+        owner_id: "ws-1",
+        receipt_id: "r-1",
+        admission_state: "closing",
+        reason: "idle worker",
+        requested_at: "2026-11-25T03:00:00.000Z",
+      },
+    });
+  });
+
+  test.each([
+    [{ outcome: "already_closed" }],
+    [{ outcome: "not_found" }],
+    [{ outcome: "checkpoint_unavailable" }],
+  ] as [OperatorCloseResult][])(
+    "writes no audit line for %j",
+    async (outcome) => {
+      const sink = new MemoryLogSink();
+      await closeSession(
+        { sessionId: SESSION, reason: "r" },
+        { close: async () => outcome, audit: createLogger({ sinks: [sink] }) },
+      );
+      expect(sink.records).toHaveLength(0);
+    },
+  );
 });

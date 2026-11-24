@@ -37,7 +37,7 @@ API(기본 3000)와 PostgreSQL(기본 5432)은 호스트 loopback에만 열린�
 
 Slack 이벤트와 버튼·창(interaction)을 받으려면 Slack이 닿는 공개 https 입구가 필요하다. Slack이 부르는 주소는 `POST /v1/slack/events/{agent_id}`와 `POST /v1/slack/interactions/{agent_id}` 둘뿐이고, 둘 다 cookie나 API key 대신 그 에이전트 앱의 signing secret 서명을 확인한다. 공개 입구는 이 두 경로만 api로 보내고 나머지는 proxy에서 404로 답한다. Slack 앱 설치와 계정 연결의 OAuth redirect는 콘솔 주소(`CONSOLE_ORIGIN`)로 브라우저가 돌아오므로 공개 입구에 열지 않는다.
 
-api의 3000번 포트에는 콘솔과 `/v1` API 말고도 worker용 `/internal`이 있다. 터널이나 proxy로 3000을 통째로 공개하면 `/internal`까지 인터넷에 열린다. 그래서 공개 입구(Slack 경로만)와 콘솔 입구(VPN·IP allowlist 안)를 다른 DNS 이름으로 나누고, 콘솔 입구에서도 `/internal`을 막는다.
+api의 3000번 포트에는 콘솔과 `/v1` API 말고도 worker용 `/internal`이 있다. 터널이나 proxy로 3000을 통째로 공개하면 `/internal`까지 인터넷에 열린다. 그래서 공개 입구(Slack 경로만)와 콘솔 입구(VPN·IP allowlist 안)를 다른 DNS 이름으로 나누고, 콘솔 입구에서도 `/internal`을 막는다. Bun은 백슬래시를 `/`로 바꿔 `/internal` 규칙을 비켜 가게 하므로, 어떤 proxy를 쓰든 경로에 `\`나 `%5C`가 든 요청은 400으로 막는다.
 
 아래는 Compose 서버에서 nginx로 두 입구를 나눈 예다. `<hooks-host>`는 공개 DNS 이름, `<console-host>`는 `CONSOLE_ORIGIN`의 host, `<allowed-cidr>`는 콘솔에 들어올 수 있는 대역이다. 인증서 경로는 조직의 값을 쓴다.
 

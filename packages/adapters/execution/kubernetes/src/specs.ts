@@ -234,7 +234,7 @@ function seccompProfileFor(sandboxed: boolean): Record<string, string> {
     : { type: "RuntimeDefault" };
 }
 
-function codexSandboxed(
+export function codexSandboxed(
   config: KubernetesBackendConfig,
   image: string,
 ): boolean {
@@ -515,6 +515,11 @@ export function workerEnvironmentFor(
     [ENV.objectPrefix, sessionObjectPrefix(intent.sessionId)],
     [ENV.objectRegion, config.objectStore.region],
     [ENV.stopGrace, String(config.stopTimeoutSeconds)],
+    ...(config.idleTimeoutSeconds === undefined
+      ? []
+      : ([[ENV.idleTimeout, String(config.idleTimeoutSeconds)]] as Array<
+          [string, string]
+        >)),
     ...(workerLimits === undefined
       ? []
       : ([

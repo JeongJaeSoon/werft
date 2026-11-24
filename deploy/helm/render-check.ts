@@ -1209,6 +1209,11 @@ const CODEX_LISTED = listedWorker({
 });
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
+  ...["59", "7201", "90.5", "soon"].map((value): [string, string[], RegExp] => [
+    `worker.idleTimeoutSeconds=${value}`,
+    ["-f", ciDigests, "--set-string", `worker.idleTimeoutSeconds=${value}`],
+    /worker.idleTimeoutSeconds must be an integer from 60 to 7200/,
+  ]),
   [
     "the conversation runtime on a Codex image",
     [
@@ -2671,6 +2676,22 @@ for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
     errors.push(`${label}: expected the render to fail with ${message}`);
+  }
+}
+
+// The idle lifetime reaches the scheduler, which hands it to the workers.
+for (const [args, want] of [
+  [[], "1800"],
+  [["--set", "worker.idleTimeoutSeconds=600"], "600"],
+] as const) {
+  const scheduler = render(["-f", ciDigests, ...args]).find(
+    (m) => m.kind === "Deployment" && componentOf(m) === "scheduler",
+  );
+  const got = (
+    scheduler === undefined ? [] : podSpecOf(scheduler).containers[0].env
+  ).find((e: { name: string }) => e.name === "WORKER_IDLE_TIMEOUT_SEC")?.value;
+  if (got !== want) {
+    errors.push(`scheduler WORKER_IDLE_TIMEOUT_SEC is ${got}, not ${want}`);
   }
 }
 

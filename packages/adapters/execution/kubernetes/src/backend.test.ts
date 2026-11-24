@@ -731,7 +731,7 @@ describe("inspect", () => {
     const { intent } = intentFor();
     await backend.ensureExecution(intent);
     api.setPhase(NS, podName, "Failed");
-    api.logs.set(podName, "token=abc\n");
+    api.logs.set(podName, "token=[REDACTED]");
     const stored = api.objects.get(`${NS}/pods/${podName}`);
     (stored?.metadata.labels as Record<string, string>)[
       "app.kubernetes.io/component"
@@ -880,5 +880,24 @@ describe("workspaces", () => {
     );
     await backend.ensureExecution(intentFor().intent);
     expect(await backend.listWorkspaces()).toEqual([]);
+  });
+});
+
+describe("makesRoomFor", () => {
+  const CODEX = `registry.local:5000/codex@sha256:${"b".repeat(64)}`;
+  const backend = new KubernetesBackend(
+    {
+      ...testConfig(NS, INSTALLATION),
+      codexSandbox: { mode: "enabled", images: [CODEX] },
+    },
+    new FakeKubernetes().asClient(),
+    testResolver,
+  );
+
+  test("a sandbox Pod waits for a sandbox worker's node, any other for any worker", () => {
+    expect(backend.makesRoomFor(CODEX, CODEX)).toBe(true);
+    expect(backend.makesRoomFor(CODEX, IMAGE)).toBe(false);
+    expect(backend.makesRoomFor(IMAGE, IMAGE)).toBe(true);
+    expect(backend.makesRoomFor(IMAGE, CODEX)).toBe(true);
   });
 });

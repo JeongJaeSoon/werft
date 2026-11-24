@@ -31,6 +31,7 @@ import {
   bootstrapFingerprintOf,
   COMPONENTS,
   CONTAINER_NAME,
+  codexSandboxed,
   ISOLATION_CONTRACT,
   isolationStampFor,
   LABELS,
@@ -352,6 +353,18 @@ export class KubernetesBackend implements ExecutionBackend {
       workerLimits: workerLimitsOfPod(pod),
       ...(verdict === "current" ? {} : { stale: true }),
     };
+  }
+
+  /**
+   * A Codex sandbox Pod goes only to a node labelled for the profile, so
+   * only a worker there frees room it can take; any other Pod can go to any
+   * worker node, labelled or not.
+   */
+  makesRoomFor(waitingImage: string, image: string): boolean {
+    return (
+      !codexSandboxed(this.config, waitingImage) ||
+      codexSandboxed(this.config, image)
+    );
   }
 
   /**
