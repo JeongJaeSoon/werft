@@ -31,6 +31,7 @@ import { openResumeReceipt } from "../resume-control.ts";
 import {
   attempts,
   checkpoints,
+  lostCheckpointNotices,
   pushIntents,
   pushRequests,
   receipts,
@@ -186,6 +187,34 @@ export function forgetLostCheckpoints(
     return { held, unchanged };
   });
 }
+
+/**
+ * forgetLostCheckpoints for a start that gives the checkpoints up on its own
+ * (CHECKPOINT_OBJECTS_LOST=forget), with the row that keeps the loss in
+ * /readyz and on the console until an administrator closes it. A start that
+ * finds nothing left to forget, because another one got there first, records
+ * nothing.
+ */
+export function forgetLostCheckpointsAtStart(
+  db: Database,
+  now: Date,
+): Promise<LostCheckpoints> {
+  return db.transaction(async (tx) => {
+    const lost = await forgetLostCheckpoints(tx, now);
+    const sessionIds = [...lost.held, ...lost.unchanged];
+    if (sessionIds.length > 0) {
+      await tx.insert(lostCheckpointNotices).values({ sessionIds });
+    }
+    return lost;
+  });
+}
+
+/**
+ * How many sessions the starts no administrator has closed yet gave up
+ * checkpoints for: one row, `n`.
+ */
+export const OPEN_LOST_CHECKPOINT_SESSIONS_SQL =
+  "SELECT COALESCE(SUM(jsonb_array_length(session_ids)), 0)::int AS n FROM lost_checkpoint_notices WHERE closed_at IS NULL";
 
 /**
  * The checkpoint pointer on PostgreSQL, read with the helpers a turn's finalize

@@ -44,8 +44,10 @@
 #
 # Exit codes: 2 usage, 3 upgrade refused, 1 anything else.
 #
-# LocalStack keeps S3 in memory: after a restart of its container, Docker or
-# the host the API refuses to start until reseed or reset.
+# LocalStack keeps S3 in memory: a restart of its container, Docker or the
+# host loses the checkpoint objects, and the API gives those checkpoints up at
+# its next start (their sessions wait in recovery_required). To keep them over
+# a planned restart: backup --stop before it, reseed after it.
 set -euo pipefail
 
 # A release bundle is a tree that carries BUNDLE and is not a git work tree of
@@ -827,7 +829,7 @@ start() {
   [ -r "$IDENTITY" ] || die "$IDENTITY is missing; it is written by deploy"
   preflight
   if [ "$STORE" = localstack ] && [ -z "$(ops_compose ps -q localstack)" ]; then
-    log "start: LocalStack was down, so its in-memory bucket is empty; if the API refuses to start, restore the objects with reseed (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)"
+    log "start: LocalStack was down, so its in-memory bucket is empty; the API gives up the checkpoints it held and their sessions wait in recovery_required. reseed, not start, puts the objects of a backup --stop back (https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/try-localstack/)"
   fi
   start_apps
   printf '%s start by %s: source %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$SOURCE_COMMIT" \

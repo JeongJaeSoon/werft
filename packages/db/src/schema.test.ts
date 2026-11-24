@@ -216,6 +216,7 @@ describe("database schema", () => {
       "login_methods",
       "login_providers",
       "login_settings",
+      "lost_checkpoint_notices",
       "mcp_servers",
       "member_team_members",
       "member_teams",

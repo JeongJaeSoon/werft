@@ -33,7 +33,7 @@ export interface paths {
         };
         /**
          * DB, schema and config readiness
-         * @description Runs the readiness checks in order and stops at the first failure: `database` (the database answers), `schema` (the applied migrations include every migration of this build) and `config` (required settings and limits are valid). Use it as a readiness probe: a 503 means do not route traffic here. The execution backend is not checked. From the moment the process starts shutting down it answers 503 too.
+         * @description Runs the readiness checks in order and stops at the first failure: `database` (the database answers), `schema` (the applied migrations include every migration of this build) and `config` (required settings and limits are valid). Use it as a readiness probe: a 503 means do not route traffic here. The execution backend is not checked. From the moment the process starts shutting down it answers 503 too. A ready answer may carry `detail`, facts an operator should know that do not make the instance unready; a key appears only while it applies. `checkpoints_forgotten_on_boot` is the number of sessions whose checkpoints a start gave up on an emptied object store (`CHECKPOINT_OBJECTS_LOST=forget`, test installations only), until an administrator closes the notice.
          *
          *     **Auth:** public; no credential.
          */
@@ -6227,6 +6227,9 @@ export interface components {
             status: "ready";
             checks: {
                 [key: string]: "ok";
+            };
+            detail?: {
+                checkpoints_forgotten_on_boot?: number;
             };
         };
         CreateSessionResponse: {

@@ -3235,6 +3235,35 @@ export const checkpoints = pgTable(
   ],
 );
 
+// One row per API start that gave up the checkpoints an emptied object store
+// lost (CHECKPOINT_OBJECTS_LOST=forget, accepted only on a test installation
+// whose object store is LocalStack). /readyz and the console count the
+// sessions of the rows no administrator has closed yet.
+export const lostCheckpointNotices = pgTable(
+  "lost_checkpoint_notices",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    forgottenAt: timestamp("forgotten_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Every session whose checkpoints were given up, whether it now waits in
+    // recovery_required or kept its state.
+    sessionIds: jsonb("session_ids").$type<string[]>().notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedBy: uuid("closed_by").references(() => users.id),
+  },
+  (table) => [
+    check(
+      "lost_checkpoint_notices_session_ids_check",
+      sql`jsonb_typeof(${table.sessionIds}) = 'array'`,
+    ),
+    check(
+      "lost_checkpoint_notices_closed_check",
+      sql`${table.closedBy} IS NULL OR ${table.closedAt} IS NOT NULL`,
+    ),
+  ],
+);
+
 // What `verify-restore` found when it asked, for one checkpoint, whether the
 // image set that stays after an image change can restore it. A row binds
 // to the manifest it read (`manifest_sha256`), the candidate digests it

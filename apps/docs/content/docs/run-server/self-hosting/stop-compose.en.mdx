@@ -36,12 +36,12 @@ scripts/test-ops.sh start
 
 After changing the env file, reapply the same release with `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`. Do not assume `start` applies changed env values.
 
-Database and workspace volumes remain. LocalStack stores objects in memory without a volume, so removing its container loses checkpoint objects even without `-v`. The API refuses to start if the database has uncollected checkpoints but the bucket is empty. See the reseed conditions under [restarting a trial installation](/run-server/self-hosting/try-localstack#자주-막히는-곳).
+Database and workspace volumes remain. LocalStack stores objects in memory without a volume, so removing its container loses checkpoint objects even without `-v`. The API of a LocalStack trial installation gives up the uncollected checkpoints the database still has at its next start, and sessions that are not closed move to `recovery_required`. So `stop` and `start` on that installation lose the sessions' context. To keep it, follow the [planned restart of a trial installation](/run-server/self-hosting/try-localstack#자주-막히는-곳) before taking it down.
 
 <a id="호스트-재부팅" />
 ### Reboot the host
 
-Long-running services use `restart: unless-stopped`. They restart after reboot if Docker starts automatically and their containers still exist. If `stop` or `compose down` removed the containers, use `scripts/test-ops.sh start`. Recreating LocalStack loses objects; follow the [trial reboot warning](/run-server/self-hosting/try-localstack#자주-막히는-곳).
+Long-running services use `restart: unless-stopped`. They restart after reboot if Docker starts automatically and their containers still exist. If `stop` or `compose down` removed the containers, use `scripts/test-ops.sh start`. LocalStack loses its objects in a reboot; what the API does next is under [restarting a trial installation](/run-server/self-hosting/try-localstack#자주-막히는-곳).
 
 Before rebooting, check active turns, status, and backups stored off the host. After rebooting, check NTP, XFS prjquota, Docker automatic startup, disk space and inodes, status, and readiness. Resume an existing session to confirm a new worker picks up its checkpoint.
 

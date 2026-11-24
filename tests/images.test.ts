@@ -3124,6 +3124,10 @@ describe("compose layers", () => {
         "AWS_ENDPOINT_URL",
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
+        // What makes this layer a test installation whose API gives up the
+        // checkpoints an emptied LocalStack lost; the s3 layer sets neither.
+        "INSTALLATION_PROFILE",
+        "CHECKPOINT_OBJECTS_LOST",
         ...LOCALSTACK_ONLY,
       ],
     ],

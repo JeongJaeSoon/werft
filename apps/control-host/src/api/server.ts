@@ -86,6 +86,7 @@ import {
   createPostgresWorkspaceMcpStore,
   createProviderExchangeLedger,
   fillSessionParents,
+  forgetLostCheckpointsAtStart,
   hasUncollectedCheckpoint,
   moveSummaryLinks,
   newSessionGitHubReaders,
@@ -220,9 +221,9 @@ import {
   archivedEventSource,
   assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,
-  assertCheckpointObjectsPresent,
   checkpointGitMemoryBytesFromEnv,
   checkpointObjectRouteSigner,
+  checkpointObjectsAtStart,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
   extensionBundleObjects,
@@ -621,9 +622,21 @@ fillSessionParents(db).then(
   },
 );
 if (checkpointStorage !== "disabled") {
-  await assertCheckpointObjectsPresent(checkpointStorage, {
+  const forgotten = await checkpointObjectsAtStart(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+    forget: () => forgetLostCheckpointsAtStart(db, new Date()),
   });
+  if (forgotten) {
+    logger.warn(
+      "The object store came back empty, so the checkpoints it held were given up at start (CHECKPOINT_OBJECTS_LOST=forget); the recovery_required sessions wait for a recovery decision",
+      {
+        bucket: checkpointStorage.bucket,
+        sessions: forgotten.held.length + forgotten.unchanged.length,
+        recovery_required: forgotten.held,
+        unchanged: forgotten.unchanged,
+      },
+    );
+  }
 }
 const checkpoints = createApiCheckpoints(
   db,

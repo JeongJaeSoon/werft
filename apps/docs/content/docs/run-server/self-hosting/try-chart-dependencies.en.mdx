@@ -200,16 +200,19 @@ Save the following as `values-try.yaml`.
 ```yaml
 installationId: werft-try
 config:
+  installation:
+    profile: test
   aws:
     endpointUrl: http://localstack:4566
   checkpoints:
     bucket: claude-sessions
+    objectsLost: forget
   egress:
     credentialAllowlist: "api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443"
     credentialPrivateAllowlist: "localstack:4566"
 ```
 
-`endpointUrl` sends the api to LocalStack instead of AWS. LocalStack is a private address inside the cluster, so it goes in `credentialPrivateAllowlist`. `credentialAllowlist` replaces the default as a whole, so the example lists the full default and adds `github.com:443`. If you use another Git host, add it too. Everything else uses the chart defaults.
+`endpointUrl` sends the api to LocalStack instead of AWS. LocalStack is a private address inside the cluster, so it goes in `credentialPrivateAllowlist`. `credentialAllowlist` replaces the default as a whole, so the example lists the full default and adds `github.com:443`. If you use another Git host, add it too. `installation.profile: test` and `checkpoints.objectsLost: forget` make the api give up lost checkpoints instead of refusing to start when the LocalStack Pod restarted and the bucket is empty (see [Troubleshooting](#자주-막히는-곳) below). Charts up to `v0.4.0` do not read the two values. Everything else uses the chart defaults.
 
 `VERSION` is the exact published chart version you chose from the [deployment package contract](/run-server/self-hosting/reference/packages).
 
@@ -229,7 +232,21 @@ This check shows an empty test installation is ready. It does not prove backup a
 <a id="자주-막히는-곳" />
 ## Troubleshooting
 
-When the PostgreSQL Pod is replaced the database is emptied, and when the LocalStack container restarts (a node restart included) the bucket is emptied. With an empty PostgreSQL, `/readyz` returns 503 `schema check failed`. If the database still has uncollected checkpoints and only the bucket is empty, the api refuses to start. Do not repair a test installation that lost its data this way: remove it with the roll back steps below and start again from step 1.
+When the PostgreSQL Pod is replaced the database is emptied, and when the LocalStack container restarts (a node restart included) the bucket is emptied. With an empty PostgreSQL, `/readyz` returns 503 `schema check failed`. Do not repair a test installation that lost its database this way: remove it with the roll back steps below and start again from step 1.
+
+When only the bucket is empty, the api gives up the uncollected checkpoints the database still has at its next start, and starts. `installation.profile` and `checkpoints.objectsLost` from step 4 set that.
+
+- Sessions that are not closed move to `recovery_required`.
+- One warning line in `kubectl -n werft logs deploy/werft-api`, starting with `The object store came back empty`, names the number of sessions and their ids.
+- `/readyz` still answers 200, and `detail.checkpoints_forgotten_on_boot` in its body carries that number of sessions.
+
+A node restart restarts the api too, so there is nothing to do. If only the LocalStack Pod restarted, the api keeps running and cleans up nothing. Restart the api at once.
+
+```bash
+kubectl -n werft rollout restart deploy/werft-api
+```
+
+If you wait, a new checkpoint written in between leaves the bucket no longer empty, so nothing is cleaned up, and the sessions that lost their objects fail when they restore. On an installation without the two values (charts up to `v0.4.0` included) the api refuses to start when only the bucket is empty.
 
 If you stop between steps 1 and 3 and close the shell, first remove the temporary directory holding the password with `rm -r "${SECRETS:?}"`.
 
