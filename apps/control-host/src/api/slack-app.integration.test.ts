@@ -574,6 +574,24 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
       expect(row?.allowed).toEqual(["U0TRIAGE"]);
     });
 
+    test("two runs at once keep both changes", async () => {
+      const { workspaceId, agentId } = await installedAgent();
+      const both = await Promise.all([
+        run(["allow-bot", "--agent", agentId, "--bot", "U0REVIEW"]),
+        run(["allow-bot", "--agent", agentId, "--bot", "U0TRIAGE"]),
+      ]);
+      expect(both.map((one) => one.code)).toEqual([0, 0]);
+      const [row] = await db
+        .select({ allowed: agents.slackAllowedBotUserIds })
+        .from(agents)
+        .where(eq(agents.id, agentId));
+      expect([...(row?.allowed ?? [])].sort()).toEqual([
+        "U0REVIEW",
+        "U0TRIAGE",
+      ]);
+      expect(await receiptsOf(workspaceId)).toHaveLength(2);
+    });
+
     test("allow-bot names the reason a bot is refused, with exit 10 and nothing saved or recorded", async () => {
       const { workspaceId, agentId } = await installedAgent();
       for (const [bot, reason] of [

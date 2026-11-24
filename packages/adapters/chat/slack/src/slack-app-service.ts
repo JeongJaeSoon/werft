@@ -6,7 +6,6 @@ import {
   type GetSlackAppResponse,
   type ListWorkspaceSlackAppsResponse,
   type PutSlackAppBotsRequest,
-  putSlackAppBotsRequestSchema,
   type RecheckSlackAppEventsResponse,
   SLACK_ALLOWED_BOTS_MAX,
   SLACK_BINDING_MESSAGES,
@@ -683,28 +682,26 @@ export function createSlackAppService(deps: {
       added: string[];
       removed: string[];
       allowed_user_ids: string[];
-      items: SlackBot[] | null;
-      truncated: boolean | null;
     }> {
       const { apps } = ready();
-      let state: Awaited<ReturnType<typeof workspaceBots>> | null = null;
-      let current: readonly string[];
       if (change.action === "allow") {
-        state = await workspaceBots(workspaceId, agentId, [change.botUserId]);
-        current = state.allowed;
-      } else {
-        const facts = await apps.getAllowedBots(workspaceId, agentId);
-        if (facts === null) throw NOT_FOUND();
-        current = facts.allowedBotUserIds;
+        assertAddable(
+          [change.botUserId],
+          await workspaceBots(workspaceId, agentId, [change.botUserId]),
+        );
+      } else if ((await apps.getAllowedBots(workspaceId, agentId)) === null) {
+        throw NOT_FOUND();
       }
-      const next =
-        change.action === "allow"
-          ? [...new Set([...current, change.botUserId])]
-          : current.filter((id) => id !== change.botUserId);
-      const request = putSlackAppBotsRequestSchema.safeParse({
-        allowed_user_ids: next,
+      // The list is changed under the row's lock, so a run at the same time
+      // keeps its own change.
+      const saved = await apps.changeAllowedBotAsOperator({
+        workspaceId,
+        agentId,
+        change,
+        max: SLACK_ALLOWED_BOTS_MAX,
       });
-      if (!request.success) {
+      if (saved === "not_found") throw NOT_FOUND();
+      if (saved === "too_many") {
         throw new SessionServiceError(
           "BAD_REQUEST",
           `An agent answers at most ${SLACK_ALLOWED_BOTS_MAX} bots`,
@@ -712,13 +709,6 @@ export function createSlackAppService(deps: {
           { reason_code: "slack_bots_too_many" },
         );
       }
-      if (state !== null) assertAddable(next, state);
-      const saved = await apps.putAllowedBotsAsOperator({
-        workspaceId,
-        agentId,
-        allowedBotUserIds: next,
-      });
-      if (saved === "not_found") throw NOT_FOUND();
       const added = saved.after.filter((id) => !saved.before.includes(id));
       const removed = saved.before.filter((id) => !saved.after.includes(id));
       return {
@@ -726,8 +716,6 @@ export function createSlackAppService(deps: {
         added,
         removed,
         allowed_user_ids: saved.after,
-        items: state === null ? null : botItems(saved.after, state.bots),
-        truncated: state === null ? null : state.truncated,
       };
     },
 

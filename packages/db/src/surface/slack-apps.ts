@@ -545,7 +545,7 @@ export function createPostgresSlackAppStore(
         return row ? ("saved" as const) : ("not_found" as const);
       });
     },
-    putAllowedBotsAsOperator(input) {
+    changeAllowedBotAsOperator(input) {
       const workspaceId = input.workspaceId.toLowerCase();
       if (!UUID.test(input.agentId)) return Promise.resolve("not_found");
       const agentId = input.agentId.toLowerCase();
@@ -559,7 +559,12 @@ export function createPostgresSlackAppStore(
           .for("update");
         if (!current) return "not_found" as const;
         const before = [...current.allowed];
-        const after = [...input.allowedBotUserIds];
+        const { action, botUserId } = input.change;
+        const after =
+          action === "allow"
+            ? [...new Set([...before, botUserId])]
+            : before.filter((id) => id !== botUserId);
+        if (after.length > input.max) return "too_many" as const;
         await tx
           .update(agents)
           .set({ slackAllowedBotUserIds: after })
