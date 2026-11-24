@@ -163,7 +163,7 @@ stdout 1 行の最初の語が結果です。終了コードは下の 3 つな�
 
 - セッションのイベントストリームの status イベントの `actor` は `{"kind":"operator","by":"operator_cli"}` です。API コンテナのログ（`docker logs`・`kubectl logs`）に `session_close_requested` 行が残り、`by`、`session_id`、`owner_id`、`receipt_id`、`reason`、`requested_at` を含みます。
 - `recovery_required` のセッションは拒否されます。動いている worker はないので、上の復旧判断 `close` で終えます。
-- 最後の turn を含む checkpoint がないセッションは拒否されます。checkpoint なしで worker を止めるには[実行権限の取り消し](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한)を使います。
+- 最後の turn を含む checkpoint がなく、それを作る worker もない場合（または transcript が上限を超えた場合）は拒否されます。生きている worker があれば close を受け付け、worker が drain して checkpoint を残すのを待ちます。checkpoint なしで worker を止めるには[実行権限の取り消し](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한)を使います。
 - worker が 60 秒以内に drain できないと、セッション詳細の attention が `CLOSE_BLOCKED` になります。理由を確認し、待てない場合は実行権限の取り消しで worker を止めます。
 
 <a id="확인" />

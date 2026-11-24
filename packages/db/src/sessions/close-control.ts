@@ -123,7 +123,7 @@ export async function finishClose(
 export function closeAtomic(
   db: Database,
   input: CloseSessionInput & { by?: typeof OPERATOR_CLI },
-): Promise<CloseSessionResult> {
+): Promise<CloseSessionResult & { into?: "closing" | "closed" }> {
   const sessionId = input.sessionId.toLowerCase();
   const scope: IdempotencyScope = {
     principal: input.principal.ownerId,
@@ -272,6 +272,6 @@ export function closeAtomic(
       payloadHash: input.payloadHash,
       receiptId,
     });
-    return { outcome: "accepted", response };
+    return { outcome: "accepted", response, into };
   });
 }

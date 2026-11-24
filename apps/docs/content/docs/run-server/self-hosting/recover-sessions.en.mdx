@@ -164,7 +164,7 @@ The first word of the one stdout line is the result. The exit code is 0 for the 
 
 - The `actor` of the status event in the session's event stream is `{"kind":"operator","by":"operator_cli"}`. The API container's log (`docker logs`, `kubectl logs`) gets a `session_close_requested` line with `by`, `session_id`, `owner_id`, `receipt_id`, `reason`, and `requested_at`.
 - A `recovery_required` session is refused. No worker runs for it; end it with the recovery decision `close` above.
-- A session with no checkpoint covering its last turn is refused. To stop its worker without one, use [execution revocation](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한).
+- A session is refused when no checkpoint covers its last turn and no worker is left to make one (or its transcript is past the limits). With a live worker, the close is accepted and waits for the worker to drain and leave a checkpoint. To stop its worker without one, use [execution revocation](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한).
 - If the worker does not drain within 60 seconds, the session's attention becomes `CLOSE_BLOCKED`. Read the reason; if you cannot wait, stop the worker with execution revocation.
 
 <a id="확인" />

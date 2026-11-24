@@ -15,7 +15,7 @@ export type OperatorCloseResult =
       ownerId: string;
       receiptId: string;
       receiptStatus: ControlAcceptedResponse["receipt_status"];
-      admissionState: AdmissionState;
+      admissionState: "closing" | "closed";
     }
   | { outcome: "already_closed" }
   // A close already under way; its receipt, while it still waits on the worker.
@@ -75,20 +75,18 @@ export async function closeSessionAsOperator(
       by: OPERATOR_CLI,
     });
     switch (result.outcome) {
-      case "accepted": {
-        const [after] = await db
-          .select({ admissionState: sessions.admissionState })
-          .from(sessions)
-          .where(eq(sessions.id, sessionId))
-          .limit(1);
+      case "accepted":
+        if (result.into === undefined) {
+          throw new Error("close accepted without its admission state");
+        }
+        // As committed: a worker may already have moved the session on.
         return {
           outcome: "accepted",
           ownerId: row.ownerId,
           receiptId: result.response.receipt_id,
           receiptStatus: result.response.receipt_status,
-          admissionState: after?.admissionState ?? "closed",
+          admissionState: result.into,
         };
-      }
       case "revision_conflict":
         if (attempt < REVISION_ATTEMPTS) continue;
         throw new Error(

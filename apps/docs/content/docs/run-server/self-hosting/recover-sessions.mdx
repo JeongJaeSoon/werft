@@ -149,7 +149,7 @@ stdout 한 줄의 첫 단어가 결과다. 종료 코드는 아래 셋이면 0, 
 
 - 세션 이벤트 스트림의 status 이벤트 `actor`가 `{"kind":"operator","by":"operator_cli"}`다. API 컨테이너 로그(`docker logs`·`kubectl logs`)에 `session_close_requested` 줄이 남는다. `by`, `session_id`, `owner_id`, `receipt_id`, `reason`, `requested_at`이 들어 있다.
 - `recovery_required` 세션은 거절된다. 도는 worker가 없으니 위의 복구 결정 `close`로 끝낸다.
-- 마지막 turn을 덮는 checkpoint가 없으면 거절된다. worker를 checkpoint 없이 멈추려면 [실행 권한 회수](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한)를 쓴다.
+- 마지막 turn을 덮는 checkpoint가 없고 그것을 만들 worker도 없으면(또는 transcript가 상한을 넘었으면) 거절된다. 살아 있는 worker가 있으면 close를 받고 worker가 drain하며 checkpoint를 남기기를 기다린다. worker를 checkpoint 없이 멈추려면 [실행 권한 회수](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한)를 쓴다.
 - worker가 60초 안에 drain하지 못하면 세션 상세 attention이 `CLOSE_BLOCKED`가 된다. 이유를 보고, 기다릴 수 없으면 실행 권한 회수로 worker를 멈춘다.
 
 ## 확인
