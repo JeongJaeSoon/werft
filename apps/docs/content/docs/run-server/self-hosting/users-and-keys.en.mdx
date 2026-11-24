@@ -60,9 +60,74 @@ The file is created new with mode 0600. If a file of that name exists, the comma
 | `accept_url` | `accept_path` appended to `CONSOLE_ORIGIN`. `null` when `CONSOLE_ORIGIN` is not set |
 | `expires_at` | When the link expires |
 
-With a browser, open `accept_url` (or `accept_path` appended directly to the console's origin) and enter the owner details and workspace name. Without a browser, take the value after `#setup=` as `setup_token` and send it with the owner details to `POST /v1/auth/bootstrap`. The request body is in the API reference the installation serves (`/docs`). Either way, the email address must be the one given to the command. Any other address is refused with `403`, and the link stays usable. Then sign in at `/login` and delete the link file.
+With a browser, open `accept_url` (or `accept_path` appended directly to the console's origin) and enter the owner details and workspace name. The email address must be the one given to the command. Any other address is refused with `403`, and the link stays usable. Then sign in at `/login` and delete the link file. Without a browser, follow [Create it without a browser](#브라우저-없이-만들기) below.
 
 The link stops working once used and expires after 24 hours. Running the command again makes the old link stop working and issues a new one. While an owner exists, the command makes neither a link nor a file and exits 1. Each run leaves one `setup_link_issued` line in the api container's log (`docker compose logs api`, `kubectl logs`). The line holds only the link id, the email address and the expiry, never the token or the link. When the link creates the first workspace, that workspace's first receipt (`bootstrap_owner`) records the link's id and when it was made.
+
+<a id="브라우저-없이-만들기" />
+#### Create it without a browser
+
+On a host with no browser to open the console (for example when an agent runs the installation), call `POST /v1/auth/bootstrap` yourself with the value from the link file. It is the same API the setup screen calls. You need `curl` and `jq`. Run the commands below on a host that reaches the api, in the directory that holds `owner-link.json`. `API` is the address that reaches the console: on a test-ops single server, `http://127.0.0.1:<TEST_OPS_API_PORT>` on that server (`3000` by default); on Kubernetes outside AWS, the port-forward address `http://127.0.0.1:3000` from [console access](/run-server/self-hosting/kubernetes#5-aws-밖-클러스터의-콘솔-접속).
+
+First put the owner's password (at least 12 characters, at most 1024 bytes) on one line in the 0600 file `owner-password`. Keep the password out of command arguments, environment variables and the screen. The example below makes a random value with `openssl`. To use a value you chose, make the same file with an editor.
+
+```bash
+API=http://127.0.0.1:3000
+(umask 077 && set -C && openssl rand -base64 24 >owner-password)
+```
+
+Take the value after `#setup=` in the link file's `accept_path` (the `setup_token`) into a 0600 file.
+
+```bash
+(umask 077 && set -C && jq -j '.accept_path | sub("^/bootstrap#setup="; "")' owner-link.json >owner-setup-token)
+```
+
+Make the request body as a 0600 file. `<owner-email>` is the address given to the link command, `<owner-name>` the name shown on screen (up to 64 characters), `<workspace-name>` the workspace name, and `<workspace-slug>` the workspace identifier (lowercase letters, digits and `-`, not starting with `-`, up to 64 characters).
+
+```bash
+(umask 077 && set -C && jq -n \
+  --rawfile token owner-setup-token \
+  --rawfile password owner-password \
+  --arg email '<owner-email>' \
+  --arg name '<owner-name>' \
+  --arg workspace '<workspace-name>' \
+  --arg slug '<workspace-slug>' \
+  '{setup_token: ($token | rtrimstr("\n")), email: $email,
+    password: ($password | rtrimstr("\n")), display_name: $name,
+    workspace_name: $workspace, workspace_slug: $slug}' >owner-bootstrap.json)
+```
+
+Because of `set -C`, nothing is written when a file of that name exists. If the command failed and left an empty file, delete that file and run it again.
+
+Send the body.
+
+```bash
+curl --max-time 10 -sS -w '\n%{http_code}\n' "$API/v1/auth/bootstrap" \
+  -H 'content-type: application/json' -H 'x-requested-with: werft-web' \
+  --data-binary @owner-bootstrap.json
+```
+
+When the last line is `201`, the body's `role` is `owner` and `workspace` holds the workspace you made, the owner exists. The response holds neither the password nor the token. The other statuses are:
+
+| Status | Meaning and what to do |
+| --- | --- |
+| `400` | A field in the body is wrong (password length, slug form and so on). The link stays usable: delete `owner-bootstrap.json` and start again from making the body |
+| `401` | The link was already used, is more than 24 hours old, or was replaced by running the command again. While no owner exists, delete `owner-link.json`, `owner-setup-token` and `owner-bootstrap.json` and start again from the link command |
+| `403` | The email address differs from the one given to the link command. The link stays usable |
+| `409` | An earlier request with the same link made the owner |
+| `429` | Too many requests. Send it again a little later |
+
+Finally check that the email address and password sign in, and delete the link, token and body files.
+
+```bash
+(umask 077 && set -C && jq '{email, password}' owner-bootstrap.json >owner-login.json)
+curl --max-time 10 -sS -o /dev/null -w '%{http_code}\n' "$API/v1/auth/login" \
+  -H 'content-type: application/json' -H 'x-requested-with: werft-web' \
+  --data-binary @owner-login.json
+rm -f owner-link.json owner-setup-token owner-bootstrap.json owner-login.json
+```
+
+`200` means it worked. This check throws away the sign-in session the response gave. Move `owner-password` somewhere safe, such as a password manager, then delete it. How to call management APIs outside the console with the owner's sign-in session (`cookieSession`) is in the API reference the installation serves (`/docs`).
 
 <a id="2-사용자별-key-발급" />
 ### 2. Issue per-user keys
@@ -163,6 +228,16 @@ Reading `/v1/sessions` with each user's key must return a response within its al
 ## Troubleshooting
 
 If the link opens on "This setup link can't be used", it was already used, is more than 24 hours old, or was replaced by running the command again. While no owner exists, run the command again for a new link. Do not use a workspace id as the CLI owner id.
+
+If `admin bootstrap-owner` ends with `usage: bun run src/main.ts <api|metrics> | …(got admin)`, or `scripts/test-ops.sh setup-link --email …` prints only its usage, the image is from an earlier release (up to `v0.4.0`) that lacks this command. In that image, `bun run apps/control-host/src/api/setup-link.ts` (on a test-ops single server, `scripts/test-ops.sh setup-link` with no arguments) prints the link once on stdout and makes no file. The link is not bound to an email address. To create the owner without a browser, take the output into the token file instead of onto the screen, then follow [Create it without a browser](#브라우저-없이-만들기), skipping only the token step.
+
+```bash
+(umask 077 && set -C && { scripts/test-ops.sh setup-link | sed -n 's/.*#setup=//p'; } >"$DEPLOYMENT_DIR/owner-setup-token")
+(umask 077 && set -C && { kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/setup-link.ts | sed -n 's/.*#setup=//p'; } >owner-setup-token)
+```
+
+The first line is for a test-ops single server; the two lines below it are one command for Kubernetes. Run only the one for your installation. On a test-ops single server, a file inside the bundle directory stops the next run, so the token file goes in `DEPLOYMENT_DIR`; run the commands that follow in that directory too. If `owner-setup-token` is empty, no link came out (as happens when an owner already exists): delete the file and check the command's error.
 
 <a id="되돌리기" />
 ## Roll back
