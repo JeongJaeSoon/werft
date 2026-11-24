@@ -12260,6 +12260,7 @@ export interface components {
             };
             /** Format: uuid */
             receipt_id: string;
+            dropped_buffered?: number;
         };
         ResolveSlackBindingResponse: {
             slack_binding: {

@@ -324,12 +324,13 @@ async function set(
       const receiptId = await writeReceipt(tx, input.principal, binding);
       // A channel saved as off, listening to less, or waiting for approval
       // holds no unmentioned message from now on.
-      if (binding.channelId !== null) {
-        await dropUnlistenedBuffer(tx, {
-          agentId: binding.agentId,
-          channelId: binding.channelId,
-        });
-      }
+      const droppedBuffered =
+        binding.channelId === null
+          ? 0
+          : await dropUnlistenedBuffer(tx, {
+              agentId: binding.agentId,
+              channelId: binding.channelId,
+            });
       if (startsWaiting) {
         await writeReceipt(
           tx,
@@ -338,7 +339,7 @@ async function set(
           "request_surface_binding",
         );
       }
-      return { outcome: "set", binding, receiptId };
+      return { outcome: "set", binding, receiptId, droppedBuffered };
     });
   } catch (error) {
     if (isLiveConflict(error)) return { outcome: "conflict" };

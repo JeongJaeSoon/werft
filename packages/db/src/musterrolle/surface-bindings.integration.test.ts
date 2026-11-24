@@ -16,6 +16,8 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
+import { holdBufferedInput } from "../conversations/judgment-buffer.ts";
+import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import {
   agents,
@@ -223,6 +225,54 @@ integration("surface bindings on PostgreSQL", () => {
         eq(receipts.id, changed.outcome === "set" ? changed.receiptId : ""),
       );
     expect(receipt?.result).toMatchObject({ mode: "on", listen: "off" });
+  });
+
+  test("a save that listens to less says how many held messages it dropped", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, key } = await slackAgent(owner);
+    await db
+      .update(agents)
+      .set({ conversationRollout: "shadow" })
+      .where(eq(agents.id, agentId));
+    const free = await setAs(owner, agentId, { channelId: "C0HEARD" });
+    expect(free).toMatchObject({ outcome: "set", droppedBuffered: 0 });
+    const conversations = createPostgresConversationStore(db);
+    const conversation = await conversations.findOrCreateConversation({
+      kind: "channel",
+      workspaceId: owner.ownerId,
+      agentId,
+      teamId: key.teamId,
+      channelId: "C0HEARD",
+    });
+    const topic = await conversations.findOrCreateThreadTopic(conversation.id, {
+      teamId: key.teamId,
+      channelId: "C0HEARD",
+      threadTs: "100.000100",
+    });
+    for (const ts of ["100.000100", "100.000200"]) {
+      const held = await db.transaction((tx) =>
+        holdBufferedInput(
+          tx as unknown as Database,
+          { workspaceId: owner.ownerId, agentId, teamId: key.teamId },
+          {
+            topicId: topic.id,
+            channelId: "C0HEARD",
+            ts,
+            buffered: { body: "unmentioned", slackUserId: "U0PERSON" },
+          },
+          100,
+        ),
+      );
+      expect(held.outcome).toBe("held");
+    }
+
+    expect(
+      await setAs(owner, agentId, { channelId: "C0HEARD", listen: "mention" }),
+    ).toMatchObject({ outcome: "set", droppedBuffered: 2 });
+    // Nothing is left to drop.
+    expect(
+      await setAs(owner, agentId, { channelId: "C0HEARD", listen: "off" }),
+    ).toMatchObject({ outcome: "set", droppedBuffered: 0 });
   });
 
   test("a channel's binding is stored, resolved and replaced in place", async () => {
