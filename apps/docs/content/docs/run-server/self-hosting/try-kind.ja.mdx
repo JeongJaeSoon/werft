@@ -45,7 +45,7 @@ kubectl config current-context
 
 最後のコマンドが `kind-werft-try` を出力することを確認します。続けて同じシェルで [chart 試験用の DB と object store](/run-server/self-hosting/try-chart-dependencies)の手順 1〜4 に従います。そのページが依存サービスの manifest、Secret、最小の values を本文で示し、手順 4 で公開 chart を設置します。LocalStack の初期化スクリプトはその manifest の ConfigMap `localstack-init` に入っており、リリースバンドル（`werft-test-ops-<tag>.tar.gz`）の `infra/localstack/init/10-create-resources.sh` と同じ bucket を作ります。
 
-最初の owner は、api Pod が出力する一回限りの設定リンクで作ります（`kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`）。パスだけが出力された場合は、port-forward のアドレス（`http://127.0.0.1:13000`）の後ろに付けて開きます。リンクは DB にあるため、2 個の replica のどちらに届いても使えます。モデル key は Secret に入れません。key は最初の owner がコンソールで入力して DB に保存する値だけで、この試験では key を入れません。実運用の資格情報をこの試験に入れないでください。
+最初の owner は、下の[最初の owner を作る](#첫-owner-만들기)で作ります。リンクは DB にあるため、2 個の replica のどちらに届いても使えます。モデル key は Secret に入れません。key は最初の owner がコンソールで入力して DB に保存する値だけで、この試験では key を入れません。実運用の資格情報をこの試験に入れないでください。
 
 <a id="확인" />
 ## 確認
@@ -83,6 +83,19 @@ fi
 ready 200 と docs 200 は空の設置環境の準備状態です。セッションと worker Pod を起動し、checkpoint 復元まで確認した結果ではありません。kind の PVC Bound だけで byte 上限の強制を証明することはできません。
 
 <a id="자주-막히는-곳" />
+<a id="첫-owner-만들기" />
+### 最初の owner を作る
+
+上のブロックは最後に port-forward を止めます。リンクは port-forward のアドレスで開くので、先に port-forward をもう一度起動し、api が応答するまで待ちます。
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+until curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; do sleep 1; done
+```
+
+そのシェルで、[最初の owner を作る](/run-server/self-hosting/users-and-keys#1-첫-owner-만들기)の Kubernetes のコマンドでリンクのファイルを受け取ります。`accept_url` が `null` なら `http://127.0.0.1:13000` の後ろに `accept_path` を付けて開き、コマンドに渡したメールアドレスで owner を作ります。終わったら `kill "$PF"` で port-forward を止め、リンクのファイルを削除します。
+
 ## よくある問題
 
 直接設置で Secret の必須 key が欠けると Pod は起動しません。公開 chart を取得できない場合、fixture のレンダリングで成功扱いにせず、その公開パッケージの設置失敗として記録します。クラスタ外の DB・S3 アドレスと試験依存サービスのアドレスを混在させないでください。

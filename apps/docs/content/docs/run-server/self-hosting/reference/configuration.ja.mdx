@@ -322,7 +322,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 
 master key は `PLATFORM_SECRET_KEY` の代わりに、key を入れたファイルのパスを `PLATFORM_SECRET_KEY_FILE` で渡せます（compose secret のようにマウントしたファイル。末尾の改行一つは無視します）。どちらか一方だけを置きます。両方あるときは同じ key でなければならず、違うと api と slack の役割は起動を拒否します（`master_key_mismatch`）。どちらもないか、ファイルを読めなければ `master_key_missing` です。コンテナ内で運用者コマンドを実行するときは、そのコマンドの環境にもどちらかが必要です。entrypoint がサーバープロセスにだけ key を渡す構成では、`docker compose exec` で起動したコマンドは key を受け取れないため、サービスの env に `PLATFORM_SECRET_KEY_FILE` を置きます。ローカルスタックの `scripts/local.sh up` は、api が `PLATFORM_SECRET_KEY_FILE` を受け取ると key を作らず、`PLATFORM_SECRET_KEY` を空の値で渡します。`infra/compose.local.yml` の開発用の既定 key はシェルにこの変数がまったくないときだけ入るため、`local.sh` を使わずに `docker compose` で起動するときはシェルに `PLATFORM_SECRET_KEY=`（空の値）を置きます。
 
-モデル接続・MCP サーバー・リポジトリの GitHub App key は、Secret や環境変数では渡しません。コンソール（または credential API）で入れ、`PLATFORM_SECRET_KEY` で暗号化して DB に保存されます。`secrets.catalogEnv` と `config.aws.secretsManagerEndpointUrl` はなくなり、values に残っているとレンダリングが失敗します。`secrets.bootstrapToken` もなくなり、残っているとレンダリングが失敗します。最初の owner は、api Pod で `bun run apps/control-host/src/api/setup-link.ts` が出力する一回限りの設定リンクで作ります。リンクは DB にあるため、replica の数に関係なく使えます。
+モデル接続・MCP サーバー・リポジトリの GitHub App key は、Secret や環境変数では渡しません。コンソール（または credential API）で入れ、`PLATFORM_SECRET_KEY` で暗号化して DB に保存されます。`secrets.catalogEnv` と `config.aws.secretsManagerEndpointUrl` はなくなり、values に残っているとレンダリングが失敗します。`secrets.bootstrapToken` もなくなり、残っているとレンダリングが失敗します。最初の owner は、api Pod で `bun run apps/control-host/src/main.ts admin bootstrap-owner --email <owner-email> --out <file>` がファイルに書く一回限りの設定リンクで作ります。リンクは DB にあるため、replica の数に関係なく使えます。
 
 | 値 | 変更対象 |
 |---|---|

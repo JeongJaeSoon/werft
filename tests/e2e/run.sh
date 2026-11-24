@@ -50,6 +50,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 . scripts/lib/real-model-key.sh
 . scripts/lib/seed-credentials.sh
+. scripts/lib/setup-link-token.sh
 . tests/e2e/fetch-retry.sh
 
 settings_values() {
@@ -346,7 +347,7 @@ export E2E_API_KEY="$api_key"
 # Every suite signs in as the first owner to release its agent on the
 # stack's connection (tests/e2e/client.ts e2eStack): a session runs a release.
 # The owner comes from the one setup link this fresh stack issues.
-E2E_SETUP_TOKEN="$(dc exec -T api bun run apps/control-host/src/api/setup-link.ts </dev/null)" ||
+E2E_SETUP_TOKEN="$(setup_link_token "$E2E_OWNER_EMAIL" dc exec -T api)" ||
   { echo "e2e: the API issued no setup link" >&2; exit 1; }
 export E2E_SETUP_TOKEN="${E2E_SETUP_TOKEN##*#setup=}"
 if [ "$conformance" = codex_app_server ] || [ "$conformance" = two_engines ]; then

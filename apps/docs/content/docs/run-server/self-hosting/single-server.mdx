@@ -194,13 +194,13 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.jso
 
 preflight는 bucket 보호 설정과 scratch version의 쓰기·hold·읽기·hold 해제·삭제를 검사한다. workspace quota probe도 먼저 돌리고, deploy 때 scheduler가 quota를 다시 검사한다. 둘 다 성공하고 서비스가 healthy가 되어야 한다. object store 방식은 첫 deploy 뒤 바꿀 수 없다.
 
-deploy 뒤에 첫 owner를 만드는 일회용 설정 링크를 받는다. 링크는 로그나 파일에 남지 않고, 이 명령이 stdout에 한 번 출력한다.
+deploy 뒤에 첫 owner를 만드는 일회용 설정 링크를 파일로 받는다. owner가 될 사람의 이메일 주소를 주고, `DEPLOYMENT_DIR` 안에서 아직 없는 파일 이름을 고른다. 번들 디렉터리 안은 test-ops가 거절한다(번들에는 SHA256SUMS에 적힌 파일만 있어야 한다). 파일은 0600으로 만들어지고, 화면에는 파일 경로와 만료 시각만 나온다.
 
 ```bash
-scripts/test-ops.sh setup-link
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
 ```
 
-출력된 링크를 브라우저로 연다([첫 owner와 key](/run-server/self-hosting/users-and-keys)). 경로만 출력됐으면 콘솔 주소 뒤에 붙인다. 링크는 한 번 쓰면 바로 무효이고 24시간 뒤 만료된다. 놓쳤거나 만료됐으면 명령을 다시 실행한다. 새 링크가 나오고 앞 링크는 무효가 된다. owner가 생긴 뒤에는 링크 없이 종료 코드 1로 끝난다.
+파일의 `accept_url`(없으면 콘솔 주소 뒤에 `accept_path`)을 열고, 명령에 준 이메일 주소로 owner를 만든다. 브라우저가 없을 때의 길과 파일의 칸은 [첫 owner와 key](/run-server/self-hosting/users-and-keys)에 있다. 링크는 한 번 쓰면 바로 무효이고 24시간 뒤 만료된다. 파일을 잃었거나 만료됐으면 새 파일 이름으로 명령을 다시 실행한다. 새 링크가 나오고 앞 링크는 무효가 된다. owner가 생긴 뒤에는 링크도 파일도 만들지 않고 종료 코드 1로 끝난다.
 
 ## 확인
 

@@ -315,6 +315,7 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       .from(receipts)
       .where(eq(receipts.ownerId, workspaceId));
     expect(written.map((row) => row.operation).sort()).toEqual([
+      "bootstrap_owner",
       "link_agent_identity",
       "revoke_agent_identity",
     ]);
