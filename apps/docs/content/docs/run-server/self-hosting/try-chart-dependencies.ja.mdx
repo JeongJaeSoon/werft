@@ -10,7 +10,7 @@ outcome: "公開 chart だけで試験する PostgreSQL と object store をク�
 <a id="무엇을-하게-되나" />
 ## 作業内容
 
-リポジトリ checkout なしで公開 chart を試験するクラスタに、PostgreSQL 16 を 1 つと `locked` 契約を満たす object store(LocalStack)を 1 つ立て、Secret と最小の values を作って chart を設置します。
+リポジトリ checkout なしで公開 chart を試験するクラスタに、PostgreSQL 16 を 1 つと `locked` 契約を満たす object store(LocalStack)を 1 つ立て、Secret を作ってから chart に入っている最小の values で chart を設置します。
 
 **試験用です。運用には使いません。** PostgreSQL はデータを Pod の `emptyDir` に、LocalStack はコンテナのメモリに置きます。PostgreSQL の Pod が削除されるか別のノードに移ると DB が、LocalStack のコンテナが再起動すると bucket と checkpoint object が消え、その設置は再び使えません。運用の設置では永続 PostgreSQL と [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) を別に準備し、[Kubernetes 設置](/run-server/self-hosting/kubernetes)に従います。
 
@@ -41,29 +41,166 @@ kubectl -n werft create secret generic werft-test-postgres \
   --from-file=POSTGRES_PASSWORD="$SECRETS/POSTGRES_PASSWORD"
 ```
 
-このシェルを手順 3 までそのまま使います。`SECRETS` ディレクトリは手順 3 で削除します。
+このシェルを手順 4 までそのまま使います。`SECRETS` ディレクトリは手順 3 で削除します。
 
 <a id="2-postgresql과-object-store" />
 ### 2. PostgreSQL と object store
 
-次の内容を `werft-test-deps.yaml` として保存します。PostgreSQL は公式 `postgres:16` イメージで、DB 名は `sessions` です。object store は S3 だけを動かす LocalStack で、起動時に init スクリプトが bucket `claude-sessions` を Object Lock(versioning も一緒に有効になります)と既定の暗号化 SSE-S3(`AES256`)付きで作ります。api は起動時にこの 3 つを確認し、1 つでも欠けると起動を拒否します。LocalStack の readiness probe は Object Lock の設定と既定の暗号化が `AES256` であることを確認します。
+公開 chart パッケージの `examples/` に、試験用の依存 manifest `test-deps.yaml` と手順 4 の最小 values `values-test.yaml` が入っています。どちらのファイルも 1 行目は `# TEST ONLY. Not for production` です。`VERSION` は[配布パッケージ契約](/run-server/self-hosting/reference/packages)で選んだ正確な公開 chart バージョンです。chart を `werft-chart` ディレクトリに展開し、2 つのファイルを現在のディレクトリにコピーします。
+
+```bash
+VERSION='<published-chart-version>'
+helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir werft-chart
+cp werft-chart/werft/examples/test-deps.yaml werft-chart/werft/examples/values-test.yaml .
+```
+
+`v0.4.0` 以前の chart には `examples/` がないので `cp` が失敗します。そのバージョンを試験するときは、[examples のない chart](#examples가-없는-chart) の 2 つのブロックを同じ名前で保存します。
+
+`test-deps.yaml` の PostgreSQL は公式 `postgres:16` イメージで、DB 名は `sessions`、パスワードは手順 1 の Secret から読みます。object store は S3 だけを動かす LocalStack で、起動時に init スクリプトが bucket `claude-sessions` を Object Lock(versioning も一緒に有効になります)と既定の暗号化 SSE-S3(`AES256`)付きで作ります。api は起動時にこの 3 つを確認し、1 つでも欠けると起動を拒否します。LocalStack の readiness probe は Object Lock の設定と既定の暗号化が `AES256` であることを確認します。init スクリプトは ConfigMap `localstack-init` に入っていて、リリースバンドルの `infra/localstack/init/10-create-resources.sh` と同じファイルです。LocalStack の `AWS_DEFAULT_REGION` は chart の `config.aws.region` 既定値 `ap-northeast-1` です。
+
+```bash
+kubectl -n werft apply -f test-deps.yaml
+kubectl -n werft rollout status deploy/postgres --timeout=300s
+kubectl -n werft rollout status deploy/localstack --timeout=300s
+```
+
+2 つのコマンドがどちらも `successfully rolled out` で終わってから次に進みます。LocalStack は bucket ができてから ready になります。
+
+### 3. Werft Secret
+
+[Kubernetes 設置の 2. namespace と Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret) と同じキーを手順 1 のディレクトリに作ります。`DATABASE_URL` は手順 1 のパスワードで `postgres` Service を指します。LocalStack はキーを検査しないので、object store のキーは `test` にします。`POSTGRES_PASSWORD` ファイルは Werft Secret に入れないよう先に削除します。
+
+```bash
+{ printf 'postgresql://postgres:'; cat "$SECRETS/POSTGRES_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+rm "$SECRETS/POSTGRES_PASSWORD"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+rm -r "${SECRETS:?}"
+```
+
+値はこの試験設置にだけ使います。運用の資格情報を入れません。
+
+<a id="4-최소-values와-설치" />
+### 4. 最小の values と設置
+
+手順 2 でコピーした `values-test.yaml` で設置します。手順 2 の `VERSION` をそのまま使います。
+
+```bash
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-test.yaml --timeout 10m
+```
+
+`values-test.yaml` の `endpointUrl` は api の接続先を AWS ではなく LocalStack にします。LocalStack はクラスタ内のプライベートアドレスなので `credentialPrivateAllowlist` に書いてあります。`credentialAllowlist` は既定値を丸ごと置き換えるので、既定の一覧をすべて書いて `github.com:443` を続けてあります。別の Git ホストを使うなら、ファイルのその行にそのホストも加えます。`installation.profile: test` と `checkpoints.objectsLost: forget` は、LocalStack の Pod が再起動して bucket が空になったときに、api が起動を拒否せず失った checkpoint を諦めるようにします(下の[よくある問題](#자주-막히는-곳))。`v0.4.0` 以前の chart はこの 2 つの値を読みません。それ以外は chart の既定値を使います。
+
+<a id="확인" />
+## 確認
+
+[Kubernetes 設置の 4. 設置と rollout](/run-server/self-hosting/kubernetes#4-설치와-rollout) の rollout 確認と[確認](/run-server/self-hosting/kubernetes#확인)の ready・docs 確認をそのまま実行します。ready 本文の database・schema・config が ok で、`/readyz` と `/docs` が 200 なら完了です。最初の owner とキーは[最初の owner と利用者 key の発行](/run-server/self-hosting/users-and-keys)に従います。
+
+この確認は空の試験設置の準備状態です。運用 DB のバックアップ・復元や運用 bucket の保護契約は証明しません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+PostgreSQL の Pod が入れ替わると DB が、LocalStack のコンテナが再起動すると(ノードの再起動を含む)bucket が空になります。PostgreSQL が空になると `/readyz` が 503 `schema check failed` を返します。このように DB を失った試験設置は修復せず、下の「元に戻す」で削除して手順 1 から作り直します。
+
+bucket だけが空になった場合、api は次の起動時に DB に残った未回収の checkpoint を諦めてから起動します。手順 4 の `installation.profile` と `checkpoints.objectsLost` がそう決めます。
+
+- 失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になります。
+- `kubectl -n werft logs deploy/werft-api` に `The object store came back empty` で始まる警告が 1 行残り、セッション数と id を記録します。
+- `/readyz` は 200 のままで、本文の `detail.checkpoints_forgotten_on_boot` にそのセッション数が入ります。
+- コンソールは owner・admin に、すべての画面の最上部で「試験インストール: 再起動でセッションN件のコンテキストを失いました」と表示します。そのうちの一人が**閉じる**を押すと全員の画面から消え、`/readyz` の数からも除かれます。セッションは `recovery_required` のままです。
+
+ノードを再起動すると api も一緒に再起動するので、することはありません。LocalStack の Pod だけが再起動した場合、api は動いたままで整理しません。そのときはすぐに api を再起動します。
+
+```bash
+kubectl -n werft rollout restart deploy/werft-api
+```
+
+遅らせると、その間に書かれた新しい checkpoint のために bucket が空ではなくなって整理されず、object を失ったセッションは復元時に失敗します。2 つの値がない設置(`v0.4.0` 以前の chart を含む)の api は、bucket だけが空の状態で起動を拒否します。
+
+手順 1〜3 の途中で止めてシェルを閉じるときは、先に `rm -r "${SECRETS:?}"` でパスワードの入った一時ディレクトリを削除します。
+
+`helm upgrade --install` は 2 つの依存の rollout が終わってから実行します。手順 2 の `rollout status` が失敗したら、`kubectl -n werft describe pod -l app=localstack` と `kubectl -n werft logs deploy/localstack` でイメージ pull や init スクリプトのエラーを確認します。
+
+<a id="되돌리기" />
+## 元に戻す
+
+```bash
+helm -n werft uninstall werft
+kubectl delete namespace werft
+```
+
+namespace を削除すると worker Pod、workspace PVC、2 つの依存、Secret も一緒に消えます。この試験クラスタの `werft` namespace であることを確認してから削除します。運用の設置の削除は [Kubernetesの停止・削除](/run-server/self-hosting/remove-kubernetes)に従います。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[Kubernetes 設置](/run-server/self-hosting/kubernetes)、[checkpoint bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)。
+
+<a id="examples가-없는-chart" />
+## examples のない chart
+
+`v0.4.0` 以前の chart には `examples/` がありません。そのバージョンを試験するときは、手順 2 の `helm pull` と `cp` の代わりに次の 2 つのブロックをそれぞれ `test-deps.yaml` と `values-test.yaml` として保存します。以降の chart の `examples/` に入っているファイルと同じ内容です。`VERSION` は別に決めます。
 
 ```yaml
-# Test only: PostgreSQL and LocalStack keep their data in the Pod.
+# TEST ONLY. Not for production: PostgreSQL keeps its data in the Pod's
+# emptyDir and LocalStack keeps S3 in memory, so a restart loses the database
+# or the bucket. A production install brings a persistent PostgreSQL and a
+# real checkpoint bucket instead.
+#
+# PostgreSQL 16 and a LocalStack S3 bucket that meets the chart's default
+# checkpoint contract (Object Lock with versioning, SSE-S3 default
+# encryption), for trying the published chart in a cluster of its own. Apply
+# it in the release's namespace after creating the werft-test-postgres
+# Secret (key POSTGRES_PASSWORD); values-test.yaml points the chart at it.
+# Both Services are ClusterIP, and the chart's worker NetworkPolicy keeps
+# workers off them.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: localstack-init
 data:
+  # infra/localstack/init/10-create-resources.sh of the same commit.
   10-create-resources.sh: |
     #!/bin/sh
     set -eu
+
+    # Checkpoint objects are pinned by version and held after finalize, so the
+    # bucket needs versioning and Object Lock (CHECKPOINT_OBJECT_PROTECTION=locked,
+    # the API default). Creating it with Object Lock turns versioning on too.
     if ! awslocal s3api head-bucket --bucket claude-sessions >/dev/null 2>&1; then
       awslocal s3api create-bucket \
         --bucket claude-sessions \
         --create-bucket-configuration "LocationConstraint=${AWS_DEFAULT_REGION}" \
         --object-lock-enabled-for-bucket
     fi
+
+    # A bucket left in the localstack-data volume by an older compose file has
+    # neither. Only then turn both on: once Object Lock is configured, S3 refuses
+    # any PutBucketVersioning, even one that changes nothing. Objects written
+    # before this stay unversioned, and a locked API refuses the checkpoints that
+    # name them.
+    lock=$(awslocal s3api get-object-lock-configuration \
+      --bucket claude-sessions \
+      --query ObjectLockConfiguration.ObjectLockEnabled \
+      --output text 2>/dev/null || true)
+    if [ "$lock" != "Enabled" ]; then
+      awslocal s3api put-bucket-versioning \
+        --bucket claude-sessions \
+        --versioning-configuration Status=Enabled
+      awslocal s3api put-object-lock-configuration \
+        --bucket claude-sessions \
+        --object-lock-configuration ObjectLockEnabled=Enabled
+    fi
+
+    # SSE-S3 as the bucket default, which the API checks at startup
+    # (CHECKPOINT_OBJECT_ENCRYPTION_CHECK). Checkpoint writes name no encryption,
+    # so this is what every object gets. Idempotent, so an old volume's bucket
+    # gets it on the next start.
     awslocal s3api put-bucket-encryption \
       --bucket claude-sessions \
       --server-side-encryption-configuration \
@@ -131,6 +268,7 @@ spec:
           image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
           env:
             - {name: SERVICES, value: s3}
+            # The chart's config.aws.region default; the bucket is made there.
             - {name: AWS_DEFAULT_REGION, value: ap-northeast-1}
           ports:
             - containerPort: 4566
@@ -165,41 +303,15 @@ spec:
     - port: 4566
 ```
 
-`AWS_DEFAULT_REGION` は chart の `config.aws.region` 既定値 `ap-northeast-1` と同じにします。リリースバンドルがあれば、この init スクリプトはバンドルの `infra/localstack/init/10-create-resources.sh` と同じ bucket を作ります。
-
-```bash
-kubectl -n werft apply -f werft-test-deps.yaml
-kubectl -n werft rollout status deploy/postgres --timeout=300s
-kubectl -n werft rollout status deploy/localstack --timeout=300s
-```
-
-2 つのコマンドがどちらも `successfully rolled out` で終わってから次に進みます。LocalStack は bucket ができてから ready になります。
-
-### 3. Werft Secret
-
-[Kubernetes 設置の 2. namespace と Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret) と同じキーを手順 1 のディレクトリに作ります。`DATABASE_URL` は手順 1 のパスワードで `postgres` Service を指します。LocalStack はキーを検査しないので、object store のキーは `test` にします。`POSTGRES_PASSWORD` ファイルは Werft Secret に入れないよう先に削除します。
-
-```bash
-{ printf 'postgresql://postgres:'; cat "$SECRETS/POSTGRES_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
-rm "$SECRETS/POSTGRES_PASSWORD"
-openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
-openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
-printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
-printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
-kubectl -n werft create secret generic werft --from-file="$SECRETS"
-rm -r "${SECRETS:?}"
-```
-
-値はこの試験設置にだけ使います。運用の資格情報を入れません。
-
-<a id="4-최소-values와-설치" />
-### 4. 最小の values と設置
-
-次の内容を `values-try.yaml` として保存します。
-
 ```yaml
+# TEST ONLY. Not for production: the least values that install this chart over
+# test-deps.yaml in the same namespace. The checkpoint bucket is LocalStack's,
+# kept in memory.
 installationId: werft-try
 config:
+  # When the LocalStack Pod restarts its bucket comes back empty; with these
+  # two the api gives the lost checkpoints up at its next start instead of
+  # refusing to start.
   installation:
     profile: test
   aws:
@@ -208,62 +320,9 @@ config:
     bucket: claude-sessions
     objectsLost: forget
   egress:
+    # Replaces the chart's default list as a whole: the default list, then
+    # github.com:443. Add any other Git host the sessions use.
     credentialAllowlist: "api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443"
+    # LocalStack is a private address inside the cluster.
     credentialPrivateAllowlist: "localstack:4566"
 ```
-
-`endpointUrl` は api の接続先を AWS ではなく LocalStack にします。LocalStack はクラスタ内のプライベートアドレスなので `credentialPrivateAllowlist` に書きます。`credentialAllowlist` は既定値を丸ごと置き換えるので、既定の一覧をすべて書いて `github.com:443` を続けました。別の Git ホストを使うならそのホストも加えます。`installation.profile: test` と `checkpoints.objectsLost: forget` は、LocalStack の Pod が再起動して bucket が空になったときに、api が起動を拒否せず失った checkpoint を諦めるようにします(下の[よくある問題](#자주-막히는-곳))。`v0.4.0` 以前の chart はこの 2 つの値を読みません。それ以外は chart の既定値を使います。
-
-`VERSION` は[配布パッケージ契約](/run-server/self-hosting/reference/packages)で選んだ正確な公開 chart バージョンです。
-
-```bash
-VERSION='<published-chart-version>'
-helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f values-try.yaml --timeout 10m
-```
-
-<a id="확인" />
-## 確認
-
-[Kubernetes 設置の 4. 設置と rollout](/run-server/self-hosting/kubernetes#4-설치와-rollout) の rollout 確認と[確認](/run-server/self-hosting/kubernetes#확인)の ready・docs 確認をそのまま実行します。ready 本文の database・schema・config が ok で、`/readyz` と `/docs` が 200 なら完了です。最初の owner とキーは[最初の owner と利用者 key の発行](/run-server/self-hosting/users-and-keys)に従います。
-
-この確認は空の試験設置の準備状態です。運用 DB のバックアップ・復元や運用 bucket の保護契約は証明しません。
-
-<a id="자주-막히는-곳" />
-## よくある問題
-
-PostgreSQL の Pod が入れ替わると DB が、LocalStack のコンテナが再起動すると(ノードの再起動を含む)bucket が空になります。PostgreSQL が空になると `/readyz` が 503 `schema check failed` を返します。このように DB を失った試験設置は修復せず、下の「元に戻す」で削除して手順 1 から作り直します。
-
-bucket だけが空になった場合、api は次の起動時に DB に残った未回収の checkpoint を諦めてから起動します。手順 4 の `installation.profile` と `checkpoints.objectsLost` がそう決めます。
-
-- 失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になります。
-- `kubectl -n werft logs deploy/werft-api` に `The object store came back empty` で始まる警告が 1 行残り、セッション数と id を記録します。
-- `/readyz` は 200 のままで、本文の `detail.checkpoints_forgotten_on_boot` にそのセッション数が入ります。
-- コンソールは owner・admin に、すべての画面の最上部で「試験インストール: 再起動でセッションN件のコンテキストを失いました」と表示します。そのうちの一人が**閉じる**を押すと全員の画面から消え、`/readyz` の数からも除かれます。セッションは `recovery_required` のままです。
-
-ノードを再起動すると api も一緒に再起動するので、することはありません。LocalStack の Pod だけが再起動した場合、api は動いたままで整理しません。そのときはすぐに api を再起動します。
-
-```bash
-kubectl -n werft rollout restart deploy/werft-api
-```
-
-遅らせると、その間に書かれた新しい checkpoint のために bucket が空ではなくなって整理されず、object を失ったセッションは復元時に失敗します。2 つの値がない設置(`v0.4.0` 以前の chart を含む)の api は、bucket だけが空の状態で起動を拒否します。
-
-手順 1〜3 の途中で止めてシェルを閉じるときは、先に `rm -r "${SECRETS:?}"` でパスワードの入った一時ディレクトリを削除します。
-
-`helm upgrade --install` は 2 つの依存の rollout が終わってから実行します。手順 2 の `rollout status` が失敗したら、`kubectl -n werft describe pod -l app=localstack` と `kubectl -n werft logs deploy/localstack` でイメージ pull や init スクリプトのエラーを確認します。
-
-<a id="되돌리기" />
-## 元に戻す
-
-```bash
-helm -n werft uninstall werft
-kubectl delete namespace werft
-```
-
-namespace を削除すると worker Pod、workspace PVC、2 つの依存、Secret も一緒に消えます。この試験クラスタの `werft` namespace であることを確認してから削除します。運用の設置の削除は [Kubernetesの停止・削除](/run-server/self-hosting/remove-kubernetes)に従います。
-
-<a id="다음에-읽을-곳" />
-## 次に読む
-
-[Kubernetes 設置](/run-server/self-hosting/kubernetes)、[checkpoint bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)。

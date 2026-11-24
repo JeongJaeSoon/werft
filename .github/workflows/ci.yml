@@ -1213,17 +1213,22 @@ jobs:
           helm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml
           helm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml \
             -f deploy/helm/werft/values-aws.example.yaml
+          helm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml \
+            -f deploy/helm/werft/examples/values-test.yaml
       - name: Render check
         run: bun deploy/helm/render-check.ts
       - name: kubeconform
         run: |
           set -o pipefail
-          for values in deploy/helm/ci-digests.yaml deploy/helm/werft/values-aws.example.yaml; do
+          for values in deploy/helm/ci-digests.yaml deploy/helm/werft/values-aws.example.yaml deploy/helm/werft/examples/values-test.yaml; do
             echo "== $values"
             helm template ap deploy/helm/werft -f deploy/helm/ci-digests.yaml -f "$values" \
               | kubeconform -strict -summary -kubernetes-version 1.33.0 \
                   -schema-location "$K8S_SCHEMAS" -schema-location "$CRD_SCHEMAS"
           done
+          echo "== examples/test-deps.yaml"
+          kubeconform -strict -summary -kubernetes-version 1.33.0 -schema-location "$K8S_SCHEMAS" \
+            deploy/helm/werft/examples/test-deps.yaml
 
   # Check installation, worker lifecycle, NetworkPolicy and backend contracts
   # against kind using images from the CI mirror.

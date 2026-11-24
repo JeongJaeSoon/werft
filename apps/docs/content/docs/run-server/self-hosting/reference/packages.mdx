@@ -63,6 +63,8 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 게시 chart는 세 이미지 digest와 worker runtime을 담는다. 두 worker 이미지의 `images.workers` 항목(repository·digest·runtime·`releasedAt`)은 chart 안의 `files/release-images.json`에도 담고, 그 목록으로 다음 values를 만드는 `files/next-workers.jq`를 함께 싣는다. 설치별 values에 이 값을 다시 적거나 `--reuse-values`를 쓰면 다음 chart의 새 값을 덮는다. worker runtime은 engine·SDK·CLI·profile digest 방식으로 구성되며 이미지 digest 자체와는 다르다.
 
+게시 chart는 `examples/`에 시험용 의존성 예시도 싣는다. `test-deps.yaml`은 PostgreSQL 16과 `locked` 계약을 만족하는 LocalStack S3이고, `values-test.yaml`은 그 위에 chart를 올리는 최소 values다. 두 파일은 운영용이 아니며 첫 줄에 그렇게 적혀 있다. `v0.4.0` 이하 chart에는 없다. 쓰는 법은 [chart 시험용 DB와 object store](/run-server/self-hosting/try-chart-dependencies)에 있다.
+
 `unverifiedSources`가 남아 있으면 해당 Debian 소스가 실제로 보관되지 않았을 가능성도 있다. 공식 릴리스 수준의 소스 보관 보증으로 간주하지 않는다. multi-arch 게시 도입 전의 오래된 `main-<12>`는 amd64만 담을 수 있으므로 ARM 서버에서는 index의 platform 목록도 확인한다. 게시가 일부만 끝났거나 조회가 실패한 세 digest를 한 배포 세트로 사용하지 않는다.
 
 ## checkout 없이 설치하기: 릴리스 번들
