@@ -1,5 +1,5 @@
 {
-  "id": "1437837c-d564-4252-b7d8-d23e3055bd94",
+  "id": "4c365423-79ac-405a-9142-7706e27bf3be",
   "prevId": "c64f2f04-3317-4130-97fd-067c86609156",
   "version": "7",
   "dialect": "postgresql",
@@ -5614,6 +5614,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "conversation_turn_id": {
+          "name": "conversation_turn_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5759,6 +5765,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "conversation_calls_conversation_turn_idx": {
+          "name": "conversation_calls_conversation_turn_idx",
+          "columns": [
+            {
+              "expression": "conversation_turn_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"conversation_turn_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -5806,12 +5828,25 @@
           "columnsTo": ["agent_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "conversation_calls_conversation_turn_fk": {
+          "name": "conversation_calls_conversation_turn_fk",
+          "tableFrom": "conversation_calls",
+          "tableTo": "conversation_turns",
+          "columnsFrom": ["conversation_turn_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "conversation_calls_conversation_turn_check": {
+          "name": "conversation_calls_conversation_turn_check",
+          "value": "\"conversation_calls\".\"conversation_turn_id\" IS NULL OR COALESCE(\"conversation_calls\".\"call_class\" = 'm2', false)"
+        },
         "conversation_calls_call_class_check": {
           "name": "conversation_calls_call_class_check",
           "value": "\"conversation_calls\".\"call_class\" IN ('m1','m2','summary')"
@@ -5955,6 +5990,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "conversation_engagements_conversation_turn_idx": {
+          "name": "conversation_engagements_conversation_turn_idx",
+          "columns": [
+            {
+              "expression": "conversation_turn_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_engagements\".\"conversation_turn_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -5973,6 +6024,15 @@
           "tableTo": "agents",
           "columnsFrom": ["workspace_id", "agent_id"],
           "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_engagements_conversation_turn_fk": {
+          "name": "conversation_engagements_conversation_turn_fk",
+          "tableFrom": "conversation_engagements",
+          "tableTo": "conversation_turns",
+          "columnsFrom": ["conversation_turn_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -6083,6 +6143,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "conversation_turn_id": {
+          "name": "conversation_turn_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body_sha256": {
+          "name": "body_sha256",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
         "slack_mirror": {
           "name": "slack_mirror",
           "type": "text",
@@ -6101,31 +6173,9 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "judgment_batch_id": {
-          "name": "judgment_batch_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "conversation_inputs_judgment_batch_idx": {
-          "name": "conversation_inputs_judgment_batch_idx",
-          "columns": [
-            {
-              "expression": "judgment_batch_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_inputs\".\"judgment_batch_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "conversation_inputs_client_message_uniq": {
           "name": "conversation_inputs_client_message_uniq",
           "columns": [
@@ -6156,6 +6206,22 @@
           ],
           "isUnique": true,
           "where": "\"conversation_inputs\".\"client_message_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_inputs_conversation_turn_idx": {
+          "name": "conversation_inputs_conversation_turn_idx",
+          "columns": [
+            {
+              "expression": "conversation_turn_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_inputs\".\"conversation_turn_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -6245,13 +6311,13 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "conversation_inputs_judgment_batch_id_judgment_batches_id_fk": {
-          "name": "conversation_inputs_judgment_batch_id_judgment_batches_id_fk",
+        "conversation_inputs_conversation_turn_fk": {
+          "name": "conversation_inputs_conversation_turn_fk",
           "tableFrom": "conversation_inputs",
-          "tableTo": "judgment_batches",
-          "columnsFrom": ["judgment_batch_id"],
+          "tableTo": "conversation_turns",
+          "columnsFrom": ["conversation_turn_id"],
           "columnsTo": ["id"],
-          "onDelete": "set null",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -6275,13 +6341,9 @@
       },
       "policies": {},
       "checkConstraints": {
-        "conversation_inputs_judgment_batch_check": {
-          "name": "conversation_inputs_judgment_batch_check",
-          "value": "\"conversation_inputs\".\"judgment_batch_id\" IS NULL OR \"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL"
-        },
         "conversation_inputs_origin_check": {
           "name": "conversation_inputs_origin_check",
-          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending','unconfirmed') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user')"
+          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending','unconfirmed') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL AND ((\"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL) OR (\"conversation_inputs\".\"conversation_turn_id\" IS NOT NULL AND \"conversation_inputs\".\"body_sha256\" IS NOT NULL AND octet_length(\"conversation_inputs\".\"body_sha256\") = 32))) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user' AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL)"
         },
         "conversation_inputs_seq_check": {
           "name": "conversation_inputs_seq_check",
@@ -6438,6 +6500,244 @@
         "conversation_topics_slack_check": {
           "name": "conversation_topics_slack_check",
           "value": "(\"conversation_topics\".\"slack_team_id\" IS NULL AND \"conversation_topics\".\"slack_channel_id\" IS NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NULL) OR (\"conversation_topics\".\"slack_team_id\" IS NOT NULL AND \"conversation_topics\".\"slack_channel_id\" IS NOT NULL AND \"conversation_topics\".\"slack_thread_ts\" IS NOT NULL AND \"conversation_topics\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_topics\".\"slack_thread_ts\" ~ '^[0-9]{1,20}\\.[0-9]{1,20}$')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.conversation_turns": {
+      "name": "conversation_turns",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "topic_id": {
+          "name": "topic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requester_kind": {
+          "name": "requester_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requester_id": {
+          "name": "requester_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input_text": {
+          "name": "input_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision": {
+          "name": "decision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision_reason": {
+          "name": "decision_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "answer_text": {
+          "name": "answer_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sources": {
+          "name": "sources",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "release_id": {
+          "name": "release_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slack_installation_id": {
+          "name": "slack_installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "conversation_turns_conversation_idx": {
+          "name": "conversation_turns_conversation_idx",
+          "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turns_topic_idx": {
+          "name": "conversation_turns_topic_idx",
+          "columns": [
+            {
+              "expression": "topic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turns\".\"topic_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turns_sources_idx": {
+          "name": "conversation_turns_sources_idx",
+          "columns": [
+            {
+              "expression": "sources",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "jsonb_path_ops"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turns\".\"sources\" IS NOT NULL",
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_turns_agent_fk": {
+          "name": "conversation_turns_agent_fk",
+          "tableFrom": "conversation_turns",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_turns_conversation_fk": {
+          "name": "conversation_turns_conversation_fk",
+          "tableFrom": "conversation_turns",
+          "tableTo": "conversations",
+          "columnsFrom": ["conversation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_turns_topic_fk": {
+          "name": "conversation_turns_topic_fk",
+          "tableFrom": "conversation_turns",
+          "tableTo": "conversation_topics",
+          "columnsFrom": ["topic_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_turns_release_fk": {
+          "name": "conversation_turns_release_fk",
+          "tableFrom": "conversation_turns",
+          "tableTo": "agent_releases",
+          "columnsFrom": ["agent_id", "release_id"],
+          "columnsTo": ["agent_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_turns_slack_installation_fk": {
+          "name": "conversation_turns_slack_installation_fk",
+          "tableFrom": "conversation_turns",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["slack_installation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "conversation_turns_origin_check": {
+          "name": "conversation_turns_origin_check",
+          "value": "\"conversation_turns\".\"origin\" IN ('web_input','m2')"
+        },
+        "conversation_turns_state_check": {
+          "name": "conversation_turns_state_check",
+          "value": "\"conversation_turns\".\"state\" IN ('received','running','decided','no_decision','voided_by_delete')"
+        },
+        "conversation_turns_decision_check": {
+          "name": "conversation_turns_decision_check",
+          "value": "\"conversation_turns\".\"decision\" IN ('reply','route_to_task','spawn_task','no_reply')"
+        },
+        "conversation_turns_shape_check": {
+          "name": "conversation_turns_shape_check",
+          "value": "CASE \"conversation_turns\".\"origin\"\n        WHEN 'web_input' THEN \"conversation_turns\".\"state\" = 'received' AND \"conversation_turns\".\"input_text\" IS NOT NULL AND \"conversation_turns\".\"requester_kind\" = 'user' AND \"conversation_turns\".\"decision\" IS NULL AND \"conversation_turns\".\"decision_reason\" IS NULL AND \"conversation_turns\".\"answer_text\" IS NULL AND \"conversation_turns\".\"ended_at\" IS NULL\n        ELSE \"conversation_turns\".\"state\" <> 'received' AND \"conversation_turns\".\"input_text\" IS NULL\n          AND (\"conversation_turns\".\"decision\" IS NOT NULL) = (\"conversation_turns\".\"state\" = 'decided')\n          AND (\"conversation_turns\".\"decision_reason\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT NULL)\n          AND (\"conversation_turns\".\"answer_text\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT NULL)\n          AND (\"conversation_turns\".\"ended_at\" IS NULL) = (\"conversation_turns\".\"state\" = 'running')\n      END"
+        },
+        "conversation_turns_text_check": {
+          "name": "conversation_turns_text_check",
+          "value": "(\"conversation_turns\".\"decision_reason\" IS NULL OR char_length(\"conversation_turns\".\"decision_reason\") BETWEEN 1 AND 1000) AND (\"conversation_turns\".\"answer_text\" IS NULL OR char_length(\"conversation_turns\".\"answer_text\") <= 16000)"
         }
       },
       "isRLSEnabled": false
@@ -9113,199 +9413,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.judgment_batches": {
-      "name": "judgment_batches",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_team_id": {
-          "name": "slack_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_channel_id": {
-          "name": "slack_channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "release_id": {
-          "name": "release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "model_called": {
-          "name": "model_called",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "closed_at": {
-          "name": "closed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "judgment_batches_judging_uniq": {
-          "name": "judgment_batches_judging_uniq",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"judgment_batches\".\"state\" = 'judging'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "judgment_batches_channel_idx": {
-          "name": "judgment_batches_channel_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "slack_channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "closed_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "judgment_batches_closed_idx": {
-          "name": "judgment_batches_closed_idx",
-          "columns": [
-            {
-              "expression": "closed_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "judgment_batches_agent_fk": {
-          "name": "judgment_batches_agent_fk",
-          "tableFrom": "judgment_batches",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "judgment_batches_conversation_fk": {
-          "name": "judgment_batches_conversation_fk",
-          "tableFrom": "judgment_batches",
-          "tableTo": "conversations",
-          "columnsFrom": ["conversation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "judgment_batches_release_fk": {
-          "name": "judgment_batches_release_fk",
-          "tableFrom": "judgment_batches",
-          "tableTo": "agent_releases",
-          "columnsFrom": ["agent_id", "release_id"],
-          "columnsTo": ["agent_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "judgment_batches_state_check": {
-          "name": "judgment_batches_state_check",
-          "value": "\"judgment_batches\".\"state\" IN ('judging', 'judged', 'failed', 'rate_limited') AND (\"judgment_batches\".\"state\" = 'judging') = (\"judgment_batches\".\"ended_at\" IS NULL) AND (\"judgment_batches\".\"state\" = 'judged') = (\"judgment_batches\".\"model_called\" IS NOT NULL)"
-        },
-        "judgment_batches_slack_check": {
-          "name": "judgment_batches_slack_check",
-          "value": "\"judgment_batches\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"judgment_batches\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.judgment_buffer_overflows": {
       "name": "judgment_buffer_overflows",
       "schema": "",
@@ -9375,87 +9482,6 @@
         "judgment_buffer_overflows_slack_check": {
           "name": "judgment_buffer_overflows_slack_check",
           "value": "\"judgment_buffer_overflows\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"judgment_buffer_overflows\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.judgment_channel_tallies": {
-      "name": "judgment_channel_tallies",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_team_id": {
-          "name": "slack_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slack_channel_id": {
-          "name": "slack_channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "rate_limited_count": {
-          "name": "rate_limited_count",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "unjudged_count": {
-          "name": "unjudged_count",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "judgment_channel_tallies_agent_fk": {
-          "name": "judgment_channel_tallies_agent_fk",
-          "tableFrom": "judgment_channel_tallies",
-          "tableTo": "agents",
-          "columnsFrom": ["workspace_id", "agent_id"],
-          "columnsTo": ["workspace_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "judgment_channel_tallies_pk": {
-          "name": "judgment_channel_tallies_pk",
-          "columns": ["agent_id", "slack_team_id", "slack_channel_id"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "judgment_channel_tallies_count_check": {
-          "name": "judgment_channel_tallies_count_check",
-          "value": "\"judgment_channel_tallies\".\"rate_limited_count\" >= 0 AND \"judgment_channel_tallies\".\"unjudged_count\" >= 0"
-        },
-        "judgment_channel_tallies_slack_check": {
-          "name": "judgment_channel_tallies_slack_check",
-          "value": "\"judgment_channel_tallies\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"judgment_channel_tallies\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$'"
         }
       },
       "isRLSEnabled": false

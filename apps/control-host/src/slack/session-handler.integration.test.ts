@@ -19,6 +19,7 @@ import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack"
 import {
   agentCardRequestSchema,
   type ConversationInputId,
+  type ConversationTurnId,
   DEFAULT_SURFACE_CEILING,
   GITHUB_CEILING_NONE,
   SESSION_SCOPE_VALUES,
@@ -30,6 +31,7 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
+  createPostgresConversationStore,
   createPostgresCredentialBindingStore,
   createPostgresGitHubMcpStore,
   createPostgresSessionLinkStore,
@@ -1298,8 +1300,31 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         conversationTurnId: null,
         ...target,
       });
+    const conversation = await createPostgresConversationStore(
+      db,
+    ).findOrCreateConversation({
+      kind: "channel",
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      teamId: TEAM,
+      channelId: CHANNEL,
+    });
     const turnId = randomUUID();
+    await db.insert(schema.conversationTurns).values({
+      id: turnId as ConversationTurnId,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      conversationId: conversation.id,
+      origin: "m2",
+      state: "running",
+      requesterKind: "slack_user",
+      requesterId: "U0ASKER",
+    });
     await expect(insert("100.000700", {})).rejects.toThrow();
+    // A turn the table does not have.
+    await expect(
+      insert("100.000750", { conversationTurnId: randomUUID() }),
+    ).rejects.toThrow();
     await expect(
       insert("100.000800", {
         sessionId: session?.id ?? "",

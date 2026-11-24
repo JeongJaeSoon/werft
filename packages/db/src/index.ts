@@ -19,6 +19,11 @@ export * from "./conversations/channel-summaries.ts";
 export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
 export * from "./conversations/conversation-store.ts";
+export {
+  backfillWebInputTurns,
+  beginConversationTurn,
+  endConversationTurn,
+} from "./conversations/conversation-turns.ts";
 export * from "./conversations/engagements.ts";
 export { createPostgresJudgmentBatchStore } from "./conversations/judgment-batches.ts";
 export {

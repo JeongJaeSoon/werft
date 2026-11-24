@@ -142,7 +142,7 @@ export function fragmentText(fragment: ContextFragment): string {
     case "channel_summary_line":
       return fragment.text;
     case "engagement":
-      return `${fragment.engagementKind} ${fragment.sessionId} ${fragment.at.toISOString()}`;
+      return `${fragment.engagementKind} ${fragment.target.kind === "session" ? fragment.target.sessionId : fragment.target.turnId} ${fragment.at.toISOString()}`;
     case "buffered_message":
       return fragment.body;
   }

@@ -124,7 +124,7 @@ async function tallyUnjudged(tx: Database, gone: readonly DroppedRow[]) {
 }
 
 /**
- * Removes a topic that has no input left. Two transactions emptying one
+ * Removes a topic that has no input and no conversation turn left. Two transactions emptying one
  * topic take its lock in turn, so the later one judges it after the earlier
  * one's rows are gone. A topic another transaction holds is left: it is
  * taking an input, or will judge the topic itself.
@@ -140,6 +140,8 @@ async function dropTopicIfEmpty(tx: Database, topicId: string) {
       WHERE t.id = ${topicId}::uuid
         AND NOT EXISTS (
           SELECT 1 FROM conversation_inputs o WHERE o.topic_id = t.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM conversation_turns ct WHERE ct.topic_id = t.id)
       FOR UPDATE SKIP LOCKED)`);
 }
 
