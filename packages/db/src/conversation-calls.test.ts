@@ -1025,6 +1025,23 @@ describe("a conversation call's concurrency limits", () => {
     });
   });
 
+  test("a summary in progress does not hold a channel's first M1", async () => {
+    const { agentId } = await agentOf();
+    await issued(agentId, person(crypto.randomUUID()), {
+      callClass: "summary",
+    });
+    await issued(agentId, person(crypto.randomUUID()), { callClass: "m1" });
+    expect(
+      await issue(agentId, person(crypto.randomUUID()), CONNECTION, {
+        callClass: "m1",
+      }),
+    ).toMatchObject({
+      outcome: "concurrency_limited",
+      limit: "channel",
+      inProgress: 1,
+    });
+  });
+
   test("an expired token holds no place; one of unknown end holds it until settled", async () => {
     const { agentId } = await agentOf();
     const calls = [];

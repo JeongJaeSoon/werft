@@ -46,6 +46,31 @@ function requesterUserOf(root: BudgetRoot): string | null {
   return null;
 }
 
+/**
+ * The locks of the keys a call is counted under, sorted. Anything that
+ * moves a call into or out of what a limit counts by a test of the clock
+ * (a first grant before its token expires) takes them too, so an issue
+ * never reads that call on the other side of the change.
+ */
+async function lockConversationCallLimitsIn(
+  tx: Database,
+  call: {
+    workspaceId: string;
+    agentId: string;
+    requesterUserId: string | null;
+  },
+): Promise<void> {
+  const keys = [`agent:${call.agentId}`];
+  if (call.requesterUserId !== null) {
+    keys.push(`requester:${call.workspaceId}:${call.requesterUserId}`);
+  }
+  for (const key of keys.sort()) {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext('conversation_call_limit'), hashtext(${key}))`,
+    );
+  }
+}
+
 /** What one call is counted under while in progress. */
 export type ConversationCallScope = {
   workspaceId: string;
@@ -73,15 +98,7 @@ export async function holdConversationCallLimitsIn(
   tx: Database,
   scope: ConversationCallScope,
 ): Promise<LimitReached | null> {
-  const keys = [`agent:${scope.agentId}`];
-  if (scope.requesterUserId !== null) {
-    keys.push(`requester:${scope.workspaceId}:${scope.requesterUserId}`);
-  }
-  for (const key of keys.sort()) {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtext('conversation_call_limit'), hashtext(${key}))`,
-    );
-  }
+  await lockConversationCallLimitsIn(tx, scope);
   const c = conversationCalls;
   const ofAgent = eq(c.agentId, scope.agentId);
   const scoped = {
@@ -278,8 +295,8 @@ function issueIn(
  * row (the budget ledger's own order). The issue holds the account row while
  * it inserts the call's row, which no one can wait on before it commits. It
  * key-share locks the call's topic before that, so the buffer does not drop
- * the topic in between. The grant question takes the call's row alone, never
- * an account.
+ * the topic in between. A first grant takes the call's limit keys' locks and
+ * then the call's row, never an account.
  */
 export function createPostgresConversationCalls(
   db: Database,
@@ -297,6 +314,23 @@ export function createPostgresConversationCalls(
           maxTokens: conversationCalls.maxTokens,
           maxRequestBytes: conversationCalls.maxRequestBytes,
         };
+        // A first grant keeps an unexpired call counted by the limits; one
+        // that expires while the grant waits for their locks is not bound,
+        // as an issue under them may already have left it uncounted.
+        const [unbound] = await tx
+          .select({
+            workspaceId: conversationCalls.workspaceId,
+            agentId: conversationCalls.agentId,
+            requesterUserId: conversationCalls.requesterUserId,
+          })
+          .from(conversationCalls)
+          .where(
+            and(
+              eq(conversationCalls.tokenHash, input.tokenHash),
+              eq(conversationCalls.state, "reserved"),
+            ),
+          );
+        if (unbound) await lockConversationCallLimitsIn(tx, unbound);
         // The first grant binds the token. Its condition is judged again
         // on the row once a concurrent first grant commits, so of two
         // exchanges only one is bound.

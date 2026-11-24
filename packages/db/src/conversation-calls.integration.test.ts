@@ -694,6 +694,50 @@ integration("conversation calls on PostgreSQL", () => {
       expect((await callOf(agent, { callClass: "m1" })).outcome).toBe("issued");
     });
 
+    test("a first grant waits on the limits' locks and binds no token that expired meanwhile", async () => {
+      const agent = { agentId, conversationId };
+      const first = tokenOf(await callOf(agent, { callClass: "m1" }));
+      const holder = await pool.connect();
+      try {
+        await holder.query("BEGIN");
+        await holder.query(
+          "SELECT pg_advisory_xact_lock(hashtext('conversation_call_limit'), hashtext($1))",
+          [`agent:${agent.agentId}`],
+        );
+        let settled = false;
+        const granting = grant(first.token, crypto.randomUUID()).finally(() => {
+          settled = true;
+        });
+        await Bun.sleep(300);
+        expect(settled).toBe(false);
+        await pool.query(
+          "UPDATE conversation_calls SET expires_at = now() - interval '1 second' WHERE id = $1",
+          [first.callId],
+        );
+        await holder.query("COMMIT");
+        expect((await granting).outcome).toBe("invalid_token");
+      } finally {
+        holder.release();
+      }
+      // The next M1 is the channel's one call in progress.
+      expect((await callOf(agent, { callClass: "m1" })).outcome).toBe("issued");
+      expect(await callOf(agent, { callClass: "m1" })).toMatchObject({
+        outcome: "concurrency_limited",
+        limit: "channel",
+      });
+    });
+
+    test("a summary in progress does not hold a channel's first M1", async () => {
+      const agent = { agentId, conversationId };
+      tokenOf(await callOf(agent, { callClass: "summary" }));
+      tokenOf(await callOf(agent, { callClass: "m1" }));
+      expect(await callOf(agent, { callClass: "m1" })).toMatchObject({
+        outcome: "concurrency_limited",
+        limit: "channel",
+        inProgress: 1,
+      });
+    });
+
     test("calls of unknown end hold the agent's places, said in the refusal, until a late report settles one", async () => {
       const agent = { agentId, conversationId };
       const calls = (
