@@ -2,6 +2,7 @@
 // service it needs per subcommand, so each builder stays separate.
 import {
   createSlackAppService,
+  createSlackBotApi,
   createSlackConfigApi,
   createSlackConfigTokens,
   createSlackEventsFinalize,
@@ -24,6 +25,11 @@ export function wireSlackCliDeps(input: {
   tokenStore: Param<typeof createSlackConfigTokens>["store"];
   api: SlackCliApi;
   consoleOrigin: SlackCliDeps["consoleOrigin"];
+  /** Read from Slack for the bot allow list; unset, those commands are off. */
+  bots?: {
+    secrets: NonNullable<SlackCliDeps["bots"]>["secrets"];
+    apiUrl: string;
+  };
 }): SlackCliDeps & { apps: NonNullable<SlackCliDeps["apps"]> } {
   return {
     authorization: input.authorization,
@@ -34,6 +40,14 @@ export function wireSlackCliDeps(input: {
     }),
     api: input.api,
     consoleOrigin: input.consoleOrigin,
+    ...(input.bots
+      ? {
+          bots: {
+            secrets: input.bots.secrets,
+            api: createSlackBotApi({ apiUrl: input.bots.apiUrl }),
+          },
+        }
+      : {}),
   };
 }
 

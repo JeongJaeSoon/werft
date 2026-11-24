@@ -1,6 +1,8 @@
 import { parseArgs } from "node:util";
+import { slackIdSchema } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  createPostgresSecretStore,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackSettingsStore,
@@ -53,17 +55,30 @@ export const SLACK_APP_EXIT = {
   slack_error: 7,
   events_url_unset: 8,
   key_mismatch: 9,
+  bot_refused: 10,
+  slack_not_installed: 11,
 } as const;
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-app.ts create --workspace <workspace_id> --agent <agent_id> [--replace-uncertain]
        bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace <workspace_id> [--replace-uncertain]
        bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>
+       bun run apps/control-host/src/api/slack-app.ts list-bots --agent <agent_id>
+       bun run apps/control-host/src/api/slack-app.ts allow-bot --agent <agent_id> --bot <bot_user_id>
+       bun run apps/control-host/src/api/slack-app.ts disallow-bot --agent <agent_id> --bot <bot_user_id>
   --kind agent (default) makes the agent's app; --kind link makes the
   workspace's account-linking app (Sign in with Slack), which a first
   "Slack 연결" in the console would otherwise make.
   finalize sends the agent app's manifest again with its event subscription
   (<CONSOLE_ORIGIN>/v1/slack/events/<agent_id>), as an install does;
   running it again changes nothing.
+  list-bots, allow-bot and disallow-bot show and change the Slack bots the agent
+  answers, for tests and recovery; the console (the agent's Slack page) is the
+  normal place. allow-bot is checked as the console checks it: a bot added must
+  be a live bot of the agent's Slack workspace that belongs to no agent of this
+  install (refused as slack_bot_own, slack_bot_werft_agent, slack_bot_other_team
+  or slack_bot_unknown). disallow-bot reads nothing from Slack. A change writes
+  a set_slack_allowed_bots receipt with by operator_cli; allowing a bot already
+  allowed, or disallowing one that is not, changes and records nothing.
 Environment: DATABASE_URL and PLATFORM_SECRET_KEY, or PLATFORM_SECRET_KEY_FILE naming a file that holds it (required),
              CONSOLE_ORIGIN (the console's public origin: create's OAuth redirect and finalize's events address,
              unless an owner saved one in Settings > Integrations > Slack)
@@ -77,7 +92,10 @@ Exit codes: 0 created, or the agent or workspace already had it, or finalized; 1
             7 Slack refused or could not be reached;
             8 finalize: no https events address is known (events_url_unset), nothing was sent;
             9 master_key_mismatch: a stored secret does not open with this key
-              (not the key the API runs with), or the two settings hold different keys`;
+              (not the key the API runs with), or the two settings hold different keys;
+            10 allow-bot: the bot is refused (the error names reason_code and user_ids), or the
+               list would pass 20 bots; nothing changed;
+            11 the agent's Slack app is not installed, so its bots cannot be read`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -89,7 +107,10 @@ export type SlackAppCommand =
       workspaceId: string;
       replaceUncertain: boolean;
     } & ({ kind: "agent"; agentId: string } | { kind: "link" }))
-  | { command: "finalize"; agentId: string };
+  | { command: "finalize"; agentId: string }
+  | { command: "list-bots"; agentId: string }
+  | { command: "allow-bot"; agentId: string; botUserId: string }
+  | { command: "disallow-bot"; agentId: string; botUserId: string };
 
 export function parseSlackAppCommand(argv: string[]): SlackAppCommand {
   let parsed: ReturnType<typeof parse>;
@@ -103,12 +124,40 @@ export function parseSlackAppCommand(argv: string[]): SlackAppCommand {
     );
   }
   const { workspace, agent } = parsed.values;
+  const [verb] = parsed.positionals;
+  if (verb === "list-bots" || verb === "allow-bot" || verb === "disallow-bot") {
+    const { bot } = parsed.values;
+    if (
+      parsed.positionals.length !== 1 ||
+      agent === undefined ||
+      workspace !== undefined ||
+      parsed.values.kind !== undefined ||
+      parsed.values["replace-uncertain"] !== undefined ||
+      (verb === "list-bots") !== (bot === undefined)
+    ) {
+      throw new SlackAppUsageError(USAGE);
+    }
+    if (!UUID.test(agent)) {
+      throw new SlackAppUsageError(`--agent must be a UUID\n${USAGE}`);
+    }
+    const agentId = agent.toLowerCase();
+    if (bot === undefined) return { command: "list-bots", agentId };
+    if (!slackIdSchema.safeParse(bot).success) {
+      throw new SlackAppUsageError(
+        `--bot must be a Slack user id such as U0123ABC\n${USAGE}`,
+      );
+    }
+    return verb === "allow-bot"
+      ? { command: verb, agentId, botUserId: bot }
+      : { command: verb, agentId, botUserId: bot };
+  }
   if (parsed.positionals[0] === "finalize") {
     if (
       parsed.positionals.length !== 1 ||
       agent === undefined ||
       workspace !== undefined ||
       parsed.values.kind !== undefined ||
+      parsed.values.bot !== undefined ||
       parsed.values["replace-uncertain"] !== undefined
     ) {
       throw new SlackAppUsageError(USAGE);
@@ -123,6 +172,7 @@ export function parseSlackAppCommand(argv: string[]): SlackAppCommand {
     parsed.positionals.length !== 1 ||
     parsed.positionals[0] !== "create" ||
     workspace === undefined ||
+    parsed.values.bot !== undefined ||
     (kind !== "agent" && kind !== "link") ||
     (kind === "agent") !== (agent !== undefined)
   ) {
@@ -153,6 +203,7 @@ function parse(argv: string[]) {
       kind: { type: "string" },
       workspace: { type: "string" },
       agent: { type: "string" },
+      bot: { type: "string" },
       "replace-uncertain": { type: "boolean" },
     },
     allowPositionals: true,
@@ -180,7 +231,53 @@ const EXIT_BY_CODE: Partial<Record<string, number>> = {
   SLACK_APP_CREATING: SLACK_APP_EXIT.app_busy,
   REVISION_CONFLICT: SLACK_APP_EXIT.app_busy,
   BACKEND_UNAVAILABLE: SLACK_APP_EXIT.slack_error,
+  BAD_REQUEST: SLACK_APP_EXIT.bot_refused,
+  SLACK_NOT_INSTALLED: SLACK_APP_EXIT.slack_not_installed,
 };
+
+async function botCommand(
+  command: Extract<
+    SlackAppCommand,
+    { command: "list-bots" | "allow-bot" | "disallow-bot" }
+  >,
+  deps: SlackCliDeps & { apps: SurfaceAppStore },
+  io: SlackAppIo,
+): Promise<number> {
+  // The workspace is found from the agent's app, as finalize finds it.
+  const app = await deps.apps.findAgentApp(command.agentId);
+  if (app === null) {
+    io.err("slack-app: NOT_FOUND: the agent has no created Slack app");
+    return SLACK_APP_EXIT.agent_not_found;
+  }
+  const service = wireSlackCliAppService(deps);
+  if (command.command === "list-bots") {
+    const result = await service.listAgentAppBotsAsOperator(
+      app.workspaceId,
+      command.agentId,
+    );
+    io.out(JSON.stringify({ agent_id: command.agentId, ...result }));
+    return SLACK_APP_EXIT.created;
+  }
+  const result = await service.changeAgentAppBotAsOperator(
+    app.workspaceId,
+    command.agentId,
+    {
+      action: command.command === "allow-bot" ? "allow" : "disallow",
+      botUserId: command.botUserId,
+    },
+  );
+  io.out(
+    JSON.stringify({
+      outcome: result.changed ? "changed" : "unchanged",
+      agent_id: command.agentId,
+      bot_user_id: command.botUserId,
+      added: result.added,
+      removed: result.removed,
+      allowed_user_ids: result.allowed_user_ids,
+    }),
+  );
+  return SLACK_APP_EXIT.created;
+}
 
 async function finalize(
   agentId: string,
@@ -262,7 +359,18 @@ export async function runSlackApp(
         tokenStore: createPostgresSlackConfigTokenStore(database.db, key),
         api,
         consoleOrigin,
+        bots: {
+          secrets: createPostgresSecretStore(database.db, key),
+          apiUrl: slackApiUrlFrom(io.env),
+        },
       });
+      if (
+        command.command === "list-bots" ||
+        command.command === "allow-bot" ||
+        command.command === "disallow-bot"
+      ) {
+        return await botCommand(command, deps, io);
+      }
       if (command.command === "finalize") {
         const settings = createPostgresSlackSettingsStore(database.db);
         // Run before the server has carried the env in, it does so itself:

@@ -146,6 +146,119 @@ function setup(
   };
 }
 
+describe("the operator's changes to the agent's Slack bot allow list", () => {
+  const pages = () => [
+    [
+      bot("U0REVIEW", "code-review"),
+      bot(OWN_BOT, "notes"),
+      bot(WERFT_BOT, "writer"),
+      bot("U0FOREIGN", "x", { teamId: "T0OTHER" }),
+    ],
+  ];
+
+  test("allows a live bot, once: allowing it again changes nothing", async () => {
+    const { service } = setup(pages());
+    const first = await service.changeAgentAppBotAsOperator(WORKSPACE, AGENT, {
+      action: "allow",
+      botUserId: "U0REVIEW",
+    });
+    expect(first).toMatchObject({
+      changed: true,
+      added: ["U0REVIEW"],
+      removed: [],
+      allowed_user_ids: ["U0REVIEW"],
+    });
+    const again = await service.changeAgentAppBotAsOperator(WORKSPACE, AGENT, {
+      action: "allow",
+      botUserId: "U0REVIEW",
+    });
+    expect(again).toMatchObject({ changed: false, added: [], removed: [] });
+    const listed = await service.listAgentAppBotsAsOperator(WORKSPACE, AGENT);
+    expect(listed.items).toEqual([
+      {
+        user_id: "U0REVIEW",
+        name: "code-review",
+        state: "active",
+        allowed: true,
+      },
+    ]);
+  });
+
+  test("refuses each reason as the console does", async () => {
+    const { service } = setup(pages());
+    for (const [id, reason] of [
+      [OWN_BOT, "slack_bot_own"],
+      [WERFT_BOT, "slack_bot_werft_agent"],
+      ["U0FOREIGN", "slack_bot_other_team"],
+      ["U0PERSON", "slack_bot_unknown"],
+    ] as const) {
+      await expect(
+        service.changeAgentAppBotAsOperator(WORKSPACE, AGENT, {
+          action: "allow",
+          botUserId: id,
+        }),
+      ).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        details: { reason_code: reason, user_ids: [id] },
+      });
+    }
+  });
+
+  test("disallows one bot without asking Slack, and a bot not allowed changes nothing", async () => {
+    const { service, reads, apps } = setup(pages());
+    await apps.store.putAllowedBots({
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      actor: null,
+      allowedBotUserIds: ["U0REVIEW", "U0OTHER"],
+    });
+    const removed = await service.changeAgentAppBotAsOperator(
+      WORKSPACE,
+      AGENT,
+      {
+        action: "disallow",
+        botUserId: "U0REVIEW",
+      },
+    );
+    expect(removed).toMatchObject({
+      changed: true,
+      removed: ["U0REVIEW"],
+      allowed_user_ids: ["U0OTHER"],
+    });
+    const none = await service.changeAgentAppBotAsOperator(WORKSPACE, AGENT, {
+      action: "disallow",
+      botUserId: "U0REVIEW",
+    });
+    expect(none.changed).toBe(false);
+    expect(reads).toEqual([]);
+  });
+
+  test("a list past the most an agent answers is refused, and an unknown agent is not found", async () => {
+    const many = Array.from({ length: 21 }, (_, i) =>
+      bot(`U0BOT${i}`, `b${i}`),
+    );
+    const { service, apps } = setup([many]);
+    await apps.store.putAllowedBots({
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      actor: null,
+      allowedBotUserIds: many.slice(0, 20).map((b) => b.id),
+    });
+    await expect(
+      service.changeAgentAppBotAsOperator(WORKSPACE, AGENT, {
+        action: "allow",
+        botUserId: "U0BOT20",
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      details: { reason_code: "slack_bots_too_many" },
+    });
+    await expect(
+      service.listAgentAppBotsAsOperator(WORKSPACE, crypto.randomUUID()),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
 describe("the agent's Slack bot allow list", () => {
   test("lists every page's bots of the install's team but this Werft install's agents, live ones by name", async () => {
     const { service, reads } = setup([

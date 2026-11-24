@@ -164,6 +164,17 @@ export interface SurfaceAppStore {
     actor: SurfaceAppActor;
     allowedBotUserIds: readonly string[];
   }): Promise<"saved" | "not_found" | "actor_inactive" | "outranked">;
+  /**
+   * The operator CLI's save of the bots the agent answers. The list is
+   * replaced and, when it changed, a `set_slack_allowed_bots` receipt with
+   * `by: operator_cli` is written in the same transaction. Answers the list
+   * as it was and as it is.
+   */
+  putAllowedBotsAsOperator(input: {
+    workspaceId: string;
+    agentId: string;
+    allowedBotUserIds: readonly string[];
+  }): Promise<"not_found" | { before: string[]; after: string[] }>;
   beginAgentApp(input: {
     workspaceId: string;
     agentId: string;

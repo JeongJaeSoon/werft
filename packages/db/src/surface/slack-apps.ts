@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   SLACK_APP_SECRET_PURPOSE_VALUES,
   type SlackAppSecretPurpose,
@@ -40,6 +41,7 @@ import {
   agentReleases,
   agents,
   agentVersions,
+  receipts,
   slackApps,
   slackInstallations,
   workspaces,
@@ -54,6 +56,54 @@ import {
 import { notDeleted } from "../soft-delete.ts";
 
 type Row = typeof slackApps.$inferSelect;
+
+/**
+ * The receipt of a change to the bots an agent answers, written in the
+ * transaction that changed the list. Nothing is written when the list holds
+ * the same bots as before.
+ */
+export async function writeAllowedBotsReceipt(
+  tx: Database,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    by: "operator_cli" | { userId: string };
+    before: readonly string[];
+    after: readonly string[];
+  },
+): Promise<void> {
+  const added = input.after.filter((id) => !input.before.includes(id));
+  const removed = input.before.filter((id) => !input.after.includes(id));
+  if (added.length + removed.length === 0) return;
+  const person = input.by === "operator_cli" ? null : input.by.userId;
+  await tx.insert(receipts).values({
+    id: randomUUID(),
+    ownerId: input.workspaceId,
+    operation: "set_slack_allowed_bots",
+    targetRef: {
+      resource: { kind: "agent", id: input.agentId },
+      workspace_id: input.workspaceId,
+    },
+    status: "succeeded",
+    result: {
+      agent_id: input.agentId,
+      added,
+      removed,
+      count_before: input.before.length,
+      count_after: input.after.length,
+      by: person === null ? "operator_cli" : "web",
+    },
+    ...(person === null
+      ? {}
+      : {
+          actor: {
+            principal: { kind: "user", id: person },
+            actor_user_id: person,
+            agent_id: null,
+          },
+        }),
+  });
+}
 
 const LIVE_STATES = ["creating", "created", "deleting"] as const;
 
@@ -493,6 +543,37 @@ export function createPostgresSlackAppStore(
           )
           .returning({ id: agents.id });
         return row ? ("saved" as const) : ("not_found" as const);
+      });
+    },
+    putAllowedBotsAsOperator(input) {
+      const workspaceId = input.workspaceId.toLowerCase();
+      if (!UUID.test(input.agentId)) return Promise.resolve("not_found");
+      const agentId = input.agentId.toLowerCase();
+      return db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ allowed: agents.slackAllowedBotUserIds })
+          .from(agents)
+          .where(
+            and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId)),
+          )
+          .for("update");
+        if (!current) return "not_found" as const;
+        const before = [...current.allowed];
+        const after = [...input.allowedBotUserIds];
+        await tx
+          .update(agents)
+          .set({ slackAllowedBotUserIds: after })
+          .where(
+            and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId)),
+          );
+        await writeAllowedBotsReceipt(tx, {
+          workspaceId,
+          agentId,
+          by: "operator_cli",
+          before,
+          after,
+        });
+        return { before, after };
       });
     },
     beginAgentApp(input) {
