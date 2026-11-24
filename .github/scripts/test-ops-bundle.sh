@@ -18,6 +18,7 @@ name="werft-test-ops-${tag}"
 # What a bundle holds beyond the migrations compose.core.yml mounts.
 FILES=(
   scripts/test-ops.sh
+  scripts/prepare-xfs.sh
   scripts/lib/backup-lib.sh
   scripts/lib/test-ops.ts
   infra/compose.core.yml

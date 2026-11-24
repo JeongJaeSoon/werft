@@ -1,0 +1,21 @@
+#!/bin/sh
+. "$(dirname "$0")/stub-lib.sh"
+[ "$DOCKER_HOST" = unix:///var/run/docker.sock ] && [ -z "${DOCKER_CONTEXT:-}" ] \
+  || { echo "docker: not the local daemon (DOCKER_HOST=$DOCKER_HOST)" >&2; exit 1; }
+case "$1" in
+  info)
+    [ -f "$STUB_STATE/running" ] || exit 1
+    case "$3" in
+      *LiveRestoreEnabled*) echo "${STUB_LIVE_RESTORE:-false}" ;;
+      *) echo "${STUB_DOCKER_ROOT:-$PREPARE_XFS_ROOT/var/lib/docker}" ;;
+    esac
+    ;;
+  volume)
+    [ -f "$STUB_STATE/running" ] || exit 1
+    if [ "$2" = create ]; then
+      lookup "$PREPARE_XFS_ROOT/var/lib/docker" | grep -q prjquota \
+        || [ -n "${STUB_ROOT_FS:-}" ] \
+        || { echo "quota size requested but no quota support" >&2; exit 1; }
+    fi
+    ;;
+esac
