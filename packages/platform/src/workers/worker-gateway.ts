@@ -123,7 +123,10 @@ import type { GitHubPackagesStore } from "../github/ports/github-packages.ts";
 import {
   budgetExceeded,
   CONVERSATION_CALL_TOKEN_PREFIX,
+  CONVERSATION_TURN_PERMIT_TOKEN_PREFIX,
   type ConversationCallStore,
+  type ConversationTurnCallAuthorization,
+  conversationCallReserve,
   hashConversationCallToken,
   type PricedBy,
   type ProviderUsage,
@@ -367,6 +370,15 @@ export type JudgmentEgressGrant = {
   judgment_id: string;
   upstream: EgressUpstream;
 };
+
+/**
+ * A call a conversation turn's permit was refused: nothing was reserved, and
+ * the permit keeps why. The authorizer logs it and refuses the request.
+ */
+export type ConversationTurnCallRefused = Extract<
+  ConversationTurnCallAuthorization,
+  { outcome: "refused" | "concurrency_limited" }
+>;
 
 /**
  * A conversation call's grant: no session or attempt either, so a proxy from
@@ -1557,20 +1569,79 @@ export function createWorkerGateway(deps: {
     token: string,
     path: string | undefined,
     exchangeId: string | undefined,
-  ): Promise<ConversationCallEgressGrant | null> {
+  ): Promise<ConversationCallEgressGrant | ConversationTurnCallRefused | null> {
     // A proxy from before names no exchange: there is none to bind.
-    if (
-      deps.conversationCalls === undefined ||
-      !token.startsWith(CONVERSATION_CALL_TOKEN_PREFIX) ||
-      exchangeId === undefined
-    ) {
+    if (deps.conversationCalls === undefined || exchangeId === undefined) {
       return null;
     }
+    if (token.startsWith(CONVERSATION_TURN_PERMIT_TOKEN_PREFIX)) {
+      return authorizedTurnCall(
+        deps.conversationCalls.store,
+        token,
+        path,
+        exchangeId,
+      );
+    }
+    if (!token.startsWith(CONVERSATION_CALL_TOKEN_PREFIX)) return null;
     const result = await deps.conversationCalls.store.authorizeAtomic({
       tokenHash: hashConversationCallToken(token),
       exchangeId,
     });
     if (result.outcome !== "ok") return null;
+    const connection = connectionOf(catalog, result.connectionId);
+    if (!connection) moved("call's connection");
+    requireProviderPath(connection.provider.kind, path);
+    return {
+      conversation_call_id: result.callId,
+      upstream: providerUpstreamOf(connection.provider),
+      request_limits: {
+        path: result.path,
+        model: result.model,
+        max_tokens: result.maxTokens,
+        max_request_bytes: result.maxRequestBytes,
+      },
+    };
+  }
+
+  // One call of a conversation turn, reserved as the proxy asks for it.
+  async function authorizedTurnCall(
+    store: ConversationCallStore,
+    token: string,
+    path: string | undefined,
+    exchangeId: string,
+  ): Promise<ConversationCallEgressGrant | ConversationTurnCallRefused | null> {
+    const result = await store.authorizeTurnCallAtomic({
+      tokenHash: hashConversationCallToken(token),
+      exchangeId,
+      callId: conversationCallIdSchema.parse(randomUUID()),
+      reserveFor(permit) {
+        const connection = connectionOf(catalog, permit.connectionId);
+        // The permit outlives the turn's start: the model may since be gone.
+        if (
+          !connection ||
+          !connectionModels(connection).includes(permit.model)
+        ) {
+          return null;
+        }
+        // Before anything is held: a path the connection does not serve.
+        requireProviderPath(connection.provider.kind, path);
+        return {
+          reserve: conversationCallReserve(permit),
+          unmetered: connection.provider.billing === "none",
+        };
+      },
+    });
+    switch (result.outcome) {
+      case "invalid_token":
+        return null;
+      case "unavailable":
+        return moved("turn's connection");
+      case "refused":
+      case "concurrency_limited":
+        return result;
+    }
+    // No model check here: the call is committed by now, and a regrant
+    // carries on one already sent.
     const connection = connectionOf(catalog, result.connectionId);
     if (!connection) moved("call's connection");
     requireProviderPath(connection.provider.kind, path);
@@ -2443,7 +2514,9 @@ export function createWorkerGateway(deps: {
       path?: string | undefined;
       /** The proxy's exchange, which the call's token is bound to. */
       exchange_id?: string | undefined;
-    }): Promise<ConversationCallEgressGrant | null> {
+    }): Promise<
+      ConversationCallEgressGrant | ConversationTurnCallRefused | null
+    > {
       return authorizedConversationEgress(
         request.token,
         request.path,

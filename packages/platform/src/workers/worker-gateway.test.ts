@@ -2881,6 +2881,9 @@ describe("a conversation call's usage report", () => {
     const store: ConversationCallStore = {
       issueAtomic: unused,
       authorizeAtomic: unused,
+      issueTurnPermitAtomic: unused,
+      authorizeTurnCallAtomic: unused,
+      endTurnAtomic: unused,
       releaseExpired: unused,
       markUnknown: unused,
       unknownByAgent: unused,
