@@ -10,7 +10,8 @@
 #                                              unless <file> lists exactly the affected sessions
 #   scripts/test-ops.sh stop                    take the deployed release down; the volumes stay (never -v)
 #   scripts/test-ops.sh start                   bring the deployed release back on the same volumes, after a
-#                                              stop, a compose down, or a host restart that left it down
+#                                              stop, a compose down, or a host restart that left it down; on a
+#                                              running one, reapply a changed env file (CONSOLE_ORIGIN, ports)
 #   scripts/test-ops.sh status                  containers, release, /readyz, scheduler and reconciler health, disk
 #   scripts/test-ops.sh key create <owner> --scopes <scope>[,<scope>...] | key revoke <key_id>
 #   scripts/test-ops.sh setup-link --email <address> --out <file>
@@ -115,7 +116,7 @@ WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,57p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,58p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -876,7 +877,9 @@ upgrade() {
   log "upgrade: done"
 }
 
-# The deployed release up again on the volumes it left. Refused where nothing
+# The deployed release up again on the volumes it left, and how a changed env
+# file reaches a running one: compose recreates the containers whose settings
+# changed, with no upgrade. Refused where nothing
 # was deployed and while an upgrade is unfinished (load_current): both need
 # deploy or upgrade, not this.
 start() {

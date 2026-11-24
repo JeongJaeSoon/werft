@@ -1080,6 +1080,57 @@ exit 0
     expect(await dockerCalls()).toContain("up -d --wait");
   });
 
+  // A CONSOLE_ORIGIN or port changed in the env file after deploy: start on
+  // the running release hands compose that file with no --no-recreate, so
+  // compose recreates what the change touches. The bundle refuses upgrade.
+  test("start reapplies a changed env file to the running release", async () => {
+    const docker = await deployedSameWorker();
+    const render = JSON.stringify({
+      "x-test-ops-api-url": "http://127.0.0.1:13100",
+      services: {
+        postgres: {
+          environment: { POSTGRES_DB: "sessions", POSTGRES_USER: "postgres" },
+        },
+        scheduler: { environment: { EXECUTION_INSTALLATION_ID: "t" } },
+      },
+    });
+    const requests = join(dir, "curl-calls");
+    await writeFile(
+      join(dir, "bin", "docker"),
+      docker
+        .replace(/echo '\{"services".*' ;;/, `echo '${render}' ;;`)
+        .replace(
+          "esac\nexit 0",
+          'esac\ncase "$*" in *" ps -q localstack") echo running ;; *" port localstack 4566") echo 127.0.0.1:4566 ;; esac\nexit 0',
+        ),
+      { mode: 0o755 },
+    );
+    await writeFile(
+      join(dir, "bin", "curl"),
+      `#!/bin/sh\necho "$*" >> "${requests}"\necho '{"status":"ready"}'\n`,
+      { mode: 0o755 },
+    );
+    const result = await run(["start"], env);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("start: done");
+    const up = (await dockerCalls())
+      .split("\n")
+      .filter((line) => line.includes(" up -d"));
+    expect(up).toEqual([
+      expect.stringContaining(
+        `--env-file ${env.TEST_OPS_ENV_FILE} --profile apps`,
+      ),
+    ]);
+    expect(up[0]).toEndWith(
+      "up -d --wait --wait-timeout 600 api scheduler reconciler",
+    );
+    expect(up[0]).not.toContain("--no-recreate");
+    expect(await dockerCalls()).not.toMatch(/ (down|stop)( |$)/m);
+    expect(await readFile(requests, "utf8")).toContain(
+      "http://127.0.0.1:13100/readyz",
+    );
+  });
+
   test("stop takes the containers down and never the volumes", async () => {
     await deployedSameWorker();
     const result = await run(["stop"], env);

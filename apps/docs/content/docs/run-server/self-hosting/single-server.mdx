@@ -117,7 +117,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 | `--settings-document` | 선택. 기본값은 `/etc/werft/settings.json`. 아래 설정 문서의 절대 경로 |
 | `--api-port`, `--postgres-port` | 선택. 아래 포트 표의 `TEST_OPS_API_PORT`, `TEST_OPS_POSTGRES_PORT`가 된다 |
 
-`init-config`는 `POSTGRES_PASSWORD`(32자 hex), `EGRESS_AUTHORIZER_TOKEN`(48자 hex), `PLATFORM_SECRET_KEY`(64자 hex)를 무작위 값으로 채운다. `EXECUTION_WORKSPACE_QUOTA=on`과 provider·Git host의 credential allowlist는 예시 값 그대로 둔다. 설치 뒤 `CONSOLE_ORIGIN`을 바꾸면 `start` 대신 `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 현재 release를 다시 적용해 반영한다. 번들은 `upgrade`를 거부하므로, 이 명령은 그 릴리스의 `source_commit`을 checkout한 저장소에서 같은 env 파일과 상태 디렉터리로 실행한다.
+`init-config`는 `POSTGRES_PASSWORD`(32자 hex), `EGRESS_AUTHORIZER_TOKEN`(48자 hex), `PLATFORM_SECRET_KEY`(64자 hex)를 무작위 값으로 채운다. `EXECUTION_WORKSPACE_QUOTA=on`과 provider·Git host의 credential allowlist는 예시 값 그대로 둔다. `CONSOLE_ORIGIN`과 포트는 `deploy` 전에 정한다. 첫 `deploy`가 이 값으로 컨테이너를 만든다. 설치 뒤 바꾸려면 env 파일을 고치고 `scripts/test-ops.sh start`로 같은 release를 다시 적용한다. 번들과 checkout 모두 이 명령을 쓰며 `upgrade`는 필요 없다. 실행 중인 설치에서도 `start`는 바뀐 값을 받는 api·scheduler·reconciler와 그 의존 서비스의 컨테이너만 다시 만들고, volume과 기록된 release는 그대로 둔다. `start: done` 줄이 나오면 적용된 것이다.
 
 env 파일을 직접 쓰려면 받은 디렉터리의 `infra/test-ops.env.example`을 `/etc/werft/test-ops.env`에 운영자 소유 `0600`으로 복사하고 편집기로 다음을 채운다.
 
@@ -149,7 +149,7 @@ env 파일을 직접 쓰려면 받은 디렉터리의 `infra/test-ops.env.exampl
 | `TEST_OPS_LOCALSTACK_PORT` | `4566` | [LocalStack 시험 설치](/run-server/self-hosting/try-localstack)의 호스트 포트. 1~65535. S3 설치에서는 무시한다 |
 | `TEST_OPS_API_URL` | `http://127.0.0.1:<TEST_OPS_API_PORT>` | `deploy`·`upgrade`·`status`가 `/readyz`를 확인하는 주소. 호스트 앞에 프록시를 둘 때만 넣는다. `scheme://host[:port]` 형식이고 경로와 끝의 `/`는 쓰지 않는다 |
 
-`preflight`는 범위 밖 포트, 두 서비스가 같은 포트를 쓰는 값, 형식이 틀린 URL을 거부한다. 설치한 뒤 포트를 바꾸려면 env 파일을 고치고 `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다. 터널과 `curl`의 포트도 함께 바꾼다. `TEST_OPS_LOCALSTACK_PORT`를 바꾸면 LocalStack 컨테이너가 다시 만들어져 object가 모두 사라지므로, `preflight`가 실행 중인 포트와 다른 값을 거부한다. `scripts/test-ops.sh backup --stop`으로 백업하고 env 파일을 고친 뒤 그 백업으로 `reseed`를 부른다.
+`preflight`는 범위 밖 포트, 두 서비스가 같은 포트를 쓰는 값, 형식이 틀린 URL을 거부한다. 설치한 뒤 포트를 바꾸려면 env 파일을 고치고 `scripts/test-ops.sh start`로 같은 release를 다시 적용한다. 터널과 `curl`의 포트도 함께 바꾼다. `TEST_OPS_LOCALSTACK_PORT`를 바꾸면 LocalStack 컨테이너가 다시 만들어져 object가 모두 사라지므로, `preflight`가 실행 중인 포트와 다른 값을 거부한다. `scripts/test-ops.sh backup --stop`으로 백업하고 env 파일을 고친 뒤 그 백업으로 `reseed`를 부른다.
 
 env 파일을 `/etc/werft/test-ops.env`가 아닌 곳에 두면 스크립트를 부를 때마다 `TEST_OPS_ENV_FILE`에 그 경로를 준다.
 
