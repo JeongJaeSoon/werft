@@ -72,6 +72,10 @@ const catalogOf = (models: string[]): SessionCatalog =>
       },
     },
   });
+const FAMILIES = {
+  [CARD_MODEL]: { family: "opus", rank: 1 },
+  "claude-opus-5-2": { family: "opus", rank: 2 },
+};
 const NO_CONNECTION = {
   connections: {},
 } as unknown as Pick<SessionCatalog, "connections">;
@@ -306,6 +310,42 @@ integration("an agent's judgment model on PostgreSQL", () => {
       reason: "judgment_model_not_in_connection",
     });
     expect(refused.agent.active_release_id).toBe(made.agent.active_release_id);
+  });
+
+  test("an automatic model move keeps a removed judgment model, so its release is refused and judgment stays stopped", async () => {
+    const made = await service().createAgent(owner, {
+      slug: `agent-${randomUUID().slice(0, 8)}`,
+      name: "judge",
+      managing_team_id: teamId,
+      card: card(CARD_MODEL),
+      connection_id: TEST_CONNECTION_ID,
+    });
+    const cut = createAgentService({
+      authorization: createAuthorizationPolicy({
+        identity: createDatabaseIdentityReader(db),
+      }),
+      store: createPostgresAgentStore(db),
+      catalog: testSessionCatalog({
+        provider: PROVIDER,
+        models: ["claude-opus-5-2", SMALL],
+        model_families: FAMILIES,
+        repositories: {},
+      }),
+      credentials: createPostgresCredentialBindingStore(db),
+      runtimes: TEST_RUNTIMES,
+    });
+    const step = await cut.migrateModel({
+      workspaceId: owner.ownerId,
+      agentId: made.agent.id,
+    });
+    expect(step.status).toBe("failed");
+    const agent = await createPostgresAgentStore(db).get(
+      owner.ownerId,
+      made.agent.id,
+    );
+    expect(agent?.active_release?.id).toBe(
+      made.agent.active_release_id as string,
+    );
   });
 
   test("a member outside the managing team is refused, and the workspace's decision model is left as it was", async () => {
