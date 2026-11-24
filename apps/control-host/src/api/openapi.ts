@@ -50,6 +50,7 @@ import {
   bootstrapRequestSchema,
   bootstrapResponseSchema,
   checkSkillResponseSchema,
+  closeLostCheckpointNoticesRequestSchema,
   closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
@@ -194,6 +195,7 @@ import {
   loginSettingsResponseSchema,
   lookupSlackChannelsQuerySchema,
   lookupSlackChannelsResponseSchema,
+  lostCheckpointNoticesSchema,
   memberLimitsResponseSchema,
   memberParamsSchema,
   memberUserParamsSchema,
@@ -489,6 +491,7 @@ const requestComponents = {
   UpdateLoginSettingsRequest: updateLoginSettingsRequestSchema,
   UpdateSlackSettingsRequest: updateSlackSettingsRequestSchema,
   UpdateInstallationConfigRequest: updateInstallationConfigRequestSchema,
+  CloseLostCheckpointNoticesRequest: closeLostCheckpointNoticesRequestSchema,
   SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   ListAuditEventsQuery: listAuditEventsQuerySchema,
@@ -630,6 +633,7 @@ const responseComponents = {
   UpdateSlackSettingsResponse: updateSlackSettingsResponseSchema,
   InstallationConfig: installationConfigSchema,
   UpdateInstallationConfigResponse: updateInstallationConfigResponseSchema,
+  LostCheckpointNotices: lostCheckpointNoticesSchema,
   GetGitHubAppResponse: getGitHubAppResponseSchema,
   StartGitHubAppManifestResponse: startGitHubAppManifestResponseSchema,
   CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
@@ -1456,6 +1460,21 @@ const SETTINGS_DOCUMENT_EXAMPLE = {
       auth: { kind: "github_app" },
     },
   },
+};
+
+const NOTICE_MANAGER =
+  "Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes.";
+
+const EXAMPLE_LOST_CHECKPOINT_NOTICE_ID =
+  "5b2e8c1d-4f7a-4a3b-9e6d-0c1f2a3b4d5e";
+const LOST_CHECKPOINT_NOTICES_EXAMPLE = {
+  notices: [
+    {
+      id: EXAMPLE_LOST_CHECKPOINT_NOTICE_ID,
+      forgotten_at: "2026-11-24T09:12:44.000Z",
+      sessions: 3,
+    },
+  ],
 };
 
 const SETTINGS_OWNER =
@@ -3665,6 +3684,41 @@ export const API_ROUTE_DECLARATIONS = [
       BAD_REQUEST:
         "Also when a value is outside its key's range or of another type; `details.issues[].path` names that key. An unknown key is reported on the body itself, with an empty `path`.",
     },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/lost-checkpoint-notices",
+    operationId: "listLostCheckpointNotices",
+    tag: "Installation settings",
+    summary: "Checkpoints a test installation gave up at start",
+    description: `${NOTICE_MANAGER} One entry for each start at which the API gave up the checkpoints an emptied object store held (\`CHECKPOINT_OBJECTS_LOST=forget\`, accepted only on a test installation whose object store is LocalStack) and that nobody has closed yet, oldest first. The console shows them as a banner on every page, and \`GET /readyz\` counts their sessions in \`detail.checkpoints_forgotten_on_boot\`. Empty on an installation that never gave any up.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "LostCheckpointNotices",
+      description: "The notices still open.",
+      example: LOST_CHECKPOINT_NOTICES_EXAMPLE,
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/lost-checkpoint-notices/close",
+    operationId: "closeLostCheckpointNotices",
+    tag: "Installation settings",
+    summary: "Close the notices of checkpoints given up at start",
+    description: `${NOTICE_MANAGER} Closes the named notices for the whole installation and records who closed them: the banner goes for everyone and \`GET /readyz\` stops counting them. The sessions stay in \`recovery_required\` until each gets its recovery decision. Send the ids that were read, so a start that gave up more after the read stays open; one request takes up to 100, and a longer list goes in several. An id that names no open notice changes nothing.`,
+    auth: "session",
+    body: "CloseLostCheckpointNoticesRequest",
+    requestExample: { ids: [EXAMPLE_LOST_CHECKPOINT_NOTICE_ID] },
+    success: {
+      status: 200,
+      schema: "LostCheckpointNotices",
+      description: "The notices still open after the close.",
+      example: { notices: [] },
+    },
+    errors: [400, 401, 403, 503],
     idempotent: false,
   },
   {

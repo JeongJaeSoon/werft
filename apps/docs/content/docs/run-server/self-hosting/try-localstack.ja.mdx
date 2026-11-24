@@ -139,6 +139,7 @@ LocalStack はコンテナが再起動すると（ホストの再起動、Docker
 - 失った checkpoint を復元地点としていたセッションは、閉じたものを除いて `recovery_required` になります。以前の文脈なしで続けるか（`start_fresh`）、閉じるか（`close`）を決めます（[API ガイド](/reference/api-guide)の復旧判断）。
 - API のログに `The object store came back empty` で始まる警告が 1 行残り、セッション数と id を記録します。
 - `/readyz` は 200 のままで、本文の `detail.checkpoints_forgotten_on_boot` にそのセッション数が入ります。
+- コンソールは owner・admin に、すべての画面の最上部で「試験インストール: 再起動でセッションN件のコンテキストを失いました」と表示します。そのうちの一人が**閉じる**を押すと全員の画面から消え、`/readyz` の数からも除かれます。セッションは `recovery_required` のままです。
 
 LocalStack のコンテナだけを再起動しないでください。API が整理するのは起動時だけで、動いている間は整理しません。その間に新しい checkpoint が書かれると bucket が空ではなくなり、次の起動でも整理されず、object を失ったセッションは復元時に失敗します。そうなった場合は、すぐに `scripts/test-ops.sh stop` の後 `start` で設置全体を再起動します。
 
