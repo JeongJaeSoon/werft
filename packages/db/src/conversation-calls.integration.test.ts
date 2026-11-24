@@ -328,10 +328,11 @@ integration("conversation calls on PostgreSQL", () => {
     expect(held.reduce((total, tokens) => total + tokens, 0)).toBe(
       RESERVE.tokens,
     );
-    const reservations = await pool.query(
-      "SELECT call_id FROM budget_reservations WHERE call_id NOT IN (SELECT id FROM conversation_calls)",
-    );
-    expect(reservations.rows).toEqual([]);
+    const reservations = await db
+      .select({ id: budgetReservations.callId })
+      .from(budgetReservations)
+      .where(eq(budgetReservations.callId, rows[0]?.id as string));
+    expect(reservations).toHaveLength(1);
   });
 
   test("a call names its agent's release; another agent's release is refused with nothing held", async () => {
@@ -371,15 +372,18 @@ integration("conversation calls on PostgreSQL", () => {
       .where(eq(conversationCalls.id, own.callId));
     expect(row?.releaseId).toBe(releaseId);
     const userId = crypto.randomUUID();
-    await expect(
-      calls.issue({
+    const refused: unknown = await calls
+      .issue({
         ...base,
         agentId,
         conversationId,
         callKey: keyOf(),
         root: { kind: "user", userId },
-      }),
-    ).rejects.toThrow("conversation_calls_release_fk");
+      })
+      .catch((error: unknown) => error);
+    expect(
+      (refused as { cause?: { constraint?: string } }).cause?.constraint,
+    ).toBe("conversation_calls_release_fk");
     expect((await accountOf(userId))?.reservedTokens ?? 0).toBe(0);
   });
 
