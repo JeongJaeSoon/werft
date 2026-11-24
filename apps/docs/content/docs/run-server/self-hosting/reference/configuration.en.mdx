@@ -156,7 +156,7 @@ Deploy API first, then scheduler WORKER_IMAGE: new workers send claim image_runt
 |---|---|---|
 | `WORKER_CPUS` | 1 | CPU share/worker, at least 0.01 |
 | `WORKER_MEMORY_MB` | 4608 | The per-worker memory limit (MiB) keeps the engine's peak below half the limit when resuming an uncompacted 512MiB transcript. The development `.env.example` setting `WORKER_MEMORY_MB=2048` does not meet this criterion. For large-transcript restoration tests, remove that `WORKER_MEMORY_MB` line to use the default, or set it to 4608 MiB or more |
-| `WORKER_IDLE_TIMEOUT_SEC` | 1800 | Seconds a worker with no input waits before it ends; it keeps its room until then. The scheduler refuses to start on a value outside 60 to 7200. On Kubernetes, when a new session's worker Pod cannot schedule for lack of room, the scheduler stops the worker idle longest, one at a time, without waiting this long. It never stops a worker with a turn open, including a turn waiting for a person's answer. A stopped session continues from its checkpoint on a new worker when its next input arrives |
+| `WORKER_IDLE_TIMEOUT_SEC` | 1800 | Seconds a worker with no input waits before it ends; it keeps its room until then. The scheduler refuses to start on a value outside 60 to 7200. On Kubernetes, when a new session's worker Pod cannot schedule for lack of room, the scheduler stops the worker idle longest, one at a time, without waiting this long. It never stops a worker with a turn open, including a turn waiting for a person's answer. A stopped session continues from its checkpoint on a new worker when its next input arrives. A Codex sandbox Pod schedules only onto Codex-labelled nodes, so only a worker there is stopped for it: with `SCHEDULER_NODE_CAPACITY_CHECK` off, only sandbox workers are candidates; with it on, every idle worker on a labelled node is |
 | `WORKER_PIDS_LIMIT` | 512 | PID limit; not forwarded by Compose |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | Numeric uid[:gid], rejecting uid/gid 0. Must match image /workspace ownership |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | Absolute tmpfs HOME |
@@ -249,7 +249,7 @@ Kubernetes-only settings:
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | Optional JSON object |
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | Optional JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | Ephemeral-storage requests/limits MiB, default 1024; exceeding it causes kubelet eviction |
-| `SCHEDULER_NODE_CAPACITY_CHECK` | Optional. `true` makes the scheduler log a warning at startup for each node that cannot hold two workers. Unset is `false`; a value other than `true`/`false` refuses startup. Needs permission to read Nodes |
+| `SCHEDULER_NODE_CAPACITY_CHECK` | Optional. `true` makes the scheduler log a warning at startup for each node that cannot hold two workers. Unset is `false`; a value other than `true`/`false` refuses startup. Needs permission to read Nodes. On, the scheduler also picks the worker to stop for a waiting Codex sandbox Pod by node label |
 
 Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. The log masking rule hides the tail line by line. A secret-shaped value hides only the lines it spans. A fragment such as `input:` hides its line and every line after it. The lines before it stay (a URL login in them is still masked). See storage/retention in the repository's Kubernetes execution adapter README.
 

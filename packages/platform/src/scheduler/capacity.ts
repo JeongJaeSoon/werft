@@ -1,5 +1,10 @@
 import { CAPACITY_WAIT_LIMIT_MS } from "./options.ts";
-import { fieldsOf, type PassContext, refOf } from "./pass-context.ts";
+import {
+  fieldsOf,
+  messageOf,
+  type PassContext,
+  refOf,
+} from "./pass-context.ts";
 import type { ExecutionObservation } from "./ports/execution-backend.ts";
 import type {
   ActiveExecution,
@@ -96,15 +101,30 @@ async function makeRoom(
 ): Promise<void> {
   const { backend, lock, logger, store, summary } = ctx;
   const waitingImage = execution.image;
-  const frees = (worker: ClaimedWorker) =>
-    waitingImage === null ||
-    worker.image === null ||
-    (backend.makesRoomFor?.(waitingImage, worker.image) ?? true);
   lock.throwIfAborted();
   const workers = await store.idleWorkers(execution.backend);
-  if (workers.stopping.some(frees)) return;
+  let freeing: Set<ClaimedWorker>;
+  try {
+    const all = [...workers.stopping, ...workers.idle];
+    freeing = new Set(
+      waitingImage === null || backend.workersFreeingRoomFor === undefined
+        ? all
+        : await backend.workersFreeingRoomFor(waitingImage, all),
+    );
+  } catch (error) {
+    logger.warn(
+      "Could not tell which idle workers free room for a waiting launch; none is asked to stop this pass",
+      {
+        error: messageOf(error),
+        for_execution_id: execution.executionId,
+        for_session_id: execution.sessionId,
+      },
+    );
+    return;
+  }
+  if (workers.stopping.some((worker) => freeing.has(worker))) return;
   for (const worker of workers.idle) {
-    if (!frees(worker)) continue;
+    if (!freeing.has(worker)) continue;
     const ref = refOf(worker);
     lock.throwIfAborted();
     if (!(await store.requestIdleStop(ref))) continue;

@@ -94,6 +94,13 @@ export type KubernetesBackendConfig = {
   codexSandbox?:
     | { mode: "enabled"; images: readonly string[] }
     | { mode: "disabled" };
+  /**
+   * The scheduler may read Nodes (the chart's scheduler.nodeCapacityCheck,
+   * which grants the ClusterRole): a Codex sandbox Pod waiting for room then
+   * frees it through any idle worker on a node labelled for the profile, not
+   * only through a sandbox worker.
+   */
+  readsNodes?: boolean;
 };
 
 /** Shaped like the process environment so it can be passed straight through. */
