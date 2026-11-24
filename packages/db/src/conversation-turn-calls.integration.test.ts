@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import {
   type ConversationCallId,
   type ConversationTopicId,
@@ -53,6 +60,7 @@ integration("conversation turn calls on PostgreSQL", () => {
   let pool: Pool;
   let db: Database;
   let workspaceId: string;
+  let teamId: string;
   let agentId: string;
   let conversationId: string;
   const TEAM = "T0TURNCALLS";
@@ -71,7 +79,7 @@ integration("conversation turn calls on PostgreSQL", () => {
     await db
       .insert(workspaces)
       .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "Turns" });
-    const teamId = crypto.randomUUID();
+    teamId = crypto.randomUUID();
     await db
       .insert(memberTeams)
       .values({ id: teamId, workspaceId, name: "team" });
@@ -85,6 +93,10 @@ integration("conversation turn calls on PostgreSQL", () => {
       "INSERT INTO channel_contexts (id, workspace_id, team_id, channel_id) VALUES ($1, $2, $3, $4)",
       [crypto.randomUUID(), workspaceId, TEAM, CHANNEL],
     );
+  }, 60_000);
+
+  // An agent of its own per test: a call left open counts against its agent.
+  beforeEach(async () => {
     agentId = crypto.randomUUID();
     await db.insert(agents).values({
       id: agentId,
@@ -204,9 +216,9 @@ integration("conversation turn calls on PostgreSQL", () => {
       .select()
       .from(conversationCalls)
       .where(eq(conversationCalls.conversationTurnId, turn.turnId));
-    expect(rows.map((row) => row.attempt).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8,
-    ]);
+    expect(
+      rows.map((row) => row.attempt).sort((a, b) => (a ?? 0) - (b ?? 0)),
+    ).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     const [kept] = await db
       .select()
       .from(conversationTurnPermits)
