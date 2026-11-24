@@ -29,7 +29,7 @@ The chart does not create PostgreSQL, object storage, or Secret values. To run b
 
 The chart does not create a Git server. Workers must reach repository URLs in the settings document through the egress proxy. The kind test Git server is not a production repository.
 
-Examples below use `werft` for both namespace and release. Before running them, confirm `kubectl config current-context` and `KUBECONFIG` select this installation's cluster. For other installations, replace every `-n`, `--namespace`, release name, `deploy/werft-*`, and `svc/werft-*` with the actual installation fullname. If the release name does not contain `werft`, fullname is `<release>-werft`.
+Examples below use `werft` for both namespace and release. Before running them, confirm `kubectl config current-context` and `KUBECONFIG` select this installation's cluster. `helm` reads `KUBECONFIG` (or `~/.kube/config` when it is unset). The `kubectl` bundled with k3s reads the k3s configuration file on its own, so `helm` can fail to find the cluster even when `kubectl` works. On k3s, set `export KUBECONFIG=/etc/rancher/k3s/k3s.yaml`. Only root can read this file by default, so run the commands from a root shell. For other installations, replace every `-n`, `--namespace`, release name, `deploy/werft-*`, and `svc/werft-*` with the actual installation fullname. If the release name does not contain `werft`, fullname is `<release>-werft`.
 
 Check the [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) and [workspace storage contract](/run-server/self-hosting/reference/storage) first. The backend requires the installation id to be a **lowercase DNS label of at most 32 characters**, even if the chart accepts more. Prepare [access](/run-server/self-hosting/access) before remote bootstrap.
 
@@ -98,18 +98,30 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
   --namespace werft -f values-<installation>.yaml --timeout 10m
 ```
 
+If `helm` ends with `Kubernetes cluster unreachable: Get "http://localhost:8080/version"`, `helm` could not read a cluster configuration. Set it as described in the prerequisites and rerun the same command.
+
 The migrate Job upgrades the schema first. Once it finishes, api, egress proxy, reconciler, scheduler, and slack are applied together. If the first installation fails due to image paths or pull permissions, correct the values and rerun the same command.
 
 ```bash
 kubectl -n werft get job werft-migrate
-for d in api egress-proxy reconciler scheduler; do
+for d in api egress-proxy reconciler scheduler slack; do
   kubectl -n werft rollout status deploy/werft-$d --timeout=600s
 done
 ```
 
-When the release name does not contain `werft`, resource names become `<release>-werft-…`.
+If your values set `slack.enabled: false`, drop `slack` from the loop. When the release name does not contain `werft`, resource names become `<release>-werft-…`.
 
 After a failed first installation, fix values and rerun the same command. If Deployments already exist and you changed the worker image, upgrade-check rules apply. With no sessions, [remove the Kubernetes installation](/run-server/self-hosting/remove-kubernetes) and start again.
+
+The first session is slow while the node that runs its worker Pod pulls the worker image. The image is several hundred MB (the Claude worker in 0.4.0 is about 395 MB). A worker Pod does not pull an image the node already has, so you can pull it in advance. The first command below prints this chart's worker image references (Claude worker, Codex worker), one per line. On every node that runs workers, put the reference for the engine your agents use in place of `<worker-image>` and pull it.
+
+```bash
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  | sed -n 's/.*"repository":"\([^"]*\)","digest":"\([^"]*\)".*/\1@\2/p'
+sudo crictl pull '<worker-image>'
+```
+
+On a k3s node, pull with `sudo k3s crictl pull '<worker-image>'`. If your values set `images.registry`, prefix each reference with `<registry>/`.
 
 <a id="확인" />
 ## Verify
@@ -143,6 +155,8 @@ Check the ready response body and 200, and docs 200. If not ready within 30 atte
 On the first day, immediately after installation, after 1 hour, and before the end of the workday, check `kubectl -n werft get job,deploy,pods,pvc`, api/scheduler/reconciler logs, each `--health`, disk space, inodes, and PVC space. Check backup failure alerts, checkpoint GC schedules, key revocation contacts, and provider cost limits. If release or namespace differ from examples, adapt every command to this installation.
 
 A CNI without NetworkPolicy enforcement provides no worker isolation. Use Pod and Job logs to distinguish missing Secret keys, invalid installationId, S3 protection errors, and image pull failures. A fixture chart render does not prove a published chart installation.
+
+After a node restarts, the api can take a few minutes to become ready. On a node where PostgreSQL restarts alongside the api, api Pods have stayed unready for over 2 minutes and became ready only after their startup probe (24 checks 5 seconds apart, about 2 minutes) restarted them. Meanwhile `kubectl rollout status` can report success from the state before the restart. Check readiness by reading `/readyz` directly with the block in [Verify](#확인). If it is not ready within 30 attempts, run it again a few minutes later and check the api Pod's status and `RESTARTS` with `kubectl -n werft get pods` and its logs with `kubectl -n werft logs deploy/werft-api`.
 
 <a id="되돌리기" />
 ## Roll back

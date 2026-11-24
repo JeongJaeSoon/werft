@@ -20,7 +20,7 @@ Create a Compose installation using LocalStack on a Linux test server. This is a
 | Operating system | Linux, both `x86_64` and `arm64` |
 | Docker Engine | 28 or later |
 | Docker Compose | 2.24.6 or later |
-| Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` does not check this. Otherwise the scheduler quota check fails during `deploy` and installation stops. Complete [XFS disk preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
+| Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` checks this with the quota probe and stops otherwise. Complete [XFS disk preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
 | Time | NTP synchronized. Docker starts automatically after reboot |
 | Tools | For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. For a release bundle installation, `jq`, `curl`, `openssl`, `sha256sum`, and `tar` (with gzip). Both need an account with Docker daemon access |
 | External access | Download images from `ghcr.io` and Docker Hub without signing in. Sessions connect to `api.anthropic.com` and `github.com` |
