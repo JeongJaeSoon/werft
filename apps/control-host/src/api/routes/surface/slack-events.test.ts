@@ -329,6 +329,7 @@ describe("POST /v1/slack/events/{agent_id}", () => {
       [undefined, undefined],
       ["1", "http_timeout"],
       ["2", "Bearer xoxb-not-a-reason"],
+      ["3", "customer_private_message"],
     ]) {
       statuses.push(
         (
@@ -340,7 +341,7 @@ describe("POST /v1/slack/events/{agent_id}", () => {
         ).status,
       );
     }
-    expect(statuses).toEqual([200, 200, 200]);
+    expect(statuses).toEqual([200, 200, 200, 200]);
     expect(
       [...inbox.rows.keys()].filter((key) => key.endsWith("|Ev0RETRY")),
     ).toHaveLength(1);
@@ -357,6 +358,7 @@ describe("POST /v1/slack/events/{agent_id}", () => {
       ["info", null, null],
       ["warn", 1, "http_timeout"],
       ["warn", 2, null],
+      ["warn", 3, null],
     ]);
   });
 

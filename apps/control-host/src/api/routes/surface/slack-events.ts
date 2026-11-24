@@ -18,10 +18,18 @@ const REFUSED = "Request signature is not valid";
 const retryNumOf = (header: string | undefined) =>
   header !== undefined && /^\d{1,4}$/.test(header) ? Number(header) : null;
 
-// Slack names why its last try failed (http_timeout, connection_failed, ...);
-// anything else is left out rather than logged as sent.
+// Why Slack says its last try failed. The header comes before the signature
+// is checked, so only Slack's own values are logged, never what was sent.
+const SLACK_RETRY_REASONS: ReadonlySet<string> = new Set([
+  "http_timeout",
+  "too_many_redirects",
+  "connection_failed",
+  "ssl_error",
+  "http_error",
+  "unknown_error",
+]);
 const retryReasonOf = (header: string | undefined) =>
-  header !== undefined && /^[a-z_]{1,32}$/.test(header) ? header : null;
+  header !== undefined && SLACK_RETRY_REASONS.has(header) ? header : null;
 
 export function registerSlackEventRoutes(
   router: ApiRouter,
