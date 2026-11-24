@@ -10130,7 +10130,7 @@ export interface components {
                 /** Format: date-time */
                 updated_at: string;
                 /**
-                 * @description Whether people can talk to the agent, by the buckets of `GET /v1/agents/counts`: `active` once a release is active and the agent is not paused (counted in `active`), `draft` before any release (counted in `draft`), `inactive` for a paused agent that has a release or an archived one (counted in neither).
+                 * @description Whether people can talk to the agent, by the buckets of `GET /v1/agents/counts`: `active` once a release is active and the agent is not paused (counted in `active`), `draft` before any release (counted in `draft`), `inactive` for a paused agent that has a release or an archived one (counted in neither). More values may come within v1: read a value you do not know as not switched on.
                  * @enum {string}
                  */
                 activation: "draft" | "active" | "inactive";

@@ -17,10 +17,15 @@ export function agentState(agent: AgentSummary): AgentState {
   return agent.active_release_id === null ? "draft" : agent.status;
 }
 
-/** As the list says it: `status` stays `active` on a draft, `activation` does not. */
+/**
+ * As the list says it: `status` stays `active` on a draft, `activation`
+ * does not. Only `activation: "active"` is switched on; a value this build
+ * does not know shows as paused when `status` would say active.
+ */
 export function listedAgentState(agent: ListedAgent): AgentState {
+  if (agent.activation === "active") return "active";
   if (agent.activation === "draft") return "draft";
-  return agent.status;
+  return agent.status === "active" ? "paused" : agent.status;
 }
 
 const STATE_VARIANT = {

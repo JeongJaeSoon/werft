@@ -462,7 +462,10 @@ describe("에이전트 목록", () => {
 
   test("켜졌는지는 status가 아니라 activation으로 읽는다", async () => {
     const base = agentServer().detail().agent;
-    const row = (name: string, activation: "draft" | "active") => ({
+    const row = (
+      name: string,
+      activation: "inactive" | "draft" | "active",
+    ) => ({
       ...base,
       id: crypto.randomUUID(),
       slug: name,
@@ -477,20 +480,24 @@ describe("에이전트 목록", () => {
       ...meOk,
       "GET /v1/agents": () =>
         json(200, {
-          items: [row("off", "draft"), row("on", "active")],
+          items: [
+            row("held", "inactive"),
+            row("off", "draft"),
+            row("on", "active"),
+          ],
           next_cursor: null,
         }),
     });
     await screen.findByRole("link", { name: "off" });
     await waitFor(() =>
       expect(
-        ["off", "on"].map(
+        ["held", "off", "on"].map(
           (name) =>
             stateOf(screen.getByRole("link", { name }))?.getAttribute(
               "data-state",
             ) ?? null,
         ),
-      ).toEqual(["draft", "active"]),
+      ).toEqual(["paused", "draft", "active"]),
     );
   });
 
