@@ -1,4 +1,7 @@
-import type { ConversationInputId } from "@werft-ai/contracts";
+import type {
+  ConversationInputId,
+  ConversationTurnId,
+} from "@werft-ai/contracts";
 import { sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -23,5 +26,25 @@ export async function inputTexts(
   );
   return new Map(
     rows.flatMap((row) => (row.body === null ? [] : [[row.id, row.body]])),
+  );
+}
+
+/**
+ * Reads conversation turns' answers again from where they point: today the
+ * turn row itself. The one place a reader of an answer's text goes through;
+ * a turn with none, or gone, is not in the map.
+ */
+export async function turnAnswerTexts(
+  tx: Database,
+  turnIds: readonly ConversationTurnId[],
+): Promise<Map<ConversationTurnId, string>> {
+  if (turnIds.length === 0) return new Map();
+  const rows = rowsOf<{ id: ConversationTurnId; answer: string | null }>(
+    await tx.execute(sql`
+      SELECT id, answer_text AS answer FROM conversation_turns
+      WHERE id = ANY(${`{${turnIds.join(",")}}`}::uuid[])`),
+  );
+  return new Map(
+    rows.flatMap((row) => (row.answer === null ? [] : [[row.id, row.answer]])),
   );
 }

@@ -245,8 +245,12 @@ export function createOperatorConversationTurns(deps: {
             },
             call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
             input: { id: crypto.randomUUID(), text: request.text },
+            // Assembled when a runtime takes the turn.
+            fresh_input: { id: crypto.randomUUID(), text: request.text },
           },
           takeBy,
+          now(),
+          issued.expiresAt,
         );
         turn = await deps.turns.ended(turnId);
       } catch (error) {
