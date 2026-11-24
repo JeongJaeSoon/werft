@@ -22,6 +22,7 @@ import type {
   SpecSource,
   SseEvent,
   SurfaceKind,
+  ThreadReplyRule,
   TurnDetail,
   TurnSummary,
 } from "@werft-ai/contracts";
@@ -62,6 +63,8 @@ export type InputLimitRefusal = { outcome: "queue_full" | "storage_exhausted" };
 export type TurnInputTopic = {
   topicId: ConversationTopicId;
   engagement: EngagementKind;
+  /** An unmentioned reply M1 judges too, with what the current path's rule said. */
+  judgment?: { rule: ThreadReplyRule };
 };
 
 export type AcceptSessionInput = {

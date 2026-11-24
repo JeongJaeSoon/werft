@@ -4,6 +4,7 @@ import type { InboundInputReceipt } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
+import { requestReplyJudgment } from "./conversation-judgments.ts";
 import { lockSessionForSources, recordSourceInput } from "./turn-sources.ts";
 
 /**
@@ -79,6 +80,19 @@ export async function takeSlackTurnInput(
         AND slack_channel_id = ${input.channelId}
         AND slack_ts = ${input.ts}`),
   );
+  if (taken !== undefined && input.judgment !== undefined) {
+    await requestReplyJudgment(tx, {
+      workspaceId: place.workspaceId,
+      agentId: place.agentId,
+      teamId: place.teamId,
+      channelId: input.channelId,
+      ts: input.ts,
+      topicId: input.topicId,
+      inputId: taken.id,
+      sessionId: input.turn.sessionId,
+      rule: input.judgment.rule,
+    });
+  }
   if (taken !== undefined) {
     await recordSourceInput(tx, {
       sessionId: input.turn.sessionId,
