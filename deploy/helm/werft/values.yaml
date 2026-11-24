@@ -126,6 +126,11 @@ config:
   # api-key, not none: workers reach the api through the proxy, and in
   # `none` mode /v1 takes any X-Owner-Id as the caller.
   authMode: api-key
+  # production | test. A setting that gives up a production guarantee for an
+  # easier trial (checkpoints.objectsLost: forget) is accepted only on test;
+  # on production the api refuses to start with it.
+  installation:
+    profile: production
   heartbeatTtlSec: 30
   # Trace export is configured with the OTEL_* and TRACE_* keys in
   # api.extraEnv. Only the port is here, because the Service and the
@@ -157,6 +162,14 @@ config:
     protection: locked
     # enforce | warn: start on a bucket whose default encryption is not SSE-S3.
     encryptionCheck: enforce
+    # refuse | forget: what the api does at start when the bucket holds no
+    # object while the database still has checkpoints. refuse does not start.
+    # forget gives those checkpoints up (their sessions wait in
+    # recovery_required) and starts; it is for LocalStack, which empties
+    # whenever its pod restarts, and is accepted only with
+    # installation.profile test and an aws.endpointUrl whose host starts with
+    # the label localstack.
+    objectsLost: refuse
     # Sized with api.resources.limits.memory (2 x 2 x this + 512 MiB).
     gitMemoryMb: 1536
   egress:

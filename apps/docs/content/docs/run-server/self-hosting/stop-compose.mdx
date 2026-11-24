@@ -32,11 +32,11 @@ scripts/test-ops.sh start
 
 env 파일의 값을 바꾼 설치에는 `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다. start가 바뀐 env 값을 반영한다고 가정하지 않는다.
 
-DB와 workspace volume은 남는다. LocalStack은 volume 없이 메모리에 저장하므로 컨테이너를 내리면 `-v`가 없어도 checkpoint object가 사라진다. DB에 미수거 checkpoint가 남아 bucket이 비면 API가 시작을 거부한다. [시험 설치의 재부팅](/run-server/self-hosting/try-localstack#자주-막히는-곳)에서 reseed 조건을 확인한다.
+DB와 workspace volume은 남는다. LocalStack은 volume 없이 메모리에 저장하므로 컨테이너를 내리면 `-v`가 없어도 checkpoint object가 사라진다. LocalStack 시험 설치의 API는 다음에 시작할 때 DB에 남은 미수거 checkpoint를 포기하고 뜨며, 잃은 checkpoint가 복원 지점이던 세션은 닫힌 것을 빼고 `recovery_required`가 된다. 그래서 그 설치의 `stop`과 `start`는 세션의 맥락을 잃는다. 맥락을 지키려면 내리기 전에 [시험 설치의 계획 재시작](/run-server/self-hosting/try-localstack#자주-막히는-곳)을 따른다.
 
 ### 호스트 재부팅
 
-상주 서비스는 `restart: unless-stopped`이므로 Docker가 자동 시작되고 컨테이너가 남아 있으면 재부팅 뒤 다시 시작한다. `stop` 또는 `compose down`으로 컨테이너를 제거했다면 `scripts/test-ops.sh start`로 올린다. LocalStack 컨테이너 재생성은 object를 잃으므로 [시험 설치의 재부팅 경고](/run-server/self-hosting/try-localstack#자주-막히는-곳)를 따른다.
+상주 서비스는 `restart: unless-stopped`이므로 Docker가 자동 시작되고 컨테이너가 남아 있으면 재부팅 뒤 다시 시작한다. `stop` 또는 `compose down`으로 컨테이너를 제거했다면 `scripts/test-ops.sh start`로 올린다. LocalStack은 재부팅에서 object를 잃는다. 그 뒤 API가 하는 일은 [시험 설치의 재부팅](/run-server/self-hosting/try-localstack#자주-막히는-곳)에 있다.
 
 재부팅 전 진행 중 turn·status·호스트 밖 백업을 확인한다. 재부팅 뒤 NTP·XFS prjquota·Docker 자동 시작·디스크와 inode·status·ready를 확인하고, 기존 세션을 재개해 새 worker가 checkpoint를 이어받는지 본다.
 
