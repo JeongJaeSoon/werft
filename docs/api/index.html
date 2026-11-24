@@ -2514,6 +2514,11 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 315360000
+          },
+          "judgment_buffer_limit_per_channel": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
           }
         },
         "additionalProperties": false
@@ -17261,6 +17266,34 @@
             ],
             "additionalProperties": false
           },
+          "judgment_buffer_limit_per_channel": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000
+              },
+              "default": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
           "session_archive": {
             "type": "object",
             "properties": {
@@ -17302,6 +17335,7 @@
           "session_archive_dry_run",
           "workspace_stopped_ttl_sec",
           "workspace_paused_ttl_sec",
+          "judgment_buffer_limit_per_channel",
           "session_archive"
         ],
         "additionalProperties": false
@@ -17663,6 +17697,34 @@
             ],
             "additionalProperties": false
           },
+          "judgment_buffer_limit_per_channel": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000
+              },
+              "default": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "default",
+              "saved",
+              "blocked"
+            ],
+            "additionalProperties": false
+          },
           "session_archive": {
             "type": "object",
             "properties": {
@@ -17709,6 +17771,7 @@
           "session_archive_dry_run",
           "workspace_stopped_ttl_sec",
           "workspace_paused_ttl_sec",
+          "judgment_buffer_limit_per_channel",
           "session_archive"
         ],
         "additionalProperties": false
@@ -53305,6 +53368,12 @@
                     "saved": false,
                     "blocked": false
                   },
+                  "judgment_buffer_limit_per_channel": {
+                    "value": 100,
+                    "default": 100,
+                    "saved": false,
+                    "blocked": false
+                  },
                   "session_archive": {
                     "available": true,
                     "reason": null
@@ -53549,6 +53618,12 @@
                   "workspace_paused_ttl_sec": {
                     "value": 86400,
                     "default": 86400,
+                    "saved": false,
+                    "blocked": false
+                  },
+                  "judgment_buffer_limit_per_channel": {
+                    "value": 100,
+                    "default": 100,
                     "saved": false,
                     "blocked": false
                   },

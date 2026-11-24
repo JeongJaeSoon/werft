@@ -48,6 +48,7 @@ const CONFIG: InstallationConfig = {
   session_archive_dry_run: unsaved(true),
   workspace_stopped_ttl_sec: unsaved(86_400),
   workspace_paused_ttl_sec: unsaved(86_400),
+  judgment_buffer_limit_per_channel: unsaved(100),
   session_archive: { available: false, reason: "unversioned" },
 };
 

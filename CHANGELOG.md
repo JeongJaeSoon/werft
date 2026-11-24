@@ -14,6 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **migration `0341_judgment_buffer_overflows`가 새 표 `judgment_buffer_overflows`를 만들고, 판단 버퍼에 에이전트 × 채널당 상한(설치 설정 `judgment_buffer_limit_per_channel`, 기본 100)이 생긴다**(JeongJaeSoon/werft#2114). 새 빈 표라 기존 표는 다시 쓰지 않는다. 상한을 넘으면 그 채널에서 가장 오래된 글부터 지우고, 지운 수를 표에 쌓고 `slack` role 로그에 `Judgment buffer over limit` 한 줄을 남긴다. 상한은 아직 콘솔 화면에 없고 `PATCH /v1/installation-config`로 바꾼다.
 - **Slack events 라우트가 서명을 확인한 이벤트를 2.5초 안에 기록하지 못하면 503(`BACKEND_UNAVAILABLE`, `Retry-After: 1`)으로 답하고 warn `Slack event deferred to retry` 줄을 남긴다**(JeongJaeSoon/werft#2111). 전에는 DB가 느리면 Slack의 3초 제한을 넘겨 끊겼다. 이제는 기록이 커밋되기 전에 200을 보내지 않고, Slack의 재시도가 같은 event_id로 한 번만 기록된다. 줄에는 `agent_id`·`event_id`·`team_id`·걸린 단계 `step`이 붙는다. `warn`에 경보를 건 설치는 DB가 느릴 때 이 줄로 울린다. Slack은 60분 동안 전달 실패가 95%를 넘으면 구독을 끄므로 이 줄이 이어지면 DB를 먼저 본다.
 - **운영자 명령 `private-channel-sessions.ts apply`가 바꾼 것이 없으면 `outcome: "unchanged"`(exit 0)로 끝나고, 세션의 공유 범위를 바꿀 때마다 그 세션에 `share_session` receipt를 남긴다**(JeongJaeSoon/werft#2091). migration은 없다. 출력을 `moved`로 분기하던 스크립트는 `unchanged`도 성공으로 읽는다. 출력에 `run_id`·`sessions_moved`·`bindings_changed`가 더해진다.
   - receipt에는 이전·새 범위, 사유, 못 보게 된 사람 수(`people_losing`, 명단 없음), 실행 id(`run_id`) 또는 Slack 이벤트 id(`event_id`)가 들고 세션 본문은 없다. Slack의 채널 공개↔비공개 전환도 같은 receipt를 남긴다(`reason: "slack_channel_converted"`).
