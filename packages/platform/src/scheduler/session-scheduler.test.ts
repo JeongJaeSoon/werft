@@ -7,6 +7,7 @@ import {
   hashWorkerToken,
   launchNonceFingerprint,
 } from "../workers/worker-gateway.ts";
+import { CAPACITY_WAIT_LIMIT_MS } from "./options.ts";
 import type {
   EnsureExecutionResult,
   ExecutionBackend,
@@ -30,6 +31,7 @@ import {
 } from "./ports/execution-backend.ts";
 import type {
   ActiveExecution,
+  CapacityWait,
   HoldIncompatibleInput,
   LaunchFailureInput,
   LaunchFailureOutcome,
@@ -70,6 +72,7 @@ type Launch = ActiveExecution & {
   nonce: string | null;
   /** On the storage clock, once a drain was asked of its worker. */
   drainRequestedAt?: number;
+  capacityWaitMessage?: string | null;
 };
 
 class MemoryStore implements SchedulerStore {
@@ -86,6 +89,8 @@ class MemoryStore implements SchedulerStore {
   clockOffsetMs = 0;
   /** Sessions a quarantine gave up on, with the error their input failed on. */
   readonly quarantined = new Map<string, string>();
+  /** Sessions whose launch found no room in time; they wait for input. */
+  readonly noCapacity = new Set<string>();
   readonly launchFailures: Array<{ executionId: string } & LaunchFailureInput> =
     [];
   /** Sessions with a turn that has not ended, as a drain sees them. */
@@ -185,6 +190,7 @@ class MemoryStore implements SchedulerStore {
       launchFailureCount: 0,
       launchRetryAt: null,
       launchRetryDue: true,
+      capacityWaitSince: null,
       sessionId,
       slotReleased: false,
       ...overrides,
@@ -363,6 +369,71 @@ class MemoryStore implements SchedulerStore {
       return false;
     }
     row.nonce = null;
+    return true;
+  }
+
+  async recordCapacityWait(
+    ref: ExecutionRef,
+    message: string,
+  ): Promise<CapacityWait | null> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.claimed ||
+      row.slotReleased ||
+      row.desiredState !== "running" ||
+      row.nonce === null
+    ) {
+      return null;
+    }
+    const began = row.capacityWaitSince === null;
+    const previousMessage = began ? null : (row.capacityWaitMessage ?? null);
+    const now = this.storageNow();
+    row.capacityWaitSince ??= new Date(now);
+    row.capacityWaitMessage = message;
+    row.nonceExpiresAt = new Date(
+      Math.max(row.nonceExpiresAt?.getTime() ?? 0, now + NONCE_TTL_MS),
+    );
+    row.nonceExpired = false;
+    return {
+      since: row.capacityWaitSince,
+      waitedMs: now - row.capacityWaitSince.getTime(),
+      began,
+      previousMessage,
+    };
+  }
+
+  async clearCapacityWait(ref: ExecutionRef): Promise<number | null> {
+    const row = this.executions.get(ref.executionId);
+    if (!row || row.generation !== ref.generation) return null;
+    if (row.capacityWaitSince === null) return null;
+    const waited = this.storageNow() - row.capacityWaitSince.getTime();
+    row.capacityWaitSince = null;
+    row.capacityWaitMessage = null;
+    return waited;
+  }
+
+  async giveUpForCapacity(
+    ref: ExecutionRef,
+    limitMs: number,
+  ): Promise<boolean> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      row.claimed ||
+      row.slotReleased ||
+      row.desiredState !== "running" ||
+      row.capacityWaitSince === null ||
+      this.storageNow() - row.capacityWaitSince.getTime() < limitMs
+    ) {
+      return false;
+    }
+    row.nonce = null;
+    row.desiredState = "terminated";
+    this.unassigned.delete(row.sessionId);
+    this.noCapacity.add(row.sessionId);
     return true;
   }
 
@@ -636,6 +707,8 @@ class FakeBackend implements ExecutionBackend {
   exitOnStartFor = new Set<string>();
   /** Session ids whose create is taken but whose start the daemon cannot show. */
   createPendingFor = new Set<string>();
+  /** Session ids whose pending resource has no room, with the provider's words. */
+  unschedulableFor = new Map<string, string>();
   /**
    * Session ids whose create gets no answer from the daemon: one that never
    * took, or one that did and was never started.
@@ -822,6 +895,14 @@ class FakeBackend implements ExecutionBackend {
       ...(container.workerLimits === undefined
         ? {}
         : { workerLimits: container.workerLimits }),
+      ...(container.started === false &&
+      this.unschedulableFor.has(container.sessionId)
+        ? {
+            unschedulable: {
+              message: this.unschedulableFor.get(container.sessionId) ?? "",
+            },
+          }
+        : {}),
     };
   }
 
@@ -5506,5 +5587,122 @@ describe("launch spec", () => {
       }),
     ).rejects.toThrow("pidsLimit 0 is not a positive integer");
     expect(store.locked).toBe(false);
+  });
+});
+
+describe("a launch waiting for room", () => {
+  const NO_ROOM =
+    "0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.";
+
+  async function waiting() {
+    const h = harness();
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.createPendingFor.add(sessionId);
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+    await h.run();
+    const [intent] = h.backend.ensureCalls;
+    if (!intent) throw new Error("no intent");
+    const row = h.store.executions.get(intent.executionId);
+    if (!row) throw new Error("no row");
+    const ref = { executionId: intent.executionId, generation: 1 };
+    return { ...h, ref, row, sessionId };
+  }
+
+  const waitLogs = (
+    records: Array<{ level: string; message: string; fields?: unknown }>,
+  ) =>
+    records.filter((r) =>
+      r.message.startsWith("Execution waiting for capacity"),
+    );
+
+  test("is recorded and logged with the provider's words, once", async () => {
+    const { backend, records, ref, row, run } = await waiting();
+    const ensured = backend.ensureCalls.length;
+
+    const first = await run();
+    const second = await run();
+
+    expect(first.waitingForCapacity).toEqual([ref]);
+    expect(second.waitingForCapacity).toEqual([ref]);
+    expect(row.capacityWaitSince).not.toBeNull();
+    // Waited on, not re-ensured every pass.
+    expect(backend.ensureCalls).toHaveLength(ensured);
+    expect(first.reensured).toEqual([]);
+    expect(
+      records.some(
+        (r) => r.message === "Execution resource re-created from intent",
+      ),
+    ).toBe(false);
+    const logged = waitLogs(records);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]?.level).toBe("warn");
+    expect(logged[0]?.fields).toMatchObject({
+      unschedulable_reason: NO_ROOM,
+      session_id: row.sessionId,
+    });
+  });
+
+  test("is not replaced when its nonce runs out, and keeps it open", async () => {
+    const { backend, ref, row, run } = await waiting();
+    await run();
+    const held = [...backend.containers.values()][0]?.nonce;
+    row.nonceExpiresAt = new Date(Date.now() - 1);
+    row.nonceExpired = true;
+
+    const summary = await run();
+
+    expect(summary.replaced).toEqual([]);
+    expect(summary.waitingForCapacity).toEqual([ref]);
+    expect([...backend.containers.values()][0]?.nonce).toBe(held);
+    expect(row.nonceExpiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  test("ends once the resource finds room", async () => {
+    const { backend, records, row, run, sessionId } = await waiting();
+    await run();
+    backend.unschedulableFor.delete(sessionId);
+    backend.createPendingFor.clear();
+    const container = [...backend.containers.values()][0];
+    if (!container) throw new Error("no container");
+    container.started = true;
+
+    const summary = await run();
+
+    expect(summary.waitingForCapacity).toEqual([]);
+    expect(row.capacityWaitSince).toBeNull();
+    expect(
+      records.some(
+        (r) =>
+          r.level === "info" &&
+          r.message === "Execution waited for capacity and found it",
+      ),
+    ).toBe(true);
+  });
+
+  test("gives its queued input up after the limit, without a launch failure", async () => {
+    const { records, ref, row, run, sessionId, store } = await waiting();
+    await run();
+    store.elapse(CAPACITY_WAIT_LIMIT_MS);
+
+    const summary = await run();
+
+    expect(summary.launchesNoCapacity).toEqual([ref]);
+    expect(summary.replaced).toEqual([]);
+    expect(store.noCapacity.has(sessionId)).toBe(true);
+    expect(row.desiredState).toBe("terminated");
+    expect(store.unassigned.has(sessionId)).toBe(false);
+    expect(store.launchFailures).toEqual([]);
+    expect(store.quarantined.size).toBe(0);
+    expect(
+      records.some(
+        (r) =>
+          r.level === "error" &&
+          r.message.startsWith("Execution found no capacity in time"),
+      ),
+    ).toBe(true);
+    // The next pass carries the kill out and the slot comes back.
+    await run();
+    expect(store.confirmedGone).toContain(ref.executionId);
   });
 });

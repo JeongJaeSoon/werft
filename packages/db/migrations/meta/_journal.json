@@ -1804,8 +1804,15 @@
     {
       "idx": 348,
       "version": "7",
-      "when": 1795524147413,
-      "tag": "0348_lost_checkpoint_notices",
+      "when": 1795524708284,
+      "tag": "0348_capacity_waits",
+      "breakpoints": true
+    },
+    {
+      "idx": 349,
+      "version": "7",
+      "when": 1795531739589,
+      "tag": "0349_lost_checkpoint_notices",
       "breakpoints": true
     }
   ]

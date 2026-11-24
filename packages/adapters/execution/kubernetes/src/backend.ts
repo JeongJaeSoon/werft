@@ -326,6 +326,8 @@ export class KubernetesBackend implements ExecutionBackend {
     // plainly killed, or carries no status at all.
     const terminationReason =
       missingProfile ?? pod.status?.reason ?? terminated?.reason;
+    const unschedulable =
+      state === "pending" ? unschedulableOf(pod) : undefined;
     const logTail =
       state === "terminated" && pod.status?.phase === "Failed"
         ? await this.logTailOf(pod)
@@ -339,6 +341,7 @@ export class KubernetesBackend implements ExecutionBackend {
         ? { terminationReason }
         : {}),
       ...(logTail === undefined ? {} : { logTail }),
+      ...(unschedulable === undefined ? {} : { unschedulable }),
       credentialFingerprint:
         annotations[ANNOTATIONS.bootstrapFingerprint] ?? null,
       found: true,
@@ -908,6 +911,25 @@ export function missingSeccompProfileOf(pod: Pod): string | undefined {
     `(<kubelet>/seccomp/${CODEX_SECCOMP_PROFILE}), which the chart's codex-seccomp installer DaemonSet writes ` +
     `to each worker node; check that DaemonSet runs there. Runtime: ${message.slice(0, 300)}`
   );
+}
+
+/** Bounds what one log line carries of the scheduler's message. */
+const UNSCHEDULABLE_MESSAGE_MAX = 1_000;
+
+/**
+ * The Kubernetes scheduler found no node for the Pod: its PodScheduled
+ * condition, which carries the same words as the FailedScheduling event.
+ */
+export function unschedulableOf(pod: Pod): { message: string } | undefined {
+  const scheduled = pod.status?.conditions?.find(
+    (condition) => condition.type === "PodScheduled",
+  );
+  if (scheduled?.status !== "False" || scheduled.reason !== "Unschedulable") {
+    return undefined;
+  }
+  return {
+    message: (scheduled.message ?? "").slice(0, UNSCHEDULABLE_MESSAGE_MAX),
+  };
 }
 
 /** Pod phase → the platform's execution state. */

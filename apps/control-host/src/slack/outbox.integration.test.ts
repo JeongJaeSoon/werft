@@ -70,8 +70,10 @@ import {
   turns,
   users,
   verifySlackInstallation,
+  workerLaunches,
   workspaces,
 } from "@werft-ai/db";
+import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
@@ -1055,6 +1057,95 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       `${SLACK_NOTICE_MESSAGES.ko.failed}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
     ]);
     expect((await rows()).map((row) => row.kind)).toEqual(["failure_notice"]);
+  });
+
+  test("a worker waiting for room is told in its thread once, past 30 seconds", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const launch = await launchSession(db, {
+      sessionId,
+      backend: "kubernetes",
+    });
+    const waitingFor = (ms: number) =>
+      db
+        .update(workerLaunches)
+        .set({ capacityWaitSince: new Date(Date.now() - ms) })
+        .where(eq(workerLaunches.executionId, launch.executionId));
+
+    await waitingFor(5_000);
+    await outboxPass();
+    expect(posted()).toEqual([]);
+
+    // Claimed before the scheduler cleared the wait: no notice.
+    await db.insert(attempts).values({
+      id: "attempt-claimed",
+      sessionId,
+      executionId: launch.executionId,
+      leaseEpoch: 0,
+      executionGeneration: launch.generation,
+      authRevision: 0,
+      state: "running",
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    });
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: "attempt-claimed" })
+      .where(eq(workerLaunches.executionId, launch.executionId));
+    await waitingFor(31_000);
+    await outboxPass();
+    expect(posted()).toEqual([]);
+    await db
+      .update(workerLaunches)
+      .set({ claimedAttemptId: null })
+      .where(eq(workerLaunches.executionId, launch.executionId));
+
+    await outboxPass();
+    await outboxPass();
+    expect(posted().map((message) => message.text)).toEqual([
+      `${SLACK_NOTICE_MESSAGES.ko.capacityWait}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+    ]);
+    expect((await rows()).map((row) => row.dedupeKey)).toEqual([
+      expect.stringMatching(
+        new RegExp(
+          `^capacity_wait:.+:${launch.executionId}:${launch.generation}$`,
+        ),
+      ),
+    ]);
+  });
+
+  test("a turn that found no room ends with the no-room notice", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "failed");
+    await db
+      .update(turns)
+      .set({ terminalReason: "no_capacity" })
+      .where(eq(turns.sessionId, sessionId));
+    await outboxPass();
+    expect(posted().map((message) => message.text)).toEqual([
+      `${SLACK_NOTICE_MESSAGES.ko.noCapacity}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+    ]);
+  });
+
+  test("a resume that found no room says the session stays paused", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "failed");
+    await db
+      .update(turns)
+      .set({ terminalReason: "no_capacity" })
+      .where(eq(turns.sessionId, sessionId));
+    await db
+      .update(sessions)
+      .set({ admissionState: "paused" })
+      .where(eq(sessions.id, sessionId));
+    await outboxPass();
+    expect(posted().map((message) => message.text)).toEqual([
+      `${SLACK_NOTICE_MESSAGES.ko.noCapacityPaused}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+    ]);
   });
 
   test("a person with no saved language reads English", async () => {

@@ -4387,6 +4387,7 @@
                   "TURN_NOT_STARTED",
                   "BACKEND_UNAVAILABLE",
                   "LAUNCH_FAILED",
+                  "NO_CAPACITY",
                   "CATALOG_MISMATCH",
                   "TAKEOVER_REQUIRED",
                   "SOURCE_DELETED",
@@ -4962,6 +4963,33 @@
               }
             ]
           },
+          "wait_reason": {
+            "description": "Why the session's queued input has not started: `waiting_for_capacity` while its worker waits for room no node has (on Kubernetes, a worker Pod the scheduler marked Unschedulable). After 15 minutes of it the queued input fails with `NO_CAPACITY` and the session waits for its next input. Null when nothing holds it back this way. Absent from a server older than the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "waiting_for_capacity"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waiting_since": {
+            "description": "When the wait `wait_reason` names began; null with it. Absent from a server older than the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "runtime": {
             "anyOf": [
               {
@@ -5520,6 +5548,33 @@
                   "expires_at"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wait_reason": {
+            "description": "Why the session's queued input has not started: `waiting_for_capacity` while its worker waits for room no node has (on Kubernetes, a worker Pod the scheduler marked Unschedulable). After 15 minutes of it the queued input fails with `NO_CAPACITY` and the session waits for its next input. Null when nothing holds it back this way. Absent from a server older than the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "waiting_for_capacity"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waiting_since": {
+            "description": "When the wait `wait_reason` names began; null with it. Absent from a server older than the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
               },
               {
                 "type": "null"
@@ -14441,6 +14496,7 @@
                       "TURN_NOT_STARTED",
                       "BACKEND_UNAVAILABLE",
                       "LAUNCH_FAILED",
+                      "NO_CAPACITY",
                       "CATALOG_MISMATCH",
                       "TAKEOVER_REQUIRED",
                       "SOURCE_DELETED",
