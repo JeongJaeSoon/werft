@@ -722,6 +722,14 @@ function checkConversationRuntime(
         errors.push(`${where}: volume ${volume.name} is not an emptyDir`);
       }
     }
+    // The worker image declares /workspace a volume: unmasked, the container
+    // runtime hands the Pod a writable one of its own.
+    const workspace = (pod.containers[0].volumeMounts ?? []).find(
+      (mount: { mountPath: string }) => mount.mountPath === "/workspace",
+    );
+    if (workspace?.readOnly !== true) {
+      errors.push(`${where}: /workspace is not masked read-only`);
+    }
     for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
       const env: EnvVar[] = c.env ?? [];
       const names = env.map((v) => v.name);

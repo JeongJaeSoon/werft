@@ -87,6 +87,11 @@ spec:
             {{- include "ap.tmpMount" . | nindent 12 }}
             - name: topics
               mountPath: /conversation
+            # The image declares /workspace a volume for a session's checkout;
+            # empty and read-only here, so the runtime gets no writable one.
+            - name: no-workspace
+              mountPath: /workspace
+              readOnly: true
       volumes:
         {{- include "ap.tmpVolume" . | nindent 8 }}
         # Each topic's directory, removed with the topic and gone with the Pod.
@@ -94,6 +99,10 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 256Mi
+        - name: no-workspace
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

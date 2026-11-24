@@ -431,10 +431,14 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     # Each topic's directory is made under /conversation and removed with the
-    # topic; none outlives the container.
+    # topic; none outlives the container. The image declares /workspace a
+    # volume for a session's checkout: left alone, Docker would give this
+    # container an anonymous writable one, so an empty read-only tmpfs sits
+    # there instead.
     tmpfs:
       - /tmp:uid=1000,gid=1000
       - /conversation:uid=1000,gid=1000,mode=0700
+      - /workspace:ro,size=4k
     restart: unless-stopped
     # One engine at a time beside the loop.
     mem_limit: 2048m

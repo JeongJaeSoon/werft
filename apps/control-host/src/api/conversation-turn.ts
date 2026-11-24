@@ -102,13 +102,16 @@ export async function main(
     : CONVERSATION_TURN_EXIT.failed;
 }
 
-/** The OS user running the command; a uid with no account is named by number. */
+/** The OS user running the command, by number where the runtime gives no name. */
 function operatorUser(): string {
+  let name = "";
   try {
-    return userInfo().username;
-  } catch {
-    return `uid:${process.getuid?.() ?? "unknown"}`;
-  }
+    name = userInfo().username;
+  } catch {}
+  // Bun says "unknown" for an account it does not resolve.
+  return name !== "" && name !== "unknown"
+    ? name
+    : `uid:${process.getuid?.() ?? "unknown"}`;
 }
 
 if (import.meta.main) {

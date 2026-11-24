@@ -2631,7 +2631,17 @@ describe("the conversation runtime in compose", () => {
     expect(runtime?.tmpfs?.map((mount) => mount.split(":")[0])).toEqual([
       "/tmp",
       "/conversation",
+      "/workspace",
     ]);
+    // The image declares /workspace a volume (the session worker's mount
+    // point): unmasked, Docker hands the runtime an anonymous writable one.
+    expect(basePins.worker.source).toContain('VOLUME ["/workspace"]');
+    expect(
+      runtime?.tmpfs
+        ?.find((mount) => mount.startsWith("/workspace:"))
+        ?.split(":")[1]
+        ?.split(","),
+    ).toContain("ro");
     expect(runtime?.ports).toBeUndefined();
     // Its bearer and where the API and the proxy are; no provider, repository,
     // database or master key in any layer.
