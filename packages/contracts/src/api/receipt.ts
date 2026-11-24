@@ -256,6 +256,11 @@ export const RECEIPT_OPERATION_VALUES = [
   // The bots an agent answers in Slack changed; the receipt names the agent,
   // the bot ids added and removed, and the list's size before and after.
   "set_slack_allowed_bots",
+  // A workspace owner's or admin's approval of the Slack notice for one
+  // agent's app, and its revoke: the Slack team, the notice version and the
+  // approval rows, never the notice's text.
+  "approve_slack_notice",
+  "revoke_slack_notice",
 ] as const;
 /**
  * Receipts that settle on the observed absence of the execution they asked

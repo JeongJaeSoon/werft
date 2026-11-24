@@ -122,6 +122,7 @@ export * from "./surface/slack-config-tokens.ts";
 export * from "./surface/slack-inbound-events.ts";
 export * from "./surface/slack-install-states.ts";
 export * from "./surface/slack-installations.ts";
+export * from "./surface/slack-notice-approvals.ts";
 export * from "./surface/slack-outbox.ts";
 export * from "./surface/slack-source-marks.ts";
 export * from "./surface/slack-thread-bot-turns.ts";
