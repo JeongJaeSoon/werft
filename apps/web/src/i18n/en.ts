@@ -125,6 +125,8 @@ export const slackEn = {
   "slack.deleteWarning":
     "Deletes the app in Slack along with its stored credentials. This can't be undone; connecting again makes a new app.",
   "slack.deleted": "Slack app deleted.",
+  "slack.deletedCleanupFailed":
+    "Slack app deleted in Werft, but Slack's side could not be cleaned up. Delete the app in Slack's app management page (api.slack.com/apps).",
   "slack.revoke": "Disconnect",
   "slack.revokeTitle": "Disconnect Slack",
   "slack.revokeWarning":

@@ -3082,7 +3082,10 @@ describe("Slack management", () => {
       [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
       [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
         app = null;
-        return json(200, { slack_app: { ...APP, state: "deleted" } });
+        return json(200, {
+          slack_app: { ...APP, state: "deleted" },
+          slack_cleanup: null,
+        });
       },
     });
     const user = await setupUser();
@@ -3103,6 +3106,40 @@ describe("Slack management", () => {
     ).toBeDefined();
   });
 
+  test("tells to delete the app in Slack when Slack's cleanup failed", async () => {
+    let app: typeof APP | null = APP;
+    renderAt(DETAIL, {
+      ...routes(APP),
+      [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
+      [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
+        app = null;
+        return json(200, {
+          slack_app: { ...APP, state: "deleted" },
+          slack_cleanup: {
+            outcome: "failed",
+            failed_steps: ["apps.manifest.delete"],
+            message: "Slack-side cleanup failed",
+          },
+        });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Slack 앱 삭제" }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "앱 삭제",
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "Werft에서는 Slack 앱을 삭제했지만 Slack 쪽 정리에 실패했습니다. Slack 앱 관리 화면(api.slack.com/apps)에서 앱을 지워 주세요.",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText("Slack 앱을 삭제했습니다.") === null).toBe(true);
+  });
+
   test("drops the delete notice once a new app is asked for", async () => {
     const server = agentServer();
     let app: typeof APP | null = APP;
@@ -3121,7 +3158,10 @@ describe("Slack management", () => {
       [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
       [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
         app = null;
-        return json(200, { slack_app: { ...APP, state: "deleted" } });
+        return json(200, {
+          slack_app: { ...APP, state: "deleted" },
+          slack_cleanup: null,
+        });
       },
       [`POST ${PATH}/slack/app`]: () =>
         json(503, {
@@ -3156,7 +3196,10 @@ describe("Slack management", () => {
       [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
       [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
         app = null;
-        return json(200, { slack_app: { ...APP, state: "deleted" } });
+        return json(200, {
+          slack_app: { ...APP, state: "deleted" },
+          slack_cleanup: null,
+        });
       },
     });
     const user = await setupUser();
@@ -3188,7 +3231,10 @@ describe("Slack management", () => {
       [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
       [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
         app = null;
-        return json(200, { slack_app: { ...APP, state: "deleted" } });
+        return json(200, {
+          slack_app: { ...APP, state: "deleted" },
+          slack_cleanup: null,
+        });
       },
     });
     const user = await setupUser();

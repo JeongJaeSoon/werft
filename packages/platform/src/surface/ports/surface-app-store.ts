@@ -1,5 +1,6 @@
 import type {
   GetSlackAppResponse,
+  SlackAppCleanup,
   SlackAppKind,
   SlackAppSecretPurpose,
   SlackAppSettings,
@@ -91,6 +92,23 @@ export type BeginLinkAppResult =
  * `begun`: the app is now `deleting` and Slack must be asked. `settled`:
  * no Slack app to delete (it failed, was abandoned or is gone already).
  */
+/** How many of each an app's delete closed. */
+export type SurfaceAppClosed = {
+  installations: number;
+  identities: number;
+  bindings: number;
+  outbox: number;
+  buffered: number;
+};
+
+export type FinishDeleteResult = {
+  app: SurfaceAppRecord;
+  closed: SurfaceAppClosed;
+  /** The bot token the app held; null when it was never installed. */
+  botToken: string | null;
+  receiptId: string;
+};
+
 export type BeginDeleteResult =
   | { outcome: "begun" | "settled" | "creating"; app: SurfaceAppRecord }
   | { outcome: "not_found" | "actor_inactive" | "outranked" };
@@ -258,9 +276,21 @@ export interface SurfaceAppStore {
     slackAppId: string;
     actor: SurfaceAppActor;
   }): Promise<BeginDeleteResult>;
-  /** Marks the app deleted and drops its secrets. */
-  finishDelete(
+  /**
+   * In one transaction: marks the app deleted, drops its secrets, closes
+   * what it holds (installs, identities, bindings, unsent outbox rows, the
+   * judgment buffer) and writes its `delete_slack_app` receipt. The bot
+   * token is read before it goes, for the revoke after commit.
+   */
+  finishDelete(input: {
+    workspaceId: string;
+    slackAppId: string;
+    actor: SurfaceAppActor;
+  }): Promise<FinishDeleteResult>;
+  /** Adds what the Slack side's cleanup came to to the delete's receipt. */
+  recordDeleteCleanup(
     workspaceId: string,
-    slackAppId: string,
-  ): Promise<SurfaceAppRecord>;
+    receiptId: string,
+    cleanup: SlackAppCleanup,
+  ): Promise<void>;
 }

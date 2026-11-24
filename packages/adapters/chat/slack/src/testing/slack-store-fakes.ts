@@ -7,6 +7,7 @@
 import { randomBytes } from "node:crypto";
 import {
   BOT_SCOPES,
+  type SlackAppCleanup,
   type SlackAppSecretPurpose,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
@@ -275,6 +276,8 @@ export function createMemorySlackAppStore(input: {
   >();
   const allowedBots = new Map<string, string[]>();
   const faults = { finishCreate: 0 };
+  /** Each delete's receipt, by id: its Slack cleanup once recorded. */
+  const deleteReceipts = new Map<string, SlackAppCleanup | null>();
   const LIVE = new Set(["creating", "created", "deleting"]);
   const PURPOSES: SlackAppSecretPurpose[] = [
     "slack_signing_secret",
@@ -604,16 +607,36 @@ export function createMemorySlackAppStore(input: {
       touch(row, { state: "deleting" });
       return { outcome: "begun", app: record(row) };
     },
-    async finishDelete(workspaceId, slackAppId) {
+    async finishDelete({ workspaceId, slackAppId }) {
       const row = rows.get(slackAppId);
       if (!row || row.workspaceId !== workspaceId) {
         throw new Error("no such Slack app");
       }
+      const botToken =
+        input.secrets.values.get(
+          input.secrets.slotKey(slot(row, "slack_bot_token")),
+        )?.value ?? null;
       for (const purpose of PURPOSES) {
         input.secrets.values.delete(input.secrets.slotKey(slot(row, purpose)));
       }
       touch(row, { state: "deleted" });
-      return record(row);
+      const receiptId = crypto.randomUUID();
+      deleteReceipts.set(receiptId, null);
+      return {
+        app: record(row),
+        closed: {
+          installations: 0,
+          identities: 0,
+          bindings: 0,
+          outbox: 0,
+          buffered: 0,
+        },
+        botToken,
+        receiptId,
+      };
+    },
+    async recordDeleteCleanup(_workspaceId, receiptId, cleanup) {
+      deleteReceipts.set(receiptId, cleanup);
     },
   };
 
@@ -621,7 +644,7 @@ export function createMemorySlackAppStore(input: {
   function seed(row: Omit<SurfaceAppRecord, "secrets">) {
     rows.set(row.id, row);
   }
-  return { store, rows, faults, seed };
+  return { store, rows, faults, seed, deleteReceipts };
 }
 
 type Behaviour<T> = (() => Promise<T>) | undefined;
@@ -655,6 +678,7 @@ export function createFakeSlackConfigApi(options?: {
       create?: Behaviour<CreatedSurfaceApp>;
       delete?: Behaviour<void>;
       export?: Behaviour<void>;
+      revoke?: Behaviour<void>;
     },
   };
   let appCounter = 0;
@@ -733,6 +757,14 @@ export function createFakeSlackConfigApi(options?: {
       }
       if (!state.apps.delete(appId)) {
         throw new SlackApiError("apps.manifest.delete", "app_not_found", true);
+      }
+    },
+    async revokeBotToken() {
+      state.calls.push({ method: "auth.revoke" });
+      const behaviour = state.next.revoke;
+      if (behaviour) {
+        state.next.revoke = undefined;
+        return behaviour();
       }
     },
     async exportApp(token, appId) {

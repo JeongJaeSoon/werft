@@ -54,6 +54,7 @@ import {
   writeSecretInTx,
 } from "../secrets/index.ts";
 import { notDeleted } from "../soft-delete.ts";
+import { closeSlackApp } from "./slack-app-close.ts";
 
 type Row = typeof slackApps.$inferSelect;
 
@@ -1003,14 +1004,27 @@ export function createPostgresSlackAppStore(
       });
     },
 
-    finishDelete(workspaceId, slackAppId) {
+    finishDelete(input) {
+      const workspaceId = input.workspaceId.toLowerCase();
+      const slackAppId = input.slackAppId.toLowerCase();
       return db.transaction(async (tx) => {
-        const row = await lockedApp(
-          tx,
-          workspaceId.toLowerCase(),
-          slackAppId.toLowerCase(),
-        );
+        const row = await lockedApp(tx, workspaceId, slackAppId);
         if (!row) throw new Error(`Slack app ${slackAppId} not found`);
+        const by = receiptBy(input.actor);
+        const closedBy = by === "operator_cli" ? null : by.userId;
+        const closed = await closeSlackApp(tx, {
+          workspaceId,
+          slackAppId,
+          appId: row.appId,
+          agentId: row.agentId,
+          closedBy,
+        });
+        // Read before it goes: the revoke after commit needs it.
+        const botToken = await readSecretInTx(
+          tx,
+          key,
+          secretSlot(row, "slack_bot_token"),
+        );
         for (const purpose of SLACK_APP_SECRET_PURPOSE_VALUES) {
           await deleteSecretInTx(tx, secretSlot(row, purpose));
         }
@@ -1026,8 +1040,64 @@ export function createPostgresSlackAppStore(
           .where(eq(slackApps.id, row.id))
           .returning();
         if (!updated) throw new Error("slack_apps update returned no row");
-        return recordOf(tx, updated);
+        const receiptId = randomUUID();
+        await tx.insert(receipts).values({
+          id: receiptId,
+          ownerId: workspaceId,
+          operation: "delete_slack_app",
+          targetRef:
+            row.agentId === null
+              ? {
+                  resource: { kind: "workspace", id: workspaceId },
+                  workspace_id: workspaceId,
+                }
+              : {
+                  resource: { kind: "agent", id: row.agentId },
+                  workspace_id: workspaceId,
+                },
+          status: "succeeded",
+          // Counts and ids only: no token or secret is ever in it.
+          result: {
+            slack_app_id: row.id,
+            app_id: row.appId,
+            kind: row.kind,
+            agent_id: row.agentId,
+            closed,
+            slack_cleanup: null,
+          },
+          ...(closedBy === null
+            ? {}
+            : {
+                actor: {
+                  principal: { kind: "user", id: closedBy },
+                  actor_user_id: closedBy,
+                  agent_id: null,
+                },
+              }),
+        });
+        return {
+          app: await recordOf(tx, updated),
+          closed,
+          botToken,
+          receiptId,
+        };
       });
+    },
+
+    async recordDeleteCleanup(workspaceId, receiptId, cleanup) {
+      await db
+        .update(receipts)
+        .set({
+          result: sql`jsonb_set(${receipts.result}, '{slack_cleanup}', ${JSON.stringify(cleanup)}::jsonb)`,
+          updatedAt: DB_NOW,
+        })
+        .where(
+          and(
+            eq(receipts.id, receiptId),
+            eq(receipts.ownerId, workspaceId.toLowerCase()),
+            eq(receipts.operation, "delete_slack_app"),
+          ),
+        );
     },
   };
 }
