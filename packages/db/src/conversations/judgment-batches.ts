@@ -92,6 +92,11 @@ async function closeChannel(
     ),
   );
   if (!locked?.locked) return null;
+  // The lock a hold takes before the channel's limit removes rows: taken
+  // first, so this close and that removal never lock the rows in two orders.
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('judgment_buffer_limit'), hashtext(${`${channel.agent_id}:${channel.slack_team_id}:${channel.slack_channel_id}`}::text))`,
+  );
   const same = sql`agent_id = ${channel.agent_id}::uuid
     AND slack_team_id = ${channel.slack_team_id}
     AND slack_channel_id = ${channel.slack_channel_id}`;
@@ -246,8 +251,11 @@ export function createPostgresJudgmentBatchStore(
                   AND b.slack_channel_id = i.slack_channel_id
                   AND b.closed_at > ${at} - ${secs(M1_CHANNEL_WINDOW_MS)}
                   AND ${countsAgainstM1Cap}) < ${M1_JUDGMENTS_PER_CHANNEL_WINDOW})
-              OR max(i.received_at) <= ${at} - ${secs(JUDGMENT_BATCH_QUIET_MS)}
-              OR min(i.received_at) <= ${at} - ${secs(JUDGMENT_BATCH_MAX_WAIT_MS)}
+              -- New messages only: those past the cap make no batch of their own.
+              OR max(i.received_at) FILTER (WHERE i.judgment_batch_id IS NULL)
+                <= ${at} - ${secs(JUDGMENT_BATCH_QUIET_MS)}
+              OR min(i.received_at) FILTER (WHERE i.judgment_batch_id IS NULL)
+                <= ${at} - ${secs(JUDGMENT_BATCH_MAX_WAIT_MS)}
             ORDER BY min(i.received_at)
             LIMIT ${CLOSE_CANDIDATES}`),
         );

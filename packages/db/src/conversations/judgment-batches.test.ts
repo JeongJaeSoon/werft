@@ -278,15 +278,12 @@ describe("judgment batches", () => {
     expect(judge.rateLimited).toHaveLength(0);
   });
 
-  test("a judgment that fails counts, and its messages expire unjudged", async () => {
-    const judge = {
-      judge: {
-        async judge(): Promise<JudgmentBatchResult> {
-          throw new Error("judge down");
-        },
-        async rateLimited() {},
-      },
-    };
+  test("a judgment that fails counts against the cap, and its messages expire unjudged", async () => {
+    let failing = true;
+    const judge = fakeJudge(() => {
+      if (failing) throw new Error("judge down");
+      return { modelCalled: true, left: [] };
+    });
     const warned: string[] = [];
     const failed = await post(0);
     expect(
@@ -297,10 +294,128 @@ describe("judgment batches", () => {
       }),
     ).toEqual({ judged: 0, rateLimited: 0, failed: 1 });
     expect(warned).toEqual(["Judgment batch failed"]);
-    // In its failed batch, not in the next.
-    const next = fakeJudge();
-    expect((await pass(next.judge, 60 * SEC)).judged).toBe(0);
-    expect(await heldTs()).toEqual([failed]);
+    failing = false;
+    // The failed one is the first of the 12: the 12th after it is past the cap.
+    for (let n = 1; n < M1_JUDGMENTS_PER_CHANNEL_WINDOW; n++) {
+      await post(n * 20 * SEC);
+      expect((await pass(judge.judge, n * 20 * SEC + 15 * SEC)).judged).toBe(1);
+    }
+    await post(240 * SEC);
+    expect((await pass(judge.judge, 255 * SEC)).rateLimited).toBe(1);
+    // The failed batch was the judge's first; no later one carried its message.
+    expect(tsOf(judge.judged[0])).toEqual([failed]);
+    expect(judge.judged.slice(1).flatMap((batch) => tsOf(batch))).not.toContain(
+      failed,
+    );
+    expect(
+      await purgeJudgmentBuffer(db, {
+        limit: 100,
+        dryRun: false,
+        now: at(11 * MIN),
+      }),
+    ).toMatchObject({
+      expired: M1_JUDGMENTS_PER_CHANNEL_WINDOW + 1,
+      unjudged: 2,
+    });
+    expect(await tally()).toEqual({ rateLimited: 1, unjudged: 2 });
+  });
+
+  test("channels past the cap with no room do not crowd out one that is due", async () => {
+    const store = createPostgresJudgmentBatchStore(db);
+    const conversations = createPostgresConversationStore(db);
+    // More blocked channels than a close looks at in one call.
+    for (let n = 0; n < 25; n++) {
+      const channelId = `C0FULL${String(n).padStart(2, "0")}`;
+      await client.query(
+        `INSERT INTO surface_bindings (id, workspace_id, agent_id, surface,
+          installation_id, external_surface_id, surface_kind, mode, listen,
+          ceiling_actions, ceiling_disclosure, status)
+         VALUES ($1, $2, $3, 'slack', $4, $5, 'public_channel', 'on', 'free',
+          '{}', 'full', 'ready')`,
+        [randomUUID(), WORKSPACE, AGENT, randomUUID(), channelId],
+      );
+      const conversation = await conversations.findOrCreateConversation({
+        kind: "channel",
+        workspaceId: WORKSPACE,
+        agentId: AGENT,
+        teamId: TEAM,
+        channelId,
+      });
+      const topic = await conversations.findOrCreateThreadTopic(
+        conversation.id,
+        { teamId: TEAM, channelId, threadTs: "100.000000" },
+      );
+      const batch = (state: string) =>
+        client.query<{ id: string }>(
+          `INSERT INTO judgment_batches (id, workspace_id, agent_id,
+            conversation_id, slack_team_id, slack_channel_id, release_id,
+            state, model_called, closed_at, ended_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10) RETURNING id`,
+          [
+            randomUUID(),
+            WORKSPACE,
+            AGENT,
+            conversation.id,
+            TEAM,
+            channelId,
+            RELEASE,
+            state,
+            state === "judged" ? true : null,
+            at(0).toISOString(),
+          ],
+        );
+      for (let k = 0; k < M1_JUDGMENTS_PER_CHANNEL_WINDOW; k++) {
+        await batch("judged");
+      }
+      const limited = (await batch("rate_limited")).rows[0]?.id;
+      await client.query(
+        `INSERT INTO conversation_inputs (id, workspace_id, agent_id, topic_id,
+          seq, slack_team_id, slack_channel_id, slack_ts, requester_kind,
+          requester_id, body, received_at, buffer_expires_at, judgment_batch_id)
+         VALUES ($1, $2, $3, $4, 1, $5, $6, '300.000001', 'slack_user',
+          'U0PERSON', 'waiting', $7, $8, $9)`,
+        [
+          randomUUID(),
+          WORKSPACE,
+          AGENT,
+          topic.id,
+          TEAM,
+          channelId,
+          at(-50 * SEC).toISOString(),
+          at(9 * MIN).toISOString(),
+          limited,
+        ],
+      );
+    }
+    const due = await post(10 * SEC);
+    const closed = await store.closeNext({ now: at(30 * SEC) });
+    expect(closed?.outcome).toBe("judging");
+    expect(tsOf(closed?.batch)).toEqual([due]);
+  });
+
+  test("a batch a buffered message still points at is kept past the window", async () => {
+    const judge = fakeJudge();
+    await post(0);
+    await post(1 * SEC);
+    await pass(judge.judge, 16 * SEC);
+    const purge = (limit: number) =>
+      purgeJudgmentBuffer(db, {
+        limit,
+        dryRun: false,
+        now: at(61 * MIN),
+      });
+    expect(await purge(1)).toEqual({
+      expired: 1,
+      unjudged: 0,
+      unlistened: 0,
+      batches: 0,
+    });
+    expect(await purge(1)).toEqual({
+      expired: 1,
+      unjudged: 0,
+      unlistened: 0,
+      batches: 1,
+    });
   });
 
   test("a judging batch past its deadline is failed and frees the channel", async () => {

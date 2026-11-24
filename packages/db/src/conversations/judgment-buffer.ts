@@ -383,9 +383,13 @@ export async function purgeJudgmentBuffer(
     LIMIT ${options.limit}`;
   const expiredRows = sql`i.buffer_expires_at <= ${now}`;
   const unlistenedRows = sql`i.buffer_expires_at > ${now} AND NOT ${stillListened(rowColumns)}`;
+  // A batch a buffered message still points at stays, so the message keeps
+  // whether it was judged until it goes.
   const endedBatches = sql`
     SELECT b.id FROM judgment_batches b
     WHERE b.state <> 'judging'
+      AND NOT EXISTS (
+        SELECT 1 FROM conversation_inputs i WHERE i.judgment_batch_id = b.id)
       AND b.closed_at <= ${now} - make_interval(secs => ${M1_CHANNEL_WINDOW_MS / 1000})
     ORDER BY b.closed_at
     LIMIT ${options.limit}`;
