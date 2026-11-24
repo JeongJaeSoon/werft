@@ -235,7 +235,11 @@ trial_cleanup() {
     trial=""
     return 1
   fi
-  rm -rf "$trial"
+  if ! rm -rf "$trial"; then
+    printf 'prepare-xfs: could not remove the trial directory %s; remove it by hand\n' "$trial" >&2
+    trial=""
+    return 1
+  fi
   trial=""
 }
 note "trial loop mount of a temporary 512M XFS image with prjquota"
