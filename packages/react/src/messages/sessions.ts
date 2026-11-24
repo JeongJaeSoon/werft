@@ -228,6 +228,8 @@ export const sessionsKo = {
     "자리가 없어 시작하지 못했습니다. 기다리던 입력은 실패했습니다.",
   "session.event.noCapacityPaused":
     "자리가 없어 다시 시작하지 못했습니다. 세션은 일시 정지 상태로 두었습니다.",
+  "session.event.codexSandboxNotInstalled":
+    "이 설치에는 Codex sandbox가 없어 시작하지 못했습니다. 기다리던 입력은 실패했습니다. 관리자에게 알려 주세요.",
   "session.event.error.modelConnectionRemoved":
     "{model}을(를) 쓰던 모델 연결이 꺼지거나 없어져 이 세션의 모델 요청이 차단되었습니다. 관리자에게 연결 복원을 요청하거나, 다른 연결로 만든 릴리스로 새 세션을 시작하세요.",
   "session.event.modelMigrated":
@@ -489,6 +491,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "There was no room to start. The waiting input failed.",
   "session.event.noCapacityPaused":
     "There was no room to resume. The session stays paused.",
+  "session.event.codexSandboxNotInstalled":
+    "This installation has no Codex sandbox, so the session could not start. The waiting input failed. Tell an administrator.",
   "session.event.error.modelConnectionRemoved":
     "Model requests for this session were blocked because the model connection that served {model} was disabled or is gone. Ask an administrator to restore it, or start a new session on a release that uses another connection.",
   "session.event.modelMigrated":
@@ -743,6 +747,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "空きがなく開始できませんでした。待っていた入力は失敗しました。",
   "session.event.noCapacityPaused":
     "空きがなく再開できませんでした。セッションは一時停止のままです。",
+  "session.event.codexSandboxNotInstalled":
+    "この環境には Codex サンドボックスがないため、開始できませんでした。待っていた入力は失敗しました。管理者に知らせてください。",
   "session.event.error.modelConnectionRemoved":
     "{model} を使っていたモデル接続が無効になったかなくなったため、このセッションのモデルリクエストがブロックされました。管理者に復元を依頼するか、別の接続のリリースで新しいセッションを開始してください。",
   "session.event.modelMigrated":

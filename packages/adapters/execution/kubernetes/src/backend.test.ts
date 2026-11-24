@@ -885,16 +885,60 @@ describe("workspaces", () => {
   });
 });
 
+describe("a Codex worker with no sandbox provider", () => {
+  const CODEX = `registry.local:5000/codex@sha256:${"b".repeat(64)}`;
+  const backendFor = (
+    provider?: "installer" | "external" | "disabled",
+  ): KubernetesBackend =>
+    new KubernetesBackend(
+      {
+        ...testConfig(NS, INSTALLATION),
+        codexSandbox: {
+          mode: "enabled",
+          images: [CODEX],
+          ...(provider ? { provider } : {}),
+        },
+      },
+      new FakeKubernetes().asClient(),
+      testResolver,
+    );
+
+  test("is refused before its Pod exists, for a Codex image only", () => {
+    const disabled = backendFor("disabled");
+    expect(disabled.missingCodexSandbox(CODEX)).toContain(
+      "codexSandbox.provider is disabled",
+    );
+    expect(disabled.missingCodexSandbox(IMAGE)).toBeUndefined();
+    for (const provider of ["installer", "external", undefined] as const) {
+      expect(backendFor(provider).missingCodexSandbox(CODEX)).toBeUndefined();
+    }
+  });
+
+  test("names the node label when it waited for room in vain", () => {
+    expect(backendFor("external").capacityHint(CODEX)).toContain(
+      "werft.codex-seccomp-profile=installed",
+    );
+    expect(backendFor("external").capacityHint(IMAGE)).toBeUndefined();
+  });
+});
+
 describe("workersFreeingRoomFor", () => {
   const CODEX = `registry.local:5000/codex@sha256:${"b".repeat(64)}`;
   const LABELLED = { [CODEX_SECCOMP_NODE_LABEL.key]: "installed" };
 
-  function setupWith(readsNodes?: boolean) {
+  function setupWith(
+    readsNodes?: boolean,
+    provider?: "installer" | "external" | "disabled",
+  ) {
     const api = new FakeKubernetes();
     const backend = new KubernetesBackend(
       {
         ...testConfig(NS, INSTALLATION),
-        codexSandbox: { mode: "enabled", images: [CODEX] },
+        codexSandbox: {
+          mode: "enabled",
+          images: [CODEX],
+          ...(provider ? { provider } : {}),
+        },
         nodeSelector: { pool: "workers" },
         ...(readsNodes === undefined ? {} : { readsNodes }),
       },
@@ -941,6 +985,29 @@ describe("workersFreeingRoomFor", () => {
       );
       expect(api.calls).toEqual([]);
     }
+  });
+
+  test("the labelled-node rule holds under either provider that puts the profile on nodes; a disabled one is refused before it is asked", async () => {
+    for (const provider of ["installer", "external"] as const) {
+      const { api, backend } = setupWith(true, provider);
+      api.nodes.push(
+        { metadata: { labels: { ...LABELLED, pool: "workers" }, name: "n-a" } },
+        { metadata: { labels: { pool: "workers" }, name: "n-b" } },
+      );
+      const onLabelled = worker("e-on-a", IMAGE);
+      const elsewhere = worker("e-on-b", IMAGE);
+      await placed(api, onLabelled, "n-a");
+      await placed(api, elsewhere, "n-b");
+      expect(backend.missingCodexSandbox(CODEX)).toBeUndefined();
+      expect(
+        await backend.workersFreeingRoomFor(CODEX, [elsewhere, onLabelled]),
+      ).toEqual([onLabelled]);
+    }
+    // Never reaches the node list: the scheduler refuses the launch first.
+    const { backend } = setupWith(true, "disabled");
+    expect(backend.missingCodexSandbox(CODEX)).toContain(
+      "codexSandbox.provider is disabled",
+    );
   });
 
   test("with Node reads, a sandbox Pod waits for any worker on a labelled node, in order", async () => {

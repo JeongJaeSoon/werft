@@ -20,14 +20,19 @@ export type LaunchGiveUpCause = {
   /** On the failed receipts and the status event. */
   code: Extract<
     ApiErrorCode,
-    "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "VARIABLE_UNRESOLVED" | "NO_CAPACITY"
+    | "LAUNCH_FAILED"
+    | "CATALOG_MISMATCH"
+    | "VARIABLE_UNRESOLVED"
+    | "NO_CAPACITY"
+    | "CODEX_SANDBOX_NOT_INSTALLED"
   >;
   /** On the failed turns. */
   terminalReason:
     | "launch_failed"
     | "catalog_mismatch"
     | "variables_refused"
-    | "no_capacity";
+    | "no_capacity"
+    | "codex_sandbox_not_installed";
   /** The receipt's error message, before the detail. */
   receiptPrefix: string;
   /** The resume receipt's error message, before the detail. */
@@ -66,6 +71,21 @@ export function noCapacityCause(detail: string): LaunchGiveUpCause {
     receiptPrefix: "no node had room to start a worker for this input",
     resumePrefix:
       "no node had room to start a worker to restore the checkpoint",
+    detail,
+  };
+}
+
+/** The installation has no Codex sandbox; `detail` is how to get one. */
+export function codexSandboxNotInstalledCause(
+  detail: string,
+): LaunchGiveUpCause {
+  return {
+    code: "CODEX_SANDBOX_NOT_INSTALLED",
+    terminalReason: "codex_sandbox_not_installed",
+    receiptPrefix:
+      "this installation has no Codex sandbox to start a worker for this input",
+    resumePrefix:
+      "this installation has no Codex sandbox to start a worker to restore the checkpoint",
     detail,
   };
 }

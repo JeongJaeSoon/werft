@@ -248,6 +248,17 @@ export interface ExecutionBackend {
     workers: readonly W[],
   ): Promise<W[]>;
   /**
+   * Why a worker of `image` can never start here for want of a Codex
+   * sandbox the installation did not provide, or undefined when nothing is
+   * missing. Asked before the resource is created. Optional: absent, never.
+   */
+  missingCodexSandbox?(image: string): string | undefined;
+  /**
+   * Where else to look when a worker of `image` waited for room in vain: a
+   * Pod held to labelled nodes is waiting for those nodes in particular.
+   */
+  capacityHint?(image: string): string | undefined;
+  /**
    * Workspaces this backend created and still holds. Optional as a pair: a
    * backend whose workspaces are reclaimed by the platform underneath it
    * leaves both out, and the scheduler then runs no workspace GC at all.

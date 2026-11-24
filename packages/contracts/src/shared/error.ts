@@ -39,6 +39,10 @@ export const API_ERROR_CODE_VALUES = [
   // No node had room for the session's worker in time; the queued input
   // failed and the session waits for its next one.
   "NO_CAPACITY",
+  // The installation has no Codex sandbox (the chart's codexSandbox.provider
+  // is disabled), so a Codex session cannot start; the queued input failed
+  // and the session waits for its next one.
+  "CODEX_SANDBOX_NOT_INSTALLED",
   // The session's connection, model or repository is no longer in the
   // catalog, so no worker may run it until an operator restores it.
   "CATALOG_MISMATCH",

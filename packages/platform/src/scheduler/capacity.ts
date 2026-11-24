@@ -55,7 +55,11 @@ export async function waitForCapacity(
   }
   if (wait.waitedMs >= CAPACITY_WAIT_LIMIT_MS) {
     lock.throwIfAborted();
-    if (await store.giveUpForCapacity(ref, CAPACITY_WAIT_LIMIT_MS)) {
+    const hint =
+      execution.image === null
+        ? undefined
+        : ctx.backend.capacityHint?.(execution.image);
+    if (await store.giveUpForCapacity(ref, CAPACITY_WAIT_LIMIT_MS, hint)) {
       summary.launchesNoCapacity.push(ref);
       logger.error(
         "Execution found no capacity in time; queued input failed with NO_CAPACITY",

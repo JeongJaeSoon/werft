@@ -12,6 +12,8 @@ outcome: "サポート範囲と worker pin を保持して chart を更新しま
 
 直前の worker pin とサポート範囲を保持し、アップグレード検査結果を読んでから公開 chart を更新します。
 
+> **最初にすること: Codex サンドボックス。** この chart から `codexSandbox` の既定が変わりました。以前の chart はインストーラー DaemonSet と ClusterRole を既定で作りましたが、今の既定（`codexSandbox.provider: disabled`）はクラスタースコープのリソースを作りません。そのまま上げると helm upgrade が ClusterRole とインストーラー DaemonSet を消し、Codex エージェントの入力は `CODEX_SANDBOX_NOT_INSTALLED` で失敗します。**Codex サンドボックスを使うなら、values に `codexSandbox.provider: installer` を入れてから上げてください。** Security Profiles Operator やノードイメージでプロファイルを置いている環境は `external` を入れます。以前の `codexSandbox.installer.enabled` は使えず、残っていると render が止まります（`installer.enabled=true` は `provider: installer`、`false` は `external`）。
+
 <a id="준비물" />
 ## 準備
 

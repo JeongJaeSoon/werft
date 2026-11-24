@@ -19,6 +19,7 @@ const clean: SchedulerRunSummary = {
   killsStopping: [],
   launched: [],
   launchesNoCapacity: [],
+  launchesNoCodexSandbox: [],
   waitingForCapacity: [],
   idleWorkersStopped: [],
   launchesBackingOff: [],
