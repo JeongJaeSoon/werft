@@ -241,7 +241,10 @@ export type IdleWorkers = {
    * `requestIdleStop` also requires a checkpoint covering every turn run.
    */
   idle: Array<ClaimedWorker & { idleSince: Date }>;
-  /** Asked to drain and still holding their slot: room on its way. */
+  /**
+   * Asked to drain, still holding their slot, and with no turn open: room
+   * on its way. One a replacement drains while its turn runs is in neither.
+   */
   stopping: ClaimedWorker[];
 };
 

@@ -978,7 +978,14 @@ export function createPostgresSchedulerStore(
           generation: workerLaunches.generation,
           image: workerLaunches.image,
           sessionId: sessions.id,
-          stopping: sql<boolean>`${workerLaunches.drainRequestedAt} IS NOT NULL`,
+          // A drained worker with a turn still open is not giving its room
+          // back soon; only one with none is on its way out.
+          stopping: sql<boolean>`${workerLaunches.drainRequestedAt} IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM ${turns}
+            WHERE ${turns.sessionId} = ${sessions.id}
+              AND ${inArray(turns.status, OPEN_TURN_STATUSES)}
+          )`,
+          drainRequested: sql<boolean>`${workerLaunches.drainRequestedAt} IS NOT NULL`,
           idle: sql<boolean>`${idleWorkerCondition()}`,
           idleSince: idleSince(),
         })
@@ -1005,7 +1012,9 @@ export function createPostgresSchedulerStore(
       });
       return {
         idle: rows
-          .filter((row) => !row.stopping && row.idle === true)
+          .filter(
+            (row) => !row.stopping && !row.drainRequested && row.idle === true,
+          )
           .map((row) => ({
             ...worker(row),
             idleSince: new Date(row.idleSince),

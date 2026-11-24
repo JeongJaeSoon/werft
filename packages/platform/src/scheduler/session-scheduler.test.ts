@@ -541,7 +541,11 @@ class MemoryStore implements SchedulerStore {
         }))
         .sort((a, b) => a.idleSince.getTime() - b.idleSince.getTime()),
       stopping: rows
-        .filter((row) => row.drainRequestedAt !== undefined)
+        .filter(
+          (row) =>
+            row.drainRequestedAt !== undefined &&
+            !this.busySessions.has(row.sessionId),
+        )
         .map(worker),
     };
   }
@@ -5809,6 +5813,21 @@ describe("a launch waiting for room", () => {
     expect(summary.idleWorkersStopped).toEqual([]);
     expect(busy.row.drainRequestedAt).toBeUndefined();
     expect(h.backend.terminateCalls).toEqual([]);
+  });
+
+  test("a worker drained with its turn still open does not hold the next idle one back", async () => {
+    const h = harness();
+    const draining = claimedWorker(h, "exec-draining", 1_000);
+    draining.row.drainRequestedAt = 0;
+    h.store.busySessions.add(draining.row.sessionId);
+    const idle = claimedWorker(h, "exec-idle", 2_000);
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.createPendingFor.add(sessionId);
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+    await h.run();
+
+    expect((await h.run()).idleWorkersStopped).toEqual([idle.ref]);
   });
 
   test("asks no worker whose room the launch could not take", async () => {

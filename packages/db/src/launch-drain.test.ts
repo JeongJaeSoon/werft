@@ -273,6 +273,17 @@ describe("idle stop", () => {
     expect(await store.requestIdleStop(idle.ref)).toBe(false);
   });
 
+  test("a worker drained with a turn open is not counted as on its way out", async () => {
+    const { ref, principal, scope } = await claimedSession();
+    const first = await gateway.nextInput(principal, scope);
+    if (!first.input) throw new Error("no input delivered");
+    const store = schedulerStore();
+    expect((await store.requestDrain(ref, 60_000))?.busy).toBe(true);
+    const listed = await store.idleWorkers("local_docker");
+    expect(listed.stopping).toEqual([]);
+    expect(listed.idle).toEqual([]);
+  });
+
   test("a worker whose last turn no checkpoint covers is not asked to stop", async () => {
     const { ref } = await idleSession(false);
     const store = schedulerStore();
