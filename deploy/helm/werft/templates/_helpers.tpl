@@ -273,7 +273,7 @@ waiting on a token that no longer opens anything.
 {{- fail "secrets.catalogEnv is removed: credentials are entered in the console and kept in the database; enter each key there, then delete secrets.catalogEnv" -}}
 {{- end -}}
 {{- if hasKey .Values.secrets "bootstrapToken" -}}
-{{- fail "secrets.bootstrapToken is removed: the first owner comes from a one-time link the setup-link command prints in the api pod (bun run apps/control-host/src/api/setup-link.ts); delete secrets.bootstrapToken, and BOOTSTRAP_TOKEN from the Secret" -}}
+{{- fail "secrets.bootstrapToken is removed: the first owner comes from a one-time link the admin bootstrap-owner command writes to a file in the api pod (bun run apps/control-host/src/main.ts admin bootstrap-owner --email <address> --out <file>); delete secrets.bootstrapToken, and BOOTSTRAP_TOKEN from the Secret" -}}
 {{- end -}}
 {{- if hasKey .Values.config.aws "secretsManagerEndpointUrl" -}}
 {{- fail "config.aws.secretsManagerEndpointUrl is removed: the api reads no credential from Secrets Manager; delete it" -}}

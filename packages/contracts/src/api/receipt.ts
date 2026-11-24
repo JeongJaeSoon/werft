@@ -47,6 +47,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "issue_password_reset",
   "reset_password",
   "recover_owner",
+  // The first owner and workspace made from a setup link: the workspace's
+  // first receipt, naming the link.
+  "bootstrap_owner",
   // An account's password sign-in locked by its failed guesses: once per
   // window, on each workspace the account is a live member of.
   "lock_login",

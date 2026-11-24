@@ -45,7 +45,7 @@ kubectl config current-context
 
 The last command must print `kind-werft-try`. Then, in the same shell, follow steps 1 to 4 of [Test database and object store for the chart](/run-server/self-hosting/try-chart-dependencies). That page gives the dependency manifest, the Secret, and minimal values in its text, and step 4 installs the published chart. The LocalStack init script is in that manifest's ConfigMap `localstack-init`, and it creates the same bucket as `infra/localstack/init/10-create-resources.sh` in the release bundle (`werft-test-ops-<tag>.tar.gz`).
 
-The first owner comes from the one-time setup link an api Pod prints (`kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`). If only a path is printed, append it to the port-forward address (`http://127.0.0.1:13000`). The link is kept in the database, so it works on either of the 2 replicas. Do not put a model key in the Secret. A key is only ever a value the first owner enters on the console and that is stored in the database, and this test enters none. Do not put production credentials in this test.
+Create the first owner in [Create the first owner](#첫-owner-만들기) below. The link is kept in the database, so it works on either of the 2 replicas. Do not put a model key in the Secret. A key is only ever a value the first owner enters on the console and that is stored in the database, and this test enters none. Do not put production credentials in this test.
 
 <a id="확인" />
 ## Verify
@@ -83,6 +83,19 @@ fi
 ready 200 and docs 200 show that an empty installation is ready. They do not establish that a session and worker Pod have been started or that checkpoint restoration works. A Bound PVC on kind does not prove byte-limit enforcement.
 
 <a id="자주-막히는-곳" />
+<a id="첫-owner-만들기" />
+### Create the first owner
+
+The block above stops the port-forward at its end. The link opens on the port-forward address, so start the port-forward again first and wait until the api answers.
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+until curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; do sleep 1; done
+```
+
+In that shell, get the link file with the Kubernetes commands of [Create the first owner](/run-server/self-hosting/users-and-keys#1-첫-owner-만들기). If `accept_url` is `null`, open `accept_path` appended to `http://127.0.0.1:13000`, and create the owner with the email address given to the command. When done, stop the port-forward with `kill "$PF"` and delete the link file.
+
 ## Troubleshooting
 
 A missing required Secret key prevents Pods from starting in a direct installation. If the published chart cannot be downloaded, record that package installation as failed; do not substitute a successful fixture render. Keep external database/S3 addresses separate from test dependency addresses.

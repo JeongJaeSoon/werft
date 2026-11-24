@@ -40,7 +40,7 @@ kubectl config current-context
 
 마지막 명령이 `kind-werft-try`를 출력해야 한다. 이어서 같은 셸에서 [chart 시험용 DB와 object store](/run-server/self-hosting/try-chart-dependencies)의 1~4단계를 따른다. 그 페이지가 의존성 manifest, Secret, 최소 values를 본문으로 주고, 4단계에서 게시 chart를 설치한다. LocalStack 초기화 스크립트는 그 manifest의 ConfigMap `localstack-init`에 들어 있으며, 릴리스 번들(`werft-test-ops-<tag>.tar.gz`)의 `infra/localstack/init/10-create-resources.sh`와 같은 bucket을 만든다.
 
-첫 owner는 api Pod가 출력하는 일회용 설정 링크로 만든다(`kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`). 경로만 나오면 port-forward 주소(`http://127.0.0.1:13000`) 뒤에 붙여 연다. 링크는 DB에 있으므로 replica 2개 중 어디에 닿아도 통한다. 모델 key는 Secret에 넣지 않는다. key는 첫 owner가 콘솔에서 넣어 DB에 저장하는 값뿐이고, 이 시험은 key를 넣지 않는다. 실제 운영 자격 증명을 이 시험에 넣지 않는다.
+첫 owner는 아래 [첫 owner 만들기](#첫-owner-만들기)에서 만든다. 링크는 DB에 있으므로 replica 2개 중 어디에 닿아도 통한다. 모델 key는 Secret에 넣지 않는다. key는 첫 owner가 콘솔에서 넣어 DB에 저장하는 값뿐이고, 이 시험은 key를 넣지 않는다. 실제 운영 자격 증명을 이 시험에 넣지 않는다.
 
 ## 확인
 
@@ -75,6 +75,18 @@ fi
 ```
 
 ready 200과 docs 200은 빈 설치의 준비 상태다. 세션과 worker Pod를 시작해 checkpoint 복원까지 확인한 결과가 아니다. kind의 PVC Bound만으로 byte 상한 강제를 증명하지 않는다.
+
+### 첫 owner 만들기
+
+위 블록은 끝에서 port-forward를 끈다. 링크는 port-forward 주소로 열므로, 먼저 port-forward를 다시 띄우고 api가 답할 때까지 기다린다.
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+until curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; do sleep 1; done
+```
+
+그 셸에서 [첫 owner 만들기](/run-server/self-hosting/users-and-keys#1-첫-owner-만들기)의 Kubernetes 명령으로 링크 파일을 받는다. `accept_url`이 `null`이면 `http://127.0.0.1:13000` 뒤에 `accept_path`를 붙여 열고, 명령에 준 이메일 주소로 owner를 만든다. 다 만들었으면 `kill "$PF"`로 port-forward를 끄고 링크 파일을 지운다.
 
 ## 자주 막히는 곳
 

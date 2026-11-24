@@ -23,7 +23,46 @@ outcome: "利用者ごとの認証手段と実行権限を発行します"
 <a id="1-첫-owner-만들기" />
 ### 1. 最初の owner の作成
 
-運用者が設置側で一回限りの設定リンクを受け取ります。test-ops 単一サーバーでは `scripts/test-ops.sh setup-link`、Kubernetes では `kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`、それ以外の compose 構成では `docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts` です。コマンドは live owner がいないときだけリンクを stdout に一度出力し、ログやファイルには残しません。`CONSOLE_ORIGIN` があればそのアドレスを付けた URL、なければ `/bootstrap#setup=…` のパスだけが出るので、コンソールのアドレスの後ろに付けます。リンクをブラウザで開き、owner 情報と workspace 名を入力します。リンクは一度使うとすぐ無効になり、24 時間で期限切れになります。再実行すると前のリンクは無効になり、新しいリンクが出力されます。owner がいればコマンドはリンクを作らず、終了コード 1 で終わります。`/login` でログインします。
+運用者は設置側のコマンドで、最初の owner の一回限りの設定リンクをファイルとして受け取ります。コマンドは api イメージの中にあり、owner になる人のメールアドレスだけを受け取ります。パスワードはコマンドの引数や環境変数では渡さず、リンクを開いた人が決めます。リンクは画面に出ません。画面にはファイルのパスと期限だけが出ます。
+
+test-ops 単一サーバーでは、ホストの新しいファイルに直接受け取ります。`DEPLOYMENT_DIR` は[単一サーバーへのインストール](/run-server/self-hosting/single-server)で決めたインストールごとのディレクトリで、バンドルのディレクトリの中は拒否されます。
+
+```bash
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
+```
+
+それ以外の compose 構成では、api コンテナの中にファイルを作り、ホストへ移してから、コンテナ側のファイルを削除します。
+
+```bash
+docker compose --profile apps exec -T api \
+  bun run apps/control-host/src/main.ts admin bootstrap-owner \
+  --email <owner-email> --out /tmp/owner-link.json
+(umask 077 && set -C && docker compose --profile apps exec -T api cat /tmp/owner-link.json >owner-link.json)
+docker compose --profile apps exec -T api rm -f /tmp/owner-link.json
+```
+
+Kubernetes では、まず[設置の context・namespace・fullname の確認](/run-server/self-hosting/kubernetes#준비물)に従います。下の `werft` はその例の設置名です。3 つのコマンドが同じ Pod に届くよう、先に Pod を 1 つ選びます。
+
+```bash
+POD="$(kubectl -n werft get pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api -o name | head -n 1)"
+kubectl -n werft exec "$POD" -c api -- \
+  bun run apps/control-host/src/main.ts admin bootstrap-owner \
+  --email <owner-email> --out /tmp/owner-link.json
+(umask 077 && set -C && kubectl -n werft exec "$POD" -c api -- cat /tmp/owner-link.json >owner-link.json)
+kubectl -n werft exec "$POD" -c api -- rm -f /tmp/owner-link.json
+```
+
+ファイルは 0600 で新しく作られます。同じ名前のファイルがあれば、コマンドは上書きせずに拒否します。ファイルには[メンバー招待](/members#api-응답)の応答と同じ項目が JSON で入っています。
+
+| 項目 | 内容 |
+| --- | --- |
+| `accept_path` | 設定画面のパス。`/bootstrap#setup=<setup_token>` の形です |
+| `accept_url` | `CONSOLE_ORIGIN` の後ろに `accept_path` を付けたリンク。`CONSOLE_ORIGIN` がなければ `null` です |
+| `expires_at` | 期限 |
+
+ブラウザがあれば `accept_url`（なければコンソールの origin の直後に `accept_path`）を開き、owner 情報と workspace 名を入力します。ブラウザがなければ、`#setup=` の後ろの値を `setup_token` として、owner 情報と一緒に `POST /v1/auth/bootstrap` に送ります。リクエスト本文は、設置が提供する API リファレンス（`/docs`）にあります。どちらの場合も、メールアドレスはコマンドに渡したアドレスでなければなりません。別のアドレスは `403` で拒否され、リンクはそのまま残ります。そのあと `/login` でログインし、リンクのファイルを削除します。
+
+リンクは一度使うとすぐ無効になり、24 時間で期限切れになります。再実行すると前のリンクは無効になり、新しいリンクが発行されます。owner がいれば、コマンドはリンクもファイルも作らず、終了コード 1 で終わります。実行するたびに、api コンテナのログ（`docker compose logs api`、`kubectl logs`）に `setup_link_issued` の行が 1 行残ります。その行にはリンク id、メールアドレス、期限だけがあり、トークンとリンクはありません。リンクで最初の workspace が作られると、その workspace の最初の receipt（`bootstrap_owner`）が、使ったリンクの id と作成時刻を残します。
 
 <a id="2-사용자별-key-발급" />
 ### 2. 利用者ごとの key 発行
