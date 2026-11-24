@@ -295,5 +295,14 @@
     "audience": "클러스터 시험 담당자",
     "outcome": "게시 chart만으로 시험할 PostgreSQL과 object store를 클러스터 안에 세운다",
     "codeBlocks": "some"
+  },
+  {
+    "id": "P38",
+    "path": "first-install",
+    "title": "첫 설치에서 Slack 답까지",
+    "type": "설치",
+    "audience": "최초 설치 담당자",
+    "outcome": "새로 설치한 서버의 에이전트가 Slack 멘션에 답한다",
+    "codeBlocks": "none"
   }
 ]

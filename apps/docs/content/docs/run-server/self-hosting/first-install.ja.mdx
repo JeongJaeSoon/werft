@@ -1,0 +1,97 @@
+---
+title: "初回設置から Slack の応答まで"
+description: "新しいサーバーを設置し、Slack のメンションにエージェントが応答するところまで通して進めます"
+pageId: "P38"
+docType: "設置"
+audience: "初回設置担当者"
+outcome: "新しく設置したサーバーのエージェントが Slack のメンションに応答します"
+---
+
+## 作業内容 [#무엇을-하게-되나]
+
+新しいサーバーを設置し、最初の owner、モデル接続、エージェント、Slack アプリを順に作成したあと、Slack チャンネルでエージェントをメンションして応答を受け取ります。このページには順序と、手順ごとに準備するものだけを書きます。コマンドと画面は各手順のリンク先のページにあります。リリースバンドルか公開 chart があれば足り、リポジトリ checkout は不要です。
+
+## 準備 [#준비물]
+
+モデルの key と Slack のトークンは、人が自分で取得してコンソールに貼り付ける値です。設置を始める前に、誰がいつ入力するかを決めておきます。
+
+| 準備するもの | 使う手順 | 担当 |
+| --- | --- | --- |
+| 設置方法ごとの準備物。単一サーバーは `prjquota` で mount した XFS ディスクと永続 AWS S3 bucket、Kubernetes は PostgreSQL 16 と S3 互換 bucket | 1 | 設置担当者 |
+| コンソールのアドレス `CONSOLE_ORIGIN`。Slack のイベントアドレスはこの値から計算するため、https のアドレスである必要があります。イベントを別の公開アドレスで受ける場合は、手順 2 でそのアドレスを別に保存します | 1, 2 | 設置担当者 |
+| Slack が届く公開 https 入口: 公開 DNS 名、TLS 証明書 | 2 | ネットワーク運用者 |
+| owner になる人のメールアドレス | 3 | 設置担当者 |
+| モデル提供元の key。Claude エージェントは Anthropic API key、Codex エージェントは OpenAI API key | 4 | owner |
+| Slack ワークスペースでアプリを作成できる Slack アカウントと、そのアカウントで api.slack.com/apps から取得した App Configuration Token の Refresh Token | 5 | owner または admin |
+| エージェントのアプリをワークスペースにインストールできる Slack の権限。ワークスペースがアプリのインストールに管理者の承認を求める場合は、承認する Slack 管理者 | 7 | owner またはエージェント管理者 |
+| エージェントが応答する Slack チャンネル | 7, 8 | エージェント管理者 |
+
+## 手順 [#단계]
+
+### 1. サーバーの設置 [#1-서버-설치]
+
+[設置方法の選択](/run-server/self-hosting)で方法を選びます。単一サーバーは [XFS ディスクの準備](/run-server/self-hosting/prepare-xfs)と [checkpoint bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)を終えてから[単一サーバー設置](/run-server/self-hosting/single-server)に従います。Kubernetes は [Kubernetes 設置](/run-server/self-hosting/kubernetes)に従い、試験クラスタに DB と bucket がなければ先に [chart 試験用の DB と object store](/run-server/self-hosting/try-chart-dependencies) を用意します。
+
+`CONSOLE_ORIGIN` はこの手順で入れます。単一サーバーは[手順 2 の秘密と設定文書](/run-server/self-hosting/single-server#2-비밀과-설정-문서)、Kubernetes は[手順 3 の設置ごとの values](/run-server/self-hosting/kubernetes#3-설치별-values) です。この値がなくても設置とログインはできますが、コンソールで Slack アプリを作成できません。
+
+設置ページの確認の節のとおり `/readyz` が `200` を返したら次の手順に進みます。
+
+### 2. コンソールの入口と Slack の公開入口 [#2-콘솔-입구와-slack-공개-입구]
+
+[利用者アクセス経路の設定](/run-server/self-hosting/access)に従います。コンソールは SSH tunnel か、VPN・IP allowlist の内側の入口だけで開きます。Slack が呼ぶ 2 つの経路は、[公開入口: Slack の経路だけを開く](/run-server/self-hosting/access#공개-입구-slack-경로만-열기)のとおり別の公開 https 入口で開きます。api のポートをまるごと公開すると worker 用の `/internal` まで開くため、そうしません。
+
+公開入口の DNS 名が `CONSOLE_ORIGIN` と異なる場合は、手順 3 で owner を作ったあと、同じ節の案内に従って owner がイベント入口アドレスを保存します。手順 5 より前に行います。
+
+### 3. 最初の owner [#3-첫-owner]
+
+[最初の owner を作る](/run-server/self-hosting/users-and-keys#1-첫-owner-만들기)に従います。運用者が設置側のコマンドで一回限りの設定リンクをファイルとして受け取り、owner になる人がそのリンクを開いて owner と workspace を作ります。コンソールを開くブラウザがないホストでは[ブラウザなしで作る](/run-server/self-hosting/users-and-keys#브라우저-없이-만들기)に従います。
+
+owner としてコンソールにログインできたら次の手順に進みます。
+
+### 4. モデル接続 [#4-모델-연결]
+
+owner が[コンソールの接続とモデル一覧](/run-server/self-hosting/model-connections#1-콘솔-연결과-모델-목록)のとおり **設定 > エージェント接続 > モデル接続** で接続を追加して key を貼り付け、エージェントが使うモデルを保存します。モデルを 1 つ以上保存すると、手順 6 でその接続を選べます。
+
+### 5. Slack アプリ作成用のトークン [#5-slack-앱-생성-토큰]
+
+コンソールがエージェントの Slack アプリを作るには、ワークスペースに App Configuration Token が必要です。owner か admin が **設定 > ワークスペース > 連携 > Slack** の **Slack アプリの作成** で **トークンを登録** を選び、画面の順序に従います。
+
+1. api.slack.com/apps を開き、App Configuration Token の一覧でこの Slack ワークスペースの **Generate Token** を選びます。
+2. 作成された 2 つの値のうち `xoxe-1-` で始まる Refresh Token を貼り付け、**登録** を選びます。Access Token ではありません。
+
+登録するとサーバーが Slack ですぐ新しいトークンに交換するため、貼り付けた値は再利用できません。トークンを作った Slack ユーザーは、このコンソールが作るアプリのコラボレーターになります。**トークン確認済み** が表示されたら次の手順に進みます。
+
+### 6. エージェントの作成 [#6-에이전트-만들기]
+
+[エージェントの作成](/agents/create)の「Web コンソールで」に従います。「エージェント」で「新規エージェント」を押して名前を入れ、「役割」ステップで手順 4 の接続とモデルを選んで「保存して次へ」を押します。エージェントが保存され、最初のリリースが作成されてすぐに有効になります。「チャンネル接続」ステップが開いたら次の手順に進みます。
+
+### 7. Slack アプリのインストールとホームチャンネル [#7-slack-앱-설치와-홈-채널]
+
+「チャンネル接続」ステップか、エージェント詳細の **Slack** タブで、[コンソールで Slack に接続する](/integrations/slack-console)の 1〜3 に従います。**Slack アプリを作成してインストール** を選び、Slack の同意画面でアプリをインストールし、戻った画面の **ホームチャンネルを選ぶ** でエージェントが応答するチャンネルを選びます。公開チャンネルにはサーバーがボットを参加させます。非公開チャンネルは、先に Slack で `/invite @<agent slug>` を使ってボットを招待します。
+
+**Slack** カードのバッジが **接続済み** になり、**Slack アプリに入れるアドレス** の **イベントのリクエスト URL** が確認済みになったら次の手順に進みます。
+
+### 8. Slack でメンションする [#8-slack에서-멘션]
+
+ホームチャンネルに `@<agent slug>` を入れて投稿します。エージェントはその投稿のスレッドに応答します。同じスレッドへの返信は、メンションがなくても同じセッションに続きます。ほかのボットが書いたメンションに応答させるには、[Slack](/integrations/slack) の「ほかのボットのメンション」のとおり、そのボットを応答するボットの一覧に入れます。
+
+## 確認 [#확인]
+
+メンションした投稿のスレッドにエージェントの応答が付けば、初回設置は完了です。Web コンソールのセッション画面にはその会話がセッションとして表示され、**Slack で表示** リンクが付きます([Slack](/integrations/slack) の「元の Slack メッセージへのリンク」)。この応答は、手順 4 の key でモデル呼び出しができることの証拠でもあります。`/readyz` の `200` はモデル呼び出しを検査しません。
+
+## よくある問題 [#자주-막히는-곳]
+
+| 症状 | 確認するところ |
+| --- | --- |
+| **Slack アプリを作成してインストール** が無効になっている | ボタンの下の理由を見ます。トークンがないか再登録が必要なら手順 5 に戻ります。コンソールのアドレスがわからないという理由なら、手順 1 の `CONSOLE_ORIGIN` を入れます |
+| イベントのリクエスト URL が確認待ちか登録に失敗のまま | Slack が公開入口に届いていません。手順 2 の公開入口を直してから、**Slack** タブの **再確認** を選びます |
+| メンションしても応答がない | そのチャンネルが接続済みで **このチャンネルで使用** がオンかを見ます。非公開チャンネルはボットを招待したかを見ます。エージェント一覧の **Slack の対応が必要** リンクが残りの作業を示します |
+| モデル接続に使える key がないというエラー | 手順 4 の接続に key を入れます |
+
+## 元に戻す [#되돌리기]
+
+Slack 側は、エージェントの **Slack** タブの **危険な操作** で接続を解除するかアプリを削除します([コンソールで Slack に接続する](/integrations/slack-console))。サーバーは、単一サーバーなら [Compose の停止・再起動・削除](/run-server/self-hosting/stop-compose)、Kubernetes なら [Kubernetes の停止・削除](/run-server/self-hosting/remove-kubernetes)に従います。
+
+## 次に読む [#다음에-읽을-곳]
+
+[利用者ごとの key 発行](/run-server/self-hosting/users-and-keys#2-사용자별-key-발급)、[メンバー](/members)、[Slack](/integrations/slack)、[GitHub](/integrations/github)、[バックアップと復元](/run-server/self-hosting/backup-and-restore)。
