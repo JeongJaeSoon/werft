@@ -321,7 +321,10 @@ integration("judgment buffer races", () => {
     const topics = await Promise.all(
       [1, 2, 3, 4, 5, 6, 7, 8].map(async (n) => ({
         channelId: place.channelId,
-        topicId: await topicOf(agentId, place.channelId, `400.00000${n}`),
+        topicId:
+          n === 1
+            ? place.topicId
+            : await topicOf(agentId, place.channelId, `400.00000${n}`),
         ts: tsOf(10 + n),
       })),
     );
@@ -330,12 +333,19 @@ integration("judgment buffer races", () => {
     for (const [n, topic] of topics.entries()) {
       await db.transaction((tx) => hold(tx, topic, tsOf(n + 1), { limit: 8 }));
     }
+    // Every hold takes its topic before any removes a row, so each overflow
+    // meets topics the others hold.
+    const allLocked = gate();
+    let locked = 0;
     const outcomes = await Promise.all(
       topics.map((topic) =>
         db.transaction(async (tx) => {
           await tx.execute(
             sql`SELECT id FROM conversation_topics WHERE id = ${topic.topicId}::uuid FOR UPDATE`,
           );
+          locked += 1;
+          if (locked === topics.length) allLocked.open();
+          await allLocked.opened;
           return hold(tx, topic, topic.ts, { limit: 3 });
         }),
       ),
