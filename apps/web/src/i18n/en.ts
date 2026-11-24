@@ -206,6 +206,20 @@ export const slackEn = {
     "The notice changed in the meantime. Read the new one and approve again.",
   "slack.channelColumn": "Channel",
   "slack.useColumn": "In use",
+  "slack.listenColumn": "Listening",
+  "slack.listen.free": "All messages",
+  "slack.listen.mention": "Mentions only",
+  "slack.listen.off": "Not listening",
+  "slack.listenOf": "Listening in {channel}",
+  "slack.listenHint":
+    "Listening applies once the agent's conversation switch is turned on.",
+  "slack.listenSaved": "Listening saved.",
+  "slack.listenSavedDropped":
+    "Listening saved. Messages this channel held for judgment were deleted.",
+  "slack.listenRefused": "Not saved",
+  "slack.listenFailed": "Could not save listening for {channel}. {reason}",
+  "slack.listenExternalShared":
+    "{channel} is shared with another organization, so it can listen to mentions only. Choose Mentions only or Not listening.",
   "slack.basic": "Basic",
   "slack.advanced": "Advanced",
   "slack.homeChannel": "Home channel",

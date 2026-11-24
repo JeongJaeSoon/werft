@@ -228,6 +228,7 @@ export function createSurfaceBindingService(deps: {
           return {
             slack_binding: surfaceBindingView(await joined(result.binding)),
             receipt_id: result.receiptId,
+            dropped_buffered: result.droppedBuffered,
           };
         case "agent_not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
