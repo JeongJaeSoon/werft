@@ -21,6 +21,9 @@ export const shellKo = {
     "시험 설치: 다시 켜서 세션 {count}개의 맥락을 잃었습니다",
   "shell.lostCheckpoints.close": "닫기",
   "shell.lostCheckpoints.closeFailed": "닫지 못했습니다.",
+  "shell.noDiskQuota.test": "시험 모드: 디스크 quota 없음, 운영 불가",
+  "shell.noDiskQuota":
+    "디스크 quota가 꺼져 있습니다. 측정으로만 막아서 한도를 잠깐 넘을 수 있습니다. 운영에서는 XFS quota를 켜세요.",
 };
 
 export const shellEn: Record<keyof typeof shellKo, string> = {
@@ -46,6 +49,9 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
     "Test installation: a restart lost the context of {count} sessions",
   "shell.lostCheckpoints.close": "Close",
   "shell.lostCheckpoints.closeFailed": "Could not close it.",
+  "shell.noDiskQuota.test": "Test mode: no disk quota, not for production",
+  "shell.noDiskQuota":
+    "The disk quota is off. Only measurement holds the limit, so a workspace can briefly pass it. Turn the XFS quota on for production.",
 };
 
 export const shellJa: Record<keyof typeof shellKo, string> = {
@@ -71,4 +77,7 @@ export const shellJa: Record<keyof typeof shellKo, string> = {
     "試験インストール: 再起動でセッション{count}件のコンテキストを失いました",
   "shell.lostCheckpoints.close": "閉じる",
   "shell.lostCheckpoints.closeFailed": "閉じられませんでした。",
+  "shell.noDiskQuota.test": "試験モード: ディスク quota なし、運用不可",
+  "shell.noDiskQuota":
+    "ディスク quota がオフです。測定だけで抑えるため、一時的に上限を超えることがあります。運用では XFS quota をオンにしてください。",
 };

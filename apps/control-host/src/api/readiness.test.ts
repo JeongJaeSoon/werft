@@ -75,6 +75,27 @@ describe("readiness probe", () => {
     expect(await probe()).toEqual({ ready: true });
   }, 30_000);
 
+  test("an installation without a disk quota stays ready and says so", async () => {
+    const db = await database(true);
+    const probe = createReadinessProbe({
+      db,
+      requiredEnv,
+      environment,
+      noDiskQuota: true,
+    });
+    expect(await probe()).toEqual({
+      ready: true,
+      detail: { no_disk_quota: true },
+    });
+    await db.query(
+      `INSERT INTO lost_checkpoint_notices (session_ids) VALUES ('["a"]')`,
+    );
+    expect(await probe()).toEqual({
+      ready: true,
+      detail: { checkpoints_forgotten_on_boot: 1, no_disk_quota: true },
+    });
+  }, 30_000);
+
   test("fails the database check when the query errors or hangs", async () => {
     const down: QueryRunner = {
       query: async () => {

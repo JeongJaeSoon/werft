@@ -1465,7 +1465,8 @@ describe("MCP 서버", () => {
       await screen.findByText("등록한 서버가 없습니다.", { exact: false });
       expect(screen.queryByText("설치 카탈로그") === null).toBe(true);
       expect(
-        api.calls.some((call) => call.path.startsWith("/v1/installation")),
+        // The shell's own installation status is not the catalog.
+        api.calls.some((call) => call.path.startsWith("/v1/installation/")),
       ).toBe(false);
     });
   }

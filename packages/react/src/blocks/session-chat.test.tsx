@@ -190,3 +190,33 @@ describe("chatItems for a turn whose Slack message was deleted", () => {
     ]);
   });
 });
+
+describe("chatItems for a turn stopped by the workspace limit", () => {
+  const format = () => "";
+
+  test("says so after the turn's replies, for that turn alone", () => {
+    const stopped: TurnSummary = {
+      ...turn("1", "Write a big file", null),
+      status: "failed",
+      terminal_reason: "workspace_quota_exceeded",
+      ended_at: "2026-11-23T01:01:30.000Z",
+    };
+    const other: TurnSummary = {
+      ...turn("2", "Follow-up", null),
+      status: "failed",
+      terminal_reason: "runtime_error",
+      ended_at: "2026-11-23T01:06:00.000Z",
+    };
+    const items = chatItems([EVENTS[0]!], [stopped, other], format);
+    expect(shape(items)).toEqual([
+      ["user", "Write a big file", null],
+      ["reply", "Secret answer", false],
+      ["reply", "", false],
+      ["user", "Follow-up", null],
+    ]);
+    expect(items[2]).toMatchObject({
+      error: true,
+      workspaceQuotaExceeded: true,
+    });
+  });
+});

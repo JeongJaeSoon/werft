@@ -27,7 +27,7 @@ import {
 } from "./backend.ts";
 import type { LocalDockerBackendConfig } from "./config.ts";
 import { DockerClient } from "./docker-client.ts";
-import { testDockerHost } from "./testing.ts";
+import { OFF_QUOTA, testDockerHost } from "./testing.ts";
 
 /**
  * The egress contract end to end, against a real daemon and no internet:
@@ -109,7 +109,7 @@ integration("worker egress is confined to the proxy allowlist", () => {
     // Neither Docker Desktop nor a stock Linux runner puts its storage on a
     // quota-capable filesystem; the quota itself is covered by
     // workspace.integration.test.ts, which probes for one first.
-    workspaceQuota: { mode: "off" },
+    workspaceQuota: OFF_QUOTA,
   });
 
   beforeAll(async () => {

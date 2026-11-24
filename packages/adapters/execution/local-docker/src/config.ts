@@ -38,7 +38,12 @@ export type WorkspaceQuota =
        */
       helperImage: string;
     }
-  | { mode: "off" };
+  /**
+   * No kernel quota: the worker measures its workspace instead and stops a
+   * turn that outgrows these, so a limit can be passed between two
+   * measurements.
+   */
+  | { mode: "off"; sizeBytes: number; inodes: number };
 
 export type LocalDockerBackendConfig = {
   apiVersion: string;
@@ -278,18 +283,11 @@ function workspaceQuotaFromEnv(
   environment: LocalDockerBackendEnvironment,
 ): WorkspaceQuota {
   const mode = environment.EXECUTION_WORKSPACE_QUOTA ?? "on";
-  if (mode === "off") return { mode: "off" };
-  if (mode !== "on") {
+  if (mode !== "on" && mode !== "off") {
     // A misspelt value must not read as an opt-out, and must not read as
     // "enforced" either — either way the operator did not get what they typed.
     throw new Error(
       `EXECUTION_WORKSPACE_QUOTA ${mode} must be "on" or "off"; "off" is the explicit opt-out`,
-    );
-  }
-  const helperImage = environment.WORKER_IMAGE;
-  if (!helperImage) {
-    throw new Error(
-      "WORKER_IMAGE is required while EXECUTION_WORKSPACE_QUOTA is on: the workspace inode limit is set by a helper run from it",
     );
   }
   const sizeMb = integerSetting(environment, "EXECUTION_WORKSPACE_QUOTA_MB", {
@@ -301,15 +299,21 @@ function workspaceQuotaFromEnv(
       `EXECUTION_WORKSPACE_QUOTA_MB ${sizeMb} is under the ${MIN_WORKSPACE_QUOTA_MB} a checkpoint restore needs`,
     );
   }
-  return {
-    helperImage,
-    mode: "enforced",
+  const limits = {
     sizeBytes: sizeMb * 1024 * 1024,
     inodes: integerSetting(environment, "EXECUTION_WORKSPACE_QUOTA_INODES", {
       min: 1,
       default: DEFAULT_WORKSPACE_QUOTA_INODES,
     }),
   };
+  if (mode === "off") return { mode: "off", ...limits };
+  const helperImage = environment.WORKER_IMAGE;
+  if (!helperImage) {
+    throw new Error(
+      "WORKER_IMAGE is required while EXECUTION_WORKSPACE_QUOTA is on: the workspace inode limit is set by a helper run from it",
+    );
+  }
+  return { helperImage, mode: "enforced", ...limits };
 }
 
 function objectStoreAccessFromEnv(

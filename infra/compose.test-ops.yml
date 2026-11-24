@@ -45,7 +45,7 @@ services:
       # How this installation's workers and proxy are told apart from any
       # other on the daemon; the core's `local` belongs to the local stack.
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:?EXECUTION_INSTALLATION_ID must name this installation}
-      EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:?EXECUTION_WORKSPACE_QUOTA must be set (on, with xfs prjquota)}
+      EXECUTION_WORKSPACE_QUOTA: ${EXECUTION_WORKSPACE_QUOTA:?EXECUTION_WORKSPACE_QUOTA must be set (on with xfs prjquota, or off on the LocalStack store)}
   reconciler:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
   maintenance:

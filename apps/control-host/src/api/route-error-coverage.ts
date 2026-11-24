@@ -56,6 +56,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/installation-config",
     "PATCH /v1/installation-config",
   ],
+  "routes/limits/installation-status.test.ts": ["GET /v1/installation-status"],
   "routes/limits/lost-checkpoint-notices.test.ts": [
     "GET /v1/lost-checkpoint-notices",
     "POST /v1/lost-checkpoint-notices/close",
