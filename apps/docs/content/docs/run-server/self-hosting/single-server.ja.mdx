@@ -203,10 +203,10 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.jso
 
 preflight は bucket の保護設定と scratch version の書き込み・hold・読み取り・hold 解除・削除を検査します。workspace quota probe も先に実行し、deploy 時に scheduler が quota を再度検査します。両方成功し、サービスが healthy になる必要があります。object store 方式は最初の deploy 後に変更できません。
 
-deploy の後で、最初の owner を作る一回限りの設定リンクをファイルとして受け取ります。owner になる人のメールアドレスと、まだ存在しないファイル名を渡します。ファイルは 0600 で作られ、画面にはファイルのパスと期限だけが出ます。
+deploy の後で、最初の owner を作る一回限りの設定リンクをファイルとして受け取ります。owner になる人のメールアドレスと、`DEPLOYMENT_DIR` の中でまだ存在しないファイル名を渡します。バンドルのディレクトリの中は test-ops が拒否します（バンドルには SHA256SUMS に載ったファイルだけが必要です）。ファイルは 0600 で作られ、画面にはファイルのパスと期限だけが出ます。
 
 ```bash
-scripts/test-ops.sh setup-link --email <owner-email> --out ./owner-link.json
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
 ```
 
 ファイルの `accept_url`（なければコンソールのアドレスの後ろに `accept_path`）を開き、コマンドに渡したメールアドレスで owner を作ります。ブラウザがない場合の方法とファイルの項目は、[最初の owner と key](/run-server/self-hosting/users-and-keys) にあります。リンクは一度使うとすぐ無効になり、24 時間で期限切れになります。ファイルを失ったり期限が切れたりしたら、新しいファイル名でコマンドを再実行します。新しいリンクが発行され、前のリンクは無効になります。owner ができた後は、リンクもファイルも作らず終了コード 1 で終わります。

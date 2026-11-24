@@ -25,10 +25,10 @@ Complete [installation](/run-server/self-hosting) and [access configuration](/ru
 
 The operator gets the first owner's one-time setup link as a file, from a command on the installation. The command is in the api image and takes only the email address of the person who becomes the owner. No password goes in a command argument or an environment variable: whoever opens the link sets it. The link never appears on screen; the screen shows only the file path and the expiry.
 
-On a test-ops single server, write it straight to a new file on the host.
+On a test-ops single server, write it straight to a new file on the host. `DEPLOYMENT_DIR` is the per-installation directory set in [single-server installation](/run-server/self-hosting/single-server); a path inside the bundle directory is refused.
 
 ```bash
-scripts/test-ops.sh setup-link --email <owner-email> --out ./owner-link.json
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
 ```
 
 On other compose setups, make the file inside the api container, copy it to the host, and delete the container's copy.

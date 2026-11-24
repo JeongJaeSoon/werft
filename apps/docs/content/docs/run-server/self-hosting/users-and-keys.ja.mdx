@@ -25,10 +25,10 @@ outcome: "利用者ごとの認証手段と実行権限を発行します"
 
 運用者は設置側のコマンドで、最初の owner の一回限りの設定リンクをファイルとして受け取ります。コマンドは api イメージの中にあり、owner になる人のメールアドレスだけを受け取ります。パスワードはコマンドの引数や環境変数では渡さず、リンクを開いた人が決めます。リンクは画面に出ません。画面にはファイルのパスと期限だけが出ます。
 
-test-ops 単一サーバーでは、ホストの新しいファイルに直接受け取ります。
+test-ops 単一サーバーでは、ホストの新しいファイルに直接受け取ります。`DEPLOYMENT_DIR` は[単一サーバーへのインストール](/run-server/self-hosting/single-server)で決めたインストールごとのディレクトリで、バンドルのディレクトリの中は拒否されます。
 
 ```bash
-scripts/test-ops.sh setup-link --email <owner-email> --out ./owner-link.json
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
 ```
 
 それ以外の compose 構成では、api コンテナの中にファイルを作り、ホストへ移してから、コンテナ側のファイルを削除します。

@@ -21,10 +21,10 @@ outcome: "사용자별 인증 수단과 실행 권한을 발급한다"
 
 운영자가 설치 쪽 명령으로 첫 owner의 일회용 설정 링크를 파일로 받는다. 명령은 api 이미지 안에 있고, owner가 될 사람의 이메일 주소만 받는다. 비밀번호는 명령 인자나 환경 변수로 주지 않고, 링크를 연 사람이 정한다. 링크는 화면에 나오지 않는다. 화면에는 파일 경로와 만료 시각만 나온다.
 
-test-ops 단일 서버에서는 호스트의 새 파일에 바로 받는다.
+test-ops 단일 서버에서는 호스트의 새 파일에 바로 받는다. `DEPLOYMENT_DIR`는 [단일 서버 설치](/run-server/self-hosting/single-server)에서 정한 설치별 디렉터리이고, 번들 디렉터리 안은 거절된다.
 
 ```bash
-scripts/test-ops.sh setup-link --email <owner-email> --out ./owner-link.json
+scripts/test-ops.sh setup-link --email <owner-email> --out "$DEPLOYMENT_DIR/owner-link.json"
 ```
 
 그 밖의 compose 구성에서는 api 컨테이너 안에 파일을 만든 뒤 호스트로 옮기고 컨테이너 쪽 파일을 지운다.

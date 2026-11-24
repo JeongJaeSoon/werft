@@ -156,6 +156,15 @@ case "$VERB" in
     done
     [ -n "$SETUP_EMAIL" ] && [ -n "$SETUP_OUT" ] || usage
     [ ! -e "$SETUP_OUT" ] || die "setup-link: $SETUP_OUT exists; name a file that does not exist yet"
+    # A file the bundle's SHA256SUMS does not list stops every later run.
+    if [ "$MODE" = bundle ]; then
+      out_dir="$(cd "$(dirname -- "$SETUP_OUT")" 2>/dev/null && pwd -P)" \
+        || die "setup-link: the directory of $SETUP_OUT does not exist"
+      case "$out_dir/" in
+        "$(cd "$BUNDLE_ROOT" && pwd -P)/"*)
+          die "setup-link: $SETUP_OUT is inside the release bundle; write it outside, for example under \$DEPLOYMENT_DIR" ;;
+      esac
+    fi
     ;;
   backup)
     case "$*" in "") ;; --stop) STOP=1 ;; *) usage ;; esac
