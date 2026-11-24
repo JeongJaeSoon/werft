@@ -1009,11 +1009,14 @@ integration(
       });
       expect(
         await db
-          .select({ reason: turns.terminalReason })
+          .select({ status: turns.status, reason: turns.terminalReason })
           .from(turns)
           .where(eq(turns.sessionId, session.sessionId))
           .orderBy(asc(turns.sequence)),
-      ).toEqual([{ reason: null }, { reason: "no_capacity" }]);
+      ).toEqual([
+        { status: "completed", reason: null },
+        { status: "failed", reason: "no_capacity" },
+      ]);
       // Not counted toward quarantine.
       const [launch] = await db
         .select({ failures: workerLaunches.launchFailureCount })
