@@ -54,6 +54,7 @@ beforeEach(async () => {
         ref: { stored: "connection:test-connection" },
       },
     },
+    models: [MODEL],
     repositories: {},
   });
   connectionId = Object.keys(catalog.connections)[0] ?? "";

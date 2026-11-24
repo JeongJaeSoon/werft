@@ -5993,6 +5993,7 @@ export interface components {
                  */
                 language: "follow-user" | "ko" | "en" | "ja";
                 model: string;
+                judgment_model?: string;
                 capabilities: {
                     mcp: {
                         server: string;
@@ -6034,6 +6035,7 @@ export interface components {
                  */
                 language: "follow-user" | "ko" | "en" | "ja";
                 model: string;
+                judgment_model?: string;
                 capabilities: {
                     mcp: {
                         server: string;
@@ -10482,6 +10484,7 @@ export interface components {
                      */
                     language: "follow-user" | "ko" | "en" | "ja";
                     model: string;
+                    judgment_model?: string;
                     capabilities: {
                         mcp: {
                             server: string;
@@ -10675,6 +10678,7 @@ export interface components {
                      */
                     language: "follow-user" | "ko" | "en" | "ja";
                     model: string;
+                    judgment_model?: string;
                     capabilities: {
                         mcp: {
                             server: string;

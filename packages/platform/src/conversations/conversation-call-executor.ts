@@ -11,6 +11,7 @@ import type {
   BudgetRoot,
   ConversationCallLimit,
   ConversationCalls,
+  ConversationCallUnavailable,
 } from "../limits/index.ts";
 import { CONVERSATION_CALL_PATH } from "../limits/index.ts";
 import {
@@ -75,8 +76,7 @@ export type ConversationCallResult<T> =
   | { outcome: "unknown_conversation" }
   // The agent already has a call of that key and attempt; none is added.
   | { outcome: "already_issued" }
-  // The connection is not one the catalog holds, or serves no Messages.
-  | { outcome: "unavailable" }
+  | { outcome: "unavailable"; reason: ConversationCallUnavailable }
   // The reservation itself failed; nothing was reserved.
   | { outcome: "issue_failed" }
   | { outcome: "timed_out"; callId: ConversationCallId; retryable: true }

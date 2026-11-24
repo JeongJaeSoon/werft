@@ -106,6 +106,19 @@ describe("the card step keeps what its base has", () => {
     expect<unknown>(card).toEqual({ ...BASE, language: "ko" });
   });
 
+  test("a judgment model picked is sent; cleared, the base's is dropped", () => {
+    const picked = agentCardStep(BASE).parse({
+      ...DRAFT,
+      judgmentModel: " claude-haiku-5 ",
+    });
+    expect(picked.judgment_model).toBe("claude-haiku-5");
+    const cleared = agentCardStep({
+      ...BASE,
+      judgment_model: "claude-haiku-5",
+    }).parse({ ...DRAFT, judgmentModel: "" });
+    expect("judgment_model" in cleared).toBe(false);
+  });
+
   test("a new card has no role or instructions", () => {
     const card = agentCardStep().parse(DRAFT);
     expect("role" in card).toBe(false);
