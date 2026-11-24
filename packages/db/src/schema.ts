@@ -3783,6 +3783,16 @@ export const conversationCalls = pgTable(
       table.callKey,
       table.attempt,
     ),
+    // The calls in progress an issue counts (holdConversationCallLimitsIn):
+    // by agent, and by person over every agent.
+    index("conversation_calls_agent_open_idx")
+      .on(table.agentId)
+      .where(sql`${table.state} IN ('reserved', 'in_flight')`),
+    index("conversation_calls_requester_open_idx")
+      .on(table.workspaceId, table.requesterUserId)
+      .where(
+        sql`${table.state} IN ('reserved', 'in_flight') AND ${table.requesterUserId} IS NOT NULL`,
+      ),
     // For the topic FK's ON DELETE, so dropping a topic reads no other row.
     index("conversation_calls_topic_idx")
       .on(table.topicId)

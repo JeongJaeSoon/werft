@@ -88,7 +88,7 @@ describe("the reconciler's unknown ends", () => {
     ]);
   });
 
-  test("the conversation call pass releases unused tokens and marks unknown ends, both in a dry run too", async () => {
+  test("the conversation call pass releases unused tokens, marks unknown ends and warns of the agents they hold, in a dry run too", async () => {
     const sink = logger();
     const asked: unknown[] = [];
     expect(
@@ -103,13 +103,24 @@ describe("the reconciler's unknown ends", () => {
           asked.push(["unknown", options]);
           return { unknown: 3 };
         },
+        unknownByAgent: async (options) => {
+          asked.push(["by agent", options]);
+          return [{ workspaceId: "ws-1", agentId: "agent-1", unknown: 5 }];
+        },
       }),
     ).toEqual({ released: 2, unknown: 3 });
     expect(asked).toEqual([
       ["release", { dryRun: true, limit: 100 }],
       ["unknown", { dryRun: true, limit: 100 }],
+      // Half the agent's limit of eight.
+      ["by agent", { atLeast: 4, limit: 100 }],
     ]);
     expect(sink.records).toEqual([
+      {
+        level: "warn",
+        message: "Conversation calls of unknown end hold an agent",
+        fields: { workspace_id: "ws-1", agent_id: "agent-1", unknown_count: 5 },
+      },
       {
         level: "info",
         message: "Conversation call reservations reconciled",
