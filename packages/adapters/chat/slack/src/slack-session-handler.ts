@@ -36,6 +36,7 @@ import {
   SessionServiceError,
 } from "@werft-ai/platform";
 import { z } from "zod";
+import type { SlackAudience } from "./slack-audience.ts";
 import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
 import {
   authorizeSlackInput,
@@ -151,6 +152,8 @@ export type SlackSessionHandlerDeps = {
     releaseId: string,
   ): Promise<boolean>;
   slack: SlackBotApi;
+  /** Whether a channel's posts and a person's may be held at all. */
+  audience: Pick<SlackAudience, "unheardReason">;
   /** The app's bot token from the secret store; null when it has none. */
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   notices: SlackNoticeSink;
@@ -298,6 +301,21 @@ export function createSlackSessionHandler(
         return null;
       }
       if (!messageTextSchema.safeParse(event.text).success) return null;
+      const unheard = await deps.audience.unheardReason({
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        slackUserId: event.user,
+        botToken: await deps.botToken(claim.workspaceId, claim.slackAppId),
+      });
+      if (unheard !== null) {
+        deps.logger.info("Slack message not held for the judgment", {
+          ...ids,
+          handling: judged,
+          reason: unheard,
+        });
+        return null;
+      }
       const conversation = await conversationOf(
         { dm: false, personUserId: null, channelId: event.channel },
         claim.teamId,

@@ -124,6 +124,8 @@ export const SLACK_BINDING_MESSAGES = {
     "승인을 기다리는 비공개 채널은 홈으로 정할 수 없어요. 먼저 승인하세요",
   notPending:
     "이 채널은 승인을 기다리고 있지 않거나, 그 사이에 바뀌었어요. 목록을 새로 읽고 다시 시도하세요",
+  externalShared:
+    "외부 조직과 공유한 채널은 멘션으로만 들을 수 있어요. 듣기를 mention이나 off로 정하세요",
 } as const;
 /** The `details.reason_code` sent with each of those messages. */
 export const SLACK_BINDING_REASON_CODES = {
@@ -134,6 +136,7 @@ export const SLACK_BINDING_REASON_CODES = {
   slackUnavailable: "slack_unavailable",
   pendingHome: "pending_home",
   notPending: "not_pending",
+  externalShared: "external_shared_channel",
 } as const satisfies Record<keyof typeof SLACK_BINDING_MESSAGES, string>;
 
 export type PutSlackBindingRequest = z.infer<

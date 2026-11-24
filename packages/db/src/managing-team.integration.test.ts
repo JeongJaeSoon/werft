@@ -514,6 +514,7 @@ integration("the managing team on PostgreSQL", () => {
         kindOf: async () => {
           throw new Error("no Slack here");
         },
+        sharingOf: async () => null,
       },
     });
     const identities = createAgentIdentityService({

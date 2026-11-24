@@ -155,8 +155,12 @@ export interface SurfaceBindingStore {
     channelId: string | null;
     channelKind: SurfaceChannelKind;
     mode: BindingMode;
-    /** Absent keeps the channel's; a new channel then listens to all. */
+    /**
+     * Absent keeps the channel's; a new channel then listens as
+     * `newListen` says, or to all.
+     */
     listen?: BindingListen;
+    newListen?: BindingListen;
     home: boolean;
     ceiling: SurfaceCeiling;
     managerRoles: readonly WorkspaceRole[];
@@ -353,6 +357,21 @@ export interface SurfaceBindingStore {
   reject(
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;
+  /**
+   * Records whether Slack said another organization shares the channel, as of
+   * `at`, on the agent's live binding of it: observed state, not a setting, so no revision
+   * and no receipt. An answer older than the one recorded changes nothing. A
+   * share at an equal time passes, so a retried channel_shared runs again; an
+   * unshare at an equal time does not undo a share. Shared, the channel's
+   * held posts are removed in the same transaction, and no post of it is held
+   * until an answer says otherwise. False when nothing was written.
+   */
+  recordExternalShared(
+    agentId: string,
+    channelId: string,
+    shared: boolean,
+    at: Date,
+  ): Promise<boolean>;
   /**
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.

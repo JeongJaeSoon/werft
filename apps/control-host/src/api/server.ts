@@ -712,6 +712,7 @@ const { tokenRevoked: slackTokenRevoked, channelKinds: slackChannelKinds } =
     secrets: slackSecretStore,
     identities: slackIdentityStore,
     installs: slackInstallStore,
+    bindings: surfaceBindingStore,
     onTokenRevokedError: (error) =>
       logger.warn("Slack token_revoked could not revoke the install", {
         error: messageOf(error),

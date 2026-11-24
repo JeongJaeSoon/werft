@@ -15,6 +15,7 @@ export * from "./login-providers.ts";
 export * from "./my-login-methods.ts";
 export * from "./session-shares.ts";
 export * from "./slack-apps.ts";
+export * from "./slack-audience.ts";
 export * from "./slack-bindings.ts";
 export * from "./slack-channels.ts";
 export * from "./slack-events.ts";

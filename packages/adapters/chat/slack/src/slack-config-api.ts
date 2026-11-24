@@ -1,7 +1,9 @@
 import {
   type SlackChannel,
+  type SlackChannelSharing,
   type SlackUser,
   type SurfaceChannelKind,
+  slackChannelSharingOf,
   slackPermalinkSchema,
 } from "@werft-ai/contracts";
 import type { CreatedSurfaceApp, RotatedConfigToken } from "@werft-ai/platform";
@@ -451,6 +453,14 @@ export interface SlackChannelMemberApi {
   ): Promise<SlackChannelMemberPage>;
 }
 
+/** `conversations.info`, read for whether another organization shares it. */
+export interface SlackChannelSharingApi {
+  channelSharing(
+    botToken: string,
+    channelId: string,
+  ): Promise<SlackChannelSharing>;
+}
+
 export type SlackChannelMembership = {
   kind: SurfaceChannelKind;
   isMember: boolean;
@@ -634,6 +644,7 @@ const conversationInfoAnswer = z.object({
     is_private: z.boolean().optional(),
     is_member: z.boolean().optional(),
     is_archived: z.boolean().optional(),
+    is_ext_shared: z.boolean().optional(),
   }),
 });
 
@@ -671,7 +682,8 @@ export function createSlackBotApi(
   Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
   SlackBotSender &
   SlackBotDirectory &
-  SlackChannelMemberApi {
+  SlackChannelMemberApi &
+  SlackChannelSharingApi {
   const call = slackCaller(options);
   const send = slackSender(options);
   return {
@@ -750,6 +762,15 @@ export function createSlackBotApi(
       return channel.is_private || channel.is_mpim
         ? "private_channel"
         : "public_channel";
+    },
+
+    async channelSharing(botToken, channelId) {
+      const { channel } = await call(
+        "conversations.info",
+        { token: botToken, body: new URLSearchParams({ channel: channelId }) },
+        conversationInfoAnswer,
+      );
+      return slackChannelSharingOf(channel);
     },
 
     async channelMembership(botToken, channelId) {
