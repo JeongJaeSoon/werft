@@ -10,7 +10,7 @@ outcome: "Verify secure console and SSE access"
 <a id="무엇을-하게-되나" />
 ## What you will do
 
-Before remote bootstrap, configure an SSH tunnel or a TLS-protected, network-restricted access path, then check the console, API, and SSE.
+Before remote bootstrap, configure an SSH tunnel or a TLS-protected, network-restricted access path, then check the console, API, and SSE. If you connect Slack, also configure a public entrance that opens only the Slack paths.
 
 <a id="준비물" />
 ## Before you begin
@@ -34,7 +34,84 @@ API (default 3000) and PostgreSQL (default 5432) bind only to host loopback. Use
 
 To expose the API through an internal DNS name, put a reverse proxy in front, retaining upstream `127.0.0.1:3000`. Restrict access to VPN ranges or an IP allowlist and terminate TLS at the proxy. Preserve the browser's `Host` when forwarding upstream. The API rejects browser state changes when the `Origin` host differs from `Host`; replacing it with the upstream host breaks console mutations. SSE connections are long-lived: disable `proxy_buffering` and request buffering, and use long read/send timeouts such as 1 hour. Keep PostgreSQL and the Docker socket inside the proxy/firewall boundary on every path. Only the scheduler uses the socket to manage workers; do not enable a host TCP socket.
 
-Use your organization's certificate paths, internal DNS name, and permitted ranges. Explicitly allow loopback if test requests from the same server should work. Match `Host` with browser `Origin` and disable SSE buffering.
+Use your organization's certificate paths, internal DNS name, and permitted ranges. Explicitly allow loopback if test requests from the same server should work. Match `Host` with browser `Origin` and disable SSE buffering. The console entrance `server` block in [Public entrance](#공개-입구-slack-경로만-열기) below is an example.
+
+<a id="공개-입구-slack-경로만-열기" />
+### Public entrance: open only the Slack paths
+
+To receive Slack events and button or modal interactions, Slack needs a public https entrance. Slack calls only two addresses, `POST /v1/slack/events/{agent_id}` and `POST /v1/slack/interactions/{agent_id}`, and both check the agent app's signing secret signature instead of a cookie or API key. The public entrance forwards only these two paths to the api and answers everything else with 404 at the proxy. The OAuth redirects of Slack app install and account linking bring the browser back to the console address (`CONSOLE_ORIGIN`), so do not open them on the public entrance.
+
+Port 3000 of the api serves the console and the `/v1` API, and also `/internal` for workers. A tunnel or proxy that publishes all of port 3000 exposes `/internal` to the internet too. Split the public entrance (Slack paths only) and the console entrance (behind a VPN or IP allowlist) onto different DNS names, and block `/internal` on the console entrance as well.
+
+The example below splits the two entrances with nginx on a Compose server. `<hooks-host>` is the public DNS name, `<console-host>` the host of `CONSOLE_ORIGIN`, and `<allowed-cidr>` the range allowed into the console. Use your organization's certificate paths.
+
+```nginx
+# Public entry: only the two request URLs Slack calls reach the API.
+server {
+    listen 443 ssl;
+    server_name <hooks-host>;
+    ssl_certificate     <certificate-path>;
+    ssl_certificate_key <certificate-key-path>;
+
+    location ~ "^/v1/slack/(events|interactions)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" {
+        limit_except POST { deny all; }
+        proxy_pass http://127.0.0.1:3000$uri;
+        proxy_set_header Host $http_host;
+    }
+
+    location / {
+        return 404;
+    }
+}
+
+# Console entry: allowlisted networks only, /internal never forwarded.
+server {
+    listen 443 ssl;
+    server_name <console-host>;
+    ssl_certificate     <certificate-path>;
+    ssl_certificate_key <certificate-key-path>;
+
+    allow <allowed-cidr>;
+    allow 127.0.0.1;
+    deny all;
+
+    if ($request_uri ~* "\\\\|%5c") {
+        return 400;
+    }
+
+    location ^~ /internal {
+        return 404;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $http_host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+}
+```
+
+- The public entrance's `location` matches only when the path nginx decoded and normalized is one of the two Slack paths followed by an `agent_id` (a lowercase UUID). The api is sent that normalized path (`$uri`), not the original request line, so whatever `..` or backslashes a request mixes in, only a Slack path reaches the api. Everything else gets 404, and a request other than POST gets 403. The query is not forwarded; the addresses Slack is sent have none.
+- The console entrance answers `/internal` and everything under it with 404. nginx decodes and normalizes encoded paths such as `/%69nternal/x` and `/x/../internal/x` before choosing a `location`, so those get 404 too. nginx does not treat a backslash as a path separator, but Bun in front of the api turns it into `/`, making `/x/..\internal/x` into `/internal/x`. So a request line with `\` or `%5C` is refused with 400.
+- `Host` is passed as `$http_host`, the browser's value with its port. `$host` drops the port, so a console on a port other than 443 would have its changes refused for not matching `Origin`.
+- The console entrance carries the event stream (SSE), so it turns buffering off and sets read and send timeouts of 1 hour.
+
+When the public entrance's DNS name differs from the console's, an owner saves `https://<hooks-host>` as the events entrance under **Settings > Integrations > Slack** (`PUT /v1/slack-settings`). A path prefix in the saved address is kept in the URL Slack is sent; the example above does not strip a prefix, so save the host only. Agent apps made before the change get the new address with **Recheck** on that agent's Slack tab.
+
+A tunnel (for example Cloudflare Tunnel) as the public entrance follows the same rules. Send only the two Slack paths on the public hostname to `http://127.0.0.1:3000`, let everything else answer 404, and keep the console on another hostname behind access restrictions. Tunnel products normalize paths differently, so after writing the rules run the check below against the public address.
+
+```bash
+for p in /v1/slack/events/00000000-0000-0000-0000-000000000000 /v1/auth/login-methods / /internal/x /%69nternal/x /x/../internal/x '/x/..\internal/x'; do
+  curl -s --path-as-is -o /dev/null -X POST -w "$p %{http_code} %{content_type}\n" "https://<hooks-host>$p"
+done
+```
+
+Only the first line is the api's answer (4xx without a signature, `application/json`); every other line is the proxy's 404 (`text/html` from nginx). An `application/json` on any other line means that path reached the api: take the public entrance down and fix the rules. For the console entrance, run the loop in [Verify](#확인) against `<console-host>`. With the nginx example, the two lines with a backslash give 400, the rest 404, and no line is `application/json`.
 
 <a id="kubernetes-내부망-alb" />
 ### Kubernetes: internal ALB
@@ -98,7 +175,7 @@ Untrusted TLS certificates make browsers block connections. Replacing Host with 
 <a id="되돌리기" />
 ## Roll back
 
-End the tunnel in its terminal. Restore the reverse proxy changes from backup. For Kubernetes, restore `ingress.console.enabled` to false in installation values and apply. Confirm `/internal` and the authorizer are not exposed externally.
+End the tunnel in its terminal. Restore the reverse proxy changes from backup. Remove the public entrance's `server` block (or tunnel rules); Slack events stop arriving after that. For Kubernetes, restore `ingress.console.enabled` to false in installation values and apply. Confirm `/internal` and the authorizer are not exposed externally.
 
 <a id="다음에-읽을-곳" />
 ## Next steps
