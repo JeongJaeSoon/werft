@@ -7,7 +7,11 @@ import type {
   ConversationId,
   ConversationTopicId,
 } from "@werft-ai/contracts";
-import type { BudgetRoot, ConversationCalls } from "../limits/index.ts";
+import type {
+  BudgetRoot,
+  ConversationCallLimit,
+  ConversationCalls,
+} from "../limits/index.ts";
 import { CONVERSATION_CALL_PATH } from "../limits/index.ts";
 import {
   type OutboundHttp,
@@ -58,6 +62,13 @@ export type ConversationCallResult<T> =
       outcome: "refused";
       rootKind: BudgetRootKind;
       accountId: BudgetAccountId | null;
+    }
+  // Too many calls in progress on one of its keys; not reserved.
+  | {
+      outcome: "concurrency_limited";
+      limit: ConversationCallLimit;
+      inProgress: number;
+      unknown: number;
     }
   | { outcome: "unknown_agent" }
   // The conversation is not the agent's, or the topic not the conversation's.

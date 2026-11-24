@@ -88,6 +88,7 @@ export async function main(
         logger,
         releaseExpired: (options) => conversationCalls.releaseExpired(options),
         markUnknown: (options) => conversationCalls.markUnknown(options),
+        unknownByAgent: (options) => conversationCalls.unknownByAgent(options),
       });
       await runUnknownBudgetReport({
         environment: {
