@@ -715,7 +715,7 @@ export const setupLinks = pgTable("setup_links", {
   tokenHash: bytea("token_hash").primaryKey(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   epoch: bigint("epoch", { mode: "number" }).notNull(),
-  // Null on a link issued before 0347 (or by an image before it): such a link
+  // Null on a link issued before 0348 (or by an image before it): such a link
   // has no id and takes any email.
   id: uuid(),
   /** The only address the link makes an owner for. */
