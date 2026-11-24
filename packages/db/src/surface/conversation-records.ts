@@ -20,6 +20,8 @@ export type ConversationRecordCounts = {
   /** Line rows of every version, the history with them. */
   summaryLines: number;
   buffered: number;
+  /** The conversation turns of the runtime; a web input's turn row stays with its input. */
+  turns: number;
   /** Messages newly marked deleted. */
   marked: number;
 };
@@ -57,6 +59,7 @@ type Records = {
   /** Of those, the ones no turn or web input row holds: the ones marked. */
   marks: string[];
   summaryLines: number;
+  turns: number;
 };
 
 /** A record written between the first look and the locks: start again. */
@@ -137,12 +140,18 @@ async function recordsOf(
                       'channel_id', ${c.channel_id}::text, 'ts', m.ts))))`),
         ).map((row) => row.ts),
   );
+  const [turns] = rowsOf<{ n: string }>(
+    await tx.execute(sql`
+      SELECT count(*)::text AS n FROM conversation_turns
+      WHERE conversation_id = ${c.id}::uuid AND origin = 'm2'`),
+  );
   return {
     engagementTs,
     bufferedIds: buffered.map((row) => row.id),
     touched,
     marks: touched.filter((ts) => !held.has(ts)),
     summaryLines: Number(summary[0]?.lines ?? 0),
+    turns: Number(turns?.n ?? 0),
   };
 }
 
@@ -154,7 +163,8 @@ const within = (inner: readonly string[], outer: readonly string[]) => {
 /**
  * An admin's delete of one channel conversation's records (C8): the agent's
  * engagement rows in the channel, the channel's summary with its history,
- * and the agent's buffered messages of the conversation. Sessions, their
+ * the conversation's turns of the conversation runtime, and the agent's
+ * buffered messages of the conversation. Sessions, their
  * turns, inputs, events, transcripts and checkpoints stay; so does the
  * conversation row, which takes who and when.
  *
@@ -220,6 +230,7 @@ export async function deleteConversationRecords(
         engagements: records.engagementTs.length,
         summaryLines: records.summaryLines,
         buffered: records.bufferedIds.length,
+        turns: records.turns,
         marked,
       },
       sessionsStopped: [],
@@ -291,14 +302,24 @@ export async function deleteConversationRecords(
           ).map((row) => row.ts);
           if (!within(engagementTs, seen.touched)) throw new RecordsMoved();
           const engagements = engagementTs.length;
+          // After the engagements that point at them, before the buffer, so
+          // the topics they leave empty go with it. A turn under way finds
+          // its row gone and writes no result; its calls stay, unlinked.
+          const turns = rowsOf(
+            await tx.execute(sql`
+            DELETE FROM conversation_turns
+            WHERE conversation_id = ${conversation.id}::uuid AND origin = 'm2'
+            RETURNING id`),
+          ).length;
           const buffered = await dropBufferedInputs(tx, records.bufferedIds);
           const result = {
             engagements,
             summaryLines: summary.lines,
             buffered,
+            turns,
             marked,
           };
-          if (engagements + summary.lines + buffered + marked === 0) {
+          if (engagements + summary.lines + buffered + turns + marked === 0) {
             return result;
           }
           await tx.execute(sql`
@@ -319,6 +340,7 @@ export async function deleteConversationRecords(
               engagements,
               summary_lines: summary.lines,
               buffered,
+              turns,
               marked,
               by: "operator_cli",
             },
@@ -357,7 +379,11 @@ export async function deleteConversationRecords(
     );
   }
   const removed =
-    counts.engagements + counts.summaryLines + counts.buffered + counts.marked;
+    counts.engagements +
+    counts.summaryLines +
+    counts.buffered +
+    counts.turns +
+    counts.marked;
   return {
     outcome: removed > 0 ? "deleted" : "unchanged",
     workspaceId: place.workspaceId,

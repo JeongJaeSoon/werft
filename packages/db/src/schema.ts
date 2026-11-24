@@ -40,6 +40,11 @@ import {
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
   CONVERSATION_ROLLOUT_VALUES,
+  CONVERSATION_TURN_DECISION_VALUES,
+  CONVERSATION_TURN_ORIGIN_VALUES,
+  CONVERSATION_TURN_REASON_MAX,
+  CONVERSATION_TURN_STATE_VALUES,
+  CONVERSATION_TURN_TEXT_MAX,
   type ConversationCallClass,
   type ConversationCallId,
   type ConversationCallKey,
@@ -50,6 +55,10 @@ import {
   type ConversationInputSlackMirror,
   type ConversationKind,
   type ConversationTopicId,
+  type ConversationTurnDecision,
+  type ConversationTurnId,
+  type ConversationTurnOrigin,
+  type ConversationTurnState,
   DELETED_SOURCE_REASON_VALUES,
   type DeletedSourceReason,
   ENDED_ATTEMPT_STATES,
@@ -3767,6 +3776,11 @@ export const conversationCalls = pgTable(
     callKey: text("call_key").$type<ConversationCallKey>(),
     // A retry keeps the key and takes the next attempt.
     attempt: integer(),
+    // An m2 call's turn, of which a turn has many. Emptied when an admin
+    // deletes the turn; the call stays.
+    conversationTurnId: uuid(
+      "conversation_turn_id",
+    ).$type<ConversationTurnId>(),
   },
   (table) => [
     uniqueIndex("conversation_calls_token_uniq").on(table.tokenHash),
@@ -3802,6 +3816,18 @@ export const conversationCalls = pgTable(
       columns: [table.agentId, table.releaseId],
       foreignColumns: [agentReleases.agentId, agentReleases.id],
     }),
+    foreignKey({
+      name: "conversation_calls_conversation_turn_fk",
+      columns: [table.conversationTurnId],
+      foreignColumns: [conversationTurns.id],
+    }).onDelete("set null"),
+    index("conversation_calls_conversation_turn_idx")
+      .on(table.conversationTurnId)
+      .where(sql`${table.conversationTurnId} IS NOT NULL`),
+    check(
+      "conversation_calls_conversation_turn_check",
+      sql`${table.conversationTurnId} IS NULL OR ${table.callClass} = 'm2'`,
+    ),
     check(
       "conversation_calls_call_class_check",
       sql`${table.callClass} IN (${sql.raw(sqlList(CONVERSATION_CALL_CLASS_VALUES))})`,
@@ -5632,6 +5658,110 @@ export const conversationTopics = pgTable(
 );
 
 /**
+ * One conversation turn: of a topic, for one requester, ending in at most one
+ * decision. Holds no Slack message text; what it read is in `sources`, its
+ * input by its input row's pointer (a web input's) or a direct source. A web
+ * input's row holds that input's text, which no other row does. Its calls
+ * (`conversation_calls`) and engagements point at it.
+ */
+export const conversationTurns = pgTable(
+  "conversation_turns",
+  {
+    id: uuid().$type<ConversationTurnId>().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    conversationId: uuid("conversation_id").$type<ConversationId>().notNull(),
+    // A topic with a turn is not dropped as empty.
+    topicId: uuid("topic_id").$type<ConversationTopicId>(),
+    origin: text().$type<ConversationTurnOrigin>().notNull(),
+    state: text().$type<ConversationTurnState>().notNull(),
+    // As on conversation_inputs: the server's value, never one read off text.
+    requesterKind: text("requester_kind").notNull(),
+    requesterId: text("requester_id").notNull(),
+    inputText: text("input_text"),
+    decision: text().$type<ConversationTurnDecision>(),
+    decisionReason: text("decision_reason"),
+    answerText: text("answer_text"),
+    // Slack places and input ids (`StoredSourceSet`), never text.
+    sources: jsonb().$type<StoredSourceSet>(),
+    releaseId: text("release_id"),
+    // The Slack installation the turn's messages came from, for the delete
+    // that follows an app's removal; null for a web input's.
+    slackInstallationId: uuid("slack_installation_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: "conversation_turns_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // Of the same agent and workspace, which every write of a turn checks.
+    foreignKey({
+      name: "conversation_turns_conversation_fk",
+      columns: [table.conversationId],
+      foreignColumns: [conversations.id],
+    }),
+    foreignKey({
+      name: "conversation_turns_topic_fk",
+      columns: [table.topicId],
+      foreignColumns: [conversationTopics.id],
+    }),
+    foreignKey({
+      name: "conversation_turns_release_fk",
+      columns: [table.agentId, table.releaseId],
+      foreignColumns: [agentReleases.agentId, agentReleases.id],
+    }),
+    foreignKey({
+      name: "conversation_turns_slack_installation_fk",
+      columns: [table.slackInstallationId],
+      foreignColumns: [slackInstallations.id],
+    }),
+    index("conversation_turns_conversation_idx").on(table.conversationId),
+    index("conversation_turns_topic_idx")
+      .on(table.topicId)
+      .where(sql`${table.topicId} IS NOT NULL`),
+    // Which turns a delete mark's place is in, as on turns.
+    index("conversation_turns_sources_idx")
+      .using("gin", table.sources.op("jsonb_path_ops"))
+      .where(sql`${table.sources} IS NOT NULL`),
+    check(
+      "conversation_turns_origin_check",
+      sql`${table.origin} IN (${sql.raw(sqlList(CONVERSATION_TURN_ORIGIN_VALUES))})`,
+    ),
+    check(
+      "conversation_turns_state_check",
+      sql`${table.state} IN (${sql.raw(sqlList(CONVERSATION_TURN_STATE_VALUES))})`,
+    ),
+    check(
+      "conversation_turns_decision_check",
+      sql`${table.decision} IN (${sql.raw(sqlList(CONVERSATION_TURN_DECISION_VALUES))})`,
+    ),
+    // A web input's row is its text and nothing else; a runtime's turn has
+    // no input text, a decision once decided, an answer only with one, and
+    // an end once ended.
+    check(
+      "conversation_turns_shape_check",
+      sql`CASE ${table.origin}
+        WHEN 'web_input' THEN ${table.state} = 'received' AND ${table.inputText} IS NOT NULL AND ${table.requesterKind} = 'user' AND ${table.decision} IS NULL AND ${table.decisionReason} IS NULL AND ${table.answerText} IS NULL AND ${table.endedAt} IS NULL
+        ELSE ${table.state} <> 'received' AND ${table.inputText} IS NULL
+          AND (${table.decision} IS NOT NULL) = (${table.state} = 'decided')
+          AND (${table.decisionReason} IS NULL OR ${table.decision} IS NOT NULL)
+          AND (${table.answerText} IS NULL OR ${table.decision} IS NOT NULL)
+          AND (${table.endedAt} IS NULL) = (${table.state} = 'running')
+      END`,
+    ),
+    check(
+      "conversation_turns_text_check",
+      sql`(${table.decisionReason} IS NULL OR char_length(${table.decisionReason}) BETWEEN 1 AND ${sql.raw(String(CONVERSATION_TURN_REASON_MAX))}) AND (${table.answerText} IS NULL OR char_length(${table.answerText}) <= ${sql.raw(String(CONVERSATION_TURN_TEXT_MAX))})`,
+    ),
+  ],
+);
+
+/**
  * One input an agent took into a topic, numbered in the order the server took
  * it. The Slack (team, channel, ts) is an alias, not the input's id. Holds no
  * message text.
@@ -5662,10 +5792,19 @@ export const conversationInputs = pgTable(
     /** Set on a web input only: the client's key for its retries. */
     clientMessageId: text("client_message_id"),
     /**
-     * A web input's text, which no other row holds yet, or a buffered Slack
-     * message's text, held until `buffer_expires_at`.
+     * A buffered Slack message's text, held until `buffer_expires_at`, or a
+     * web input's from before 0344 that the start pass has not moved yet.
      */
     body: text(),
+    /**
+     * A web input's turn row, which holds its text. Written with the input
+     * from 0344; the start pass gives older ones theirs.
+     */
+    conversationTurnId: uuid(
+      "conversation_turn_id",
+    ).$type<ConversationTurnId>(),
+    // A web input's text's SHA-256, which a retry of its key is compared on.
+    bodySha256: bytea("body_sha256"),
     slackMirror: text("slack_mirror").$type<ConversationInputSlackMirror>(),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
@@ -5687,13 +5826,22 @@ export const conversationInputs = pgTable(
       )
       .where(sql`${table.clientMessageId} IS NOT NULL`),
     // A Slack input has a turn and no web fields; a web input is a user's,
-    // with its text and whether Slack is to mirror it; a buffered Slack
+    // with its text, or from 0344 its turn row and the text's hash, and
+    // whether Slack is to mirror it; a buffered Slack
     // message has its text, its poster and its end, and no turn. A NULL
     // operand makes "IN" NULL, which a CHECK passes; hence IS NOT NULL.
     check(
       "conversation_inputs_origin_check",
-      sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL AND ${table.bufferExpiresAt} IS NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.body} IS NOT NULL AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}) AND ${table.bufferExpiresAt} IS NULL) OR (${table.bufferExpiresAt} IS NOT NULL AND ${table.clientMessageId} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NULL AND ${table.body} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.requesterKind} = 'slack_user')`,
+      sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL AND ${table.bufferExpiresAt} IS NULL AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}) AND ${table.bufferExpiresAt} IS NULL AND ((${table.body} IS NOT NULL AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL) OR (${table.body} IS NULL AND ${table.conversationTurnId} IS NOT NULL AND ${table.bodySha256} IS NOT NULL AND octet_length(${table.bodySha256}) = 32))) OR (${table.bufferExpiresAt} IS NOT NULL AND ${table.clientMessageId} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NULL AND ${table.body} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.requesterKind} = 'slack_user' AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL)`,
     ),
+    foreignKey({
+      name: "conversation_inputs_conversation_turn_fk",
+      columns: [table.conversationTurnId],
+      foreignColumns: [conversationTurns.id],
+    }),
+    index("conversation_inputs_conversation_turn_idx")
+      .on(table.conversationTurnId)
+      .where(sql`${table.conversationTurnId} IS NOT NULL`),
     // The web inputs still owed their Slack mirror, which the outbox walks.
     index("conversation_inputs_mirror_due_idx")
       .on(table.receivedAt)
@@ -5779,8 +5927,9 @@ export const conversationEngagements = pgTable(
     ts: text().notNull(),
     kind: text().$type<EngagementKind>().notNull(),
     sessionId: uuid("session_id").references(() => sessions.id),
-    /** A conversation turn of a1, whose table brings the foreign key. */
-    conversationTurnId: uuid("conversation_turn_id"),
+    conversationTurnId: uuid(
+      "conversation_turn_id",
+    ).$type<ConversationTurnId>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -5804,6 +5953,14 @@ export const conversationEngagements = pgTable(
     ),
     // The engaged-thread lookup comes from the session's link.
     index("conversation_engagements_session_idx").on(table.sessionId),
+    foreignKey({
+      name: "conversation_engagements_conversation_turn_fk",
+      columns: [table.conversationTurnId],
+      foreignColumns: [conversationTurns.id],
+    }),
+    index("conversation_engagements_conversation_turn_idx")
+      .on(table.conversationTurnId)
+      .where(sql`${table.conversationTurnId} IS NOT NULL`),
     check(
       "conversation_engagements_kind_check",
       sql`${table.kind} IN (${sql.raw(sqlList(ENGAGEMENT_KIND_VALUES))})`,

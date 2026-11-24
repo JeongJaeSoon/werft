@@ -109,7 +109,7 @@ integration("web inputs in conversation_inputs (0319)", () => {
     return rows;
   }
 
-  test("a new web topic gets a topic row with no Slack alias, and the input keeps its text", async () => {
+  test("a new web topic gets a topic row with no Slack alias, and the input's turn row keeps its text", async () => {
     const conversationId = await dm(member);
     const taken = await inputs.takeWebInput(
       request({ conversationId, body: "  build the report\n" }),
@@ -133,8 +133,19 @@ integration("web inputs in conversation_inputs (0319)", () => {
       slack_thread_ts: null,
     });
     const [row] = await inputRows("id = $1", [taken.receipt.inputId]);
+    const { rows: turns } = await pool.query(
+      "SELECT origin, state, input_text FROM conversation_turns WHERE id = $1",
+      [row?.conversation_turn_id],
+    );
+    expect(turns).toEqual([
+      {
+        origin: "web_input",
+        state: "received",
+        input_text: "  build the report\n",
+      },
+    ]);
     expect(row).toMatchObject({
-      body: "  build the report\n",
+      body: null,
       slack_mirror: "not_target",
       requester_kind: "user",
       requester_id: member,
@@ -164,10 +175,13 @@ integration("web inputs in conversation_inputs (0319)", () => {
         outcome: "body_mismatch",
       });
     }
-    const rows = await inputRows("client_message_id = $1", [
-      first.clientMessageId,
-    ]);
-    expect(rows.map((row) => row.body)).toEqual(["deploy"]);
+    const { rows } = await pool.query(
+      `SELECT t.input_text FROM conversation_inputs i
+       JOIN conversation_turns t ON t.id = i.conversation_turn_id
+       WHERE i.client_message_id = $1`,
+      [first.clientMessageId],
+    );
+    expect(rows.map((row) => row.input_text)).toEqual(["deploy"]);
   });
 
   test("two retries racing leave one row and one topic", async () => {

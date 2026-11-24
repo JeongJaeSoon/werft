@@ -19,6 +19,11 @@ export * from "./conversations/channel-summaries.ts";
 export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
 export * from "./conversations/conversation-store.ts";
+export {
+  beginConversationTurn,
+  endConversationTurn,
+  moveWebInputBodies,
+} from "./conversations/conversation-turns.ts";
 export * from "./conversations/engagements.ts";
 export {
   createPostgresJudgmentBufferStore,

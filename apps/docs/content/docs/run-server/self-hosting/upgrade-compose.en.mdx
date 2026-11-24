@@ -298,6 +298,17 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 - The tables may still hold rows. `catalog_authority` may hold one revision activated in the days of the file catalog, `owner_workspace_map` owner-to-workspace mappings an operator inserted by hand, and `push_continuations` follow-up turn records made by `v0.1.1` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0305: dropped rows: …`). The values of the rows stay out of the log.
 - If you need those rows, back them up before the upgrade. Rolling the schema below 0305 does not bring them back.
 
+<a id="대화-턴-기록-표를-더하는-릴리스" />
+
+### The release that adds the conversation turn table
+
+Migration `0344_conversation_turns` adds the conversation turn table `conversation_turns`, a column `conversation_turn_id` pointing at it on `conversation_engagements`, `conversation_calls` and `conversation_inputs`, and `body_sha256` on `conversation_inputs`. Its foreign keys and checks are added `NOT VALID` and validated on their own, and its indexes are built `CONCURRENTLY`, so no table is locked for long. The upgrade needs nothing from you. Nothing in this release runs a conversation turn from someone's message, so Slack mentions and replies and web and API sessions behave as before.
+
+- A web input's text now lives in that input's conversation turn row (origin `web_input`, state `received`), not in its input row. The input row points at it and keeps the text's SHA-256, which a retry with the same message key is compared on.
+- Web inputs taken by an earlier release are moved one by one by a pass that runs whenever the api starts. How many moved is in the log `Web input texts moved to their turn rows`. An input that could not be moved is logged as a warning with its input id and tried again at the next start. With nothing to move, it writes nothing.
+- The [admin delete](/run-server/self-hosting/reference/storage#대화-기록의-관리자-삭제) also removes the conversation's turn records and adds the count `turns` to its output and receipt. A web input's turn row is not removed.
+- Rolling back to an earlier image in the support window refuses a retry of a moved web input as `body_mismatch` even with the same text, and a moved input not yet shown in Slack is not shown. Both come back when you upgrade to this release again.
+
 <a id="slack-글의-관여-기록을-남기는-릴리스" />
 ### The release that records engagements with Slack messages
 

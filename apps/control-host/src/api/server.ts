@@ -87,6 +87,7 @@ import {
   fillSessionParents,
   hasUncollectedCheckpoint,
   moveSummaryLinks,
+  moveWebInputBodies,
   newSessionGitHubReaders,
   reconcileRetiredCatalogDrafts,
   slackAppKind,
@@ -543,6 +544,32 @@ closeAgentlessSessions(db).then(
   (error: unknown) => {
     logger.warn(
       "Sessions without an agent release could not be read; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
+// Web inputs taken before 0344 hold their text in the input row; each start
+// moves what is left to a turn row, so one that failed is tried on the next.
+moveWebInputBodies(db).then(
+  (moved) => {
+    if (moved.moved > 0) {
+      logger.info("Web input texts moved to their turn rows", {
+        inputs: moved.moved,
+      });
+    }
+    for (const { inputId, error } of moved.failed) {
+      logger.warn(
+        "A web input's text could not be moved; the next start tries again",
+        {
+          input_id: inputId,
+          error_name: error instanceof Error ? error.name : typeof error,
+        },
+      );
+    }
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Web input texts could not be read; the next start tries again",
       { error_name: error instanceof Error ? error.name : typeof error },
     );
   },

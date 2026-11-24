@@ -6,6 +6,16 @@ export {
 } from "./channel-summaries.ts";
 export { createPostgresConversationStore } from "./conversation-store.ts";
 export {
+  type BeginConversationTurn,
+  type BegunConversationTurn,
+  beginConversationTurn,
+  type ConversationTurnEnd,
+  type ConversationTurnEnding,
+  endConversationTurn,
+  moveWebInputBodies,
+  type WebInputBodiesMoved,
+} from "./conversation-turns.ts";
+export {
   directSourceDeletedAt,
   firstTurnDeletedAt,
   lockedDeletedSource,
@@ -14,6 +24,7 @@ export {
   titleDeletedAt,
 } from "./deleted-sources.ts";
 export { linkInputAlias } from "./input-aliases.ts";
+export { inputTexts } from "./input-texts.ts";
 export {
   dropBufferedInputs,
   dropBufferedMessage,
