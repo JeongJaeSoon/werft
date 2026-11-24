@@ -351,6 +351,7 @@ describe("a conversation turn's provider calls", () => {
     expect(await calls.endTurn(second.turnId)).toEqual({
       ended: "recorded",
       refusal: "budget",
+      limit: null,
     });
     const [row] = await db
       .select()
@@ -533,5 +534,118 @@ describe("a conversation turn's provider calls", () => {
         ),
       );
     expect(open).toHaveLength(4);
+  });
+});
+
+describe("a conversation turn's limits, held by the server", () => {
+  test("a runtime past its own count: the ninth provider call of a turn is refused at the permit with nothing held, and the turn ends on the model call limit, held by the server", async () => {
+    const turn = await operatorTurn();
+    for (let n = 0; n < 8; n++) {
+      expect((await report(await granted(turn.token))).status).toBe(200);
+    }
+    const ninth = await providerAsk(turn.token, crypto.randomUUID());
+    expect(ninth.status).toBe(403);
+    expect(await ninth.json()).toMatchObject({
+      details: { reason_code: "conversation_turn_call_limit" },
+    });
+    expect(await callsOf(turn.turnId)).toHaveLength(8);
+    expect(await permitOf(turn.turnId)).toMatchObject({
+      calls: 8,
+      refusal: "turn_limit",
+    });
+    expect(refusals().at(-1)?.fields).toMatchObject({
+      turn_id: turn.turnId,
+      refused_by: "turn_limit",
+    });
+    // The only reservations in this database: one per granted call.
+    const held = await db
+      .select({ callId: schema.budgetReservations.callId })
+      .from(schema.budgetReservations);
+    expect(held.map((row) => row.callId).sort()).toEqual(
+      (await callsOf(turn.turnId)).map((call) => call.id).sort(),
+    );
+
+    // Whatever the runtime reported, the refusal says the server held it.
+    expect(
+      await calls.endTurn(turn.turnId, {
+        outcome: "failed",
+        reason: "engine_failed",
+      }),
+    ).toEqual({
+      ended: "recorded",
+      refusal: "turn_limit",
+      limit: { limit: "model_call_limit", by: "server" },
+    });
+    const [row] = await db
+      .select()
+      .from(schema.conversationTurns)
+      .where(eq(schema.conversationTurns.id, turn.turnId));
+    expect(row).toMatchObject({
+      state: "no_decision",
+      limitReached: "model_call_limit",
+      limitReachedBy: "server",
+    });
+  });
+
+  test("a permit held to its runtime's lease grants no call once the lease is out, its turn still running", async () => {
+    const turn = await operatorTurn();
+    await calls.boundTurnPermit(turn.turnId, new Date(Date.now() + 60_000));
+    await granted(turn.token);
+    // A bound that comes after its lease ended still ends the permit there.
+    await calls.boundTurnPermit(turn.turnId, new Date(Date.now() - 5_000));
+    expect((await providerAsk(turn.token, crypto.randomUUID())).status).toBe(
+      401,
+    );
+    // A bound never lengthens a permit.
+    await calls.boundTurnPermit(turn.turnId, new Date(Date.now() + 600_000));
+    expect((await providerAsk(turn.token, crypto.randomUUID())).status).toBe(
+      401,
+    );
+    expect(await callsOf(turn.turnId)).toHaveLength(1);
+
+    expect(
+      await calls.endTurn(turn.turnId, {
+        outcome: "failed",
+        reason: "lease_expired",
+      }),
+    ).toMatchObject({ limit: { limit: "time_limit", by: "server" } });
+  });
+
+  test("a turn the runtime cut at a limit keeps that limit, held by the runner; a turn ended otherwise keeps none", async () => {
+    const cut = await operatorTurn();
+    expect(
+      (
+        await calls.endTurn(cut.turnId, {
+          outcome: "failed",
+          reason: "tool_call_limit",
+        })
+      ).limit,
+    ).toEqual({ limit: "tool_call_limit", by: "runner" });
+    const failed = await operatorTurn();
+    expect(
+      (
+        await calls.endTurn(failed.turnId, {
+          outcome: "failed",
+          reason: "engine_failed",
+        })
+      ).limit,
+    ).toBeNull();
+    const rows = await db
+      .select({
+        id: schema.conversationTurns.id,
+        limitReached: schema.conversationTurns.limitReached,
+        limitReachedBy: schema.conversationTurns.limitReachedBy,
+      })
+      .from(schema.conversationTurns);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        {
+          id: cut.turnId,
+          limitReached: "tool_call_limit",
+          limitReachedBy: "runner",
+        },
+        { id: failed.turnId, limitReached: null, limitReachedBy: null },
+      ]),
+    );
   });
 });

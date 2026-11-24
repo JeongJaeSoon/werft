@@ -171,7 +171,7 @@ export type CheckpointTranscripts = {
  * fetching any part — all against these same values. A session past it
  * takes no new turn (`transcript_too_large`), and its last checkpoint stays
  * the one a restore resumes.
- * Measurements, sessions per node and how to change both: apps/docs/content/docs/run-server/self-hosting/operate/capacity.mdx.
+ * Measurements, sessions per node and how to change both: apps/docs/content/docs/run-server/self-hosting/capacity.mdx.
  */
 export const MAX_TRANSCRIPT_PART_BYTES = 16 * 1024 * 1024;
 export const MAX_TRANSCRIPT_BYTES = 512 * 1024 * 1024;

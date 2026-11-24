@@ -132,6 +132,41 @@ curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
 
 Volumes can expire under the [stopped TTL contract](/run-server/self-hosting/reference/storage). A stopped session without a committed checkpoint cannot resume; work existing only on its volume disappears after expiry. Preserve needed files before TTL. During a reclamation claim, resume returns `503 BACKEND_UNAVAILABLE`, retryable true, without a receipt/idempotency record. Retry the same request after reclamation finishes.
 
+<a id="5-api-key-없이-세션-내리기" />
+### 5. Close a session without an API key
+
+When nobody has an API key to close a session (for example, an idle worker holds a node's room), close it with the operator command inside the API container. It takes the same path as the owner's close (`POST /v1/sessions/{id}/close`). A live worker drains and releases first, and the session becomes `closed` once the worker is seen gone. A close cannot be undone. The command uses only the container's `DATABASE_URL`.
+
+A worker's session id is in the `werft.session-id` label of its container or Pod.
+
+```bash
+docker ps --filter label=werft.session-id --format '{{.Names}} {{.Label "werft.session-id"}}'
+kubectl -n werft get pods -l app.kubernetes.io/component=worker -L werft.session-id
+```
+
+On a single server (Compose), run it in this installation's API container; on Kubernetes, in the api Deployment. `--reason` is required: it is the only account the owner gets of why the session closed.
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/main.ts admin close-session <session_id> --reason <text>
+
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/main.ts admin close-session <session_id> --reason <text>
+```
+
+The first word of the one stdout line is the result. The exit code is 0 for the three below, 1 for a refusal or an error (one stderr line), and 2 for a usage error.
+
+| First word | Meaning |
+| --- | --- |
+| `closing` | The worker is draining. The session becomes `closed` once the worker releases and is gone. Run the same command again to follow it |
+| `closed` | The session is closed. With `receipt_status=accepted`, the scheduler has yet to see the remaining execution gone |
+| `already_closed` | The session was already closed |
+
+- The `actor` of the status event in the session's event stream is `{"kind":"operator","by":"operator_cli"}`. The API container's log (`docker logs`, `kubectl logs`) gets a `session_close_requested` line with `by`, `session_id`, `owner_id`, `receipt_id`, `reason`, and `requested_at`.
+- A `recovery_required` session is refused. No worker runs for it; end it with the recovery decision `close` above.
+- A session is refused when no checkpoint covers its last turn and no worker is left to make one (or its transcript is past the limits). With a live worker, the close is accepted and waits for the worker to drain and leave a checkpoint. To stop its worker without one, use [execution revocation](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한).
+- If the worker does not drain within 60 seconds, the session's attention becomes `CLOSE_BLOCKED`. Read the reason; if you cannot wait, stop the worker with execution revocation.
+
 <a id="확인" />
 ## Verify
 

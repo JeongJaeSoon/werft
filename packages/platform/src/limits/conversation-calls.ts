@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
 import {
   type AgentRelease,
+  CONVERSATION_TURN_LIMIT_VALUES,
   type ConversationCallClass,
   type ConversationCallId,
   type ConversationCallKey,
   type ConversationId,
   type ConversationTopicId,
+  type ConversationTurnCallRefusal,
   type ConversationTurnId,
   conversationCallIdSchema,
   conversationCallKeySchema,
@@ -16,12 +18,14 @@ import {
   connectionOf,
   type SessionCatalog,
 } from "../catalog/index.ts";
+import type { ConversationTurnOutcome } from "../ports/conversation-turn-queue.ts";
 import { hashToken } from "../token-hash.ts";
 import type { BudgetRoot } from "./budget-accounts.ts";
 import type { ProviderUsage } from "./model-prices.ts";
 import type {
   ConversationCallIssue,
   ConversationCallStore,
+  ConversationTurnLimitReached,
   ConversationTurnPermitIssue,
 } from "./ports/conversation-call-store.ts";
 import { reservationCostUsd, reservationTokens } from "./reservations.ts";
@@ -46,6 +50,28 @@ const OPERATOR_ROOT: BudgetRoot = {
 };
 
 export const hashConversationCallToken = hashToken;
+
+/**
+ * Which limit ended a turn and who held it there: the server, when it
+ * refused a call past the turn's count or the turn's lease ran out; else the
+ * runtime, by the reason it reported.
+ */
+export function conversationTurnLimitReached(
+  outcome: ConversationTurnOutcome | null,
+  refusal: ConversationTurnCallRefusal | null,
+): ConversationTurnLimitReached | null {
+  if (refusal === "turn_limit") {
+    return { limit: "model_call_limit", by: "server" };
+  }
+  if (outcome?.outcome !== "failed") return null;
+  if (outcome.reason === "lease_expired") {
+    return { limit: "time_limit", by: "server" };
+  }
+  const limit = CONVERSATION_TURN_LIMIT_VALUES.find(
+    (value) => value === outcome.reason,
+  );
+  return limit === undefined ? null : { limit, by: "runner" };
+}
 
 /**
  * What a conversation call may use at most: its request's bytes read as
@@ -293,8 +319,19 @@ export function createConversationCalls(deps: {
      * Ends a turn issued here once its runtime is done with it, and its
      * permit with it: no call is granted on it after this.
      */
-    endTurn(turnId: ConversationTurnId) {
-      return deps.store.endTurnAtomic({ turnId });
+    endTurn(turnId: ConversationTurnId, outcome?: ConversationTurnOutcome) {
+      return deps.store.endTurnAtomic({
+        turnId,
+        limitReached: (refusal) =>
+          conversationTurnLimitReached(outcome ?? null, refusal),
+      });
+    },
+    /**
+     * Holds a turn's permit to its runtime's lease: once the lease is out,
+     * no call is granted on it, whatever the runtime does.
+     */
+    boundTurnPermit(turnId: ConversationTurnId, until: Date) {
+      return deps.store.boundTurnPermitAtomic({ turnId, until });
     },
   };
 }
