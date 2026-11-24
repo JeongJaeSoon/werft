@@ -53,6 +53,15 @@ export function clientNetworkOf(raw: string): ClientNetwork | null {
   if (version !== 6) return null;
   const groups = ipv6Groups(address);
   if (!groups) return null;
+  // ::ffff:a.b.c.d written in hex is the same IPv4 client.
+  if (
+    groups.slice(0, 5).every((group) => group === 0) &&
+    groups[5] === 0xffff
+  ) {
+    const [high = 0, low = 0] = groups.slice(6);
+    const ipv4 = [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+    return { network: ipv4, private: ipv4Private(ipv4) };
+  }
   const [first = 0] = groups;
   const loopbackOrUnspecified = groups
     .slice(0, 7)

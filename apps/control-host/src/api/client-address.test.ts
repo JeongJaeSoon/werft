@@ -23,6 +23,18 @@ describe("clientNetworkOf", () => {
       network: "198.51.100.1",
       private: false,
     });
+    // The same mapped addresses in hex are the same clients, not one /64.
+    expect(clientNetworkOf("::ffff:cb00:7109")).toEqual({
+      network: "203.0.113.9",
+      private: false,
+    });
+    expect(clientNetworkOf("0:0:0:0:0:FFFF:CB00:710A")?.network).toBe(
+      "203.0.113.10",
+    );
+    expect(clientNetworkOf("::ffff:a00:1")).toEqual({
+      network: "10.0.0.1",
+      private: true,
+    });
   });
 
   test("counts IPv6 per /64", () => {
