@@ -37,11 +37,22 @@ const isRelease = (file: string, workflow: Workflow) =>
   RELEASE_BY_NAME.has(file) ||
   Object.values(workflow.on).some((trigger) => trigger?.tags !== undefined);
 
-// Fixed groups that serialize on purpose. GitHub keeps only the newest waiting
-// run of such a group, so each needs a reason a dropped run loses nothing.
-const SERIALIZED: Record<string, string> = {
-  pages: "the site ends at the newest run's content",
-  "ci-image-mirror": "every run mirrors the whole list of the newest main",
+// Shared serial groups where only the latest run matters. GitHub keeps only the
+// newest waiting run of a group, so a name belongs here only when a later run
+// rebuilds the whole desired state and so covers a dropped one.
+// A run off main skips its job but would still replace a pending main run in
+// a plain shared group, so it gets a group of its own.
+const LATEST_WINS: Record<string, string> = {
+  "ci-image-mirror-${{ github.ref == 'refs/heads/main' && 'main' || github.run_id }}":
+    "every main run mirrors the whole list as of its own commit",
+};
+
+// Shared serial groups on a release path whose pending run can still be lost.
+// Known pending under 94S-2068: not allowed, only documented, so the test keeps
+// passing until each is fixed. Remove a name here when its group is fixed.
+const PENDING_94S_2068: Record<string, string> = {
+  pages:
+    "deploys its own ref, so a later run of an older ref replaces a newer one",
   "images-promote": "check-then-write of the sha-<12> and vX tags",
   "images-release": "one GitHub Release write at a time",
 };
@@ -58,9 +69,13 @@ describe("release concurrency groups", () => {
     for (const group of groupsOf(entry)) {
       test(`${group.where} never cancels or replaces a release run`, () => {
         const literal = !group.group.includes("{{");
-        if (literal) {
+        const named = [
+          ...Object.keys(LATEST_WINS),
+          ...Object.keys(PENDING_94S_2068),
+        ].includes(group.group);
+        if (literal || named) {
           // A shared group is allowed only when named here, never cancelling.
-          expect(Object.keys(SERIALIZED)).toContain(group.group);
+          expect(named).toBe(true);
           expect(group["cancel-in-progress"]).toBe(false);
           return;
         }
@@ -79,13 +94,20 @@ describe("release concurrency groups", () => {
     }
   }
 
-  test("a fixed group stays on the serialized list", () => {
-    const used = workflows
+  const shared = () =>
+    workflows
       .filter((w) => isRelease(w.file, w.workflow))
       .flatMap(groupsOf)
-      .map((g) => g.group)
-      .filter((group) => !group.includes("{{"));
-    for (const group of used) expect(SERIALIZED[group]).toBeString();
+      .map((g) => g.group);
+
+  test("the two lists do not overlap and have no stale names", () => {
+    const used = new Set(shared());
+    const names = [
+      ...Object.keys(LATEST_WINS),
+      ...Object.keys(PENDING_94S_2068),
+    ];
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of names) expect(used.has(name)).toBe(true);
   });
 
   test("every release workflow is covered", () => {

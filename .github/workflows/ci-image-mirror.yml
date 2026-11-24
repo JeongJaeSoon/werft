@@ -28,8 +28,18 @@ on:
 permissions:
   contents: read
 
+# Latest wins: GitHub keeps only the newest waiting run, and that is safe here.
+# Every run mirrors the whole matrix below as of its own main commit, never
+# only what its push changed, so a later run covers a dropped one when it
+# starts from a newer main. GitHub orders waiting runs by when they queue,
+# not by commit, so this holds in practice (pushes here are rare, one file),
+# not by guarantee. A dispatch from another ref skips the job below, so it
+# gets a group of its own rather than replacing a pending main run. A manual
+# rerun of an older main run keeps its old matrix and could replace a pending
+# newer one; after such a rerun, dispatch a fresh run from main.
+# tests/ci-concurrency.test.ts lists this group.
 concurrency:
-  group: ci-image-mirror
+  group: ci-image-mirror-${{ github.ref == 'refs/heads/main' && 'main' || github.run_id }}
   cancel-in-progress: false
 
 jobs:
