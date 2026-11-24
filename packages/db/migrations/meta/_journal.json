@@ -1828,6 +1828,20 @@
       "when": 1795540054212,
       "tag": "0351_conversation_turn_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 352,
+      "version": "7",
+      "when": 1795543042126,
+      "tag": "0352_lost_checkpoint_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 353,
+      "version": "7",
+      "when": 1795544624847,
+      "tag": "0353_conversation_judgments",
+      "breakpoints": true
     }
   ]
 }

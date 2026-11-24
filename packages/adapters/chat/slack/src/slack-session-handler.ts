@@ -8,6 +8,7 @@ import {
   type SlackNotice,
   type SurfaceChannelKind,
   slackNoticeFor,
+  type ThreadReplyRule,
 } from "@werft-ai/contracts";
 import type {
   AgentIdentityStore,
@@ -266,10 +267,22 @@ export function createSlackSessionHandler(
             : live.status !== "ready"
               ? "bot_removed"
               : null;
+      // An unbound thread the agent took part in lately: its replies are
+      // judged for the record (`m1_engaged`), never made a turn (a1/J5).
+      const engaged =
+        event.thread_ts !== undefined &&
+        (await deps.buffer.engagedThread({
+          kind: "channel",
+          workspaceId: agent.workspaceId,
+          agentId: agent.agentId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          threadTs,
+        }));
       const handling = inboundHandling({
         place: "channel",
         work: "none",
-        engaged: false,
+        engaged,
         input: event.thread_ts === undefined ? "top_level" : "reply",
         rollout: place.rollout,
         mode: live.mode,
@@ -278,16 +291,18 @@ export function createSlackSessionHandler(
       });
       const judged =
         handling.kind === "table" ? handling.handling : handling.shadow;
+      const holds = judged === "buffer_m1" || (engaged && judged === "m1");
       if (handling.kind === "current_path") {
-        if (judged !== "buffer_m1") return "current_path";
+        if (!holds) return "current_path";
         const currentPathTakes =
+          judged === "buffer_m1" &&
           live.mode === "on" &&
           event.thread_ts === undefined &&
           (await deps.settings.getSettings(agent.workspaceId, agent.agentId))
             ?.mention_only === false;
         if (currentPathTakes) return "current_path";
       }
-      if (judged !== "buffer_m1") {
+      if (!holds) {
         deps.logger.info("Slack message not held for the judgment", {
           ...ids,
           handling: judged,
@@ -337,6 +352,7 @@ export function createSlackSessionHandler(
         channelId: event.channel,
         ts: event.ts,
         buffered: { body: event.text, slackUserId: event.user },
+        ...(judged === "m1" ? { judgment: "m1_engaged" as const } : {}),
       };
     };
 
@@ -352,6 +368,38 @@ export function createSlackSessionHandler(
     // A DM calls the agent as a mention does; the text alone decides, so a
     // retry or the post's other event judges the same.
     const openedAs: EngagementKind = dm || mentioned ? "mention" : "reply";
+    /**
+     * A person's unmentioned reply in a bound thread, when the switch is up
+     * and the poster may be heard: its rule's call, for M1 to judge beside
+     * it (a1/J5). The turn goes on whatever either says.
+     */
+    const replyJudgment = async (): Promise<
+      { judgment: { rule: ThreadReplyRule } } | Record<string, never>
+    > => {
+      if (dm || mentioned || fromBot) return {};
+      if (event.thread_ts === undefined || event.thread_ts === event.ts) {
+        return {};
+      }
+      const place = await deps.buffer.place({
+        kind: "channel",
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+      });
+      if (place.rollout === "off") return {};
+      const unheard = await deps.audience.unheardReason({
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        slackUserId: event.user,
+        botToken: await deps.botToken(claim.workspaceId, claim.slackAppId),
+      });
+      if (unheard !== null) return {};
+      return {
+        judgment: { rule: judgeThreadReply(event.text, agent.botUserId) },
+      };
+    };
     const found = await deps.sessionLinks.find(
       agent.installationId,
       surfaceRef,
@@ -390,6 +438,7 @@ export function createSlackSessionHandler(
         event.ts,
         agent,
         found.openedByTs === event.ts ? openedAs : "bound",
+        found.openedByTs === event.ts ? {} : await replyJudgment(),
       );
     }
     // Before the early returns below, which let most unmentioned talk go:
@@ -769,7 +818,11 @@ export function createSlackSessionHandler(
           idempotencyKey: `${claim.teamId}:${event.channel}:${event.ts}`,
           body: { message, mode: "enqueue" },
           slackMessage,
-          slackInput: { topicId, engagement: "bound" },
+          slackInput: {
+            topicId,
+            engagement: "bound",
+            ...(await replyJudgment()),
+          },
         });
       }
       // The turn's insert marks the thread's status due; the outbox pass
@@ -850,6 +903,7 @@ export function createSlackSessionHandler(
     ts: string,
     agent: { workspaceId: string; agentId: string },
     engagement: EngagementKind,
+    judgment: Pick<InboundInputReceipt, "judgment">,
   ): Promise<InboundInputReceipt> {
     return {
       topicId: await topicOf(place, teamId, threadTs, agent),
@@ -857,6 +911,7 @@ export function createSlackSessionHandler(
       ts,
       turn,
       engagement,
+      ...judgment,
     };
   }
 

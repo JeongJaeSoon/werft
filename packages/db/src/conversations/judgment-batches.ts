@@ -19,6 +19,10 @@ import {
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
+import {
+  engagedJudgmentsInWindow,
+  heldForReply,
+} from "./conversation-judgments.ts";
 import { rowColumns, stillListened } from "./judgment-buffer.ts";
 
 /** Channels a close looks at in one call; the rest wait for the next. */
@@ -35,11 +39,11 @@ const secs = (ms: number) => sql`make_interval(secs => ${ms / 1000})`;
 const countsAgainstM1Cap = sql`(b.state = 'judging' OR (b.state IN ('judged', 'failed') AND b.model_called IS NOT FALSE))`;
 
 /**
- * Rows (alias `i`, batch `b` left-joined) a close may take: live, and in
- * no batch or in one past the cap.
+ * Rows (alias `i`, batch `b` left-joined) a close may take: live, in no
+ * batch or in one past the cap, and not held for a reply's own judgment.
  */
 const takeable = (at: SQL) =>
-  sql`i.buffer_expires_at IS NOT NULL AND i.buffer_expires_at > ${at} AND (i.judgment_batch_id IS NULL OR b.state = 'rate_limited')`;
+  sql`i.buffer_expires_at IS NOT NULL AND i.buffer_expires_at > ${at} AND (i.judgment_batch_id IS NULL OR b.state = 'rate_limited') AND NOT ${heldForReply}`;
 
 type Channel = {
   workspace_id: string;
@@ -148,9 +152,14 @@ async function closeChannel(
       now - Math.min(...received) >= JUDGMENT_BATCH_MAX_WAIT_MS);
   const [window] = rowsOf<{ counted: number | string }>(
     await tx.execute(sql`
-      SELECT count(*) AS counted FROM judgment_batches b
-      WHERE ${same} AND b.closed_at > ${at} - ${secs(M1_CHANNEL_WINDOW_MS)}
-        AND ${countsAgainstM1Cap}`),
+      SELECT (SELECT count(*) FROM judgment_batches b
+        WHERE ${same} AND b.closed_at > ${at} - ${secs(M1_CHANNEL_WINDOW_MS)}
+          AND ${countsAgainstM1Cap}) + ${engagedJudgmentsInWindow({
+            agentId: sql`${channel.agent_id}::uuid`,
+            teamId: sql`${channel.slack_team_id}`,
+            channelId: sql`${channel.slack_channel_id}`,
+            at,
+          })} AS counted`),
   );
   const room = Number(window?.counted ?? 0) < M1_JUDGMENTS_PER_CHANNEL_WINDOW;
   // Messages past the cap go with the first batch the window has room for.
@@ -258,7 +267,12 @@ export function createPostgresJudgmentBatchStore(
                   AND b.slack_team_id = i.slack_team_id
                   AND b.slack_channel_id = i.slack_channel_id
                   AND b.closed_at > ${at} - ${secs(M1_CHANNEL_WINDOW_MS)}
-                  AND ${countsAgainstM1Cap}) < ${M1_JUDGMENTS_PER_CHANNEL_WINDOW})
+                  AND ${countsAgainstM1Cap}) + ${engagedJudgmentsInWindow({
+                    agentId: sql`i.agent_id`,
+                    teamId: sql`i.slack_team_id`,
+                    channelId: sql`i.slack_channel_id`,
+                    at,
+                  })} < ${M1_JUDGMENTS_PER_CHANNEL_WINDOW})
               -- New messages only: those past the cap make no batch of their own.
               OR max(i.received_at) FILTER (WHERE i.judgment_batch_id IS NULL)
                 <= ${at} - ${secs(JUDGMENT_BATCH_QUIET_MS)}
