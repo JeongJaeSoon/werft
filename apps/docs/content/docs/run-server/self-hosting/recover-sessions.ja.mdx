@@ -131,6 +131,41 @@ curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
 
 [stopped TTL 契約](/run-server/self-hosting/reference/storage)に従い、volume は期限切れになる場合があります。commit 済み checkpoint のない stopped セッションは resume できず、volume だけにあった作業は期限後に消えます。必要なファイルは TTL 内に保存します。回収 claim 中の resume は `503 BACKEND_UNAVAILABLE`、retryable true で、receipt・idempotency 記録を残しません。回収完了後に同じ要求を再試行します。
 
+<a id="5-api-key-없이-세션-내리기" />
+### 5. API key なしでセッションを閉じる
+
+セッションを閉じる API key がない場合（例：待機中の worker がノードの空きを占めている場合）、API コンテナ内の運用者コマンドでセッションを閉じます。セッション owner の close（`POST /v1/sessions/{id}/close`）と同じ経路です。生きている worker は drain してから release し、worker の不在が確認されるとセッションは `closed` になります。close は元に戻せません。コマンドはコンテナの `DATABASE_URL` だけを使います。
+
+worker のセッション id は、worker コンテナ・Pod の `werft.session-id` label にあります。
+
+```bash
+docker ps --filter label=werft.session-id --format '{{.Names}} {{.Label "werft.session-id"}}'
+kubectl -n werft get pods -l app.kubernetes.io/component=worker -L werft.session-id
+```
+
+単一サーバー（Compose）ではこのインストールの API コンテナで、Kubernetes では api Deployment で実行します。`--reason` は必須です。セッションが閉じられた理由を owner が知る唯一の説明です。
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/main.ts admin close-session <session_id> --reason <text>
+
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/main.ts admin close-session <session_id> --reason <text>
+```
+
+stdout 1 行の最初の語が結果です。終了コードは下の 3 つなら 0、拒否・エラーなら 1（stderr に 1 行）、使い方の誤りなら 2 です。
+
+| 最初の語 | 意味 |
+| --- | --- |
+| `closing` | worker が drain 中です。worker が release して消えると `closed` になります。同じコマンドを再実行して進行を確認します |
+| `closed` | セッションは閉じました。`receipt_status=accepted` なら、残った実行の不在を scheduler が確認するのを待っています |
+| `already_closed` | すでに閉じたセッションです |
+
+- セッションのイベントストリームの status イベントの `actor` は `{"kind":"operator","by":"operator_cli"}` です。API コンテナのログ（`docker logs`・`kubectl logs`）に `session_close_requested` 行が残り、`by`、`session_id`、`owner_id`、`receipt_id`、`reason`、`requested_at` を含みます。
+- `recovery_required` のセッションは拒否されます。動いている worker はないので、上の復旧判断 `close` で終えます。
+- 最後の turn を含む checkpoint がないセッションは拒否されます。checkpoint なしで worker を止めるには[実行権限の取り消し](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한)を使います。
+- worker が 60 秒以内に drain できないと、セッション詳細の attention が `CLOSE_BLOCKED` になります。理由を確認し、待てない場合は実行権限の取り消しで worker を止めます。
+
 <a id="확인" />
 ## 確認
 

@@ -118,6 +118,40 @@ curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
 
 [stopped TTL 계약](/run-server/self-hosting/reference/storage)에 따라 volume은 만료될 수 있다. committed checkpoint가 없는 stopped 세션은 resume할 수 없고 volume에만 있던 작업은 만료 뒤 사라진다. 필요한 파일은 TTL 안에 보존한다. 회수 claim 중에는 resume이 `503 BACKEND_UNAVAILABLE`, retryable true이며 receipt·idempotency 기록을 남기지 않는다. 회수가 끝난 뒤 같은 요청을 재시도한다.
 
+### 5. API key 없이 세션 내리기
+
+세션을 내릴 API key가 없으면(예: 쉬는 worker가 노드 자리를 잡고 있을 때) API 컨테이너 안에서 운영자 명령으로 세션을 닫는다. 세션 owner의 close(`POST /v1/sessions/{id}/close`)와 같은 길이다. worker가 살아 있으면 drain한 뒤 release하고, worker가 사라진 것이 확인되면 세션이 `closed`가 된다. close는 되돌릴 수 없다. 명령은 컨테이너의 `DATABASE_URL`만 쓴다.
+
+worker의 세션 id는 worker 컨테이너·Pod의 `werft.session-id` label에 있다.
+
+```bash
+docker ps --filter label=werft.session-id --format '{{.Names}} {{.Label "werft.session-id"}}'
+kubectl -n werft get pods -l app.kubernetes.io/component=worker -L werft.session-id
+```
+
+단일 서버(Compose)에서는 이번 설치의 API 컨테이너에서, Kubernetes에서는 api Deployment에서 실행한다. `--reason`은 반드시 적는다. owner가 세션이 왜 닫혔는지 아는 유일한 설명이다.
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/main.ts admin close-session <session_id> --reason <text>
+
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/main.ts admin close-session <session_id> --reason <text>
+```
+
+stdout 한 줄의 첫 단어가 결과다. 종료 코드는 아래 셋이면 0, 거절·오류면 1(stderr 한 줄), 사용법 오류면 2다.
+
+| 첫 단어 | 뜻 |
+| --- | --- |
+| `closing` | worker가 drain 중이다. worker가 release하고 사라지면 `closed`가 된다. 같은 명령을 다시 실행해 진행을 본다 |
+| `closed` | 세션이 닫혔다. `receipt_status=accepted`이면 남은 실행이 사라진 것을 scheduler가 확인하기를 기다린다 |
+| `already_closed` | 이미 닫힌 세션이다 |
+
+- 세션 이벤트 스트림의 status 이벤트 `actor`가 `{"kind":"operator","by":"operator_cli"}`다. API 컨테이너 로그(`docker logs`·`kubectl logs`)에 `session_close_requested` 줄이 남는다. `by`, `session_id`, `owner_id`, `receipt_id`, `reason`, `requested_at`이 들어 있다.
+- `recovery_required` 세션은 거절된다. 도는 worker가 없으니 위의 복구 결정 `close`로 끝낸다.
+- 마지막 turn을 덮는 checkpoint가 없으면 거절된다. worker를 checkpoint 없이 멈추려면 [실행 권한 회수](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한)를 쓴다.
+- worker가 60초 안에 drain하지 못하면 세션 상세 attention이 `CLOSE_BLOCKED`가 된다. 이유를 보고, 기다릴 수 없으면 실행 권한 회수로 worker를 멈춘다.
+
 ## 확인
 
 결정 receipt의 상태와 세션 revision·admission·resumable을 함께 확인한다. 수락은 worker 부재나 실제 재개 성공과 다르다. 재개 후 새 turn이 checkpoint의 context를 이어받았는지 별도로 확인한다.
