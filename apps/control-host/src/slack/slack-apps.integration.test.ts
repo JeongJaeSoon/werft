@@ -17,6 +17,7 @@ import {
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   memberships,
+  receipts,
   secretValues,
   slackAppKind,
   slackApps,
@@ -447,6 +448,131 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       ).toBe("outranked");
       expect(await store().getSettings(workspaceId, agentId)).toEqual({
         mention_only: false,
+      });
+    });
+
+    describe("allowed bots saved from the console", () => {
+      const receiptsOf = (workspaceId: string) =>
+        db
+          .select()
+          .from(receipts)
+          .where(eq(receipts.ownerId, workspaceId))
+          .then((rows) =>
+            rows
+              .filter((row) => row.operation === "set_slack_allowed_bots")
+              .map((row) => ({
+                ...row,
+                result: row.result as {
+                  count_before: number;
+                  count_after: number;
+                  removed: string[];
+                },
+              })),
+          );
+      const put = (
+        workspaceId: string,
+        agentId: string,
+        actor: Parameters<
+          ReturnType<typeof store>["putAllowedBots"]
+        >[0]["actor"],
+        allowedBotUserIds: string[],
+      ) =>
+        store().putAllowedBots({
+          workspaceId,
+          agentId,
+          actor,
+          allowedBotUserIds,
+        });
+
+      test("adding and removing a bot leaves one receipt each, naming the user", async () => {
+        const workspaceId = await workspace();
+        const agentId = await agent(workspaceId, false);
+        const owner = await person(workspaceId, "owner");
+        const actor = { principal: owner.principal, managerRoles: BINDERS };
+
+        expect(await put(workspaceId, agentId, actor, ["U0A", "U0B"])).toBe(
+          "saved",
+        );
+        expect(await put(workspaceId, agentId, actor, ["U0B"])).toBe("saved");
+
+        const rows = (await receiptsOf(workspaceId)).sort((a, b) =>
+          a.result.count_after < b.result.count_after ? 1 : -1,
+        );
+        expect(rows).toHaveLength(2);
+        expect(rows[0]).toMatchObject({
+          status: "succeeded",
+          actor: { actor_user_id: owner.userId },
+          result: {
+            agent_id: agentId,
+            added: ["U0A", "U0B"],
+            removed: [],
+            count_before: 0,
+            count_after: 2,
+            by: "web",
+          },
+        });
+        expect(rows[1]).toMatchObject({
+          actor: { actor_user_id: owner.userId },
+          result: {
+            added: [],
+            removed: ["U0A"],
+            count_before: 2,
+            count_after: 1,
+          },
+        });
+      });
+
+      test("saving the same list, or one reordered, leaves no receipt", async () => {
+        const workspaceId = await workspace();
+        const agentId = await agent(workspaceId, false);
+        const owner = await person(workspaceId, "owner");
+        const actor = { principal: owner.principal, managerRoles: BINDERS };
+        await put(workspaceId, agentId, actor, ["U0A", "U0B"]);
+        await put(workspaceId, agentId, actor, ["U0A", "U0B"]);
+        await put(workspaceId, agentId, actor, ["U0B", "U0A"]);
+        await put(workspaceId, agentId, actor, []);
+        await put(workspaceId, agentId, actor, []);
+        expect(await receiptsOf(workspaceId)).toHaveLength(2);
+      });
+
+      test("a refused actor or an unknown agent leaves no receipt and no change", async () => {
+        const workspaceId = await workspace();
+        const agentId = await agent(workspaceId, false);
+        const member = await person(workspaceId, "member");
+        const actor = { principal: member.principal, managerRoles: BINDERS };
+        expect(await put(workspaceId, agentId, actor, ["U0A"])).toBe(
+          "outranked",
+        );
+        expect(await put(workspaceId, randomUUID(), actor, ["U0A"])).not.toBe(
+          "saved",
+        );
+        expect(await receiptsOf(workspaceId)).toHaveLength(0);
+        expect(
+          (await store().getAllowedBots(workspaceId, agentId))
+            ?.allowedBotUserIds,
+        ).toEqual([]);
+      });
+
+      test("saves at once each see the list the other left, so receipts chain", async () => {
+        const workspaceId = await workspace();
+        const agentId = await agent(workspaceId, false);
+        const owner = await person(workspaceId, "owner");
+        const actor = { principal: owner.principal, managerRoles: BINDERS };
+        await Promise.all([
+          put(workspaceId, agentId, actor, ["U0A"]),
+          put(workspaceId, agentId, actor, ["U0B"]),
+        ]);
+        const rows = await receiptsOf(workspaceId);
+        const final =
+          (await store().getAllowedBots(workspaceId, agentId))
+            ?.allowedBotUserIds ?? [];
+        expect(rows).toHaveLength(2);
+        // Without the lock both would read [] and both write count_before 0.
+        expect(rows.map((row) => row.result.count_before).sort()).toEqual([
+          0, 1,
+        ]);
+        expect(rows.some((row) => row.result.removed.length === 1)).toBe(true);
+        expect(final).toHaveLength(1);
       });
     });
 
