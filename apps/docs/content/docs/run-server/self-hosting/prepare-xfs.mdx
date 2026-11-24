@@ -62,9 +62,9 @@ sudo bash scripts/prepare-xfs.sh
 /var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0
 ```
 
-스크립트가 이 항목을 `/etc/fstab`에 직접 덧붙이므로 편집기로 고칠 필요가 없다. 이 단계의 `findmnt --verify`는 종료 코드 0이면서 경고 2개를 낼 수 있고, 둘 다 정상이다. `non-bind mount source /var/lib/docker.xfs.img is a directory or regular file`은 loop로 mount하는 source가 일반 파일이라는 알림이다. `your fstab has been modified, but systemd still uses the old version`은 바로 다음에 스크립트가 실행하는 `systemctl daemon-reload` 전이라 나온다.
+스크립트가 이 항목을 `/etc/fstab`에 직접 덧붙이므로 편집기로 고칠 필요가 없다. 이 단계의 `findmnt --verify`는 종료 코드 0이면서 경고 2개를 낼 수 있고, 둘 다 정상이다. `non-bind mount source /var/lib/docker.xfs.img is a directory or regular file`은 loop로 mount하는 source가 일반 파일이라는 알림이다. `your fstab has been modified, but systemd still uses the old version`은 systemd가 바뀐 fstab을 아직 다시 읽지 않아서 나오며, 스크립트가 바로 다음에 `systemctl daemon-reload`를 실행한다.
 
-이미지 크기는 `--size`로 바꾼다. 값은 정수 GB다(예: `--size 100G`). 60G는 `/var/lib/docker`에 들어가는 volume과 컨테이너 로그의 천장이다. Docker 29는 이미지와 컨테이너 층을 `/var/lib/containerd`에 두므로 XFS 이미지 밖(보통 루트 디스크)에 쌓인다. 그 여유는 따로 확인한다. XFS 이미지는 sparse 파일이지만 호스트에 그만큼의 여유가 있어야 한다.
+이미지 크기는 `--size`로 바꾼다. 값은 정수 GB다(예: `--size 100G`). 60G는 `/var/lib/docker`에 들어가는 volume과 컨테이너 로그가 나눠 쓰는 합계 천장이다. 파일시스템 metadata도 공간을 쓰므로 실제 데이터 여유는 이보다 작다. Docker 29 이상을 새로 설치해 containerd image store(기본값)를 쓰면 이미지와 컨테이너 층은 `/var/lib/containerd`에 쌓여 XFS 이미지 밖(보통 루트 디스크)을 쓴다. 그 여유는 따로 확인한다. XFS 이미지는 sparse 파일이지만 호스트에 그만큼의 여유가 있어야 한다.
 
 한 단계가 실패하면 스크립트가 그 앞의 단계를 거꾸로 되돌린다. fstab을 백업본으로 복원하고, unmount하고, 만든 mount 지점과 이미지를 지우고, 원본을 `/var/lib/docker`로 되돌린 뒤 Docker를 다시 시작한다. Docker가 새 이미지에서 이미 시작됐다면 그동안 쓴 내용이 이미지에 있으므로 이미지는 지우지 않고 그 경로를 출력한다.
 
