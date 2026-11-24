@@ -98,7 +98,7 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
   --namespace werft -f values-<installation>.yaml --timeout 10m
 ```
 
-If `helm` ends with `Kubernetes cluster unreachable: Get "http://localhost:8080/version"`, `KUBECONFIG` is missing. Set it as described in the prerequisites and rerun the same command.
+If `helm` ends with `Kubernetes cluster unreachable: Get "http://localhost:8080/version"`, `helm` could not read a cluster configuration. Set it as described in the prerequisites and rerun the same command.
 
 The migrate Job upgrades the schema first. Once it finishes, api, egress proxy, reconciler, scheduler, and slack are applied together. If the first installation fails due to image paths or pull permissions, correct the values and rerun the same command.
 
@@ -156,7 +156,7 @@ On the first day, immediately after installation, after 1 hour, and before the e
 
 A CNI without NetworkPolicy enforcement provides no worker isolation. Use Pod and Job logs to distinguish missing Secret keys, invalid installationId, S3 protection errors, and image pull failures. A fixture chart render does not prove a published chart installation.
 
-After a node restarts, the api can take a few minutes to become ready. An api Pod that started while PostgreSQL was not yet accepting connections waits without logging, is restarted by its startup probe (24 checks 5 seconds apart, about 2 minutes), and then becomes ready. Meanwhile `kubectl rollout status` can report success from the state before the restart. Check readiness by reading `/readyz` directly with the block in [Verify](#확인). If it is not ready within 30 attempts, run it again a few minutes later and check the api Pod's status and `RESTARTS` with `kubectl -n werft get pods`.
+After a node restarts, the api can take a few minutes to become ready. On a node where PostgreSQL restarts alongside the api, api Pods have stayed unready for over 2 minutes and became ready only after their startup probe (24 checks 5 seconds apart, about 2 minutes) restarted them. Meanwhile `kubectl rollout status` can report success from the state before the restart. Check readiness by reading `/readyz` directly with the block in [Verify](#확인). If it is not ready within 30 attempts, run it again a few minutes later and check the api Pod's status and `RESTARTS` with `kubectl -n werft get pods` and its logs with `kubectl -n werft logs deploy/werft-api`.
 
 <a id="되돌리기" />
 ## Roll back
