@@ -8,7 +8,7 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
-import { executions, sessions, workerLaunches } from "./schema.ts";
+import { executions, sessions, turns, workerLaunches } from "./schema.ts";
 import { testWorkerGateway } from "./testing/gateway.ts";
 import { claimedSession as claimedTestSession } from "./testing/sessions.ts";
 import { testSessionCatalog } from "./testing/spec-pins.ts";
@@ -187,5 +187,110 @@ describe("launch drain", () => {
       await store.requestDrain({ ...ref, generation: 2 }, 60_000),
     ).toBeNull();
     expect(await drainRequestedAt(ref.executionId)).toBeNull();
+  });
+});
+
+describe("idle stop", () => {
+  /** A claimed session whose first turn ran and finished. */
+  async function idleSession() {
+    const claimed = await claimedSession();
+    const { principal, scope } = claimed;
+    const first = await gateway.nextInput(principal, scope);
+    if (!first.input) throw new Error("no input delivered");
+    await gateway.finalize(principal, {
+      ...scope,
+      turn_id: first.input.turn_id,
+      finalize_key: `${scope.attempt_id}:${first.input.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    return claimed;
+  }
+
+  test("an idle worker is listed, asked to stop, told so on its next poll, and handed no new input", async () => {
+    const { sessionId, ref, principal, scope } = await idleSession();
+    const store = schedulerStore();
+    const listed = await store.idleWorkers("local_docker");
+    expect(listed.stopping).toEqual([]);
+    expect(listed.idle.map((w) => w.executionId)).toEqual([ref.executionId]);
+    expect(listed.idle[0]?.sessionId).toBe(sessionId);
+
+    expect(await store.requestIdleStop(ref)).toBe(true);
+    expect(await drainRequestedAt(ref.executionId)).not.toBeNull();
+    // Asked once: a second ask finds it already on its way out.
+    expect(await store.requestIdleStop(ref)).toBe(false);
+    expect((await store.idleWorkers("local_docker")).stopping).toEqual([
+      { ...ref, image: expect.anything(), sessionId },
+    ]);
+
+    await append(sessionId, "after the stop");
+    const next = await gateway.nextInput(principal, scope);
+    expect(next.input).toBeNull();
+    expect(next.draining).toBe(true);
+  });
+
+  test("a worker with a turn open is not idle, nor one awaiting a person's answer", async () => {
+    const { sessionId, ref, principal, scope } = await claimedSession();
+    const first = await gateway.nextInput(principal, scope);
+    if (!first.input) throw new Error("no input delivered");
+    const store = schedulerStore();
+    expect((await store.idleWorkers("local_docker")).idle).toEqual([]);
+    expect(await store.requestIdleStop(ref)).toBe(false);
+
+    await db
+      .update(turns)
+      .set({ status: "needs_input" })
+      .where(eq(turns.sessionId, sessionId));
+    expect((await store.idleWorkers("local_docker")).idle).toEqual([]);
+    expect(await store.requestIdleStop(ref)).toBe(false);
+    expect(await drainRequestedAt(ref.executionId)).toBeNull();
+  });
+
+  test("a worker still starting up, or with input queued for it, is not idle", async () => {
+    const { ref } = await claimedSession();
+    const store = schedulerStore();
+    // Claimed, first input queued, no poll yet.
+    expect((await store.idleWorkers("local_docker")).idle).toEqual([]);
+    expect(await store.requestIdleStop(ref)).toBe(false);
+
+    const idle = await idleSession();
+    await append(idle.sessionId, "queued for it");
+    expect(
+      (await store.idleWorkers("local_docker")).idle.map((w) => w.executionId),
+    ).not.toContain(idle.ref.executionId);
+    expect(await store.requestIdleStop(idle.ref)).toBe(false);
+  });
+
+  test("a session whose checkpoint did not commit is not idle", async () => {
+    const { sessionId, ref } = await idleSession();
+    await db
+      .update(sessions)
+      .set({ checkpointPendingReason: "checkpoint_failed" })
+      .where(eq(sessions.id, sessionId));
+    const store = schedulerStore();
+    expect((await store.idleWorkers("local_docker")).idle).toEqual([]);
+    expect(await store.requestIdleStop(ref)).toBe(false);
+  });
+
+  test("idle workers come longest idle first", async () => {
+    const a = await idleSession();
+    const b = await idleSession();
+    await db
+      .update(turns)
+      .set({ endedAt: new Date(Date.now() - 60_000) })
+      .where(eq(turns.sessionId, b.sessionId));
+    await db
+      .update(workerLaunches)
+      .set({ slotReservedAt: new Date(Date.now() - 120_000) });
+    const store = schedulerStore();
+    expect(
+      (await store.idleWorkers("local_docker")).idle.map((w) => w.executionId),
+    ).toEqual([b.ref.executionId, a.ref.executionId]);
   });
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { integerSetting, type SettingsEnvironment } from "./settings.ts";
 
 export const workspaceEnforceSchema = z.enum(["warn", "fail", "off"]);
 export type WorkspaceEnforce = z.infer<typeof workspaceEnforceSchema>;
@@ -40,12 +41,31 @@ export const ENV = {
   objectPrefix: "WORKER_OBJECT_PREFIX",
   objectRegion: "AWS_REGION",
   stopGrace: "WORKER_STOP_GRACE_SEC",
+  idleTimeout: "WORKER_IDLE_TIMEOUT_SEC",
   maxTurnSeconds: "WORKER_MAX_TURN_SEC",
   providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
   logLevel: "LOG_LEVEL",
   // Set only to `disabled`, where an operator turned Codex auto's sandbox off.
   codexSandbox: "CODEX_SANDBOX",
 } as const;
+
+/**
+ * How long a worker with no input waits before it ends and gives its room
+ * back, in seconds: the operator's setting, read by the scheduler and
+ * handed to every worker it launches.
+ */
+export const WORKER_IDLE_TIMEOUT_SEC = {
+  default: 1800,
+  min: 60,
+  max: 7200,
+} as const;
+
+/** `WORKER_IDLE_TIMEOUT_SEC`, refused outside its range. */
+export function workerIdleTimeoutSecondsOf(
+  environment: SettingsEnvironment,
+): number {
+  return integerSetting(environment, ENV.idleTimeout, WORKER_IDLE_TIMEOUT_SEC);
+}
 
 export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";
 

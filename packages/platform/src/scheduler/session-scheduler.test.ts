@@ -507,6 +507,60 @@ class MemoryStore implements SchedulerStore {
     };
   }
 
+  /** When each session's worker went idle, on the storage clock; unset: 0. */
+  readonly idleSince = new Map<string, number>();
+
+  private claimedWorkers(backend: string): Launch[] {
+    return [...this.executions.values()].filter(
+      (row) =>
+        row.backend === backend &&
+        row.claimed &&
+        !row.slotReleased &&
+        row.desiredState === "running",
+    );
+  }
+
+  async idleWorkers(backend: ExecutionBackend["kind"]) {
+    const worker = (row: Launch) => ({
+      executionId: row.executionId,
+      generation: row.generation,
+      image: row.image,
+      sessionId: row.sessionId,
+    });
+    const rows = this.claimedWorkers(backend);
+    return {
+      idle: rows
+        .filter(
+          (row) =>
+            row.drainRequestedAt === undefined &&
+            !this.busySessions.has(row.sessionId),
+        )
+        .map((row) => ({
+          ...worker(row),
+          idleSince: new Date(this.idleSince.get(row.sessionId) ?? 0),
+        }))
+        .sort((a, b) => a.idleSince.getTime() - b.idleSince.getTime()),
+      stopping: rows
+        .filter((row) => row.drainRequestedAt !== undefined)
+        .map(worker),
+    };
+  }
+
+  async requestIdleStop(ref: ExecutionRef): Promise<boolean> {
+    const row = this.executions.get(ref.executionId);
+    if (
+      !row ||
+      row.generation !== ref.generation ||
+      !this.claimedWorkers(row.backend).includes(row) ||
+      row.drainRequestedAt !== undefined ||
+      this.busySessions.has(row.sessionId)
+    ) {
+      return false;
+    }
+    row.drainRequestedAt = this.storageNow();
+    return true;
+  }
+
   async desiredStateOf(ref: ExecutionRef) {
     const row = this.executions.get(ref.executionId);
     return row && row.generation === ref.generation ? row.desiredState : null;
@@ -692,6 +746,7 @@ function nameOf(ref: ExecutionRef): string {
 
 class FakeBackend implements ExecutionBackend {
   readonly kind = "local_docker" as const;
+  makesRoomFor?: (waitingImage: string, image: string) => boolean;
   /** Keyed like Docker names the containers: execution id plus generation. */
   readonly containers = new Map<string, Container>();
   readonly ensureCalls: LaunchIntent[] = [];
@@ -5678,6 +5733,96 @@ describe("a launch waiting for room", () => {
           r.message === "Execution waited for capacity and found it",
       ),
     ).toBe(true);
+  });
+
+  /** A claimed worker on its own session, idle since `idleSince`. */
+  function claimedWorker(
+    h: ReturnType<typeof harness>,
+    executionId: string,
+    idleSince: number,
+  ) {
+    const row = h.store.seedActive({
+      claimed: true,
+      executionId,
+      image: "worker:test",
+      observedState: "running",
+    });
+    h.backend.containers.set(`${executionId}#1`, {
+      exited: false,
+      generation: 1,
+      operationId: row.operationId ?? "op",
+      sessionId: row.sessionId,
+    });
+    h.store.idleSince.set(row.sessionId, idleSince);
+    return { ref: { executionId, generation: 1 }, row };
+  }
+
+  test("asks the worker idle longest to stop, one at a time, then the next", async () => {
+    const h = harness();
+    const older = claimedWorker(h, "exec-older", 1_000);
+    const newer = claimedWorker(h, "exec-newer", 2_000);
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.createPendingFor.add(sessionId);
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+    await h.run();
+
+    const first = await h.run();
+    expect(first.idleWorkersStopped).toEqual([older.ref]);
+    expect(older.row.drainRequestedAt).toBeDefined();
+    expect(newer.row.drainRequestedAt).toBeUndefined();
+    // Stopped by its worker, not torn down by the scheduler.
+    expect(h.backend.terminateCalls).toEqual([]);
+    expect(
+      h.records.some(
+        (r) =>
+          r.message ===
+          "Idle worker asked to stop; a launch waits for its room",
+      ),
+    ).toBe(true);
+
+    // While it is on its way out, nothing more is asked.
+    expect((await h.run()).idleWorkersStopped).toEqual([]);
+
+    // It went and the launch still has no room: the next one is asked.
+    const container = h.backend.containers.get("exec-older#1");
+    if (!container) throw new Error("no container");
+    container.exited = true;
+    const next = await h.run();
+    expect(h.store.confirmedGone).toContain("exec-older");
+    expect(next.idleWorkersStopped).toEqual([newer.ref]);
+  });
+
+  test("never asks a worker with a turn open, a person's answer awaited included", async () => {
+    const h = harness();
+    const busy = claimedWorker(h, "exec-busy", 1_000);
+    h.store.busySessions.add(busy.row.sessionId);
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.createPendingFor.add(sessionId);
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+    await h.run();
+
+    const summary = await h.run();
+
+    expect(summary.waitingForCapacity).toHaveLength(1);
+    expect(summary.idleWorkersStopped).toEqual([]);
+    expect(busy.row.drainRequestedAt).toBeUndefined();
+    expect(h.backend.terminateCalls).toEqual([]);
+  });
+
+  test("asks no worker whose room the launch could not take", async () => {
+    const h = harness();
+    const other = claimedWorker(h, "exec-other", 1_000);
+    h.backend.makesRoomFor = () => false;
+    const [sessionId] = h.store.addUnassigned(1);
+    if (!sessionId) throw new Error("no session");
+    h.backend.createPendingFor.add(sessionId);
+    h.backend.unschedulableFor.set(sessionId, NO_ROOM);
+    await h.run();
+
+    expect((await h.run()).idleWorkersStopped).toEqual([]);
+    expect(other.row.drainRequestedAt).toBeUndefined();
   });
 
   test("gives its queued input up after the limit, without a launch failure", async () => {

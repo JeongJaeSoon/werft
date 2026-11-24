@@ -227,6 +227,23 @@ export type CapacityWait = {
   previousMessage: string | null;
 };
 
+/** A claimed worker that could give its room up, as `idleWorkers` lists it. */
+export type ClaimedWorker = ExecutionRef & {
+  sessionId: string;
+  image: string | null;
+};
+
+/** Claimed workers of one backend that bear on making room. */
+export type IdleWorkers = {
+  /**
+   * Idle, longest first: no turn open or queued on the session, past its
+   * startup, its last checkpoint committed, and no drain asked yet.
+   */
+  idle: Array<ClaimedWorker & { idleSince: Date }>;
+  /** Asked to drain and still holding their slot: room on its way. */
+  stopping: ClaimedWorker[];
+};
+
 /** The scheduling pass lock, while this pass holds it. */
 export type PassLock = {
   /**
@@ -452,6 +469,17 @@ export interface SchedulerStore {
    * not waited that long.
    */
   giveUpForCapacity(ref: ExecutionRef, limitMs: number): Promise<boolean>;
+  /** See `IdleWorkers`; claimed launches that hold a slot on `backend`. */
+  idleWorkers(backend: ExecutionBackendKind): Promise<IdleWorkers>;
+  /**
+   * Asks an idle worker to go so its room goes to a launch that has none:
+   * the `requestDrain` record, written only while the worker is idle as
+   * `IdleWorkers.idle` means it, judged under the lock a worker's
+   * next-input takes. From then it is handed no turn, and its next poll
+   * tells it to stop, the way an idle timeout ends it. False when it is not
+   * idle any more, or the launch moved on.
+   */
+  requestIdleStop(ref: ExecutionRef): Promise<boolean>;
   /** Open launches for `backend` only; other backends' rows are theirs. */
   listActiveExecutions(
     backend: ExecutionBackendKind,

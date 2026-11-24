@@ -10,6 +10,7 @@ import type {
   DrainState,
   ExecutionObservation,
   ExecutionRef,
+  IdleWorkers,
   LaunchCredentialState,
   LaunchFailureInput,
   LaunchFailureOutcome,
@@ -114,6 +115,34 @@ export type PostgresSchedulerStoreOptions = {
 };
 
 const PASS_LOCK_KEY = "scheduler:pass";
+
+/** Turns that keep a worker from being idle: open ones, and ones queued for it. */
+const BUSY_TURN_STATUSES = [...OPEN_TURN_STATUSES, "queued"];
+
+/**
+ * Over a launch row joined to the session bound to it: the worker is idle.
+ * An active session, past its startup (a worker that has not polled yet is
+ * still restoring), whose last checkpoint committed, with no turn open —
+ * one awaiting a person's answer is open — or queued.
+ */
+function idleWorkerCondition(): SQL {
+  return sql`${sessions.admissionState} = 'active'
+    AND ${sessions.restoreAttemptId} IS DISTINCT FROM ${workerLaunches.claimedAttemptId}
+    AND ${sessions.checkpointPendingReason} IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM ${turns}
+      WHERE ${turns.sessionId} = ${sessions.id}
+        AND ${inArray(turns.status, BUSY_TURN_STATUSES)}
+    )`;
+}
+
+/** The later of its launch's reservation and the session's last turn end. */
+function idleSince(): SQL<string> {
+  return sql<string>`GREATEST(${workerLaunches.slotReservedAt}, (
+    SELECT max(${turns.endedAt}) FROM ${turns}
+    WHERE ${turns.sessionId} = ${sessions.id}
+  ))`;
+}
 
 const DESIRED_RUNNING = "running";
 
@@ -938,6 +967,105 @@ export function createPostgresSchedulerStore(
           busy: open.length > 0 || startingUp,
           overdue: requested?.overdue === true,
         };
+      });
+    },
+
+    async idleWorkers(backend): Promise<IdleWorkers> {
+      const rows = await db
+        .select({
+          executionId: workerLaunches.executionId,
+          generation: workerLaunches.generation,
+          image: workerLaunches.image,
+          sessionId: sessions.id,
+          stopping: sql<boolean>`${workerLaunches.drainRequestedAt} IS NOT NULL`,
+          idle: sql<boolean>`${idleWorkerCondition()}`,
+          idleSince: idleSince(),
+        })
+        .from(workerLaunches)
+        .innerJoin(executions, eq(executions.id, workerLaunches.executionId))
+        .innerJoin(
+          sessions,
+          eq(sessions.executionId, workerLaunches.executionId),
+        )
+        .where(
+          and(
+            holdsSlot(),
+            eq(workerLaunches.backend, backend),
+            isNotNull(workerLaunches.claimedAttemptId),
+            eq(executions.desiredState, DESIRED_RUNNING),
+          ),
+        )
+        .orderBy(asc(idleSince()), asc(workerLaunches.executionId));
+      const worker = (row: (typeof rows)[number]) => ({
+        executionId: row.executionId,
+        generation: row.generation,
+        image: row.image,
+        sessionId: row.sessionId,
+      });
+      return {
+        idle: rows
+          .filter((row) => !row.stopping && row.idle === true)
+          .map((row) => ({
+            ...worker(row),
+            idleSince: new Date(row.idleSince),
+          })),
+        stopping: rows.filter((row) => row.stopping).map(worker),
+      };
+    },
+
+    async requestIdleStop(ref: ExecutionRef): Promise<boolean> {
+      return db.transaction(async (tx) => {
+        // Launch, then session, as `requestDrain`: a next-input either
+        // hands its turn out before the session lock is taken here, and the
+        // worker is judged busy, or reads the request and hands out nothing.
+        const [launch] = await tx
+          .select({ executionId: workerLaunches.executionId })
+          .from(workerLaunches)
+          .where(
+            and(
+              eq(workerLaunches.executionId, ref.executionId),
+              eq(workerLaunches.generation, ref.generation),
+              isNotNull(workerLaunches.claimedAttemptId),
+              isNull(workerLaunches.drainRequestedAt),
+              holdsSlot(),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!launch) return false;
+        const [execution] = await tx
+          .select({ desiredState: executions.desiredState })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.id, ref.executionId),
+              eq(executions.generation, ref.generation),
+            ),
+          )
+          .limit(1);
+        if (execution?.desiredState !== DESIRED_RUNNING) return false;
+        const [session] = await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.executionId, ref.executionId))
+          .limit(1)
+          .for("update");
+        if (session === undefined) return false;
+        const [idle] = await tx
+          .select({ idle: sql<boolean>`${idleWorkerCondition()}` })
+          .from(workerLaunches)
+          .innerJoin(
+            sessions,
+            eq(sessions.executionId, workerLaunches.executionId),
+          )
+          .where(eq(workerLaunches.executionId, ref.executionId))
+          .limit(1);
+        if (idle?.idle !== true) return false;
+        await tx
+          .update(workerLaunches)
+          .set({ drainRequestedAt: DB_NOW })
+          .where(eq(workerLaunches.executionId, ref.executionId));
+        return true;
       });
     },
 
