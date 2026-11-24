@@ -22,7 +22,7 @@ describe("creating a connection takes only the installation's API key", () => {
     ]);
   });
 
-  test("every kind is created with an API key or a bearer token", () => {
+  test("the request takes an API key or a bearer token for every kind; the catalog holds each kind to its own", () => {
     for (const kind of CONNECTION_KIND_VALUES) {
       for (const auth_kind of ["api_key", "bearer"]) {
         expect(
