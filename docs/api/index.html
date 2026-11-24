@@ -8773,6 +8773,24 @@
             "minLength": 32,
             "maxLength": 256
           },
+          "accept_path": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "starts_with",
+            "pattern": "^\\/invite\\/.*"
+          },
+          "accept_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "expires_at": {
             "type": "string",
             "format": "date-time",
@@ -8782,6 +8800,8 @@
         "required": [
           "invite_id",
           "invite_token",
+          "accept_path",
+          "accept_url",
           "expires_at"
         ],
         "additionalProperties": false
