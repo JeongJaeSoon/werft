@@ -70,7 +70,7 @@ The script runs the same preflight again, then in order: stops Docker, moves `/v
 
 Change the image size with `--size`. The value is in whole GB (for example `--size 100G`). 60G is the combined ceiling for images, logs, and all volumes. Although the file is sparse, the host must have that much free space.
 
-When a step fails, the script undoes the steps before it in reverse: it restores fstab from the backup, unmounts, removes the mount point and image it created, moves the original back to `/var/lib/docker`, and starts Docker again.
+When a step fails, the script undoes the steps before it in reverse: it restores fstab from the backup, unmounts, removes the mount point and image it created, moves the original back to `/var/lib/docker`, and starts Docker again. If Docker already started on the new image, what it wrote is in the image, so the script keeps the image and prints its path.
 
 | Exit code | Meaning |
 | --- | --- |

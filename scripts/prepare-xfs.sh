@@ -18,8 +18,9 @@
 # /var/lib/docker, copy the old data in, back up /etc/fstab to
 # /etc/fstab.before-prepare-xfs and add the mount, start Docker, check the
 # data-root and run the quota probe. When a step fails, the steps before it are
-# undone in reverse and Docker starts again on the original data-root. After
-# success the original stays in /var/lib/docker.old.
+# undone in reverse and Docker starts again on the original data-root; the
+# image is kept when Docker already ran on it, since what it wrote is there.
+# After success the original stays in /var/lib/docker.old.
 #
 # Exit: 0 prepared or already prepared; 1 refused by the preflight, nothing
 # changed; 2 usage; 3 a step failed and everything was undone; 4 a step failed
@@ -81,7 +82,6 @@ quota_probe() {
 }
 
 trial=""
-trial_left=0
 mutating=0
 finished=0
 step=""
@@ -96,13 +96,20 @@ undo() {
 rollback() {
   set +e
   failed=0
-  local unmounted=1 restored=1
+  local unmounted=1 restored=1 fstab_restored=1
   if [ "$started" = 1 ]; then
     # shellcheck disable=SC2086 # unit names
     undo systemctl stop $units
   fi
   if [ "$fstab_changed" = 1 ]; then
-    undo cp -p "$fstab_backup" "$fstab" && undo rm -f "$fstab_backup" && undo systemctl daemon-reload
+    if undo cp -p "$fstab_backup" "$fstab"; then
+      undo rm -f "$fstab_backup"
+      undo systemctl daemon-reload
+    else
+      fstab_restored=0
+      printf 'prepare-xfs: %s still mounts %s at boot; copy %s back over it
+' "$fstab" "$image" "$fstab_backup" >&2
+    fi
   elif [ "$backing" = 1 ]; then
     undo rm -f "$fstab_backup"
   fi
@@ -112,7 +119,15 @@ rollback() {
   if [ "$unmounted" = 1 ]; then
     if [ "$dir_made" = 1 ]; then undo rmdir "$data" || restored=0; fi
     if [ "$restored" = 1 ] && [ "$moved" = 1 ]; then undo mv "$old" "$data" || restored=0; fi
-    if [ "$image_made" = 1 ]; then undo rm -f "$image"; fi
+    # Kept once Docker may have written to it, or while fstab still mounts it.
+    if [ "$image_made" = 1 ]; then
+      if [ "$started" = 1 ]; then
+        printf 'prepare-xfs: kept %s: Docker ran on it, and what it wrote since is there
+' "$image" >&2
+      elif [ "$fstab_restored" = 1 ]; then
+        undo rm -f "$image"
+      fi
+    fi
   else
     restored=0
   fi
@@ -132,11 +147,11 @@ on_exit() {
   local rc=$?
   trap - EXIT
   trap '' INT TERM HUP
-  if [ -n "$trial" ] && [ "$trial_left" = 0 ]; then rm -rf "$trial"; fi
+  if [ -n "$trial" ]; then trial_cleanup || rc=1; fi
   if [ "$mutating" = 0 ] || [ "$finished" = 1 ]; then exit "$rc"; fi
   printf 'prepare-xfs: failed at "%s" (exit %s); undoing the steps before it\n' "$step" "$rc" >&2
   if rollback; then
-    printf 'prepare-xfs: undone: Docker runs on the original %s again and nothing this run made is left\n' "$data" >&2
+    printf 'prepare-xfs: undone: Docker runs on the original %s again\n' "$data" >&2
     exit 3
   fi
   printf 'prepare-xfs: could not undo everything (above); fix that by hand before running this again\n' >&2
@@ -196,23 +211,26 @@ trial_mount() {
   truncate -s 512M "$trial/img" && mkfs.xfs -q "$trial/img" && mkdir "$trial/mnt" || return 1
   mount -o loop,prjquota "$trial/img" "$trial/mnt" || return 1
   fs="$(findmnt -no FSTYPE,OPTIONS "$trial/mnt" || true)"
-  if ! umount "$trial/mnt"; then
-    trial_left=1
+  umount "$trial/mnt" || return 1
+  is_quota_xfs "$fs" || { printf 'prepare-xfs: the trial image mounted as "%s", without prjquota\n' "$fs" >&2; return 1; }
+}
+# Removes the trial directory, never while its mount is still there.
+trial_cleanup() {
+  if [ -d "$trial/mnt" ] && mountpoint -q "$trial/mnt" && ! umount "$trial/mnt"; then
+    printf 'prepare-xfs: the trial mount %s/mnt is still mounted; unmount it, then remove %s\n' "$trial" "$trial" >&2
+    trial=""
     return 1
   fi
-  is_quota_xfs "$fs" || { printf 'prepare-xfs: the trial image mounted as "%s", without prjquota\n' "$fs" >&2; return 1; }
+  rm -rf "$trial"
+  trial=""
 }
 note "trial loop mount of a temporary 512M XFS image with prjquota"
 trial="$(mktemp -d "${data}.xfs-trial.XXXXXX")" || refuse "could not create a trial directory in $parent"
 if ! trial_mount; then
-  if [ "$trial_left" = 1 ]; then
-    printf 'prepare-xfs: the trial mount %s/mnt could not be unmounted; unmount it and remove %s\n' "$trial" "$trial" >&2
-    exit 1
-  fi
+  trial_cleanup || exit 1
   refuse "the trial XFS loop mount with prjquota failed (above): this host needs loop devices and XFS with project quotas (container-type servers often have neither)"
 fi
-rm -rf "$trial"
-trial=""
+trial_cleanup || exit 1
 
 if [ "$dry_run" = 1 ]; then
   note "preflight passed; --dry-run changes nothing. These steps would run, and a failing one undoes the steps before it:"

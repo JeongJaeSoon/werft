@@ -248,8 +248,6 @@ describe("prepare-xfs.sh", () => {
     ["the copy", { STUB_FAIL: "rsync ." }],
     ["the fstab check", { STUB_VERIFY_REFUSES_ENTRY: "1" }],
     ["the systemd reload", { STUB_FAIL_ONCE: "systemctl ^daemon-reload" }],
-    ["starting Docker", { STUB_FAIL_ONCE: "systemctl ^start" }],
-    ["the quota probe", { STUB_FAIL: "docker ^volume create" }],
   ];
   for (const [name, env] of failures) {
     test(`a failure at ${name} puts everything back`, () => {
@@ -260,6 +258,58 @@ describe("prepare-xfs.sh", () => {
       expect(snapshot()).toEqual(before);
     });
   }
+
+  // Docker may have written to the image once it ran on it: the image stays,
+  // everything else is put back.
+  const afterStart: [string, Record<string, string>][] = [
+    ["starting Docker", { STUB_FAIL_ONCE: "systemctl ^start" }],
+    ["the quota probe", { STUB_FAIL: "docker ^volume create" }],
+  ];
+  for (const [name, env] of afterStart) {
+    test(`a failure at ${name} puts everything back but keeps the image`, () => {
+      const before = snapshot();
+      const result = run([], env);
+      expect(result.exitCode).toBe(3);
+      expect(result.stderr).toContain("kept ");
+      const after = snapshot();
+      expect({ ...after, files: after.files.sort() }).toEqual({
+        ...before,
+        files: [...before.files, "/docker.xfs.img=XFS"].sort(),
+      });
+    });
+  }
+
+  test("a failed fstab restore keeps the image fstab still mounts", () => {
+    const result = run([], {
+      STUB_VERIFY_REFUSES_ENTRY: "1",
+      STUB_FAIL: "cp before-prepare-xfs .*fstab$",
+    });
+    expect(result.exitCode).toBe(4);
+    expect(result.stderr).toContain("still mounts");
+    expect(existsSync(join(root, "var/lib/docker.xfs.img"))).toBe(true);
+    expect(
+      readFileSync(join(root, "etc/fstab.before-prepare-xfs"), "utf8"),
+    ).toBe(FSTAB);
+    expect(
+      readFileSync(join(root, "var/lib/docker/volumes/data/file"), "utf8"),
+    ).toBe("original");
+    expect(existsSync(join(root, "var/lib/docker.old"))).toBe(false);
+    expect(existsSync(join(state, "running"))).toBe(true);
+  });
+
+  test("a trial mount that will not unmount is left in place, not deleted", () => {
+    const result = run(["--dry-run"], { STUB_FAIL: "umount xfs-trial" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("is still mounted");
+    const trials = readdirSync(join(root, "var/lib")).filter((name) =>
+      name.includes("xfs-trial"),
+    );
+    expect(trials).toHaveLength(1);
+    expect(existsSync(join(root, "var/lib", trials[0] ?? "", "img"))).toBe(
+      true,
+    );
+    expect(mutated(result.calls)).toBe(false);
+  });
 
   test("an undo that fails leaves Docker stopped rather than on an empty data-root", () => {
     const result = run([], { STUB_FAIL: "rsync .\numount docker$" });
