@@ -66,7 +66,7 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
   --namespace werft -f deploy/kind/values.yaml --timeout 10m
 ```
 
-最初の owner は、api Pod が出力する一回限りの設定リンクで作ります（`kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`）。パスだけが出力された場合は、port-forward のアドレス（`http://127.0.0.1:13000`）の後ろに付けて開きます。リンクは DB にあるため、2 個の replica のどちらに届いても使えます。モデル key は Secret に入れません。key は最初の owner がコンソールで入力して DB に保存する値だけで、この試験では key を入れません。Secret ディレクトリは作成後にアクセス権限が 0700 であることを確認し、ターミナルなしでは DB パスワードを標準入力に渡します。実運用の資格情報をこの試験に入れないでください。上記 Secret ブロックと fixture chart の試験成功を、公開 chart 試験全体の成功と混同しないでください。
+最初の owner は、api Pod の `admin bootstrap-owner` コマンドがファイルに書く一回限りの設定リンクで作ります（[最初の owner を作る](/run-server/self-hosting/users-and-keys#1-첫-owner-만들기)の Kubernetes のコマンド）。`accept_url` が `null` なら、port-forward のアドレス（`http://127.0.0.1:13000`）の後ろに `accept_path` を付けて開きます。リンクは DB にあるため、2 個の replica のどちらに届いても使えます。モデル key は Secret に入れません。key は最初の owner がコンソールで入力して DB に保存する値だけで、この試験では key を入れません。Secret ディレクトリは作成後にアクセス権限が 0700 であることを確認し、ターミナルなしでは DB パスワードを標準入力に渡します。実運用の資格情報をこの試験に入れないでください。上記 Secret ブロックと fixture chart の試験成功を、公開 chart 試験全体の成功と混同しないでください。
 
 <a id="확인" />
 ## 確認

@@ -13,7 +13,7 @@ description: 에이전트를 정의하고, release를 만들어 활성화하고,
 
 로컬 스택의 웹 콘솔은 `http://127.0.0.1:3000/`이다.
 
-1. 처음 한 번은 운영자가 받은 일회용 설정 링크(`/bootstrap#setup=…`)를 열어 첫 owner와 워크스페이스를 만든다. 링크는 owner가 없을 때 설치 쪽 명령으로 받는다(단일 서버 설치는 `scripts/test-ops.sh setup-link`). 자세한 내용은 [첫 owner와 key](/run-server/self-hosting/users-and-keys)에 있다.
+1. 처음 한 번은 운영자가 받은 일회용 설정 링크(`/bootstrap#setup=…`)를 열어 첫 owner와 워크스페이스를 만든다. 링크는 owner가 없을 때 설치 쪽 명령으로 파일에 받는다(단일 서버 설치는 `scripts/test-ops.sh setup-link --email <owner-email> --out <file>`). 자세한 내용은 [첫 owner와 key](/run-server/self-hosting/users-and-keys)에 있다.
 2. 로그인한 뒤 왼쪽 사이드바의 "에이전트"를 열고 오른쪽 위의 "새 에이전트"를 누른다. "새 에이전트" 화면이 세 단계(이름 → 하는 일 → 채널 연결)로 열린다.
 3. "이름" 단계에서 이름을 넣는다. 식별자(slug)는 이름에서 채워지고 고칠 수 있다. 필요하면 "설명 (선택)"에 사람이 읽을 소개를 적는다. 이름과 설명은 모델에게 전해지지 않는다. 담당 팀을 고르고 "다음"을 누른다.
 4. "하는 일" 단계에서 모델 연결과 모델을 고르고 답변 언어를 정한 뒤 "저장하고 다음"을 누른다. 에이전트가 저장되고, 그 연결로 첫 release가 만들어져 바로 켜진다. 이제 새 세션은 이 release로 시작한다. 모델은 고른 연결의 모델 목록에서 고른다. 연결과 모델 목록은 owner가 설정 → 모델 연결에서 관리한다([모델 연결](/run-server/self-hosting/model-connections)). 동작 지시는 저장소의 `AGENTS.md`나 `CLAUDE.md`에 적는다.

@@ -19,7 +19,46 @@ outcome: "사용자별 인증 수단과 실행 권한을 발급한다"
 
 ### 1. 첫 owner 만들기
 
-운영자가 설치 쪽에서 일회용 설정 링크를 받는다. test-ops 단일 서버는 `scripts/test-ops.sh setup-link`, Kubernetes는 `kubectl -n werft exec deploy/werft-api -- bun run apps/control-host/src/api/setup-link.ts`, 그 밖의 compose 구성은 `docker compose --profile apps exec -T api bun run apps/control-host/src/api/setup-link.ts`다. 명령은 live owner가 없을 때만 링크를 stdout에 한 번 출력하고, 로그나 파일에는 남기지 않는다. `CONSOLE_ORIGIN`이 있으면 그 주소를 붙인 URL, 없으면 `/bootstrap#setup=…` 경로만 나오니 콘솔 주소 뒤에 붙인다. 링크를 브라우저로 열고 owner 정보와 workspace 이름을 넣는다. 링크는 한 번 쓰면 바로 무효이고 24시간 뒤 만료된다. 다시 실행하면 앞 링크는 무효가 되고 새 링크가 나온다. owner가 있으면 명령은 링크를 만들지 않고 종료 코드 1로 끝난다. `/login`으로 로그인한다.
+운영자가 설치 쪽 명령으로 첫 owner의 일회용 설정 링크를 파일로 받는다. 명령은 api 이미지 안에 있고, owner가 될 사람의 이메일 주소만 받는다. 비밀번호는 명령 인자나 환경 변수로 주지 않고, 링크를 연 사람이 정한다. 링크는 화면에 나오지 않는다. 화면에는 파일 경로와 만료 시각만 나온다.
+
+test-ops 단일 서버에서는 호스트의 새 파일에 바로 받는다.
+
+```bash
+scripts/test-ops.sh setup-link --email <owner-email> --out ./owner-link.json
+```
+
+그 밖의 compose 구성에서는 api 컨테이너 안에 파일을 만든 뒤 호스트로 옮기고 컨테이너 쪽 파일을 지운다.
+
+```bash
+docker compose --profile apps exec -T api \
+  bun run apps/control-host/src/main.ts admin bootstrap-owner \
+  --email <owner-email> --out /tmp/owner-link.json
+(umask 077 && set -C && docker compose --profile apps exec -T api cat /tmp/owner-link.json >owner-link.json)
+docker compose --profile apps exec -T api rm -f /tmp/owner-link.json
+```
+
+Kubernetes에서는 먼저 [설치의 context·namespace·fullname 확인](/run-server/self-hosting/kubernetes#준비물)을 따른다. 아래 `werft`는 그 예시 설치 이름이다. 세 명령이 같은 Pod에 닿도록 Pod 하나를 먼저 고른다.
+
+```bash
+POD="$(kubectl -n werft get pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api -o name | head -n 1)"
+kubectl -n werft exec "$POD" -c api -- \
+  bun run apps/control-host/src/main.ts admin bootstrap-owner \
+  --email <owner-email> --out /tmp/owner-link.json
+(umask 077 && set -C && kubectl -n werft exec "$POD" -c api -- cat /tmp/owner-link.json >owner-link.json)
+kubectl -n werft exec "$POD" -c api -- rm -f /tmp/owner-link.json
+```
+
+파일은 0600으로 새로 만들어지고, 같은 이름의 파일이 있으면 명령은 덮어쓰지 않고 거절한다. 파일에는 [구성원 초대](/members#api-응답)의 응답과 같은 칸이 JSON으로 들어 있다.
+
+| 칸 | 내용 |
+| --- | --- |
+| `accept_path` | 설정 화면의 경로. `/bootstrap#setup=<setup_token>` 꼴이다 |
+| `accept_url` | `CONSOLE_ORIGIN` 뒤에 `accept_path`를 붙인 링크. `CONSOLE_ORIGIN`이 없으면 `null`이다 |
+| `expires_at` | 만료 시각 |
+
+브라우저가 있으면 `accept_url`(없으면 콘솔 origin 바로 뒤에 `accept_path`)을 열고 owner 정보와 workspace 이름을 넣는다. 브라우저가 없으면 `#setup=` 뒤의 값을 `setup_token`으로 삼아 `POST /v1/auth/bootstrap`에 owner 정보와 함께 보낸다. 요청 본문은 설치가 서빙하는 API 레퍼런스(`/docs`)에 있다. 어느 쪽이든 이메일 주소는 명령에 준 주소여야 한다. 다른 주소는 `403`으로 거절되고 링크는 그대로 남는다. 그다음 `/login`으로 로그인하고, 링크 파일은 지운다.
+
+링크는 한 번 쓰면 바로 무효이고 24시간 뒤 만료된다. 다시 실행하면 앞 링크는 무효가 되고 새 링크가 나온다. owner가 있으면 명령은 링크도 파일도 만들지 않고 종료 코드 1로 끝난다. 명령을 실행할 때마다 api 컨테이너 로그(`docker compose logs api`, `kubectl logs`)에 `setup_link_issued` 한 줄이 남는다. 그 줄에는 링크 id, 이메일 주소, 만료 시각만 있고 토큰과 링크는 없다. 링크로 첫 workspace가 만들어지면 그 workspace의 첫 receipt(`bootstrap_owner`)가 쓴 링크의 id와 만든 시각을 남긴다.
 
 ### 2. 사용자별 key 발급
 

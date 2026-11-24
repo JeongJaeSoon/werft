@@ -34,13 +34,15 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { liveSetupToken } from "../testing/setup-link.ts";
+import {
+  issueTestSetupToken as issueSetupToken,
+  liveSetupToken,
+} from "../testing/setup-link.ts";
 import { createApiApp } from "./app.ts";
 import {
   DatabaseIdentityStore,
   hashPassword,
   hashWebSessionToken,
-  issueSetupToken,
 } from "./auth.ts";
 import { PasswordChecks } from "./password-checks.ts";
 import {

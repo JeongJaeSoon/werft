@@ -27,10 +27,11 @@ kind_release_key() {
   export KIND_RELEASE_ID
 }
 
+# shellcheck source=../../scripts/lib/setup-link-token.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib/setup-link-token.sh"
+
 # kind_setup_link_token <fullname>: the token of a new setup link from the api
 # Deployment, or nothing once an owner exists (the command issues none then).
 kind_setup_link_token() {
-  local link
-  link="$(kubectl -n "$NAMESPACE" exec deploy/"$1"-api -- bun run apps/control-host/src/api/setup-link.ts </dev/null 2>/dev/null)" || return 0
-  printf '%s' "${link##*#setup=}"
+  setup_link_token "$E2E_OWNER_EMAIL" kubectl -n "$NAMESPACE" exec deploy/"$1"-api -- 2>/dev/null || true
 }
