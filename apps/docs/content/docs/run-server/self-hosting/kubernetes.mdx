@@ -92,7 +92,7 @@ api:
     CONSOLE_ORIGIN: https://werft.example.com
 ```
 
-이 값이 없어도 설치와 로그인은 된다. 하지만 콘솔에서 에이전트의 Slack 앱을 만들 수 없고, Slack·GitHub 계정 연결, 콘솔의 GitHub App 만들기, [SSO 로그인](/run-server/self-hosting/sso) 공급자 만들기, OAuth로 연결하는 MCP 서버도 쓸 수 없다. Slack 앱의 이벤트 주소는 이 값에서 계산한다. Slack은 https 주소에만 이벤트를 보내므로, Slack 이벤트가 콘솔 주소로 들어오면 https origin을 둔다. 이벤트가 콘솔과 다른 공개 입구로 들어오면 owner가 그 입구의 https 주소를 **설정 > 연동 > Slack**의 "이벤트 입구 주소"에 저장하고, 이벤트 주소는 그 값을 쓴다. 설치 뒤에 값을 넣거나 바꾸면 4단계 명령을 같은 `VERSION`으로 다시 돌린다. api Pod가 새 값으로 다시 뜬다.
+이 값이 없어도 설치와 로그인은 된다. 하지만 콘솔에서 에이전트의 Slack 앱을 만들 수 없고, Slack·GitHub 계정 연결, 콘솔의 GitHub App 만들기, [SSO 로그인](/run-server/self-hosting/sso) 공급자 만들기도 안 되고, MCP 서버의 OAuth 연결과 재인증을 시작할 수 없다. Slack 앱의 이벤트 주소는 이 값에서 계산한다. Slack은 https 주소에만 이벤트를 보내므로, Slack 이벤트가 콘솔 주소로 들어오면 https origin을 둔다. 이벤트가 콘솔과 다른 공개 입구로 들어오면 owner가 그 입구의 https 주소를 **설정 > 연동 > Slack**의 "이벤트 입구 주소"에 저장하고, 이벤트 주소는 그 값을 쓴다. 설치 뒤에 값을 넣거나 바꾸면 4단계 명령을 같은 `VERSION`으로 다시 돌린다. api Pod가 새 값으로 다시 뜬다.
 
 ### 4. 설치와 rollout
 
