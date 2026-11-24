@@ -1,6 +1,6 @@
 {
-  "release": "v0.3.0",
-  "commit": "20a0986d71bd1a3ef2d0910eda02899365062b9f",
+  "release": "v0.4.0",
+  "commit": "10e98b9a98ec52078ee6543470b5e49d3d708ded",
   "routes": {
     "/bootstrap-claim": {
       "request": {
@@ -39,6 +39,10 @@
                   "const": true
                 },
                 "repository_pins": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "workspace_mcp": {
                   "type": "boolean",
                   "const": true
                 }
@@ -487,7 +491,7 @@
                 },
                 "mcp_servers": {
                   "minItems": 1,
-                  "maxItems": 2,
+                  "maxItems": 10,
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -1101,7 +1105,7 @@
                   },
                   "mcp_servers": {
                     "minItems": 1,
-                    "maxItems": 2,
+                    "maxItems": 10,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -1516,6 +1520,7 @@
             "runtime_config",
             "workspace",
             "object_store",
+            "packages",
             "principal",
             "restore",
             "remaining_budget_usd"
@@ -3388,6 +3393,10 @@
                         "required": ["tool_name"],
                         "additionalProperties": false
                       }
+                    },
+                    "accepts_note": {
+                      "type": "boolean",
+                      "const": true
                     }
                   },
                   "required": ["kind", "tool", "input"],
@@ -3627,6 +3636,10 @@
                   "const": true
                 },
                 "repository_pins": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "workspace_mcp": {
                   "type": "boolean",
                   "const": true
                 }
@@ -4467,6 +4480,7 @@
                 "LAUNCH_FAILED",
                 "CATALOG_MISMATCH",
                 "TAKEOVER_REQUIRED",
+                "SOURCE_DELETED",
                 "SLACK_NOT_INSTALLED",
                 "LINK_TEAM_MISMATCH",
                 "LINK_TAKEN",
@@ -4522,12 +4536,14 @@
                 "VARIABLE_VALUE_INVALID",
                 "VARIABLE_VALUE_TOO_LARGE",
                 "VARIABLE_QUOTA_EXCEEDED",
+                "MCP_SERVER_QUOTA_EXCEEDED",
                 "VARIABLE_UNRESOLVED",
                 "SECRET_ACK_REQUIRED",
                 "SECRET_GRANT_ALL_FORBIDDEN",
                 "SECRET_ENV_UNSUPPORTED",
                 "VERSION_MISMATCH",
-                "PRECONDITION_REQUIRED"
+                "PRECONDITION_REQUIRED",
+                "DECISION_MODEL_REQUIRED"
               ]
             },
             "message": {

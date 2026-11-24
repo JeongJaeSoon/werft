@@ -16,24 +16,6 @@ export const ACCEPTED: readonly {
   proof: string;
 }[] = [
   {
-    problem:
-      'error $.error.code: the receiver refuses "MCP_SERVER_QUOTA_EXCEEDED"',
-    why: "Only POST /v1/workspace/mcp-servers answers it, a console-session route no worker calls; no worker route reaches the workspace MCP service.",
-    proof:
-      "apps/control-host/src/api/routes/musterrolle/workspace-mcp-servers.test.ts",
-  },
-  {
-    problem:
-      'error $.error.code: the receiver refuses "DECISION_MODEL_REQUIRED"',
-    why: "Only the achievement rule, judge settings, rejudge and review routes answer it, console-session routes no worker calls; the worker's outcome writes only queue a judgment, which never refuses.",
-    proof: "apps/control-host/src/api/routes/sessions/achievements.test.ts",
-  },
-  {
-    problem: 'error $.error.code: the receiver refuses "SOURCE_DELETED"',
-    why: "Only a session start or a message into a session answers it (POST /v1/sessions, POST /v1/sessions/{id}/messages, and the Slack handler in process); no worker route starts a session or appends an input.",
-    proof: "packages/platform/src/sessions/session-caller-limit.test.ts",
-  },
-  {
     problem: 'error $.error.code: the receiver refuses "NO_CAPACITY"',
     why: "No route answers it: the scheduler writes it onto the receipts of input that waited too long for room, which only receipt reads on API and console routes return; no worker route reads a receipt.",
     proof: "packages/db/src/scheduler/scheduler-store.test.ts",
@@ -43,17 +25,5 @@ export const ACCEPTED: readonly {
       'error $.error.code: the receiver refuses "CODEX_SANDBOX_NOT_INSTALLED"',
     why: "No route answers it: the scheduler writes it onto the receipts of input whose launch it refused before creating the worker, which only receipt reads on API and console routes return; no worker route reads a receipt.",
     proof: "packages/db/src/scheduler/scheduler-store.test.ts",
-  },
-  {
-    problem:
-      "/bootstrap-claim response $.runtime_config.mcp_servers: the receiver's maxItems is 2; the sender's is 10",
-    why: "Only a worker that announced workspace_mcp gets workspace servers; a claim from a worker without it is refused, retryable, before anything is bound, so it still gets at most the catalog server and github.",
-    proof: "packages/platform/src/workers/worker-gateway-workspace-mcp.test.ts",
-  },
-  {
-    problem:
-      "/bootstrap-claim response $.restore_runtime_configs[].mcp_servers: the receiver's maxItems is 2; the sender's is 10",
-    why: "Restore configs are built from the same claimed entries as runtime_config, so a worker without workspace_mcp gets at most two there too.",
-    proof: "packages/platform/src/workers/worker-gateway-workspace-mcp.test.ts",
   },
 ];
