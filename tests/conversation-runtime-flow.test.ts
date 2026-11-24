@@ -375,6 +375,8 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     await s.runner.run(s.turn(topic, "first"), s.live);
     expect((await stat(join(s.root, topic))).isDirectory()).toBe(true);
 
+    // The old process is gone, its engine with it; its directory is left.
+    await (await s.sessions.get(topic))?.run.close();
     // What a new process does first.
     const restarted = new TopicSessions(s.topics, s.relay);
     await restarted.reset();
