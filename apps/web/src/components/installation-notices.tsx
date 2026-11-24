@@ -54,9 +54,11 @@ export function InstallationNotices() {
         client.GET("/v1/installation-status"),
       ) as Promise<InstallationStatus>,
     enabled: manages,
-    // Fixed for the life of the API process; a server from before it is 404.
+    // Fixed for the life of an API process, but a restart can change it under
+    // an open console; a server from before it is 404.
     retry: false,
-    staleTime: Number.POSITIVE_INFINITY,
+    refetchInterval: (query) =>
+      query.state.status === "error" ? false : NOTICES_REFETCH_MS,
   });
   const close = useMutation<LostCheckpointNotices, ApiError, string[]>({
     // Everything that was read and nothing else, as many at a time as one

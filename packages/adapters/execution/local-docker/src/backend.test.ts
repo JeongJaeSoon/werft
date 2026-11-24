@@ -1089,6 +1089,23 @@ test("a container started under another inode limit, or before one, is stale", (
   ).toBe(isolationStampFor(base));
 });
 
+test("under off, a container started under other measured limits is stale", () => {
+  const base = { ...configFor("unix:///fake.sock"), workspaceQuota: OFF_QUOTA };
+  const stamp = isolationStampFor(base);
+  expect(
+    isolationStampFor({
+      ...base,
+      workspaceQuota: { ...OFF_QUOTA, sizeBytes: OFF_QUOTA.sizeBytes / 2 },
+    }),
+  ).not.toBe(stamp);
+  expect(
+    isolationStampFor({
+      ...base,
+      workspaceQuota: { ...OFF_QUOTA, inodes: OFF_QUOTA.inodes + 1 },
+    }),
+  ).not.toBe(stamp);
+});
+
 // Every running container carries one of these; a different value marks them
 // all stale at once.
 test("the isolation stamps of this config are pinned", () => {
