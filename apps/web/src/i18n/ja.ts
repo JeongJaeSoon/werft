@@ -201,6 +201,21 @@ export const slackJa = {
     "その間に告知が変わりました。新しい告知を読んで、もう一度承認してください。",
   "slack.channelColumn": "チャンネル",
   "slack.useColumn": "使用",
+  "slack.listenColumn": "聞き取り",
+  "slack.listen.free": "すべての投稿",
+  "slack.listen.mention": "メンションのみ",
+  "slack.listen.off": "聞かない",
+  "slack.listenOf": "{channel} の聞き取り",
+  "slack.listenHint":
+    "聞き取りの設定は、エージェントの会話スイッチをオンにしてから適用されます。",
+  "slack.listenSaved": "聞き取りの設定を保存しました。",
+  "slack.listenSavedDropped":
+    "聞き取りの設定を保存しました。このチャンネルで判断待ちだった投稿は削除しました。",
+  "slack.listenRefused": "保存されていません",
+  "slack.listenFailed":
+    "{channel} の聞き取りの設定を保存できませんでした。{reason}",
+  "slack.listenExternalShared":
+    "{channel} は外部の組織と共有しているチャンネルのため、メンションのみ聞き取れます。「メンションのみ」か「聞かない」を選んでください。",
   "slack.basic": "基本",
   "slack.advanced": "詳細",
   "slack.homeChannel": "ホームチャンネル",

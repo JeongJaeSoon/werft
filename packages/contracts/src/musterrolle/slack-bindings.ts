@@ -72,6 +72,12 @@ export const putSlackBindingResponseSchema = z
   .object({
     slack_binding: surfaceBindingSchema,
     receipt_id: receiptIdSchema,
+    /**
+     * How many messages the channel held for judgment this save dropped:
+     * it now listens to less, is off, or waits for approval. A server
+     * older than this field leaves it out.
+     */
+    dropped_buffered: z.number().int().nonnegative().optional(),
   })
   .strict();
 

@@ -56,6 +56,7 @@ function service(
       return {
         outcome: "set",
         receiptId: "receipt-1",
+        droppedBuffered: 0,
         binding: {
           id: "binding-1",
           workspaceId: input.workspaceId,
@@ -304,6 +305,7 @@ describe("a private channel waits for an owner or admin", () => {
       set: async () => ({
         outcome: "set",
         receiptId: "receipt-1",
+        droppedBuffered: 0,
         binding: recordOf({ status: "pending_approval" }),
       }),
     });
@@ -314,6 +316,24 @@ describe("a private channel waits for an owner or admin", () => {
     });
     expect(put.slack_binding.status).toBe("pending_approval");
     expect(put.slack_binding.approved_at).toBeUndefined();
+  });
+
+  test("a save says how many held messages it dropped", async () => {
+    const { bindings } = service(async () => "public_channel", {
+      set: async () => ({
+        outcome: "set",
+        receiptId: "receipt-1",
+        droppedBuffered: 3,
+        binding: recordOf({ listen: "mention" }),
+      }),
+    });
+    const put = await bindings.putSlackBinding(caller, AGENT, {
+      channel_id: "C0QUIET",
+      mode: "on",
+      listen: "mention",
+      home: false,
+    });
+    expect(put.dropped_buffered).toBe(3);
   });
 
   function approver(
