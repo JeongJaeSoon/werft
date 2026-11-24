@@ -106,7 +106,7 @@ function report(r, drop = []) {
   const shown =
     r.json && typeof r.json === "object" ? { ...r.json } : undefined;
   for (const field of drop)
-    if (shown && field in shown)
+    if (shown && typeof shown[field] === "string")
       shown[field] = `(saved, ${shown[field].length} chars)`;
   console.log(shown ? JSON.stringify(shown) : r.text);
   if (r.note) console.log(`# ${r.note}`);
@@ -439,7 +439,8 @@ switch (cmd) {
       creds(invitee, true, address);
       r.note = `invite token saved as users/${invitee}.invite, credentials as users/${invitee}`;
     }
-    report(r, ["invite_token"]);
+    // The accept path and URL carry the token too.
+    report(r, ["accept_path", "accept_url", "invite_token"]);
     break;
   }
   case "accept": {
