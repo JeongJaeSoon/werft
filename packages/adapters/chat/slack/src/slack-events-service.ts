@@ -461,8 +461,14 @@ export function createSlackEventsService(deps: {
     agentId: string,
     app: SlackEventsAppRef,
     envelope: SlackEventCallback,
+    go: () => void,
   ): Promise<Classified> {
     const { event } = envelope;
+    // Each store call starts only while the request is still answerable.
+    const at = <T>(call: () => Promise<T>) => {
+      go();
+      return call();
+    };
     if (envelope.api_app_id !== app.appId) {
       return { status: "dropped", dropReason: "app_mismatch" };
     }
@@ -478,15 +484,14 @@ export function createSlackEventsService(deps: {
         envelope.event_time === undefined
           ? null
           : new Date(envelope.event_time * 1000);
-      return (await deps.installs.revokeInstallation(key, sentAt)) ===
+      return (await at(() => deps.installs.revokeInstallation(key, sentAt))) ===
         "not_found"
         ? { status: "dropped", dropReason: "not_installed" }
         : { status: "processed" };
     }
-    const resolved = await agentForSlackEvent(deps.identities, {
-      ...key,
-      agentId,
-    });
+    const resolved = await at(() =>
+      agentForSlackEvent(deps.identities, { ...key, agentId }),
+    );
     if (resolved.status === "dropped") {
       return { status: "dropped", dropReason: resolved.reason };
     }
@@ -506,9 +511,11 @@ export function createSlackEventsService(deps: {
               ? now()
               : new Date(envelope.event_time * 1000),
       };
-      await (change.kind === "deleted"
-        ? deps.sourceMarks.markDeleted(mark)
-        : deps.sourceMarks.markEdited(mark, change.text));
+      await at(() =>
+        change.kind === "deleted"
+          ? deps.sourceMarks.markDeleted(mark)
+          : deps.sourceMarks.markEdited(mark, change.text),
+      );
       return { status: "processed", marked: true };
     }
     // member_joined_channel names the bot when it is invited; the
@@ -579,9 +586,9 @@ export function createSlackEventsService(deps: {
         return { status: "dropped", dropReason: "message_subtype" };
       }
       if (typeof event.channel === "string" && event.channel_type !== "im") {
-        const bound = await deps.bindings.findLiveSlackChannel(
-          resolved.installationId,
-          event.channel,
+        const channel = event.channel;
+        const bound = await at(() =>
+          deps.bindings.findLiveSlackChannel(resolved.installationId, channel),
         );
         // The bot left this channel: whatever arrives (a late event, a
         // mention) takes no text and no answer, since the bot is not there.
@@ -617,9 +624,8 @@ export function createSlackEventsService(deps: {
           // live binding is told apart by what became of its last one.
           (bound === null &&
             event.channel_type !== "channel" &&
-            (await deps.bindings.wasRejected(
-              resolved.installationId,
-              event.channel,
+            (await at(() =>
+              deps.bindings.wasRejected(resolved.installationId, channel),
             )));
         if (unapproved) {
           const mentioned =
@@ -695,7 +701,9 @@ export function createSlackEventsService(deps: {
     }
 
     next("classify");
-    const classified = await classify(agentId, app, envelope);
+    const classified = await classify(agentId, app, envelope, () =>
+      run?.signal.throwIfAborted(),
+    );
     const base = {
       workspaceId: app.workspaceId,
       agentId,

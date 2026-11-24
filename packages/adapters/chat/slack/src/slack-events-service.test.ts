@@ -38,7 +38,11 @@ function world(
     withSecret?: boolean;
     ackDeadlineMs?: number;
     // Each call of the method waits for this before it reaches the store.
-    hold?: { seen?: Promise<void>; record?: Promise<void> };
+    hold?: {
+      seen?: Promise<void>;
+      record?: Promise<void>;
+      resolve?: Promise<void>;
+    };
   } = {},
 ) {
   const secrets = createMemorySecretStore();
@@ -121,7 +125,13 @@ function world(
       ? {}
       : { ackDeadlineMs: options.ackDeadlineMs }),
     apps: apps.store,
-    identities: identities.store,
+    identities: {
+      ...identities.store,
+      resolveSlackEvent: async (...args) => {
+        await held.resolve;
+        return identities.store.resolveSlackEvent(...args);
+      },
+    },
     installs: installs.store,
     sourceMarks: marks.store,
     mirrorEchoes: {
@@ -518,6 +528,24 @@ describe("Slack events service", () => {
       result: "duplicate",
     });
     expect(w.inbox.rows.size).toBe(1);
+  });
+
+  test("past the deadline no later store call starts, even inside classification", async () => {
+    let open = () => {};
+    const resolve = new Promise<void>((done) => {
+      open = done;
+    });
+    const w = world({ ackDeadlineMs: 20, hold: { resolve } });
+    await w.install();
+    const body = w.event(DELETED, { eventId: "Ev0SLOWRESOLVE" });
+    expect(await w.service.receive(w.signed(body))).toMatchObject({
+      kind: "unavailable",
+      step: "classify",
+    });
+    open();
+    await Bun.sleep(5);
+    expect(w.marks.deleted.size).toBe(0);
+    expect(w.inbox.calls.record).toBe(0);
   });
 
   test("a 70 KiB event is stored", async () => {
