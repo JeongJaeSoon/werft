@@ -304,8 +304,8 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     expect(await sendRefused(own.sessionId, ownSources)).toBeNull();
     // Nothing of the conversation is left to assemble.
     expect(
-      await createPostgresContextFragmentSource(db).fragmentsOf(place.key),
-    ).toEqual([]);
+      await createPostgresContextFragmentSource(db).read(place.key),
+    ).toEqual({ fragments: [], unreadable: 0 });
 
     const row = await pool.query(
       "SELECT records_deleted_by_user_id AS by, records_deleted_at IS NOT NULL AS at FROM conversations WHERE id = $1",
