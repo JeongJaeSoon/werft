@@ -3170,6 +3170,137 @@ function checkWorkerPrePull(): string[] {
 }
 errors.push(...checkWorkerPrePull());
 
+const smallNodeExample = join(chart, "values-small-node.example.yaml");
+
+/** NOTES.txt, which `helm template` leaves out; a client dry run needs no cluster. */
+function notesOf(args: string[]): string {
+  const result = spawnSync(
+    "helm",
+    ["install", "ap", chart, "--dry-run=client", "-f", ciDigests, ...args],
+    { encoding: "utf8" },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`helm install --dry-run=client failed:\n${result.stderr}`);
+  }
+  return result.stdout.slice(result.stdout.indexOf("NOTES:"));
+}
+
+function checkWorkerMemorySizing(): string[] {
+  const found: string[] = [];
+  const fail = (message: string) =>
+    found.push(`worker memory sizing: ${message}`);
+  const readers = (manifests: Manifest[]) =>
+    manifests.filter(
+      (m) =>
+        (m.kind === "ClusterRole" || m.kind === "ClusterRoleBinding") &&
+        /-scheduler-node-reader-[0-9a-f]{10}$/.test(m.metadata.name),
+    );
+  const schedulerEnv = (manifests: Manifest[]) => {
+    const deployment = manifests.find(
+      (m) => m.kind === "Deployment" && m.metadata.name.endsWith("-scheduler"),
+    );
+    return Object.fromEntries(
+      (podSpecOf(deployment as Manifest).containers[0].env ?? []).map(
+        (e: { name: string; value?: string }) => [e.name, e.value],
+      ),
+    );
+  };
+
+  const plain = render(["-f", ciDigests]);
+  if (readers(plain).length !== 0) fail("the node reader renders by default");
+  if (schedulerEnv(plain).SCHEDULER_NODE_CAPACITY_CHECK !== "false") {
+    fail("the scheduler is not told the check is off");
+  }
+
+  const on = render([
+    "-f",
+    ciDigests,
+    "--set",
+    "scheduler.nodeCapacityCheck.enabled=true",
+  ]);
+  const [role, binding] = ["ClusterRole", "ClusterRoleBinding"].map((kind) =>
+    readers(on).find((m) => m.kind === kind),
+  );
+  if (
+    JSON.stringify(role?.rules) !==
+    JSON.stringify([
+      { apiGroups: [""], resources: ["nodes"], verbs: ["get", "list"] },
+    ])
+  ) {
+    fail(`the node reader is not Node get/list alone: ${JSON.stringify(role)}`);
+  }
+  if (
+    binding?.roleRef?.name !== role?.metadata.name ||
+    JSON.stringify(binding?.subjects) !==
+      JSON.stringify([
+        {
+          kind: "ServiceAccount",
+          name: "ap-werft-scheduler",
+          namespace: "default",
+        },
+      ])
+  ) {
+    fail(`the node reader is bound to another: ${JSON.stringify(binding)}`);
+  }
+  if (schedulerEnv(on).SCHEDULER_NODE_CAPACITY_CHECK !== "true") {
+    fail("the scheduler is not told the check is on");
+  }
+  // Cluster-scoped names: these two installs must not claim one object.
+  const nameIn = (namespace: string, release: string) =>
+    readers(
+      Bun.YAML.parse(
+        spawnSync(
+          "helm",
+          [
+            "template",
+            release,
+            chart,
+            "-n",
+            namespace,
+            "-f",
+            ciDigests,
+            "--set",
+            "scheduler.nodeCapacityCheck.enabled=true",
+          ],
+          { encoding: "utf8" },
+        ).stdout,
+      ) as Manifest[],
+    )[0]?.metadata.name;
+  const [first, second] = [
+    nameIn("team", "prod-werft"),
+    nameIn("team-prod", "werft"),
+  ];
+  if (first === undefined || first === second) {
+    fail(`two installs share the node reader name ${first}`);
+  }
+
+  const small = render(["-f", ciDigests, "-f", smallNodeExample]);
+  if (schedulerEnv(small).WORKER_MEMORY_MB !== "2048") {
+    fail("the small-node example does not give workers 2048 MiB");
+  }
+
+  const notes = notesOf([]);
+  for (const line of [
+    "worker.memoryMb: 4608 MiB per session",
+    "sessions per node ~ node allocatable memory / 4608 MiB",
+    "kubectl get nodes -o custom-columns=NODE:.metadata.name,ALLOCATABLE:.status.allocatable.memory",
+    "wait_reason waiting_for_capacity",
+    "scheduler.nodeCapacityCheck.enabled=true",
+  ]) {
+    if (!notes.includes(line)) fail(`NOTES lack "${line}"`);
+  }
+  const smallNotes = notesOf(["-f", smallNodeExample]);
+  if (
+    !smallNotes.includes("node allocatable memory / 2048 MiB") ||
+    !smallNotes.includes("Below 4608 MiB")
+  ) {
+    fail(`NOTES do not follow worker.memoryMb: ${smallNotes}`);
+  }
+  return found;
+}
+errors.push(...checkWorkerMemorySizing());
+
 const runtimeOn = render([
   "-f",
   ciDigests,
@@ -3219,5 +3350,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate, the conversation runtime off and on, the worker pre-pull off and on; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
+  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate, the conversation runtime off and on, the worker pre-pull off and on, worker memory sizing (NOTES, small-node example, node reader off and on); ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
 );

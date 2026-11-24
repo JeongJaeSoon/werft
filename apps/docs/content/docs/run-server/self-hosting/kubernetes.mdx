@@ -82,6 +82,8 @@ config:
 
 `config.egress.credentialAllowlist` 값은 기본값을 통째로 대체하므로 GitHub·checkpoint bucket host를 넣을 때 provider와 패키지 registry 등 필요한 항목을 모두 다시 적는다. API와 proxy가 같은 credential 두 목록을 읽는다.
 
+worker Pod는 `worker.memoryMb`(기본 4608MiB) 전체를 예약하므로 동시 작업 세션 수는 대략 노드 allocatable / `worker.memoryMb`다. 기본값이면 allocatable 16GiB 단일 노드에 worker가 둘 정도만 뜬다. 작은 노드나 시험 설치는 [작은 노드와 시험 설치](/run-server/self-hosting/capacity#작은-노드와-시험-설치)의 values 예시를 본다. 설치가 끝나면 `helm`이 적는 NOTES에도 이 셈법이 나온다.
+
 다른 설치와 겹치지 않는 `installationId`를 같은 파일에 둔다. `images.*`의 digest는 게시 chart의 값을 유지한다. DB·S3·Secret·CNI가 준비됐는지 확인한 뒤 진행한다.
 
 콘솔의 공개 주소는 같은 파일의 `api.extraEnv`에 `CONSOLE_ORIGIN`으로 둔다. 브라우저가 콘솔을 여는 origin(`scheme://host[:port]`)이다. AWS의 내부망 ALB면 그 Ingress의 host이고, 그 밖의 클러스터면 [5단계](#5-aws-밖-클러스터의-콘솔-접속)의 reverse proxy 주소다.

@@ -86,6 +86,8 @@ spec:
               value: {{ $idle | quote }}
             - name: EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB
               value: {{ .Values.worker.ephemeralStorageMb | quote }}
+            - name: SCHEDULER_NODE_CAPACITY_CHECK
+              value: {{ .Values.scheduler.nodeCapacityCheck.enabled | quote }}
             {{- include "ap.limitsEnv" . | nindent 12 }}
             - name: AWS_REGION
               value: {{ .Values.config.aws.region | quote }}
@@ -181,4 +183,35 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "ap.fullname" . }}-scheduler
     namespace: {{ .Release.Namespace }}
+{{- if .Values.scheduler.nodeCapacityCheck.enabled }}
+{{- /* Cluster-scoped: named for the namespace and fullname both, hashed apart so "team"+"prod-werft" and "team-prod"+"werft" do not meet. */}}
+{{- $nodeReader := printf "%s-scheduler-node-reader-%s" (include "ap.fullname" .) (printf "%s/%s" .Release.Namespace (include "ap.fullname" .) | sha256sum | trunc 10) }}
+---
+# Read only, for the startup warning of scheduler.nodeCapacityCheck.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $nodeReader }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $nodeReader }}
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $nodeReader }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ap.fullname" . }}-scheduler
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- end }}
