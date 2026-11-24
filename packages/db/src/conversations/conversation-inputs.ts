@@ -151,7 +151,8 @@ export function createPostgresConversationInputStore(
         if (topic === undefined) return { outcome: "topic_not_found" };
         topicId = topic.id;
       }
-      // The text goes to the input's turn row; the input row points at it.
+      // The text goes to the input's turn row, which the input row points at;
+      // the input row keeps a copy for an image before 0344.
       const turnId = await insertWebInputTurn(tx, {
         workspaceId: request.workspaceId,
         agentId,
@@ -165,13 +166,15 @@ export function createPostgresConversationInputStore(
           INSERT INTO conversation_inputs (
             id, workspace_id, agent_id, topic_id, seq,
             requester_kind, requester_id,
-            client_message_id, body_sha256, conversation_turn_id, slack_mirror
+            client_message_id, body, body_sha256, conversation_turn_id,
+            slack_mirror
           )
           SELECT ${randomUUID()}::uuid, ${request.workspaceId}::uuid,
             ${agentId}::uuid, ${topicId}::uuid,
             COALESCE(MAX(i.seq), 0) + 1,
             'user', ${userId},
-            ${request.clientMessageId}, ${bodyHash}, ${turnId}::uuid,
+            ${request.clientMessageId}, ${request.body}, ${bodyHash},
+            ${turnId}::uuid,
             ${slackMirror}
           FROM conversation_inputs i WHERE i.topic_id = ${topicId}::uuid
           RETURNING id, topic_id, seq, requester_id, slack_mirror`),

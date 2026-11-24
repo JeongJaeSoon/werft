@@ -1,5 +1,5 @@
 {
-  "id": "91c80cd1-12de-4fdb-9191-dd40fd08101c",
+  "id": "a39f7479-bf5c-4920-91fd-3d00b464a2a4",
   "prevId": "2a117181-d31c-4051-a684-dd4ec69ae674",
   "version": "7",
   "dialect": "postgresql",
@@ -5807,7 +5807,7 @@
       "checkConstraints": {
         "conversation_calls_conversation_turn_check": {
           "name": "conversation_calls_conversation_turn_check",
-          "value": "\"conversation_calls\".\"conversation_turn_id\" IS NULL OR \"conversation_calls\".\"call_class\" = 'm2'"
+          "value": "\"conversation_calls\".\"conversation_turn_id\" IS NULL OR COALESCE(\"conversation_calls\".\"call_class\" = 'm2', false)"
         },
         "conversation_calls_call_class_check": {
           "name": "conversation_calls_call_class_check",
@@ -6305,7 +6305,7 @@
       "checkConstraints": {
         "conversation_inputs_origin_check": {
           "name": "conversation_inputs_origin_check",
-          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending','unconfirmed') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL AND ((\"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL) OR (\"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NOT NULL AND \"conversation_inputs\".\"body_sha256\" IS NOT NULL AND octet_length(\"conversation_inputs\".\"body_sha256\") = 32))) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user' AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL)"
+          "value": "(\"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NOT NULL AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL) OR (\"conversation_inputs\".\"client_message_id\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" ~ '^[A-Za-z0-9_-]{1,128}$' AND \"conversation_inputs\".\"requester_kind\" = 'user' AND \"conversation_inputs\".\"slack_mirror\" IS NOT NULL AND \"conversation_inputs\".\"slack_mirror\" IN ('not_target','pending','unconfirmed') AND \"conversation_inputs\".\"buffer_expires_at\" IS NULL AND ((\"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL) OR (\"conversation_inputs\".\"conversation_turn_id\" IS NOT NULL AND \"conversation_inputs\".\"body_sha256\" IS NOT NULL AND octet_length(\"conversation_inputs\".\"body_sha256\") = 32))) OR (\"conversation_inputs\".\"buffer_expires_at\" IS NOT NULL AND \"conversation_inputs\".\"client_message_id\" IS NULL AND \"conversation_inputs\".\"slack_mirror\" IS NULL AND \"conversation_inputs\".\"turn_id\" IS NULL AND \"conversation_inputs\".\"body\" IS NOT NULL AND \"conversation_inputs\".\"slack_ts\" IS NOT NULL AND \"conversation_inputs\".\"requester_kind\" = 'slack_user' AND \"conversation_inputs\".\"conversation_turn_id\" IS NULL AND \"conversation_inputs\".\"body_sha256\" IS NULL)"
         },
         "conversation_inputs_seq_check": {
           "name": "conversation_inputs_seq_check",

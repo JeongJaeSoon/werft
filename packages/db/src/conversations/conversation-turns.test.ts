@@ -18,9 +18,9 @@ import { createPostgresContextFragmentSource } from "./context-fragments.ts";
 import { createPostgresConversationInputStore } from "./conversation-inputs.ts";
 import { createPostgresConversationStore } from "./conversation-store.ts";
 import {
+  backfillWebInputTurns,
   beginConversationTurn,
   endConversationTurn,
-  moveWebInputBodies,
   webInputBodyHash,
 } from "./conversation-turns.ts";
 import { inputTexts } from "./input-texts.ts";
@@ -181,6 +181,17 @@ describe("conversation turns (0344)", () => {
     await expect(call(turnId, "m1")).rejects.toThrow(
       /conversation_calls_conversation_turn_check/,
     );
+    // A session's call has no class; it names no turn either.
+    await expect(
+      client.query(
+        `INSERT INTO conversation_calls (id, workspace_id, agent_id, token_hash,
+           root_kind, connection_id, path, model, max_tokens, max_request_bytes,
+           expires_at, conversation_turn_id)
+         VALUES ($1::uuid, $2, $3, convert_to($5, 'UTF8'), 'none', 'conn',
+           '/v1/messages', 'model', 100, 1000, now() + interval '1 minute', $4)`,
+        [randomUUID(), workspaceId, agentId, turnId, randomUUID()],
+      ),
+    ).rejects.toThrow(/conversation_calls_conversation_turn_check/);
   });
 
   test("a turn whose source or engaged message is deleted is not begun", async () => {
@@ -283,6 +294,25 @@ describe("conversation turns (0344)", () => {
     expect(row).toEqual({ topic_id: topicId });
   });
 
+  test("the buffer's purge of a topic only a call points at leaves the call, unlinked", async () => {
+    const callId = await call(null, "m1");
+    const buffered = await buffer("1700000000.000850", "held");
+    await db.transaction((tx) => dropBufferedInputs(tx, [buffered]));
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM conversation_topics WHERE id = $1",
+        [topicId],
+      ),
+    ).toBe(0);
+    const [row] = (
+      await client.query(
+        "SELECT topic_id, conversation_id FROM conversation_calls WHERE id = $1",
+        [callId],
+      )
+    ).rows;
+    expect(row).toEqual({ topic_id: null, conversation_id: conversationId });
+  });
+
   test("an engagement through a turn is context, until its message is deleted", async () => {
     await begun({ engage: "1700000000.000900" });
     const source = createPostgresContextFragmentSource(db);
@@ -330,6 +360,25 @@ describe("conversation turns (0344)", () => {
       )
     ).rows;
     expect(receipt?.result.turns).toBe(1);
+  });
+
+  test("an admin delete marks a message only a turn read, unless a turn of a session holds it", async () => {
+    await begun({ sources: ["1700000000.001100", "1700000000.001200"] });
+    const result = await deleteConversationRecords(db, {
+      conversationId,
+      by: "admin@example.invalid",
+    });
+    expect(result).toMatchObject({
+      outcome: "deleted",
+      counts: { turns: 1, marked: 2 },
+    });
+    const marks = await client.query(
+      "SELECT ts, reason FROM deleted_sources ORDER BY ts",
+    );
+    expect(marks.rows).toEqual([
+      { ts: "1700000000.001100", reason: "admin_deleted" },
+      { ts: "1700000000.001200", reason: "admin_deleted" },
+    ]);
   });
 
   describe("web inputs", () => {
@@ -381,7 +430,7 @@ describe("conversation turns (0344)", () => {
           [inputId],
         )
       ).rows;
-      expect(input?.body).toBeNull();
+      expect(input?.body).toBe("hello there");
       expect(
         Buffer.from(input?.body_sha256 ?? []).equals(
           webInputBodyHash("hello there"),
@@ -414,8 +463,11 @@ describe("conversation turns (0344)", () => {
       );
     });
 
-    test("the start pass moves each older web input's text to a turn row, and runs on none", async () => {
-      expect(await moveWebInputBodies(db)).toEqual({ moved: 0, failed: [] });
+    test("the start pass gives each older web input a turn row, and runs on none", async () => {
+      expect(await backfillWebInputTurns(db)).toEqual({
+        backfilled: 0,
+        failed: [],
+      });
       const first = await take("key-2", "opens the topic");
       if (first.outcome !== "taken") throw new Error(first.outcome);
       const oldId = randomUUID();
@@ -429,11 +481,14 @@ describe("conversation turns (0344)", () => {
         outcome: "replayed",
         receipt: { inputId: oldId },
       });
-      expect(await moveWebInputBodies(db, { batch: 1 })).toEqual({
-        moved: 1,
+      expect(await backfillWebInputTurns(db, { batch: 1 })).toEqual({
+        backfilled: 1,
         failed: [],
       });
-      expect(await moveWebInputBodies(db)).toEqual({ moved: 0, failed: [] });
+      expect(await backfillWebInputTurns(db)).toEqual({
+        backfilled: 0,
+        failed: [],
+      });
       const [moved] = (
         await client.query<{
           body: string | null;
@@ -446,7 +501,7 @@ describe("conversation turns (0344)", () => {
           [oldId],
         )
       ).rows;
-      expect(moved?.body).toBeNull();
+      expect(moved?.body).toBe("written before");
       expect(moved?.input_text).toBe("written before");
       expect(
         Buffer.from(moved?.body_sha256 ?? []).equals(

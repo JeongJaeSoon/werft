@@ -2,6 +2,7 @@ import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentDeleted,
+  backfillWebInputTurns,
   budgetChoiceOfCall,
   closeAgentlessSessions,
   createDatabaseAgentAuthority,
@@ -87,7 +88,6 @@ import {
   fillSessionParents,
   hasUncollectedCheckpoint,
   moveSummaryLinks,
-  moveWebInputBodies,
   newSessionGitHubReaders,
   reconcileRetiredCatalogDrafts,
   slackAppKind,
@@ -548,18 +548,18 @@ closeAgentlessSessions(db).then(
     );
   },
 );
-// Web inputs taken before 0344 hold their text in the input row; each start
-// moves what is left to a turn row, so one that failed is tried on the next.
-moveWebInputBodies(db).then(
-  (moved) => {
-    if (moved.moved > 0) {
-      logger.info("Web input texts moved to their turn rows", {
-        inputs: moved.moved,
+// Web inputs taken before 0344, or by an older image beside this one, have no
+// turn row; each start gives them one, so one that failed is tried on the next.
+backfillWebInputTurns(db).then(
+  (backfilled) => {
+    if (backfilled.backfilled > 0) {
+      logger.info("Web inputs given their turn rows", {
+        inputs: backfilled.backfilled,
       });
     }
-    for (const { inputId, error } of moved.failed) {
+    for (const { inputId, error } of backfilled.failed) {
       logger.warn(
-        "A web input's text could not be moved; the next start tries again",
+        "A web input could not be given its turn row; the next start tries again",
         {
           input_id: inputId,
           error_name: error instanceof Error ? error.name : typeof error,

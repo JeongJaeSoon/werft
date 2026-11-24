@@ -3826,7 +3826,7 @@ export const conversationCalls = pgTable(
       .where(sql`${table.conversationTurnId} IS NOT NULL`),
     check(
       "conversation_calls_conversation_turn_check",
-      sql`${table.conversationTurnId} IS NULL OR ${table.callClass} = 'm2'`,
+      sql`${table.conversationTurnId} IS NULL OR COALESCE(${table.callClass} = 'm2', false)`,
     ),
     check(
       "conversation_calls_call_class_check",
@@ -5793,7 +5793,8 @@ export const conversationInputs = pgTable(
     clientMessageId: text("client_message_id"),
     /**
      * A buffered Slack message's text, held until `buffer_expires_at`, or a
-     * web input's from before 0344 that the start pass has not moved yet.
+     * web input's: a copy of its turn row's, kept while an image before
+     * 0344 may still read it here.
      */
     body: text(),
     /**
@@ -5826,13 +5827,13 @@ export const conversationInputs = pgTable(
       )
       .where(sql`${table.clientMessageId} IS NOT NULL`),
     // A Slack input has a turn and no web fields; a web input is a user's,
-    // with its text, or from 0344 its turn row and the text's hash, and
+    // with its text, and from 0344 its turn row and the text's hash, and
     // whether Slack is to mirror it; a buffered Slack
     // message has its text, its poster and its end, and no turn. A NULL
     // operand makes "IN" NULL, which a CHECK passes; hence IS NOT NULL.
     check(
       "conversation_inputs_origin_check",
-      sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL AND ${table.bufferExpiresAt} IS NULL AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}) AND ${table.bufferExpiresAt} IS NULL AND ((${table.body} IS NOT NULL AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL) OR (${table.body} IS NULL AND ${table.conversationTurnId} IS NOT NULL AND ${table.bodySha256} IS NOT NULL AND octet_length(${table.bodySha256}) = 32))) OR (${table.bufferExpiresAt} IS NOT NULL AND ${table.clientMessageId} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NULL AND ${table.body} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.requesterKind} = 'slack_user' AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL)`,
+      sql`(${table.clientMessageId} IS NULL AND ${table.body} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NOT NULL AND ${table.bufferExpiresAt} IS NULL AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL) OR (${table.clientMessageId} IS NOT NULL AND ${table.clientMessageId} ~ '^[A-Za-z0-9_-]{1,128}$' AND ${table.requesterKind} = 'user' AND ${table.slackMirror} IS NOT NULL AND ${table.slackMirror} IN (${sql.raw(sqlList(CONVERSATION_INPUT_SLACK_MIRROR_VALUES))}) AND ${table.bufferExpiresAt} IS NULL AND ((${table.body} IS NOT NULL AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL) OR (${table.conversationTurnId} IS NOT NULL AND ${table.bodySha256} IS NOT NULL AND octet_length(${table.bodySha256}) = 32))) OR (${table.bufferExpiresAt} IS NOT NULL AND ${table.clientMessageId} IS NULL AND ${table.slackMirror} IS NULL AND ${table.turnId} IS NULL AND ${table.body} IS NOT NULL AND ${table.slackTs} IS NOT NULL AND ${table.requesterKind} = 'slack_user' AND ${table.conversationTurnId} IS NULL AND ${table.bodySha256} IS NULL)`,
     ),
     foreignKey({
       name: "conversation_inputs_conversation_turn_fk",

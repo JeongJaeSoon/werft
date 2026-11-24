@@ -8,12 +8,12 @@ export { createPostgresConversationStore } from "./conversation-store.ts";
 export {
   type BeginConversationTurn,
   type BegunConversationTurn,
+  backfillWebInputTurns,
   beginConversationTurn,
   type ConversationTurnEnd,
   type ConversationTurnEnding,
   endConversationTurn,
-  moveWebInputBodies,
-  type WebInputBodiesMoved,
+  type WebInputTurnsBackfilled,
 } from "./conversation-turns.ts";
 export {
   directSourceDeletedAt,

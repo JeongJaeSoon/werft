@@ -202,29 +202,29 @@ export function endConversationTurn(
   });
 }
 
-export type WebInputBodiesMoved = {
-  moved: number;
+export type WebInputTurnsBackfilled = {
+  backfilled: number;
   failed: { inputId: ConversationInputId; error: unknown }[];
 };
 
 /**
- * Moves the text of each web input taken before 0344 from its input row to a
- * turn row of its own, the way a web input is taken now, and keeps its hash
- * for its retries. One input per transaction, in batches of `batch`; an API
+ * Gives each web input taken before 0344 a turn row of its own holding its
+ * text, the way a web input is taken now, and keeps the text's hash for its
+ * retries; the input row keeps its copy. One input per transaction, in batches of `batch`; an API
  * start runs it, and one that failed is tried again on the next.
  */
-export async function moveWebInputBodies(
+export async function backfillWebInputTurns(
   db: Database,
   options: { batch?: number } = {},
-): Promise<WebInputBodiesMoved> {
+): Promise<WebInputTurnsBackfilled> {
   const batch = options.batch ?? 500;
-  const result: WebInputBodiesMoved = { moved: 0, failed: [] };
+  const result: WebInputTurnsBackfilled = { backfilled: 0, failed: [] };
   const failed = new Set<string>();
   for (;;) {
     const due = rowsOf<{ id: ConversationInputId }>(
       await db.execute(sql`
         SELECT id FROM conversation_inputs
-        WHERE client_message_id IS NOT NULL AND body IS NOT NULL
+        WHERE client_message_id IS NOT NULL AND conversation_turn_id IS NULL
           AND NOT (id = ANY(${`{${[...failed].join(",")}}`}::uuid[]))
         ORDER BY received_at, id
         LIMIT ${batch}`),
@@ -232,7 +232,7 @@ export async function moveWebInputBodies(
     if (due.length === 0) return result;
     for (const { id } of due) {
       try {
-        if (await moveOne(db, id)) result.moved += 1;
+        if (await backfillOne(db, id)) result.backfilled += 1;
       } catch (error) {
         failed.add(id);
         result.failed.push({ inputId: id, error });
@@ -241,7 +241,10 @@ export async function moveWebInputBodies(
   }
 }
 
-function moveOne(db: Database, inputId: ConversationInputId): Promise<boolean> {
+function backfillOne(
+  db: Database,
+  inputId: ConversationInputId,
+): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [input] = rowsOf<{
       workspace_id: string;
@@ -258,7 +261,8 @@ function moveOne(db: Database, inputId: ConversationInputId): Promise<boolean> {
         FROM conversation_inputs i
         JOIN conversation_topics t ON t.id = i.topic_id
         WHERE i.id = ${inputId}::uuid
-          AND i.client_message_id IS NOT NULL AND i.body IS NOT NULL
+          AND i.client_message_id IS NOT NULL
+          AND i.conversation_turn_id IS NULL
         FOR UPDATE OF i`),
     );
     if (input === undefined) return false;
@@ -273,7 +277,6 @@ function moveOne(db: Database, inputId: ConversationInputId): Promise<boolean> {
     });
     await tx.execute(sql`
       UPDATE conversation_inputs SET
-        body = NULL,
         body_sha256 = ${webInputBodyHash(input.body)},
         conversation_turn_id = ${turnId}::uuid
       WHERE id = ${inputId}::uuid`);

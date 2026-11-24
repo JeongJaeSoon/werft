@@ -3,7 +3,8 @@ import {
   type ConversationId,
   WORKSPACE_MANAGER_ROLES,
 } from "@werft-ai/contracts";
-import { sql } from "drizzle-orm";
+import type { StoredSourceSet } from "@werft-ai/platform";
+import { type SQL, sql } from "drizzle-orm";
 import {
   deleteChannelSummary,
   dropBufferedInputs,
@@ -81,6 +82,13 @@ const texts = (values: readonly string[]) =>
     sql`, `,
   );
 
+/** The ts of each of `sources`' direct sources that is a message of the channel. */
+const directTsIn = (sources: SQL, teamId: string, channelId: string) => sql`
+  (SELECT d->>'ts' AS ts
+   FROM jsonb_array_elements(COALESCE(${sources}->'direct', '[]'::jsonb)) d
+   WHERE d ? 'ts' AND d->>'team_id' = ${teamId}::text
+     AND d->>'channel_id' = ${channelId}::text) s`;
+
 async function recordsOf(
   tx: Database,
   c: ChannelConversation,
@@ -110,9 +118,16 @@ async function recordsOf(
       LEFT JOIN (SELECT DISTINCT ts FROM channel_summary_line_sources
         WHERE (workspace_id, team_id, channel_id) = (${channel})) s ON true`),
   );
+  const turnTs = rowsOf<{ ts: string }>(
+    await tx.execute(sql`
+      SELECT DISTINCT s.ts FROM conversation_turns ct
+      CROSS JOIN LATERAL ${directTsIn(sql`ct.sources`, c.team_id, c.channel_id)}
+      WHERE ct.conversation_id = ${c.id}::uuid AND ct.origin = 'm2'`),
+  ).map((row) => row.ts);
   const touched = [
     ...new Set([
       ...engagementTs,
+      ...turnTs,
       ...buffered.map((row) => row.slack_ts),
       ...summary.flatMap((row) => (row.ts === null ? [] : [row.ts])),
     ]),
@@ -305,12 +320,25 @@ export async function deleteConversationRecords(
           // After the engagements that point at them, before the buffer, so
           // the topics they leave empty go with it. A turn under way finds
           // its row gone and writes no result; its calls stay, unlinked.
-          const turns = rowsOf(
+          // A turn begun since names messages under the locks it took, which
+          // need not be these: one not seen starts again.
+          const gone = rowsOf<{ sources: StoredSourceSet | null }>(
             await tx.execute(sql`
             DELETE FROM conversation_turns
             WHERE conversation_id = ${conversation.id}::uuid AND origin = 'm2'
-            RETURNING id`),
-          ).length;
+            RETURNING sources`),
+          );
+          const turns = gone.length;
+          const turnTs = gone.flatMap(({ sources }) =>
+            (sources?.direct ?? []).flatMap((s) =>
+              s.ts !== undefined &&
+              s.team_id === place.teamId &&
+              s.channel_id === place.channelId
+                ? [s.ts]
+                : [],
+            ),
+          );
+          if (!within(turnTs, seen.touched)) throw new RecordsMoved();
           const buffered = await dropBufferedInputs(tx, records.bufferedIds);
           const result = {
             engagements,

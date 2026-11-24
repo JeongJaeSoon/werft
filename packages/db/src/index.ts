@@ -20,9 +20,9 @@ export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
 export * from "./conversations/conversation-store.ts";
 export {
+  backfillWebInputTurns,
   beginConversationTurn,
   endConversationTurn,
-  moveWebInputBodies,
 } from "./conversations/conversation-turns.ts";
 export * from "./conversations/engagements.ts";
 export {
