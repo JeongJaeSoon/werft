@@ -11,7 +11,7 @@ outcome: "게시 chart만으로 시험할 PostgreSQL과 object store를 클러�
 
 저장소 checkout 없이 게시 chart를 시험하는 클러스터에 PostgreSQL 16 한 벌과 `locked` 계약을 만족하는 object store(LocalStack) 한 벌을 세우고, Secret과 최소 values를 만들어 chart를 설치한다.
 
-**시험용이다. 운영에 쓰지 않는다.** 두 의존성은 데이터를 Pod 안에만 둔다. Pod가 다시 뜨면 DB와 checkpoint object가 모두 사라지고, 그 설치는 다시 쓸 수 없다. 운영 설치는 영속 PostgreSQL과 [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)을 따로 준비해 [Kubernetes 설치](/run-server/self-hosting/kubernetes)를 따른다.
+**시험용이다. 운영에 쓰지 않는다.** PostgreSQL은 데이터를 Pod의 `emptyDir`에, LocalStack은 컨테이너 메모리에 둔다. PostgreSQL Pod가 지워지거나 다른 노드로 옮겨지면 DB가, LocalStack 컨테이너가 다시 시작하면 bucket과 checkpoint object가 사라지고, 그 설치는 다시 쓸 수 없다. 운영 설치는 영속 PostgreSQL과 [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)을 따로 준비해 [Kubernetes 설치](/run-server/self-hosting/kubernetes)를 따른다.
 
 ## 준비물
 
@@ -221,7 +221,7 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
 
 ## 자주 막히는 곳
 
-노드나 의존성 Pod가 다시 뜨면 DB와 bucket이 빈다. PostgreSQL이 비면 `/readyz`가 503 `schema check failed`를 돌려준다. DB에 미수거 checkpoint가 남은 채 bucket만 비면 api가 기동을 거부한다. 이 시험 설치는 고치지 말고 아래 되돌리기로 지운 뒤 1단계부터 다시 만든다.
+PostgreSQL Pod가 바뀌면 DB가, LocalStack 컨테이너가 다시 시작하면(노드 재시작 포함) bucket이 빈다. PostgreSQL이 비면 `/readyz`가 503 `schema check failed`를 돌려준다. DB에 미수거 checkpoint가 남은 채 bucket만 비면 api가 기동을 거부한다. 이렇게 데이터를 잃은 시험 설치는 고치지 말고 아래 되돌리기로 지운 뒤 1단계부터 다시 만든다.
 
 1~3단계 사이에서 멈추고 셸을 닫을 때는 먼저 `rm -r "${SECRETS:?}"`로 비밀번호가 든 임시 디렉터리를 지운다.
 

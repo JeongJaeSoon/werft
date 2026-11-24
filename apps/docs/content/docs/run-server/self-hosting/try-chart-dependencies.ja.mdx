@@ -12,7 +12,7 @@ outcome: "公開 chart だけで試験する PostgreSQL と object store をク�
 
 リポジトリ checkout なしで公開 chart を試験するクラスタに、PostgreSQL 16 を 1 つと `locked` 契約を満たす object store(LocalStack)を 1 つ立て、Secret と最小の values を作って chart を設置します。
 
-**試験用です。運用には使いません。** 2 つの依存はデータを Pod の中にだけ置きます。Pod が再起動すると DB と checkpoint object がすべて消え、その設置は再び使えません。運用の設置では永続 PostgreSQL と [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) を別に準備し、[Kubernetes 設置](/run-server/self-hosting/kubernetes)に従います。
+**試験用です。運用には使いません。** PostgreSQL はデータを Pod の `emptyDir` に、LocalStack はコンテナのメモリに置きます。PostgreSQL の Pod が削除されるか別のノードに移ると DB が、LocalStack のコンテナが再起動すると bucket と checkpoint object が消え、その設置は再び使えません。運用の設置では永続 PostgreSQL と [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) を別に準備し、[Kubernetes 設置](/run-server/self-hosting/kubernetes)に従います。
 
 <a id="준비물" />
 ## 準備
@@ -229,7 +229,7 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
 <a id="자주-막히는-곳" />
 ## よくある問題
 
-ノードや依存の Pod が再起動すると DB と bucket が空になります。PostgreSQL が空になると `/readyz` が 503 `schema check failed` を返します。DB に未回収の checkpoint が残ったまま bucket だけが空になると、api は起動を拒否します。この試験設置は修復せず、下の「元に戻す」で削除して手順 1 から作り直します。
+PostgreSQL の Pod が入れ替わると DB が、LocalStack のコンテナが再起動すると(ノードの再起動を含む)bucket が空になります。PostgreSQL が空になると `/readyz` が 503 `schema check failed` を返します。DB に未回収の checkpoint が残ったまま bucket だけが空になると、api は起動を拒否します。このようにデータを失った試験設置は修復せず、下の「元に戻す」で削除して手順 1 から作り直します。
 
 手順 1〜3 の途中で止めてシェルを閉じるときは、先に `rm -r "${SECRETS:?}"` でパスワードの入った一時ディレクトリを削除します。
 

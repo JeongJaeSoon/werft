@@ -12,7 +12,7 @@ outcome: "Run PostgreSQL and an object store inside the cluster to try the publi
 
 On a cluster where you try the published chart without a repository checkout, run one PostgreSQL 16 and one object store (LocalStack) that meets the `locked` contract, then create the Secret and minimal values and install the chart.
 
-**This is for testing only. Do not use it in production.** Both dependencies keep their data inside the Pod. When a Pod restarts, the database and the checkpoint objects are gone and that installation cannot be used again. For production, prepare a persistent PostgreSQL and a [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) and follow [Install on Kubernetes](/run-server/self-hosting/kubernetes).
+**This is for testing only. Do not use it in production.** PostgreSQL keeps its data in the Pod's `emptyDir`, and LocalStack keeps it in container memory. When the PostgreSQL Pod is deleted or moves to another node the database is gone, and when the LocalStack container restarts the bucket and the checkpoint objects are gone; that installation cannot be used again. For production, prepare a persistent PostgreSQL and a [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) and follow [Install on Kubernetes](/run-server/self-hosting/kubernetes).
 
 <a id="준비물" />
 ## Before you begin
@@ -229,7 +229,7 @@ This check shows an empty test installation is ready. It does not prove backup a
 <a id="자주-막히는-곳" />
 ## Troubleshooting
 
-When a node or a dependency Pod restarts, the database and the bucket are emptied. With an empty PostgreSQL, `/readyz` returns 503 `schema check failed`. If the database still has uncollected checkpoints and only the bucket is empty, the api refuses to start. Do not repair this test installation: remove it with the roll back steps below and start again from step 1.
+When the PostgreSQL Pod is replaced the database is emptied, and when the LocalStack container restarts (a node restart included) the bucket is emptied. With an empty PostgreSQL, `/readyz` returns 503 `schema check failed`. If the database still has uncollected checkpoints and only the bucket is empty, the api refuses to start. Do not repair a test installation that lost its data this way: remove it with the roll back steps below and start again from step 1.
 
 If you stop between steps 1 and 3 and close the shell, first remove the temporary directory holding the password with `rm -r "${SECRETS:?}"`.
 
