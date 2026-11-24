@@ -66,6 +66,7 @@ integration("judgment buffer races", () => {
     agent = agentId,
     channelId = `C${String(++channelSeq).padStart(6, "0")}`,
     threadTs = "100.000100",
+    installation = installationId,
   ) {
     await pool.query(
       `INSERT INTO surface_bindings (id, workspace_id, agent_id, surface,
@@ -73,7 +74,7 @@ integration("judgment buffer races", () => {
         ceiling_actions, ceiling_disclosure, status)
        VALUES ($1, $2, $3, 'slack', $4, $5, 'public_channel', 'on', 'free',
         '{}', 'full', 'ready')`,
-      [randomUUID(), workspaceId, agent, installationId, channelId],
+      [randomUUID(), workspaceId, agent, installation, channelId],
     );
     return { channelId, topicId: await topicOf(agent, channelId, threadTs) };
   }
@@ -252,7 +253,18 @@ integration("judgment buffer races", () => {
       "INSERT INTO agents (id, workspace_id, managing_team_id, slug, name, status, conversation_rollout) SELECT $1, workspace_id, managing_team_id, 'other', 'other', 'active', 'shadow' FROM agents WHERE id = $2",
       [otherAgent, agentId],
     );
-    const shared = await heardChannel(otherAgent, place.channelId);
+    // Another agent hears the channel through its own Slack app.
+    const otherInstallation = randomUUID();
+    await pool.query(
+      "INSERT INTO slack_installations (id, workspace_id, app_id, team_id) VALUES ($1, $2, 'A0OTHER', $3)",
+      [otherInstallation, workspaceId, TEAM],
+    );
+    const shared = await heardChannel(
+      otherAgent,
+      place.channelId,
+      "100.000100",
+      otherInstallation,
+    );
     await db.transaction((tx) => hold(tx, other, tsOf(1)));
     await db.transaction((tx) =>
       hold(tx, shared, tsOf(1), { agent: otherAgent }),
