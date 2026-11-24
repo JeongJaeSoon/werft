@@ -985,6 +985,27 @@ describe("workersFreeingRoomFor", () => {
     ]);
   });
 
+  test("with Node reads, a selector asking for another profile label value frees no worker", async () => {
+    const api = new FakeKubernetes();
+    const backend = new KubernetesBackend(
+      {
+        ...testConfig(NS, INSTALLATION),
+        codexSandbox: { mode: "enabled", images: [CODEX] },
+        nodeSelector: { [CODEX_SECCOMP_NODE_LABEL.key]: "disabled" },
+        readsNodes: true,
+      },
+      api.asClient(),
+      testResolver,
+    );
+    api.nodes.push({ metadata: { labels: LABELLED, name: "n-a" } });
+    const plain = worker("e-plain", IMAGE);
+    await placed(api, plain, "n-a");
+    api.calls.length = 0;
+
+    expect(await backend.workersFreeingRoomFor(CODEX, [plain])).toEqual([]);
+    expect(api.calls).toEqual([]);
+  });
+
   test("with Node reads, any other Pod still waits for any worker, and reads nothing", async () => {
     const { api, backend } = setupWith(true);
     const workers = [worker("e-plain", IMAGE), worker("e-codex", CODEX)];

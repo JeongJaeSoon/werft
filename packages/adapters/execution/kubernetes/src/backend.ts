@@ -377,11 +377,12 @@ export class KubernetesBackend implements ExecutionBackend {
           worker.image === null || codexSandboxed(config, worker.image),
       );
     }
+    const { key, value } = CODEX_SECCOMP_NODE_LABEL;
+    // A selector that asks for another value leaves the Pod no node at all.
+    const selected = config.nodeSelector[key];
+    if (selected !== undefined && selected !== value) return [];
     const [nodes, pods] = await Promise.all([
-      client.listNodes({
-        ...config.nodeSelector,
-        [CODEX_SECCOMP_NODE_LABEL.key]: CODEX_SECCOMP_NODE_LABEL.value,
-      }),
+      client.listNodes({ ...config.nodeSelector, [key]: value }),
       client.list(
         config.namespace,
         "pods",
