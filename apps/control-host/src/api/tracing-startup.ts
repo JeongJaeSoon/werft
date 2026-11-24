@@ -13,6 +13,7 @@ import {
   valueMasker,
 } from "../ingest/adapters.ts";
 import { type IngestListener, startIngestListener } from "../ingest/start.ts";
+import type { AmbiguousPathGuard } from "./ambiguous-path.ts";
 import {
   normalizeEgressHost,
   parseEgressAllowlist,
@@ -59,6 +60,7 @@ export async function startTelemetryIngest(
   settings: TracingSettings,
   db: Database,
   logger: Pick<StructuredLogger, "warn">,
+  guard: AmbiguousPathGuard,
 ): Promise<IngestListener> {
   const { createOtelSpanSink } = await import("@werft-ai/observability/otel");
   const sink = createOtelSpanSink(settings);
@@ -70,6 +72,7 @@ export async function startTelemetryIngest(
     sink,
     masker: valueMasker,
     drops: new LoggedDropCounter(logger),
+    guard,
   });
   return {
     get port() {

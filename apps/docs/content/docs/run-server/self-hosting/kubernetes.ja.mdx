@@ -88,6 +88,8 @@ config:
 
 `config.egress.credentialAllowlist` は既定値全体を置き換えるため、GitHub・checkpoint bucket host を追加するときは provider・パッケージ registry など必要な項目をすべて再記入します。API と proxy は同じ二つの credential 一覧を読みます。
 
+worker Pod は `worker.memoryMb`（既定 4608MiB）全体を予約するため、同時作業セッション数はおおよそノードの allocatable / `worker.memoryMb` です。既定値では、allocatable 16GiB の単一ノードで起動する worker は二つ程度です。小さいノードや試験設置では [小さいノードと試験設置](/run-server/self-hosting/capacity#작은-노드와-시험-설치) の values 例を参照します。設置後に `helm` が出力する NOTES にもこの計算方法が表示されます。
+
 他の環境と重複しない `installationId` を同じファイルに置きます。`images.*` の digest は公開 chart の値を維持します。DB・S3・Secret・CNI の準備を確認してから進みます。
 
 コンソールの公開アドレスは、同じファイルの `api.extraEnv` に `CONSOLE_ORIGIN` として置きます。ブラウザがコンソールを開く origin（`scheme://host[:port]`）です。AWS の内部 ALB ならその Ingress の host、それ以外のクラスタなら[手順 5](#5-aws-밖-클러스터의-콘솔-접속) の reverse proxy のアドレスです。

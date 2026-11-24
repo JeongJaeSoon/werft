@@ -16,14 +16,17 @@ import {
   type AgentStore,
   type ConversationCalls,
   type ConversationRuntimeTurns,
+  type ConversationTurnLimitReached,
   type ConversationTurnOutcome,
   type ConversationTurnQueue,
   connectionOf,
   hashToken,
   type SessionCatalog,
 } from "@werft-ai/platform";
+import type { Server } from "bun";
 import { z } from "zod";
 import { booleanFlag } from "../boolean-flag.ts";
+import type { AmbiguousPathGuard } from "./ambiguous-path.ts";
 
 // A bearer an operator could type from memory is not a lock.
 const MIN_TOKEN_LENGTH = 32;
@@ -152,6 +155,8 @@ export type OperatorTurnResult =
       // The last call the turn asked for was refused, and why: the turn
       // ended on it.
       refused?: ConversationTurnCallRefusal;
+      // The limit that ended the turn, and who held it there.
+      limit_reached?: ConversationTurnLimitReached;
     };
 
 /**
@@ -256,7 +261,7 @@ export function createOperatorConversationTurns(deps: {
         await deps.calls.endTurn(turnId);
         throw error;
       }
-      const ended = await deps.calls.endTurn(turnId);
+      const ended = await deps.calls.endTurn(turnId, turn ?? undefined);
       // Queued just above, so it has an end.
       if (turn === null)
         throw new Error(`Conversation turn ${turnId} vanished`);
@@ -265,6 +270,7 @@ export function createOperatorConversationTurns(deps: {
         turn_id: turnId,
         turn,
         ...(ended.refusal === null ? {} : { refused: ended.refusal }),
+        ...(ended.limit === null ? {} : { limit_reached: ended.limit }),
       };
     },
   };
@@ -280,58 +286,62 @@ export async function serveOperatorConversationTurns(deps: {
   socketPath: string;
   operator: ReturnType<typeof createOperatorConversationTurns>;
   logger: StructuredLogger;
+  guard: AmbiguousPathGuard;
 }): Promise<{ stop(): Promise<void> }> {
   await rm(deps.socketPath, { force: true });
   const server = Bun.serve({
     unix: deps.socketPath,
-    async fetch(request, server) {
-      // A turn is held open until it ends, longer than the idle default.
-      server.timeout(request, 0);
-      if (request.method !== "POST") {
-        return Response.json({ outcome: "invalid_request" }, { status: 405 });
-      }
-      const parsed = operatorTurnRequestSchema.safeParse(
-        await request.json().catch(() => null),
-      );
-      if (!parsed.success) {
-        return Response.json(
-          { outcome: "invalid_request" } satisfies OperatorTurnResult,
-          { status: 400 },
+    fetch: deps.guard.front(
+      "operator-conversation-turns",
+      async (request: Request, server: Server<undefined>) => {
+        // A turn is held open until it ends, longer than the idle default.
+        server.timeout(request, 0);
+        if (request.method !== "POST") {
+          return Response.json({ outcome: "invalid_request" }, { status: 405 });
+        }
+        const parsed = operatorTurnRequestSchema.safeParse(
+          await request.json().catch(() => null),
         );
-      }
-      try {
-        const result = await deps.operator.run(parsed.data);
-        // Ids and outcomes only: neither the input nor the answer is logged.
-        deps.logger.info("Operator conversation turn", {
-          operator_user: parsed.data.operator.user,
-          operator_host: parsed.data.operator.host,
-          agent_id: parsed.data.agent_id,
-          topic_id: parsed.data.topic_id,
-          outcome: result.outcome,
-          ...(result.outcome === "ended"
-            ? {
-                turn_id: result.turn_id,
-                ...(result.refused === undefined
-                  ? {}
-                  : { turn_refused: result.refused }),
-                turn_outcome: result.turn.outcome,
-                ...("reason" in result.turn
-                  ? { turn_failure: result.turn.reason }
-                  : {}),
-              }
-            : {}),
-        });
-        return Response.json(result);
-      } catch (error) {
-        deps.logger.error("Operator conversation turn failed", {
-          operator_user: parsed.data.operator.user,
-          operator_host: parsed.data.operator.host,
-          agent_id: parsed.data.agent_id,
-          error_name: error instanceof Error ? error.name : "UnknownError",
-        });
-        return Response.json({ outcome: "error" }, { status: 500 });
-      }
-    },
+        if (!parsed.success) {
+          return Response.json(
+            { outcome: "invalid_request" } satisfies OperatorTurnResult,
+            { status: 400 },
+          );
+        }
+        try {
+          const result = await deps.operator.run(parsed.data);
+          // Ids and outcomes only: neither the input nor the answer is logged.
+          deps.logger.info("Operator conversation turn", {
+            operator_user: parsed.data.operator.user,
+            operator_host: parsed.data.operator.host,
+            agent_id: parsed.data.agent_id,
+            topic_id: parsed.data.topic_id,
+            outcome: result.outcome,
+            ...(result.outcome === "ended"
+              ? {
+                  turn_id: result.turn_id,
+                  ...(result.refused === undefined
+                    ? {}
+                    : { turn_refused: result.refused }),
+                  turn_outcome: result.turn.outcome,
+                  ...("reason" in result.turn
+                    ? { turn_failure: result.turn.reason }
+                    : {}),
+                }
+              : {}),
+          });
+          return Response.json(result);
+        } catch (error) {
+          deps.logger.error("Operator conversation turn failed", {
+            operator_user: parsed.data.operator.user,
+            operator_host: parsed.data.operator.host,
+            agent_id: parsed.data.agent_id,
+            error_name: error instanceof Error ? error.name : "UnknownError",
+          });
+          return Response.json({ outcome: "error" }, { status: 500 });
+        }
+      },
+    ),
   });
   return {
     async stop() {

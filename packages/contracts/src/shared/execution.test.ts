@@ -9,6 +9,7 @@ import {
   MIN_WORKSPACE_QUOTA_MB,
   NO_PROXY_VALUE,
   noProxyValueFor,
+  workerIdleTimeoutSecondsOf,
 } from "@werft-ai/contracts/execution";
 
 test("worker defaults retain their documented values", () => {
@@ -51,6 +52,7 @@ test("worker environment names retain both proxy spellings", () => {
     objectPrefix: "WORKER_OBJECT_PREFIX",
     objectRegion: "AWS_REGION",
     stopGrace: "WORKER_STOP_GRACE_SEC",
+    idleTimeout: "WORKER_IDLE_TIMEOUT_SEC",
     maxTurnSeconds: "WORKER_MAX_TURN_SEC",
     providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
     logLevel: "LOG_LEVEL",
@@ -107,3 +109,24 @@ test.each(["", " ", "http://egress-proxy:bad-port"])(
     expect(() => noProxyValueFor({ egressProxyUrl })).toThrow();
   },
 );
+
+describe("workerIdleTimeoutSecondsOf", () => {
+  test("is 1800 unset and takes 60 to 7200", () => {
+    expect(workerIdleTimeoutSecondsOf({})).toBe(1800);
+    expect(workerIdleTimeoutSecondsOf({ WORKER_IDLE_TIMEOUT_SEC: "60" })).toBe(
+      60,
+    );
+    expect(
+      workerIdleTimeoutSecondsOf({ WORKER_IDLE_TIMEOUT_SEC: "7200" }),
+    ).toBe(7200);
+  });
+
+  test.each(["59", "7201", "", "90.5", "soon"])(
+    "refuses %j, naming the setting and its range",
+    (value) => {
+      expect(() =>
+        workerIdleTimeoutSecondsOf({ WORKER_IDLE_TIMEOUT_SEC: value }),
+      ).toThrow("WORKER_IDLE_TIMEOUT_SEC must be an integer from 60 to 7200");
+    },
+  );
+});

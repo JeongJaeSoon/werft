@@ -11,9 +11,11 @@ import {
 import { createLogger } from "@werft-ai/observability";
 import {
   type ConversationCalls,
+  conversationTurnLimitReached,
   createConversationRuntimeTurns,
   createMemoryConversationTurnQueue,
 } from "@werft-ai/platform";
+import { ambiguousPathGuard } from "./ambiguous-path.ts";
 import {
   assertConversationTurnDispatch,
   conversationRuntimeBearer,
@@ -179,9 +181,14 @@ function operatorHarness(
               expiresAt: new Date(now().getTime() + 180_000),
             };
       },
-      async endTurn(turnId) {
+      async endTurn(turnId, outcome) {
         ended.push(turnId);
-        return { ended: "recorded", refusal: options.refusal ?? null };
+        const refusal = options.refusal ?? null;
+        return {
+          ended: "recorded",
+          refusal,
+          limit: conversationTurnLimitReached(outcome ?? null, refusal),
+        };
       },
     },
     agents: {
@@ -424,6 +431,7 @@ describe("the conversation-turn command", () => {
           { write: (record) => void logged.push(JSON.stringify(record)) },
         ],
       }),
+      guard: ambiguousPathGuard({ warn: () => {} }),
     });
     const env = {
       CONVERSATION_RUNTIME_TOKEN: CURRENT,

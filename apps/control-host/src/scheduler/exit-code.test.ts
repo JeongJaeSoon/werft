@@ -20,6 +20,7 @@ const clean: SchedulerRunSummary = {
   launched: [],
   launchesNoCapacity: [],
   waitingForCapacity: [],
+  idleWorkersStopped: [],
   launchesBackingOff: [],
   launchesQuarantined: [],
   launchesRetracted: [],

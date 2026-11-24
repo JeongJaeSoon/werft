@@ -2094,6 +2094,9 @@ export function workerEnvironmentFor(
     `${ENV.objectPrefix}=${sessionObjectPrefix(intent.sessionId)}`,
     `${ENV.objectRegion}=${objectStore.region}`,
     `${ENV.stopGrace}=${config.stopTimeoutSeconds}`,
+    ...(config.idleTimeoutSeconds === undefined
+      ? []
+      : [`${ENV.idleTimeout}=${config.idleTimeoutSeconds}`]),
     ...(workerLimits === undefined
       ? []
       : [

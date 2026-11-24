@@ -28,11 +28,13 @@ import {
   BUDGET_OWNER_KIND_VALUES,
   BUDGET_RESERVATION_STATE_VALUES,
   BUDGET_ROOT_KIND_VALUES,
+  BUDGET_UNKNOWN_RESOLUTION_VALUES,
   type BudgetAccountId,
   type BudgetLimitSubject,
   type BudgetOwnerKind,
   type BudgetReservationState,
   type BudgetRootKind,
+  type BudgetUnknownResolution,
   CHANNEL_SUMMARY_LINE_TEXT_MAX,
   CONVERSATION_CALL_CLASS_VALUES,
   CONVERSATION_CALL_STATE_VALUES,
@@ -42,6 +44,8 @@ import {
   CONVERSATION_ROLLOUT_VALUES,
   CONVERSATION_TURN_CALL_REFUSAL_VALUES,
   CONVERSATION_TURN_DECISION_VALUES,
+  CONVERSATION_TURN_LIMIT_SIDE_VALUES,
+  CONVERSATION_TURN_LIMIT_VALUES,
   CONVERSATION_TURN_ORIGIN_VALUES,
   CONVERSATION_TURN_REASON_MAX,
   CONVERSATION_TURN_STATE_VALUES,
@@ -59,6 +63,8 @@ import {
   type ConversationTurnCallRefusal,
   type ConversationTurnDecision,
   type ConversationTurnId,
+  type ConversationTurnLimit,
+  type ConversationTurnLimitSide,
   type ConversationTurnOrigin,
   type ConversationTurnState,
   DELETED_SOURCE_REASON_VALUES,
@@ -3666,7 +3672,8 @@ export const budgetAccounts = pgTable(
 // root kind. A settled or released row stays, so the same id does not
 // count twice. unknown_at marks a reserved row whose call was used and not
 // reported within its lease: still held. Older images ignore the column and
-// settle or release the row as reserved.
+// settle or release the row as reserved. An operator resolves such a row:
+// settled_* is then what it charged, and resolution says which way.
 export const budgetReservations = pgTable(
   "budget_reservations",
   {
@@ -3698,6 +3705,7 @@ export const budgetReservations = pgTable(
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     unknownAt: timestamp("unknown_at", { withTimezone: true }),
+    resolution: text().$type<BudgetUnknownResolution>(),
   },
   (table) => [
     index("budget_reservations_account_idx").on(table.accountId),
@@ -3720,7 +3728,11 @@ export const budgetReservations = pgTable(
     ),
     check(
       "budget_reservations_settled_check",
-      sql`CASE WHEN ${table.state} = 'settled' THEN ${table.settledCostUsd} IS NOT NULL AND ${table.settledTokens} IS NOT NULL ELSE ${table.settledCostUsd} IS NULL AND ${table.settledTokens} IS NULL END`,
+      sql`CASE WHEN ${table.state} IN ('settled', 'resolved') THEN ${table.settledCostUsd} IS NOT NULL AND ${table.settledTokens} IS NOT NULL ELSE ${table.settledCostUsd} IS NULL AND ${table.settledTokens} IS NULL END`,
+    ),
+    check(
+      "budget_reservations_resolution_check",
+      sql`(${table.state} = 'resolved') = (${table.resolution} IS NOT NULL) AND ${table.resolution} IN (${sql.raw(sqlList(BUDGET_UNKNOWN_RESOLUTION_VALUES))})`,
     ),
     check(
       "budget_reservations_nonneg_check",
@@ -3729,6 +3741,49 @@ export const budgetReservations = pgTable(
     check(
       "budget_reservations_unmetered_check",
       sql`NOT ${table.unmetered} OR (${table.costUsd} = 0 AND coalesce(${table.settledCostUsd}, 0) = 0)`,
+    ),
+  ],
+);
+
+// The one adjustment of a reservation an operator resolved, written when its
+// late report came: the report's amount and its difference from what the
+// resolve charged, added to the spent of the reservation's own account and
+// month, however long ago that was. Keyed by the call, so a report repeated
+// adds nothing more.
+export const budgetAdjustments = pgTable(
+  "budget_adjustments",
+  {
+    callId: text("call_id")
+      .primaryKey()
+      .references(() => budgetReservations.callId),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    accountId: uuid("account_id")
+      .$type<BudgetAccountId>()
+      .references(() => budgetAccounts.id),
+    reportedCostUsd: numeric("reported_cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+    reportedTokens: bigint("reported_tokens", { mode: "number" }).notNull(),
+    // Signed: negative gives back part of what the resolve charged.
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+    tokens: bigint({ mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("budget_adjustments_account_idx").on(table.accountId),
+    check(
+      "budget_adjustments_amount_check",
+      sql`${budgetCostOk(table.reportedCostUsd)} AND ${budgetTokensOk(table.reportedTokens)} AND ${table.costUsd} <> 'NaN' AND ${table.tokens} BETWEEN -9007199254740991 AND 9007199254740991`,
     ),
   ],
 );
@@ -3880,6 +3935,7 @@ export const conversationCalls = pgTable(
         WHEN 'reserved' THEN ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
         WHEN 'in_flight' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
         WHEN 'settled' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NOT NULL
+        WHEN 'resolved' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
         ELSE ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
       END`,
     ),
@@ -5717,6 +5773,9 @@ export const conversationTurns = pgTable(
       .notNull()
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    // The limit that ended a turn without a decision, and who held it there.
+    limitReached: text("limit_reached").$type<ConversationTurnLimit>(),
+    limitReachedBy: text("limit_reached_by").$type<ConversationTurnLimitSide>(),
   },
   (table) => [
     foreignKey({
@@ -5764,6 +5823,10 @@ export const conversationTurns = pgTable(
     check(
       "conversation_turns_decision_check",
       sql`${table.decision} IN (${sql.raw(sqlList(CONVERSATION_TURN_DECISION_VALUES))})`,
+    ),
+    check(
+      "conversation_turns_limit_check",
+      sql`(${table.limitReached} IS NULL) = (${table.limitReachedBy} IS NULL) AND (${table.limitReached} IS NULL OR (${table.state} = 'no_decision' AND ${table.limitReached} IN (${sql.raw(sqlList(CONVERSATION_TURN_LIMIT_VALUES))}) AND ${table.limitReachedBy} IN (${sql.raw(sqlList(CONVERSATION_TURN_LIMIT_SIDE_VALUES))})))`,
     ),
     // A web input's row is its text and nothing else; a runtime's turn has
     // no input text, a decision once decided, an answer only with one, and
