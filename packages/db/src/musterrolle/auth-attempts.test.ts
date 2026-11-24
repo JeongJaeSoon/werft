@@ -216,17 +216,41 @@ describe("createPostgresAuthAttemptStore", () => {
   });
 
   test("purges windows older than a day, and only counts them on a dry run", async () => {
+    const purge = (dryRun: boolean) =>
+      purgeEndedAuthAttemptWindows(db, { limit: 10, dryRun, budgetMs: 1000 });
     await store.take("ip_request", KEY, RULE);
     await age(25);
     await store.take("ip_request", "fresh" as AuthAttemptKey, RULE);
-    expect(
-      await purgeEndedAuthAttemptWindows(db, { limit: 10, dryRun: true }),
-    ).toBe(1);
+    expect(await purge(true)).toBe(1);
     expect(await count()).toBe(1);
-    expect(
-      await purgeEndedAuthAttemptWindows(db, { limit: 10, dryRun: false }),
-    ).toBe(1);
+    expect(await purge(false)).toBe(1);
     expect(await count()).toBeUndefined();
     expect(await count("fresh")).toBe(1);
+  });
+
+  test("a purge goes on past one batch until it catches up", async () => {
+    for (let i = 0; i < 25; i += 1) {
+      await store.take("ip_request", `old-${i}` as AuthAttemptKey, RULE);
+    }
+    await age(25);
+    expect(
+      await purgeEndedAuthAttemptWindows(db, {
+        limit: 10,
+        dryRun: false,
+        budgetMs: 60_000,
+      }),
+    ).toBe(25);
+    // Out of budget after the first batch: the rest waits for the next pass.
+    for (let i = 0; i < 25; i += 1) {
+      await store.take("ip_request", `old-${i}` as AuthAttemptKey, RULE);
+    }
+    await age(25);
+    expect(
+      await purgeEndedAuthAttemptWindows(db, {
+        limit: 10,
+        dryRun: false,
+        budgetMs: 0,
+      }),
+    ).toBe(10);
   });
 });

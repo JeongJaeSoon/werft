@@ -112,20 +112,39 @@ export function createPostgresAuthAttemptStore(db: Database): AuthAttemptStore {
   };
 }
 
-/** Windows that ended long ago: no attempt reads them any more. */
+/**
+ * Deletes windows that ended long ago (no attempt reads them any more), a
+ * batch of `limit` at a time until none is left or `budgetMs` has passed,
+ * so the purge keeps up with keys made as fast as sign-ins can be tried. A
+ * dry run counts one batch.
+ */
 export async function purgeEndedAuthAttemptWindows(
   db: Database,
-  input: { limit: number; dryRun: boolean },
+  input: {
+    limit: number;
+    dryRun: boolean;
+    budgetMs: number;
+    now?: () => number;
+  },
 ): Promise<number> {
+  const now = input.now ?? Date.now;
   const ended = sql`
     SELECT kind, key FROM ${windows}
     WHERE window_started_at < statement_timestamp() - ${millis(AUTH_ATTEMPT_RETENTION_MS)}
     ORDER BY window_started_at
     LIMIT ${input.limit}`;
-  const result = await db.execute(
-    input.dryRun
-      ? ended
-      : sql`DELETE FROM ${windows} WHERE (kind, key) IN (${ended} FOR UPDATE SKIP LOCKED) RETURNING kind`,
-  );
-  return rowsOf<{ kind: string }>(result).length;
+  if (input.dryRun)
+    return rowsOf<{ kind: string }>(await db.execute(ended)).length;
+  const started = now();
+  let deleted = 0;
+  for (;;) {
+    const batch = rowsOf<{ kind: string }>(
+      await db.execute(
+        sql`DELETE FROM ${windows} WHERE (kind, key) IN (${ended} FOR UPDATE SKIP LOCKED) RETURNING kind`,
+      ),
+    ).length;
+    deleted += batch;
+    if (batch < input.limit || now() - started >= input.budgetMs)
+      return deleted;
+  }
 }

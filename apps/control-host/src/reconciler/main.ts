@@ -47,6 +47,8 @@ import {
 // last batch's statements, each cut at the job pool's 10s.
 const TOOL_CALL_BATCH_SIZE = 5_000;
 const TOOL_CALL_BUDGET_MS = 10_000;
+// Sign-in keys can be made faster than one batch a pass deletes.
+const AUTH_ATTEMPT_PURGE_BUDGET_MS = 2_000;
 
 export async function main(
   environment: NodeJS.ProcessEnv = process.env,
@@ -154,7 +156,10 @@ export function reconcileOnce(
     purgeSlackChannelMembers: (options) =>
       purgeExpiredSlackChannelMembers(db, options),
     purgeAuthAttemptWindows: (options) =>
-      purgeEndedAuthAttemptWindows(db, options),
+      purgeEndedAuthAttemptWindows(db, {
+        ...options,
+        budgetMs: AUTH_ATTEMPT_PURGE_BUDGET_MS,
+      }),
     reconcileOwnership: (options) => reconcileAgentOwnership(db, options),
     projectToolCalls: () =>
       projectToolCalls(db, {

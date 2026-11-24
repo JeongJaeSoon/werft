@@ -23,7 +23,7 @@ const TOO_MANY_REQUESTS = "Too many sign-in requests from this network";
 export interface PasswordReservation {
   /** An outage, not a guess: uncount it. Never throws. */
   release(): void;
-  /** The right password got in: the account's failures no longer count. */
+  /** The right password got in: the account's failures no longer count. Never throws. */
   succeeded(): Promise<void>;
 }
 
@@ -162,8 +162,17 @@ export class PasswordChecks {
           reservation: {
             release,
             succeeded: async () => {
-              await this.store.clear("account_failure", account.key);
+              // The sign-in already happened: a failure here must not undo
+              // it, only leave the account's failures to run out.
               this.giveBack("ip_failure", network);
+              await this.store
+                .clear("account_failure", account.key)
+                .catch((error: unknown) => {
+                  this.logger?.warn(
+                    "Sign-in failures not cleared",
+                    errorFields(error),
+                  );
+                });
             },
           },
         };

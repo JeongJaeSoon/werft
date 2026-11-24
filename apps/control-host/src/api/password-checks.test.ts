@@ -294,6 +294,35 @@ describe("PasswordChecks on Postgres", () => {
     expect(await receipts()).toHaveLength(1);
   });
 
+  test("a failed clear after a right password neither fails it nor keeps the network", async () => {
+    const store = schema.createPostgresAuthAttemptStore(db);
+    const checks = new PasswordChecks({
+      store: {
+        ...store,
+        clear: async () => {
+          throw new Error("database gone");
+        },
+      },
+      keys: new AuthAttemptKeys(secret),
+      logger: new StructuredLogger({ sinks: [sink] }),
+    });
+    const network = checks.clientOf(from("203.0.113.12"));
+    for (let i = 0; i < 25; i += 1) {
+      const { reservation } = await checks.guess(
+        `member${i}@example.com`,
+        network,
+        async () => true,
+      );
+      await reservation.succeeded();
+      await Bun.sleep(5);
+    }
+    expect(
+      sink.records.filter(
+        (record) => record.message === "Sign-in failures not cleared",
+      ),
+    ).toHaveLength(25);
+  });
+
   test("a receipt that cannot be written logs no email", async () => {
     const store = schema.createPostgresAuthAttemptStore(db);
     const checks = new PasswordChecks({
