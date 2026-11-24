@@ -136,7 +136,7 @@ integration("account recovery on PostgreSQL", () => {
         json,
         bootstrap: async (email = "Owner@Example.com", setupToken?: string) =>
           json("/v1/auth/bootstrap", {
-            setup_token: setupToken ?? (await liveSetupToken(db)),
+            setup_token: setupToken ?? (await liveSetupToken(db, email)),
             email,
             password: PASSWORD,
             display_name: "Owner",
