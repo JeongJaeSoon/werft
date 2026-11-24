@@ -41,6 +41,20 @@ export const CONVERSATION_TURN_LEASE_MS = CONVERSATION_TURN_LIMIT_MS + 30_000;
 /** The longest a poll for the next turn is held open. */
 export const CONVERSATION_NEXT_TURN_MAX_WAIT_MS = 20_000;
 export const CONVERSATION_TURN_TEXT_MAX = 16_000;
+/** The longest context a new topic session starts from. */
+export const CONVERSATION_TURN_FRESH_TEXT_MAX = 32_000;
+/** How long a topic's session lives past its last turn's end. */
+export const CONVERSATION_TOPIC_SESSION_IDLE_MS = 10 * 60_000;
+/**
+ * How many topic sessions one runtime keeps alive; one more drops the one
+ * idle longest. Each holds an engine process (docs: conversation runtime).
+ */
+export const CONVERSATION_TOPIC_SESSION_LIMIT = 8;
+/**
+ * How much a topic session may have been sent and said, in UTF-8 bytes, before
+ * its next turn starts anew: four times the context assembler's cap.
+ */
+export const CONVERSATION_TOPIC_SESSION_MAX_BYTES = 4 * 24_576;
 
 /**
  * What bounds a turn: the one topic, of the one conversation of the one
@@ -74,12 +88,28 @@ export const conversationRuntimeTurnSchema = z
         max_tokens: z.number().int().positive(),
       })
       .strict(),
+    /** What the turn says to a session of its topic that is still alive. */
     input: z
       .object({
         id: z.uuid(),
         text: z.string().min(1).max(CONVERSATION_TURN_TEXT_MAX),
       })
       .strict(),
+    /**
+     * What a new session of the topic starts from instead: the context the
+     * control host assembled for this turn, its input included.
+     */
+    fresh_input: z
+      .object({
+        id: z.uuid(),
+        text: z.string().min(1).max(CONVERSATION_TURN_FRESH_TEXT_MAX),
+      })
+      .strict(),
+    /**
+     * The control host's check of what the topic's live session has seen:
+     * `keep` lets the turn go on in it; `drop`, or no check, starts anew.
+     */
+    topic_session: z.enum(["keep", "drop"]).optional(),
   })
   .strict();
 export type ConversationRuntimeTurn = z.infer<

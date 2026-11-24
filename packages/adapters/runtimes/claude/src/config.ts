@@ -133,6 +133,8 @@ export type ClaudeRuntimeConfig = DriverConfig & {
    * engine's default. Not part of the checkpoint fingerprint.
    */
   maxOutputTokens?: number;
+  /** The engine never compacts its conversation. Not part of the checkpoint fingerprint. */
+  compactionOff?: true;
   /** The engine's `TMPDIR`; unset is the host's. Not part of the checkpoint fingerprint. */
   tmpDir?: string;
   /**
