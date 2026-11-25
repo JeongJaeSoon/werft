@@ -94,8 +94,11 @@ export interface SlackConfigApi {
     manifest: object,
   ): Promise<{ permissionsUpdated: boolean }>;
   deleteApp(configToken: string, appId: string): Promise<void>;
-  /** Resolves while Slack still shows the app to this token's user. */
-  exportApp(configToken: string, appId: string): Promise<void>;
+  /**
+   * The app's manifest as Slack holds it; resolves while Slack still shows
+   * the app to this token's user.
+   */
+  exportApp(configToken: string, appId: string): Promise<unknown>;
   /** `auth.revoke` with the bot token itself. */
   revokeBotToken(botToken: string): Promise<void>;
 }
@@ -381,11 +384,12 @@ export function createSlackConfigApi(
     },
 
     async exportApp(configToken, appId) {
-      await call(
+      const answer = await call(
         "apps.manifest.export",
         { token: configToken, body: { app_id: appId } },
-        z.object({}),
+        z.object({ manifest: z.unknown() }),
       );
+      return answer.manifest;
     },
 
     async revokeBotToken(botToken) {

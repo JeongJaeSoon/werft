@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  SLACK_AGENT_BOT_EVENTS,
   type SlackAgentWarning,
   scopesForRole,
   type WorkspaceRole,
@@ -14,8 +15,13 @@ import { refusal } from "@werft-ai/platform/testing/refusal";
 import {
   createSlackAppService,
   SLACK_APP_CREATE_STALE_MS,
+  SLACK_MANIFEST_CHECK_STALE_MS,
 } from "./slack-app-service.ts";
-import { SLACK_HTTP_TIMEOUT_MS, SlackApiError } from "./slack-config-api.ts";
+import {
+  SLACK_HTTP_TIMEOUT_MS,
+  SlackApiError,
+  SlackRateLimitedError,
+} from "./slack-config-api.ts";
 import { createSlackConfigTokens } from "./slack-config-token.ts";
 import {
   createFakeSlackConfigApi,
@@ -347,6 +353,233 @@ test.each([
   },
 );
 
+type ExportedManifest = {
+  oauth_config: { scopes: { bot: string[] } };
+  settings: { event_subscriptions?: { bot_events: string[] } };
+};
+
+function manifestOf(
+  slack: Awaited<ReturnType<typeof setup>>["slack"],
+  appId: string,
+): ExportedManifest {
+  const app = slack.state.apps.get(appId);
+  if (!app) throw new Error(`no fake app ${appId}`);
+  return app.manifest as ExportedManifest;
+}
+
+/** Slack holds the app as an older build left it: one event short. */
+function dropEvent(
+  slack: Awaited<ReturnType<typeof setup>>["slack"],
+  appId: string,
+  event = "channel_shared",
+) {
+  const app = slack.state.apps.get(appId);
+  if (!app) throw new Error(`no fake app ${appId}`);
+  const manifest = structuredClone(app.manifest) as ExportedManifest;
+  const subscription = manifest.settings.event_subscriptions;
+  if (!subscription) throw new Error("the app has no event subscription");
+  subscription.bot_events = subscription.bot_events.filter((e) => e !== event);
+  app.manifest = manifest;
+}
+
+/** An app made and finalized, its last check old enough for a start to take it. */
+async function subscribedApp(options: Parameters<typeof setup>[0] = {}) {
+  const ctx = await setup({
+    eventsPublicUrl: "https://events.example.test/",
+    ...options,
+  });
+  await ctx.service.createAgentApp(user("owner"), AGENT, {
+    replace_uncertain: false,
+  });
+  const read = await ctx.service.recheckAgentAppEvents(user("owner"), AGENT);
+  const appId = read.slack_app?.app_id;
+  if (!appId) throw new Error("the app has no Slack app id");
+  ctx.advance(SLACK_MANIFEST_CHECK_STALE_MS + 1);
+  const calls = (method: string) =>
+    ctx.slack.state.calls.filter((call) => call.method === method).length;
+  const sync = async () =>
+    (await ctx.service.getAgentApp(user("owner"), AGENT)).manifest_sync;
+  return { ...ctx, appId, calls, sync };
+}
+
+describe("manifest check at a start of the API", () => {
+  test("an app whose manifest lacks only events is sent the whole manifest", async () => {
+    const { service, slack, appId, calls, sync } = await subscribedApp();
+    dropEvent(slack, appId);
+    const updates = calls("apps.manifest.update");
+    expect(await service.syncAgentAppManifests()).toEqual({
+      checked: 1,
+      sent: 1,
+      failed: 0,
+    });
+    expect(calls("apps.manifest.update")).toBe(updates + 1);
+    const sent = manifestOf(slack, appId);
+    expect(sent.settings.event_subscriptions?.bot_events).toEqual([
+      ...SLACK_AGENT_BOT_EVENTS,
+    ]);
+    // The whole document: Slack replaces it on update.
+    expect(sent).toMatchObject({
+      display_information: { name: "Release notes" },
+      settings: {
+        event_subscriptions: {
+          request_url: `https://events.example.test/v1/slack/events/${AGENT}`,
+        },
+      },
+    });
+    expect(await sync()).toEqual({
+      error: null,
+      checked_at: "2026-10-23T00:10:00.001Z",
+    });
+  });
+
+  test("a current manifest is read and not sent again", async () => {
+    const { service, calls, sync } = await subscribedApp();
+    const updates = calls("apps.manifest.update");
+    expect(await service.syncAgentAppManifests()).toEqual({
+      checked: 1,
+      sent: 0,
+      failed: 0,
+    });
+    expect(calls("apps.manifest.export")).toBe(1);
+    expect(calls("apps.manifest.update")).toBe(updates);
+    expect((await sync())?.error).toBeNull();
+  });
+
+  test("an app whose bot scopes differ is left for an admin's install", async () => {
+    const { service, slack, appId, calls } = await subscribedApp();
+    dropEvent(slack, appId);
+    manifestOf(slack, appId).oauth_config.scopes.bot = ["chat:write"];
+    const updates = calls("apps.manifest.update");
+    expect((await service.syncAgentAppManifests()).sent).toBe(0);
+    expect(calls("apps.manifest.update")).toBe(updates);
+  });
+
+  test("an app with no event subscription is left for Finalize", async () => {
+    const { service, slack, appId, calls } = await subscribedApp();
+    delete manifestOf(slack, appId).settings.event_subscriptions;
+    const updates = calls("apps.manifest.update");
+    expect((await service.syncAgentAppManifests()).sent).toBe(0);
+    expect(calls("apps.manifest.update")).toBe(updates);
+  });
+
+  test("without an active config token nothing is read or sent, and the app needs an update", async () => {
+    const { service, slack, appId, calls, tokenStore, sync } =
+      await subscribedApp();
+    dropEvent(slack, appId);
+    await tokenStore.store.invalidate(WORKSPACE, null);
+    expect(await service.syncAgentAppManifests()).toEqual({
+      checked: 1,
+      sent: 0,
+      failed: 1,
+    });
+    expect(calls("apps.manifest.export")).toBe(0);
+    expect((await sync())?.error).toBe("config_token_inactive");
+  });
+
+  test("without an events address the app needs an update", async () => {
+    const ctx = await subscribedApp();
+    dropEvent(ctx.slack, ctx.appId);
+    const bare = createSlackAppService({
+      authorization: createAuthorizationPolicy({ agents: agentAuthority }),
+      apps: ctx.apps.store,
+      tokens: createSlackConfigTokens({
+        store: ctx.tokenStore.store,
+        api: ctx.slack.api,
+      }),
+      api: ctx.slack.api,
+      consoleOrigin: ORIGIN,
+      eventsPublicUrl: async () => null,
+    });
+    expect((await bare.syncAgentAppManifests()).failed).toBe(1);
+    expect((await ctx.sync())?.error).toBe("events_url_unset");
+  });
+
+  test("a refused update is recorded, and a recheck that sends it clears the mark", async () => {
+    const { service, slack, appId, sync } = await subscribedApp();
+    dropEvent(slack, appId);
+    const update = slack.api.updateApp;
+    slack.api.updateApp = async () => {
+      throw new SlackApiError("apps.manifest.update", "invalid_manifest", true);
+    };
+    expect((await service.syncAgentAppManifests()).failed).toBe(1);
+    expect((await sync())?.error).toBe("slack_refused");
+    slack.api.updateApp = update;
+    await service.recheckAgentAppEvents(user("owner"), AGENT);
+    expect((await sync())?.error).toBeNull();
+  });
+
+  test("a lost answer is recorded as no answer", async () => {
+    const { service, slack, appId, sync } = await subscribedApp();
+    dropEvent(slack, appId);
+    slack.api.updateApp = async () => {
+      throw new SlackApiError("apps.manifest.update", "timeout", false);
+    };
+    expect((await service.syncAgentAppManifests()).failed).toBe(1);
+    expect((await sync())?.error).toBe("no_answer");
+  });
+
+  test("a rate-limited update waits out Retry-After once and is sent", async () => {
+    const waits: number[] = [];
+    const { service, slack, appId } = await subscribedApp({
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    dropEvent(slack, appId);
+    const update = slack.api.updateApp;
+    let limited = true;
+    slack.api.updateApp = async (...args) => {
+      if (limited) {
+        limited = false;
+        throw new SlackRateLimitedError("apps.manifest.update", 30);
+      }
+      return update(...args);
+    };
+    expect((await service.syncAgentAppManifests()).sent).toBe(1);
+    expect(waits).toEqual([30_000]);
+  });
+
+  test("a Retry-After too long to wait is recorded and not waited for", async () => {
+    const waits: number[] = [];
+    const { service, slack, appId, sync } = await subscribedApp({
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    dropEvent(slack, appId);
+    slack.api.updateApp = async () => {
+      throw new SlackRateLimitedError("apps.manifest.update", 600);
+    };
+    expect((await service.syncAgentAppManifests()).failed).toBe(1);
+    expect(waits).toEqual([]);
+    expect((await sync())?.error).toBe("slack_refused");
+  });
+
+  test("a start soon after another check leaves the app to it", async () => {
+    const { service, advance } = await subscribedApp();
+    expect((await service.syncAgentAppManifests()).checked).toBe(1);
+    expect((await service.syncAgentAppManifests()).checked).toBe(0);
+    advance(SLACK_MANIFEST_CHECK_STALE_MS + 1);
+    expect((await service.syncAgentAppManifests()).checked).toBe(1);
+  });
+
+  test("an API without its secret store checks nothing", async () => {
+    const ctx = await setup();
+    const off = createSlackAppService({
+      authorization: createAuthorizationPolicy({ agents: agentAuthority }),
+      apps: null,
+      tokens: null,
+      api: ctx.slack.api,
+      consoleOrigin: ORIGIN,
+    });
+    expect(await off.syncAgentAppManifests()).toEqual({
+      checked: 0,
+      sent: 0,
+      failed: 0,
+    });
+  });
+});
+
 function user(
   role: WorkspaceRole,
   options: { surface?: "web" | "api"; id?: string } = {},
@@ -379,6 +612,7 @@ async function setup(
       workspaceId: string,
       agentId: string,
     ) => Promise<SlackAgentWarning | null>;
+    sleep?: (ms: number) => Promise<void>;
   } = {},
 ) {
   let clock = new Date("2026-10-23T00:00:00.000Z");
@@ -430,6 +664,7 @@ async function setup(
     ...(options.activeReleaseWarning
       ? { activeReleaseWarning: options.activeReleaseWarning }
       : {}),
+    ...(options.sleep ? { sleep: options.sleep } : {}),
     now: () => clock,
   });
   await tokens.register(WORKSPACE, slack.issueRefresh(), {

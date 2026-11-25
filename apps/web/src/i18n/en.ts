@@ -96,6 +96,15 @@ export const slackEn = {
     "The manifest was sent to Slack again. It adds permissions to the app, which apply once the app is installed again.",
   "slack.eventsUrl.sent":
     "The Request URL was sent to Slack again. Slack may not check an unchanged URL again. If it keeps waiting, press Retry on the app's Event Subscriptions page.",
+  "slack.manifestSync.needed": "Update needed",
+  "slack.manifestSync.config_token_inactive":
+    "The App Configuration Token is not active, so Werft could not check or update this app's Slack settings. It may not receive newly added events. Enter the token again, then press Recheck.",
+  "slack.manifestSync.events_url_unset":
+    "No events address is known, so this app's Slack settings could not be updated. Check the address in the Slack integration settings, then press Recheck.",
+  "slack.manifestSync.slack_refused":
+    "Slack refused to update this app's settings. It may not receive newly added events. Press Recheck; otherwise the server tries again when it next starts.",
+  "slack.manifestSync.no_answer":
+    "Slack did not answer the update of this app's settings. It may not receive newly added events. Press Recheck; otherwise the server tries again when it next starts.",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
     "Slack sessions can't start from the active release ({release}). The release's repository left the catalog or is not allowed by the workspace ceiling, or the agent's GitHub settings can't be read. Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Check the GitHub settings and save again in Settings, and a new release is made.",
