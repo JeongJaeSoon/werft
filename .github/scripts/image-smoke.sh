@@ -201,6 +201,9 @@ case "$app" in
     # git: the checkpoint bundle verifier spawns it.
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && git --version && bun --version'
     api_init_smoke "$image"
+    # The docs the built-in `werft` MCP server answers from, in all three
+    # languages: without them the API refuses to start.
+    docker run --rm "$image" bun -e 'import { installedWerftDocs } from "./apps/control-host/src/api/werft-docs.ts"; const paths = installedWerftDocs().map((f) => f.path); for (const p of ["index.mdx", "index.en.mdx", "index.ja.mdx"]) if (!paths.includes(p)) throw new Error("no " + p); console.log("werft docs in the image:", paths.length, "pages")'
     # Every import of the pruned tree resolves: bundling the role entry point
     # follows them all, so one into a removed file fails the build here.
     docker run --rm "$image" bun build --target=bun --outdir=/tmp/resolve apps/control-host/src/main.ts >/dev/null
