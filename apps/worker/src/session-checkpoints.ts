@@ -49,6 +49,7 @@ import {
   type TranscriptRevision,
   type TranscriptSizeProblem,
   type TranscriptStore,
+  type TranscriptStoreOptions,
   TranscriptTooLargeError,
   transcriptBytes,
   transcriptParts,
@@ -177,6 +178,8 @@ export type SessionCheckpointsOptions = {
   outputLimits?: OutputLimits;
   /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
   transcriptLimits?: TranscriptLimits;
+  /** How a mirror append's write is sent again (`TranscriptStoreOptions.resend`). */
+  resendTranscriptWrite?: (write: () => Promise<void>) => Promise<void>;
   now?: () => Date;
   /** Waits out a restore's backoff; resolves early once `signal` aborts. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
@@ -419,7 +422,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ...(engineDirectory === undefined ? {} : { engineDirectory }),
         objects: this.#options.objects,
         prefix: this.#transcriptPrefix(),
-        ...this.#storeLimits(),
+        ...this.#storeSettings(),
       });
       try {
         // Before the engine starts: a generation another launch already wrote
@@ -533,7 +536,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       },
       objects,
       prefix: this.#transcriptPrefix(),
-      ...this.#storeLimits(),
+      ...this.#storeSettings(),
     });
     await store.ready();
     await store.verifyInherited(signal);
@@ -756,9 +759,15 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     return this.#options.transcriptLimits ?? TRANSCRIPT_LIMITS;
   }
 
-  #storeLimits(): { transcriptLimits?: TranscriptLimits } {
-    const limits = this.#options.transcriptLimits;
-    return limits === undefined ? {} : { transcriptLimits: limits };
+  #storeSettings(): Pick<
+    TranscriptStoreOptions,
+    "resend" | "transcriptLimits"
+  > {
+    const { resendTranscriptWrite: resend, transcriptLimits } = this.#options;
+    return {
+      ...(transcriptLimits === undefined ? {} : { transcriptLimits }),
+      ...(resend === undefined ? {} : { resend }),
+    };
   }
 
   #transcriptPrefix(): string {

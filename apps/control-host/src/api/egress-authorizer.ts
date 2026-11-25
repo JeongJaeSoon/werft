@@ -318,6 +318,18 @@ function problem(status: number, code: string, message: string): Response {
   return Response.json({ code, message }, { status });
 }
 
+/**
+ * The store a decision is read from could not be read in time. No decision,
+ * so no grant; marked apart from every other 503 because this one alone may
+ * be answered differently a moment later, and the proxy asks again on it.
+ */
+function undecided(message: string): Response {
+  return Response.json(
+    { code: "BACKEND_UNAVAILABLE", message, retryable: true },
+    { status: 503, headers: { "retry-after": "1" } },
+  );
+}
+
 export function createEgressAuthorizer(deps: {
   gateway: Pick<
     WorkerGateway,
@@ -836,7 +848,7 @@ export function createEgressAuthorizer(deps: {
           purpose: fields.purpose,
           deadline_ms: deadlineMs,
         });
-        return problem(503, "BACKEND_UNAVAILABLE", "Authorization timed out");
+        return undecided("Authorization timed out");
       }
       deadline.finish();
       return outcome instanceof Response ? outcome : Response.json(outcome);
@@ -872,12 +884,19 @@ export function createEgressAuthorizer(deps: {
         }
         return problem(error.status, error.code, error.message);
       }
-      if (!isStorageUnavailable(error)) {
-        deps.logger.error("Egress authorization failed", {
-          purpose: fields.purpose,
-          error: error instanceof Error ? error.name : "error",
-        });
+      if (isStorageUnavailable(error)) {
+        deps.logger.warn(
+          "Egress authorization undecided: storage unavailable",
+          {
+            purpose: fields.purpose,
+          },
+        );
+        return undecided("Authorization unavailable");
       }
+      deps.logger.error("Egress authorization failed", {
+        purpose: fields.purpose,
+        error: error instanceof Error ? error.name : "error",
+      });
       return problem(503, "BACKEND_UNAVAILABLE", "Authorization unavailable");
     } finally {
       clearTimeout(timer);

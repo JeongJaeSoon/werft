@@ -9,6 +9,7 @@ import {
   type S3TimeoutWarn,
   scopedCheckpointObjectStore,
 } from "@werft-ai/storage";
+import { notFoundBackoff } from "./heartbeat.ts";
 
 /**
  * The one file in the worker that knows objects live in S3. Everything else
@@ -131,6 +132,48 @@ export class ObjectStoreToken {
       throw new Error("The object store was used before the claim");
     }
     return this.#value;
+  }
+}
+
+/**
+ * Runs a transcript write and, while the store only failed to answer it
+ * (`isObjectStoreOutage`), runs it again on the heartbeat's backoff until
+ * what was left of the lease at the first failure has passed: the batch is
+ * kept rather than dropped for as long as this attempt would still own what
+ * it writes. An outage is never an answer: the write is done only once the
+ * store took it, and at the lease's end it fails with the outage it last
+ * met. Any other failure fails it at once.
+ */
+export async function resentUntilLeaseEnds(
+  write: () => Promise<void>,
+  leaseLeftMs: () => number,
+  hooks: {
+    /** The first outage of this write, before it is sent again. */
+    onHeld?: (error: unknown) => void;
+    /** The store took it after this many outages. */
+    onResent?: (outages: number) => void;
+    sleep?: (ms: number) => Promise<unknown>;
+    now?: () => number;
+  } = {},
+): Promise<void> {
+  const now = hooks.now ?? (() => performance.now());
+  let until: number | undefined;
+  for (let outages = 0; ; ) {
+    try {
+      await write();
+      if (outages > 0) hooks.onResent?.(outages);
+      return;
+    } catch (error) {
+      if (!isObjectStoreOutage(error)) throw error;
+      if (until === undefined) {
+        until = now() + leaseLeftMs();
+        hooks.onHeld?.(error);
+      }
+      outages += 1;
+      const wait = Math.min(notFoundBackoff(outages), until - now());
+      if (wait <= 0) throw error;
+      await (hooks.sleep ?? Bun.sleep)(wait);
+    }
   }
 }
 

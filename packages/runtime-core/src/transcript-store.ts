@@ -32,6 +32,12 @@ export type TranscriptStoreOptions = {
    * whose engine writes its transcript to disk itself reads it from here.
    */
   readonly engineDirectory?: string;
+  /**
+   * Runs one mirror append's write, and may run it again when it failed: the
+   * append fails, and its batch is lost, only once this rejects. Absent, the
+   * write runs once.
+   */
+  readonly resend?: (write: () => Promise<void>) => Promise<void>;
 };
 
 /**

@@ -2035,6 +2035,123 @@ describe("startCredentialProxy", () => {
     expect(up.seen).toEqual([]);
   });
 
+  describe("an authorizer whose store cannot be read", () => {
+    const undecided = () =>
+      Response.json(
+        {
+          code: "BACKEND_UNAVAILABLE",
+          message: "Authorization unavailable",
+          retryable: true,
+        },
+        { status: 503, headers: { "retry-after": "1" } },
+      );
+    const grant = (port: number) =>
+      granting(`http://upstream.test:${port}`, [["x-api-key", PROVIDER_KEY]]);
+    const quick = { ms: 2_000, backoffMs: [10] };
+
+    test("a provider call is held and asked again, and goes upstream only once granted", async () => {
+      const up = upstream(() => Response.json({ id: "msg_1" }));
+      const answers = [undecided, undecided];
+      const auth = authorizer(
+        (body) => answers.shift()?.() ?? grant(up.port)(body),
+      );
+      const server = proxy(auth.url, up.port, { undecidedHold: quick });
+      const response = await messages(server.port);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ id: "msg_1" });
+      expect(auth.asked).toHaveLength(3);
+      expect(up.seen).toHaveLength(1);
+    });
+
+    test("a held call is judged afresh at each ask: refused then, it is refused at once and never sent", async () => {
+      const up = upstream(() => new Response("ok"));
+      // The attempt lost its session while the call was held.
+      const answers = [undecided, () => new Response("x", { status: 403 })];
+      const auth = authorizer(
+        (body) => answers.shift()?.() ?? grant(up.port)(body),
+      );
+      const server = proxy(auth.url, up.port, { undecidedHold: quick });
+      const response = await messages(server.port);
+      expect(response.status).toBe(403);
+      expect(await response.text()).toBe("egress token refused\n");
+      expect(auth.asked).toHaveLength(2);
+      expect(up.seen).toEqual([]);
+    });
+
+    test("undecided is never a grant: past the hold the call is answered 503 with Retry-After, and nothing was sent", async () => {
+      const up = upstream(() => new Response("ok"));
+      const auth = authorizer(undecided);
+      const server = proxy(auth.url, up.port, {
+        undecidedHold: { ms: 60, backoffMs: [10] },
+      });
+      const response = await messages(server.port);
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("1");
+      expect(await response.text()).toBe(
+        "egress authorization unavailable; retry in a few seconds\n",
+      );
+      expect(auth.asked.length).toBeGreaterThan(1);
+      expect(up.seen).toEqual([]);
+    });
+
+    test("only that answer is asked again: another 503, an error or no answer is given up on at once", async () => {
+      const up = upstream(() => new Response("ok"));
+      for (const answer of [
+        () => Response.json({ code: "BACKEND_UNAVAILABLE" }, { status: 503 }),
+        () => new Response("boom", { status: 500 }),
+      ]) {
+        const auth = authorizer(answer);
+        const server = proxy(auth.url, up.port, { undecidedHold: quick });
+        const response = await messages(server.port);
+        expect(response.status).toBe(503);
+        expect(response.headers.get("retry-after")).toBeNull();
+        expect(await response.text()).toBe("egress token refused\n");
+        expect(auth.asked).toHaveLength(1);
+      }
+      expect(up.seen).toEqual([]);
+    });
+
+    test("no more calls are held than the cap: the one over it is answered at once", async () => {
+      const up = upstream(() => new Response("ok"));
+      const auth = authorizer(undecided);
+      const server = proxy(auth.url, up.port, {
+        undecidedHold: { ms: 1_000, backoffMs: [900], max: 1 },
+      });
+      const first = messages(server.port);
+      await until(() => auth.asked.length === 1);
+      // Its answer is back and the hold begun before the second arrives.
+      await Bun.sleep(50);
+      const over = await messages(server.port);
+      expect(over.status).toBe(503);
+      expect(over.headers.get("retry-after")).toBe("1");
+      await over.text();
+      expect(auth.asked).toHaveLength(2);
+      expect((await first).status).toBe(503);
+      expect(up.seen).toEqual([]);
+    });
+
+    test("the object store route is not held: it answers at once what an S3 client sends again", async () => {
+      const up = upstream(() => new Response("ok"));
+      const auth = authorizer(undecided);
+      const server = proxy(auth.url, up.port, { undecidedHold: quick });
+      const response = await fetch(
+        `http://127.0.0.1:${server.port}/object-store/bucket/key`,
+        {
+          headers: {
+            authorization: `AWS4-HMAC-SHA256 Credential=${WORKER_TOKEN}/20261008/auto/s3/aws4_request, SignedHeaders=host, Signature=0`,
+          },
+        },
+      );
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("1");
+      expect(await response.text()).toContain(
+        "<Code>ServiceUnavailable</Code><Message>egress authorization unavailable; retry in a few seconds</Message>",
+      );
+      expect(auth.asked).toHaveLength(1);
+      expect(up.seen).toEqual([]);
+    });
+  });
+
   test("the authorizer's 409 and 403 pass through", async () => {
     const up = upstream(() => new Response("ok"));
     for (const status of [403, 409]) {
