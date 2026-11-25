@@ -86,10 +86,17 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 
 chart는 경보 규칙을 싣지 않는다. Prometheus 규칙 예시는 [지표 수집](/run-server/self-hosting/collect-metrics#5-경보-규칙-예시)에 있다.
 
+**api 프로세스가 세는 지표.** 아래 지표는 `metrics` 역할이 아니라 api 프로세스가 메모리에서 센다. DB가 느리거나 멈춘 동안 Slack에 보낸 503·500도 세기 위해서다. `api.metrics.enabled`를 켜면 api Pod마다 `METRICS_PORT`(chart 기본 9464)에서 `/metrics`와 `/healthz`를 연다. 공개 포트 3000과 `/internal`의 3200에는 `/metrics`가 없다. Pod마다 따로 세고, Pod가 다시 시작하면 0부터 센다. 그래서 Service `<fullname>-api-metrics` 뒤의 Pod를 모두 scrape하고 `sum(rate(...))`로 합친다.
+
+| 이름 | 타입 | 라벨 | 뜻 |
+|---|---|---|---|
+| `werft_slack_event_responses_total` | counter | `code` | Slack Events API 요청 URL(`/v1/slack/events/{agent_id}`)에 보낸 응답 수를 HTTP status별로. 기록 전 2.5초 상한에 걸린 503과 요청 시간 상한의 503도 센다 |
+
 ## 라벨 규칙
 
 - 세션 id, turn id, 사용자 id, API key id, 에이전트 id, attempt id는 라벨로 쓰지 않는다. 에이전트별 비용은 `GET /v1/usage/*`로 본다.
 - `state`·`status`·`admission`·`outcome`·`priced_by`·`kind`·`le`는 정해진 값만 나온다.
+- `code`는 `200`·`400`·`401`·`408`·`413`·`429`·`500`·`503`·`other`만 나온다. 그 밖의 status는 `other`로 센다.
 - `image`는 설치 설정의 worker 이미지 참조다. 값 수는 아직 세션이 남아 있는 이미지 수로 묶인다.
 - `tool`과 `model`은 데이터에서 온다. MCP 도구 `mcp__<server>__<tool>`은 `mcp__<server>`로 접는다. 그다음 처음 나타난 순서로 `tool`은 100개, `model`은 50개까지만 이름을 두고 나머지는 `other`로 합친다. 행을 지우지 않으므로 이름을 얻은 값은 보통 그대로 남는다. 다만 상한이 찬 뒤 projection이 늦게 넣은 행(`tool`)이나 늦게 커밋된 행(`model`, `recorded_at`은 트랜잭션 시작 시각)이 더 이른 시각을 가지면 이름 하나가 `other`와 자리를 바꿀 수 있다. 그때 밀려난 이름의 series는 끊기고, 들어온 이름은 새 series로 시작하며, `other`는 한 번 튀거나 reset으로 읽힌다.
 - 테스트: cardinality 시험이 라벨 이름 목록, id 모양 값이 없음, 상한을 확인한다.

@@ -1,7 +1,9 @@
 import { join, resolve, sep } from "node:path";
 import type { Context } from "hono";
 
-const API_PREFIXES = ["/v1", "/internal"];
+// /metrics lives on the api's metrics listener; here it is the API's 404,
+// so a scrape sent to the public port fails instead of reading the console.
+const API_PREFIXES = ["/v1", "/internal", "/metrics"];
 
 const SECURITY_HEADERS = {
   "Cross-Origin-Resource-Policy": "same-origin",
