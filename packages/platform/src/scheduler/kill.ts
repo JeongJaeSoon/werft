@@ -1,4 +1,8 @@
-import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
+import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
+import {
+  type ExecutionIncarnation,
+  WORKER_LEASE_LOST_END_REASON,
+} from "../ports/worker-unit-of-work.ts";
 import {
   fieldsOf,
   messageOf,
@@ -6,10 +10,23 @@ import {
   refOf,
 } from "./pass-context.ts";
 import type {
+  ExecutionObservation,
   ExecutionRef,
   TerminateExecutionResult,
 } from "./ports/execution-backend.ts";
 import type { ActiveExecution } from "./ports/scheduler-store.ts";
+
+/**
+ * What an exit said beyond that the execution is gone: a worker's own word
+ * that it gave its lease up, which its attempts then record.
+ */
+export function exitEndReason(
+  observed: Pick<ExecutionObservation, "exitCode">,
+): string | undefined {
+  return observed.exitCode === WORKER_EXIT_LEASE_LOST
+    ? WORKER_LEASE_LOST_END_REASON
+    : undefined;
+}
 
 // The snapshot is checked first, then the row: a terminate that committed
 // after listActiveExecutions still gets its kill this pass.
@@ -26,7 +43,8 @@ export async function killRequested(
  * when the launch has moved on to an incarnation this pass never saw —
  * another pass rebuilt it, and a worker may already be bound to the
  * rebuild — or has a replacement pending since the rows were read; nothing
- * changed and the row is left to a pass that sees what it runs now.
+ * changed and the row is left to a pass that sees what it runs now. False as
+ * well while a worker that gave its lease up waits for that lease to run out.
  */
 export async function confirmGone(
   ctx: PassContext,
@@ -44,6 +62,16 @@ export async function confirmGone(
     endReason,
   );
   if (outcome === "confirmed") return true;
+  if (outcome === "lease_pending") {
+    logger.info(
+      "Worker gave its lease up; exit settles once the lease runs out",
+      {
+        ...fieldsOf(ref),
+        session_id: execution.sessionId,
+      },
+    );
+    return false;
+  }
   logger.warn(
     outcome === "superseded"
       ? "Launch moved on to another resource; exit not confirmed"
@@ -73,6 +101,15 @@ export async function kill(
   const { backend, lock, logger, now, stopDeadlineMs, store, summary } = ctx;
   const ref = refOf(execution);
   lock.throwIfAborted();
+  // Read before the removal erases it: a worker the lease sweep fenced may
+  // have given its lease up by itself first, and its turn is judged by that
+  // word. A provider that cannot say leaves the kill to go on without it.
+  const endReason = await backend
+    .inspect(ref)
+    .then(exitEndReason, () => undefined);
+  lock.throwIfAborted();
+  // Kept before the removal, so a pass that dies after it loses nothing.
+  if (endReason !== undefined) await store.recordLeaseGivenUp(ref);
   let outcome: TerminateExecutionResult;
   try {
     outcome = await backend.terminate(ref, { waitForExit: false });
@@ -132,7 +169,7 @@ export async function kill(
   }
   // A kill is asked of the launch, not of one resource: whatever it runs
   // now is what was asked to go.
-  if (!(await confirmGone(ctx, execution, null))) {
+  if (!(await confirmGone(ctx, execution, null, endReason))) {
     summary.killFailed.push(ref);
     return;
   }

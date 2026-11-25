@@ -15,6 +15,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **lease를 스스로 내려놓고 끝난 worker의 turn은 `failed`(`worker_ownership_lost`)로 끝나고, 세션은 `recovery_required`로 가지 않는다**(JeongJaeSoon/werft#2218). migration은 없고 따로 할 일도 없다.
+  - 조건은 둘 다다. scheduler가 그 worker의 exit code 75를 보았고, 그 lease가 만료됐다. 하나라도 없으면 지금대로 turn은 `outcome_unknown`이고 세션은 operator 결정을 기다린다.
+  - 그 exit의 정리는 lease가 끝날 때까지 늦어진다. 기다리는 시간은 `HEARTBEAT_TTL_SEC`를 넘지 않고, 그동안 scheduler 로그에 `Worker gave its lease up; exit settles once the lease runs out`가 pass마다 남는다.
+  - 끊긴 turn은 자동으로 다시 돌지 않는다. Slack 스레드의 "이어서 하기" 버튼이나 새 메시지가 마지막 checkpoint에서 이어 간다. 그 checkpoint 뒤에 turn이 한 일은 사람이 확인한다.
+  - 새 API 오류 코드 `WORKER_OWNERSHIP_LOST`가 그 입력의 receipt와 세션 status 이벤트에 나온다. `recovery_required` 세션 수나 `outcome_unknown` turn 수에 경보를 걸었다면, 이 경우는 이제 거기에 잡히지 않는다.
 - **"이 세션 동안 허용"이 그 허용을 준 사람의 권한에 묶인다. 세션 허용은 control-host와 worker 이미지를 둘 다 이 버전으로 올려야 동작한다**(JeongJaeSoon/werft#2208). migration `0365_pending_session_allow_subject`가 `pending_requests`에 칸 `session_allow_subject` 하나를 더한다.
   - 규칙에 맞는 호출마다 worker가 control-host에 묻고(`/internal/worker/session-allow`), 허용을 준 사람이 지금도 `session.approve`를 통과하는지(비공개 채널 세션이면 지금 채널 멤버인지) 다시 판정한다. 통과하지 못하면 그 호출부터 카드가 다시 뜬다. 다시 판정한 결정은 결정 기록에 그 tool call id로 남는다.
   - 엔진이 그 호출에 같은 규칙을 제안할 때만 허용으로 친다. 다른 규칙을 제안하는 호출, 올리기 전에 준 세션 허용, 세션이 다른 worker에서 이어진 뒤의 호출은 다시 묻는다. 답을 기다리는 동안 다른 worker로 넘어간 요청에 준 허용만 이어받은 worker가 들고 간다.

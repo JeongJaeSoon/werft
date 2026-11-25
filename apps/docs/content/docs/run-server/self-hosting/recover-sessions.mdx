@@ -84,6 +84,13 @@ Kubernetes가 worker Pod를 둘 node를 찾지 못하면(Pod 조건 `PodSchedule
 - 15분 안에 자리가 나지 않으면 기다리던 입력이 `NO_CAPACITY`로 실패하고 Pod를 내린다. 세션은 `idle`로 돌아가고 launch 실패로 세지 않는다. 사용자가 다시 보내면 새 Pod가 이어 간다. resume 중이던 세션은 checkpoint를 둔 채 `paused`로 돌아가고, 다시 resume하면 이어 간다. 운영자가 내릴 복구 결정은 없다.
 - 자주 일어나면 node를 늘리거나 worker Pod의 resource 요청이 node에 들어가는지 확인한다.
 
+#### worker가 lease를 내려놓고 끝난 turn
+
+worker는 lease를 지키지 못하면 바깥 쓰기를 멈추고 exit code 75로 끝난다. scheduler가 그 종료를 보았고 그 lease도 만료됐으면, 돌던 turn은 `failed`로 끝나고(`terminal_reason`은 `worker_ownership_lost`) 그 입력의 접수는 `WORKER_OWNERSHIP_LOST`로 실패한다. 세션은 `idle`로 돌아가고 launch 실패로 세지 않는다. 운영자가 내릴 복구 결정은 없다.
+- lease가 아직 살아 있으면 scheduler는 만료까지 기다린다. 그동안 pass마다 로그 `Worker gave its lease up; exit settles once the lease runs out`가 남고, 세션은 그 worker에 묶여 있다. 기다리는 시간은 `HEARTBEAT_TTL_SEC`를 넘지 않는다.
+- 끊긴 turn은 자동으로 다시 돌지 않는다. Slack 스레드의 "이어서 하기" 버튼이나 새 메시지가 마지막 checkpoint에서 이어 간다. 그 checkpoint 뒤에 turn이 한 일(push, pull request 등)은 사람이 확인한다.
+- 둘 중 하나라도 없으면 turn은 `outcome_unknown`이 되고 세션은 `recovery_required`로 간다. 이유 없이 사라진 worker나, 종료를 보지 못한 채 lease만 만료된 worker가 그렇다.
+
 ### 3. interrupt 뒤 결과 불명
 
 #### interrupt 뒤 결과를 알 수 없는 turn

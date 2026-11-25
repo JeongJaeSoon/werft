@@ -71,6 +71,7 @@ import {
   sessionRepositoryOf,
   storedPendingReasonHoldsWork,
   transcriptLimitAttention,
+  WORKER_OWNERSHIP_LOST_REASON,
 } from "@werft-ai/platform";
 import {
   and,
@@ -847,8 +848,17 @@ export function createPostgresSessionUnitOfWork(
         actor: receiptActorOf(input.principal),
         requestId: input.principal.requestId ?? null,
         operation: APPEND_MESSAGE,
-        resource: sessionId,
-        key: input.idempotencyKey,
+        // A continuation is one request per lost turn, whoever asks and
+        // with whatever key: the turn is the key, in a scope of its own
+        // that no key a caller sends for a message can name.
+        resource:
+          input.continueTurn === undefined
+            ? sessionId
+            : `${sessionId}:continue`,
+        key:
+          input.continueTurn === undefined
+            ? input.idempotencyKey
+            : String(input.continueTurn),
       };
       return db.transaction(async (tx) => {
         await lockIdempotencyScope(tx, scope);
@@ -1047,6 +1057,28 @@ export function createPostgresSessionUnitOfWork(
         if (session.status === "failed" && pinRefusesLive(session)) {
           return { outcome: "pin_required" };
         }
+        // A continuation carries the input of the turn it goes on from, read
+        // where that turn keeps it. Only a turn its worker's lost lease ended
+        // has one to give: any other turn's end already said what it came to.
+        const [lost] =
+          input.continueTurn === undefined
+            ? []
+            : await tx
+                .select({ message: turns.message })
+                .from(turns)
+                .where(
+                  and(
+                    eq(turns.sessionId, sessionId),
+                    eq(turns.sequence, input.continueTurn),
+                    eq(turns.status, "failed"),
+                    eq(turns.terminalReason, WORKER_OWNERSHIP_LOST_REASON),
+                  ),
+                )
+                .limit(1);
+        if (input.continueTurn !== undefined && !lost) {
+          return { outcome: "not_found" };
+        }
+        const message = lost?.message ?? input.message;
         // The turn would carry a source Slack deleted: its own message, or
         // one an earlier turn of the session came from.
         const sources = await newTurnSources(tx, {
@@ -1067,7 +1099,7 @@ export function createPostgresSessionUnitOfWork(
         }
         const refused = await admitInput(tx, {
           sessionId,
-          message: input.message,
+          message,
           limits: input.limits,
         });
         if (refused) return refused;
@@ -1079,7 +1111,7 @@ export function createPostgresSessionUnitOfWork(
         await insertQueuedTurn(tx, {
           sessionId: sessionId,
           sequence,
-          message: input.message,
+          message,
           traceContext: input.traceContext ?? null,
           sources,
           ...(platform === undefined

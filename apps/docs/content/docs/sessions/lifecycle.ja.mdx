@@ -110,6 +110,8 @@ curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '
 
 `queued`・`running`・`needs_input` は進行中、`completed`・`failed`・`interrupted`・`cancelled`・`outcome_unknown` は終了した状態である。`completed` はエンジンがターンを正常に終了したという意味であり、依頼した作業をすべて終えたという意味ではない。作業が終わったかどうかは、イベントの `assistant`・`tool_result` を読んで判断する。イベントの `result` も完了の判定ではない。
 
+ターンを実行していた worker が lease を失って自分で終了すると、そのターンは `failed` で終わり、`terminal_reason` は `worker_ownership_lost` になる。その入力の受付は `WORKER_OWNERSHIP_LOST` で失敗する。セッション自体は失敗にならない。`idle` に戻って次のメッセージを受け付け、次の worker が最後の checkpoint から続ける。途切れたターンが自動でやり直されることはない。最後の checkpoint より後にそのターンが行ったことは残っている場合があるので確認する。セッションが Slack スレッドとつながっていれば、そのスレッドに案内と「続きから進める」ボタンが投稿され、押すと途切れたターンの入力で新しいターンがキューに入る。worker がそれ以外の理由で消えたターンは `outcome_unknown` になり、セッションは `recovery_required` に移る。
+
 ## interrupt
 
 実行中のターン 1 つだけを止める。worker は残り、次のメッセージを受け付ける。下のスクリプトは応答を 5 分遅らせるので、その間ターンは `running` のままになる。この遅延は開発用サーバーの fake モデルでだけ効く。実際のモデルでは、時間のかかる作業をさせたターンで試す。

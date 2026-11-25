@@ -14,4 +14,10 @@ export const ACCEPTED: readonly {
   problem: string;
   why: string;
   proof: string;
-}[] = [];
+}[] = [
+  {
+    problem: 'error $.error.code: the receiver refuses "WORKER_OWNERSHIP_LOST"',
+    why: "No route answers it: the exit's settle writes it onto the input receipt of a turn whose worker lost its lease, once that worker is gone, and only receipt reads on API and console routes return it; no worker route reads a receipt.",
+    proof: "packages/db/src/worker-ownership-lost.test.ts",
+  },
+];

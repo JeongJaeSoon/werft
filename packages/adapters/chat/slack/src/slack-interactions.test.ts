@@ -54,6 +54,7 @@ type Call = { method: string; args: unknown[] };
 let calls: Call[];
 let role: WorkspaceRole;
 let answerError: Error | null;
+let continueError: Error | null;
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
@@ -77,6 +78,7 @@ beforeEach(() => {
   calls = [];
   role = "owner";
   answerError = null;
+  continueError = null;
   viewUpdateError = null;
   channelLeft = false;
   outcome = { state: "open", kind: "permission" };
@@ -309,7 +311,14 @@ function deps(): SlackInteractionDeps {
         return undefined as never;
       },
     },
-    sessions: { queuePushFollowUp: record("append") as never },
+    sessions: {
+      continueTurn: (async (...args: unknown[]) => {
+        calls.push({ method: "continue", args });
+        if (continueError !== null) throw continueError;
+        return undefined;
+      }) as never,
+      queuePushFollowUp: record("append") as never,
+    },
     followUps: {
       async hold(input) {
         calls.push({ method: "hold", args: [input] });
@@ -724,6 +733,7 @@ describe("Slack interactions", () => {
     const service = createSlackInteractionService({
       ...base,
       sessions: {
+        continueTurn: record("continue") as never,
         queuePushFollowUp: (async (...args: unknown[]) => {
           calls.push({ method: "append", args });
           if (fails-- > 0) throw new Error("queue unavailable");
@@ -1528,6 +1538,7 @@ describe("Slack interactions", () => {
     const service = createSlackInteractionService({
       ...base,
       sessions: {
+        continueTurn: record("continue") as never,
         queuePushFollowUp: (async () => {
           throw new Error("queue unavailable");
         }) as never,
@@ -1595,5 +1606,75 @@ describe("slackPushFollowUp", () => {
         /slack|open_pull_request|call it again|do not/i,
       );
     }
+  });
+});
+
+describe("the continue button on the notice of a turn its worker's lost lease ended", () => {
+  const pressContinue = (turn: string, user = LINKED) =>
+    press(
+      SLACK_INTERACTION_ACTIONS.turnContinue,
+      { s: SESSION, r: turn },
+      user,
+    );
+
+  test("a press goes on from the turn as the presser, judged as a message of theirs, and takes the button away", async () => {
+    const outcome = await send(pressContinue("3"));
+    expect(outcome).toEqual({
+      kind: "ok",
+      body: { ok: true },
+      result: "continued",
+    });
+    const [continued] = called("continue");
+    expect(continued?.args.slice(1)).toEqual([SESSION, { turnId: 3 }]);
+    expect(
+      (continued?.args[0] as { actor: { userId: string } }).actor.userId,
+    ).toBe(USER);
+    // No request is answered: the press is an input, not an approval.
+    expect(called("answer")).toEqual([]);
+    const [update] = called("update");
+    const drawn = update?.args[1] as {
+      channelId: string;
+      ts: string;
+      text: string;
+      blocks: unknown[];
+    };
+    expect({ channelId: drawn.channelId, ts: drawn.ts }).toEqual({
+      channelId: CHANNEL,
+      ts: CARD_TS,
+    });
+    const shown = JSON.stringify(drawn.blocks);
+    expect(shown).not.toContain(SLACK_INTERACTION_ACTIONS.turnContinue);
+    expect(shown).toContain("Continuing from the last save point");
+    expect(shown).toContain(`/sessions/${SESSION}`);
+  });
+
+  test("pressed again, the same turn is asked for again and the store answers it once", async () => {
+    await send(pressContinue("3"));
+    await send(pressContinue("3"));
+    expect(called("continue").map((call) => call.args.slice(1))).toEqual([
+      [SESSION, { turnId: 3 }],
+      [SESSION, { turnId: 3 }],
+    ]);
+  });
+
+  test("a person who may not send to the session goes on from nothing and the notice stays", async () => {
+    const outcome = await send(pressContinue("3", "U0STRANGER"));
+    expect((outcome as { result: string }).result).toStartWith("refused:");
+    expect(called("continue")).toEqual([]);
+    expect(called("update")).toEqual([]);
+  });
+
+  test("a value that names no turn is ignored", async () => {
+    const outcome = await send(pressContinue("toolu_1"));
+    expect((outcome as { result: string }).result).toBe("ignored");
+    expect(called("continue")).toEqual([]);
+  });
+
+  test("a turn the session will not go on from leaves the notice as it is and tells the presser", async () => {
+    continueError = new SessionServiceError("NOT_FOUND", "Resource not found");
+    const outcome = await send(pressContinue("3"));
+    expect((outcome as { result: string }).result).toBe("failed");
+    expect(called("update")).toEqual([]);
+    expect(called("ephemeral")).toHaveLength(1);
   });
 });

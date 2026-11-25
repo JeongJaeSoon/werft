@@ -110,6 +110,8 @@ Reference: [`GET /v1/sessions/{id}/turns`](/reference/http-api/messages-and-turn
 
 `queued`, `running`, and `needs_input` are in progress; `completed`, `failed`, `interrupted`, `cancelled`, and `outcome_unknown` are finished states. `completed` means the engine ended the turn normally, not that the requested work was done. Decide whether the work is done by reading the `assistant` and `tool_result` events. The `result` event is not a completion verdict either.
 
+When the worker running a turn loses its lease and stops by itself, the turn ends as `failed` and its `terminal_reason` is `worker_ownership_lost`. That input's receipt fails with `WORKER_OWNERSHIP_LOST`. The session does not become failed. It returns to `idle` and takes the next message, and the next worker continues from the last checkpoint. The cut-off turn is never run again by itself. What that turn did after the last checkpoint may remain, so check it. If the session is linked to a Slack thread, the thread gets a notice with a "Continue" button, and pressing it queues a new turn with the cut-off turn's input. A turn whose worker went away for any other reason becomes `outcome_unknown`, and the session goes to `recovery_required`.
+
 ## interrupt
 
 This stops only the one running turn. The worker stays and accepts the next message. The script below delays its reply by 5 minutes, so the turn stays `running` in the meantime. The delay works only with the development server's fake model; with a real model, try it on a turn given long-running work.
