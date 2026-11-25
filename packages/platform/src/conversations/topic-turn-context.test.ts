@@ -48,6 +48,7 @@ const line: ContextFragment = {
   kind: "channel_summary_line",
   scope: own,
   sources: [{ inputId: null, slack: place("1.1") }],
+  sourceAt: [at(1)],
   lineId: channelSummaryLineIdSchema.parse(
     "00000000-0000-4000-8000-000000000011",
   ),

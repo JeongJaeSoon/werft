@@ -1,5 +1,5 @@
 {
-  "id": "d4b7052c-6a9e-4f21-9682-f6c767617345",
+  "id": "65383695-b58b-45d3-8515-a72dfe752ca4",
   "prevId": "71cfd476-9647-45e9-9c23-c72fd2088e61",
   "version": "7",
   "dialect": "postgresql",
@@ -4645,6 +4645,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "edited_at": {
+          "name": "edited_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -4860,6 +4866,81 @@
           "value": "\"channel_summary_lines\".\"from_version\" >= 1 AND (\"channel_summary_lines\".\"to_version\" IS NULL OR \"channel_summary_lines\".\"to_version\" > \"channel_summary_lines\".\"from_version\")"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.channel_summary_versions": {
+      "name": "channel_summary_versions",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "made_at": {
+          "name": "made_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "channel_summary_versions_made_idx": {
+          "name": "channel_summary_versions_made_idx",
+          "columns": [
+            {
+              "expression": "made_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "channel_summary_versions_summary_fk": {
+          "name": "channel_summary_versions_summary_fk",
+          "tableFrom": "channel_summary_versions",
+          "tableTo": "channel_summaries",
+          "columnsFrom": ["workspace_id", "team_id", "channel_id"],
+          "columnsTo": ["workspace_id", "team_id", "channel_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "channel_summary_versions_workspace_id_team_id_channel_id_version_pk": {
+          "name": "channel_summary_versions_workspace_id_team_id_channel_id_version_pk",
+          "columns": ["workspace_id", "team_id", "channel_id", "version"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.checkpoint_output_objects": {
@@ -6188,6 +6269,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "body_edited_at": {
+          "name": "body_edited_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "conversation_turn_id": {
           "name": "conversation_turn_id",
           "type": "uuid",
@@ -6561,6 +6648,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "claimed_at": {
           "name": "claimed_at",
           "type": "timestamp with time zone",
@@ -6734,6 +6827,10 @@
         "conversation_judgments_call_check": {
           "name": "conversation_judgments_call_check",
           "value": "\"conversation_judgments\".\"attempts\" >= 0 AND (\"conversation_judgments\".\"call_key\" IS NULL OR \"conversation_judgments\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m1$') AND (\"conversation_judgments\".\"attempts\" = 0 OR \"conversation_judgments\".\"call_key\" IS NOT NULL)"
+        },
+        "conversation_judgments_summary_check": {
+          "name": "conversation_judgments_summary_check",
+          "value": "\"conversation_judgments\".\"summary\" IS NULL OR (\"conversation_judgments\".\"summary\" IN ('written','skipped','copied','invalid','lost','channel_gone') AND \"conversation_judgments\".\"grade\" = 'buffer_m1' AND \"conversation_judgments\".\"outcome\" = 'judged')"
         }
       },
       "isRLSEnabled": false
@@ -19009,18 +19106,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
-        },
-        "progress_key": {
-          "name": "progress_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "progress_ts": {
-          "name": "progress_ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -19085,28 +19170,6 @@
           ],
           "isUnique": false,
           "where": "\"slack_outbox\".\"correlation_id\" IS NOT NULL AND \"slack_outbox\".\"status\" IN ('sending', 'uncertain')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slack_outbox_progress_idx": {
-          "name": "slack_outbox_progress_idx",
-          "columns": [
-            {
-              "expression": "progress_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_outbox\".\"progress_key\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -19284,11 +19347,7 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress')"
-        },
-        "slack_outbox_progress_check": {
-          "name": "slack_outbox_progress_check",
-          "value": "(\"slack_outbox\".\"kind\" = 'progress') = (\"slack_outbox\".\"progress_key\" IS NOT NULL) AND (\"slack_outbox\".\"progress_ts\" IS NULL OR \"slack_outbox\".\"kind\" = 'progress')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
