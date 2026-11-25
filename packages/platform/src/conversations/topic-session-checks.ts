@@ -30,7 +30,10 @@ type Seen = {
  * topic starts anew either way, so this errs only towards a new session.
  */
 export function createTopicSessionChecks(deps: {
-  contexts: TopicTurnContexts;
+  contexts: Pick<
+    TopicTurnContexts,
+    "assemble" | "recordsDeletedAt" | "anyDeleted"
+  >;
   /** The agent's instructions a new session starts from. */
   instructions?: (turn: ConversationRuntimeTurn) => string;
   now?: () => number;
@@ -140,6 +143,19 @@ export function createTopicSessionChecks(deps: {
         fresh_input: { ...turn.fresh_input, text: assembled.text },
         topic_session: keep && !overflow ? "keep" : "drop",
       };
+    },
+
+    /**
+     * What a turn handed out read by its tools, which its topic's session
+     * now holds as well: a delete of any of it drops the session.
+     */
+    read(turnId: ConversationTurnId, keys: readonly SourceKey[]): void {
+      const topicId = out.get(turnId);
+      const entry = topicId === undefined ? undefined : seen.get(topicId);
+      if (entry === undefined) return;
+      const merged = mergeSources([entry.keys, keys]);
+      entry.keys = merged.keys;
+      if (merged.overflow) entry.overflow = true;
     },
 
     /** How a turn handed out ended: a failed one leaves no session to go on in. */

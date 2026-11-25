@@ -1,10 +1,13 @@
 import {
   apiErrorResponseSchema,
   CONVERSATION_RUNTIME_ROUTE_PREFIX,
+  type ConversationReadTool,
+  type ConversationReadToolResponse,
   type ConversationRuntimeId,
   type ConversationRuntimeTurn,
   type ConversationTurnResult,
   conversationNextTurnResponseSchema,
+  conversationReadToolResponseSchema,
   conversationTurnResultResponseSchema,
 } from "@werft-ai/contracts";
 
@@ -24,6 +27,16 @@ export interface ConversationTurnSource {
     turn: Pick<ConversationRuntimeTurn, "turn_id" | "lease_id">,
     result: ConversationTurnResult,
   ): Promise<"recorded" | "refused">;
+  /**
+   * One read tool call of a turn this runtime holds. `turn_not_held` when
+   * the control host no longer takes the turn's calls. Throws when the
+   * answer did not arrive.
+   */
+  readTool(
+    turn: Pick<ConversationRuntimeTurn, "turn_id" | "lease_id">,
+    tool: ConversationReadTool,
+    signal: AbortSignal,
+  ): Promise<ConversationReadToolResponse | { outcome: "turn_not_held" }>;
 }
 
 /** Only the call this client makes, so a test double need not be a whole fetch. */
@@ -33,7 +46,7 @@ export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
  * The runtime's half of its protocol, over the worker gateway's listener.
  * The runtime's container reaches it through the egress proxy, which fetch
  * reads out of the proxy environment variables; the bearer is the runtime's
- * own and opens these two routes only.
+ * own and opens these routes only.
  */
 export class HttpConversationTurnSource implements ConversationTurnSource {
   private readonly baseUrl: string;
@@ -107,6 +120,34 @@ export class HttpConversationTurnSource implements ConversationTurnSource {
     if ([403, 404, 409].includes(response.status)) {
       await response.body?.cancel();
       return "refused";
+    }
+    throw await refusal(response);
+  }
+
+  async readTool(
+    turn: Pick<ConversationRuntimeTurn, "turn_id" | "lease_id">,
+    tool: ConversationReadTool,
+    signal: AbortSignal,
+  ): Promise<ConversationReadToolResponse | { outcome: "turn_not_held" }> {
+    const response = await this.post(
+      "/read-tool",
+      {
+        runtime_id: this.options.runtimeId,
+        turn_id: turn.turn_id,
+        lease_id: turn.lease_id,
+        tool,
+      },
+      AbortSignal.any([
+        signal,
+        AbortSignal.timeout(this.options.requestTimeoutMs),
+      ]),
+    );
+    if (response.ok) {
+      return conversationReadToolResponseSchema.parse(await response.json());
+    }
+    if ([403, 404, 409].includes(response.status)) {
+      await response.body?.cancel();
+      return { outcome: "turn_not_held" };
     }
     throw await refusal(response);
   }

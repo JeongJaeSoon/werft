@@ -54,14 +54,21 @@ export const hashConversationCallToken = hashToken;
 /**
  * Which limit ended a turn and who held it there: the server, when it
  * refused a call past the turn's count or the turn's lease ran out; else the
- * runtime, by the reason it reported.
+ * runtime, by the reason it reported. A tool call the server refused past
+ * its count is the runtime's when the runtime reported that limit itself:
+ * its cut and the call already on its way race, which a model call's do not.
  */
 export function conversationTurnLimitReached(
   outcome: ConversationTurnOutcome | null,
   refusal: ConversationTurnCallRefusal | null,
+  toolCallRefused = false,
 ): ConversationTurnLimitReached | null {
   if (refusal === "turn_limit") {
     return { limit: "model_call_limit", by: "server" };
+  }
+  const reported = outcome?.outcome === "failed" ? outcome.reason : undefined;
+  if (toolCallRefused && reported !== "tool_call_limit") {
+    return { limit: "tool_call_limit", by: "server" };
   }
   if (outcome?.outcome !== "failed") return null;
   if (outcome.reason === "lease_expired") {
@@ -322,8 +329,12 @@ export function createConversationCalls(deps: {
     endTurn(turnId: ConversationTurnId, outcome?: ConversationTurnOutcome) {
       return deps.store.endTurnAtomic({
         turnId,
-        limitReached: (refusal) =>
-          conversationTurnLimitReached(outcome ?? null, refusal),
+        limitReached: (refusal, toolCallRefused) =>
+          conversationTurnLimitReached(
+            outcome ?? null,
+            refusal,
+            toolCallRefused,
+          ),
       });
     },
     /**

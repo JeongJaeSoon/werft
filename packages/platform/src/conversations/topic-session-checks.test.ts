@@ -12,7 +12,7 @@ import type {
   TopicTurnContext,
   TopicTurnContexts,
 } from "./context-assembler.ts";
-import type { SourceKey } from "./source-sets.ts";
+import { SOURCE_SET_LIMIT, type SourceKey } from "./source-sets.ts";
 import { createTopicSessionChecks } from "./topic-session-checks.ts";
 
 const place = (ts: string): SourceKey => ({
@@ -55,7 +55,10 @@ function contexts() {
     checkThrows: false,
     recordsDeletedAt: null as number | null | "throw",
   };
-  const value: TopicTurnContexts = {
+  const value: Pick<
+    TopicTurnContexts,
+    "assemble" | "recordsDeletedAt" | "anyDeleted"
+  > = {
     async assemble(topic, input) {
       state.assembled.push(topic);
       if (state.result === "throw") throw new Error("database down");
@@ -142,6 +145,36 @@ describe("createTopicSessionChecks", () => {
     expect((await s.serve()).topic_session).toBe("drop");
     // The new session read only 2.1: it goes on.
     expect((await s.serve()).topic_session).toBe("keep");
+  });
+
+  test("what a turn's tools read is held by its session: a delete of it drops the session", async () => {
+    const s = setup();
+    const turn = turnOf();
+    await s.checks.handOut(turn);
+    s.checks.read(turn.turn_id as ConversationTurnId, [place("9.9")]);
+    s.checks.ended(turn.turn_id as ConversationTurnId, true);
+    expect((await s.serve()).topic_session).toBe("keep");
+    s.state.deleted.add("9.9");
+    expect((await s.serve()).topic_session).toBe("drop");
+    // A read for a turn not handed out, or already ended, goes nowhere.
+    s.checks.read(turn.turn_id as ConversationTurnId, [place("8.8")]);
+    s.state.deleted.add("8.8");
+    await s.serve();
+    expect((await s.serve()).topic_session).toBe("keep");
+  });
+
+  test("a read that grows the session past its limit drops it", async () => {
+    const s = setup();
+    const turn = turnOf();
+    await s.checks.handOut(turn);
+    s.checks.read(
+      turn.turn_id as ConversationTurnId,
+      Array.from({ length: SOURCE_SET_LIMIT + 1 }, (_, i) =>
+        place(`${i + 10}.0`),
+      ),
+    );
+    s.checks.ended(turn.turn_id as ConversationTurnId, true);
+    expect((await s.serve()).topic_session).toBe("drop");
   });
 
   test("drops when what the session read is not known whole, or cannot be checked", async () => {

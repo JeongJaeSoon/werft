@@ -24,6 +24,7 @@ import {
   createPostgresChannelMemberStore,
   createPostgresCommitAttributionLedger,
   createPostgresConversationCalls,
+  createPostgresConversationReadToolStore,
   createPostgresConversationTurnQueue,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
@@ -128,6 +129,7 @@ import {
   createAuthorizationPolicy,
   createCatalogRegistry,
   createConversationCalls,
+  createConversationReadTools,
   createConversationRuntimeTurns,
   createCredentialBindingService,
   createDecisionsClient,
@@ -221,6 +223,7 @@ import {
   wireSlackConfig,
   wireSlackInteractions,
   wireSlackServices,
+  wireSlackThreadReader,
 } from "../wiring/slack-api.ts";
 import { createAccountLinkCookies } from "./account-link-cookie.ts";
 import { ambiguousPathGuard } from "./ambiguous-path.ts";
@@ -1458,6 +1461,11 @@ const conversationTurnQueue = createPostgresConversationTurnQueue(
   secretKey,
 );
 assertConversationTurnDispatch(process.env, conversationTurnQueue);
+const topicTurnContexts = createPostgresTopicTurnContexts(db);
+// What a topic's live session read, in this process's memory.
+const topicSessionChecks = createTopicSessionChecks({
+  contexts: topicTurnContexts,
+});
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
   // A turn's calls end with its runtime's lease, the turn's time limit as
@@ -1467,10 +1475,21 @@ const conversationTurns = createConversationRuntimeTurns({
       turnId: turn.turn_id,
       until: new Date(turn.lease_expires_at),
     }),
-  // What a topic's live session read, in this process's memory.
-  topicSessions: createTopicSessionChecks({
-    contexts: createPostgresTopicTurnContexts(db),
+  topicSessions: topicSessionChecks,
+});
+// A turn's read tools, answered here: the runtime holds no Slack token.
+const conversationReadTools = createConversationReadTools({
+  store: createPostgresConversationReadToolStore(db),
+  threads: wireSlackThreadReader({
+    apiUrl: slackApiUrlFrom(process.env),
+    appStore: slackAppStore,
+    secrets: slackSecretStore,
+    bindings: surfaceBindingStore,
+    logger,
   }),
+  door: slackChannelMembers,
+  contexts: topicTurnContexts,
+  topicSessions: topicSessionChecks,
 });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
@@ -1918,6 +1937,7 @@ const internalApp = createInternalApiApp({
         : {
             conversationRuntime: {
               turns: conversationTurns,
+              readTools: conversationReadTools,
               isRuntimeBearer: conversationRuntimeBearer(
                 conversationRuntime.tokens,
               ),

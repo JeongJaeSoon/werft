@@ -5852,6 +5852,11 @@ export const conversationTurnPermits = pgTable(
     // Every call's key; its attempt is the call's number in the turn.
     callKey: text("call_key").$type<ConversationCallKey>().notNull(),
     calls: integer().notNull().default(0),
+    // The read tools' calls made on it, the one refused past the limit too,
+    // and its thread reads; a 429 sets the reads to the limit, so none
+    // follows in the turn.
+    toolCalls: integer("tool_calls").notNull().default(0),
+    threadReads: integer("thread_reads").notNull().default(0),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     // The last call it was refused, and why: what the turn ended on.
     refusal: text().$type<ConversationTurnCallRefusal>(),
@@ -5873,6 +5878,10 @@ export const conversationTurnPermits = pgTable(
     check(
       "conversation_turn_permits_limits_check",
       sql`${table.maxTokens} >= 1 AND ${table.maxRequestBytes} >= 1 AND ${table.calls} >= 0 AND ${table.callKey} ~ '^[A-Za-z0-9_-]{1,128}:m2$'`,
+    ),
+    check(
+      "conversation_turn_permits_tool_counts_check",
+      sql`${table.toolCalls} >= 0 AND ${table.threadReads} >= 0`,
     ),
     check(
       "conversation_turn_permits_refusal_check",

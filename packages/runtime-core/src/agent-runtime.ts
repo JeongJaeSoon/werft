@@ -157,6 +157,26 @@ export type PlatformMcpServer = {
   trusted?: readonly string[];
 };
 
+/**
+ * A tool the worker answers in its own process. It takes no argument: what
+ * it reads is the worker's to know, never the model's to name.
+ */
+export type LocalTool = {
+  /** Its name in its server: the engine calls it `mcp__<server>__<name>`. */
+  name: string;
+  description: string;
+  /** The result's text; `isError` when the call was refused. */
+  call(signal: AbortSignal): Promise<{ text: string; isError: boolean }>;
+};
+
+/** Tools served in the worker's own process, which judges every call itself. */
+export type LocalToolServer = {
+  name: string;
+  /** What the server is for the fingerprint. */
+  binding: string;
+  tools: readonly LocalTool[];
+};
+
 export type RuntimeBundle = {
   instructions: readonly InstructionPart[];
   /**
@@ -166,6 +186,11 @@ export type RuntimeBundle = {
    */
   repoInstructions: { files: readonly string[]; text: string | null } | null;
   mcpServers: readonly PlatformMcpServer[];
+  /**
+   * Tool servers the worker answers itself, beside the remote ones; their
+   * tools run with no judgment of the engine's. Absent for a work session.
+   */
+  localToolServers?: readonly LocalToolServer[];
   /**
    * Extension bundles the worker published read-only at `path`, identified by
    * their content digest. Absent when the session has none, so a config

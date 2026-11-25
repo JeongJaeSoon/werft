@@ -14,6 +14,7 @@ import type {
   RuntimeEvent,
   RuntimeModule,
 } from "@werft-ai/runtime-core";
+import { fakeConversationTools } from "../testing/fake-conversation-tools.ts";
 import { fakePermitRelay } from "../testing/fake-permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
 import { TopicSessions } from "./topic-sessions.ts";
@@ -143,6 +144,7 @@ function setup(options: { maxBytes?: number; limit?: number } = {}) {
     runtime: e.module,
     sessions,
     relay,
+    tools: fakeConversationTools(),
     ...(options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }),
   });
   const live = new AbortController().signal;
@@ -240,6 +242,7 @@ describe("a topic's session", () => {
       runtime: e.module,
       sessions: s.sessions,
       relay: s.relay,
+      tools: fakeConversationTools(),
     });
     const live = new AbortController().signal;
     const t = topic();

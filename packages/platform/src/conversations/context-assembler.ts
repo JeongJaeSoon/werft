@@ -434,6 +434,37 @@ export function topicTurnContexts(source: ContextFragmentSource) {
       return { outcome: "assembled", text, sources: fitted.sources };
     },
 
+    /**
+     * The conversation's channel summary lines a read tool shows, in the
+     * summary's order: the assembler's read, so only the conversation's own
+     * scopes and none whose source Slack deleted.
+     */
+    async channelSummary(ref: Omit<TopicRef, "topicId">): Promise<
+      | {
+          outcome: "read";
+          lines: { text: string; writtenAt: Date; sources: SourceKey[] }[];
+        }
+      | { outcome: "unknown_conversation" }
+    > {
+      const conversation = await source.conversationOf(ref);
+      if (conversation === null) return { outcome: "unknown_conversation" };
+      const fragments = await assembleContext(source, conversation);
+      return {
+        outcome: "read",
+        lines: fragments.flatMap((fragment) =>
+          fragment.kind === "channel_summary_line"
+            ? [
+                {
+                  text: fragment.text,
+                  writtenAt: fragment.writtenAt,
+                  sources: fragment.sources,
+                },
+              ]
+            : [],
+        ),
+      };
+    },
+
     /** An admin delete removes turns a live session may still hold. */
     async recordsDeletedAt(topic: TopicRef): Promise<number | null> {
       return (await source.recordsDeletedAt(topic))?.getTime() ?? null;

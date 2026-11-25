@@ -44,6 +44,14 @@ export type SlackAudience = {
     question: SlackAuthorQuestion,
   ): Promise<SlackUnheardReason | null>;
   /**
+   * Why a post of a channel already found not shared is not heard: its
+   * author is a guest or a stranger, or could not be told. Asks only of the
+   * author.
+   */
+  authorUnheardReason(
+    question: SlackAuthorQuestion,
+  ): Promise<SlackUnheardReason | null>;
+  /**
    * Whether another organization shares the channel; null when Slack could
    * not tell. An answer Slack gives is recorded on the channel's binding,
    * which removes the channel's held posts when it is shared.
@@ -159,6 +167,12 @@ export function createSlackAudience(deps: {
 
   return {
     channelSharing,
+    async authorUnheardReason(question) {
+      return slackUnheardReasonOf({
+        sharing: "internal",
+        author: await authorKind(question),
+      });
+    },
     async unheardReason(question) {
       const sharing = await channelSharing(question);
       // A shared channel is not heard whoever wrote; its author is not asked.

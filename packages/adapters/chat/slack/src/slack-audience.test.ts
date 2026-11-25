@@ -55,6 +55,22 @@ function audienceWith(
 }
 
 describe("createSlackAudience", () => {
+  test.each([
+    [{}, null],
+    [{ is_restricted: true }, "guest_author"],
+    [{ team_id: "T0PARTNER" }, "external_author"],
+  ] as const)(
+    "an author's own reason, the channel not asked: %o: %s",
+    async (user, reason) => {
+      const { audience, calls } = audienceWith(
+        async () => "external",
+        async () => user,
+      );
+      expect(await audience.authorUnheardReason(question)).toBe(reason);
+      expect(calls).toEqual(["users.info U0PERSON"]);
+    },
+  );
+
   test("a channel shared with another organization is not heard; its author is not asked", async () => {
     const { audience, calls, recorded } = audienceWith(async () => "external");
     expect(await audience.unheardReason(question)).toBe(
