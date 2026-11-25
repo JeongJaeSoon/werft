@@ -29,6 +29,7 @@ import type {
   InterruptService,
   InviteService,
   InviteStore,
+  JudgmentReviewService,
   LinkedAccountService,
   MemberService,
   PendingRequestService,
@@ -128,6 +129,7 @@ import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/surface/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
 import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
+import { registerSlackJudgmentRoutes } from "./routes/surface/slack-judgments.ts";
 import { registerSlackNoticeRoutes } from "./routes/surface/slack-notice.ts";
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { registerSlackSettingsRoutes } from "./routes/surface/slack-settings.ts";
@@ -199,6 +201,7 @@ function apiApp() {
       registerSlackChannelRoutes(router, {
         service: {} as SlackChannelSearchService,
       });
+      registerSlackJudgmentRoutes(router, {} as JudgmentReviewService);
       registerLinkedAccountRoutes(router, {
         service: {} as LinkedAccountService,
         linkCookies: {} as AccountLinkCookies,

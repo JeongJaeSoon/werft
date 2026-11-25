@@ -98,6 +98,8 @@ export type SurfaceBindingRecord = {
   channelKind: SurfaceChannelKind | null;
   mode: BindingMode;
   listen: BindingListen;
+  /** M1's judgments per hour in the channel. */
+  m1JudgmentsPerHour: number;
   ceiling: SurfaceCeiling;
   home: boolean;
   memoryWritePolicy: MemoryWritePolicy;
@@ -167,6 +169,8 @@ export interface SurfaceBindingStore {
      */
     listen?: BindingListen;
     newListen?: BindingListen;
+    /** Absent keeps the channel's; a new channel then has the starting cap. */
+    m1JudgmentsPerHour?: number;
     home: boolean;
     ceiling: SurfaceCeiling;
     managerRoles: readonly WorkspaceRole[];
