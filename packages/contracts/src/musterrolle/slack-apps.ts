@@ -14,7 +14,8 @@ import { workspaceParamsSchema } from "./workspaces.ts";
  * test pins the list. `channels:join` lets the agent join a public channel
  * the console picks for it; `groups:write` lets it leave a private channel
  * whose invite an admin turned down. `chat:write.customize` shows an
- * instruction sent from the web or the API under its sender's name.
+ * instruction sent from the web or the API under its sender's name, and a
+ * task's posts under "agent [task]".
  */
 export const BOT_SCOPES = [
   "assistant:write",
@@ -42,8 +43,8 @@ export const BOT_SCOPES = [
  * (private), on scopes the app already holds, as does a channel being
  * shared with another organization or no longer (`channel_shared`,
  * `channel_unshared`). An app made before
- * an event was added receives it only after its manifest is sent again
- * (events recheck).
+ * an event was added receives it once its manifest is sent again: by the
+ * API's next start on its own, or by an events recheck.
  */
 export const SLACK_AGENT_BOT_EVENTS = [
   "app_mention",
@@ -199,6 +200,39 @@ export const CONFIG_TOKEN_STATE_VALUES = [
   "needs_reentry",
 ] as const;
 
+/**
+ * Why an agent app's manifest is behind what this build sends; the console
+ * shows it as needing an update. `config_token_inactive`: no active App
+ * Configuration Token, so nothing was read or sent. `events_url_unset`: no
+ * events address is known. `slack_refused`: Slack answered with an error.
+ * `no_answer`: Slack's answer was lost.
+ */
+export const SLACK_MANIFEST_SYNC_ERROR_VALUES = [
+  "config_token_inactive",
+  "events_url_unset",
+  "slack_refused",
+  "no_answer",
+] as const;
+
+export const slackManifestSyncErrorSchema = z.enum(
+  SLACK_MANIFEST_SYNC_ERROR_VALUES,
+);
+
+/**
+ * The last check of the app's manifest against this build: at each start
+ * of the API (an app whose manifest lacks only events is sent it), on a
+ * recheck and on Finalize. `error` is null when nothing is left for Werft
+ * to send on its own: the manifest was current or was sent, or it waits for
+ * an install (no event subscription yet, or bot scopes that changed). Null
+ * before the first check.
+ */
+export const slackManifestSyncSchema = z
+  .object({
+    error: slackManifestSyncErrorSchema.nullable(),
+    checked_at: timestampSchema,
+  })
+  .strict();
+
 export const getSlackAppResponseSchema = z
   .object({
     slack_app: slackAppSchema.nullable(),
@@ -217,6 +251,7 @@ export const getSlackAppResponseSchema = z
         last_received_at: timestampSchema.optional(),
       })
       .strict(),
+    manifest_sync: slackManifestSyncSchema.nullable(),
     warnings: z.array(
       z.discriminatedUnion("code", [
         slackWarningSchema,
@@ -467,6 +502,10 @@ export type UpdateSlackSettingsResponse = z.infer<
 >;
 export type SlackAppKind = z.infer<typeof slackAppKindSchema>;
 export type SlackAppState = z.infer<typeof slackAppStateSchema>;
+export type SlackManifestSyncError = z.infer<
+  typeof slackManifestSyncErrorSchema
+>;
+export type SlackManifestSync = z.infer<typeof slackManifestSyncSchema>;
 export type SlackAppSecretPurpose = z.infer<typeof slackAppSecretPurposeSchema>;
 export type SlackApp = z.infer<typeof slackAppSchema>;
 export type SlackWarning = z.infer<typeof slackWarningSchema>;

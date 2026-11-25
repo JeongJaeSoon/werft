@@ -426,7 +426,9 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     await c.set({ externalShared: true });
     expect(await store.beginSend(claimed)).toBe(false);
     await c.set({ externalShared: false });
-    expect(await store.beginSend(claimed)).toBe(true);
+    expect(await store.beginSend(claimed)).toMatchObject({
+      agentName: "Notes",
+    });
     await store.settle(claimed, { status: "sent", slackTs: "1.000001" });
     await pass(V1);
     expect((await noticesOf(agent.agentId)).map((row) => row.status)).toEqual([
@@ -488,7 +490,9 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     const store = storeOf(V1);
     const [claimed] = await claimOf(store, agentId);
     if (claimed === undefined) throw new Error("not claimed");
-    expect(await store.beginSend(claimed)).toBe(true);
+    expect(await store.beginSend(claimed)).toMatchObject({
+      agentName: "Notes",
+    });
     await store.settle(claimed, { status: "failed", errorCode: code });
   }
 
