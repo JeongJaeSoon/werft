@@ -15,6 +15,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **lease를 스스로 내려놓고 끝난 worker의 turn은 `failed`(`worker_ownership_lost`)로 끝나고, 세션은 `recovery_required`로 가지 않는다**(JeongJaeSoon/werft#2218). migration은 없고 따로 할 일도 없다.
+  - 조건은 둘 다다. scheduler가 그 worker의 exit code 75를 보았고, 그 lease가 만료됐다. 하나라도 없으면 지금대로 turn은 `outcome_unknown`이고 세션은 operator 결정을 기다린다.
+  - 그 exit의 정리는 lease가 끝날 때까지 늦어진다. 기다리는 시간은 `HEARTBEAT_TTL_SEC`를 넘지 않고, 그동안 scheduler 로그에 `Worker gave its lease up; exit settles once the lease runs out`가 pass마다 남는다.
+  - 끊긴 turn은 자동으로 다시 돌지 않는다. Slack 스레드의 "이어서 하기" 버튼이나 새 메시지가 마지막 checkpoint에서 이어 간다. 그 checkpoint 뒤에 turn이 한 일은 사람이 확인한다.
+  - 새 API 오류 코드 `WORKER_OWNERSHIP_LOST`가 그 입력의 receipt와 세션 status 이벤트에 나온다. `recovery_required` 세션 수나 `outcome_unknown` turn 수에 경보를 걸었다면, 이 경우는 이제 거기에 잡히지 않는다.
 - **설정 > 연동 > Slack에서 이벤트 입구 주소를 바꿔 저장하면, 이미 만든 에이전트 Slack 앱 모두에 새 주소를 보낸다**(JeongJaeSoon/werft#2209). migration은 없고 따로 할 일도 없다. 올린 뒤 앱마다 '다시 확인'을 누르지 않아도 된다.
   - 모든 워크스페이스의 앱에 보내므로, 그 워크스페이스의 설정 토큰이 살아 있어야 한다. 보내지 못한 앱은 저장 결과에 이유와 함께 남고 예전 주소를 그대로 쓴다. 그 자리의 "보내지 못한 앱 다시 보내기"나 에이전트 Slack 탭의 다시 확인으로 다시 보낸다.
   - 저장은 Slack의 `Retry-After`를 기다리지 않는다. 한 워크스페이스에 앱이 많아 Slack이 막으면 일부가 `slack_refused`로 남으니, 잠시 뒤 다시 보낸다.
