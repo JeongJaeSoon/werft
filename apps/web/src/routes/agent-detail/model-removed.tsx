@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type { Agent, AgentRelease } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
-import { Alert, AlertDescription, AlertTitle, Button } from "@werft-ai/ui";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Button,
+  formatTimestamp,
+} from "@werft-ai/ui";
 import {
   agentListsFilter,
   connectionsQuery,
@@ -15,6 +21,10 @@ import {
   successorOf,
 } from "../../components/connection-options.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
+import { saveFailureText } from "./effective-behavior.tsx";
+
+/** contracts MODEL_MIGRATION_RETRY_MINUTES; apps/web imports contracts as types only. */
+export const MODEL_MIGRATION_RETRY_MINUTES = 15;
 
 /**
  * Says so when the model the active release runs is no longer on its
@@ -25,10 +35,13 @@ export function ModelRemovedAlert({
   agent,
   release,
 }: {
-  readonly agent: Pick<Agent, "id" | "auto_model_migration">;
+  readonly agent: Pick<
+    Agent,
+    "id" | "auto_model_migration" | "model_migration_failure"
+  >;
   readonly release: AgentRelease | null;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client } = useWerft();
   const role = useRole();
   const queryClient = useQueryClient();
@@ -84,6 +97,34 @@ export function ModelRemovedAlert({
     );
   }
   const on = agent.auto_model_migration;
+  const failure = on ? agent.model_migration_failure : null;
+  if (failure !== null) {
+    const next =
+      failure.reason === "actor_inactive"
+        ? t("agent.modelMoves.failedActorInactive", { successor })
+        : failure.reason === "credential_unbound"
+          ? t("agent.modelMoves.failedCredential", { successor })
+          : t("agent.modelMoves.failedOther", { successor });
+    return (
+      <Alert variant="red" className="border-0">
+        <AlertTitle>
+          {t("agent.modelMoves.failedTitle", { model, successor })}
+        </AlertTitle>
+        <AlertDescription>
+          {t("agent.modelMoves.failedText", {
+            reason: saveFailureText(t, failure.reason),
+            at: formatTimestamp(failure.failed_at, locale),
+            minutes: MODEL_MIGRATION_RETRY_MINUTES,
+          })}{" "}
+          {next}
+          <span className="mt-2 flex flex-wrap items-center gap-2">
+            {switchButton(false)}
+            {refusal ? <span role="alert">{refusal}</span> : null}
+          </span>
+        </AlertDescription>
+      </Alert>
+    );
+  }
   return (
     <Alert variant={on ? "blue" : "amber"} className="border-0">
       <AlertTitle>

@@ -255,6 +255,11 @@ echo "$check_job" | jq -e '.status.succeeded == 1' >/dev/null || fail "the upgra
 # The chart's lookup of the running scheduler gave the Job the deployed image.
 echo "$check_job" | jq -e '[.spec.template.spec.containers[0].env[] | select(.name == "UPGRADE_DEPLOYED_WORKER_IMAGE" or .name == "WORKER_IMAGE") | .value] | length == 2 and .[0] != "" and .[0] == .[1]' >/dev/null ||
   fail "the upgrade-check Job did not get the deployed worker image from the running scheduler"
+# And the gateway address it gives its workers. The target keeps it, so S1's
+# worker, which holds a slot, does not end and is not listed.
+echo "$check_job" | jq -e '[.spec.template.spec.containers[0].env[] | select(.name == "UPGRADE_DEPLOYED_WORKER_GATEWAY_URL" or .name == "WORKER_GATEWAY_URL") | .value] | length == 2 and .[0] != "" and .[0] == .[1]' >/dev/null ||
+  fail "the upgrade-check Job did not get the gateway address the running scheduler gives its workers"
+echo "$verdict" | jq -e '.affected == []' >/dev/null || fail "upgrade-check listed a session though no worker ends"
 echo "$migrate_job" | jq -e '.status.succeeded == 1' >/dev/null || fail "the migrate Job did not succeed"
 check_done="$(epoch "$check_job" .status.completionTime)"
 migrate_start="$(epoch "$migrate_job" .status.startTime)"
@@ -594,6 +599,8 @@ check_uid="$(k get "job/${fullname}-upgrade-check" -o jsonpath='{.metadata.uid}'
 # beside a single target image.
 direct="$(k exec "deploy/${fullname}-api" -- env -u WORKER_IMAGES \
   UPGRADE_DEPLOYED_WORKER_IMAGES="$(env_of scheduler WORKER_IMAGES)" \
+  UPGRADE_DEPLOYED_WORKER_GATEWAY_URL="$(env_of scheduler WORKER_GATEWAY_URL)" \
+  WORKER_GATEWAY_URL="$(env_of scheduler WORKER_GATEWAY_URL)" \
   WORKER_IMAGE="$single_image" WORKER_IMAGE_RUNTIME="$runtime_a" \
   bun run apps/control-host/src/api/upgrade-check.ts 2>&1 | jq -c 'select(.verdict?)' 2>/dev/null || true)"
 echo "direct check before the rollback: ${direct}"

@@ -37,6 +37,7 @@ import {
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
+  SURFACE_REACTION_MAX_ATTEMPTS,
 } from "@werft-ai/platform";
 import {
   and,
@@ -1780,12 +1781,30 @@ export function createPostgresSlackOutboxStore(
 
     async expireSending() {
       return db.transaction(async (tx) => {
+        const expired = and(
+          eq(t.status, "sending"),
+          sql`${t.leaseExpiresAt} <= now()`,
+        );
+        // A reaction Slack may hold is asked for again, not left uncertain.
+        await tx
+          .update(t)
+          .set({
+            status: "pending",
+            errorCode: "lease_expired",
+            nextAttemptAt: sql`now()`,
+            ...released,
+          })
+          .where(
+            and(
+              expired,
+              eq(t.kind, "reaction"),
+              sql`${t.attempts} < ${SURFACE_REACTION_MAX_ATTEMPTS}`,
+            ),
+          );
         const lost = await tx
           .update(t)
           .set({ status: "uncertain", errorCode: "lease_expired", ...released })
-          .where(
-            and(eq(t.status, "sending"), sql`${t.leaseExpiresAt} <= now()`),
-          )
+          .where(expired)
           .returning({ id: t.id, ...entry });
         await markMirrorUnconfirmed(
           tx,
@@ -2202,13 +2221,15 @@ export function createPostgresSlackOutboxStore(
             channelId: t.channelId,
             threadTs: t.threadTs,
             progressTs: t.progressTs,
+            kind: t.kind,
           });
         if (row === undefined) return false;
         // A post into the thread is a moment to show its status again soon;
-        // an edit of one is not.
+        // an edit of one, or a reaction, is not.
         if (
           outcome.status === "sent" &&
           row.sessionId &&
+          row.kind !== "reaction" &&
           row.progressTs !== outcome.slackTs
         ) {
           await touchSlackThreadStatus(tx, row.sessionId);

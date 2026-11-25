@@ -1261,6 +1261,7 @@ function checkUpgradeHook(
     "WORKER_IMAGE_RUNTIME",
     "WORKER_IMAGE_PREVIOUS",
     "WORKER_IMAGE_PREVIOUS_RUNTIME",
+    "WORKER_GATEWAY_URL",
   ]) {
     if (value(`UPGRADE_DEPLOYED_${name}`) !== "") {
       fail(`UPGRADE_DEPLOYED_${name} is not empty without a cluster`);
@@ -1276,7 +1277,8 @@ function checkUpgradeHook(
   ) {
     fail("WORKER_IMAGE is not the target worker digest");
   }
-  // It must judge the images the target scheduler will launch on.
+  // It must judge the images the target scheduler will launch on, and the
+  // gateway address it will give them.
   const schedulerDeployment = manifests.find(
     (m) => m.kind === "Deployment" && componentOf(m) === "scheduler",
   );
@@ -1295,6 +1297,16 @@ function checkUpgradeHook(
     if (value(name) !== want) {
       fail(`${name} is ${value(name)}, the scheduler's is ${want}`);
     }
+  }
+  // config.limits and scheduler.extraEnv can name it again after the chart's
+  // own entry, and a container takes the last.
+  const gateway = schedulerEnv.findLast(
+    (e) => e.name === "WORKER_GATEWAY_URL",
+  )?.value;
+  if (value("WORKER_GATEWAY_URL") !== gateway) {
+    fail(
+      `WORKER_GATEWAY_URL is ${value("WORKER_GATEWAY_URL")}, the scheduler ends up with ${gateway}`,
+    );
   }
   if (value("UPGRADE_APPROVED_SESSIONS") !== JSON.stringify(approved)) {
     fail(
@@ -2039,6 +2051,24 @@ errors.push(
     render(["-f", ciDigests, "--set", "scheduler.enabled=false"]),
     false,
     [],
+  ),
+  // The gateway address the check compares is the one the scheduler ends up
+  // with, wherever the values name it.
+  ...[
+    ["config.limits.WORKER_GATEWAY_URL=http://limits:3200"],
+    ["scheduler.extraEnv.WORKER_GATEWAY_URL=http://extra:3200"],
+    [
+      "config.limits.WORKER_GATEWAY_URL=http://limits:3200",
+      "scheduler.extraEnv.WORKER_GATEWAY_URL=http://extra:3200",
+    ],
+    ["scheduler.extraEnv.WORKER_GATEWAY_URL="],
+  ].flatMap((values) =>
+    checkUpgradeHook(
+      `gateway address (${values.join(", ")})`,
+      render(["-f", ciDigests, ...values.flatMap((v) => ["--set", v])]),
+      true,
+      [],
+    ),
   ),
   ...checkObjectStoreKeys("default", render(["-f", ciDigests]), true),
   ...checkObjectStoreKeys(

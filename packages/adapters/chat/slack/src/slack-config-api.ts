@@ -651,6 +651,15 @@ export interface SlackBotSender {
     botToken: string,
     input: { channelId: string; ts: string; text: string; blocks?: unknown[] },
   ): Promise<SlackSendResponse>;
+  /**
+   * `reactions.add` (`reactions:write`) of `name` on a message. Answers
+   * what Slack said, whatever it was; throws `SlackApiError` only when no
+   * answer came.
+   */
+  addReaction?(
+    botToken: string,
+    input: { channelId: string; ts: string; name: string },
+  ): Promise<SlackSendResponse>;
   /** `users.info`'s 48px profile image; null when Slack names none. */
   userImage(botToken: string, userId: string): Promise<string | null>;
   /** `chat.postEphemeral`; Slack's `message_ts` comes back as `ts`. */
@@ -1049,6 +1058,14 @@ export function createSlackBotApi(
         text: input.text,
         ...(input.blocks === undefined ? {} : { blocks: input.blocks }),
         link_names: false,
+      });
+    },
+
+    addReaction(botToken, input) {
+      return send("reactions.add", botToken, {
+        channel: input.channelId,
+        timestamp: input.ts,
+        name: input.name,
       });
     },
 

@@ -40,6 +40,10 @@ import type {
  * `SURFACE_PROGRESS_EDIT_INTERVAL_MS`, and an update a newer one overtakes
  * before it goes is dropped (`superseded`). A post Slack lost is put up
  * again once; after that the message stops (`progress_stopped`).
+ * `reaction`: the one 👀 on the message `threadTs` names in `channelId`
+ * (not a post: `body` is unused), keyed once per Slack team, channel and
+ * message. Slack's `already_reacted` counts as sent; `slack_ts` is the
+ * message reacted to.
  */
 export type SurfaceOutboxKind =
   | "instruction"
@@ -52,7 +56,14 @@ export type SurfaceOutboxKind =
   | "model_notice"
   | "input_mirror"
   | "channel_notice"
-  | "progress";
+  | "progress"
+  | "reaction";
+
+/**
+ * The sends a reaction gets, its lease running out included: asking again
+ * is safe (Slack answers `already_reacted` to one it holds).
+ */
+export const SURFACE_REACTION_MAX_ATTEMPTS = 5;
 
 /** The least time between two sends of one progress message. */
 export const SURFACE_PROGRESS_EDIT_INTERVAL_MS = 10_000;

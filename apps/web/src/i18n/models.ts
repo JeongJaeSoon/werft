@@ -22,13 +22,23 @@ export const modelsKo = {
   "agent.modelMoves.title":
     "모델 {model}이(가) 연결 {connection}의 모델 목록에서 빠져 {successor}(으)로 옮겨 실행됩니다",
   "agent.modelMoves.text":
-    "새 세션은 {successor}(으)로 시작하고, 기다리던 세션은 다음 턴부터 {successor}(으)로 옮겨 갑니다. 에이전트의 릴리스도 {successor}(으)로 새로 만들어지고 관리자에게 Slack DM으로 알립니다. 실행 중인 턴은 {model} 요청이 막혀 멈춥니다.",
+    "새 세션은 {successor}(으)로 시작하고, 기다리던 세션은 다음 턴부터 {successor}(으)로 옮겨 갑니다. 에이전트의 릴리스도 {successor}(으)로 새로 만들어집니다. 실행 중인 턴은 {model} 요청이 막혀 멈춥니다.",
   "agent.modelMoves.offTitle":
     "모델 {model}이(가) 연결 {connection}의 모델 목록에서 빠졌고, 자동 이동이 꺼져 있어 멈춰 있습니다",
   "agent.modelMoves.offText":
     "{successor}(으)로 옮길 수 있지만 이 에이전트는 자동 이동을 끄고 있어 새 세션도 시작되지 않습니다. 자동 이동을 켜거나 상세 설정 탭에서 모델을 바꿔 저장하세요.",
   "agent.modelMoves.turnOn": "자동 이동 켜기",
   "agent.modelMoves.turnOff": "자동 이동 끄기",
+  "agent.modelMoves.failedTitle":
+    "모델 {model}을(를) {successor}(으)로 자동으로 옮기지 못했습니다",
+  "agent.modelMoves.failedText":
+    "이유: {reason}. 마지막 시도 {at}. 약 {minutes}분마다 다시 시도합니다.",
+  "agent.modelMoves.failedActorInactive":
+    "자동 이동은 이 에이전트를 마지막으로 활성화한 사람의 이름으로 돕니다. 그 사람이 더는 오너나 어드민이 아닙니다. 오너나 어드민이 상세 설정 탭에서 모델을 {successor}(으)로 바꿔 저장하세요.",
+  "agent.modelMoves.failedCredential":
+    "자격 증명을 연결한 뒤 상세 설정 탭에서 모델을 {successor}(으)로 바꿔 저장하세요.",
+  "agent.modelMoves.failedOther":
+    "상세 설정 탭에서 모델을 {successor}(으)로 바꿔 저장해 보세요. 같은 이유로 막히면 저장 결과에 이유가 나옵니다.",
 
   "agentCard.judgmentModel": "판단 모델",
   "agentCard.judgmentModelCard": "카드 모델 사용 ({model})",
@@ -64,13 +74,23 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
   "agent.modelMoves.title":
     "Model {model} was taken off the model list of connection {connection}; it now runs on {successor}",
   "agent.modelMoves.text":
-    "New sessions start on {successor}, and sessions waiting for a turn move to {successor} from their next turn. The agent also gets a new release on {successor}, and its administrators are told by Slack DM. A turn already running is stopped when its {model} requests are blocked.",
+    "New sessions start on {successor}, and sessions waiting for a turn move to {successor} from their next turn. The agent also gets a new release on {successor}. A turn already running is stopped when its {model} requests are blocked.",
   "agent.modelMoves.offTitle":
     "Model {model} was taken off the model list of connection {connection}, and automatic move is off, so this agent is blocked",
   "agent.modelMoves.offText":
     "It could move to {successor}, but this agent has automatic move turned off, so no new session starts. Turn automatic move on, or change the model in the Settings tab and save.",
   "agent.modelMoves.turnOn": "Turn automatic move on",
   "agent.modelMoves.turnOff": "Turn automatic move off",
+  "agent.modelMoves.failedTitle":
+    "Model {model} could not move to {successor} automatically",
+  "agent.modelMoves.failedText":
+    "Reason: {reason}. Last tried {at}. It is tried again about every {minutes} minutes.",
+  "agent.modelMoves.failedActorInactive":
+    "The automatic move runs in the name of the person who last activated this agent, and that person is no longer an owner or admin. Have an owner or admin change the model to {successor} in the Settings tab and save.",
+  "agent.modelMoves.failedCredential":
+    "Connect the credential, then change the model to {successor} in the Settings tab and save.",
+  "agent.modelMoves.failedOther":
+    "Try changing the model to {successor} in the Settings tab and saving. If it is blocked for the same reason, the save result shows why.",
 
   "agentCard.judgmentModel": "Judgment model",
   "agentCard.judgmentModelCard": "Use the card's model ({model})",
@@ -106,13 +126,23 @@ export const modelsJa: Record<keyof typeof modelsKo, string> = {
   "agent.modelMoves.title":
     "モデル {model} が接続 {connection} のモデル一覧から外れたため、{successor} に切り替えて実行されます",
   "agent.modelMoves.text":
-    "新しいセッションは {successor} で開始し、ターンを待っているセッションは次のターンから {successor} に切り替わります。エージェントのリリースも {successor} で新しく作られ、管理者には Slack の DM で知らせます。実行中のターンは {model} へのリクエストがブロックされて止まります。",
+    "新しいセッションは {successor} で開始し、ターンを待っているセッションは次のターンから {successor} に切り替わります。エージェントのリリースも {successor} で新しく作られます。実行中のターンは {model} へのリクエストがブロックされて止まります。",
   "agent.modelMoves.offTitle":
     "モデル {model} が接続 {connection} のモデル一覧から外れ、自動切り替えがオフのため止まっています",
   "agent.modelMoves.offText":
     "{successor} に切り替えられますが、このエージェントは自動切り替えをオフにしているため新しいセッションも開始されません。自動切り替えをオンにするか、詳細設定タブでモデルを変更して保存してください。",
   "agent.modelMoves.turnOn": "自動切り替えをオンにする",
   "agent.modelMoves.turnOff": "自動切り替えをオフにする",
+  "agent.modelMoves.failedTitle":
+    "モデル {model} を {successor} に自動で切り替えられませんでした",
+  "agent.modelMoves.failedText":
+    "理由: {reason}。最後の試行 {at}。約 {minutes} 分ごとに再試行します。",
+  "agent.modelMoves.failedActorInactive":
+    "自動切り替えは、このエージェントを最後に有効化した人の名前で実行されます。その人はもうオーナーでもアドミンでもありません。オーナーかアドミンが詳細設定タブでモデルを {successor} に変更して保存してください。",
+  "agent.modelMoves.failedCredential":
+    "認証情報を接続してから、詳細設定タブでモデルを {successor} に変更して保存してください。",
+  "agent.modelMoves.failedOther":
+    "詳細設定タブでモデルを {successor} に変更して保存してみてください。同じ理由で止まる場合は、保存結果に理由が表示されます。",
 
   "agentCard.judgmentModel": "判断モデル",
   "agentCard.judgmentModelCard": "カードのモデルを使う ({model})",

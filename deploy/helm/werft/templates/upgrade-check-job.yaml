@@ -3,12 +3,15 @@
 {{- if .Values.scheduler.enabled }}
 # Runs before the migrate Job of an upgrade, on the target release's api image,
 # and fails the upgrade while a session would be left with no worker image to
-# resume on and is not in upgrade.approvedSessions. Not a pre-install hook:
+# resume on, or its running worker would end, and is not in
+# upgrade.approvedSessions. Not a pre-install hook:
 # nothing is deployed yet. `helm rollback` runs no hook; run the same command
 # by hand first (the Kubernetes install page of the docs site (operate/kubernetes-deployment)).
 {{- $scheduler := printf "%s-scheduler" (include "ap.fullname" .) }}
 {{- $images := list "WORKER_IMAGES" "WORKER_IMAGE" "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_PREVIOUS_RUNTIME" }}
 {{- $deployed := dict }}
+{{- /* Kept out of $deployed, whose size says "unpinned". */}}
+{{- $gateway := "" }}
 {{- $state := "" }}
 {{- /* All empty under `helm template` and a client --dry-run, where lookup reads nothing: the check then fails rather than guess. */}}
 {{- $found := lookup "apps/v1" "Deployment" .Release.Namespace $scheduler }}
@@ -18,6 +21,9 @@
 {{- range .env }}
 {{- if has .name $images }}
 {{- $_ := set $deployed .name (.value | default "") }}
+{{- end }}
+{{- if eq .name "WORKER_GATEWAY_URL" }}
+{{- $gateway = .value | default "" }}
 {{- end }}
 {{- end }}
 {{- end }}
@@ -67,6 +73,12 @@ spec:
             {{- end }}
             - name: UPGRADE_DEPLOYED_STATE
               value: {{ $state | quote }}
+            # A worker keeps the address it was created with: when the two
+            # differ, the check lists every worker holding a slot.
+            - name: UPGRADE_DEPLOYED_WORKER_GATEWAY_URL
+              value: {{ $gateway | quote }}
+            - name: WORKER_GATEWAY_URL
+              value: {{ include "ap.schedulerGatewayUrl" . | quote }}
             {{- with include "ap.workerImageEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             - name: UPGRADE_APPROVED_SESSIONS
