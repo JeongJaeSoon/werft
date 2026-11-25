@@ -20,6 +20,7 @@ import {
   S3_MAX_ATTEMPTS,
   S3_METADATA_REQUEST_TIMEOUT_MS,
   S3_REQUEST_BOUNDS,
+  type S3ClientLike,
 } from "./s3.ts";
 import { listen } from "./testing/listen.ts";
 
@@ -251,6 +252,49 @@ describe("storage S3 client request bounds", () => {
     expect(outcome).toContain("delivered nothing for 300ms");
     expect(Date.now() - startedAt).toBeLessThan(10_000);
   }, 20_000);
+
+  test("every request that moves no body carries the metadata bound, the ones after a first answer too", async () => {
+    const sent: Array<[string, number | undefined]> = [];
+    const client: S3ClientLike = {
+      async send(command, options) {
+        sent.push([
+          (command as { constructor: { name: string } }).constructor.name,
+          options?.requestTimeout,
+        ]);
+        return {};
+      },
+    };
+    const store = createCheckpointObjectStore({ bucket: "bucket", client });
+    const collector = createCheckpointObjectCollector({
+      bucket: "bucket",
+      client,
+    });
+
+    await store.head("k");
+    await (store.hold as NonNullable<typeof store.hold>)("k", "v1");
+    await store.list("p/");
+    await collector.listVersions("p/");
+    await collector.purge({ deleteMarker: false, key: "k", version: "v1" });
+    await bucketHoldsObjectVersion(client, "bucket");
+    await describeBucketProtection(client, "bucket");
+    await describeBucketEncryption(client, "bucket");
+
+    expect(sent.map(([name]) => name)).toEqual([
+      "HeadObjectCommand",
+      "PutObjectLegalHoldCommand",
+      "ListObjectsV2Command",
+      "ListObjectVersionsCommand",
+      "PutObjectLegalHoldCommand",
+      "DeleteObjectCommand",
+      "ListObjectVersionsCommand",
+      "GetBucketVersioningCommand",
+      "GetObjectLockConfigurationCommand",
+      "GetBucketEncryptionCommand",
+    ]);
+    for (const [name, timeout] of sent) {
+      expect([name, timeout]).toEqual([name, S3_METADATA_REQUEST_TIMEOUT_MS]);
+    }
+  });
 
   test("every metadata request gives up on a silent store within its bound, and says so once", async () => {
     const { endpoint } = await silentPeer();
