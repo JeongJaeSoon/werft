@@ -504,15 +504,18 @@ describe("createM1BatchJudge at check spot ② (a1/J6)", () => {
 });
 
 describe("runJudgmentBatches with a deferred batch", () => {
-  test("finishes it, does not fail it, and judges no more this run", async () => {
-    const batch = batchOf("1.1");
+  test("finishes it, does not fail it, and goes on judging the other channels without closing it again", async () => {
+    const blocked = batchOf("1.1");
+    const other = { ...batchOf("2.1"), channelId: "C2" };
     const finished: unknown[] = [];
     const failed: unknown[] = [];
-    let closes = 0;
+    const asked: unknown[] = [];
+    const due = [blocked, other];
     const store: JudgmentBatchStore = {
-      closeNext: async () => {
-        closes += 1;
-        return { outcome: "judging", batch };
+      closeNext: async (options) => {
+        asked.push(options?.skip ?? []);
+        const batch = due.shift();
+        return batch === undefined ? null : { outcome: "judging", batch };
       },
       finish: async (_id, result) => {
         finished.push(result);
@@ -522,23 +525,31 @@ describe("runJudgmentBatches with a deferred batch", () => {
         failed.push(id);
       },
     };
+    const judged: string[] = [];
     const run = await runJudgmentBatches({
       store,
       judge: {
-        judge: async () => ({
-          modelCalled: false,
-          left: batch.inputs.map((input) => input.inputId),
-          deferred: true,
-        }),
+        judge: async (batch) => {
+          judged.push(batch.channelId);
+          return batch === blocked
+            ? {
+                modelCalled: false,
+                left: batch.inputs.map((input) => input.inputId),
+                deferred: true,
+              }
+            : { modelCalled: true, left: [] };
+        },
         rateLimited: async () => {},
       },
       logger: quietLogger,
       deadline: Number.POSITIVE_INFINITY,
     });
-    expect(closes).toBe(1);
+    expect(judged).toEqual(["C1", "C2"]);
+    const skip = [{ agentId: blocked.agentId, teamId: "T1", channelId: "C1" }];
+    expect(asked).toEqual([[], skip, skip]);
     expect(failed).toEqual([]);
-    expect(finished).toHaveLength(1);
-    expect(run).toEqual({ judged: 1, rateLimited: 0, failed: 0 });
+    expect(finished).toHaveLength(2);
+    expect(run).toEqual({ judged: 2, rateLimited: 0, failed: 0 });
   });
 });
 
