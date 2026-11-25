@@ -5,6 +5,7 @@ import {
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   completeGitHubAppManifestResponseSchema,
+  type GitHubWebhookUpdate,
   getGitHubAppResponseSchema,
   startGitHubAppManifestResponseSchema,
 } from "@werft-ai/contracts";
@@ -188,6 +189,7 @@ function appWith(
     enabled?: boolean;
     webhookUrl?: string | (() => string | null);
     hooks?: Array<{ appId: number; name: string }>;
+    hookAnswer?: GitHubWebhookUpdate | null;
   } = {},
 ) {
   const origin = options.origin === undefined ? ORIGIN : options.origin;
@@ -222,6 +224,7 @@ function appWith(
               logger.warn("GitHub App manifest state refused", { check }),
             followHook: async (target) => {
               options.hooks?.push({ appId: target.appId, name: target.name });
+              return options.hookAnswer ?? null;
             },
           },
         }),
@@ -349,10 +352,49 @@ describe("making the author GitHub App from a manifest", () => {
       expect(hooks).toEqual([
         { appId: nextApp - 1, name: `werft-acme-${nextApp - 1}` },
       ]);
+      // Nothing was sent (no address saved now): the answer says nothing.
+      expect(
+        completeGitHubAppManifestResponseSchema.parse(done.json).webhook_update,
+      ).toBeUndefined();
     } finally {
       convertedHookSecret = null;
     }
   });
+
+  for (const outcome of ["failed", "updated"] as const) {
+    test(`the completion answers what GitHub said to the new App's webhook URL (${outcome})`, async () => {
+      memory.clear();
+      const answer = (appId: number): GitHubWebhookUpdate =>
+        outcome === "failed"
+          ? {
+              app_id: appId,
+              name: `werft-acme-${appId}`,
+              outcome,
+              reason_code: "url_refused",
+            }
+          : { app_id: appId, name: `werft-acme-${appId}`, outcome };
+      const hooked = appWith(memory, {
+        webhookUrl: "https://a.example.test/v1/github/webhook",
+        hookAnswer: answer(nextApp),
+      });
+      const owner = cookieFor("owner");
+      const { state } = await started(hooked, owner);
+      convertedHookSecret = "hook-secret";
+      try {
+        const done = await hooked("manifest/complete", {
+          cookie: owner,
+          body: { code: newCode(), state },
+        });
+        // A failed PATCH leaves the App stored: the completion still succeeds.
+        expect(done.status).toBe(200);
+        const body = completeGitHubAppManifestResponseSchema.parse(done.json);
+        expect(body.github_app.app_id).toBe(nextApp - 1);
+        expect(body.webhook_update).toEqual(answer(nextApp - 1));
+      } finally {
+        convertedHookSecret = null;
+      }
+    });
+  }
 
   test("a personal account posts to the user's own new-App page; public and Actions are opt-in", async () => {
     memory.clear();
@@ -393,6 +435,8 @@ describe("making the author GitHub App from a manifest", () => {
       `${body.github_app.html_url}/installations/new`,
     );
     expect(body.github_app.app_id).toBe(nextApp - 1);
+    // No webhook secret: no PATCH, nothing said about one.
+    expect(body.webhook_update).toBeUndefined();
     expect(memory.puts.at(-1)).toEqual({
       key: PEM,
       manifest: {
