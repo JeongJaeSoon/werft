@@ -641,16 +641,16 @@ describe("protectedCommits", () => {
     async function commitHistory(
       on: ReturnType<typeof createCheckpointService>,
       revisions: number,
+      standalone = false,
     ) {
       for (let revision = 0; revision < revisions; revision += 1) {
         const part = partOf(revision);
         const bundle = bundleOf(revision);
         await objects.overwrite(part.ref.key, encode(part.body));
         await objects.overwrite(bundle.ref.key, encode(bundle.body));
-        const bases = Array.from(
-          { length: revision },
-          (_, n) => bundleOf(n).ref,
-        );
+        const bases = standalone
+          ? []
+          : Array.from({ length: revision }, (_, n) => bundleOf(n).ref);
         const uploaded = await upload(
           manifest({
             revision,
@@ -705,6 +705,97 @@ describe("protectedCommits", () => {
           stream: 2 * revisions + 1,
           verify: revisions,
         });
+      }
+    });
+
+    const restorable: WorkspaceBundleVerifier = {
+      async verify() {
+        return { status: "restorable" };
+      },
+    };
+    const serviceOver = (
+      store: typeof objects,
+      more: Partial<Parameters<typeof createCheckpointService>[0]> = {},
+    ) =>
+      createCheckpointService({
+        codecs: { [runtime.engine]: codec },
+        objectProtection: "unversioned",
+        newPublishId: () => PUBLISH_ID,
+        objects: store,
+        store: checkpoints.store,
+        workspaceBundles: restorable,
+        ...more,
+      });
+
+    test("a link missing early in the chain is damage even when a later link's HEAD throws", async () => {
+      await commitHistory(serviceOver(objects), 4);
+      const outage = bundleOf(2).ref.key;
+      const flaky = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property !== "head" || typeof value !== "function") return value;
+          return (key: string, version?: string) =>
+            key === outage
+              ? Promise.reject(new Error("HEAD outage"))
+              : value.call(target, key, version);
+        },
+      });
+      objects.remove(bundleOf(1).ref.key);
+      await expect(
+        serviceOver(flaky).protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        }),
+      ).rejects.toThrow("missing workspace bundle");
+    });
+
+    test("a shared link that delivers past its chain's room is refused as over, even if the store then fails", async () => {
+      const room = bundleOf(0).ref.bytes + bundleOf(1).ref.bytes;
+      await commitHistory(
+        serviceOver(objects, { maxWorkspaceBundleBytes: room }),
+        2,
+      );
+      const tip = bundleOf(1).ref;
+      const lying = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property !== "stream" || typeof value !== "function")
+            return value;
+          return async (key: string, version?: string) =>
+            key !== tip.key
+              ? value.call(target, key, version)
+              : (async function* () {
+                  yield new Uint8Array(tip.bytes + 1);
+                  throw new Error("connection reset");
+                })();
+        },
+      });
+      await expect(
+        serviceOver(lying, { maxWorkspaceBundleBytes: room }).protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        }),
+      ).rejects.toThrow("delivered more than");
+    });
+
+    test("bundles past one ceiling are read per chain, and no spool outlives the call", async () => {
+      const spoolRoot = await mkdtemp(join(tmpdir(), "protected-spool-"));
+      try {
+        // Six chains of one link each, only two of which fit the ceiling.
+        const limits = {
+          bundleSpoolRoot: spoolRoot,
+          maxWorkspaceBundleBytes: bundleOf(0).ref.bytes * 2,
+        };
+        await commitHistory(serviceOver(objects, limits), 6, true);
+        expect(
+          await serviceOver(objects, limits).protectedCommits({
+            sessionId,
+            pointer: checkpoints.pointer(),
+          }),
+        ).toEqual([workspaceBundle.commit]);
+        expect(await readdir(spoolRoot)).toEqual([]);
+      } finally {
+        await rm(spoolRoot, { force: true, recursive: true });
       }
     });
 
