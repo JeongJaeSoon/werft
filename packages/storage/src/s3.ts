@@ -711,8 +711,9 @@ export function isConditionalConflict(error: unknown): boolean {
 /**
  * The store gave no answer, as opposed to an answer that says no: a request
  * past its timeout, a socket or a name lookup that failed (an errno code,
- * whichever one), or a 5xx. A caller may wait this out; a 4xx is a verdict
- * on the request and waiting does not change it.
+ * whichever one), a body that stalled or ended early, or a 5xx. A caller may
+ * wait this out; a 4xx is a verdict on the request and waiting does not
+ * change it.
  */
 export function isObjectStoreUnreachable(error: unknown): boolean {
   const value = awsError(error);
@@ -721,6 +722,8 @@ export function isObjectStoreUnreachable(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   return (
     value?.name === "TimeoutError" ||
+    error instanceof BodyStallError ||
+    error instanceof BodyTruncatedError ||
     (typeof code === "string" && /^E(AI_)?[A-Z0-9]+$/.test(code))
   );
 }

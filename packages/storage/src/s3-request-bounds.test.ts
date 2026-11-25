@@ -83,15 +83,17 @@ describe("storage S3 client request bounds", () => {
     expect(Date.now() - startedAt).toBeLessThan(10_000);
   }, 20_000);
 
-  test("a peer that never answers, or refuses the connection, is one a caller may wait out", async () => {
+  test("a peer that never answers, refuses the connection or stops mid-answer is one a caller may wait out", async () => {
     const { endpoint: silent } = await silentPeer();
     const closed = createServer();
     const refusing = await listen(closed);
     await new Promise((resolve) => closed.close(resolve));
+    const stalling = await stallingXmlPeer(200);
 
-    for (const endpoint of [silent, refusing]) {
+    for (const endpoint of [silent, refusing, stalling]) {
       const client = createStorageS3Client(configFor(endpoint), {
         ...S3_REQUEST_BOUNDS,
+        bodyIdleMs: 300,
         requestTimeout: 300,
       });
       const failure = await client
