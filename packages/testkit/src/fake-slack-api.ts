@@ -96,6 +96,8 @@ export type FakeSlackWebApi = {
   threads: Map<string, FakeSlackThreadPost[]>;
   /** Every chat.update accepted, in order, with its blocks parsed. */
   updates: { channelId: string; ts: string; text: string; blocks: unknown }[];
+  /** Every reactions.add accepted, in order, with the app that added it. */
+  reactions: { appId: string; channelId: string; ts: string; name: string }[];
   /** Every views.open accepted, in order. */
   views: { triggerId: string; view: unknown }[];
   /** Every views.update accepted, in order. */
@@ -265,6 +267,7 @@ export function createFakeSlackWebApi(
   const apps = new Map<string, FakeSlackApp>();
   const calls: FakeSlackCall[] = [];
   const updates: FakeSlackWebApi["updates"] = [];
+  const reactions: FakeSlackWebApi["reactions"] = [];
   const views: FakeSlackWebApi["views"] = [];
   const viewUpdates: FakeSlackWebApi["viewUpdates"] = [];
   /** The scopes each pending code's authorize URL asked for. */
@@ -660,6 +663,38 @@ export function createFakeSlackWebApi(
       return { channel, ts };
     },
 
+    // A token whose scopes are known needs reactions:write, as Slack's does;
+    // the same reaction twice from one app is `already_reacted`.
+    "reactions.add"(context) {
+      const app = installedBot(context);
+      const held = tokenScopes.get(context.token ?? "");
+      if (held !== undefined && !held.split(",").includes("reactions:write")) {
+        throw new SlackError("missing_scope");
+      }
+      const { channel, timestamp, name } = context.params;
+      if (!channel || !timestamp) throw new SlackError("message_not_found");
+      if (!name) throw new SlackError("invalid_name");
+      const reaction = {
+        appId: app.appId,
+        channelId: channel,
+        ts: timestamp,
+        name,
+      };
+      if (
+        reactions.some(
+          (r) =>
+            r.appId === reaction.appId &&
+            r.channelId === reaction.channelId &&
+            r.ts === reaction.ts &&
+            r.name === reaction.name,
+        )
+      ) {
+        throw new SlackError("already_reacted");
+      }
+      reactions.push(reaction);
+      return {};
+    },
+
     "views.open"(context) {
       installedBot(context);
       const { trigger_id, view } = context.params;
@@ -884,6 +919,7 @@ export function createFakeSlackWebApi(
     apps,
     calls,
     updates,
+    reactions,
     viewUpdates,
     views,
     conversations,
@@ -1158,6 +1194,9 @@ export function createFakeSlackWebApi(
       }
       if (url.pathname === "/fake/messages" && request.method === "GET") {
         return Response.json({ ok: true, messages });
+      }
+      if (url.pathname === "/fake/reactions" && request.method === "GET") {
+        return Response.json({ ok: true, reactions });
       }
       if (url.pathname === "/fake/updates" && request.method === "GET") {
         return Response.json({ ok: true, updates, views, viewUpdates });

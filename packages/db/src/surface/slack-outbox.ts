@@ -2202,13 +2202,15 @@ export function createPostgresSlackOutboxStore(
             channelId: t.channelId,
             threadTs: t.threadTs,
             progressTs: t.progressTs,
+            kind: t.kind,
           });
         if (row === undefined) return false;
         // A post into the thread is a moment to show its status again soon;
-        // an edit of one is not.
+        // an edit of one, or a reaction, is not.
         if (
           outcome.status === "sent" &&
           row.sessionId &&
+          row.kind !== "reaction" &&
           row.progressTs !== outcome.slackTs
         ) {
           await touchSlackThreadStatus(tx, row.sessionId);

@@ -31,6 +31,7 @@ import {
   slackOutboxPresentation,
   slackOutboxText,
 } from "./slack-outbox-render.ts";
+import { SLACK_REACTION_NAME } from "./slack-reaction.ts";
 import {
   classifySlackSendResult,
   SLACK_SEND_MAX_ATTEMPTS,
@@ -125,7 +126,11 @@ export type RowDeliveryInput = Omit<
 export type RowDeliveryDeps = {
   slack: Pick<
     SlackBotSender,
-    "postMessage" | "postEphemeral" | "userImage" | "editMessage"
+    | "postMessage"
+    | "postEphemeral"
+    | "userImage"
+    | "editMessage"
+    | "addReaction"
   >;
   /** Null when the app has no readable token: the row waits, unsent. */
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
@@ -294,6 +299,44 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     return postMessage(botToken, claim, text, null, guard, postedAs);
   };
 
+  // A reaction is the same however often it is asked for: Slack answers
+  // `already_reacted` to one it holds, so a call with no readable answer is
+  // asked again rather than left uncertain. `missing_scope` (an install from
+  // before `reactions:write`) ends the row, as any error no retry clears.
+  const react = async (
+    botToken: string,
+    claim: SurfaceOutboxClaim,
+    attempts: number,
+  ): Promise<DeliveryOutcome> => {
+    const again = (code: string): DeliveryOutcome =>
+      attempts >= SLACK_SEND_MAX_ATTEMPTS
+        ? { kind: "failed", code }
+        : {
+            kind: "retry",
+            code,
+            retryAfterMs: slackInboundBackoffMs(attempts),
+          };
+    if (deps.slack.addReaction === undefined) {
+      return { kind: "failed", code: "unsupported" };
+    }
+    let response: SlackSendResponse;
+    try {
+      response = await deps.slack.addReaction(botToken, {
+        channelId: claim.channelId,
+        ts: claim.threadTs,
+        name: SLACK_REACTION_NAME,
+      });
+    } catch (error) {
+      return again(error instanceof SlackApiError ? error.code : "send_threw");
+    }
+    const body = response.body as { ok?: unknown; error?: unknown } | null;
+    if (body === null) return again(`http_${response.httpStatus}`);
+    if (body.ok === true || body.error === "already_reacted") {
+      return { kind: "sent", ref: claim.threadTs };
+    }
+    return outcomeOf(slackOutboxSettleFor(attempts, response));
+  };
+
   const deliver = async (input: RowDeliveryInput): Promise<DeliveryOutcome> => {
     const { row, attempts } = input;
     // The one guard a row's text goes through: on its Markdown here, and
@@ -355,6 +398,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     const begun = await input.begin();
     if (begun === false) return { kind: "lease_lost" };
     const postedAs = begun === true ? null : begun;
+    if (claim.kind === "reaction") return react(botToken, claim, attempts);
 
     // A card's text is its own, escaped and linked already.
     // A model notice links the session, where the fix is made.
