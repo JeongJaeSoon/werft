@@ -15,6 +15,9 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **대화 rollout이 `on`인 에이전트의 멘션 턴이 답하기·새 작업 만들기·열린 작업에 넘기기로 끝나면, 부른 글에 👀가 하나 달린다**(JeongJaeSoon/werft#TBD). migration은 없다. 조용히 있기와 결정 없음에는 달지 않는다. 같은 글에는 한 번만 단다.
+  - 앱이 `reactions:write`를 받지 않은 설치(재승인 전)는 달지 않고 답은 그대로 나간다. 반응을 보려면 콘솔 Slack 탭에서 **다시 승인**한다. rollout `on`은 아직 시험 스택에서만 켜므로 보통 설치에는 달리지 않는다.
+  - 앞선 이미지로 되돌려도 된다. 이 버전이 넣는 `reaction` 줄은 #2222 이후 이미지만 보내므로, 보내지 않은(`pending`) `reaction` 줄이 남은 채 그보다 앞으로 되돌리지 않는다.
 - **대화 rollout이 `on`인 에이전트의 멘션 턴이 답하기로 끝나면, 그 답이 그 스레드에 한 번 올라간다. 끝에 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft · <이름> 님 요청`)이 붙는다**(JeongJaeSoon/werft#2230). migration `0372_slack_outbox_conversation_reply`가 `slack_outbox`에 nullable 칸 `conversation_turn_id`를 더하고(기본값이 없어 줄을 다시 쓰지 않는다), 종류 CHECK에 `conversation_reply`를, 그 줄은 세션이 없고 늘 스레드 안이라는 CHECK를 더한다. 따로 할 일은 없다.
   - 맨 위 글을 멘션했으면 그 글의 스레드에 단다. 보내는 곳은 턴 기록의 스레드이고, 모델이 적은 채널은 쓰지 않는다. 보내기 전에 그 턴의 출처 글이 지워지면 줄은 `voided_by_delete`로 끝나고 아무것도 나가지 않는다. 답하기 외의 결정은 아직 아무것도 올리지 않는다.
   - 앞선 이미지로 되돌려도 그 이미지가 쓰는 줄은 새 CHECK를 지나간다. 다만 앞선 이미지의 sender는 `conversation_reply` 줄을 보내지 못하고 그 줄에서 보내기 pass가 오류로 끝나므로, 보내지 않은(`pending`) `conversation_reply` 줄이 남은 채 되돌리지 않는다. rollout `on`은 아직 시험 스택에서만 켜므로 보통 설치에는 이 줄이 생기지 않는다.

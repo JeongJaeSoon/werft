@@ -4,6 +4,7 @@ import {
   type ConversationRuntimeId,
   type ConversationRuntimeTurn,
   type ConversationTopicId,
+  type ConversationTurnDecision,
   type ConversationTurnId,
   type ConversationTurnLeaseId,
   type ConversationTurnResult,
@@ -340,10 +341,41 @@ export interface ConversationReplyStore {
   post(turnId: ConversationTurnId): Promise<ConversationReplyEffect>;
 }
 
+/**
+ * The decisions that mean "the agent took this message on" (v1-b/E2, Architect
+ * Q4): answering, making a new task, handing it to an open one. Staying quiet
+ * is not one.
+ */
+export const CONVERSATION_ANSWERING_DECISIONS = [
+  "reply",
+  "spawn_task",
+  "route_to_task",
+] as const satisfies readonly ConversationTurnDecision[];
+
+/**
+ * What a turn's 👀 did: `enqueued` its reaction row; `duplicate` when the
+ * message holds one already; `none` when the turn made no such decision;
+ * `no_message` when no Slack message called it, or the agent has no Slack
+ * app; `no_scope` when the app lacks `reactions:write`.
+ */
+export type ConversationReactionEffect =
+  | "enqueued"
+  | "duplicate"
+  | "none"
+  | "no_message"
+  | "no_scope";
+
+export interface ConversationReactionStore {
+  /** Puts one 👀 on the message that called the turn, once it took it on. */
+  react(turnId: ConversationTurnId): Promise<ConversationReactionEffect>;
+}
+
 export type MentionTurnEndings = {
   ended: number;
   /** Turns whose reply decision enqueued its answer. */
   replied: number;
+  /** Turns that put a 👀 on the message that called them. */
+  reacted: number;
   reset: number;
   superseded: number;
   /** Threads told "processing" again for a newer turn after an `active`. */
@@ -363,6 +395,7 @@ export async function endMentionTurns(deps: {
   statuses: MentionTurnStatusStore;
   queue: Pick<ConversationTurnQueue, "outcome">;
   replies: ConversationReplyStore;
+  reactions: ConversationReactionStore;
   calls: {
     endTurn(
       turnId: ConversationTurnId,
@@ -399,6 +432,7 @@ export async function endMentionTurns(deps: {
   const result: MentionTurnEndings = {
     ended: 0,
     replied: 0,
+    reacted: 0,
     reset: 0,
     superseded: 0,
     reprocessing: 0,
@@ -434,6 +468,10 @@ export async function endMentionTurns(deps: {
       });
       // Before the thread is set back: a failure here leaves the turn due,
       // and the next pass runs it again under the same key.
+      // The 👀 first, so it lands before the answer it announces.
+      if ((await deps.reactions.react(turn.turnId)) === "enqueued") {
+        result.reacted += 1;
+      }
       if ((await deps.replies.post(turn.turnId)) === "enqueued") {
         result.replied += 1;
       }
