@@ -256,7 +256,7 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/conversation-reco
 
 lease(5 分)以内に使用量の報告が来ず、終わりのわからない呼び出し(`unknown_at`)の予約は、遅れた報告が来るまで口座に押さえられたままです。たまって口座やエージェントが止まったら、運用者がこのコマンドで確認して解消します。API route はありません。API コンテナでコマンドを実行できる運用者が、組織の管理者(owner・admin)を `--by` に指定して実行します。セッションの呼び出しと会話呼び出し(会話ターンの呼び出しを含む)を同じコマンドで扱います。
 
-終わったターンの予約は reconciler が自分で精算します。三つの条件がすべて満たされたときです: ターンが終わった(セッションのターンは `cancelled`・`failed`、会話ターンは `decided`・`no_decision`・`voided_by_delete`)、呼び出しの lease が切れた、呼び出しを開いてから provider 呼び出しの最大時間(1 時間)が過ぎた。押さえた分を返すのではなく、使ったものとして確定し `resolution: "estimated"` と記録します。それ以外の行(決定を待つ `outcome_unknown` のターン、ターンのない判断・要約の呼び出し)はこのコマンドで解消します。
+終わったターンの予約は reconciler が自分で精算します。三つの条件がすべて満たされたときです: ターンが終わった(セッションのターンは `cancelled`・`failed`、会話ターンは `decided`・`no_decision`・`voided_by_delete`)、呼び出しの lease が切れた、呼び出しを開いてから provider 呼び出しの最大時間(1 時間)が過ぎた。セッションの呼び出しは自分のターンを記録しないので、その attempt に終わっていないか結果のわからない(`outcome_unknown`)ターンがあれば待ち、呼び出しを開いた時刻の前後 5 分にかかるその attempt のターンがすべて `cancelled`・`failed` でなければなりません。押さえた分を返すのではなく、使ったものとして確定し `resolution: "estimated"` と記録します。それ以外の行(決定を待つ `outcome_unknown` のターン、ターンのない判断・要約の呼び出し)はこのコマンドで解消します。
 
 ```bash
 docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts list --limit 20

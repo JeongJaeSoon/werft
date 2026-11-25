@@ -135,7 +135,7 @@ describe("reservations of unknown end of an ended turn", () => {
   async function sessionCall(input: {
     turnStatus: string;
     /** The attempt's turns in order, each started that long ago; by default one turn of `turnStatus` started 3 hours ago. */
-    turns?: { status: string; startedAgo: string }[];
+    turns?: { status: string; startedAgo: string; endedAgo?: string }[];
     recent?: boolean;
     owner?: { kind: "user"; userId: string } | { kind: "team"; teamId: string };
     rootKind?: "user" | "none";
@@ -174,6 +174,9 @@ describe("reservations of unknown end of an ended turn", () => {
           status: turn.status,
           attemptId,
           startedAt: sql`now() - ${turn.startedAgo}::interval`,
+          ...(turn.endedAgo === undefined
+            ? {}
+            : { endedAt: sql`now() - ${turn.endedAgo}::interval` }),
         });
       }
     });
@@ -501,14 +504,18 @@ describe("reservations of unknown end of an ended turn", () => {
     });
   });
 
-  test("the call's turn is the attempt's last one started by its open: a later turn is not it", async () => {
-    // Opened about 61 minutes ago, during the cancelled turn; the running
-    // turn started after it.
+  test("a turn that started well after the call's open is not its turn", async () => {
+    // Opened about 61 minutes ago, during the cancelled turn; the completed
+    // turn started half an hour later.
     const call = await sessionCall({
       turnStatus: "cancelled",
       turns: [
         { status: "cancelled", startedAgo: "3 hours" },
-        { status: "running", startedAgo: "30 minutes" },
+        {
+          status: "completed",
+          startedAgo: "30 minutes",
+          endedAgo: "20 minutes",
+        },
       ],
     });
     await settle();
@@ -529,6 +536,77 @@ describe("reservations of unknown end of an ended turn", () => {
     await settle();
     expect((await reservationOf(call.exchangeId))?.state).toBe("reserved");
     expect(await receiptsOf(call.exchangeId)).toHaveLength(0);
+  });
+
+  test("a later turn's clock ahead of the database's does not hand its call to an ended turn", async () => {
+    // The running turn's start, by the API's clock, reads a minute after the
+    // call opened (about 61 minutes ago); the call is the running turn's.
+    const call = await sessionCall({
+      turnStatus: "running",
+      turns: [
+        { status: "failed", startedAgo: "3 hours", endedAgo: "62 minutes" },
+        { status: "running", startedAgo: "60 minutes" },
+      ],
+    });
+    await settle();
+    expect((await reservationOf(call.exchangeId))?.state).toBe("reserved");
+  });
+
+  test("a call near the end of one turn and the start of the next waits unless both ended without completing", async () => {
+    const turns = (second: string) => [
+      { status: "cancelled", startedAgo: "3 hours", endedAgo: "62 minutes" },
+      { status: second, startedAgo: "60 minutes", endedAgo: "50 minutes" },
+    ];
+    const completed = await sessionCall({
+      turnStatus: "cancelled",
+      turns: turns("completed"),
+    });
+    const failed = await sessionCall({
+      turnStatus: "cancelled",
+      turns: turns("failed"),
+    });
+    await settle();
+    expect((await reservationOf(completed.exchangeId))?.state).toBe("reserved");
+    expect((await reservationOf(failed.exchangeId))?.resolution).toBe(
+      "estimated",
+    );
+  });
+
+  test("a batch's later failure leaves the committed settle and its callback", async () => {
+    const first = await sessionCall({ turnStatus: "cancelled" });
+    const second = await sessionCall({ turnStatus: "cancelled" });
+    await pool.query(
+      "UPDATE budget_reservations SET unknown_at = unknown_at + interval '1 second' WHERE call_id = $1",
+      [second.exchangeId],
+    );
+    await pool.query(`CREATE FUNCTION refuse_settle() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'refused for the test'; END $$`);
+    await pool.query(
+      `CREATE TRIGGER refuse_settle BEFORE UPDATE ON budget_reservations FOR EACH ROW WHEN (OLD.call_id = '${second.exchangeId}') EXECUTE FUNCTION refuse_settle()`,
+    );
+    const seen: string[] = [];
+    try {
+      await expect(
+        settleDeadUnknownBudget(db, {
+          limit: 1_000,
+          dryRun: false,
+          onSettled: (line) => void seen.push(line.callId),
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await pool.query("DROP TRIGGER refuse_settle ON budget_reservations");
+      await pool.query("DROP FUNCTION refuse_settle()");
+    }
+    expect(seen).toContain(first.exchangeId);
+    expect(seen).not.toContain(second.exchangeId);
+    expect((await reservationOf(first.exchangeId))?.resolution).toBe(
+      "estimated",
+    );
+    expect((await reservationOf(second.exchangeId))?.state).toBe("reserved");
+    await settle();
+    expect((await reservationOf(second.exchangeId))?.resolution).toBe(
+      "estimated",
+    );
   });
 
   test("a settle is logged as it commits, even when a later one of the batch fails", async () => {

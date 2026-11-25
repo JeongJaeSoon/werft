@@ -244,7 +244,7 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/conversation-reco
 
 lease(5분) 안에 사용량 보고가 없어 끝을 모르는 호출(`unknown_at`)의 예약은 늦은 보고가 올 때까지 계정에 묶인다. 쌓여서 계정이나 에이전트가 막히면 운영자가 이 명령으로 본 뒤 푼다. API route는 없다. API 컨테이너에서 명령을 돌릴 수 있는 운영자가 조직 관리자(owner·admin)를 `--by`로 대고 돌린다. 세션의 호출과 대화 호출(대화 턴의 호출 포함)을 같은 명령으로 다룬다.
 
-끝난 턴의 예약은 reconciler가 스스로 정산한다. 세 조건이 모두 맞아야 한다: 턴이 끝났다(세션 턴은 `cancelled`·`failed`, 대화 턴은 `decided`·`no_decision`·`voided_by_delete`), 호출의 lease가 지났다, 호출을 연 뒤 provider 호출 최대 시간(1시간)이 지났다. 풀어 주지 않고 묶인 만큼을 쓴 것으로 확정해 `resolution: "estimated"`로 적는다. 그 밖의 줄(결정을 기다리는 `outcome_unknown` 턴, 턴이 없는 판단·요약 호출)은 이 명령으로 푼다.
+끝난 턴의 예약은 reconciler가 스스로 정산한다. 세 조건이 모두 맞아야 한다: 턴이 끝났다(세션 턴은 `cancelled`·`failed`, 대화 턴은 `decided`·`no_decision`·`voided_by_delete`), 호출의 lease가 지났다, 호출을 연 뒤 provider 호출 최대 시간(1시간)이 지났다. 세션 호출은 자기 턴을 적지 않으므로, 그 attempt에 끝나지 않았거나 결과를 모르는(`outcome_unknown`) 턴이 있으면 기다리고, 호출을 연 시각 앞뒤 5분 안에 걸친 그 attempt의 턴이 모두 `cancelled`·`failed`여야 한다. 풀어 주지 않고 묶인 만큼을 쓴 것으로 확정해 `resolution: "estimated"`로 적는다. 그 밖의 줄(결정을 기다리는 `outcome_unknown` 턴, 턴이 없는 판단·요약 호출)은 이 명령으로 푼다.
 
 ```bash
 docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts list --limit 20

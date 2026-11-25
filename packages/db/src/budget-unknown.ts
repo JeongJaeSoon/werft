@@ -5,6 +5,7 @@ import {
   type BudgetUnknownResolution,
   type ConversationCallId,
   conversationCallIdSchema,
+  UNFINISHED_TURN_STATUSES,
   WORKSPACE_MANAGER_ROLES,
 } from "@werft-ai/contracts";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -499,6 +500,17 @@ export const PROVIDER_CALL_MAX_MS = 3_600_000;
 // A session turn that ended without completing; a conversation turn has no
 // state past these.
 const ENDED_SESSION_TURN = ["cancelled", "failed"] as const;
+// A session turn that may still run or wait on a decision.
+const OPEN_SESSION_TURN = [
+  ...UNFINISHED_TURN_STATUSES,
+  "outcome_unknown",
+] as const;
+
+/**
+ * How far a turn's times (the API's clock) may be from a call's open (the
+ * database's) and still be taken for the call's turn.
+ */
+export const TURN_CLOCK_MARGIN_MS = 300_000;
 const ENDED_CONVERSATION_TURN = [
   "decided",
   "no_decision",
@@ -513,25 +525,31 @@ const listOf = (values: readonly string[]) =>
 
 // Reservations of unknown end whose call can no longer run: its turn ended
 // (cancelled or failed for a session's; any end for a conversation turn's),
-// its lease ran out, and PROVIDER_CALL_MAX_MS passed. A session call's turn
-// is the attempt's last turn that started by the call's open. A call of no
-// turn (a judgment, a summary) is left to an operator.
+// its lease ran out, and PROVIDER_CALL_MAX_MS passed. A session call names no
+// turn, and its turns' times are the API's clock: so no turn of its attempt
+// may be open or of unknown outcome, and every turn of the attempt within
+// TURN_CLOCK_MARGIN_MS of the call's open must be cancelled or failed. A call
+// of no turn (a judgment, a summary) is left to an operator.
 function deadUnknownCandidates(limit: number, callId?: string) {
   const callMaxPast = fromDbNow(-PROVIDER_CALL_MAX_MS);
+  const ofAttempt = sql`${turns.sessionId} = ${providerExchanges.sessionId} AND ${turns.attemptId} = ${providerExchanges.attemptId}`;
+  const margin = sql`${TURN_CLOCK_MARGIN_MS}::double precision * interval '1 millisecond'`;
+  const aroundOpen = sql`${turns.startedAt} <= ${providerExchanges.openedAt} + ${margin} AND (${turns.endedAt} IS NULL OR ${turns.endedAt} >= ${providerExchanges.openedAt} - ${margin})`;
   const sessionCallDead = sql`EXISTS (
     SELECT 1 FROM ${providerExchanges}
     WHERE ${providerExchanges.exchangeId} = ${budgetReservations.callId}
       AND ${providerExchanges.releasedAt} IS NULL
       AND ${providerExchanges.leaseExpiresAt} < clock_timestamp()
       AND ${providerExchanges.openedAt} < ${callMaxPast}
-      AND (
-        SELECT ${turns.status} FROM ${turns}
-        WHERE ${turns.sessionId} = ${providerExchanges.sessionId}
-          AND ${turns.attemptId} = ${providerExchanges.attemptId}
-          AND ${turns.startedAt} <= ${providerExchanges.openedAt}
-        ORDER BY ${turns.startedAt} DESC, ${turns.id} DESC
-        LIMIT 1
-      ) IN (${listOf(ENDED_SESSION_TURN)}))`;
+      AND NOT EXISTS (
+        SELECT 1 FROM ${turns}
+        WHERE ${ofAttempt}
+          AND ${turns.status} IN (${listOf(OPEN_SESSION_TURN)}))
+      AND EXISTS (SELECT 1 FROM ${turns} WHERE ${ofAttempt} AND ${aroundOpen})
+      AND NOT EXISTS (
+        SELECT 1 FROM ${turns}
+        WHERE ${ofAttempt} AND ${aroundOpen}
+          AND ${turns.status} NOT IN (${listOf(ENDED_SESSION_TURN)})))`;
   const conversationCallDead = sql`EXISTS (
     SELECT 1 FROM ${conversationCalls}
     JOIN ${conversationTurns}
