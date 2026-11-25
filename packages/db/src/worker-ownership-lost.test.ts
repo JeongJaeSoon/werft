@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import {
+  createAuthorizationPolicy,
+  createPendingRequestService,
   type SessionCatalog,
   WORKER_LEASE_LOST_END_REASON,
   WORKER_OWNERSHIP_LOST_REASON,
@@ -18,6 +20,7 @@ import {
   attempts,
   events,
   executions,
+  pendingRequests,
   queueMessages,
   receipts,
   sessions,
@@ -26,6 +29,8 @@ import {
   workerLaunches,
 } from "./schema.ts";
 import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
+import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
+import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import { testWorkerGateway } from "./testing/gateway.ts";
 import { launchSession } from "./testing/launches.ts";
 import { claimedSession } from "./testing/sessions.ts";
@@ -528,6 +533,155 @@ describe("going on from a lost turn", () => {
     const lost = await lostTurn();
     expect((await goOn(lost.sessionId, 7)).outcome).toBe("not_found");
     expect((await stateOf(lost.sessionId)).turns).toEqual([LOST_TURN]);
+  });
+});
+
+describe("a turn waiting on a person when its worker gives the lease up", () => {
+  const RUNTIME = {
+    cliVersion: "2.1.270",
+    engine: "claude-agent-sdk",
+    profileSha256: "c".repeat(64),
+    sdkVersion: "0.3.270",
+  };
+
+  /** A turn with one open permission request bound to an approval-wait checkpoint. */
+  async function waitingOnPerson() {
+    const parking = testWorkerGateway(db, CATALOG, {
+      pending: createPostgresWorkerPendingStore(db),
+      checkpoints: {
+        async verify() {
+          return { status: "verified", transcriptBytes: 10, runtime: RUNTIME };
+        },
+      },
+    });
+    const worker = await claimedSession(db, parking, OWNER);
+    const next = await parking.nextInput(worker.principal, worker.scope);
+    if (!next.input) throw new Error("no input delivered");
+    const scope = { ...worker.scope, turn_id: next.input.turn_id };
+    const manifestRef = `sessions/${worker.sessionId}/checkpoints/0000000000/${scope.attempt_id}/${crypto.randomUUID().replaceAll("-", "")}/manifest.json`;
+    const requestId = `req_${crypto.randomUUID()}`;
+    await parking.registerPending(worker.principal, {
+      ...scope,
+      request_id: requestId,
+      input_hash: "a".repeat(64),
+      request: { kind: "permission", tool: "Bash", input: { command: "ls" } },
+      announce: { tool_use_id: `toolu_${requestId}`, tool: "Bash" },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: manifestRef,
+        manifest_sha256: "c".repeat(64),
+        answers_through: 0,
+      },
+    });
+    return {
+      ...worker,
+      attemptId: scope.attempt_id,
+      scope,
+      parking,
+      manifestRef,
+      requestId,
+    };
+  }
+
+  async function requestOf(requestId: string) {
+    const [row] = await db
+      .select({
+        parkedAt: pendingRequests.parkedAt,
+        resolvedAt: pendingRequests.resolvedAt,
+      })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, requestId));
+    return {
+      parked: row?.parkedAt != null,
+      closed: row?.resolvedAt != null,
+    };
+  }
+
+  const PARKED_TURN = {
+    status: "interrupted",
+    reason: "input_wait_parked",
+    unknown: false,
+  };
+
+  test("a checkpoint that still holds parks the turn, as before: nothing ran after it, and the answer goes on", async () => {
+    const worker = await waitingOnPerson();
+    await leaseEndsIn(worker.attemptId, -1_000);
+
+    expect(
+      await seenGone(worker.executionId, WORKER_LEASE_LOST_END_REASON),
+    ).toEqual(RELEASED);
+
+    const after = await stateOf(worker.sessionId);
+    expect(after.turns).toEqual([PARKED_TURN]);
+    expect(after.session).toEqual(KEPT);
+    // The card stays answerable; no receipt says the input failed.
+    expect(await requestOf(worker.requestId)).toEqual({
+      parked: true,
+      closed: false,
+    });
+    expect(after.receipts.map((receipt) => receipt.code)).not.toContain(
+      "WORKER_OWNERSHIP_LOST",
+    );
+  });
+
+  test("a tool admitted after the checkpoint breaks it: the turn fails as lost and its request closes", async () => {
+    const worker = await waitingOnPerson();
+    await worker.parking.invalidateApprovalCheckpoint(worker.principal, {
+      ...worker.scope,
+      manifest_ref: worker.manifestRef,
+    });
+    await leaseEndsIn(worker.attemptId, -1_000);
+
+    await seenGone(worker.executionId, WORKER_LEASE_LOST_END_REASON);
+
+    const after = await stateOf(worker.sessionId);
+    expect(after.turns).toEqual([LOST_TURN]);
+    expect(after.session).toEqual(KEPT);
+    expect(await requestOf(worker.requestId)).toEqual({
+      parked: false,
+      closed: true,
+    });
+  });
+
+  test("an answer the worker took after the capture breaks it: the turn fails as lost", async () => {
+    const worker = await waitingOnPerson();
+    const answers = createPendingRequestService({
+      authorization: createAuthorizationPolicy(),
+      store: createPostgresPendingRequests(db),
+    });
+    await answers.answer(OWNER, worker.sessionId, {
+      idempotencyKey: crypto.randomUUID(),
+      body: {
+        request_id: worker.requestId,
+        kind: "permission",
+        decision: "allow",
+      },
+    });
+    const polled = await worker.parking.pendingControl(worker.principal, {
+      ...worker.scope,
+      answers_after: 0,
+      settled: [],
+    });
+    expect(polled.answers).toHaveLength(1);
+    await leaseEndsIn(worker.attemptId, -1_000);
+
+    await seenGone(worker.executionId, WORKER_LEASE_LOST_END_REASON);
+
+    const after = await stateOf(worker.sessionId);
+    expect(after.turns).toEqual([LOST_TURN]);
+    expect(after.session).toEqual(KEPT);
+  });
+
+  test("an attempt the lease sweep already ended has no checkpoint to park on: the turn fails as lost", async () => {
+    const worker = await waitingOnPerson();
+    await leaseEndsIn(worker.attemptId, -1_000);
+    await reconcileExpiredLeases(db, {});
+
+    await seenGone(worker.executionId, WORKER_LEASE_LOST_END_REASON);
+
+    const after = await stateOf(worker.sessionId);
+    expect(after.turns).toEqual([LOST_TURN]);
+    expect(after.session).toEqual(KEPT);
   });
 });
 

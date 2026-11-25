@@ -11,6 +11,8 @@ const ACTIONS: Record<string, string> = {
   deny: "permission.deny",
   "push-approve": "push.approve",
   "push-reject": "push.reject",
+  // On the notice of a turn its worker's lost lease ended.
+  continue: "turn.continue",
 };
 
 type Message = {
