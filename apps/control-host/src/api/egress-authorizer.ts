@@ -339,7 +339,7 @@ export function createEgressAuthorizer(deps: {
     sessionId: string;
     attemptId: string;
     owner: BudgetOwnerKind | null;
-  }) => Promise<unknown>;
+  }) => Promise<string>;
   /** Absent when the API runs without an object store: the route refuses. */
   objectStore?: ObjectRouteSigner;
   /**
@@ -756,6 +756,13 @@ export function createEgressAuthorizer(deps: {
             attemptId: body.attempt_id,
             owner: opened.owner,
           })
+          .then((notice) =>
+            deps.logger.info("Budget account refusal kept", {
+              session_id: body.session_id,
+              attempt_id: body.attempt_id,
+              notice,
+            }),
+          )
           .catch((error: unknown) =>
             deps.logger.warn("Budget account refusal not recorded", {
               session_id: body.session_id,

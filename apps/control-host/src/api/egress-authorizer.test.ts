@@ -1271,8 +1271,10 @@ describe("the budget account an open holds its call on", () => {
       accountId: ACCOUNT as BudgetAccountId,
       owner: "team" as const,
     });
-    const { send } = authorizerWith(refusal, [], async (input) => {
+    const told: LogRecord[] = [];
+    const { send } = authorizerWith(refusal, told, async (input) => {
       kept.push(input);
+      return "ephemeral";
     });
     const refused = await send({ op: "open", ...call });
     expect(refused.status).toBe(403);
@@ -1288,6 +1290,14 @@ describe("the budget account an open holds its call on", () => {
         owner: "team",
       },
     ]);
+    expect(
+      told.find((record) => record.message === "Budget account refusal kept")
+        ?.fields,
+    ).toEqual({
+      session_id: call.session_id,
+      attempt_id: call.attempt_id,
+      notice: "ephemeral",
+    });
 
     const records: LogRecord[] = [];
     const failing = authorizerWith(refusal, records, async () => {
@@ -1321,6 +1331,7 @@ describe("the budget account an open holds its call on", () => {
       [],
       async (input) => {
         kept.push(input);
+        return "thread";
       },
     );
     const refused = await send({ op: "open", ...call });

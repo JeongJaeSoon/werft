@@ -9,9 +9,10 @@ import {
 import {
   type BudgetChoice,
   type BudgetRoot,
-  budgetAccountRefusalDedupeKey,
+  budgetRefusalTurnDedupeKey,
   budgetRootOfTurn,
   chooseBudgetAccount,
+  type StoredSourceSet,
 } from "@werft-ai/platform";
 import {
   type AnyColumn,
@@ -32,6 +33,7 @@ import {
   budgetAccounts,
   budgetReservations,
   events,
+  linkedAccounts,
   memberTeams,
   providerExchanges,
   sessionLinks,
@@ -168,7 +170,8 @@ function firstTurnColumns(sessionId: string) {
  * The session's record that a budget account refused one of its provider
  * calls: an `error` event with code BUDGET_EXCEEDED and whose account it
  * was, on the turn the attempt is running (none for a call between turns).
- * The session's attention and its thread's notice read it. Written once
+ * The session's attention reads it, and its Slack line goes with it
+ * (enqueueBudgetRefusalNotice). Written once
  * per turn, or once per attempt for calls no turn serves: the engine
  * retrying the refused call adds nothing. The agent's own work with no team
  * to charge is the team's.
@@ -180,7 +183,7 @@ export async function recordBudgetAccountRefusal(
     attemptId: string;
     owner: BudgetOwnerKind | null;
   },
-): Promise<"recorded" | "recorded_before" | "no_session"> {
+): Promise<BudgetRefusalNotice | "recorded_before" | "no_session"> {
   const owner = input.owner ?? "team";
   return db.transaction(async (tx) => {
     const [session] = await tx
@@ -190,7 +193,12 @@ export async function recordBudgetAccountRefusal(
       .for("update");
     if (session === undefined) return "no_session";
     const running = await tx
-      .select({ id: turns.id })
+      .select({
+        id: turns.id,
+        sequence: turns.sequence,
+        actorId: turns.actorId,
+        sources: turns.sources,
+      })
       .from(turns)
       .where(
         and(
@@ -200,16 +208,15 @@ export async function recordBudgetAccountRefusal(
         ),
       )
       .limit(2);
-    const turnRowId = running.length === 1 ? (running[0]?.id ?? null) : null;
+    const turn = running.length === 1 ? (running[0] ?? null) : null;
+    const turnRowId = turn?.id ?? null;
     const [before] = await tx
       .select({ id: events.id })
       .from(events)
       .where(
         and(
           eq(events.sessionId, input.sessionId),
-          eq(events.type, "error"),
-          sql`${events.payload}->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}`,
-          sql`${events.payload} ? 'budget_owner'`,
+          budgetAccountRefusalEvent(),
           turnRowId === null
             ? and(isNull(events.turnId), eq(events.attemptId, input.attemptId))
             : eq(events.turnId, turnRowId),
@@ -218,6 +225,20 @@ export async function recordBudgetAccountRefusal(
       .limit(1);
     if (before !== undefined) return "recorded_before";
     const now = await dbNow(tx);
+    // Told before while the limit still holds: no turn has completed since
+    // and the month (cut in UTC, as accounts are) is the same.
+    const [toldBefore] = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(
+        and(
+          eq(events.sessionId, input.sessionId),
+          budgetAccountRefusalEvent(),
+          sql`${events.id} > ${lastCompletedTurnEventId(input.sessionId)}`,
+          sql`${events.createdAt} >= date_trunc('month', ${now.toISOString()}::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`,
+        ),
+      )
+      .limit(1);
     await recordEvent(tx, {
       sessionId: input.sessionId,
       type: "error",
@@ -233,25 +254,48 @@ export async function recordBudgetAccountRefusal(
       attemptId: input.attemptId,
       now,
     });
-    await enqueueBudgetRefusalNotice(tx, {
+    // A call no turn serves has no turn's answer to stand in for.
+    if (turn === null) return "unposted";
+    return enqueueBudgetRefusalNotice(tx, {
       sessionId: input.sessionId,
       owner,
-      period: now.toISOString().slice(0, 7),
+      turn,
+      first: toldBefore === undefined,
     });
-    return "recorded";
   });
 }
 
 /**
- * The thread notice of a refusal, for the session's open link where a
- * failed turn's notice would go (not revoked, muted, closed, or reporting
- * nothing, on an installation not revoked). In the refusal's transaction,
- * so the event and its notice commit together.
+ * How the refusal is told in Slack. `thread`: one line for everyone there,
+ * on the session's first refusal while the limit holds, and on every one in
+ * a direct message. `ephemeral`: the same line to the person who asked,
+ * alone, on a later refusal in a channel. `unposted`: nothing goes (no
+ * open link, no turn, or no Slack account of the person who asked).
+ */
+export type BudgetRefusalNotice = "thread" | "ephemeral" | "unposted";
+
+/**
+ * The refusal's row, for the session's open link where a failed turn's
+ * notice would go (not revoked, muted, closed, or reporting nothing, on an
+ * installation not revoked). It answers the turn in that notice's place
+ * (budgetRefusalTurnDedupeKey), so the refused turn's thread never hears
+ * "try again shortly"; a later refusal that cannot reach its person stays a
+ * row written failed, which answers the turn as silence. In the refusal's
+ * transaction, so the event and its row commit together.
  */
 async function enqueueBudgetRefusalNotice(
   tx: Database,
-  input: { sessionId: string; owner: BudgetOwnerKind; period: string },
-): Promise<void> {
+  input: {
+    sessionId: string;
+    owner: BudgetOwnerKind;
+    turn: {
+      sequence: number;
+      actorId: string | null;
+      sources: StoredSourceSet | null;
+    };
+    first: boolean;
+  },
+): Promise<BudgetRefusalNotice> {
   const [link] = await tx
     .select({
       id: sessionLinks.id,
@@ -262,6 +306,7 @@ async function enqueueBudgetRefusalNotice(
       threadTs: sessionLinks.threadId,
       slackAppId: slackApps.id,
       locale: starterLocale,
+      requesterSlackUserId: linkedAccounts.externalUserId,
     })
     .from(sessionLinks)
     .innerJoin(
@@ -269,6 +314,20 @@ async function enqueueBudgetRefusalNotice(
       eq(slackInstallations.id, sessionLinks.installationId),
     )
     .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
+    // The person who asked, as a failed turn's notice names them.
+    .leftJoin(
+      linkedAccounts,
+      and(
+        eq(linkedAccounts.workspaceId, sessionLinks.workspaceId),
+        eq(
+          linkedAccounts.userId,
+          sql`coalesce(${input.turn.actorId}::uuid, ${sessionLinks.createdBy})`,
+        ),
+        eq(linkedAccounts.provider, "slack"),
+        eq(linkedAccounts.externalTenant, slackInstallations.teamId),
+        eq(linkedAccounts.status, "active"),
+      ),
+    )
     .where(
       and(
         eq(sessionLinks.sessionId, input.sessionId),
@@ -280,8 +339,14 @@ async function enqueueBudgetRefusalNotice(
       ),
     )
     .limit(1);
-  if (link === undefined) return;
+  if (link === undefined) return "unposted";
   const locale = link.locale ?? DEFAULT_USER_LOCALE;
+  const notice: BudgetRefusalNotice =
+    input.first || link.channelId.startsWith("D")
+      ? "thread"
+      : link.requesterSlackUserId === null
+        ? "unposted"
+        : "ephemeral";
   await tx
     .insert(slackOutbox)
     .values({
@@ -290,11 +355,10 @@ async function enqueueBudgetRefusalNotice(
       agentId: link.agentId,
       slackAppId: link.slackAppId,
       installationId: link.installationId,
-      // A thread notice for everyone there, like a failed turn's.
-      kind: "failure_notice",
+      kind: notice === "ephemeral" ? "notice" : "failure_notice",
       channelId: link.channelId,
       threadTs: link.threadTs,
-      slackUserId: null,
+      slackUserId: notice === "ephemeral" ? link.requesterSlackUserId : null,
       sessionId: input.sessionId,
       sessionLinkId: link.id,
       body: {
@@ -303,13 +367,34 @@ async function enqueueBudgetRefusalNotice(
         ],
         locale,
       },
-      dedupeKey: budgetAccountRefusalDedupeKey(
-        link.id,
-        input.owner,
-        input.period,
-      ),
+      dedupeKey: budgetRefusalTurnDedupeKey(link.id, input.turn.sequence),
+      sources: input.turn.sources,
+      sourcesTurn: input.turn.sequence,
+      ...(notice === "unposted"
+        ? { status: "failed" as const, errorCode: "no_requester_slack_user" }
+        : {}),
     })
     .onConflictDoNothing({ target: slackOutbox.dedupeKey });
+  return notice;
+}
+
+/** An `error` event recordBudgetAccountRefusal wrote. */
+function budgetAccountRefusalEvent(): SQL | undefined {
+  return and(
+    eq(events.type, "error"),
+    sql`${events.payload}->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}`,
+    sql`${events.payload} ? 'budget_owner'`,
+  );
+}
+
+/** The id of the last event of the session's last completed turn, or 0. */
+function lastCompletedTurnEventId(sessionId: string): SQL {
+  return sql`coalesce((
+    SELECT max(e.id) FROM ${events} e
+    WHERE e.session_id = ${sessionId}::uuid AND e.turn_id = (
+      SELECT t.id FROM ${turns} t
+      WHERE t.session_id = ${sessionId}::uuid AND t.status = 'completed'
+      ORDER BY t.sequence DESC LIMIT 1)), 0)`;
 }
 
 const BUDGET_OWNERS: ReadonlySet<string> = new Set(BUDGET_OWNER_KIND_VALUES);
@@ -330,15 +415,8 @@ export async function budgetAccountRefused(
     .where(
       and(
         eq(events.sessionId, sessionId),
-        sql`${events.id} > coalesce((
-          SELECT max(e.id) FROM ${events} e
-          WHERE e.session_id = ${sessionId}::uuid AND e.turn_id = (
-            SELECT t.id FROM ${turns} t
-            WHERE t.session_id = ${sessionId}::uuid AND t.status = 'completed'
-            ORDER BY t.sequence DESC LIMIT 1)), 0)`,
-        eq(events.type, "error"),
-        sql`${events.payload}->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}`,
-        sql`${events.payload} ? 'budget_owner'`,
+        sql`${events.id} > ${lastCompletedTurnEventId(sessionId)}`,
+        budgetAccountRefusalEvent(),
       ),
     )
     .orderBy(desc(events.id))

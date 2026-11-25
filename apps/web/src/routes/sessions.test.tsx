@@ -1686,7 +1686,7 @@ describe("session detail", () => {
       },
     };
     const account =
-      "요청한 사람의 이번 달 예산 한도에 닿아 모델을 부르지 못했습니다. 한도를 늘리려면 워크스페이스 관리자에게 문의하세요.";
+      "요청한 사람의 이번 달 예산 한도에 닿아 모델을 부르지 못했습니다. 다음 달 1일(UTC)에 풀리며, 그 전에는 워크스페이스 관리자가 한도를 올리면 풀립니다.";
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, refused),

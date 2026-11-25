@@ -4,9 +4,12 @@ import {
   SLACK_NOTICE_MESSAGES,
   sessionEventPayloadSchema,
 } from "@werft-ai/contracts";
-import type { ProviderUsage } from "@werft-ai/platform";
+import {
+  budgetRefusalTurnDedupeKey,
+  type ProviderUsage,
+} from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { saveBudgetLimit } from "./budget-accounts.ts";
 import {
@@ -21,6 +24,7 @@ import {
   agents,
   attempts,
   events,
+  linkedAccounts,
   memberTeams,
   sessionLinks,
   sessions,
@@ -30,6 +34,7 @@ import {
   turns,
   users,
 } from "./schema.ts";
+import { createPostgresSlackOutboxStore } from "./surface/slack-outbox.ts";
 
 let client: PGlite;
 let db: Database;
@@ -63,9 +68,16 @@ const RESERVE: ProviderUsage = {
 
 /**
  * A session whose first turn a person asked for (locale ko), run by one
- * attempt, and, unless `link` is false, a live Slack thread for it.
+ * attempt, and, unless `link` is false, a live Slack thread for it in
+ * `channel` (C1). The person's Slack account is `slackUser` (U1), or none.
  */
-async function threaded(options: { link?: false | { muted?: boolean } } = {}) {
+async function threaded(
+  options: {
+    link?: false | { muted?: boolean };
+    channel?: string;
+    slackUser?: string | null;
+  } = {},
+) {
   const teamId = crypto.randomUUID();
   const agentId = crypto.randomUUID();
   const userId = crypto.randomUUID();
@@ -142,8 +154,8 @@ async function threaded(options: { link?: false | { muted?: boolean } } = {}) {
       sessionId,
       installationId,
       surfaceBindingId: crypto.randomUUID(),
-      surfaceRef: "C1",
-      channelId: "C1",
+      surfaceRef: options.channel ?? "C1",
+      channelId: options.channel ?? "C1",
       threadId: "1730000000.000100",
       openedByTs: "1730000000.000100",
       agentId,
@@ -151,13 +163,30 @@ async function threaded(options: { link?: false | { muted?: boolean } } = {}) {
       createdBy: userId,
       muted: options.link?.muted ?? false,
     });
+    const slackUser =
+      options.slackUser === undefined ? "U1" : options.slackUser;
+    if (slackUser !== null) {
+      await db.insert(linkedAccounts).values({
+        id: crypto.randomUUID(),
+        workspaceId: WORKSPACE,
+        userId,
+        provider: "slack",
+        externalTenant: "T1",
+        externalUserId: slackUser,
+        verifiedVia: "slack_oidc",
+        verifiedAt: new Date("2026-11-01T00:00:00Z"),
+      });
+    }
   }
   let sequence = 0;
-  /** Completes the running turn, if any, and starts the person's next one. */
-  async function run() {
+  /**
+   * Ends the running turn, if any (failed, as a refused turn ends, or
+   * completed), and starts the person's next one.
+   */
+  async function run(end: "failed" | "completed" = "failed") {
     await db
       .update(turns)
-      .set({ status: "completed" })
+      .set({ status: end })
       .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "running")));
     sequence += 1;
     const [turn] = await db
@@ -208,6 +237,8 @@ async function notices(sessionId: string) {
   return db
     .select({
       kind: slackOutbox.kind,
+      slackUserId: slackOutbox.slackUserId,
+      status: slackOutbox.status,
       channelId: slackOutbox.channelId,
       threadTs: slackOutbox.threadTs,
       sessionLinkId: slackOutbox.sessionLinkId,
@@ -215,7 +246,8 @@ async function notices(sessionId: string) {
       dedupeKey: slackOutbox.dedupeKey,
     })
     .from(slackOutbox)
-    .where(eq(slackOutbox.sessionId, sessionId));
+    .where(eq(slackOutbox.sessionId, sessionId))
+    .orderBy(asc(slackOutbox.seq));
 }
 
 /** Opens a call the person's zero limit refuses, and records it as the authorizer does. */
@@ -232,7 +264,7 @@ async function refusedFor(who: { sessionId: string; attemptId: string }) {
 }
 
 describe("a budget account's refusal on its session", () => {
-  test("names whose account refused, on the turn, and tells the thread once", async () => {
+  test("names whose account refused, on the turn; the thread hears the first, the person alone the next", async () => {
     const who = await threaded();
     await saveBudgetLimit(
       db,
@@ -246,7 +278,7 @@ describe("a budget account's refusal on its session", () => {
       by: "account",
       owner: "user",
     });
-    expect(await refusedFor(who)).toBe("recorded");
+    expect(await refusedFor(who)).toBe("thread");
     // The engine retrying the refused call within the same turn.
     expect(await refusedFor(who)).toBe("recorded_before");
     const recorded = await refusalEvents(who.sessionId);
@@ -267,30 +299,146 @@ describe("a budget account's refusal on its session", () => {
         data: recorded[0]?.payload,
       }).success,
     ).toBe(true);
+    const line = {
+      text: SLACK_NOTICE_MESSAGES.ko.budgetAccountUser,
+      locale: "ko" as const,
+    };
     expect(await notices(who.sessionId)).toEqual([
       {
         kind: "failure_notice",
+        slackUserId: null,
+        status: "pending",
         channelId: "C1",
         threadTs: "1730000000.000100",
         sessionLinkId: who.linkId,
-        body: {
-          text: SLACK_NOTICE_MESSAGES.ko.budgetAccountUser,
-          locale: "ko",
-        },
-        dedupeKey: expect.stringMatching(
-          new RegExp(`^budget_account:${who.linkId}:user:\\d{4}-\\d{2}$`),
-        ),
+        body: line,
+        dedupeKey: budgetRefusalTurnDedupeKey(who.linkId ?? "", 1),
       },
     ]);
 
-    // A later turn refused again: its own event, and still one notice.
+    // The refused turn failed; the next is refused too: its own event, and
+    // the same line to the person who asked, in the thread, them alone.
     const second = await who.run();
-    expect(await refusedFor(who)).toBe("recorded");
+    expect(await refusedFor(who)).toBe("ephemeral");
     expect((await refusalEvents(who.sessionId)).map((e) => e.turnId)).toEqual([
       first,
       second,
     ]);
-    expect(await notices(who.sessionId)).toHaveLength(1);
+    expect((await notices(who.sessionId))[1]).toEqual({
+      kind: "notice",
+      slackUserId: "U1",
+      status: "pending",
+      channelId: "C1",
+      threadTs: "1730000000.000100",
+      sessionLinkId: who.linkId,
+      body: line,
+      dedupeKey: budgetRefusalTurnDedupeKey(who.linkId ?? "", 2),
+    });
+  });
+
+  test("the refused turns' rows answer them: no failed-turn notice follows", async () => {
+    const who = await threaded();
+    await saveBudgetLimit(
+      db,
+      WORKSPACE,
+      { kind: "user", userId: who.userId },
+      { costUsd: 0, tokens: 0 },
+    );
+    await who.run();
+    await refusedFor(who);
+    await who.run();
+    await refusedFor(who);
+    await db
+      .update(turns)
+      .set({ status: "failed" })
+      .where(eq(turns.sessionId, who.sessionId));
+    const outbox = createPostgresSlackOutboxStore(db);
+    expect(await outbox.unansweredTurns(10)).toEqual([]);
+    // Without the refusal's row the same failed turn is owed its notice.
+    await db
+      .delete(slackOutbox)
+      .where(eq(slackOutbox.sessionId, who.sessionId));
+    expect(
+      (await outbox.unansweredTurns(10)).map((turn) => turn.turnId),
+    ).toEqual([1, 2]);
+  });
+
+  test("after a completed turn, or in a new month, a refusal is the first again", async () => {
+    const who = await threaded();
+    await who.run();
+    const refuse = () =>
+      recordBudgetAccountRefusal(db, {
+        sessionId: who.sessionId,
+        attemptId: who.attemptId,
+        owner: "user",
+      });
+    expect(await refuse()).toBe("thread");
+    await who.run();
+    expect(await refuse()).toBe("ephemeral");
+    // The limit was raised: this turn's calls went through and it completed.
+    const passed = await who.run();
+    await db.insert(events).values({
+      sessionId: who.sessionId,
+      type: "assistant",
+      payload: { type: "assistant" },
+      turnId: passed,
+    });
+    await who.run("completed");
+    expect(await refuse()).toBe("thread");
+    // The refusals so far were last month's; the account is a new one.
+    await db
+      .update(events)
+      .set({ createdAt: sql`now() - interval '40 days'` })
+      .where(eq(events.sessionId, who.sessionId));
+    await who.run();
+    expect(await refuse()).toBe("thread");
+  });
+
+  test("a direct message hears every refusal in the thread", async () => {
+    const who = await threaded({ channel: "D1" });
+    for (let turn = 1; turn <= 2; turn += 1) {
+      await who.run();
+      expect(
+        await recordBudgetAccountRefusal(db, {
+          sessionId: who.sessionId,
+          attemptId: who.attemptId,
+          owner: "user",
+        }),
+      ).toBe("thread");
+    }
+    expect((await notices(who.sessionId)).map((n) => n.kind)).toEqual([
+      "failure_notice",
+      "failure_notice",
+    ]);
+  });
+
+  test("a later refusal whose person has no Slack account stays silent", async () => {
+    const who = await threaded({ slackUser: null });
+    const refuse = () =>
+      recordBudgetAccountRefusal(db, {
+        sessionId: who.sessionId,
+        attemptId: who.attemptId,
+        owner: "user",
+      });
+    await who.run();
+    expect(await refuse()).toBe("thread");
+    await who.run();
+    expect(await refuse()).toBe("unposted");
+    const [, silent] = await db
+      .select({
+        kind: slackOutbox.kind,
+        status: slackOutbox.status,
+        errorCode: slackOutbox.errorCode,
+      })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.sessionId, who.sessionId))
+      .orderBy(asc(slackOutbox.seq));
+    // Written failed: never sent, and still the turn's answer.
+    expect(silent).toEqual({
+      kind: "failure_notice",
+      status: "failed",
+      errorCode: "no_requester_slack_user",
+    });
   });
 
   test("the agent team's account says the team's, in the team's words", async () => {
@@ -308,7 +456,7 @@ describe("a budget account's refusal on its session", () => {
         attemptId: who.attemptId,
         owner: "team",
       }),
-    ).toBe("recorded");
+    ).toBe("thread");
     expect(await budgetAccountRefused(db, who.sessionId)).toBe("team");
     expect((await notices(who.sessionId))[0]?.body).toEqual({
       text: SLACK_NOTICE_MESSAGES.ko.budgetAccountTeam,
@@ -337,7 +485,7 @@ describe("a budget account's refusal on its session", () => {
           attemptId: who.attemptId,
           owner: "user",
         }),
-      ).toBe("recorded");
+      ).toBe("unposted");
       expect(await refusalEvents(who.sessionId)).toHaveLength(1);
       expect(await notices(who.sessionId)).toEqual([]);
     }
@@ -351,7 +499,7 @@ describe("a budget account's refusal on its session", () => {
         attemptId: who.attemptId,
         owner: "user",
       });
-    expect(await refuse()).toBe("recorded");
+    expect(await refuse()).toBe("unposted");
     expect(await refuse()).toBe("recorded_before");
     expect((await refusalEvents(who.sessionId)).map((e) => e.turnId)).toEqual([
       null,
