@@ -36,10 +36,12 @@ const BUDGET_BYTES: Record<string, number> = {
   // bytes over 147, so it moves to 148. The agent list's activation and the
   // counts' inactive put ./schemas 87 bytes over 150, so it moves to 151.
   // The session's capacity wait fields and the no-capacity turn and notice
-  // keys put ./forms 64 bytes over 148, so it moves to 149. The session's
-  // task fields put ./schemas 128 bytes over 151, so it moves to 152.
+  // keys put ./forms 64 bytes over 148, so it moves to 149. The Slack
+  // channel's hourly M1 cap and the agent's M1 judgment records put
+  // ./schemas 271 bytes over 151, so it moves to 152. The session's task
+  // fields put ./forms 112 bytes over 149, so it moves to 150.
   "./schemas": 152 * 1024,
-  "./forms": 149 * 1024,
+  "./forms": 150 * 1024,
 };
 
 test("every entry has a budget", () => {

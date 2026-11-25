@@ -1,5 +1,5 @@
 {
-  "id": "749ead0b-d0b4-4c14-be83-23021cdbb22b",
+  "id": "92a76ab1-a75e-4232-b717-f73a67a6aac8",
   "prevId": "f5c53dc6-5085-4e76-893d-0b6f25227141",
   "version": "7",
   "dialect": "postgresql",
@@ -17195,30 +17195,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::uuid[]"
-        },
-        "task_request": {
-          "name": "task_request",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_interpretation": {
-          "name": "task_interpretation",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_closing": {
-          "name": "task_closing",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_closed_reason": {
-          "name": "task_closed_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -17428,10 +17404,6 @@
         "sessions_execution_revoked_check": {
           "name": "sessions_execution_revoked_check",
           "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
-        },
-        "sessions_task_closed_reason_check": {
-          "name": "sessions_task_closed_reason_check",
-          "value": "\"sessions\".\"task_closed_reason\" IS NULL OR (\"sessions\".\"task_closed_reason\" IN ('completed', 'cancelled', 'failed', 'abandoned') AND \"sessions\".\"admission_state\" IN ('closing', 'closed'))"
         },
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",
@@ -19676,6 +19648,13 @@
           "notNull": true,
           "default": "'free'"
         },
+        "m1_judgments_per_hour": {
+          "name": "m1_judgments_per_hour",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 12
+        },
         "ceiling_actions": {
           "name": "ceiling_actions",
           "type": "text[]",
@@ -19961,6 +19940,10 @@
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",
           "value": "\"surface_bindings\".\"revision\" >= 1"
+        },
+        "surface_bindings_m1_judgments_per_hour_check": {
+          "name": "surface_bindings_m1_judgments_per_hour_check",
+          "value": "\"surface_bindings\".\"m1_judgments_per_hour\" BETWEEN 1 AND 60"
         }
       },
       "isRLSEnabled": false

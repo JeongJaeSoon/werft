@@ -12,6 +12,7 @@ import {
   runJudgmentBatches,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
@@ -19,6 +20,7 @@ import {
   RELEASE_SPEC_SQL_COLUMNS,
   releaseSpecSqlValues,
 } from "../testing/spec-pins.ts";
+import { m1ChannelCap } from "./conversation-judgments.ts";
 import { createPostgresConversationStore } from "./conversation-store.ts";
 import { createPostgresJudgmentBatchStore } from "./judgment-batches.ts";
 import {
@@ -277,6 +279,59 @@ describe("judgment batches", () => {
     expect((await pass(judge.judge, 301 * SEC)).judged).toBe(1);
     expect(tsOf(judge.judged.at(-1))).toEqual([over]);
     expect(await tally()).toEqual({ rateLimited: 1, unjudged: 0 });
+  });
+
+  test("a channel's own cap holds from its next batch; another channel keeps the starting 12", async () => {
+    const judge = fakeJudge();
+    for (let n = 0; n < 2; n++) {
+      await post(n * 20 * SEC);
+      expect((await pass(judge.judge, n * 20 * SEC + 15 * SEC)).judged).toBe(1);
+    }
+    await client.query(
+      "UPDATE surface_bindings SET m1_judgments_per_hour = 2 WHERE external_surface_id = $1",
+      [CHANNEL],
+    );
+    const over = await post(40 * SEC);
+    expect(await pass(judge.judge, 55 * SEC)).toEqual({
+      judged: 0,
+      rateLimited: 1,
+      failed: 0,
+    });
+    expect(tsOf(judge.rateLimited[0])).toEqual([over]);
+    // Raised again, the waiting message goes with the next batch.
+    await client.query(
+      "UPDATE surface_bindings SET m1_judgments_per_hour = 3 WHERE external_surface_id = $1",
+      [CHANNEL],
+    );
+    expect((await pass(judge.judge, 56 * SEC)).judged).toBe(1);
+    expect(tsOf(judge.judged.at(-1))).toEqual([over]);
+    await client.query(
+      `INSERT INTO surface_bindings (id, workspace_id, agent_id, surface,
+        installation_id, external_surface_id, surface_kind, mode, listen,
+        ceiling_actions, ceiling_disclosure, status)
+       VALUES ($1, $2, $3, 'slack', $4, 'C0OTHER', 'public_channel', 'on',
+        'free', '{}', 'full', 'ready')`,
+      [randomUUID(), WORKSPACE, AGENT, randomUUID()],
+    );
+    const caps = await db.execute<{ other: number; unbound: number }>(
+      sql`SELECT ${m1ChannelCap({ agentId: sql`${AGENT}::uuid`, channelId: sql`'C0OTHER'` })} AS other,
+        ${m1ChannelCap({ agentId: sql`${AGENT}::uuid`, channelId: sql`'C0NONE'` })} AS unbound`,
+    );
+    expect((caps as unknown as { rows: unknown[] }).rows[0]).toEqual({
+      other: M1_JUDGMENTS_PER_CHANNEL_WINDOW,
+      unbound: M1_JUDGMENTS_PER_CHANNEL_WINDOW,
+    });
+  });
+
+  test("a binding's cap stays within 1 to 60", async () => {
+    for (const cap of [0, 61]) {
+      await expect(
+        client.query(
+          "UPDATE surface_bindings SET m1_judgments_per_hour = $1 WHERE external_surface_id = $2",
+          [cap, CHANNEL],
+        ),
+      ).rejects.toThrow(/surface_bindings_m1_judgments_per_hour_check/);
+    }
   });
 
   test("a batch stopped before the model does not count against the cap", async () => {
