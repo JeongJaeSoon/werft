@@ -162,9 +162,11 @@ const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
 )`;
 
 // The refusal recordBudgetAccountRefusal kept on a failed turn, and whether
-// it is the session's first while the limit holds: no refusal on an
-// earlier turn after the last completed one ended, in the same UTC month.
-// A refusal no turn holds is not counted: nothing told it.
+// it is the session's first while the limit holds: no refusal told before
+// it (on an earlier turn that ended with a post, so not completed, stopped
+// or turnless) after the last completed turn ended, in the same UTC month.
+// Found by the turn's attempt, the one its refused call ran in, so the
+// partial (session, attempt) index bounds the read to that attempt.
 const budgetRefusalOfTurn = sql<NonNullable<
   SurfaceUnansweredTurn["budgetRefusal"]
 > | null>`(
@@ -177,8 +179,12 @@ const budgetRefusalOfTurn = sql<NonNullable<
           AND p.type = 'error'
           AND p.payload->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}
           AND p.payload ? 'budget_owner'
-          AND p.turn_id IS NOT NULL
           AND p.id < r.id
+          AND EXISTS (
+            SELECT 1 FROM ${turns} pt
+            WHERE pt.id = p.turn_id
+              AND pt.sequence < ${turns.sequence}
+              AND pt.status IN ('failed', 'outcome_unknown'))
           AND p.created_at >= date_trunc('month', r.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
           AND p.created_at > coalesce((
             SELECT max(ct.ended_at) FROM ${turns} ct
@@ -187,6 +193,7 @@ const budgetRefusalOfTurn = sql<NonNullable<
               AND ct.sequence < ${turns.sequence}), '-infinity')))
     FROM events r
     WHERE r.session_id = ${turns.sessionId}
+      AND r.attempt_id = ${turns.attemptId}
       AND r.turn_id = ${turns.id}
       AND r.type = 'error'
       AND r.payload->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}
@@ -214,13 +221,13 @@ const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
   return sql`substr(${row}.dedupe_key, ${sql.raw(String(from))} + position(':' in substr(${row}.dedupe_key, ${sql.raw(String(from))})))`;
 };
 
-// Only the notice that a channel waits for approval may go to a channel
-// whose binding waits, or was rejected and has no live binding since. A
+// Only the notice that a channel waits for approval (a `notice` of no
+// session) may go to a channel whose binding waits, or was rejected and has no live binding since. A
 // channel the bot left takes nothing at all, a notice included: the bot is
 // not in it.
 const channelNotWaiting = (row: SQL) => sql`(
   NOT ${channelLeft(sql`${row}.installation_id`, sql`${row}.channel_id`)}
-  AND (${row}.kind = 'notice' OR NOT EXISTS (
+  AND ((${row}.kind = 'notice' AND ${row}.session_id IS NULL) OR NOT EXISTS (
     SELECT 1 FROM surface_bindings b
     WHERE b.installation_id = ${row}.installation_id
       AND b.external_surface_id = ${row}.channel_id

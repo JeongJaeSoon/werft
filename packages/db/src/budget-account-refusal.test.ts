@@ -402,6 +402,26 @@ describe("the refused turns' Slack answers (unansweredTurns)", () => {
     ]);
   });
 
+  test("a refusal on a turn told nothing (interrupted, or completed after all) does not take the first", async () => {
+    const who = await threaded();
+    await who.run();
+    await refuse(who, "1");
+    await db
+      .update(turns)
+      .set({ status: "interrupted", endedAt: new Date() })
+      .where(and(eq(turns.sessionId, who.sessionId), eq(turns.sequence, 1)));
+    await who.run();
+    await refuse(who, "2");
+    await who.run();
+    expect(await owed(who.sessionId)).toEqual([
+      {
+        turnId: 2,
+        state: "failed",
+        budgetRefusal: { owner: "user", first: true },
+      },
+    ]);
+  });
+
   test("a refusal last month does not hold this month's", async () => {
     const who = await threaded();
     await who.run();
