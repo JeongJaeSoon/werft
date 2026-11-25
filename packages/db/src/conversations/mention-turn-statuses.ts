@@ -33,6 +33,28 @@ const sameThread = (thread: MentionThreadDue) => sql`
 const LEFT_AGAIN = sql`ON CONFLICT (agent_id, team_id, channel_id, thread_ts)
   DO UPDATE SET rev = mention_thread_statuses.rev + 1`;
 
+// A newer mention turn of turn `t`'s thread still due: its "processing"
+// stays, and an `active` of `t` may have overtaken it.
+const NEWER_DUE = sql`EXISTS (SELECT 1 FROM conversation_turns n
+  WHERE n.topic_id = t.topic_id AND n.id <> t.id
+    AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
+    AND n.slack_status_reset_at IS NULL
+    AND n.created_at > t.created_at)`;
+
+// Leaves the turn's thread to be set again, when `when` holds. Written in
+// the statement that marks the turn, so no pass dies between the two.
+const leaveThreadOf = (turnId: ConversationTurnId, when: SQL) => sql`
+  INSERT INTO mention_thread_statuses
+    (workspace_id, agent_id, slack_installation_id, team_id, channel_id, thread_ts)
+  SELECT t.workspace_id, t.agent_id, t.slack_installation_id,
+    tp.slack_team_id, tp.slack_channel_id, tp.slack_thread_ts
+  FROM conversation_turns t
+  JOIN conversation_topics tp ON tp.id = t.topic_id
+  WHERE t.id = ${turnId}::uuid AND t.slack_installation_id IS NOT NULL
+    AND tp.slack_team_id IS NOT NULL AND tp.slack_channel_id IS NOT NULL
+    AND tp.slack_thread_ts IS NOT NULL AND ${when}
+  ${LEFT_AGAIN}`;
+
 // A mention turn of the thread `s` that a pass may be setting back: its
 // `active` can reach Slack after whatever this thread's send says.
 const threadResetHeld = (s: SQL, claimMs?: number) => sql`EXISTS (
@@ -142,50 +164,40 @@ export function createPostgresMentionTurnStatuses(
 
     async claimReset(turnId, claimMs) {
       // A newer turn of the thread still due holds its "processing": this
-      // one is marked set back without being sent.
+      // one is marked set back without being sent. A claim it held before,
+      // of a pass that died, may have sent its `active` over that
+      // "processing": the thread is left to be set again.
       const [claimed] = rowsOf<{ superseded: boolean }>(
         await db.execute(sql`
-          UPDATE conversation_turns t SET slack_status_claimed_at = now(),
-            slack_status_reset_at = CASE WHEN EXISTS (
-              SELECT 1 FROM conversation_turns n
-              WHERE n.topic_id = t.topic_id AND n.id <> t.id
-                AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
-                AND n.slack_status_reset_at IS NULL
-                AND n.created_at > t.created_at) THEN now() END
-          WHERE t.id = ${turnId}::uuid AND t.slack_status_reset_at IS NULL
-            AND (t.slack_status_claimed_at IS NULL
-              OR t.slack_status_claimed_at
-                < now() - ${claimMs} * interval '1 millisecond')
-          RETURNING t.slack_status_reset_at IS NOT NULL AS superseded`),
+          WITH prior AS (
+            SELECT id, slack_status_claimed_at IS NOT NULL AS held
+            FROM conversation_turns WHERE id = ${turnId}::uuid),
+          claimed AS (
+            UPDATE conversation_turns t SET slack_status_claimed_at = now(),
+              slack_status_reset_at = CASE WHEN ${NEWER_DUE} THEN now() END
+            FROM prior p
+            WHERE t.id = p.id AND t.slack_status_reset_at IS NULL
+              AND (t.slack_status_claimed_at IS NULL
+                OR t.slack_status_claimed_at
+                  < now() - ${claimMs} * interval '1 millisecond')
+            RETURNING t.slack_status_reset_at IS NOT NULL AS superseded, p.held),
+          left_again AS (${leaveThreadOf(
+            turnId,
+            sql`EXISTS (SELECT 1 FROM claimed c WHERE c.superseded AND c.held)`,
+          )})
+          SELECT superseded FROM claimed`),
       );
       if (claimed === undefined) return "done";
       return claimed.superseded ? "superseded" : "send";
     },
 
     async confirmReset(turnId) {
-      await db.execute(sql`
-        UPDATE conversation_turns SET slack_status_reset_at = now()
-        WHERE id = ${turnId}::uuid AND slack_status_reset_at IS NULL`);
-    },
-
-    async reprocess(turnId) {
       const left = rowsOf<{ rev: number }>(
         await db.execute(sql`
-          INSERT INTO mention_thread_statuses
-            (workspace_id, agent_id, slack_installation_id, team_id, channel_id, thread_ts)
-          SELECT t.workspace_id, t.agent_id, t.slack_installation_id,
-            tp.slack_team_id, tp.slack_channel_id, tp.slack_thread_ts
-          FROM conversation_turns t
-          JOIN conversation_topics tp ON tp.id = t.topic_id
-          WHERE t.id = ${turnId}::uuid AND t.slack_installation_id IS NOT NULL
-            AND tp.slack_team_id IS NOT NULL AND tp.slack_channel_id IS NOT NULL
-            AND tp.slack_thread_ts IS NOT NULL
-            AND EXISTS (SELECT 1 FROM conversation_turns n
-              WHERE n.topic_id = t.topic_id AND n.id <> t.id
-                AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
-                AND n.slack_status_reset_at IS NULL
-                AND n.created_at > t.created_at)
-          ${LEFT_AGAIN}
+          WITH confirmed AS (
+            UPDATE conversation_turns SET slack_status_reset_at = now()
+            WHERE id = ${turnId}::uuid AND slack_status_reset_at IS NULL)
+          ${leaveThreadOf(turnId, NEWER_DUE)}
           RETURNING rev`),
       );
       return left.length > 0;
@@ -262,9 +274,12 @@ export function createPostgresMentionTurnStatuses(
     releaseThread,
 
     async releaseReset(turnId) {
+      // A send that failed may still have reached Slack: as confirmReset.
       await db.execute(sql`
-        UPDATE conversation_turns SET slack_status_claimed_at = NULL
-        WHERE id = ${turnId}::uuid AND slack_status_reset_at IS NULL`);
+        WITH released AS (
+          UPDATE conversation_turns SET slack_status_claimed_at = NULL
+          WHERE id = ${turnId}::uuid AND slack_status_reset_at IS NULL)
+        ${leaveThreadOf(turnId, NEWER_DUE)}`);
     },
   };
 }
