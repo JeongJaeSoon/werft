@@ -92,9 +92,23 @@ describe("session task fields", () => {
     expect(await readTaskFields(db, randomUUID())).toBeNull();
   });
 
+  test("a row an old host inserts after the migration reads the same", async () => {
+    // During a rollout the host from before still writes new sessions.
+    expect(await readTaskFields(db, await insertSession())).toEqual({
+      request: null,
+      interpretation: null,
+      closing: null,
+      closedReason: null,
+    });
+  });
+
   test("the server's part and the model's are written once each", async () => {
     const id = await insertSession();
-    const request = { inputId: inputId(), text: "Please fix the retries" };
+    // Kept as the requester wrote it: no trim, no normalizing.
+    const request = {
+      inputId: inputId(),
+      text: "  Please fix the retries\n\n- 재시도 두 번 ✅  \t",
+    };
     expect(
       await openTaskFields(db, id, { request, closing: TASK_CLOSING_DEFAULT }),
     ).toBe(true);
