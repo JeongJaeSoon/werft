@@ -66,6 +66,11 @@ export function createSlackChannelMembers(deps: {
   slack: SlackChannelMemberApi;
   botToken(workspaceId: string, agentId: string): Promise<string | null>;
   logger: Pick<SlackInboxLogger, "warn">;
+  /**
+   * A failure of Werft's own store, rethrown rather than read as
+   * unconfirmed, so the policy answers it undecided.
+   */
+  storageUnavailable?: (error: unknown) => boolean;
 }): SlackChannelMembers {
   async function membership(
     input: ChannelMemberQuestion,
@@ -73,7 +78,8 @@ export function createSlackChannelMembers(deps: {
     let subject: { installationId: string; slackUserId: string } | null;
     try {
       subject = await deps.store.subject(input);
-    } catch {
+    } catch (error) {
+      if (deps.storageUnavailable?.(error)) throw error;
       return "unconfirmed";
     }
     if (subject === null) {
@@ -147,6 +153,7 @@ export function createSlackChannelMembers(deps: {
       }
       return of(members.has(input.slackUserId));
     } catch (error) {
+      if (deps.storageUnavailable?.(error)) throw error;
       return unconfirmed(unconfirmedOf(error), error);
     }
   }

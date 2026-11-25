@@ -9,7 +9,10 @@ import type {
   AuditLogPage,
   AuditLogReader,
 } from "./ports/audit-log-reader.ts";
-import { requirePermitted } from "./require-permitted.ts";
+import {
+  refusedUnlessUndecided,
+  requirePermitted,
+} from "./require-permitted.ts";
 import { SessionServiceError } from "./service-errors.ts";
 
 export interface AuditExport {
@@ -71,7 +74,7 @@ export function createAuditLogService(deps: {
           // row is the allow above.
           const decision = await authorization
             .authorize(request, { record: false })
-            .catch(() => null);
+            .catch(refusedUnlessUndecided);
           if (decision?.outcome !== "allow") {
             throw new SessionServiceError(
               "FORBIDDEN",

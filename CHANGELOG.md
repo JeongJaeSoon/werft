@@ -20,7 +20,9 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.
   - `HEARTBEAT_TTL_SEC`의 하한이 15초 초과에서 12초 초과(안전 마진 10초 + 간격 2초)로 내려간다. 5초마다 beat하는 앞선 worker 이미지가 남아 있으면 TTL을 15초 이하로 낮추지 않는다.
   - heartbeat가 404를 받은 뒤 다시 묻는 간격도 heartbeat 간격을 넘지 않는다(1초 뒤, 그다음 2초마다).
-
+- **API 권한 판정이 DB를 읽지 못하면 `403 FORBIDDEN`(`reason_code: "error"`) 대신 `503 BACKEND_UNAVAILABLE`(retryable, `Retry-After: 1`)로 답한다**(JeongJaeSoon/werft#2242). 권한이 없다는 답이 아니라 판정하지 못했다는 답이고, 이 답도 허용은 아니다. 저장소 오류가 아닌 판정 실패와 credential에 없는 scope는 전처럼 403이다. worker는 이전 세션 허용을 다시 확인하지 못하면 1·2·4초 간격으로 최대 20초 다시 묻고, 그래도 안 되면 전처럼 사람에게 묻는다. migration은 없고 따로 할 일도 없다.
+  - api와 worker 이미지가 모두 이 버전이어야 듣는다. api만 앞선 버전이면 전처럼 403이고, 웹은 그 403도 계속 잠시 다시 붙는다.
+  - Slack 이벤트 처리 쪽 판정은 바뀌지 않는다.
 - **대화 rollout이 `on`인 에이전트의 멘션 턴 스레드가 "처리 중"에 남던 두 경우를 고쳤다**(JeongJaeSoon/werft#2239). 첫째는 새 턴을 위해 다시 보낸 "처리 중"을 Slack이 받지 않은 경우, 둘째는 턴이 도는 중에 대화 기록을 지운 경우다. migration `0374_mention_thread_statuses`가 빈 표 `mention_thread_statuses`를 만든다. 따로 할 일은 없다.
   - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 이 표를 읽지 않으므로 남은 줄을 보내지 않는다. 그 스레드는 다음 멘션 턴이 끝나거나 Slack이 한 시간 뒤 "처리 중"을 스스로 내릴 때 돌아온다. 남은 줄은 다시 올린 이미지가 보낸다.
 - **DB가 잠깐(약 20초 안) 내려가도 진행 중인 세션이 `recovery_required`가 되지 않는다**(JeongJaeSoon/werft#2234). egress 권한 판정이 DB를 읽지 못하면 거절이 아니라 `503`과 `Retry-After`로 답한다. 이 답도 허용은 아니다. 그 동안 egress proxy는 모델 호출을 최대 20초 쥐고 다시 묻고, worker는 transcript batch를 버리지 않고 lease를 내려놓을 때까지 다시 보낸다. 전에는 15초 장애에 turn이 `api_error`로 끝나고 세션이 `CONTEXT_GAP`으로 묶였다. migration은 없고 따로 할 일도 없다.

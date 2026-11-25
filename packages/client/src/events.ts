@@ -37,8 +37,8 @@ export interface RetryTiming {
   readonly maxMs?: number;
   /**
    * How long a refusal whose authorization could not be decided (403 with
-   * `reason_code` "error", as while storage is unreachable) is retried
-   * before the subscription ends with it.
+   * `reason_code` "error": a decision that failed, or storage unreachable on
+   * an API older than its 503) is retried before the subscription ends with it.
    */
   readonly undecidedMs?: number;
   /**

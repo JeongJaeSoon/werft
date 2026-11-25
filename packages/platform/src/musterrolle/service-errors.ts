@@ -12,6 +12,21 @@ export class SessionServiceError extends Error {
   }
 }
 
+/**
+ * The policy could not read the store it decides from: neither an allow nor
+ * a refusal, so the caller is told to ask again (503, Retry-After). Carries
+ * the storage error as its cause.
+ */
+export class AuthorizationUndecidedError extends SessionServiceError {
+  constructor(cause: unknown) {
+    super("BACKEND_UNAVAILABLE", "Storage is unavailable, retry later", {
+      afterSeconds: 1,
+    });
+    this.name = "AuthorizationUndecidedError";
+    this.cause = cause;
+  }
+}
+
 export const NOT_FOUND = () =>
   new SessionServiceError("NOT_FOUND", "Resource not found");
 
