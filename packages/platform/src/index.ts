@@ -49,7 +49,6 @@ export * from "./musterrolle/service-errors.ts";
 export * from "./decision/index.ts";
 export * from "./surface/action-notice.ts";
 export * from "./surface/inbound-handling.ts";
-export * from "./surface/budget-refusal-notice.ts";
 export * from "./surface/model-cut-notice.ts";
 export * from "./surface/model-move-notice.ts";
 export * from "./surface/runtime-retired-notice.ts";
