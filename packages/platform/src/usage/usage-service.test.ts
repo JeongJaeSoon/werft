@@ -7,6 +7,8 @@ import {
   type UsageToolsResponse,
   usageBreakdownQuerySchema,
   usageBreakdownResponseSchema,
+  usagePeopleQuerySchema,
+  usagePeopleResponseSchema,
   usageSeriesQuerySchema,
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
@@ -98,6 +100,7 @@ function serviceKey(): Caller {
 }
 
 const asked: UsageTotalsFilter[] = [];
+const peopleAsked: { ownerId: string; agentId?: string }[] = [];
 
 function service(
   session: SessionUsageRecord | null = record,
@@ -193,6 +196,30 @@ function service(
           ],
         };
       },
+      usagePeople: async (reach, period) => {
+        peopleAsked.push(reach);
+        return {
+          readAt,
+          until: period.until ?? readAt,
+          people: [
+            {
+              userId: USER,
+              label: "Alice",
+              callCount: 2,
+              costUsd: "0.050000",
+              incompleteCallCount: 1,
+            },
+            {
+              userId: null,
+              label: null,
+              callCount: 1,
+              costUsd: "0.010000",
+              incompleteCallCount: 0,
+            },
+          ],
+          totals: { callCount: 3, costUsd: "0.060000", incompleteCallCount: 1 },
+        };
+      },
       usageBreakdown: async (filter) => {
         asked.push(filter);
         const figures = {
@@ -219,6 +246,7 @@ function service(
                   summaryUsd: "0",
                   otherUsd: "0",
                 },
+                byRequester: { personUsd: "0.050000", agentUsd: "0.010000" },
               },
             },
             {
@@ -440,9 +468,8 @@ describe("usage service", () => {
     }
   });
 
-  test("installation figures are refused to anyone but the owner, before anything is read", async () => {
+  test("installation figures are refused to anyone but the owner and admins, before anything is read", async () => {
     for (const caller of [
-      user("admin"),
       user("member"),
       serviceKey(),
       testCaller(WORKSPACE),
@@ -467,7 +494,7 @@ describe("usage service", () => {
     }
     asked.length = 0;
     await service().getUsageSummary(user("owner"), query("installation"));
-    await service().getUsageTools(user("owner"), toolsQuery("installation"));
+    await service().getUsageTools(user("admin"), toolsQuery("installation"));
     expect(asked).toEqual([{ kind: "installation" }, { kind: "installation" }]);
   });
 
@@ -621,6 +648,9 @@ describe("usage service", () => {
         usageBreakdown: async () => {
           throw new Error("not read");
         },
+        usagePeople: async () => {
+          throw new Error("not read");
+        },
         usageTools: async () => {
           throw new Error("not read");
         },
@@ -730,7 +760,7 @@ describe("usage service", () => {
         since: "2026-10-01",
         by: "agent",
       });
-    for (const role of ["admin", "member"] as const) {
+    for (const role of ["member"] as const) {
       const error = await service()
         .getUsageBreakdown(user(role), breakdownQuery("installation"))
         .catch((caught: unknown) => caught);
@@ -768,6 +798,7 @@ describe("usage service", () => {
         summary_usd: "0",
         other_usd: "0",
       },
+      by_requester: { person_usd: "0.050000", agent_usd: "0.010000" },
     });
   });
 
@@ -806,6 +837,9 @@ describe("usage service", () => {
           ],
           totals: figures,
         }),
+        usagePeople: async () => {
+          throw new Error("not read");
+        },
         usageTools: async () => {
           throw new Error("not read");
         },
@@ -843,10 +877,66 @@ describe("usage service", () => {
     }
   });
 
+  test("people: the workspace's for its owner and admins, one agent's after it is found, nobody else's", async () => {
+    const peopleQuery = (agentId?: string) =>
+      usagePeopleQuerySchema.parse({
+        since: "2026-10-01",
+        until: "2026-10-08",
+        ...(agentId === undefined ? {} : { agent_id: agentId }),
+      });
+    peopleAsked.length = 0;
+    for (const [caller, agentId, code] of [
+      [user("member"), undefined, "FORBIDDEN"],
+      [serviceKey(), undefined, "FORBIDDEN"],
+      [user("member"), AGENT, "FORBIDDEN"],
+      [user("owner"), crypto.randomUUID(), "NOT_FOUND"],
+    ] as const) {
+      const error = await service()
+        .getUsagePeople(caller, peopleQuery(agentId))
+        .catch((caught: unknown) => caught);
+      expect((error as SessionServiceError).code).toBe(code);
+    }
+    expect(peopleAsked).toEqual([]);
+
+    const body = usagePeopleResponseSchema.parse(
+      await service().getUsagePeople(user("admin"), peopleQuery()),
+    );
+    expect(body).toEqual({
+      period: {
+        since: "2026-10-01T00:00:00.000Z",
+        until: "2026-10-08T00:00:00.000Z",
+      },
+      refreshed_at: readAt.toISOString(),
+      agent_id: null,
+      people: [
+        {
+          user_id: USER,
+          label: "Alice",
+          call_count: 2,
+          cost_usd: "0.050000",
+          cost_complete: false,
+        },
+        {
+          user_id: null,
+          label: null,
+          call_count: 1,
+          cost_usd: "0.010000",
+          cost_complete: true,
+        },
+      ],
+      totals: { call_count: 3, cost_usd: "0.060000", cost_complete: false },
+    });
+    await service().getUsagePeople(user("owner"), peopleQuery(AGENT));
+    expect(peopleAsked).toEqual([
+      { ownerId: WORKSPACE },
+      { ownerId: WORKSPACE, agentId: AGENT },
+    ]);
+  });
+
   test("a series is gated like the summary and marks only its incomplete days", async () => {
     const seriesQuery = (scope: "installation" | "me") =>
       usageSeriesQuerySchema.parse({ scope, since: "2026-10-01" });
-    for (const role of ["admin", "member"] as const) {
+    for (const role of ["member"] as const) {
       const error = await service()
         .getUsageSeries(user(role), seriesQuery("installation"))
         .catch((caught: unknown) => caught);

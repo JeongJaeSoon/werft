@@ -184,7 +184,7 @@ async function calls(
 }
 
 integration(
-  "the owner sees no id or title of a private session until it is shared with the workspace; a member sees their own; admin and member get 403 for the installation",
+  "the owner sees no id or title of a private session until it is shared with the workspace; a member sees their own and gets 403 for the installation",
   async () => {
     const hidden = await sessionWithCall(
       "member",
@@ -223,7 +223,7 @@ integration(
     ]);
     expect(sessionsOf(await calls("admin", "me"))).toEqual([]);
 
-    for (const role of ["admin", "member"] as const) {
+    for (const role of ["member"] as const) {
       const response = await app.request(
         "/v1/usage/tools/Bash/calls?scope=installation&since=2026-10-20",
         {

@@ -46,6 +46,7 @@ export {
   type UsageCostTableMessages,
   type UsageDailyCostMessages,
   type UsageFiltersMessages,
+  type UsageInitiatorSplitMessages,
   type UsageKpisMessages,
   type UsageTokenMixMessages,
 } from "./operations/messages.ts";
@@ -98,6 +99,10 @@ export {
   type UsageFiltersProps,
   type UsagePeriod,
 } from "./operations/usage-filters.tsx";
+export {
+  UsageInitiatorSplit,
+  type UsageInitiatorSplitProps,
+} from "./operations/usage-initiator-split.tsx";
 export { UsageKpis, type UsageKpisProps } from "./operations/usage-kpis.tsx";
 export {
   UsageTokenMix,

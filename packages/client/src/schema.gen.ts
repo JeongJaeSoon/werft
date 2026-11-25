@@ -5208,7 +5208,7 @@ export interface paths {
          * Installation limits and installation-wide usage
          * @description Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.
          *
-         *     Without `scope`, or with `scope=installation`, only the workspace owner, signed in, reads it: any other member and every API key get 403.
+         *     Without `scope`, or with `scope=installation`, only the workspace's owner and admins, signed in, read it: any other member and every API key get 403.
          *
          *     `scope=me` gives any signed-in member the per-session limits alone (`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`), with no `usage`; an API key gets 403. It changes nothing.
          *
@@ -5235,7 +5235,7 @@ export interface paths {
          * @description Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.
          *
          *     - `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.
-         *     - `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.
+         *     - `scope=installation`: every session of every owner. Only the workspace's owner and admins, signed in, read it: any other member and every API key get 403.
          *     - `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.
          *
          *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.
@@ -5349,11 +5349,39 @@ export interface paths {
          *
          *     With `by=agent` each row and `totals` carry `conversation`: the agent's conversation calls (a Slack mention or DM it answers, not a session) created in the period, apart from the sessions' figures, which they leave unchanged. `scope=installation` counts every call, `scope=me` the calls asked for by the caller as a person (a personal key's maker); a key no person created has none. An agent with calls and no session is a row with `session_count` 0, and the rows go largest session plus conversation cost first. A call counts as it settled: `cost_usd` is the settled calls' cost, split in `by_class` into `judgment_usd` (M1's judgment of whether to step in), `turn_usd` (an M2 conversation turn's calls), `summary_usd` (a channel summary's) and `other_usd` (a call from before the class was recorded), which add up to it. A call reserved, in flight (its end unknown included) or resolved without a report adds 0 and makes `cost_complete` false, as an open or unreported turn does to a session; a released call never ran and adds nothing. `call_count` counts every call but the released ones. `by=model` has no `conversation`.
          *
+         *     `by_requester` splits the same `cost_usd` by who started each call's chain (its budget root): `person_usd` a person (root `user`) or a key a person made (`key`), `agent_usd` nobody (`none`, the agent on its own or for its team) or an allowed Slack bot (`slack_bot`). The two add up to `cost_usd`, so a row's or the totals' spend is three parts that add up: `person_usd`, `agent_usd` and the sessions' `cost_usd`. Each part's calls are listed by `GET /v1/agents/{id}/conversation-turns` with `initiator=person` or `initiator=agent`, except M1's judgments (`judgment_usd`), which are no turn: those are in `GET /v1/agents/{id}/slack/judgments`. The person part is split per person by `GET /v1/usage/people`.
+         *
          *     It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getUsageBreakdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/usage/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What each person's conversation calls cost in a period
+         * @description Splits the person part of the conversation cost (`by_requester.person_usd` of `GET /v1/usage/breakdown`) per person: the conversation calls created in `[since, until)` whose chain a person started (budget root `user`, or `key` for a key a person made), one row per requester, largest cost first. `user_id` is the requester and `label` their display name; a key no person made is the row whose `user_id` and `label` are null. Calls count as the breakdown counts them: `cost_usd` is the settled calls' cost, a call reserved, in flight or resolved without a report adds 0 and makes `cost_complete` false, and a released call is not one. `totals` adds up the rows. `since` and `until` work as in `GET /v1/usage/summary`; the period spans at most 366 days.
+         *
+         *     Without `agent_id` it reads the whole workspace: its owner and admins only. With `agent_id` it reads that agent's calls: the workspace's owner and admins and the agent's admins; an agent of another workspace, or none, is 404 for everyone. Anyone else, and every API key, gets 403; a member reads their own spend with `scope=me` on the other usage reads. Every place's calls count alike, a DM's and a private channel's too: what is returned is who asked and what it cost, never where or what anyone wrote.
+         *
+         *     It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsagePeople"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5635,6 +5663,12 @@ export interface components {
             until?: string;
             /** @enum {string} */
             by: "model" | "agent";
+        };
+        UsagePeopleQuery: {
+            since: string;
+            until?: string;
+            /** Format: uuid */
+            agent_id?: string;
         };
         UsageToolsQuery: {
             /** @enum {string} */
@@ -10216,7 +10250,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "conversation.view" | "conversation.post" | "task.spawn" | "usage.installation_read" | "usage.agent_read" | "judgment.read" | "conversation_turn.read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "conversation.view" | "conversation.post" | "task.spawn" | "usage.installation_read" | "usage.agent_read" | "usage.people_read" | "judgment.read" | "conversation_turn.read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
             /** @constant */
             codex_sandbox_missing?: true;
         };
@@ -10464,6 +10498,10 @@ export interface components {
                         summary_usd: string;
                         other_usd: string;
                     };
+                    by_requester: {
+                        person_usd: string;
+                        agent_usd: string;
+                    };
                 };
             }[];
             totals: {
@@ -10484,7 +10522,34 @@ export interface components {
                         summary_usd: string;
                         other_usd: string;
                     };
+                    by_requester: {
+                        person_usd: string;
+                        agent_usd: string;
+                    };
                 };
+            };
+        };
+        UsagePeopleResponse: {
+            period: {
+                /** Format: date-time */
+                since: string;
+                /** Format: date-time */
+                until: string;
+            };
+            /** Format: date-time */
+            refreshed_at: string;
+            agent_id: string | null;
+            people: {
+                call_count: number;
+                cost_usd: string;
+                cost_complete: boolean;
+                user_id: string | null;
+                label: string | null;
+            }[];
+            totals: {
+                call_count: number;
+                cost_usd: string;
+                cost_complete: boolean;
             };
         };
         UsageToolsResponse: {
@@ -22985,6 +23050,7 @@ export interface operations {
                      *         "session.admin_list",
                      *         "usage.installation_read",
                      *         "usage.agent_read",
+                     *         "usage.people_read",
                      *         "judgment.read",
                      *         "conversation_turn.read",
                      *         "installation.settings.manage"
@@ -51930,6 +51996,142 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsagePeople: {
+        parameters: {
+            query: {
+                /** @description Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC. */
+                since: string;
+                /** @description End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read. */
+                until?: string;
+                /** @description Counts only the sessions of this agent, any of its releases. */
+                agent_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Each person's calls and their totals. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "period": {
+                     *         "since": "2026-10-01T00:00:00.000Z",
+                     *         "until": "2026-10-08T00:00:00.000Z"
+                     *       },
+                     *       "refreshed_at": "2026-10-08T00:00:00.000Z",
+                     *       "agent_id": null,
+                     *       "people": [
+                     *         {
+                     *           "user_id": "8f14e45f-ceea-4e67-a2c4-1d7d9a9b0b11",
+                     *           "label": "Alice",
+                     *           "call_count": 12,
+                     *           "cost_usd": "0.184000",
+                     *           "cost_complete": true
+                     *         },
+                     *         {
+                     *           "user_id": null,
+                     *           "label": null,
+                     *           "call_count": 2,
+                     *           "cost_usd": "0.006000",
+                     *           "cost_complete": true
+                     *         }
+                     *       ],
+                     *       "totals": {
+                     *         "call_count": 14,
+                     *         "cost_usd": "0.190000",
+                     *         "cost_complete": true
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsagePeopleResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
                         };
                     };
                 };

@@ -173,13 +173,23 @@ const TABLE: [
   ["멤버 초대·역할 변경", "member.manage", onWorkspace, "ooxxxx"],
   ["Slack guest 사용 켜기·끄기", "workspace.manage", onWorkspace, "ooxxxx"],
   ["감사 보존 기간 변경", "audit_retention.manage", onWorkspace, "oxxxxx"],
-  // Figures summed over every owner, the owner's personal key
-  // included in the refusal.
+  // Figures summed over every owner, the personal keys included in the
+  // refusal.
   [
     "설치 전체 사용량·한도 읽기",
     "usage.installation_read",
     onWorkspace,
-    "oxxxxx",
+    "ooxxxx",
+  ],
+  // Each person's conversation cost: the whole workspace for its managers,
+  // one agent's share for that agent's admins, never another agent's.
+  ["사람별 사용량 읽기(전체)", "usage.people_read", onWorkspace, "ooxxxx"],
+  ["그 에이전트의 사람별 사용량 읽기", "usage.people_read", onAgentA, "ooxoxx"],
+  [
+    "다른 에이전트의 사람별 사용량 (에이전트 admin)",
+    "usage.people_read",
+    { kind: "agent", id: AGENT_B },
+    "ooxxxx",
   ],
   [
     "설치 설정 내보내기·가져오기",
