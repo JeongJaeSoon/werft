@@ -4,6 +4,7 @@ import {
   CONVERSATION_TURN_LEASE_MS,
   type ConversationRuntimeTurn,
   conversationIdSchema,
+  conversationInputIdSchema,
   conversationNextTurnResponseSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
@@ -90,7 +91,11 @@ function harness() {
         input: { id: crypto.randomUUID(), text: "hello" },
         fresh_input: { id: crypto.randomUUID(), text: "hello" },
       },
-      new Date(clock + 30_000),
+      {
+        inputId: conversationInputIdSchema.parse(crypto.randomUUID()),
+        attempt: 1,
+        takeBy: new Date(clock + 30_000),
+      },
     );
     return turnId;
   };
