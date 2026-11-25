@@ -44,9 +44,15 @@ export const SLACK_OUTBOX_MAX_ATTEMPTS = 10;
 export function slackOutboxSettleFor(
   attempts: number,
   response: SlackSendResponse,
-  /** A progress message waits out the whole Retry-After. */
-  retryAfterMaxMs = SLACK_RETRY_AFTER_MAX_MS,
+  /**
+   * A progress message waits out the whole Retry-After, and its next update
+   * still does once the row gives up.
+   */
+  progress = false,
 ): SurfaceOutboxSettle {
+  const retryAfterMaxMs = progress
+    ? Number.POSITIVE_INFINITY
+    : SLACK_RETRY_AFTER_MAX_MS;
   // A 2xx or 5xx whose answer could not be read: Slack may hold the
   // message, so this is no failure to retry. A 4xx, 429 included, is
   // judged by its status and Retry-After alone.
@@ -70,7 +76,13 @@ export function slackOutboxSettleFor(
       return { status: "failed", errorCode: outcome.code };
     case "retry_after":
       return attempts >= SLACK_OUTBOX_MAX_ATTEMPTS
-        ? { status: "failed", errorCode: "ratelimited" }
+        ? progress
+          ? {
+              status: "failed",
+              errorCode: "ratelimited",
+              retryInMs: outcome.waitMs,
+            }
+          : { status: "failed", errorCode: "ratelimited" }
         : {
             status: "pending",
             errorCode: "ratelimited",
@@ -139,7 +151,13 @@ function outcomeOf(settle: SurfaceOutboxSettle): DeliveryOutcome {
         retryAfterMs: settle.retryInMs,
       };
     case "failed":
-      return { kind: "failed", code: settle.errorCode };
+      return settle.retryInMs === undefined
+        ? { kind: "failed", code: settle.errorCode }
+        : {
+            kind: "failed",
+            code: settle.errorCode,
+            retryAfterMs: settle.retryInMs,
+          };
     case "uncertain":
       return { kind: "uncertain", code: settle.errorCode };
   }
@@ -399,11 +417,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
         return { kind: "failed", code: SURFACE_PROGRESS_STOPPED_CODE };
       }
       return outcomeOf(
-        slackOutboxSettleFor(
-          attempts,
-          response,
-          claim.kind === "progress" ? Number.POSITIVE_INFINITY : undefined,
-        ),
+        slackOutboxSettleFor(attempts, response, claim.kind === "progress"),
       );
     } catch (error) {
       logDropped();

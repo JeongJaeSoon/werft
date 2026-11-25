@@ -2147,8 +2147,9 @@ export function createPostgresSlackOutboxStore(
             : {
                 status: outcome.status,
                 errorCode: outcome.errorCode,
-                // A call that ended a progress row still spaces the next.
-                nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + ${ms(progressIntervalMs)} ELSE ${t.nextAttemptAt} END`,
+                // A call that ended a progress row still spaces the next, by
+                // the Retry-After it was given up on too.
+                nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + greatest(${ms(outcome.status === "failed" ? (outcome.retryInMs ?? 0) : 0)}, ${ms(progressIntervalMs)}) ELSE ${t.nextAttemptAt} END`,
               };
       return db.transaction(async (tx) => {
         const [row] = await tx

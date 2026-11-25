@@ -42,7 +42,13 @@ function settleOf(
         retryInMs: outcome.retryAfterMs,
       };
     case "failed":
-      return { status: "failed", errorCode: outcome.code };
+      return outcome.retryAfterMs === undefined
+        ? { status: "failed", errorCode: outcome.code }
+        : {
+            status: "failed",
+            errorCode: outcome.code,
+            retryInMs: outcome.retryAfterMs,
+          };
     case "uncertain":
       return { status: "uncertain", errorCode: outcome.code };
   }

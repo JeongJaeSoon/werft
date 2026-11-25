@@ -366,7 +366,8 @@ export type SurfacePromptCard = {
 
 export type SurfaceOutboxSettle =
   | { status: "sent"; slackTs: string }
-  | { status: "failed"; errorCode: string }
+  /** `retryInMs`: the wait Slack asked for, kept for a progress message's next update. */
+  | { status: "failed"; errorCode: string; retryInMs?: number }
   | { status: "uncertain"; errorCode: string }
   | { status: "pending"; retryInMs: number; errorCode: string };
 
