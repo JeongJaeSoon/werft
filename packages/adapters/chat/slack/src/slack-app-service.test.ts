@@ -498,6 +498,22 @@ describe("manifest check at a start of the API", () => {
     expect((await sync())?.error).toBeNull();
   });
 
+  test("a rate-limited config token rotation waits out Retry-After once and is sent", async () => {
+    const waits: number[] = [];
+    const { service, slack, appId, advance } = await subscribedApp({
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    dropEvent(slack, appId);
+    advance(24 * 60 * 60_000);
+    slack.state.next.rotate = async () => {
+      throw new SlackRateLimitedError("tooling.tokens.rotate", 30);
+    };
+    expect((await service.syncAgentAppManifests()).sent).toBe(1);
+    expect(waits).toEqual([30_000]);
+  });
+
   test("an app with no event subscription is left for Finalize", async () => {
     const { service, slack, appId, calls } = await subscribedApp();
     delete manifestOf(slack, appId).settings.event_subscriptions;

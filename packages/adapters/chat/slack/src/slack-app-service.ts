@@ -1073,14 +1073,7 @@ export function createSlackAppService(deps: {
     try {
       return await call();
     } catch (error) {
-      const wait =
-        error instanceof SlackRateLimitedError
-          ? error.retryAfterSeconds
-          : error instanceof SessionServiceError &&
-              (error.details as { slack_error?: unknown } | null)
-                ?.slack_error === "ratelimited"
-            ? (error.retry?.afterSeconds ?? null)
-            : null;
+      const wait = rateLimitOf(error);
       if (
         wait === null ||
         wait > MANIFEST_RATE_WAIT_MAX_SECONDS ||
@@ -1184,9 +1177,18 @@ function manifestSyncErrorOf(error: unknown): SlackManifestSyncError | null {
     error instanceof SessionServiceError &&
     error.code === "BACKEND_UNAVAILABLE"
   )
-    return (error.details as { slack_error?: unknown } | null)?.slack_error ===
-      "ratelimited"
-      ? "slack_refused"
-      : "no_answer";
+    return rateLimitOf(error) === null ? "no_answer" : "slack_refused";
   return null;
+}
+
+/** Slack's Retry-After seconds when it rate-limited the call; else null. */
+function rateLimitOf(error: unknown): number | null {
+  if (error instanceof SlackRateLimitedError) return error.retryAfterSeconds;
+  if (!(error instanceof SessionServiceError)) return null;
+  if (error.cause instanceof SlackRateLimitedError)
+    return error.cause.retryAfterSeconds;
+  return (error.details as { slack_error?: unknown } | null)?.slack_error ===
+    "ratelimited"
+    ? (error.retry?.afterSeconds ?? null)
+    : null;
 }
