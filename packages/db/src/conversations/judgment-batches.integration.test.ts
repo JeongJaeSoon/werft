@@ -281,4 +281,105 @@ integration("judgment batches across workers", () => {
     );
     expect(batches.rows).toEqual([{ state: "judging" }]);
   });
+  /** An M1 call of the channel, in flight past its lease: its end unknown. */
+  async function unknownM1Call(channelId: string) {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO conversation_calls (id, workspace_id, agent_id, token_hash,
+         root_kind, connection_id, path, model, max_tokens, max_request_bytes,
+         state, exchange_id, expires_at, started_at, unknown_at,
+         conversation_id, call_class, release_id, call_key, attempt)
+       SELECT $1, $2, $3, $4, 'slack_bot', 'conn', '/v1/messages', 'm', 400,
+         1000, 'in_flight', $5, now() - interval '5 minutes',
+         now() - interval '6 minutes', now(), c.id, 'm1', $6, $7, 1
+       FROM conversations c
+       WHERE c.agent_id = $3 AND c.kind = 'channel' AND c.channel_id = $8`,
+      [
+        id,
+        workspaceId,
+        agentId,
+        Buffer.from(randomUUID()),
+        randomUUID(),
+        releaseId,
+        `${randomUUID()}:m1`,
+        channelId,
+      ],
+    );
+    return id;
+  }
+
+  const judgedChannels = () => {
+    const judged: string[] = [];
+    const pass = () =>
+      runJudgmentBatches({
+        store: createPostgresJudgmentBatchStore(db),
+        judge: {
+          async judge(batch: JudgmentBatch) {
+            judged.push(batch.channelId);
+            return { modelCalled: true, left: [] };
+          },
+          async rateLimited(batch: JudgmentBatch) {
+            judged.push(`${batch.channelId}:rate_limited`);
+          },
+        },
+        logger: { warn() {} },
+        deadline: Date.now() + 10_000,
+      });
+    return { judged, pass };
+  };
+
+  const batchesOf = async (channelId: string) =>
+    (
+      await pool.query(
+        "SELECT state FROM judgment_batches WHERE slack_channel_id = $1",
+        [channelId],
+      )
+    ).rows;
+
+  test("a channel whose M1 call is of unknown end closes no batch, pass after pass, and the others are judged", async () => {
+    const blocked = await heardChannel();
+    const open = await heardChannel();
+    await quietPost(blocked, "700.000100");
+    await quietPost(open, "700.000200");
+    const callId = await unknownM1Call(blocked.channelId);
+    const { judged, pass } = judgedChannels();
+    for (let n = 0; n < 3; n++) await pass();
+    const ours = () =>
+      judged.filter((channel) =>
+        [blocked.channelId, open.channelId].includes(channel),
+      );
+    expect(ours()).toEqual([open.channelId]);
+    // No batch, so no record of one put off, however many passes go by.
+    expect(await batchesOf(blocked.channelId)).toEqual([]);
+    // An operator closes the call: the channel has its place again.
+    await pool.query(
+      "UPDATE conversation_calls SET state = 'resolved', ended_at = now() WHERE id = $1",
+      [callId],
+    );
+    await pass();
+    expect(ours()).toEqual([open.channelId, blocked.channelId]);
+  });
+
+  test("a channel past its cap still closes its rate-limited batch while its M1 place is taken", async () => {
+    const place = await heardChannel();
+    await quietPost(place, "800.000100");
+    await unknownM1Call(place.channelId);
+    await pool.query(
+      `INSERT INTO judgment_batches (id, workspace_id, agent_id,
+         conversation_id, slack_team_id, slack_channel_id, release_id, state,
+         model_called, closed_at, ended_at)
+       SELECT gen_random_uuid(), $1, $2, c.id, $3, $4, $5, 'judged', true,
+         now() - interval '1 minute', now() - interval '1 minute'
+       FROM conversations c, surface_bindings sb,
+         generate_series(1, sb.m1_judgments_per_hour)
+       WHERE c.agent_id = $2 AND c.kind = 'channel' AND c.channel_id = $4
+         AND sb.agent_id = $2 AND sb.external_surface_id = $4`,
+      [workspaceId, agentId, TEAM, place.channelId, releaseId],
+    );
+    const { judged, pass } = judgedChannels();
+    await pass();
+    expect(judged.filter((each) => each.startsWith(place.channelId))).toEqual([
+      `${place.channelId}:rate_limited`,
+    ]);
+  });
 });
