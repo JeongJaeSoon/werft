@@ -341,10 +341,23 @@ export const JUDGMENT_FAILED_REASON_VALUES = [
 export type JudgmentFailedReason =
   (typeof JUDGMENT_FAILED_REASON_VALUES)[number];
 
+/**
+ * Why a called judgment's result was thrown away (a1/J6): a message it read
+ * was deleted, or edited, while the model ran. Its row keeps no decision and
+ * no message's place.
+ */
+export const JUDGMENT_VOIDED_REASON_VALUES = [
+  "voided_by_delete",
+  "voided_by_edit",
+] as const;
+export type JudgmentVoidedReason =
+  (typeof JUDGMENT_VOIDED_REASON_VALUES)[number];
+
 export const JUDGMENT_OUTCOME_VALUES = [
   "judged",
   "not_called",
   "failed",
+  "voided",
 ] as const;
 export type JudgmentOutcome = (typeof JUDGMENT_OUTCOME_VALUES)[number];
 
@@ -352,6 +365,7 @@ export const JUDGMENT_REASON_VALUES = [
   ...M1_MODEL_REASON_VALUES,
   ...JUDGMENT_NOT_CALLED_REASON_VALUES,
   ...JUDGMENT_FAILED_REASON_VALUES,
+  ...JUDGMENT_VOIDED_REASON_VALUES,
 ] as const;
 export type JudgmentReason = (typeof JUDGMENT_REASON_VALUES)[number];
 

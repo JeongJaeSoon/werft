@@ -4,6 +4,7 @@ import {
   type ConversationInputId,
   type ConversationJudgmentId,
   type ConversationTopicId,
+  type JudgmentVoidedReason,
   M1_PROMPT_VERSION,
   type SlackNoticeVersionEntry,
 } from "@werft-ai/contracts";
@@ -22,6 +23,9 @@ import {
   dropBufferedInputs,
   engagedJudgmentsInWindow,
   JUDGMENT_BUFFER_TTL_MS,
+  lockedReadChanges,
+  type ReadChanges,
+  type ReadMessage,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -84,6 +88,31 @@ function verdictColumns(record: M1Record) {
     decision: record.verdict.decision,
     reason: record.verdict.reason,
   };
+}
+
+/**
+ * Check spot ② (a1/J6) for a record about to be written: a judged result
+ * whose messages were deleted or edited while the model ran is voided. The
+ * marks of what it read are locked to the end of `tx` either way, so call
+ * it before the gate, as a hold takes a mark's lock before the agent's row.
+ * A record the model gave no answer for (not called, failed) decided
+ * nothing from the text and is written as it is.
+ */
+async function voidedBy(
+  tx: Database,
+  place: Pick<M1Place, "workspaceId" | "teamId" | "channelId">,
+  record: M1Record,
+  messages: readonly ReadMessage[],
+): Promise<{ reason: JudgmentVoidedReason; changes: ReadChanges } | null> {
+  if (record.verdict.outcome !== "judged" || messages.length === 0) {
+    return null;
+  }
+  const changes = await lockedReadChanges(tx, { ...place, messages });
+  if (changes.deleted.length > 0) {
+    return { reason: "voided_by_delete", changes };
+  }
+  if (changes.edited.length > 0) return { reason: "voided_by_edit", changes };
+  return null;
 }
 
 const textArray = (values: readonly string[]): SQL =>
@@ -169,9 +198,56 @@ export function createPostgresM1JudgmentStore(
   return {
     gateOpen: (place) => gateOpenIn(db, place, false, versions),
 
-    async recordBatch(batch, record, judged) {
+    async recordBatch(batch, record, judged, options = {}) {
       return db.transaction(async (tx) => {
-        if (!(await gateOpenIn(tx, batch, true, versions))) return false;
+        const voided = await voidedBy(
+          tx,
+          batch,
+          record,
+          judged.map((post) => ({
+            ts: post.ts,
+            buffered: { inputId: post.inputId, body: post.body },
+          })),
+        );
+        if (!(await gateOpenIn(tx, batch, true, versions))) {
+          return { outcome: "closed" };
+        }
+        if (voided !== null) {
+          // The call's row, linked by its key; no decision, no place.
+          await tx.execute(sql`
+            INSERT INTO conversation_judgments (
+              id, workspace_id, agent_id, conversation_id, grade,
+              slack_team_id, slack_channel_id, refs, judgment_batch_id,
+              release_id, call_key, attempts, prompt_version, outcome,
+              reason, judged_at
+            ) VALUES (
+              ${randomUUID()}::uuid, ${batch.workspaceId}::uuid,
+              ${batch.agentId}::uuid, ${batch.conversationId}::uuid,
+              'buffer_m1', ${batch.teamId}, ${batch.channelId},
+              '{}'::text[], ${batch.id}::uuid, ${record.releaseId},
+              ${record.callKey}, ${record.attempts}, ${M1_PROMPT_VERSION},
+              'voided', ${voided.reason}, now()
+            )`);
+          const deleted = new Set(voided.changes.deleted);
+          const edited = new Map(
+            voided.changes.edited.map((post) => [post.ts, post.body]),
+          );
+          const remaining = judged
+            .filter((post) => !deleted.has(post.ts))
+            .map((post) => ({
+              ...post,
+              body: edited.get(post.ts) ?? post.body,
+            }));
+          if (options.final !== true) {
+            return { outcome: "voided", reason: voided.reason, remaining };
+          }
+          // Judged once more and voided again: no third call on them.
+          await dropBufferedInputs(
+            tx,
+            remaining.map((post) => post.inputId),
+          );
+          return { outcome: "voided", reason: voided.reason, remaining: [] };
+        }
         const columns = verdictColumns(record);
         await tx.execute(sql`
           INSERT INTO conversation_judgments (
@@ -188,8 +264,11 @@ export function createPostgresM1JudgmentStore(
             ${record.attempts}, ${M1_PROMPT_VERSION}, ${columns.outcome},
             ${columns.decision}, ${columns.reason}, now()
           )`);
-        await dropBufferedInputs(tx, judged);
-        return true;
+        await dropBufferedInputs(
+          tx,
+          judged.map((post) => post.inputId),
+        );
+        return { outcome: "written" };
       });
     },
 
@@ -304,32 +383,79 @@ export function createPostgresM1JudgmentStore(
       }
     },
 
-    async finishReply(id, record) {
+    async finishReply(id, record, options = {}) {
       const [row] = rowsOf<WaitingRow>(
         await db.execute(sql`
           SELECT id, workspace_id, agent_id, grade, slack_team_id,
-            slack_channel_id, input_id
+            slack_channel_id, input_id, refs
           FROM conversation_judgments
           WHERE id = ${id}::uuid AND outcome IS NULL`),
       );
       if (row === undefined) return "dropped";
+      const place = {
+        workspaceId: row.workspace_id,
+        agentId: row.agent_id,
+        teamId: row.slack_team_id,
+        channelId: row.slack_channel_id,
+      };
       return db.transaction(async (tx) => {
-        if (
-          record === null ||
-          !(await gateOpenIn(
-            tx,
-            {
-              workspaceId: row.workspace_id,
-              agentId: row.agent_id,
-              teamId: row.slack_team_id,
-              channelId: row.slack_channel_id,
-            },
-            true,
-            versions,
-          ))
-        ) {
+        const [ts] = row.refs;
+        // A held reply's text is in the buffer; a bound one's is kept
+        // nowhere past its turn, so any edit mark changed it.
+        const voided =
+          record === null || ts === undefined
+            ? null
+            : await voidedBy(tx, place, record, [
+                {
+                  ts,
+                  buffered:
+                    row.grade === "m1_engaged" && options.read !== undefined
+                      ? { inputId: row.input_id, body: options.read }
+                      : null,
+                },
+              ]);
+        if (record === null || !(await gateOpenIn(tx, place, true, versions))) {
           await dropReply(tx, row);
           return "dropped";
+        }
+        if (voided !== null) {
+          const [edit] = voided.changes.edited;
+          const rejudge =
+            voided.reason === "voided_by_edit" &&
+            row.grade === "m1_engaged" &&
+            options.final !== true
+              ? (edit?.body ?? null)
+              : null;
+          if (rejudge !== null) {
+            // The voided call's row beside the reply's, which waits for its
+            // judgment again.
+            await tx.execute(sql`
+              INSERT INTO conversation_judgments (
+                id, workspace_id, agent_id, conversation_id, grade,
+                slack_team_id, slack_channel_id, refs, release_id, call_key,
+                attempts, prompt_version, outcome, reason, rule_decision,
+                rule_reason, claimed_at, created_at, judged_at
+              )
+              SELECT ${randomUUID()}::uuid, workspace_id, agent_id,
+                conversation_id, grade, slack_team_id, slack_channel_id,
+                '{}'::text[], ${record.releaseId}, ${record.callKey},
+                ${record.attempts}, prompt_version, 'voided',
+                ${voided.reason}, rule_decision, rule_reason, claimed_at,
+                created_at, now()
+              FROM conversation_judgments WHERE id = ${id}::uuid`);
+            return { voided: voided.reason, rejudge };
+          }
+          if (row.grade === "m1_engaged" && row.input_id !== null) {
+            await dropBufferedInputs(tx, [row.input_id]);
+          }
+          await tx.execute(sql`
+            UPDATE conversation_judgments SET
+              refs = '{}'::text[], sources = NULL, input_id = NULL,
+              release_id = ${record.releaseId}, call_key = ${record.callKey},
+              attempts = ${record.attempts}, outcome = 'voided',
+              decision = NULL, reason = ${voided.reason}, judged_at = now()
+            WHERE id = ${id}::uuid AND outcome IS NULL`);
+          return { voided: voided.reason, rejudge: null };
         }
         if (row.grade === "m1_engaged" && row.input_id !== null) {
           await dropBufferedInputs(tx, [row.input_id]);

@@ -28,6 +28,7 @@ import {
   releaseSpecSqlValues,
 } from "../testing/spec-pins.ts";
 import { createPostgresM1JudgmentStore } from "./m1-judgments.ts";
+import { createPostgresSlackSourceMarkStore } from "./slack-source-marks.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -226,9 +227,9 @@ integration("M1 judgment records", () => {
         inputs: [],
       },
       judgedRecord("k", ["200.000001"]),
-      [inputId],
+      [{ inputId, ts: "200.000001", body: "chatter" }],
     );
-    expect(written).toBe(false);
+    expect(written).toEqual({ outcome: "closed" });
     expect(await rowsOf(place.channelId)).toEqual([]);
   });
 
@@ -262,9 +263,9 @@ integration("M1 judgment records", () => {
       await store.recordBatch(
         closed.batch,
         judgedRecord(closed.batch.id, ["300.000001"]),
-        [judged],
+        [{ inputId: judged, ts: "300.000001", body: "secret words one" }],
       ),
-    ).toBe(true);
+    ).toEqual({ outcome: "written" });
     const [row] = await rowsOf(place.channelId);
     expect(row).toMatchObject({
       grade: "buffer_m1",
@@ -479,5 +480,335 @@ integration("M1 judgment records", () => {
     expect(fits?.subject.channelId).toBe(room.channelId);
     expect(fits?.rateLimited).toBe(false);
     if (fits) await store.finishReply(fits.id, null);
+  });
+
+  describe("check spot ② (a1/J6)", () => {
+    const store = () =>
+      createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const marks = () => createPostgresSlackSourceMarkStore(db);
+    const mark = (place: Place, ts: string) => ({
+      workspaceId,
+      teamId: TEAM,
+      channelId: place.channelId,
+      ts,
+      at: new Date(),
+    });
+
+    /** Holds the posts, then closes the channel's batch over them. */
+    async function batchOver(place: Place, posts: [string, string][]) {
+      const held = [];
+      for (const [ts, body] of posts) {
+        held.push({ inputId: await hold(place, ts, body), ts, body });
+      }
+      await pool.query(
+        "UPDATE conversation_inputs SET received_at = now() - interval '20 seconds' WHERE slack_channel_id = $1",
+        [place.channelId],
+      );
+      const batches = createPostgresJudgmentBatchStore(db);
+      for (let i = 0; i < 10; i++) {
+        const closed = await batches.closeNext();
+        if (closed === null) break;
+        if (closed.batch.channelId === place.channelId) {
+          if (closed.outcome !== "judging") throw new Error("rate limited");
+          return { batch: closed.batch, held };
+        }
+      }
+      throw new Error("no batch for the channel");
+    }
+
+    const bodiesOf = async (place: Place) =>
+      (
+        await pool.query<{ slack_ts: string; body: string }>(
+          "SELECT slack_ts, body FROM conversation_inputs WHERE slack_channel_id = $1 AND buffer_expires_at IS NOT NULL ORDER BY slack_ts",
+          [place.channelId],
+        )
+      ).rows;
+
+    test("a post deleted while judged voids the result: no decision, no place, the call's key", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [
+        ["1100.000001", "one"],
+        ["1100.000002", "two"],
+        ["1100.000003", "three"],
+      ]);
+      await marks().markDeleted(mark(place, "1100.000002"));
+      const [one, , three] = held;
+      if (!one || !three) throw new Error("three");
+      const refs = held.map((post) => post.ts);
+      const first = await store().recordBatch(
+        batch,
+        judgedRecord(batch.id, refs),
+        held,
+      );
+      expect(first).toEqual({
+        outcome: "voided",
+        reason: "voided_by_delete",
+        remaining: [one, three],
+      });
+      const [voided] = await rowsOf(place.channelId);
+      expect(voided).toMatchObject({
+        grade: "buffer_m1",
+        outcome: "voided",
+        decision: null,
+        reason: "voided_by_delete",
+        refs: [],
+        sources: null,
+        input_id: null,
+        call_key: `${batch.id}:m1`,
+        attempts: 1,
+        judgment_batch_id: batch.id,
+      });
+      // The two left keep their rows for the judgment again.
+      expect((await bodiesOf(place)).map((row) => row.slack_ts)).toEqual([
+        "1100.000001",
+        "1100.000003",
+      ]);
+      expect(
+        await store().recordBatch(
+          batch,
+          judgedRecord(`${batch.id}-rejudge`, ["1100.000001", "1100.000003"]),
+          [one, three],
+          { final: true },
+        ),
+      ).toEqual({ outcome: "written" });
+      const rows = await rowsOf(place.channelId);
+      expect(rows.map((row) => [row.outcome, row.refs, row.call_key])).toEqual([
+        ["voided", [], `${batch.id}:m1`],
+        ["judged", ["1100.000001", "1100.000003"], `${batch.id}-rejudge:m1`],
+      ]);
+      expect(await bodiesOf(place)).toEqual([]);
+    });
+
+    test("every post deleted: voided with nothing left to judge again", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["1200.000001", "one"]]);
+      await marks().markDeleted(mark(place, "1200.000001"));
+      expect(
+        await store().recordBatch(
+          batch,
+          judgedRecord(batch.id, ["1200.000001"]),
+          held,
+        ),
+      ).toEqual({
+        outcome: "voided",
+        reason: "voided_by_delete",
+        remaining: [],
+      });
+    });
+
+    test("an edit while judged voids it and hands back the buffer's new text; edited again, the posts go", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [
+        ["1300.000001", "before"],
+      ]);
+      await marks().markEdited(mark(place, "1300.000001"), "after");
+      const first = await store().recordBatch(
+        batch,
+        judgedRecord(batch.id, ["1300.000001"]),
+        held,
+      );
+      expect(first).toMatchObject({
+        outcome: "voided",
+        reason: "voided_by_edit",
+        remaining: [{ ts: "1300.000001", body: "after" }],
+      });
+      if (first.outcome !== "voided") throw new Error("not voided");
+      await marks().markEdited(
+        { ...mark(place, "1300.000001"), at: new Date(Date.now() + 1000) },
+        "after again",
+      );
+      expect(
+        await store().recordBatch(
+          batch,
+          judgedRecord(`${batch.id}-rejudge`, ["1300.000001"]),
+          first.remaining,
+          { final: true },
+        ),
+      ).toEqual({ outcome: "voided", reason: "voided_by_edit", remaining: [] });
+      expect(await bodiesOf(place)).toEqual([]);
+      const rows = await rowsOf(place.channelId);
+      expect(rows.map((row) => [row.outcome, row.reason])).toEqual([
+        ["voided", "voided_by_edit"],
+        ["voided", "voided_by_edit"],
+      ]);
+      expect(JSON.stringify(rows)).not.toContain("after");
+    });
+
+    test("an edit before the batch closed is not a change: its new text was read", async () => {
+      const place = await channel();
+      await hold(place, "1400.000001", "before");
+      await marks().markEdited(mark(place, "1400.000001"), "after");
+      const { batch } = await batchOver(place, []);
+      const [read] = batch.inputs;
+      expect(read?.body).toBe("after");
+      expect(
+        await store().recordBatch(
+          batch,
+          judgedRecord(batch.id, ["1400.000001"]),
+          batch.inputs,
+        ),
+      ).toEqual({ outcome: "written" });
+    });
+
+    test("a delete committing while the result is written is waited for and voids it", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["1500.000001", "one"]]);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtext('slack_source_marks'), hashtext(concat_ws('|', $1::text, $2::text, $3::text, $4::text)))",
+          [workspaceId, TEAM, place.channelId, "1500.000001"],
+        );
+        await client.query(
+          "INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at) VALUES ($1, $2, $3, $4, now())",
+          [workspaceId, TEAM, place.channelId, "1500.000001"],
+        );
+        let settled = false;
+        const writing = store()
+          .recordBatch(batch, judgedRecord(batch.id, ["1500.000001"]), held)
+          .finally(() => {
+            settled = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(settled).toBe(false);
+        await client.query("COMMIT");
+        expect((await writing).outcome).toBe("voided");
+      } finally {
+        client.release();
+      }
+      const rows = await rowsOf(place.channelId);
+      expect(rows.map((row) => row.outcome)).toEqual(["voided"]);
+    });
+
+    test("the switch lowered before the write: nothing written, nothing voided", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["1600.000001", "one"]]);
+      await pool.query(
+        "UPDATE agents SET conversation_rollout = 'off' WHERE id = $1",
+        [agentId],
+      );
+      try {
+        await marks().markDeleted(mark(place, "1600.000002"));
+        expect(
+          await store().recordBatch(
+            batch,
+            judgedRecord(batch.id, ["1600.000001"]),
+            held,
+          ),
+        ).toEqual({ outcome: "closed" });
+      } finally {
+        await pool.query(
+          "UPDATE agents SET conversation_rollout = 'shadow' WHERE id = $1",
+          [agentId],
+        );
+      }
+      expect(await rowsOf(place.channelId)).toEqual([]);
+    });
+
+    test("an engaged reply edited while judged waits for one judgment again on its new text", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
+      const place = await channel();
+      const inputId = await hold(place, "1700.000001", "before", "m1_engaged");
+      const claimed = await store().claimReply();
+      if (claimed === null) throw new Error("none");
+      await marks().markEdited(mark(place, "1700.000001"), "after");
+      const first = await store().finishReply(
+        claimed.id,
+        judgedRecord(inputId, ["1700.000001"]),
+        { read: "before" },
+      );
+      expect(first).toEqual({ voided: "voided_by_edit", rejudge: "after" });
+      let rows = await rowsOf(place.channelId);
+      expect(rows.map((row) => [row.outcome, row.input_id])).toEqual([
+        [null, inputId],
+        ["voided", null],
+      ]);
+      expect(
+        await store().finishReply(
+          claimed.id,
+          judgedRecord(`${inputId}-rejudge`, ["1700.000001"]),
+          { read: "after", final: true },
+        ),
+      ).toBe("written");
+      rows = await rowsOf(place.channelId);
+      expect(rows.map((row) => [row.outcome, row.call_key])).toEqual([
+        ["judged", `${inputId}-rejudge:m1`],
+        ["voided", `${inputId}:m1`],
+      ]);
+    });
+
+    test("an engaged reply deleted while judged becomes a voided row and keeps no place", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
+      const place = await channel();
+      const inputId = await hold(place, "1800.000001", "gone", "m1_engaged");
+      const claimed = await store().claimReply();
+      if (claimed === null) throw new Error("none");
+      await marks().markDeleted(mark(place, "1800.000001"));
+      expect(
+        await store().finishReply(
+          claimed.id,
+          judgedRecord(inputId, ["1800.000001"]),
+          { read: "gone" },
+        ),
+      ).toEqual({ voided: "voided_by_delete", rejudge: null });
+      const [row] = await rowsOf(place.channelId);
+      expect(row).toMatchObject({
+        outcome: "voided",
+        reason: "voided_by_delete",
+        decision: null,
+        refs: [],
+        input_id: null,
+        sources: null,
+      });
+    });
+
+    test("a bound reply edited while judged is voided and not judged again", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
+      const place = await channel();
+      const session = await newPartitionedSession(db, "m1-j6");
+      await pool.query("UPDATE sessions SET status = 'idle' WHERE id = $1", [
+        session.sessionId,
+      ]);
+      const inputId = await hold(place, "1900.000001", "reply");
+      await db.transaction((tx) =>
+        requestReplyJudgment(tx, {
+          workspaceId,
+          agentId,
+          teamId: TEAM,
+          channelId: place.channelId,
+          ts: "1900.000001",
+          topicId: place.topicId,
+          inputId,
+          sessionId: session.sessionId,
+          rule: { decision: "reply", reason: "default_reply" },
+        }),
+      );
+      const claimed = await store().claimReply();
+      if (claimed === null) throw new Error("none");
+      expect(claimed.subject.grade).toBe("m1");
+      await marks().markEdited(mark(place, "1900.000001"));
+      expect(
+        await store().finishReply(
+          claimed.id,
+          judgedRecord(inputId, ["1900.000001"]),
+          { read: "reply" },
+        ),
+      ).toEqual({ voided: "voided_by_edit", rejudge: null });
+      const [row] = await rowsOf(place.channelId);
+      expect(row).toMatchObject({
+        grade: "m1",
+        outcome: "voided",
+        refs: [],
+        input_id: null,
+        rule_decision: "reply",
+      });
+    });
   });
 });

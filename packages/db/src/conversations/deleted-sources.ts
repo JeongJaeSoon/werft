@@ -124,6 +124,123 @@ export async function lockedDeletedSource(
       };
 }
 
+/** One message a model call read, as check spot ② sees it. */
+export type ReadMessage = {
+  ts: string;
+  /**
+   * A buffered message: its row (null once it went) and the text the call
+   * read. None for one whose text is kept nowhere (a reply that became a
+   * turn): any edit mark changed what the call read.
+   */
+  buffered: { inputId: string | null; body: string } | null;
+};
+
+/** What became of the messages a call read while it ran. */
+export type ReadChanges = {
+  /** The ts Slack (or an admin) deleted. */
+  deleted: string[];
+  /** The ts edited since, with the buffer's new text; null when kept nowhere. */
+  edited: { ts: string; body: string | null }[];
+};
+
+/**
+ * Check spot ② (a1/J6): what became of the messages of one channel a model
+ * call read, right before its result is written. Each message's mark lock is
+ * taken first, in lockedDeletedSource's order, and held to the end of the
+ * caller's transaction: a delete or an edit under way is waited for and
+ * seen, and one that comes later finds the result written. A buffered
+ * message was edited when its row's text is no longer the text read (an
+ * edit changes both under the same lock); one whose row went was not, and
+ * its delete mark, if any, tells. Every write of a result a call made from
+ * Slack messages (a judgment record, a summary line) asks this.
+ */
+export async function lockedReadChanges(
+  tx: Database,
+  input: {
+    workspaceId: string;
+    teamId: string;
+    channelId: string;
+    messages: readonly ReadMessage[];
+  },
+): Promise<ReadChanges> {
+  const changes: ReadChanges = { deleted: [], edited: [] };
+  if (input.messages.length === 0) return changes;
+  const places = [
+    ...new Map(
+      input.messages.map((message) => {
+        const place = {
+          teamId: input.teamId,
+          channelId: input.channelId,
+          ts: message.ts,
+        };
+        return [placeOrder(place), place] as const;
+      }),
+    ).entries(),
+  ].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const [, place] of places) {
+    await tx.execute(
+      lockSlackSourceMark({ workspaceId: input.workspaceId, ...place }),
+    );
+  }
+  const tsArray = (values: readonly string[]) =>
+    sql`ARRAY[${sql.join(
+      values.map((value) => sql`${value}::text`),
+      sql`, `,
+    )}]`;
+  const same = sql`workspace_id = ${input.workspaceId}::uuid
+    AND team_id = ${input.teamId} AND channel_id = ${input.channelId}`;
+  const deleted = new Set(
+    rowsOf<{ ts: string }>(
+      await tx.execute(sql`
+        SELECT ts FROM deleted_sources
+        WHERE ${same} AND ts = ANY(${tsArray(places.map(([, p]) => p.ts))})`),
+    ).map((row) => row.ts),
+  );
+  const live = input.messages.filter((message) => !deleted.has(message.ts));
+  const unkept = live.filter((message) => message.buffered === null);
+  const markedEdited =
+    unkept.length === 0
+      ? new Set<string>()
+      : new Set(
+          rowsOf<{ ts: string }>(
+            await tx.execute(sql`
+              SELECT ts FROM edited_sources
+              WHERE ${same}
+                AND ts = ANY(${tsArray(unkept.map((message) => message.ts))})`),
+          ).map((row) => row.ts),
+        );
+  const rowIds = live.flatMap((message) =>
+    message.buffered?.inputId ? [message.buffered.inputId] : [],
+  );
+  const bodies = new Map(
+    rowIds.length === 0
+      ? []
+      : rowsOf<{ id: string; body: string | null }>(
+          await tx.execute(sql`
+            SELECT id, body FROM conversation_inputs
+            WHERE id IN (${sql.join(
+              rowIds.map((id) => sql`${id}::uuid`),
+              sql`, `,
+            )}) AND buffer_expires_at IS NOT NULL`),
+        ).map((row) => [row.id, row.body] as const),
+  );
+  for (const message of input.messages) {
+    if (deleted.has(message.ts)) {
+      changes.deleted.push(message.ts);
+    } else if (message.buffered === null) {
+      if (markedEdited.has(message.ts)) {
+        changes.edited.push({ ts: message.ts, body: null });
+      }
+    } else if (message.buffered.inputId !== null) {
+      const now = bodies.get(message.buffered.inputId);
+      if (typeof now === "string" && now !== message.buffered.body) {
+        changes.edited.push({ ts: message.ts, body: now });
+      }
+    }
+  }
+  return changes;
+}
+
 /**
  * Whether a turn of the session has the deleted message among its sources,
  * directly or inherited: lockedDeletedSource read the other way, from a
