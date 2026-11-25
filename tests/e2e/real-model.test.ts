@@ -344,7 +344,7 @@ echo " 0 fail"
     expect(argv).not.toContain(OVERLAY);
     expect(argv).toContain(`-f ${FAKE_MODEL}`);
     expect(argv).toContain(
-      "bun test ./tests/e2e/workspace-mcp.e2e.ts./tests/e2e/alpha-path.e2e.ts ./tests/e2e/db-outage.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
+      "bun test ./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/db-outage.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
     );
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh\n");
@@ -353,6 +353,15 @@ echo " 0 fail"
     expect(seed).toContain('"fake-messages":"local-placeholder-key"');
     expect(seed).not.toContain("mcp_servers");
     expect(seed).not.toContain(PROBE);
+  });
+
+  test("every suite path run.sh lists names one file", async () => {
+    const script = await Bun.file(RUN).text();
+    const paths = script.match(/\.\/tests\/[^\s()"`*]+\.ts\b[^\s()"`]*/g) ?? [];
+    expect(paths.length).toBeGreaterThan(5);
+    for (const path of paths) {
+      expect(await Bun.file(join(ROOT, path)).exists()).toBe(true);
+    }
   });
 });
 
