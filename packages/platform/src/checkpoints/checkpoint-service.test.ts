@@ -578,6 +578,155 @@ describe("protectedCommits", () => {
     ).rejects.toThrow("protected commits would be incomplete");
   });
 
+  describe("object reads as the session's history grows", () => {
+    // Like a long session: revision r names transcript parts 0..r and builds
+    // on the bundles of revisions 0..r-1.
+    const partOf = (n: number) => {
+      const body = `{"type":"user","uuid":"p${n}"}\n`;
+      return {
+        body,
+        ref: {
+          bytes: encode(body).byteLength,
+          key: `${sessionObjectPrefix(sessionId)}mirror/root-${n}.jsonl`,
+          sha256: sha256(body),
+        },
+      };
+    };
+    const bundleOf = (n: number) => {
+      const body = `bundle ${n}\n`;
+      return {
+        body,
+        ref: {
+          bytes: encode(body).byteLength,
+          key: bundleKeyFor(n, attemptId),
+          sha256: sha256(body),
+        },
+      };
+    };
+
+    function countingService() {
+      const calls = { get: 0, head: 0, stream: 0, verify: 0 };
+      const counted = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (typeof value !== "function") return value;
+          return (...args: unknown[]) => {
+            if (property in calls) calls[property as keyof typeof calls] += 1;
+            return value.apply(target, args);
+          };
+        },
+      });
+      const verifier: WorkspaceBundleVerifier = {
+        async verify() {
+          calls.verify += 1;
+          return { status: "restorable" };
+        },
+      };
+      const counting = createCheckpointService({
+        codecs: { [runtime.engine]: codec },
+        objectProtection: "unversioned",
+        newPublishId: () => PUBLISH_ID,
+        objects: counted,
+        store: checkpoints.store,
+        workspaceBundles: verifier,
+      });
+      const reset = () => {
+        for (const name of Object.keys(calls) as Array<keyof typeof calls>) {
+          calls[name] = 0;
+        }
+      };
+      return { calls, counting, reset };
+    }
+
+    async function commitHistory(
+      on: ReturnType<typeof createCheckpointService>,
+      revisions: number,
+    ) {
+      for (let revision = 0; revision < revisions; revision += 1) {
+        const part = partOf(revision);
+        const bundle = bundleOf(revision);
+        await objects.overwrite(part.ref.key, encode(part.body));
+        await objects.overwrite(bundle.ref.key, encode(bundle.body));
+        const bases = Array.from(
+          { length: revision },
+          (_, n) => bundleOf(n).ref,
+        );
+        const uploaded = await upload(
+          manifest({
+            revision,
+            transcripts: {
+              root: {
+                entryCount: revision + 1,
+                parts: Array.from(
+                  { length: revision + 1 },
+                  (_, n) => partOf(n).ref,
+                ),
+                sha256: "c".repeat(64),
+              },
+              subagents: {},
+            },
+            workspace: workspace({
+              ...(bases.length === 0 ? {} : { baseBundles: bases }),
+              bundle: bundle.ref,
+            }),
+          }),
+        );
+        expect(
+          await finalizeWith(on, {
+            ...uploaded,
+            fence: fence(),
+            now: new Date(),
+            sessionId,
+            turnId: String(revision + 1),
+          }),
+        ).toMatchObject({ outcome: "committed" });
+      }
+    }
+
+    test("each revision adds a constant number of reads, not one per part and link it shares with the others", async () => {
+      for (const revisions of [4, 8, 16]) {
+        checkpoints = memoryCheckpointStore();
+        const { calls, counting, reset } = countingService();
+        await commitHistory(counting, revisions);
+        reset();
+        await counting.protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        });
+        // Per checkpoint: its manifest (HEAD and GET), its own new part and
+        // its own new bundle link (HEAD and read each), one bundle
+        // verification. Once per call: the pointer's manifest for the
+        // verified set, and the untracked file every revision shares.
+        // Unversioned refs are never in the verified set, so parts are read.
+        expect({ revisions, ...calls }).toEqual({
+          revisions,
+          get: revisions + 1,
+          head: 3 * revisions + 1,
+          stream: 2 * revisions + 1,
+          verify: revisions,
+        });
+      }
+    });
+
+    test("nothing is shared between calls: the next call reads and verifies everything again", async () => {
+      const { calls, counting, reset } = countingService();
+      await commitHistory(counting, 6);
+      const pointer = checkpoints.pointer();
+      reset();
+      await counting.protectedCommits({ sessionId, pointer });
+      const first = { ...calls };
+      reset();
+      await counting.protectedCommits({ sessionId, pointer });
+      expect(calls).toEqual(first);
+
+      // A link the first call read is gone: the second call finds it.
+      objects.remove(bundleOf(2).ref.key);
+      await expect(
+        counting.protectedCommits({ sessionId, pointer }),
+      ).rejects.toThrow("protected commits would be incomplete");
+    });
+  });
+
   test("readPushSource carries the worker's attribution findings to request_push", async () => {
     await commitRevision(0, true);
     expect(await service.readPushSource(sessionId)).toMatchObject({

@@ -323,6 +323,10 @@ export type ObjectProtection = "locked" | "unversioned";
 
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
+// How many checkpoints one protectedCommits call judges at once; their
+// bundle verifications queue on the same gate as every other.
+const PROTECTED_JUDGE_CONCURRENCY = 4;
+
 // The git verifier's own timeout: a bundle that keeps throwing then holds a
 // verification slot at most half the time.
 export const DEFAULT_BUNDLE_RETRY_COOLDOWN_MS = 60_000;
@@ -367,6 +371,29 @@ type CommittedReads = {
   manifest(
     checkpoint: CheckpointPointer,
   ): Promise<CheckpointManifest | undefined>;
+};
+
+/**
+ * One `protectedCommits` call's object reads, shared by the revisions it
+ * judges (`withSharedReads`).
+ */
+type SharedReads = {
+  bundle(link: ObjectRef): Promise<SpooledBundle>;
+  digest(
+    key: string,
+    version: string | undefined,
+    limit: number,
+  ): ReturnType<typeof digestObject>;
+  head(
+    key: string,
+    version: string | undefined,
+  ): Promise<ObjectHead | undefined>;
+};
+
+/** A bundle link read once against the whole bundle ceiling, and its file. */
+type SpooledBundle = {
+  body: Awaited<ReturnType<typeof digestObject>>;
+  path: string;
 };
 
 type VerifiedRefs = {
@@ -470,6 +497,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      * version that went anyway is caught.
      */
     held?: boolean;
+    /** `protectedCommits` only: reads shared with the other revisions it judges. */
+    shared?: SharedReads;
   }): Promise<Judgement> {
     const { checkpoint, sessionId } = input;
     const version = pinnedVersion(checkpoint.manifest_version);
@@ -538,6 +567,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       input.pinned,
       input.confined === true,
       input.held === true,
+      input.shared,
     );
     if (bad !== undefined) {
       if (bad.damaged) return damaged(bad.reason);
@@ -595,6 +625,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     pinned?: PinnedVersions,
     confined = false,
     held = false,
+    shared?: SharedReads,
   ): Promise<Problem | undefined> {
     const transcriptRefs = [
       ...manifest.transcripts.root.parts,
@@ -727,7 +758,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       const token = refToken(ref);
       const known = token !== undefined && verified.objects.has(token);
       if (known && held) return undefined;
-      const head = await objects.head(ref.key, ref.version);
+      const head = await (shared?.head(ref.key, ref.version) ??
+        objects.head(ref.key, ref.version));
       if (head === undefined) {
         return broken(
           `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`,
@@ -740,7 +772,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       }
       if (ref.version !== undefined) pinned?.note(ref.key, ref.version, head);
       if (known) return undefined;
-      const body = await digestObject(objects, ref.key, ref.version, ref.bytes);
+      const body = await (shared?.digest(ref.key, ref.version, ref.bytes) ??
+        digestObject(objects, ref.key, ref.version, ref.bytes));
       if (body === undefined) {
         return broken(
           `manifest references a missing object: ${ref.key}${versionSuffix(ref.version)}`,
@@ -760,7 +793,13 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     });
     const bad = problems.find((problem) => problem !== undefined);
     return (
-      bad ?? (await badWorkspaceBundle(manifest.workspace, manifestRef, pinned))
+      bad ??
+      (await badWorkspaceBundle(
+        manifest.workspace,
+        manifestRef,
+        pinned,
+        shared,
+      ))
     );
   }
 
@@ -787,8 +826,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
     pinned?: PinnedVersions,
+    shared?: SharedReads,
   ): Promise<Problem | undefined> {
-    const present = await bundlePresent(workspace, manifestRef);
+    const present = await bundlePresent(workspace, manifestRef, shared);
     if ("reason" in present) return present;
     // After the HEAD, so a bundle gone since is still damage a restore can
     // fall back from; before the gate and the download, which a bundle
@@ -803,7 +843,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // cheap refusals above it must not queue behind a gigabyte being hashed.
     return bundleGate(() => {
       coolingDown();
-      return readAndVerifyBundle(workspace, present.heads, pinned);
+      return readAndVerifyBundle(workspace, present.heads, pinned, shared);
     });
   }
 
@@ -830,6 +870,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   async function bundlePresent(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
+    shared?: SharedReads,
   ): Promise<Problem | { heads: ObjectHead[] }> {
     const { bundle } = workspace;
     const chain = chainOf(workspace);
@@ -861,9 +902,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       );
     const claimed = chain.reduce((total, link) => total + link.bytes, 0);
     if (claimed > maxBundleBytes) return tooBig(claimed);
+    // Together, bounded like the refs: one HEAD after another cost a round
+    // trip per link the chain builds on. Judged in chain order all the same.
+    const found = await inBatches(
+      chain,
+      32,
+      (link) =>
+        shared?.head(link.key, link.version) ??
+        objects.head(link.key, link.version),
+    );
     const heads: ObjectHead[] = [];
-    for (const link of chain) {
-      const head = await objects.head(link.key, link.version);
+    for (const [index, link] of chain.entries()) {
+      const head = found[index];
       if (head === undefined) {
         return broken(
           `manifest references a missing workspace bundle: ${link.key}${versionSuffix(link.version)}`,
@@ -884,6 +934,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     workspace: CheckpointManifest["workspace"],
     heads: readonly ObjectHead[],
     pinned?: PinnedVersions,
+    shared?: SharedReads,
   ): Promise<Problem | undefined> {
     const { bundle, gitCommit } = workspace;
     const chain = chainOf(workspace);
@@ -892,25 +943,44 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // only after the digests proved they are the objects the manifest names.
     // A tee would let a slow second reader make the stream buffer for it, and
     // would show the verifier bytes nobody had checked yet.
-    const spool = await mkdtemp(join(spoolRoot, "bundle-spool-"));
+    // With `shared`, a link another revision of the call already read is not
+    // read again: it was read against the whole ceiling, and is held here to
+    // what this chain has left, as a read of its own would be.
+    const spool =
+      shared === undefined
+        ? await mkdtemp(join(spoolRoot, "bundle-spool-"))
+        : undefined;
+    const readLink = async (
+      index: number,
+      link: ObjectRef,
+      left: number,
+    ): Promise<SpooledBundle> => {
+      if (spool === undefined) {
+        const spooled = await (shared as SharedReads).bundle(link);
+        return spooled.body?.status === "read" && spooled.body.bytes > left
+          ? { body: { status: "over" }, path: spooled.path }
+          : spooled;
+      }
+      const path = join(spool, `workspace-${index}.bundle`);
+      const file = await open(path, "wx", 0o600);
+      try {
+        const body = await digestObject(
+          objects,
+          link.key,
+          link.version,
+          left,
+          (chunk) => writeFully(file, chunk),
+        );
+        return { body, path };
+      } finally {
+        await file.close();
+      }
+    };
     try {
       const files: WorkspaceBundleFile[] = [];
       let left = maxBundleBytes;
       for (const [index, link] of chain.entries()) {
-        const path = join(spool, `workspace-${index}.bundle`);
-        const file = await open(path, "wx", 0o600);
-        let body: Awaited<ReturnType<typeof digestObject>>;
-        try {
-          body = await digestObject(
-            objects,
-            link.key,
-            link.version,
-            left,
-            (chunk) => writeFully(file, chunk),
-          );
-        } finally {
-          await file.close();
-        }
+        const { body, path } = await readLink(index, link, left);
         if (body === undefined) {
           return broken(
             `manifest references a missing workspace bundle: ${link.key}${versionSuffix(link.version)}`,
@@ -957,7 +1027,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         );
       }
     } finally {
-      await rm(spool, { force: true, recursive: true });
+      if (spool !== undefined) {
+        await rm(spool, { force: true, recursive: true });
+      }
     }
     for (const [index, link] of chain.entries()) {
       const head = heads[index];
@@ -966,6 +1038,78 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Reads shared by the revisions one `protectedCommits` call judges: a
+   * version reads the same within the call, and a long session's checkpoints
+   * name mostly the same transcript parts and bundle links. Nothing outlives
+   * the call; the next one reads and verifies everything again.
+   */
+  async function withSharedReads<T>(
+    work: (shared: SharedReads) => Promise<T>,
+  ): Promise<T> {
+    const id = (key: string, version: string | undefined) =>
+      `${key}\n${version ?? ""}`;
+    const heads = new Map<string, Promise<ObjectHead | undefined>>();
+    const digests = new Map<string, ReturnType<typeof digestObject>>();
+    const bundleFiles = new Map<string, Promise<SpooledBundle>>();
+    let spool: Promise<string> | undefined;
+    const shared: SharedReads = {
+      head(key, version) {
+        const at = id(key, version);
+        let read = heads.get(at);
+        if (read === undefined) {
+          read = objects.head(key, version);
+          heads.set(at, read);
+        }
+        return read;
+      },
+      digest(key, version, limit) {
+        const at = `${id(key, version)}\n${limit}`;
+        let read = digests.get(at);
+        if (read === undefined) {
+          read = digestObject(objects, key, version, limit);
+          digests.set(at, read);
+        }
+        return read;
+      },
+      bundle(link) {
+        const at = id(link.key, link.version);
+        let read = bundleFiles.get(at);
+        if (read === undefined) {
+          const index = bundleFiles.size;
+          read = (async () => {
+            spool ??= mkdtemp(join(spoolRoot, "bundle-spool-"));
+            const path = join(await spool, `workspace-${index}.bundle`);
+            const file = await open(path, "wx", 0o600);
+            try {
+              const body = await digestObject(
+                objects,
+                link.key,
+                link.version,
+                maxBundleBytes,
+                (chunk) => writeFully(file, chunk),
+              );
+              return { body, path };
+            } finally {
+              await file.close();
+            }
+          })();
+          bundleFiles.set(at, read);
+        }
+        return read;
+      },
+    };
+    try {
+      return await work(shared);
+    } finally {
+      await Promise.allSettled([...bundleFiles.values()]);
+      const directory = await spool?.catch(() => undefined);
+      if (directory !== undefined) {
+        await rm(directory, { force: true, recursive: true });
+      }
+    }
   }
 
   /**
@@ -1512,14 +1656,28 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         limit: MAX_PROTECTED_COMMITS - 1,
       });
       const verified = await verifiedRefs(input.sessionId);
+      const checkpoints = [input.pointer, ...earlier];
+      // Each checkpoint judged in full, a few at once, and every object read
+      // once per call however many of them name it.
+      const judged = await withSharedReads((shared) =>
+        inBatches(checkpoints, PROTECTED_JUDGE_CONCURRENCY, (pointer) =>
+          judgeManifest({
+            checkpoint: checkpointRefOf(pointer),
+            sessionId: input.sessionId,
+            shared,
+            verified,
+          }).then(
+            (verdict) => ({ verdict }),
+            (error: unknown) => ({ error }),
+          ),
+        ),
+      );
       const commits: string[] = [];
       let current: string | undefined;
-      for (const pointer of [input.pointer, ...earlier]) {
-        const verdict = await judgeManifest({
-          checkpoint: checkpointRefOf(pointer),
-          sessionId: input.sessionId,
-          verified,
-        });
+      for (const [index, pointer] of checkpoints.entries()) {
+        const outcome = judged[index] as (typeof judged)[number];
+        if ("error" in outcome) throw outcome.error;
+        const { verdict } = outcome;
         if (verdict.status !== "verified") {
           throw new Error(
             `checkpoint revision ${pointer.revision} does not verify (${verdict.reason}); the protected commits would be incomplete`,
