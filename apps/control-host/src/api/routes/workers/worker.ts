@@ -34,6 +34,7 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
         error.code,
         error.message,
         error.retryable,
+        error.retryAfterSeconds,
       );
     }
     throw error;

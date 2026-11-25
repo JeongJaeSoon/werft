@@ -23,6 +23,7 @@ import {
   NOT_FOUND,
   OUTRANKED,
   receiptActorOf,
+  refusedUnlessUndecided,
   requirePermitted,
   SECRET_STORE_OFF,
   SessionServiceError,
@@ -309,7 +310,7 @@ export function createGitHubSettingsService(deps: {
         },
         { record: false },
       )
-      .catch(() => null);
+      .catch(refusedUnlessUndecided);
     return decision?.outcome === "allow";
   }
 

@@ -73,6 +73,7 @@ import {
   agentPrivateError,
   type Caller,
   isAgentPrivate,
+  refusedUnlessUndecided,
   requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
@@ -717,7 +718,7 @@ export function createSessionService(deps: {
       id: null,
       agent_id: target.agentId,
       release_id: target.releaseId,
-    }).catch(() => undefined);
+    }).catch(refusedUnlessUndecided);
     const result = await inputs.acceptInputAtomic({
       principal: actor,
       idempotencyKey: input.idempotencyKey,

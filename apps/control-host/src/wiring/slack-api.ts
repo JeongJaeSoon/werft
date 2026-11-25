@@ -100,9 +100,13 @@ export function wireSlackChannelMembers(deps: {
   secrets: SecretStoreSource;
   store: ChannelMemberStore;
   logger: StructuredLogger;
+  storageUnavailable?: (error: unknown) => boolean;
 }): SlackChannelMembers {
   return createSlackChannelMembers({
     store: deps.store,
+    ...(deps.storageUnavailable === undefined
+      ? {}
+      : { storageUnavailable: deps.storageUnavailable }),
     slack: createSlackBotApi({ apiUrl: deps.apiUrl }),
     botToken: (workspaceId, agentId) =>
       agentSlackBotToken(
