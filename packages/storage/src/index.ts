@@ -44,6 +44,7 @@ export {
   BodyStallError,
   BodyTruncatedError,
   FreshAddressHttpHandler,
+  isObjectStoreUnreachable,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
   type S3RequestBounds,

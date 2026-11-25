@@ -32,7 +32,9 @@ import {
   describeBucketProtection,
   type GitCommandRunner,
   type ObjectRouteSigner,
+  S3_REQUEST_BOUNDS,
   type S3ClientLike,
+  type S3RequestBounds,
   type StorageS3Settings,
   storageS3Credentials,
 } from "@werft-ai/storage";
@@ -388,6 +390,25 @@ function checkpointS3Client(config: CheckpointStorageConfig) {
 }
 
 /**
+ * What the bucket checks of a start run under. Each is one small read, so
+ * none is held to the upload-sized `requestTimeout` of S3_REQUEST_BOUNDS,
+ * the only bound Bun enforces before the response headers: a store that took
+ * the connection, or dropped its packets, and never answered kept a start
+ * waiting 300 s a try with nothing logged yet.
+ */
+export const BUCKET_CHECK_BOUNDS: S3RequestBounds = {
+  ...S3_REQUEST_BOUNDS,
+  requestTimeout: 5_000,
+};
+
+function bucketCheckS3Client(
+  config: CheckpointStorageConfig,
+  bounds: S3RequestBounds = BUCKET_CHECK_BOUNDS,
+) {
+  return createStorageS3Client({ s3: config }, bounds);
+}
+
+/**
  * What signs the workers' object store requests: the same bucket
  * and credentials the API itself uses, which is why they stay in this process.
  */
@@ -411,9 +432,11 @@ export function checkpointObjectRouteSigner(
  */
 export async function assertCheckpointBucketProtection(
   config: CheckpointStorageConfig,
+  /** Tests shorten BUCKET_CHECK_BOUNDS; the product path never passes this. */
+  bounds?: S3RequestBounds,
 ): Promise<void> {
   if (config.protection !== "locked") return;
-  const client = checkpointS3Client(config);
+  const client = bucketCheckS3Client(config, bounds);
   try {
     const found = await describeBucketProtection(client, config.bucket);
     if (found.versioning !== "Enabled" || !found.objectLock) {
@@ -463,7 +486,7 @@ export async function assertCheckpointBucketEncryption(
     options.warn(message, { bucket: config.bucket });
   };
   if (options.client !== undefined) return check(options.client);
-  const client = checkpointS3Client(config);
+  const client = bucketCheckS3Client(config);
   try {
     await check(client);
   } finally {
@@ -563,7 +586,7 @@ export async function checkpointObjectsAtStart(
     );
   };
   if (options.client !== undefined) return check(options.client);
-  const client = checkpointS3Client(config);
+  const client = bucketCheckS3Client(config);
   try {
     return await check(client);
   } finally {
