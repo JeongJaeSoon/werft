@@ -1,5 +1,5 @@
 {
-  "id": "3f1145b9-894f-48db-94ef-d46a1f61ccba",
+  "id": "1e010d1c-b2ab-4371-8f73-141b7c0e70b7",
   "prevId": "dd018794-34f0-43ab-8d97-0870e9f31a31",
   "version": "7",
   "dialect": "postgresql",
@@ -7054,20 +7054,6 @@
           "notNull": true,
           "default": 0
         },
-        "tool_calls": {
-          "name": "tool_calls",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "thread_reads": {
-          "name": "thread_reads",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -7127,10 +7113,6 @@
         "conversation_turn_permits_limits_check": {
           "name": "conversation_turn_permits_limits_check",
           "value": "\"conversation_turn_permits\".\"max_tokens\" >= 1 AND \"conversation_turn_permits\".\"max_request_bytes\" >= 1 AND \"conversation_turn_permits\".\"calls\" >= 0 AND \"conversation_turn_permits\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m2$'"
-        },
-        "conversation_turn_permits_tool_counts_check": {
-          "name": "conversation_turn_permits_tool_counts_check",
-          "value": "\"conversation_turn_permits\".\"tool_calls\" >= 0 AND \"conversation_turn_permits\".\"thread_reads\" >= 0"
         },
         "conversation_turn_permits_refusal_check": {
           "name": "conversation_turn_permits_refusal_check",
@@ -19152,6 +19134,18 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "progress_key": {
+          "name": "progress_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "progress_ts": {
+          "name": "progress_ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -19216,6 +19210,34 @@
           ],
           "isUnique": false,
           "where": "\"slack_outbox\".\"correlation_id\" IS NOT NULL AND \"slack_outbox\".\"status\" IN ('sending', 'uncertain')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "slack_outbox_progress_idx": {
+          "name": "slack_outbox_progress_idx",
+          "columns": [
+            {
+              "expression": "installation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "progress_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_outbox\".\"progress_key\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -19393,7 +19415,11 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress')"
+        },
+        "slack_outbox_progress_check": {
+          "name": "slack_outbox_progress_check",
+          "value": "(\"slack_outbox\".\"kind\" = 'progress') = (\"slack_outbox\".\"progress_key\" IS NOT NULL) AND (\"slack_outbox\".\"progress_ts\" IS NULL OR \"slack_outbox\".\"kind\" = 'progress')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",

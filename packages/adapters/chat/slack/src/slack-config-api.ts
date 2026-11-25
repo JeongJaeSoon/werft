@@ -608,6 +608,14 @@ export interface SlackBotSender {
       };
     },
   ): Promise<SlackSendResponse>;
+  /**
+   * `chat.update` of a message the bot posted. Answers what Slack said,
+   * whatever it was; throws `SlackApiError` only when no answer came.
+   */
+  editMessage?(
+    botToken: string,
+    input: { channelId: string; ts: string; text: string; blocks?: unknown[] },
+  ): Promise<SlackSendResponse>;
   /** `users.info`'s 48px profile image; null when Slack names none. */
   userImage(botToken: string, userId: string): Promise<string | null>;
   /** `chat.postEphemeral`; Slack's `message_ts` comes back as `ts`. */
@@ -996,6 +1004,16 @@ export function createSlackBotApi(
         link_names: false,
         unfurl_links: false,
         unfurl_media: false,
+      });
+    },
+
+    editMessage(botToken, input) {
+      return send("chat.update", botToken, {
+        channel: input.channelId,
+        ts: input.ts,
+        text: input.text,
+        ...(input.blocks === undefined ? {} : { blocks: input.blocks }),
+        link_names: false,
       });
     },
 
