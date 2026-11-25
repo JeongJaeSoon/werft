@@ -7,6 +7,7 @@ export * from "./slack-channel-conversion.ts";
 export * from "./slack-channel-join.ts";
 export * from "./slack-channel-lifecycle.ts";
 export * from "./slack-channel-members.ts";
+export * from "./slack-channel-notice.ts";
 export * from "./slack-channel-search.ts";
 export * from "./slack-channel-sharing.ts";
 export * from "./slack-config-api.ts";

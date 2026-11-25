@@ -1,5 +1,6 @@
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
+  type BranchHeadReadable,
   type GitHubApi,
   GitHubCallError,
   type GitHubReleaseReadGate,
@@ -8,6 +9,40 @@ import {
   type SessionCatalog,
 } from "@werft-ai/platform";
 import type { CommittedTree, RuntimeDescriptor } from "@werft-ai/runtime-core";
+
+/**
+ * The commit a catalog repository's branch is at now, read through the same
+ * gate a new release reads its instruction file through.
+ */
+export function wireBranchHeads(deps: {
+  catalog: Pick<SessionCatalog, "repositories">;
+  gate: () => GitHubReleaseReadGate;
+  logger: StructuredLogger;
+}): BranchHeadReadable {
+  return {
+    async branchHead(read) {
+      const entry = Object.hasOwn(deps.catalog.repositories, read.repositoryId)
+        ? deps.catalog.repositories[read.repositoryId]
+        : undefined;
+      if (entry === undefined) return { kind: "not_on_github" };
+      try {
+        const granted = await deps.gate().releaseRead(read);
+        if (granted === null) return { kind: "not_on_github" };
+        const head = await granted.api.getBranchHead(entry.branch);
+        return { kind: "head", commit: head.commitSha };
+      } catch (error) {
+        if (error instanceof GitHubCallError && error.status === 404) {
+          return { kind: "branch_missing" };
+        }
+        deps.logger.warn("release.instructions.head_read_failed", {
+          repository_id: read.repositoryId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+  };
+}
 
 /**
  * A catalog repository's branch read through the GitHub gate, for the

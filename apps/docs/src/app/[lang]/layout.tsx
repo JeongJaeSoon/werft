@@ -1,12 +1,9 @@
-import { DocsLayout } from "fumadocs-ui/layouts/notebook";
-import { LanguageSelect } from "fumadocs-ui/layouts/shared/slots/language-select";
-import { Languages } from "lucide-react";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { SiteDocsLayout } from "@/components/docs-layout";
 import { Provider } from "@/components/provider";
-import { SidebarSectionSeparator } from "@/components/sidebar-separator";
+import { mapTagFolders } from "@/lib/api-sidebar";
 import { isLocale, messages } from "@/lib/i18n";
-import { baseOptions } from "@/lib/layout.shared";
 import { appName } from "@/lib/shared";
 import { source } from "@/lib/source";
 import "../global.css";
@@ -38,29 +35,14 @@ export default async function Layout({ children, params }: Props) {
     );
   }
 
-  const { nav, ...base } = baseOptions();
-  const tree = source.getPageTree(lang);
+  const tree = mapTagFolders(source.getPageTree(lang), lang, () => []);
   return (
     <html lang={lang} suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
         <Provider lang={lang}>
-          <DocsLayout
-            tree={tree}
-            {...base}
-            sidebar={{ components: { Separator: SidebarSectionSeparator } }}
-            nav={{
-              ...nav,
-              mode: "top",
-              // Below md the built-in selector sits in the sidebar only.
-              children: (
-                <LanguageSelect className="ms-auto md:hidden">
-                  <Languages className="size-4.5 text-fd-muted-foreground" />
-                </LanguageSelect>
-              ),
-            }}
-          >
+          <SiteDocsLayout lang={lang} tree={tree}>
             {children}
-          </DocsLayout>
+          </SiteDocsLayout>
         </Provider>
       </body>
     </html>
