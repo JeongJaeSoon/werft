@@ -74,8 +74,8 @@ async function turnOf(
   );
   const decision = end.state === "decided" ? end.decision : null;
   await client.query(
-    `INSERT INTO conversation_turns (id, workspace_id, agent_id, conversation_id, topic_id, origin, state, requester_kind, requester_id, decision, decision_reason, answer_text, slack_installation_id, ended_at)
-     VALUES ($1, $2, $3, $4, $5, 'm2', $6, 'user', $7, $8, $9, $10, $11, now())`,
+    `INSERT INTO conversation_turns (id, workspace_id, agent_id, conversation_id, topic_id, origin, state, requester_kind, requester_id, decision, decision_reason, answer_text, slack_installation_id, sources, ended_at)
+     VALUES ($1, $2, $3, $4, $5, 'm2', $6, 'user', $7, $8, $9, $10, $11, $12, now())`,
     [
       turn,
       WORKSPACE,
@@ -88,6 +88,11 @@ async function turnOf(
       decision === null ? null : "asked",
       decision === "reply" ? "Here it is." : null,
       options.installed === false ? null : INSTALL,
+      JSON.stringify({
+        direct: [{ team_id: TEAM, channel_id: ROOM, ts }],
+        inherited: [],
+        overflow: true,
+      }),
     ],
   );
   if (options.ts !== null) {
@@ -114,6 +119,7 @@ const rowsAt = async (ts: string) =>
       thread_ts: string;
       session_id: string | null;
       conversation_turn_id: string | null;
+      sources: unknown;
       dedupe_key: string;
     }>(
       "SELECT * FROM slack_outbox WHERE kind = 'reaction' AND thread_ts = $1",
@@ -158,6 +164,11 @@ describe("a conversation turn's 👀", () => {
       thread_ts: ts,
       session_id: null,
       conversation_turn_id: null,
+      // What the turn read, for the delete check at send; never a cut-off flag.
+      sources: {
+        direct: [{ team_id: TEAM, channel_id: ROOM, ts }],
+        inherited: [],
+      },
       dedupe_key: conversationReactionDedupeKey({
         teamId: TEAM,
         channelId: ROOM,

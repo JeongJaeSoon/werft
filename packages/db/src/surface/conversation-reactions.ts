@@ -3,6 +3,7 @@ import {
   CONVERSATION_ANSWERING_DECISIONS,
   type ConversationReactionEffect,
   type ConversationReactionStore,
+  type StoredSourceSet,
   type SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
@@ -15,6 +16,12 @@ export const conversationReactionDedupeKey = (target: {
   channelId: string;
   ts: string;
 }) => `reaction:${target.teamId}:${target.channelId}:${target.ts}`;
+
+function stripOverflow(sources: StoredSourceSet | null) {
+  if (sources === null) return null;
+  const { overflow: _cut, ...held } = sources;
+  return held;
+}
 
 /**
  * The 👀 of a conversation turn that took the message on (v1-b/E2): a
@@ -37,6 +44,7 @@ export function createPostgresConversationReactions(
         agent_id: string;
         state: string;
         decision: string | null;
+        sources: StoredSourceSet | null;
         installation_id: string | null;
         slack_app_id: string | null;
         granted: boolean | null;
@@ -45,7 +53,7 @@ export function createPostgresConversationReactions(
         ts: string | null;
       }>(
         await db.execute(sql`
-          SELECT t.workspace_id, t.agent_id, t.state, t.decision,
+          SELECT t.workspace_id, t.agent_id, t.state, t.decision, t.sources,
             t.slack_installation_id AS installation_id,
             sa.id AS slack_app_id,
             COALESCE(${scope} = ANY (sa.bot_scopes), false) AS granted,
@@ -91,6 +99,10 @@ export function createPostgresConversationReactions(
         sessionLinkId: null,
         sessionId: null,
         body: { text: "" },
+        // The turn's reads, so a message it read that Slack deleted before the
+        // send keeps the 👀 from going, as it keeps the answer. The row has no
+        // turn to recover a cut-off set from: what it holds is what is checked.
+        sources: stripOverflow(turn.sources),
         dedupeKey: conversationReactionDedupeKey({
           teamId: turn.team_id,
           channelId: turn.channel_id,

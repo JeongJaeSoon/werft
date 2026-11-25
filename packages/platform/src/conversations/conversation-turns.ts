@@ -468,7 +468,7 @@ export async function endMentionTurns(deps: {
       });
       // Before the thread is set back: a failure here leaves the turn due,
       // and the next pass runs it again under the same key.
-      // The 👀 first, so it lands before the answer it announces.
+      // The 👀 row first, so it is queued ahead of the answer it announces.
       if ((await deps.reactions.react(turn.turnId)) === "enqueued") {
         result.reacted += 1;
       }

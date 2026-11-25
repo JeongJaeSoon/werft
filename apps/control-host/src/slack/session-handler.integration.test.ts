@@ -4207,6 +4207,26 @@ describe.each(ENGINES)(
       expect(reactionCalls()).toBe(1);
     });
 
+    test("a mention Slack deleted after the decision gets no 👀, as its answer goes unsent", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await decided("Too late.");
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000100",
+        at: new Date(),
+      });
+      slack.calls.length = 0;
+      slack.reactions.length = 0;
+      expect(await endings()).toMatchObject({ reacted: 1 });
+      await sendOutbox();
+      expect(reactionCalls()).toBe(0);
+      expect(slack.reactions).toEqual([]);
+    });
+
     test("an install without reactions:write: the answer goes out and no reaction is asked for", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await revokeReactions(fixture);
