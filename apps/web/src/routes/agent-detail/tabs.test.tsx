@@ -112,6 +112,7 @@ describe("에이전트 상세 탭", () => {
         .map((tab) => tab.textContent),
     ).toEqual([
       "개요",
+      "대화",
       "상세 설정",
       "릴리스",
       "접근",
@@ -125,6 +126,9 @@ describe("에이전트 상세 탭", () => {
     expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
 
     await user.click(screen.getByRole("tab", { name: "개요" }));
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(selected()).toBe("대화"));
+    expect(tabIn(history)).toBe("conversations");
     await user.keyboard("{ArrowRight}");
     await waitFor(() => expect(selected()).toBe("상세 설정"));
     expect(document.activeElement?.textContent).toBe("상세 설정");
@@ -1024,6 +1028,7 @@ describe("에이전트 상세 탭", () => {
         .map((tab) => tab.textContent),
     ).toEqual([
       "Overview",
+      "Conversations",
       "Settings",
       "Release",
       "Access",

@@ -3,6 +3,7 @@ import type { Place } from "./placement.tsx";
 
 export const AGENT_TABS = [
   "overview",
+  "conversations",
   "card",
   "release",
   "access",
