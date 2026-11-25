@@ -176,6 +176,35 @@ describe("recordBundleVerdict", () => {
     await store.recordBundleVerdict?.({ ...pass(3), basis, key: "key-3" });
     expect(await remembered()).toEqual([]);
   });
+
+  test("keeps nothing when a prerequisite was re-pinned and put back in between: the row reads as it did, but verdicts were withdrawn meanwhile", async () => {
+    const basis = await begin(3);
+    await repin(1);
+    await client.query(
+      `UPDATE checkpoints
+       SET manifest_sha256 = $3, manifest_version = NULL, versions_held = false
+       WHERE session_id = $1 AND revision = $2`,
+      [sessionId, 1, digest(1)],
+    );
+    await store.recordBundleVerdict?.({ ...pass(3), basis, key: "key-3" });
+    expect(await remembered()).toEqual([]);
+    // A verification that begins after it is kept.
+    await record(3);
+    expect(await remembered()).toEqual([3]);
+  });
+
+  test("keeps nothing when a prerequisite's row was deleted and inserted again with the same values in between", async () => {
+    const basis = await begin(3);
+    await remove(1);
+    await db.insert(checkpoints).values({
+      sessionId,
+      revision: 1,
+      manifestRef: `${sessionId}/checkpoints/1/manifest.json`,
+      manifestSha256: digest(1),
+    });
+    await store.recordBundleVerdict?.({ ...pass(3), basis, key: "key-3" });
+    expect(await remembered()).toEqual([]);
+  });
 });
 
 describe("a verdict goes with its checkpoint and with every checkpoint it builds on", () => {

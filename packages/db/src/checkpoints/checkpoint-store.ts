@@ -53,7 +53,10 @@ import { readCheckpointPointer } from "../worker-unit-of-work.ts";
 
 /**
  * The checkpoint rows a bundle verdict depends on: its own and those of the
- * checkpoints whose bundles it builds on, in revision order.
+ * checkpoints whose bundles it builds on, in revision order. `rowVersion` is
+ * PostgreSQL's `xmin`, the transaction that wrote the row as it now is:
+ * every update gives the row another, and so does deleting it and inserting
+ * it again, even with the same values. A row lock does not change it.
  */
 function verdictRows(
   db: Database,
@@ -66,10 +69,9 @@ function verdictRows(
   return db
     .select({
       collectedAt: checkpoints.collectedAt,
-      manifestRef: checkpoints.manifestRef,
       manifestSha256: checkpoints.manifestSha256,
-      manifestVersion: checkpoints.manifestVersion,
       revision: checkpoints.revision,
+      rowVersion: sql<string>`${checkpoints}.xmin::text`,
     })
     .from(checkpoints)
     .where(
@@ -85,28 +87,16 @@ function verdictRows(
 }
 
 /**
- * Everything about those rows whose change withdraws a verdict (the columns
- * the trigger checkpoints_forget_bundle_verdicts fires on, and the rows
- * being there at all), as one comparable string.
+ * Which rows there are and which write each one is from, as one comparable
+ * string: the same only while none of them was written or replaced. That
+ * covers every write the trigger checkpoints_forget_bundle_verdicts fires
+ * on, a change later undone included, and others it does not, which only
+ * costs a verification made again.
  */
 function verdictBasisOf(
-  rows: ReadonlyArray<{
-    collectedAt: Date | null;
-    manifestRef: string;
-    manifestSha256: string;
-    manifestVersion: string | null;
-    revision: number;
-  }>,
+  rows: ReadonlyArray<{ revision: number; rowVersion: string }>,
 ): string {
-  return JSON.stringify(
-    rows.map((row) => [
-      row.revision,
-      row.manifestRef,
-      row.manifestSha256,
-      row.manifestVersion,
-      row.collectedAt?.toISOString() ?? null,
-    ]),
-  );
+  return JSON.stringify(rows.map((row) => [row.revision, row.rowVersion]));
 }
 
 /**

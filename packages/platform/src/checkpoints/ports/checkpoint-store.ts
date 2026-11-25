@@ -88,7 +88,7 @@ export interface CheckpointStore {
    * its own and those of `prerequisiteRevisions`, the checkpoints whose
    * bundles it builds on — read before the bundles are. Opaque: it is handed
    * back to `recordBundleVerdict`, which keeps the pass only if no row was
-   * deleted, collected or re-pinned since.
+   * deleted, collected or re-pinned since, a change undone again included.
    */
   bundleVerdictBasis?(input: {
     prerequisiteRevisions: readonly number[];
