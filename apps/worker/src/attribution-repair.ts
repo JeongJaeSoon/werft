@@ -232,14 +232,13 @@ export async function workspaceMismatches(input: {
   }
   const deadlineMs = input.deadlineMs ?? GIT_TIMEOUT_MS;
   try {
-    const options = probe(input.root, deadlineMs, {
-      config: [
-        ["log.showSignature", "false"],
-        ["gpg.program", "/bin/false"],
-        ["gpg.ssh.program", "/bin/false"],
-        ["gpg.x509.program", "/bin/false"],
-      ],
-    });
+    const config: Array<[string, string]> = [
+      ["log.showSignature", "false"],
+      ["gpg.program", "/bin/false"],
+      ["gpg.ssh.program", "/bin/false"],
+      ["gpg.x509.program", "/bin/false"],
+    ];
+    const options = probe(input.root, deadlineMs, { config });
     const git = async (args: readonly string[]) => {
       try {
         const { code, stdout } = await runGit([...args], options);
@@ -250,11 +249,25 @@ export async function workspaceMismatches(input: {
       }
     };
     // Only the ones this repository holds can be excluded.
+    // One git for all of them, a line each in order: "commit", or the name
+    // and "missing". A git that fails holds none.
+    const candidates = input.protectedCommits.filter((sha) =>
+      /^[0-9a-f]{40}$/.test(sha),
+    );
     const held: string[] = [];
-    for (const sha of input.protectedCommits) {
-      if (!/^[0-9a-f]{40}$/.test(sha)) continue;
-      if ((await git(["cat-file", "-e", `${sha}^{commit}`])).exitCode === 0) {
-        held.push(sha);
+    if (candidates.length > 0) {
+      const types = await runGit(
+        ["cat-file", "--batch-check=%(objecttype)"],
+        probe(input.root, deadlineMs, {
+          config,
+          input: candidates.map((sha) => `${sha}^{commit}\n`).join(""),
+        }),
+      ).then(
+        ({ code, stdout }) => (code === 0 ? stdout.split("\n") : []),
+        () => [],
+      );
+      for (const [index, sha] of candidates.entries()) {
+        if (types[index] === "commit") held.push(sha);
       }
     }
     const judged = await rangeAttribution(git, {

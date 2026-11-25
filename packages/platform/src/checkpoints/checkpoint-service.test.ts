@@ -578,6 +578,366 @@ describe("protectedCommits", () => {
     ).rejects.toThrow("protected commits would be incomplete");
   });
 
+  describe("object reads as the session's history grows", () => {
+    // Like a long session: revision r names transcript parts 0..r and builds
+    // on the bundles of revisions 0..r-1.
+    const partOf = (n: number) => {
+      const body = `{"type":"user","uuid":"p${n}"}\n`;
+      return {
+        body,
+        ref: {
+          bytes: encode(body).byteLength,
+          key: `${sessionObjectPrefix(sessionId)}mirror/root-${n}.jsonl`,
+          sha256: sha256(body),
+        },
+      };
+    };
+    const bundleOf = (n: number) => {
+      const body = `bundle ${n}\n`;
+      return {
+        body,
+        ref: {
+          bytes: encode(body).byteLength,
+          key: bundleKeyFor(n, attemptId),
+          sha256: sha256(body),
+        },
+      };
+    };
+
+    function countingService() {
+      const calls = { get: 0, head: 0, stream: 0, verify: 0 };
+      const counted = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (typeof value !== "function") return value;
+          return (...args: unknown[]) => {
+            if (property in calls) calls[property as keyof typeof calls] += 1;
+            return value.apply(target, args);
+          };
+        },
+      });
+      const verifier: WorkspaceBundleVerifier = {
+        async verify() {
+          calls.verify += 1;
+          return { status: "restorable" };
+        },
+      };
+      const counting = createCheckpointService({
+        codecs: { [runtime.engine]: codec },
+        objectProtection: "unversioned",
+        newPublishId: () => PUBLISH_ID,
+        objects: counted,
+        store: checkpoints.store,
+        workspaceBundles: verifier,
+      });
+      const reset = () => {
+        for (const name of Object.keys(calls) as Array<keyof typeof calls>) {
+          calls[name] = 0;
+        }
+      };
+      return { calls, counting, reset };
+    }
+
+    async function commitHistory(
+      on: ReturnType<typeof createCheckpointService>,
+      revisions: number,
+      standalone = false,
+    ) {
+      for (let revision = 0; revision < revisions; revision += 1) {
+        const part = partOf(revision);
+        const bundle = bundleOf(revision);
+        await objects.overwrite(part.ref.key, encode(part.body));
+        await objects.overwrite(bundle.ref.key, encode(bundle.body));
+        const bases = standalone
+          ? []
+          : Array.from({ length: revision }, (_, n) => bundleOf(n).ref);
+        const uploaded = await upload(
+          manifest({
+            revision,
+            transcripts: {
+              root: {
+                entryCount: revision + 1,
+                parts: Array.from(
+                  { length: revision + 1 },
+                  (_, n) => partOf(n).ref,
+                ),
+                sha256: "c".repeat(64),
+              },
+              subagents: {},
+            },
+            workspace: workspace({
+              ...(bases.length === 0 ? {} : { baseBundles: bases }),
+              bundle: bundle.ref,
+            }),
+          }),
+        );
+        expect(
+          await finalizeWith(on, {
+            ...uploaded,
+            fence: fence(),
+            now: new Date(),
+            sessionId,
+            turnId: String(revision + 1),
+          }),
+        ).toMatchObject({ outcome: "committed" });
+      }
+    }
+
+    test("each revision adds a constant number of reads, not one per part and link it shares with the others", async () => {
+      for (const revisions of [4, 8, 16]) {
+        checkpoints = memoryCheckpointStore();
+        const { calls, counting, reset } = countingService();
+        await commitHistory(counting, revisions);
+        reset();
+        await counting.protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        });
+        // Per checkpoint: its manifest (HEAD and GET), its own new part and
+        // its own new bundle link (HEAD and read each), one bundle
+        // verification. Once per call: the pointer's manifest for the
+        // verified set, and the untracked file every revision shares.
+        // Unversioned refs are never in the verified set, so parts are read.
+        expect({ revisions, ...calls }).toEqual({
+          revisions,
+          get: revisions + 1,
+          head: 3 * revisions + 1,
+          stream: 2 * revisions + 1,
+          verify: revisions,
+        });
+      }
+    });
+
+    const restorable: WorkspaceBundleVerifier = {
+      async verify() {
+        return { status: "restorable" };
+      },
+    };
+    const serviceOver = (
+      store: typeof objects,
+      more: Partial<Parameters<typeof createCheckpointService>[0]> = {},
+    ) =>
+      createCheckpointService({
+        codecs: { [runtime.engine]: codec },
+        objectProtection: "unversioned",
+        newPublishId: () => PUBLISH_ID,
+        objects: store,
+        store: checkpoints.store,
+        workspaceBundles: restorable,
+        ...more,
+      });
+
+    test("a link missing early in the chain is damage even when a later link's HEAD throws", async () => {
+      await commitHistory(serviceOver(objects), 4);
+      const outage = bundleOf(2).ref.key;
+      const flaky = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property !== "head" || typeof value !== "function") return value;
+          return (key: string, version?: string) =>
+            key === outage
+              ? Promise.reject(new Error("HEAD outage"))
+              : value.call(target, key, version);
+        },
+      });
+      objects.remove(bundleOf(1).ref.key);
+      await expect(
+        serviceOver(flaky).protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        }),
+      ).rejects.toThrow("missing workspace bundle");
+    });
+
+    test("a shared link that delivers past its chain's room is refused as over, even if the store then fails", async () => {
+      const room = bundleOf(0).ref.bytes + bundleOf(1).ref.bytes;
+      await commitHistory(
+        serviceOver(objects, { maxWorkspaceBundleBytes: room }),
+        2,
+      );
+      const tip = bundleOf(1).ref;
+      const lying = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property !== "stream" || typeof value !== "function")
+            return value;
+          return async (key: string, version?: string) =>
+            key !== tip.key
+              ? value.call(target, key, version)
+              : (async function* () {
+                  yield new Uint8Array(tip.bytes + 1);
+                  throw new Error("connection reset");
+                })();
+        },
+      });
+      await expect(
+        serviceOver(lying, { maxWorkspaceBundleBytes: room }).protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        }),
+      ).rejects.toThrow("delivered more than");
+    });
+
+    test("a link whose stream fails as it is closed early answers that failure, as a read of its own does", async () => {
+      const room = bundleOf(0).ref.bytes + bundleOf(1).ref.bytes;
+      await commitHistory(
+        serviceOver(objects, { maxWorkspaceBundleBytes: room }),
+        2,
+      );
+      const tip = bundleOf(1).ref;
+      const closing = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property !== "stream" || typeof value !== "function")
+            return value;
+          return async (key: string, version?: string) =>
+            key !== tip.key
+              ? value.call(target, key, version)
+              : (async function* () {
+                  try {
+                    yield new Uint8Array(tip.bytes + 1);
+                  } finally {
+                    // biome-ignore lint/correctness/noUnsafeFinally: the store's close failing
+                    throw new Error("stream close failed");
+                  }
+                })();
+        },
+      });
+      await expect(
+        serviceOver(closing, {
+          maxWorkspaceBundleBytes: room,
+        }).protectedCommits({ sessionId, pointer: checkpoints.pointer() }),
+      ).rejects.toThrow("stream close failed");
+    });
+
+    test("two checkpoints naming one link with different digests each have it read against their own", async () => {
+      const base = bundleOf(0);
+      const tip = bundleOf(1);
+      await objects.overwrite(base.ref.key, encode(base.body));
+      await objects.overwrite(tip.ref.key, encode(tip.body));
+      // Committed around finalize, as a store rewritten behind it would leave
+      // them: revision 0 claims another digest for the same bytes.
+      const commitAs = async (body: CheckpointManifest) => {
+        const { checkpoint } = await upload(body);
+        await checkpoints.commit({
+          checkpoint,
+          fence: fence(),
+          now: new Date(),
+          turnId: String(body.revision + 1),
+        } as CommitCheckpointInput);
+      };
+      await commitAs(
+        manifest({
+          revision: 0,
+          workspace: workspace({
+            bundle: { ...base.ref, sha256: "0".repeat(64) },
+          }),
+        }),
+      );
+      await commitAs(
+        manifest({
+          revision: 1,
+          workspace: workspace({ baseBundles: [base.ref], bundle: tip.ref }),
+        }),
+      );
+      await expect(
+        serviceOver(objects).protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        }),
+      ).rejects.toThrow(`hashes to ${base.ref.sha256}, not ${"0".repeat(64)}`);
+    });
+
+    test("a link whose one read went wrong fails the call, even if reading it again would pass", async () => {
+      await commitHistory(serviceOver(objects), 3);
+      const base = bundleOf(0).ref;
+      let reads = 0;
+      const once = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property !== "stream" || typeof value !== "function")
+            return value;
+          return async (key: string, version?: string) => {
+            if (key !== base.key) return value.call(target, key, version);
+            reads += 1;
+            if (reads > 1) return value.call(target, key, version);
+            return (async function* () {
+              yield new Uint8Array(base.bytes);
+            })();
+          };
+        },
+      });
+      await expect(
+        serviceOver(once).protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        }),
+      ).rejects.toThrow("does not verify");
+      expect(reads).toBe(1);
+    });
+
+    test("bundles past one ceiling are read per chain, and no spool outlives the call", async () => {
+      const spoolRoot = await mkdtemp(join(tmpdir(), "protected-spool-"));
+      try {
+        // Six chains of one link each, only two of which fit the ceiling.
+        const limits = {
+          bundleSpoolRoot: spoolRoot,
+          maxWorkspaceBundleBytes: bundleOf(0).ref.bytes * 2,
+        };
+        await commitHistory(serviceOver(objects, limits), 6, true);
+        // What the call's shared files hold whenever a chain is verified.
+        let peak = 0;
+        const measuring: WorkspaceBundleVerifier = {
+          async verify() {
+            let held = 0;
+            for (const directory of await readdir(spoolRoot)) {
+              if (!directory.startsWith("bundle-shared-")) continue;
+              for (const name of await readdir(join(spoolRoot, directory))) {
+                held += (
+                  await Bun.file(join(spoolRoot, directory, name)).bytes()
+                ).byteLength;
+              }
+            }
+            peak = Math.max(peak, held);
+            return { status: "restorable" };
+          },
+        };
+        expect(
+          await serviceOver(objects, {
+            ...limits,
+            workspaceBundles: measuring,
+          }).protectedCommits({
+            sessionId,
+            pointer: checkpoints.pointer(),
+          }),
+        ).toEqual([workspaceBundle.commit]);
+        expect(peak).toBeGreaterThan(0);
+        expect(peak).toBeLessThanOrEqual(limits.maxWorkspaceBundleBytes);
+        expect(await readdir(spoolRoot)).toEqual([]);
+      } finally {
+        await rm(spoolRoot, { force: true, recursive: true });
+      }
+    });
+
+    test("nothing is shared between calls: the next call reads and verifies everything again", async () => {
+      const { calls, counting, reset } = countingService();
+      await commitHistory(counting, 6);
+      const pointer = checkpoints.pointer();
+      reset();
+      await counting.protectedCommits({ sessionId, pointer });
+      const first = { ...calls };
+      reset();
+      await counting.protectedCommits({ sessionId, pointer });
+      expect(calls).toEqual(first);
+
+      // A link the first call read is gone: the second call finds it.
+      objects.remove(bundleOf(2).ref.key);
+      await expect(
+        counting.protectedCommits({ sessionId, pointer }),
+      ).rejects.toThrow("protected commits would be incomplete");
+    });
+  });
+
   test("readPushSource carries the worker's attribution findings to request_push", async () => {
     await commitRevision(0, true);
     expect(await service.readPushSource(sessionId)).toMatchObject({

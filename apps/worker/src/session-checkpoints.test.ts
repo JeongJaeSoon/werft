@@ -811,9 +811,12 @@ describe("SessionCheckpoints", () => {
     );
     const stages = published?.fields?.durations_ms as Record<string, number>;
     expect(Object.keys(stages).sort()).toEqual([
+      "attribution_check",
+      "attribution_repair",
       "bundle_upload",
       "chain",
       "git",
+      "limit",
       "manifest",
       "recheck",
       "request",
@@ -865,9 +868,12 @@ describe("SessionCheckpoints", () => {
     expect(
       Object.keys(h.warnings[0]?.fields?.durations_ms as object).sort(),
     ).toEqual([
+      "attribution_check",
+      "attribution_repair",
       "bundle_upload",
       "chain",
       "git",
+      "limit",
       "request",
       "transcript",
       "untracked_upload",
