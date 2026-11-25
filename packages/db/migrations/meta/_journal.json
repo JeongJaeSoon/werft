@@ -1902,8 +1902,8 @@
     {
       "idx": 362,
       "version": "7",
-      "when": 1795601285058,
-      "tag": "0362_slack_app_bot_scopes",
+      "when": 1795600788451,
+      "tag": "0362_channel_summary_writes",
       "breakpoints": true
     }
   ]

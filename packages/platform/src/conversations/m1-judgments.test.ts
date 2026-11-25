@@ -6,6 +6,7 @@ import {
   conversationJudgmentIdSchema,
   judgmentBatchIdSchema,
 } from "@werft-ai/contracts";
+import type { ChannelSummaryWriteResult } from "../ports/channel-summary-store.ts";
 import {
   type JudgmentBatch,
   type JudgmentBatchStore,
@@ -15,6 +16,7 @@ import type { M1Judge, M1Judgment, M1Record, M1Subject } from "./m1-judge.ts";
 import {
   type ClaimedReplyJudgment,
   createM1BatchJudge,
+  M1_SUMMARY_WRITE_ATTEMPTS,
   type M1BatchWrite,
   type M1JudgmentStore,
   type M1ReadPost,
@@ -57,6 +59,7 @@ function recordOf(
     releaseId: "release-1",
     callKey: `${subject.key}:m1` as never,
     attempts: verdict.outcome === "not_called" ? 0 : 1,
+    summary: null,
   };
 }
 
@@ -84,11 +87,34 @@ type Recorded = {
   readAt?: string;
 };
 
-/** A batch store whose writes answer `writes` in turn, then "written". */
-function batchStore(writes: M1BatchWrite[] = []) {
+type LineWrite =
+  | ChannelSummaryWriteResult
+  | { outcome: "gate_closed" }
+  | { outcome: "channel_gone" };
+
+/**
+ * A batch store whose writes answer `writes` in turn, then "written"; its
+ * summary lines answer `lineWrites` alike.
+ */
+function batchStore(writes: M1BatchWrite[] = [], lineWrites: LineWrite[] = []) {
   const recorded: Recorded[] = [];
-  const store: Pick<M1JudgmentStore, "recordBatch"> = {
+  const lines: { text: string; expectedVersion: number }[] = [];
+  const order: ("line" | "record")[] = [];
+  const store: Pick<M1JudgmentStore, "recordBatch" | "writeSummaryLine"> = {
+    writeSummaryLine: async (_batch, line) => {
+      lines.push({ text: line.text, expectedVersion: line.expectedVersion });
+      order.push("line");
+      return (
+        lineWrites.shift() ?? {
+          outcome: "written",
+          version: line.expectedVersion + 1,
+          lineIds: [randomUUID() as never],
+          skipped: [],
+        }
+      );
+    },
     recordBatch: async (_batch, record, judged, options = {}) => {
+      order.push("record");
       recorded.push({
         record,
         judged: judged.map((post) => post.inputId),
@@ -99,7 +125,7 @@ function batchStore(writes: M1BatchWrite[] = []) {
       return writes.shift() ?? { outcome: "written" };
     },
   };
-  return { recorded, store };
+  return { recorded, lines, order, store };
 }
 
 const judgedQuiet = (subject: M1Subject): M1Judgment => ({
@@ -193,6 +219,147 @@ describe("createM1BatchJudge", () => {
       reason: "rate_limited",
     });
     expect(recorded[0]?.judged).toEqual([]);
+  });
+});
+
+describe("the summary line (a1/J8)", () => {
+  const draftOf = (subject: M1Subject, text: string, expectedVersion = 4) => ({
+    text,
+    expectedVersion,
+    sources: subject.posts.flatMap((post) => post.sources),
+    messages: subject.posts.map((post) => post.body),
+  });
+  const judgedWith = (text: string | null, expectedVersion = 4) =>
+    judgeOf(async (subject) => ({
+      record: recordOf(subject, {
+        outcome: "judged",
+        decision: "quiet",
+        reason: "human_conversation",
+      }),
+      left: [],
+      modelCalled: true,
+      summary: text === null ? null : draftOf(subject, text, expectedVersion),
+    }));
+
+  test("is added before the record, on the version the call read", async () => {
+    const { recorded, lines, order, store } = batchStore();
+    await createM1BatchJudge({
+      judge: judgedWith("someone asked where the deploy doc is"),
+      store,
+    }).judge(batchOf("1.1"));
+    expect(order).toEqual(["line", "record"]);
+    expect(lines).toEqual([
+      { text: "someone asked where the deploy doc is", expectedVersion: 4 },
+    ]);
+    expect(recorded[0]?.record.summary).toBe("written");
+  });
+
+  test("a lost compare writes again on the version it names, then gives up", async () => {
+    const conflict = (version: number) => ({
+      outcome: "conflict" as const,
+      version,
+    });
+    const once = batchStore([], [conflict(5)]);
+    await createM1BatchJudge({
+      judge: judgedWith("a person said the build is broken"),
+      store: once.store,
+    }).judge(batchOf("1.1"));
+    expect(once.lines.map((line) => line.expectedVersion)).toEqual([4, 5]);
+    expect(once.recorded[0]?.record.summary).toBe("written");
+
+    const always = batchStore([], [conflict(5), conflict(6), conflict(7)]);
+    await createM1BatchJudge({
+      judge: judgedWith("a person said the build is broken"),
+      store: always.store,
+    }).judge(batchOf("1.1"));
+    expect(always.lines).toHaveLength(M1_SUMMARY_WRITE_ATTEMPTS);
+    expect(always.lines.map((line) => line.expectedVersion)).toEqual([4, 5, 6]);
+    expect(always.recorded[0]?.record.summary).toBe("lost");
+    // The judgment is recorded and its posts removed all the same.
+    expect(always.recorded[0]?.judged).toHaveLength(1);
+  });
+
+  test("one that copies a message the call read is not written", async () => {
+    const base = batchOf("1.1");
+    const body =
+      "the deploy to production is blocked until the database migration finishes tonight";
+    const batch = {
+      ...base,
+      inputs: base.inputs.map((input) => ({ ...input, body })),
+    };
+    const copied = `someone said ${body.slice(10, 60)}`;
+    const { recorded, lines, store } = batchStore();
+    await createM1BatchJudge({
+      judge: judgedWith(copied),
+      store,
+    }).judge(batch);
+    expect(lines).toEqual([]);
+    expect(recorded[0]?.record.summary).toBe("copied");
+  });
+
+  test("a source marked since it was read, or a closed gate, adds no line", async () => {
+    const skipped = batchStore(
+      [],
+      [{ outcome: "written", version: 4, lineIds: [], skipped: [] }],
+    );
+    await createM1BatchJudge({
+      judge: judgedWith("someone asked for a review"),
+      store: skipped.store,
+    }).judge(batchOf("1.1"));
+    expect(skipped.recorded[0]?.record.summary).toBe("skipped");
+
+    const closed = batchStore([], [{ outcome: "gate_closed" }]);
+    await createM1BatchJudge({
+      judge: judgedWith("someone asked for a review"),
+      store: closed.store,
+    }).judge(batchOf("1.1"));
+    expect(closed.recorded[0]?.record.summary).toBeNull();
+
+    // A deleted channel's: the record says why.
+    const gone = batchStore([], [{ outcome: "channel_gone" }]);
+    await createM1BatchJudge({
+      judge: judgedWith("someone asked for a review"),
+      store: gone.store,
+    }).judge(batchOf("1.1"));
+    expect(gone.recorded[0]?.record.summary).toBe("channel_gone");
+  });
+
+  test("an empty or too long line, or none, is not written", async () => {
+    for (const [text, summary] of [
+      [" ", "invalid"],
+      ["x".repeat(2001), "invalid"],
+      [null, null],
+    ] as const) {
+      const { recorded, lines, store } = batchStore();
+      await createM1BatchJudge({ judge: judgedWith(text), store }).judge(
+        batchOf("1.1"),
+      );
+      expect(lines).toEqual([]);
+      expect(recorded[0]?.record.summary).toBe(summary);
+    }
+  });
+
+  test("a voided result's call and the one again each write their own line", async () => {
+    const batch = batchOf("1.1", "1.2");
+    const [, two] = batch.inputs;
+    if (!two) throw new Error("two");
+    const { recorded, lines, order, store } = batchStore([
+      {
+        outcome: "voided",
+        reason: "voided_by_delete",
+        remaining: [
+          { inputId: two.inputId, ts: "1.2", body: two.body, editMark: null },
+        ],
+        readAt: "t1",
+      },
+    ]);
+    await createM1BatchJudge({
+      judge: judgedWith("someone asked for a review"),
+      store,
+    }).judge(batch);
+    expect(order).toEqual(["line", "record", "line", "record"]);
+    expect(lines).toHaveLength(2);
+    expect(recorded[1]?.record.summary).toBe("written");
   });
 });
 

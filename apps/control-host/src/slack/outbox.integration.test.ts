@@ -637,6 +637,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         text: `Done: ping, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`&lt;!here&gt;\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
         ts: expect.any(String),
         options: {
+          // N1: a task's answer goes under "agent [task]", the session's
+          // title cut from the mention.
+          username: "Notes [summarize the thread]",
           link_names: "false",
           unfurl_links: "false",
           unfurl_media: "false",
@@ -945,7 +948,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       {
         threadTs: THREAD,
         text: expect.stringMatching(/^Added\./),
-        username: undefined,
+        username: "Notes [summarize the thread]",
         icon_url: undefined,
       },
     ]);
@@ -985,7 +988,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         .map(({ text, options }) => [text.split("\n")[0], options.username]),
     ).toEqual([
       ["Run the checks", "API"],
-      [expect.stringMatching(/^Checks pass\./), undefined],
+      [expect.stringMatching(/^Checks pass\./), "Notes [summarize the thread]"],
     ]);
   });
 
@@ -1228,7 +1231,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass({ botToken: null });
     const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
     if (!claim) throw new Error("nothing claimed");
-    expect(await outbox.beginSend(claim)).toBe(true);
+    expect(await outbox.beginSend(claim)).toMatchObject({
+      agentName: "Notes",
+    });
     await db
       .update(slackOutbox)
       .set({ leaseExpiresAt: sql`now() - interval '1 second'` });
@@ -1900,7 +1905,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         await outboxPass({ botToken: null });
         const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
         if (!claim) throw new Error("nothing claimed");
-        expect(await outbox().beginSend(claim)).toBe(true);
+        expect(await outbox().beginSend(claim)).toMatchObject({
+          agentName: "Notes",
+        });
         const ts = "100.000777";
         await marks().markDeleted({
           workspaceId: fixture.workspaceId,
@@ -1932,7 +1939,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       await outboxPass({ botToken: null });
       const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
       if (!claim) throw new Error("nothing claimed");
-      expect(await outbox().beginSend(claim)).toBe(true);
+      expect(await outbox().beginSend(claim)).toMatchObject({
+        agentName: "Notes",
+      });
       const ts = "100.000555";
       const conversation = await channelConversation(fixture);
       const replyTopic = await conversations().findOrCreateThreadTopic(
@@ -1963,7 +1972,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         await outboxPass({ botToken: null });
         const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
         if (!claim) throw new Error("nothing claimed");
-        expect(await outbox().beginSend(claim)).toBe(true);
+        expect(await outbox().beginSend(claim)).toMatchObject({
+          agentName: "Notes",
+        });
         const ts = "100.000666";
         let held!: () => void;
         const hold = new Promise<void>((resolve) => {
@@ -3415,7 +3426,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass({ botToken: null });
     const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
     if (!claim) throw new Error("nothing claimed");
-    expect(await outbox.beginSend(claim)).toBe(true);
+    expect(await outbox.beginSend(claim)).toMatchObject({
+      agentName: "Notes",
+    });
     // The pass died mid-send.
     await db
       .update(slackOutbox)

@@ -19,6 +19,7 @@ import {
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import {
+  appendChannelSummaryLines,
   channelMarksSettledAt,
   dropBufferedInputs,
   engagedJudgmentsInWindow,
@@ -208,6 +209,9 @@ async function atCap(
   return window?.full ?? false;
 }
 
+/** A summary write that found the channel deleted, to roll it back. */
+class ChannelGone extends Error {}
+
 /**
  * M1's judgment records over PostgreSQL. A record holds Slack ts, codes and
  * ids; a held reply's text goes once it is judged or given up.
@@ -219,6 +223,48 @@ export function createPostgresM1JudgmentStore(
   const { versions } = options;
   return {
     gateOpen: (place) => gateOpenIn(db, place, false, versions),
+
+    async writeSummaryLine(batch, line) {
+      try {
+        return await db.transaction(async (tx) => {
+          // Locks: the sources' marks, this agent's binding (the gate), the
+          // summary's row, as a record takes the marks, then the gate, and a
+          // channel delete its binding, then the summary's row. A delete of
+          // any agent's, committed first, keeps the summary gone: its binding
+          // is read with the row held, after that delete ends.
+          const written = await appendChannelSummaryLines(tx, {
+            gateOpen: () => gateOpenIn(tx, batch, true, versions),
+            channelThere: async () =>
+              rowsOf(
+                await tx.execute(sql`
+                SELECT 1 FROM surface_bindings b
+                JOIN slack_installations i ON i.id = b.installation_id
+                WHERE b.workspace_id = ${batch.workspaceId}::uuid
+                  AND b.surface = 'slack' AND i.team_id = ${batch.teamId}
+                  AND b.external_surface_id = ${batch.channelId}
+                  AND b.revoked_at IS NULL AND b.status = 'gone'
+                LIMIT 1`),
+              ).length === 0,
+            place: {
+              workspaceId: batch.workspaceId,
+              teamId: batch.teamId,
+              channelId: batch.channelId,
+            },
+            expectedVersion: line.expectedVersion,
+            agentId: batch.agentId,
+            lines: [{ text: line.text, sources: line.sources }],
+          });
+          if (written.outcome === "channel_gone") throw new ChannelGone();
+          return written;
+        });
+      } catch (error) {
+        // Rolled back, the summary row it made goes too.
+        if (error instanceof ChannelGone) {
+          return { outcome: "channel_gone" as const };
+        }
+        throw error;
+      }
+    },
 
     async recordBatch(batch, record, judged, options = {}) {
       return db.transaction(async (tx) => {
@@ -304,7 +350,7 @@ export function createPostgresM1JudgmentStore(
             id, workspace_id, agent_id, conversation_id, grade,
             slack_team_id, slack_channel_id, refs, sources,
             judgment_batch_id, release_id, call_key, attempts,
-            prompt_version, outcome, decision, reason, judged_at
+            prompt_version, outcome, decision, reason, summary, judged_at
           ) VALUES (
             ${randomUUID()}::uuid, ${batch.workspaceId}::uuid,
             ${batch.agentId}::uuid, ${batch.conversationId}::uuid,
@@ -312,7 +358,7 @@ export function createPostgresM1JudgmentStore(
             ${textArray(record.refs)}, ${columns.sources}::jsonb,
             ${batch.id}::uuid, ${record.releaseId}, ${record.callKey},
             ${record.attempts}, ${M1_PROMPT_VERSION}, ${columns.outcome},
-            ${columns.decision}, ${columns.reason}, now()
+            ${columns.decision}, ${columns.reason}, ${record.summary}, now()
           )`);
         await dropBufferedInputs(
           tx,

@@ -2996,7 +2996,10 @@ describe.each(ENGINES)("Slack judgment buffer on %s", (engine) => {
           expectedVersion: 0,
           agentId: fixture.agentId,
           lines: [
-            { text: "asked for the next step", inputId: held.id as never },
+            {
+              text: "asked for the next step",
+              sources: [{ inputId: held.id as never, slack: null }],
+            },
           ],
         })
       ).outcome,
