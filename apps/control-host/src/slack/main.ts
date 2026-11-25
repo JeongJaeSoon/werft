@@ -456,7 +456,7 @@ export async function main(
       claimMs: 2 * settings.passBudgetMs,
       deadline,
     });
-    if (mentions.ended + mentions.failed > 0) {
+    if (mentions.ended + mentions.threads + mentions.failed > 0) {
       logger.info("Slack mention turns pass", mentions);
     }
     const sent = await drainSlackOutbox({

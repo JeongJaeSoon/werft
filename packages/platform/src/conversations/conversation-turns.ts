@@ -293,6 +293,20 @@ export type MentionTurnDue = {
   slackAppId: string | null;
 };
 
+/**
+ * A thread of mention turns whose status is to be set again, claimed by one
+ * pass, with the status its turns say as it was claimed: "processing" while
+ * one of them is still due, `active` otherwise.
+ */
+export type MentionThreadDue = Pick<
+  MentionTurnDue,
+  "workspaceId" | "agentId" | "thread" | "slackAppId"
+> & {
+  status: "active" | "processing";
+  /** How many times it was left; a newer leave keeps it after this send. */
+  rev: number;
+};
+
 export interface MentionTurnStatusStore {
   /**
    * Up to `limit` mention turns whose thread status is still due, oldest
@@ -316,8 +330,25 @@ export interface MentionTurnStatusStore {
    * turn is written with, held until it is queued.
    */
   releaseReset(turnId: ConversationTurnId): Promise<void>;
-  /** Whether a newer mention turn of the turn's thread is still due. */
-  newerDue(turnId: ConversationTurnId): Promise<boolean>;
+  /**
+   * Leaves the turn's thread to be set again when a newer mention turn of
+   * it is still due, whose "processing" this turn's `active` may have
+   * overtaken; true when it did.
+   */
+  reprocess(turnId: ConversationTurnId): Promise<boolean>;
+  /** Claims, for `claimMs`, up to `limit` threads left to be set again. */
+  claimThreads(limit: number, claimMs: number): Promise<MentionThreadDue[]>;
+  /**
+   * Once Slack took `sent` (null: the thread shows none): the thread is
+   * done unless it was left again since, or its turns now say otherwise;
+   * then it goes back for the next pass. True when done.
+   */
+  threadSent(
+    thread: MentionThreadDue,
+    sent: MentionThreadDue["status"] | null,
+  ): Promise<boolean>;
+  /** Lets a thread's claim go, so the next pass sends it. */
+  releaseThread(thread: MentionThreadDue): Promise<void>;
 }
 
 /**
@@ -380,8 +411,10 @@ export type MentionTurnEndings = {
   reacted: number;
   reset: number;
   superseded: number;
-  /** Threads told "processing" again for a newer turn after an `active`. */
+  /** Threads left to be told "processing" again for a newer turn after an `active`. */
   reprocessing: number;
+  /** Threads set again from what their turns say, the ones left above or by a delete. */
+  threads: number;
   failed: number;
 };
 
@@ -410,7 +443,7 @@ export async function endMentionTurns(deps: {
    * it.
    */
   setStatus(
-    turn: MentionTurnDue,
+    turn: Pick<MentionTurnDue, "workspaceId" | "slackAppId" | "thread">,
     status: "active" | "processing",
   ): Promise<boolean>;
   /** How long a turn may wait to be taken, and then run. */
@@ -438,6 +471,7 @@ export async function endMentionTurns(deps: {
     reset: 0,
     superseded: 0,
     reprocessing: 0,
+    threads: 0,
     failed: 0,
   };
   for (const turn of await deps.statuses.due(deps.limit, deps.claimMs)) {
@@ -490,9 +524,9 @@ export async function endMentionTurns(deps: {
       await deps.statuses.confirmReset(turn.turnId);
       result.reset += 1;
       // A newer turn written after the claim: its "processing" may have
-      // reached Slack before this `active`, so it is said again.
-      if (await deps.statuses.newerDue(turn.turnId)) {
-        await deps.setStatus(turn, "processing");
+      // reached Slack before this `active`, so it is said again, below,
+      // and on later passes until Slack takes it.
+      if (await deps.statuses.reprocess(turn.turnId)) {
         result.reprocessing += 1;
       }
     } catch (error) {
@@ -502,6 +536,36 @@ export async function endMentionTurns(deps: {
         ...ids,
         error_name: error instanceof Error ? error.name : "UnknownError",
       });
+    }
+  }
+  if (Date.now() >= deps.deadline) return result;
+  for (const thread of await deps.statuses.claimThreads(
+    deps.limit,
+    deps.claimMs,
+  )) {
+    const ids = {
+      agent_id: thread.agentId,
+      channel_id: thread.thread.channelId,
+    };
+    try {
+      if (Date.now() >= deps.deadline) {
+        await deps.statuses.releaseThread(thread);
+        continue;
+      }
+      const shown = await deps.setStatus(thread, thread.status);
+      if (
+        await deps.statuses.threadSent(thread, shown ? thread.status : null)
+      ) {
+        result.threads += 1;
+      }
+    } catch (error) {
+      result.failed += 1;
+      deps.logger.warn("Mention thread status failed; tried again", {
+        ...ids,
+        error_name: error instanceof Error ? error.name : "UnknownError",
+      });
+      // Unreleased, the claim runs out and a later pass sends again.
+      await deps.statuses.releaseThread(thread).catch(() => {});
     }
   }
   return result;
