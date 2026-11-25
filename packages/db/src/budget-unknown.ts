@@ -570,7 +570,12 @@ export type EstimatedBudgetLine = {
  */
 export async function settleDeadUnknownBudget(
   db: Database,
-  input: { limit: number; dryRun: boolean },
+  input: {
+    limit: number;
+    dryRun: boolean;
+    /** Called for each line once its transaction committed (or would). */
+    onSettled?: (line: EstimatedBudgetLine) => void;
+  },
 ): Promise<EstimatedBudgetLine[]> {
   const ids = rowsOf<{ call_id: string }>(
     await db.execute(deadUnknownCandidates(input.limit)),
@@ -590,18 +595,24 @@ export async function settleDeadUnknownBudget(
             .from(budgetReservations)
             .leftJoin(conversationCalls, conversationCallOf)
             .where(inArray(budgetReservations.callId, ids));
-    return held.map((row) => ({
-      callId: row.callId,
-      callKind: row.conversation ? "conversation" : "session",
-      accountId: row.accountId,
-      charged: { costUsd: row.costUsd, tokens: row.tokens },
-      receiptId: null,
-    }));
+    const lines = held.map(
+      (row): EstimatedBudgetLine => ({
+        callId: row.callId,
+        callKind: row.conversation ? "conversation" : "session",
+        accountId: row.accountId,
+        charged: { costUsd: row.costUsd, tokens: row.tokens },
+        receiptId: null,
+      }),
+    );
+    for (const line of lines) input.onSettled?.(line);
+    return lines;
   }
   const lines: EstimatedBudgetLine[] = [];
   for (const callId of ids) {
     const line = await db.transaction((tx) => settleDeadOneIn(tx, callId));
-    if (line) lines.push(line);
+    if (!line) continue;
+    lines.push(line);
+    input.onSettled?.(line);
   }
   return lines;
 }

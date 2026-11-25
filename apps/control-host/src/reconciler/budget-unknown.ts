@@ -26,27 +26,31 @@ export async function runDeadUnknownBudgetSettle(input: {
   settle(options: {
     dryRun: boolean;
     limit: number;
+    onSettled: (line: EstimatedBudgetLine) => void;
   }): Promise<EstimatedBudgetLine[]>;
 }): Promise<EstimatedBudgetLine[]> {
   const { limit, dryRun } = reconcilerSettings(
     input.environment ?? process.env,
   );
-  const lines = await input.settle({ dryRun, limit });
-  for (const line of lines) {
-    input.logger.warn(
-      "Budget reservation of unknown end settled as estimated",
-      {
-        dry_run: dryRun,
-        call_id: line.callId,
-        call_kind: line.callKind,
-        account_id: line.accountId,
-        charged_cost_usd: line.charged.costUsd,
-        charged_tokens: line.charged.tokens,
-        receipt_id: line.receiptId,
-      },
-    );
-  }
-  return lines;
+  // Logged as each commits: a later call's failure must not lose the record
+  // of money already moved.
+  return input.settle({
+    dryRun,
+    limit,
+    onSettled: (line) =>
+      input.logger.warn(
+        "Budget reservation of unknown end settled as estimated",
+        {
+          dry_run: dryRun,
+          call_id: line.callId,
+          call_kind: line.callKind,
+          account_id: line.accountId,
+          charged_cost_usd: line.charged.costUsd,
+          charged_tokens: line.charged.tokens,
+          receipt_id: line.receiptId,
+        },
+      ),
+  });
 }
 
 /**

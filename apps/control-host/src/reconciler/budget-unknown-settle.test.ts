@@ -134,6 +134,8 @@ describe("reservations of unknown end of an ended turn", () => {
    */
   async function sessionCall(input: {
     turnStatus: string;
+    /** The attempt's turns in order, each started that long ago; by default one turn of `turnStatus` started 3 hours ago. */
+    turns?: { status: string; startedAgo: string }[];
     recent?: boolean;
     owner?: { kind: "user"; userId: string } | { kind: "team"; teamId: string };
     rootKind?: "user" | "none";
@@ -161,14 +163,19 @@ describe("reservations of unknown end of an ended turn", () => {
         state: "lost",
         leaseExpiresAt: new Date("2020-01-01T00:00:00Z"),
       });
-      await tx.insert(schema.turns).values({
-        sessionId,
-        sequence: 1,
-        message: "m",
-        status: input.turnStatus,
-        attemptId,
-        startedAt: sql`now() - interval '3 hours'`,
-      });
+      const turns = input.turns ?? [
+        { status: input.turnStatus, startedAgo: "3 hours" },
+      ];
+      for (const [index, turn] of turns.entries()) {
+        await tx.insert(schema.turns).values({
+          sessionId,
+          sequence: index + 1,
+          message: "m",
+          status: turn.status,
+          attemptId,
+          startedAt: sql`now() - ${turn.startedAgo}::interval`,
+        });
+      }
     });
     const userId = crypto.randomUUID();
     const owner = input.owner ?? { kind: "user", userId };
@@ -492,6 +499,63 @@ describe("reservations of unknown end of an ended turn", () => {
         expect(await callState(call.callId)).toBe("in_flight");
       }
     });
+  });
+
+  test("the call's turn is the attempt's last one started by its open: a later turn is not it", async () => {
+    // Opened about 61 minutes ago, during the cancelled turn; the running
+    // turn started after it.
+    const call = await sessionCall({
+      turnStatus: "cancelled",
+      turns: [
+        { status: "cancelled", startedAgo: "3 hours" },
+        { status: "running", startedAgo: "30 minutes" },
+      ],
+    });
+    await settle();
+    expect((await reservationOf(call.exchangeId))?.resolution).toBe(
+      "estimated",
+    );
+  });
+
+  test("an earlier ended turn does not settle a call of a later turn still open", async () => {
+    // Opened about 61 minutes ago, during the running turn.
+    const call = await sessionCall({
+      turnStatus: "running",
+      turns: [
+        { status: "failed", startedAgo: "3 hours" },
+        { status: "running", startedAgo: "2 hours" },
+      ],
+    });
+    await settle();
+    expect((await reservationOf(call.exchangeId))?.state).toBe("reserved");
+    expect(await receiptsOf(call.exchangeId)).toHaveLength(0);
+  });
+
+  test("a settle is logged as it commits, even when a later one of the batch fails", async () => {
+    const records: unknown[] = [];
+    const committed = {
+      callId: "call-committed",
+      callKind: "session" as const,
+      accountId: null,
+      charged: { costUsd: 1, tokens: 1 },
+      receiptId: "receipt-1",
+    };
+    await expect(
+      runDeadUnknownBudgetSettle({
+        environment: { RECONCILER_BATCH_SIZE: "10" },
+        logger: {
+          info: () => {},
+          warn: (_message, fields) => void records.push(fields),
+        },
+        settle: async ({ onSettled }) => {
+          onSettled(committed);
+          throw new Error("the second call failed");
+        },
+      }),
+    ).rejects.toThrow("the second call failed");
+    expect(records).toEqual([
+      expect.objectContaining({ call_id: "call-committed", dry_run: false }),
+    ]);
   });
 
   test("the reconciler's pass logs each settle; a dry run logs it and changes nothing", async () => {
