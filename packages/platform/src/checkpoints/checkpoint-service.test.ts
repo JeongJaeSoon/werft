@@ -858,9 +858,9 @@ describe("protectedCommits", () => {
           if (property !== "stream" || typeof value !== "function")
             return value;
           return async (key: string, version?: string) => {
-            if (key !== base.key || (reads += 1) > 1) {
-              return value.call(target, key, version);
-            }
+            if (key !== base.key) return value.call(target, key, version);
+            reads += 1;
+            if (reads > 1) return value.call(target, key, version);
             return (async function* () {
               yield new Uint8Array(base.bytes);
             })();
