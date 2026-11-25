@@ -19,6 +19,7 @@ import {
 } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
+  createAuthorizationPolicy,
   createGitHubMcpServer,
   createWerftMcpServer,
   createWorkerGateway,
@@ -109,11 +110,11 @@ beforeEach(async () => {
     { version: WERFT_VERSION },
     {
       db,
-      authorization: {
-        async authorize() {
-          throw new Error("not used");
-        },
-      },
+      authorization: createAuthorizationPolicy({
+        identity: schema.createDatabaseIdentityReader(db),
+        agents: schema.createDatabaseAgentAuthority(db),
+        sessions: schema.createPostgresSessionShareStore(db),
+      }),
     },
   );
   const store = createPostgresGitHubMcpStore(db);
@@ -725,5 +726,348 @@ describe("the built-in werft MCP server on stored rows", () => {
       expect(text).not.toContain(String(token));
       expect(text).not.toMatch(GITHUB_TOKEN_SHAPES);
     }
+  });
+
+  test("its status tool reads the session's own rows, names them to the workspace's owner, and returns no secret", async () => {
+    const { agentId, token } = await seeded({
+      github: settings(),
+      werft: true,
+    });
+    const [agent] = await db
+      .select({ workspaceId: schema.agents.workspaceId })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId));
+    if (agent === undefined) throw new Error("no agent");
+    const { workspaceId } = agent;
+    // Secret-shaped values in every column next to what the tool reads.
+    const secret = (what: string) =>
+      `werft-test-secret-${what}-${randomUUID()}`;
+    const secrets = {
+      repository: secret("repository"),
+      signing: secret("signing"),
+      client: secret("client"),
+      bot: secret("bot"),
+      identity: secret("identity"),
+    };
+    await db
+      .insert(schema.catalogRepositories)
+      .values({
+        id: "app",
+        owner: "acme",
+        name: "app",
+        url: "https://git.invalid/agent/app.git",
+        branch: "main",
+        authKind: "bearer",
+        auth: { kind: "bearer", stored: secrets.repository },
+        credentialSource: "stored",
+        source: "import",
+      })
+      .onConflictDoUpdate({
+        target: schema.catalogRepositories.id,
+        set: {
+          owner: "acme",
+          name: "app",
+          authKind: "bearer",
+          auth: { kind: "bearer", stored: secrets.repository },
+          credentialSource: "stored",
+        },
+      });
+    const appRow = randomUUID();
+    await db.insert(schema.githubApps).values({
+      id: appRow,
+      workspaceId,
+      appId: 77,
+      slug: "werft-test",
+      name: "werft test",
+      htmlUrl: "https://github.invalid/apps/werft-test",
+      apiBase: "https://api.github.invalid",
+    });
+    await db.insert(schema.githubInstallationSnapshots).values({
+      connectionId: appRow,
+      appId: 77,
+      installations: [{ id: 1, suspendedAt: null }],
+      readAt: new Date(),
+    });
+    await db.insert(schema.slackApps).values({
+      id: randomUUID(),
+      workspaceId,
+      kind: "agent",
+      agentId,
+      state: "created",
+      appId: "A0TEST",
+      clientId: "1.2",
+      redirectUrl: "https://werft.invalid/slack/callback",
+      signingSecretRef: secrets.signing,
+      clientSecretRef: secrets.client,
+      botTokenRef: secrets.bot,
+    });
+    const installationId = randomUUID();
+    await db.insert(schema.slackInstallations).values({
+      id: installationId,
+      workspaceId,
+      appId: "A0TEST",
+      teamId: "T0TEST",
+      botUserId: "U0BOT",
+      status: "verified",
+      verifiedAt: new Date(),
+    });
+    await db.insert(schema.agentIdentities).values({
+      id: randomUUID(),
+      workspaceId,
+      agentId,
+      provider: "slack_bot",
+      installationId,
+      externalPrincipalId: "U0BOT",
+      credentialRef: secrets.identity,
+    });
+    for (const [channelId, kind, name] of [
+      ["C0PUBLIC", "public_channel", "general"],
+      ["C0PRIVATE", "private_channel", "launch-plans"],
+    ] as const) {
+      await db
+        .insert(schema.channelContexts)
+        .values({ id: randomUUID(), workspaceId, teamId: "T0TEST", channelId });
+      await db.insert(schema.conversations).values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        kind: "channel",
+        teamId: "T0TEST",
+        channelId,
+        channelName: name,
+      });
+      await db.insert(schema.surfaceBindings).values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        surface: "slack",
+        installationId,
+        externalSurfaceId: channelId,
+        surfaceKind: kind,
+        mode: "on",
+        ceilingActions: [],
+        ceilingDisclosure: "full",
+      });
+    }
+
+    // Codex review: another agent's binding calls a channel private that
+    // this agent's binding still calls public, and another Slack team has a
+    // conversation under the same channel id. Neither name may come out.
+    const otherAgent = randomUUID();
+    await db.insert(schema.agents).values({
+      id: otherAgent,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: "other-agent",
+      name: "other agent",
+    });
+    await db.insert(schema.channelContexts).values({
+      id: randomUUID(),
+      workspaceId,
+      teamId: "T0TEST",
+      channelId: "C0FLIP",
+    });
+    await db.insert(schema.conversations).values({
+      id: randomUUID(),
+      workspaceId,
+      agentId,
+      kind: "channel",
+      teamId: "T0TEST",
+      channelId: "C0FLIP",
+      channelName: "flipped-secret",
+    });
+    // The other agent's own app, installed in the same Slack team.
+    const otherInstallation = randomUUID();
+    await db.insert(schema.slackInstallations).values({
+      id: otherInstallation,
+      workspaceId,
+      appId: "A0SECOND",
+      teamId: "T0TEST",
+      botUserId: "U0SECONDBOT",
+      status: "verified",
+      verifiedAt: new Date(),
+    });
+    for (const [owner, kind, installedAs] of [
+      [agentId, "public_channel", installationId],
+      [otherAgent, "private_channel", otherInstallation],
+    ] as const) {
+      await db.insert(schema.surfaceBindings).values({
+        id: randomUUID(),
+        workspaceId,
+        agentId: owner,
+        surface: "slack",
+        installationId: installedAs,
+        externalSurfaceId: "C0FLIP",
+        surfaceKind: kind,
+        mode: "on",
+        ceilingActions: [],
+        ceilingDisclosure: "full",
+      });
+    }
+    // Another Slack team where the other agent hears a public C0PUBLIC.
+    const otherTeamInstallation = randomUUID();
+    await db.insert(schema.slackInstallations).values({
+      id: otherTeamInstallation,
+      workspaceId,
+      appId: "A0OTHER",
+      teamId: "T0OTHER",
+      botUserId: "U0OTHERBOT",
+      status: "verified",
+      verifiedAt: new Date(),
+    });
+    await db.insert(schema.surfaceBindings).values({
+      id: randomUUID(),
+      workspaceId,
+      agentId: otherAgent,
+      surface: "slack",
+      installationId: otherTeamInstallation,
+      externalSurfaceId: "C0PUBLIC",
+      surfaceKind: "public_channel",
+      mode: "on",
+      ceilingActions: [],
+      ceilingDisclosure: "full",
+    });
+    await db.insert(schema.channelContexts).values({
+      id: randomUUID(),
+      workspaceId,
+      teamId: "T0OTHER",
+      channelId: "C0PUBLIC",
+    });
+    await db.insert(schema.conversations).values({
+      id: randomUUID(),
+      workspaceId,
+      agentId,
+      kind: "channel",
+      teamId: "T0OTHER",
+      channelId: "C0PUBLIC",
+      channelName: "other-team-secret",
+    });
+
+    const called = await relay(
+      token,
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "get_status", arguments: {} },
+      },
+      "werft",
+    );
+    expect(called.status).toBe(200);
+    const result = (
+      called.body as {
+        result: {
+          isError?: boolean;
+          structuredContent: Record<string, unknown>;
+        };
+      }
+    ).result;
+    expect(result.isError).toBeUndefined();
+    // The session's starter owns the workspace: every name but the private
+    // channel's, which only a member of it sees once a session came from it.
+    expect(result.structuredContent).toMatchObject({
+      werft: { version: WERFT_VERSION },
+      details: "shown",
+      github: {
+        state: "connected",
+        app: "connected",
+        agent: "on",
+        repositories: ["acme/app"],
+      },
+      slack: {
+        state: "connected",
+        app: "connected",
+        identity: "connected",
+        channels: [
+          { id: "C0PUBLIC", name: "general", private: false, listen: "free" },
+        ],
+      },
+      tools: { tools: ["Read"] },
+    });
+    const text = JSON.stringify(called.body);
+    for (const value of Object.values(secrets)) {
+      expect(text).not.toContain(value);
+    }
+    for (const name of [
+      "launch-plans",
+      "flipped-secret",
+      "other-team-secret",
+    ]) {
+      expect(text).not.toContain(name);
+    }
+  });
+
+  test("its status tool names nothing when the running turn's requester, not the starter, is outside the agent", async () => {
+    const { agentId, claim, token } = await seeded({ werft: true });
+    const [agent] = await db
+      .select({ workspaceId: schema.agents.workspaceId })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId));
+    if (agent === undefined) throw new Error("no agent");
+    const outsider = randomUUID();
+    await db.insert(schema.users).values({
+      id: outsider,
+      email: `${outsider}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "outsider",
+    });
+    await db.insert(schema.memberships).values({
+      workspaceId: agent.workspaceId,
+      userId: outsider,
+      role: "member",
+    });
+    const detailsFor = async (requester: {
+      kind: string;
+      id: string;
+      auth: unknown;
+    }) => {
+      await db
+        .update(schema.turns)
+        .set({
+          requesterKind: requester.kind,
+          requesterId: requester.id,
+          requesterAuth: requester.auth,
+        })
+        .where(eq(schema.turns.sessionId, claim.session_id));
+      const called = await relay(
+        token,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "get_status", arguments: {} },
+        },
+        "werft",
+      );
+      return (
+        called.body as { result: { structuredContent: { details: string } } }
+      ).result.structuredContent.details;
+    };
+    const [turn] = await db
+      .select({
+        id: schema.turns.requesterId,
+        auth: schema.turns.requesterAuth,
+      })
+      .from(schema.turns)
+      .where(eq(schema.turns.sessionId, claim.session_id));
+    if (turn?.id == null) throw new Error("no turn");
+    const starter = turn.id;
+    expect(
+      await detailsFor({ kind: "user", id: starter, auth: turn.auth }),
+    ).toBe("shown");
+    expect(
+      await detailsFor({ kind: "user", id: outsider, auth: turn.auth }),
+    ).toBe("hidden");
+    // A push follow-up acts for its root's requester, not the approver.
+    expect(
+      await detailsFor({
+        kind: "user",
+        id: starter,
+        auth: {
+          method: "push_decision",
+          root: { requester_kind: "user", requester_id: outsider },
+        },
+      }),
+    ).toBe("hidden");
   });
 });
