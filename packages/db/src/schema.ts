@@ -6447,7 +6447,9 @@ export const conversationEngagements = pgTable(
 // One channel's summary, shared by every agent in the channel. `version`
 // goes one up on every change: a line added, folded or reverted, or one
 // removed because its source message was deleted or edited. Version 0 is
-// the empty summary a channel starts at.
+// the empty summary a channel starts at. A fold (a1/J10) holds the summary
+// until `fold_claimed_until`, so one runs at a time; `fold_tried_at` is when
+// the last one started, spacing them out whatever became of it.
 export const channelSummaries = pgTable(
   "channel_summaries",
   {
@@ -6458,6 +6460,8 @@ export const channelSummaries = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    foldClaimedUntil: timestamp("fold_claimed_until", { withTimezone: true }),
+    foldTriedAt: timestamp("fold_tried_at", { withTimezone: true }),
   },
   (table) => [
     primaryKey({
