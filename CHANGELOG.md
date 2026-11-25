@@ -20,7 +20,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 올린 뒤 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결을 마지막 보고 줄을 넣은 뒤 닫는다. 올리기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
   - 닫는 사유(`closed_reason`)는 v0.5.0과 같다. 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기와 에이전트 릴리스가 없어 정리로 닫힌 세션은 `abandoned`다. 세션에 취소·실패 닫힘이 생기면 `cancelled`·`failed`를 쓴다.
   - 닫힌 연결은 이력으로 남고 되살아나지 않는다. v0.5.0으로 되돌려도 이미 닫힌 연결은 닫힌 채로 남고, 그 스레드의 다음 멘션은 새 세션이 된다. v0.5.0에도 같은 닫기가 스위치 뒤에 있으므로, 되돌린 뒤 닫기를 멈추려면 `SLACK_ROLE_CLOSE_LINKS=false`를 주거나 Compose 파일도 v0.5.0의 것으로 되돌린다. 이 릴리스의 `infra/compose.core.yml`은 값을 주지 않으면 `true`를 넘기므로 이미지만 되돌리면 닫기가 계속된다. Helm은 이 값을 기본으로 넘기지 않아 이미지를 되돌리면 꺼진다.
-- **api가 기동할 때 콘솔이 만든 에이전트 Slack 앱마다 manifest를 받아 보고(`apps.manifest.export`), bot 이벤트만 모자라면 manifest 전체를 다시 보낸다. 설정 토큰이 살아 있어야 보낸다**(JeongJaeSoon/werft#2191). migration `0358`이 `slack_apps`에 nullable 칸 `manifest_sync_error`·`manifest_sync_checked_at`를 더한다. 표나 칸을 지우지 않는다.
+- **api가 기동할 때 콘솔이 만든 에이전트 Slack 앱마다 manifest를 받아 보고(`apps.manifest.export`), bot 이벤트만 모자라면 manifest 전체를 다시 보낸다. 설정 토큰이 살아 있어야 보낸다**(JeongJaeSoon/werft#2191). migration `0359`가 `slack_apps`에 nullable 칸 `manifest_sync_error`·`manifest_sync_checked_at`를 더한다. 표나 칸을 지우지 않는다.
   - 설정 토큰이 없거나 만료됐으면 Slack을 부르지 않고, 콘솔 Slack 탭의 앱 칸에 "갱신 필요"와 사유를 띄운다. 토큰을 다시 넣고 다시 확인을 누르면 그때 보낸다. 뒤에서 다시 시도하지 않는다. 다시 시도하는 때는 다음 기동이나 다시 확인이다.
   - 여러 api replica가 함께 떠도 10분 안에는 한 replica만 앱을 확인한다. Slack이 `Retry-After` 120초 이하로 막으면 앱마다 한 번만 기다리고, 그보다 길거나 두 번째면 갱신 필요로 남긴다.
   - bot scope가 다르거나 user scope가 있는 앱과 이벤트 구독이 꺼진 앱은 건드리지 않는다.
