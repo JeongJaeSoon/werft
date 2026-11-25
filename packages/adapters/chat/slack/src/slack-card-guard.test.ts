@@ -262,6 +262,53 @@ describe("a card's text cut to fit", () => {
 describe("a link a cut runs into", () => {
   const u = "https://app.slack.com/client/T0OTHER001";
 
+  test("not one the model wrote a mark into", () => {
+    const written = "https://app.slack.com/client/…/T0OTHER001";
+    const asked: SlackPrompt = {
+      kind: "question",
+      sessionId: "s-1",
+      requestId: "q",
+      questions: [question(`see ${written}`, [`go ${written}`, "b"])],
+      expiresAt: "2026-11-03T00:00:00Z",
+    };
+    expect(
+      said(slackPromptMessage(asked, { ...options, guard })),
+    ).not.toContain("T0OTHER001");
+    const view = slackQuestionView(
+      [question(`see ${written}`, ["a"])],
+      { s: "s-1", r: "q", c: HERE, m: "1.1", t: "1.0" },
+      "en",
+      guard,
+    );
+    expect(JSON.stringify(view)).not.toContain("T0OTHER001");
+    const legacy = slackPromptMessage(asked, options);
+    const card = { locale: "en", kind: "question", linkUrl: null } as const;
+    expect(slackGuardedCardText(legacy.text, guard, card)).not.toContain(
+      "T0OTHER001",
+    );
+    expect(
+      JSON.stringify(guardSlackCardBlocks(legacy.blocks, guard)),
+    ).not.toContain("T0OTHER001");
+  });
+
+  test("keeps every input field, whatever the guard takes from its key", () => {
+    const card = slackPromptMessage(
+      {
+        ...permission,
+        input: {
+          "field @here": "FIRST VALUE",
+          "field @channel": "SECOND VALUE",
+        },
+      },
+      { ...options, guard },
+    );
+    const text = said(card);
+    expect(text).toContain("FIRST VALUE");
+    expect(text).toContain("SECOND VALUE");
+    expect(text).not.toContain("@here");
+    expect(text).not.toContain("@channel");
+  });
+
   test("in a tool input's key, past the raw input's length", () => {
     const asked = {
       ...permission,

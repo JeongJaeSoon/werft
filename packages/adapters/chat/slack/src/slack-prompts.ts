@@ -619,9 +619,10 @@ export function slackGuardedCardText(
 }
 
 // A cut leaves `…` on what it cut, which a link or id it cut through would
-// read as part of it: the guard reads each run around a mark on its own.
+// read as part of it: past the whole text, the guard reads each run around a
+// mark on its own.
 const cutAware = (guard: SlackTextGuard) => (text: string) =>
-  text.split("…").map(guard).join("…");
+  guard(text).split("…").map(guard).join("…");
 
 // Slack refuses an empty text, so one the guard empties keeps a mark.
 const keptBy = (guard: SlackTextGuard) => (text: string) => {
@@ -639,7 +640,7 @@ function guardedStrings(
   if (typeof value !== "object" || value === null) return value;
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
-      guard(key),
+      key,
       guardedStrings(item, guard),
     ]),
   );
