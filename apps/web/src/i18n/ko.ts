@@ -249,7 +249,7 @@ export const slackKo = {
     "{channel}의 시간당 판단 상한을 저장하지 못했습니다. {reason}",
   "slack.judgments": "판단 기록",
   "slack.judgments.hint":
-    "최근 {days}일 동안 이 에이전트가 채널 글에 끼어들지 판단한 기록입니다(shadow: Slack에 글을 올리지 않습니다). 글 본문은 링크를 눌러 Slack에서 봅니다. 비공개 채널의 기록과 숫자는 지금 그 채널의 멤버에게만 보입니다.",
+    "최근 {days}일 동안 이 에이전트가 채널 글에 끼어들지 판단한 기록입니다(shadow: Slack에 글을 올리지 않습니다). 글 본문은 링크를 눌러 Slack에서 봅니다. 비공개 채널의 기록과 숫자도 보입니다.",
   "slack.judgments.knobs":
     "판단이 너무 잦거나 드물면 채널의 듣기 설정, 시간당 판단 상한, 저장소의 에이전트 지침(AGENTS.md)으로 맞춥니다.",
   "slack.judgments.forbidden":
