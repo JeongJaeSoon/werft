@@ -11,6 +11,13 @@ import { MIGRATIONS_FOLDER } from "../migration-journal.ts";
 export const BEFORE_PROFILE_REMOVAL = "0269_session_caller_limit";
 
 /**
+ * The migration that dropped `agent_engine_settings` and
+ * `workspace_engine_settings`. A test that reads them back migrates to just
+ * before it.
+ */
+export const ENGINE_SETTINGS_DROP = "0355_drop_engine_settings";
+
+/**
  * A copy of the migrations folder whose journal ends at `lastTag` (or just
  * before it, with `exclusive`). The caller removes it.
  */
