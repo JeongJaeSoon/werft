@@ -392,10 +392,16 @@ export async function appendChannelSummaryLines(
     expectedVersion: number;
     agentId: string;
     lines: readonly NewChannelSummaryLine[];
+    /** Asked with the sources' marks held, before the summary's row. */
+    gateOpen?: () => Promise<boolean>;
     /** Asked with the summary's row held; false writes nothing. */
     channelThere?: () => Promise<boolean>;
   },
-): Promise<ChannelSummaryWriteResult | { outcome: "channel_gone" }> {
+): Promise<
+  | ChannelSummaryWriteResult
+  | { outcome: "channel_gone" }
+  | { outcome: "gate_closed" }
+> {
   const { place } = request;
   if (!request.lines.every((line) => validText(line.text))) {
     return { outcome: "invalid_text" };
@@ -435,6 +441,9 @@ export async function appendChannelSummaryLines(
   // In one order, so two writes never wait on each other's marks.
   for (const ts of allTs) {
     await tx.execute(lockSlackSourceMark({ ...place, ts }));
+  }
+  if (request.gateOpen !== undefined && !(await request.gateOpen())) {
+    return { outcome: "gate_closed" };
   }
   const tsList = sql.join(
     allTs.map((ts) => sql`${ts}`),
@@ -720,9 +729,13 @@ export function createPostgresChannelSummaryStore(
     append(request) {
       return db.transaction(async (tx) => {
         const written = await appendChannelSummaryLines(tx, request);
-        // Only a caller's check answers channel_gone.
-        if (written.outcome === "channel_gone")
+        // Only a caller's checks answer these.
+        if (
+          written.outcome === "channel_gone" ||
+          written.outcome === "gate_closed"
+        ) {
           throw new Error(written.outcome);
+        }
         return written;
       });
     },
