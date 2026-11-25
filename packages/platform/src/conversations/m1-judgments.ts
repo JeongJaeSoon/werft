@@ -1,6 +1,6 @@
 import type {
-  ConversationInputId,
   ConversationJudgmentId,
+  JudgmentVoidedReason,
 } from "@werft-ai/contracts";
 import { startPolling } from "../polling.ts";
 import {
@@ -31,25 +31,65 @@ export type ClaimedReplyJudgment = {
   subject: M1Subject;
   /** Past the channel's M1 cap (counted for `m1_engaged` alone): no call. */
   rateLimited: boolean;
+  /** As JudgmentBatch's: when the claim's channel marks were done. */
+  readAt?: string;
 };
+
+/** A post a judgment read, with the text it read. */
+export type M1ReadPost = Pick<M1Post, "inputId" | "ts" | "body" | "editMark">;
+
+/**
+ * What a batch's write found. `voided`: a post the model read was deleted
+ * or edited while it ran (check spot ②, a1/J6), so a voided row was written
+ * in place of the result; `remaining` are the judged posts still there,
+ * with their text now, for the one judgment again (none once it was `final`,
+ * when their buffered rows went too).
+ */
+export type M1BatchWrite =
+  | { outcome: "written" }
+  | { outcome: "closed" }
+  | {
+      outcome: "voided";
+      reason: JudgmentVoidedReason;
+      remaining: M1ReadPost[];
+      /** When the remaining posts were read again, for that judgment's write. */
+      readAt: string;
+    };
+
+/**
+ * What a reply's write found. `voided` with `rejudge`: the reply waits
+ * for one judgment again on that text (its buffered text now, or the text
+ * read when only its context was deleted); with null, the reply's row is
+ * now the voided record.
+ */
+export type M1ReplyWrite =
+  | "written"
+  | "dropped"
+  | {
+      voided: JudgmentVoidedReason;
+      rejudge: (Pick<M1Post, "body" | "editMark"> & { readAt: string }) | null;
+    };
 
 /**
  * Where M1's records go. Each write asks the switch, the notice approval and
  * the channel's sharing again, under the agent's row: closed, nothing is
- * written.
+ * written. A judged result is written only if no message it read was
+ * deleted or edited since (check spot ②).
  */
 export interface M1JudgmentStore {
   /** Asked right before each call. */
   gateOpen(place: M1Place): Promise<boolean>;
   /**
    * Writes a batch's record and removes the buffered messages it judged;
-   * false, writing and removing nothing, when the gate has closed.
+   * `closed`, writing and removing nothing, when the gate has closed.
+   * `final`: the judgment again, whose voiding removes what it judged.
    */
   recordBatch(
     batch: JudgmentBatch,
     record: M1Record,
-    judged: readonly ConversationInputId[],
-  ): Promise<boolean>;
+    judged: readonly M1ReadPost[],
+    options?: { final?: boolean; readAt?: string },
+  ): Promise<M1BatchWrite>;
   /**
    * Gives up the replies that waited past the buffer's time or whose judge
    * died, then takes the oldest waiting one; null when none waits.
@@ -57,12 +97,19 @@ export interface M1JudgmentStore {
   claimReply(options?: { now?: Date }): Promise<ClaimedReplyJudgment | null>;
   /**
    * Writes a reply's record, or drops its row when `record` is null or the
-   * gate has closed; a held reply's text goes either way.
+   * gate has closed; a held reply's text goes either way, unless it waits
+   * for its judgment again. `read`: the text the judgment read. `final`:
+   * the judgment again, which is not repeated.
    */
   finishReply(
     id: ConversationJudgmentId,
     record: M1Record | null,
-  ): Promise<"written" | "dropped">;
+    options?: {
+      read?: Pick<M1Post, "body" | "editMark">;
+      final?: boolean;
+      readAt?: string;
+    },
+  ): Promise<M1ReplyWrite>;
 }
 
 const subjectOfBatch = (batch: JudgmentBatch): M1Subject => ({
@@ -80,6 +127,7 @@ const subjectOfBatch = (batch: JudgmentBatch): M1Subject => ({
       ts: input.ts,
       body: input.body,
       receivedAt: input.receivedAt,
+      editMark: input.editMark,
       sources: [
         {
           inputId: input.inputId,
@@ -94,40 +142,79 @@ const subjectOfBatch = (batch: JudgmentBatch): M1Subject => ({
   ),
 });
 
+type VoidLogger = {
+  info?(message: string, fields?: Readonly<Record<string, unknown>>): void;
+};
+
+const logVoided = (
+  logger: VoidLogger | undefined,
+  record: M1Record,
+  reason: JudgmentVoidedReason,
+) => logger?.info?.("M1 judgment voided", { call_key: record.callKey, reason });
+
 /**
  * J4's batches judged by M1: each record written, then the messages it
  * judged removed. One the channel's concurrency cap stopped keeps its
- * messages for the next batch (J7).
+ * messages for the next batch (J7). A result voided because a message it
+ * read was deleted or edited meanwhile is judged once more on what is left,
+ * with the new text (J6); none left, nothing is called again.
  */
 export function createM1BatchJudge(deps: {
   judge: M1Judge;
   store: Pick<M1JudgmentStore, "recordBatch">;
+  logger?: VoidLogger;
 }): JudgmentBatchJudge {
+  const ids = (posts: readonly M1Post[]) => posts.map((post) => post.inputId);
   return {
     async judge(batch) {
-      const subject = subjectOfBatch(batch);
-      const { record, left, modelCalled } = await deps.judge.judge(subject);
-      if (record === null) return { modelCalled, left: [] };
-      const deferred =
-        record.verdict.outcome === "not_called" &&
-        record.verdict.reason === "concurrency_limited";
-      const judged = new Set(record.refs);
-      await deps.store.recordBatch(
-        batch,
-        record,
-        deferred
-          ? []
-          : subject.posts
-              .filter((post) => judged.has(post.ts))
-              .map((post) => post.inputId),
-      );
-      return deferred
-        ? {
+      let subject = subjectOfBatch(batch);
+      let modelCalled = false;
+      let readAt = batch.readAt;
+      const left: M1Post[] = [];
+      for (const rejudge of [false, true]) {
+        const judgment = await deps.judge.judge(subject, { rejudge });
+        modelCalled ||= judgment.modelCalled;
+        left.push(...judgment.left);
+        const { record } = judgment;
+        if (record === null) break;
+        if (
+          record.verdict.outcome === "not_called" &&
+          record.verdict.reason === "concurrency_limited"
+        ) {
+          await deps.store.recordBatch(batch, record, []);
+          return {
             modelCalled,
-            left: subject.posts.map((post) => post.inputId),
+            left: ids([...subject.posts, ...left]),
             deferred: true,
-          }
-        : { modelCalled, left: left.map((post) => post.inputId) };
+          };
+        }
+        const refs = new Set(record.refs);
+        const written = await deps.store.recordBatch(
+          batch,
+          record,
+          subject.posts.filter((post) => refs.has(post.ts)),
+          { final: rejudge, ...(readAt === undefined ? {} : { readAt }) },
+        );
+        if (written.outcome !== "voided") break;
+        logVoided(deps.logger, record, written.reason);
+        // Voided again: the store dropped what the batch still held.
+        if (rejudge) return { modelCalled, left: [] };
+        if (written.remaining.length === 0) break;
+        readAt = written.readAt;
+        const byInput = new Map(
+          subject.posts.map((post) => [post.inputId, post]),
+        );
+        subject = {
+          ...subject,
+          posts: written.remaining.flatMap((post) => {
+            const read = byInput.get(post.inputId);
+            return read === undefined
+              ? []
+              : [{ ...read, body: post.body, editMark: post.editMark }];
+          }),
+        };
+      }
+      return { modelCalled, left: ids(left) };
     },
     async rateLimited(batch) {
       const subject = subjectOfBatch(batch);
@@ -140,7 +227,12 @@ export function createM1BatchJudge(deps: {
   };
 }
 
-export type ReplyJudgmentRun = { judged: number; dropped: number };
+export type ReplyJudgmentRun = {
+  judged: number;
+  dropped: number;
+  /** Results voided by a delete or an edit of the reply (J6). */
+  voided: number;
+};
 
 /** Judges waiting replies one at a time until none waits or `deadline` passes. */
 export async function runReplyJudgments(deps: {
@@ -148,33 +240,62 @@ export async function runReplyJudgments(deps: {
   judge: M1Judge;
   logger: {
     warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
-  };
+  } & VoidLogger;
   deadline: number;
   clock?: () => number;
 }): Promise<ReplyJudgmentRun> {
   const clock = deps.clock ?? Date.now;
-  const run: ReplyJudgmentRun = { judged: 0, dropped: 0 };
+  const run: ReplyJudgmentRun = { judged: 0, dropped: 0, voided: 0 };
+  const judge = async (claimed: ClaimedReplyJudgment, rejudge: boolean) => {
+    try {
+      return (await deps.judge.judge(claimed.subject, { rejudge })).record;
+    } catch (error) {
+      deps.logger.warn("Reply judgment failed", {
+        judgment_id: claimed.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  };
   while (clock() < deps.deadline) {
-    const claimed = await deps.store.claimReply();
+    let claimed = await deps.store.claimReply();
     if (claimed === null) break;
-    let record: M1Record | null = null;
-    if (claimed.rateLimited) {
-      record = m1NotCalled(claimed.subject, "rate_limited", null);
-    } else {
-      try {
-        record = (await deps.judge.judge(claimed.subject)).record;
-      } catch (error) {
-        deps.logger.warn("Reply judgment failed", {
-          judgment_id: claimed.id,
-          error: error instanceof Error ? error.message : String(error),
+    let record = claimed.rateLimited
+      ? m1NotCalled(claimed.subject, "rate_limited", null)
+      : await judge(claimed, false);
+    const [post] = claimed.subject.posts;
+    let written = await deps.store.finishReply(claimed.id, record, {
+      ...(post === undefined
+        ? {}
+        : { read: { body: post.body, editMark: post.editMark } }),
+      ...(claimed.readAt === undefined ? {} : { readAt: claimed.readAt }),
+    });
+    if (typeof written === "object" && record !== null) {
+      logVoided(deps.logger, record, written.voided);
+      if (written.rejudge !== null) {
+        // Once more on the text it has now; voided again, it is not.
+        const { readAt, ...read } = written.rejudge;
+        claimed = {
+          ...claimed,
+          subject: {
+            ...claimed.subject,
+            posts: claimed.subject.posts.map((each) => ({ ...each, ...read })),
+          },
+        };
+        record = await judge(claimed, true);
+        written = await deps.store.finishReply(claimed.id, record, {
+          read,
+          readAt,
+          final: true,
         });
+        if (typeof written === "object" && record !== null) {
+          logVoided(deps.logger, record, written.voided);
+        }
       }
     }
-    if ((await deps.store.finishReply(claimed.id, record)) === "written") {
-      run.judged += 1;
-    } else {
-      run.dropped += 1;
-    }
+    if (written === "written") run.judged += 1;
+    else if (written === "dropped") run.dropped += 1;
+    else run.voided += 1;
   }
   return run;
 }
@@ -219,7 +340,11 @@ export function createM1JudgmentRunner(deps: {
       clock: until,
     });
     if (
-      batches.judged + batches.rateLimited + batches.failed + replies.judged >
+      batches.judged +
+        batches.rateLimited +
+        batches.failed +
+        replies.judged +
+        replies.voided >
       0
     ) {
       deps.logger.info("M1 judgment pass", { ...batches, replies });
