@@ -637,7 +637,8 @@ integration("the managing team on PostgreSQL", () => {
     const both = [agentId, other];
 
     // Each row only where the reader is inside, the count too.
-    expect(await rows(owner)).toEqual(both);
+    // Newest first: `other` was made after `agentId`.
+    expect(await rows(owner)).toEqual([other, agentId]);
     expect(await rows(member)).toEqual([agentId]);
     expect(await rows(outsider)).toEqual([]);
     expect((await store.count(workspaceId, reader(member))).all).toBe(1);

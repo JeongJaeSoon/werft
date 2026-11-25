@@ -515,11 +515,11 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.connectionId} = ${query.connection_id})`,
                 ),
             cursor
-              ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
+              ? sql`(${agents.createdAt}, ${agents.id}) < (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,
           ),
         )
-        .orderBy(asc(agents.createdAt), asc(agents.id))
+        .orderBy(desc(agents.createdAt), desc(agents.id))
         .limit(query.limit + 1)
         .catch(rethrowCursorCastError);
       const page = rows.slice(0, query.limit);

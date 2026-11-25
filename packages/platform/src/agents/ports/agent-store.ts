@@ -152,7 +152,7 @@ export type ActivateResult =
 
 export interface AgentStore {
   /**
-   * One page, oldest first, of the agents `reader` may read (agent.read),
+   * One page, newest first, of the agents `reader` may read (agent.read),
    * narrowed by `q` and `ids`; a malformed cursor throws
    * InvalidCursorError. `include` is the service's.
    */
