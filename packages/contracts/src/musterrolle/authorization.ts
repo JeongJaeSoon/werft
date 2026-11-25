@@ -393,8 +393,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // recorded under its own name rather than agent.manage.
   "usage.agent_read",
   // One agent's M1 judgment records in its Slack channels (a1/S3): its
-  // workspace's managers and its admins; a private channel's only to its
-  // current members.
+  // workspace's managers and its admins, private channels' included.
   "judgment.read",
   // The installation's connections, repositories and remote MCP servers,
   // and the settings document that exports and imports them: the owner.
