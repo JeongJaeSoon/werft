@@ -6,13 +6,21 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
-import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
+import {
+  bucketHoldsObjectVersion,
+  createCheckpointObjectCollector,
+  createCheckpointObjectStore,
+  describeBucketEncryption,
+  describeBucketProtection,
+} from "./checkpoint-objects.ts";
 import { createStorageS3Client, type StorageS3Settings } from "./index.ts";
 import {
   DEFAULT_BODY_READ_BOUNDS,
   isObjectStoreUnreachable,
   S3_MAX_ATTEMPTS,
+  S3_METADATA_REQUEST_TIMEOUT_MS,
   S3_REQUEST_BOUNDS,
+  type S3ClientLike,
 } from "./s3.ts";
 import { listen } from "./testing/listen.ts";
 
@@ -244,6 +252,124 @@ describe("storage S3 client request bounds", () => {
     expect(outcome).toContain("delivered nothing for 300ms");
     expect(Date.now() - startedAt).toBeLessThan(10_000);
   }, 20_000);
+
+  test("every request that moves no body carries the metadata bound, the ones after a first answer too", async () => {
+    const sent: Array<[string, number | undefined]> = [];
+    const client: S3ClientLike = {
+      async send(command, options) {
+        sent.push([
+          (command as { constructor: { name: string } }).constructor.name,
+          options?.requestTimeout,
+        ]);
+        return {};
+      },
+    };
+    const store = createCheckpointObjectStore({ bucket: "bucket", client });
+    const collector = createCheckpointObjectCollector({
+      bucket: "bucket",
+      client,
+    });
+
+    await store.head("k");
+    await (store.hold as NonNullable<typeof store.hold>)("k", "v1");
+    await store.list("p/");
+    await collector.listVersions("p/");
+    await collector.purge({ deleteMarker: false, key: "k", version: "v1" });
+    await bucketHoldsObjectVersion(client, "bucket");
+    await describeBucketProtection(client, "bucket");
+    await describeBucketEncryption(client, "bucket");
+
+    expect(sent.map(([name]) => name)).toEqual([
+      "HeadObjectCommand",
+      "PutObjectLegalHoldCommand",
+      "ListObjectsV2Command",
+      "ListObjectVersionsCommand",
+      "PutObjectLegalHoldCommand",
+      "DeleteObjectCommand",
+      "ListObjectVersionsCommand",
+      "GetBucketVersioningCommand",
+      "GetObjectLockConfigurationCommand",
+      "GetBucketEncryptionCommand",
+    ]);
+    for (const [name, timeout] of sent) {
+      expect([name, timeout]).toEqual([name, S3_METADATA_REQUEST_TIMEOUT_MS]);
+    }
+  });
+
+  test("every metadata request gives up on a silent store within its bound, and says so once", async () => {
+    const { endpoint } = await silentPeer();
+    const warned: Array<Record<string, unknown>> = [];
+    // The shipped bounds: the client's own requestTimeout stays upload-sized,
+    // so only the per-request bound can end these calls in time.
+    const client = createStorageS3Client(
+      configFor(endpoint),
+      S3_REQUEST_BOUNDS,
+      (message, fields) => warned.push({ message, ...fields }),
+    );
+    const store = createCheckpointObjectStore({ bucket: "bucket", client });
+    const collector = createCheckpointObjectCollector({
+      bucket: "bucket",
+      client,
+    });
+    const key = "94s-2218/secret-key-name";
+    const calls: Record<string, () => Promise<unknown>> = {
+      HeadObject: () => store.head(key),
+      PutObjectLegalHold: () =>
+        (store.hold as NonNullable<typeof store.hold>)(key, "v1"),
+      ListObjectsV2: () => store.list("94s-2218/"),
+      ListObjectVersions: () => collector.listVersions("94s-2218/"),
+      DeleteObject: () =>
+        collector.purge({ deleteMarker: true, key, version: "v1" }),
+      BucketHoldsObjectVersion: () =>
+        bucketHoldsObjectVersion(client, "bucket"),
+      GetBucketVersioning: () => describeBucketProtection(client, "bucket"),
+      GetBucketEncryption: () => describeBucketEncryption(client, "bucket"),
+    };
+
+    const startedAt = Date.now();
+    const outcomes = await Promise.all(
+      Object.entries(calls).map(async ([name, call]) => {
+        const outcome = await call().then(
+          () => "resolved",
+          (error: Error) => error.name,
+        );
+        return [name, outcome, Date.now() - startedAt] as const;
+      }),
+    );
+    client.destroy();
+
+    // Each try waits out the bound, then the SDK's backoff between tries.
+    const budget = S3_METADATA_REQUEST_TIMEOUT_MS * S3_MAX_ATTEMPTS + 5_000;
+    for (const [name, outcome, elapsed] of outcomes) {
+      expect([name, outcome]).toEqual([name, "TimeoutError"]);
+      expect(elapsed).toBeLessThan(budget);
+    }
+    expect(warned.map((line) => line.operation).sort()).toEqual(
+      [
+        "DeleteObject",
+        "GetBucketEncryption",
+        "GetBucketVersioning",
+        "HeadObject",
+        "ListObjectVersions",
+        "ListObjectVersions",
+        "ListObjectsV2",
+        "PutObjectLegalHold",
+      ].sort(),
+    );
+    for (const line of warned) {
+      expect(line).toMatchObject({
+        attempts: S3_MAX_ATTEMPTS,
+        bucket: "bucket",
+        code: "ETIMEDOUT",
+        message: "S3 request ended without an answer",
+      });
+      expect(line.elapsedMs as number).toBeGreaterThanOrEqual(
+        S3_METADATA_REQUEST_TIMEOUT_MS * S3_MAX_ATTEMPTS,
+      );
+      expect(JSON.stringify(line)).not.toContain("secret-key-name");
+      expect(JSON.stringify(line)).not.toContain(endpoint);
+    }
+  }, 60_000);
 
   test("keeps the shipped bounds in the shape the SDK needs", () => {
     // @smithy/node-http-handler 4.12.1 logs a warning and keeps waiting when

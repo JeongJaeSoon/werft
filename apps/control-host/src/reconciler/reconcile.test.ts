@@ -122,6 +122,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return { deleted: 3, edited: 2 };
       },
+      pruneChannelSummaryHistory: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return { channels: 2, versions: 5, lines: 4 };
+      },
       purgeSlackChannelMembers: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 3;
@@ -164,6 +168,11 @@ describe("reconciler run", () => {
       batches: 3,
     });
     expect(result.slackSourceMarksPurged).toEqual({ deleted: 3, edited: 2 });
+    expect(result.channelSummaryHistoryPruned).toEqual({
+      channels: 2,
+      versions: 5,
+      lines: 4,
+    });
     expect(result.slackMembersPurged).toBe(3);
     expect(sink.records).toEqual([
       expect.objectContaining({
@@ -268,6 +277,16 @@ describe("reconciler run", () => {
         level: "info",
         message: "Unknown Slack source marks purged",
         fields: { dry_run: false, deleted_count: 3, edited_count: 2 },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Old channel summary versions pruned",
+        fields: {
+          dry_run: false,
+          channel_count: 2,
+          version_count: 5,
+          line_count: 4,
+        },
       }),
       expect.objectContaining({
         level: "info",
@@ -380,6 +399,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return { deleted: 1, edited: 0 };
       },
+      pruneChannelSummaryHistory: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return { channels: 0, versions: 0, lines: 0 };
+      },
       purgeSlackChannelMembers: async ({ dryRun }) => {
         seen.push(dryRun);
         return 1;
@@ -398,6 +421,7 @@ describe("reconciler run", () => {
     });
 
     expect(seen).toEqual([
+      true,
       true,
       true,
       true,
@@ -481,6 +505,11 @@ describe("reconciler run", () => {
           batches: 0,
         }),
         purgeSlackSourceMarks: async () => ({ deleted: 0, edited: 0 }),
+        pruneChannelSummaryHistory: async () => ({
+          channels: 0,
+          versions: 0,
+          lines: 0,
+        }),
         purgeSlackChannelMembers: async () => 0,
         purgeAuthAttemptWindows: async () => 0,
         reconcileOwnership: async () => ({ flagged: [], cleared: [] }),
@@ -528,6 +557,11 @@ describe("reconciler run", () => {
       batches: 0,
     });
     const purgeSlackSourceMarks = async () => ({ deleted: 0, edited: 0 });
+    const pruneChannelSummaryHistory = async () => ({
+      channels: 0,
+      versions: 0,
+      lines: 0,
+    });
     const purgeSlackChannelMembers = async () => 0;
     const purgeAuthAttemptWindows = async () => 0;
     const reconcileOwnership = async () => ({ flagged: [], cleared: [] });
@@ -566,6 +600,7 @@ describe("reconciler run", () => {
           lowerUnapprovedRollouts,
           purgeJudgmentBuffer,
           purgeSlackSourceMarks,
+          pruneChannelSummaryHistory,
           purgeSlackChannelMembers,
           purgeAuthAttemptWindows,
           reconcileOwnership,
@@ -593,6 +628,7 @@ describe("reconciler run", () => {
         lowerUnapprovedRollouts,
         purgeJudgmentBuffer,
         purgeSlackSourceMarks,
+        pruneChannelSummaryHistory,
         purgeSlackChannelMembers,
         purgeAuthAttemptWindows,
         reconcileOwnership,
@@ -618,6 +654,7 @@ describe("reconciler run", () => {
         lowerUnapprovedRollouts,
         purgeJudgmentBuffer,
         purgeSlackSourceMarks,
+        pruneChannelSummaryHistory,
         purgeSlackChannelMembers,
         purgeAuthAttemptWindows,
         reconcileOwnership,
