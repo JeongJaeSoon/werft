@@ -7,6 +7,7 @@ import {
   createPostgresCheckpointStore,
   createPostgresExtensionBundleStore,
 } from "@werft-ai/db";
+import { createLogger } from "@werft-ai/observability";
 import {
   type CheckpointProtocol,
   type CheckpointServiceDependencies,
@@ -32,9 +33,11 @@ import {
   describeBucketProtection,
   type GitCommandRunner,
   type ObjectRouteSigner,
+  S3_METADATA_REQUEST_TIMEOUT_MS,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
   type S3RequestBounds,
+  type S3TimeoutWarn,
   type StorageS3Settings,
   storageS3Credentials,
 } from "@werft-ai/storage";
@@ -385,8 +388,20 @@ export function extensionBundleObjects(
   });
 }
 
+/**
+ * Where a checkpoint S3 call that ran out its bound is reported. The same
+ * logger server.ts builds, so the line lands beside the request it held.
+ */
+const s3Logger = createLogger();
+const warnS3Timeout: S3TimeoutWarn = (message, fields) =>
+  s3Logger.warn(message, fields);
+
 function checkpointS3Client(config: CheckpointStorageConfig) {
-  return createStorageS3Client({ s3: config });
+  return createStorageS3Client(
+    { s3: config },
+    S3_REQUEST_BOUNDS,
+    warnS3Timeout,
+  );
 }
 
 /**
@@ -396,16 +411,17 @@ function checkpointS3Client(config: CheckpointStorageConfig) {
  * the connection, or dropped its packets, and never answered kept a start
  * waiting 300 s a try with nothing logged yet.
  */
-export const BUCKET_CHECK_BOUNDS: S3RequestBounds = {
+const BUCKET_CHECK_BOUNDS: S3RequestBounds = {
   ...S3_REQUEST_BOUNDS,
-  requestTimeout: 5_000,
+  requestTimeout: S3_METADATA_REQUEST_TIMEOUT_MS,
 };
 
-function bucketCheckS3Client(
-  config: CheckpointStorageConfig,
-  bounds: S3RequestBounds = BUCKET_CHECK_BOUNDS,
-) {
-  return createStorageS3Client({ s3: config }, bounds);
+function bucketCheckS3Client(config: CheckpointStorageConfig) {
+  return createStorageS3Client(
+    { s3: config },
+    BUCKET_CHECK_BOUNDS,
+    warnS3Timeout,
+  );
 }
 
 /**
@@ -432,11 +448,9 @@ export function checkpointObjectRouteSigner(
  */
 export async function assertCheckpointBucketProtection(
   config: CheckpointStorageConfig,
-  /** Tests shorten BUCKET_CHECK_BOUNDS; the product path never passes this. */
-  bounds?: S3RequestBounds,
 ): Promise<void> {
   if (config.protection !== "locked") return;
-  const client = bucketCheckS3Client(config, bounds);
+  const client = bucketCheckS3Client(config);
   try {
     const found = await describeBucketProtection(client, config.bucket);
     if (found.versioning !== "Enabled" || !found.objectLock) {

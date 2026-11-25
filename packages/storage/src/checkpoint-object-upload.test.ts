@@ -11,6 +11,7 @@ import {
   readBudgetMs,
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
+  S3_SMALL_WRITE_FLOOR_MS,
   type S3ClientLike,
   transferBudgetMs,
 } from "./s3.ts";
@@ -55,8 +56,8 @@ describe("transfer budgets grow with the object", () => {
     await store.putImmutable(KEY, large);
     await store.putImmutable(`${KEY}.small`, new Uint8Array(1));
 
-    // The small body rides the client's own bound.
-    expect(timeouts).toEqual([600_000, undefined]);
+    // A body in memory starts from the small-write floor, not the upload one.
+    expect(timeouts).toEqual([600_000, S3_SMALL_WRITE_FLOOR_MS]);
   });
 
   test("a streamed read of a large body gets a whole-read budget sized to it", async () => {

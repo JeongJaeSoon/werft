@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createServer, type Socket } from "node:net";
 import { ObjectIntegrityError } from "@werft-ai/runtime-core";
 import {
   BodyLimitError,
   BodyStallError,
   BodyTruncatedError,
   createCheckpointObjectStore,
+  S3_METADATA_REQUEST_TIMEOUT_MS,
 } from "@werft-ai/storage";
 
 import {
@@ -180,6 +182,53 @@ function fakeRoute(): { requests: Seen[]; url: string } {
   closers.push(() => server.stop(true));
   return { requests, url: `http://127.0.0.1:${server.port}` };
 }
+
+describe("createWorkerObjectStore against a route that never answers", () => {
+  test("a request gives up within its bound, says so in one line, and counts as an outage", async () => {
+    const accepted: Socket[] = [];
+    const server = createServer((socket) => {
+      accepted.push(socket);
+      socket.resume();
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    closers.push(() => {
+      for (const socket of accepted) socket.destroy();
+      server.close();
+    });
+    const { port } = server.address() as { port: number };
+    const token = new ObjectStoreToken();
+    token.useToken("weo_token");
+    const warned: Array<Record<string, unknown>> = [];
+    const store = createWorkerObjectStore(
+      objectStoreConfigFromEnv(base, `http://127.0.0.1:${port}`),
+      () => token.current(),
+      undefined,
+      (message, fields) => warned.push({ message, ...fields }),
+    );
+
+    const startedAt = Date.now();
+    const failure = await store.head("sessions/s1/manifest").then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect((failure as Error | undefined)?.name).toBe("TimeoutError");
+    expect(isObjectStoreOutage(failure)).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(
+      S3_METADATA_REQUEST_TIMEOUT_MS * 3 + 5_000,
+    );
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatchObject({
+      bucket: "claude-sessions",
+      message: "S3 request got no answer within its bound",
+      operation: "HeadObject",
+    });
+    expect(JSON.stringify(warned)).not.toContain("manifest");
+    expect(JSON.stringify(warned)).not.toContain("weo_token");
+  }, 40_000);
+});
 
 describe("createWorkerObjectStore", () => {
   test("refuses a key outside the session prefix without touching the network", async () => {
