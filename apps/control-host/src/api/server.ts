@@ -38,6 +38,7 @@ import {
   createPostgresGitHubPackagesStore,
   createPostgresGitHubPinStore,
   createPostgresGitHubSettingsStore,
+  createPostgresGitHubWebhookSettingsStore,
   createPostgresInstallationConfigStore,
   createPostgresInstallationSettingsStore,
   createPostgresInviteStore,
@@ -91,6 +92,7 @@ import {
   fillSessionParents,
   forgetLostCheckpointsAtStart,
   hasUncollectedCheckpoint,
+  listGitHubWebhookApps,
   moveSummaryLinks,
   newSessionGitHubReaders,
   openLostCheckpointNotices,
@@ -196,6 +198,7 @@ import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
 import {
   wireAppBotUsers,
   wireGitHubAppDirectory,
+  wireGitHubAppHookConfig,
   wireGitHubConnections,
   wireGitHubManifestConverter,
   wireGitHubRegistry,
@@ -275,6 +278,11 @@ import {
   githubPackagesOutbound,
 } from "./github-packages-config.ts";
 import {
+  carryOverGitHubWebhookSettings,
+  createGitHubWebhookSettingsAdmin,
+  githubWebhookUrlFrom,
+} from "./github-webhook-settings.ts";
+import {
   createInstallationConfigAdmin,
   sessionArchiveStatusOf,
 } from "./installation-config.ts";
@@ -312,10 +320,8 @@ import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
 import { registerGitHubRepositoryRoutes } from "./routes/github/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
-import {
-  githubWebhookUrlFrom,
-  registerGitHubWebhookRoutes,
-} from "./routes/github/github-webhook.ts";
+import { registerGitHubWebhookRoutes } from "./routes/github/github-webhook.ts";
+import { registerGitHubWebhookSettingsRoutes } from "./routes/github/github-webhook-settings.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
@@ -1078,13 +1084,21 @@ const githubRepositories = createGitHubRepositoryService({
   changed: () => catalogRegistry.refresh(),
 });
 const githubInstallations = createPostgresGitHubInstallationStore(db);
-const githubWebhookUrl = githubWebhookUrlFrom(process.env);
-if (githubWebhookUrl === null) {
-  logger.info(
-    "GitHub skills sync without push webhooks (GITHUB_WEBHOOK_BASE_URL unset)",
-    {},
-  );
-}
+const { store: githubWebhookSettingsStore } = carryOverGitHubWebhookSettings({
+  env: process.env,
+  store: createPostgresGitHubWebhookSettingsStore(db),
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+  info: (message, fields) => logger.info(message, fields ?? {}),
+  retryMs: CATALOG_READ_RETRY_MS,
+});
+const githubWebhookUrl = githubWebhookUrlFrom(githubWebhookSettingsStore);
+const githubWebhookSettingsAdmin = createGitHubWebhookSettingsAdmin({
+  authorization,
+  store: githubWebhookSettingsStore,
+  apps: () => listGitHubWebhookApps(db, secretKey),
+  setHook: wireGitHubAppHookConfig({ logger }),
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+});
 const githubApps = createGitHubAppService({
   authorization,
   store: githubAppStore,
@@ -1108,6 +1122,16 @@ const githubApps = createGitHubAppService({
     webBase: "https://github.com",
     refused: (check) =>
       logger.warn("GitHub App manifest state refused", { check }),
+    // The App and its key are stored by then: a failed follow must not turn
+    // the completion into an error the spent state cannot retry.
+    followHook: (app) =>
+      githubWebhookSettingsAdmin.follow(app).catch((error: unknown) => {
+        logger.warn("A new GitHub App's webhook URL was not checked", {
+          app_id: app.appId,
+          error: error instanceof Error ? error.name : "error",
+        });
+        return null;
+      }),
   },
   installations: {
     store: githubInstallations,
@@ -1750,6 +1774,7 @@ const app = createApiApp({
     registerLoginProviderRoutes(router, providerAdmin);
     registerLoginSettingsRoutes(router, loginSettingsAdmin);
     registerSlackSettingsRoutes(router, slackSettingsAdmin);
+    registerGitHubWebhookSettingsRoutes(router, githubWebhookSettingsAdmin);
     registerInstallationConfigRoutes(router, installationConfigAdmin);
     registerLostCheckpointNoticeRoutes(router, lostCheckpointNoticesAdmin);
     registerInstallationStatusRoutes(router, installationStatusReader);

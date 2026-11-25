@@ -683,6 +683,26 @@ export const slackSettings = pgTable(
 );
 
 /**
+ * Where GitHub's App webhooks enter, for the whole installation: one row,
+ * absent until an owner saves one or a start carries GITHUB_WEBHOOK_BASE_URL in.
+ */
+export const githubWebhookSettings = pgTable(
+  "github_webhook_settings",
+  {
+    /** Always true; with the check, what keeps the table to one row. */
+    id: boolean().primaryKey().default(true),
+    /** Null: no address GitHub reaches, so Apps get no webhook. */
+    publicUrl: text("public_url"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check("github_webhook_settings_single_row_check", sql`${table.id}`),
+  ],
+);
+
+/**
  * Installation settings an owner keeps in the console, one row per key. A
  * row is never deleted, a reset to the default included: an absent row is
  * what lets an upgrade carry the key's old env value in.
