@@ -13,6 +13,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+### 운영자가 할 일
+
+- **api가 기동할 때 콘솔이 만든 에이전트 Slack 앱마다 manifest를 받아 보고(`apps.manifest.export`), bot 이벤트만 모자라면 manifest 전체를 다시 보낸다. 설정 토큰이 살아 있어야 보낸다**(JeongJaeSoon/werft#2191). migration `0355`가 `slack_apps`에 nullable 칸 `manifest_sync_error`·`manifest_sync_checked_at`를 더한다. 표나 칸을 지우지 않는다.
+  - 설정 토큰이 없거나 만료됐으면 Slack을 부르지 않고, 콘솔 Slack 탭의 앱 칸에 "갱신 필요"와 사유를 띄운다. 토큰을 다시 넣고 다시 확인을 누르면 그때 보낸다. 뒤에서 다시 시도하지 않는다. 다시 시도하는 때는 다음 기동이나 다시 확인이다.
+  - 여러 api replica가 함께 떠도 10분 안에는 한 replica만 앱을 확인한다. Slack이 `Retry-After` 120초 이하로 막으면 한 번 기다리고, 그보다 길면 갱신 필요로 남긴다.
+  - scope가 다른 앱과 이벤트 구독이 꺼진 앱은 건드리지 않는다.
+  - `GET /v1/agents/{agent_id}/slack/app` 응답에 `manifest_sync` 칸이 더해진다.
+
 ## v0.5.0
 
 `v0.4.0` 뒤 `main`에 들어간 변경이다. api가 `/internal`을 공개 포트 3000이 아니라 새 포트 3200에서만 받고, Kubernetes chart의 Codex sandbox 설치기가 기본으로 꺼지며 값이 `codexSandbox.provider`로 바뀌고, 첫 owner 설정 링크를 만드는 명령이 바뀐다. 로그인 경로에 IP·계정별 시도 한도가 생긴다. Slack 대화 층에는 판단 버퍼의 상한과 묶음, 대화 턴 기록, M1 판단 기록이 더해지지만, 게시된 고지 판이 없어 어느 에이전트의 대화 스위치도 `shadow`로 오르지 않는다. `WORKER_GATEWAY_URL`·`EGRESS_PRIVATE_ALLOWLIST`를 직접 준 설치는 값을 고치지 않으면 세션이 시작하지 않고, `codexSandbox.installer.enabled`가 남은 values는 render가 멈추고, 옛 `setup-link.ts`를 부르는 스크립트는 실패하므로 minor 버전을 올린다. migration `0338`–`0354`는 표나 칸을 지우거나 이름을 바꾸지 않는다. 그래도 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다.
