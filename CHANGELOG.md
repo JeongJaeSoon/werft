@@ -15,6 +15,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **에이전트 Slack 앱이 bot scope `reactions:write`를 받는다. 이미 설치한 앱은 Slack 관리자가 다시 승인해야 한다**(JeongJaeSoon/werft#2222). migration `0369_slack_outbox_reaction`이 `slack_outbox`의 종류 CHECK에 `reaction`을 더한다. 줄을 고치지 않는다.
+  - 에이전트가 답할 메시지에 👀 하나를 다는 데 쓸 scope다. 이 버전은 아직 반응을 달지 않는다. 사람이 단 이모지는 읽지 않고, `reaction_added` 이벤트도 받지 않는다.
+  - 올린 뒤 api가 시작하면 기존 앱마다 콘솔 Slack 탭에 "Slack 재승인 필요"가 뜬다. 앱은 그대로 동작한다. **다시 승인**은 manifest를 보낸 뒤 Slack 동의 화면으로 간다. 워크스페이스의 설정 토큰이 살아 있어야 한다.
+  - 앞선 이미지로 되돌려도 된다. 이 버전은 `reaction` 줄을 넣지 않는다. 앞선 이미지의 sender는 `reaction` 줄을 보내지 못하고 그 줄에서 보내기 pass가 오류로 끝나므로, 반응을 다는 버전부터는 `reaction` 줄이 남은 채 이 버전보다 앞으로 되돌리지 않는다.
 - **Kubernetes 업그레이드 전 검사(`upgrade-check`)가 그 upgrade로 끝나는 worker의 세션을 `affected`에 `worker_ends`로 올린다. worker에 주는 gateway 주소가 바뀌는 upgrade는 slot을 쥔 worker가 있으면 `proceed`가 아니라 `refused`로 멈춘다**(JeongJaeSoon/werft#2221). migration은 없다.
   - 해당하는 것은 `v0.4.0` 이하 chart에서 올리는 설치다. 그 chart의 worker는 gateway를 3000번으로 부르고, 이후 chart는 3200번을 준다. 지금까지는 검사가 `proceed`, `affected []`를 냈고 돌던 worker는 올린 뒤 heartbeat 404로 끝났다.
   - 고르는 것은 worker가 claim했고 아직 slot을 쥔 launch의 세션 전부다. 쉬는 worker도 든다. slot이 풀린 뒤 다시 돌리거나, 목록을 `upgrade.approvedSessions`에 그대로 넣는다. 승인한 세션의 worker는 올린 뒤 끝난다.

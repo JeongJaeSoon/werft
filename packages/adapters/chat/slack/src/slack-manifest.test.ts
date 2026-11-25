@@ -29,7 +29,25 @@ describe("agent app manifest", () => {
       "users:read",
       "channels:join",
       "groups:write",
+      "reactions:write",
     ]);
+  });
+
+  test("the app reacts but reads no one's reactions: no reactions:read, no reaction events", () => {
+    const manifest = buildAgentAppManifest({
+      name: "a",
+      botName: "a",
+      description: "a",
+      redirectUrl: REDIRECT,
+      eventsUrl: `https://agents.example.ts.net/v1/slack/events/${AGENT}`,
+    });
+    const bot: readonly string[] = manifest.oauth_config.scopes.bot;
+    expect(bot).toContain("reactions:write");
+    expect(bot).not.toContain("reactions:read");
+    const events: readonly string[] =
+      manifest.settings.event_subscriptions?.bot_events ?? [];
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) expect(event).not.toMatch(/^reaction_/);
   });
 
   test("Finalize subscribes to these events, the bot's join and leave, the channel's archive, rename and delete, and its sharing with another organization included", () => {
@@ -262,7 +280,7 @@ describe("how an exported agent app manifest differs from this build's", () => {
     fewer.settings.event_subscriptions?.bot_events.pop();
     expect(agentManifestDrift(fewer)).toBe("scopes");
     const more = loose();
-    more.oauth_config.scopes.bot.push("reactions:write");
+    more.oauth_config.scopes.bot.push("reactions:read");
     expect(agentManifestDrift(more)).toBe("scopes");
   });
 
