@@ -16,7 +16,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 ### 운영자가 할 일
 
 - **에이전트 모델 자동 이동이 실패하면 웹 에이전트 화면에 무엇이 실패했고 무엇을 하면 되는지가 보인다**(JeongJaeSoon/werft#2223). migration `0370_model_migration_failure`가 `agents`에 nullable 칸 셋을 더한다(기본값이 없어 줄을 다시 쓰지 않는다). 따로 할 일은 없다. 실패는 api 로그 `Agent could not move to the next model`에도 그대로 남는다.
-  - 앞선 이미지로 되돌리면 그 이미지는 이 칸을 읽지도 쓰지도 않는다. 다시 올리면 그 사이의 실패는 다음 재시도(약 15분 뒤)에 다시 기록된다.
+  - 앞선 이미지로 되돌리면 그 이미지는 이 칸을 읽지도 쓰지도 않고, 그 이미지가 활성화하면 남은 기록은 더는 보이지 않는다. 다시 올린 뒤 다음 자동 이동 시도가 실패하면 다시 기록된다.
 - **lease를 스스로 내려놓고 끝난 worker의 turn은 `failed`(`worker_ownership_lost`)로 끝나고, 세션은 `recovery_required`로 가지 않는다**(JeongJaeSoon/werft#2218). migration은 없고 따로 할 일도 없다.
   - 조건은 둘 다다. scheduler가 그 worker의 exit code 75를 보았고, 그 lease가 만료됐다. 하나라도 없으면 지금대로 turn은 `outcome_unknown`이고 세션은 operator 결정을 기다린다.
   - 그 exit의 정리는 lease가 끝날 때까지 늦어진다. 기다리는 시간은 `HEARTBEAT_TTL_SEC`를 넘지 않고, 그동안 scheduler 로그에 `Worker gave its lease up; exit settles once the lease runs out`가 pass마다 남는다.
