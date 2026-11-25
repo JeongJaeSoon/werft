@@ -1,5 +1,5 @@
 {
-  "id": "0d45ccba-a569-448c-a153-3454ef12f216",
+  "id": "7add76ed-8ccd-46f4-9e5f-8a006d410000",
   "prevId": "476a29cf-2cf8-452f-bfaa-9708294e0d02",
   "version": "7",
   "dialect": "postgresql",
@@ -17751,18 +17751,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "manifest_sync_error": {
-          "name": "manifest_sync_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "manifest_sync_checked_at": {
-          "name": "manifest_sync_checked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_by_token_user": {
           "name": "created_by_token_user",
           "type": "text",
@@ -17893,10 +17881,6 @@
         "slack_apps_agent_check": {
           "name": "slack_apps_agent_check",
           "value": "(\"slack_apps\".\"kind\" = 'agent') = (\"slack_apps\".\"agent_id\" IS NOT NULL)"
-        },
-        "slack_apps_manifest_sync_error_check": {
-          "name": "slack_apps_manifest_sync_error_check",
-          "value": "\"slack_apps\".\"manifest_sync_error\" IS NULL OR \"slack_apps\".\"manifest_sync_error\" IN ('config_token_inactive','events_url_unset','slack_refused','no_answer')"
         },
         "slack_apps_created_check": {
           "name": "slack_apps_created_check",
@@ -19212,7 +19196,7 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
