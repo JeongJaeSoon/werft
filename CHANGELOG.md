@@ -13,6 +13,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+### 운영자가 할 일
+
+- **쓰지 않는 표 `agent_engine_settings`·`workspace_engine_settings`를 행째 지운다**(JeongJaeSoon/werft#2182). migration `0355_drop_engine_settings`가 지운다. 두 표에는 워크스페이스·에이전트의 실행 규칙이 들어 있었고, `v0.4.0`부터 어느 릴리스도 읽거나 쓰지 않았다. 마지막으로 읽은 릴리스는 `v0.3.0`이므로 지원 창 안의 이미지는 영향이 없다. 다만 `v0.3.0` 이하에서 저장한 규칙의 행이 남아 있을 수 있다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0355: dropped rows: …`). 그 행이 필요하면 올리기 전에 백업한다. 0355 아래로 스키마를 내려도 행은 돌아오지 않는다([업그레이드 문서](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose/#엔진-설정-표-둘을-지운-릴리스)).
+
 ## v0.5.0
 
 `v0.4.0` 뒤 `main`에 들어간 변경이다. api가 `/internal`을 공개 포트 3000이 아니라 새 포트 3200에서만 받고, Kubernetes chart의 Codex sandbox 설치기가 기본으로 꺼지며 값이 `codexSandbox.provider`로 바뀌고, 첫 owner 설정 링크를 만드는 명령이 바뀐다. 로그인 경로에 IP·계정별 시도 한도가 생긴다. Slack 대화 층에는 판단 버퍼의 상한과 묶음, 대화 턴 기록, M1 판단 기록이 더해지지만, 게시된 고지 판이 없어 어느 에이전트의 대화 스위치도 `shadow`로 오르지 않는다. `WORKER_GATEWAY_URL`·`EGRESS_PRIVATE_ALLOWLIST`를 직접 준 설치는 값을 고치지 않으면 세션이 시작하지 않고, `codexSandbox.installer.enabled`가 남은 values는 render가 멈추고, 옛 `setup-link.ts`를 부르는 스크립트는 실패하므로 minor 버전을 올린다. migration `0338`–`0354`는 표나 칸을 지우거나 이름을 바꾸지 않는다. 그래도 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다.
