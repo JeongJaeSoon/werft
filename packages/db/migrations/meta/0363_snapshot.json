@@ -1,5 +1,5 @@
 {
-  "id": "f3887fc8-9f45-4829-aefc-fa93f705bd4b",
+  "id": "dd018794-34f0-43ab-8d97-0870e9f31a31",
   "prevId": "65383695-b58b-45d3-8515-a72dfe752ca4",
   "version": "7",
   "dialect": "postgresql",
@@ -17248,6 +17248,30 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::uuid[]"
+        },
+        "task_request": {
+          "name": "task_request",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_interpretation": {
+          "name": "task_interpretation",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_closing": {
+          "name": "task_closing",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_closed_reason": {
+          "name": "task_closed_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -17457,6 +17481,10 @@
         "sessions_execution_revoked_check": {
           "name": "sessions_execution_revoked_check",
           "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
+        },
+        "sessions_task_closed_reason_check": {
+          "name": "sessions_task_closed_reason_check",
+          "value": "\"sessions\".\"task_closed_reason\" IS NULL OR (\"sessions\".\"task_closed_reason\" IN ('completed', 'cancelled', 'failed', 'abandoned') AND \"sessions\".\"admission_state\" IN ('closing', 'closed'))"
         },
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",
@@ -17895,12 +17923,6 @@
         "manifest_sync_checked_at": {
           "name": "manifest_sync_checked_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "bot_scopes": {
-          "name": "bot_scopes",
-          "type": "text[]",
           "primaryKey": false,
           "notNull": false
         },
