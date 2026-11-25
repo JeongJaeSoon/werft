@@ -532,11 +532,12 @@ export interface SurfaceCardSettleStore {
   markDueAt(card: { channelId: string; slackTs: string }): Promise<boolean>;
   /** Marks one card `due` by its row (a push whose approvability moved). */
   /**
-   * Marks `due` the push cards still showing a choice in one channel of an
-   * install, whose requester may have joined or left it; one being drawn
+   * Marks `due` the push, tool permission and question cards still showing
+   * a choice in one channel of an install, whose requester may have joined
+   * or left it; one being drawn
    * now is drawn again `windowMs` later. Returns how many.
    */
-  markPushCardsDueIn(input: {
+  markChoiceCardsDueIn(input: {
     installationId: string;
     channelId: string;
     windowMs: number;

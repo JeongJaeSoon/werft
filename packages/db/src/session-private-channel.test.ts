@@ -383,6 +383,8 @@ describe("private_channel sessions on the reads", () => {
     const reach = (
       who: { userId: string | null; apiKeyId: string | null },
       answer = false,
+      sessionId: string = ids.privateOne,
+      requesterLeft?: true,
     ) =>
       db.transaction((tx) =>
         lockSessionReach(
@@ -394,13 +396,13 @@ describe("private_channel sessions on the reads", () => {
             slackBotUserId: null,
           },
           {
-            id: ids.privateOne,
+            id: sessionId,
             workspaceId: ws,
             createdByUserId: requester,
             createdByApiKeyId: null,
             agentReleaseId: null,
           },
-          { answer },
+          { answer, ...(requesterLeft ? { requesterLeft } : {}) },
         ),
       );
     expect(await reach({ userId: member, apiKeyId: null })).toBe("ok");
@@ -410,6 +412,28 @@ describe("private_channel sessions on the reads", () => {
     expect(await reach({ userId: member, apiKeyId: randomUUID() })).toBe(
       "not_found",
     );
+    // Q5 (94S-2175): the policy found the requester gone, so a member who
+    // sees it answers; on a public channel's session the mark lifts nothing,
+    // and a key still never reaches it.
+    expect(
+      await reach({ userId: member, apiKeyId: null }, true, undefined, true),
+    ).toBe("ok");
+    expect(
+      await reach(
+        { userId: member, apiKeyId: null },
+        true,
+        ids.publicOne,
+        true,
+      ),
+    ).toBe("role");
+    expect(
+      await reach(
+        { userId: member, apiKeyId: randomUUID() },
+        true,
+        undefined,
+        true,
+      ),
+    ).toBe("not_found");
   });
 
   // Architect (94S-2052): widening one is left as it was, since the door
