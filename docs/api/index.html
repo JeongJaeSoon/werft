@@ -8130,6 +8130,10 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "answerable": {
+                      "description": "Whether this caller may answer this request: as the list's `answerable`, and also a private channel's member with sessions:approve once the requester left the channel. A hint; the answer is judged again.",
+                      "type": "boolean"
+                    },
                     "kind": {
                       "type": "string",
                       "const": "permission"
@@ -8267,6 +8271,10 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "answerable": {
+                      "description": "Whether this caller may answer this request: as the list's `answerable`, and also a private channel's member with sessions:approve once the requester left the channel. A hint; the answer is judged again.",
+                      "type": "boolean"
+                    },
                     "kind": {
                       "type": "string",
                       "const": "question"
@@ -8340,7 +8348,7 @@
           },
           "answerable": {
             "type": "boolean",
-            "description": "Whether this caller may answer the session's requests: its creator, its agent's admins and the workspace's owners and admins may; someone who only sees it through its share may not (POST /answers is then 403). A hint for what to offer; the answer is judged again."
+            "description": "Whether this caller may answer the session's requests: its creator, its agent's admins and the workspace's owners and admins may; someone who only sees it through its share may not (POST /answers is then 403). Each item's `answerable` can say yes where this says no. A hint for what to offer; the answer is judged again."
           }
         },
         "required": [
