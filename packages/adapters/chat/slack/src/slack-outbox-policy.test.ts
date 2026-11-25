@@ -338,9 +338,10 @@ describe("outbox policy wiring without SQL", () => {
   test.each([
     ["Add a test", "Add a test", "owner (웹 콘솔)\nAdd a test"],
     [
+      // G7: a group mention leaves a person's instruction too.
       "owner (웹 콘솔)\nAdd a test, <!here>",
-      "owner (웹 콘솔)\nAdd a test, &lt;!here&gt;",
-      "owner (웹 콘솔)\nAdd a test, &lt;!here&gt;",
+      "owner (웹 콘솔)\nAdd a test,",
+      "owner (웹 콘솔)\nAdd a test,",
     ],
   ])(
     "a refused sender posts %p once as the app, after image lookup and beginSend",

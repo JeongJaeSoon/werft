@@ -62,6 +62,18 @@ export const BINDING_LISTEN_VALUES = ["free", "mention", "off"] as const;
 export const bindingListenSchema = z.enum(BINDING_LISTEN_VALUES);
 
 /**
+ * How many M1 judgments one channel may have in an hour (a1/S3): each
+ * channel's own cap, set with its listening.
+ */
+export const M1_JUDGMENTS_PER_HOUR_DEFAULT = 12;
+export const M1_JUDGMENTS_PER_HOUR_MAX = 60;
+export const m1JudgmentsPerHourSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(M1_JUDGMENTS_PER_HOUR_MAX);
+
+/**
  * The agent's switch for the conversation layer. `off`: input takes the
  * path it always took. `shadow`: the same path, the layer's answer only
  * recorded. `on`: the layer decides.
@@ -175,6 +187,7 @@ export const surfaceBindingSchema = z
     agent_id: agentIdSchema,
     mode: bindingModeSchema,
     listen: bindingListenSchema,
+    m1_judgments_per_hour: m1JudgmentsPerHourSchema,
     ceiling: surfaceCeilingSchema,
     /** The agent's home channel; an agent has one at most, never a DM. */
     home: z.boolean(),
