@@ -153,6 +153,7 @@ import {
   rerunWorkflowResponseSchema,
   resolveSlackBindingResponseSchema,
   retryGitHubWebhookUpdatesResponseSchema,
+  retrySlackEventsUpdatesResponseSchema,
   revertSkillResponseSchema,
   reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
@@ -248,6 +249,7 @@ export const responseSchemas = {
   "POST /v1/lost-checkpoint-notices/close": lostCheckpointNoticesSchema,
   "GET /v1/slack-settings": slackSettingsSchema,
   "PUT /v1/slack-settings": updateSlackSettingsResponseSchema,
+  "POST /v1/slack-settings/retry": retrySlackEventsUpdatesResponseSchema,
   "GET /v1/github-webhook-settings": githubWebhookSettingsSchema,
   "PUT /v1/github-webhook-settings": updateGitHubWebhookSettingsResponseSchema,
   "POST /v1/github-webhook-settings/retry":
