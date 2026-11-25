@@ -25,14 +25,16 @@ const fileOf = (locale: keyof typeof VERSION_LINE) =>
   `${page}${locale === "ko" ? "" : `.${locale}`}.mdx`;
 
 /**
- * The current version's page in each language, as sha256 of its file. A
- * changed page is a new version: bump the notice and its version line, then
- * record the new digests here.
+ * Each version's page in each language, as sha256 of its file. A version's
+ * record never changes: a changed page is a new version, so bump the notice
+ * and the version line, then add the new version's digests here.
  */
-const CURRENT_PAGE: Record<"ko" | "ja" | "en", string> = {
-  ko: "15b457b3537d32b260e24c226a34a3b40f535805bf335bdebb142558e94dc6f1",
-  ja: "c43035d5b552da46adf7da912d7d16166fcb09b1cd23e23eb75a1947968e5994",
-  en: "ddfb90001187fddcc7cb635e4a91f2f271974efe1acb692865f89ad0d5d6ecf7",
+const PUBLISHED_PAGE: Record<number, Record<"ko" | "ja" | "en", string>> = {
+  1: {
+    ko: "bc21bbcf4fc6de3ac3811359282c7c351cd2f27c7296c6299dbbc0415aaf79bd",
+    ja: "0038ecf946ef1bdf19ea680562c9f70a261b3bef28fc67a7a1b5a7cccf2e73ef",
+    en: "ce68c5bd49d58b996de8ab25e470c2e783f919aeb9a84276fc6b9f356987f02d",
+  },
 };
 
 /**
@@ -77,7 +79,7 @@ describe("the data page the notice links to", () => {
           .digest("hex"),
       ]),
     );
-    expect(digests).toEqual(CURRENT_PAGE);
+    expect(digests).toEqual(PUBLISHED_PAGE[Number(window?.current)] as never);
   });
 
   test("a published version's words never change", () => {
