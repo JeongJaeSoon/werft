@@ -102,6 +102,29 @@ describe("the Slack events route counts what it answers", () => {
     expect(sample(responses.render(), code)).toBe("1");
   });
 
+  test("only Slack's POST to the events URL is counted", async () => {
+    const responses = createSlackEventResponses();
+    const app = createApiApp({
+      authMode: "api-key",
+      logger,
+      slackEventResponses: responses,
+      registerPublicRoutes: (router) =>
+        registerSlackEventRoutes(router, {
+          events: { receive: async () => ({ kind: "unauthorized" }) },
+          limiter: createSlackEventsLimiter(),
+        }),
+    });
+    for (const method of ["GET", "HEAD", "PUT", "OPTIONS"]) {
+      await app.request(`/v1/slack/events/${AGENT}`, { method });
+    }
+    await app.request(`/v1/slack/events/${AGENT}/extra`, {
+      method: "POST",
+      body: "{}",
+    });
+    await app.request("/v1/slack/events", { method: "POST", body: "{}" });
+    expect(responses.render()).not.toMatch(/} [1-9]/);
+  });
+
   test("the request deadline's 503 is counted too", async () => {
     const { responses, send } = post(() => new Promise(() => {}), 50);
     expect(await send()).toBe(503);
