@@ -281,7 +281,7 @@ With deploy/helm/werft ([installation](/run-server/self-hosting/kubernetes)), ch
 | `SCHEDULER_*` | `scheduler.intervalSec`, etc. | scheduler.passTimeoutSec/SCHEDULER_PASS_TIMEOUT_SEC default 180, must exceed 150 |
 | `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC`, `SLACK_ROLE_INPUT_HOLD_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec`, `slack.inputHoldSec` | Defaults 2, 60, 3, 90, 10, 60, 3600. `SLACK_ROLE_INPUT_HOLD_SEC` is how many seconds a Slack row waiting for a web input's post waits before it closes unsent. slack.enabled: false omits Deployment |
 | `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` (slack) | `api.extraEnv` | Slack reads API's catalog and follows its value; slack.extraEnv overrides |
-| `SLACK_ROLE_CLOSE_LINKS` (slack) | `slack.extraEnv` | Default `false`. When on, a closed session's Slack thread link closes once its last report row is in, and the thread's next mention starts a new session. Leave it off for now |
+| `SLACK_ROLE_CLOSE_LINKS` (slack) | `slack.extraEnv` | Default `true`. A closed session's Slack thread link closes once its last report row is in, and the thread's next mention starts a new session. With `false`, a closed session's thread keeps its link |
 
 Any Deployment accepts extraEnv additions. Secret-sourced DATABASE_URL, EGRESS_AUTHORIZER_TOKEN, AWS keys, and catalog credentials are listed in [installation prerequisites](/run-server/self-hosting/kubernetes).
 
