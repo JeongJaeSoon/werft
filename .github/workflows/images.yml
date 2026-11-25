@@ -15,8 +15,8 @@ on:
 # Read-only for every job but the publish, index and promote jobs: a pull
 # request can edit this file, so a token with package write in the PR job would
 # let a branch publish images before merge. Those jobs alone get package write,
-# and only run on a main or tag push, or a manual run on main that retries a
-# release (release-detect). Only the jobs that write a release (its
+# and only run on a main or tag push, or a manual run on main (staging tags
+# only, for a release it retries: see publish-main). Only the jobs that write a release (its
 # tag, the Release, the "Latest" mark) get contents write, after the approval.
 permissions:
   contents: read
@@ -614,16 +614,15 @@ jobs:
           path: digests/*.json
           if-no-files-found: error
 
-  # A manual run on main publishes (staging tags only, up to index-main) when
-  # release-detect retries a release; its promote-main and chart-main would
-  # rebuild main-<12>, which the push run owns and image-promote.sh refuses to
-  # move. A failed release-detect never holds up a push's own chain.
+  # A manual run on main also publishes, under staging tags only and up to
+  # index-main: a release it retries (release-detect) promotes those digests.
+  # Its promote-main would move main-<12>, which the push run of the commit
+  # owns and image-promote.sh refuses to move to a new build. Nothing here
+  # needs release-detect: a skipped or failed ancestor skips every job after
+  # it (actions/runner#491), and a push's chain must not wait on a release.
   publish-main:
-    needs: [build, supply-chain, release-detect]
-    if: >-
-      !cancelled() && needs.build.result == 'success' && needs.supply-chain.result == 'success'
-      && github.ref == 'refs/heads/main'
-      && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && needs.release-detect.outputs.tag != ''))
+    needs: [build, supply-chain]
+    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     permissions:
@@ -917,7 +916,8 @@ jobs:
   # prints `release tag: none` otherwise. Every job above runs for it,
   # release-approve included, on the main head; release-gate checks the
   # commit's push run got through chart-publish-main in place of this run's
-  # own main-<12> chain. A person starts the retry: the GITHUB_TOKEN of a run
+  # own main-<12> chain. A manual run with nothing to retry stages images and
+  # releases nothing. A person starts the retry: the GITHUB_TOKEN of a run
   # starts no run of this workflow, and no job here dispatches it.
   release-detect:
     if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
@@ -939,12 +939,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/release-auto.sh detect
 
-  # chart-publish-main runs on a push only; a retry checks the push run's.
+  # Waits for chart-publish-main by reading the run, not by `needs`: it runs
+  # on a push only, and a skipped job in a retry's graph would skip every
+  # release job after it, release-approve included (actions/runner#491). A
+  # push waits for this run's, a retry reads the push run of its commit.
   release-gate:
-    needs: [release-detect, chart-publish-main]
-    if: >-
-      !cancelled() && needs.release-detect.outputs.tag != ''
-      && (needs.chart-publish-main.result == 'success' || github.event_name == 'workflow_dispatch')
+    needs: [release-detect, index-main]
+    if: needs.release-detect.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     permissions:
@@ -959,9 +960,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/release-auto.sh ci
-      - name: The push run of this commit got through chart-publish-main
-        if: github.event_name == 'workflow_dispatch'
+      - name: main's chain of this commit got through chart-publish-main
         env:
+          EVENT: ${{ github.event_name }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/release-auto.sh main-chain

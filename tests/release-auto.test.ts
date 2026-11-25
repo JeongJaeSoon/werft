@@ -77,30 +77,18 @@ describe("the release jobs of a main run", () => {
       "contains(fromJSON('[\"push\",\"workflow_dispatch\"]'), github.event_name) && github.ref == 'refs/heads/main'",
     );
     expect(jobs["release-detect"]?.steps.at(-1)?.env?.EVENT).toBe(
-      "${{ github.event_name }}",
+      "$" + "{{ github.event_name }}",
     );
     for (const name of releaseJobs) {
-      // release-gate adds only what lets a retry pass chart-publish-main,
-      // which runs on a push alone.
-      expect(jobs[name]?.if).toBe(
-        name === "release-gate"
-          ? `!cancelled() && ${hasTag} && (needs.chart-publish-main.result == 'success' || github.event_name == 'workflow_dispatch')`
-          : hasTag,
-      );
+      expect(jobs[name]?.if).toBe(hasTag);
       expect(needsOf(name)).toContain("release-detect");
     }
   });
 
   test("a retry stages its own images up to index-main and promotes no main-<12>", () => {
-    expect(needsOf("publish-main")).toContain("release-detect");
-    expect(jobs["publish-main"]?.if).toBe(
-      "!cancelled() && needs.build.result == 'success' && needs.supply-chain.result == 'success'" +
-        " && github.ref == 'refs/heads/main'" +
-        ` && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && ${hasTag}))`,
-    );
     const pushOrRetry =
       "contains(fromJSON('[\"push\",\"workflow_dispatch\"]'), github.event_name) && github.ref == 'refs/heads/main'";
-    for (const name of ["sources-main", "index-main"]) {
+    for (const name of ["publish-main", "sources-main", "index-main"]) {
       expect(jobs[name]?.if).toBe(pushOrRetry);
     }
     for (const name of ["promote-main", "chart-main", "chart-publish-main"]) {
@@ -113,6 +101,27 @@ describe("the release jobs of a main run", () => {
       expect(needsOf(name)).toContain("index-main");
     }
     expect(needsOf("sources-release")).toContain("publish-main");
+  });
+
+  test("no release job and no main job waits on a job a retry or a push may skip", () => {
+    // A skipped or failed ancestor skips every job after it that has no
+    // status check of its own (actions/runner#491): one push-only job behind
+    // a release job would stop a retry at release-approve, and release-detect
+    // behind the main chain would stop a push's chain when it fails.
+    const pushOnly = ["promote-main", "chart-main", "chart-publish-main"];
+    for (const name of releaseJobs) {
+      for (const ancestor of ancestors(name)) {
+        expect(pushOnly).not.toContain(ancestor);
+      }
+    }
+    for (const name of [
+      ...pushOnly,
+      "publish-main",
+      "sources-main",
+      "index-main",
+    ]) {
+      expect(ancestors(name).has("release-detect")).toBe(false);
+    }
   });
 
   test("one approval, in front of every write the release makes", () => {
@@ -183,7 +192,8 @@ describe("the release jobs of a main run", () => {
   });
 
   test("it waits for main's whole chain and for ci.yml before asking anyone", () => {
-    expect(needsOf("release-gate")).toContain("chart-publish-main");
+    // chart-publish-main by reading the run (main-chain), not by needs.
+    expect(needsOf("release-gate")).toEqual(["release-detect", "index-main"]);
     expect(needsOf("release-approve")).toEqual(
       expect.arrayContaining([
         "release-gate",
@@ -201,10 +211,12 @@ describe("the release jobs of a main run", () => {
       ".github/scripts/release-auto.sh conformance",
       ".github/scripts/release-auto.sh free",
     ]);
-    // The push run's chain stands in for a retry's own only on a retry.
     expect(
       (jobs["release-gate"]?.steps[2] as { if?: string } | undefined)?.if,
-    ).toBe("github.event_name == 'workflow_dispatch'");
+    ).toBeUndefined();
+    expect(jobs["release-gate"]?.steps[2]?.env?.EVENT).toBe(
+      "$" + "{{ github.event_name }}",
+    );
     expect(jobs["release-gate"]?.permissions).toEqual({
       contents: "read",
       actions: "read",
@@ -711,23 +723,64 @@ esac
 
   describe("main-chain", () => {
     // The fake gh prints what the script's --jq would have made of the answer.
-    const mainChain = (replies: Reply[]) =>
+    const mainChain = (
+      replies: (Reply & { seq?: [string, number][] })[],
+      env: Record<string, string>,
+    ) =>
       sandbox((directory) => {
         const calls = fakeGh(directory, replies);
         return {
           ...sh(directory, [script("release-auto.sh"), "main-chain"], {
             GITHUB_SHA: sha,
+            CI_POLL_SECONDS: "0",
+            ...env,
           }),
           calls: calls(),
         };
       });
+    const retry = { EVENT: "workflow_dispatch" };
+    const push = { EVENT: "push", GITHUB_RUN_ID: "77" };
     const pushRun = { match: "actions/workflows/images.yml/runs", out: "4552" };
 
-    test("passes when the push run of this commit got chart-publish-main through", () => {
-      const run = mainChain([
-        pushRun,
-        { match: "actions/runs/4552/jobs", out: "success" },
-      ]);
+    test("a push waits for chart-publish-main of its own run, then passes on success", () => {
+      const run = mainChain(
+        [
+          {
+            match: "actions/runs/77/jobs",
+            seq: [
+              ["", 0],
+              ["queued none", 0],
+              ["in_progress none", 0],
+              ["completed success", 0],
+            ],
+          },
+        ],
+        push,
+      );
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("chart-publish-main passed in Images run 77");
+      expect(run.calls.length).toBe(4);
+      expect(run.calls[0]).toContain('select(.name == "chart-publish-main")');
+      expect(run.calls[0]).toContain("filter=latest");
+    });
+
+    test("a push whose chart-publish-main does not finish in time fails", () => {
+      const run = mainChain(
+        [{ match: "actions/runs/77/jobs", out: "in_progress none" }],
+        { ...push, CI_WAIT_SECONDS: "0" },
+      );
+      expect(run.code).toBe(1);
+      expect(run.err).toContain("still in_progress");
+    });
+
+    test("a retry reads the push run of this commit", () => {
+      const run = mainChain(
+        [
+          pushRun,
+          { match: "actions/runs/4552/jobs", out: "completed success" },
+        ],
+        retry,
+      );
       expect(run.code).toBe(0);
       expect(run.out).toContain("chart-publish-main passed in Images run 4552");
       expect(run.calls[0]).toContain(`head_sha=${sha}`);
@@ -737,33 +790,52 @@ esac
     });
 
     test.each([
-      ["failure", "is failure"],
-      ["skipped", "is skipped"],
-      ["", "is absent"],
-    ])("a chart-publish-main that is %j stops the release", (answer, why) => {
-      const run = mainChain([
-        pushRun,
-        { match: "actions/runs/4552/jobs", out: answer },
-      ]);
-      expect(run.code).toBe(1);
-      expect(run.err).toContain(why);
-    });
+      [push, "completed failure", "concluded failure"],
+      [push, "completed skipped", "concluded skipped"],
+      [retry, "completed failure", "concluded failure"],
+      [retry, "completed skipped", "concluded skipped"],
+      // The push run a retry reads has ended: what is not done never ran.
+      [retry, "", "is absent, not completed"],
+      [retry, "in_progress none", "is in_progress, not completed"],
+    ])(
+      "%j with chart-publish-main %j stops the release",
+      (env, answer, why) => {
+        const run = mainChain([pushRun, { match: "/jobs", out: answer }], env);
+        expect(run.code).toBe(1);
+        expect(run.err).toContain(why);
+      },
+    );
 
-    test("no push run, or a failed lookup, stops the release", () => {
-      const none = mainChain([
-        { match: "actions/workflows/images.yml/runs", out: "" },
-      ]);
+    test("no push run, a failed lookup or another event stops the release", () => {
+      const none = mainChain(
+        [{ match: "actions/workflows/images.yml/runs", out: "" }],
+        retry,
+      );
       expect(none.code).toBe(1);
       expect(none.err).toContain(`no Images push run of ${sha}`);
-      const broken = mainChain([
-        {
-          match: "actions/workflows/images.yml/runs",
-          code: 1,
-          out: "HTTP 500",
-        },
-      ]);
+      const broken = mainChain(
+        [
+          {
+            match: "actions/workflows/images.yml/runs",
+            code: 1,
+            out: "HTTP 500",
+          },
+        ],
+        retry,
+      );
       expect(broken.code).toBe(1);
       expect(broken.err).toContain("could not read the Images push runs");
+      const jobs = mainChain(
+        [{ match: "actions/runs/77/jobs", code: 1, out: "HTTP 500" }],
+        push,
+      );
+      expect(jobs.code).toBe(1);
+      expect(jobs.err).toContain("could not read the jobs of Images run 77");
+      const schedule = mainChain([], { EVENT: "schedule" });
+      expect(schedule.code).toBe(1);
+      expect(schedule.err).toContain(
+        "no main chain is read for a schedule run",
+      );
     });
   });
 

@@ -987,30 +987,20 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const expression = (body: string) => `\${{ ${body} }}`;
 
     /**
-     * A job `if` of plain context checks joined by `&&`, one parenthesised
-     * `||` of them, and the status checks of jobs that all passed; any other
-     * term is refused. `release` is what release-detect found.
+     * A job `if` of plain context checks joined by `&&`; any other term is
+     * refused. `release` is what release-detect found.
      */
     const passes = (
       condition: string | undefined,
       run: { event: string; ref: string; release?: boolean },
-    ): boolean => {
-      const term = (text: string): boolean => {
-        const group = text.match(/^\((.*)\)$/);
-        if (group) {
-          return (group[1] ?? "")
-            .split(" || ")
-            .some((part) => passes(part.replace(/^\((.*)\)$/, "$1"), run));
-        }
-        if (text === "!cancelled()") return true;
-        const result = text.match(/^needs\.([a-z-]+)\.result == 'success'$/);
-        if (result) return runs(result[1] ?? "", run);
-        const prefix = text.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
+    ): boolean =>
+      (condition ?? "").split(" && ").every((term) => {
+        const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
         if (prefix) return run.ref.startsWith(prefix[1] ?? "");
-        if (text === "needs.release-detect.outputs.tag != ''") {
+        if (term === "needs.release-detect.outputs.tag != ''") {
           return run.release === true && runs("release-detect", run);
         }
-        const events = text.match(
+        const events = term.match(
           /^contains\(fromJSON\('(\[[^\]]*\])'\), github\.event_name\)$/,
         );
         if (events) {
@@ -1018,30 +1008,15 @@ describe("compose and workflow agree with the Dockerfiles", () => {
             run.event,
           );
         }
-        const equal = text.match(/^github\.(event_name|ref) == '([^']+)'$/);
-        if (!equal) throw new Error(`unexpected term: ${text}`);
+        const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
+        if (!equal) throw new Error(`unexpected term: ${term}`);
         return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
-      };
-      // Split on the top-level `&&` only, not inside a parenthesised group.
-      const terms: string[] = [];
-      let depth = 0;
-      let start = 0;
-      const text = condition ?? "";
-      for (let at = 0; at < text.length; at++) {
-        if (text[at] === "(") depth++;
-        if (text[at] === ")") depth--;
-        if (depth === 0 && text.startsWith(" && ", at)) {
-          terms.push(text.slice(start, at));
-          start = at + 4;
-        }
-      }
-      terms.push(text.slice(start));
-      return terms.every(term);
-    };
+      });
     /**
-     * Whether a job runs: its `if` holds and, unless the `if` checks results
-     * itself, every job it needs ran. The jobs before the publish chains are
-     * taken to pass, as they do on every event the rows name.
+     * Whether a job runs: its `if` holds and every job it needs ran, as the
+     * default `success()` asks of every ancestor (no job here checks results
+     * itself). The jobs before the publish chains are taken to pass, as they
+     * do on every event the rows name.
      */
     const runs = (
       name: string,
@@ -1052,7 +1027,6 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       }
       const job = jobs[name];
       if (!passes(job?.if, run)) return false;
-      if ((job?.if ?? "").includes("!cancelled()")) return true;
       const needs = job?.needs === undefined ? [] : [job.needs].flat();
       return needs.every((need) => runs(need, run));
     };
@@ -1200,7 +1174,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       ["push", "refs/tags/sdk-v0.1.0", []],
       ["pull_request", "refs/pull/1/merge", []],
       ["schedule", "refs/heads/main", []],
-      ["workflow_dispatch", "refs/heads/main", []],
+      // A manual run on main stages images (staging tags only) for a retry.
+      ["workflow_dispatch", "refs/heads/main", ["index-main", "publish-main"]],
       ["workflow_dispatch", "refs/tags/v1.2.3", []],
     ] as const)("%s of %s publishes through %j", (event, ref, expected) => {
       expect(
@@ -1208,9 +1183,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       ).toEqual([...expected]);
     });
 
-    // A manual run on main that retries a release stages its own images
-    // (staging tags, never main-<12>) and the release chain promotes them
-    // after the approval. Elsewhere a found version changes nothing.
+    // A manual run on main that retries a release promotes its own staged
+    // images (never main-<12>) through the release chain after the approval.
+    // Elsewhere a found version changes nothing.
     test.each([
       [
         "workflow_dispatch",

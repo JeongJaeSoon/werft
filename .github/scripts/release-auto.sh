@@ -10,8 +10,9 @@
 #           AFTER's top `## vX.Y.Z` heading, unless its tag or its Release
 #           already exists. Writes `tag=` to GITHUB_OUTPUT either way.
 #   ci      waits for the ci.yml push run of GITHUB_SHA and requires success
-#   main-chain  the Images push run of GITHUB_SHA got its main chain through
-#           chart-publish-main (a retry promotes no main-<12> of its own)
+#   main-chain  main's chain of GITHUB_SHA got through chart-publish-main:
+#           EVENT push waits for this run's (GITHUB_RUN_ID), a retry reads the
+#           push run of the commit (it promotes no main-<12> of its own)
 #   conformance  a ci.yml push or manual run of GITHUB_SHA passed the
 #           conformance suite on every engine (no pull request runs it)
 #   free    TAG has no tag ref and no Release (also run again right before tagging)
@@ -19,8 +20,9 @@
 #
 # env: GH_REPO, GH_TOKEN, GITHUB_SHA; TAG for free/tag; EVENT, AFTER and (push)
 # BEFORE for detect;
-# GITHUB_RUN_ID for tag. CI_WAIT_SECONDS (default 5400) and CI_POLL_SECONDS
-# (default 60) bound the wait in `ci`.
+# GITHUB_RUN_ID for tag and (push) main-chain; EVENT for main-chain.
+# CI_WAIT_SECONDS (default 5400) and CI_POLL_SECONDS (default 60) bound the
+# wait in `ci` and `main-chain`.
 set -euo pipefail
 
 repo="${GH_REPO:?}"
@@ -161,16 +163,34 @@ ci() {
 # is the push run's, and a new build of it is refused (image-promote.sh). The
 # push run's chain through chart-publish-main is what a release push waits for.
 main_chain() {
-  local sha="${GITHUB_SHA:?}" id conclusion
-  id="$(gh api "repos/${repo}/actions/workflows/images.yml/runs?event=push&branch=main&head_sha=${sha}&per_page=1" \
-    --jq '.workflow_runs[0].id // empty')" || fail "could not read the Images push runs of ${sha}"
-  [ -n "$id" ] || fail "no Images push run of ${sha}"
-  conclusion="$(gh api --paginate "repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100" \
-    --jq '.jobs[] | select(.name == "chart-publish-main") | .conclusion')" \
-    || fail "could not read the jobs of Images run ${id}"
-  [ "$conclusion" = success ] \
-    || fail "chart-publish-main of the Images push run ${id} on ${sha} is ${conclusion:-absent}, not success"
-  echo "main chain: chart-publish-main passed in Images run ${id}"
+  local sha="${GITHUB_SHA:?}" id deadline line status conclusion
+  case "${EVENT:?}" in
+    push) id="${GITHUB_RUN_ID:?}" ;;
+    workflow_dispatch)
+      id="$(gh api "repos/${repo}/actions/workflows/images.yml/runs?event=push&branch=main&head_sha=${sha}&per_page=1" \
+        --jq '.workflow_runs[0].id // empty')" || fail "could not read the Images push runs of ${sha}"
+      [ -n "$id" ] || fail "no Images push run of ${sha}"
+      ;;
+    *) fail "no main chain is read for a ${EVENT} run" ;;
+  esac
+  deadline=$((SECONDS + ${CI_WAIT_SECONDS:-5400}))
+  while :; do
+    line="$(gh api --paginate "repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100" \
+      --jq '.jobs[] | select(.name == "chart-publish-main") | "\(.status) \(.conclusion // "none")"')" \
+      || fail "could not read the jobs of Images run ${id}"
+    read -r status conclusion <<<"$line"
+    if [ "${status:-}" = completed ]; then
+      [ "$conclusion" = success ] \
+        || fail "chart-publish-main of Images run ${id} on ${sha} concluded ${conclusion}"
+      echo "main chain: chart-publish-main passed in Images run ${id}"
+      return 0
+    fi
+    # The push run a retry reads has ended: a job missing there never ran.
+    [ "$EVENT" = push ] || fail "chart-publish-main of Images run ${id} on ${sha} is ${status:-absent}, not completed"
+    [ "$SECONDS" -lt "$deadline" ] \
+      || fail "chart-publish-main of Images run ${id} is still ${status:-absent} after ${CI_WAIT_SECONDS:-5400}s"
+    sleep "${CI_POLL_SECONDS:-60}"
+  done
 }
 
 # The engines of ci.yml's conformance matrix; tests/release-auto.test.ts holds
