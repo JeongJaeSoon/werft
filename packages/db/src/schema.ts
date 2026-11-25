@@ -5795,6 +5795,17 @@ export const conversationTurns = pgTable(
     // The limit that ended a turn without a decision, and who held it there.
     limitReached: text("limit_reached").$type<ConversationTurnLimit>(),
     limitReachedBy: text("limit_reached_by").$type<ConversationTurnLimitSide>(),
+    // A mention's turn: when its Slack thread was set back from
+    // "processing", or found a newer turn there that holds it.
+    slackStatusResetAt: timestamp("slack_status_reset_at", {
+      withTimezone: true,
+    }),
+    // Who holds the turn's thread status: its writer from the write until
+    // it is queued, then a Slack role pass setting it back. One that died
+    // holding it is passed over once the claim runs out.
+    slackStatusClaimedAt: timestamp("slack_status_claimed_at", {
+      withTimezone: true,
+    }),
   },
   (table) => [
     foreignKey({
@@ -5827,6 +5838,12 @@ export const conversationTurns = pgTable(
     index("conversation_turns_topic_idx")
       .on(table.topicId)
       .where(sql`${table.topicId} IS NOT NULL`),
+    // The Slack role's walk of the turns whose thread status is still due.
+    index("conversation_turns_slack_status_due_idx")
+      .on(table.createdAt)
+      .where(
+        sql`${table.slackStatusResetAt} IS NULL AND ${table.slackInstallationId} IS NOT NULL AND ${table.origin} = 'm2'`,
+      ),
     // Which turns a delete mark's place is in, as on turns.
     index("conversation_turns_sources_idx")
       .using("gin", table.sources.op("jsonb_path_ops"))

@@ -25,6 +25,7 @@ import type { ProviderUsage } from "./model-prices.ts";
 import type {
   ConversationCallIssue,
   ConversationCallStore,
+  ConversationMentionTurnIssue,
   ConversationTurnLimitReached,
   ConversationTurnPermitIssue,
 } from "./ports/conversation-call-store.ts";
@@ -119,6 +120,10 @@ export type ConversationTurnPermitIssued =
     }
   | Exclude<ConversationTurnPermitIssue, { outcome: "issued" }>
   | { outcome: "unavailable"; reason: ConversationCallUnavailable };
+
+export type ConversationMentionTurnIssued =
+  | ConversationTurnPermitIssued
+  | Exclude<ConversationMentionTurnIssue, ConversationTurnPermitIssue>;
 
 export type ConversationCallIssued =
   | {
@@ -318,6 +323,54 @@ export function createConversationCalls(deps: {
         callKey: conversationCallKeySchema.parse(
           `${OPERATOR_CALL_KEY_PREFIX}${input.turnId}:m2`,
         ),
+      });
+      if (issued.outcome !== "issued") return issued;
+      return { outcome: "issued", token, expiresAt: issued.expiresAt };
+    },
+    /**
+     * A person's mention of the agent in Slack as a turn: writes the turn,
+     * its permit and the mention's engagement. The person is the turn's
+     * requester as the server knows them, and each provider call the turn
+     * makes on the permit is reserved on their budget when the proxy asks.
+     */
+    async issueMentionTurn(input: {
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+      topicId: ConversationTopicId;
+      turnId: ConversationTurnId;
+      requesterUserId: string;
+      slackInstallationId: string;
+      message: { teamId: string; channelId: string; ts: string };
+      releaseId: string | null;
+      connectionId: string;
+      model: string;
+      maxTokens: number;
+      maxRequestBytes: number;
+      ttlMs: number;
+    }): Promise<ConversationMentionTurnIssued> {
+      for (const [name, value] of [
+        ["maxTokens", input.maxTokens],
+        ["maxRequestBytes", input.maxRequestBytes],
+        ["ttlMs", input.ttlMs],
+      ] as const) {
+        if (!Number.isSafeInteger(value) || value < 1) {
+          throw new RangeError(`${name} must be a positive integer: ${value}`);
+        }
+      }
+      const found = callConnection(
+        deps.catalog,
+        input.connectionId,
+        input.model,
+      );
+      if ("reason" in found)
+        return { outcome: "unavailable", reason: found.reason };
+      const token = `${CONVERSATION_TURN_PERMIT_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+      const issued = await deps.store.issueMentionTurnAtomic({
+        ...input,
+        tokenHash: hashConversationCallToken(token),
+        path: CONVERSATION_CALL_PATH,
+        callKey: conversationCallKeySchema.parse(`${input.turnId}:m2`),
       });
       if (issued.outcome !== "issued") return issued;
       return { outcome: "issued", token, expiresAt: issued.expiresAt };

@@ -20,6 +20,8 @@ import type {
   InboundInputReceipt,
   JudgmentBufferStore,
   LinkedAccountStore,
+  MentionTurnRequest,
+  MentionTurnStart,
   SessionLinkRecord,
   SessionLinkStore,
   SurfaceAppStore,
@@ -35,6 +37,7 @@ import {
   type LifecycleStop,
   type SessionService,
   SessionServiceError,
+  type TableHandling,
 } from "@werft-ai/platform";
 import { z } from "zod";
 import type { SlackAudience } from "./slack-audience.ts";
@@ -106,6 +109,20 @@ class SlackLeaseLost extends Error {
 }
 
 /**
+ * A binding not in use is one the bot is out of, as far as the handling
+ * table goes: left, gone, or never finished.
+ */
+function lifecycleStopOf(
+  place: { agentActive: boolean; channelState: string },
+  live: { status: string },
+): LifecycleStop | null {
+  if (!place.agentActive) return "agent_inactive";
+  if (place.channelState !== "active") return "channel_archived";
+  if (live.status === "pending_approval") return "pending_approval";
+  return live.status !== "ready" ? "bot_removed" : null;
+}
+
+/**
  * The text a turn gets: the bot's own mention taken out, with or without
  * the display name Slack may put after a `|`.
  */
@@ -139,6 +156,17 @@ export type SlackSessionHandlerDeps = {
   conversations: ConversationStore;
   /** The agent's switch and the channel's state, for the judgment buffer. */
   buffer: JudgmentBufferStore;
+  /**
+   * Where a mention goes once the agent's rollout is on and the handling
+   * table answers `m2`: a conversation turn, queued (v1-b/D1).
+   */
+  mentionTurns: {
+    /** `queuing` runs between the turn's write and its queueing. */
+    start(
+      request: MentionTurnRequest,
+      queuing: () => Promise<void>,
+    ): Promise<MentionTurnStart>;
+  };
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
@@ -256,17 +284,7 @@ export function createSlackSessionHandler(
       if (live === null) {
         return place.rollout === "on" ? null : "current_path";
       }
-      // A binding not in use is one the bot is out of, as far as the table
-      // goes: left, gone, or never finished.
-      const lifecycleStop: LifecycleStop | null = !place.agentActive
-        ? "agent_inactive"
-        : place.channelState !== "active"
-          ? "channel_archived"
-          : live.status === "pending_approval"
-            ? "pending_approval"
-            : live.status !== "ready"
-              ? "bot_removed"
-              : null;
+      const lifecycleStop = lifecycleStopOf(place, live);
       // An unbound thread the agent took part in lately: its replies are
       // judged for the record (`m1_engaged`), never made a turn (a1/J5).
       const engaged =
@@ -354,6 +372,120 @@ export function createSlackSessionHandler(
         buffered: { body: event.text, slackUserId: event.user },
         ...(judged === "m1" ? { judgment: "m1_engaged" as const } : {}),
       };
+    };
+
+    /**
+     * What the handling table makes of a mention with no work bound to its
+     * thread (rows 1 and 7), or `current_path` while the agent's rollout
+     * is not on: `off` and `shadow` take the mention as before.
+     */
+    const mentionTableHandling = async (): Promise<
+      TableHandling | "current_path" | "no_binding"
+    > => {
+      const place = await deps.buffer.place({
+        kind: "channel",
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+      });
+      if (place.rollout !== "on") return "current_path";
+      const live = await deps.bindings.findLiveSlackChannel(
+        agent.installationId,
+        event.channel,
+      );
+      if (live === null) return "no_binding";
+      const handling = inboundHandling({
+        place: "channel",
+        work: "none",
+        engaged: false,
+        input: "mention",
+        rollout: place.rollout,
+        mode: live.mode,
+        listen: live.listen,
+        lifecycleStop: lifecycleStopOf(place, live),
+      });
+      return handling.kind === "table" ? handling.handling : "current_path";
+    };
+
+    /**
+     * The mention as a turn of its thread's topic, the person who wrote it
+     * its requester as the decision recorded them. The thread shows
+     * "processing" until the Slack role's pass ends the turn.
+     */
+    const mentionTurn = async (
+      botToken: string,
+      requesterUserId: string | null,
+      text: string,
+    ): Promise<void> => {
+      if (requesterUserId === null) {
+        deps.logger.info("Slack mention not made a turn", {
+          ...ids,
+          reason: "no_linked_person",
+        });
+        return;
+      }
+      const held = await deps.inbox.renew(claim, deps.leaseMs);
+      if (held === null) throw new SlackLeaseLost();
+      if (held.installationStatus === "revoked") {
+        throw new SlackInboundDropped("installation_revoked");
+      }
+      await stopIfLeft();
+      const place = { dm: false, personUserId: null, channelId: event.channel };
+      const conversation = await conversationOf(place, claim.teamId, agent);
+      if (conversation === null) {
+        throw new Error("A Slack channel has no conversation");
+      }
+      // Before a runtime can take the turn, so an ending never comes first.
+      const processing = async () => {
+        try {
+          await deps.slack.setStatus(botToken, {
+            channelId: event.channel,
+            threadTs,
+            status: "processing",
+          });
+        } catch (error) {
+          // The turn goes on without it; its end sets the thread back anyway.
+          deps.logger.warn("Slack status not set for a mention turn", {
+            ...ids,
+            code: error instanceof SlackApiError ? error.code : "error",
+          });
+        }
+      };
+      const started = await deps.mentionTurns.start(
+        {
+          workspaceId: agent.workspaceId,
+          agentId: agent.agentId,
+          conversationId: conversation.id,
+          topicId: await topicOf(
+            place,
+            claim.teamId,
+            threadTs,
+            agent,
+            conversation,
+          ),
+          slackInstallationId: agent.installationId,
+          message: {
+            teamId: claim.teamId,
+            channelId: event.channel,
+            ts: event.ts,
+          },
+          requesterUserId,
+          text,
+        },
+        processing,
+      );
+      if (started.outcome !== "queued") {
+        deps.logger.info("Slack mention not made a turn", {
+          ...ids,
+          reason: started.outcome,
+        });
+        return;
+      }
+      deps.logger.info("Slack mention made a conversation turn", {
+        ...ids,
+        turn_id: started.turnId,
+      });
     };
 
     // A person wrote in the thread, whatever becomes of it: the bots there
@@ -468,6 +600,20 @@ export function createSlackSessionHandler(
     // A stray reply is nobody's request in any mode; skip the lookup.
     if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
       return;
+    // A person's mention outside a bound thread, once the agent's rollout is
+    // on: the handling table says whether it becomes a conversation turn.
+    const mentionHandling =
+      found === null && mentioned && !dm && !fromBot
+        ? await mentionTableHandling()
+        : "current_path";
+    if (mentionHandling !== "current_path" && mentionHandling !== "m2") {
+      // The notice for an unheard mention is v1-b/F3's.
+      deps.logger.info("Slack mention not made a turn", {
+        ...ids,
+        handling: mentionHandling,
+      });
+      return;
+    }
     // Observe only: the reply goes on as a turn whatever the judgment says.
     // The text is not logged; `event_id` joins the case to its inbox row. A
     // retried event logs again.
@@ -690,6 +836,10 @@ export function createSlackSessionHandler(
     const message = withoutBotMention(event.text, agent.botUserId);
     if (!messageTextSchema.safeParse(message).success) {
       deps.logger.info("Slack message has no text to send; ignored", ids);
+      return;
+    }
+    if (mentionHandling === "m2") {
+      await mentionTurn(botToken, decision.actorUserId, message);
       return;
     }
     const caller = slackCallerOf(decision, requestId);
