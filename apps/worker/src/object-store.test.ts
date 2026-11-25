@@ -8,6 +8,7 @@ import {
 
 import {
   createWorkerObjectStore,
+  holdingObjectStore,
   isObjectStoreOutage,
   ObjectStoreToken,
   objectStoreConfigFromEnv,
@@ -24,6 +25,43 @@ const closers: Array<() => void> = [];
 
 afterEach(() => {
   for (const close of closers.splice(0)) close();
+});
+
+describe("holdingObjectStore", () => {
+  test("writes wait while ownership is unconfirmed; reads do not", async () => {
+    const puts: string[] = [];
+    const doubt = Promise.withResolvers<void>();
+    let unconfirmed: Promise<void> | undefined = doubt.promise;
+    const store = holdingObjectStore(
+      {
+        get: async () => new Uint8Array([1]),
+        head: async () => undefined,
+        stream: async () => undefined,
+        list: async () => ["sessions/s1/a"],
+        putImmutable: async (key) => {
+          puts.push(key);
+          return { outcome: "created" };
+        },
+      },
+      () => unconfirmed,
+    );
+
+    const put = store.putImmutable("sessions/s1/a", new Uint8Array([1]));
+    expect(await store.get("sessions/s1/a")).toEqual(new Uint8Array([1]));
+    expect(await store.list("sessions/s1/")).toEqual(["sessions/s1/a"]);
+    expect(puts).toEqual([]);
+
+    doubt.resolve();
+    unconfirmed = undefined;
+    expect(await put).toEqual({ outcome: "created" });
+    expect(puts).toEqual(["sessions/s1/a"]);
+
+    unconfirmed = Promise.reject(new Error("Not sent: the lease was lost"));
+    await expect(
+      store.putImmutable("sessions/s1/b", new Uint8Array([2])),
+    ).rejects.toThrow("Not sent");
+    expect(puts).toEqual(["sessions/s1/a"]);
+  });
 });
 
 describe("objectStoreConfigFromEnv", () => {

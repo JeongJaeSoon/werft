@@ -111,6 +111,12 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     this.credential = credential;
   }
 
+  private unconfirmed: (() => Promise<void> | undefined) | undefined;
+
+  holdWhile(unconfirmed: () => Promise<void> | undefined): void {
+    this.unconfirmed = unconfirmed;
+  }
+
   bootstrapClaim(
     request: BootstrapClaimRequest,
   ): Promise<BootstrapClaimResponse> {
@@ -250,6 +256,7 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     options: { maxBytes: number; signal?: AbortSignal },
   ): Promise<Uint8Array> {
     const path = `/attempts/${encodeURIComponent(attemptId)}/extensions/${encodeURIComponent(digest)}`;
+    await this.unconfirmed?.();
     const timeout = AbortSignal.timeout(this.requestTimeoutMs);
     let response: Response;
     try {
@@ -335,6 +342,8 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     body: unknown,
     decoder: Decoder<T>,
   ): Promise<T> {
+    // The beat is what settles it, so it alone goes out meanwhile.
+    if (path !== "/heartbeat") await this.unconfirmed?.();
     let response: Response;
     const traceparent = this.currentTraceparent?.();
     try {

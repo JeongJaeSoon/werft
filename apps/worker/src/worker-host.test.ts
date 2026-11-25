@@ -25,6 +25,7 @@ import type {
 
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
+import { createConsoleLogger } from "./console-logger.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { noWorkspace } from "./testing/no-workspace.ts";
@@ -1158,6 +1159,40 @@ describe("WorkerHost ownership and shutdown", () => {
       "worker.ownership.lost",
     ]);
     expect(gateway.finalized).toEqual([]);
+  });
+
+  test("a heartbeat answered 404 until the lease is given up ends the attempt and logs the status", async () => {
+    const gateway = new FakeWorkerGateway({ leaseTtlMs: 300 });
+    gateway.heartbeatFailure = "NOT_FOUND";
+    const lines: string[] = [];
+    const { host } = harness(
+      [{ type: "await-input" }, { type: "delay", delayMs: 5_000 }],
+      {
+        gateway,
+        logger: createConsoleLogger({ write: (line) => lines.push(line) }),
+        timeouts: { heartbeatIntervalMs: 5, leaseSafetyMarginMs: 100 },
+      },
+    );
+    gateway.enqueue("a turn the gateway stops answering for");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    const eventsLogged = lines.map(
+      (line) => (JSON.parse(line) as { event: string }).event,
+    );
+    expect(eventsLogged).toContain("worker.ownership.unconfirmed");
+    expect(eventsLogged).not.toContain("worker.ownership.confirmed");
+    // The shape the scheduler reads the status and the code from.
+    expect(
+      lines.find((line) => line.includes('"event":"worker.ownership.lost"')),
+    ).toContain('"heartbeat_status":404,"heartbeat_code":"NOT_FOUND"');
+    // Nothing went out after the loss, and nothing would.
+    expect(gateway.finalized).toEqual([]);
+    expect(gateway.releases).toEqual([]);
+    expect(
+      await gateway.unconfirmed?.()?.catch((caught: unknown) => caught),
+    ).toMatchObject({ code: "LEASE_EXPIRED" });
   });
 
   test("kills the engine at once when the lease is lost, with no grace", async () => {

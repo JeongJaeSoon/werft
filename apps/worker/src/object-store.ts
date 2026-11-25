@@ -73,6 +73,27 @@ export function objectStoreConfigFromEnv(
  * refuses what the confinement would have (`object-route.ts`).
  * `token` is the claim's object store token, asked for on every request.
  */
+/**
+ * A store whose writes wait on the promise `unconfirmed` returns, and are
+ * not made once it rejects: what the gateway client does for its calls (see
+ * `Heartbeat.unconfirmed`). Reads go through.
+ */
+export function holdingObjectStore(
+  store: CheckpointObjectStore,
+  unconfirmed: () => Promise<void> | undefined,
+): CheckpointObjectStore {
+  return {
+    get: (key, version) => store.get(key, version),
+    head: (key, version) => store.head(key, version),
+    stream: (key, version) => store.stream(key, version),
+    list: (prefix) => store.list(prefix),
+    async putImmutable(key, body, options) {
+      await unconfirmed();
+      return store.putImmutable(key, body, options);
+    },
+  };
+}
+
 export function createWorkerObjectStore(
   config: WorkerObjectStoreConfig,
   token: () => string,

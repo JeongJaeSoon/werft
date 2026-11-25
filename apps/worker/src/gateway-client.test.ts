@@ -332,6 +332,41 @@ describe("HttpWorkerGatewayClient", () => {
     expect(error.retryable).toBe(false);
   });
 
+  test("holds every call but the heartbeat while ownership is unconfirmed, and sends none once it is lost", async () => {
+    const { gateway, recorded } = client((entry) =>
+      entry.url.endsWith("/heartbeat")
+        ? ok({
+            lease_expires_at: new Date().toISOString(),
+            lease_remaining_ms: 30_000,
+            control_pending: false,
+          })
+        : ok({ released: true }),
+    );
+    const paths = () =>
+      recorded.map((entry) => entry.url.split("/internal/worker")[1]);
+    const doubt = Promise.withResolvers<void>();
+    let unconfirmed: Promise<void> | undefined = doubt.promise;
+    gateway.holdWhile(() => unconfirmed);
+
+    const release = gateway.release({ ...scope, reason: "done" });
+    await gateway.heartbeat({ ...scope, attempt_state: "running" });
+    expect(paths()).toEqual(["/heartbeat"]);
+
+    doubt.resolve();
+    unconfirmed = undefined;
+    expect(await release).toEqual({ released: true });
+    expect(paths()).toEqual(["/heartbeat", "/release"]);
+
+    unconfirmed = Promise.reject(
+      new WorkerGatewayRequestError(0, "LEASE_EXPIRED", "Not sent", false),
+    );
+    const refused = await gateway
+      .release({ ...scope, reason: "done" })
+      .catch((caught: unknown) => caught);
+    expect(isOwnershipLost(refused)).toBe(true);
+    expect(paths()).toEqual(["/heartbeat", "/release"]);
+  });
+
   test("sends the current traceparent per request and none when it is unset", async () => {
     const { gateway, recorded } = client(() => apiError(409, "conflict"));
     const first = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
