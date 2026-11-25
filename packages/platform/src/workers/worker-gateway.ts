@@ -2998,7 +2998,14 @@ export function createWorkerGateway(deps: {
         },
         request_id: request.tool_call_id,
       });
-      return { allowed: decision.outcome === "allow" };
+      if (decision.outcome !== "allow") return { allowed: false };
+      // The lease or the session may have moved while the policy was asked.
+      const after = await requirePending().sessionAllowAtomic({
+        fence,
+        grantRequestId: request.grant_request_id,
+      });
+      if (after.outcome !== "ok") return rejected(after);
+      return { allowed: after.grant !== null };
     },
 
     async parkDeclined(

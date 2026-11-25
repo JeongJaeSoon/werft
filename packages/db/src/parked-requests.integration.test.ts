@@ -3,6 +3,7 @@ import type {
   PendingSettlement,
   PostSessionAnswerRequest,
   RegisterPendingRequest,
+  WorkerCapabilities,
   WorkerScope,
 } from "@werft-ai/contracts";
 import { ANSWER_TEXT_MAX_BYTES, MESSAGE_MAX_BYTES } from "@werft-ai/contracts";
@@ -203,7 +204,7 @@ integration("parked pending requests on PostgreSQL", () => {
   // A new worker for the session, handed its next input.
   async function claim(
     sessionId: string,
-    capabilities?: { approval_remember: true },
+    capabilities?: WorkerCapabilities,
   ) {
     const { principal, scope, executionId, claimed } = await claimOnly(
       sessionId,
@@ -222,7 +223,7 @@ integration("parked pending requests on PostgreSQL", () => {
   // A worker for the session that has claimed it and asked for nothing yet.
   async function claimOnly(
     sessionId: string,
-    capabilities?: { approval_remember: true },
+    capabilities?: WorkerCapabilities,
   ) {
     const { executionId, generation, nonce } = await launchSession(db, {
       sessionId,
@@ -1620,7 +1621,7 @@ integration("parked pending requests on PostgreSQL", () => {
     expect((await request(held.requestId)).answeredAt).toBeNull();
   });
 
-  test("a parked allow kept for the session reaches the resumed worker as grant rules, only if it announces approval_remember", async () => {
+  test("a parked allow kept for the session reaches the resumed worker as grant rules, only if it announces session_allow_check", async () => {
     const offer = [{ tool_name: "Bash", rule_content: "git status:*" }];
     const kept = async () => {
       const running = await parked();
@@ -1642,6 +1643,7 @@ integration("parked pending requests on PostgreSQL", () => {
     const capable = await kept();
     const withRules = await claim(capable.sessionId, {
       approval_remember: true,
+      session_allow_check: true,
     });
     expect(withRules.claimed.grants).toEqual([
       expect.objectContaining({
@@ -1649,6 +1651,15 @@ integration("parked pending requests on PostgreSQL", () => {
         remember_offer: offer,
       }),
     ]);
+
+    // An image that would hand the rules to its engine gets none.
+    const unbound = await kept();
+    const unboundClaim = await claim(unbound.sessionId, {
+      approval_remember: true,
+    });
+    expect(unboundClaim.claimed.grants?.[0]).not.toHaveProperty(
+      "remember_offer",
+    );
 
     const older = await kept();
     const plain = await claim(older.sessionId);

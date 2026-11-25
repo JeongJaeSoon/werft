@@ -133,6 +133,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   readonly sessionAllowChecks: SessionAllowRequest[] = [];
   /** What `/session-allow` answers for each check. */
   sessionAllowed: (request: SessionAllowRequest) => boolean = () => true;
+  /** How long each session-allow check takes to answer. */
+  sessionAllowDelayMs = 0;
   /** How each registered request ended, as the worker reported it. */
   readonly settled: PendingSettlement[] = [];
   credential: string | undefined;
@@ -534,6 +536,11 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   ): Promise<SessionAllowResponse> {
     this.calls.push("sessionAllow");
     this.sessionAllowChecks.push(request);
+    if (this.sessionAllowDelayMs > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.sessionAllowDelayMs),
+      );
+    }
     return { allowed: this.sessionAllowed(request) };
   }
 

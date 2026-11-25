@@ -449,6 +449,8 @@ export class WorkerHost {
    * gave it as they stand now. Memory only, so a new attempt asks again.
    */
   private sessionAllows: SessionAllow[] = [];
+  /** Calls held while their session allow is checked, by local id. */
+  private readonly checking = new Map<string, { withdrawn: boolean }>();
   /** Park controls already carried out or declined; polls repeat them. */
   private readonly parksTaken = new Set<string>();
   /**
@@ -2930,6 +2932,8 @@ export class WorkerHost {
             this.onApprovalRequested(run, event.request);
           } else if (event.type === "approval.resolved") {
             this.pending?.withdraw(event.localId);
+            const checked = this.checking.get(event.localId);
+            if (checked !== undefined) checked.withdrawn = true;
           }
         }
       } catch (error) {
@@ -3143,11 +3147,24 @@ export class WorkerHost {
       pending.request(request, answer, this.approvalCheckpointer(run));
       return;
     }
+    const checked = { withdrawn: false };
+    this.checking.set(request.localId, checked);
     void this.sessionAllowStands(request, allow, turnId).then((stands) => {
+      this.checking.delete(request.localId);
+      // The run settled the call itself meanwhile: nothing is left to ask.
+      if (checked.withdrawn) return;
       const now = this.askable(answer);
       if (now === undefined) return;
-      if (!stands) this.dropSessionAllow(allow.requestId);
-      if (!stands || this.turn?.turnId !== turnId) {
+      if (this.turn?.turnId !== turnId) {
+        void answer({
+          kind: "cancelled",
+          reason: "interrupt",
+          message: "The turn ended before the call was allowed",
+        });
+        return;
+      }
+      if (!stands) {
+        this.dropSessionAllow(allow.requestId);
         now.request(request, answer, this.approvalCheckpointer(run));
         return;
       }

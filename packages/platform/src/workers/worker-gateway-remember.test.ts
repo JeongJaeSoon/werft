@@ -90,6 +90,8 @@ function wired(
     grant?: { ownerScope: string; subject: unknown } | null;
     outcome?: "allow" | "deny";
     authorization?: false;
+    /** What the store reads once the policy has answered. */
+    after?: "lease_expired" | null;
   } = {},
 ) {
   const stored: PostSessionAnswerRequest = {
@@ -113,13 +115,21 @@ function wired(
   } as unknown as AuthorizationPolicy;
   const pending = {
     hasUndelivered: async () => false,
-    sessionAllowAtomic: async () => ({
-      outcome: "ok",
-      grant:
-        options.grant === undefined
-          ? { ownerScope: "owner-a", subject: SLACK_SUBJECT }
-          : options.grant,
-    }),
+    sessionAllowAtomic: async () => {
+      if (asked.length > 0 && options.after === "lease_expired") {
+        return { outcome: "lease_expired" };
+      }
+      if (asked.length > 0 && options.after === null) {
+        return { outcome: "ok", grant: null };
+      }
+      return {
+        outcome: "ok",
+        grant:
+          options.grant === undefined
+            ? { ownerScope: "owner-a", subject: SLACK_SUBJECT }
+            : options.grant,
+      };
+    },
     pendingControlAtomic: async () => ({
       outcome: "ok",
       control: null,
@@ -312,6 +322,20 @@ describe("a session allow judged again before a call it covers", () => {
     });
     expect(await check()).toEqual({ allowed: false });
     expect(asked).toHaveLength(0);
+  });
+
+  test("a lease lost while the policy was asked is refused, not allowed", async () => {
+    await expect(
+      wired({ after: "lease_expired" }).check(),
+    ).rejects.toMatchObject({
+      code: "LEASE_EXPIRED",
+    });
+  });
+
+  test("an allow gone by the time the policy answers stands for nothing", async () => {
+    const { check, asked } = wired({ after: null });
+    expect(await check()).toEqual({ allowed: false });
+    expect(asked).toHaveLength(1);
   });
 
   test("a gateway with no policy allows nothing", async () => {

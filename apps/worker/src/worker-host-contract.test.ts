@@ -1066,6 +1066,35 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       ]);
     });
 
+    test("a call the run settles itself while its allow is checked is neither allowed nor put to a person", async () => {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => {
+        call(run, sent, "c1");
+        setTimeout(() => call(run, sent, "c2", RUN_RULE), 5);
+        setTimeout(
+          () =>
+            run.push({
+              type: "approval.resolved",
+              localId: "local-c2",
+              outcome: "withdrawn",
+            }),
+          15,
+        );
+        setTimeout(() => finish(run, sent), 80);
+      };
+      const { gateway, worker } = host(run);
+      gateway.grants = [parked()];
+      gateway.sessionAllowed = () => false;
+      gateway.sessionAllowDelayMs = 40;
+      gateway.enqueue("hello");
+
+      await worker.runLoop();
+
+      expect(gateway.sessionAllowChecks).toHaveLength(1);
+      expect(gateway.registrations).toEqual([]);
+      expect(run.answers).toHaveLength(1);
+    });
+
     test("a call offering another rule, or none, is put to a person without asking", async () => {
       const run = new ScriptedRun();
       run.onSend = (sent) => {
