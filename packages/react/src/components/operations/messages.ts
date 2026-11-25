@@ -133,6 +133,20 @@ export interface UsageCostTableMessages {
   readonly summary: string;
   /** Calls from before the class was recorded; shown only when not zero. */
   readonly other: string;
+  /** The conversation cost by who started it: a person, or the agent. */
+  readonly person: string;
+  readonly agent: string;
+}
+
+export interface UsageInitiatorSplitMessages {
+  readonly title: string;
+  readonly description: string;
+  readonly person: string;
+  readonly agent: string;
+  readonly session: string;
+  /** A person's calls made on a key nobody owns. */
+  readonly noPerson: string;
+  readonly share: (label: string) => string;
 }
 
 export interface UsageDailyCostMessages {
@@ -284,6 +298,7 @@ export interface OperationsMessages {
   readonly usageKpis: UsageKpisMessages;
   readonly installationLimits: InstallationLimitsMessages;
   readonly usageCostTable: UsageCostTableMessages;
+  readonly usageInitiatorSplit: UsageInitiatorSplitMessages;
   readonly usageDailyCost: UsageDailyCostMessages;
   readonly usageTokenMix: UsageTokenMixMessages;
   readonly usageBasis: UsageBasisMessages;
@@ -560,6 +575,17 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         turn: "대화 턴",
         summary: "요약",
         other: "기타",
+        person: "사람",
+        agent: "에이전트",
+      },
+      usageInitiatorSplit: {
+        title: "누가 시작했나",
+        description: "세 칸을 더하면 이 기간의 비용입니다",
+        person: "사람",
+        agent: "에이전트",
+        session: "작업 세션",
+        noPerson: "사람 없는 key",
+        share: (label) => `${label} 비용 비율`,
       },
       usageDailyCost: {
         title: "일자별 비용",
@@ -779,6 +805,17 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         turn: "会話ターン",
         summary: "要約",
         other: "その他",
+        person: "人",
+        agent: "エージェント",
+      },
+      usageInitiatorSplit: {
+        title: "誰が始めたか",
+        description: "3つを足すとこの期間のコストです",
+        person: "人",
+        agent: "エージェント",
+        session: "作業セッション",
+        noPerson: "人のいないキー",
+        share: (label) => `${label}のコスト比率`,
       },
       usageDailyCost: {
         title: "日別コスト",
@@ -998,6 +1035,17 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         turn: "Turns",
         summary: "Summaries",
         other: "Other",
+        person: "People",
+        agent: "Agent",
+      },
+      usageInitiatorSplit: {
+        title: "Who started it",
+        description: "The three add up to this period's cost",
+        person: "People",
+        agent: "Agent",
+        session: "Task sessions",
+        noPerson: "Key with no person",
+        share: (label) => `${label} cost share`,
       },
       usageDailyCost: {
         title: "Cost per day",

@@ -337,7 +337,7 @@ integration("usage summary on PostgreSQL", () => {
     ).toBe("FORBIDDEN");
   });
 
-  test("scope=installation and GET /v1/limits are the signed-in owner's alone", async () => {
+  test("scope=installation and GET /v1/limits are the signed-in owner's and admins' alone", async () => {
     const period = { since: "2002-01-01", until: "2003-01-01" };
     await session(user("alice", "member"), "2002-05-01T00:00:00Z", 1, 10);
     await session(testCaller(LEGACY_OWNER), "2002-06-01T00:00:00Z", 2, 20);
@@ -361,8 +361,14 @@ integration("usage summary on PostgreSQL", () => {
       scope: "installation",
       ...period,
     });
+    const admin = user("admin", "admin");
+    expect((await service.getUsageSummary(admin, query)).scope).toBe(
+      "installation",
+    );
+    expect((await service.getInstallationLimits(admin)).scope).toBe(
+      "installation",
+    );
     for (const [label, caller] of [
-      ["admin", user("admin", "admin")],
       ["member", user("alice", "member")],
       ["owner's personal key", key(ownersKey, ids.owner)],
       ["agent key", key(agentKey, null)],
@@ -1001,9 +1007,7 @@ integration("usage summary on PostgreSQL", () => {
       );
     expect(await refusal(achievements(alice, agentScope))).toBe("FORBIDDEN");
     expect(await refusal(achievements(alice, installation))).toBe("FORBIDDEN");
-    expect(
-      await refusal(achievements(user("admin", "admin"), installation)),
-    ).toBe("FORBIDDEN");
+    await achievements(user("admin", "admin"), installation);
     const shown = await read(user("admin", "admin"), agentScope);
     expect(shown).toMatchObject({ achievement_count: 3 });
     // Alice's private session: its conversation achievement carries the
@@ -1386,13 +1390,13 @@ integration("installation figures over HTTP on PostgreSQL", () => {
       },
     });
 
-  test("the owner reads GET /v1/limits and scope=installation; admin and member get 403", async () => {
+  test("the owner and admins read GET /v1/limits and scope=installation; a member gets 403", async () => {
     const installation =
       "/v1/usage/summary?scope=installation&since=2026-10-01";
     const tools = "/v1/usage/tools?scope=installation&since=2026-10-01";
     for (const [role, status] of [
       ["owner", 200],
-      ["admin", 403],
+      ["admin", 200],
       ["member", 403],
     ] as const) {
       for (const path of [
