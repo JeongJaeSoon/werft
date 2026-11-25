@@ -123,15 +123,14 @@ describe("the conversation turn queue in the database (0355)", () => {
     });
     await queue.outcome(turn.turn_id, new Date(now.getTime() + 10 * 60_000));
     const rows = await client.query(
-      "SELECT state, outcome, lease_id, runtime_id, turn_ciphertext FROM conversation_turn_queue WHERE turn_id = $1",
-      [turn.turn_id],
+      "SELECT state, outcome, lease_id = $2 AS same_lease, turn_ciphertext FROM conversation_turn_queue WHERE turn_id = $1",
+      [turn.turn_id, taken.lease_id],
     );
     expect(rows.rows).toEqual([
       {
         state: "forgotten",
         outcome: null,
-        lease_id: null,
-        runtime_id: null,
+        same_lease: true,
         turn_ciphertext: null,
       },
     ]);

@@ -355,6 +355,24 @@ export function conversationTurnQueueContract(
       ).toBe("duplicate");
     });
 
+    test("a turn behind one that is forgotten still waits from that one's end", async () => {
+      const h = harness(subject);
+      const first = await h.enqueue();
+      // Its take time outlasts the first's being remembered.
+      const second = await h.enqueue({
+        sameTopicAs: first,
+        takeInMs: 11 * 60_000,
+      });
+      const a = await h.take();
+      h.advance(2 * 60_000);
+      await h.report(a);
+
+      h.advance(ENDED_TURN_KEPT_MS + 30_000);
+      // Past its own take time, inside its take time again from the first's end.
+      expect((await h.take()).turn_id).toBe(second.turn_id);
+      expect(await h.turns.queue.outcome(first.turn_id, h.at())).toBeNull();
+    });
+
     test("a turn id is queued once, and an unknown one has no end", async () => {
       const h = harness(subject);
       const turn = await h.enqueue();

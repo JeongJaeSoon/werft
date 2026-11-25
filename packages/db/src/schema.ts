@@ -5954,7 +5954,7 @@ export const conversationTurnPermits = pgTable(
  * token and its context), under a key derived for this use alone; the lease
  * clears it. Ten minutes after its end a row is `forgotten`: how it ended
  * is dropped, and the row stays so that input's attempt is not queued
- * again. The input id is the turn's own and need not be a
+ * again, with its lease's end for a turn queued behind it. The input id is the turn's own and need not be a
  * conversation_inputs row: an operator's input is in none.
  */
 export const conversationTurnQueue = pgTable(
@@ -6007,7 +6007,7 @@ export const conversationTurnQueue = pgTable(
         WHEN 'queued' THEN ${table.turnNonce} IS NOT NULL AND ${table.turnCiphertext} IS NOT NULL AND ${table.leaseId} IS NULL AND ${table.runtimeId} IS NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
         WHEN 'leased' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND ${table.leaseId} IS NOT NULL AND ${table.runtimeId} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
         WHEN 'ended' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NOT NULL AND ${table.endedAt} IS NOT NULL
-        WHEN 'forgotten' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND ${table.leaseId} IS NULL AND ${table.runtimeId} IS NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NOT NULL
+        WHEN 'forgotten' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NULL AND ${table.endedAt} IS NOT NULL
         ELSE false
       END`,
     ),

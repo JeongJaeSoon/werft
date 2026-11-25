@@ -96,13 +96,8 @@ export function createPostgresConversationTurnQueue(
   async function settle(tx: Database, now: Date): Promise<void> {
     await tx
       .update(queue)
-      .set({
-        state: "forgotten",
-        outcome: null,
-        leaseId: null,
-        runtimeId: null,
-        leaseExpiresAt: null,
-      })
+      // Its lease's ids and end stay: a turn queued behind it waits from then.
+      .set({ state: "forgotten", outcome: null })
       .where(
         and(
           eq(queue.state, "ended"),
@@ -150,7 +145,7 @@ export function createPostgresConversationTurnQueue(
               inArray(queue.topicId, [
                 ...new Set(waiting.map((row) => row.topicId)),
               ]),
-              eq(queue.state, "ended"),
+              inArray(queue.state, ["ended", "forgotten"]),
               isNotNull(queue.leaseId),
             ),
           )
