@@ -17,16 +17,10 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { messageOf } from "@werft-ai/runtime-core";
+import { messageOf, withinHandshakeWait } from "@werft-ai/runtime-core";
 
 const CALL_TIMEOUT_MS = 30 * 60_000;
 const MAX_LIST_PAGES = 50;
-/**
- * How long the engine's handshake waits for a platform server's own. Past
- * it the engine starts without the server's instructions, resources and
- * prompts; its tools still answer once the server does.
- */
-const HANDSHAKE_WAIT_MS = 5_000;
 
 const listedDescriptions = new WeakMap<McpServer, Map<string, string>>();
 
@@ -64,6 +58,8 @@ export type RemoteMcpServer = {
    * an administrator named gives the engine its pinned tools and nothing else.
    */
   platform?: boolean;
+  /** How long the engine's handshake waits for a platform server's own. */
+  handshakeWaitMs?: number;
 };
 
 /**
@@ -154,18 +150,16 @@ export function remoteMcpRelay(server: RemoteMcpServer): {
   );
   if (platform) {
     // The engine's handshake waits for the server's, so what the server says
-    // of itself reaches the engine as its own. A server that does not answer
-    // in time is shown with its tools alone.
+    // of itself reaches the engine as its own. A server that has not answered
+    // by the end of the wait is shown with its tools alone.
     relay.server.setRequestHandler(
       InitializeRequestSchema,
       async (request): Promise<InitializeResult> => {
         const asked = request.params.protocolVersion;
-        const client = await Promise.race([
-          connected().catch(() => undefined),
-          new Promise<undefined>((resolve) => {
-            setTimeout(resolve, HANDSHAKE_WAIT_MS, undefined).unref?.();
-          }),
-        ]);
+        const client = await withinHandshakeWait(
+          connected,
+          server.handshakeWaitMs,
+        );
         const served = client?.getServerCapabilities();
         const instructions = client?.getInstructions();
         return {

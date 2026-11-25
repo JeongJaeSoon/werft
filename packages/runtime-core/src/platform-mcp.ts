@@ -29,3 +29,46 @@ export function exposedMcpTools(server: PlatformMcpServer): string[] {
     ...new Set([...own(server, server.tools), ...servedMcpTools(server)]),
   ];
 }
+
+/**
+ * How long an engine's handshake waits for a platform server's own. What the
+ * server says of itself comes only with the handshake, so an answer given
+ * without it leaves the engine without it for as long as it runs. The wait
+ * ends inside each engine's own patience with a server (both pinned engines
+ * were measured waiting 25 s and more): past it the engine is shown the
+ * server's tools alone, which is more than a server it gave up on.
+ */
+export const PLATFORM_MCP_HANDSHAKE_WAIT_MS = 20_000;
+const HANDSHAKE_RETRY_MS = 500;
+
+/**
+ * What `connect` resolves to, trying again after each attempt that failed,
+ * or undefined once `waitMs` has passed.
+ */
+export async function withinHandshakeWait<T>(
+  connect: () => Promise<T>,
+  waitMs: number = PLATFORM_MCP_HANDSHAKE_WAIT_MS,
+): Promise<T | undefined> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const left = deadline - Date.now();
+    if (left <= 0) return undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((resolve) => {
+      timer = setTimeout(resolve, left, "late");
+    });
+    const outcome = await Promise.race([
+      connect().then(
+        (value) => ({ value }),
+        () => "failed" as const,
+      ),
+      late,
+    ]);
+    clearTimeout(timer);
+    if (outcome === "late") return undefined;
+    if (outcome !== "failed") return outcome.value;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(HANDSHAKE_RETRY_MS, deadline - Date.now())),
+    );
+  }
+}

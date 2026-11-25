@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { PlatformMcpServer } from "./agent-runtime.ts";
-import { exposedMcpTools, servedMcpTools } from "./platform-mcp.ts";
+import {
+  exposedMcpTools,
+  servedMcpTools,
+  withinHandshakeWait,
+} from "./platform-mcp.ts";
 
 const server = (overrides: Partial<PlatformMcpServer>): PlatformMcpServer => ({
   name: "werft",
@@ -44,5 +48,30 @@ describe("any other server", () => {
     });
     expect(servedMcpTools(github)).toEqual([]);
     expect(exposedMcpTools(github)).toEqual(["mcp__github__request_push"]);
+  });
+});
+
+describe("the wait for a platform server's handshake", () => {
+  test("gives what the server answered, trying again after each attempt that failed", async () => {
+    let attempts = 0;
+    const connect = async () => {
+      attempts += 1;
+      if (attempts < 3) throw new Error("not up yet");
+      return "client";
+    };
+    expect(await withinHandshakeWait(connect, 5_000)).toBe("client");
+    expect(attempts).toBe(3);
+  });
+
+  test("ends with nothing once the wait has passed, whether the server is silent or keeps failing", async () => {
+    const silent = () => new Promise<string>(() => {});
+    expect(await withinHandshakeWait(silent, 50)).toBeUndefined();
+    let attempts = 0;
+    const failing = async (): Promise<string> => {
+      attempts += 1;
+      throw new Error("down");
+    };
+    expect(await withinHandshakeWait(failing, 50)).toBeUndefined();
+    expect(attempts).toBe(1);
   });
 });

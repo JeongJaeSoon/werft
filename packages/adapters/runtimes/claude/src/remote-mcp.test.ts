@@ -45,7 +45,11 @@ describe("remoteMcpRelay for a platform server", () => {
     platform = undefined;
   });
 
-  async function engineOf(options: { platform: boolean; url?: string }) {
+  async function engineOf(options: {
+    platform: boolean;
+    url?: string;
+    handshakeWaitMs?: number;
+  }) {
     platform = startFakePlatformMcp({ bearer: ROUTE });
     const relay = remoteMcpRelay({
       name: "werft",
@@ -53,6 +57,9 @@ describe("remoteMcpRelay for a platform server", () => {
       token: ROUTE,
       tools: ["mcp__werft__probe"],
       ...(options.platform ? { platform: true } : {}),
+      ...(options.handshakeWaitMs === undefined
+        ? {}
+        : { handshakeWaitMs: options.handshakeWaitMs }),
     });
     const [engineSide, relaySide] = InMemoryTransport.createLinkedPair();
     await relay.instance.connect(relaySide);
@@ -103,6 +110,7 @@ describe("remoteMcpRelay for a platform server", () => {
     const engine = await engineOf({
       platform: true,
       url: "http://127.0.0.1:9/mcp",
+      handshakeWaitMs: 200,
     });
     expect(engine.getInstructions()).toBeUndefined();
     expect(engine.getServerCapabilities()).toEqual({ tools: {} });

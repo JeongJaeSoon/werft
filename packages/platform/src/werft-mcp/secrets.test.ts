@@ -41,6 +41,50 @@ describe("maskSecrets", () => {
     expect(maskSecrets(`a\n${begin}\nMIIB`)).toBe(`a\n${MASKED}`);
   });
 
+  test("takes every token the platform mints, by its shape and whatever its prefix", () => {
+    // 32 random bytes in base64url are 43 characters.
+    const minted = `${tail}xY9`;
+    for (const prefix of [
+      "aps",
+      "apr",
+      "apv",
+      "csp",
+      "wec",
+      "wct",
+      "wej",
+      "wet",
+      "wln",
+      "wsc",
+      "zz",
+      "next",
+    ]) {
+      expect(maskSecrets(`a ${prefix}_${minted} b`)).toBe(`a ${MASKED} b`);
+    }
+  });
+
+  test("leaves an id and a long name alone", () => {
+    const kept = [
+      "att_123e4567-e89b-42d3-a456-426614174000",
+      "req_123e4567-e89b-42d3-a456-426614174000",
+      "max_concurrent_sessions_per_workspace_per_agent_limit",
+      "werft_session_no_capacity_failures_total",
+    ].join(" ");
+    expect(maskSecrets(kept)).toBe(kept);
+  });
+
+  test("reads a long input once, whatever it is made of", () => {
+    const long = [
+      `https://${":".repeat(400_000)}`,
+      "ab_a-".repeat(100_000),
+      `Bearer ${" ".repeat(400_000)}`,
+      `-----BEGIN ${"A ".repeat(200_000)}`,
+    ];
+    const started = performance.now();
+    for (const text of long) expect(maskSecrets(text)).toBe(text);
+    // A pattern that backtracks over these takes minutes.
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   test("leaves documentation prose alone, the words token, secret and password included", () => {
     const prose =
       "Set the token in Settings > GitHub. The secret is stored encrypted; password: is never shown. Use `Bearer <token>` and sk-<your key>.";

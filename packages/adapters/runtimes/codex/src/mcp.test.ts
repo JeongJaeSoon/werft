@@ -286,7 +286,10 @@ describe("the relay", () => {
       platform = undefined;
     });
 
-    function bootPlatform(overrides: Partial<PlatformMcpServer> = {}) {
+    function bootPlatform(
+      overrides: Partial<PlatformMcpServer> = {},
+      options: { handshakeWaitMs?: number } = {},
+    ) {
       platform = startFakePlatformMcp({ bearer: ROUTE });
       const server: PlatformMcpServer = {
         name: "werft",
@@ -298,7 +301,7 @@ describe("the relay", () => {
         trusted: ["mcp__werft__probe"],
         ...overrides,
       };
-      const made = startMcpRelay([server], allow);
+      const made = startMcpRelay([server], allow, options);
       relay = made;
       const url = made.urls.get("werft") as string;
       return async (method: string, params: unknown = {}) =>
@@ -366,7 +369,10 @@ describe("the relay", () => {
     });
 
     test("a platform server that does not answer is shown with its tools alone, and the engine still starts", async () => {
-      const rpc = bootPlatform({ url: "http://127.0.0.1:9/mcp" });
+      const rpc = bootPlatform(
+        { url: "http://127.0.0.1:9/mcp" },
+        { handshakeWaitMs: 200 },
+      );
       expect((await rpc("initialize")).result).toEqual({
         protocolVersion: "2025-06-18",
         capabilities: { tools: {} },

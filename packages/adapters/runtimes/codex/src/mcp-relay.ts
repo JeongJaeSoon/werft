@@ -6,6 +6,7 @@ import {
   exposedMcpTools,
   messageOf,
   type PlatformMcpServer,
+  withinHandshakeWait,
 } from "@werft-ai/runtime-core";
 
 const CALL_TIMEOUT_MS = 30 * 60_000;
@@ -13,12 +14,6 @@ const MAX_LIST_PAGES = 50;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 /** The newest revision the relay speaks; a client asking for another gets this one. */
 const PROTOCOL_VERSION = "2025-06-18";
-/**
- * How long the engine's handshake waits for a platform server's own. Past
- * it the engine starts without the server's instructions, resources and
- * prompts; its tools still answer once the server does.
- */
-const HANDSHAKE_WAIT_MS = 5_000;
 
 export type RelayCall = {
   /** The platform's name for the tool: `mcp__<server>__<tool>`. */
@@ -70,6 +65,7 @@ function rpcError(id: unknown, code: number, message: string): Response {
 export function startMcpRelay(
   servers: readonly PlatformMcpServer[],
   policy: RelayPolicy,
+  options: { handshakeWaitMs?: number } = {},
 ): McpRelay {
   const secret = randomBytes(32).toString("hex");
   const expected = Buffer.from(`Bearer ${secret}`);
@@ -107,16 +103,15 @@ export function startMcpRelay(
   };
 
   // What a platform server says of itself, for the engine's handshake. A
-  // server that does not answer in time is shown with its tools alone.
+  // server that has not answered by the end of the wait is shown with its
+  // tools alone.
   async function handshake(server: PlatformMcpServer) {
     const client =
       server.platform === true
-        ? await Promise.race([
-            connected(server).catch(() => undefined),
-            new Promise<undefined>((resolve) => {
-              setTimeout(resolve, HANDSHAKE_WAIT_MS, undefined).unref();
-            }),
-          ])
+        ? await withinHandshakeWait(
+            () => connected(server),
+            options.handshakeWaitMs,
+          )
         : undefined;
     const served = client?.getServerCapabilities();
     const instructions = client?.getInstructions();

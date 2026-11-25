@@ -22,7 +22,7 @@ import {
   startOf,
 } from "./testing/fake-responses.ts";
 
-const ROUTE_BEARER = "route-bearer-for-the-test";
+const BEARER = "platform-mcp-local";
 const TOOL = "mcp__werft__probe";
 
 let available = true;
@@ -36,6 +36,7 @@ describe.skipIf(!available)(
   "a platform MCP server against the pinned codex app-server",
   () => {
     let root: string;
+    let turns = 0;
     beforeAll(async () => {
       root = await mkdtemp(join(tmpdir(), "codex-platform-mcp-"));
     });
@@ -43,8 +44,14 @@ describe.skipIf(!available)(
       await rm(root, { recursive: true, force: true });
     });
 
-    test("the model is given the server's instructions and runs the tool it serves unasked", async () => {
-      const platform = startFakePlatformMcp({ bearer: ROUTE_BEARER });
+    /**
+     * One turn with a platform server that comes up as `server` says: the
+     * run's events, what the model was sent, and the calls its tool got.
+     */
+    async function turn(
+      server: Omit<Parameters<typeof startFakePlatformMcp>[0], "bearer"> = {},
+    ) {
+      const platform = startFakePlatformMcp({ ...server, bearer: BEARER });
       const seen: Seen[] = [];
       const model = fakeResponses(seen, (call) =>
         call === 1
@@ -59,12 +66,13 @@ describe.skipIf(!available)(
             ]
           : [assistantMessage("done")],
       );
-      const work = join(root, "work");
+      turns += 1;
+      const work = join(root, `work-${turns}`);
       await Bun.write(join(work, ".keep"), "");
       const base = startOf({
         port: model.port as number,
         work,
-        egressToken: "egress-token-platform-mcp",
+        egressToken: "egress-local",
       });
       const start = {
         ...base,
@@ -75,7 +83,7 @@ describe.skipIf(!available)(
               name: "werft",
               binding: "binding-1",
               url: platform.url,
-              token: ROUTE_BEARER,
+              token: BEARER,
               // No release pins the server's tool: it is in no allowlist.
               tools: ["exec_command"],
               platform: true,
@@ -85,7 +93,7 @@ describe.skipIf(!available)(
         },
       } as unknown as typeof base;
       const runtime = new CodexAgentRuntime(
-        { stateDir: join(root, "state") } as never,
+        { stateDir: join(root, `state-${turns}`) } as never,
         { ...process.env },
       );
       const run = runtime.start(start);
@@ -105,20 +113,38 @@ describe.skipIf(!available)(
         await model.stop(true);
         await platform.stop();
       }
+      return {
+        events,
+        requests: seen
+          .filter((s) => s.path.endsWith("/responses"))
+          .map((s) => s.body),
+        calls: platform.calls(),
+      };
+    }
 
+    test("the model is given the server's instructions and runs the tool it serves unasked", async () => {
+      const { events, requests, calls } = await turn();
       expect(events.find((e) => e.type === "turn.ended")).toMatchObject({
         turn: { isError: false },
       });
-      const requests = seen
-        .filter((s) => s.path.endsWith("/responses"))
-        .map((s) => s.body);
       // The server's own words, in what the model reads before its first answer.
       expect(requests[0]).toContain(FAKE_PLATFORM_INSTRUCTIONS);
       expect(requests[0]).toContain('"name":"mcp__werft"');
       // The tool ran with no one asked, and its answer went back to the model.
       expect(events.some((e) => e.type === "approval.requested")).toBe(false);
-      expect(platform.calls()).toBe(1);
+      expect(calls).toBe(1);
       expect(requests.at(-1)).toContain("probe:ok");
+    }, 60_000);
+
+    test("a server that refuses once and then answers its handshake late still has its instructions with the model", async () => {
+      // The engine waits for the relay, and the relay for the server.
+      const { requests, calls } = await turn({
+        refuseFirst: 1,
+        handshakeDelayMs: 6_000,
+      });
+      expect(requests[0]).toContain(FAKE_PLATFORM_INSTRUCTIONS);
+      expect(requests[0]).toContain('"name":"mcp__werft"');
+      expect(calls).toBe(1);
     }, 60_000);
   },
 );

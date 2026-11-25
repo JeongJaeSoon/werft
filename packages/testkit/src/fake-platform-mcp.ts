@@ -17,18 +17,38 @@ export type FakePlatformMcp = {
  * An MCP server shaped like the platform's own, stateless streamable HTTP on
  * a loopback port: it says what it is for (`instructions`) and has one tool
  * (`probe`), one resource and one prompt. A missing or wrong bearer is 401.
+ * It can refuse its first requests and answer its handshake late, as a server
+ * that is slow to come up does.
  */
 export function startFakePlatformMcp(options: {
   bearer: string;
   instructions?: string;
+  /** The first requests, this many, are answered 503. */
+  refuseFirst?: number;
+  /** How long an `initialize` waits for its answer. */
+  handshakeDelayMs?: number;
 }): FakePlatformMcp {
   let calls = 0;
+  let refusals = options.refuseFirst ?? 0;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
       if (request.headers.get("authorization") !== `Bearer ${options.bearer}`) {
         return new Response("unauthorized", { status: 401 });
+      }
+      if (refusals > 0) {
+        refusals -= 1;
+        return new Response("unavailable", { status: 503 });
+      }
+      if (options.handshakeDelayMs !== undefined) {
+        const asked = (await request
+          .clone()
+          .json()
+          .catch(() => undefined)) as { method?: unknown } | undefined;
+        if (asked?.method === "initialize") {
+          await Bun.sleep(options.handshakeDelayMs);
+        }
       }
       const mcp = new McpServer(
         { name: "fake-platform", version: "1" },
