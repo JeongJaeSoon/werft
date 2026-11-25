@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import type {
+  BudgetRootKind,
   ConversationCallClass,
   ConversationCallState,
 } from "@werft-ai/contracts";
@@ -19,6 +20,7 @@ import {
   agents,
   channelContexts,
   conversations,
+  users,
   workspaces,
 } from "../schema.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
@@ -54,6 +56,8 @@ describe("conversation call cost on the usage reads", () => {
     cls: ConversationCallClass | null;
     cost?: number;
     by?: string | null;
+    // A person asked by default, nobody without one.
+    root?: BudgetRootKind;
     unknown?: boolean;
   }) {
     const bound = ["in_flight", "settled", "resolved"].includes(c.state);
@@ -67,7 +71,7 @@ describe("conversation call cost on the usage reads", () => {
         tokens, created_at, started_at, ended_at, unknown_at, conversation_id,
         call_class, call_key, attempt)
       VALUES (${randomUUID()}, ${c.workspace ?? ws}, ${c.agent},
-        convert_to(${randomUUID()}, 'UTF8'), ${c.by ? "user" : "none"},
+        convert_to(${randomUUID()}, 'UTF8'), ${c.root ?? (c.by ? "user" : "none")},
         ${c.by ?? null}, 'conn', '/v1/messages', 'model', 100, 1000,
         ${c.state}, ${bound ? randomUUID() : null},
         ${at}::timestamptz + interval '1 minute',
@@ -83,6 +87,10 @@ describe("conversation call cost on the usage reads", () => {
   beforeAll(async () => {
     client = await migratedPGlite();
     db = drizzle(client, { schema }) as unknown as Database;
+    await db.insert(users).values([
+      { id: me, email: `me-${me}@example.test`, displayName: "Me" },
+      { id: other, email: `o-${other}@example.test`, displayName: "Other" },
+    ]);
     for (const [id, agentIds] of [
       [ws, [agentA, agentB, agentD]],
       [elsewhere, [agentC]],
@@ -141,14 +149,16 @@ describe("conversation call cost on the usage reads", () => {
       cost: 0.02,
       by: other,
     });
+    // An allowed Slack bot asked: no person, the agent's side.
     await call({
       agent: agentA,
       at: day1,
       state: "settled",
       cls: "summary",
       cost: 0.003,
+      root: "slack_bot",
     });
-    // From an image before the class was recorded.
+    // From an image before the class was recorded, on the person's key.
     await call({
       agent: agentA,
       at: day1,
@@ -156,6 +166,16 @@ describe("conversation call cost on the usage reads", () => {
       cls: null,
       cost: 0.001,
       by: me,
+      root: "key",
+    });
+    // A key nobody made: a person's side, under no person.
+    await call({
+      agent: agentA,
+      at: day1,
+      state: "settled",
+      cls: "m2",
+      cost: 0.004,
+      root: "key",
     });
     await call({
       agent: agentA,
@@ -238,6 +258,8 @@ describe("conversation call cost on the usage reads", () => {
       turn: micro(record.byClass.turnUsd),
       summary: micro(record.byClass.summaryUsd),
       other: micro(record.byClass.otherUsd),
+      person: micro(record.byRequester.personUsd),
+      agent: micro(record.byRequester.agentUsd),
     };
   }
 
@@ -263,6 +285,8 @@ describe("conversation call cost on the usage reads", () => {
           turn: 0,
           summary: 0,
           other: 0,
+          person: 5_000_000,
+          agent: 0,
         },
       ],
       // In flight with its end unknown, and resolved: no cost, incomplete.
@@ -277,6 +301,8 @@ describe("conversation call cost on the usage reads", () => {
           turn: 0,
           summary: 0,
           other: 0,
+          person: 200_000,
+          agent: 0,
         },
       ],
       // Reserved: incomplete; released: never ran, not a call.
@@ -284,31 +310,35 @@ describe("conversation call cost on the usage reads", () => {
         agentA,
         0,
         {
-          calls: 6,
-          cost: 84_000,
+          calls: 7,
+          cost: 88_000,
           incomplete: 1,
           judgment: 10_000,
-          turn: 70_000,
+          turn: 74_000,
           summary: 3_000,
           other: 1_000,
+          person: 85_000,
+          agent: 3_000,
         },
       ],
     ]);
     expect(compact(record.totals.conversation)).toEqual({
-      calls: 10,
-      cost: 5_284_000,
+      calls: 11,
+      cost: 5_288_000,
       incomplete: 3,
       judgment: 5_210_000,
-      turn: 70_000,
+      turn: 74_000,
       summary: 3_000,
       other: 1_000,
+      person: 5_285_000,
+      agent: 3_000,
     });
     // The sessions' own figures are untouched by the calls.
     expect(record.totals.sessionCount).toBe(0);
     expect(Number(record.totals.costUsd)).toBe(0);
   });
 
-  test("the four classes always add up to the conversation cost", async () => {
+  test("the four classes, and the two requester sides, always add up to the conversation cost", async () => {
     for (const filter of [
       { kind: "installation" },
       { kind: "user", ownerId: ws, userId: me },
@@ -320,6 +350,7 @@ describe("conversation call cost on the usage reads", () => {
         expect(
           figures.judgment + figures.turn + figures.summary + figures.other,
         ).toBe(figures.cost);
+        expect(figures.person + figures.agent).toBe(figures.cost);
       }
     }
   });
@@ -338,6 +369,8 @@ describe("conversation call cost on the usage reads", () => {
           turn: 50_000,
           summary: 0,
           other: 1_000,
+          person: 61_000,
+          agent: 0,
         },
       ],
     ]);
@@ -355,6 +388,8 @@ describe("conversation call cost on the usage reads", () => {
       turn: 0,
       summary: 0,
       other: 0,
+      person: 0,
+      agent: 0,
     });
   });
 
@@ -380,12 +415,69 @@ describe("conversation call cost on the usage reads", () => {
         b.conversationIncompleteCallCount,
       ]),
     ).toEqual([
-      ["2026-10-20", 0, 5_084_000, 3],
+      ["2026-10-20", 0, 5_088_000, 3],
       ["2026-10-21", 0, 200_000, 0],
     ]);
     const breakdown = await read({ kind: "installation" });
     expect(
       series.buckets.reduce((sum, b) => sum + micro(b.conversationCostUsd), 0),
     ).toBe(micro(breakdown.totals.conversation?.costUsd ?? "0"));
+  });
+  test("people split the person side of the same reach: the workspace's, or one agent's", async () => {
+    const reader = createPostgresUsageReader(db);
+    const breakdown = await read({ kind: "installation" });
+    const row = (agent: string) =>
+      breakdown.rows.find((r) => r.key === agent)?.conversation;
+    const whole = await reader.usagePeople({ ownerId: ws }, period);
+    // Largest first; the key nobody made is the null row.
+    expect(
+      whole.people.map((p) => [
+        p.label,
+        p.callCount,
+        micro(p.costUsd),
+        p.incompleteCallCount,
+      ]),
+    ).toEqual([
+      ["Other", 4, 220_000, 2],
+      ["Me", 4, 61_000, 1],
+      [null, 1, 4_000, 0],
+    ]);
+    expect(whole.people[0]?.userId).toBe(other);
+    const sideOf = (agents: string[]) =>
+      agents.reduce(
+        (sum, agent) => sum + micro(row(agent)?.byRequester.personUsd ?? "0"),
+        0,
+      );
+    // agentC is another workspace's: not in this one's people.
+    expect(micro(whole.totals.costUsd)).toBe(sideOf([agentA, agentB]));
+    expect(whole.people.reduce((sum, p) => sum + micro(p.costUsd), 0)).toBe(
+      micro(whole.totals.costUsd),
+    );
+    expect(whole.totals.callCount).toBe(9);
+
+    const onlyB = await reader.usagePeople(
+      { ownerId: ws, agentId: agentB },
+      period,
+    );
+    expect(onlyB.people.map((p) => [p.userId, micro(p.costUsd)])).toEqual([
+      [other, 200_000],
+    ]);
+    expect(micro(onlyB.totals.costUsd)).toBe(sideOf([agentB]));
+  });
+
+  test("a period with no person-started call has empty people and zero totals", async () => {
+    const empty = await createPostgresUsageReader(db).usagePeople(
+      { ownerId: ws },
+      {
+        since: new Date("2026-09-01T00:00:00.000Z"),
+        until: new Date("2026-09-02T00:00:00.000Z"),
+      },
+    );
+    expect(empty.people).toEqual([]);
+    expect(empty.totals).toEqual({
+      callCount: 0,
+      costUsd: "0",
+      incompleteCallCount: 0,
+    });
   });
 });

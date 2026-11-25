@@ -389,14 +389,14 @@ integration("usage series on PostgreSQL", () => {
     });
   });
 
-  test("scope=installation is the signed-in owner's alone", async () => {
+  test("scope=installation is the signed-in owner's and admins' alone", async () => {
     const query = usageSeriesQuerySchema.parse({
       scope: "installation",
       since: "2005-01-01",
       until: "2005-01-02",
     });
+    await service().getUsageSeries(user("admin", "admin"), query);
     for (const [label, caller] of [
-      ["admin", user("admin", "admin")],
       ["member", user("alice", "member")],
       // The role is read again: a token minted as owner does not outlive it.
       ["member claiming owner", user("alice", "owner")],

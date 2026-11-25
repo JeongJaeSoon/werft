@@ -1,10 +1,15 @@
-import { TERMINAL_TURN_STATUS_VALUES } from "@werft-ai/contracts";
+import {
+  INITIATOR_ROOT_KINDS,
+  INITIATOR_VALUES,
+  TERMINAL_TURN_STATUS_VALUES,
+} from "@werft-ai/contracts";
 import {
   IN_FLIGHT_STATUSES,
   type UsageAchievementCountsRecord,
   type UsageAchievementsFilter,
   type UsageAchievementsRecord,
   type UsageConversationCostRecord,
+  type UsagePeopleRecord,
   type UsageReader,
   type UsageSummaryFilter,
   type UsageTotalsFilter,
@@ -133,8 +138,7 @@ function talkedBy(filter: UsageSummaryFilter): SQL {
 // read nowhere (talkInPeriod), so an agent with only those has no row.
 const talkIncomplete = sql`${conversationCalls.state} IN ('reserved', 'in_flight', 'resolved')`;
 
-// Each split of a conversation's cost is one FILTER over the calls; another
-// split (by requester, say) adds its own list beside this one.
+// Each split of a conversation's cost is one FILTER list over the calls.
 const TALK_BY_CLASS = [
   ["judgment_usd", sql`${conversationCalls.callClass} = 'm1'`],
   ["turn_usd", sql`${conversationCalls.callClass} = 'm2'`],
@@ -142,12 +146,26 @@ const TALK_BY_CLASS = [
   ["other_usd", sql`${conversationCalls.callClass} IS NULL`],
 ] as const;
 
+const rootKindIn = (kinds: readonly string[]) =>
+  sql`${conversationCalls.rootKind} IN (${sql.join(
+    kinds.map((kind) => sql`${kind}`),
+    sql`, `,
+  )})`;
+
+// Who started the call's chain, on the split the turn list filters by; every
+// root kind is on one side, so the sides add up to the cost.
+const TALK_BY_REQUESTER = INITIATOR_VALUES.map(
+  (side) => [`${side}_usd`, rootKindIn(INITIATOR_ROOT_KINDS[side])] as const,
+);
+
+const TALK_SPLITS = [...TALK_BY_CLASS, ...TALK_BY_REQUESTER];
+
 const talkFigures = sql.join(
   [
     sql`count(*) AS call_count`,
     sql`coalesce(sum(${conversationCalls.costUsd}), 0) AS cost_usd`,
     sql`count(*) FILTER (WHERE ${talkIncomplete}) AS incomplete`,
-    ...TALK_BY_CLASS.map(
+    ...TALK_SPLITS.map(
       ([name, where]) =>
         sql`coalesce(sum(${conversationCalls.costUsd}) FILTER (WHERE ${where}), 0) AS ${sql.raw(name)}`,
     ),
@@ -170,6 +188,8 @@ type TalkColumns = {
   talk_turn_usd: string;
   talk_summary_usd: string;
   talk_other_usd: string;
+  talk_person_usd: string;
+  talk_agent_usd: string;
 };
 
 const talkSelect = sql.join(
@@ -177,7 +197,7 @@ const talkSelect = sql.join(
     sql`coalesce(talk.call_count, 0)::int AS talk_call_count`,
     sql`coalesce(talk.cost_usd, 0)::text AS talk_cost_usd`,
     sql`coalesce(talk.incomplete, 0)::int AS talk_incomplete`,
-    ...TALK_BY_CLASS.map(
+    ...TALK_SPLITS.map(
       ([name]) =>
         sql`coalesce(talk.${sql.raw(name)}, 0)::text AS ${sql.raw(`talk_${name}`)}`,
     ),
@@ -195,6 +215,10 @@ function talkOf(row: TalkColumns): UsageConversationCostRecord {
       turnUsd: row.talk_turn_usd,
       summaryUsd: row.talk_summary_usd,
       otherUsd: row.talk_other_usd,
+    },
+    byRequester: {
+      personUsd: row.talk_person_usd,
+      agentUsd: row.talk_agent_usd,
     },
   };
 }
@@ -1188,6 +1212,60 @@ export function createPostgresUsageReader(db: Database): UsageReader {
 
     // From the reconciler's projection: calls made since its last pass do
     // not count yet.
+    async usagePeople(reach, period) {
+      const { since, until } = periodBounds(period);
+      // Every place's calls alike, a DM's and a private channel's too: what
+      // is read is who asked and what it cost, never what was said.
+      const rows = rowsOf<{
+        read_at: Date | string;
+        until: Date | string;
+        total: boolean;
+        user_id: string | null;
+        label: string | null;
+        call_count: number;
+        cost_usd: string;
+        incomplete: number;
+      }>(
+        await db.execute(sql`
+          SELECT now() AS read_at, ${until} AS until,
+                 grouping(${conversationCalls.requesterUserId}) = 1 AS total,
+                 ${conversationCalls.requesterUserId}::text AS user_id,
+                 ${users.displayName} AS label,
+                 count(*)::int AS call_count,
+                 coalesce(sum(${conversationCalls.costUsd}), 0)::text AS cost_usd,
+                 (count(*) FILTER (WHERE ${talkIncomplete}))::int AS incomplete
+          FROM ${conversationCalls}
+          LEFT JOIN ${users} ON ${users.id} = ${conversationCalls.requesterUserId}
+          WHERE ${conversationCalls.createdAt} >= ${since}
+            AND ${conversationCalls.createdAt} < ${until}
+            AND ${conversationCalls.state} <> 'released'
+            AND ${conversationCalls.workspaceId} = ${reach.ownerId}
+            AND ${rootKindIn(INITIATOR_ROOT_KINDS.person)}
+            ${reach.agentId === undefined ? sql`` : sql`AND ${conversationCalls.agentId} = ${reach.agentId}`}
+          GROUP BY GROUPING SETS
+            ((${conversationCalls.requesterUserId}, ${users.displayName}), ())
+          ORDER BY total DESC, sum(${conversationCalls.costUsd}) DESC NULLS LAST,
+                   label NULLS LAST, user_id NULLS LAST`),
+      );
+      const [total, ...people] = rows;
+      if (!total?.total) throw new Error("usage people read lost its totals");
+      const figures = (row: (typeof rows)[number]) => ({
+        callCount: row.call_count,
+        costUsd: row.cost_usd,
+        incompleteCallCount: row.incomplete,
+      });
+      return {
+        readAt: new Date(total.read_at),
+        until: new Date(total.until),
+        people: people.map((row) => ({
+          userId: row.user_id,
+          label: row.label,
+          ...figures(row),
+        })),
+        totals: figures(total),
+      } satisfies UsagePeopleRecord;
+    },
+
     async usageTools(filter, tools, limit) {
       const totals = await toolCallTotals(db, filter, {
         since: tools.period.since,

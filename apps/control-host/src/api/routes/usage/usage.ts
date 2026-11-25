@@ -10,6 +10,8 @@ import {
   usageBreakdownResponseSchema,
   usageOutcomesQuerySchema,
   usageOutcomesResponseSchema,
+  usagePeopleQuerySchema,
+  usagePeopleResponseSchema,
   usageSeriesQuerySchema,
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
@@ -78,6 +80,14 @@ export function registerUsageRoutes(router: ApiRouter, service: UsageService) {
       service.getUsageBreakdown(context.get("caller"), query),
     );
     return jsonWithSchema(context, usageBreakdownResponseSchema, breakdown);
+  });
+
+  apiRoute(router, "getUsagePeople", async (context) => {
+    const query = requireQuery(context, usagePeopleQuerySchema);
+    const people = await mapped(() =>
+      service.getUsagePeople(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, usagePeopleResponseSchema, people);
   });
 
   apiRoute(router, "getUsageTools", async (context) => {

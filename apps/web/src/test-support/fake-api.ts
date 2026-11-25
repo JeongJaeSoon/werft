@@ -256,6 +256,8 @@ const ADMIN_PERMISSIONS: AuthMeResponse["permissions"] = [
   "binding.approve",
   "achievement_rule.manage",
   "achievement.review",
+  "usage.installation_read",
+  "usage.people_read",
 ];
 /** What the server's role table gives each role on its workspace. */
 export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
@@ -267,7 +269,6 @@ export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
       "audit_retention.manage",
       "audit_log.read",
       "agent.restore",
-      "usage.installation_read",
       "installation.settings.manage",
     ],
   };

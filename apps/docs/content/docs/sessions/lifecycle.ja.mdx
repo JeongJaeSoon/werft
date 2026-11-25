@@ -239,7 +239,7 @@ curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Be
   | jq '{session_count, cost_usd, cost_complete, token_count, run_seconds}'
 ```
 
-対象は期間内に作成したセッションで、`cost_usd` はそれらの `/usage` の `cost.amount_usd` の合計である。そのうち一つでも `complete: false` なら `cost_complete` も `false` になる。個人キーは作成した人のセッションを合計する。`scope=installation`(すべての owner のセッション)と `GET /v1/limits` はログインした workspace owner だけが読め、ほかのメンバーとすべての API キーは 403 になる。`scope=agent&agent_id=…` は、誰が始めたかにかかわらず、そのエージェントのいずれかの release から始まったセッションを合計する。workspace の owner・admin とそのエージェントの管理者が読め、ほかのメンバーとすべての API キーは 403、別の workspace のエージェントや存在しないエージェントは誰に対しても 404 になる。`group_by` とは併用できない。
+対象は期間内に作成したセッションで、`cost_usd` はそれらの `/usage` の `cost.amount_usd` の合計である。そのうち一つでも `complete: false` なら `cost_complete` も `false` になる。個人キーは作成した人のセッションを合計する。`scope=installation`(すべての owner のセッション)と `GET /v1/limits` はログインした workspace の owner と admin だけが読め、ほかのメンバーとすべての API キーは 403 になる。`scope=agent&agent_id=…` は、誰が始めたかにかかわらず、そのエージェントのいずれかの release から始まったセッションを合計する。workspace の owner・admin とそのエージェントの管理者が読め、ほかのメンバーとすべての API キーは 403、別の workspace のエージェントや存在しないエージェントは誰に対しても 404 になる。`group_by` とは併用できない。
 
 `GET /v1/limits` の `usage.outputs` は、セッションの成果物(`out/` 以下のファイル)が object store で占めるバイト数である(`used_bytes`)。後の checkpoint が前の checkpoint の成果物をそのまま引き継いだ場合は一度だけ数え、大きすぎてアップロードしなかったファイルは数えず、checkpoint の整理がオブジェクトを削除するとその分だけ減る。`updated_at` は値が最後に変わった時刻で、変わったことがなければ null である。この値は `usage.storage`(入力メッセージ)とは別で、`storage_limit_bytes` の適用には含まれない。成果物を記録する前に作られた checkpoint が残っている間は、その成果物は含まれず `complete` が `false` になる。
 
