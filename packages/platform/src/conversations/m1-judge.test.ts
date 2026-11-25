@@ -285,6 +285,59 @@ describe("the summary line in the answer (a1/J8)", () => {
     );
   });
 
+  test("a post left out of the call lends no time to a summary line's source of it", async () => {
+    const read = new Date("2026-11-25T00:00:20Z");
+    const at = (s: number) => new Date(Date.UTC(2026, 10, 25, 0, 0, s));
+    // The oldest post does not fit beside the two newer ones: left out.
+    const old = { ...post("가".repeat(2_000), "1.1"), receivedAt: at(1) };
+    const newer = { ...post("나".repeat(2_000), "1.2"), receivedAt: at(2) };
+    const newest = { ...post("다".repeat(1_000), "1.3"), receivedAt: at(3) };
+    const line: ContextFragment = {
+      kind: "channel_summary_line",
+      scope: scopeKeyOf({
+        kind: "channel",
+        workspaceId: randomUUID(),
+        teamId: "T1",
+        channelId: "C1",
+      }),
+      sources: [
+        {
+          inputId: conversationInputIdSchema.parse(randomUUID()),
+          slack: { teamId: "T1", channelId: "C1", ts: "1.1" },
+        },
+      ],
+      // Made from the post's edited text.
+      sourceAt: [read],
+      lineId: channelSummaryLineIdSchema.parse(randomUUID()),
+      text: "someone posted a long list",
+      writtenByAgentId: randomUUID(),
+      writtenAt: read,
+    };
+    const { judge } = judgeWith(
+      [
+        {
+          outcome: "answered",
+          callId: callId(),
+          value: {
+            decision: "quiet",
+            reason: "human_conversation",
+            summary: "two more long lists were posted",
+          },
+        },
+      ],
+      { fragments: [line] },
+    );
+    const judged = await judge.judge(subjectOf(old, newer, newest));
+    expect(judged.left.map((p) => p.ts)).toEqual(["1.1"]);
+    const byTs = new Map(
+      (judged.summary?.sources ?? []).map((source) => [
+        source.slack?.ts,
+        source.editedAt,
+      ]),
+    );
+    expect(byTs.get("1.1")).toEqual(read);
+  });
+
   test("a failed call or a null line gives none", async () => {
     const none = judgeWith([
       {

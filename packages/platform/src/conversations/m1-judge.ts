@@ -316,9 +316,12 @@ export function createM1Judge(deps: Deps) {
           readAt.set(key, at);
         }
       };
-      for (const post of subject.posts) {
-        for (const source of post.sources) {
-          noteRead(source.slack, post.editedAt ?? null);
+      // Only the posts put in the call: one left out was not read.
+      for (const piece of fitted.current) {
+        const post =
+          piece.inputId === null ? undefined : byInput.get(piece.inputId);
+        for (const source of post?.sources ?? []) {
+          noteRead(source.slack, post?.editedAt ?? null);
         }
       }
       for (const piece of fitted.fragments) {
