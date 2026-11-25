@@ -314,6 +314,8 @@ export async function requesterLeft(
   deps: {
     sessions: SessionAccess;
     channelMembers?: ChannelMemberCheckable | undefined;
+    /** A store failure it rethrows, for authorize() to answer undecided. */
+    storageUnavailable?: ((error: unknown) => boolean) | undefined;
     logger?:
       | {
           warn(
@@ -385,6 +387,7 @@ export async function requesterLeft(
     }
     return answers.every((answer) => answer === "not_member");
   } catch (error) {
+    if (deps.storageUnavailable?.(error)) throw error;
     deps.logger?.warn(unconfirmed.message, {
       ...unconfirmed.fields,
       error_name: error instanceof Error ? error.name : typeof error,
@@ -927,6 +930,7 @@ export function createAuthorizationPolicy(
             })))
         );
       } catch (error) {
+        if (deps.storageUnavailable?.(error)) throw error;
         deps.logger?.warn("Private channel access unconfirmed; hidden", {
           error_name: errorName(error),
         });
@@ -1210,6 +1214,7 @@ export function createAuthorizationPolicy(
           {
             sessions,
             channelMembers: deps.channelMembers,
+            storageUnavailable: deps.storageUnavailable,
             logger: deps.logger,
           },
           {

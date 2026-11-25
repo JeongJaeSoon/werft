@@ -3167,7 +3167,12 @@ export class WorkerHost {
     }
     const checked = { withdrawn: false };
     this.checking.set(request.localId, checked);
-    void this.sessionAllowStands(request, allow, turnId).then((stands) => {
+    void this.sessionAllowStands(
+      request,
+      allow,
+      turnId,
+      () => checked.withdrawn,
+    ).then((stands) => {
       this.checking.delete(request.localId);
       // The run settled the call itself meanwhile: nothing is left to ask.
       if (checked.withdrawn) return;
@@ -3254,56 +3259,81 @@ export class WorkerHost {
       );
   }
 
-  /** Anything but the gateway's yes is a no: the person is asked again. */
+  /**
+   * Anything but the gateway's yes is a no: the person is asked again. A
+   * check the gateway could not decide is asked again within the hold; an
+   * answer that comes after it is not taken.
+   */
   private async sessionAllowStands(
     request: ApprovalRequested,
     allow: SessionAllow,
     turnId: string,
+    withdrawn: () => boolean,
   ): Promise<boolean> {
     const gateway = this.options.gateway;
     if (gateway.sessionAllow === undefined) return false;
     const startedAt = performance.now();
     // Counted too, so a sleep that returns early cannot stretch the hold.
     let slept = 0;
+    const left = () =>
+      SESSION_ALLOW_UNDECIDED_HOLD_MS -
+      Math.max(performance.now() - startedAt, slept);
+    const unconfirmed = (error: unknown) => {
+      this.logger.warn("worker.session_allow.unconfirmed", {
+        request_id: allow.requestId,
+        tool_call_id: request.toolCallId,
+        error: describe(error),
+      });
+      return false;
+    };
     for (let asked = 0; ; asked += 1) {
+      let failure: unknown;
       try {
-        const { allowed } = await gateway.sessionAllow({
+        const asking = gateway.sessionAllow({
           ...this.scope,
           turn_id: turnId,
           grant_request_id: allow.requestId,
           tool_call_id: request.toolCallId,
           input_hash: request.inputHash,
         });
+        const answer =
+          asked === 0 ? await asking : await within(asking, left());
+        if (answer === undefined || (asked > 0 && left() < 0)) {
+          return unconfirmed("no answer within the hold");
+        }
         this.logger.info("worker.session_allow.checked", {
           request_id: allow.requestId,
           tool_call_id: request.toolCallId,
-          allowed,
+          allowed: answer.allowed,
         });
-        return allowed;
+        return answer.allowed;
       } catch (error) {
-        const spent = Math.max(performance.now() - startedAt, slept);
-        const wait = Math.min(
-          SESSION_ALLOW_UNDECIDED_BACKOFF_MS[
-            Math.min(asked, SESSION_ALLOW_UNDECIDED_BACKOFF_MS.length - 1)
-          ] ?? 0,
-          SESSION_ALLOW_UNDECIDED_HOLD_MS - spent,
-        );
-        if (!undecidedAllow(error) || wait <= 0 || this.ownerLost) {
-          this.logger.warn("worker.session_allow.unconfirmed", {
-            request_id: allow.requestId,
-            tool_call_id: request.toolCallId,
-            error: describe(error),
-          });
-          return false;
-        }
-        this.logger.info("worker.session_allow.undecided", {
-          request_id: allow.requestId,
-          tool_call_id: request.toolCallId,
-          retry_in_ms: wait,
-        });
-        await this.sleep(wait);
-        slept += wait;
-        if (this.ownerLost || this.turn?.turnId !== turnId) return false;
+        failure = error;
+      }
+      const wait = Math.min(
+        SESSION_ALLOW_UNDECIDED_BACKOFF_MS[
+          Math.min(asked, SESSION_ALLOW_UNDECIDED_BACKOFF_MS.length - 1)
+        ] ?? 0,
+        left(),
+      );
+      // A wait that would leave no time to ask again is not taken.
+      if (
+        !undecidedAllow(failure) ||
+        left() - wait <= 0 ||
+        this.ownerLost ||
+        withdrawn()
+      ) {
+        return unconfirmed(failure);
+      }
+      this.logger.info("worker.session_allow.undecided", {
+        request_id: allow.requestId,
+        tool_call_id: request.toolCallId,
+        retry_in_ms: wait,
+      });
+      await this.sleep(wait);
+      slept += wait;
+      if (this.ownerLost || withdrawn() || this.turn?.turnId !== turnId) {
+        return unconfirmed(failure);
       }
     }
   }
@@ -3968,6 +3998,26 @@ function unknownOutcome(
   },
 ): Settlement {
   return { ...ended, reason, status: "outcome_unknown", synthetic: true };
+}
+
+/** What `promise` settles to within `ms`; undefined if it takes longer. */
+async function within<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<T | undefined> {
+  // Settled late or not at all, it is no one's to hear.
+  promise.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), Math.max(0, ms));
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** The gateway could not check the allow: asked again, never read as one. */

@@ -1154,15 +1154,49 @@ describe("WorkerHost over a run that implements the contract itself", () => {
 
         await worker.runLoop();
 
-        expect(slept).toEqual([
-          1_000, 2_000, 4_000, 4_000, 4_000, 4_000, 1_000,
-        ]);
-        expect(gateway.sessionAllowChecks).toHaveLength(8);
+        // Asked at 0, 1, 3, 7, 11, 15 and 19 s; a wait to 20 s would leave
+        // no time to ask.
+        expect(slept).toEqual([1_000, 2_000, 4_000, 4_000, 4_000, 4_000]);
+        expect(gateway.sessionAllowChecks).toHaveLength(7);
         expect(gateway.registrations).toHaveLength(1);
         expect(scripted.answers.slice(1)).not.toContainEqual(
           expect.objectContaining({ localId: "local-c2", kind: "selected" }),
         );
       });
+
+      test("an allow that comes after the hold is not taken", async () => {
+        const slept: number[] = [];
+        const scripted = new ScriptedRun();
+        scripted.onSend = (sent) => {
+          call(scripted, sent, "c1");
+          setTimeout(() => call(scripted, sent, "c2", RUN_RULE), 5);
+          setTimeout(() => finish(scripted, sent), 6_500);
+        };
+        const { gateway, worker } = host(
+          scripted,
+          undefined,
+          {},
+          retrySleep(slept),
+        );
+        gateway.grants = [parked()];
+        // Undecided five times; the sixth ask, at 15 s with 5 s of the hold
+        // left (the waits are cut short, the ask's own time is not), says
+        // yes after 5.5 s.
+        gateway.sessionAllowFailure = () => {
+          const asked = gateway.sessionAllowChecks.length;
+          if (asked === 5) gateway.sessionAllowDelayMs = 5_500;
+          return asked <= 5 ? undecided() : undefined;
+        };
+        gateway.enqueue("hello");
+
+        await worker.runLoop();
+
+        expect(gateway.sessionAllowChecks).toHaveLength(6);
+        expect(gateway.registrations).toHaveLength(1);
+        expect(scripted.answers.slice(1)).not.toContainEqual(
+          expect.objectContaining({ localId: "local-c2", kind: "selected" }),
+        );
+      }, 15_000);
 
       test("a refusal is not asked again", async () => {
         const slept: number[] = [];

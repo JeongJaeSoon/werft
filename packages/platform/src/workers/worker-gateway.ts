@@ -233,6 +233,8 @@ export class WorkerGatewayError extends Error {
     readonly retryable = false,
     readonly receiptId?: string,
     readonly reasonCode?: string,
+    // Sent as Retry-After.
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
   }
@@ -3010,6 +3012,9 @@ export function createWorkerGateway(deps: {
               "BACKEND_UNAVAILABLE",
               "The session allow could not be checked: storage is unavailable",
               true,
+              undefined,
+              undefined,
+              error.retry?.afterSeconds,
             );
           }
           throw error;

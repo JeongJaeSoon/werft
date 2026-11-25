@@ -12,6 +12,7 @@ export {
 export {
   agentPrivateError,
   isAgentPrivate,
+  refusedUnlessUndecided,
   requireAllowed,
   requirePermitted,
 } from "./require-permitted.ts";

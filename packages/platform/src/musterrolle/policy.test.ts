@@ -26,6 +26,7 @@ import {
   noAgentAuthority,
   RECORDED_ALLOW_ACTIONS,
   receiptActorOf,
+  requesterLeft,
 } from "./policy.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
 import {
@@ -1270,5 +1271,76 @@ describe("authorize when its store cannot be read", () => {
         }),
       ),
     ).toMatchObject({ outcome: "deny" });
+  });
+});
+
+describe("callers that turned a failed check into less, when the store cannot be read", () => {
+  const undecided = () => new AuthorizationUndecidedError(new Error("down"));
+  const allowDecision: AuthorizationDecision = {
+    outcome: "allow",
+    reason_code: "ok",
+    effective_scopes: [...SESSION_SCOPE_VALUES],
+    policy_version: "m17",
+    decision_id: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2e",
+  };
+
+  test("the pending list passes on an undecided answer check instead of listing nothing answerable", async () => {
+    const pending = createPendingRequestService({
+      authorization: {
+        authorize: async (_request, options) => {
+          if (options?.record === false) throw undecided();
+          return allowDecision;
+        },
+      },
+      store: { listOpen: async () => [] } as never,
+    });
+    const error = await pending
+      .listPendingRequests(testCaller("owner-a"), id)
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(AuthorizationUndecidedError);
+  });
+
+  test("a start hidden from someone outside the agent passes on undecided before it writes", async () => {
+    const actor = callerFor(member, { kind: "web" }, "req-hidden");
+    const error = await services({
+      usageOfRelease: async () => ({
+        agentId: "019a0000-0000-7000-8000-0000000000aa",
+        usage: { allowed: false } as never,
+        inside: false,
+      }),
+      authorize: async () => {
+        throw undecided();
+      },
+    })
+      .sessions.createSession(actor, {
+        idempotencyKey: "k",
+        body: { agent_release_id: "rel-1", message: "hi" },
+      })
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(AuthorizationUndecidedError);
+  });
+
+  test("a requester-left check rethrows a store failure only when told it is one", async () => {
+    const down = new Error("connection terminated");
+    const sessions = {
+      privateChannels: async () => {
+        throw down;
+      },
+      pendingRequesterOf: async () => null,
+    } as never;
+    const channelMembers = { membership: async () => "member" } as never;
+    const input = {
+      workspaceId: WORKSPACE_A,
+      sessionId: SESSION,
+      pendingRequestId: "req-1",
+    };
+    expect(await requesterLeft({ sessions, channelMembers }, input)).toBe(
+      false,
+    );
+    const error = await requesterLeft(
+      { sessions, channelMembers, storageUnavailable: (e) => e === down },
+      input,
+    ).catch((e) => e);
+    expect(error).toBe(down);
   });
 });
