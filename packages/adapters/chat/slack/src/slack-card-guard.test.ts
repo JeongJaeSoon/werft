@@ -291,6 +291,20 @@ describe("a link a cut runs into", () => {
     ).not.toContain("T0OTHER001");
   });
 
+  test("in a nested input key JSON escapes", () => {
+    const asked = {
+      ...permission,
+      input: {
+        nested: { "https://app.slack.com/client?team=T0OTHER001\n": "v" },
+        list: [{ "https://app.slack.com/client?team=T0OTHER001\n": "w" }],
+      },
+    };
+    expect(said(slackPromptMessage(asked, options))).toContain("T0OTHER001");
+    expect(
+      said(slackPromptMessage(asked, { ...options, guard })),
+    ).not.toContain("T0OTHER001");
+  });
+
   test("keeps every input field, whatever the guard takes from its key", () => {
     const card = slackPromptMessage(
       {

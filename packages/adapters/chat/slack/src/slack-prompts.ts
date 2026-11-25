@@ -638,12 +638,16 @@ function guardedStrings(
   if (Array.isArray(value))
     return value.map((item) => guardedStrings(item, guard));
   if (typeof value !== "object" || value === null) return value;
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
+  // Keys too, before JSON escapes them; two the guard makes one keep both.
+  const guarded = new Map<string, unknown>();
+  Object.entries(value).forEach(([key, item], index) => {
+    const kept = guard(key);
+    guarded.set(
+      guarded.has(kept) ? `${kept} (${index + 1})` : kept,
       guardedStrings(item, guard),
-    ]),
-  );
+    );
+  });
+  return Object.fromEntries(guarded);
 }
 
 function guardedQuestions(
