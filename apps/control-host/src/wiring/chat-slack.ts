@@ -40,6 +40,7 @@ export {
   forgettingChannelsOnBindingPut,
   SLACK_API_URL,
   SLACK_INPUT_HOLD_MS,
+  SLACK_REACTION_SCOPE,
   type SlackAppService,
   type SlackAudienceCache,
   type SlackChannelMembers,
