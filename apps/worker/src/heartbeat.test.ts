@@ -1087,6 +1087,32 @@ describe("a beat answered 404", () => {
       expect(at).toEqual([5_000, 10_000, 15_900]);
       await beat.stop();
     }
+    // Just after that other beat went out: not left until its patience ends.
+    {
+      timer = new FakeClock();
+      let refuseFirst: (error: unknown) => void = () => {};
+      const at: number[] = [];
+      const { heartbeat: beat } = direct(() => {
+        at.push(timer.now());
+        if (at.length === 1) {
+          return new Promise<never>((_, reject) => {
+            refuseFirst = reject;
+          });
+        }
+        return at.length === 2
+          ? new Promise<never>(() => {})
+          : Promise.resolve(answer(30_000));
+      });
+      beat.start();
+      await timer.advance(10_100);
+      expect(at).toEqual([5_000, 10_000]);
+      refuseFirst(notFound());
+      await timer.advance(999);
+      expect(at).toEqual([5_000, 10_000]);
+      await timer.advance(1);
+      expect(at).toEqual([5_000, 10_000, 11_100]);
+      await beat.stop();
+    }
     // Waiting out the interval: not left until the interval ends.
     {
       timer = new FakeClock();
@@ -1111,6 +1137,32 @@ describe("a beat answered 404", () => {
       expect(beat.unconfirmed).toBeUndefined();
       await beat.stop();
     }
+  });
+
+  test("a gateway that turns unreachable after a 404 is still asked at the backoff, not in a burst", async () => {
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = heartbeat(async () => {
+      at.push(timer.now());
+      if (at.length === 1) throw notFound();
+      throw new WorkerGatewayRequestError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "down",
+        true,
+      );
+    }, defaults);
+    beat.start();
+    await timer.advance(19_999);
+    expect(at).toEqual([5_000, 6_000, 8_000, 12_000, 16_000]);
+    expect(beat.unconfirmed).toBeDefined();
+    expect(lost).toEqual([]);
+
+    await timer.advance(1);
+    expect(at).toHaveLength(5);
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toContain("beats answered 404 in a row: 1");
+    expect(lost[0]).toContain("BACKEND_UNAVAILABLE");
+    await beat.stop();
   });
 
   test("a stop waits until the lease is confirmed", async () => {

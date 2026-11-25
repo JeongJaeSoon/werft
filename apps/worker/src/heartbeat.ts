@@ -51,9 +51,9 @@ export function nextHeartbeatDelay(
  */
 export const NOT_FOUND_BACKOFF_MS = { first: 1_000, cap: 4_000 } as const;
 
-export function notFoundBackoff(answered: number): number {
+export function notFoundBackoff(refused: number): number {
   return Math.min(
-    NOT_FOUND_BACKOFF_MS.first * 2 ** Math.max(0, answered - 1),
+    NOT_FOUND_BACKOFF_MS.first * 2 ** Math.max(0, refused - 1),
     NOT_FOUND_BACKOFF_MS.cap,
   );
 }
@@ -138,7 +138,9 @@ export class Heartbeat {
   private acceptedSentAt = Number.NEGATIVE_INFINITY;
   /** When the latest beat the gateway answered 404 was sent, on `clock`. */
   private notFoundSentAt = Number.NEGATIVE_INFINITY;
-  /** When the beat after the last 404 is due, on `clock`. */
+  /** Beats refused since ownership went unconfirmed: the backoff's step. */
+  private retries = 0;
+  /** When the next beat is due while ownership is unconfirmed, on `clock`. */
   private retryAt = 0;
   /** Sets the wait under way to what is due now. */
   private rearm: (() => void) | undefined;
@@ -197,7 +199,9 @@ export class Heartbeat {
   }
 
   start(): void {
-    this.running ??= this.loop().finally(() => {
+    if (this.running !== undefined) return;
+    // A loop that threw stays as it ended, for `stop` to report.
+    this.running = this.loop().then(() => {
       this.running = undefined;
       // A 404 that landed as the loop was ending found it still set.
       if (this.going) this.start();
@@ -260,7 +264,10 @@ export class Heartbeat {
       // when the next one is due has already used that wait.
       // After a 404 the next beat waits for its backoff whatever else is
       // still unanswered.
-      if (!this.owed && (!overdue || this.notFound > 0)) {
+      if (
+        !this.owed &&
+        (!overdue || (this.notFound > 0 && this.dueInMs() > 0))
+      ) {
         await this.pause(() => this.dueInMs());
       }
       if (!this.going) return;
@@ -273,7 +280,7 @@ export class Heartbeat {
 
   private nextBeatInMs(): number {
     if (this.notFound > 0) {
-      return Math.min(notFoundBackoff(this.notFound), this.leaseLeftMs);
+      return Math.min(notFoundBackoff(this.retries), this.leaseLeftMs);
     }
     return nextHeartbeatDelay(this.options.intervalMs, this.leaseLeftMs);
   }
@@ -318,18 +325,29 @@ export class Heartbeat {
           if (waiting || !this.stopped) this.refused(error, sentAt);
         },
       );
+    // Only the loop's own beat: one sent for a caller is waited out.
+    const fromLoop = Number.isFinite(patienceMs);
     let cancel: (() => void) | undefined;
     const expired = new Promise<false>((resolve) => {
-      cancel = this.schedule(
-        () => resolve(false),
-        Math.min(patienceMs, this.leaseLeftMs),
-      );
+      const arm = (ms: number) => {
+        cancel = this.schedule(() => resolve(false), ms);
+      };
+      arm(Math.min(patienceMs, this.leaseLeftMs));
+      if (fromLoop) {
+        // A refusal of another beat sets when the next one is due, which
+        // can be before this one's patience runs out.
+        this.rearm = () => {
+          cancel?.();
+          arm(this.dueInMs());
+        };
+      }
     });
     let settled: boolean;
     try {
       settled = await Promise.race([answered.then(() => true), expired]);
     } finally {
       cancel?.();
+      if (fromLoop) this.rearm = undefined;
     }
     waiting = false;
     if (settled || this.lost) return true;
@@ -369,6 +387,7 @@ export class Heartbeat {
       const beats = this.notFound;
       this.lastRefusal = undefined;
       this.notFound = 0;
+      this.retries = 0;
       this.doubt.resolve();
       this.doubt = undefined;
       this.options.onConfirmed?.(beats);
@@ -386,7 +405,8 @@ export class Heartbeat {
       this.lastRefusal = error;
       this.notFound += 1;
       this.notFoundSentAt = Math.max(this.notFoundSentAt, sentAt);
-      this.retryAt = this.clock() + notFoundBackoff(this.notFound);
+      this.retries += 1;
+      this.retryAt = this.clock() + notFoundBackoff(this.retries);
       if (this.doubt === undefined) {
         this.doubt = Promise.withResolvers<void>();
         // Nothing may be waiting on it when the lease is lost.
@@ -411,7 +431,16 @@ export class Heartbeat {
     // A gateway that is merely unreachable is survivable right up to the
     // point where the lease it granted is given up.
     this.lastRefusal = error;
-    if (this.leaseLeftMs <= 0) this.giveUp("the gateway is unreachable");
+    if (this.leaseLeftMs <= 0) {
+      this.giveUp("the gateway is unreachable");
+      return;
+    }
+    if (this.notFound > 0) {
+      // Still unconfirmed: the next beat keeps to the backoff, a step on.
+      this.retries += 1;
+      this.retryAt = this.clock() + notFoundBackoff(this.retries);
+      this.rearm?.();
+    }
   }
 
   /**
