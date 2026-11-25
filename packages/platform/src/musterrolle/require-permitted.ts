@@ -7,7 +7,10 @@ import type {
 import type { ActingOwner } from "../ports/identity-store.ts";
 import { type AuthorizationPolicy, type Caller, scopeOf } from "./policy.ts";
 import type { UnrecordedAllow } from "./ports/decision-log.ts";
-import { SessionServiceError } from "./service-errors.ts";
+import {
+  AuthorizationUndecidedError,
+  SessionServiceError,
+} from "./service-errors.ts";
 
 // No admin contact: whoever may not use a private agent is not told who to ask.
 export function agentPrivateError(): SessionServiceError {
@@ -32,7 +35,8 @@ export function isAgentPrivate(error: unknown): error is SessionServiceError {
 // must resolve their target before authorizing disclosure. Over HTTP the edge has
 // already refused a missing scope, so only a caller without HTTP meets the
 // FORBIDDEN here, with the same message. A decision that cannot be reached
-// is a refusal.
+// is a refusal, unless the store could not be read: that one is passed on
+// as AuthorizationUndecidedError, a 503 to ask again.
 export async function requirePermitted(
   authorization: AuthorizationPolicy,
   caller: Caller,
@@ -54,7 +58,9 @@ export async function requireAllowed(
   justification?: string,
 ): Promise<AuthorizationDecision> {
   const request = requestOf(caller, action, resource, justification);
-  const decision = await authorization.authorize(request).catch(() => null);
+  const decision = await authorization
+    .authorize(request)
+    .catch(refusedUnlessUndecided);
   if (decision?.outcome === "allow") return decision;
   refuse(action, decision);
 }
@@ -73,7 +79,7 @@ export async function requireAllowedUnrecorded(
   const request = requestOf(caller, action, resource);
   const decision = await authorization
     .authorize(request, { record: "deny" })
-    .catch(() => null);
+    .catch(refusedUnlessUndecided);
   if (decision?.outcome === "allow") return { request, decision };
   refuse(action, decision);
 }
@@ -104,6 +110,12 @@ export async function managingWrite(
     workspace,
   );
   return { actor: { principal: caller, workspaceId, userId }, decision };
+}
+
+/** For a .catch on authorize(): null is a refusal; undecided is rethrown. */
+export function refusedUnlessUndecided(error: unknown): null {
+  if (error instanceof AuthorizationUndecidedError) throw error;
+  return null;
 }
 
 function requestOf(
