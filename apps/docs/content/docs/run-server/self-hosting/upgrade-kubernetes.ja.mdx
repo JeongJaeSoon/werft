@@ -100,7 +100,7 @@ deployed_values && next_workers control > control-phase.json \
   && kubectl -n werft rollout status deploy/werft-api --timeout=600s
 ```
 
-中間 upgrade は新 chart の control-host を適用し、worker・egress proxy は現在のものを維持します。migration、**すべての** API の更新、ready を確認してから次に進みます。起動済み worker はイメージ変更だけでは交代せず、次の launch から新イメージを使います。
+中間 upgrade は新 chart の control-host を適用し、worker・egress proxy は現在のものを維持します。維持するのはイメージです。chart は丸ごと適用されるため、egress proxy の設定（allowlist はその Deployment の env です）は新 chart の値になり、proxy Pod もこの upgrade で起動し直します。`config.egress.privateAllowlist` を自分で設定している環境は、先に [worker gateway を 3200 番ポートへ移したリリース](/run-server/self-hosting/upgrade-compose#worker-gateway를-3200-포트로-옮긴-릴리스)を読みます。migration、**すべての** API の更新、ready を確認してから次に進みます。起動済み worker はイメージ変更だけでは交代せず、次の launch から新イメージを使います。
 
 `next_workers control` はデプロイ済みの worker イメージと egress proxy をそのまま書きます。単一イメージの環境には、デプロイ済みの `images.worker`・`images.workerPrevious` と `images.workers: []` を書きます。公開 chart の既定値は対象リリースの二つのイメージの一覧なので、`images.workers: []` がないとこの upgrade が worker イメージまで変えます。対象 chart の `images.worker.runtime` は空なので、デプロイ済みの runtime はそのまま残り、runtime なしでデプロイした環境は runtime なしのままです。一覧の環境にはデプロイ済みの一覧を書きます（[イメージ一覧の環境の upgrade](#이미지-목록-설치의-upgrade)）。コマンドは `&&` でつながっており、chart を取得できない、またはデプロイ済みの値を読めない場合、`helm upgrade` は実行されません。
 

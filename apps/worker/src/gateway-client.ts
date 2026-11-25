@@ -359,8 +359,10 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
       );
     }
     let payload: unknown;
+    let text = "";
     try {
-      payload = await response.json();
+      text = await response.text();
+      payload = JSON.parse(text);
     } catch (error) {
       // A 2xx whose body broke off says the write may have landed, not that
       // it was refused: the caller replays the idempotent key.
@@ -373,7 +375,9 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
         );
       }
     }
-    if (!response.ok) throw failure(path, response.status, payload);
+    if (!response.ok) {
+      throw failure(path, response.status, payload, "POST", text);
+    }
     try {
       return decoder.parse(payload);
     } catch (error) {
@@ -396,15 +400,20 @@ function failure(
   status: number,
   payload: unknown,
   method = "POST",
+  body = "",
 ): WorkerGatewayRequestError {
   const parsed = apiErrorResponseSchema.safeParse(payload);
   if (!parsed.success) {
+    // Not the gateway's answer. A proxy on the way says why in plain text
+    // (`egress denied: destination is not allowlisted`), and this message is
+    // the only place that reason shows.
+    const said = (body.split("\n", 1)[0] ?? "").trim().slice(0, 200);
     // 5xx without a body is still the gateway being unavailable rather than
     // this request being wrong, so it stays retryable.
     return new WorkerGatewayRequestError(
       status,
       null,
-      `${method} ${path} failed with HTTP ${status}`,
+      `${method} ${path} failed with HTTP ${status}${said === "" ? "" : `: ${said}`}`,
       isTransientStatus(status),
     );
   }

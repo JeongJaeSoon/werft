@@ -1,9 +1,10 @@
 # A new control-host against the workers of the releases in the support
 # window: the old release comes up
 # from its own checkout and images, this checkout's migrate runs under it, and
-# then this checkout's control-host replaces every control-host role while the
-# old worker and proxy stay. Completed turns and a resumed checkpoint are the
-# pass (tests/compat/run.sh).
+# then this checkout's control-host replaces every control-host role and the
+# proxy takes this checkout's settings, while the old worker and proxy images
+# stay. Completed turns and a resumed checkpoint are the pass
+# (tests/compat/run.sh).
 #
 #   plan    the old image sets (.github/scripts/worker-compat-plan.sh), and
 #           for a release, the protocol baseline against the newest of them

@@ -96,7 +96,7 @@ deployed_values && next_workers control > control-phase.json \
   && kubectl -n werft rollout status deploy/werft-api --timeout=600s
 ```
 
-중간 upgrade는 새 chart의 control-host를 적용하고 worker·egress proxy는 현재 것을 유지한다. migration과 **모든** API 교체 및 ready를 확인한 뒤 다음 단계로 진행한다. 이미 떠 있는 worker는 이미지 변경만으로 교체되지 않으며 다음 launch부터 새 이미지를 사용한다.
+중간 upgrade는 새 chart의 control-host를 적용하고 worker·egress proxy는 현재 것을 유지한다. 유지하는 것은 이미지다. chart는 통째로 적용되므로 egress proxy의 설정(allowlist는 그 Deployment의 env다)은 새 chart의 값이 되고, proxy Pod도 이 upgrade에서 다시 뜬다. `config.egress.privateAllowlist`를 직접 준 설치는 [worker gateway를 3200 포트로 옮긴 릴리스](/run-server/self-hosting/upgrade-compose#worker-gateway를-3200-포트로-옮긴-릴리스)를 먼저 읽는다. migration과 **모든** API 교체 및 ready를 확인한 뒤 다음 단계로 진행한다. 이미 떠 있는 worker는 이미지 변경만으로 교체되지 않으며 다음 launch부터 새 이미지를 사용한다.
 
 `next_workers control`은 배포된 worker 이미지와 egress proxy를 그대로 적는다. 단일 이미지 설치에는 배포된 `images.worker`·`images.workerPrevious`와 `images.workers: []`를 적는다. 게시 chart의 기본값은 대상 릴리스의 두 이미지 목록이라, `images.workers: []`가 없으면 이 upgrade가 worker 이미지까지 바꾼다. 대상 chart의 `images.worker.runtime`은 비어 있으므로 배포된 runtime이 그대로 남고, runtime 없이 배포한 설치는 runtime 없이 남는다. 목록 설치에는 배포된 목록을 적는다([이미지 목록 설치의 upgrade](#이미지-목록-설치의-upgrade)). 명령은 `&&`로 이어져 있어, chart를 받지 못하거나 배포된 값을 읽지 못하면 `helm upgrade`는 돌지 않는다.
 

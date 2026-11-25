@@ -1931,6 +1931,42 @@ describe("runScheduler", () => {
     });
   });
 
+  test("a launch the egress proxy turned away says so, with the proxy's reason when the worker relayed it", async () => {
+    // What a v0.4.0 worker and a current one print when the proxy's
+    // allowlist does not name the gateway.
+    const tails = [
+      "WorkerGatewayRequestError: POST /bootstrap-claim failed with HTTP 403\n    status: 403,\n      code: null,\n",
+      "WorkerGatewayRequestError: POST /bootstrap-claim failed with HTTP 403: egress denied: destination is not allowlisted\n",
+      "WorkerGatewayRequestError: POST /bootstrap-claim failed with LAUNCH_FAILED: refused\n",
+    ];
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(tails.length);
+    await run();
+    const containers = [...backend.containers.values()];
+    expect(containers).toHaveLength(tails.length);
+    for (const [index, container] of containers.entries()) {
+      container.exited = true;
+      container.failure = {
+        exitCode: 1,
+        logTail: tails[index] ?? "",
+        terminationReason: "Error",
+      };
+    }
+    await run();
+    const errors = records
+      .filter(
+        (r) => r.message === "Launch attempt failed; retrying after a backoff",
+      )
+      .map((r) => (r.fields as { error: string }).error);
+    const doc =
+      "its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. See https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/upgrade-compose/#the-release-that-moves-the-worker-gateway-to-port-3200";
+    expect(errors).toEqual([
+      `resource exited before a worker claimed it (exit code 1, Error): the egress proxy refused the worker's bootstrap-claim (HTTP 403): ${doc}`,
+      `resource exited before a worker claimed it (exit code 1, Error): the egress proxy refused the worker's bootstrap-claim (destination is not allowlisted): ${doc}`,
+      "resource exited before a worker claimed it (exit code 1, Error)",
+    ]);
+  });
+
   test("a worker that exited for a lost lease ends its attempt saying so; any other exit is just gone", async () => {
     const { backend, run, store } = harness();
     store.addUnassigned(2);

@@ -32,7 +32,7 @@ outcome: "互換性とバックアップを確認して新 release を適用し�
 <a id="2-api--proxy--worker-순서" />
 ### 2. API → proxy → worker の順序
 
-protocol または[実行前ゲート](#실행-전-게이트)のフィールドに変更があれば、全イメージを一度に変えません。先に新 source commit を checkout して依存関係をインストールし、対象 release の control_host だけを新イメージに変え、worker・egress_proxy は現在のままにした中間 release ファイルを作ります。同じ settings digest・source_commit 条件を守ります。中間 release で upgrade し、API が ready で全 API インスタンスが新バージョンになったことを確認します。
+protocol または[実行前ゲート](#실행-전-게이트)のフィールドに変更があれば、全イメージを一度に変えません。先に新 source commit を checkout して依存関係をインストールし、対象 release の control_host だけを新イメージに変え、worker・egress_proxy は現在のままにした中間 release ファイルを作ります。中間 release も新 source commit の compose ファイルで適用するため、egress proxy はイメージだけが現在のもので、設定（allowlist など）は新 release の値で作り直されます。同じ settings digest・source_commit 条件を守ります。中間 release で upgrade し、API が ready で全 API インスタンスが新バージョンになったことを確認します。
 
 次に egress proxy と worker を対象 digest に変えた最終 release で upgrade します。これにより API より先に proxy・worker が新フィールドを送ることを防ぎます。test-ops 環境は中間・最終 release 入力をそれぞれ `scripts/test-ops.sh upgrade` で適用します。
 
@@ -596,3 +596,18 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 ```
 
 保存したキーの値は残ります。判定設定に保存した接続 id も残り、戻したビルドでは Luna ルールを判定しません。再度アップグレードした後、接続を作り直して判定設定で選びます。アップグレード前の DB バックアップから復元して戻す場合は、追加の作業はありません。
+
+<a id="worker-gateway를-3200-포트로-옮긴-릴리스" />
+### worker gateway を 3200 番ポートへ移したリリース
+
+このリリースから、api は `/internal`（worker と会話ランタイムが呼ぶ gateway）を公開ポート 3000 ではなく 3200（`INTERNAL_API_PORT`）だけで受けます。scheduler が worker に渡す `WORKER_GATEWAY_URL` と egress proxy の `EGRESS_PRIVATE_ALLOWLIST` が同じアドレスを指しているときだけ、worker は gateway に届きます。migration はありません。
+
+- release の compose ファイル（Kubernetes では chart）を丸ごと適用します。egress proxy の設定は control-host と同時か、それより先に適用します。`scripts/test-ops.sh upgrade` は、scheduler が依存する egress proxy も設定が変わっていれば作り直します。[2. API → proxy → worker の順序](#2-api--proxy--worker-순서)の中間 release でも同じです。proxy はイメージだけが現在のもので、allowlist は新しい値になります。Kubernetes の chart は allowlist を egress proxy Deployment の env に入れるため、同じ `helm upgrade` が proxy Pod を新しい値で起動し直します。
+- デフォルト値を使う環境では作業はありません。`WORKER_GATEWAY_URL` は `http://api:3200`、`EGRESS_PRIVATE_ALLOWLIST` は `api:3200,host.docker.internal:3200` がデフォルトです。
+- 2 つの値を自分で設定している環境は `api:3000` を `api:3200` に変えます。Kubernetes で `config.egress.privateAllowlist` を設定している環境は `<fullname>-api:3000` を `<fullname>-api-internal:3200` に変えます。手で編集した proxy 設定を使う環境も allowlist に `api:3200` を加え、control-host を更新する前に proxy を再起動します。
+- allowlist が古い値のままだと、proxy は worker の gateway 呼び出しを 403（`egress denied: destination is not allowlisted`）で拒否し、worker は claim の前に終了します。セッションは開始しません。このとき次の記録が残ります。
+  - proxy のログ: `Egress denied`（`host`、`port` 3200、`reason`）。
+  - scheduler のログ `Launch attempt failed; retrying after a backoff` の `error`: `resource exited before a worker claimed it (exit code 1): the egress proxy refused the worker's bootstrap-claim (destination is not allowlisted): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL.` この文はこの節のアドレスで終わります。以前のリリースの worker は proxy の言葉を伝えないため、括弧の中は `HTTP 403` になります。
+  - launch 失敗の上限（デフォルト 5 回）に達すると、その入力は `LAUNCH_FAILED` で失敗し、失敗理由に同じ文が残ります。
+- allowlist を直して proxy を再起動すると、backoff の後の次の launch が gateway に届きます。`LAUNCH_FAILED` で終わった入力は送り直します。
+- 更新時に動いていた worker は以前のアドレス（3000）で gateway を呼ぶため、呼び出しが失敗します。セッションが動いていないときに更新します。
