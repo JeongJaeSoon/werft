@@ -316,13 +316,15 @@ export class Heartbeat {
         ...(transcript === undefined ? {} : { transcript }),
       })
       .then(
+        // An answer nobody waits for any more still counts until the loop
+        // is over, which a stop puts off while ownership is unconfirmed.
         (response) => {
-          if (waiting || !this.stopped) {
+          if (waiting || this.going) {
             this.renew(response, sentAt, transcript);
           }
         },
         (error: unknown) => {
-          if (waiting || !this.stopped) this.refused(error, sentAt);
+          if (waiting || this.going) this.refused(error, sentAt);
         },
       );
     // Only the loop's own beat: one sent for a caller is waited out.

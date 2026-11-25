@@ -1165,6 +1165,33 @@ describe("a beat answered 404", () => {
     await beat.stop();
   });
 
+  test("a stop that is settling an unconfirmed lease takes answers that come after their beat's patience", async () => {
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = direct(() => {
+      at.push(timer.now());
+      if (at.length === 1) return Promise.reject(notFound());
+      // Slower than the second the loop waits for it.
+      return timer.sleep(1_500).then(() => answer(30_000));
+    });
+    beat.start();
+    await timer.advance(5_500);
+    let stopped = false;
+    const stopping = beat.stop().then(() => {
+      stopped = true;
+    });
+    await timer.advance(1_400);
+    expect(at).toEqual([5_000, 5_500, 6_500]);
+    expect(beat.unconfirmed).toBeDefined();
+
+    // The answer to the beat sent at 5.5s lands at 7s, after its patience.
+    await timer.advance(100);
+    expect(beat.unconfirmed).toBeUndefined();
+    await timer.advance(1_000);
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(lost).toEqual([]);
+  });
+
   test("a stop waits until the lease is confirmed", async () => {
     const at: number[] = [];
     const { heartbeat: beat, lost } = heartbeat(async () => {
