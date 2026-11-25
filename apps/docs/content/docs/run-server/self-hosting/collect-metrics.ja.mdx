@@ -90,6 +90,19 @@ groups:
         expr: increase(werft_session_no_capacity_failures_total[1h]) > 0
 ```
 
+Slack は 60 分間にイベント配信の失敗が 95% を超えると、アプリのイベント購読を止めます。その前に気づけるよう、Slack イベントへの応答のうち 503・500 の割合にアラートを設定します。このメトリクスは api Pod が出します。`api.metrics.enabled: true` で有効にし、コレクターが api Pod ごとに scrape するよう `api.metrics.podAnnotations` か Service `<fullname>-api-metrics` を指定します。アクセスは `networkPolicy.api.metrics.ingressFrom` でコレクターの namespace に絞ります。次の例は 10 分間 5% を超えると知らせます。
+
+```yaml
+groups:
+  - name: werft-slack-events
+    rules:
+      - alert: WerftSlackEventFailures
+        expr: |
+          sum(rate(werft_slack_event_responses_total{code=~"500|503"}[10m]))
+            / sum(rate(werft_slack_event_responses_total[10m])) > 0.05
+        for: 10m
+```
+
 <a id="확인" />
 ## 確認
 

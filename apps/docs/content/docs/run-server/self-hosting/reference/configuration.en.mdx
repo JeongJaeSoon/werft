@@ -188,6 +188,7 @@ Proxy and API authorizer use these settings. Lists **replace**, rather than exte
 | `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` | Empty | `config.egress.packagesRedirectAllowlist` | Public package redirects/Git LFS, without credentials, disjoint from forward lists |
 | `INTERNAL_API_PORT` | 3200 | No separate key | The API's `/internal` listener port, which workers and the conversation runtime call through the egress proxy. The public port (`PORT`, 3000) has no `/internal` route. Compose does not bind it on the host; the chart opens it only on the ClusterIP Service `<fullname>-api-internal` and its NetworkPolicy admits only egress-proxy |
 | `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | No separate key | API authorizer address |
+| `METRICS_PORT` | API code: no listener when unset. Chart: `api.metrics.port` (9464) when `api.metrics.enabled` | No separate key | The API's `/metrics` and `/healthz` listener port, serving the Slack event response counter (`werft_slack_event_responses_total`). The public and `/internal` ports have no `/metrics`. Compose does not set it |
 | `EGRESS_AUTHORIZER_PORT` | API code unset: no listener; Compose/chart: 3100 | Generated | Set with token or omit both; AUTH_MODE=none rejects startup |
 | `EGRESS_AUTHORIZER_URL` | Proxy code unset; Compose: `http://api:3100`; chart: API authorizer Service | Generated | http/https, paired with token or both omitted; must match API listener port |
 | `EGRESS_AUTHORIZER_TOKEN` | No production default | Same-name Secret key | Shared API/proxy secret, minimum 32 characters. Required with PORT in API and URL in proxy. Generate per installation; do not use local test values |
@@ -281,7 +282,7 @@ With deploy/helm/werft ([installation](/run-server/self-hosting/kubernetes)), ch
 | `SCHEDULER_*` | `scheduler.intervalSec`, etc. | scheduler.passTimeoutSec/SCHEDULER_PASS_TIMEOUT_SEC default 180, must exceed 150 |
 | `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC`, `SLACK_ROLE_INPUT_HOLD_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec`, `slack.inputHoldSec` | Defaults 2, 60, 3, 90, 10, 60, 3600. `SLACK_ROLE_INPUT_HOLD_SEC` is how many seconds a Slack row waiting for a web input's post waits before it closes unsent. slack.enabled: false omits Deployment |
 | `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` (slack) | `api.extraEnv` | Slack reads API's catalog and follows its value; slack.extraEnv overrides |
-| `SLACK_ROLE_CLOSE_LINKS` (slack) | `slack.extraEnv` | Default `false`. When on, a closed session's Slack thread link closes once its last report row is in, and the thread's next mention starts a new session. Leave it off for now |
+| `SLACK_ROLE_CLOSE_LINKS` (slack) | `slack.extraEnv` | Default `true`. A closed session's Slack thread link closes once its last report row is in, and the thread's next mention starts a new session. With `false`, a closed session's thread keeps its link |
 
 Any Deployment accepts extraEnv additions. Secret-sourced DATABASE_URL, EGRESS_AUTHORIZER_TOKEN, AWS keys, and catalog credentials are listed in [installation prerequisites](/run-server/self-hosting/kubernetes).
 
