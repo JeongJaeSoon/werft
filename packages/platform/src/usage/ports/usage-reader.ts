@@ -230,6 +230,32 @@ export type UsageConversationCostRecord = {
     summaryUsd: string;
     otherUsd: string;
   };
+  /** By who started the call's chain (INITIATOR_ROOT_KINDS). */
+  byRequester: {
+    personUsd: string;
+    agentUsd: string;
+  };
+};
+
+/** One requester's person-started calls; figures as above. */
+export type UsagePersonRecord = {
+  /** Null for a key no person made. */
+  userId: string | null;
+  label: string | null;
+  callCount: number;
+  costUsd: string;
+  incompleteCallCount: number;
+};
+
+/**
+ * The person-started conversation calls of one workspace, or of one of its
+ * agents, created in [since, until), largest cost first.
+ */
+export type UsagePeopleRecord = {
+  until: Date;
+  readAt: Date;
+  people: UsagePersonRecord[];
+  totals: Omit<UsagePersonRecord, "userId" | "label">;
 };
 
 export type UsageBreakdownFiguresRecord = {
@@ -339,6 +365,10 @@ export interface UsageReader {
     period: { since: Date; until?: Date },
     by: "model" | "agent",
   ): Promise<UsageBreakdownRecord>;
+  usagePeople(
+    reach: { ownerId: string; agentId?: string },
+    period: { since: Date; until?: Date },
+  ): Promise<UsagePeopleRecord>;
   /** The most-called tools first, at most `limit` of them. */
   usageTools(
     filter: UsageSummaryFilter,

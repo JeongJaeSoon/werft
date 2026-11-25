@@ -297,6 +297,16 @@ exports[`query keys 1`] = `
     null,
     "model",
   ],
+  "usagePeople": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "usage-people",
+    "2026-07-26",
+    null,
+    "id-1",
+  ],
   "usageSeries": [
     {
       "actor": "user:u-1",
@@ -1110,6 +1120,33 @@ exports[`query options and the request each query makes 1`] = `
         undefined,
         null,
         undefined,
+      ],
+      "retry": false,
+    },
+  },
+  "usagePeopleQuery": {
+    "calls": [
+      [
+        "/v1/usage/people",
+        {
+          "params": {
+            "query": {
+              "since": "id-1",
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "usage-people",
+        "id-1",
+        null,
+        null,
       ],
       "retry": false,
     },

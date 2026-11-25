@@ -11,7 +11,7 @@ import {
   Meter,
   Text,
 } from "@werft-ai/ui";
-import type { JSX } from "react";
+import type { JSX, ReactElement, ReactNode } from "react";
 
 import type { UsageCostTableMessages } from "./messages.ts";
 import { Box, Value } from "./placeholders.tsx";
@@ -51,6 +51,13 @@ export interface UsageCostTableProps {
    * calls beside its sessions' cost, split under it by class.
    */
   readonly conversation?: boolean | undefined;
+  /**
+   * Links a row's judgment line to the agent's M1 judgment records; without
+   * it the line is plain text.
+   */
+  readonly judgmentLink?:
+    | ((agentId: string, children: ReactNode) => ReactElement)
+    | undefined;
   /** How many rows hold their place while the rows are read. */
   readonly placeholderRows?: number | undefined;
   readonly messages?: Partial<UsageCostTableMessages> | undefined;
@@ -85,6 +92,7 @@ export function UsageCostTable({
   rows,
   tokens = true,
   conversation = false,
+  judgmentLink,
   placeholderRows = 3,
   messages: override,
 }: UsageCostTableProps): JSX.Element {
@@ -207,17 +215,47 @@ export function UsageCostTable({
                   </Value>
                   {row?.conversation && row.conversation.call_count > 0
                     ? classLines(row.conversation, messages).map(
-                        ([label, usd]) => (
-                          <Text
-                            key={label}
-                            as="span"
-                            variant="meta"
-                            title={`${label} ${format.usd(usd)}`}
-                          >
-                            {label} {format.usd(usd)}
-                          </Text>
-                        ),
+                        ([label, usd]) => {
+                          const text = `${label} ${format.usd(usd)}`;
+                          return (
+                            <Text
+                              key={label}
+                              as="span"
+                              variant="meta"
+                              title={text}
+                            >
+                              {label === messages.judgment &&
+                              judgmentLink &&
+                              row.key !== null
+                                ? judgmentLink(row.key, text)
+                                : text}
+                            </Text>
+                          );
+                        },
                       )
+                    : null}
+                  {row?.conversation && row.conversation.call_count > 0
+                    ? (
+                        [
+                          [
+                            messages.person,
+                            row.conversation.by_requester.person_usd,
+                          ],
+                          [
+                            messages.agent,
+                            row.conversation.by_requester.agent_usd,
+                          ],
+                        ] as const
+                      ).map(([label, usd]) => (
+                        <Text
+                          key={label}
+                          as="span"
+                          variant="meta"
+                          title={`${label} ${format.usd(usd)}`}
+                        >
+                          {label} {format.usd(usd)}
+                        </Text>
+                      ))
                     : null}
                 </GridTableCell>
               ) : null}

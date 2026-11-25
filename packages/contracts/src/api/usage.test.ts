@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   usageBreakdownQuerySchema,
   usageBreakdownResponseSchema,
+  usageConversationCostSchema,
+  usagePeopleQuerySchema,
+  usagePeopleResponseSchema,
   usageSeriesQuerySchema,
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
@@ -47,6 +50,7 @@ describe("usageBreakdownResponseSchema", () => {
         summary_usd: "0.003000",
         other_usd: "0.001000",
       },
+      by_requester: { person_usd: "0.051000", agent_usd: "0.013000" },
     };
     const parsed = usageBreakdownResponseSchema.parse({
       rows: [{ key: "agt_review", label: "리뷰 봇", ...figures, conversation }],
@@ -68,6 +72,23 @@ describe("usageBreakdownResponseSchema", () => {
     ).toBe(false);
   });
 
+  test("refuses a requester side the contract does not name", () => {
+    expect(
+      usageConversationCostSchema.safeParse({
+        call_count: 0,
+        cost_usd: "0",
+        cost_complete: true,
+        by_class: {
+          judgment_usd: "0",
+          turn_usd: "0",
+          summary_usd: "0",
+          other_usd: "0",
+        },
+        by_requester: { person_usd: "0", agent_usd: "0", team_usd: "0" },
+      }).success,
+    ).toBe(false);
+  });
+
   test("asks for by=model or by=agent", () => {
     const ok = (by?: string) =>
       usageBreakdownQuerySchema.safeParse({
@@ -81,6 +102,54 @@ describe("usageBreakdownResponseSchema", () => {
       false,
       false,
     ]);
+  });
+});
+
+describe("usagePeopleResponseSchema", () => {
+  const row = {
+    user_id: "4c1d8a0e-6d55-4a8e-9d43-7a3c3f0f2a11",
+    label: "Alice",
+    call_count: 2,
+    cost_usd: "0.050000",
+    cost_complete: true,
+  };
+  const body = {
+    period: {
+      since: "2026-10-01T00:00:00.000Z",
+      until: "2026-10-08T00:00:00.000Z",
+    },
+    refreshed_at: "2026-10-08T00:00:00.000Z",
+    agent_id: null,
+    people: [row, { ...row, user_id: null, label: null }],
+    totals: { call_count: 4, cost_usd: "0.100000", cost_complete: true },
+  };
+
+  test("lists each person, and a key no person made as null", () => {
+    expect(usagePeopleResponseSchema.parse(body).people[1]).toMatchObject({
+      user_id: null,
+      label: null,
+    });
+  });
+
+  // Metadata only: a field carrying what anyone wrote is refused.
+  test("refuses a text field on a row", () => {
+    expect(
+      usagePeopleResponseSchema.safeParse({
+        ...body,
+        people: [{ ...row, text: "hi" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  test("takes an optional agent_id and no scope", () => {
+    const ok = (query: Record<string, string>) =>
+      usagePeopleQuerySchema.safeParse({ since: "2026-10-01", ...query })
+        .success;
+    expect([
+      ok({}),
+      ok({ agent_id: row.user_id }),
+      ok({ agent_id: "x" }),
+    ]).toEqual([true, true, false]);
   });
 });
 
