@@ -37,6 +37,7 @@ import {
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
+  SURFACE_REACTION_MAX_ATTEMPTS,
 } from "@werft-ai/platform";
 import {
   and,
@@ -1780,12 +1781,30 @@ export function createPostgresSlackOutboxStore(
 
     async expireSending() {
       return db.transaction(async (tx) => {
+        const expired = and(
+          eq(t.status, "sending"),
+          sql`${t.leaseExpiresAt} <= now()`,
+        );
+        // A reaction Slack may hold is asked for again, not left uncertain.
+        await tx
+          .update(t)
+          .set({
+            status: "pending",
+            errorCode: "lease_expired",
+            nextAttemptAt: sql`now()`,
+            ...released,
+          })
+          .where(
+            and(
+              expired,
+              eq(t.kind, "reaction"),
+              sql`${t.attempts} < ${SURFACE_REACTION_MAX_ATTEMPTS}`,
+            ),
+          );
         const lost = await tx
           .update(t)
           .set({ status: "uncertain", errorCode: "lease_expired", ...released })
-          .where(
-            and(eq(t.status, "sending"), sql`${t.leaseExpiresAt} <= now()`),
-          )
+          .where(expired)
           .returning({ id: t.id, ...entry });
         await markMirrorUnconfirmed(
           tx,

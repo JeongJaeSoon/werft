@@ -97,6 +97,21 @@ describe("a reaction row", () => {
     );
   });
 
+  test("a 429 waits its Retry-After, whether or not a body came with it", async () => {
+    for (const body of [null, { ok: false, error: "ratelimited" }]) {
+      const limited = deliveryAnswering(async () => ({
+        httpStatus: 429,
+        retryAfterHeader: "120",
+        body,
+      }));
+      expect(await limited.deliver(1)).toEqual({
+        kind: "retry",
+        code: "ratelimited",
+        retryAfterMs: 120_000,
+      });
+    }
+  });
+
   test("one key per Slack team, channel and message", () => {
     expect(
       slackReactionDedupeKey({

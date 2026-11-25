@@ -86,6 +86,7 @@ import {
   type PushSource,
   SecretKey,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
+  SURFACE_REACTION_MAX_ATTEMPTS,
 } from "@werft-ai/platform";
 import {
   slackEventEnvelope,
@@ -6081,6 +6082,54 @@ describe.each(ENGINES)("a reaction on %s", (engine) => {
       { status: "sent", errorCode: null, slackTs: THREAD, attempts: 1 },
     ]);
     expect(slack.reactions).toHaveLength(1);
+  });
+
+  test("a send that outlived its lease is asked again, not left uncertain, and puts one 👀", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await react();
+    const outbox = createPostgresSlackOutboxStore(db);
+    const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (claim?.kind !== "reaction") throw new Error("no reaction claimed");
+    expect(await outbox.beginSend(claim)).not.toBe(false);
+    // The pass died mid-send; Slack may hold the reaction.
+    slack.reactions.push({
+      appId: APP_ID,
+      channelId: CHANNEL,
+      ts: THREAD,
+      name: "eyes",
+    });
+    await db
+      .update(slackOutbox)
+      .set({ leaseExpiresAt: sql`now() - interval '1 second'` });
+
+    expect(await outboxPass()).toMatchObject({ uncertain: 0, sent: 1 });
+    expect(await reactionRows()).toEqual([
+      { status: "sent", errorCode: null, slackTs: THREAD, attempts: 2 },
+    ]);
+    expect(slack.reactions).toHaveLength(1);
+  });
+
+  test("a reaction whose lease ran out on its last send is uncertain", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await react();
+    await db
+      .update(slackOutbox)
+      .set({
+        status: "sending",
+        claimToken: randomUUID(),
+        leaseExpiresAt: sql`now() - interval '1 second'`,
+        attempts: SURFACE_REACTION_MAX_ATTEMPTS,
+      })
+      .where(eq(slackOutbox.kind, "reaction"));
+    expect(await outboxPass()).toMatchObject({ uncertain: 1, claimed: 0 });
+    expect(await reactionRows()).toEqual([
+      {
+        status: "uncertain",
+        errorCode: "lease_expired",
+        slackTs: null,
+        attempts: SURFACE_REACTION_MAX_ATTEMPTS,
+      },
+    ]);
   });
 
   test("missing_scope ends the row at once, and it is never asked again", async () => {

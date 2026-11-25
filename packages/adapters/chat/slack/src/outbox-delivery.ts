@@ -330,8 +330,15 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       return again(error instanceof SlackApiError ? error.code : "send_threw");
     }
     const body = response.body as { ok?: unknown; error?: unknown } | null;
-    if (body === null) return again(`http_${response.httpStatus}`);
-    if (body.ok === true || body.error === "already_reacted") {
+    // A 2xx or 5xx with no readable answer; a 429's Retry-After is the
+    // classifier's to honour.
+    if (
+      body === null &&
+      (response.httpStatus < 300 || response.httpStatus >= 500)
+    ) {
+      return again(`http_${response.httpStatus}`);
+    }
+    if (body?.ok === true || body?.error === "already_reacted") {
       return { kind: "sent", ref: claim.threadTs };
     }
     return outcomeOf(slackOutboxSettleFor(attempts, response));
