@@ -42,6 +42,7 @@ import {
   createPostgresInstallationSettingsStore,
   createPostgresInviteStore,
   createPostgresJudgmentEgress,
+  createPostgresJudgmentReviewStore,
   createPostgresLinkedAccountStore,
   createPostgresLoginMethodStore,
   createPostgresLoginProviderAdminStore,
@@ -140,6 +141,7 @@ import {
   createGitHubWorkService,
   createInterruptService,
   createInviteService,
+  createJudgmentReviewService,
   createLinkedAccountService,
   createMemberService,
   createModelMoveRunner,
@@ -357,6 +359,7 @@ import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/surface/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
 import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
+import { registerSlackJudgmentRoutes } from "./routes/surface/slack-judgments.ts";
 import { registerSlackNoticeRoutes } from "./routes/surface/slack-notice.ts";
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { registerSlackSettingsRoutes } from "./routes/surface/slack-settings.ts";
@@ -804,6 +807,11 @@ const slackBindings = createSurfaceBindingService({
   channels: slackChannelKinds,
   join: slackJoin,
   welcome: slackWelcome,
+});
+const slackJudgments = createJudgmentReviewService({
+  authorization,
+  store: createPostgresJudgmentReviewStore(db),
+  members: slackChannelMembers,
 });
 const linkedAccounts = createLinkedAccountService({
   authorization,
@@ -1752,6 +1760,7 @@ const app = createApiApp({
       service: forgettingChannelsOnBindingPut(slackBindings, slackChannels),
       logger,
     });
+    registerSlackJudgmentRoutes(router, slackJudgments);
     registerSlackChannelRoutes(router, { service: slackChannels, logger });
     registerSlackAppRoutes(router, {
       apps: slackApps,

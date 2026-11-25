@@ -253,11 +253,13 @@ export function SlackChannels({
           t(
             change.kind === "home"
               ? "slack.homeSaved"
-              : change.kind !== "listen"
-                ? "slack.saved"
-                : (result.dropped_buffered ?? 0) > 0
-                  ? "slack.listenSavedDropped"
-                  : "slack.listenSaved",
+              : change.kind === "cap"
+                ? "slack.capSaved"
+                : change.kind !== "listen"
+                  ? "slack.saved"
+                  : (result.dropped_buffered ?? 0) > 0
+                    ? "slack.listenSavedDropped"
+                    : "slack.listenSaved",
           ),
         );
       setPicking(false);
@@ -357,6 +359,23 @@ export function SlackChannels({
       },
     });
   };
+  /** False when nothing was sent: the input goes back to the saved value. */
+  const changeCap = (row: Binding, name: string, cap: number) => {
+    if (update.isPending || locked || cap === row.m1_judgments_per_hour)
+      return false;
+    update.mutate({
+      kind: "cap",
+      row: { id: row.id, name },
+      body: {
+        channel_id: row.external_surface_id,
+        mode: row.mode,
+        m1_judgments_per_hour: cap,
+        home: row.home,
+        ceiling: row.ceiling,
+      },
+    });
+    return true;
+  };
   const actions =
     // Until the bindings load, it is not known which step this is.
     bindings.isPending || !manages || locked ? null : (
@@ -443,17 +462,23 @@ export function SlackChannels({
             {update.error ? (
               <div>
                 <FieldError id={refusalId}>
-                  {refusedRow
-                    ? t(
-                        reasonCodeOf(update.error) === "external_shared_channel"
-                          ? "slack.listenExternalShared"
-                          : "slack.listenFailed",
-                        {
-                          channel: refusedRow.name,
-                          reason: slackFailure(update.error, t),
-                        },
-                      )
-                    : slackFailure(update.error, t)}
+                  {refusedRow && update.variables?.kind === "cap"
+                    ? t("slack.capFailed", {
+                        channel: refusedRow.name,
+                        reason: slackFailure(update.error, t),
+                      })
+                    : refusedRow
+                      ? t(
+                          reasonCodeOf(update.error) ===
+                            "external_shared_channel"
+                            ? "slack.listenExternalShared"
+                            : "slack.listenFailed",
+                          {
+                            channel: refusedRow.name,
+                            reason: slackFailure(update.error, t),
+                          },
+                        )
+                      : slackFailure(update.error, t)}
                 </FieldError>
               </div>
             ) : null}
@@ -474,7 +499,7 @@ export function SlackChannels({
               <GridTable
                 aria-label={t("slack.connectedChannels")}
                 columns={COLUMNS}
-                align={["start", "start", "end"]}
+                align={["start", "start", "end", "end"]}
                 framed
               >
                 <GridTableHeader>
@@ -483,6 +508,9 @@ export function SlackChannels({
                   </GridTableColumnHeader>
                   <GridTableColumnHeader>
                     {t("slack.listenColumn")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.capColumn")}
                   </GridTableColumnHeader>
                   <GridTableColumnHeader>
                     {t("slack.useColumn")}
@@ -596,6 +624,34 @@ export function SlackChannels({
                         ) : (
                           <Text as="span" variant="sub">
                             {t(LISTEN_LABEL[row.listen])}
+                          </Text>
+                        )}
+                      </GridTableCell>
+                      <GridTableCell>
+                        {manages &&
+                        row.status !== "left" &&
+                        row.status !== "gone" ? (
+                          <CapInput
+                            key={`${row.id}:${row.m1_judgments_per_hour}`}
+                            value={row.m1_judgments_per_hour}
+                            label={t("slack.capOf", { channel: name })}
+                            busy={update.isPending}
+                            refused={
+                              refusedRow?.id === row.id &&
+                              update.variables?.kind === "cap"
+                            }
+                            describedBy={
+                              refusedRow?.id === row.id ? refusalId : undefined
+                            }
+                            onSave={(cap) => changeCap(row, name, cap)}
+                          />
+                        ) : (
+                          <Text
+                            as="span"
+                            variant="sub"
+                            className="tabular-nums"
+                          >
+                            {row.m1_judgments_per_hour}
                           </Text>
                         )}
                       </GridTableCell>
@@ -784,7 +840,69 @@ export function SlackChannels({
 // The channel, its state and what to do about it; what it listens to; then
 // the in-use switch and any approve button beside it, as wide as the widest
 // row's.
-const COLUMNS = "minmax(0,1fr) max-content max-content";
+const COLUMNS = "minmax(0,1fr) max-content max-content max-content";
+const CAP_MAX = 60;
+
+/**
+ * M1's judgments per hour in one channel, 1 to 60: saved when it leaves the
+ * field or on Enter, and only a whole number in range.
+ */
+function CapInput({
+  value,
+  label,
+  busy,
+  refused,
+  describedBy,
+  onSave,
+}: {
+  readonly value: number;
+  readonly label: string;
+  readonly busy: boolean;
+  readonly refused: boolean;
+  readonly describedBy: string | undefined;
+  readonly onSave: (cap: number) => boolean;
+}) {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState(String(value));
+  const hintId = useId();
+  const parsed = Number(draft);
+  const valid = /^\d+$/.test(draft) && parsed >= 1 && parsed <= CAP_MAX;
+  const save = () => {
+    // Another save holds the row's request: a value kept here would look saved.
+    if (valid && !onSave(parsed)) setDraft(String(value));
+  };
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={CAP_MAX}
+        step={1}
+        value={draft}
+        aria-label={label}
+        aria-invalid={!valid || refused}
+        aria-disabled={busy}
+        aria-describedby={
+          [valid ? undefined : hintId, describedBy].filter(Boolean).join(" ") ||
+          undefined
+        }
+        className="h-8 w-20 text-end tabular-nums"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") save();
+          if (event.key === "Escape") setDraft(String(value));
+        }}
+      />
+      {valid ? null : (
+        <Text as="span" variant="sub" id={hintId}>
+          {t("slack.capRange", { max: CAP_MAX })}
+        </Text>
+      )}
+    </span>
+  );
+}
 const BINDING_LISTEN = Object.keys(LISTEN_LABEL) as Binding["listen"][];
 
 /** The `/invite` line, for any channel the bot should join. */
