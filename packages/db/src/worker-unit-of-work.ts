@@ -2623,6 +2623,11 @@ export function createPostgresWorkerUnitOfWork(
         attemptFence(attempt),
         row.leaseHeld,
       );
+      if (rejected?.outcome === "lease_expired") {
+        // A renewal may hold the row with its commit still to come; under
+        // the lock the clock is read after it lands, as it always was.
+        return authorizeEgressLocked(db, input);
+      }
       if (rejected) return rejected;
       // The first accepted call closes the claim replay, a write: that one
       // takes the row lock and judges again under it.

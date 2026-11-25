@@ -864,17 +864,6 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("the first egress call waits for the session row and judges the fence it finds there", async () => {
     const work = createPostgresWorkerUnitOfWork(db);
-    // Until a backend in this test's database waits on a lock.
-    const lockWaitSeen = async () => {
-      for (let tries = 0; tries < 250; tries += 1) {
-        const { rows } = await pool.query(
-          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-        );
-        if (rows[0].n > 0) return true;
-        await sleep(20);
-      }
-      return false;
-    };
     const stateOf = async (attemptId: string) =>
       (
         await db
@@ -926,6 +915,70 @@ integration("worker gateway on PostgreSQL", () => {
       expect(await pending).toBe(expected);
       expect(await stateOf(claimed.attempt_id)).toBe(state);
     }
+  });
+
+  // Until a backend in this test's database waits on a lock.
+  async function lockWaitSeen() {
+    for (let tries = 0; tries < 250; tries += 1) {
+      const { rows } = await pool.query(
+        "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+      );
+      if (rows[0].n > 0) return true;
+      await sleep(20);
+    }
+    return false;
+  }
+
+  test("a lease that looks expired is judged again under the row lock: a renewal committing late passes, a lease that ran out does not", async () => {
+    const session = await queuedSession(partitionFor("egress-renew"));
+    const claimed = await claim(await launch(session.session_id));
+    const work = createPostgresWorkerUnitOfWork(db);
+    const tokenHash = hashWorkerToken(
+      claimed.runtime_config.provider.auth.token,
+    );
+    const check = () =>
+      work
+        .authorizeEgressAtomic({ tokenHash, purpose: "provider" })
+        .then((result) => result.outcome);
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    expect(await check()).toBe("ok");
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '300 milliseconds' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    // What a heartbeat does: the session row, then the renewed lease, with
+    // its commit landing after the old lease ran out.
+    const blocker = await pool.connect();
+    let pending: Promise<string>;
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE", [
+        session.session_id,
+      ]);
+      await blocker.query(
+        "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+        [claimed.attempt_id],
+      );
+      await sleep(500);
+      pending = check();
+      expect(await lockWaitSeen()).toBe(true);
+      await blocker.query("COMMIT");
+    } catch (error) {
+      await blocker.query("ROLLBACK");
+      throw error;
+    } finally {
+      blocker.release();
+    }
+    expect(await pending).toBe("ok");
+    // Judged again, a lease that did run out stays refused.
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    expect(await check()).toBe("lease_expired");
   });
 
   test("an egress check that cannot reach the database fails as a connection failure, never a grant", async () => {
