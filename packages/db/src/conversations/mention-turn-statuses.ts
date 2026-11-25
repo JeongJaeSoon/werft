@@ -27,9 +27,29 @@ const sameThread = (thread: MentionThreadDue) => sql`
   AND channel_id = ${thread.thread.channelId}
   AND thread_ts = ${thread.thread.threadTs}`;
 
-// Left again: the latest leave's send reads the turns afresh.
+// Left again: a send under way finds its rev gone by and leaves the thread
+// to the next pass, which reads the turns afresh. Its claim holds, so no
+// other pass sends beside it.
 const LEFT_AGAIN = sql`ON CONFLICT (agent_id, team_id, channel_id, thread_ts)
-  DO UPDATE SET rev = mention_thread_statuses.rev + 1, claimed_at = NULL`;
+  DO UPDATE SET rev = mention_thread_statuses.rev + 1`;
+
+// A mention turn of the thread `s` that a pass may be setting back: its
+// `active` can reach Slack after whatever this thread's send says.
+const threadResetHeld = (s: SQL, claimMs?: number) => sql`EXISTS (
+  SELECT 1 FROM conversation_turns t
+  JOIN conversation_topics tp ON tp.id = t.topic_id
+  WHERE t.agent_id = ${s}.agent_id AND t.origin = 'm2'
+    AND t.slack_installation_id IS NOT NULL
+    AND t.slack_status_reset_at IS NULL
+    AND t.slack_status_claimed_at IS NOT NULL
+    ${
+      claimMs === undefined
+        ? sql``
+        : sql`AND t.slack_status_claimed_at >= now() - ${claimMs} * interval '1 millisecond'`
+    }
+    AND tp.slack_team_id = ${s}.team_id
+    AND tp.slack_channel_id = ${s}.channel_id
+    AND tp.slack_thread_ts = ${s}.thread_ts)`;
 
 /**
  * Leaves each thread of the conversation's mention turns still due to be
@@ -185,9 +205,10 @@ export function createPostgresMentionTurnStatuses(
         await db.execute(sql`
           UPDATE mention_thread_statuses s SET claimed_at = now()
           FROM (SELECT agent_id, team_id, channel_id, thread_ts
-            FROM mention_thread_statuses
-            WHERE claimed_at IS NULL
-              OR claimed_at < now() - ${claimMs} * interval '1 millisecond'
+            FROM mention_thread_statuses q
+            WHERE (q.claimed_at IS NULL
+              OR q.claimed_at < now() - ${claimMs} * interval '1 millisecond')
+              AND NOT ${threadResetHeld(sql`q`, claimMs)}
             ORDER BY created_at
             LIMIT ${limit}
             FOR UPDATE SKIP LOCKED) d
@@ -219,11 +240,13 @@ export function createPostgresMentionTurnStatuses(
 
     async threadSent(thread, sent) {
       // What the turns say now: a turn that ended, or one written, since
-      // the claim read them leaves the thread for the next pass.
+      // the claim read them leaves the thread for the next pass; so does
+      // one a pass is setting back, whose `active` may land after this.
       const done = rowsOf(
         await db.execute(sql`
           DELETE FROM mention_thread_statuses s
           WHERE ${sameThread(thread)} AND rev = ${thread.rev}
+            AND NOT ${threadResetHeld(sql`s`)}
             ${
               sent === null
                 ? sql``
