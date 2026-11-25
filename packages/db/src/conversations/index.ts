@@ -42,7 +42,7 @@ export {
 } from "./judgment-buffer.ts";
 export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 export {
-  lockSlackChannelDeletes,
+  lockSlackChannelMarks,
   lockSlackSourceMark,
 } from "./source-mark-lock.ts";
 export {

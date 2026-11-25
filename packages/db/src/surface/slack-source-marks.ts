@@ -4,7 +4,7 @@ import {
   dropChannelSummaryLinesOf,
   editBufferedMessage,
   JUDGMENT_BUFFER_TTL_MS,
-  lockSlackChannelDeletes,
+  lockSlackChannelMarks,
   lockSlackSourceMark,
   sourceSetHoldsMark,
 } from "../conversations/index.ts";
@@ -75,10 +75,20 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
 } {
   const key = (mark: SlackSourceMark) =>
     sql`${mark.workspaceId}::uuid, ${mark.teamId}, ${mark.channelId}, ${mark.ts}`;
+  // A judgment over the message compares this time with when it read its
+  // input (a1/J6), so it is taken last before the commit, not at the
+  // transaction's start: a mark that waited on a lock is not dated before
+  // a read that could not see it.
+  const stampedLast = (
+    table: "deleted_sources" | "edited_sources",
+    mark: SlackSourceMark,
+  ) => sql`
+    UPDATE ${sql.raw(table)} SET marked_at = clock_timestamp()
+    WHERE (workspace_id, team_id, channel_id, ts) = (${key(mark)})`;
   return {
     async markDeleted(mark) {
       const recorded = await db.transaction(async (tx) => {
-        await tx.execute(lockSlackChannelDeletes(mark, "shared"));
+        await tx.execute(lockSlackChannelMarks(mark, "shared"));
         await tx.execute(lockSlackSourceMark(mark));
         const inserted = await tx.execute(sql`
           INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at)
@@ -93,7 +103,9 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
         await dropChannelSummaryLinesOf(tx, mark);
         // Ahead of its lifetime: a deleted message leaves no buffered row.
         await dropBufferedMessage(tx, mark);
-        return rowsOf(inserted).length > 0 ? "recorded" : "duplicate";
+        if (rowsOf(inserted).length === 0) return "duplicate";
+        await tx.execute(stampedLast("deleted_sources", mark));
+        return "recorded";
       });
       // After the mark commits, each session in its own transaction under
       // the control lock order (launch, then session), never inside the
@@ -104,6 +116,7 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
     },
     markEdited(mark, body) {
       return db.transaction(async (tx) => {
+        await tx.execute(lockSlackChannelMarks(mark, "shared"));
         await tx.execute(lockSlackSourceMark(mark));
         const written = await tx.execute(sql`
         INSERT INTO edited_sources (workspace_id, team_id, channel_id, ts, edited_at)
@@ -127,6 +140,7 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
           } else {
             await dropBufferedMessage(tx, mark);
           }
+          await tx.execute(stampedLast("edited_sources", mark));
         }
         return rowsOf(written).length > 0 ? "recorded" : "deleted";
       });

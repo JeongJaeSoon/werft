@@ -1104,5 +1104,57 @@ integration("M1 judgment records", () => {
         client.release();
       }
     });
+
+    test("with its context cut, an edit in the channel since the read voids it", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["3000.000002", "one"]]);
+      await marks().markEdited(mark(place, "3000.000001"), "changed");
+      const record = judgedRecord(batch.id, ["3000.000002"]);
+      expect(
+        await store().recordBatch(
+          batch,
+          { ...record, sources: { ...record.sources, overflow: true } },
+          held,
+        ),
+      ).toMatchObject({
+        outcome: "voided",
+        reason: "voided_by_edit",
+        remaining: held,
+      });
+    });
+
+    test("an edit begun before the read and committed after it is dated after it", async () => {
+      const place = await channel();
+      const client = await pool.connect();
+      let editing: Promise<unknown> = Promise.resolve();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtext('slack_source_marks'), hashtext(concat_ws('|', $1::text, $2::text, $3::text, $4::text)))",
+          [workspaceId, TEAM, place.channelId, "3100.000001"],
+        );
+        editing = marks().markEdited(mark(place, "3100.000001"), "changed");
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const { batch, held } = await batchOver(place, [
+          ["3100.000002", "one"],
+        ]);
+        await client.query("COMMIT");
+        await editing;
+        expect(
+          await store().recordBatch(
+            batch,
+            withContext(
+              judgedRecord(batch.id, ["3100.000002"]),
+              [place, "3100.000001"],
+              [place, "3100.000002"],
+            ),
+            held,
+          ),
+        ).toMatchObject({ outcome: "voided", reason: "voided_by_edit" });
+      } finally {
+        await editing.catch(() => undefined);
+        client.release();
+      }
+    });
   });
 });

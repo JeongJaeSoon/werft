@@ -1,12 +1,12 @@
 import { type SQL, sql } from "drizzle-orm";
 
 /**
- * Holds one channel's deletes against a write that cannot name every
- * message it read (its sources overflowed): a delete takes it shared before
- * its mark lock, that write exclusive before its marks, so a delete it does
- * not name is either seen or comes after the write.
+ * Holds one channel's delete and edit marks against a write that cannot name
+ * every message it read (its sources overflowed): a mark takes it shared
+ * before its mark lock, that write exclusive before its marks, so a mark it
+ * does not name is either seen or comes after the write.
  */
-export function lockSlackChannelDeletes(
+export function lockSlackChannelMarks(
   channel: { workspaceId: string; teamId: string; channelId: string },
   mode: "shared" | "exclusive",
 ): SQL {

@@ -8,6 +8,7 @@ import { type SQL, sql } from "drizzle-orm";
 import {
   deleteChannelSummary,
   dropBufferedInputs,
+  lockSlackChannelMarks,
   lockSlackSourceMark,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
@@ -266,6 +267,7 @@ export async function deleteConversationRecords(
           // then the summary row before the conversation: a Slack channel delete
           // holds the summary while it waits on a buffer hold, which waits on
           // the conversation.
+          await tx.execute(lockSlackChannelMarks(place, "shared"));
           for (const ts of seen.touched) {
             await tx.execute(lockSlackSourceMark({ ...place, ts }));
           }
@@ -288,8 +290,8 @@ export async function deleteConversationRecords(
               ? 0
               : rowsOf(
                   await tx.execute(sql`
-                  INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at, reason)
-                  SELECT ${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId}, m.ts, now(), 'admin_deleted'
+                  INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at, reason, marked_at)
+                  SELECT ${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId}, m.ts, now(), 'admin_deleted', clock_timestamp()
                   FROM unnest(ARRAY[${texts(records.marks)}]) AS m(ts)
                   ON CONFLICT DO NOTHING
                   RETURNING ts`),

@@ -7,7 +7,7 @@ import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import {
-  lockSlackChannelDeletes,
+  lockSlackChannelMarks,
   lockSlackSourceMark,
 } from "./source-mark-lock.ts";
 import { sourcesHoldPlace } from "./turn-sources.ts";
@@ -185,7 +185,7 @@ export async function lockedReadChanges(
      * When the call read its input. A context message edited since voids
      * the result (its text as read is not kept, so its mark's time tells);
      * with `overflow` (the context's sources were cut, so those past the
-     * cut are not named), so does any delete in the channel since.
+     * cut are not named), so does any delete or edit in the channel since.
      */
     readAt: SQL;
     overflow?: boolean;
@@ -211,7 +211,7 @@ export async function lockedReadChanges(
     if (key.slack !== null) places.set(placeOrder(key.slack), key.slack);
   }
   if (input.overflow === true) {
-    await tx.execute(lockSlackChannelDeletes(input, "exclusive"));
+    await tx.execute(lockSlackChannelMarks(input, "exclusive"));
   }
   // As lockedDeletedSource: an alias row first, held for share, then marks.
   const unplaced = [
@@ -293,6 +293,22 @@ export async function lockedReadChanges(
         LIMIT 1`),
     );
     changes.contextDeleted = since !== undefined;
+  }
+  if (input.overflow === true && input.messages.length > 0) {
+    // An edit there since, as with deletes.
+    const [since] = rowsOf(
+      await tx.execute(sql`
+        SELECT 1 FROM edited_sources
+        WHERE workspace_id = ${input.workspaceId}::uuid
+          AND team_id = ${input.teamId} AND channel_id = ${input.channelId}
+          AND marked_at >= ${input.readAt}
+          AND ts NOT IN (${sql.join(
+            input.messages.map((message) => sql`${message.ts}`),
+            sql`, `,
+          )})
+        LIMIT 1`),
+    );
+    if (since !== undefined) changes.contextEdited = true;
   }
   const contextPlaces = ordered.filter(
     (place) =>
