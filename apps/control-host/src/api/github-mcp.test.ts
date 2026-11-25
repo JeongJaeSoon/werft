@@ -850,6 +850,99 @@ describe("the built-in werft MCP server on stored rows", () => {
       });
     }
 
+    // Codex review: another agent's binding calls a channel private that
+    // this agent's binding still calls public, and another Slack team has a
+    // conversation under the same channel id. Neither name may come out.
+    const otherAgent = randomUUID();
+    await db.insert(schema.agents).values({
+      id: otherAgent,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: "other-agent",
+      name: "other agent",
+    });
+    await db.insert(schema.channelContexts).values({
+      id: randomUUID(),
+      workspaceId,
+      teamId: "T0TEST",
+      channelId: "C0FLIP",
+    });
+    await db.insert(schema.conversations).values({
+      id: randomUUID(),
+      workspaceId,
+      agentId,
+      kind: "channel",
+      teamId: "T0TEST",
+      channelId: "C0FLIP",
+      channelName: "flipped-secret",
+    });
+    // The other agent's own app, installed in the same Slack team.
+    const otherInstallation = randomUUID();
+    await db.insert(schema.slackInstallations).values({
+      id: otherInstallation,
+      workspaceId,
+      appId: "A0SECOND",
+      teamId: "T0TEST",
+      botUserId: "U0SECONDBOT",
+      status: "verified",
+      verifiedAt: new Date(),
+    });
+    for (const [owner, kind, installedAs] of [
+      [agentId, "public_channel", installationId],
+      [otherAgent, "private_channel", otherInstallation],
+    ] as const) {
+      await db.insert(schema.surfaceBindings).values({
+        id: randomUUID(),
+        workspaceId,
+        agentId: owner,
+        surface: "slack",
+        installationId: installedAs,
+        externalSurfaceId: "C0FLIP",
+        surfaceKind: kind,
+        mode: "on",
+        ceilingActions: [],
+        ceilingDisclosure: "full",
+      });
+    }
+    // Another Slack team where the other agent hears a public C0PUBLIC.
+    const otherTeamInstallation = randomUUID();
+    await db.insert(schema.slackInstallations).values({
+      id: otherTeamInstallation,
+      workspaceId,
+      appId: "A0OTHER",
+      teamId: "T0OTHER",
+      botUserId: "U0OTHERBOT",
+      status: "verified",
+      verifiedAt: new Date(),
+    });
+    await db.insert(schema.surfaceBindings).values({
+      id: randomUUID(),
+      workspaceId,
+      agentId: otherAgent,
+      surface: "slack",
+      installationId: otherTeamInstallation,
+      externalSurfaceId: "C0PUBLIC",
+      surfaceKind: "public_channel",
+      mode: "on",
+      ceilingActions: [],
+      ceilingDisclosure: "full",
+    });
+    await db.insert(schema.channelContexts).values({
+      id: randomUUID(),
+      workspaceId,
+      teamId: "T0OTHER",
+      channelId: "C0PUBLIC",
+    });
+    await db.insert(schema.conversations).values({
+      id: randomUUID(),
+      workspaceId,
+      agentId,
+      kind: "channel",
+      teamId: "T0OTHER",
+      channelId: "C0PUBLIC",
+      channelName: "other-team-secret",
+    });
+
     const called = await relay(
       token,
       {
@@ -895,6 +988,12 @@ describe("the built-in werft MCP server on stored rows", () => {
     for (const value of Object.values(secrets)) {
       expect(text).not.toContain(value);
     }
-    expect(text).not.toContain("launch-plans");
+    for (const name of [
+      "launch-plans",
+      "flipped-secret",
+      "other-team-secret",
+    ]) {
+      expect(text).not.toContain(name);
+    }
   });
 });

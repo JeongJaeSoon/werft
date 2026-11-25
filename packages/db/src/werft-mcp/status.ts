@@ -6,6 +6,7 @@ import {
 import type { WerftStatusFacts, WerftStatusStore } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { githubPolicyColumns, githubPolicyOfRow } from "../github/index.ts";
+import { channelKindOf } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentGitHubSettings,
@@ -243,7 +244,12 @@ async function agentSlackIdentity(
   return row !== undefined;
 }
 
-/** The channels the agent listens in now; a channel of no known kind is held private. */
+/**
+ * The channels the agent listens in now. A channel is public only when its
+ * bindings say so as the private channel's door reads them (channelKindOf:
+ * any binding of the channel in that Slack team calling it private wins);
+ * one no conversation has started in yet is held private.
+ */
 async function listeningChannels(
   db: Database,
   workspaceId: string,
@@ -252,18 +258,23 @@ async function listeningChannels(
   const rows = await db
     .select({
       channelId: surfaceBindings.externalSurfaceId,
-      kind: surfaceBindings.surfaceKind,
       listen: surfaceBindings.listen,
       conversationId: conversations.id,
       name: conversations.channelName,
+      kind: sql<string | null>`${channelKindOf(sql`${conversations}`)}`,
     })
     .from(surfaceBindings)
+    .innerJoin(
+      slackInstallations,
+      eq(slackInstallations.id, surfaceBindings.installationId),
+    )
     .leftJoin(
       conversations,
       and(
         eq(conversations.workspaceId, surfaceBindings.workspaceId),
         eq(conversations.agentId, surfaceBindings.agentId),
         eq(conversations.kind, "channel"),
+        eq(conversations.teamId, slackInstallations.teamId),
         eq(conversations.channelId, surfaceBindings.externalSurfaceId),
       ),
     )
@@ -288,7 +299,8 @@ async function listeningChannels(
             conversationId: row.conversationId,
             channelId: row.channelId,
             name: row.name,
-            private: row.kind !== "public_channel",
+            private:
+              row.conversationId === null || row.kind !== "public_channel",
             listen: row.listen,
           },
         ],
