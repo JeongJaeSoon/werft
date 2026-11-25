@@ -140,8 +140,32 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
     const store = createPostgresSlackAppStore(db, key);
     const live = await agentApp();
     const gone = await agentApp("deleted");
+    const updatedAt = async (app: {
+      workspaceId: string;
+      slackAppId: string;
+    }) => {
+      const found = await store.find(app.workspaceId, app.slackAppId);
+      if (!found) throw new Error("no app");
+      return found.updatedAt;
+    };
     for (const app of [live, gone])
-      await store.setBotScopes(app.workspaceId, app.slackAppId, ["chat:write"]);
+      await store.setBotScopes(
+        app.workspaceId,
+        app.slackAppId,
+        ["chat:write"],
+        await updatedAt(app),
+      );
+    expect(
+      (await store.find(live.workspaceId, live.slackAppId))?.botScopes,
+    ).toEqual(["chat:write"]);
+    // Read before the app changed (a new token was stored): dropped.
+    const stale = new Date((await updatedAt(live)).getTime() - 1000);
+    await store.setBotScopes(
+      live.workspaceId,
+      live.slackAppId,
+      ["users:read"],
+      stale,
+    );
     expect(
       (await store.find(live.workspaceId, live.slackAppId))?.botScopes,
     ).toEqual(["chat:write"]);

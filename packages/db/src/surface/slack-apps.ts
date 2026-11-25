@@ -499,13 +499,19 @@ export function createPostgresSlackAppStore(
         })
         .where(and(...createdApp(workspaceId, slackAppId)));
     },
-    async setBotScopes(workspaceId, slackAppId, scopes) {
+    async setBotScopes(workspaceId, slackAppId, scopes, unchangedSince) {
       if (!UUID.test(workspaceId) || !UUID.test(slackAppId)) return;
-      // updated_at is left alone: Slack's grant changed, not the app.
+      // updated_at is left alone: Slack's grant changed, not the app. A
+      // record carries it to the millisecond.
       await db
         .update(slackApps)
         .set({ botScopes: [...scopes] })
-        .where(and(...createdApp(workspaceId, slackAppId)));
+        .where(
+          and(
+            ...createdApp(workspaceId, slackAppId),
+            sql`date_trunc('milliseconds', ${slackApps.updatedAt}) = ${unchangedSince.toISOString()}::timestamptz`,
+          ),
+        );
     },
     async markEventsReceived(workspaceId, slackAppId, at) {
       // updated_at is left alone: it says when the app was last changed.

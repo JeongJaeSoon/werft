@@ -396,9 +396,10 @@ export function createMemorySlackAppStore(input: {
         checked_at: sync.checkedAt.toISOString(),
       };
     },
-    async setBotScopes(workspaceId, slackAppId, scopes) {
+    async setBotScopes(workspaceId, slackAppId, scopes, unchangedSince) {
       const row = rows.get(slackAppId);
       if (row?.workspaceId !== workspaceId || row.state !== "created") return;
+      if (row.updatedAt.getTime() !== unchangedSince.getTime()) return;
       row.botScopes = [...scopes];
     },
     async getSettings(workspaceId, agentId) {

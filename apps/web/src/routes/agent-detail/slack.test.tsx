@@ -2235,6 +2235,39 @@ describe("Slack management", () => {
     expect(posts).toEqual(["recheck", "install"]);
   });
 
+  test("the row's reinstall sends the manifest first while a reapproval is needed", async () => {
+    const posts: string[] = [];
+    const { left } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          reauthorization: { missing_scopes: ["reactions:write"] },
+        }),
+      [`POST ${PATH}/slack/app/events/recheck`]: () => {
+        posts.push("recheck");
+        return json(200, { ...appResponse(APP), reinstall_required: true });
+      },
+      [`POST ${PATH}/slack/install/start`]: () => {
+        posts.push("install");
+        return json(200, {
+          authorize_url: "https://slack.com/oauth/v2/authorize",
+          expires_at: AT,
+        });
+      },
+    });
+    const user = await setupUser();
+    const app = await screen.findByRole("region", {
+      name: "자동으로 만든 Slack 앱",
+    });
+    await within(app).findByText("Slack 재승인 필요");
+    await user.click(within(app).getByRole("button", { name: "다시 설치" }));
+    await waitFor(() =>
+      expect(left).toEqual(["https://slack.com/oauth/v2/authorize"]),
+    );
+    expect(posts).toEqual(["recheck", "install"]);
+  });
+
   test("says nothing about a reapproval once the install holds every scope", async () => {
     renderAt(DETAIL, { ...routes(APP, true) });
     const app = await screen.findByRole("region", {

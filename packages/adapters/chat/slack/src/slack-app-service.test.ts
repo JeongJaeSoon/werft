@@ -760,6 +760,50 @@ describe("manifest check at a start of the API", () => {
     ).toBeNull();
   });
 
+  test("scopes read with a token a new install replaced meanwhile are dropped", async () => {
+    const { service, slack, advance, installBot } = await installedApp([
+      "groups:write",
+    ]);
+    const read = slack.api.botScopes;
+    slack.api.botScopes = async (token) => {
+      const scopes = await read(token);
+      advance(1);
+      await installBot.reinstall([...BOT_SCOPES]);
+      return scopes;
+    };
+    await service.syncAgentAppManifests();
+    expect(
+      (await service.getAgentApp(user("owner"), AGENT)).reauthorization,
+    ).toBeNull();
+    expect((await installBot.record()).botScopes).toEqual([...BOT_SCOPES]);
+  });
+
+  test("a start another check holds still reads a grant never read, and sends nothing", async () => {
+    const { service, apps, advance, calls, installBot } = await installedApp([
+      "groups:write",
+    ]);
+    const row = apps.rows.get((await installBot.record()).id);
+    if (!row) throw new Error("no row");
+    // As migration 0362 leaves an install made before it.
+    row.botScopes = null;
+    // An older build checked the app moments ago.
+    expect((await service.syncAgentAppManifests()).checked).toBe(1);
+    row.botScopes = null;
+    advance(1000);
+    const updates = calls("apps.manifest.update");
+    const exports = calls("apps.manifest.export");
+    expect(await service.syncAgentAppManifests()).toEqual({
+      checked: 0,
+      sent: 0,
+      failed: 0,
+    });
+    expect(calls("apps.manifest.update")).toBe(updates);
+    expect(calls("apps.manifest.export")).toBe(exports);
+    expect(
+      (await service.getAgentApp(user("owner"), AGENT)).reauthorization,
+    ).toEqual({ missing_scopes: ["groups:write"] });
+  });
+
   test("a token Slack does not answer for keeps the scopes known before", async () => {
     const warned: Record<string, unknown>[] = [];
     const { service, installBot } = await installedApp(["groups:write"], {

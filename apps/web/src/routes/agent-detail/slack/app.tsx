@@ -393,9 +393,12 @@ export function SlackAppSection({
           <RowAction
             disabled={busy || pending || Boolean(slack.readError)}
             aria-describedby={`${SECTION.app}-install-hint`}
-            onClick={() => connect.mutate()}
+            // Slack's consent screen cannot grant a scope its manifest lacks.
+            onClick={() =>
+              reauthorization ? slack.reauthorize.mutate() : connect.mutate()
+            }
           >
-            {connect.isPending
+            {connect.isPending || slack.reauthorize.isPending
               ? t("slack.working")
               : t(identity ? "slack.reinstall" : "slack.install")}
           </RowAction>

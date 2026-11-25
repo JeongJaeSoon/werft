@@ -909,7 +909,13 @@ export function createSlackAppService(deps: {
           at,
           staleBefore: new Date(at.getTime() - SLACK_MANIFEST_CHECK_STALE_MS),
         });
-        if (!claimed) continue;
+        // Another check holds the app; only a grant never read is read here.
+        if (!claimed) {
+          await refreshBotScopes(target.workspaceId, target.slackAppId, {
+            onlyUnknown: true,
+          });
+          continue;
+        }
         summary.checked += 1;
         const outcome = await checkAgentAppManifest(target, tokenActive).catch(
           (error: unknown) => {
@@ -1094,10 +1100,20 @@ export function createSlackAppService(deps: {
    * install made before the grant was recorded lacks. A failure keeps what
    * was known.
    */
-  async function refreshBotScopes(workspaceId: string, slackAppId: string) {
+  async function refreshBotScopes(
+    workspaceId: string,
+    slackAppId: string,
+    options: { onlyUnknown?: boolean } = {},
+  ) {
     const secrets = deps.bots?.secrets;
     if (secrets === undefined) return;
     try {
+      const { apps } = ready();
+      // A token stored after this read (a new install) moves updated_at, and
+      // the scopes read with the old token are dropped.
+      const before = await apps.find(workspaceId, slackAppId);
+      if (before?.state !== "created") return;
+      if (options.onlyUnknown && (before.botScopes ?? null) !== null) return;
       const botToken = await secrets.get({
         workspaceId,
         owner: { kind: "slack_app", id: slackAppId },
@@ -1106,7 +1122,12 @@ export function createSlackAppService(deps: {
       if (botToken === null) return;
       const scopes = await api.botScopes(botToken);
       if (scopes !== null)
-        await ready().apps.setBotScopes(workspaceId, slackAppId, scopes);
+        await apps.setBotScopes(
+          workspaceId,
+          slackAppId,
+          scopes,
+          before.updatedAt,
+        );
     } catch (error) {
       deps.logger?.warn("Slack bot token scopes not read", {
         slack_app_id: slackAppId,
