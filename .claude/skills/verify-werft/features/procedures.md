@@ -1034,7 +1034,7 @@ ap_web POST "/v1/sessions/$DS/resume" "$(ap_web GET "/v1/sessions/$DS" | head -1
 ap_web POST "/v1/sessions/$DS/messages" '{"message":"after delete"}' | tail -2
 ```
 
-기대: deleted_sources에 `$PUB`·`$((1792800000 + S + 500)).000001` 한 행. outbox `voided_by_delete`(sources_turn 1), mock에 `deleted-answer` 글 0. 세션 `status:"idle"`, title null·`title_deleted_at` 있음, `attention.code:"SOURCE_DELETED"`. turn message `""`·`source_deleted_at` 있음. resume·messages 409 `SOURCE_DELETED`. `delete`의 셋째 인자는 지울 글의 seq, 넷째는 그 글이 답글일 때의 부모 seq(최상위면 `0`)다. 턴이 줄에 선 채 지우면 세션은 queued·paused로 끝난다. 채널 요약 줄 제거는 a0에 요약을 쓰는 경로가 없어 P-A0-DEFERRED로 본다.
+기대: deleted_sources에 `$PUB`·`$((1792800000 + S + 500)).000001` 한 행. outbox `voided_by_delete`(sources_turn 1), mock에 `deleted-answer` 글 0. 세션 `status:"idle"`, title null·`title_deleted_at` 있음, `attention.code:"SOURCE_DELETED"`. turn message `""`·`source_deleted_at` 있음. resume·messages 409 `SOURCE_DELETED`. `delete`의 셋째 인자는 지울 글의 seq, 넷째는 그 글이 답글일 때의 부모 seq(최상위면 `0`)다. 턴이 줄에 선 채 지우면 세션은 queued·paused로 끝난다. 채널 요약 줄 제거는 a0에 요약을 쓰는 경로가 없어 P-A1-CONTEXT가 본다.
 
 ## P-A0-INPUT — 같은 글의 재전송과 같은 ts(조건 5, Slack 쪽)
 
@@ -1066,7 +1066,7 @@ a0_sql "select conversation_rollout from agents where id='$AID'"
 
 ## P-A0-ROLLOUT — 대화 스위치와 판정 버퍼 TTL
 
-전제: mock Slack run(P-SLACK-SETUP), owner의 Slack 계정 `U0MOCK` 연결(`a0_link owner U0MOCK`), P-A0 helper. 고지 문구가 아직 게시되지 않았으면(`SLACK_NOTICE_VERSIONS`가 빈 목록) 아무도 승인할 수 없다. 그때는 `up.sh` 전에 `packages/contracts/src/domain/slack-notice.ts`의 목록에 검증용 1판(`requiresReapproval: true`, ko·ja 문구)을 커밋하지 않고 넣고, 끝나면 `git checkout --`으로 되돌린다. 그 run의 doctor는 커밋하지 않은 변경을 보고한다.
+전제: mock Slack run(P-SLACK-SETUP), owner의 Slack 계정 `U0MOCK` 연결(`a0_link owner U0MOCK`), P-A0 helper. 승인하는 고지는 게시된 1판이다(`packages/contracts/src/domain/slack-notice.ts`의 `SLACK_NOTICE_VERSIONS`). 스위치를 올린 뒤 담긴 글은 M1이 판단한다. 팀 한도가 없는 run에서는 `budget_refused`로 기록되고 버퍼에서 빠진다. 판단과 원장은 P-A1이 본다.
 
 ```sh
 # Actor: owner, then stack operator.
@@ -1081,11 +1081,11 @@ a0_sql "select count(buffer_expires_at) as buffered from conversation_inputs whe
 node "$B" "$RUN" click '[aria-label="조용히 듣기 (shadow)"]'     # 2. 웹에서 off로
 a0_event "$AID" plain "$PUB" $((S + 3)); a0_settle
 a0_sql "select count(buffer_expires_at) as buffered from conversation_inputs where agent_id='$AID'"
-CLI="ap_compose exec -T -w /app api bun run apps/control-host/src/api/slack-notice.ts"
-$CLI set-rollout --agent "$AID" --rollout on; echo "exit=$?"     # 3. 운영자 명령
-$CLI set-rollout --agent "$AID" --rollout shadow; echo "exit=$?"
+notice_cli() { ap_compose exec -T -w /app api bun run apps/control-host/src/api/slack-notice.ts "$@"; echo "exit=$?"; }   # zsh는 변수에 담은 명령을 단어로 나누지 않는다
+notice_cli set-rollout --agent "$AID" --rollout on     # 3. 운영자 명령
+notice_cli set-rollout --agent "$AID" --rollout shadow
 a0_event "$AID" plain "$PUB" $((S + 4)); a0_settle
-$CLI set-rollout --agent "$AID" --rollout off; echo "exit=$?"
+notice_cli set-rollout --agent "$AID" --rollout off
 a0_sql "select actor, result from receipts where operation='set_conversation_rollout' order by created_at"
 ```
 
@@ -1125,7 +1125,7 @@ a0_sql "select channel_state from conversations where channel_id='$PUB'"
 a0_sql "select (select count(*) from channel_summaries) as summaries, (select count(*) from channel_summary_lines) as lines"
 ```
 
-기대: binding `gone`, `channel_state` `deleted`, 요약 0·줄 0(a0에서는 쓴 적이 없다). 요약이 있던 채널의 삭제는 P-A0-DEFERRED로 본다.
+기대: binding `gone`, `channel_state` `deleted`, 요약 0·줄 0(a0에서는 쓴 적이 없다). 요약이 있던 채널의 삭제는 P-A1-CONTEXT가 본다.
 
 ## P-A0-DEFERRED — 실행 경로가 없는 a0 경로
 
@@ -1142,14 +1142,14 @@ grep -E '\((pass|fail|skip)\)' "$EVIDENCE/ci-<job>.log" | grep -F '<test name>'
 
 기대: `tests/a0-deferred-paths.test.ts` 2 pass(호출자 `[]`). 아래 파일마다 fail 0·skip 0이다.
 
-| 경로 | 시험 파일(job) | 대표 줄 | 실제 출력을 처음 낼 epic |
+| 경로 | 시험 파일(job) | 대표 줄 | 실제 출력 |
 |---|---|---|---|
-| context 조립(`assembleContext`) | context-assembler(db) | 9-2 1–9행, "a fragment with a deleted source is left out" | a1 |
-| 세션 없는 대화 호출(`createConversationCalls`) | conversation-calls(db), budget-accounts(db) | "two issues at once on an account that holds one: one token, one refusal, no stray row" | a1(a1/J5의 M1 판단기가 낸다. 실행기와 배선은 a1/J2에서 들어왔고, `tests/a0-deferred-paths.test.ts`의 목록에서 빠졌다) |
+| context 조립(`assembleContext`) | context-assembler(db) | 9-2 1–9행, "a fragment with a deleted source is left out" | a1에서 냈다: P-A1-CONTEXT(주제 턴의 요청에 다른 범위의 줄과 지운 글의 줄이 없다). `tests/a0-deferred-paths.test.ts`의 목록에서 빠졌다 |
+| 세션 없는 대화 호출(`createConversationCalls`) | conversation-calls(db), budget-accounts(db) | "two issues at once on an account that holds one: one token, one refusal, no stray row" | a1에서 냈다: P-A1-JUDGE(M1 판단의 원장 줄. 요청자·주제·턴 없이 팀 계정에서 예약되고 정산된다). 목록에서는 a1/J2 때 빠졌다 |
 | 웹 입력(`createWebInputService`) | conversation-inputs(db), slack/outbox(surface) | "a retry with the same key and text gets the same input id and number back", "the post's record and its echo arriving at once leave one input and one alias" | 웹 입력 route를 여는 epic(실제 Slack에서 mirror 왕복) |
-| 요약 줄 삭제 | channel-summaries(db), m1-judgments(db) | "deleting one of three sources takes its line out of every version…", "a deletion deletes the channel's summary with every version…", "is written with the server's speakers before the buffer goes, again after a lost compare" | a1(a1/J8: M1이 버퍼 묶음을 판단하며 요약 줄을 쓴다. 출처 글 삭제와 채널 삭제의 실제 출력은 a1/J8의 스택 확인이 낸다) |
+| 요약 줄 삭제 | channel-summaries(db), m1-judgments(db) | "deleting one of three sources takes its line out of every version…", "a deletion deletes the channel's summary with every version…", "is written with the server's speakers before the buffer goes, again after a lost compare" | a1에서 냈다: P-A1-CONTEXT(출처 글을 지우면 줄이 모든 판에서 빠지고, 채널을 지우면 요약이 판째 지워진다) |
 
-`tests/a0-deferred-paths.test.ts`는 선언한 파일 밖의 제품 코드·`scripts/`에서 그 이름(식별자나 문자열)이 나오면 실패한다. 실패하면 그 경로에 호출자가 생긴 것이다. 그 epic에서 위 행의 실제 출력을 verify stack으로 내고 시험의 목록에서 뺀다.
+`tests/a0-deferred-paths.test.ts`는 선언한 파일 밖의 제품 코드·`scripts/`에서 그 이름(식별자나 문자열)이 나오면 실패한다. 실패하면 그 경로에 호출자가 생긴 것이다. 그 epic에서 위 행의 실제 출력을 verify stack으로 내고 시험의 목록에서 뺀다. 지금 목록에 남은 것은 `createWebInputService` 하나다. 판정 버퍼의 10분 기한은 P-A0-ROLLOUT과 P-A1-BUFFER가 낸다. a1이 미룬 확인은 P-A1-DEFERRED에 있다.
 
 실제 Slack(개발 워크스페이스)에서만 보이는 것은 mock으로 대신하지 않는다. `conversations.members`의 실제 응답, metadata가 붙은 mirror 왕복, tombstone 원본 필드는 bot token을 여는 단계가 필요하므로 오너가 직접 돌린다.
 
@@ -1183,6 +1183,365 @@ ap_compose exec -T conversation-runtime sh -c 'ls -A /conversation | wc -l'
 결정 도구는 `GATE-SPEC`의 `steps`로 부른다(예: `{"tool":"mcp__conversation__reply","input":{"body":"…","reason":"…"}}`, 그 뒤 `final`). 명령의 `recorded`가 `decided`이고, 턴 행에 `decision`·`decision_reason`이 남으며 `answer_text`는 reply의 본문일 때만 채워진다. 결정 뒤에도 턴은 `completed`로 끝난다. permit이 decided 턴의 provider 호출을 받기 때문이다. `slack_outbox`·`sessions`·`turns` 줄 수는 그대로다(a1). 없는 task id의 `route_to_task`는 거절되어 `no_decision`이다. 같은 턴의 두 번째 결정과 결정 뒤의 읽기 도구는 거절되며, 둘 다 `conversation_turn_permits.tool_calls`에 더해지지 않는다. 읽은 글이 지워진 턴은 `voided_by_delete`다. mock 스레드는 bot이 쓴 글만 알므로 `a0_mock /fake/threads`로 U0MOCK 답글(`1792800005.000001`)을 심는다. 그다음 `read_thread` 뒤의 결정 step에 `delayMs`를 주고, 그사이 `slack-event "$AID" delete "$PUB" 5 2`로 지운다. 그 턴의 엔진은 마지막 provider 호출이 거절되어 `failed`(`api_error`, exit 3)로 끝나고, 기록은 `voided_by_delete`다.
 
 런타임을 끄면 거절된다. `ap_compose stop conversation-runtime` 뒤 45초(런타임이 묻는 간격의 두 배)를 기다려 같은 명령을 돌리면 `{"outcome":"no_runtime"}`와 exit 3이고 원장 줄 수는 그대로다. overlay 없이 띄운 run에서는 exit 4("The conversation runtime is off for this API")다. 런타임 안에서 다른 서비스로 직접 가는 길이 없는 것은 `ap_compose exec -T conversation-runtime bun -e`로 `node:net` 연결을 시도해 본다: `egress-proxy:3128`·`3129`만 열리고 `api`·`postgres`·`fake-messages`는 이름이 풀리지 않는다. 소스: `apps/control-host/src/api/conversation-runtime.ts`, `conversation-turn.ts`, `apps/worker/src/conversation/`.
+
+## P-A1 — a1 완료 조건 실제 출력
+
+a1(조용히 듣기: M1 shadow 판단, 채널 요약, 대화 턴의 틀) 완료 조건을 mock Slack run에서 다시 내는 절차다. 런타임 overlay를 더한 별도 run에서 위에서 아래로 실행한다: `up.sh infra/compose.mock-slack.yml infra/compose.conversation-runtime.yml`(P-SLACK-SETUP처럼 버리는 `PLATFORM_SECRET_KEY`를 같은 호출에서 준다). P-SETUP·P-WEB-LOGIN의 owner 생성/로그인과 `ap_store_keys`, P-API-AGENTS의 팀·에이전트·release·활성화, P-SLACK-SETUP의 앱·설치, `slack-event "$AID" challenge`까지 끝낸다. ids.sh에는 `WS`·`TEAM`(에이전트의 담당 팀)·`AID`·`APP`이 있다. 팀 예산 한도는 P-A1-JUDGE에서 넣으므로 그 전에는 넣지 않는다. 전체는 20–25분 걸린다. 기다리는 곳은 둘이다: 판단 버퍼의 10분(P-A1-BUFFER), 끝을 모르는 호출의 5분(P-A1-ADMIN).
+
+M1 호출에는 도구가 없어서 fake 모델은 글 안의 `CALL-SPEC {"id":…,"reply":…}`을 대본으로 읽는다(`packages/testkit/src/scripted-messages.ts`). `reply`가 M1의 답(`{"decision","reason","summary"}`)이다. 대본에는 규칙이 넷 있다.
+
+- 한 호출의 자료에서 처음 나오는 `CALL-SPEC`이 답이 된다. 자료는 채널 요약 줄, 그다음 판단할 글의 순서다.
+- M1은 글 하나를 2,000자까지만 읽는다. 대본이 잘리면 fake 모델이 500으로 답하고, 그 호출은 끝을 모르는 호출로 남는다(아래 "끝을 모르는 M1 호출").
+- 요약 줄이 읽은 글과 40자 넘게 이어서 같으면 `copied`로 버려진다. 대본이 든 글에는 요약 문장이 그대로 들어 있으므로, 요약은 40자 미만으로 쓰거나 30자마다 `"`를 넣는다.
+- 대본이 없는 글의 호출은 fake 모델의 기본 답을 받아 `failed`·`malformed`로 기록된다.
+
+```sh
+# Actor: stack operator. 새 셸이면 P-A0의 helper(a0_event·a0_mock·a0_sql·a0_val·a0_settle·a0_link)와 이 함수들을 다시 정의하고 시작한다.
+a1_spec() { # <id> <decision> <reason> <summary 또는 ""> [delayMs]: M1의 답을 정하는 대본이 든 글
+  jq -rn --arg id "$1" --arg d "$2" --arg r "$3" --arg s "$4" --argjson delay "${5:-null}" '"a1 " + $id + " CALL-SPEC " + ({id:$id, reply:({decision:$d, reason:$r, summary:(if $s=="" then null else $s end)}|tojson)} + (if $delay==null then {} else {delayMs:$delay} end)|tojson)'
+}
+a1_buffered() { a0_val "select count(*) from conversation_inputs where agent_id='$AID' and slack_channel_id='$1' and buffer_expires_at is not null"; }
+a1_bind() { # <channel> <free|mention|off> [시간당 판단 상한] [home]: 지금 로그인한 사람이 채널의 듣기를 정한다
+  ap_web PUT "/v1/agents/$AID/slack-bindings" "$(jq -nc --arg c "$1" --arg l "$2" --argjson cap "${3:-null}" --argjson home "${4:-false}" '{channel_id:$c, mode:"on", listen:$l, home:$home} + (if $cap==null then {} else {m1_judgments_per_hour:$cap} end)')" | head -1 | jq -c '{listen:.slack_binding.listen, cap:.slack_binding.m1_judgments_per_hour, dropped_buffered, refused:.error.details.reason_code}'
+}
+a1_wait() { sleep 27; }   # 글 하나의 묶음이 닫히고(15초 뒤 첫 M1 pass) 판단이 끝날 때까지
+a1_effects() { # 판단이 Slack과 세션에 남긴 것: 채널 안내 말고는 늘지 않아야 한다
+  a0_sql "select (select count(*) from slack_outbox where kind <> 'channel_notice') as outbox_but_notices, (select count(*) from slack_outbox where kind = 'channel_notice') as notices, (select count(*) from sessions) as sessions, (select count(*) from turns) as turns"
+  a0_mock /fake/messages | jq -c '{slack_posts: (.messages|length)}'
+  a0_mock /fake/updates | jq -c '{slack_updates: (.updates|length)}'
+}
+a1_notice() { ap_compose exec -T -w /app api bun run apps/control-host/src/api/slack-notice.ts "$@"; echo "exit=$?"; }
+a1_unknown() { ap_compose exec -T -w /app api bun run apps/control-host/src/api/budget-unknown.ts "$@"; echo "exit=$?"; }
+a1_turn() { # <text>: 운영자 명령으로 $TOPIC에 대화 턴 하나
+  ap_compose exec -T api bun run apps/control-host/src/api/conversation-turn.ts --workspace "$WS" --agent "$AID" --conversation "$CID" --topic "$TOPIC" --text "$1"; echo "exit=$?"
+}
+a1_probe() { # <id> <text>: 그 턴에서 모델에 간 요청(system과 messages)에 text가 있었는가
+  a1_turn "GATE-SPEC $(jq -nc --arg id "$1" --arg p "$(printf %s "$2" | base64)" '{id:$id, steps:[], final:"probe", probe:$p}')" | head -1 | jq -r .turn.text
+}
+S=$(( $(date +%s) - 1792800000 + 1200 ))
+printf 'S=%s\n' "$S"   # ids.sh에 적는다
+a0_link owner U0MOCK
+a0_mock /fake/channels "$(jq -nc --arg app "$APP" '{app_id:$app, channels:[
+  {name:"a1-main", bot_member:true, user_ids:["U0MOCK"]},
+  {name:"a1-other", bot_member:true, user_ids:["U0MOCK"]},
+  {name:"a1-shared", bot_member:true, user_ids:["U0MOCK"]},
+  {name:"a1-capped", bot_member:true, user_ids:["U0MOCK"]},
+  {name:"a1-fold", bot_member:true, user_ids:["U0MOCK"]}]}')" | jq -r '.channels | to_entries[] | (["MAIN","OTHER","SHARED","CAPPED","FOLD"][.key]) + "=" + .value.id'
+```
+
+기대: `a0_link` callback 201. 채널 다섯의 `MAIN=…` 줄들을 ids.sh에 적는다. `a1_probe`는 fake 모델의 `probe`를 쓴다: 대본에 base64로 준 글이 그 요청에 있으면 답 끝에 `[probe:found]`, 없으면 `[probe:missing]`이 붙는다. fake 모델은 요청 본문을 남기지 않으므로 이것이 모델에 간 본문을 보는 길이다.
+
+## P-A1-GATE — 고지 승인과 스위치(조건 1)
+
+```sh
+# Actor: owner, then stack operator.
+ap_as owner
+ap_web GET "/v1/agents/$AID/slack/notice" | head -1 | jq -c '{version:.notice.version, state, rollout, can_approve}'
+ap_web POST "/v1/agents/$AID/slack/notice/rollout" '{"rollout":"shadow"}' | tail -2
+a1_notice set-rollout --agent "$AID" --rollout shadow
+a0_sql "select conversation_rollout from agents where id='$AID'"
+ap_web POST "/v1/agents/$AID/slack/notice/approve" '{"notice_version":1,"locale":"ko"}' | head -1 | jq -c '{state, rollout}'
+a1_notice set-rollout --agent "$AID" --rollout on
+ap_web POST "/v1/agents/$AID/slack/notice/rollout" '{"rollout":"shadow"}' | head -1 | jq -c '{state, rollout}'
+a0_sql "select slack_team_id, notice_version, revoked_at from slack_notice_approvals"
+a0_sql "select operation, actor->'principal'->>'kind' as actor, result from receipts where operation in ('approve_slack_notice','set_conversation_rollout') order by created_at"
+```
+
+기대: 승인 전 `{"version":1,"state":"not_approved","rollout":"off","can_approve":true}`. 승인 없이 올리면 웹은 409 `REVISION_CONFLICT`·`reason_code:"notice_not_approved"`, 명령은 `{"outcome":"refused",…,"reason_code":"not_approved"}` exit=4이고 스위치는 `off` 그대로다. 승인 뒤 `{"state":"approved","rollout":"off"}`. `on`은 승인 뒤에도 `rollout_on_unavailable` exit=4다. 웹으로 올리면 `{"state":"approved","rollout":"shadow"}`. 승인 행은 `T0MOCK`·1판·`revoked_at` 비어 있음. receipt는 둘이고 actor는 `user`다: `approve_slack_notice`, `set_conversation_rollout`(`by:"web"`, `before:"off"`, `after:"shadow"`). 화면의 스위치, 철회, 에이전트 관리자의 403, 명령으로 올리고 내리기는 P-A0-ROLLOUT이 본다.
+
+## P-A1-JUDGE — 멘션 없는 글의 판단 한 번(조건 2·3)
+
+```sh
+# Actor: owner, then stack operator. 팀 한도가 없는 채로: 판단이 거절된다.
+ap_as owner
+ap_web GET "/v1/teams/$TEAM/budget-limit" | head -1
+a1_bind "$MAIN" free 60 true
+sleep 8
+a0_sql "select kind, status, channel_id from slack_outbox order by created_at"
+a0_event "$AID" plain "$MAIN" $((S + 10)) "" "$(a1_spec a1-refused quiet human_conversation "")"
+a0_settle; echo "buffered=$(a1_buffered "$MAIN")"
+a1_wait
+ap_compose logs --no-log-prefix slack | grep '"Slack message held for the judgment"' | tail -1 | jq -r .timestamp
+a0_sql "select state, model_called, closed_at from judgment_batches order by closed_at"
+a0_sql "select grade, outcome, decision, reason, refs, call_key, attempts from conversation_judgments order by created_at"
+a0_sql "select (select count(*) from conversation_calls) as calls, (select count(*) from budget_reservations) as reservations"
+echo "buffered=$(a1_buffered "$MAIN")"
+```
+
+기대: 한도 `{"cost_usd":null,"tokens":null}`. 듣기를 `free`로 정하면 그 채널에 안내 글이 한 번 올라간다: outbox는 `welcome`(홈 채널)과 `channel_notice` 두 줄, 둘 다 `sent`. 글은 담기고(buffered=1) 15초 조용한 뒤 첫 M1 pass에서 묶음이 닫힌다. pass는 5초마다 돌아서 `closed_at`은 담긴 시각(slack 로그)의 15–20초 뒤다(한 run에서 19.4초). 묶음은 `judged`·`model_called` f. 기록 한 줄: `buffer_m1`·`not_called`·`quiet`·`budget_refused`, `refs`는 그 글의 ts, `call_key` 비어 있음, `attempts` 0. calls 0, reservations 0. 판단이 끝난 글은 버퍼에서 바로 빠진다(buffered=0).
+
+```sh
+# Actor: owner, then stack operator. 팀 한도를 넣고 같은 길을 다시.
+ap_as owner
+ap_web PUT "/v1/teams/$TEAM/budget-limit" '{"cost_usd":null,"tokens":5000000}' | tail -1
+a1_effects
+a0_event "$AID" plain "$MAIN" $((S + 20)) "" "$(a1_spec a1-a quiet human_conversation "a person asked about zebra-alpha")"
+a0_settle; a1_wait
+a0_sql "select state, model_called from judgment_batches order by closed_at"
+a0_sql "select outcome, decision, reason, refs, attempts, summary from conversation_judgments order by created_at"
+a0_sql "select call_class, root_kind, requester_user_id, topic_id, conversation_turn_id, state, attempt, tokens from conversation_calls"
+a0_sql "select r.root_kind, r.state, r.settled_tokens, a.owner_kind, a.owner_id='$TEAM' as agent_team, a.reserved_tokens from budget_reservations r join budget_accounts a on a.id=r.account_id"
+echo "buffered=$(a1_buffered "$MAIN")"
+a1_effects
+ap_compose exec -T api bun -e 'const r = await fetch("http://fake-messages:4011/requests?spec=a1-a"); console.log(await r.text())'
+ap_compose logs --no-log-prefix egress-proxy | grep conversation_call_id | tail -1
+```
+
+기대: PUT 200. 둘째 묶음은 `judged`·`model_called` t. 둘째 기록은 `judged`·`quiet`·`human_conversation`·`attempts` 1·`summary` `written`. 원장(`conversation_calls`)은 한 줄뿐이다: `call_class` `m1`, `root_kind` `none`, 요청자·주제·턴 모두 비어 있음(세션 없는 대화 호출), `settled`, `attempt` 1. 예약 한 줄: `none`·`settled`, 계정은 `owner_kind` `team`이고 에이전트의 담당 팀(`agent_team` t), `reserved_tokens` 0. buffered=0. `a1_effects`는 판단 앞뒤가 같다: `outbox_but_notices` 1(welcome), `notices` 1, sessions 0, turns 0, `slack_posts` 2, `slack_updates` 0. 판단은 답도 세션도 이모지도 만들지 않는다(a1의 앱에는 이모지를 다는 길이 없다). fake 모델 기록은 `spec_id:"a1-a"` 한 건·`tools:[]`, proxy 로그는 `purpose:"provider"`·status 200.
+
+```sh
+# Actor: owner, then stack operator. 둘째 채널, speak 판단, 채널마다 한 번인 안내.
+ap_as owner
+a1_bind "$MAIN" mention 60 true
+a1_bind "$MAIN" free 60 true
+a1_bind "$OTHER" free 60
+a0_event "$AID" plain "$OTHER" $((S + 25)) "" "$(a1_spec a1-o quiet not_for_agent "someone mentioned quokka-beta")"
+a0_event "$AID" plain "$MAIN" $((S + 30)) "" "$(a1_spec a1-b speak needs_agent "a person raised yak-gamma")"
+a0_settle; a1_wait
+a0_sql "select slack_channel_id, outcome, decision, reason, summary from conversation_judgments order by created_at"
+a0_sql "select channel_id, text, from_version, to_version from channel_summary_lines order by written_at"
+a0_sql "select channel_id, ts, speaker_kind, speaker_id from channel_summary_line_sources order by ts"
+a0_sql "select channel_id, version, made_at from channel_summary_versions order by channel_id, version"
+a0_sql "select kind, channel_id, status from slack_outbox where kind='channel_notice' order by created_at"
+a1_effects
+```
+
+기대: 듣기를 줄였다 다시 넓혀도(`mention` → `free`) 안내는 다시 올라가지 않는다. `channel_notice`는 `MAIN`과 `OTHER`에 한 줄씩이다. 새 기록 둘: `OTHER`의 `quiet`·`not_for_agent`, `MAIN`의 `speak`·`needs_agent`, 둘 다 `summary` `written`. 요약 줄 셋: `MAIN`에 zebra-alpha(`from_version` 1)와 yak-gamma(2), `OTHER`에 quokka-beta(1). 출처 줄은 넷이고 모두 `slack_user`·`U0MOCK`이다(화자는 서버가 채운다). 줄의 출처는 그 호출이 읽은 것 모두라서, yak-gamma 줄은 자기 글과 그때 읽은 zebra-alpha 줄의 글 둘을 출처로 가진다. 판마다 `made_at`이 있다. `speak` 판단도 Slack에 아무것도 올리지 않는다: `outbox_but_notices` 1, `notices` 2, sessions 0, turns 0, `slack_posts` 3, `slack_updates` 0.
+
+## P-A1-TURN — 대화 턴 하나(조건 6)
+
+a1에서 대화 턴은 실제 입력으로 돌지 않는다. 운영자 명령이 유일한 길이다(P-CONVERSATION-RUNTIME). 멘션 하나가 대화의 주제 행을 만든다. 그 멘션은 세션도 하나 연다(지금 길 그대로).
+
+```sh
+# Actor: stack operator.
+a0_event "$AID" mention "$MAIN" $((S + 40))
+a0_settle; sleep 12
+printf 'CID=%s\n' "$(a0_val "select id from conversations where agent_id='$AID' and channel_id='$MAIN'")"   # ids.sh에 적는다
+printf 'TOPIC=%s\n' "$(a0_val "select t.id from conversation_topics t join conversations c on c.id=t.conversation_id where c.agent_id='$AID' and c.channel_id='$MAIN' and t.slack_thread_ts='$((1792800000 + S + 40)).000001'")"   # ids.sh에 적는다
+a1_effects
+```
+
+```sh
+# Actor: stack operator. 결정 도구 하나를 부르고 끝나는 턴.
+a1_turn 'GATE-SPEC {"id":"a1-turn","steps":[{"tool":"mcp__conversation__reply","input":{"body":"a1 reply body","reason":"asked directly"}}],"final":"done"}'
+a0_sql "select call_class, root_kind, requester_user_id, call_key, attempt, state, tokens from conversation_calls where call_class='m2' order by created_at"
+a0_sql "select r.root_kind, r.state, r.tokens as reserved, r.settled_tokens, a.owner_kind from budget_reservations r join budget_accounts a on a.id=r.account_id join conversation_calls c on c.id::text=r.call_id::text where c.call_class='m2' order by r.created_at"
+a0_sql "select origin, state, requester_kind, decision, decision_reason, answer_text, limit_reached, ended_at - created_at as took from conversation_turns where origin='m2'"
+a0_sql "select calls, tool_calls, thread_reads, refusal, expires_at <= now() as ended from conversation_turn_permits"
+ap_compose exec -T api bun -e 'const r = await fetch("http://fake-messages:4011/requests?spec=a1-turn"); console.log(JSON.stringify((await r.json()).map((x) => x.tools)))'
+ap_compose logs --no-log-prefix conversation-runtime | grep conversation_turn | tail -3 | jq -c '{event, outcome, reported}'
+a1_effects
+```
+
+기대: 멘션 뒤 `a1_effects`는 `outbox_but_notices` 2(멘션의 답), sessions 1, turns 1, `slack_posts` 4이고, 대화 턴 뒤에도 그대로다(a1의 결정은 기록뿐이다). 명령은 `{"outcome":"ended",…,"turn":{"outcome":"completed","text":"done","decision":{"tool":"reply",…}},"recorded":"decided"}` exit=0. 원장은 provider 호출마다 한 줄씩 두 줄이다: `m2`·`key`·요청자 비어 있음·`call_key` `operator-<turn id>:m2`·`attempt` 1과 2·`settled`. 예약도 두 줄이고 줄마다 따로 정산된다: `key`·`settled`·`reserved` 102400·`settled_tokens` 5·`owner_kind` `team`. 턴 줄은 `m2`·`decided`·`operator`·`reply`·`asked directly`·`a1 reply body`, `limit_reached` 비어 있음, `took`은 1초 안쪽. 허가 줄은 `calls` 2·`tool_calls` 1·`thread_reads` 0·`refusal` 비어 있음·`ended` t로, 상한(모델 호출 8, 도구 호출 12, 2분) 안이다. 두 요청의 `tools`는 정확히 `mcp__conversation__`의 여덟이다: `list_open_tasks`, `no_reply`, `read_channel_summary`, `read_thread`, `read_turns`, `reply`, `route_to_task`, `spawn_task`. 고정된 목록은 `packages/contracts/src/worker-protocol/conversation-runtime.ts`의 읽기 도구 넷과 결정 도구 넷이다. 런타임 로그는 `started`·`ended`(`completed`)·`reported`(`recorded`). 2분 상한에 걸리는 턴은 P-A1-ADMIN이 낸다. 그 밖의 상한과 결정 도구의 경우들은 P-CONVERSATION-RUNTIME에 있다.
+
+## P-A1-CONTEXT — 맥락 조립, 요약 줄 삭제(조건 5)
+
+a0가 미룬 것 가운데 맥락 조립기, 세션 없는 대화 호출, 요약 줄 삭제의 실제 출력이다. 주제의 새 세션은 조립한 맥락으로 시작하므로, 그 턴의 요청에 무엇이 실렸는지를 `a1_probe`로 본다.
+
+```sh
+# Actor: stack operator. P-A1-TURN의 주제에서.
+a1_probe a1-p0 yak-gamma
+a1_probe a1-p1 zebra-alpha
+a1_probe a1-p2 quokka-beta
+a0_event "$AID" delete "$MAIN" $((S + 30)) 0
+a0_settle; sleep 3
+a0_sql "select channel_id, ts, reason from deleted_sources order by marked_at"
+a0_sql "select channel_id, text, from_version, to_version from channel_summary_lines order by written_at"
+a0_sql "select count(*) from channel_summary_line_sources where ts='$((1792800000 + S + 30)).000001'"
+a0_sql "select channel_id, version from channel_summaries order by channel_id"
+a1_probe a1-p3 yak-gamma
+a1_probe a1-p4 zebra-alpha
+ap_compose exec -T api bun -e 'const r = await fetch("http://fake-messages:4011/requests"); console.log(JSON.stringify((await r.json()).filter((x) => /^a1-p/.test(x.spec_id ?? "")).map((x) => [x.spec_id, x.history])))'
+a0_sql "select call_class, root_kind, requester_user_id is null as no_requester, topic_id is null as no_topic, conversation_turn_id is null as no_turn, state, count(*) from conversation_calls group by 1, 2, 3, 4, 5, 6 order by 1"
+```
+
+기대: p0·p1은 `probe [probe:found]`(자기 채널의 요약 줄 둘), p2는 `probe [probe:missing]`(다른 채널 `OTHER`의 요약 줄은 이 대화의 범위가 아니다). yak-gamma 줄의 출처 글(`S + 30`)을 지우면 `deleted_sources`에 그 ts가 `slack_deleted`로 남고, 그 줄은 모든 판에서 빠진다: 요약 줄은 zebra-alpha와 quokka-beta 둘, 그 ts의 출처 줄 0, `MAIN`의 판은 3이 된다. 그 뒤 p3은 `probe [probe:missing]`(지운 글에서 나온 줄은 모델에 가지 않는다), p4는 `probe [probe:found]`. `history`는 p0–p2가 `["a1-turn","a1-p0",…]`로 이어지고 p3에서 `["a1-p3"]`로 다시 시작한다: 세션이 읽은 출처가 지워져 그 세션을 버리고 새로 조립했다. 원장의 `m1` 줄은 모두 `none`·요청자·주제·턴 없음·`settled`이고(세션 없는 대화 호출), `m2` 줄은 `key`·주제와 턴 있음이다.
+
+요약이 있는 채널의 삭제는 절차의 맨 끝에 돌린다(`OTHER`를 P-A1-BUFFER가 쓴다).
+
+```sh
+# Actor: stack operator. 맨 끝에: 요약이 있는 채널을 지운다.
+Q="select (select count(*) from channel_summary_lines where channel_id='$OTHER') as lines, (select count(*) from channel_summary_versions where channel_id='$OTHER') as versions, (select count(*) from channel_summary_line_sources where channel_id='$OTHER') as sources, (select count(*) from conversation_judgments where slack_channel_id='$OTHER') as judgments"
+a0_sql "$Q"
+a0_event "$AID" channel-delete "$OTHER" $((S + 2000))
+a0_settle; sleep 3
+a0_sql "select status from surface_bindings where external_surface_id='$OTHER'"
+a0_sql "select channel_state from conversations where channel_id='$OTHER'"
+a0_sql "$Q"
+ap_compose logs --no-log-prefix reconciler | grep '"Old channel summary versions pruned"' | tail -1 | jq -c .fields
+```
+
+기대: 앞은 lines 1·versions 2·sources 1·judgments 1. 삭제 뒤 binding `gone`, `channel_state` `deleted`, lines 0·versions 0·sources 0이고 judgments는 1 그대로다(판단 기록은 본문 없이 참조만 가져서 남는다). reconciler는 10초마다 옛 판 정리 pass를 돈다(`{"dry_run":false,"channel_count":0,"version_count":0,"line_count":0}`). 7일 지난 판이 실제로 지워지는 것은 스택에서 볼 수 없다(P-A1-DEFERRED).
+
+## P-A1-BUFFER — 판단 버퍼의 상한, 기한, 문(조건 4)
+
+상한과 기한은 10분이 걸리므로 먼저 시작해 두고 아래 블록들을 돈 뒤 돌아온다.
+
+```sh
+# Actor: owner, then stack operator. 시간당 판단 상한이 1인 채널: 첫 글만 판단되고 뒤의 글은 버퍼에 남는다.
+ap_as owner
+a1_bind "$CAPPED" free 1
+a0_event "$AID" plain "$CAPPED" $((S + 900)) "" "$(a1_spec a1-c quiet out_of_scope "")"
+a0_settle; a1_wait
+a0_sql "select outcome, reason from conversation_judgments where slack_channel_id='$CAPPED'"
+ok=0; for i in $(seq 1 101); do a0_event "$AID" plain "$CAPPED" $((S + 1000 + i)) | grep -q '"ok":true' && ok=$((ok + 1)); done; echo "sent ok=$ok"
+a0_settle
+echo "buffered=$(a1_buffered "$CAPPED")"
+a0_sql "select dropped_count from judgment_buffer_overflows where slack_channel_id='$CAPPED'"
+a0_sql "select min(slack_ts) as oldest_kept, min(buffer_expires_at) as first_expiry, max(buffer_expires_at) as last_expiry from conversation_inputs where slack_channel_id='$CAPPED' and buffer_expires_at is not null"
+echo "first sent=$((1792800000 + S + 1001)).000001"
+ap_compose logs --no-log-prefix slack | grep '"Judgment buffer over limit"' | tail -1 | jq -c .fields
+a0_sql "select outcome, reason, cardinality(refs) as posts from conversation_judgments where slack_channel_id='$CAPPED' order by created_at"
+```
+
+기대: 첫 글은 `judged`·`out_of_scope`. `sent ok=101`(아니면 빠진 seq를 다시 보낸다). 글 101개를 보내면 버퍼는 상한 100에서 멈춘다: buffered=100, `dropped_count` 1, `oldest_kept`는 `first sent`의 다음 ts(가장 오래된 글이 빠졌다), 로그 `Judgment buffer over limit`의 `dropped_count` 1. 글을 보내는 동안에도 첫 글 60초 뒤에 묶음이 닫히지만 시간당 상한을 넘겨서 `not_called`·`rate_limited`로 기록되고(`posts`는 그때까지 온 글 수) 글은 버퍼에 남는다. `first_expiry`·`last_expiry`는 글을 받은 시각 + 10분이다. 이 두 시각을 적어 둔다.
+
+```sh
+# Actor: stack operator. first_expiry 60초쯤 전에 한 번, last_expiry가 지난 뒤 한 번 더.
+a0_sql "select count(*) as buffered, min(buffer_expires_at) - now() as remaining from conversation_inputs where slack_channel_id='$CAPPED' and buffer_expires_at is not null"
+ap_compose logs --no-log-prefix reconciler | grep '"Judgment buffer purged"' | grep -v '"expired_count":0' | jq -c '{at:.timestamp, expired:.fields.expired_count, unjudged:.fields.unjudged_count}'
+a0_sql "select rate_limited_count, unjudged_count from judgment_channel_tallies where slack_channel_id='$CAPPED'"
+a0_sql "select outcome, reason, cardinality(refs) as posts from conversation_judgments where slack_channel_id='$CAPPED' order by created_at"
+```
+
+기대: 기한 60초 전에는 100줄이 그대로이고 purge 로그가 없다. 기한이 지나면 reconciler의 10초 pass마다 `expired`와 `unjudged`가 같은 수로 찍히고(합 100), 끝나면 buffered 0, `unjudged_count` 100이다. 판단하지 못한 글은 10분 뒤 본문째 사라진다. `rate_limited` 기록은 둘이고 `posts`의 합이 101이다.
+
+```sh
+# Actor: stack operator. 답이 20초 걸리는 판단 중에 그 글을 지운다.
+a0_event "$AID" plain "$MAIN" $((S + 50)) "" "$(a1_spec a1-d quiet human_conversation "a person noted wombat-delta" 20000)"
+a0_settle
+for i in $(seq 1 40); do [ "$(a0_val "select count(*) from judgment_batches where slack_channel_id='$MAIN' and state='judging'")" = 1 ] && break; sleep 1; done
+sleep 3
+a0_event "$AID" delete "$MAIN" $((S + 50)) 0
+a0_settle; sleep 28
+a0_sql "select outcome, decision, reason, refs, sources, call_key is not null as called, summary from conversation_judgments where slack_channel_id='$MAIN' order by created_at desc limit 1"
+a0_sql "select count(*) from conversation_judgments where '$((1792800000 + S + 50)).000001' = any(refs)"
+a0_sql "select text from channel_summary_lines where channel_id='$MAIN' and to_version is null"
+ap_compose logs --no-log-prefix api | grep '"M1 judgment voided"' | tail -1 | jq -c .fields
+```
+
+기대: 모델은 불렸지만(`called` t) 결과는 버려진다: `voided`·`voided_by_delete`, `decision`·`refs`·`sources`·`summary` 모두 비어 있다. 지운 글의 ts를 가리키는 기록 0줄, wombat-delta 요약 줄 없음(zebra-alpha 한 줄뿐). 로그 `M1 judgment voided`에 호출 키와 `voided_by_delete`. 남은 글이 없어 다시 판단하지 않는다.
+
+```sh
+# Actor: owner, then stack operator. 듣지 않음, 외부 공유 채널, 다른 조직 사람의 글.
+ap_as owner
+a0_event "$AID" plain "$OTHER" $((S + 70)); a0_settle; echo "other buffered=$(a1_buffered "$OTHER")"
+a1_bind "$OTHER" off
+a0_event "$AID" plain "$OTHER" $((S + 71)); a0_settle; echo "other buffered=$(a1_buffered "$OTHER")"
+a1_bind "$OTHER" free
+a1_bind "$SHARED" free
+a0_event "$AID" plain "$SHARED" $((S + 60)); a0_settle; echo "shared buffered=$(a1_buffered "$SHARED")"
+a0_mock /fake/shares "$(jq -nc --arg c "$SHARED" '{channel_id:$c, is_ext_shared:true}')"
+a0_event "$AID" plain "$SHARED" $((S + 61)); a0_settle; echo "shared buffered=$(a1_buffered "$SHARED")"
+a1_bind "$SHARED" free
+a0_mock /fake/users '{"users":[{"id":"U0PARTNER","team_id":"T0OTHER","name":"partner"}]}'
+a0_event "$AID" person-plain "$MAIN" $((S + 80)) "" U0PARTNER; a0_settle; echo "main buffered=$(a1_buffered "$MAIN")"
+ap_compose logs --no-log-prefix slack | grep '"Slack message not held for the judgment"' | jq -c '{event:.fields.event_id, reason:.fields.reason}'
+```
+
+기대: 이벤트마다 `{"ok":true}`와 200. `OTHER`: 담긴 것을 확인하고(buffered=1) 듣기를 `off`로 줄이면 `dropped_buffered` 1, 그 뒤의 글은 담기지 않는다(buffered=0). `SHARED`: 공유 전에는 담기고(1), mock이 외부 공유로 답하게 한 뒤의 글은 담기지 않으며 앞서 담긴 글도 지워진다(0). 그 채널에 `free`를 저장하면 거절된다(`refused` `external_shared_channel`). 다른 팀의 사람(`U0PARTNER`, `T0OTHER`)의 글도 담기지 않는다(main buffered=0). 로그의 `reason`은 `external_shared_channel`과 `external_author` 한 줄씩이다. `person-plain`은 `plain`과 같되 글쓴이가 `text`의 사람이다. mock은 게스트(`is_restricted`)를 만들지 못한다. 게스트의 글(`guest_author`)은 P-A1-DEFERRED로 본다.
+
+```sh
+# Actor: stack operator. 8초마다 글 여덟: 대화가 멈추지 않아도 첫 글 60초 뒤에 닫힌다.
+for i in 1 2 3 4 5 6 7 8; do a0_event "$AID" plain "$MAIN" $((S + 100 + i)) "" "$(a1_spec a1-w quiet human_conversation "")" >/dev/null; sleep 8; done
+sleep 22
+ap_compose logs --no-log-prefix slack | grep '"Slack message held for the judgment"' | tail -8 | jq -r .timestamp
+a0_sql "select closed_at, state, model_called from judgment_batches where slack_channel_id='$MAIN' order by closed_at desc limit 2"
+a0_sql "select outcome, cardinality(refs) as posts from conversation_judgments where slack_channel_id='$MAIN' order by created_at desc limit 2"
+```
+
+기대: 글 사이가 15초보다 짧아 조용한 때가 없다. 그래도 묶음 하나가 첫 글이 담긴 시각의 60–65초 뒤에 닫히고(두 run에서 64.6초와 60.6초, P-A1-BUFFER 첫 블록의 `rate_limited` 묶음은 63.7초) 그때까지 온 글(7–8개)을 한 번에 판단한다(`judged`). 그 뒤에 온 글이 있으면 조용해진 15–20초 뒤에 따로 닫힌다(둘의 `posts` 합이 8). 15초와 60초는 묶음이 닫힐 수 있게 되는 때이고, 실제로 닫는 것은 그 뒤 첫 M1 pass(5초 간격)다.
+
+끝을 모르는 M1 호출: provider가 5xx로 답한 M1 호출은 정산되지 않고 `in_flight`로 남아 그 채널의 M1 자리 하나를 쥔다(5분 뒤 unknown). 이 절차를 쓴 때의 동작은 이렇다. 그 채널에 담긴 글이 있는 동안 M1 pass마다(5초) `not_called`·`concurrency_limited` 기록과 묶음 한 줄이 생기고, pass가 거기서 끝나서 다른 채널의 묶음도 닫히지 않는다. 대본이 잘려 이렇게 됐으면 그 채널의 듣기를 `off`로 저장해 버퍼를 비우고(다른 채널이 다음 pass에서 판단된다), 5분 뒤 `a1_unknown resolve --call <id> --by owner@example.test --refund --reason …`으로 푼다.
+
+## P-A1-FOLD — 채널 요약 접기
+
+요약 줄의 합이 4,608바이트를 넘으면 그 줄을 쓴 판단 바로 뒤에 같은 에이전트가 오래된 줄을 한 줄로 접는다. 접기 호출은 접을 줄만 보내므로, 접기의 대본은 접히는 줄 안에 있어야 한다. 그 줄이 요약에 남아 있는 동안 그 채널의 M1 호출은 그 대본을 먼저 읽으므로, 채널 하나를 따로 쓰고 둘째 글에서 끝낸다. 접기는 채널마다 10분에 한 번만 시도한다.
+
+```sh
+# Actor: owner, then stack operator.
+a1_wide() { # <tag>: 1,056자, 약 2,500바이트인 요약 줄(한글은 글자당 3바이트). 30자마다 따옴표
+  jq -rn --arg t "$1" '[range(0;33)] | map("가나다라마바사아자차카타파하 " + $t + " " + (tostring|if length<2 then "0"+. else . end) + " 요약 줄을 채우는 글") | join("\"")'
+}
+a1_wide_fold() { # 같은 크기에 접기 호출의 대본이 든 줄
+  jq -rn '"앞 \"" + "CALL-SPEC " + ({id:"a1-fold", reply:({summary:"folded: the two long lines"}|tojson)}|tojson) + "\" " + ([range(0;32)] | map("가나다라마바사아자차카타파하 b " + (tostring|if length<2 then "0"+. else . end) + " 요약 줄을 채우는 글") | join("\""))'
+}
+ap_as owner
+a1_bind "$FOLD" free 60
+a0_event "$AID" plain "$FOLD" $((S + 3001)) "" "$(a1_spec a1-g1 quiet human_conversation "$(a1_wide a)")"
+a0_settle; a1_wait
+a0_event "$AID" plain "$FOLD" $((S + 3002)) "" "$(a1_spec a1-g2 quiet human_conversation "$(a1_wide_fold)")"
+a0_settle; sleep 30
+a0_sql "select outcome, summary from conversation_judgments where slack_channel_id='$FOLD' order by created_at"
+a0_sql "select version, fold_tried_at is not null as fold_tried, fold_claimed_until from channel_summaries where channel_id='$FOLD'"
+a0_sql "select left(text, 26) as text, octet_length(text) as bytes, from_version, to_version, (select count(*) from channel_summary_line_sources s where s.line_id=l.id) as sources from channel_summary_lines l where channel_id='$FOLD' order by from_version, ordinal"
+a0_sql "select c.call_class, c.root_kind, c.requester_user_id is null as no_requester, c.state, a.owner_kind from conversation_calls c join conversations v on v.id=c.conversation_id join budget_reservations r on r.call_id::text=c.id::text join budget_accounts a on a.id=r.account_id where v.channel_id='$FOLD' order by c.created_at"
+ap_compose logs --no-log-prefix api | grep '"Channel summary fold"' | tail -1 | jq -c .fields
+```
+
+기대: 판단 둘 다 `judged`·`written`. 둘째 줄이 합을 4,608바이트 위로 올리자(2,507 + 2,519) 접기가 돈다: 요약의 판은 3, `fold_tried` t, `fold_claimed_until` 비어 있음. 줄은 셋이다. 긴 줄 둘은 `to_version` 3으로 이력에 남고, 접은 줄 `folded: the two long lines`(26바이트)가 `from_version` 3으로 지금 판이며 출처는 접힌 줄들의 합(2)이다. 원장은 `m1` 둘과 `summary` 하나이고 모두 `none`·요청자 없음·`settled`·팀 계정이다. 로그 `Channel summary fold` `{"outcome":"written"}`.
+
+## P-A1-ADMIN — shadow 기록 보기와 끝을 모르는 예약 풀기(조건 7)
+
+```sh
+# Actor: stack operator. 2분 상한에 걸리는 턴: 그 호출은 끝을 모르는 채 남는다. P-A1-CONTEXT의 probe를 끝낸 뒤에 돌린다.
+a1_turn 'GATE-SPEC {"id":"a1-slow","steps":[],"final":"late","finalDelayMs":150000}'
+a0_sql "select state, limit_reached, limit_reached_by, ended_at - created_at as took from conversation_turns order by created_at desc limit 1"
+a0_sql "select call_key, state, started_at, unknown_at from conversation_calls where state='in_flight'"
+a1_turn 'GATE-SPEC {"id":"a1-held","steps":[],"final":"held"}'
+```
+
+기대: 2분 뒤 `"turn":{"outcome":"failed","reason":"time_limit"}`·`"limit_reached":{"limit":"time_limit","by":"runner"}` exit=3. 턴 줄은 `no_decision`·`time_limit`·`runner`·`took` 약 2분. 그 턴의 호출은 `in_flight`로 남는다(`unknown_at` 비어 있음). `started_at`을 적어 둔다. 그 호출이 주제의 자리를 쥐고 있어 같은 주제의 다음 턴은 `"refused":"concurrency"`로 exit=3이다.
+
+```sh
+# Actor: stack operator. started_at + 5분 뒤, reconciler가 그 호출을 unknown으로 표시한 다음.
+ap_compose logs --no-log-prefix reconciler | grep '"Budget reservations of unknown end held"' | tail -1 | jq -c '.fields | {owner_kind, unknown_count}'
+a1_unknown list
+CALL=$(a0_val "select id from conversation_calls where state='in_flight' and unknown_at is not null and call_class='m2'")
+a1_unknown resolve --call "$CALL" --by owner@example.test --dry-run
+a1_unknown resolve --call "$CALL" --by owner@example.test --refund 2>&1 | head -1
+a1_unknown resolve --call "$CALL" --by owner@example.test --reason 'verify: turn cut at its time limit'
+a1_unknown resolve --call "$CALL" --by owner@example.test
+a1_unknown list
+a0_sql "select c.state, r.state as reservation, r.resolution, r.settled_tokens, a.reserved_tokens from conversation_calls c join budget_reservations r on r.call_id::text=c.id::text join budget_accounts a on a.id=r.account_id where c.id='$CALL'"
+a0_sql "select status, actor->'principal'->>'kind' as actor, result->>'by' as by, result->>'call_kind' as call_kind, result->>'resolution' as resolution, result->>'reason' as reason, result->>'conversation_turn_id' is not null as turn from receipts where operation='resolve_unknown_budget'"
+a1_turn 'GATE-SPEC {"id":"a1-after","steps":[],"final":"after resolve"}'
+```
+
+기대: reconciler 로그는 팀 계정의 `unknown_count` 1. `list`는 `total.unknown_count` 1과 줄 하나(`call_kind` `conversation`, `owner_kind` `team`, `held_tokens` 102400, `session_id` null, `conversation_turn_id` 있음) exit=0. `--dry-run`은 `outcome` `dry_run`·줄 `would_resolve`·`receipt_id` null. 사유 없는 `--refund`는 `budget-unknown: --refund needs --reason`. 기본 풀기는 `outcome` `resolved`·`resolution` `spent`·`charged_tokens` 102400·`receipt_id` 있음 exit=0, 다시 하면 `unchanged`·`not_unknown` exit=0. 뒤의 `list`는 비어 있다. 호출은 `resolved`, 예약은 `resolved`·`spent`·`settled_tokens` 102400, 계정의 `reserved_tokens` 0. receipt 한 줄: `succeeded`, actor `user`, `by` `operator_cli`, `call_kind` `conversation`, `spent`, 준 사유, `turn` t. 푼 뒤에는 같은 주제의 턴이 다시 돈다: `"turn":{"outcome":"completed","text":"after resolve"}` exit=0. `--refund --reason`은 0으로 돌려준다(`resolution` `refunded`, `charged_tokens` 0). 한 run에서 5xx로 남은 M1 호출을 그렇게 풀었다.
+
+```sh
+# Actor: owner, then a member who is not the agent's admin.
+ap_as owner
+ap_web GET "/v1/agents/$AID/slack/judgments" | head -1 | jq -c '{channels: [.channels[]|{channel_id, m1_judgments_per_hour, judgments, speak, reasons}], recent: (.recent|length), item_keys: (.recent[0]|keys)}'
+a0_sql "select slack_channel_id, count(*) as judgments, count(*) filter (where decision='speak') as speak, count(*) filter (where outcome='voided') as voided from conversation_judgments group by 1 order by 1"
+node "$U" "$RUN" invite owner mem member | tail -1
+node "$U" "$RUN" accept mem | tail -1
+node "$U" "$RUN" login mem | tail -1
+ap_as mem
+ap_web GET "/v1/agents/$AID/slack/judgments" | tail -2
+node "$B" "$RUN" start
+node "$B" "$RUN" login owner
+node "$B" "$RUN" open "/agents/$AID?tab=slack"
+node "$B" "$RUN" eval '(() => { const t = document.querySelector("main").innerText; const i = t.lastIndexOf("판단 기록"); return t.slice(i, i + 900); })()'
+```
+
+기대: owner는 200. 채널마다 `judgments`·`speak`·이유 코드 분포가 SQL과 같다. API의 `judgments`는 SQL의 `judgments`에서 `voided`를 뺀 수다(버려진 기록은 세지 않는다). `MAIN`의 `speak` 1, `CAPPED`의 `m1_judgments_per_hour` 1. `item_keys`는 `channel_id`·`decision`·`grade`·`id`·`judged_at`·`outcome`·`reason`·`slack_team_id`·`ts`·`url`이고 본문은 없다. 에이전트 관리자가 아닌 구성원은 403 `FORBIDDEN`(`This principal does not hold judgment.read`). 화면의 "판단 기록"에는 같은 숫자(판단 수, 끼어들기 비율, 이유 코드)와 최근 판단 목록이 있고, 글은 "Slack에서 보기" 링크뿐이다. 비공개 채널의 기록을 그 채널 멤버만 보는 것, 상한 편집은 a1/S3의 스택 확인이 봤다.
+
+## P-A1-DEFERRED — a1이 미룬 확인
+
+스택에서 내지 못한 것과 넘긴 것이다. 실행 경로가 생기면 그 epic에서 실제 출력을 낸다.
+
+| 무엇 | 왜 여기서 못 보나 | 누가 보나 |
+|---|---|---|
+| 대화 턴(M2)을 실제 모델로 처음 돌리기 | a1의 M2는 시험 스택(fake 모델)과 통합 시험으로만 확인한다 | v1-b의 완료 조건 |
+| 웹 입력(`createWebInputService`)의 실제 출력 | 공개 route가 없다(P-A0-DEFERRED) | 웹 입력 route를 여는 epic |
+| 실제 모델의 M1 판단과 demo | 이 절차는 fake 모델만 쓴다 | a1/S5 |
+| 게스트의 글(`guest_author`)이 담기지 않는 것 | mock의 `/fake/users`가 게스트를 만들지 못한다 | integration (surface)의 "Slack Connect and guests in the judgment buffer" |
+| 채널 요약의 옛 판이 7일 뒤 지워지는 것 | 스택에서 판을 7일 묵힐 사용자 경로가 없다. DB는 읽기만 한다 | integration (db)의 channel-summaries 시험. 스택에서는 pass 로그와 판의 `made_at`까지 |
+| 릴리스의 지침 스냅숏을 실제 GitHub에서 읽기 | sandbox App이 필요하다(`SANDBOX_APP_ID`, P-GITHUB-SANDBOX) | GitHub sandbox run |
+| 사람이나 에이전트가 청한 턴, 비공개 채널의 읽기 문 | 운영자 명령은 요청자 없는 턴만 낸다 | v1-b(Slack 글이 턴을 일으키는 길) |
 
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 

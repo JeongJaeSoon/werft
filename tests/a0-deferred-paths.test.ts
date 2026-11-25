@@ -10,13 +10,11 @@ const root = join(import.meta.dir, "..");
  * Entry points a0 built and tested without a caller: no route, operator
  * command or runtime path reaches them yet, so the a0 completion check
  * (verify-werft P-A0-DEFERRED) took their integration test output as their
- * real output. Each is named here with the one file that declares it.
+ * real output. Each is named here with the one file that declares it. The
+ * context assembler left the list when a1's check gave its real output
+ * (P-A1-CONTEXT).
  */
 const deferred = new Map([
-  [
-    "assembleContext",
-    "packages/platform/src/conversations/context-assembler.ts",
-  ],
   [
     "createWebInputService",
     "packages/platform/src/conversations/web-inputs.ts",
