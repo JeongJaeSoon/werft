@@ -127,11 +127,6 @@ export type RowDeliveryDeps = {
     SlackBotSender,
     "postMessage" | "postEphemeral" | "userImage" | "editMessage"
   >;
-  /**
-   * Whether a session's direct message would reach someone outside its
-   * private channels (`readerOutsideChannels`); such a row never goes out.
-   */
-  readerOutside?: (claim: SurfaceOutboxClaim) => Promise<boolean>;
   /** Null when the app has no readable token: the row waits, unsent. */
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   consoleOrigin: string | null;
@@ -183,9 +178,6 @@ const editRefusal = (response: SlackSendResponse) => {
 
 // Nothing but formatting marks left: Slack would show an empty message.
 const isBlank = (text: string) => /^[\s*_~`>#|-]*$/.test(text);
-
-/** A session's direct message held back from someone who cannot see it. */
-export const SLACK_READER_OUTSIDE_CODE = "reader_outside_channel";
 
 export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
   // An instruction goes under its sender's name and profile image. An app
@@ -341,15 +333,8 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       );
     };
     // Before the token and any Slack call: such a row never goes out.
-    if (slackOutboxChannelRefused(claim.kind, claim.channelId)) {
+    if (slackOutboxChannelRefused(claim.channelId)) {
       return { kind: "failed", code: SLACK_USER_CHANNEL_CODE };
-    }
-    if (
-      claim.kind === "model_notice" &&
-      claim.sessionId !== null &&
-      (await deps.readerOutside?.(claim))
-    ) {
-      return { kind: "failed", code: SLACK_READER_OUTSIDE_CODE };
     }
     let botToken: string | null;
     try {
@@ -372,8 +357,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     const postedAs = begun === true ? null : begun;
 
     // A card's text is its own, escaped and linked already.
-    // A model notice is a direct message with no thread: it opens the
-    // session instead.
+    // A model notice links the session, where the fix is made.
     const modelLink =
       claim.kind === "model_notice" && claim.sessionId !== null
         ? sessionUrl(deps.consoleOrigin, claim.sessionId)

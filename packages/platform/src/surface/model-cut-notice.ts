@@ -5,30 +5,15 @@ import {
 } from "@werft-ai/contracts";
 
 /**
- * One DM per Slack account per session, however many attempts the proxy cuts
- * after the model left the connection's list. Someone who becomes an
- * administrator between two cuts is told at the next one. A Slack user id is
- * unique only within its installation's team.
+ * One post in the session's thread, however many attempts the proxy cuts
+ * after the model left the connection's list.
  */
 export function modelCutDedupeKey(
   workspaceId: string,
   sessionId: string,
-  installationId: string,
-  slackUserId: string,
+  sessionLinkId: string,
 ): string {
-  return `model-not-allowed:${workspaceId}:${sessionId}:${installationId}:${slackUserId}`;
-}
-
-/**
- * The key a cut was told under before installations were in it. A session cut
- * again after the change must not tell the same account a second time.
- */
-export function modelCutDedupeKeyWithoutInstallation(
-  workspaceId: string,
-  sessionId: string,
-  slackUserId: string,
-): string {
-  return `model-not-allowed:${workspaceId}:${sessionId}:${slackUserId}`;
+  return `model-not-allowed:${workspaceId}:${sessionId}:${sessionLinkId}`;
 }
 
 const COPY: Record<

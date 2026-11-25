@@ -25,9 +25,11 @@ import type {
  * ephemeral to the person who typed. `welcome`: a deployment's one message
  * in the agent's home channel, outside any thread (`threadTs` is "").
  * `instruction`: an input sent from the web or the API, shown in the thread
- * ahead of its answer. `model_notice`: a direct message to one person (their
- * Slack user id is the `channelId`, `threadTs` is "") that a session's model
- * left the agent's allowed list. `input_mirror`: a web input shown in Slack
+ * ahead of its answer. `model_notice`: a session's model left the agent's
+ * allowed list or moved, or its worker image was retracted, told in the
+ * session's thread with a link to the session; no person is sent one
+ * directly, and a session with no thread is told on the web only.
+ * `input_mirror`: a web input shown in Slack
  * as an `instruction` is, with no session; its post's ts becomes the input's
  * Slack alias, and its topic's when the topic had none (`threadTs` "" then).
  * `channel_notice`: the one line telling a channel the agent reads it, once

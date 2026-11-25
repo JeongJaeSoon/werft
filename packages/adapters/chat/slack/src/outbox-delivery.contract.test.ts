@@ -44,7 +44,6 @@ const bodies: Record<SurfaceOutboxKind, SurfaceOutboxClaim["body"]> = {
 };
 
 function rowOf(kind: SurfaceOutboxKind): SurfaceOutboxClaim {
-  const direct = kind === "model_notice";
   return {
     id: `row-${kind}`,
     claimToken: "claim-1",
@@ -54,14 +53,11 @@ function rowOf(kind: SurfaceOutboxKind): SurfaceOutboxClaim {
     slackAppId: SLACK_APP,
     installationId: "installation-1",
     kind,
-    // A model notice is a direct message to one person, outside any thread.
-    channelId: direct ? "U0A" : "C0OPS",
+    channelId: "C0OPS",
     threadTs:
-      direct || kind === "welcome" || kind === "channel_notice"
-        ? ""
-        : "100.000100",
+      kind === "welcome" || kind === "channel_notice" ? "" : "100.000100",
     slackUserId: kind === "notice" ? "U0A" : null,
-    sessionId: direct ? "session-1" : null,
+    sessionId: kind === "model_notice" ? "session-1" : null,
     sessionLinkId: null,
     body: bodies[kind],
     dedupeKey: `${kind}:1`,

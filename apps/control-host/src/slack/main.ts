@@ -45,13 +45,11 @@ import {
   createAuthorizationPolicy,
   createCatalogRegistry,
   createSessionService,
-  readerOutsideChannels,
   registryCatalog,
   repositoryView,
   requesterLeft,
   type SecretKey,
   type SurfaceInboundEventStore,
-  type SurfaceOutboxClaim,
   settingsView,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -302,42 +300,6 @@ function slackRequesterLeft(
     requesterLeft(deps, card);
 }
 
-/** A session's direct message goes only to someone who can see it. */
-function slackReaderOutside(
-  db: Database,
-  secretKey: SecretKey,
-  environment: Environment,
-  logger: StructuredLogger,
-) {
-  const sessions = createPostgresSessionShareStore(db);
-  const members = wireSlackChannelMembers({
-    apiUrl: slackApiUrlFrom(environment),
-    appStore: createPostgresSlackAppStore(db, secretKey),
-    secrets: () => createPostgresSecretStore(db, secretKey),
-    store: createPostgresChannelMemberStore(db),
-    logger,
-  });
-  // The account the row is addressed to, in the row's install: a person
-  // who relinked since is not asked about in its place.
-  return async (claim: SurfaceOutboxClaim) =>
-    claim.sessionId !== null &&
-    (await readerOutsideChannels(
-      { sessions },
-      {
-        workspaceId: claim.workspaceId,
-        sessionId: claim.sessionId,
-        membership: (place) =>
-          members.slackMembership({
-            workspaceId: claim.workspaceId,
-            agentId: place.agentId.toLowerCase(),
-            channelId: place.channelId,
-            installationId: claim.installationId,
-            slackUserId: claim.channelId,
-          }),
-      },
-    ));
-}
-
 // The pass child serves pass after pass, so this flips each pass: statuses
 // and posts take turns at the start of the outbox window.
 let statusesFirst = false;
@@ -402,7 +364,6 @@ export async function main(
       apiUrl: slackApiUrlFrom(environment),
       secrets,
       consoleOrigin,
-      readerOutside: slackReaderOutside(db, secretKey, environment, logger),
       logger,
     });
     const sent = await drainSlackOutbox({

@@ -336,16 +336,6 @@ export interface AgentStore {
     agentId: string,
     releaseId: string,
   ): Promise<string | null>;
-  /** Writes nothing unless the agent is still on `releaseId` at `revision`. */
-  notifyModelMigrationFailed(input: {
-    workspaceId: string;
-    agentId: string;
-    from: string;
-    to: string;
-    reason: string;
-    releaseId: string;
-    revision: number;
-  }): Promise<number>;
   /**
    * `UPDATE agents … WHERE activation_revision = expected`, the release's
    * first approval, an `activated` event and a receipt in one transaction.

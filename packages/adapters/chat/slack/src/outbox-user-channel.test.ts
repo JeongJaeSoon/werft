@@ -80,6 +80,7 @@ const REFUSED_KINDS: SurfaceOutboxKind[] = [
   "input_notice",
   "welcome",
   "action_notice",
+  "model_notice",
 ];
 
 describe("an outbox row whose channel is a Slack user id", () => {
@@ -95,12 +96,6 @@ describe("an outbox row whose channel is a Slack user id", () => {
       });
     }
   }
-
-  test("a model notice still goes to the person as a direct message", async () => {
-    const sent = await deliver(rowOf("model_notice", "U0PERSON"));
-    expect(sent.outcome.kind).toBe("sent");
-    expect(sent.posted).toEqual(["U0PERSON"]);
-  });
 });
 
 describe("an outbox row whose channel is a conversation", () => {
