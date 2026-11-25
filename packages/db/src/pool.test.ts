@@ -213,7 +213,14 @@ describe("a client whose connection is gone", () => {
       await gone;
       expect(seen.releases).toBe(1);
       expect(pool.totalCount).toBe(0);
-      // The holder carries on: its next statement meets an expired deadline,
+      // What the holder's next statement meets: a failure the API answers
+      // with a retryable 503, and no client (it carries the password).
+      const failure = await client
+        .query("SELECT 1")
+        .catch((error: unknown) => error);
+      expect(isConnectionFailure(failure)).toBe(true);
+      expect(Object.keys(failure as object)).not.toContain("client");
+      // The holder carries on: a later statement meets an expired deadline,
       // which evicts, and then it releases. pg-pool throws on a second
       // release of one checkout.
       const deadline = new RequestDeadline(performance.now() + 60_000);
