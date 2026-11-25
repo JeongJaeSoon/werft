@@ -30,9 +30,9 @@ import {
  */
 
 const GRANT_VERSION = "v1";
-export const GITHUB_MCP_GRANT_TTL_MS = 60_000;
+export const BUILTIN_MCP_GRANT_TTL_MS = 60_000;
 
-export type GitHubMcpGrant = { sessionId: string; attemptId: string };
+export type BuiltinMcpGrant = { sessionId: string; attemptId: string };
 
 const grantPayloadSchema = z
   .object({
@@ -47,16 +47,16 @@ function mac(key: Uint8Array, signed: string): Buffer {
 }
 
 /** The bearer the authorizer hands the proxy for one exchange. */
-export function signGitHubMcpGrant(
+export function signBuiltinMcpGrant(
   key: Uint8Array,
-  grant: GitHubMcpGrant,
+  grant: BuiltinMcpGrant,
   nowMs: number,
 ): string {
   const payload = Buffer.from(
     JSON.stringify({
       session_id: grant.sessionId,
       attempt_id: grant.attemptId,
-      exp: nowMs + GITHUB_MCP_GRANT_TTL_MS,
+      exp: nowMs + BUILTIN_MCP_GRANT_TTL_MS,
     }),
     "utf8",
   ).toString("base64url");
@@ -65,11 +65,11 @@ export function signGitHubMcpGrant(
 }
 
 /** The session and attempt a bearer names, or null for any other bearer. */
-export function verifyGitHubMcpGrant(
+export function verifyBuiltinMcpGrant(
   key: Uint8Array,
   bearer: string,
   nowMs: number,
-): GitHubMcpGrant | null {
+): BuiltinMcpGrant | null {
   const parts = bearer.split(".");
   if (parts.length !== 3 || parts[0] !== GRANT_VERSION) return null;
   const [, payload = "", given = ""] = parts;
@@ -122,7 +122,7 @@ export function createGitHubMcpServer(deps: {
   });
 
   return async function handle(
-    grant: GitHubMcpGrant,
+    grant: BuiltinMcpGrant,
     message: unknown,
     requestId: string,
   ): Promise<JsonRpcResponse | null> {

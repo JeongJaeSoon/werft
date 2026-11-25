@@ -168,7 +168,7 @@ describe("who may change workspace MCP servers", () => {
         }),
       ),
     ).toEqual({ code: "BAD_REQUEST", reason: "url_invalid" });
-    for (const name of ["github", "browser", "memory"]) {
+    for (const name of ["github", "browser", "memory", "werft"]) {
       expect(
         await refusal(service.create(admin, { ...oauthBody, name })),
       ).toEqual({

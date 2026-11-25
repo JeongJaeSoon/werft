@@ -22,4 +22,7 @@ export const WORKER_CAPABILITIES: WorkerCapabilities = {
   // mcpServersOf (composition.ts) routes every `mcp_servers` entry, however
   // many, through its own `/mcp/<name>` proxy path.
   workspace_mcp: true,
+  // The adapters leave the built-in `werft` server out of the checkpoint
+  // fingerprint and relay its instructions, resources and prompts.
+  werft_mcp: true,
 };

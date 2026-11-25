@@ -5,6 +5,7 @@ import type {
   RuntimeCapabilityTable,
   Support,
 } from "./descriptor.ts";
+import { builtinWerft } from "./platform-mcp.ts";
 
 /** The features a session's settings cannot run without. */
 export type RuntimeRequirements = { features: readonly FeatureKey[] };
@@ -14,7 +15,11 @@ export function runtimeRequirementsOf(
     Partial<Pick<RuntimeConfig, "extensions" | "mcp_servers">>,
 ): RuntimeRequirements {
   const features: FeatureKey[] = [];
-  if ((runtimeConfig.mcp_servers ?? []).length > 0) features.push("mcp");
+  // The built-in `werft` server is the platform's, not a setting of the
+  // session: a session runs without it on an engine that has no MCP.
+  if ((runtimeConfig.mcp_servers ?? []).some((s) => !builtinWerft(s))) {
+    features.push("mcp");
+  }
   if ((runtimeConfig.extensions ?? []).length > 0) features.push("skills");
   if (runtimeConfig.permission_mode === "auto") {
     features.push("classifier_review");

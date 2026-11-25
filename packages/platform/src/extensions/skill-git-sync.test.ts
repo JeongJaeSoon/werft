@@ -332,7 +332,7 @@ function setup(
             ]
           ).map((one) => ({ ...one, secret: SECRET }))
         : [],
-    webhookUrl:
+    webhookUrl: async () =>
       options.webhookUrl === undefined
         ? "https://werft.example.com/v1/github/webhook"
         : options.webhookUrl,

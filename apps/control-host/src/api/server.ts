@@ -38,6 +38,7 @@ import {
   createPostgresGitHubPackagesStore,
   createPostgresGitHubPinStore,
   createPostgresGitHubSettingsStore,
+  createPostgresGitHubWebhookSettingsStore,
   createPostgresInstallationConfigStore,
   createPostgresInstallationSettingsStore,
   createPostgresInviteStore,
@@ -91,6 +92,7 @@ import {
   fillSessionParents,
   forgetLostCheckpointsAtStart,
   hasUncollectedCheckpoint,
+  listGitHubWebhookApps,
   moveSummaryLinks,
   newSessionGitHubReaders,
   openLostCheckpointNotices,
@@ -170,6 +172,7 @@ import {
   createTeamService,
   createTopicSessionChecks,
   createUsageService,
+  createWerftMcpServer,
   createWorkerGateway,
   createWorkspaceMcpService,
   derivedSecretKey,
@@ -183,6 +186,8 @@ import {
   SessionServiceError,
   SKILL_DAILY_CHECK_PASS_MS,
   settingsJudgeConnections,
+  werftMcpToolNames,
+  werftVersionOf,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
@@ -193,6 +198,7 @@ import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
 import {
   wireAppBotUsers,
   wireGitHubAppDirectory,
+  wireGitHubAppHookConfig,
   wireGitHubConnections,
   wireGitHubManifestConverter,
   wireGitHubRegistry,
@@ -263,6 +269,7 @@ import {
   egressAuthorizerConfigFromEnv,
   githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
+  werftMcpGrantKeyOf,
 } from "./egress-authorizer.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
@@ -270,6 +277,11 @@ import {
   githubPackagesConfigFromEnv,
   githubPackagesOutbound,
 } from "./github-packages-config.ts";
+import {
+  carryOverGitHubWebhookSettings,
+  createGitHubWebhookSettingsAdmin,
+  githubWebhookUrlFrom,
+} from "./github-webhook-settings.ts";
 import {
   createInstallationConfigAdmin,
   sessionArchiveStatusOf,
@@ -308,10 +320,8 @@ import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
 import { registerGitHubRepositoryRoutes } from "./routes/github/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
-import {
-  githubWebhookUrlFrom,
-  registerGitHubWebhookRoutes,
-} from "./routes/github/github-webhook.ts";
+import { registerGitHubWebhookRoutes } from "./routes/github/github-webhook.ts";
+import { registerGitHubWebhookSettingsRoutes } from "./routes/github/github-webhook-settings.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
@@ -393,6 +403,7 @@ import {
   startTelemetryIngest,
   warnCollectorOnEgressAllowlist,
 } from "./tracing-startup.ts";
+import { werftMcpParts } from "./werft-mcp.ts";
 import {
   workspaceMcpHostsFromEnv,
   workspaceMcpOutbound,
@@ -1073,13 +1084,21 @@ const githubRepositories = createGitHubRepositoryService({
   changed: () => catalogRegistry.refresh(),
 });
 const githubInstallations = createPostgresGitHubInstallationStore(db);
-const githubWebhookUrl = githubWebhookUrlFrom(process.env);
-if (githubWebhookUrl === null) {
-  logger.info(
-    "GitHub skills sync without push webhooks (GITHUB_WEBHOOK_BASE_URL unset)",
-    {},
-  );
-}
+const { store: githubWebhookSettingsStore } = carryOverGitHubWebhookSettings({
+  env: process.env,
+  store: createPostgresGitHubWebhookSettingsStore(db),
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+  info: (message, fields) => logger.info(message, fields ?? {}),
+  retryMs: CATALOG_READ_RETRY_MS,
+});
+const githubWebhookUrl = githubWebhookUrlFrom(githubWebhookSettingsStore);
+const githubWebhookSettingsAdmin = createGitHubWebhookSettingsAdmin({
+  authorization,
+  store: githubWebhookSettingsStore,
+  apps: () => listGitHubWebhookApps(db, secretKey),
+  setHook: wireGitHubAppHookConfig({ logger }),
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+});
 const githubApps = createGitHubAppService({
   authorization,
   store: githubAppStore,
@@ -1103,6 +1122,16 @@ const githubApps = createGitHubAppService({
     webBase: "https://github.com",
     refused: (check) =>
       logger.warn("GitHub App manifest state refused", { check }),
+    // The App and its key are stored by then: a failed follow must not turn
+    // the completion into an error the spent state cannot retry.
+    followHook: (app) =>
+      githubWebhookSettingsAdmin.follow(app).catch((error: unknown) => {
+        logger.warn("A new GitHub App's webhook URL was not checked", {
+          app_id: app.appId,
+          error: error instanceof Error ? error.name : "error",
+        });
+        return null;
+      }),
   },
   installations: {
     store: githubInstallations,
@@ -1335,6 +1364,25 @@ if (titleEgressUrl === null) {
 const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const githubMcpGrantKey =
   egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
+// The built-in `werft` MCP server every session has: what it serves is its
+// parts', and a claim trusts exactly the tools they name.
+const werftVersion = werftVersionOf(process.env);
+const werftMcpServerParts = werftMcpParts({ version: werftVersion });
+const werftMcp = createWerftMcpServer({
+  parts: werftMcpServerParts,
+  version: werftVersion,
+  // No message: an exception's text can carry what a part read.
+  onInternalError: (error, { method, name, call }) =>
+    logger.error("Werft MCP call failed", {
+      session_id: call.sessionId,
+      request_id: call.requestId,
+      method,
+      name,
+      error: error instanceof Error ? error.name : "error",
+    }),
+});
+const werftMcpGrantKey =
+  egressAuthorizer === null ? null : werftMcpGrantKeyOf(egressAuthorizer);
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
 // Skill trees live in the checkpoint bucket; without one the routes are absent.
 const skillObjects = extensionBundleObjects(checkpointStorage);
@@ -1473,6 +1521,14 @@ const workers = createWorkerGateway({
   ...(githubMcpGrantKey === null
     ? {}
     : { githubMcp: { store: githubMcpStore, grantKey: githubMcpGrantKey } }),
+  ...(werftMcpGrantKey === null
+    ? {}
+    : {
+        werftMcp: {
+          grantKey: werftMcpGrantKey,
+          tools: werftMcpToolNames(werftMcpServerParts),
+        },
+      }),
   githubPackages: {
     store: githubPackagesStore,
     upstreams: githubPackagesConfig.upstreams,
@@ -1539,6 +1595,9 @@ const authorizerListener =
               : {
                   githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
                 }),
+            ...(werftMcpGrantKey === null
+              ? {}
+              : { werftMcp: { handle: werftMcp, grantKey: werftMcpGrantKey } }),
             ...(checkpointStorage === "disabled"
               ? {}
               : {
@@ -1712,6 +1771,7 @@ const app = createApiApp({
     registerLoginProviderRoutes(router, providerAdmin);
     registerLoginSettingsRoutes(router, loginSettingsAdmin);
     registerSlackSettingsRoutes(router, slackSettingsAdmin);
+    registerGitHubWebhookSettingsRoutes(router, githubWebhookSettingsAdmin);
     registerInstallationConfigRoutes(router, installationConfigAdmin);
     registerLostCheckpointNoticeRoutes(router, lostCheckpointNoticesAdmin);
     registerInstallationStatusRoutes(router, installationStatusReader);

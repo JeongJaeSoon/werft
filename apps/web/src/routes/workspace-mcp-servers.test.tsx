@@ -292,7 +292,7 @@ describe("워크스페이스 MCP 서버", () => {
     await user.click(within(dialog).getByRole("button", { name: "등록" }));
     expect(
       await within(dialog).findByText(
-        "github와 browser는 쓸 수 없는 이름입니다.",
+        "github, browser, memory, werft는 쓸 수 없는 이름입니다.",
       ),
     ).toBeDefined();
     expect(writes(api.calls).map((call) => call.path)).toEqual([

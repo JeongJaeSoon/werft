@@ -128,6 +128,7 @@ import {
   githubRepositoryWriteResponseSchema,
   githubSettingsResponseSchema,
   githubWebhookResponseSchema,
+  githubWebhookSettingsSchema,
   githubWorkflowRunSchema,
   healthResponseSchema,
   INSTALLATION_CONFIG,
@@ -286,6 +287,8 @@ import {
   resolveSlackBindingRequestSchema,
   resolveSlackBindingResponseSchema,
   resumeSessionRequestSchema,
+  retryGitHubWebhookUpdatesRequestSchema,
+  retryGitHubWebhookUpdatesResponseSchema,
   revertSkillResponseSchema,
   reviewAchievementRequestSchema,
   reviewAchievementResponseSchema,
@@ -374,6 +377,8 @@ import {
   updateAchievementTypeRequestSchema,
   updateAgentRequestSchema,
   updateAuthMeRequestSchema,
+  updateGitHubWebhookSettingsRequestSchema,
+  updateGitHubWebhookSettingsResponseSchema,
   updateInstallationConfigRequestSchema,
   updateInstallationConfigResponseSchema,
   updateLoginProviderRequestSchema,
@@ -493,6 +498,8 @@ const requestComponents = {
   UpdateLoginProviderRequest: updateLoginProviderRequestSchema,
   UpdateLoginSettingsRequest: updateLoginSettingsRequestSchema,
   UpdateSlackSettingsRequest: updateSlackSettingsRequestSchema,
+  UpdateGitHubWebhookSettingsRequest: updateGitHubWebhookSettingsRequestSchema,
+  RetryGitHubWebhookUpdatesRequest: retryGitHubWebhookUpdatesRequestSchema,
   UpdateInstallationConfigRequest: updateInstallationConfigRequestSchema,
   CloseLostCheckpointNoticesRequest: closeLostCheckpointNoticesRequestSchema,
   SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
@@ -634,6 +641,10 @@ const responseComponents = {
   PutSlackConfigTokenResponse: putSlackConfigTokenResponseSchema,
   SlackSettings: slackSettingsSchema,
   UpdateSlackSettingsResponse: updateSlackSettingsResponseSchema,
+  GitHubWebhookSettings: githubWebhookSettingsSchema,
+  UpdateGitHubWebhookSettingsResponse:
+    updateGitHubWebhookSettingsResponseSchema,
+  RetryGitHubWebhookUpdatesResponse: retryGitHubWebhookUpdatesResponseSchema,
   InstallationConfig: installationConfigSchema,
   UpdateInstallationConfigResponse: updateInstallationConfigResponseSchema,
   LostCheckpointNotices: lostCheckpointNoticesSchema,
@@ -2545,7 +2556,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Store the push webhook secret of one of the workspace's GitHub Apps (owner or admin)",
     description:
-      "For an App added with its key, or made before this server had a public address: the manager sets the App's webhook on GitHub to the URL the App's `webhook.url` shows, turns on the push event, and enters the same secret here. An App made from the console's manifest while `GITHUB_WEBHOOK_BASE_URL` is set already has both. `role` is a role or a connection id, as for PUT …/github-apps/{role}. The secret is sealed like the App's key and is in no response, receipt, log or error; a push delivery is read only when a stored secret of its App verifies `X-Hub-Signature-256`. Writes a `set_github_app` receipt with `purpose: webhook_secret`. API keys are refused.",
+      "For an App added with its key, or made before this server had a public address: the manager sets the App's webhook on GitHub to the URL the App's `webhook.url` shows, turns on the push event, and enters the same secret here. An App made from the console's manifest while a webhook address is saved (PUT /v1/github-webhook-settings) already has both. `role` is a role or a connection id, as for PUT …/github-apps/{role}. The secret is sealed like the App's key and is in no response, receipt, log or error; a push delivery is read only when a stored secret of its App verifies `X-Hub-Signature-256`. Writes a `set_github_app` receipt with `purpose: webhook_secret`. API keys are refused.",
     auth: "session",
     body: "PutGitHubAppWebhookSecretRequest",
     requestExample: { secret: "the-same-string-entered-on-github" },
@@ -3632,6 +3643,91 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BAD_REQUEST:
         "Also when the address is not an https URL without a query, fragment or credentials (`details.reason_code: events_url_invalid`), or is longer than 2048 characters.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/github-webhook-settings",
+    operationId: "getGitHubWebhookSettings",
+    tag: "Installation settings",
+    summary: "Where GitHub's App webhooks enter, for the whole installation",
+    description: `${SETTINGS_OWNER} \`webhook_public_url\` is the https base an owner saved, where GitHub reaches this API; null when none is, and then Apps made from the console's manifest get no webhook and Git skills sync without push deliveries. \`webhook_url\` is what an App's webhook is set to (\`<base>/v1/github/webhook\`). \`apps\` are the Apps a save sets: one per App that a connection in any workspace holds a webhook secret for; \`other_workspaces\` counts the workspaces besides the caller's that hold it. An App added with its key and no webhook secret is not set. The value applies to every workspace of the installation.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "GitHubWebhookSettings",
+      description:
+        "The saved address, the webhook URL, and the Apps a save sets.",
+      example: {
+        webhook_public_url: "https://hooks.example.com",
+        webhook_url: "https://hooks.example.com/v1/github/webhook",
+        apps: [
+          { app_id: 123456, name: "werft-agent-1a2b", other_workspaces: 0 },
+        ],
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/github-webhook-settings",
+    operationId: "updateGitHubWebhookSettings",
+    tag: "Installation settings",
+    summary: "Save or clear where GitHub's App webhooks enter",
+    description: `${SETTINGS_OWNER} \`webhook_public_url\`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it. A change is one transaction and one receipt (\`update_github_webhook_settings\`, the saved and the previous address); the value already saved answers 200 without \`receipt_id\`, leaves no receipt and sets no App. After a changed address commits, each App in \`apps\` is set to the new \`webhook_url\` on GitHub with its own JWT (\`PATCH /app/hook/config\`, the URL only: the secret and content type stay), and \`updates\` says what GitHub answered per App: \`updated\`, or \`failed\` with \`reason_code\` \`github_rejected\` (GitHub refused the App's token), \`url_refused\` (GitHub refused the URL), \`github_unreachable\`, or \`key_unreadable\` (no key of the App opens under this server's master key). A failed App keeps its old URL; the address stays saved either way, and POST /v1/github-webhook-settings/retry sends it again. What GitHub answered is in no receipt and is not kept. Clearing sets no App: GitHub's hook config cannot turn a webhook off.`,
+    auth: "session",
+    body: "UpdateGitHubWebhookSettingsRequest",
+    requestExample: { webhook_public_url: "https://hooks.example.com" },
+    success: {
+      status: 200,
+      schema: "UpdateGitHubWebhookSettingsResponse",
+      description:
+        "The settings after the change, and what GitHub said per App.",
+      example: {
+        webhook_public_url: "https://hooks.example.com",
+        webhook_url: "https://hooks.example.com/v1/github/webhook",
+        apps: [
+          { app_id: 123456, name: "werft-agent-1a2b", other_workspaces: 0 },
+        ],
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        updates: [
+          { app_id: 123456, name: "werft-agent-1a2b", outcome: "updated" },
+        ],
+      },
+    },
+    errors: [400, 401, 403, 503],
+    errorNotes: {
+      BAD_REQUEST:
+        "Also when the address is not an https URL without a query, fragment or credentials (`details.reason_code: webhook_url_invalid`), or is longer than 2048 characters.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/github-webhook-settings/retry",
+    operationId: "retryGitHubWebhookUpdates",
+    tag: "Installation settings",
+    summary: "Set Apps whose webhook update failed to the saved address again",
+    description: `${SETTINGS_OWNER} \`app_ids\` (1 to 100) are App ids from a save's \`updates\`; each is set to the saved \`webhook_url\` on GitHub again, as the save does, and \`updates\` answers per App. An id that is no longer an App in \`apps\` answers \`failed\` with \`reason_code: not_found\` and \`name: null\`. Writes no receipt: the saved address does not change.`,
+    auth: "session",
+    body: "RetryGitHubWebhookUpdatesRequest",
+    requestExample: { app_ids: [123456] },
+    success: {
+      status: 200,
+      schema: "RetryGitHubWebhookUpdatesResponse",
+      description: "What GitHub said per App.",
+      example: {
+        updates: [
+          { app_id: 123456, name: "werft-agent-1a2b", outcome: "updated" },
+        ],
+      },
+    },
+    errors: [400, 401, 403, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "No address is saved (`details.reason_code: webhook_url_unset`): save one first.",
     },
     idempotent: false,
   },
@@ -7804,7 +7900,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "GitHub callbacks",
     summary: "GitHub's webhook URL for the workspaces' GitHub Apps",
     description:
-      "Called by GitHub, not by people: an App's webhook points here (`<GITHUB_WEBHOOK_BASE_URL>/v1/github/webhook`), one URL for every App. `X-GitHub-Hook-Installation-Target-ID` names the App; the raw body, read up to 64 KiB (413 above that), must carry an `X-Hub-Signature-256` that one stored webhook secret of that App verifies, compared in constant time, before anything in it is read. A missing or wrong signature, or an App with no secret stored, answers 401 and starts nothing. A signed `push` is read only for `installation.id`, `repository.id` and `ref`, and starts a check of every Git skill whose sync is on with that installation, repository (by id) and ref, for the workspaces whose secret verified it; the check resolves the ref through the GitHub API again and never uses the commit or files the body names. It answers 202 before the checks run. Any other event answers 202 and is ignored. Deliveries are not deduplicated by `X-GitHub-Delivery`: the check gives the same result however often a push arrives. Rate limited per App and overall before any database read (429).",
+      "Called by GitHub, not by people: an App's webhook points here (`<webhook_public_url>/v1/github/webhook`, saved with PUT /v1/github-webhook-settings), one URL for every App. `X-GitHub-Hook-Installation-Target-ID` names the App; the raw body, read up to 64 KiB (413 above that), must carry an `X-Hub-Signature-256` that one stored webhook secret of that App verifies, compared in constant time, before anything in it is read. A missing or wrong signature, or an App with no secret stored, answers 401 and starts nothing. A signed `push` is read only for `installation.id`, `repository.id` and `ref`, and starts a check of every Git skill whose sync is on with that installation, repository (by id) and ref, for the workspaces whose secret verified it; the check resolves the ref through the GitHub API again and never uses the commit or files the body names. It answers 202 before the checks run. Any other event answers 202 and is ignored. Deliveries are not deduplicated by `X-GitHub-Delivery`: the check gives the same result however often a push arrives. Rate limited per App and overall before any database read (429).",
     auth: "public",
     success: {
       status: 202,
