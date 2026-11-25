@@ -113,7 +113,7 @@ export function slackRoleSettings(environment: Environment): {
         default: SLACK_INPUT_HOLD_MS / 1000,
       }) * 1000,
     closeLinks: booleanFlag(
-      environment.SLACK_ROLE_CLOSE_LINKS ?? "false",
+      environment.SLACK_ROLE_CLOSE_LINKS ?? "true",
       "SLACK_ROLE_CLOSE_LINKS",
     ),
   };
