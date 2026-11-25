@@ -226,6 +226,10 @@ export const sessionsKo = {
   "session.event.kind.error": "오류",
   "session.event.error.modelNotAllowed":
     "{model}이(가) 연결의 모델 목록에서 제외되어 이 세션의 모델 요청이 차단되었습니다. 관리자에게 모델 목록 복원을 요청하거나, 다른 모델로 새 세션을 시작하세요.",
+  "session.event.error.budgetAccountUser":
+    "요청한 사람의 이번 달 예산 한도에 닿아 모델을 부르지 못했습니다. 한도를 늘리려면 워크스페이스 관리자에게 문의하세요.",
+  "session.event.error.budgetAccountTeam":
+    "에이전트 팀의 이번 달 예산 한도에 닿아 모델을 부르지 못했습니다. 한도를 늘리려면 워크스페이스 관리자에게 문의하세요.",
   "session.event.noCapacity":
     "자리가 없어 시작하지 못했습니다. 기다리던 입력은 실패했습니다.",
   "session.event.noCapacityPaused":
@@ -491,6 +495,10 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.error": "Error",
   "session.event.error.modelNotAllowed":
     "Model requests for this session were blocked because {model} is no longer on its connection's model list. Ask an administrator to restore access, or start a new session with another model.",
+  "session.event.error.budgetAccountUser":
+    "The requester's monthly budget limit was reached, so the model could not be called. Ask a workspace admin to raise the limit.",
+  "session.event.error.budgetAccountTeam":
+    "The agent team's monthly budget limit was reached, so the model could not be called. Ask a workspace admin to raise the limit.",
   "session.event.noCapacity":
     "There was no room to start. The waiting input failed.",
   "session.event.noCapacityPaused":
@@ -749,6 +757,10 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.error": "エラー",
   "session.event.error.modelNotAllowed":
     "{model} が接続のモデル一覧から外れたため、このセッションのモデルリクエストがブロックされました。管理者に許可の復元を依頼するか、別のモデルで新しいセッションを開始してください。",
+  "session.event.error.budgetAccountUser":
+    "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。上限を上げるにはワークスペースの管理者にお問い合わせください。",
+  "session.event.error.budgetAccountTeam":
+    "エージェントのチームの今月の予算上限に達したため、モデルを呼び出せませんでした。上限を上げるにはワークスペースの管理者にお問い合わせください。",
   "session.event.noCapacity":
     "空きがなく開始できませんでした。待っていた入力は失敗しました。",
   "session.event.noCapacityPaused":

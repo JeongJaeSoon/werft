@@ -1676,6 +1676,48 @@ describe("session detail", () => {
     );
   });
 
+  test("a budget account's refusal says whose limit it is", async () => {
+    const refused = {
+      ...detail,
+      attention: {
+        code: "BUDGET_EXCEEDED",
+        reason: "The requester's monthly budget account refused a model call",
+        budget_owner: "user",
+      },
+    };
+    const account =
+      "요청한 사람의 이번 달 예산 한도에 닿아 모델을 부르지 못했습니다. 한도를 늘리려면 워크스페이스 관리자에게 문의하세요.";
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, refused),
+      [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
+        json(200, { ...usage, budget_exceeded: false }),
+    });
+    expect(await screen.findByText(account)).toBeTruthy();
+    expect(
+      screen.queryByText("한도에 도달해 새 턴을 시작하지 않습니다."),
+    ).toBeNull();
+  });
+
+  test("a session over its own limit keeps its words over an account's refusal", async () => {
+    const refused = {
+      ...detail,
+      attention: {
+        code: "BUDGET_EXCEEDED",
+        reason: "The requester's monthly budget account refused a model call",
+        budget_owner: "user",
+      },
+    };
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, refused),
+    });
+    expect(
+      await screen.findByText("한도에 도달해 새 턴을 시작하지 않습니다."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/이번 달 예산 한도/)).toBeNull();
+  });
+
   test("a session that is not a preview has no preview mark", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await screen.findByRole("heading", { level: 1 });

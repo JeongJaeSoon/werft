@@ -6689,6 +6689,8 @@ export interface components {
                 /** @constant */
                 code: "BUDGET_EXCEEDED";
                 reason: string;
+                /** @enum {string} */
+                budget_owner?: "user" | "team";
             } | {
                 /** @constant */
                 code: "CONTEXT_GAP";

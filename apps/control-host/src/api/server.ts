@@ -93,6 +93,7 @@ import {
   newSessionGitHubReaders,
   openLostCheckpointNotices,
   reconcileRetiredCatalogDrafts,
+  recordBudgetAccountRefusal,
   slackAppKind,
   workspaceRepositoryCeiling,
 } from "@werft-ai/db";
@@ -1482,6 +1483,8 @@ const authorizerListener =
                 admitsReservations(await installationConfig.sessionBudget()),
             }),
             budgetOf: (call) => budgetChoiceOfCall(db, call),
+            recordAccountRefusal: (refusal) =>
+              recordBudgetAccountRefusal(db, refusal),
             ...(githubMcpGrantKey === null
               ? {}
               : {

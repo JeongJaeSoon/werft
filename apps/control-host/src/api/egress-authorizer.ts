@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   ADDITIONAL_REPOSITORY_ID_PATTERN,
+  type BudgetOwnerKind,
   mcpServerIdSchema,
 } from "@werft-ai/contracts";
 import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
@@ -330,6 +331,15 @@ export function createEgressAuthorizer(deps: {
     attemptId: string;
     title?: boolean;
   }) => Promise<{ choice: BudgetChoice | undefined; turnId: string | null }>;
+  /**
+   * Keeps an open a budget account refused on its session, where the
+   * session's attention and its Slack thread read it. Absent, the log alone.
+   */
+  recordAccountRefusal?: (refusal: {
+    sessionId: string;
+    attemptId: string;
+    owner: BudgetOwnerKind | null;
+  }) => Promise<unknown>;
   /** Absent when the API runs without an object store: the route refuses. */
   objectStore?: ObjectRouteSigner;
   /**
@@ -732,10 +742,31 @@ export function createEgressAuthorizer(deps: {
           budget_root_kind: budget?.rootKind,
           budget_account_id: opened.accountId ?? undefined,
         });
+        if (opened.by === "session") {
+          throw new WorkerGatewayError(
+            403,
+            "BUDGET_EXCEEDED",
+            "The session's spend with this call's reserve reaches its cost or token limit",
+          );
+        }
+        // The refusal stands whether or not its record lands.
+        await deps
+          .recordAccountRefusal?.({
+            sessionId: body.session_id,
+            attemptId: body.attempt_id,
+            owner: opened.owner,
+          })
+          .catch((error: unknown) =>
+            deps.logger.warn("Budget account refusal not recorded", {
+              session_id: body.session_id,
+              attempt_id: body.attempt_id,
+              error: error instanceof Error ? error.name : "error",
+            }),
+          );
         throw new WorkerGatewayError(
           403,
           "BUDGET_EXCEEDED",
-          "The session's spend with this call's reserve reaches its cost or token limit",
+          "The budget account this call is charged to cannot hold its reserve",
         );
       case "unknown_attempt":
         throw unknownAttempt();

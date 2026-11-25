@@ -267,6 +267,7 @@ describe("judging a session's budget at the open", () => {
       outcome: "budget_exceeded",
       by: "session",
       accountId: null,
+      owner: null,
     });
     expect(await rows()).toEqual([]);
 
@@ -779,6 +780,7 @@ describe("holding a call on a budget account beside its session", () => {
       outcome: "budget_exceeded",
       by: "session",
       accountId: null,
+      owner: null,
     });
     expect(await rows()).toEqual([]);
     expect(await reservationOf(exchangeId)).toBeUndefined();
@@ -1126,6 +1128,7 @@ describe("holding a call on a budget account beside its session", () => {
       outcome: "budget_exceeded",
       by: "account",
       accountId: null,
+      owner: null,
     });
     expect(await rows()).toEqual([]);
     expect(await reservationOf(exchangeId)).toBeUndefined();

@@ -1,6 +1,7 @@
 import type {
   AdmissionState,
   AuthorizationSubject,
+  BudgetOwnerKind,
   ConversationId,
   ConversationTopicId,
   CountSessionsQuery,
@@ -254,6 +255,10 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   // Whether the session row names an execution now. `execution` alone cannot
   // say: once released it still shows the last attempt's. Never exposed.
   holds_execution: boolean;
+  // Whose budget account refused one of the session's calls since its last
+  // completed turn; null when none did. The service makes it `attention`
+  // only below the session's own limit, which outranks it.
+  budget_account_refused: BudgetOwnerKind | null;
 };
 
 export interface SessionUnitOfWork {

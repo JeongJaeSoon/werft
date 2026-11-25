@@ -161,7 +161,7 @@ const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
 
 // The thread's language: that of whoever started the session, its first
 // turn's actor, else the person whose message opened the link.
-const starterLocale = sql<UserLocale | null>`(
+export const starterLocale = sql<UserLocale | null>`(
   SELECT su.locale FROM users su
   WHERE su.id = coalesce(
     (SELECT st.actor_id FROM turns st

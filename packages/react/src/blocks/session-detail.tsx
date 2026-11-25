@@ -264,7 +264,7 @@ export function SessionDetail({
           </Button>
         ) : null}
       </div>
-      {usage.data ? <BudgetExceeded usage={usage.data} /> : null}
+      <BudgetExceeded usage={usage.data} attention={detail.attention} />
       <SessionComposer
         session={detail}
         unavailable={unavailable}
@@ -745,11 +745,30 @@ function Cost({ usage }: { readonly usage: SessionUsageResponse }) {
   );
 }
 
-function BudgetExceeded({ usage }: { readonly usage: SessionUsageResponse }) {
+/**
+ * The session's own limit, as its usage reads it, else the budget account
+ * that refused its last calls (attention.budget_owner): never both.
+ */
+function BudgetExceeded({
+  usage,
+  attention,
+}: {
+  readonly usage: SessionUsageResponse | undefined;
+  readonly attention: SessionDetailData["attention"];
+}) {
   const { t } = useBlockText();
-  return usage.budget_exceeded ? (
+  const owner =
+    attention?.code === "BUDGET_EXCEEDED" ? attention.budget_owner : undefined;
+  const text = usage?.budget_exceeded
+    ? t("session.usage.budgetExceeded")
+    : owner === "user"
+      ? t("session.event.error.budgetAccountUser")
+      : owner === "team"
+        ? t("session.event.error.budgetAccountTeam")
+        : null;
+  return text === null ? null : (
     <output className="rounded-control border border-[var(--werft-tone-attention-border)] bg-card px-3 py-2 text-body">
-      {t("session.usage.budgetExceeded")}
+      {text}
     </output>
-  ) : null;
+  );
 }

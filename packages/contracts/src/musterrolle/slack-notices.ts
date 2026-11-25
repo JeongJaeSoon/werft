@@ -43,6 +43,12 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션이 쓰는 도구를 쓸 수 없어요",
   botTurnLimit:
     "사람 없이 봇끼리 5번 주고받아 여기서 멈춰요. 사람이 이어 가야 해요",
+  // A budget account's refusal, never the session's own limit: whose
+  // monthly limit it is, as the ledger charged the call.
+  budgetAccountUser:
+    "요청한 사람의 이번 달 예산 한도에 닿아 모델을 부르지 못했어요. 한도를 늘리려면 워크스페이스 관리자에게 문의하세요",
+  budgetAccountTeam:
+    "에이전트 팀의 이번 달 예산 한도에 닿아 모델을 부르지 못했어요. 한도를 늘리려면 워크스페이스 관리자에게 문의하세요",
 } as const;
 
 export type SlackNoticeMessage = keyof typeof SLACK_NOTICE_MESSAGES_KO;
@@ -92,6 +98,10 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "このエージェントを使う人に設定された制限のため、このセッションが使うツールは使えません",
     botTurnLimit:
       "人を挟まずにボット同士で5回やり取りしたため、ここで止まります。続きは人が進めてください",
+    budgetAccountUser:
+      "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。上限を上げるにはワークスペースの管理者にお問い合わせください",
+    budgetAccountTeam:
+      "エージェントのチームの今月の予算上限に達したため、モデルを呼び出せませんでした。上限を上げるにはワークスペースの管理者にお問い合わせください",
   },
   en: {
     connect: "Link your Slack account on the web",
@@ -132,6 +142,10 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "A limit set on the people who use this agent doesn't allow a tool this session uses",
     botTurnLimit:
       "Bots went back and forth 5 times with no person in between, so this stops here. A person needs to take it from here",
+    budgetAccountUser:
+      "The requester's monthly budget limit was reached, so the model could not be called. Ask a workspace admin to raise the limit",
+    budgetAccountTeam:
+      "The agent team's monthly budget limit was reached, so the model could not be called. Ask a workspace admin to raise the limit",
   },
 };
 
