@@ -378,8 +378,12 @@ type CommittedReads = {
  * judges (`withSharedReads`).
  */
 type SharedReads = {
-  /** Undefined once the call's spool holds a bundle ceiling's worth. */
-  bundle(link: ObjectRef): Promise<SpooledBundle | undefined>;
+  /**
+   * A file holding exactly `link`'s bytes, already hashed to its digest;
+   * undefined when it is not that, or once the call's spool holds a bundle
+   * ceiling's worth.
+   */
+  bundle(link: ObjectRef): Promise<string | undefined>;
   digest(
     key: string,
     version: string | undefined,
@@ -390,15 +394,6 @@ type SharedReads = {
     version: string | undefined,
   ): Promise<ObjectHead | undefined>;
 };
-
-/**
- * A bundle link read once against the whole bundle ceiling, and its file; or
- * what the read delivered before it threw, which a read held to the chain's
- * remaining room would have refused as "over" first.
- */
-type SpooledBundle =
-  | { body: Awaited<ReturnType<typeof digestObject>>; path: string }
-  | { delivered: number; error: unknown };
 
 type VerifiedRefs = {
   objects: ReadonlySet<string>;
@@ -953,9 +948,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // only after the digests proved they are the objects the manifest names.
     // A tee would let a slow second reader make the stream buffer for it, and
     // would show the verifier bytes nobody had checked yet.
-    // With `shared`, a link another revision of the call already read is not
-    // read again: it was read against the whole ceiling, and is held here to
-    // what this chain has left, as a read of its own would be.
+    // With `shared`, a link another revision of the call already read as
+    // exactly its claimed bytes is not read again: the chain's room is at
+    // least those bytes, so its own read would have passed the same way.
+    // Anything else is read here, where its verdict comes from.
     let spool: string | undefined;
     const readLink = async (
       index: number,
@@ -965,16 +961,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       body: Awaited<ReturnType<typeof digestObject>>;
       path: string;
     }> => {
-      const spooled = await shared?.bundle(link);
-      if (spooled !== undefined) {
-        if ("error" in spooled) {
-          if (spooled.delivered > left)
-            return { body: { status: "over" }, path: "" };
-          throw spooled.error;
-        }
-        return spooled.body?.status === "read" && spooled.body.bytes > left
-          ? { body: { status: "over" }, path: spooled.path }
-          : spooled;
+      const kept = await shared?.bundle(link);
+      if (kept !== undefined) {
+        return {
+          body: { bytes: link.bytes, sha256: link.sha256, status: "read" },
+          path: kept,
+        };
       }
       spool ??= await mkdtemp(join(spoolRoot, "bundle-spool-"));
       const path = join(spool, `workspace-${index}.bundle`);
@@ -1069,7 +1061,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       JSON.stringify([key, version ?? null]);
     const heads = new Map<string, Promise<ObjectHead | undefined>>();
     const digests = new Map<string, ReturnType<typeof digestObject>>();
-    const bundleFiles = new Map<string, Promise<SpooledBundle>>();
+    const bundleFiles = new Map<string, Promise<string | undefined>>();
     let spool: Promise<string> | undefined;
     // Files stay until the call ends, so they are held to one bundle
     // ceiling, what a single chain may take; a link past it is read the
@@ -1103,34 +1095,30 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           }
           spooledBytes += link.bytes;
           const index = bundleFiles.size;
-          read = (async (): Promise<SpooledBundle> => {
-            let delivered = 0;
+          // Kept only when it is exactly the link: anything else is left to
+          // the chain's own read, whose verdict is the one that counts. The
+          // read stops past the claimed size, so the files stay in budget.
+          read = (async () => {
+            spool ??= mkdtemp(join(spoolRoot, "bundle-spool-"));
+            const path = join(await spool, `workspace-${index}.bundle`);
+            const file = await open(path, "wx", 0o600);
             try {
-              spool ??= mkdtemp(join(spoolRoot, "bundle-spool-"));
-              const path = join(await spool, `workspace-${index}.bundle`);
-              const file = await open(path, "wx", 0o600);
-              try {
-                const body = await digestObject(
-                  objects,
-                  link.key,
-                  link.version,
-                  maxBundleBytes,
-                  (chunk) => {
-                    delivered += chunk.byteLength;
-                    return writeFully(file, chunk);
-                  },
-                );
-                return { body, path };
-              } finally {
-                await file.close();
-              }
-            } catch (error) {
-              return { delivered, error };
+              const body = await digestObject(
+                objects,
+                link.key,
+                link.version,
+                link.bytes,
+                (chunk) => writeFully(file, chunk),
+              );
+              return body?.status === "read" &&
+                body.bytes === link.bytes &&
+                body.sha256 === link.sha256
+                ? path
+                : undefined;
             } finally {
-              // What a store serving more than it claimed wrote counts too.
-              spooledBytes += Math.max(0, delivered - link.bytes);
+              await file.close();
             }
-          })();
+          })().catch(() => undefined);
           bundleFiles.set(at, read);
         }
         return read;

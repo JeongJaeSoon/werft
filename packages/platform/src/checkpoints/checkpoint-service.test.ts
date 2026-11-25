@@ -778,6 +778,38 @@ describe("protectedCommits", () => {
       ).rejects.toThrow("delivered more than");
     });
 
+    test("a link whose stream fails as it is closed early answers that failure, as a read of its own does", async () => {
+      const room = bundleOf(0).ref.bytes + bundleOf(1).ref.bytes;
+      await commitHistory(
+        serviceOver(objects, { maxWorkspaceBundleBytes: room }),
+        2,
+      );
+      const tip = bundleOf(1).ref;
+      const closing = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property !== "stream" || typeof value !== "function")
+            return value;
+          return async (key: string, version?: string) =>
+            key !== tip.key
+              ? value.call(target, key, version)
+              : (async function* () {
+                  try {
+                    yield new Uint8Array(tip.bytes + 1);
+                  } finally {
+                    // biome-ignore lint/correctness/noUnsafeFinally: the store's close failing
+                    throw new Error("stream close failed");
+                  }
+                })();
+        },
+      });
+      await expect(
+        serviceOver(closing, {
+          maxWorkspaceBundleBytes: room,
+        }).protectedCommits({ sessionId, pointer: checkpoints.pointer() }),
+      ).rejects.toThrow("stream close failed");
+    });
+
     test("bundles past one ceiling are read per chain, and no spool outlives the call", async () => {
       const spoolRoot = await mkdtemp(join(tmpdir(), "protected-spool-"));
       try {
