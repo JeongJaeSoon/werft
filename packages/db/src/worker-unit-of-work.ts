@@ -508,31 +508,30 @@ async function probeFinalize(
   };
 }
 
-async function contiguousThrough(
-  tx: Database,
-  fence: WorkerFence,
-): Promise<number> {
-  const [row] = await tx
-    .select({
-      first: sql<number | null>`min(${events.sourceSequence})`,
-    })
+function ownEvents(fence: WorkerFence) {
+  return and(
+    eq(events.sessionId, fence.sessionId),
+    eq(events.attemptId, fence.attemptId),
+  );
+}
+
+// How far the attempt's own sequences run from 1 without a hole, as one SQL
+// value: whoever asks sends it in one statement, since each round trip here
+// is made under the session row lock. A stream that does not start at 1 has
+// nothing durable, and the CASE keeps its successors from being computed at
+// all, as the two separate queries this replaced did.
+function durableThrough(tx: Database, fence: WorkerFence) {
+  const own = ownEvents(fence);
+  const first = tx
+    .select({ sequence: sql`min(${events.sourceSequence})` })
+    .from(events)
+    .where(own);
+  const end = tx
+    .select({ sequence: sql`min(${events.sourceSequence})` })
     .from(events)
     .where(
       and(
-        eq(events.sessionId, fence.sessionId),
-        eq(events.attemptId, fence.attemptId),
-      ),
-    );
-  if (row?.first !== 1) return 0;
-  const [end] = await tx
-    .select({
-      through: sql<number | null>`min(${events.sourceSequence})`,
-    })
-    .from(events)
-    .where(
-      and(
-        eq(events.sessionId, fence.sessionId),
-        eq(events.attemptId, fence.attemptId),
+        own,
         sql`NOT EXISTS (
           SELECT 1 FROM ${events} next
           WHERE next.session_id = ${fence.sessionId}
@@ -541,7 +540,38 @@ async function contiguousThrough(
         )`,
       ),
     );
-  return end?.through ?? 0;
+  return sql<number | null>`CASE WHEN (${first}) = 1 THEN (${end}) END`;
+}
+
+async function contiguousThrough(
+  tx: Database,
+  fence: WorkerFence,
+): Promise<number> {
+  const [row] = await tx
+    .select({ through: durableThrough(tx, fence) })
+    .from(sql`(SELECT 1) AS one`);
+  return row?.through ?? 0;
+}
+
+// What an append answers with: how far the attempt's sequences run without a
+// hole, and its newest event id.
+async function attemptStream(
+  tx: Database,
+  fence: WorkerFence,
+): Promise<{ through: number; latestId: number }> {
+  const latest = tx
+    .select({ id: max(events.id) })
+    .from(events)
+    .where(ownEvents(fence));
+  const [row] = await tx
+    .select({
+      through: durableThrough(tx, fence),
+      // The driver hands a raw bigint back as text; the column's own mapping
+      // makes it the number a cursor is built from.
+      latestId: sql<number | null>`(${latest})`.mapWith(events.id),
+    })
+    .from(sql`(SELECT 1) AS one`);
+  return { through: row?.through ?? 0, latestId: row?.latestId ?? 0 };
 }
 
 /**
@@ -3097,7 +3127,8 @@ export function createPostgresWorkerUnitOfWork(
         // once its predecessor is durable: a hole here would be permanent in
         // the order every subscriber reads.
         fresh.sort((a, b) => a.source_sequence - b.source_sequence);
-        const durable = await contiguousThrough(tx, fence);
+        const stream = await attemptStream(tx, fence);
+        const durable = stream.through;
         for (const [index, event] of fresh.entries()) {
           if (event.source_sequence !== durable + 1 + index) {
             return { outcome: "sequence_gap", acceptedThrough: durable };
@@ -3139,22 +3170,17 @@ export function createPostgresWorkerUnitOfWork(
                 reports: input.toolAudits,
               })
             : undefined;
-        const [latest] = await tx
-          .select({ id: max(events.id) })
-          .from(events)
-          .where(
-            and(
-              eq(events.sessionId, fence.sessionId),
-              eq(events.attemptId, fence.attemptId),
-            ),
-          );
+        // A replay wrote nothing, and every writer of this stream holds the
+        // session lock this transaction has: what was read above still stands.
+        const written =
+          fresh.length > 0 ? await attemptStream(tx, fence) : stream;
         await tx.execute(
           sql`SELECT pg_notify('session_events', ${fence.sessionId})`,
         );
         return {
           outcome: "ok",
-          acceptedThrough: await contiguousThrough(tx, fence),
-          cursor: encodeEventCursor(latest?.id ?? 0),
+          acceptedThrough: written.through,
+          cursor: encodeEventCursor(written.latestId),
           ...(toolAudit === undefined ? {} : { toolAudit }),
         };
       });
