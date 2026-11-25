@@ -2762,7 +2762,7 @@ export const pendingRequests = pgTable(
     answerDecisionId: uuid("answer_decision_id"),
     // The authorization subject of whoever allowed this request for the
     // session, judged again before each later call the allow covers. Null
-    // for every other answer, and for allows given before 0360, which then
+    // for every other answer, and for allows given before the column, which then
     // cover nothing.
     sessionAllowSubject: jsonb("session_allow_subject"),
     settledAt: timestamp("settled_at", { withTimezone: true }),
