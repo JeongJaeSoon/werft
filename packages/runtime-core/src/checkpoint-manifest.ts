@@ -361,6 +361,12 @@ export type ObjectHead = {
   readonly bytes: number;
   /** True when a legal hold keeps this version from being deleted. */
   readonly held?: boolean;
+  /**
+   * The store's own SHA-256 of the whole object, in hex, when it keeps one:
+   * computed or checked by the store on the bytes it stored, never taken
+   * from whoever names the object.
+   */
+  readonly sha256?: string;
   /** The version that answered; absent on a store without versions. */
   readonly version?: string;
 };

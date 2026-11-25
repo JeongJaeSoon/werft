@@ -22,6 +22,7 @@ import {
   DEFAULT_GIT_VERIFY_TIMEOUT_MS,
   DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
+  GIT_BUNDLE_VERIFIER_RULES,
   GIT_TIMEOUT_EXIT_CODE,
   type GitCommandOptions,
   type GitCommandRunner,
@@ -69,6 +70,60 @@ describe("git workspace bundle verifier", () => {
     expect(policy({ timeoutMs: 1 })).not.toBe(base);
     expect(policy({ maxGitMemoryBytes: 1 })).not.toBe(base);
     expect(policy({ maxPackObjects: 1 })).not.toBe(base);
+  });
+
+  test("its version names the rules, every limit and the git that runs, and asks git once", async () => {
+    const asked: string[][] = [];
+    const answering =
+      (stdout: string): GitCommandRunner =>
+      async (args) => {
+        asked.push([...args]);
+        return { exitCode: 0, stderr: "", stdout };
+      };
+    const versionOf = (
+      git: string,
+      options: Parameters<typeof createGitWorkspaceBundleVerifier>[0] = {},
+    ) =>
+      createGitWorkspaceBundleVerifier({
+        gitRunner: answering(git),
+        tempRoot,
+        ...options,
+      }).version?.();
+    const verifier = createGitWorkspaceBundleVerifier({
+      gitRunner: answering("git version 2.47.1\n"),
+      tempRoot,
+    });
+    const base = await verifier.version?.();
+    expect(await verifier.version?.()).toBe(base);
+    expect(asked).toEqual([["--version"]]);
+    expect(JSON.parse(base ?? "null")).toEqual([
+      GIT_BUNDLE_VERIFIER_RULES,
+      verifier.policy,
+      "git version 2.47.1",
+    ]);
+    expect(await versionOf("git version 2.47.1\n")).toBe(base);
+    expect(await versionOf("git version 2.48.0\n")).not.toBe(base);
+    expect(
+      await versionOf("git version 2.47.1\n", { maxPackObjects: 1 }),
+    ).not.toBe(base);
+  });
+
+  test("a git that would not say its version leaves no version, and is asked again", async () => {
+    let failures = 1;
+    const gitRunner: GitCommandRunner = async () =>
+      failures-- > 0
+        ? { exitCode: 127, stderr: "git: not found", stdout: "" }
+        : { exitCode: 0, stderr: "", stdout: "git version 2.47.1\n" };
+    const verifier = createGitWorkspaceBundleVerifier({ gitRunner, tempRoot });
+    await expect(verifier.version?.()).rejects.toThrow("git: not found");
+    expect(await verifier.version?.()).toContain("git version 2.47.1");
+  });
+
+  test("the git on this host says its version", async () => {
+    const version = await createGitWorkspaceBundleVerifier({
+      tempRoot,
+    }).version?.();
+    expect(JSON.parse(version ?? "null")[2]).toMatch(/^git version \d/);
   });
 
   test("a bundle git wrote is restorable", async () => {

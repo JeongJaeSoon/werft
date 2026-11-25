@@ -27,6 +27,15 @@ export interface WorkspaceBundleVerifier {
    * this changes: a throw says as much about the limits as about the bundle.
    */
   readonly policy?: string;
+  /**
+   * Names everything a pass depends on besides the bundles and the commit:
+   * the checks made, the rules that refuse, the limits and the git that ran
+   * them. A pass is remembered between calls only under the version that
+   * made it (`CheckpointStore.recordBundleVerdict`), so it must change
+   * whenever any of those does. A verifier without one has nothing
+   * remembered: every call verifies again.
+   */
+  version?(): Promise<string>;
   verify(input: {
     /**
      * The bundles this one builds on, oldest first, each spooled
