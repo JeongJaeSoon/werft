@@ -13,6 +13,7 @@ import {
   RuntimeMismatch,
   type RuntimeModule,
   type RuntimeStart,
+  servedMcpTools,
 } from "@werft-ai/runtime-core";
 
 import { codexExecutable } from "./binary.ts";
@@ -102,14 +103,17 @@ export class CodexAgentRuntime implements AgentRuntime {
         : {
             mcp: {
               servers: new Set(servers.map((server) => server.name)),
+              // A platform server's trusted tools within its allowlist,
+              // and the tools the built-in `werft` server serves.
               trusted: new Set(
-                servers.flatMap((server) =>
-                  server.platform === true
+                servers.flatMap((server) => [
+                  ...(server.platform === true
                     ? (server.trusted ?? []).filter((tool) =>
                         server.tools.includes(tool),
                       )
-                    : [],
-                ),
+                    : []),
+                  ...servedMcpTools(server),
+                ]),
               ),
               release: () => relay.close(),
             },

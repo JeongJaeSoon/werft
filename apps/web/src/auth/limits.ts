@@ -24,6 +24,7 @@ export const WORKSPACE_MCP_RESERVED_NAMES: readonly string[] = [
   "github",
   "browser",
   "memory",
+  "werft",
 ];
 export const SLACK_INSTALL_CALLBACK = {
   state: /^[A-Za-z0-9_-]{1,512}$/,

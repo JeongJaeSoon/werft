@@ -108,6 +108,15 @@ export type ClaudeRuntimeConfig = DriverConfig & {
    * checkpoint fingerprint: whether the engine asks changes no tool surface.
    */
   trustedTools?: readonly string[];
+  /**
+   * `mcp__werft__<tool>` names of the built-in `werft` server's tools. No
+   * release pins them, so they are allowed without being in `tools`, and
+   * they read only, so the run lets them past the engine's permission stage
+   * like a trusted tool. They do not make the run one "with trusted tools":
+   * the auto mode rules follow `trustedTools` alone. Not part of the
+   * checkpoint fingerprint.
+   */
+  servedTools?: readonly string[];
   plugins?: RuntimePlugin[];
   profile: RuntimeProfile;
   /**

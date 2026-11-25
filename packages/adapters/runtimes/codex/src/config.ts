@@ -8,6 +8,8 @@ import {
 import {
   assertGitEnvironment,
   assertUserEnvironment,
+  exposedMcpTools,
+  fingerprintedMcpServers,
   type RuntimeHostDeps,
   type RuntimeProfileInput,
   type RuntimeStart,
@@ -340,9 +342,9 @@ export function codexLaunch(
       {
         url,
         bearer_token_env_var: MCP_RELAY_SECRET_VARIABLE,
-        enabled_tools: server.tools
-          .filter((tool) => tool.startsWith(prefix))
-          .map((tool) => tool.slice(prefix.length)),
+        enabled_tools: exposedMcpTools(server).map((tool) =>
+          tool.slice(prefix.length),
+        ),
       },
     ]);
   }
@@ -420,6 +422,7 @@ export function codexLaunch(
  */
 export function codexProfileDigest(profile: RuntimeProfileInput): string {
   const connection = connectionOf(profile.bindings);
+  const fingerprinted = fingerprintedMcpServers(profile.bundle.mcpServers);
   return createHash("sha256")
     .update(
       canonicalJsonOfJson({
@@ -431,11 +434,12 @@ export function codexProfileDigest(profile: RuntimeProfileInput): string {
         model: profile.config.model,
         // Present only with servers, so a session without any keeps the
         // digest every earlier checkpoint was stamped with. The binding is the
-        // server's release identity; its address and token are left out.
-        ...(profile.bundle.mcpServers.length === 0
+        // server's release identity; its address and token are left out, and
+        // so is the built-in `werft` server, which every session has.
+        ...(fingerprinted.length === 0
           ? {}
           : {
-              mcp: profile.bundle.mcpServers
+              mcp: fingerprinted
                 .map((server) => ({
                   name: server.name,
                   binding: server.binding,

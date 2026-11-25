@@ -170,6 +170,7 @@ import {
   createTeamService,
   createTopicSessionChecks,
   createUsageService,
+  createWerftMcpServer,
   createWorkerGateway,
   createWorkspaceMcpService,
   derivedSecretKey,
@@ -183,6 +184,8 @@ import {
   SessionServiceError,
   SKILL_DAILY_CHECK_PASS_MS,
   settingsJudgeConnections,
+  werftMcpToolNames,
+  werftVersionOf,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
@@ -263,6 +266,7 @@ import {
   egressAuthorizerConfigFromEnv,
   githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
+  werftMcpGrantKeyOf,
 } from "./egress-authorizer.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
@@ -393,6 +397,7 @@ import {
   startTelemetryIngest,
   warnCollectorOnEgressAllowlist,
 } from "./tracing-startup.ts";
+import { werftMcpParts } from "./werft-mcp.ts";
 import {
   workspaceMcpHostsFromEnv,
   workspaceMcpOutbound,
@@ -1335,6 +1340,25 @@ if (titleEgressUrl === null) {
 const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const githubMcpGrantKey =
   egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
+// The built-in `werft` MCP server every session has: what it serves is its
+// parts', and a claim trusts exactly the tools they name.
+const werftVersion = werftVersionOf(process.env);
+const werftMcpServerParts = werftMcpParts({ version: werftVersion });
+const werftMcp = createWerftMcpServer({
+  parts: werftMcpServerParts,
+  version: werftVersion,
+  // No message: an exception's text can carry what a part read.
+  onInternalError: (error, { method, name, call }) =>
+    logger.error("Werft MCP call failed", {
+      session_id: call.sessionId,
+      request_id: call.requestId,
+      method,
+      name,
+      error: error instanceof Error ? error.name : "error",
+    }),
+});
+const werftMcpGrantKey =
+  egressAuthorizer === null ? null : werftMcpGrantKeyOf(egressAuthorizer);
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
 // Skill trees live in the checkpoint bucket; without one the routes are absent.
 const skillObjects = extensionBundleObjects(checkpointStorage);
@@ -1473,6 +1497,14 @@ const workers = createWorkerGateway({
   ...(githubMcpGrantKey === null
     ? {}
     : { githubMcp: { store: githubMcpStore, grantKey: githubMcpGrantKey } }),
+  ...(werftMcpGrantKey === null
+    ? {}
+    : {
+        werftMcp: {
+          grantKey: werftMcpGrantKey,
+          tools: werftMcpToolNames(werftMcpServerParts),
+        },
+      }),
   githubPackages: {
     store: githubPackagesStore,
     upstreams: githubPackagesConfig.upstreams,
@@ -1539,6 +1571,9 @@ const authorizerListener =
               : {
                   githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
                 }),
+            ...(werftMcpGrantKey === null
+              ? {}
+              : { werftMcp: { handle: werftMcp, grantKey: werftMcpGrantKey } }),
             ...(checkpointStorage === "disabled"
               ? {}
               : {
