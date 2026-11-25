@@ -35,6 +35,7 @@ import {
 import type { Context, Handler, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
+import type { SlackEventResponses } from "./api-metrics.ts";
 import { registerApiReferenceRoutes } from "./api-reference.ts";
 import { createAuthenticator, csrfViolation } from "./auth.ts";
 import {
@@ -181,6 +182,8 @@ export interface CreateApiAppOptions {
   tracer?: Tracer;
   // The skill upload route is registered, so its larger body limit applies.
   skillUploads?: boolean;
+  // Counts every answer to Slack's events URL, the deadline's 503 included.
+  slackEventResponses?: Pick<SlackEventResponses, "count">;
 }
 
 export class ApiHttpError extends Error {
@@ -636,6 +639,16 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     logger,
     ...(options.identity ? { identity: options.identity } : {}),
   });
+  const slackEventResponses = options.slackEventResponses;
+  if (slackEventResponses !== undefined) {
+    // Slack only POSTs; other methods would dilute the failure share.
+    app.use("/v1/slack/events/:agent_id", async (context, next) => {
+      await next();
+      if (context.req.method === "POST") {
+        slackEventResponses.count(context.res.status);
+      }
+    });
+  }
   // Ahead of both /v1 routers, so the public routes are bounded too.
   app.use(
     "/v1/*",

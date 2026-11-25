@@ -82,6 +82,19 @@ groups:
         expr: increase(werft_session_no_capacity_failures_total[1h]) > 0
 ```
 
+Slack은 60분 동안 이벤트 전달 실패가 95%를 넘으면 앱의 이벤트 구독을 끈다. 그 전에 알도록 Slack 이벤트 응답의 503·500 비율에 경보를 건다. 이 지표는 api Pod가 낸다. `api.metrics.enabled: true`로 켜고, 수집기가 api Pod마다 scrape하게 `api.metrics.podAnnotations`나 Service `<fullname>-api-metrics`를 가리킨다. 접근은 `networkPolicy.api.metrics.ingressFrom`으로 수집기 namespace에 좁힌다. 아래 예시는 10분 동안 5%를 넘으면 알린다.
+
+```yaml
+groups:
+  - name: werft-slack-events
+    rules:
+      - alert: WerftSlackEventFailures
+        expr: |
+          sum(rate(werft_slack_event_responses_total{code=~"500|503"}[10m]))
+            / sum(rate(werft_slack_event_responses_total[10m])) > 0.05
+        for: 10m
+```
+
 ## 확인
 
 본문에 werft_ 지표가 있고 수집기의 scrape가 성공해야 한다. healthz 200은 DB 읽기 성공이 아니다. DB 읽기가 실패하면 endpoint는 503이고 이전 값을 내지 않는다. 수집 시간이 간격의 절반을 넘으면 scrape 간격을 늘려 DB 부하를 낮춘다.
