@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getTableName, isTable } from "drizzle-orm";
-import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
+import { MIGRATIONS_FOLDER, readJournal } from "./migration-journal.ts";
 import {
   changelogReleases,
   contractProblems,
@@ -199,10 +199,14 @@ describe("migration safety", () => {
 describe("contract migrations", () => {
   // Newest first, as CHANGELOG.md lists them.
   const releases = ["v0.1.3", "v0.1.2", "v0.1.1", "v0.1.0"];
+  // Only the migration under test: the packaged ones name real releases,
+  // which the test above checks against CHANGELOG.md.
+  const packagedHead = readJournal(MIGRATIONS_FOLDER).at(-1)?.idx ?? -1;
   const contractsOf = (...statements: string[]) =>
     contractProblems(
       withMigration(statements.join("--> statement-breakpoint\n")),
       releases,
+      packagedHead,
     ).map((problem) => problem.replace(/^\d+_under_test/, "under_test"));
   const unmarked = (how: string, target: string) =>
     `under_test.sql: ${how} ${target} while a release in the support window may still use it; ` +
