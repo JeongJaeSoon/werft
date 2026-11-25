@@ -1,5 +1,5 @@
 {
-  "id": "c91bce5d-daaf-4918-a690-4de46ed96191",
+  "id": "f449fa38-5591-4428-be37-aa87c42c666f",
   "prevId": "1a0009f8-a0cd-4eaf-aac6-c70ff1e6ea2d",
   "version": "7",
   "dialect": "postgresql",
@@ -4564,6 +4564,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "fold_claimed_until": {
+          "name": "fold_claimed_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fold_tried_at": {
+          "name": "fold_tried_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -7054,20 +7066,6 @@
           "notNull": true,
           "default": 0
         },
-        "tool_calls": {
-          "name": "tool_calls",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "thread_reads": {
-          "name": "thread_reads",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -7127,10 +7125,6 @@
         "conversation_turn_permits_limits_check": {
           "name": "conversation_turn_permits_limits_check",
           "value": "\"conversation_turn_permits\".\"max_tokens\" >= 1 AND \"conversation_turn_permits\".\"max_request_bytes\" >= 1 AND \"conversation_turn_permits\".\"calls\" >= 0 AND \"conversation_turn_permits\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m2$'"
-        },
-        "conversation_turn_permits_tool_counts_check": {
-          "name": "conversation_turn_permits_tool_counts_check",
-          "value": "\"conversation_turn_permits\".\"tool_calls\" >= 0 AND \"conversation_turn_permits\".\"thread_reads\" >= 0"
         },
         "conversation_turn_permits_refusal_check": {
           "name": "conversation_turn_permits_refusal_check",

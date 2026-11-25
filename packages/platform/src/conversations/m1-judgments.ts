@@ -24,6 +24,7 @@ import {
   m1NotCalled,
   summaryTextFits,
 } from "./m1-judge.ts";
+import type { SummaryFolder } from "./summary-folds.ts";
 
 /** The channel a judgment is in. */
 export type M1Place = {
@@ -209,6 +210,7 @@ export async function writeM1SummaryLine(
 
 type VoidLogger = {
   info?(message: string, fields?: Readonly<Record<string, unknown>>): void;
+  warn?(message: string, fields?: Readonly<Record<string, unknown>>): void;
 };
 
 const logVoided = (
@@ -223,19 +225,35 @@ const logVoided = (
  * stopped keeps its messages for the next batch (J7). A result voided
  * because a message it read was deleted or edited meanwhile is judged once
  * more on what is left, with the new text (J6); none left, nothing is called
- * again.
+ * again. A batch that added a line folds the summary, once its record is
+ * written, if the line took it past its cap (a1/J10).
  */
 export function createM1BatchJudge(deps: {
   judge: M1Judge;
   store: Pick<M1JudgmentStore, "recordBatch" | "writeSummaryLine">;
+  folder?: Pick<SummaryFolder, "fold">;
   logger?: VoidLogger;
 }): JudgmentBatchJudge {
+  const fold = async (batch: JudgmentBatch) => {
+    if (deps.folder === undefined) return;
+    try {
+      const folded = await deps.folder.fold(batch);
+      if (folded !== "within_cap") {
+        deps.logger?.info?.("Channel summary fold", { outcome: folded });
+      }
+    } catch (error) {
+      deps.logger?.warn?.("Channel summary fold failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   const ids = (posts: readonly M1Post[]) => posts.map((post) => post.inputId);
   return {
     async judge(batch) {
       let subject = subjectOfBatch(batch);
       let modelCalled = false;
       let readAt = batch.readAt;
+      let lineWritten = false;
       const left: M1Post[] = [];
       for (const rejudge of [false, true]) {
         const judgment = await deps.judge.judge(subject, { rejudge });
@@ -265,6 +283,7 @@ export function createM1BatchJudge(deps: {
               judgment.summary,
             ),
           };
+          lineWritten ||= record.summary === "written";
         }
         const refs = new Set(record.refs);
         const written = await deps.store.recordBatch(
@@ -276,7 +295,10 @@ export function createM1BatchJudge(deps: {
         if (written.outcome !== "voided") break;
         logVoided(deps.logger, record, written.reason);
         // Voided again: the store dropped what the batch still held.
-        if (rejudge) return { modelCalled, left: [] };
+        if (rejudge) {
+          if (lineWritten) await fold(batch);
+          return { modelCalled, left: [] };
+        }
         if (written.remaining.length === 0) break;
         readAt = written.readAt;
         const byInput = new Map(
@@ -292,6 +314,7 @@ export function createM1BatchJudge(deps: {
           }),
         };
       }
+      if (lineWritten) await fold(batch);
       return { modelCalled, left: ids(left) };
     },
     async rateLimited(batch) {
@@ -391,6 +414,7 @@ export function createM1JudgmentRunner(deps: {
   batches: JudgmentBatchStore;
   store: M1JudgmentStore;
   judge: M1Judge;
+  folder?: Pick<SummaryFolder, "fold">;
   logger: {
     info(message: string, fields?: Readonly<Record<string, unknown>>): void;
     warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
