@@ -15,7 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **Slack 역할의 스위치 `SLACK_ROLE_CLOSE_LINKS`의 기본이 `true`로 바뀐다. 닫힌 세션의 Slack 스레드에 다시 멘션하면 그 세션이 아니라 새 세션이 열린다**(JeongJaeSoon/werft#PRNUM). migration은 없다. 끈 채로 두려면 slack 역할에 `SLACK_ROLE_CLOSE_LINKS=false`를 준다(Compose는 같은 이름, Helm은 `slack.extraEnv`).
+- **Slack 역할의 스위치 `SLACK_ROLE_CLOSE_LINKS`의 기본이 `true`로 바뀐다. 닫힌 세션의 Slack 스레드에 다시 멘션하면 그 세션이 아니라 새 세션이 열린다**(JeongJaeSoon/werft#2180). migration은 없다. 끈 채로 두려면 slack 역할에 `SLACK_ROLE_CLOSE_LINKS=false`를 준다(Compose는 같은 이름, Helm은 `slack.extraEnv`).
   - 올린 뒤 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결을 마지막 보고 줄을 넣은 뒤 닫는다. 올리기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
   - 닫는 사유(`closed_reason`)는 v0.5.0과 같다. 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기와 에이전트 릴리스가 없어 정리로 닫힌 세션은 `abandoned`다. 세션에 취소·실패 닫힘이 생기면 `cancelled`·`failed`를 쓴다.
   - 닫힌 연결은 이력으로 남고 되살아나지 않는다. v0.5.0 이미지로 되돌리면 이미 닫힌 연결은 닫힌 채로 남고, 그 스레드의 다음 멘션은 새 세션이 된다. 되돌린 뒤 새로 닫히는 연결은 없다.
