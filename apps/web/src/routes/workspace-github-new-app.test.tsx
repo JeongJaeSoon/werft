@@ -263,6 +263,110 @@ describe("GitHub에서 돌아온 화면", () => {
     );
   });
 
+  const RETRY = "/v1/github-webhook-settings/retry";
+  const completed = (webhook_update?: object) =>
+    json(200, {
+      github_app: GITHUB_APP,
+      install_url: "https://github.com/apps/werft-test/installations/new",
+      receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+      ...(webhook_update ? { webhook_update } : {}),
+    });
+  const installStarted = () =>
+    json(200, {
+      install_url:
+        "https://github.com/apps/werft-test/installations/new?state=i1",
+      expires_at: "2026-11-01T10:00:00.000Z",
+    });
+  const hookFailed = {
+    app_id: 4242,
+    name: "werft test",
+    outcome: "failed",
+    reason_code: "url_refused",
+  };
+
+  test("webhook URL을 넣었으면 그대로 설치 화면으로 보낸다", async () => {
+    renderAt(`${CALLBACK}?code=c0de&state=st4te`, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`POST ${COMPLETE}`]: () =>
+        completed({ app_id: 4242, name: "werft test", outcome: "updated" }),
+      [`POST ${INSTALL_START}`]: installStarted,
+    });
+    await waitFor(() =>
+      expect(assigned).toEqual([
+        "https://github.com/apps/werft-test/installations/new?state=i1",
+      ]),
+    );
+  });
+
+  test("webhook URL을 넣지 못했으면 멈추고 이유를 보이며, 다시 시도가 되면 설치 화면으로 보낸다", async () => {
+    let retried = 0;
+    const { api } = renderAt(`${CALLBACK}?code=c0de&state=st4te`, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`POST ${COMPLETE}`]: () => completed(hookFailed),
+      [`POST ${RETRY}`]: () => {
+        retried += 1;
+        return json(200, {
+          updates:
+            retried === 1
+              ? [hookFailed]
+              : [{ app_id: 4242, name: "werft test", outcome: "updated" }],
+        });
+      },
+      [`POST ${INSTALL_START}`]: installStarted,
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "App을 저장했지만 webhook URL을 GitHub에 넣지 못했습니다",
+    );
+    expect(alert.textContent).toContain("GitHub가 이 주소를 받지 않았습니다");
+    expect(alert.textContent).toContain("비웠다가 다시 저장하세요");
+    // Stopped: no install start, no navigation.
+    expect(
+      screen.queryByText("App을 저장했습니다. 설치 화면으로 이동합니다.") ===
+        null,
+    ).toBe(true);
+    expect(api.calls.some((call) => call.path === INSTALL_START)).toBe(false);
+    expect(assigned).toEqual([]);
+
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(
+      await screen.findByText("다시 시도했지만 이번에도 넣지 못했습니다."),
+    ).toBeDefined();
+    expect(assigned).toEqual([]);
+
+    await user.click(screen.getByRole("button", { name: "다시 시도" }));
+    await waitFor(() =>
+      expect(assigned).toEqual([
+        "https://github.com/apps/werft-test/installations/new?state=i1",
+      ]),
+    );
+    expect(
+      api.calls.filter((call) => call.path === RETRY).map((call) => call.body),
+    ).toEqual([{ app_ids: [4242] }, { app_ids: [4242] }]);
+  });
+
+  test("webhook URL을 넣지 못해도 설치를 이어갈 수 있고, owner가 아니면 다시 시도 대신 owner에게 부탁하라고 한다", async () => {
+    const { api } = renderAt(`${CALLBACK}?code=c0de&state=st4te`, {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      [`POST ${COMPLETE}`]: () => completed(hookFailed),
+      [`POST ${INSTALL_START}`]: installStarted,
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("owner에게");
+    expect(screen.queryByRole("button", { name: "다시 시도" }) === null).toBe(
+      true,
+    );
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "GitHub에 설치하기" }));
+    await waitFor(() =>
+      expect(assigned).toEqual([
+        "https://github.com/apps/werft-test/installations/new?state=i1",
+      ]),
+    );
+    expect(api.calls.some((call) => call.path === RETRY)).toBe(false);
+  });
+
   test("키를 저장하지 못했으면 '이미 있는 App 연결' 안내와 GitHub의 App 링크를 보인다", async () => {
     renderAt(`${CALLBACK}?code=c0de&state=st4te`, {
       "GET /v1/auth/me": () => json(200, me()),

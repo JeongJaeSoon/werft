@@ -39,7 +39,7 @@ const RETRY_BATCH = 100;
 const settingsKey = (client: ApiClient) =>
   scopedKey(client, "github-webhook-settings");
 
-const REASON = {
+export const WEBHOOK_REASON = {
   github_rejected: "github.webhook.reason.githubRejected",
   url_refused: "github.webhook.reason.urlRefused",
   github_unreachable: "github.webhook.reason.githubUnreachable",
@@ -300,7 +300,7 @@ export function GitHubWebhookSetting({
                       <li key={one.app_id}>
                         {t("github.webhook.failedLine", {
                           name: one.name ?? String(one.app_id),
-                          reason: t(REASON[one.reason_code]),
+                          reason: t(WEBHOOK_REASON[one.reason_code]),
                         })}
                       </li>
                     ))}
