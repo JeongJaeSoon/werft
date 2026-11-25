@@ -104,7 +104,8 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
     expect(record?.updatedAt).toEqual(before);
 
     const later = new Date(at.getTime() + 601_000);
-    expect(await claim(later, new Date(at.getTime() + 500_000))).toBe(false);
+    // The check written at +1 s is not older than a stale line at +0 s.
+    expect(await claim(later, at)).toBe(false);
     expect(await claim(later, new Date(at.getTime() + 2_000))).toBe(true);
     // The claim keeps the last outcome until the check writes its own.
     expect(
