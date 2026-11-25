@@ -1820,7 +1820,7 @@ async function releaseRunOf(
 
 // `follow-user`, a value this image does not know and a release made before
 // the field all ask for nothing, so no session is refused over a language.
-function responseLanguageOf(
+export function responseLanguageOf(
   snapshot: unknown,
 ): (typeof RESPONSE_LANGUAGE_VALUES)[number] | null {
   const language = (snapshot as { language?: unknown } | undefined)?.language;

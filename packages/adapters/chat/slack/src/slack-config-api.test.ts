@@ -36,6 +36,28 @@ async function failureOf(
   };
 }
 
+describe("the bot token's scopes", () => {
+  const scopesOf = (headers: Record<string, string>) =>
+    createSlackConfigApi({
+      apiUrl: "http://slack.invalid/api",
+      fetch: (async () =>
+        Response.json(
+          { ok: true, user_id: "U1", team_id: "T1" },
+          { headers },
+        )) as unknown as typeof fetch,
+    }).botScopes("xoxb-fixture");
+
+  test("come from auth.test's X-OAuth-Scopes header, trimmed", async () => {
+    expect(
+      await scopesOf({ "X-OAuth-Scopes": "chat:write, reactions:write,," }),
+    ).toEqual(["chat:write", "reactions:write"]);
+  });
+
+  test("are not known when Slack sends no header", async () => {
+    expect(await scopesOf({})).toBeNull();
+  });
+});
+
 describe("how an oauth.v2.access call failed", () => {
   test("no answer is unreachable, with no status", async () => {
     expect(

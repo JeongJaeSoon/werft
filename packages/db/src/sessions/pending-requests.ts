@@ -942,6 +942,12 @@ export function createPostgresPendingRequests(
             answeredBy: scope.actor,
             answerSurface: input.approval.surface,
             answerDecisionId: input.approval.decisionId,
+            sessionAllowSubject:
+              input.answer.kind === "permission" &&
+              input.answer.decision === "allow" &&
+              input.answer.remember === "session"
+                ? (input.sessionAllowSubject ?? null)
+                : null,
           })
           .where(eq(pendingRequests.requestId, pending.requestId));
         await announceInputWaitEnded(tx, {

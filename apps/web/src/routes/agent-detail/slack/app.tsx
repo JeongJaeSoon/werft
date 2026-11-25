@@ -320,6 +320,10 @@ export function SlackAppSection({
   // An older API sends no check; say nothing rather than guess.
   const unsynced =
     record.state === "created" ? (app.data.manifest_sync?.error ?? null) : null;
+  const reauthorization =
+    record.state === "created" && identity
+      ? (app.data.reauthorization ?? null)
+      : null;
   const updated = (
     <RelativeTime
       value={record.updated_at}
@@ -389,9 +393,12 @@ export function SlackAppSection({
           <RowAction
             disabled={busy || pending || Boolean(slack.readError)}
             aria-describedby={`${SECTION.app}-install-hint`}
-            onClick={() => connect.mutate()}
+            // Slack's consent screen cannot grant a scope its manifest lacks.
+            onClick={() =>
+              reauthorization ? slack.reauthorize.mutate() : connect.mutate()
+            }
           >
-            {connect.isPending
+            {connect.isPending || slack.reauthorize.isPending
               ? t("slack.working")
               : t(identity ? "slack.reinstall" : "slack.install")}
           </RowAction>
@@ -424,6 +431,28 @@ export function SlackAppSection({
     {
       foot: (
         <div className="flex flex-col gap-2">
+          {reauthorization ? (
+            <div className="flex flex-col items-start gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="amber">{t("slack.reauthorize.needed")}</Badge>
+                <RowAction
+                  disabled={busy || pending}
+                  aria-describedby={`${SECTION.app}-reauthorize`}
+                  onClick={() => slack.reauthorize.mutate()}
+                >
+                  {slack.reauthorize.isPending
+                    ? t("slack.working")
+                    : t("slack.reauthorize.action")}
+                </RowAction>
+              </div>
+              <Text id={`${SECTION.app}-reauthorize`} variant="sub">
+                {t("slack.reauthorize.body", {
+                  scopes: reauthorization.missing_scopes.join(", "),
+                })}
+              </Text>
+              <SaveError error={slack.reauthorize.error} />
+            </div>
+          ) : null}
           {unsynced ? (
             <div className="flex flex-col items-start gap-1">
               <div className="flex flex-wrap items-center gap-2">

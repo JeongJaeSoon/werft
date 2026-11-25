@@ -29,6 +29,7 @@ import {
 } from "@werft-ai/chat-slack";
 import {
   agentCardRequestSchema,
+  BOT_SCOPES,
   type ConversationId,
   type ConversationInputId,
   type ConversationTopicId,
@@ -274,6 +275,7 @@ async function agentInSlack() {
   await createPostgresSlackAppStore(db, key).storeBotToken({
     workspaceId,
     slackAppId,
+    scopes: [...BOT_SCOPES],
     botToken: BOT_CREDENTIAL,
   });
   await registerSlackInstallation(db, {
@@ -4959,7 +4961,7 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     expect(await cardRow()).toMatchObject({ settleState: "due" });
   });
 
-  test("a tool permission card whose requester left says so and loses its session button; a member change in its channel redraws it (94S-2175)", async () => {
+  test("a tool permission card whose requester left says so and keeps its session button; a member change in its channel redraws it (94S-2175)", async () => {
     const { sessionId, card } = await cardThread({
       kind: "permission",
       tool: "Bash",
@@ -4987,13 +4989,14 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     ]);
     const drawn = JSON.stringify(updated().at(-1)?.blocks ?? []);
     expect(drawn).toContain(":information_source: 요청자가 채널을 나갔어요");
-    expect(drawn).not.toContain("이 세션 동안 허용");
+    // A member's session allow is bound to that member, as anyone's.
+    expect(drawn).toContain("이 세션 동안 허용");
     expect(await cardRow()).toMatchObject({
       settleRendered: "open_requester_left",
       settleState: null,
     });
 
-    // Back in: the card as posted, session button and all.
+    // Back in: the card as posted.
     left = false;
     expect(await cards().markChoiceCardsDueIn(here)).toBe(1);
     await settler({ requesterLeft });

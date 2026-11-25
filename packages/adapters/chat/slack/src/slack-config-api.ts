@@ -99,6 +99,11 @@ export interface SlackConfigApi {
    * the app to this token's user.
    */
   exportApp(configToken: string, appId: string): Promise<unknown>;
+  /**
+   * The scopes the bot token holds, from `auth.test`'s `X-OAuth-Scopes`
+   * header; null when Slack sent none.
+   */
+  botScopes(botToken: string): Promise<string[] | null>;
   /** `auth.revoke` with the bot token itself. */
   revokeBotToken(botToken: string): Promise<void>;
 }
@@ -215,6 +220,14 @@ function noAnswer(method: string, error: unknown, httpStatus?: number) {
   });
 }
 
+/** Slack's comma-separated scope list, as `oauth.v2.access` and headers give it. */
+function scopeList(scopes: string): string[] {
+  return scopes
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter((scope) => scope.length > 0);
+}
+
 function slackCaller(options?: SlackApiOptions) {
   const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
   const fetchImpl = options?.fetch ?? fetch;
@@ -222,7 +235,12 @@ function slackCaller(options?: SlackApiOptions) {
 
   return async function call<T>(
     method: string,
-    init: { token?: string; body: URLSearchParams | object },
+    init: {
+      token?: string;
+      body: URLSearchParams | object;
+      /** Reads the headers of an answer that passed. */
+      onHeaders?: (headers: Headers) => void;
+    },
     schema: z.ZodType<T>,
   ): Promise<T> {
     const json = !(init.body instanceof URLSearchParams);
@@ -285,6 +303,7 @@ function slackCaller(options?: SlackApiOptions) {
         failure: "unexpected_answer",
       });
     }
+    init.onHeaders?.(response.headers);
     return parsed.data;
   };
 }
@@ -418,7 +437,7 @@ export function createSlackConfigApi(
         appId: answer.app_id,
         teamId: answer.team?.id ?? null,
         enterpriseInstall: answer.is_enterprise_install === true,
-        scopes: answer.scope.split(",").filter((scope) => scope.length > 0),
+        scopes: scopeList(answer.scope),
       };
     },
 
@@ -438,6 +457,22 @@ export function createSlackConfigApi(
         botUserId: auth.user_id,
         appId: info.bot.app_id,
       };
+    },
+
+    async botScopes(botToken) {
+      let header: string | null = null;
+      await call(
+        "auth.test",
+        {
+          token: botToken,
+          body: new URLSearchParams(),
+          onHeaders: (headers) => {
+            header = headers.get("x-oauth-scopes");
+          },
+        },
+        z.object({}),
+      );
+      return header === null ? null : scopeList(header);
     },
   };
 }
@@ -465,6 +500,29 @@ export interface SlackChannelMemberApi {
     botToken: string,
     input: { channelId: string; cursor: string | null },
   ): Promise<SlackChannelMemberPage>;
+}
+
+/** One message of a thread as `conversations.replies` gives it. */
+export type SlackThreadMessage = {
+  ts: string;
+  /** The person who wrote it; absent for some bot posts. */
+  user?: string;
+  /** Set when an app or a bot posted it. */
+  botId?: string;
+  subtype?: string;
+  text: string;
+};
+
+/**
+ * `conversations.replies` (`channels:history`, `groups:history`,
+ * `im:history`, which an agent's app already holds): one thread from its
+ * first message, one page. Slack's Tier 3.
+ */
+export interface SlackThreadApi {
+  threadReplies(
+    botToken: string,
+    input: { channelId: string; threadTs: string; limit: number },
+  ): Promise<SlackThreadMessage[]>;
 }
 
 /** `conversations.info`, read for whether another organization shares it. */
@@ -698,6 +756,20 @@ const channelMembersAnswer = z.object({
     .optional(),
 });
 
+const threadRepliesAnswer = z.object({
+  messages: z
+    .array(
+      z.object({
+        ts: z.string().regex(/^[0-9]{1,20}\.[0-9]{1,20}$/),
+        user: slackId.optional(),
+        bot_id: z.string().max(64).optional(),
+        subtype: z.string().max(64).optional(),
+        text: z.string().optional(),
+      }),
+    )
+    .max(1000),
+});
+
 export function createSlackBotApi(
   options?: SlackApiOptions,
 ): SlackBotApi &
@@ -705,10 +777,33 @@ export function createSlackBotApi(
   SlackBotSender &
   SlackBotDirectory &
   SlackChannelMemberApi &
-  SlackChannelSharingApi {
+  SlackChannelSharingApi &
+  SlackThreadApi {
   const call = slackCaller(options);
   const send = slackSender(options);
   return {
+    async threadReplies(botToken, input) {
+      const answer = await call(
+        "conversations.replies",
+        {
+          token: botToken,
+          body: new URLSearchParams({
+            channel: input.channelId,
+            ts: input.threadTs,
+            limit: String(input.limit),
+          }),
+        },
+        threadRepliesAnswer,
+      );
+      return answer.messages.slice(0, input.limit).map((message) => ({
+        ts: message.ts,
+        text: message.text ?? "",
+        ...(message.user === undefined ? {} : { user: message.user }),
+        ...(message.bot_id === undefined ? {} : { botId: message.bot_id }),
+        ...(message.subtype === undefined ? {} : { subtype: message.subtype }),
+      }));
+    },
+
     async listBots(token, cursor) {
       const answer = await call(
         "users.list",

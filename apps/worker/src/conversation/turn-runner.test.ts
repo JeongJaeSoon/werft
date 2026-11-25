@@ -14,6 +14,7 @@ import type {
   RuntimeStart,
 } from "@werft-ai/runtime-core";
 import { imageRuntime } from "../composition.ts";
+import { fakeConversationTools } from "../testing/fake-conversation-tools.ts";
 import { fakePermitRelay } from "../testing/fake-permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
 import { TopicSessions } from "./topic-sessions.ts";
@@ -206,13 +207,14 @@ const runnerOf = (module: RuntimeModule, limitMs?: number) => {
     runtime: module,
     sessions: new TopicSessions(new TopicDirectories(root), relay),
     relay,
+    tools: fakeConversationTools(),
     ...(limitMs === undefined ? {} : { limitMs }),
   });
 };
 const live = () => new AbortController().signal;
 
 describe("createConversationTurnRunner", () => {
-  test("starts the engine in the topic's own directory with no tool, every built-in one denied, the call limit and its session's key for the relay", async () => {
+  test("starts the engine in the topic's own directory with the four read tools alone, every built-in one denied, the call limit and its session's key for the relay", async () => {
     const { module, seen } = scripted([said("hel"), said("lo"), ended()]);
 
     expect(await runnerOf(module).run(turn, live())).toEqual({
@@ -233,7 +235,12 @@ describe("createConversationTurnRunner", () => {
       tmpDir: join(topic, "tmp"),
       model: "claude-haiku-5",
       permissionMode: "dontAsk",
-      tools: [],
+      tools: [
+        "mcp__conversation__read_thread",
+        "mcp__conversation__read_channel_summary",
+        "mcp__conversation__read_turns",
+        "mcp__conversation__list_open_tasks",
+      ],
       disallowedTools: BUILTIN,
       maxTurns: 8,
       maxOutputTokens: 2_048,
@@ -253,11 +260,29 @@ describe("createConversationTurnRunner", () => {
     expect(relay.held).toEqual([TOKEN]);
     expect(relay.permits.get("session-1")).toBeNull();
     // Nothing of a work session rides along: no instructions file, MCP server or transcript mirror.
-    expect(seen.start?.bundle).toEqual({
+    const { localToolServers, ...bundle } = seen.start?.bundle ?? {};
+    expect(bundle).toEqual({
       instructions: [],
       repoInstructions: null,
       mcpServers: [],
     });
+    // The runtime's own read tools, a fixed list, none taking an argument.
+    expect(
+      localToolServers?.map((server) => ({
+        name: server.name,
+        tools: server.tools.map((tool) => tool.name),
+      })),
+    ).toEqual([
+      {
+        name: "conversation",
+        tools: [
+          "read_thread",
+          "read_channel_summary",
+          "read_turns",
+          "list_open_tasks",
+        ],
+      },
+    ]);
     expect(seen.start?.bindings.transcript).toBeUndefined();
     // A new session starts from the assembled context, and outlives its turn.
     expect(seen.sent).toEqual([

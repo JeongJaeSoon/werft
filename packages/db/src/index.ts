@@ -19,6 +19,7 @@ export * from "./conversation-calls.ts";
 export * from "./conversations/channel-summaries.ts";
 export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
+export { createPostgresConversationReadToolStore } from "./conversations/conversation-read-tools.ts";
 export * from "./conversations/conversation-store.ts";
 export { createPostgresConversationTurnQueue } from "./conversations/conversation-turn-queue.ts";
 export {
@@ -114,6 +115,7 @@ export * from "./sessions/pending-control.ts";
 export { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 export * from "./sessions/private-channel-scope.ts";
 export * from "./sessions/repository-attachments.ts";
+export * from "./sessions/response-language.ts";
 export * from "./sessions/session-attribution.ts";
 export {
   type ArchivedEventSource,

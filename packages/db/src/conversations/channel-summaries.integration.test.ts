@@ -345,7 +345,8 @@ integration("channel summaries (0325)", () => {
     expect(await everyVersion(channel)).toEqual([
       [],
       ["line a", "line b"],
-      ["line b", "a again"],
+      // The folded line stands where the line it folded stood.
+      ["a again", "line b"],
       ["line a", "line b"],
       ["line a", "line b"],
     ]);

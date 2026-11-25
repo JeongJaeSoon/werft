@@ -24,6 +24,7 @@ import {
 import {
   PendingRequestRegistry,
   type PendingRequestsOptions,
+  type SessionAllow,
 } from "./pending-requests.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 
@@ -411,8 +412,9 @@ describe("PendingRequestRegistry", () => {
       expect(without?.request).not.toHaveProperty("remember_offer");
     });
 
-    test("hands the run the registered rules with an allow that asked to remember", async () => {
-      const harness = registry();
+    test("hands the host the registered rules of an allow that asked to remember, and the run only this call", async () => {
+      const held: SessionAllow[] = [];
+      const harness = registry({ onSessionAllow: (allow) => held.push(allow) });
       const decision = harness.ask(offered("req-session"));
       await harness.answer({
         request_id: "req-session",
@@ -423,9 +425,54 @@ describe("PendingRequestRegistry", () => {
       expect(await decision).toEqual({
         kind: "selected",
         optionKind: "allow_once",
-        remember: { scope: "session", rules: offer },
       });
+      expect(held).toEqual([
+        { requestId: await harness.idFor("req-session"), rules: offer },
+      ]);
     });
+
+    test("holds nothing for a plain allow or a deny", async () => {
+      const held: SessionAllow[] = [];
+      const harness = registry({ onSessionAllow: (allow) => held.push(allow) });
+      const plain = harness.ask(offered("req-once"));
+      const denied = harness.ask(offered("req-no"));
+      await harness.answer({
+        request_id: "req-once",
+        kind: "permission",
+        decision: "allow",
+      });
+      await harness.answer({
+        request_id: "req-no",
+        kind: "permission",
+        decision: "deny",
+      });
+      await Promise.all([plain, denied]);
+      expect(held).toEqual([]);
+    });
+
+    test.each([
+      ["stale", "stale"],
+      ["unknown", "unknown"],
+      ["refused by a throw", new Error("run closed")],
+    ] as const)(
+      "holds nothing when the run calls the allow %s",
+      async (_said, result) => {
+        const held: SessionAllow[] = [];
+        const harness = registry({
+          onSessionAllow: (allow) => held.push(allow),
+        });
+        const decision = harness.ask(offered("req-lost"), result);
+        await harness.answer({
+          request_id: "req-lost",
+          kind: "permission",
+          decision: "allow",
+          remember: "session",
+        });
+        await decision;
+        await waitFor(() => harness.gateway.settled.length === 1, "settlement");
+        expect(held).toEqual([]);
+      },
+    );
 
     test("allows only this call when the request registered nothing to remember", async () => {
       const harness = registry();
@@ -461,6 +508,7 @@ describe("PendingRequestRegistry", () => {
           repository_pins: true,
           workspace_mcp: true,
           werft_mcp: true,
+          session_allow_check: true,
         });
       }
     });

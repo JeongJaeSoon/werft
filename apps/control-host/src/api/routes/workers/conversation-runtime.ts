@@ -2,7 +2,10 @@ import {
   CONVERSATION_RUNTIME_ROUTE_PREFIX,
   CONVERSATION_RUNTIME_ROUTES,
 } from "@werft-ai/contracts";
-import type { ConversationRuntimeTurns } from "@werft-ai/platform";
+import type {
+  ConversationReadTools,
+  ConversationRuntimeTurns,
+} from "@werft-ai/platform";
 import {
   ApiHttpError,
   type ApiRouter,
@@ -22,7 +25,7 @@ const routePaths = new Set(
 );
 
 /**
- * The conversation runtime's two routes, behind a bearer of its own. That
+ * The conversation runtime's routes, behind a bearer of its own. That
  * bearer opens nothing else under /internal, and nothing but that bearer
  * opens these: register this before the worker routes, so a runtime's bearer
  * on one of them is refused here and never reaches their credential lookup.
@@ -32,6 +35,7 @@ export function registerConversationRuntimeRoutes(
   router: ApiRouter,
   deps: {
     turns: ConversationRuntimeTurns;
+    readTools: Pick<ConversationReadTools, "call">;
     isRuntimeBearer: (token: string | null) => boolean;
     stop?: AbortSignal;
   },
@@ -50,7 +54,7 @@ export function registerConversationRuntimeRoutes(
         "FORBIDDEN",
         own
           ? "These routes take the conversation runtime's bearer"
-          : "The conversation runtime's bearer opens its two routes only",
+          : "The conversation runtime's bearer opens its own routes only",
       );
     }
     await next();
@@ -105,6 +109,39 @@ export function registerConversationRuntimeRoutes(
             409,
             "IDEMPOTENCY_CONFLICT",
             "The turn was already reported with another result",
+          );
+      }
+    },
+  );
+
+  router.post(
+    `${CONVERSATION_RUNTIME_ROUTE_PREFIX}/read-tool`,
+    async (context) => {
+      const { request, response } = CONVERSATION_RUNTIME_ROUTES["/read-tool"];
+      const body = await parseJsonBody(context, request);
+      const answered = await deps.readTools.call({
+        runtimeId: body.runtime_id,
+        turnId: body.turn_id,
+        leaseId: body.lease_id,
+        tool: body.tool,
+      });
+      switch (answered.outcome) {
+        case "read":
+        case "refused":
+          return jsonWithSchema(context, response, answered);
+        case "unknown_turn":
+          throw new ApiHttpError(404, "NOT_FOUND", "No such turn");
+        case "not_holder":
+          throw new ApiHttpError(
+            403,
+            "FORBIDDEN",
+            "The turn is not leased to this runtime under this lease",
+          );
+        case "lease_expired":
+          throw new ApiHttpError(
+            409,
+            "REQUEST_EXPIRED",
+            "The turn's lease is over: it reads nothing more",
           );
       }
     },

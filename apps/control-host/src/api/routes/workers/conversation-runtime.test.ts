@@ -11,6 +11,7 @@ import {
   WORKER_PROTOCOL_ROUTES,
 } from "@werft-ai/contracts";
 import {
+  type ConversationReadTools,
   createConversationRuntimeTurns,
   createMemoryConversationTurnQueue,
   type WorkerGateway,
@@ -29,6 +30,17 @@ const WORKER = ["a", "session", "worker", "token"].join("-");
 const runtimeId = crypto.randomUUID();
 
 function harness() {
+  const readCalls: unknown[] = [];
+  let readAnswer: Awaited<ReturnType<ConversationReadTools["call"]>> = {
+    outcome: "read",
+    text: "{}",
+  };
+  const readTools: Pick<ConversationReadTools, "call"> = {
+    async call(input) {
+      readCalls.push(input);
+      return readAnswer;
+    },
+  };
   let clock = Date.parse("2026-11-24T00:00:00.000Z");
   const turns = createConversationRuntimeTurns({
     queue: createMemoryConversationTurnQueue(),
@@ -56,6 +68,7 @@ function harness() {
     registerInternalRoutes: (router) => {
       registerConversationRuntimeRoutes(router, {
         turns,
+        readTools,
         isRuntimeBearer: conversationRuntimeBearer([CURRENT, PREVIOUS]),
       });
       registerWorkerRoutes(router, gateway);
@@ -121,6 +134,10 @@ function harness() {
     enqueue,
     next,
     report,
+    readCalls,
+    answerReads(answer: typeof readAnswer) {
+      readAnswer = answer;
+    },
     advance(ms: number) {
       clock += ms;
     },
@@ -209,6 +226,7 @@ describe("the conversation runtime's routes", () => {
     for (const path of [
       "/conversation-runtime/next-turn",
       "/conversation-runtime/turn-result",
+      "/conversation-runtime/read-tool",
     ]) {
       expect(await errorOf(await h.post(path, null, {}))).toEqual({
         status: 401,
@@ -223,6 +241,60 @@ describe("the conversation runtime's routes", () => {
     }
     // Nothing was handed out to the refused callers.
     expect((await h.next())?.turn_id).toBeDefined();
+    expect(h.readCalls).toEqual([]);
+  });
+
+  test("a read tool call names one listed tool and nothing else; the service's verdict on the turn is its status", async () => {
+    const h = harness();
+    const call = {
+      runtime_id: runtimeId,
+      turn_id: crypto.randomUUID(),
+      lease_id: crypto.randomUUID(),
+      tool: "read_thread",
+    };
+    const read = (body: unknown) =>
+      h.post("/conversation-runtime/read-tool", CURRENT, body);
+
+    const answered = await read(call);
+    expect([answered.status, await answered.json()]).toEqual([
+      200,
+      { outcome: "read", text: "{}" },
+    ]);
+    expect(h.readCalls).toEqual([
+      {
+        runtimeId: call.runtime_id,
+        turnId: call.turn_id,
+        leaseId: call.lease_id,
+        tool: "read_thread",
+      },
+    ]);
+
+    h.answerReads({ outcome: "refused", reason: "thread_read_limit" });
+    const refused = await read(call);
+    expect([refused.status, await refused.json()]).toEqual([
+      200,
+      { outcome: "refused", reason: "thread_read_limit" },
+    ]);
+
+    // A tool off the list, or anything the call adds, is refused before the service.
+    for (const body of [
+      { ...call, tool: "read_file" },
+      { ...call, tool: "mcp__conversation__read_thread" },
+      { ...call, arguments: { channel: "C0OTHER" } },
+      { ...call, thread_ts: "1700000000.000100" },
+    ]) {
+      expect((await errorOf(await read(body))).status).toBe(400);
+    }
+    expect(h.readCalls).toHaveLength(2);
+
+    for (const [outcome, status, code] of [
+      ["unknown_turn", 404, "NOT_FOUND"],
+      ["not_holder", 403, "FORBIDDEN"],
+      ["lease_expired", 409, "REQUEST_EXPIRED"],
+    ] as const) {
+      h.answerReads({ outcome });
+      expect(await errorOf(await read(call))).toEqual({ status, code });
+    }
   });
 
   test("the runtime's bearer is 403 on every session worker route and on any other internal path, before any credential lookup", async () => {
