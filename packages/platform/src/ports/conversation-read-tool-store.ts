@@ -1,4 +1,5 @@
 import type {
+  ConversationDecision,
   ConversationId,
   ConversationReadTool,
   ConversationRuntimeId,
@@ -92,16 +93,35 @@ export interface ConversationReadToolStore {
     turnId: ConversationTurnId;
     leaseId: ConversationTurnLeaseId;
     runtimeId: ConversationRuntimeId;
-    tool: ConversationReadTool;
+    /** A read tool, or a decision tool, which counts the same. */
+    tool: ConversationReadTool | ConversationTurnDecision;
     now: Date;
   }): Promise<ConversationToolAdmission>;
+  /**
+   * Writes the turn's decision, once it was admitted and allowed: the first
+   * one, while the turn runs. A message the turn read that was deleted voids
+   * it (check spot ②, a1/J6's lock and check, just before the write).
+   */
+  recordDecision(input: {
+    turnId: ConversationTurnId;
+    /** Held still, checked again as the decision is written. */
+    leaseId: ConversationTurnLeaseId;
+    runtimeId: ConversationRuntimeId;
+    decision: ConversationDecision;
+  }): Promise<
+    | { outcome: "recorded"; state: "decided" | "voided_by_delete" }
+    | { outcome: "turn_not_held" }
+  >;
   /** Slack answered 429: the turn reads no thread again. */
   closeThreadReads(turnId: ConversationTurnId): Promise<void>;
-  /** Adds what a tool read to the turn's direct sources (decision 37). */
+  /**
+   * Adds what a tool read to the turn's direct sources (decision 37); false
+   * when the turn is no longer running, and keeps none.
+   */
   addDirectSources(
     turnId: ConversationTurnId,
     keys: readonly SourceKey[],
-  ): Promise<void>;
+  ): Promise<boolean>;
   /** The places among `places` Slack or an admin deleted. */
   deletedAmong(
     workspaceId: string,

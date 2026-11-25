@@ -1,6 +1,9 @@
 import { z } from "zod";
 import {
+  CONVERSATION_TURN_DECISION_VALUES,
   CONVERSATION_TURN_LIMIT_VALUES,
+  CONVERSATION_TURN_REASON_MAX,
+  type ConversationTurnDecision,
   conversationIdSchema,
   conversationTopicIdSchema,
 } from "../domain/conversation.ts";
@@ -77,6 +80,73 @@ export const conversationTurnScopeSchema = z
   .strict();
 export type ConversationTurnScope = z.infer<typeof conversationTurnScopeSchema>;
 
+export const conversationTurnDecisionSchema = z.enum(
+  CONVERSATION_TURN_DECISION_VALUES,
+);
+const ALL_DECISIONS = CONVERSATION_TURN_DECISION_VALUES;
+const ANSWER_ONLY = ["reply", "no_reply"] as const;
+/**
+ * The decision tools each kind of turn requester is given (G2): a person,
+ * and the operator's own test turn, all four; an agent (a Slack bot) only
+ * to answer or stay quiet. One table, for what the runtime loads and what
+ * the server checks again.
+ */
+const DECISION_TOOLS_BY_REQUESTER: Record<
+  string,
+  readonly ConversationTurnDecision[]
+> = {
+  user: ALL_DECISIONS,
+  slack_user: ALL_DECISIONS,
+  operator: ALL_DECISIONS,
+  slack_bot: ANSWER_ONLY,
+};
+/** The decision tools of a turn whose requester is of `kind`; a kind not known gets the fewest. */
+export function conversationDecisionTools(
+  kind: string,
+): readonly ConversationTurnDecision[] {
+  return Object.hasOwn(DECISION_TOOLS_BY_REQUESTER, kind)
+    ? (DECISION_TOOLS_BY_REQUESTER[kind] ?? ANSWER_ONLY)
+    : ANSWER_ONLY;
+}
+
+const decisionReasonSchema = z
+  .string()
+  .min(1)
+  .max(CONVERSATION_TURN_REASON_MAX);
+/**
+ * The one decision a turn's model makes, as its decision tool was called.
+ * Only the reply's body is kept, as the turn's answer; a task id or a new
+ * task's spec has no effect yet and is not stored.
+ */
+export const conversationDecisionSchema = z.discriminatedUnion("tool", [
+  z
+    .object({
+      tool: z.literal("reply"),
+      body: z.string().min(1).max(CONVERSATION_TURN_TEXT_MAX),
+      reason: decisionReasonSchema,
+    })
+    .strict(),
+  z
+    .object({
+      tool: z.literal("route_to_task"),
+      // An open task of the conversation, as list_open_tasks names it.
+      task_id: z.uuid(),
+      reason: decisionReasonSchema,
+    })
+    .strict(),
+  z
+    .object({
+      tool: z.literal("spawn_task"),
+      spec: z.string().min(1).max(CONVERSATION_TURN_TEXT_MAX),
+      reason: decisionReasonSchema,
+    })
+    .strict(),
+  z
+    .object({ tool: z.literal("no_reply"), reason: decisionReasonSchema })
+    .strict(),
+]);
+export type ConversationDecision = z.infer<typeof conversationDecisionSchema>;
+
 export const conversationRuntimeTurnSchema = z
   .object({
     turn_id: conversationTurnIdSchema,
@@ -116,6 +186,14 @@ export const conversationRuntimeTurnSchema = z
      * `keep` lets the turn go on in it; `drop`, or no check, starts anew.
      */
     topic_session: z.enum(["keep", "drop"]).optional(),
+    /**
+     * The decision tools the engine is given, as the server chose them for
+     * the turn's requester; absent, only reply and no_reply.
+     */
+    decision_tools: z
+      .array(conversationTurnDecisionSchema)
+      .max(CONVERSATION_TURN_DECISION_VALUES.length)
+      .optional(),
   })
   .strict();
 export type ConversationRuntimeTurn = z.infer<
@@ -138,6 +216,8 @@ export const conversationTurnResultSchema = z.discriminatedUnion("outcome", [
     .object({
       outcome: z.literal("completed"),
       text: z.string().max(CONVERSATION_TURN_TEXT_MAX),
+      /** The decision the server accepted in the turn; absent, it made none. */
+      decision: conversationDecisionSchema.optional(),
     })
     .strict(),
   z
@@ -290,6 +370,54 @@ export type ConversationReadToolResponse = z.infer<
   typeof conversationReadToolResponseSchema
 >;
 
+/** The engine's names of the decision tools: `mcp__conversation__<tool>`. */
+export const CONVERSATION_DECISION_TOOL_NAMES: readonly string[] =
+  CONVERSATION_TURN_DECISION_VALUES.map(
+    (tool) => `mcp__${CONVERSATION_TOOL_SERVER}__${tool}`,
+  );
+
+export const CONVERSATION_DECISION_TOOL_REFUSAL_VALUES = [
+  "tool_call_limit",
+  // Not a tool of the turn's requester's kind (G2).
+  "tool_not_allowed",
+  // route_to_task named no open task of the conversation the requester sees.
+  "unknown_task",
+  "not_channel_member",
+] as const;
+export type ConversationDecisionToolRefusal =
+  (typeof CONVERSATION_DECISION_TOOL_REFUSAL_VALUES)[number];
+
+export const conversationDecisionToolRequestSchema = z
+  .object({
+    runtime_id: conversationRuntimeIdSchema,
+    turn_id: conversationTurnIdSchema,
+    lease_id: conversationTurnLeaseIdSchema,
+    decision: conversationDecisionSchema,
+  })
+  .strict();
+export type ConversationDecisionToolRequest = z.infer<
+  typeof conversationDecisionToolRequestSchema
+>;
+/**
+ * `accepted`: the turn may end on it. Nothing is written until the turn's
+ * end, which checks it again (G2, and what the turn read was not deleted).
+ */
+export const conversationDecisionToolResponseSchema = z.discriminatedUnion(
+  "outcome",
+  [
+    z.object({ outcome: z.literal("accepted") }).strict(),
+    z
+      .object({
+        outcome: z.literal("refused"),
+        reason: z.enum(CONVERSATION_DECISION_TOOL_REFUSAL_VALUES),
+      })
+      .strict(),
+  ],
+);
+export type ConversationDecisionToolResponse = z.infer<
+  typeof conversationDecisionToolResponseSchema
+>;
+
 export const CONVERSATION_RUNTIME_ROUTE_PREFIX = "/conversation-runtime";
 // Every route the conversation runtime's bearer opens, under /internal.
 export const CONVERSATION_RUNTIME_ROUTES = {
@@ -304,6 +432,10 @@ export const CONVERSATION_RUNTIME_ROUTES = {
   "/read-tool": {
     request: conversationReadToolRequestSchema,
     response: conversationReadToolResponseSchema,
+  },
+  "/decision-tool": {
+    request: conversationDecisionToolRequestSchema,
+    response: conversationDecisionToolResponseSchema,
   },
 } as const;
 export type ConversationRuntimeRoute = keyof typeof CONVERSATION_RUNTIME_ROUTES;

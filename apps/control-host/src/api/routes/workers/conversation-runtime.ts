@@ -35,7 +35,7 @@ export function registerConversationRuntimeRoutes(
   router: ApiRouter,
   deps: {
     turns: ConversationRuntimeTurns;
-    readTools: Pick<ConversationReadTools, "call">;
+    readTools: Pick<ConversationReadTools, "call" | "decide">;
     isRuntimeBearer: (token: string | null) => boolean;
     stop?: AbortSignal;
   },
@@ -142,6 +142,40 @@ export function registerConversationRuntimeRoutes(
             409,
             "REQUEST_EXPIRED",
             "The turn's lease is over: it reads nothing more",
+          );
+      }
+    },
+  );
+
+  router.post(
+    `${CONVERSATION_RUNTIME_ROUTE_PREFIX}/decision-tool`,
+    async (context) => {
+      const { request, response } =
+        CONVERSATION_RUNTIME_ROUTES["/decision-tool"];
+      const body = await parseJsonBody(context, request);
+      const answered = await deps.readTools.decide({
+        runtimeId: body.runtime_id,
+        turnId: body.turn_id,
+        leaseId: body.lease_id,
+        decision: body.decision,
+      });
+      switch (answered.outcome) {
+        case "accepted":
+        case "refused":
+          return jsonWithSchema(context, response, answered);
+        case "unknown_turn":
+          throw new ApiHttpError(404, "NOT_FOUND", "No such turn");
+        case "not_holder":
+          throw new ApiHttpError(
+            403,
+            "FORBIDDEN",
+            "The turn is not leased to this runtime under this lease",
+          );
+        case "lease_expired":
+          throw new ApiHttpError(
+            409,
+            "REQUEST_EXPIRED",
+            "The turn's lease is over: it decides nothing more",
           );
       }
     },

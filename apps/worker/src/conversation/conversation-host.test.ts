@@ -106,6 +106,9 @@ function harness(options: {
     async readTool() {
       return { outcome: "turn_not_held" };
     },
+    async decisionTool() {
+      return { outcome: "turn_not_held" };
+    },
   };
   const runner: ConversationTurnRunner = {
     async run(turn, stop) {
@@ -319,6 +322,9 @@ describe("ConversationHost", () => {
           return "recorded";
         },
         async readTool() {
+          return { outcome: "turn_not_held" };
+        },
+        async decisionTool() {
           return { outcome: "turn_not_held" };
         },
       },
