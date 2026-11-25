@@ -256,7 +256,9 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     options: { maxBytes: number; signal?: AbortSignal },
   ): Promise<Uint8Array> {
     const path = `/attempts/${encodeURIComponent(attemptId)}/extensions/${encodeURIComponent(digest)}`;
-    await this.unconfirmed?.();
+    for (let held = this.unconfirmed?.(); held; held = this.unconfirmed?.()) {
+      await held;
+    }
     const timeout = AbortSignal.timeout(this.requestTimeoutMs);
     let response: Response;
     try {
@@ -342,8 +344,14 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     body: unknown,
     decoder: Decoder<T>,
   ): Promise<T> {
-    // The beat is what settles it, so it alone goes out meanwhile.
-    if (path !== "/heartbeat") await this.unconfirmed?.();
+    // The beat is what settles it, so it alone goes out meanwhile. Read
+    // again after each wait, and sent in the tick it reads open: ownership
+    // can go unconfirmed again between a wait ending and this resuming.
+    if (path !== "/heartbeat") {
+      for (let held = this.unconfirmed?.(); held; held = this.unconfirmed?.()) {
+        await held;
+      }
+    }
     let response: Response;
     const traceparent = this.currentTraceparent?.();
     try {

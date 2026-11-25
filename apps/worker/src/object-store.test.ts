@@ -70,6 +70,36 @@ describe("holdingS3Client", () => {
     ).rejects.toThrow("Not sent");
     expect(sent).toHaveLength(2);
   });
+
+  test("a held request reads ownership again when its wait ends, before it is sent", async () => {
+    const sent: unknown[] = [];
+    const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    let unconfirmed: Promise<void> | undefined = first.promise;
+    const client = holdingS3Client(
+      {
+        async send(command) {
+          sent.push(command);
+          return {};
+        },
+      },
+      () => unconfirmed,
+    );
+    // Confirmed, and unconfirmed again before the held request resumes.
+    void first.promise.then(() => {
+      unconfirmed = second.promise;
+    });
+
+    const request = client.send("put");
+    first.resolve();
+    await Bun.sleep(5);
+    expect(sent).toEqual([]);
+
+    unconfirmed = undefined;
+    second.resolve();
+    await request;
+    expect(sent).toEqual(["put"]);
+  });
 });
 
 describe("objectStoreConfigFromEnv", () => {

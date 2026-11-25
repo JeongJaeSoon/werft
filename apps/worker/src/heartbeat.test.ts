@@ -954,6 +954,33 @@ describe("a beat answered 404", () => {
     }
   });
 
+  test("a 404 to a beat sent before one the gateway has since accepted is not news", async () => {
+    let refuseFirst: (error: unknown) => void = () => {};
+    const at: number[] = [];
+    const {
+      heartbeat: beat,
+      lost,
+      ownership,
+    } = heartbeat(async () => {
+      at.push(timer.now());
+      if (at.length > 1) return answer(30_000);
+      return new Promise<never>((_, reject) => {
+        refuseFirst = reject;
+      });
+    }, defaults);
+    beat.start();
+    // The first beat goes unanswered; the next one is sent over it and accepted.
+    await timer.advance(10_050);
+    expect(at).toEqual([5_000, 10_000]);
+
+    refuseFirst(notFound());
+    await settle();
+    expect(beat.unconfirmed).toBeUndefined();
+    expect(ownership).toEqual([]);
+    expect(lost).toEqual([]);
+    await beat.stop();
+  });
+
   test("a stop waits until the lease is confirmed", async () => {
     const at: number[] = [];
     const { heartbeat: beat, lost } = heartbeat(async () => {

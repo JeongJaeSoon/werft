@@ -86,7 +86,8 @@ export function holdingS3Client(
 ): S3ClientLike {
   return {
     async send(command, options) {
-      await unconfirmed();
+      // Read again after each wait, and sent in the tick it reads open.
+      for (let held = unconfirmed(); held; held = unconfirmed()) await held;
       return client.send(command, options);
     },
   };

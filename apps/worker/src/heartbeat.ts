@@ -134,6 +134,8 @@ export class Heartbeat {
   private lastRefusal: unknown;
   /** Beats in a row the gateway answered 404; zero once one is accepted. */
   private notFound = 0;
+  /** When the latest beat the gateway accepted was sent, on `clock`. */
+  private acceptedSentAt = Number.NEGATIVE_INFINITY;
   /** Open while ownership is unconfirmed; see `unconfirmed`. */
   private doubt:
     | {
@@ -290,7 +292,7 @@ export class Heartbeat {
           }
         },
         (error: unknown) => {
-          if (waiting || !this.stopped) this.refused(error);
+          if (waiting || !this.stopped) this.refused(error, sentAt);
         },
       );
     let cancel: (() => void) | undefined;
@@ -336,6 +338,7 @@ export class Heartbeat {
       remainingMs: response.lease_remaining_ms,
     });
     this.lastRefusal = undefined;
+    this.acceptedSentAt = Math.max(this.acceptedSentAt, sentAt);
     if (this.doubt !== undefined) {
       const beats = this.notFound;
       this.notFound = 0;
@@ -347,9 +350,12 @@ export class Heartbeat {
     if (response.control_pending) this.options.onControlPending?.();
   }
 
-  private refused(error: unknown): void {
+  private refused(error: unknown, sentAt: number): void {
     if (this.lost) return;
     if (!isOwnershipLost(error) && isNotFound(error)) {
+      // Overlapping beats answer out of order: a 404 to one sent before a
+      // beat the gateway has since accepted is older news than that answer.
+      if (sentAt < this.acceptedSentAt) return;
       this.lastRefusal = error;
       this.notFound += 1;
       if (this.doubt === undefined) {

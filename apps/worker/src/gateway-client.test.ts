@@ -367,6 +367,28 @@ describe("HttpWorkerGatewayClient", () => {
     expect(paths()).toEqual(["/heartbeat", "/release"]);
   });
 
+  test("a held call reads ownership again when its wait ends, before it is sent", async () => {
+    const { gateway, recorded } = client(() => ok({ released: true }));
+    const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    let unconfirmed: Promise<void> | undefined = first.promise;
+    gateway.holdWhile(() => unconfirmed);
+    // Confirmed, and unconfirmed again before the held call resumes.
+    void first.promise.then(() => {
+      unconfirmed = second.promise;
+    });
+
+    const release = gateway.release({ ...scope, reason: "done" });
+    first.resolve();
+    await Bun.sleep(5);
+    expect(recorded).toHaveLength(0);
+
+    unconfirmed = undefined;
+    second.resolve();
+    expect(await release).toEqual({ released: true });
+    expect(recorded).toHaveLength(1);
+  });
+
   test("sends the current traceparent per request and none when it is unset", async () => {
     const { gateway, recorded } = client(() => apiError(409, "conflict"));
     const first = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
