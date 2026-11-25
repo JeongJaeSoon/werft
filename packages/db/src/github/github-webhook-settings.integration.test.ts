@@ -19,7 +19,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
@@ -151,13 +151,19 @@ integration("the installation's GitHub webhook settings", () => {
   });
 
   test("the env is carried in once, without an actor, and never over a saved row", async () => {
-    const ws = await workspace();
+    await workspace();
     expect(await store.importPublicUrl(BASE)).toBe(true);
     expect(await store.importPublicUrl("https://other.example.test")).toBe(
       false,
     );
     expect(await store.read()).toEqual({ publicUrl: BASE });
-    const carried = (await settingsReceipts(ws)).at(-1);
+    // Kept under the installation's oldest workspace, whichever that is here.
+    const [carried] = await db
+      .select({ result: receipts.result, actor: receipts.actor })
+      .from(receipts)
+      .where(eq(receipts.operation, "update_github_webhook_settings"))
+      .orderBy(desc(receipts.createdAt))
+      .limit(1);
     expect(carried?.result).toEqual({
       webhook_public_url: BASE,
       previous: null,
