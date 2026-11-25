@@ -7,10 +7,15 @@ import {
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   CompleteGitHubAppManifestResponse,
+  GitHubWebhookUpdate,
+  RetryGitHubWebhookUpdatesResponse,
   StartGitHubAppManifestResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Button,
   Checkbox,
   Field,
@@ -25,12 +30,19 @@ import {
   Link,
   RadioGroup,
   RadioGroupItem,
+  Text,
 } from "@werft-ai/ui";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
-import { refusalText, useMe, useRole } from "../auth/guard.tsx";
+import {
+  refusalText,
+  useHasPermission,
+  useMe,
+  useRole,
+} from "../auth/guard.tsx";
 import type { Translate } from "../i18n/i18n.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { IntegrationsLayout } from "./integrations.tsx";
+import { WEBHOOK_REASON } from "./workspace-github-webhook.tsx";
 import type { OnOutcome } from "./workspace-settings.tsx";
 
 const GITHUB_WEB = "https://github.com/";
@@ -310,6 +322,8 @@ function appLeftOnGitHub(error: ApiError | null): string | null {
   return typeof url === "string" && url.startsWith(GITHUB_WEB) ? url : null;
 }
 
+type HookFailed = Extract<GitHubWebhookUpdate, { outcome: "failed" }>;
+
 export type GitHubNewAppSearch = { code?: string; state?: string };
 
 export function gitHubNewAppSearch(
@@ -337,19 +351,14 @@ export function GitHubNewAppCallback() {
   const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id;
+  const canRetry = useHasPermission("installation.settings.manage");
   const started = useRef(false);
-  const complete = useMutation<CompleteGitHubAppManifestResponse, ApiError>({
-    mutationFn: () =>
-      unwrap(
-        client.POST(
-          "/v1/workspaces/{id}/github-apps/author/manifest/complete",
-          {
-            params: { path: { id: workspaceId ?? "" } },
-            body: { code: sent.code ?? "", state: sent.state ?? "" },
-          },
-        ),
-      ),
-    onSuccess: async (done) => {
+  // An App GitHub did not set to the saved webhook URL: the page stops here.
+  const [hookFailed, setHookFailed] = useState<HookFailed | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  const install = useMutation<void, never, CompleteGitHubAppManifestResponse>({
+    mutationFn: async (done) => {
       // Installing through a started state records who connected it; the
       // plain install URL still works when that start fails.
       const connectionId = done.github_app.connection_id;
@@ -367,6 +376,54 @@ export function GitHubNewAppCallback() {
       if (next.startsWith(GITHUB_WEB)) githubNavigation.assign(next);
     },
   });
+
+  const complete = useMutation<CompleteGitHubAppManifestResponse, ApiError>({
+    mutationFn: () =>
+      unwrap(
+        client.POST(
+          "/v1/workspaces/{id}/github-apps/author/manifest/complete",
+          {
+            params: { path: { id: workspaceId ?? "" } },
+            body: { code: sent.code ?? "", state: sent.state ?? "" },
+          },
+        ),
+      ),
+    onSuccess: (done) => {
+      if (done.webhook_update?.outcome === "failed") {
+        setHookFailed(done.webhook_update);
+        return;
+      }
+      install.mutate(done);
+    },
+  });
+
+  const retry = useMutation<RetryGitHubWebhookUpdatesResponse, ApiError>({
+    mutationFn: () =>
+      unwrap(
+        client.POST("/v1/github-webhook-settings/retry", {
+          body: { app_ids: [hookFailed?.app_id ?? 0] },
+        }),
+      ),
+    onMutate: () => setRetryError(null),
+    onSuccess: ({ updates }) => {
+      const left = updates.find(
+        (update): update is HookFailed => update.outcome === "failed",
+      );
+      if (left) {
+        setHookFailed(left);
+        setRetryError(t("github.newApp.retryFailed"));
+        return;
+      }
+      setHookFailed(null);
+      if (complete.data) install.mutate(complete.data);
+    },
+    onError: (error) =>
+      setRetryError(
+        reasonOf(error) === "webhook_url_unset"
+          ? t("github.webhook.unset")
+          : refusalText(t, error, "installation.settings.manage", role),
+      ),
+  });
   const missing = !sent.code || !sent.state;
   useEffect(() => {
     if (started.current || workspaceId === undefined) return;
@@ -381,20 +438,68 @@ export function GitHubNewAppCallback() {
   }, [complete.mutate, missing, workspaceId, navigate]);
 
   const appUrl = appLeftOnGitHub(complete.error);
-  const settled = missing || complete.isError || complete.isSuccess;
+  const settled =
+    missing || complete.isError || (complete.isSuccess && hookFailed !== null);
+  const busy = retry.isPending || install.isPending;
   return (
     <>
-      <output aria-live="polite">
-        {missing
-          ? t("github.newApp.stateInvalid")
-          : complete.error
-            ? failureText(t, complete.error, role)
-            : complete.isSuccess
-              ? t("github.newApp.done")
-              : t("github.newApp.working")}
-      </output>
+      {hookFailed === null ? (
+        <output aria-live="polite">
+          {missing
+            ? t("github.newApp.stateInvalid")
+            : complete.error
+              ? failureText(t, complete.error, role)
+              : complete.isSuccess
+                ? t("github.newApp.done")
+                : t("github.newApp.working")}
+        </output>
+      ) : (
+        <Alert variant="red" role="alert">
+          <AlertTitle>{t("github.newApp.webhookFailed")}</AlertTitle>
+          <AlertDescription>
+            <div className="flex flex-col gap-2">
+              <Text variant="sub">
+                {t(WEBHOOK_REASON[hookFailed.reason_code])}
+              </Text>
+              <Text variant="sub">
+                {canRetry
+                  ? t("github.newApp.webhookFailedHint")
+                  : t("github.newApp.webhookFailedHintMember")}
+              </Text>
+              {retryError === null ? null : (
+                <Text variant="sub">{retryError}</Text>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
       {settled ? (
         <div className="flex flex-wrap items-center gap-3">
+          {hookFailed !== null && complete.data ? (
+            <>
+              {canRetry ? (
+                <Button
+                  type="button"
+                  aria-disabled={busy || undefined}
+                  onClick={() => {
+                    if (!busy) retry.mutate();
+                  }}
+                >
+                  {t("github.webhook.retry")}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant={canRetry ? "outline" : "default"}
+                aria-disabled={busy || undefined}
+                onClick={() => {
+                  if (!busy && complete.data) install.mutate(complete.data);
+                }}
+              >
+                {t("github.newApp.install")}
+              </Button>
+            </>
+          ) : null}
           {appUrl ? (
             <Link
               href={appUrl}
