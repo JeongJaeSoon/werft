@@ -217,20 +217,25 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     // The one guard a row's text goes through: on its Markdown here, and
     // again on the text Slack reads once rendered (the render can join
     // pieces), every way it goes out below.
-    const { guard, dropped } = slackOutboxGuard(row);
-    // A text the guard emptied still says the answer is done.
+    const { guard: rowGuard, dropped } = slackOutboxGuard(row);
+    // A text the guard emptied still says the answer is done; one that was
+    // only marks to begin with goes as it was.
+    let changed = false;
+    const guard = (text: string) => {
+      const kept = rowGuard(text);
+      if (kept !== text) changed = true;
+      return kept;
+    };
+    const emptied = (text: string) => changed && isBlank(text);
     const empty =
       SLACK_OUTBOX_MESSAGES[row.body.locale ?? DEFAULT_USER_LOCALE].emptyReply;
-    const kept = guard(row.body.text);
+    const kept = row.body.blocks === undefined ? guard(row.body.text) : "";
     const claim =
       row.body.blocks !== undefined
         ? row
         : {
             ...row,
-            body: {
-              ...row.body,
-              text: isBlank(kept) && !isBlank(row.body.text) ? empty : kept,
-            },
+            body: { ...row.body, text: emptied(kept) ? empty : kept },
           };
     const logDropped = () => {
       if (dropped.size === 0) return;
@@ -289,7 +294,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       claim.kind === "input_notice" && claim.body.blocks !== undefined
         ? claim.body.text
         : slackOutboxText(body, guard);
-    const text = isBlank(rendered)
+    const text = emptied(rendered)
       ? slackOutboxText({ ...body, text: empty }, guard)
       : rendered;
     try {

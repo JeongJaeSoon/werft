@@ -263,6 +263,13 @@ describe("the outbox sends the guarded text", () => {
     }
   });
 
+  test("a reply of marks alone that the guard left whole goes as it is", async () => {
+    for (const text of ["`||`", "`*`", "---"]) {
+      const { posted } = await send(claim({ body: { text, locale: "en" } }));
+      expect(posted).toEqual([slackOutboxText({ text, locale: "en" })]);
+    }
+  });
+
   test("a table reply's blocks are guarded too", async () => {
     const text = `<!here> ${away}\n\n| a | b |\n| --- | --- |\n| 1 | 2 |`;
     await send(claim({ body: { text } }));
