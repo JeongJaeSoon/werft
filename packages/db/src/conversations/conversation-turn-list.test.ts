@@ -306,6 +306,108 @@ describe("an agent's conversation turns, for its admins", () => {
     expect(JSON.stringify(page)).not.toContain("ops@host");
   });
 
+  test("a mention turn on its write path shows every field: the person who mentioned, the mention's thread, and no text", async () => {
+    const teamId = randomUUID();
+    await db
+      .insert(memberTeams)
+      .values({ id: teamId, workspaceId: WORKSPACE, name: "team" });
+    await db.insert(agents).values({
+      id: AGENT,
+      workspaceId: WORKSPACE,
+      managingTeamId: teamId,
+      slug: "agent",
+      name: "agent",
+    });
+    const reserve = conversationCallReserve(LIMITS);
+    await saveBudgetLimit(
+      db,
+      WORKSPACE,
+      { kind: "person_default" },
+      { costUsd: null, tokens: reserve.tokens * 100 },
+    );
+    const conversationId = await conversation(AGENT, PUBLIC);
+    const place = await topic(AGENT, conversationId, PUBLIC);
+    const calls = createPostgresConversationCalls(db);
+    const turnId = conversationTurnIdSchema.parse(randomUUID());
+    const token = [CONVERSATION_TURN_PERMIT_TOKEN_PREFIX, randomUUID()].join(
+      "",
+    );
+    const issued = await calls.issueMentionTurnAtomic({
+      turnId,
+      tokenHash: hashConversationCallToken(token),
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      conversationId,
+      topicId: place.id,
+      requesterUserId: USER,
+      slackInstallationId: randomUUID(),
+      message: { teamId: TEAM, channelId: PUBLIC, ts: place.ts ?? "" },
+      releaseId: null,
+      connectionId: "conn-messages",
+      path: "/v1/messages",
+      ...LIMITS,
+      callKey: conversationCallKeySchema.parse(`turn-${turnId}:m2`),
+      ttlMs: 180_000,
+    });
+    expect(issued.outcome).toBe("issued");
+    const exchangeId = randomUUID();
+    const callId = conversationCallIdSchema.parse(randomUUID());
+    const granted = await calls.authorizeTurnCallAtomic({
+      tokenHash: hashConversationCallToken(token),
+      exchangeId,
+      callId,
+      reserveFor: () => ({ reserve, unmetered: false }),
+    });
+    expect(granted.outcome).toBe("ok");
+    expect(
+      (
+        await calls.settleAtomic({
+          callId,
+          exchangeId,
+          usage: USED,
+          priceFor: () => ({ costUsd: 0.0021 }),
+        })
+      ).outcome,
+    ).toBe("settled");
+    expect(
+      await endConversationTurn(db, {
+        turnId,
+        end: {
+          state: "decided",
+          decision: "reply",
+          reason: "SECRET REASON",
+          answer: "SECRET ANSWER",
+        },
+      }),
+    ).toBe("recorded");
+
+    const page = await read();
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      id: turnId,
+      state: "decided",
+      limit: null,
+      requester: { kind: "user", user_id: USER },
+      decision: "reply",
+      models: [MODEL],
+      input_tokens: 900,
+      output_tokens: 40,
+      cost_usd: "0.002100",
+      unpriced_calls: 0,
+      slack_thread: {
+        team_id: TEAM,
+        channel_id: PUBLIC,
+        thread_ts: place.ts,
+      },
+      thread_task_session_id: null,
+    });
+    expect(page.items[0]?.ended_at).not.toBeNull();
+    expect(JSON.stringify(page)).not.toContain("SECRET");
+    // A person mentioned: the turn is on the person side of the split.
+    expect((await read(INITIATOR_ROOT_KINDS.person)).items).toHaveLength(1);
+    expect((await read(INITIATOR_ROOT_KINDS.agent)).items).toHaveLength(0);
+  });
+
   test("pages newest first, ties by id, each turn once across pages", async () => {
     const conversationId = await conversation(AGENT, PUBLIC);
     const place = await topic(AGENT, conversationId, PUBLIC);
