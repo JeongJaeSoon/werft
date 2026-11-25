@@ -630,10 +630,10 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       expect(
         page.items.map((agent) => [agent.id, agent.status, agent.activation]),
       ).toEqual([
-        [draft, "active", "draft"],
-        [live, "active", "active"],
-        [paused, "paused", "inactive"],
         [archived, "archived", "inactive"],
+        [paused, "paused", "inactive"],
+        [live, "active", "active"],
+        [draft, "active", "draft"],
       ]);
       // The three buckets add up to the rows listed, as to counts.all.
       expect(counts.active + counts.draft + counts.inactive).toBe(
@@ -718,10 +718,11 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       include: "summary",
     });
     expect(page.items.map((agent) => agent.id)).toEqual([
-      draft.agent.id,
       released.agent.id,
+      draft.agent.id,
     ]);
-    expect(page.items.map((agent) => agent.summary)).toEqual([
+    // Listed newest first; the summaries below are in creation order.
+    expect(page.items.map((agent) => agent.summary).reverse()).toEqual([
       {
         version: {
           version_no: 2,
@@ -1134,8 +1135,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         await agentsService.listAgents(owner, { ...PAGE, include: "summary" }),
       ),
     ).toEqual([
-      [busy.agentId, 2, 3],
       [idle.agentId, 0, 0],
+      [busy.agentId, 2, 3],
     ]);
 
     // A member outside the agents lists neither; as one of its admins, the

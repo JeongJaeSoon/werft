@@ -439,7 +439,7 @@ export function takeoversQuery(client: ApiClient, filter: TakeoverFilter = {}) {
 }
 
 /**
- * Every agent of the workspace, every page read, oldest first, each with the
+ * Every agent of the workspace, every page read, newest first, each with the
  * summary its card shows, so a list of cards does not read each agent.
  */
 export function agentsQuery(client: ApiClient) {
@@ -461,7 +461,7 @@ export function agentsQuery(client: ApiClient) {
 }
 
 /**
- * The workspace's agents a page at a time, oldest first, with their card
+ * The workspace's agents a page at a time, newest first, with their card
  * summaries: those whose name or slug contains `q` when one is given.
  * `limit` rows a page, the API's default when left out.
  */
