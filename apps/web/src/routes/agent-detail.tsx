@@ -45,6 +45,7 @@ import { AdminsTab } from "./agent-detail/admins-tab.tsx";
 import { AgentNotFound } from "./agent-detail/agent-not-found.tsx";
 import { CardTab } from "./agent-detail/card-tab.tsx";
 import { CodexSandboxAlert } from "./agent-detail/codex-sandbox.tsx";
+import { ConversationsTab } from "./agent-detail/conversations.tsx";
 import { saveFailureText } from "./agent-detail/effective-behavior.tsx";
 import { GitHubPanel, SlackPanel } from "./agent-detail/lazy-tabs.tsx";
 import {
@@ -212,6 +213,13 @@ function AgentView({
       </div>
       <TabsContent {...tabPanel("overview")}>
         <OverviewTab detail={detail} toRelease={toRelease} />
+      </TabsContent>
+      <TabsContent {...tabPanel("conversations")}>
+        <ConversationsTab
+          agentId={agent.id}
+          manages={manages}
+          mounted={hasShown("conversations")}
+        />
       </TabsContent>
       <TabsContent {...tabPanel("card")}>
         <CardTab

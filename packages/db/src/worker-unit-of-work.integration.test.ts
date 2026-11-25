@@ -22,11 +22,12 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, count, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, isNull, max, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { readPointerRuntime } from "./checkpoints/checkpoint-runtime.ts";
 import { createPostgresCheckpointStore } from "./checkpoints/checkpoint-store.ts";
+import { encodeEventCursor } from "./cursors.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresGitHubGateStore } from "./github/github-settings.ts";
 import {
@@ -957,6 +958,23 @@ integration("worker gateway on PostgreSQL", () => {
         reason: "lease_lost",
       }),
     ).toEqual({ released: true });
+  });
+
+  test("appendEvents answers with a cursor built from the newest stored id", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    // Ten events take the id past one digit, where an id the driver returned
+    // as text would stop encoding like the number.
+    const appended = await gateway.appendEvents(principalOf(claimed), {
+      ...scopeOf(claimed, "1"),
+      batch_key: "cursor",
+      events: Array.from({ length: 10 }, (_, index) => event(index + 1)),
+    });
+    const [newest] = await db
+      .select({ id: max(events.id) })
+      .from(events)
+      .where(workerStream(session.session_id));
+    expect(newest?.id).toBeGreaterThanOrEqual(10);
+    expect(appended.cursor).toBe(encodeEventCursor(newest?.id ?? 0));
   });
 
   test("appendEvents dedups on (attempt_id, source_sequence); a re-sent batch is a no-op", async () => {
