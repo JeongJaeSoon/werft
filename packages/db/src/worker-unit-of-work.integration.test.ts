@@ -960,6 +960,23 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({ released: true });
   });
 
+  test("appendEvents answers with a cursor built from the newest stored id", async () => {
+    const { session, claimed } = await claimAndDeliver();
+    // Ten events take the id past one digit, where an id the driver returned
+    // as text would stop encoding like the number.
+    const appended = await gateway.appendEvents(principalOf(claimed), {
+      ...scopeOf(claimed, "1"),
+      batch_key: "cursor",
+      events: Array.from({ length: 10 }, (_, index) => event(index + 1)),
+    });
+    const [newest] = await db
+      .select({ id: max(events.id) })
+      .from(events)
+      .where(workerStream(session.session_id));
+    expect(newest?.id).toBeGreaterThanOrEqual(10);
+    expect(appended.cursor).toBe(encodeEventCursor(newest?.id ?? 0));
+  });
+
   test("appendEvents dedups on (attempt_id, source_sequence); a re-sent batch is a no-op", async () => {
     const { session, claimed } = await claimAndDeliver();
     const request = {
@@ -971,12 +988,6 @@ integration("worker gateway on PostgreSQL", () => {
     expect(first.accepted_through).toBe(2);
     const second = await gateway.appendEvents(principalOf(claimed), request);
     expect(second).toEqual(first);
-    // The cursor is built from the newest id, which this driver returns as text.
-    const [newest] = await db
-      .select({ id: max(events.id) })
-      .from(events)
-      .where(workerStream(session.session_id));
-    expect(first.cursor).toBe(encodeEventCursor(newest?.id ?? 0));
     const [storedRow] = await db
       .select({ stored: count() })
       .from(events)
