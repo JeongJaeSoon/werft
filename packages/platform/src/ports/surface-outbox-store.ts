@@ -137,7 +137,10 @@ export type SurfaceOutboxEntry = {
    * A row enqueued once the thread is known goes there at once.
    */
   heldForInputId?: ConversationInputId | null;
-  /** The progress message a `progress` row updates; set on it alone. */
+  /**
+   * The progress message a `progress` row updates; set on it alone. One key
+   * is one message across the installation: name it after what it reports.
+   */
   progressKey?: string | null;
 };
 

@@ -5994,13 +5994,14 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
     await intervalOver();
     expect(await outboxPass()).toMatchObject({ claimed: 0 });
     const [post, ...more] = posted();
+    if (!post) throw new Error("no post");
     expect(more).toEqual([]);
     expect(post).toMatchObject({ threadTs: THREAD, text: "step 1" });
     expect(slack.updates).toEqual([
-      { channelId: CHANNEL, ts: post?.ts, text: "step 5", blocks: undefined },
+      { channelId: CHANNEL, ts: post.ts, text: "step 5", blocks: undefined },
     ]);
     const superseded = (n: number) => ({
-      status: "failed",
+      status: "failed" as const,
       errorCode: "superseded",
       slackTs: null,
       progressTs: null,
@@ -6010,7 +6011,7 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
       {
         status: "sent",
         errorCode: null,
-        slackTs: post?.ts,
+        slackTs: post.ts,
         progressTs: null,
         text: "step 1",
       },
@@ -6020,8 +6021,8 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
       {
         status: "sent",
         errorCode: null,
-        slackTs: post?.ts,
-        progressTs: post?.ts,
+        slackTs: post.ts,
+        progressTs: post.ts,
         text: "step 5",
       },
     ]);
@@ -6048,13 +6049,89 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
 
     await intervalOver();
     expect(await outboxPass()).toMatchObject({ sent: 1 });
+    const [post] = posted();
+    if (!post) throw new Error("no post");
     expect(slack.updates).toEqual([
       {
         channelId: CHANNEL,
-        ts: posted()[0]?.ts,
+        ts: post.ts,
         text: "step 3",
         blocks: undefined,
       },
+    ]);
+  });
+
+  test("a Retry-After shorter than the interval still waits the interval", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    await progress(2, "step 2");
+    await intervalOver();
+    slack.rateLimit("chat.update", 1);
+    expect(await outboxPass()).toMatchObject({ retried: 1 });
+    expect(await waitMsOf(2)).toBeGreaterThan(
+      SURFACE_PROGRESS_EDIT_INTERVAL_MS - 5_000,
+    );
+  });
+
+  test("a post Slack never confirmed stops the message: no second post", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    // As if its send outlived its lease.
+    await db
+      .update(slackOutbox)
+      .set({ status: "uncertain", errorCode: "lease_expired" })
+      .where(eq(slackOutbox.kind, "progress"));
+    await progress(2, "step 2");
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect((await progressRows())[1]).toMatchObject({
+      status: "failed",
+      errorCode: "progress_stopped",
+    });
+  });
+
+  test("a claim made beside another pass's is checked again when its send begins", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await progress(2, "step 2");
+    // Both claimed, as two passes may when one's snapshot predates step 2.
+    const claimed = await db
+      .update(slackOutbox)
+      .set({
+        claimToken: sql`gen_random_uuid()`,
+        leaseExpiresAt: sql`now() + interval '1 minute'`,
+      })
+      .where(eq(slackOutbox.kind, "progress"))
+      .returning({ id: slackOutbox.id, claimToken: slackOutbox.claimToken })
+      .then((rows) =>
+        rows.map(({ id, claimToken }) => ({
+          id,
+          claimToken: claimToken ?? "",
+        })),
+      );
+    const store = createPostgresSlackOutboxStore(db);
+    const fenceOf = async (n: number) => {
+      const [row] = await db
+        .select({ id: slackOutbox.id })
+        .from(slackOutbox)
+        .where(eq(slackOutbox.dedupeKey, `progress:${KEY}:${n}`));
+      const fence = claimed.find((claim) => claim.id === row?.id);
+      if (!fence) throw new Error("no claim");
+      return fence;
+    };
+    expect(await store.beginSend(await fenceOf(1))).toBe(false);
+    expect(await store.beginSend(await fenceOf(2))).toMatchObject({
+      progress: { ts: null, reposted: false },
+    });
+    expect(
+      (await progressRows()).map(({ status, errorCode }) => [
+        status,
+        errorCode,
+      ]),
+    ).toEqual([
+      ["failed", "superseded"],
+      ["sending", null],
     ]);
   });
 
@@ -6067,9 +6144,10 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
     await intervalOver();
     expect(await outboxPass()).toMatchObject({ sent: 1 });
     const [first, again, ...more] = posted();
+    if (!first || !again) throw new Error("no posts");
     expect(more).toEqual([]);
     expect(again).toMatchObject({ threadTs: THREAD, text: "step 2" });
-    expect(again?.ts).not.toBe(first?.ts);
+    expect(again.ts).not.toBe(first.ts);
 
     slack.failures.delete("chat.update");
     await progress(3, "step 3");
@@ -6077,7 +6155,7 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
     expect(await outboxPass()).toMatchObject({ sent: 1 });
     expect(posted()).toHaveLength(2);
     expect(slack.updates).toEqual([
-      { channelId: CHANNEL, ts: again?.ts, text: "step 3", blocks: undefined },
+      { channelId: CHANNEL, ts: again.ts, text: "step 3", blocks: undefined },
     ]);
     expect(
       (await progressRows()).map(({ slackTs, progressTs }) => ({
@@ -6085,9 +6163,9 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
         progressTs,
       })),
     ).toEqual([
-      { slackTs: first?.ts, progressTs: null },
-      { slackTs: again?.ts, progressTs: first?.ts },
-      { slackTs: again?.ts, progressTs: again?.ts },
+      { slackTs: first.ts, progressTs: null },
+      { slackTs: again.ts, progressTs: first.ts },
+      { slackTs: again.ts, progressTs: again.ts },
     ]);
   });
 
