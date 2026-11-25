@@ -403,6 +403,7 @@ export async function main(
       secrets,
       consoleOrigin,
       readerOutside: slackReaderOutside(db, secretKey, environment, logger),
+      logger,
     });
     const sent = await drainSlackOutbox({
       outbox,
