@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseRunState } from "./run-state.mjs";
 
 // A name with one of these words (split on _ and -) names a secret: none
@@ -122,6 +122,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     console.error(`run-urls.mjs: ${statePath} names no verify-ap-* project`);
     process.exit(1);
   }
+  // up.sh and lib.sh have sourced the state: their exported COMPOSE_FILE is
+  // the shell's reading of it, while parseRunState keeps the backslashes of a
+  // path up.sh quoted with %q (a space in it). Without them, the parsed state.
+  const sourced =
+    process.env.COMPOSE_PROJECT_NAME === state.COMPOSE_PROJECT_NAME &&
+    Boolean(process.env.COMPOSE_FILE);
   let urls;
   try {
     const ps = execFileSync(
@@ -137,8 +143,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
         "json",
       ],
       {
-        cwd: state.VERIFY_REPO,
-        env: { ...process.env, ...state },
+        cwd: fileURLToPath(new URL("../..", import.meta.url)),
+        env: sourced ? process.env : { ...process.env, ...state },
         encoding: "utf8",
         stdio: ["ignore", "pipe", "inherit"],
       },

@@ -550,6 +550,52 @@ esac
     expect(state).toMatchObject({ ...secretState, VERIFY_BUILT_FROM: "abc" });
   });
 
+  test("takes the compose files from a shell that sourced the state, where a path with a space is unquoted", async () => {
+    await writeFile(join(dir, "ps"), ps(33180));
+    // up.sh writes paths with printf %q; parseRunState keeps the backslashes.
+    const quoted = "/no/such/repo\\ with\\ spaces";
+    await writeFile(
+      join(runDir, "state.env"),
+      [
+        `VERIFY_REPO=${quoted}`,
+        "export COMPOSE_PROJECT_NAME=verify-ap-20261125-010101-1",
+        `export COMPOSE_FILE=${quoted}/compose.yaml`,
+        "VERIFY_API=http://127.0.0.1:33154",
+        "",
+      ].join("\n"),
+    );
+    const done = Bun.spawnSync(
+      ["node", join(scripts, "run-urls.mjs"), runDir],
+      {
+        env: {
+          ...env(),
+          COMPOSE_PROJECT_NAME: "verify-ap-20261125-010101-1",
+          COMPOSE_FILE: "/no/such/repo with spaces/compose.yaml",
+        },
+      },
+    );
+    expect(done.stderr.toString()).toBe("");
+    expect(done.exitCode).toBe(0);
+    const urls = await Bun.file(join(runDir, "state.json")).json();
+    expect(urls.api_url).toBe("http://127.0.0.1:33180");
+  });
+
+  test("ap_compose fails when the restart worked but the address could not be read", async () => {
+    await writeFile(join(dir, "ps"), "");
+    const done = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        '. "$1/lib.sh" 20261125-010101-1 && ap_compose restart api; echo "rc=$?"',
+        "bash",
+        scripts,
+      ],
+      { env: env() },
+    );
+    expect(done.stdout.toString()).toBe("rc=1\n");
+    expect(done.stderr.toString()).toContain("publishes no port for 3000");
+  });
+
   test("refuses to write a field or a value named like a secret", async () => {
     const { runUrls } = await import("../scripts/verify/run-urls.mjs");
     const state = { COMPOSE_PROJECT_NAME: "verify-ap-x", ...secretState };

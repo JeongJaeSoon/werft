@@ -30,7 +30,8 @@ ap_compose() {
   local compose_rc=$? api_before=${API:-}
   case "${1:-}" in
     up | restart | start)
-      ap_urls >/dev/null || true
+      # A port that may have moved and could not be read is a failure too.
+      ap_urls >/dev/null || { [ "$compose_rc" != 0 ] || compose_rc=1; }
       [ "${API:-}" = "$api_before" ] || echo "ap_compose: the API moved to $API (state.json updated; in a pipeline, run ap_urls or source lib.sh again)" >&2
       ;;
   esac
