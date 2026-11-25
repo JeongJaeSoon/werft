@@ -63,6 +63,23 @@ describe("dropOutOfScopeSlackRefs", () => {
     expect(result.dropped.length).toBeGreaterThan(0);
   });
 
+  test.each([
+    // A label of its own, Markdown or Slack's.
+    [`see [${ELSEWHERE}](https://example.com)`, "see "],
+    [`see <https://example.com|${away}>`, "see "],
+    // The same channel, encoded or in lower case.
+    [`see https://acme.slack.com/archives/%4308AWAY222/p1`, "see "],
+    [`see https://acme.slack.com/archives/${ELSEWHERE.toLowerCase()}`, "see "],
+    [`see acme.slack.com/archives/%4308AWAY222`, "see "],
+    [`see HTTPS://ACME.SLACK.COM/archives/%4308AWAY222`, "see "],
+    // Another site's link that carries the id.
+    [`see https://example.com/${ELSEWHERE}`, "see "],
+  ])("%p loses the piece written another way", (text, posted) => {
+    const result = dropOutOfScopeSlackRefs(text, SCOPE);
+    expect(result.text).toBe(posted);
+    expect(result.dropped).toEqual([ELSEWHERE]);
+  });
+
   test("keeps links that name no channel, and other sites", () => {
     const text =
       "https://api.slack.com/methods/chat.postMessage and https://github.com/acme/C08AWAY222x";
@@ -126,6 +143,16 @@ describe("guardSlackOutboxBody", () => {
         dropped: [],
       });
     }
+  });
+
+  test.each([
+    [`@cha[x](${away})nnel look`, "look"],
+    ["@cha<!here>nnel look", "look"],
+    [`C08AW<!here>AY222 look`, " look"],
+  ])("%p: what one removal joins, the next takes", (text, posted) => {
+    expect(guardSlackOutboxBody(claim({ body: { text } })).body.text).toBe(
+      posted,
+    );
   });
 
   test("a card's own blocks and text go as they are", () => {

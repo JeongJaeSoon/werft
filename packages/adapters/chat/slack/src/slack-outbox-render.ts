@@ -251,36 +251,69 @@ function isSlackUrl(url: URL): boolean {
   );
 }
 
+const BARE_CHANNEL_ID = /^[CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11}$/;
+
+// A Slack id as Slack makes them: its kind's capital, then capitals and
+// digits with a digit among them. Links may write it in either case.
+const channelIdOf = (value: string) =>
+  /^[CGD](?=[A-Z0-9]*\d)[A-Z0-9]+$/i.test(value) ? value.toUpperCase() : null;
+const teamIdOf = (value: string) =>
+  /^[TE](?=[A-Z0-9]*\d)[A-Z0-9]+$/i.test(value) ? value.toUpperCase() : null;
+
+function parsedUrl(raw: string): URL | null {
+  for (const candidate of raw.includes("://") ? [raw] : [`https://${raw}`]) {
+    try {
+      return new URL(candidate);
+    } catch {}
+  }
+  return null;
+}
+
+function decoded(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 /**
  * The channel and team ids a Slack URL names in its path or query
- * (`/archives/C…`, `/client/T…/C…`, `?team=T…&id=C…`); empty for any other URL.
+ * (`/archives/C…`, `/client/T…/C…`, `?team=T…&id=C…`), percent-encoded
+ * or not; empty for any other URL.
  */
 function slackUrlRefs(raw: string): { channels: string[]; teams: string[] } {
   const refs = { channels: [] as string[], teams: [] as string[] };
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
+  const url = parsedUrl(raw);
+  if (url === null) return refs;
+  const values = [
+    ...url.pathname.split("/").map(decoded),
+    ...url.searchParams.values(),
+  ];
+  // Another site's link can still carry an id, as a bare one would be.
+  if (!isSlackUrl(url)) {
+    refs.channels = values.filter((value) => BARE_CHANNEL_ID.test(value));
     return refs;
   }
-  if (!isSlackUrl(url)) return refs;
-  const values = [...url.pathname.split("/"), ...url.searchParams.values()];
   for (const value of values) {
-    if (/^[CGD][A-Z0-9]+$/.test(value)) refs.channels.push(value);
-    else if (/^[TE][A-Z0-9]+$/.test(value)) refs.teams.push(value);
+    const channel = channelIdOf(value);
+    const team = channel === null ? teamIdOf(value) : null;
+    if (channel !== null) refs.channels.push(channel);
+    if (team !== null) refs.teams.push(team);
   }
   return refs;
 }
 
-// A Markdown link, a Slack control, a bare URL, or a bare channel id shaped
-// as Slack makes them (a digit among 8 to 11 more capitals and digits).
+// A Markdown link, a Slack control, a URL (any scheme, or a Slack host Slack
+// links without one), or a bare channel id.
 const SLACK_REFERENCE =
-  /\[[^\]\n]*\]\(\s*<?([^()\s<>]+)>?\s*\)|<([^<>\n]+)>|((?:https?|slack):\/\/[^\s<>()[\]|"'`]+)|\b([CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11})\b/g;
+  /\[([^\]\n]*)\]\(\s*<?([^()\s<>]+)>?\s*\)|<([^<>\n]+)>|((?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|\b(?:[A-Za-z0-9-]+\.)*slack\.com\/)[^\s<>()[\]|"'`]*)|\b([CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11})\b/gi;
 
 /**
  * The text without the Slack links and channel ids outside its scope (A3),
- * and the ids that were outside. A stopgap only: a leak written out in words
- * passes; the scope's isolation is what keeps a conversation's own.
+ * and the ids that were outside. A link goes whole when its label holds one
+ * too. A stopgap only: a leak written out in words passes; the scope's
+ * isolation is what keeps a conversation's own.
  */
 export function dropOutOfScopeSlackRefs(
   text: string,
@@ -299,30 +332,44 @@ export function dropOutOfScopeSlackRefs(
     const { channels, teams } = slackUrlRefs(url);
     return outside(channels, teams);
   };
+  const outsideLabel = (label: string) => {
+    const inner = dropOutOfScopeSlackRefs(label, scope).dropped;
+    dropped.push(...inner);
+    return inner.length > 0;
+  };
   const kept = text.replace(
     SLACK_REFERENCE,
     (
       whole,
+      markdownLabel?: string,
       markdownUrl?: string,
       control?: string,
       bare?: string,
       id?: string,
     ) => {
-      if (markdownUrl !== undefined)
-        return outsideUrl(markdownUrl) ? "" : whole;
+      if (markdownUrl !== undefined) {
+        const out = outsideUrl(markdownUrl);
+        return outsideLabel(markdownLabel ?? "") || out ? "" : whole;
+      }
       if (control !== undefined) {
-        const target = control.split("|", 1)[0] ?? "";
-        if (target.startsWith("#")) {
-          return outside([target.slice(1)], []) ? "" : whole;
-        }
-        return outsideUrl(target) ? "" : whole;
+        const bar = control.indexOf("|");
+        const target = bar === -1 ? control : control.slice(0, bar);
+        const out = target.startsWith("#")
+          ? outside([target.slice(1).toUpperCase()], [])
+          : outsideUrl(target);
+        const label = bar === -1 ? "" : control.slice(bar + 1);
+        return outsideLabel(label) || out ? "" : whole;
       }
       if (bare !== undefined) {
         // A sentence's full stop is not the URL's.
         const url = bare.replace(/[.,;:!?]+$/, "");
         return outsideUrl(url) ? bare.slice(url.length) : whole;
       }
-      return id !== undefined && outside([id], []) ? "" : whole;
+      // The pattern's i flag reads a lower-case word too; a bare id is
+      // Slack's own capitals only.
+      return id !== undefined && id === id.toUpperCase() && outside([id], [])
+        ? ""
+        : whole;
     },
   );
   return { text: kept, dropped };
@@ -331,7 +378,9 @@ export function dropOutOfScopeSlackRefs(
 /**
  * The body as it may go out: no group mention, and, past a person's own
  * words (an instruction or its mirror), no Slack reference outside the row's
- * conversation. A card's blocks and text are its own, escaped already.
+ * conversation. Each removal can join the text around it into a new one, so
+ * both run again until nothing changes; each pass only shortens the text. A
+ * card's blocks and text are its own, escaped already.
  */
 export function guardSlackOutboxBody(
   claim: Pick<
@@ -341,12 +390,21 @@ export function guardSlackOutboxBody(
 ): { body: SurfaceOutboxEntry["body"]; dropped: string[] } {
   const { body } = claim;
   if (body.blocks !== undefined) return { body, dropped: [] };
-  const text = stripSlackGroupMentions(body.text);
-  if (claim.kind === "instruction" || claim.kind === "input_mirror") {
-    return { body: { ...body, text }, dropped: [] };
+  const own = claim.kind === "instruction" || claim.kind === "input_mirror";
+  const scope = slackOutboxScope(claim);
+  const dropped: string[] = [];
+  let text = body.text;
+  for (;;) {
+    let next = stripSlackGroupMentions(text);
+    if (!own) {
+      const scoped = dropOutOfScopeSlackRefs(next, scope);
+      dropped.push(...scoped.dropped);
+      next = scoped.text;
+    }
+    if (next === text) break;
+    text = next;
   }
-  const scoped = dropOutOfScopeSlackRefs(text, slackOutboxScope(claim));
-  return { body: { ...body, text: scoped.text }, dropped: scoped.dropped };
+  return { body: { ...body, text }, dropped };
 }
 
 export function slackInstructionFallbackText(
