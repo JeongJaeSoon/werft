@@ -15,7 +15,8 @@ import { workspaceParamsSchema } from "./workspaces.ts";
  * the console picks for it; `groups:write` lets it leave a private channel
  * whose invite an admin turned down. `chat:write.customize` shows an
  * instruction sent from the web or the API under its sender's name, and a
- * task's posts under "agent [task]".
+ * task's posts under "agent [task]". `reactions:write` puts the one 👀 on a
+ * message the agent will answer; the app reads no one's reactions.
  */
 export const BOT_SCOPES = [
   "assistant:write",
@@ -30,6 +31,7 @@ export const BOT_SCOPES = [
   "users:read",
   "channels:join",
   "groups:write",
+  "reactions:write",
 ] as const;
 
 /**

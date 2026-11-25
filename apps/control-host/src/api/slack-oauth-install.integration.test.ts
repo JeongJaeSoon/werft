@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   composeSlackFinalize,
   createSlackAppService,
+  createSlackBotApi,
   createSlackConfigApi,
   createSlackConfigTokens,
   createSlackEventsFinalize,
@@ -10,8 +11,11 @@ import {
   createSlackInstallService,
   createSlackInteractionService,
   createSlackSigningSecrets,
+  SLACK_REACTION_NAME,
+  SLACK_REACTION_SCOPE,
   type SlackInstalled,
   type SlackInteractionDeps,
+  slackAppGrants,
 } from "@werft-ai/chat-slack";
 import {
   BOT_SCOPES,
@@ -574,6 +578,86 @@ integration(
         .from(slackApps)
         .where(eq(slackApps.id, setup.slackAppId));
       expect(row?.botScopes).toEqual([...BOT_SCOPES]);
+    });
+
+    test("an install from before reactions:write still stands: only the 👀 is off, and the app asks for a reapproval", async () => {
+      const setup = await installed(PUBLIC);
+      const { caller, agentId, appId } = setup;
+      // Slack holds the app and its token as the build before installed them.
+      const narrowed = await fetch(
+        `${slack.url.replace(/\/api$/, "")}/fake/scopes`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            app_id: appId,
+            remove: [SLACK_REACTION_SCOPE],
+          }),
+        },
+      );
+      expect(narrowed.status).toBe(200);
+      const api = createSlackConfigApi({ apiUrl: slack.url });
+      const appStore = createPostgresSlackAppStore(db, key);
+      const apps = createSlackAppService({
+        authorization: createAuthorizationPolicy({}),
+        apps: appStore,
+        tokens: createSlackConfigTokens({
+          store: createPostgresSlackConfigTokenStore(db, key),
+          api,
+        }),
+        api,
+        consoleOrigin: CONSOLE,
+        eventsPublicUrl: async () => PUBLIC,
+        bots: {
+          secrets: createPostgresSecretStore(db, key),
+          api: {
+            listBots: async () => ({ bots: [], nextCursor: null }),
+            findBot: async () => null,
+          },
+        },
+        now: () => new Date(Date.now() + 11 * 60_000),
+      });
+      await apps.syncAgentAppManifests();
+
+      const app = await apps.getAgentApp(caller, agentId);
+      expect(app).toMatchObject({
+        slack_app: { state: "created" },
+        manifest_sync: { error: null },
+        reauthorization: { missing_scopes: [SLACK_REACTION_SCOPE] },
+      });
+      const [row] = await db
+        .select()
+        .from(slackApps)
+        .where(eq(slackApps.id, setup.slackAppId));
+      if (!row) throw new Error("no app");
+      expect(slackAppGrants(row, SLACK_REACTION_SCOPE)).toBe(false);
+      expect(slackAppGrants(row, "chat:write")).toBe(true);
+      const [install] = await db
+        .select({ status: slackInstallations.status })
+        .from(slackInstallations)
+        .where(eq(slackInstallations.appId, appId));
+      expect(install?.status).toBe("verified");
+      const identities = await db
+        .select({ id: agentIdentities.id })
+        .from(agentIdentities)
+        .where(eq(agentIdentities.agentId, agentId));
+      expect(identities).toHaveLength(1);
+
+      // What a reaction sent anyway gets from Slack: no retry clears it.
+      const token = await createPostgresSecretStore(db, key).get({
+        workspaceId: row.workspaceId,
+        owner: { kind: "slack_app", id: row.id },
+        purpose: "slack_bot_token",
+      });
+      if (token === null) throw new Error("no bot token");
+      const answer = await createSlackBotApi({
+        apiUrl: slack.url,
+      }).addReaction?.(token, {
+        channelId: "C0OPS",
+        ts: "100.000100",
+        name: SLACK_REACTION_NAME,
+      });
+      expect(answer?.body).toEqual({ ok: false, error: "missing_scope" });
     });
 
     test("an event signed with the installed app's secret lands in slack_inbound_events once", async () => {

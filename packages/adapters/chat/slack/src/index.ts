@@ -28,6 +28,7 @@ export * from "./slack-outbox-enqueue.ts";
 export * from "./slack-outbox-render.ts";
 export * from "./slack-presentation.ts";
 export * from "./slack-prompts.ts";
+export * from "./slack-reaction.ts";
 export * from "./slack-secret-service.ts";
 export * from "./slack-send-result.ts";
 export * from "./slack-session-handler.ts";
