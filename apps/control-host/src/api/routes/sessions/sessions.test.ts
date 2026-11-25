@@ -688,6 +688,66 @@ describe("POST /v1/sessions/{id}/messages validation", () => {
   });
 });
 
+describe("POST /v1/sessions/{id}/turns/{turn_id}/continue", () => {
+  const continuePath = `/v1/sessions/${sessionId}/turns/3/continue`;
+  const accepted = {
+    turn_id: "4",
+    receipt_id: crypto.randomUUID(),
+    receipt_status: "accepted",
+  } as const;
+  const press = (
+    overrides: Partial<SessionUnitOfWork & SessionReader> = {},
+    headers: Record<string, string> = {},
+    path = continuePath,
+  ) =>
+    app(overrides).request(path, {
+      method: "POST",
+      headers: {
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+        ...headers,
+      },
+    });
+
+  test("answers 202 with the new turn, keyed by the lost turn and not the header", async () => {
+    const response = await press({
+      appendInputAtomic: async (input) => {
+        expect(input).toMatchObject({
+          principal: { ownerId: "owner-a" },
+          sessionId,
+          continueTurn: 3,
+          idempotencyKey: "continue:3",
+          message: "",
+        });
+        return { outcome: "accepted", response: accepted };
+      },
+    });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual(accepted);
+  });
+
+  test("a later turn already following it is 409 CONTROL_SUPERSEDED", async () => {
+    const response = await press({
+      appendInputAtomic: async () => ({ outcome: "superseded" }),
+    });
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe("CONTROL_SUPERSEDED");
+  });
+
+  test("a turn that was not cut off, or a malformed id, is 404; the header is required", async () => {
+    const other = await press({
+      appendInputAtomic: async () => ({ outcome: "not_found" }),
+    });
+    expect(other.status).toBe(404);
+    expect(await errorCode(other)).toBe("NOT_FOUND");
+    expect(
+      (await press({}, {}, `/v1/sessions/${sessionId}/turns/x/continue`))
+        .status,
+    ).toBe(404);
+    expect((await press({}, { "Idempotency-Key": "" })).status).toBe(400);
+  });
+});
+
 describe("GET /v1/sessions/{id}/turns validation", () => {
   const headers = { "X-Owner-Id": "owner-a" };
 

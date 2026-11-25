@@ -23,6 +23,7 @@ import {
 import { currentSpanContext, formatTraceparent } from "@werft-ai/observability";
 import type { SessionService } from "@werft-ai/platform";
 import {
+  ApiHttpError,
   type ApiRouter,
   apiRoute,
   jsonWithSchema,
@@ -152,5 +153,26 @@ export function registerSessionRoutes(
       service.getTurn(context.get("caller"), params.id, params.turn_id),
     );
     return jsonWithSchema(context, getTurnResponseSchema, turn);
+  });
+
+  // The lost turn is the request's key; the header is checked like any
+  // command's but names nothing the store keys by.
+  apiRoute(router, "continueSessionTurn", async (context) => {
+    const params = requireParams(context, turnIdParamsSchema);
+    requireIdempotencyKey(context);
+    // A turn id is a positive integer; anything else names no turn.
+    const turnId = Number(params.turn_id);
+    if (!Number.isSafeInteger(turnId) || turnId < 1) {
+      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    }
+    const accepted = await mapped(() =>
+      service.continueTurn(context.get("caller"), params.id, { turnId }),
+    );
+    return jsonWithSchema(
+      context,
+      postSessionMessageResponseSchema,
+      accepted,
+      202,
+    );
   });
 }

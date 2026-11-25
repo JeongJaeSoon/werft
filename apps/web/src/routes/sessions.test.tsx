@@ -2243,6 +2243,133 @@ describe("session detail", () => {
   });
 });
 
+describe("a turn its worker's lost lease cut off", () => {
+  const lost = {
+    turn_id: "1",
+    session_id: SESSION_ID,
+    status: "failed",
+    message: "열 단계를 돌려 줘",
+    channel: "web",
+    created_by: null,
+    slack_permalink: null,
+    terminal_reason: "worker_ownership_lost",
+    checkpoint_revision: null,
+    created_at: AT,
+    started_at: AT,
+    ended_at: AT,
+  };
+  const resting = {
+    ...detail,
+    status: "idle",
+    current_turn_id: null,
+    pending_request_count: 0,
+    attention: null,
+  } as SessionDetail;
+  const CUT =
+    "작업이 중간에 끊겼습니다. 서버 연결이 잠시 끊겼습니다. 마지막 저장 지점 뒤에 한 일은 확인이 필요합니다.";
+  const CONTINUE = { name: "이어서 하기" };
+  const continuePath = `/v1/sessions/${SESSION_ID}/turns/1/continue`;
+
+  function render(turns: () => unknown[], continued?: () => Response) {
+    return renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, resting),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: turns(), next_cursor: null }),
+      ...(continued ? { [`POST ${continuePath}`]: continued } : {}),
+    });
+  }
+  const head = async () => screen.findByRole("heading", { level: 1 });
+
+  test("reads 중단됨 in the head and says why where the turn ended, with the way on", async () => {
+    render(() => [lost]);
+    const notice = (await screen.findByText(CUT)).closest(
+      "[data-slot='chat-message']",
+    ) as HTMLElement;
+    expect(notice.getAttribute("data-side")).toBe("other");
+    expect(within(notice).getByRole("button", CONTINUE)).toBeTruthy();
+    await waitFor(async () =>
+      expect((await head()).textContent).toContain("중단됨"),
+    );
+    expect((await head()).textContent).not.toContain("쉬는 중");
+  });
+
+  test("a press queues one turn, and the button goes with the turn it went on from", async () => {
+    const user = await setupUser();
+    let turns: unknown[] = [lost];
+    const { api } = render(
+      () => turns,
+      () => {
+        turns = [
+          lost,
+          { ...lost, turn_id: "2", status: "queued", terminal_reason: null },
+        ];
+        return json(202, {
+          turn_id: "2",
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    );
+    const button = await screen.findByRole("button", CONTINUE);
+    await user.click(button);
+    await user.click(button);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", CONTINUE)).toBeNull(),
+    );
+    const posts = api.calls.filter((call) => call.method === "POST");
+    expect(posts.map((call) => call.path)).toEqual([continuePath]);
+    // What happened stays where it happened; the head rests again.
+    expect(screen.getByText(CUT)).toBeTruthy();
+    await waitFor(async () =>
+      expect((await head()).textContent).not.toContain("중단됨"),
+    );
+  });
+
+  test("a message after the lost turn goes on in its place: no button", async () => {
+    render(() => [
+      lost,
+      {
+        ...lost,
+        turn_id: "2",
+        status: "completed",
+        message: "다시 해 줘",
+        terminal_reason: "completed",
+      },
+    ]);
+    expect(await screen.findByText(CUT)).toBeTruthy();
+    expect(screen.queryByRole("button", CONTINUE)).toBeNull();
+    expect((await head()).textContent).not.toContain("중단됨");
+  });
+
+  test("a credential that may not send to sessions has no button to press", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      "GET /v1/auth/me": () => json(200, me(["sessions:read"])),
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, resting),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [lost], next_cursor: null }),
+    });
+    expect(await screen.findByText(CUT)).toBeTruthy();
+    expect(screen.queryByRole("button", CONTINUE)).toBeNull();
+  });
+
+  test("a refused press says why under the button", async () => {
+    const user = await setupUser();
+    render(
+      () => [lost],
+      () => apiError(403, "FORBIDDEN", "Forbidden"),
+    );
+    await user.click(await screen.findByRole("button", CONTINUE));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("button", CONTINUE)).toBeTruthy();
+  });
+});
+
 describe("session runtime", () => {
   test("allows a permission request from the keyboard; the answered request leaves", async () => {
     const user = await setupUser();

@@ -958,7 +958,21 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     if (!Number.isSafeInteger(turnId) || turnId < 1) return "ignored";
     const admitted = await admit(pressed, value.s, {}, "session.submit");
     if ("refused" in admitted) return `refused:${admitted.refused}`;
-    await deps.sessions.continueTurn(admitted.caller, value.s, { turnId });
+    // A later turn already went on from it: no turn, and the button goes.
+    const superseded = await deps.sessions
+      .continueTurn(admitted.caller, value.s, { turnId })
+      .then(
+        () => false,
+        (error: unknown) => {
+          if (
+            error instanceof SessionServiceError &&
+            error.code === "CONTROL_SUPERSEDED"
+          ) {
+            return true;
+          }
+          throw error;
+        },
+      );
     try {
       // The console is where a person links their Slack account, too.
       const linkUrl = sessionUrl(new URL(deps.connectUrl).origin, value.s);
@@ -979,7 +993,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         error: messageOf(error),
       });
     }
-    return "continued";
+    return superseded ? "superseded" : "continued";
   }
 
   async function onSubmit(

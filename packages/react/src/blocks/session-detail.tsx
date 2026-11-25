@@ -4,6 +4,7 @@ import type {
   SessionShareView,
   SessionUsageResponse,
 } from "@werft-ai/contracts";
+import { TURN_WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/contracts";
 import {
   Badge,
   Button,
@@ -53,6 +54,7 @@ import {
   useSessionUsage,
 } from "../sessions.ts";
 import {
+  ContinueTurn,
   focusLost,
   PendingAnswers,
   type SessionActionProps,
@@ -211,6 +213,15 @@ export function SessionDetail({
     detail.status === "running" ||
     detail.status === "queued" ||
     detail.status === "needs_input";
+  // The last turn its worker's lost lease cut off, while nothing follows it:
+  // the session rests, but on work cut short, which the head says.
+  const last = turns.data?.items.at(-1);
+  const lostTurnId =
+    last?.status === "failed" &&
+    last.terminal_reason === TURN_WORKER_OWNERSHIP_LOST_REASON
+      ? last.turn_id
+      : null;
+  const cutOff = lostTurnId !== null && detail.status === "idle";
 
   const chat = (
     <div
@@ -238,6 +249,16 @@ export function SessionDetail({
             state={events.state}
             failedAttempts={events.failedAttempts}
             onReconnect={events.reconnect}
+            lostTurnAction={(turnId) =>
+              turnId === lostTurnId && detail.admission_state === "active" ? (
+                <ContinueTurn
+                  sessionId={id}
+                  turnId={turnId}
+                  unavailable={unavailable}
+                  refusal={refusal}
+                />
+              ) : null
+            }
             turns={turns.data?.items}
             agentName={detail.agent?.name}
             working={working}
@@ -308,8 +329,12 @@ export function SessionDetail({
             )}
             <span className="flex items-center gap-2 font-normal text-body">
               <SessionStatusLabel
-                status={detail.status}
-                label={t(`sessions.status.${detail.status}`)}
+                status={cutOff ? "failed" : detail.status}
+                label={
+                  cutOff
+                    ? t("session.status.ownershipLost")
+                    : t(`sessions.status.${detail.status}`)
+                }
                 capacityWait={detail}
                 capacityWaitLabel={t("sessions.capacityWait")}
                 axisLabel={t("sessions.column.status")}

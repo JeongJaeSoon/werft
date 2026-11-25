@@ -10,6 +10,7 @@ import {
   cn,
   formatTimestamp,
   RowAction,
+  Text,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -44,6 +45,7 @@ import { useExpired, useExpiryFocus } from "../components/session/expiry.ts";
 import {
   type SessionControl,
   useAnswer,
+  useContinueTurn,
   useSendMessage,
   useSessionControl,
 } from "../sessions.ts";
@@ -281,6 +283,67 @@ function useRefusal(refusal: SessionActionProps["refusal"]) {
     if (note) return t(`session.refused.note.${note}`);
     return refusal?.(error) ?? t("session.command.refused");
   };
+}
+
+/**
+ * [Continue] under the notice of a turn its worker's lost lease cut off: one
+ * new turn with that turn's input. The server judges who may press it as it
+ * judges a message of theirs; the host stops drawing it once a later turn
+ * follows, which a press itself queues.
+ */
+export function ContinueTurn({
+  sessionId,
+  turnId,
+  unavailable,
+  refusal,
+}: SessionActionProps & {
+  readonly sessionId: string;
+  readonly turnId: string;
+}) {
+  const { t } = useBlockText();
+  const resume = useContinueTurn(sessionId);
+  const refused = useRefusal(refusal);
+  const ref = useRef<HTMLButtonElement>(null);
+  const errorId = useId();
+  // A credential that may not send has nothing to press.
+  if (unavailable?.send !== undefined) return null;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Button
+        ref={ref}
+        type="button"
+        size="sm"
+        disabled={resume.isPending}
+        aria-describedby={resume.error ? errorId : undefined}
+        onClick={() => {
+          const page = ref.current?.ownerDocument;
+          resume.mutate(
+            { turnId },
+            {
+              // The button goes once the new turn is read; the field is
+              // where the reader goes on.
+              onSuccess: () =>
+                page
+                  ?.querySelector<HTMLElement>("textarea:not(:disabled)")
+                  ?.focus(),
+            },
+          );
+        }}
+      >
+        {t("session.chat.continue")}
+      </Button>
+      {resume.error ? (
+        <Text
+          id={errorId}
+          variant="meta"
+          role="alert"
+          className="text-destructive"
+        >
+          {refused(resume.error)}
+        </Text>
+      ) : null}
+    </div>
+  );
 }
 
 /** The session's open requests, each answerable where it is drawn. */

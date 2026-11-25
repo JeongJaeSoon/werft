@@ -756,6 +756,11 @@ export function createSessionService(deps: {
         throw previewRefused();
       case "not_found":
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      case "superseded":
+        throw new SessionServiceError(
+          "CONTROL_SUPERSEDED",
+          "A later turn of the session already goes on from this one",
+        );
       case "rejected": {
         const rejection = ADMISSION_REJECTIONS[result.admissionState];
         throw new SessionServiceError(rejection.code, rejection.message);

@@ -180,6 +180,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   REQUEST_EXPIRED:
     "The pending request was already answered, expired or closed.",
   REQUEST_STALE: "The request was made against state that has since moved on.",
+  CONTROL_SUPERSEDED:
+    "Something newer already took the place of this request; read the current state.",
   TURN_NOT_STARTED:
     "The target turn is still queued; there is nothing to interrupt yet.",
   PAUSE_COMMITTING:
