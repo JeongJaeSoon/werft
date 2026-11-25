@@ -1287,7 +1287,7 @@ ap_compose exec -T api bun -e 'const r = await fetch("http://fake-messages:4011/
 ap_compose logs --no-log-prefix egress-proxy | grep conversation_call_id | tail -1
 ```
 
-기대: PUT 200. 둘째 묶음은 `judged`·`model_called` t. 둘째 기록은 `judged`·`quiet`·`human_conversation`·`attempts` 1·`summary` `written`. 원장(`conversation_calls`)은 한 줄뿐이다: `call_class` `m1`, `root_kind` `none`, 요청자·주제·턴 모두 비어 있음(세션 없는 대화 호출), `settled`, `attempt` 1. 예약 한 줄: `none`·`settled`, 계정은 `owner_kind` `team`이고 에이전트의 담당 팀(`agent_team` t), `reserved_tokens` 0. buffered=0. `a1_effects`는 판단 앞뒤가 같다: `outbox_but_notices` 1(welcome), `notices` 1, sessions 0, turns 0, `slack_posts` 2, `slack_updates` 0. 판단은 답도 세션도 이모지도 만들지 않는다(a1의 앱에는 이모지를 다는 길이 없다). fake 모델 기록은 `spec_id:"a1-a"` 한 건·`tools:[]`, proxy 로그는 `purpose:"provider"`·status 200.
+기대: PUT 200. 둘째 묶음은 `judged`·`model_called` t. 둘째 기록은 `judged`·`quiet`·`human_conversation`·`attempts` 1·`summary` `written`. 원장(`conversation_calls`)은 한 줄뿐이다: `call_class` `m1`, `root_kind` `none`, 요청자·주제·턴 모두 비어 있음(세션 없는 대화 호출), `settled`, `attempt` 1. 예약 한 줄: `none`·`settled`, 계정은 `owner_kind` `team`이고 에이전트의 담당 팀(`agent_team` t), `reserved_tokens` 0. buffered=0. `a1_effects`는 판단 앞뒤가 같다: `outbox_but_notices` 1(welcome), `notices` 1, sessions 0, turns 0, `slack_posts` 2, `slack_updates` 0. 판단은 답도 세션도 이모지도 만들지 않는다(이모지는 outbox의 `reaction` 종류로 나가므로 `outbox_but_notices`에 잡힌다). fake 모델 기록은 `spec_id:"a1-a"` 한 건·`tools:[]`, proxy 로그는 `purpose:"provider"`·status 200.
 
 ```sh
 # Actor: owner, then stack operator. 둘째 채널, speak 판단, 채널마다 한 번인 안내.
