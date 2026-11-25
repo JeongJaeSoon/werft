@@ -1294,22 +1294,29 @@ export function createAuthorizationPolicy(
   return {
     async privateChannelsOf(subject, ownerScope) {
       if (subject.principal === null || !sessions.privateChannels) return [];
-      const reading = await identity.reread({
-        ...subject,
-        principal: subject.principal,
-      });
-      if (
-        reading.status !== "ok" ||
-        ownerScope !== ownerScopeOf(reading.principal)
-      ) {
-        return [];
+      try {
+        const reading = await identity.reread({
+          ...subject,
+          principal: subject.principal,
+        });
+        if (
+          reading.status !== "ok" ||
+          ownerScope !== ownerScopeOf(reading.principal)
+        ) {
+          return [];
+        }
+        return await privateChannelsFor(
+          reading,
+          subject.surface,
+          ownerScope,
+          await sessions.privateChannels(ownerScope, null),
+        );
+      } catch (error) {
+        if (deps.storageUnavailable?.(error)) {
+          throw new AuthorizationUndecidedError(error);
+        }
+        throw error;
       }
-      return privateChannelsFor(
-        reading,
-        subject.surface,
-        ownerScope,
-        await sessions.privateChannels(ownerScope, null),
-      );
     },
 
     async usageOfRelease(subject, ownerScope, releaseId) {

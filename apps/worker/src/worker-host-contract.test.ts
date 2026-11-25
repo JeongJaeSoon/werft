@@ -1098,17 +1098,20 @@ describe("WorkerHost over a run that implements the contract itself", () => {
           true,
         );
       // The retry's waits are recorded and cut short; the heartbeat's are kept.
-      const retrySleep = (slept: number[]) => async (ms: number) => {
-        if (ms > 4_000) return Bun.sleep(ms);
-        slept.push(ms);
-        await Bun.sleep(1);
-      };
+      const retrySleep =
+        (slept: number[], realMs = 1) =>
+        async (ms: number) => {
+          if (ms > 4_000) return Bun.sleep(ms);
+          slept.push(ms);
+          await Bun.sleep(realMs);
+        };
       const run = () => {
         const scripted = new ScriptedRun();
         scripted.onSend = (sent) => {
           call(scripted, sent, "c1");
           setTimeout(() => call(scripted, sent, "c2", RUN_RULE), 5);
-          setTimeout(() => finish(scripted, sent), 60);
+          // Well after the retries, whose waits are cut to 1 ms.
+          setTimeout(() => finish(scripted, sent), 300);
         };
         return scripted;
       };
@@ -1197,6 +1200,40 @@ describe("WorkerHost over a run that implements the contract itself", () => {
           expect.objectContaining({ localId: "local-c2", kind: "selected" }),
         );
       }, 15_000);
+
+      test("a call the run settles itself meanwhile is asked about no more", async () => {
+        const slept: number[] = [];
+        const scripted = new ScriptedRun();
+        scripted.onSend = (sent) => {
+          call(scripted, sent, "c1");
+          setTimeout(() => call(scripted, sent, "c2", RUN_RULE), 5);
+          setTimeout(
+            () =>
+              scripted.push({
+                type: "approval.resolved",
+                localId: "local-c2",
+                outcome: "withdrawn",
+              }),
+            40,
+          );
+          setTimeout(() => finish(scripted, sent), 300);
+        };
+        const { gateway, worker } = host(
+          scripted,
+          undefined,
+          {},
+          retrySleep(slept, 20),
+        );
+        gateway.grants = [parked()];
+        gateway.sessionAllowFailure = undecided;
+        gateway.enqueue("hello");
+
+        await worker.runLoop();
+
+        expect(gateway.sessionAllowChecks.length).toBeLessThan(7);
+        expect(gateway.registrations).toEqual([]);
+        expect(scripted.answers).toHaveLength(1);
+      });
 
       test("a refusal is not asked again", async () => {
         const slept: number[] = [];
