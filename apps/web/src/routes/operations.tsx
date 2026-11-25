@@ -450,8 +450,12 @@ export function OperationsUsageScreen() {
     };
   const shown = set.current;
   const empty =
-    shown?.series.data?.buckets.every((bucket) => bucket.session_count === 0) ??
-    false;
+    shown?.series.data?.buckets.every(
+      (bucket) =>
+        bucket.session_count === 0 &&
+        Number(bucket.conversation_cost_usd) === 0 &&
+        bucket.conversation_cost_complete,
+    ) ?? false;
   const failure = (error: Error, retry: () => unknown) => (
     <Card className="py-0">
       <LoadFailure error={error} onRetry={() => void retry()} />
@@ -472,6 +476,7 @@ export function OperationsUsageScreen() {
         head={head}
         by={by}
         rows={shownAnswer?.data?.rows}
+        conversation={by === "agent"}
       />
     );
   return (

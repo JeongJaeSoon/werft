@@ -960,6 +960,8 @@ describe("UsageKpis", () => {
       cost_complete: true,
       token_count: 18160000,
       run_seconds: 100000,
+      conversation_cost_usd: "0",
+      conversation_cost_complete: true,
     },
     {
       date: "2026-10-23",
@@ -968,6 +970,8 @@ describe("UsageKpis", () => {
       cost_complete: true,
       token_count: 20000000,
       run_seconds: 130580,
+      conversation_cost_usd: "0",
+      conversation_cost_complete: true,
     },
   ];
 
@@ -1010,6 +1014,36 @@ describe("UsageKpis", () => {
     );
     expect(document.body.textContent).toContain("<$0.01");
     expect(document.body.textContent).not.toContain("$0.00");
+  });
+
+  test("대화 비용이 있으면 비용 카드가 둘을 더해 쓰고 세션·대화로 나눠 적는다", () => {
+    withPlatform(
+      <UsageKpis
+        buckets={BUCKETS.map((b, i) => ({
+          ...b,
+          conversation_cost_usd: i === 0 ? "4.52" : "0",
+        }))}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("$1,050.00");
+    expect(text).toContain("세션 $1,045.48 · 대화 $4.52");
+    expect(text).not.toContain("실제보다 적을 수 있음");
+  });
+
+  test("대화 호출이 끝나지 않은 날이 있으면 비용 카드가 적을 수 있다고 말한다", () => {
+    const { getByText } = withPlatform(
+      <UsageKpis
+        buckets={BUCKETS.map((b, i) => ({
+          ...b,
+          conversation_cost_usd: "0.10",
+          conversation_cost_complete: i !== 0,
+        }))}
+      />,
+    );
+    expect(
+      getByText(/실제보다 적을 수 있음/).closest("[aria-hidden=true]"),
+    ).toBeNull();
   });
 
   test("영어는 백만 단위로 줄인다", () => {
@@ -1125,6 +1159,62 @@ describe("UsageCostTable", () => {
     }
   });
 
+  test("conversation이면 대화 열에 대화 비용과 판단·대화 턴·요약을, 기타는 0이 아닐 때만 쓴다", () => {
+    const talk = (other: string) => ({
+      call_count: 3,
+      cost_usd: (0.07 + Number(other)).toFixed(6),
+      cost_complete: true,
+      by_class: {
+        judgment_usd: "0.010000",
+        turn_usd: "0.050000",
+        summary_usd: "0.010000",
+        other_usd: other,
+      },
+    });
+    const table = withPlatform(
+      <UsageCostTable
+        label="에이전트별"
+        head="에이전트"
+        by="agent"
+        conversation
+        rows={[
+          { ...row("a1", "triage", "3.00"), conversation: talk("0.020000") },
+          { ...row("a2", "docs", "1.00"), conversation: talk("0") },
+          {
+            ...row("a3", "quiet", "0.50"),
+            conversation: { ...talk("0"), call_count: 0, cost_usd: "0" },
+          },
+        ]}
+      />,
+    );
+    expect(
+      table.getAllByRole("columnheader").map((h) => h.textContent),
+    ).toEqual(["에이전트", "세션", "토큰", "대화", "비용"]);
+    const cells = (i: number) =>
+      [
+        ...(table
+          .getAllByRole("row")
+          [i]?.querySelectorAll<HTMLElement>("[role=cell]") ?? []),
+      ].map((cell) => cell.textContent);
+    expect(cells(1)[3]).toBe(
+      "$0.09판단 $0.01대화 턴 $0.05요약 $0.01기타 $0.02",
+    );
+    expect(cells(2)[3]).toBe("$0.07판단 $0.01대화 턴 $0.05요약 $0.01");
+    expect(cells(3)[3]).toBe("$0.00");
+    // The cost column stays the sessions'.
+    expect(cells(1)[4]).toBe("$3.00");
+    table.unmount();
+    const plain = withPlatform(
+      <UsageCostTable
+        label="에이전트별"
+        head="에이전트"
+        by="agent"
+        rows={[{ ...row("a1", "triage", "3.00"), conversation: talk("0") }]}
+      />,
+    );
+    expect(plain.queryByText("대화")).toBeNull();
+  });
+
   test("빈 rows는 빈 상태, undefined는 자리 행을 placeholderRows만큼 둔다", () => {
     const empty = withPlatform(
       <UsageCostTable
@@ -1221,6 +1311,8 @@ describe("UsageDailyCost", () => {
     cost_complete: true,
     token_count: 10,
     run_seconds: 60,
+    conversation_cost_usd: "0",
+    conversation_cost_complete: true,
   });
   // The y ticks come before the plot and its x labels.
   const ticks = () =>
@@ -1293,7 +1385,7 @@ describe("UsageBasis", () => {
       Node.TEXT_NODE,
     ]);
     expect(line?.textContent).toBe(
-      "설치 전체 · 2026-09-24 – 2026-10-23 (UTC) · 비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다 · 오후 9:40에 읽은 값",
+      "설치 전체 · 2026-09-24 – 2026-10-23 (UTC) · 세션의 비용·토큰·실행 시간은 세션을 시작한 날에, 대화 비용은 호출한 날에 붙습니다 · 오후 9:40에 읽은 값",
     );
   });
 });
