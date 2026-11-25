@@ -15,7 +15,11 @@ import {
 } from "@werft-ai/ui";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { type MessageKey, useI18n } from "../../../i18n/i18n.tsx";
-import { useSlackChannelNames, useSlackJudgments } from "./queries.ts";
+import {
+  useSlackChannelNames,
+  useSlackInstructionsHead,
+  useSlackJudgments,
+} from "./queries.ts";
 import { SECTION, SECTION_TARGET, slackReason } from "./shared.ts";
 
 type Judgments = components["schemas"]["GetSlackJudgmentsResponse"];
@@ -47,11 +51,17 @@ const CHANNEL_COLUMNS =
 const RECENT_COLUMNS =
   "max-content minmax(6rem,1fr) max-content minmax(0,1fr) max-content";
 
-/** The instruction file M1 judges with: the active release's snapshot. */
+/**
+ * The instruction file M1 judges with: the active release's snapshot, and
+ * whether the repository's branch has moved past it (`newer`; false when
+ * GitHub was not read).
+ */
 function InstructionsLine({
   release,
+  newer,
 }: {
   readonly release: AgentDetail["active_release"];
+  readonly newer: boolean;
 }) {
   const { t } = useI18n();
   const snapshot = release?.instructions_snapshot;
@@ -75,6 +85,7 @@ function InstructionsLine({
         vars,
       ),
     );
+    if (newer) lines.push(t("slack.judgments.instructionsNewer"));
     if (snapshot.kind === "refused")
       lines.push(t("agent.releases.instructionsRefused"));
     if (snapshot.kind === "text" && snapshot.truncated)
@@ -109,6 +120,11 @@ export function SlackJudgments({
 }) {
   const { t, locale } = useI18n();
   const judgments = useSlackJudgments(agentId, manages);
+  const snapshot = activeRelease?.instructions_snapshot;
+  const head = useSlackInstructionsHead(
+    agentId,
+    manages && snapshot != null && "commit" in snapshot,
+  );
   const data = judgments.data;
   const names = useSlackChannelNames(
     agentId,
@@ -140,7 +156,10 @@ export function SlackJudgments({
       }
     >
       <div className="flex min-w-0 flex-col gap-[var(--werft-space-block)]">
-        <InstructionsLine release={activeRelease} />
+        <InstructionsLine
+          release={activeRelease}
+          newer={head.data?.state === "read" && head.data.newer}
+        />
         {forbidden ? (
           <Text variant="sub">{t("slack.judgments.forbidden")}</Text>
         ) : judgments.isPending ? (

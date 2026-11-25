@@ -140,6 +140,8 @@ function routes(app: typeof APP | null = null, installed = false) {
         channels: [],
         recent: [],
       }),
+    [`GET ${PATH}/slack/instructions-head`]: () =>
+      json(200, { state: "unread", reason: "no_commit" }),
   };
 }
 
@@ -3709,6 +3711,85 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
     );
   });
 
+  const TEXT = {
+    kind: "text",
+    repository_id: "repo-1",
+    commit: "abcdef0123456789abcdef0123456789abcdef01",
+    file: "AGENTS.md",
+    text: "be brief",
+    bytes: 8,
+    truncated: false,
+  } as const;
+  const NEWER =
+    "저장소에 더 새 지침이 있습니다. 새 릴리스를 만들면 반영됩니다.";
+
+  test("tells when the repository's branch has moved past the snapshot", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/instructions-head`]: () =>
+        json(200, { state: "read", commit: "f".repeat(40), newer: true }),
+      ...withRelease(TEXT),
+    });
+    expect(await screen.findByText(NEWER)).toBeDefined();
+    expect(
+      api.calls.filter((call) =>
+        call.path.endsWith("/slack/instructions-head"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  for (const [name, head] of [
+    [
+      "at the snapshot",
+      () => json(200, { state: "read", commit: TEXT.commit, newer: false }),
+    ],
+    [
+      "unreadable on GitHub",
+      () =>
+        json(503, {
+          error: {
+            code: "BACKEND_UNAVAILABLE",
+            message: "GitHub could not be read",
+          },
+        }),
+    ],
+  ] as const) {
+    test(`says nothing more when the branch is ${name}`, async () => {
+      const { api } = renderAt(DETAIL, {
+        ...routes(APP, true),
+        [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+        [`GET ${PATH}/slack/instructions-head`]: head,
+        ...withRelease(TEXT),
+      });
+      await screen.findByRole("table", { name: "채널별 판단" });
+      await waitFor(() =>
+        expect(
+          api.calls.some((call) =>
+            call.path.endsWith("/slack/instructions-head"),
+          ),
+        ).toBe(true),
+      );
+      expect(document.body.textContent).toContain(
+        "M1 지침: 릴리스 2026-10-11_10:01:00, commit abcdef0",
+      );
+      expect(screen.queryByText(NEWER)).toBeNull();
+    });
+  }
+
+  test("a snapshot with no commit asks GitHub nothing", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      ...withRelease({ kind: "no_repository" }),
+    });
+    expect(
+      await screen.findByText("볼 수 있는 판단 기록이 없습니다"),
+    ).toBeDefined();
+    expect(
+      api.calls.some((call) => call.path.endsWith("/slack/instructions-head")),
+    ).toBe(false);
+  });
+
   test("a member is told who reads the records and the server is not asked", async () => {
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),
@@ -3722,7 +3803,11 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
       ),
     ).toBeDefined();
     expect(
-      api.calls.some((call) => call.path.includes("/slack/judgments")),
+      api.calls.some(
+        (call) =>
+          call.path.includes("/slack/judgments") ||
+          call.path.includes("/slack/instructions-head"),
+      ),
     ).toBe(false);
   });
 
