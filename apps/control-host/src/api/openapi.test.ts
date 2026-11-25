@@ -526,6 +526,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack/judgments",
         "/v1/agents/{id}/slack/instructions-head",
         "/v1/slack-settings",
+        "/v1/slack-settings/retry",
         "/v1/github-webhook-settings",
         "/v1/github-webhook-settings/retry",
         "/v1/installation-config",
