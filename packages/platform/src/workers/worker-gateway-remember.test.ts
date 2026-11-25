@@ -69,7 +69,8 @@ const oldGrant = z
 const BOUND = { approval_remember: true, session_allow_check: true } as const;
 
 // A stored giver for a faked policy: only its shape and channel matter here.
-// The real policy judges a Slack giver in policy-private-channel-writes.test.ts.
+// The real policy judges a taken-over giver through this gateway in
+// policy-private-channel-writes.test.ts, as a web member.
 const SLACK_SUBJECT: AuthorizationSubject = {
   principal: {
     kind: "user",
