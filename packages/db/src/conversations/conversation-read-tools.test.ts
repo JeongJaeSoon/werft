@@ -318,8 +318,10 @@ describe("the read tools' store on PostgreSQL", () => {
       expect(await decide(turn, DECISIONS[0] as ConversationDecision)).toEqual({
         outcome: "turn_not_held",
       });
-      // No read or decision tool call after the turn's decision.
+      // No read or decision tool call after the turn's decision, nor the
+      // sources of a read admitted before it.
       expect(await admit(turn)).toEqual({ outcome: "not_holder" });
+      expect(await store().addDirectSources(turn.turnId, [read])).toBe(false);
       const live = (await permitOf(turn.turnId))?.expiresAt.getTime() ?? 0;
       expect(live).toBeGreaterThan(Date.now());
       // Whatever its runtime reports of a decision, the end leaves the record.

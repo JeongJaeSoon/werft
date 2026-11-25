@@ -75,6 +75,7 @@ function setup(turn: ConversationToolTurn = turnOf()) {
     }[],
     records: [] as ConversationTurnRecord[],
     tasks: [] as ConversationOpenTask[],
+    running: true,
     recorded: { outcome: "recorded", state: "decided" } as Awaited<
       ReturnType<ConversationReadToolStore["recordDecision"]>
     >,
@@ -102,6 +103,7 @@ function setup(turn: ConversationToolTurn = turnOf()) {
     },
     async addDirectSources(_turnId, keys) {
       seen.added.push([...keys]);
+      return state.running;
     },
     async deletedAmong(_workspaceId, places) {
       return places.filter((place) => state.deleted.has(place.ts));
@@ -466,6 +468,13 @@ describe("the decision tools as the control host answers them", () => {
       ]);
       expect(s.seen.added).toEqual([]);
     }
+  });
+
+  test("a read the turn's decision overtook gives the engine nothing it read, as none of it was kept as the turn's sources", async () => {
+    const s = setup();
+    s.state.running = false;
+    expect(await s.call("read_thread")).toEqual({ outcome: "not_holder" });
+    expect(s.seen.added).toHaveLength(1);
   });
 
   test("a decision voided by a delete still ends the turn, and one after the turn's first is not held", async () => {

@@ -105,6 +105,9 @@ const dropLast = <T>(items: T[]) => {
  * which every tool does. What a tool read goes into the turn's sources
  * before the model sees it.
  */
+/** A read whose turn ended before its sources were kept. */
+class ReadAfterTurnEnded extends Error {}
+
 export function createConversationReadTools(deps: {
   store: ConversationReadToolStore;
   threads: ConversationThreadReader;
@@ -148,7 +151,9 @@ export function createConversationReadTools(deps: {
     if (keys.length === 0) return;
     // The topic's next turn reads them back from there, whichever API
     // process hands it out.
-    await deps.store.addDirectSources(turn.turnId, keys);
+    if (!(await deps.store.addDirectSources(turn.turnId, keys))) {
+      throw new ReadAfterTurnEnded();
+    }
   }
 
   async function readThread(
@@ -406,15 +411,23 @@ export function createConversationReadTools(deps: {
       if (member === "shut") {
         return { outcome: "refused", reason: "not_channel_member" };
       }
-      switch (request.tool) {
-        case "read_thread":
-          return readThread(turn);
-        case "read_channel_summary":
-          return readSummary(turn);
-        case "read_turns":
-          return readTurns(turn);
-        case "list_open_tasks":
-          return listTasks(turn, member);
+      try {
+        switch (request.tool) {
+          case "read_thread":
+            return await readThread(turn);
+          case "read_channel_summary":
+            return await readSummary(turn);
+          case "read_turns":
+            return await readTurns(turn);
+          case "list_open_tasks":
+            return await listTasks(turn, member);
+        }
+      } catch (error) {
+        // The turn's decision was written while this read: what it read is
+        // not the turn's sources, so it is not handed to the engine either.
+        if (error instanceof ReadAfterTurnEnded)
+          return { outcome: "not_holder" };
+        throw error;
       }
     },
   };

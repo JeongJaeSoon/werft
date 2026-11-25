@@ -114,11 +114,14 @@ export interface ConversationReadToolStore {
   >;
   /** Slack answered 429: the turn reads no thread again. */
   closeThreadReads(turnId: ConversationTurnId): Promise<void>;
-  /** Adds what a tool read to the turn's direct sources (decision 37). */
+  /**
+   * Adds what a tool read to the turn's direct sources (decision 37); false
+   * when the turn is no longer running, and keeps none.
+   */
   addDirectSources(
     turnId: ConversationTurnId,
     keys: readonly SourceKey[],
-  ): Promise<void>;
+  ): Promise<boolean>;
   /** The places among `places` Slack or an admin deleted. */
   deletedAmong(
     workspaceId: string,

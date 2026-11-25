@@ -250,7 +250,7 @@ export function createPostgresConversationReadToolStore(
             FOR UPDATE`),
         );
         // An ended turn's sources are what it ended with.
-        if (turn === undefined) return;
+        if (turn === undefined) return false;
         const stored = storedSourceSet(
           withDirectSources(sourceSetOf(turn.sources), keys),
         );
@@ -258,6 +258,7 @@ export function createPostgresConversationReadToolStore(
           UPDATE conversation_turns
           SET sources = ${stored === null ? null : JSON.stringify(stored)}::jsonb
           WHERE id = ${turnId}::uuid`);
+        return true;
       });
     },
 
