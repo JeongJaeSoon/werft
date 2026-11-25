@@ -17,7 +17,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 - **비공개 채널에서 요청자가 나간 도구 권한·질문 카드도 지금 채널 멤버가 답한다**(JeongJaeSoon/werft#2197). migration은 없고 따로 할 일도 없다.
   - 그 요청을 낸 턴의 사람(사람이 없으면 세션을 맡은 사람)이 세션의 비공개 채널을 모두 나가면, 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버가 답할 수 있다. 답한 사람은 `pending_requests.answered_by`에 남는다. 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 공개 채널은 그대로다.
-  - 이렇게 이어받은 도구 권한 카드에는 "이 세션 동안 허용" 버튼이 없고, API로 `remember: "session"`을 보내도 `403`이다. 세션 허용을 준 사람의 권한에 묶는 변경이 들어오면 풀린다.
+  - 요청자가 나간 뒤의 도구 권한 카드에는 "이 세션 동안 허용" 버튼이 없고, 누가 답하든 API로 `remember: "session"`을 보내면 `403`이다. 세션 허용을 준 사람의 권한에 묶는 변경이 들어오면 풀린다.
   - 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Pending request's requester channel membership unconfirmed`(event `pending.requester_left.unconfirmed`)를 남긴다. push 카드의 로그는 그대로다.
   - v0.5.0으로 되돌리면 이미 붙은 표시는 그 카드가 다음에 다시 그려질 때(답·만료 등) 사라지고, 그동안 멤버가 누르면 v0.5.0 규칙대로 거절된다.
 - **Slack 역할의 스위치 `SLACK_ROLE_CLOSE_LINKS`의 기본이 `true`로 바뀐다. 닫힌 세션의 Slack 스레드에 다시 멘션하면 그 세션이 아니라 새 세션이 열린다**(JeongJaeSoon/werft#2180). migration은 없다. 끈 채로 두려면 slack 역할에 `SLACK_ROLE_CLOSE_LINKS=false`를 준다(Compose는 같은 이름, Helm은 `slack.extraEnv`).
