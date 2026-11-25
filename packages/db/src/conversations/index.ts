@@ -22,6 +22,7 @@ export {
   type ConversationTurnEnd,
   type ConversationTurnEnding,
   endConversationTurn,
+  lockedTurnReadDeleted,
   type WebInputTurnsBackfilled,
 } from "./conversation-turns.ts";
 export {

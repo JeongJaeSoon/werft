@@ -319,8 +319,31 @@ export interface MentionTurnStatusStore {
   newerDue(turnId: ConversationTurnId): Promise<boolean>;
 }
 
+/**
+ * What a turn's "reply" decision did (v1-b/E1): `enqueued` its answer's
+ * outbox row; `duplicate` when an earlier run did; `none` when the turn
+ * holds no reply decision (another one, none, or voided by a delete);
+ * `no_thread` when its topic has no Slack thread, or the agent no Slack
+ * app, to answer in.
+ */
+export type ConversationReplyEffect =
+  | "enqueued"
+  | "duplicate"
+  | "none"
+  | "no_thread";
+
+export interface ConversationReplyStore {
+  /**
+   * Enqueues the turn's answer as the server recorded it, in its topic's
+   * thread: where it goes is never read from the model's text.
+   */
+  post(turnId: ConversationTurnId): Promise<ConversationReplyEffect>;
+}
+
 export type MentionTurnEndings = {
   ended: number;
+  /** Turns whose reply decision enqueued its answer. */
+  replied: number;
   reset: number;
   superseded: number;
   /** Threads told "processing" again for a newer turn after an `active`. */
@@ -339,6 +362,7 @@ export type MentionTurnEndings = {
 export async function endMentionTurns(deps: {
   statuses: MentionTurnStatusStore;
   queue: Pick<ConversationTurnQueue, "outcome">;
+  replies: ConversationReplyStore;
   calls: {
     endTurn(
       turnId: ConversationTurnId,
@@ -374,6 +398,7 @@ export async function endMentionTurns(deps: {
   const now = deps.now ?? (() => new Date());
   const result: MentionTurnEndings = {
     ended: 0,
+    replied: 0,
     reset: 0,
     superseded: 0,
     reprocessing: 0,
@@ -407,6 +432,11 @@ export async function endMentionTurns(deps: {
           ? { turn_failure: outcome.reason }
           : {}),
       });
+      // Before the thread is set back: a failure here leaves the turn due,
+      // and the next pass runs it again under the same key.
+      if ((await deps.replies.post(turn.turnId)) === "enqueued") {
+        result.replied += 1;
+      }
       const claim = await deps.statuses.claimReset(turn.turnId, deps.claimMs);
       if (claim === "superseded") result.superseded += 1;
       if (claim !== "send") continue;

@@ -55,6 +55,8 @@ export interface UsageKpisMessages {
   readonly cost: string;
   readonly estimated: string;
   readonly costIncomplete: string;
+  /** Shown when the period had conversation calls: the cost's two parts. */
+  readonly costSplit: (sessions: string, conversations: string) => string;
   readonly costChart: string;
   readonly tokens: string;
   readonly tokensNote: string;
@@ -124,6 +126,13 @@ export interface UsageCostTableMessages {
   readonly noModel: string;
   readonly emptyAgent: string;
   readonly emptyModel: string;
+  /** The column of an agent's conversation calls, apart from its sessions. */
+  readonly conversation: string;
+  readonly judgment: string;
+  readonly turn: string;
+  readonly summary: string;
+  /** Calls from before the class was recorded; shown only when not zero. */
+  readonly other: string;
 }
 
 export interface UsageDailyCostMessages {
@@ -480,6 +489,8 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         estimated: "추정",
         costIncomplete:
           "진행 중이거나 비용을 보고하지 않은 턴이 있어 실제보다 적을 수 있음",
+        costSplit: (sessions, conversations) =>
+          `세션 ${sessions} · 대화 ${conversations}`,
         costChart: "일자별 비용",
         tokens: "토큰",
         tokensNote: "비용을 센 호출의 토큰",
@@ -544,6 +555,11 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         noModel: "호출 기록이 없는 비용",
         emptyAgent: "이 기간에 비용을 쓴 에이전트가 없습니다.",
         emptyModel: "이 기간에 비용을 쓴 모델이 없습니다.",
+        conversation: "대화",
+        judgment: "판단",
+        turn: "대화 턴",
+        summary: "요약",
+        other: "기타",
       },
       usageDailyCost: {
         title: "일자별 비용",
@@ -566,7 +582,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
       },
       usageBasis: {
         scope: { me: "내 사용량", installation: "설치 전체" },
-        rule: "비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다",
+        rule: "세션의 비용·토큰·실행 시간은 세션을 시작한 날에, 대화 비용은 호출한 날에 붙습니다",
         readAt: (at) => `${at}에 읽은 값`,
       },
     },
@@ -690,6 +706,8 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         estimated: "推定",
         costIncomplete:
           "実行中またはコスト未報告のターンがあるため、実際より少ない可能性があります",
+        costSplit: (sessions, conversations) =>
+          `セッション ${sessions} · 会話 ${conversations}`,
         costChart: "日別コスト",
         tokens: "トークン",
         tokensNote: "コストを数えた呼び出しのトークン",
@@ -756,6 +774,11 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         noModel: "呼び出し記録のないコスト",
         emptyAgent: "この期間にコストを使ったエージェントはありません。",
         emptyModel: "この期間にコストを使ったモデルはありません。",
+        conversation: "会話",
+        judgment: "判断",
+        turn: "会話ターン",
+        summary: "要約",
+        other: "その他",
       },
       usageDailyCost: {
         title: "日別コスト",
@@ -779,7 +802,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
       },
       usageBasis: {
         scope: { me: "自分の使用量", installation: "インストール全体" },
-        rule: "コスト・トークン・実行時間はセッションを開始した日に計上されます",
+        rule: "セッションのコスト・トークン・実行時間はセッションを開始した日に、会話のコストは呼び出した日に計上されます",
         readAt: (at) => `${at} に読み込んだ値`,
       },
     },
@@ -902,6 +925,8 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         estimated: "Estimate",
         costIncomplete:
           "Turns still running or without a reported cost may make this lower than the real cost",
+        costSplit: (sessions, conversations) =>
+          `Sessions ${sessions} · conversations ${conversations}`,
         costChart: "Cost per day",
         tokens: "Tokens",
         tokensNote: "Tokens from calls included in the cost estimate",
@@ -968,6 +993,11 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         noModel: "Cost without metered calls",
         emptyAgent: "No agent spent anything in this period.",
         emptyModel: "No model was billed in this period.",
+        conversation: "Conversations",
+        judgment: "Judgment",
+        turn: "Turns",
+        summary: "Summaries",
+        other: "Other",
       },
       usageDailyCost: {
         title: "Cost per day",
@@ -990,7 +1020,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
       },
       usageBasis: {
         scope: { me: "My usage", installation: "Whole installation" },
-        rule: "Cost, tokens and run time count on the day a session started",
+        rule: "A session's cost, tokens and run time count on the day it started; a conversation's cost on the day of each call",
         readAt: (at) => `Read at ${at}`,
       },
     },

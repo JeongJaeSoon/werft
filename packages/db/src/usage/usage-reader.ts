@@ -4,7 +4,9 @@ import {
   type UsageAchievementCountsRecord,
   type UsageAchievementsFilter,
   type UsageAchievementsRecord,
+  type UsageConversationCostRecord,
   type UsageReader,
+  type UsageSummaryFilter,
   type UsageTotalsFilter,
 } from "@werft-ai/platform";
 import {
@@ -32,6 +34,7 @@ import {
   checkpointOutputObjects,
   checkpointOutputTotals,
   checkpoints,
+  conversationCalls,
   sessionAchievements,
   sessionEventArchives,
   sessionModelUsage,
@@ -111,6 +114,91 @@ function startedBy(filter: UsageTotalsFilter): SQL | undefined {
   }
 }
 
+// The conversation calls a read counts beside its sessions: by the person
+// they were asked for. A call keeps no API key, so a key's own read has none.
+function talkedBy(filter: UsageSummaryFilter): SQL {
+  switch (filter.kind) {
+    case "installation":
+      return sql`TRUE`;
+    case "user":
+      return sql`${conversationCalls.workspaceId} = ${filter.ownerId} AND ${conversationCalls.requesterUserId} = ${filter.userId}`;
+    case "api_key":
+      return sql`FALSE`;
+  }
+}
+
+// Only a settled call has a cost (conversation_calls_settled_check); a
+// reserved, in-flight or resolved one keeps the figure incomplete, as an open
+// or unreported turn keeps a session's. A released one never ran and is
+// read nowhere (talkInPeriod), so an agent with only those has no row.
+const talkIncomplete = sql`${conversationCalls.state} IN ('reserved', 'in_flight', 'resolved')`;
+
+// Each split of a conversation's cost is one FILTER over the calls; another
+// split (by requester, say) adds its own list beside this one.
+const TALK_BY_CLASS = [
+  ["judgment_usd", sql`${conversationCalls.callClass} = 'm1'`],
+  ["turn_usd", sql`${conversationCalls.callClass} = 'm2'`],
+  ["summary_usd", sql`${conversationCalls.callClass} = 'summary'`],
+  ["other_usd", sql`${conversationCalls.callClass} IS NULL`],
+] as const;
+
+const talkFigures = sql.join(
+  [
+    sql`count(*) AS call_count`,
+    sql`coalesce(sum(${conversationCalls.costUsd}), 0) AS cost_usd`,
+    sql`count(*) FILTER (WHERE ${talkIncomplete}) AS incomplete`,
+    ...TALK_BY_CLASS.map(
+      ([name, where]) =>
+        sql`coalesce(sum(${conversationCalls.costUsd}) FILTER (WHERE ${where}), 0) AS ${sql.raw(name)}`,
+    ),
+  ],
+  sql`, `,
+);
+
+function talkInPeriod(filter: UsageSummaryFilter, since: SQL, until: SQL) {
+  return sql`${conversationCalls.createdAt} >= ${since}
+    AND ${conversationCalls.createdAt} < ${until}
+    AND ${conversationCalls.state} <> 'released'
+    AND ${talkedBy(filter)}`;
+}
+
+type TalkColumns = {
+  talk_call_count: number;
+  talk_cost_usd: string;
+  talk_incomplete: number;
+  talk_judgment_usd: string;
+  talk_turn_usd: string;
+  talk_summary_usd: string;
+  talk_other_usd: string;
+};
+
+const talkSelect = sql.join(
+  [
+    sql`coalesce(talk.call_count, 0)::int AS talk_call_count`,
+    sql`coalesce(talk.cost_usd, 0)::text AS talk_cost_usd`,
+    sql`coalesce(talk.incomplete, 0)::int AS talk_incomplete`,
+    ...TALK_BY_CLASS.map(
+      ([name]) =>
+        sql`coalesce(talk.${sql.raw(name)}, 0)::text AS ${sql.raw(`talk_${name}`)}`,
+    ),
+  ],
+  sql`, `,
+);
+
+function talkOf(row: TalkColumns): UsageConversationCostRecord {
+  return {
+    callCount: row.talk_call_count,
+    costUsd: row.talk_cost_usd,
+    incompleteCallCount: row.talk_incomplete,
+    byClass: {
+      judgmentUsd: row.talk_judgment_usd,
+      turnUsd: row.talk_turn_usd,
+      summaryUsd: row.talk_summary_usd,
+      otherUsd: row.talk_other_usd,
+    },
+  };
+}
+
 function periodBounds(period: { since: Date; until?: Date }) {
   const since = sql`${period.since.toISOString()}::timestamptz`;
   // The API's clock passed since; the database's may be a moment behind,
@@ -137,7 +225,7 @@ const pairTokenSums = sql`sum(${sessionModelUsage.inputTokens}) AS input_tokens,
   sum(${sessionModelUsage.cacheReadInputTokens}) AS cache_read_input_tokens,
   sum(${sessionModelUsage.cacheCreationInputTokens}) AS cache_creation_input_tokens`;
 
-type BreakdownRow = {
+type BreakdownRow = Partial<TalkColumns> & {
   key: string | null;
   label: string | null;
   total: boolean;
@@ -151,8 +239,9 @@ type BreakdownRow = {
 
 // Each session under its agent; the total row is the GROUPING SETS () one.
 // Counts and cost come from the sessions, tokens from the rollup's copy of
-// each session's agent.
-function breakdownByAgent(inPeriod: SQL, pairs: SQL) {
+// each session's agent, and the conversation calls beside them from their
+// own rows, so an agent with calls and no session still has a row.
+function breakdownByAgent(inPeriod: SQL, pairs: SQL, talk: SQL) {
   return sql`
     WITH counted AS (
       SELECT ${agentReleases.agentId} AS agent_id,
@@ -169,19 +258,37 @@ function breakdownByAgent(inPeriod: SQL, pairs: SQL) {
       FROM ${sessionModelUsage}
       WHERE ${pairs}
       GROUP BY GROUPING SETS ((${sessionModelUsage.agentId}), ())
+    ),
+    talk AS (
+      SELECT ${conversationCalls.agentId} AS agent_id,
+             grouping(${conversationCalls.agentId}) = 1 AS total, ${talkFigures}
+      FROM ${conversationCalls}
+      WHERE ${talk}
+      GROUP BY GROUPING SETS ((${conversationCalls.agentId}), ())
+    ),
+    keyed AS (
+      SELECT agent_id, total FROM counted
+      UNION
+      SELECT agent_id, total FROM talk
     )
-    SELECT counted.agent_id::text AS key, ${agents.name} AS label, counted.total,
-           counted.session_count::int AS session_count,
+    SELECT keyed.agent_id::text AS key, ${agents.name} AS label, keyed.total,
+           coalesce(counted.session_count, 0)::int AS session_count,
            coalesce(tokens.input_tokens, 0) AS input_tokens,
            coalesce(tokens.output_tokens, 0) AS output_tokens,
            coalesce(tokens.cache_read_input_tokens, 0) AS cache_read_input_tokens,
            coalesce(tokens.cache_creation_input_tokens, 0) AS cache_creation_input_tokens,
-           coalesce(counted.cost_usd, 0)::text AS cost_usd
-    FROM counted
-    LEFT JOIN tokens ON tokens.total = counted.total
-      AND tokens.agent_id IS NOT DISTINCT FROM counted.agent_id
-    LEFT JOIN ${agents} ON ${agents.id} = counted.agent_id
-    ORDER BY counted.cost_usd DESC, key NULLS LAST`;
+           coalesce(counted.cost_usd, 0)::text AS cost_usd,
+           ${talkSelect}
+    FROM keyed
+    LEFT JOIN counted ON counted.total = keyed.total
+      AND counted.agent_id IS NOT DISTINCT FROM keyed.agent_id
+    LEFT JOIN tokens ON tokens.total = keyed.total
+      AND tokens.agent_id IS NOT DISTINCT FROM keyed.agent_id
+    LEFT JOIN talk ON talk.total = keyed.total
+      AND talk.agent_id IS NOT DISTINCT FROM keyed.agent_id
+    LEFT JOIN ${agents} ON ${agents.id} = keyed.agent_id
+    ORDER BY coalesce(counted.cost_usd, 0) + coalesce(talk.cost_usd, 0) DESC,
+             key NULLS LAST`;
 }
 
 // Every model a session called, from the per-session rollup the period's
@@ -625,6 +732,13 @@ function groupRules(
   return [...groups.values()];
 }
 
+// By agent only: the model breakdown selects no talk columns.
+function conversationOfRow(row: BreakdownRow) {
+  return row.talk_cost_usd === undefined
+    ? {}
+    : { conversation: talkOf(row as TalkColumns) };
+}
+
 function figuresOf(row: BreakdownRow) {
   return {
     sessionCount: row.session_count,
@@ -937,6 +1051,14 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           WHERE ${inPeriod}
           GROUP BY 1
         ),
+        talk_day AS (
+          SELECT (${conversationCalls.createdAt} AT TIME ZONE 'UTC')::date AS day,
+                 sum(${conversationCalls.costUsd}) AS cost_usd,
+                 count(*) FILTER (WHERE ${talkIncomplete}) AS incomplete
+          FROM ${conversationCalls}
+          WHERE ${talkInPeriod(filter, since, until)}
+          GROUP BY 1
+        ),
         turn_day AS (
           SELECT ${day} AS day,
                  count(*) FILTER (WHERE ${incomplete}) AS incomplete,
@@ -962,10 +1084,13 @@ export function createPostgresUsageReader(db: Database): UsageReader {
                  coalesce(per_day.cost_usd, 0) AS cost_usd,
                  coalesce(per_day.provider_tokens, 0) AS provider_tokens,
                  coalesce(turn_day.incomplete, 0) AS incomplete,
-                 coalesce(turn_day.seconds, 0) AS seconds
+                 coalesce(turn_day.seconds, 0) AS seconds,
+                 coalesce(talk_day.cost_usd, 0) AS talk_cost_usd,
+                 coalesce(talk_day.incomplete, 0) AS talk_incomplete
           FROM days
           LEFT JOIN per_day ON per_day.day = days.day
           LEFT JOIN turn_day ON turn_day.day = days.day
+          LEFT JOIN talk_day ON talk_day.day = days.day
         )
         SELECT now() AS read_at,
                ${until} AS until,
@@ -974,6 +1099,8 @@ export function createPostgresUsageReader(db: Database): UsageReader {
                cost_usd::text AS cost_usd,
                provider_tokens::bigint AS provider_tokens,
                incomplete::int AS incomplete,
+               talk_cost_usd::text AS talk_cost_usd,
+               talk_incomplete::int AS talk_incomplete,
                (floor(sum(seconds) OVER running)
                  - floor(sum(seconds) OVER running - seconds))::bigint AS run_seconds
         FROM buckets
@@ -988,6 +1115,8 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         provider_tokens: number | string;
         incomplete: number;
         run_seconds: number | string;
+        talk_cost_usd: string;
+        talk_incomplete: number;
       }>(db, query);
       const [first] = rows;
       if (!first) throw new Error("usage series read returned no day");
@@ -1001,6 +1130,8 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           providerTokens: Number(row.provider_tokens),
           incompleteTurnCount: row.incomplete,
           runSeconds: Number(row.run_seconds),
+          conversationCostUsd: row.talk_cost_usd,
+          conversationIncompleteCallCount: row.talk_incomplete,
         })),
       };
     },
@@ -1026,7 +1157,11 @@ export function createPostgresUsageReader(db: Database): UsageReader {
       const rows = await executeWithoutJit<BreakdownRow>(
         db,
         by === "agent"
-          ? breakdownByAgent(inPeriod, pairs)
+          ? breakdownByAgent(
+              inPeriod,
+              pairs,
+              talkInPeriod(filter, since, until),
+            )
           : breakdownByModel(
               inPeriod,
               pairs,
@@ -1045,8 +1180,9 @@ export function createPostgresUsageReader(db: Database): UsageReader {
             key: row.key,
             label: row.label,
             ...figuresOf(row),
+            ...conversationOfRow(row),
           })),
-        totals: figuresOf(total),
+        totals: { ...figuresOf(total), ...conversationOfRow(total) },
       };
     },
 

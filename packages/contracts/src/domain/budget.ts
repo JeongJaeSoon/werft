@@ -15,6 +15,19 @@ export const BUDGET_ROOT_KIND_VALUES = [
 ] as const;
 export type BudgetRootKind = (typeof BUDGET_ROOT_KIND_VALUES)[number];
 
+/** Who started a call's chain, as the usage screen splits its total. */
+export const INITIATOR_VALUES = ["person", "agent"] as const;
+export type Initiator = (typeof INITIATOR_VALUES)[number];
+
+/**
+ * Each root kind on exactly one side, so the two sides add up to the total:
+ * a key is one a person made, and an allowed Slack bot is no person.
+ */
+export const INITIATOR_ROOT_KINDS = {
+  person: ["user", "key"],
+  agent: ["none", "slack_bot"],
+} as const satisfies Record<Initiator, readonly BudgetRootKind[]>;
+
 /** A person's account, or an agent team's. */
 export const BUDGET_OWNER_KIND_VALUES = ["user", "team"] as const;
 export type BudgetOwnerKind = (typeof BUDGET_OWNER_KIND_VALUES)[number];

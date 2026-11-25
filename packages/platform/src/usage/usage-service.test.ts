@@ -177,6 +177,8 @@ function service(
               providerTokens: 40,
               incompleteTurnCount,
               runSeconds: 60,
+              conversationCostUsd: "0.250000",
+              conversationIncompleteCallCount: 0,
             },
             {
               date: "2026-10-02",
@@ -185,6 +187,8 @@ function service(
               providerTokens: 0,
               incompleteTurnCount: 0,
               runSeconds: 0,
+              conversationCostUsd: "0.100000",
+              conversationIncompleteCallCount: 1,
             },
           ],
         };
@@ -205,6 +209,17 @@ function service(
               sessionCount: 2,
               costUsd: "1.000000",
               ...figures,
+              conversation: {
+                callCount: 3,
+                costUsd: "0.060000",
+                incompleteCallCount: 1,
+                byClass: {
+                  judgmentUsd: "0.010000",
+                  turnUsd: "0.050000",
+                  summaryUsd: "0",
+                  otherUsd: "0",
+                },
+              },
             },
             {
               key: null,
@@ -742,6 +757,18 @@ describe("usage service", () => {
       token_count: 20,
       cost_usd: "1.250000",
     });
+    expect(response.totals.conversation).toBeUndefined();
+    expect(response.rows[0]?.conversation).toEqual({
+      call_count: 3,
+      cost_usd: "0.060000",
+      cost_complete: false,
+      by_class: {
+        judgment_usd: "0.010000",
+        turn_usd: "0.050000",
+        summary_usd: "0",
+        other_usd: "0",
+      },
+    });
   });
 
   test("breakdown token counts stop at the largest safe integer as provider_tokens does", async () => {
@@ -842,6 +869,8 @@ describe("usage service", () => {
           cost_complete: false,
           token_count: 40,
           run_seconds: 60,
+          conversation_cost_usd: "0.250000",
+          conversation_cost_complete: true,
         },
         {
           date: "2026-10-02",
@@ -850,6 +879,8 @@ describe("usage service", () => {
           cost_complete: true,
           token_count: 0,
           run_seconds: 0,
+          conversation_cost_usd: "0.100000",
+          conversation_cost_complete: false,
         },
       ],
     });
