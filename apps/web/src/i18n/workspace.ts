@@ -166,6 +166,8 @@ export const workspaceKo = {
     "보내지 못한 앱은 예전 주소로 이벤트를 받고, 에이전트의 Slack 탭에 갱신 필요로 표시됩니다.",
   "workspace.eventsRetry": "보내지 못한 앱 다시 보내기",
   "workspace.eventsRetried": "남은 앱에 새 주소를 모두 보냈습니다.",
+  "workspace.eventsRetryWaiting":
+    "Slack의 답을 기다리는 앱이 있습니다. 결과는 에이전트의 Slack 탭에 나옵니다.",
   "workspace.eventsReason.config_token_inactive":
     "App Configuration Token이 활성 상태가 아닙니다. 토큰을 다시 넣은 뒤 다시 보내세요.",
   "workspace.eventsReason.events_url_unset": "보낼 이벤트 주소가 없습니다.",
@@ -343,6 +345,8 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "An app not sent keeps receiving events at its old address and shows “Update needed” on the agent's Slack tab.",
   "workspace.eventsRetry": "Send the apps not sent again",
   "workspace.eventsRetried": "Sent the new address to the remaining apps.",
+  "workspace.eventsRetryWaiting":
+    "Some apps are still waiting for Slack. The result shows on the agent's Slack tab.",
   "workspace.eventsReason.config_token_inactive":
     "The App Configuration Token is not active. Enter the token again, then send again.",
   "workspace.eventsReason.events_url_unset":
@@ -524,6 +528,8 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "送れなかったアプリは前のアドレスでイベントを受け取り、エージェントの Slack タブに「更新が必要」と表示されます。",
   "workspace.eventsRetry": "送れなかったアプリにもう一度送る",
   "workspace.eventsRetried": "残りのアプリに新しいアドレスをすべて送りました。",
+  "workspace.eventsRetryWaiting":
+    "Slack の応答を待っているアプリがあります。結果はエージェントの Slack タブに表示されます。",
   "workspace.eventsReason.config_token_inactive":
     "App Configuration Token が有効ではありません。トークンを入れ直してから、もう一度送ってください。",
   "workspace.eventsReason.events_url_unset":

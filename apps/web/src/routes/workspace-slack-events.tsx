@@ -178,11 +178,14 @@ export function SlackEventsSetting({
     onSuccess: ({ updates }) => {
       const again = new Map(updates.map((one) => [one.slack_app_id, one]));
       const left = updates.some((one) => one.outcome === "failed");
-      focusResults.current = left;
+      const waiting = updates.some((one) => one.outcome === "sending");
+      focusResults.current = left || waiting;
       setResults((shown) =>
         shown.map((one) => again.get(one.slack_app_id) ?? one),
       );
-      if (!left) {
+      if (waiting && !left) {
+        onOutcome({ kind: "notice", text: t("workspace.eventsRetryWaiting") });
+      } else if (!left) {
         onOutcome({ kind: "notice", text: t("workspace.eventsRetried") });
         // The retry button leaves with the last failure.
         inputRef.current?.focus();

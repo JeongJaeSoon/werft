@@ -938,6 +938,11 @@ export function createSlackAppService(deps: {
       slackAppIds?: readonly string[],
       waitMs = 20_000,
     ): Promise<SlackEventsUpdate[]> {
+      // The wait counts from here: reading the apps is part of it.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waited = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, waitMs);
+      });
       const wanted = slackAppIds === undefined ? null : new Set(slackAppIds);
       const listed =
         deps.apps === null || deps.tokens === null
@@ -1050,13 +1055,7 @@ export function createSlackAppService(deps: {
           answered.set(target.slackAppId, update);
         }),
       );
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([
-        sending,
-        new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, waitMs);
-        }),
-      ]);
+      await Promise.race([sending, waited]);
       clearTimeout(timer);
       const found = new Set(targets.map((target) => target.slackAppId));
       return [

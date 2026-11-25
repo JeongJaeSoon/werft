@@ -7,6 +7,7 @@ import type {
   UpdateSlackSettingsResponse,
 } from "@werft-ai/contracts";
 import type { SlackSettingsStore } from "@werft-ai/db";
+import { currentDeadline } from "@werft-ai/db/pool";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -28,6 +29,21 @@ export function slackEventsBaseOf(
   return async () => (await store.read())?.eventsPublicUrl ?? computed;
 }
 
+const RESEND_WAIT_MAX_MS = 20_000;
+// Left of the request deadline for the writes after the wait and the answer.
+const RESEND_ANSWER_MARGIN_MS = 5_000;
+
+/** How long a save may wait for Slack: what the request deadline leaves. */
+function resendWaitMs(): number {
+  const remaining =
+    currentDeadline()?.remainingMs() ??
+    RESEND_WAIT_MAX_MS + RESEND_ANSWER_MARGIN_MS;
+  return Math.max(
+    0,
+    Math.min(RESEND_WAIT_MAX_MS, remaining - RESEND_ANSWER_MARGIN_MS),
+  );
+}
+
 /**
  * The owner's Slack settings for the whole installation. A changed address
  * commits first; then every created agent app of every workspace is sent
@@ -38,8 +54,14 @@ export function createSlackSettingsAdmin(deps: {
   authorization: AuthorizationPolicy;
   store: SlackSettingsStore;
   consoleOrigin: string | null;
-  /** Sends the apps (all, or those named) the address in effect now. */
-  resend: (slackAppIds?: readonly string[]) => Promise<SlackEventsUpdate[]>;
+  /**
+   * Sends the apps (all, or those named) the address in effect now, waiting
+   * at most `waitMs` for Slack's answers.
+   */
+  resend: (
+    slackAppIds: readonly string[] | undefined,
+    waitMs: number,
+  ) => Promise<SlackEventsUpdate[]>;
 }) {
   const computed = computedEventsBase(deps.consoleOrigin);
   const viewOf = (saved: string | null): SlackSettings => {
@@ -78,7 +100,9 @@ export function createSlackSettingsAdmin(deps: {
       });
       // Cleared without an https CONSOLE_ORIGIN, no address is left to send.
       const updates =
-        changed && (value ?? computed) !== null ? await deps.resend() : [];
+        changed && (value ?? computed) !== null
+          ? await deps.resend(undefined, resendWaitMs())
+          : [];
       // A save made meanwhile is what the apps were left on.
       const now =
         updates.length === 0
@@ -96,7 +120,12 @@ export function createSlackSettingsAdmin(deps: {
       body: RetrySlackEventsUpdatesRequest,
     ): Promise<RetrySlackEventsUpdatesResponse> {
       await requireSignInOwner(deps.authorization, caller);
-      return { updates: await deps.resend([...new Set(body.slack_app_ids)]) };
+      return {
+        updates: await deps.resend(
+          [...new Set(body.slack_app_ids)],
+          resendWaitMs(),
+        ),
+      };
     },
   };
 }

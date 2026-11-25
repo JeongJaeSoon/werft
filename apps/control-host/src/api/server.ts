@@ -976,7 +976,8 @@ const slackSettingsAdmin = createSlackSettingsAdmin({
   authorization,
   store: slackSettingsStore,
   consoleOrigin,
-  resend: (slackAppIds) => slackApps.resendAgentAppEvents(slackAppIds),
+  resend: (slackAppIds, waitMs) =>
+    slackApps.resendAgentAppEvents(slackAppIds, waitMs),
 });
 const credentialBindingService = createCredentialBindingService({
   authorization,

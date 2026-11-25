@@ -5,6 +5,7 @@ import {
   scopesForRole,
 } from "@werft-ai/contracts";
 import type { SlackSettingsStore } from "@werft-ai/db";
+import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
 import {
   type Caller,
   callerFor,
@@ -87,11 +88,14 @@ function admin(
   // What each send was asked for, and the address it read.
   const resends: Array<{ ids: readonly string[] | undefined; at: unknown }> =
     [];
+  const waits: number[] = [];
   return {
     ...memory,
     resends,
+    waits,
     admin: createSlackSettingsAdmin({
-      resend: async (ids) => {
+      resend: async (ids, waitMs) => {
+        waits.push(waitMs);
         resends.push({ ids, at: memory.row()?.eventsPublicUrl ?? null });
         return [UPDATED];
       },
@@ -202,6 +206,25 @@ describe("sending the apps the changed address", () => {
     });
     expect(resends).toEqual([{ ids: undefined, at: EVENTS }]);
     expect(saved.updates).toEqual([UPDATED]);
+  });
+
+  test("the wait for Slack is what the request deadline leaves, less a margin", async () => {
+    const outside = admin(null);
+    await outside.admin.change(caller("owner"), { events_public_url: EVENTS });
+    expect(outside.waits).toEqual([20_000]);
+    for (const [left, wait] of [
+      [60_000, 20_000],
+      [12_000, 7_000],
+      [3_000, 0],
+    ] as const) {
+      const inside = admin(null);
+      await runWithDeadline(new RequestDeadline(performance.now() + left), () =>
+        inside.admin.change(caller("owner"), { events_public_url: EVENTS }),
+      );
+      expect(inside.waits).toHaveLength(1);
+      expect(inside.waits[0]).toBeLessThanOrEqual(wait);
+      expect(inside.waits[0]).toBeGreaterThanOrEqual(Math.max(0, wait - 1_000));
+    }
   });
 
   test("the address already saved sends nothing", async () => {
