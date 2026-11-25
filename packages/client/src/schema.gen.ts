@@ -3625,6 +3625,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/slack/instructions-head": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether the repository has newer instructions than the release
+         * @description The commit the active release's repository branch is at now (`commit`), read from GitHub through the release-read gate with a contents:read token, and whether it differs from the commit the release's instruction snapshot was taken at (`newer`). A new release takes the newer file; this makes none. `unread` names why nothing was compared: no active release (`no_release`), a snapshot without a commit (`no_commit`: none taken, no repository, or the read failed when the release was made), a repository not on GitHub or with no App to read it (`not_on_github`), or the branch gone (`branch_missing`). GitHub failing or not answering within 10 seconds is 503. Read only when asked. Owners, admins and the agent's admins; API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSlackInstructionsHead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/slack-bindings/{binding_id}/approve": {
         parameters: {
             query?: never;
@@ -12675,6 +12697,17 @@ export interface components {
                 /** Format: date-time */
                 judged_at: string;
             }[];
+        };
+        GetSlackInstructionsHeadResponse: {
+            /** @constant */
+            state: "read";
+            commit: string;
+            newer: boolean;
+        } | {
+            /** @constant */
+            state: "unread";
+            /** @enum {string} */
+            reason: "no_release" | "no_commit" | "not_on_github" | "branch_missing";
         };
         PutSlackBindingResponse: {
             slack_binding: {
@@ -38822,6 +38855,99 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["GetSlackJudgmentsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getSlackInstructionsHead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branch head against the snapshot, or why it was not read. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "state": "read",
+                     *       "commit": "0123456789abcdef0123456789abcdef01234567",
+                     *       "newer": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackInstructionsHeadResponse"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

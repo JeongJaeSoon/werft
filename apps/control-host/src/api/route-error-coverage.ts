@@ -337,6 +337,9 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/surface/slack-judgments.test.ts": [
     "GET /v1/agents/{id}/slack/judgments",
   ],
+  "routes/surface/slack-instructions-head.test.ts": [
+    "GET /v1/agents/{id}/slack/instructions-head",
+  ],
   "routes/surface/slack-channels.test.ts": [
     "GET /v1/agents/{id}/slack/channels",
     "GET /v1/agents/{id}/slack-channels",

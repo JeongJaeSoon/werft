@@ -26,6 +26,7 @@ import type {
   GitHubSettingsService,
   GitHubWorkService,
   IdentityStore,
+  InstructionsHeadService,
   InterruptService,
   InviteService,
   InviteStore,
@@ -130,6 +131,7 @@ import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
 import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/surface/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
+import { registerSlackInstructionsHeadRoutes } from "./routes/surface/slack-instructions-head.ts";
 import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
 import { registerSlackJudgmentRoutes } from "./routes/surface/slack-judgments.ts";
 import { registerSlackNoticeRoutes } from "./routes/surface/slack-notice.ts";
@@ -204,6 +206,10 @@ function apiApp() {
         service: {} as SlackChannelSearchService,
       });
       registerSlackJudgmentRoutes(router, {} as JudgmentReviewService);
+      registerSlackInstructionsHeadRoutes(
+        router,
+        {} as InstructionsHeadService,
+      );
       registerLinkedAccountRoutes(router, {
         service: {} as LinkedAccountService,
         linkCookies: {} as AccountLinkCookies,

@@ -243,6 +243,13 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     this.currentTraceparent = current;
   }
 
+  /** What the worker handed `holdWhile`; this fake holds nothing itself. */
+  unconfirmed: (() => Promise<void> | undefined) | undefined;
+
+  holdWhile(unconfirmed: () => Promise<void> | undefined): void {
+    this.unconfirmed = unconfirmed;
+  }
+
   private traced(call: string): void {
     const traceparent = this.currentTraceparent?.();
     this.traceparents.push({
@@ -471,7 +478,13 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       this.activated = true;
     } else if (this.heartbeatFailure !== undefined) {
       throw new WorkerGatewayRequestError(
-        this.heartbeatFailure === "UNAUTHORIZED" ? 401 : 409,
+        this.heartbeatFailure === "UNAUTHORIZED"
+          ? 401
+          : this.heartbeatFailure === "FORBIDDEN"
+            ? 403
+            : this.heartbeatFailure === "NOT_FOUND"
+              ? 404
+              : 409,
         this.heartbeatFailure,
         `heartbeat failed with ${this.heartbeatFailure}`,
         false,
