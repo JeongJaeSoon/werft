@@ -6,6 +6,7 @@ import {
   userIdSchema,
 } from "../shared/index.ts";
 import { githubAppRoleSchema } from "./github-settings.ts";
+import { githubWebhookUpdateSchema } from "./github-webhook-settings.ts";
 import { displayNameSchema, workspaceParamsSchema } from "./workspaces.ts";
 
 // The workspace's GitHub App connections, registered in the console: author
@@ -350,6 +351,11 @@ export const completeGitHubAppManifestResponseSchema = z
     /** Where the App is installed next. */
     install_url: z.url(),
     receipt_id: receiptIdSchema,
+    /**
+     * What GitHub said when the new App's webhook URL was set to the address
+     * saved now; absent when none was sent (no webhook secret, no address).
+     */
+    webhook_update: githubWebhookUpdateSchema.optional(),
   })
   .strict();
 

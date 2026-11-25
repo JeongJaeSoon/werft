@@ -11,6 +11,7 @@ import {
   type GitHubApp,
   type GitHubAppRepository,
   type GitHubAppRole,
+  type GitHubWebhookUpdate,
   githubAppWarnings,
   type ListGitHubAppsResponse,
   type PostGitHubAppRequest,
@@ -205,14 +206,14 @@ export function createGitHubAppService(deps: {
     refused?: (check: string) => void;
     /**
      * Sets a new App's webhook URL to the address saved now, again after any
-     * save made meanwhile; answers, never throws.
+     * save made meanwhile; answers, never throws. Null when nothing was sent.
      */
     followHook?: (app: {
       appId: number;
       apiBase: string;
       name: string;
       privateKey: string;
-    }) => Promise<unknown>;
+    }) => Promise<GitHubWebhookUpdate | null>;
   };
   installations?: {
     store: GitHubInstallationStore;
@@ -618,18 +619,20 @@ export function createGitHubAppService(deps: {
       }
       // The manifest carried the address saved when it was made. One saved
       // while the owner was on GitHub could not list this App yet.
-      if (app.webhookSecret && manifests.followHook) {
-        await manifests.followHook({
-          appId: app.appId,
-          apiBase: deps.apiBase,
-          name: app.name,
-          privateKey: app.privateKey,
-        });
-      }
+      const webhookUpdate =
+        app.webhookSecret && manifests.followHook
+          ? await manifests.followHook({
+              appId: app.appId,
+              apiBase: deps.apiBase,
+              name: app.name,
+              privateKey: app.privateKey,
+            })
+          : null;
       return {
         github_app: githubApp,
         install_url: `${app.htmlUrl}/installations/new`,
         receipt_id: audit.receiptId,
+        ...(webhookUpdate === null ? {} : { webhook_update: webhookUpdate }),
       };
     },
 
