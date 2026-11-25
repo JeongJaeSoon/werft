@@ -746,6 +746,20 @@ describe("POST /v1/sessions/{id}/turns/{turn_id}/continue", () => {
     ).toBe(404);
     expect((await press({}, { "Idempotency-Key": "" })).status).toBe(400);
   });
+
+  test("a full queue is 429 with Retry-After and a full store is 413", async () => {
+    const full = await press({
+      appendInputAtomic: async () => ({ outcome: "queue_full" }),
+    });
+    expect(full.status).toBe(429);
+    expect(full.headers.get("Retry-After")).toBe("5");
+    expect(await errorCode(full)).toBe("RATE_LIMITED");
+    const stored = await press({
+      appendInputAtomic: async () => ({ outcome: "storage_exhausted" }),
+    });
+    expect(stored.status).toBe(413);
+    expect(await errorCode(stored)).toBe("STORAGE_LIMIT_EXCEEDED");
+  });
 });
 
 describe("GET /v1/sessions/{id}/turns validation", () => {
