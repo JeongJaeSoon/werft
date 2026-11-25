@@ -1912,6 +1912,13 @@
       "when": 1795603434837,
       "tag": "0363_session_task_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 364,
+      "version": "7",
+      "when": 1795607618353,
+      "tag": "0364_pending_session_allow_subject",
+      "breakpoints": true
     }
   ]
 }
