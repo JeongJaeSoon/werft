@@ -22,11 +22,12 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, count, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, isNull, max, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { readPointerRuntime } from "./checkpoints/checkpoint-runtime.ts";
 import { createPostgresCheckpointStore } from "./checkpoints/checkpoint-store.ts";
+import { encodeEventCursor } from "./cursors.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresGitHubGateStore } from "./github/github-settings.ts";
 import {
@@ -970,6 +971,12 @@ integration("worker gateway on PostgreSQL", () => {
     expect(first.accepted_through).toBe(2);
     const second = await gateway.appendEvents(principalOf(claimed), request);
     expect(second).toEqual(first);
+    // The cursor is built from the newest id, which this driver returns as text.
+    const [newest] = await db
+      .select({ id: max(events.id) })
+      .from(events)
+      .where(workerStream(session.session_id));
+    expect(first.cursor).toBe(encodeEventCursor(newest?.id ?? 0));
     const [storedRow] = await db
       .select({ stored: count() })
       .from(events)
