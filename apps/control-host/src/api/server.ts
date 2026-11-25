@@ -670,11 +670,16 @@ fillSessionParents(db).then(
   },
 );
 if (checkpointStorage !== "disabled") {
-  const forgotten = await checkpointObjectsAtStart(checkpointStorage, {
-    hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
-    forget: (stillLost) =>
-      forgetLostCheckpointsAtStart(db, new Date(), stillLost),
-  });
+  const forgotten = await startupWait(
+    "object store",
+    () =>
+      checkpointObjectsAtStart(checkpointStorage, {
+        hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+        forget: (stillLost) =>
+          forgetLostCheckpointsAtStart(db, new Date(), stillLost),
+      }),
+    isObjectStoreUnreachable,
+  );
   if (forgotten) {
     logger.warn(
       "The object store came back empty, so the checkpoints it held were given up at start (CHECKPOINT_OBJECTS_LOST=forget); the recovery_required sessions wait for a recovery decision",

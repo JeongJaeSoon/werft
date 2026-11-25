@@ -116,6 +116,12 @@ describe("storage S3 client request bounds", () => {
     expect(isObjectStoreUnreachable(answered(503, "ServiceUnavailable"))).toBe(
       true,
     );
+    expect(isObjectStoreUnreachable(answered(429, "TooManyRequests"))).toBe(
+      true,
+    );
+    expect(isObjectStoreUnreachable(answered(400, "RequestTimeout"))).toBe(
+      true,
+    );
     expect(isObjectStoreUnreachable(answered(404, "NoSuchBucket"))).toBe(false);
     expect(isObjectStoreUnreachable(answered(403, "AccessDenied"))).toBe(false);
     // What Bun's resolver reports while a cluster's DNS is not up yet.
