@@ -28,6 +28,7 @@ import {
   type SessionCatalog,
   WERFT_MCP_INSTRUCTIONS,
   WERFT_MCP_UPSTREAM_PATH,
+  type WerftMcpPart,
   werftMcpBinding,
   werftMcpToolNames,
 } from "@werft-ai/platform";
@@ -57,7 +58,6 @@ const WERFT_GRANT_KEY = werftMcpGrantKeyOf({
   token: AUTHORIZER_BEARER,
 });
 const WERFT_VERSION = "v9.9.9-test";
-const werftParts = werftMcpParts({ version: WERFT_VERSION });
 
 const catalog: SessionCatalog = testCatalog({
   provider: {
@@ -99,11 +99,23 @@ let db: PgliteDatabase<typeof schema>;
 let serve: (request: Request) => Promise<Response>;
 let gateway: ReturnType<typeof createWorkerGateway>;
 let pushes: Array<{ actor: PushActor; sessionId: string }>;
+let werftParts: WerftMcpPart[];
 
 beforeEach(async () => {
   client = await migratedPGlite();
   db = drizzle(client, { schema });
   pushes = [];
+  werftParts = werftMcpParts(
+    { version: WERFT_VERSION },
+    {
+      db,
+      authorization: {
+        async authorize() {
+          throw new Error("not used");
+        },
+      },
+    },
+  );
   const store = createPostgresGitHubMcpStore(db);
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),

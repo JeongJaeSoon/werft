@@ -1382,7 +1382,10 @@ const githubMcpGrantKey =
 // The built-in `werft` MCP server every session has: what it serves is its
 // parts', and a claim trusts exactly the tools they name.
 const werftVersion = werftVersionOf(process.env);
-const werftMcpServerParts = werftMcpParts({ version: werftVersion });
+const werftMcpServerParts = werftMcpParts(
+  { version: werftVersion },
+  { db, authorization },
+);
 const werftMcp = createWerftMcpServer({
   parts: werftMcpServerParts,
   version: werftVersion,
