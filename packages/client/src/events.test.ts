@@ -452,6 +452,20 @@ describe("subscribeSessionEvents", () => {
     expect(server.requests.length).toBeGreaterThan(1);
   });
 
+  test("the limit holds the failures that follow an undecided refusal too", async () => {
+    const server = eventServer([
+      undecided,
+      ...Array.from({ length: 500 }, () => ({ status: 503 })),
+    ]);
+    const run = subscribe(server, { undecidedMs: 30 });
+    await run.done;
+    expect(run.errors.map((e) => [e.status, e.code])).toEqual([
+      [403, "FORBIDDEN"],
+    ]);
+    expect(run.states.at(-1)).toBe("closed");
+    expect(server.requests.length).toBeGreaterThan(2);
+  });
+
   for (const [status, code, details] of [
     [403, "FORBIDDEN", { reason_code: "role" }],
     [403, "FORBIDDEN", null],

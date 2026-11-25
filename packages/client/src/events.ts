@@ -73,7 +73,11 @@ export async function subscribeSessionEvents(
   let cursor = options.lastEventId || undefined;
   let backoff = initialMs;
   let failedAttempts = 0;
-  let undecidedSince: number | undefined;
+  // The first refusal the policy could not decide, while nothing has opened
+  // since: the window it starts holds whatever failures follow it.
+  let undecided:
+    | { readonly since: number; readonly error: ApiError }
+    | undefined;
 
   /** Returns false once the subscription must end. */
   const receive = (raw: RawFrame): boolean => {
@@ -156,10 +160,9 @@ export async function subscribeSessionEvents(
         if (response.status >= 500 || response.status === 408)
           return jittered(backoff);
         const refusal = errorFromResponse(response, error);
-        if (undecided(refusal)) {
-          undecidedSince ??= Date.now();
-          if (Date.now() - undecidedSince < undecidedMs)
-            return jittered(backoff);
+        if (couldNotDecide(refusal)) {
+          undecided ??= { since: Date.now(), error: refusal };
+          return jittered(backoff);
         }
         options.onError?.(refusal);
         return null;
@@ -169,7 +172,7 @@ export async function subscribeSessionEvents(
         return jittered(backoff);
       }
       failedAttempts = 0;
-      undecidedSince = undefined;
+      undecided = undefined;
       options.onState?.("open");
       const reader = body.getReader();
       const decoder = new TextDecoder();
@@ -206,6 +209,10 @@ export async function subscribeSessionEvents(
       options.onState?.("connecting");
       const wait = await connect();
       if (wait === null) return;
+      if (undecided && Date.now() - undecided.since >= undecidedMs) {
+        options.onError?.(undecided.error);
+        return;
+      }
       backoff = Math.min(backoff * 2, maxMs);
       options.onRetry?.(failedAttempts);
       await sleep(wait, signal);
@@ -223,7 +230,7 @@ export function jittered(ms: number): number {
  * The policy refused because it could not reach a decision, not because the
  * caller lacks the grant; the same refusal the Slack adapter retries.
  */
-function undecided(error: ApiError): boolean {
+function couldNotDecide(error: ApiError): boolean {
   if (error.status !== 403) return false;
   const details = error.details;
   return (

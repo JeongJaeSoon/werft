@@ -323,6 +323,8 @@ interface Resume {
   readonly generation: number;
   last: string | undefined;
   readonly callNames: Map<string, string>;
+  /** Recent ids shown: a reconnect by hand starts a subscription that has not seen them. */
+  readonly shown: Set<string>;
 }
 
 /**
@@ -355,13 +357,19 @@ export function useSessionEvents(id: string, enabled: boolean) {
       previous.generation !== generation;
     const here: Resume = byHand
       ? { ...previous, generation }
-      : { id, generation, last: undefined, callNames: new Map() };
+      : {
+          id,
+          generation,
+          last: undefined,
+          callNames: new Map(),
+          shown: new Set(),
+        };
     resume.current = here;
     if (!byHand) setEvents([]);
     setState("connecting");
     setFailedAttempts(0);
     const stop = new AbortController();
-    const { callNames } = here;
+    const { callNames, shown } = here;
     // The replay on connect and a busy turn deliver events in bursts, every
     // frame of a read in one go; a burst refetches each stale query once.
     const stale = new Set<SessionPart>();
@@ -370,6 +378,10 @@ export function useSessionEvents(id: string, enabled: boolean) {
       signal: stop.signal,
       ...(here.last === undefined ? {} : { lastEventId: here.last }),
       onEvent: (frame) => {
+        if (shown.has(frame.id)) return;
+        shown.add(frame.id);
+        if (shown.size > EVENT_WINDOW)
+          shown.delete(shown.values().next().value as string);
         here.last = frame.id;
         const { payload } = frame;
         for (const part of EVENT_STALES[payload.event] ?? []) stale.add(part);
