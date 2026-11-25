@@ -5,14 +5,14 @@ import {
   conversationJudgmentIdSchema,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
-import type { Caller } from "./policy.ts";
-import { SessionServiceError } from "./service-errors.ts";
 import type { ChannelMemberQuestion } from "../surface/ports/channel-member-checkable.ts";
 import {
   createJudgmentReviewService,
   type JudgmentReviewItem,
   type JudgmentTallyRow,
 } from "./judgment-review.ts";
+import type { Caller } from "./policy.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-000000000011";
 const AGENT = "019a0000-0000-7000-8000-000000000012";
@@ -73,7 +73,10 @@ function service(options: {
       authorize: async () =>
         (options.allow === false
           ? { outcome: "deny", reason_code: "role", effective_scopes: [] }
-          : { outcome: "allow", reason_code: "ok" }) as unknown as AuthorizationDecision,
+          : {
+              outcome: "allow",
+              reason_code: "ok",
+            }) as unknown as AuthorizationDecision,
     },
     store: {
       now: async () => NOW,

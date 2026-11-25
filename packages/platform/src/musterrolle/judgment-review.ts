@@ -10,9 +10,9 @@ import {
   type SlackJudgmentChannel,
   slackMessageUrl,
 } from "@werft-ai/contracts";
+import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import { requirePermitted } from "./require-permitted.ts";
-import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
 
 /** One channel's judged records of the window, a row per reason and decision. */
 export type JudgmentTallyRow = {
