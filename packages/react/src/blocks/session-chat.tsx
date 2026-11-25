@@ -6,7 +6,9 @@ import {
   type TurnSummary,
 } from "@werft-ai/contracts";
 import {
+  Alert,
   Badge,
+  Button,
   ChatList,
   ChatMessage,
   ChatToolGroup,
@@ -254,7 +256,15 @@ export interface SessionChatProps {
   readonly working?: boolean;
   /** At the chat's end, full width: the requests waiting for an answer. */
   readonly after?: ReactNode;
+  /** Reconnects in a row that did not open, from `useSessionEvents`. */
+  readonly failedAttempts?: number;
+  /** Opens a closed stream again; without it the notice says to reload. */
+  readonly onReconnect?: () => void;
 }
+
+// A drop or two passes unannounced: the stream is back before the reader
+// would act on a notice.
+const NOTICE_AFTER_FAILURES = 3;
 
 /** The session's conversation, the person on the right and the agent left. */
 export function SessionChat({
@@ -264,6 +274,8 @@ export function SessionChat({
   agentName,
   working = false,
   after,
+  failedAttempts = 0,
+  onReconnect,
 }: SessionChatProps): JSX.Element {
   const { t, formatMessage, locale } = useBlockText();
   const items = useMemo(
@@ -287,13 +299,43 @@ export function SessionChat({
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <output className="sr-only">{status}</output>
-      {state === "open" ? null : (
+      {state === "closed" ? (
+        // Stays at the top of the scrolled chat: the reader is usually at
+        // its end, far from where the list starts.
+        <div className="-top-2 sticky z-10 bg-background py-2">
+          <Alert variant="red" className="items-center">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <Text role="status" className="text-foreground">
+                {onReconnect
+                  ? t("session.events.ended")
+                  : t("session.events.closed")}
+              </Text>
+              {onReconnect ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onReconnect}
+                >
+                  {t("session.events.reconnect")}
+                </Button>
+              ) : null}
+            </div>
+          </Alert>
+        </div>
+      ) : state === "connecting" && failedAttempts >= NOTICE_AFTER_FAILURES ? (
+        <div className="-top-2 sticky z-10 bg-background py-2">
+          <Alert variant="amber">
+            <Text role="status" className="text-foreground">
+              {t("session.events.reconnecting")}
+            </Text>
+          </Alert>
+        </div>
+      ) : state === "connecting" && events.length === 0 ? (
         <Text variant="meta" role="status" className="text-center">
-          {state === "connecting"
-            ? t("session.events.connecting")
-            : t("session.events.closed")}
+          {t("session.events.connecting")}
         </Text>
-      )}
+      ) : null}
       {items.length === 0 && state === "open" ? (
         <Text variant="meta" className="text-center">
           {t("session.events.empty")}

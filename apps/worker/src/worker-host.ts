@@ -2282,6 +2282,7 @@ export class WorkerHost {
         );
       };
       let finalized: Awaited<ReturnType<typeof finalize>>;
+      const finalizeStarted = performance.now();
       try {
         finalized = await finalize(
           terminal,
@@ -2335,6 +2336,8 @@ export class WorkerHost {
       this.logger.info("worker.turn.finalized", {
         turn_id: turnId,
         status: terminal.status,
+        // The control plane's verification of the checkpoint, retries included.
+        finalize_ms: Math.round(performance.now() - finalizeStarted),
       });
       this.turn = undefined;
       this.scope.turn_id = null;

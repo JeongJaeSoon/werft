@@ -85,7 +85,7 @@ function eventStream() {
     });
   };
   let seq = 0;
-  const frame = (event: string, data: unknown) => {
+  const frame = (event: string, data: unknown, id = `ev_${++seq}`) => {
     const envelope = {
       schema_version: 1,
       session_id: SESSION_ID,
@@ -94,15 +94,17 @@ function eventStream() {
       occurred_at: AT,
       data,
     };
-    seq += 1;
-    return `id: ev_${seq}\nevent: ${event}\ndata: ${JSON.stringify(envelope)}\n\n`;
+    return `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(envelope)}\n\n`;
   };
   /** Every frame in one write, as one read of a busy stream delivers them. */
   const push = (...frames: (readonly [event: string, data: unknown])[]) =>
     controller?.enqueue(
       encoder.encode(frames.map(([e, d]) => frame(e, d)).join("")),
     );
-  return { response, push };
+  /** One frame again under an id already sent, as a replay sends it. */
+  const replay = (id: string, [event, data]: readonly [string, unknown]) =>
+    controller?.enqueue(encoder.encode(frame(event, data, id)));
+  return { response, push, replay };
 }
 
 function harness(
@@ -551,6 +553,27 @@ describe("useSessionEvents", () => {
       ).toEqual([...keys]);
       seen += keys.length;
     }
+  });
+
+  test("a reconnect by hand keeps the events shown and adds a replayed one once", async () => {
+    const { h, hook } = open();
+    await waitFor(() => expect(hook.result.current.state).toBe("open"));
+    act(() => {
+      h.stream.push(status, assistant);
+    });
+    await waitFor(() => expect(hook.result.current.events).toHaveLength(2));
+    act(() => hook.result.current.reconnect());
+    await waitFor(() => expect(hook.result.current.state).toBe("open"));
+    act(() => {
+      h.stream.replay("ev_2", assistant);
+      h.stream.push(result);
+    });
+    await waitFor(() => expect(hook.result.current.events).toHaveLength(3));
+    expect(hook.result.current.events.map((e) => e.id)).toEqual([
+      "ev_1",
+      "ev_2",
+      "ev_3",
+    ]);
   });
 
   test("messages and tool calls refresh nothing", async () => {
