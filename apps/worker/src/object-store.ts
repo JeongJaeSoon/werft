@@ -6,6 +6,7 @@ import {
   createObjectRouteClient,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
+  type S3TimeoutWarn,
   scopedCheckpointObjectStore,
 } from "@werft-ai/storage";
 
@@ -97,10 +98,13 @@ export function createWorkerObjectStore(
   config: WorkerObjectStoreConfig,
   token: () => string,
   unconfirmed: () => Promise<void> | undefined = () => undefined,
+  /** One line for each request that ran out its bound. */
+  warn?: S3TimeoutWarn,
 ): CheckpointObjectStore {
   const client = createObjectRouteClient(
     { endpoint: config.endpoint, region: config.region, token },
     S3_REQUEST_BOUNDS,
+    warn,
   );
   return scopedCheckpointObjectStore(
     createCheckpointObjectStore({
