@@ -231,6 +231,7 @@ function bind(channelId: string | null, binding: Binding) {
     channelKind: channelId === null ? "dm" : "public_channel",
     mode: "on",
     listen: "free",
+    m1JudgmentsPerHour: 12,
     ceiling: everything,
     home: false,
     memoryWritePolicy: "deny",
