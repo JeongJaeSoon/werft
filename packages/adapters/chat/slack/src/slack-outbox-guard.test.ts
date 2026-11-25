@@ -75,6 +75,9 @@ describe("dropOutOfScopeSlackRefs", () => {
     // In a link's fragment, on any site.
     [`see https://example.com/#${ELSEWHERE}`, "see "],
     [`see ${here}#${ELSEWHERE}`, "see "],
+    // Set off by underscores (italics), or past a malformed escape.
+    [`see _${ELSEWHERE}_`, "see __"],
+    [`see ${here}?x=%ZZ#%4308AWAY222`, "see "],
     // An id in brackets of its own.
     [`see <${ELSEWHERE}>`, "see "],
     // Another site's link that carries the id.

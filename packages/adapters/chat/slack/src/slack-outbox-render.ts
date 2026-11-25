@@ -282,12 +282,18 @@ function parsedUrl(raw: string): URL | null {
   return null;
 }
 
+// Each well-formed %XX, as often as it was encoded; a malformed one stays
+// as written and keeps none of the others from decoding.
 function decoded(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
+  let text = value;
+  for (let pass = 0; pass < 5; pass += 1) {
+    const next = text.replace(/%([0-9A-Fa-f]{2})/g, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+    if (next === text) break;
+    text = next;
   }
+  return text;
 }
 
 /**
@@ -319,7 +325,7 @@ function slackUrlRefs(raw: string): { channels: string[]; teams: string[] } {
 // A Markdown link, a Slack control, a URL (any scheme, or a Slack host Slack
 // links without one), or a bare channel id.
 const SLACK_REFERENCE =
-  /\[([^\]\n]*)\]\(\s*<?([^()\s<>]+)>?\s*\)|<([^<>\n]+)>|((?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|\b(?:[A-Za-z0-9-]+\.)*slack\.com\/)[^\s<>()[\]|"'`]*)|\b([CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11})\b/gi;
+  /\[([^\]\n]*)\]\(\s*<?([^()\s<>]+)>?\s*\)|<([^<>\n]+)>|((?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|\b(?:[A-Za-z0-9-]+\.)*slack\.com\/)[^\s<>()[\]|"'`]*)|(?<![A-Za-z0-9])([CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11})(?![A-Za-z0-9])/gi;
 
 /**
  * The text without the Slack links and channel ids outside its scope (A3),
