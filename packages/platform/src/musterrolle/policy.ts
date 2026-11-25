@@ -608,6 +608,22 @@ const SLACK_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
 
 type Judgement = [AuthorizationReason, SessionScope[], redact?: true];
 
+// Web and api add no ceiling of their own. On Slack the person acts through
+// the installation and the channel: the smallest of the three.
+function slackCeilingScopes(
+  subject: AuthorizationSubject,
+  surface: AuthorizationSurface,
+  scopes: readonly SessionScope[],
+): SessionScope[] {
+  const installation = new Set<SessionScope>(
+    subject.principal?.kind === "installation" ? subject.principal.scopes : [],
+  );
+  const channel = new Set(
+    (surface.ceiling?.actions ?? []).map((allowed) => ACTION_SCOPES[allowed]),
+  );
+  return scopes.filter((held) => installation.has(held) && channel.has(held));
+}
+
 export function createAuthorizationPolicy(
   deps: {
     identity?: IdentityReader;
@@ -767,13 +783,15 @@ export function createAuthorizationPolicy(
   // membership, and hides whatever cannot be confirmed. Post: view, and on a
   // channel a live link (the post goes out under the person), not archived,
   // listening not off; a web DM needs none of those. Spawn: post, and the
-  // start a session on that agent would need.
+  // start a session on that agent would need. On Slack a spawn is the
+  // linked person's, from the very place the event came from.
   async function conversationReason(
     action: AuthorizationAction,
     reading: Extract<IdentityReading, { status: "ok" }>,
     workspaceId: string,
     resourceId: string | null,
     justified: boolean,
+    surface: AuthorizationSurface,
   ): Promise<AuthorizationReason> {
     const { principal } = reading;
     // Decision 44: no key reaches a conversation, audit reads included.
@@ -791,6 +809,13 @@ export function createAuthorizationPolicy(
     const place = await conversations.placeOf(workspaceId, id.data);
     if (place === null) return "not_found";
     const agentId = place.agentId.toLowerCase();
+    if (surface.kind === "slack") {
+      // One agent's app never reaches another agent's conversations.
+      if (agentId !== surface.agent_id?.toLowerCase()) return "agent_ceiling";
+      // An installation speaks for the channel its event came from alone.
+      const channelId = place.kind === "channel" ? place.channelId : undefined;
+      if (surface.channel_id !== channelId) return "error";
+    }
     const self = (userId: string) =>
       userId.toLowerCase() === principal.id.toLowerCase();
     if (place.kind === "dm") {
@@ -979,8 +1004,21 @@ export function createAuthorizationPolicy(
       principal.kind === "user" && WORKSPACE_MANAGERS.includes(principal.role);
     const justified = (subject.justification?.trim() ?? "") !== "";
     if (resource.kind === "conversation") {
-      // a0 judges conversations on the web and the API only (v1-b opens Slack).
-      if (surface.kind === "slack") return ["surface_ceiling", []];
+      let scopes = authorityScopes(reading);
+      if (surface.kind === "slack") {
+        // Slack opens a start alone: seeing and posting stay the web's and
+        // the API's. A start passes the ceiling a session start does.
+        const start = scopeOf("session.submit");
+        scopes = slackCeilingScopes(subject, surface, scopes);
+        if (
+          action !== "task.spawn" ||
+          start === undefined ||
+          !scopes.includes(start) ||
+          !surface.ceiling?.actions.includes("session.submit")
+        ) {
+          return ["surface_ceiling", scopes];
+        }
+      }
       if (subject.agent !== undefined) return ["agent_ceiling", []];
       const reason = await conversationReason(
         action,
@@ -988,8 +1026,9 @@ export function createAuthorizationPolicy(
         resource.owner_scope,
         resource.id,
         justified,
+        surface,
       );
-      return [reason, reason === "error" ? [] : authorityScopes(reading)];
+      return [reason, reason === "error" ? [] : scopes];
     }
     // Step 2 goes on to the share: a session outside it does not exist for
     // this subject, save for what a manager does with a reason.
@@ -1103,23 +1142,9 @@ export function createAuthorizationPolicy(
       // else, a list across agents included.
       return ["agent_ceiling", scopes];
     }
-    // Web and api add no ceiling of their own. On Slack the person acts
-    // through the installation and the channel: the smallest of the three.
     let redact = false;
     if (surface.kind === "slack") {
-      const installation = new Set<SessionScope>(
-        subject.principal.kind === "installation"
-          ? subject.principal.scopes
-          : [],
-      );
-      const channel = new Set(
-        (surface.ceiling?.actions ?? []).map(
-          (allowed) => ACTION_SCOPES[allowed],
-        ),
-      );
-      scopes = scopes.filter(
-        (held) => installation.has(held) && channel.has(held),
-      );
+      scopes = slackCeilingScopes(subject, surface, scopes);
       if (
         !SLACK_ACTIONS.has(action) ||
         scope === undefined ||
