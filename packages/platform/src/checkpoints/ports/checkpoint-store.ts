@@ -74,4 +74,42 @@ export interface CheckpointStore {
    * tell that the set did not fit.
    */
   listPinnedCommits(sessionId: string, limit: number): Promise<string[]>;
+  /**
+   * The workspace bundle verifications that passed and were recorded for
+   * these revisions, as `recordBundleVerdict` keyed them. A store offers
+   * all three verdict methods or none; without them nothing is remembered.
+   */
+  listBundleVerdicts?(
+    sessionId: string,
+    revisions: readonly number[],
+  ): Promise<Array<{ key: string; revision: number }>>;
+  /**
+   * The state of the checkpoint rows a pass on `revision` will depend on —
+   * its own and those of `prerequisiteRevisions`, the checkpoints whose
+   * bundles it builds on — read before the bundles are. Opaque: it is handed
+   * back to `recordBundleVerdict`, which keeps the pass only if no row was
+   * deleted, collected or re-pinned since, a change undone again included.
+   */
+  bundleVerdictBasis?(input: {
+    prerequisiteRevisions: readonly number[];
+    revision: number;
+    sessionId: string;
+  }): Promise<string>;
+  /**
+   * Remembers that the bundles of one committed checkpoint verified, under
+   * `key` (`bundleVerdictKey`). Passes only: a failure is never recorded.
+   * Kept only if the rows are as `basis` found them, every prerequisite has
+   * a row, and the checkpoint's own is still the one judged — the same
+   * manifest digest, not collected. Gone again when it or any prerequisite
+   * is deleted, collected or re-pinned. Only the control plane calls it,
+   * after verifying; nothing a worker sends is a key or reaches this.
+   */
+  recordBundleVerdict?(input: {
+    basis: string;
+    key: string;
+    manifestSha256: string;
+    prerequisiteRevisions: readonly number[];
+    revision: number;
+    sessionId: string;
+  }): Promise<void>;
 }

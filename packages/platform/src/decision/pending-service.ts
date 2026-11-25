@@ -8,6 +8,7 @@ import {
   type AuthorizationPolicy,
   type Caller,
   deciderKeyOf,
+  refusedUnlessUndecided,
   requireAllowed,
   requirePermitted,
   SessionServiceError,
@@ -64,7 +65,7 @@ export function createPendingRequestService(deps: {
           )
           .then(
             (answer) => answer.outcome === "allow",
-            () => false,
+            (error: unknown) => refusedUnlessUndecided(error) ?? false,
           );
       const answerable = await mayAnswer();
       // Judged per request as its answer and its Slack card are: a private

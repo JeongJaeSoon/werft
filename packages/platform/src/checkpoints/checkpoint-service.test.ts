@@ -34,6 +34,7 @@ import {
 } from "../testing/checkpoints.ts";
 import { MAX_COOLING_BUNDLES } from "./bundle-throttle.ts";
 import {
+  bundleVerdictKey,
   createCheckpointService,
   manifestRefFor,
   sessionObjectPrefix,
@@ -935,6 +936,359 @@ describe("protectedCommits", () => {
       await expect(
         counting.protectedCommits({ sessionId, pointer }),
       ).rejects.toThrow("protected commits would be incomplete");
+    });
+
+    describe("a bundle pass remembered between calls", () => {
+      type Recorded = Parameters<
+        NonNullable<CheckpointStore["recordBundleVerdict"]>
+      >[0];
+
+      /** The store's side: one key per revision, and every record made. */
+      function memory() {
+        const verdicts = new Map<number, string>();
+        const recorded: Recorded[] = [];
+        let withdrawals = 0;
+        const store: CheckpointStore = {
+          ...checkpoints.store,
+          async listBundleVerdicts(_sessionId, revisions) {
+            return revisions.flatMap((revision) => {
+              const key = verdicts.get(revision);
+              return key === undefined ? [] : [{ key, revision }];
+            });
+          },
+          // The rows' state is one number here: `withdraw` is any delete,
+          // collection or re-pin.
+          async bundleVerdictBasis() {
+            return String(withdrawals);
+          },
+          async recordBundleVerdict(input) {
+            if (input.basis !== String(withdrawals)) return;
+            recorded.push(input);
+            verdicts.set(input.revision, input.key);
+          },
+        };
+        const withdraw = () => {
+          withdrawals += 1;
+        };
+        return { recorded, store, verdicts, withdraw };
+      }
+
+      function remembering(
+        options: {
+          kept?: ReturnType<typeof memory>;
+          over?: typeof objects;
+          verify?: WorkspaceBundleVerifier["verify"];
+          version?: string;
+        } = {},
+      ) {
+        const calls = { head: 0, stream: 0, verify: 0 };
+        const counted = new Proxy(options.over ?? objects, {
+          get(target, property) {
+            const value = Reflect.get(target, property, target);
+            if (typeof value !== "function") return value;
+            return (...args: unknown[]) => {
+              if (property in calls) calls[property as keyof typeof calls] += 1;
+              return value.apply(target, args);
+            };
+          },
+        });
+        const kept = options.kept ?? memory();
+        const on = createCheckpointService({
+          codecs: { [runtime.engine]: codec },
+          objectProtection: "unversioned",
+          newPublishId: () => PUBLISH_ID,
+          objects: counted,
+          store: kept.store,
+          workspaceBundles: {
+            version: async () => options.version ?? "verifier-1",
+            async verify(input) {
+              calls.verify += 1;
+              return options.verify?.(input) ?? { status: "restorable" };
+            },
+          },
+        });
+        const reset = () => {
+          calls.head = 0;
+          calls.stream = 0;
+          calls.verify = 0;
+        };
+        const protect = () =>
+          on.protectedCommits({ sessionId, pointer: checkpoints.pointer() });
+        return { calls, kept, on, protect, reset };
+      }
+
+      /** A store that keeps a checksum of what it holds, as S3 can. */
+      const withChecksums = () =>
+        new Proxy(objects, {
+          get(target, property) {
+            const value = Reflect.get(target, property, target);
+            if (property !== "head" || typeof value !== "function") {
+              return value;
+            }
+            return async (key: string, version?: string) => {
+              const head = await value.call(target, key, version);
+              const bytes = await target.get(key, version);
+              return head === undefined || bytes === undefined
+                ? head
+                : { ...head, sha256: sha256(new TextDecoder().decode(bytes)) };
+            };
+          },
+        });
+
+      /** Other bytes of the same length, as an overwrite in place leaves. */
+      const tamper = (n: number) =>
+        objects.overwrite(
+          bundleOf(n).ref.key,
+          encode(bundleOf(n).body.replace("bundle", "BUNDLE")),
+        );
+
+      test("git is asked once for each checkpoint, then not again while nothing changed; each bundle is still read and hashed", async () => {
+        const { calls, kept, on, protect, reset } = remembering();
+        await commitHistory(on, 6);
+        // Finalize verified every one of them and remembers none.
+        expect(kept.recorded).toEqual([]);
+        reset();
+        const commits = await protect();
+        expect(calls.verify).toBe(6);
+        // Each pass names the checkpoints whose bundles it builds on.
+        expect(
+          kept.recorded
+            .map((pass) => [pass.revision, pass.prerequisiteRevisions])
+            .sort(([left], [right]) => Number(left) - Number(right)),
+        ).toEqual([
+          [0, []],
+          [1, [0]],
+          [2, [0, 1]],
+          [3, [0, 1, 2]],
+          [4, [0, 1, 2, 3]],
+          [5, [0, 1, 2, 3, 4]],
+        ]);
+        for (const pass of kept.recorded) {
+          expect(checkpoints.history[pass.revision]?.manifestSha256).toBe(
+            pass.manifestSha256,
+          );
+        }
+        reset();
+        expect(await protect()).toEqual(commits);
+        // This store keeps no checksum, so every link is read again, once:
+        // the same reads as the first call, without git.
+        expect(calls).toEqual({ head: 19, stream: 13, verify: 0 });
+      });
+
+      test("a store that keeps a checksum answers for an unchanged bundle from the HEAD: it is not read again", async () => {
+        const { calls, on, protect, reset } = remembering({
+          over: withChecksums(),
+        });
+        await commitHistory(on, 6);
+        await protect();
+        reset();
+        await protect();
+        // Six parts and the untracked file; no bundle link.
+        expect(calls).toEqual({ head: 19, stream: 7, verify: 0 });
+
+        await tamper(1);
+        reset();
+        await expect(protect()).rejects.toThrow(
+          `revision 5 does not verify (workspace bundle ${bundleOf(1).ref.key} hashes to`,
+        );
+        expect(calls.stream).toBe(7);
+      });
+
+      test("a bundle that no longer hashes to what passed is damage, whatever is remembered of it", async () => {
+        const { calls, protect, on, reset } = remembering();
+        await commitHistory(on, 4);
+        await protect();
+        // Revision 1's own bundle, which revisions 2 and 3 build on.
+        await tamper(1);
+        reset();
+        await expect(protect()).rejects.toThrow(
+          `workspace bundle ${bundleOf(1).ref.key} hashes to`,
+        );
+        expect(calls.verify).toBe(0);
+      });
+
+      test("a pass made by another verifier version is not reused", async () => {
+        const kept = memory();
+        const first = remembering({ kept });
+        await commitHistory(first.on, 4);
+        await first.protect();
+        const next = remembering({ kept, version: "verifier-2" });
+        await next.protect();
+        expect(next.calls.verify).toBe(4);
+        next.reset();
+        await next.protect();
+        expect(next.calls.verify).toBe(0);
+        // And the first version's are gone: one key per checkpoint.
+        first.reset();
+        await first.protect();
+        expect(first.calls.verify).toBe(4);
+      });
+
+      test("a remembered key that is not this checkpoint's verification is not a pass", async () => {
+        const { calls, kept, on, protect, reset } = remembering();
+        await commitHistory(on, 4);
+        await protect();
+        const real = kept.verdicts.get(2);
+        kept.verdicts.set(2, "0".repeat(64));
+        reset();
+        await protect();
+        expect(calls.verify).toBe(1);
+        expect(real).toMatch(/^[0-9a-f]{64}$/);
+        expect(kept.verdicts.get(2)).toBe(real as string);
+      });
+
+      test("the key changes with the verifier version, any bundle of the chain, their order, the commit and the sources", () => {
+        const base = workspace({
+          baseBundles: [bundleOf(0).ref, bundleOf(1).ref],
+          bundle: bundleOf(2).ref,
+          sources: [{ commit: "a".repeat(40), name: "main" }],
+        });
+        const key = bundleVerdictKey("verifier-1", base);
+        expect(key).toMatch(/^[0-9a-f]{64}$/);
+        expect(bundleVerdictKey("verifier-1", { ...base })).toBe(key);
+        const others = [
+          bundleVerdictKey("verifier-2", base),
+          bundleVerdictKey("verifier-1", {
+            ...base,
+            bundle: { ...bundleOf(2).ref, sha256: "0".repeat(64) },
+          }),
+          bundleVerdictKey("verifier-1", {
+            ...base,
+            baseBundles: [
+              bundleOf(0).ref,
+              { ...bundleOf(1).ref, sha256: "0".repeat(64) },
+            ],
+          }),
+          bundleVerdictKey("verifier-1", {
+            ...base,
+            baseBundles: [bundleOf(1).ref, bundleOf(0).ref],
+          }),
+          bundleVerdictKey("verifier-1", { ...base, baseBundles: [] }),
+          bundleVerdictKey("verifier-1", {
+            ...base,
+            gitCommit: "b".repeat(40),
+          }),
+          bundleVerdictKey("verifier-1", {
+            ...base,
+            sources: [{ commit: "c".repeat(40), name: "main" }],
+          }),
+          bundleVerdictKey("verifier-1", { ...base, sources: [] }),
+        ];
+        expect(new Set([key, ...others]).size).toBe(others.length + 1);
+        // Where a bundle is stored is not what was verified.
+        expect(
+          bundleVerdictKey("verifier-1", {
+            ...base,
+            bundle: { ...bundleOf(2).ref, key: "elsewhere" },
+          }),
+        ).toBe(key);
+      });
+
+      test("a verification that fails is never remembered: it is made again every call", async () => {
+        const failing = bundleOf(2).ref.key;
+        const { calls, kept, protect, reset } = remembering({
+          verify: async (input) =>
+            input.key === failing
+              ? { reason: "git refused the pack", status: "unusable" }
+              : { status: "restorable" },
+        });
+        // Committed by a verifier that passed it, as a rule added since would
+        // find it.
+        await commitHistory(remembering({ kept: memory() }).on, 4);
+        await expect(protect()).rejects.toThrow("git refused the pack");
+        expect(kept.recorded.map((pass) => pass.revision).sort()).toEqual([
+          0, 1, 3,
+        ]);
+        reset();
+        await expect(protect()).rejects.toThrow("git refused the pack");
+        expect(calls.verify).toBe(1);
+        expect(kept.verdicts.has(2)).toBe(false);
+      });
+
+      test("a pass is not remembered when a checkpoint it stands on was withdrawn while it was being verified", async () => {
+        const kept = memory();
+        const { calls, protect, reset } = remembering({
+          kept,
+          // A collection, re-pin or delete lands while git runs.
+          verify: async () => {
+            kept.withdraw();
+            return { status: "restorable" };
+          },
+        });
+        await commitHistory(remembering({ kept: memory() }).on, 3);
+        await protect();
+        expect(calls.verify).toBe(3);
+        expect(kept.recorded).toEqual([]);
+        reset();
+        await protect();
+        expect(calls.verify).toBe(3);
+      });
+
+      test("a verification that throws is not remembered either", async () => {
+        const failing = bundleOf(1).ref.key;
+        const { kept, protect } = remembering({
+          verify: async (input) => {
+            if (input.key === failing) throw new Error("no temp space");
+            return { status: "restorable" };
+          },
+        });
+        await commitHistory(remembering({ kept: memory() }).on, 2);
+        await expect(protect()).rejects.toThrow("no temp space");
+        expect(kept.verdicts.has(1)).toBe(false);
+      });
+
+      test("what a worker wrote records nothing: a manifest naming a digest the stored bundle does not have gets no verdict", async () => {
+        const { kept, protect } = remembering();
+        const { checkpoint } = await upload(
+          manifest({
+            revision: 0,
+            workspace: workspace({
+              bundle: { ...bundleOf(0).ref, sha256: "0".repeat(64) },
+            }),
+          }),
+        );
+        await objects.overwrite(bundleOf(0).ref.key, encode(bundleOf(0).body));
+        // Around finalize, which would refuse it: only the remembering is
+        // under test.
+        await checkpoints.commit({
+          checkpoint,
+          fence: fence(),
+          now: new Date(),
+          turnId: "1",
+        } as CommitCheckpointInput);
+        await expect(protect()).rejects.toThrow("hashes to");
+        expect(kept.recorded).toEqual([]);
+      });
+
+      test("a chain built on a bundle outside any checkpoint directory is verified every call: no checkpoint's removal would withdraw its pass", async () => {
+        const { calls, kept, protect, reset } = remembering();
+        const stray = {
+          ...bundleOf(0).ref,
+          key: `${sessionObjectPrefix(sessionId)}workspace/base.bundle`,
+        };
+        await objects.overwrite(stray.key, encode(bundleOf(0).body));
+        await objects.overwrite(bundleOf(0).ref.key, encode(bundleOf(0).body));
+        const { checkpoint } = await upload(
+          manifest({
+            revision: 0,
+            workspace: workspace({
+              baseBundles: [stray],
+              bundle: bundleOf(0).ref,
+            }),
+          }),
+        );
+        await checkpoints.commit({
+          checkpoint,
+          fence: fence(),
+          now: new Date(),
+          turnId: "1",
+        } as CommitCheckpointInput);
+        await protect();
+        reset();
+        await protect();
+        expect(calls.verify).toBe(1);
+        expect(kept.recorded).toEqual([]);
+      });
     });
   });
 

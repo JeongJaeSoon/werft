@@ -32,6 +32,7 @@ import type { ChannelMemberCheckable } from "../surface/ports/channel-member-che
 import type { UsageDecision } from "./agent-usage-decision.ts";
 import type { ConversationAccess } from "./ports/conversation-access.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
+import { AuthorizationUndecidedError } from "./service-errors.ts";
 
 export type RecordedActor = {
   principal: PrincipalRef;
@@ -313,6 +314,8 @@ export async function requesterLeft(
   deps: {
     sessions: SessionAccess;
     channelMembers?: ChannelMemberCheckable | undefined;
+    /** A store failure it rethrows, for authorize() to answer undecided. */
+    storageUnavailable?: ((error: unknown) => boolean) | undefined;
     logger?:
       | {
           warn(
@@ -384,6 +387,7 @@ export async function requesterLeft(
     }
     return answers.every((answer) => answer === "not_member");
   } catch (error) {
+    if (deps.storageUnavailable?.(error)) throw error;
     deps.logger?.warn(unconfirmed.message, {
       ...unconfirmed.fields,
       error_name: error instanceof Error ? error.name : typeof error,
@@ -645,6 +649,12 @@ export function createAuthorizationPolicy(
     conversations?: ConversationAccess;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
+    /**
+     * Which failures mean the store could not be read. authorize() throws
+     * AuthorizationUndecidedError for those instead of refusing; without
+     * it every failure is a refusal.
+     */
+    storageUnavailable?: (error: unknown) => boolean;
     /** Hears the failures that end in a refusal instead of an error. */
     logger?: {
       warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -922,6 +932,7 @@ export function createAuthorizationPolicy(
             })))
         );
       } catch (error) {
+        if (deps.storageUnavailable?.(error)) throw error;
         deps.logger?.warn("Private channel access unconfirmed; hidden", {
           error_name: errorName(error),
         });
@@ -1205,6 +1216,7 @@ export function createAuthorizationPolicy(
           {
             sessions,
             channelMembers: deps.channelMembers,
+            storageUnavailable: deps.storageUnavailable,
             logger: deps.logger,
           },
           {
@@ -1284,22 +1296,29 @@ export function createAuthorizationPolicy(
   return {
     async privateChannelsOf(subject, ownerScope) {
       if (subject.principal === null || !sessions.privateChannels) return [];
-      const reading = await identity.reread({
-        ...subject,
-        principal: subject.principal,
-      });
-      if (
-        reading.status !== "ok" ||
-        ownerScope !== ownerScopeOf(reading.principal)
-      ) {
-        return [];
+      try {
+        const reading = await identity.reread({
+          ...subject,
+          principal: subject.principal,
+        });
+        if (
+          reading.status !== "ok" ||
+          ownerScope !== ownerScopeOf(reading.principal)
+        ) {
+          return [];
+        }
+        return await privateChannelsFor(
+          reading,
+          subject.surface,
+          ownerScope,
+          await sessions.privateChannels(ownerScope, null),
+        );
+      } catch (error) {
+        if (deps.storageUnavailable?.(error)) {
+          throw new AuthorizationUndecidedError(error);
+        }
+        throw error;
       }
-      return privateChannelsFor(
-        reading,
-        subject.surface,
-        ownerScope,
-        await sessions.privateChannels(ownerScope, null),
-      );
     },
 
     async usageOfRelease(subject, ownerScope, releaseId) {
@@ -1338,6 +1357,13 @@ export function createAuthorizationPolicy(
       try {
         [reason, effective_scopes, redact, left] = await decide(request);
       } catch (error) {
+        if (deps.storageUnavailable?.(error)) {
+          deps.logger?.warn("Authorization undecided: storage unavailable", {
+            action: request.action,
+            error_name: errorName(error),
+          });
+          throw new AuthorizationUndecidedError(error);
+        }
         deps.logger?.warn("Authorization could not decide; refusing", {
           action: request.action,
           error_name: errorName(error),
@@ -1389,6 +1415,10 @@ export function createAuthorizationPolicy(
           outcome: decision.outcome,
           error_name: errorName(error),
         });
+        // A refusal stands unrecorded; what it would have granted is undecided.
+        if (decision.outcome !== "deny" && deps.storageUnavailable?.(error)) {
+          throw new AuthorizationUndecidedError(error);
+        }
         return refusedUnrecorded(decision);
       }
     },

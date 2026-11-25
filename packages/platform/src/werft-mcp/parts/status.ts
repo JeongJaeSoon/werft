@@ -1,6 +1,9 @@
 import type { AuthorizationSubject } from "@werft-ai/contracts";
 import { z } from "zod";
-import type { AuthorizationPolicy } from "../../musterrolle/index.ts";
+import {
+  type AuthorizationPolicy,
+  AuthorizationUndecidedError,
+} from "../../musterrolle/index.ts";
 import {
   type WerftMcpCall,
   type WerftMcpPart,
@@ -131,7 +134,8 @@ function subjectOf(
  * What the requester may see beyond the states and menus (decision 26):
  * repository and channel names when they are inside the agent, as its
  * settings screen asks, and a private channel only while they are its
- * member. Whatever cannot be confirmed is hidden.
+ * member. Whatever cannot be confirmed is hidden, save a store that could
+ * not be read: the call fails, to be tried again.
  */
 async function visibleTo(
   authorization: AuthorizationPolicy,
@@ -157,7 +161,8 @@ async function visibleTo(
       { record: false },
     );
     if (decision.outcome !== "allow") return none;
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthorizationUndecidedError) throw error;
     return none;
   }
   const askPrivate = facts.slack.channels.some((channel) => channel.private);
@@ -168,7 +173,8 @@ async function visibleTo(
         subject,
         facts.workspaceId,
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof AuthorizationUndecidedError) throw error;
       privateChannels = [];
     }
   }

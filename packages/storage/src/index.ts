@@ -32,6 +32,7 @@ export {
   createGitWorkspaceBundleVerifier,
   DEFAULT_GIT_VERIFY_TIMEOUT_MS,
   DEFAULT_MAX_GIT_MEMORY_BYTES,
+  GIT_BUNDLE_VERIFIER_RULES,
   gitRefNameAcceptable,
   gitVerifyTimeoutMs,
 } from "./git-workspace-bundle-verifier.ts";

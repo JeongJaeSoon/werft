@@ -400,6 +400,59 @@ type SharedBundle =
   | { problem: Problem }
   | { error: unknown };
 
+/**
+ * `protectedCommits` only: what the store remembers of one checkpoint's
+ * bundle verification, and how to remember a new pass.
+ */
+type RememberedVerdict = {
+  /** The key recorded for the checkpoint's revision, when one is. */
+  key: string | undefined;
+  /**
+   * Before the bundles are read to be verified: the state of the checkpoint
+   * rows the pass will depend on. Undefined when the pass could be tied to
+   * no checkpoint and so is not to be recorded.
+   */
+  begin(
+    workspace: CheckpointManifest["workspace"],
+  ): Promise<{ basis: string; prerequisiteRevisions: number[] } | undefined>;
+  record(
+    key: string,
+    begun: { basis: string; prerequisiteRevisions: number[] },
+  ): Promise<void>;
+  /** The verifier's version, which every key names. */
+  version: string;
+};
+
+/**
+ * Names one passing bundle verification by everything it depended on: the
+ * verifier's version, the digest of every bundle in the chain in order (the
+ * earlier checkpoints' bundles this one builds on, then its own), and the
+ * commit and source branches asked of them. Change any one and it is another
+ * verification.
+ *
+ * The digests are the ones the manifest names, and a manifest is the
+ * worker's. They stand for the stored bytes only because the control plane
+ * holds the bytes to them on both sides: a pass is recorded after it read
+ * every link and hashed it to its digest, and reused only after the store's
+ * own checksum, or another read, says each link still is (`unchanged`).
+ */
+export function bundleVerdictKey(
+  verifierVersion: string,
+  workspace: CheckpointManifest["workspace"],
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        1,
+        verifierVersion,
+        chainOf(workspace).map((link) => link.sha256),
+        workspace.gitCommit,
+        (workspace.sources ?? []).map((source) => [source.name, source.commit]),
+      ]),
+    )
+    .digest("hex");
+}
+
 type VerifiedRefs = {
   objects: ReadonlySet<string>;
   untracked: ReadonlySet<string>;
@@ -503,6 +556,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     held?: boolean;
     /** `protectedCommits` only: reads shared with the other revisions it judges. */
     shared?: SharedReads;
+    /** `protectedCommits` only: the checkpoint's remembered bundle pass. */
+    remembered?: RememberedVerdict;
   }): Promise<Judgement> {
     const { checkpoint, sessionId } = input;
     const version = pinnedVersion(checkpoint.manifest_version);
@@ -572,6 +627,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       input.confined === true,
       input.held === true,
       input.shared,
+      input.remembered,
     );
     if (bad !== undefined) {
       if (bad.damaged) return damaged(bad.reason);
@@ -630,6 +686,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     confined = false,
     held = false,
     shared?: SharedReads,
+    remembered?: RememberedVerdict,
   ): Promise<Problem | undefined> {
     const transcriptRefs = [
       ...manifest.transcripts.root.parts,
@@ -803,6 +860,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         manifestRef,
         pinned,
         shared,
+        remembered,
       ))
     );
   }
@@ -825,15 +883,32 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    * revision even when the bytes do not. So are the bundles it builds on
    * the chain as a whole is held to one bundle's size, so
    * verifying it costs no more than verifying a bundle that stands alone.
+   *
+   * `protectedCommits` asks the same question of the same checkpoints every
+   * turn, so there a pass is remembered (`remembered`): git is not asked
+   * again while the verifier, the commit and every bundle of the chain are
+   * what they were. The bundles are still checked each time, and everything
+   * else about the checkpoint is judged as before. A failure is never
+   * remembered.
    */
   async function badWorkspaceBundle(
     workspace: CheckpointManifest["workspace"],
     manifestRef: string,
     pinned?: PinnedVersions,
     shared?: SharedReads,
+    remembered?: RememberedVerdict,
   ): Promise<Problem | undefined> {
+    const key =
+      remembered === undefined
+        ? undefined
+        : bundleVerdictKey(remembered.version, workspace);
+    const passed = remembered !== undefined && remembered.key === key;
+    // Before a bundle is asked about: a pass is kept only if the checkpoints
+    // it stands on are, when it is recorded, as they were when it began.
+    const begun = passed ? undefined : await remembered?.begin(workspace);
     const present = await bundlePresent(workspace, manifestRef, shared);
     if ("reason" in present) return present;
+    if (passed) return unchanged(workspace, present.heads, shared);
     // After the HEAD, so a bundle gone since is still damage a restore can
     // fall back from; before the gate and the download, which a bundle
     // cooling down costs nothing of. Again once a slot is free, since the
@@ -845,10 +920,140 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     coolingDown();
     // Everything that needs the object itself runs under the gate; the
     // cheap refusals above it must not queue behind a gigabyte being hashed.
-    return bundleGate(() => {
+    const problem = await bundleGate(() => {
       coolingDown();
       return readAndVerifyBundle(workspace, present.heads, pinned, shared);
     });
+    // Only here: git passed, on bundles this process read and hashed.
+    if (problem === undefined && key !== undefined && begun !== undefined) {
+      await remembered?.record(key, begun);
+    }
+    return problem;
+  }
+
+  /**
+   * Whether every bundle of a chain with a remembered pass is still the
+   * bytes that passed, which is all that pass was about. The store's own
+   * checksum answers when it keeps one (`ObjectHead.sha256`); a link without
+   * one is read and hashed again. Neither starts git or spools a file, so
+   * this runs outside the verification gate. What differs is damage, as it
+   * is when found by a full verification, and is not read again to pass.
+   */
+  async function unchanged(
+    workspace: CheckpointManifest["workspace"],
+    heads: readonly ObjectHead[],
+    shared?: SharedReads,
+  ): Promise<Problem | undefined> {
+    const chain = chainOf(workspace);
+    const problems = await inBatches(
+      chain.map((link, index) => ({ link, stored: heads[index]?.sha256 })),
+      32,
+      async ({ link, stored }) => {
+        let digest = stored;
+        if (digest === undefined) {
+          const body = await (shared?.digest(
+            link.key,
+            link.version,
+            link.bytes,
+          ) ?? digestObject(objects, link.key, link.version, link.bytes));
+          if (body === undefined) {
+            return broken(
+              `manifest references a missing workspace bundle: ${link.key}${versionSuffix(link.version)}`,
+            );
+          }
+          if (body.status === "over") {
+            return broken(
+              `workspace bundle ${link.key} delivered more than the ${link.bytes} bytes it was stored with`,
+            );
+          }
+          digest = body.sha256;
+        }
+        return digest === link.sha256
+          ? undefined
+          : broken(
+              `workspace bundle ${link.key} hashes to ${digest}, not ${link.sha256}`,
+            );
+      },
+    );
+    return problems.find((problem) => problem !== undefined);
+  }
+
+  /**
+   * What `protectedCommits` remembers of these checkpoints' bundle
+   * verifications, or undefined when the store or the verifier cannot
+   * remember: then every bundle is verified in full, as before.
+   */
+  async function rememberedVerdicts(
+    sessionId: string,
+    checkpoints: readonly CheckpointPointer[],
+  ): Promise<
+    ((checkpoint: CheckpointPointer) => RememberedVerdict) | undefined
+  > {
+    const { bundleVerdictBasis, recordBundleVerdict } = store;
+    if (
+      store.listBundleVerdicts === undefined ||
+      bundleVerdictBasis === undefined ||
+      recordBundleVerdict === undefined ||
+      bundles.version === undefined
+    ) {
+      return undefined;
+    }
+    const version = await bundles.version();
+    const keys = new Map(
+      (
+        await store.listBundleVerdicts(
+          sessionId,
+          checkpoints.map((checkpoint) => checkpoint.revision),
+        )
+      ).map((verdict) => [verdict.revision, verdict.key]),
+    );
+    return (checkpoint) => ({
+      key: keys.get(checkpoint.revision),
+      async begin(workspace) {
+        // A base stored outside a checkpoint directory ties the pass to no
+        // checkpoint whose removal would withdraw it, so it is not kept.
+        const prerequisiteRevisions = prerequisitesOf(sessionId, workspace);
+        if (prerequisiteRevisions === undefined) return undefined;
+        const basis = await bundleVerdictBasis.call(store, {
+          prerequisiteRevisions,
+          revision: checkpoint.revision,
+          sessionId,
+        });
+        return { basis, prerequisiteRevisions };
+      },
+      async record(key, { basis, prerequisiteRevisions }) {
+        await recordBundleVerdict.call(store, {
+          basis,
+          key,
+          manifestSha256: checkpoint.manifestSha256,
+          prerequisiteRevisions,
+          revision: checkpoint.revision,
+          sessionId,
+        });
+      },
+      version,
+    });
+  }
+
+  /**
+   * The revisions whose publish directories hold the bundles a chain builds
+   * on (`manifestRefFor`'s layout), or undefined when one is stored anywhere
+   * else.
+   */
+  function prerequisitesOf(
+    sessionId: string,
+    workspace: CheckpointManifest["workspace"],
+  ): number[] | undefined {
+    const directories = `${sessionObjectPrefix(sessionId)}checkpoints/`;
+    const revisions = new Set<number>();
+    for (const link of workspace.baseBundles ?? []) {
+      const match = link.key.startsWith(directories)
+        ? /^(\d{10})\//.exec(link.key.slice(directories.length))
+        : null;
+      if (match === null) return undefined;
+      revisions.add(Number(match[1]));
+    }
+    return [...revisions];
   }
 
   // Where each bundle of the chain is stored, in order, and the commit too:
@@ -1060,8 +1265,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   /**
    * Reads shared by the revisions one `protectedCommits` call judges: a
    * version reads the same within the call, and a long session's checkpoints
-   * name mostly the same transcript parts and bundle links. Nothing outlives
-   * the call; the next one reads and verifies everything again.
+   * name mostly the same transcript parts and bundle links. No read outlives
+   * the call: the next one reads everything again, and takes from an earlier
+   * call only git's verdict on bundles it finds unchanged
+   * (`rememberedVerdicts`).
    */
   async function withSharedReads<T>(
     work: (shared: SharedReads) => Promise<T>,
@@ -1709,12 +1916,18 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       });
       const verified = await verifiedRefs(input.sessionId);
       const checkpoints = [input.pointer, ...earlier];
+      const remembered = await rememberedVerdicts(input.sessionId, checkpoints);
       // Each checkpoint judged in full, a few at once, and every object read
-      // once per call however many of them name it.
+      // once per call however many of them name it. Only git's verdict on
+      // bundles that have not changed since it passed is taken from an
+      // earlier call (`badWorkspaceBundle`).
       const judged = await withSharedReads((shared) =>
         inBatches(checkpoints, PROTECTED_JUDGE_CONCURRENCY, (pointer) =>
           judgeManifest({
             checkpoint: checkpointRefOf(pointer),
+            ...(remembered === undefined
+              ? {}
+              : { remembered: remembered(pointer) }),
             sessionId: input.sessionId,
             shared,
             verified,

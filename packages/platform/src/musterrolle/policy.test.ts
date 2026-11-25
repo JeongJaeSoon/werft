@@ -26,9 +26,13 @@ import {
   noAgentAuthority,
   RECORDED_ALLOW_ACTIONS,
   receiptActorOf,
+  requesterLeft,
 } from "./policy.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
-import { SessionServiceError } from "./service-errors.ts";
+import {
+  AuthorizationUndecidedError,
+  SessionServiceError,
+} from "./service-errors.ts";
 
 // Any store call means the refusal came too late.
 const unreachable = new Proxy(
@@ -222,6 +226,32 @@ describe("service entry points without HTTP", () => {
       expect(error).toMatchObject({ code: "FORBIDDEN" });
     });
   }
+
+  test("every entry point passes on a store it could not read as a retryable BACKEND_UNAVAILABLE", async () => {
+    const down = Object.assign(new Error("connection terminated"), {
+      code: "57P01",
+    });
+    const undecided = createAuthorizationPolicy({
+      identity: {
+        reread: async () => {
+          throw down;
+        },
+      },
+      storageUnavailable: (error) => error === down,
+    });
+    for (const [, , call] of entryPoints) {
+      const error = await call(
+        services(undecided),
+        testCaller("owner-a"),
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(AuthorizationUndecidedError);
+      expect(error).toMatchObject({
+        code: "BACKEND_UNAVAILABLE",
+        retry: { afterSeconds: 1 },
+        cause: down,
+      });
+    }
+  });
 
   test("a policy that rejects instead of deciding is a refusal", async () => {
     const rejecting: AuthorizationPolicy = {
@@ -1159,5 +1189,158 @@ describe("access axes", () => {
       await screen.authorize(act, { record: false });
     }
     expect(entries).toEqual([]);
+  });
+});
+
+describe("authorize when its store cannot be read", () => {
+  const down = Object.assign(new Error("connection terminated"), {
+    code: "57P01",
+  });
+  const isDown = (error: unknown) => error === down;
+  const web = callerFor(member, { kind: "web" }, "req-1");
+
+  test("throws undecided instead of refusing, and never answers allow", async () => {
+    const undecided = createAuthorizationPolicy({
+      identity: {
+        reread: async () => {
+          throw down;
+        },
+      },
+      storageUnavailable: isDown,
+    });
+    const error = await undecided.authorize(request(web)).catch((e) => e);
+    expect(error).toBeInstanceOf(AuthorizationUndecidedError);
+    expect(error.cause).toBe(down);
+  });
+
+  test("any other failure is still a refusal with reason error", async () => {
+    const broken = createAuthorizationPolicy({
+      identity: {
+        reread: async () => {
+          throw new Error("invalid input syntax for type uuid");
+        },
+      },
+      storageUnavailable: isDown,
+    });
+    expect(await broken.authorize(request(web))).toMatchObject({
+      outcome: "deny",
+      reason_code: "error",
+    });
+  });
+
+  test("without a classifier a store failure stays a refusal", async () => {
+    const unclassified = createAuthorizationPolicy({
+      identity: {
+        reread: async () => {
+          throw down;
+        },
+      },
+    });
+    expect(await unclassified.authorize(request(web))).toMatchObject({
+      outcome: "deny",
+      reason_code: "error",
+    });
+  });
+
+  test("an allow whose record cannot be written is undecided; a refusal stands unrecorded", async () => {
+    const failingLog: DecisionLog = {
+      record: async () => {
+        throw down;
+      },
+    } as unknown as DecisionLog;
+    const recording = createAuthorizationPolicy({
+      decisions: failingLog,
+      storageUnavailable: isDown,
+    });
+    const allow = await recording
+      .authorize(
+        request(web, {
+          subject: { ...web.subject, justification: "kept on the record" },
+        }),
+      )
+      .catch((e) => e);
+    expect(allow).toBeInstanceOf(AuthorizationUndecidedError);
+    expect(
+      await recording.authorize(
+        request(callerFor(member, { kind: "web" }, "req-2"), {
+          resource: {
+            kind: "session",
+            id: SESSION,
+            owner_scope: WORKSPACE_B,
+          },
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny" });
+  });
+});
+
+describe("callers that turned a failed check into less, when the store cannot be read", () => {
+  const undecided = () => new AuthorizationUndecidedError(new Error("down"));
+  const allowDecision: AuthorizationDecision = {
+    outcome: "allow",
+    reason_code: "ok",
+    effective_scopes: [...SESSION_SCOPE_VALUES],
+    policy_version: "m17",
+    decision_id: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2e",
+  };
+
+  test("the pending list passes on an undecided answer check instead of listing nothing answerable", async () => {
+    const pending = createPendingRequestService({
+      authorization: {
+        authorize: async (_request, options) => {
+          if (options?.record === false) throw undecided();
+          return allowDecision;
+        },
+      },
+      store: { listOpen: async () => [] } as never,
+    });
+    const error = await pending
+      .listPendingRequests(testCaller("owner-a"), id)
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(AuthorizationUndecidedError);
+  });
+
+  test("a start hidden from someone outside the agent passes on undecided before it writes", async () => {
+    const actor = callerFor(member, { kind: "web" }, "req-hidden");
+    const error = await services({
+      usageOfRelease: async () => ({
+        agentId: "019a0000-0000-7000-8000-0000000000aa",
+        usage: { allowed: false } as never,
+        inside: false,
+      }),
+      authorize: async () => {
+        throw undecided();
+      },
+    })
+      .sessions.createSession(actor, {
+        idempotencyKey: "k",
+        body: { agent_release_id: "rel-1", message: "hi" },
+      })
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(AuthorizationUndecidedError);
+  });
+
+  test("a requester-left check rethrows a store failure only when told it is one", async () => {
+    const down = new Error("connection terminated");
+    const sessions = {
+      privateChannels: async () => {
+        throw down;
+      },
+      pendingRequesterOf: async () => null,
+    } as never;
+    const channelMembers = { membership: async () => "member" } as never;
+    const input = {
+      workspaceId: WORKSPACE_A,
+      sessionId: SESSION,
+      pendingRequestId: "req-1",
+    };
+    expect(await requesterLeft({ sessions, channelMembers }, input)).toBe(
+      false,
+    );
+    const error = await requesterLeft(
+      { sessions, channelMembers, storageUnavailable: (e) => e === down },
+      input,
+    ).catch((e) => e);
+    expect(error).toBe(down);
   });
 });

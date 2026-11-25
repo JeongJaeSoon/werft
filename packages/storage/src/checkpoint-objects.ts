@@ -55,6 +55,23 @@ export type CheckpointObjectStoreOptions = {
 };
 
 /**
+ * The SHA-256 S3 keeps for an object written in one PUT that carried or asked
+ * for it, in hex. A multipart upload's is a checksum of part checksums
+ * (`COMPOSITE`, base64 then `-<parts>`), which is not the body's digest.
+ */
+function fullObjectSha256(head: {
+  ChecksumSHA256?: string;
+  ChecksumType?: string;
+}): string | undefined {
+  const { ChecksumSHA256: checksum } = head;
+  if (checksum === undefined || head.ChecksumType === "COMPOSITE") {
+    return undefined;
+  }
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(checksum)) return undefined;
+  return Buffer.from(checksum, "base64").toString("hex");
+}
+
+/**
  * S3-backed checkpoint objects.
  *
  * `putImmutable` is the reason this exists: a worker whose lease has already
@@ -169,21 +186,26 @@ export function createCheckpointObjectStore(
         const response = (await client.send(
           new HeadObjectCommand({
             Bucket: bucket,
+            ChecksumMode: "ENABLED",
             Key: key,
             VersionId: version,
           }),
           METADATA,
         )) as {
+          ChecksumSHA256?: string;
+          ChecksumType?: string;
           ContentLength?: number;
           ObjectLockLegalHoldStatus?: "ON" | "OFF";
           VersionId?: string;
         };
         const found = storedVersion(response.VersionId);
+        const digest = fullObjectSha256(response);
         return {
           bytes: response.ContentLength ?? 0,
           ...(response.ObjectLockLegalHoldStatus === "ON"
             ? { held: true }
             : {}),
+          ...(digest === undefined ? {} : { sha256: digest }),
           ...(found === undefined ? {} : { version: found }),
         };
       } catch (error) {
