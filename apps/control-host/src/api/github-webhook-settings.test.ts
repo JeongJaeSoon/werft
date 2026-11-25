@@ -205,6 +205,47 @@ describe("the GitHub webhook settings service", () => {
     ]);
   });
 
+  test("a slower PATCH of an earlier save does not leave the App on that address", async () => {
+    const memory = memoryStore(null);
+    const sent: string[] = [];
+    let releaseFirst = () => {};
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const service = createGitHubWebhookSettingsAdmin({
+      authorization: createAuthorizationPolicy({
+        agents: { agentOf: async () => null, isAdmin: async () => false },
+        decisions: { record: async () => {} },
+      }),
+      store: memory.store,
+      apps: async () => [app(7, [WORKSPACE])],
+      setHook: async (_target, url) => {
+        if (sent.length === 0) {
+          sent.push(url);
+          await firstHeld;
+        } else {
+          sent.push(url);
+        }
+        return "updated";
+      },
+      warn: () => {},
+    });
+    const first = service.change(caller("owner"), {
+      webhook_public_url: "https://a.example.test",
+    });
+    await Bun.sleep(0);
+    await service.change(caller("owner"), {
+      webhook_public_url: "https://b.example.test",
+    });
+    releaseFirst();
+    await first;
+    expect(sent).toEqual([
+      "https://a.example.test/v1/github/webhook",
+      "https://b.example.test/v1/github/webhook",
+      "https://b.example.test/v1/github/webhook",
+    ]);
+  });
+
   test("the address already saved leaves no receipt and sends no App", async () => {
     const { admin: service, sent } = admin({ publicUrl: BASE }, [
       app(7, [WORKSPACE]),

@@ -33,6 +33,8 @@ import { eventsBaseOf } from "./workspace-slack-events.tsx";
 
 const PERMISSION = "installation.settings.manage";
 const WEBHOOK_PATH = "/v1/github/webhook";
+// GITHUB_WEBHOOK_RETRY_MAX; contracts are type-only in the web app.
+const RETRY_BATCH = 100;
 
 const settingsKey = (client: ApiClient) =>
   scopedKey(client, "github-webhook-settings");
@@ -147,12 +149,18 @@ export function GitHubWebhookSetting({
     ApiError,
     number[]
   >({
-    mutationFn: (appIds) =>
-      unwrap(
-        client.POST("/v1/github-webhook-settings/retry", {
-          body: { app_ids: appIds },
-        }),
-      ),
+    mutationFn: async (appIds) => {
+      const updates: GitHubWebhookUpdate[] = [];
+      for (let at = 0; at < appIds.length; at += RETRY_BATCH) {
+        const part = await unwrap(
+          client.POST("/v1/github-webhook-settings/retry", {
+            body: { app_ids: appIds.slice(at, at + RETRY_BATCH) },
+          }),
+        );
+        updates.push(...part.updates);
+      }
+      return { updates };
+    },
     onMutate: () => onOutcome(null),
     onSuccess: ({ updates }) => {
       if (settle(updates).length === 0) {
