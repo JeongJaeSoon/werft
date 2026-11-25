@@ -1210,7 +1210,9 @@ export function createAuthorizationPolicy(
       // A private channel's member, who sees the session, decides a push, a
       // tool permission or a question whose requester left the channel; the
       // requester no longer sees it. Only the role refusal is lifted: every
-      // check below still runs.
+      // check below still runs. A tool permission or question answered by
+      // anyone after its requester left is marked too, so no one gives it a
+      // session-wide allow there (94S-2215).
       const request: CardRequestRef | null =
         resource.push_request_id !== undefined
           ? { pushRequestId: resource.push_request_id }
@@ -1218,7 +1220,10 @@ export function createAuthorizationPolicy(
             ? { pendingRequestId: resource.pending_request_id }
             : null;
       const left =
-        answer === "role" &&
+        (answer === "role" ||
+          (answer === "ok" &&
+            request !== null &&
+            "pendingRequestId" in request)) &&
         action === "session.approve" &&
         resource.id !== null &&
         request !== null &&

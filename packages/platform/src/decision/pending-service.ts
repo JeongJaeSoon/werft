@@ -108,8 +108,7 @@ export function createPendingRequestService(deps: {
         );
       });
       // Until a session-wide allow is bound to the authority of whoever gave
-      // it (94S-2215), a member answering for a requester who left gives
-      // none.
+      // it (94S-2215), no one answering for a requester who left gives one.
       if (
         decision.requester_left === true &&
         input.body.kind === "permission" &&

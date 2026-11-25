@@ -671,6 +671,64 @@ describe("approving after the requester left the private channel", () => {
       expect(stored.map((input) => input.requesterLeft)).toEqual([true, true]);
     });
 
+    test("Codex round 1: an admin in the channel, who answers anyway, cannot allow for the session after the requester left either", async () => {
+      const { service, stored } = answering();
+      const admin = callerFor(
+        {
+          kind: "user",
+          id: USERS.member,
+          workspace_id: WORKSPACE,
+          role: "admin",
+          scopes: [...scopesForRole("admin")],
+        },
+        { kind: "web" },
+        "r",
+      );
+      const body = {
+        request_id: PENDING,
+        kind: "permission",
+        decision: "allow",
+        remember: "session",
+      } as const;
+      const error = await service
+        .answer(admin, PRIVATE_SESSION, { idempotencyKey: "k", body })
+        .catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ code: "FORBIDDEN" });
+      expect(stored).toEqual([]);
+      // Before the requester left, the same answer goes through as before.
+      const before = createPendingRequestService({
+        authorization: policyWith({
+          inChannel: (userId) =>
+            userId === USERS.member || userId === USERS.requester
+              ? "member"
+              : "not_member",
+        }),
+        store: {
+          async listOpen() {
+            return [];
+          },
+          async answerAtomic(input) {
+            stored.push(input);
+            return {
+              outcome: "accepted",
+              response: { receipt_id: RECEIPT, receipt_status: "accepted" },
+            };
+          },
+          async recordSelfApproval() {
+            throw new Error("never reached");
+          },
+          async requestOutcome() {
+            throw new Error("never reached");
+          },
+        },
+      });
+      await before.answer(admin, PRIVATE_SESSION, {
+        idempotencyKey: "k2",
+        body,
+      });
+      expect(stored.map((input) => input.requesterLeft)).toEqual([undefined]);
+    });
+
     test("a member answering for a requester who left cannot allow for the session (94S-2215)", async () => {
       const { service, stored } = answering();
       const error = await service

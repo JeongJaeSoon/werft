@@ -995,9 +995,11 @@ export const authorizationDecisionSchema = z
     decision_id: z.uuid(),
     access: accessResultSchema.optional(),
     /**
-     * An allowed `session.approve` that a current member of a private
-     * channel got only because the request's requester left it (answer 15,
-     * Q5): the store under its locks lets that answer through.
+     * An allowed `session.approve` on a private channel's request whose
+     * requester left the channel (answer 15, Q5): a current member's role
+     * refusal was lifted for it, and the store under its locks lets that
+     * answer through. A tool permission or question answered by anyone then
+     * carries it, so none gives it a session-wide allow.
      */
     requester_left: z.literal(true).optional(),
   })
