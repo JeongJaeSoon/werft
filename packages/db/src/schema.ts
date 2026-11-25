@@ -3819,8 +3819,10 @@ export const budgetAccounts = pgTable(
 // root kind. A settled or released row stays, so the same id does not
 // count twice. unknown_at marks a reserved row whose call was used and not
 // reported within its lease: still held. Older images ignore the column and
-// settle or release the row as reserved. An operator resolves such a row:
-// settled_* is then what it charged, and resolution says which way.
+// settle or release the row as reserved. An operator resolves such a row,
+// or the reconciler once its call can no longer run (resolution
+// `estimated`): settled_* is then what it charged, and resolution says which
+// way.
 export const budgetReservations = pgTable(
   "budget_reservations",
   {
