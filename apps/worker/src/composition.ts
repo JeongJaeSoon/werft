@@ -39,11 +39,7 @@ import {
   legacyPlatformPromptText,
   startsWithoutRepository,
 } from "./legacy-platform-prompt.ts";
-import {
-  createWorkerObjectStore,
-  holdingObjectStore,
-  ObjectStoreToken,
-} from "./object-store.ts";
+import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { writePackageManagerConfig } from "./package-managers.ts";
 import { createPushPrecheck } from "./push-precheck.ts";
 import { writeRepositoryRoutes } from "./repository-routes.ts";
@@ -127,13 +123,13 @@ export function createWorkerHost(
         instructionsCommit: () => workspace.instructionsCommit(),
         logger: checkpointLogger,
         objectPrefix: config.objectStore.scope,
-        objects: holdingObjectStore(
+        objects:
           overrides.objectStore ??
-            createWorkerObjectStore(config.objectStore, () =>
-              objectToken.current(),
-            ),
-          () => host?.ownershipUnconfirmed,
-        ),
+          createWorkerObjectStore(
+            config.objectStore,
+            () => objectToken.current(),
+            () => host?.ownershipUnconfirmed,
+          ),
         workspaceRoot: config.runtime.cwd,
         home: config.runtime.home,
         // Only the worker image installs the tool.

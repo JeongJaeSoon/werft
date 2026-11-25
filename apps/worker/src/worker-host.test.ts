@@ -1195,6 +1195,37 @@ describe("WorkerHost ownership and shutdown", () => {
     ).toMatchObject({ code: "LEASE_EXPIRED" });
   });
 
+  test("a heartbeat answered 403 ends the attempt at once, and nothing is sent after it", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.heartbeatFailure = "FORBIDDEN";
+    const lines: string[] = [];
+    const { host } = harness(
+      [{ type: "await-input" }, { type: "delay", delayMs: 5_000 }],
+      {
+        gateway,
+        logger: createConsoleLogger({ write: (line) => lines.push(line) }),
+        timeouts: { heartbeatIntervalMs: 5 },
+      },
+    );
+    gateway.enqueue("a turn another owner takes over");
+    const started = Date.now();
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    // Not ridden out to the lease's end, as a 404 is.
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(lines.join("\n")).not.toContain("worker.ownership.unconfirmed");
+    expect(
+      lines.find((line) => line.includes('"event":"worker.ownership.lost"')),
+    ).toContain('"heartbeat_status":403,"heartbeat_code":"FORBIDDEN"');
+    expect(gateway.releases).toEqual([]);
+    // A lease lost with no 404 before it refuses what comes after as well.
+    expect(
+      await gateway.unconfirmed?.()?.catch((caught: unknown) => caught),
+    ).toMatchObject({ code: "LEASE_EXPIRED", status: 0 });
+  });
+
   test("kills the engine at once when the lease is lost, with no grace", async () => {
     const gateway = new FakeWorkerGateway();
     gateway.heartbeatFailure = "LEASE_EXPIRED";

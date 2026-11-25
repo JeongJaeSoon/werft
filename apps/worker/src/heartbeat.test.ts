@@ -913,6 +913,47 @@ describe("a beat answered 404", () => {
     await beat.stop();
   });
 
+  // The beat a stop still owes goes out after the loop has ended. Answered
+  // 404, it must be asked again all the same: the release waits on it.
+  test("a 404 to the beat a stop still owed is asked again until it is settled", async () => {
+    for (const accepted of [true, false]) {
+      timer = new FakeClock();
+      const at: number[] = [];
+      const { heartbeat: beat, lost } = heartbeat(
+        async () => {
+          at.push(timer.now());
+          if (at.length === 1 || !accepted) throw notFound();
+          return answer(30_000);
+        },
+        { ...defaults, intervalMs: 60_000 },
+      );
+      beat.start();
+      await timer.advance(100);
+      beat.beatNow();
+      let stopped = false;
+      const stopping = beat.stop().then(() => {
+        stopped = true;
+      });
+      await timer.advance(999);
+      expect(at).toEqual([100]);
+      expect(beat.unconfirmed).toBeDefined();
+      expect(stopped).toBe(false);
+
+      await timer.advance(30_000);
+      await stopping;
+      if (accepted) {
+        expect(at).toEqual([100, 1_100]);
+        expect(beat.unconfirmed).toBeUndefined();
+        expect(lost).toEqual([]);
+      } else {
+        // The claim's 30s lease, less the 10s margin: given up at 20s.
+        expect(at).toEqual([100, 1_100, 3_100, 7_100, 11_100, 15_100, 19_100]);
+        expect(lost).toHaveLength(1);
+        expect(await beat.unconfirmed?.catch(() => "refused")).toBe("refused");
+      }
+    }
+  });
+
   test("a stop waits until the lease is confirmed", async () => {
     const at: number[] = [];
     const { heartbeat: beat, lost } = heartbeat(async () => {

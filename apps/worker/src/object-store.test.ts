@@ -4,11 +4,12 @@ import {
   BodyLimitError,
   BodyStallError,
   BodyTruncatedError,
+  createCheckpointObjectStore,
 } from "@werft-ai/storage";
 
 import {
   createWorkerObjectStore,
-  holdingObjectStore,
+  holdingS3Client,
   isObjectStoreOutage,
   ObjectStoreToken,
   objectStoreConfigFromEnv,
@@ -27,40 +28,47 @@ afterEach(() => {
   for (const close of closers.splice(0)) close();
 });
 
-describe("holdingObjectStore", () => {
-  test("writes wait while ownership is unconfirmed; reads do not", async () => {
-    const puts: string[] = [];
+describe("holdingS3Client", () => {
+  test("each request of a write waits while ownership is unconfirmed, and none is sent once it is lost", async () => {
+    const sent: string[] = [];
     const doubt = Promise.withResolvers<void>();
-    let unconfirmed: Promise<void> | undefined = doubt.promise;
-    const store = holdingObjectStore(
-      {
-        get: async () => new Uint8Array([1]),
-        head: async () => undefined,
-        stream: async () => undefined,
-        list: async () => ["sessions/s1/a"],
-        putImmutable: async (key) => {
-          puts.push(key);
-          return { outcome: "created" };
+    let unconfirmed: Promise<void> | undefined;
+    const store = createCheckpointObjectStore({
+      bucket: "claude-sessions",
+      client: holdingS3Client(
+        {
+          async send(command) {
+            const { name } = (command as { constructor: { name: string } })
+              .constructor;
+            sent.push(name);
+            if (name !== "GetObjectCommand") return {};
+            // The write's own existence read answers, and ownership goes
+            // unconfirmed before the PUT that read decides.
+            unconfirmed = doubt.promise;
+            throw Object.assign(new Error("no such key"), {
+              name: "NoSuchKey",
+              $metadata: { httpStatusCode: 404 },
+            });
+          },
         },
-      },
-      () => unconfirmed,
-    );
+        () => unconfirmed,
+      ),
+    });
 
     const put = store.putImmutable("sessions/s1/a", new Uint8Array([1]));
-    expect(await store.get("sessions/s1/a")).toEqual(new Uint8Array([1]));
-    expect(await store.list("sessions/s1/")).toEqual(["sessions/s1/a"]);
-    expect(puts).toEqual([]);
+    await Bun.sleep(5);
+    expect(sent).toEqual(["GetObjectCommand"]);
 
     doubt.resolve();
     unconfirmed = undefined;
     expect(await put).toEqual({ outcome: "created" });
-    expect(puts).toEqual(["sessions/s1/a"]);
+    expect(sent).toEqual(["GetObjectCommand", "PutObjectCommand"]);
 
     unconfirmed = Promise.reject(new Error("Not sent: the lease was lost"));
     await expect(
       store.putImmutable("sessions/s1/b", new Uint8Array([2])),
     ).rejects.toThrow("Not sent");
-    expect(puts).toEqual(["sessions/s1/a"]);
+    expect(sent).toHaveLength(2);
   });
 });
 

@@ -5,6 +5,7 @@ import {
   createCheckpointObjectStore,
   createObjectRouteClient,
   S3_REQUEST_BOUNDS,
+  type S3ClientLike,
   scopedCheckpointObjectStore,
 } from "@werft-ai/storage";
 
@@ -74,22 +75,19 @@ export function objectStoreConfigFromEnv(
  * `token` is the claim's object store token, asked for on every request.
  */
 /**
- * A store whose writes wait on the promise `unconfirmed` returns, and are
- * not made once it rejects: what the gateway client does for its calls (see
- * `Heartbeat.unconfirmed`). Reads go through.
+ * An S3 client each of whose requests waits on the promise `unconfirmed`
+ * returns, and is not sent once it rejects: what the gateway client does for
+ * its calls (see `WorkerHost.ownershipUnconfirmed`). Every request, reads
+ * included: one write is several of them, and a read decides its next one.
  */
-export function holdingObjectStore(
-  store: CheckpointObjectStore,
+export function holdingS3Client(
+  client: S3ClientLike,
   unconfirmed: () => Promise<void> | undefined,
-): CheckpointObjectStore {
+): S3ClientLike {
   return {
-    get: (key, version) => store.get(key, version),
-    head: (key, version) => store.head(key, version),
-    stream: (key, version) => store.stream(key, version),
-    list: (prefix) => store.list(prefix),
-    async putImmutable(key, body, options) {
+    async send(command, options) {
       await unconfirmed();
-      return store.putImmutable(key, body, options);
+      return client.send(command, options);
     },
   };
 }
@@ -97,13 +95,17 @@ export function holdingObjectStore(
 export function createWorkerObjectStore(
   config: WorkerObjectStoreConfig,
   token: () => string,
+  unconfirmed: () => Promise<void> | undefined = () => undefined,
 ): CheckpointObjectStore {
   const client = createObjectRouteClient(
     { endpoint: config.endpoint, region: config.region, token },
     S3_REQUEST_BOUNDS,
   );
   return scopedCheckpointObjectStore(
-    createCheckpointObjectStore({ bucket: config.bucket, client }),
+    createCheckpointObjectStore({
+      bucket: config.bucket,
+      client: holdingS3Client(client, unconfirmed),
+    }),
     config.scope,
   );
 }

@@ -470,8 +470,23 @@ export class WorkerHost {
     });
   }
 
-  /** `Heartbeat.unconfirmed`, for writers that do not go through the gateway. */
+  /**
+   * What every outside write waits on before it is sent (the gateway
+   * client's calls, the object store's requests): `Heartbeat.unconfirmed`
+   * while the lease is held, and a refusal once it is lost, however it was
+   * lost. A lost lease writes nothing more.
+   */
   get ownershipUnconfirmed(): Promise<void> | undefined {
+    if (this.stopping?.kind === "lost") {
+      return Promise.reject(
+        new WorkerGatewayRequestError(
+          0,
+          "LEASE_EXPIRED",
+          `Not sent: ${this.stopping.reason}`,
+          false,
+        ),
+      );
+    }
     return this.heartbeat?.unconfirmed;
   }
 
@@ -630,7 +645,7 @@ export class WorkerHost {
       onControlPending: () => this.pending?.poll(true),
       transcript: () => this.transcriptReport(),
     });
-    this.options.gateway.holdWhile?.(() => this.heartbeat?.unconfirmed);
+    this.options.gateway.holdWhile?.(() => this.ownershipUnconfirmed);
 
     let run: AgentRun | undefined;
     try {

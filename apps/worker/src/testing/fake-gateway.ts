@@ -480,9 +480,11 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       throw new WorkerGatewayRequestError(
         this.heartbeatFailure === "UNAUTHORIZED"
           ? 401
-          : this.heartbeatFailure === "NOT_FOUND"
-            ? 404
-            : 409,
+          : this.heartbeatFailure === "FORBIDDEN"
+            ? 403
+            : this.heartbeatFailure === "NOT_FOUND"
+              ? 404
+              : 409,
         this.heartbeatFailure,
         `heartbeat failed with ${this.heartbeatFailure}`,
         false,

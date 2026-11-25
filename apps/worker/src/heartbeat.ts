@@ -189,7 +189,9 @@ export class Heartbeat {
   }
 
   start(): void {
-    this.running ??= this.loop();
+    this.running ??= this.loop().finally(() => {
+      this.running = undefined;
+    });
   }
 
   /**
@@ -211,7 +213,12 @@ export class Heartbeat {
     this.stopped = true;
     this.wake?.();
     await this.running;
-    if (this.owed && !this.lost) await this.beatOnce();
+    if (this.owed && !this.lost) {
+      await this.beatOnce();
+      // Answered 404, that beat left the lease unconfirmed and the loop
+      // running again: the stop waits for it as for any other.
+      await this.running;
+    }
   }
 
   /** One beat now, outside the loop; for a caller that must see it land. */
@@ -350,6 +357,9 @@ export class Heartbeat {
         // Nothing may be waiting on it when the lease is lost.
         this.doubt.promise.catch(() => undefined);
         this.options.onUnconfirmed?.(message(error));
+        // A beat sent outside the loop, or after it ended, is asked again
+        // like any other: nothing else would settle what waits on it.
+        this.start();
       }
       if (this.leaseLeftMs <= 0) this.giveUp("the gateway kept answering 404");
       return;
