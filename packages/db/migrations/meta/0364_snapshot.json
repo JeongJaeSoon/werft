@@ -1,5 +1,5 @@
 {
-  "id": "97b97d4d-c0f0-4799-8021-96491060a3e9",
+  "id": "1e010d1c-b2ab-4371-8f73-141b7c0e70b7",
   "prevId": "dd018794-34f0-43ab-8d97-0870e9f31a31",
   "version": "7",
   "dialect": "postgresql",
@@ -12896,12 +12896,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "session_allow_subject": {
-          "name": "session_allow_subject",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "settled_at": {
           "name": "settled_at",
           "type": "timestamp with time zone",
@@ -19140,6 +19134,18 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "progress_key": {
+          "name": "progress_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "progress_ts": {
+          "name": "progress_ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -19204,6 +19210,34 @@
           ],
           "isUnique": false,
           "where": "\"slack_outbox\".\"correlation_id\" IS NOT NULL AND \"slack_outbox\".\"status\" IN ('sending', 'uncertain')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "slack_outbox_progress_idx": {
+          "name": "slack_outbox_progress_idx",
+          "columns": [
+            {
+              "expression": "installation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "progress_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_outbox\".\"progress_key\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -19381,7 +19415,11 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress')"
+        },
+        "slack_outbox_progress_check": {
+          "name": "slack_outbox_progress_check",
+          "value": "(\"slack_outbox\".\"kind\" = 'progress') = (\"slack_outbox\".\"progress_key\" IS NOT NULL) AND (\"slack_outbox\".\"progress_ts\" IS NULL OR \"slack_outbox\".\"kind\" = 'progress')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
