@@ -90,6 +90,19 @@ groups:
         expr: increase(werft_session_no_capacity_failures_total[1h]) > 0
 ```
 
+Slack turns off an app's event subscription when more than 95% of event deliveries fail over 60 minutes. To hear of it first, alert on the share of 503 and 500 answers to Slack's events. The api Pods expose this metric: turn it on with `api.metrics.enabled: true` and point the collector at every api Pod, through `api.metrics.podAnnotations` or the Service `<fullname>-api-metrics`. Narrow access to the collector's namespace with `networkPolicy.api.metrics.ingressFrom`. The example below alerts when the share stays above 5% for 10 minutes.
+
+```yaml
+groups:
+  - name: werft-slack-events
+    rules:
+      - alert: WerftSlackEventFailures
+        expr: |
+          sum(rate(werft_slack_event_responses_total{code=~"500|503"}[10m]))
+            / sum(rate(werft_slack_event_responses_total[10m])) > 0.05
+        for: 10m
+```
+
 <a id="확인" />
 ## Verify
 

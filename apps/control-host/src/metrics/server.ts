@@ -20,9 +20,12 @@ import { renderMetrics, TURN_DURATION_BUCKETS } from "./families.ts";
 const DEFAULT_METRICS_PORT = 9464;
 const CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8";
 
-function metricsPort(environment: NodeJS.ProcessEnv): number {
+/** METRICS_PORT, or undefined when it is unset. */
+export function metricsPortFromEnv(
+  environment: Record<string, string | undefined>,
+): number | undefined {
   const raw = environment.METRICS_PORT;
-  if (raw === undefined || raw === "") return DEFAULT_METRICS_PORT;
+  if (raw === undefined || raw === "") return undefined;
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new Error(`METRICS_PORT must be a port number, not ${raw}`);
@@ -68,7 +71,7 @@ export function metricsHandler(
 export function serveMetrics(environment: NodeJS.ProcessEnv = process.env) {
   const databaseUrl = environment.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
-  const port = metricsPort(environment);
+  const port = metricsPortFromEnv(environment) ?? DEFAULT_METRICS_PORT;
   const logger = createLogger({
     level: logLevelFromEnv(environment.LOG_LEVEL),
   });
