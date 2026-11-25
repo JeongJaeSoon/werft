@@ -24,4 +24,12 @@ CREATE INDEX IF NOT EXISTS "channel_summary_versions_made_idx" ON "channel_summa
 INSERT INTO "channel_summary_versions" ("workspace_id", "team_id", "channel_id", "version", "made_at")
 SELECT "workspace_id", "team_id", "channel_id", "version", "updated_at" FROM "channel_summaries"
 ON CONFLICT DO NOTHING;--> statement-breakpoint
+-- Each earlier version, readable as before. When it stopped being current
+-- is not known, at the latest the current one's time: taken as that, each
+-- stays 7 days past it.
+INSERT INTO "channel_summary_versions" ("workspace_id", "team_id", "channel_id", "version", "made_at")
+SELECT s."workspace_id", s."team_id", s."channel_id", v.version, s."updated_at"
+FROM "channel_summaries" s
+CROSS JOIN LATERAL generate_series(0, s."version" - 1) AS v(version)
+ON CONFLICT DO NOTHING;--> statement-breakpoint
 ALTER TABLE "conversation_judgments" DROP CONSTRAINT IF EXISTS "conversation_judgments_summary_check", ADD CONSTRAINT "conversation_judgments_summary_check" CHECK ("conversation_judgments"."summary" IS NULL OR ("conversation_judgments"."summary" IN ('written','skipped','copied','invalid','lost','channel_gone') AND "conversation_judgments"."grade" = 'buffer_m1' AND "conversation_judgments"."outcome" = 'judged')) NOT VALID;
