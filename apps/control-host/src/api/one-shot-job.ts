@@ -1,7 +1,7 @@
 import * as schema from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
-import { createStorageS3Client } from "@werft-ai/storage";
+import { createStorageS3Client, S3_REQUEST_BOUNDS } from "@werft-ai/storage";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 /** The database and object store client a one-shot job over the bucket opens. */
@@ -17,7 +17,11 @@ export function openJobConnections(input: {
     input.poolName,
     JOB_POOL_TIMEOUTS,
   );
-  const client = createStorageS3Client({ s3: input.s3 });
+  const client = createStorageS3Client(
+    { s3: input.s3 },
+    S3_REQUEST_BOUNDS,
+    (message, fields) => input.logger.warn(message, fields),
+  );
   return {
     client,
     db: drizzle(pool, { schema }),
