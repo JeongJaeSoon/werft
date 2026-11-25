@@ -60,6 +60,7 @@ export * from "./image-runtime.ts";
 export * from "./instruction-files.ts";
 export * from "./message-of.ts";
 export * from "./module.ts";
+export * from "./platform-mcp.ts";
 export * from "./sha256.ts";
 export type * from "./tool-decision.ts";
 export * from "./transcript-store.ts";

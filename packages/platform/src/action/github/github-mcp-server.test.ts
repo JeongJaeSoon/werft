@@ -38,8 +38,8 @@ import type { GitHubMcpServices } from "../tools/handler.ts";
 import { sessionBoundAuthorization } from "../tools/session-bound.ts";
 import {
   createGitHubMcpServer,
-  signGitHubMcpGrant,
-  verifyGitHubMcpGrant,
+  signBuiltinMcpGrant,
+  verifyBuiltinMcpGrant,
 } from "./github-mcp-server.ts";
 import {
   createGitHubWorkService,
@@ -481,22 +481,22 @@ function payload(answer: unknown): {
 
 describe("the grant", () => {
   test("names the session and attempt it was signed for, until it expires", () => {
-    const bearer = signGitHubMcpGrant(KEY, grant, 1_000);
-    expect(verifyGitHubMcpGrant(KEY, bearer, 1_000)).toEqual(grant);
-    expect(verifyGitHubMcpGrant(KEY, bearer, 61_000)).toBeNull();
+    const bearer = signBuiltinMcpGrant(KEY, grant, 1_000);
+    expect(verifyBuiltinMcpGrant(KEY, bearer, 1_000)).toEqual(grant);
+    expect(verifyBuiltinMcpGrant(KEY, bearer, 61_000)).toBeNull();
     expect(
-      verifyGitHubMcpGrant(new Uint8Array(32).fill(8), bearer, 1_000),
+      verifyBuiltinMcpGrant(new Uint8Array(32).fill(8), bearer, 1_000),
     ).toBeNull();
   });
 
   test("a payload naming another session does not verify", () => {
-    const bearer = signGitHubMcpGrant(KEY, grant, 1_000);
+    const bearer = signBuiltinMcpGrant(KEY, grant, 1_000);
     const [version, , mac] = bearer.split(".");
     const forged = Buffer.from(
       JSON.stringify({ session_id: OTHER, attempt_id: "att_1", exp: 61_000 }),
     ).toString("base64url");
     expect(
-      verifyGitHubMcpGrant(KEY, `${version}.${forged}.${mac}`, 1_000),
+      verifyBuiltinMcpGrant(KEY, `${version}.${forged}.${mac}`, 1_000),
     ).toBeNull();
   });
 });

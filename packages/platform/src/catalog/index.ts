@@ -59,6 +59,8 @@ export {
   type StoredOwnerKind,
   sessionCatalogConfigSchema,
   trustedGitHubTools,
+  WERFT_MCP_ENDPOINT,
+  werftMcpBinding,
   withoutDeniedTools,
   workspaceMcpBinding,
 } from "./catalog.ts";

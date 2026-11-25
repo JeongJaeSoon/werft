@@ -1,5 +1,5 @@
 import { GITHUB_MCP_FIXED_TOOLS, githubMcpTools } from "@werft-ai/contracts";
-import { signGitHubMcpGrant } from "../action/index.ts";
+import { signBuiltinMcpGrant } from "../action/index.ts";
 import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import {
   forbidden,
@@ -54,7 +54,7 @@ export function createGitHubMcpEgress(deps: {
     if (method === "tools/call" && (tool === null || !exposed.includes(tool))) {
       return forbidden("The release does not expose this GitHub tool");
     }
-    const bearer = signGitHubMcpGrant(deps.grantKey, fenced, now());
+    const bearer = signBuiltinMcpGrant(deps.grantKey, fenced, now());
     return {
       kind: "granted",
       upstream: {
