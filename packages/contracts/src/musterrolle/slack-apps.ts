@@ -14,7 +14,8 @@ import { workspaceParamsSchema } from "./workspaces.ts";
  * test pins the list. `channels:join` lets the agent join a public channel
  * the console picks for it; `groups:write` lets it leave a private channel
  * whose invite an admin turned down. `chat:write.customize` shows an
- * instruction sent from the web or the API under its sender's name.
+ * instruction sent from the web or the API under its sender's name, and a
+ * task's posts under "agent [task]".
  */
 export const BOT_SCOPES = [
   "assistant:write",
