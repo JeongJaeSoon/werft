@@ -2094,6 +2094,31 @@ describe("startCredentialProxy", () => {
       expect(up.seen).toEqual([]);
     });
 
+    test("no ask outlasts the hold: a grant that would come after it is not waited for, and nothing is sent", async () => {
+      const up = upstream(() => new Response("ok"));
+      let asks = 0;
+      const slow = async (body: { token: string }) => {
+        asks += 1;
+        if (asks === 1) return undecided();
+        await Bun.sleep(400);
+        return grant(up.port)(body);
+      };
+      const auth = authorizer(slow as unknown as () => Response);
+      const server = proxy(auth.url, up.port, {
+        undecidedHold: { ms: 100, backoffMs: [10] },
+      });
+      const started = performance.now();
+      const response = await messages(server.port);
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("1");
+      expect(await response.text()).toBe(
+        "egress authorization unavailable; retry in a few seconds\n",
+      );
+      expect(performance.now() - started).toBeLessThan(350);
+      await Bun.sleep(400);
+      expect(up.seen).toEqual([]);
+    });
+
     test("only that answer is asked again: another 503, an error or no answer is given up on at once", async () => {
       const up = upstream(() => new Response("ok"));
       for (const answer of [

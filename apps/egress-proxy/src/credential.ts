@@ -61,7 +61,13 @@ import {
  */
 
 export const DEFAULT_CREDENTIAL_PORT = 3129;
-const DEFAULT_AUTHORIZE_TIMEOUT_MS = 10_000;
+/**
+ * Above the authorizer's own deadline (10 s, `AUTHORIZE_DEADLINE_MS`), so
+ * what it answers at that deadline arrives rather than being cut off here:
+ * a decision it could not reach in time is undecided, an authorizer that
+ * said nothing is not.
+ */
+export const DEFAULT_AUTHORIZE_TIMEOUT_MS = 12_000;
 /**
  * One request to the exchange ledger. A billed call waits this long for its
  * open; renewals and releases are waited on by nothing.
@@ -1333,10 +1339,11 @@ export function startCredentialProxy(
 
   /**
    * Asks again for a call the authorizer could not decide, until it decides,
-   * the hold runs out or the exchange ends. Still undecided then.
+   * the hold runs out or the exchange ends. Still undecided then: no ask
+   * outlasts the hold, and one the hold's end cut short is no answer.
    */
   async function heldForDecision(
-    ask: () => Promise<Authorized>,
+    ask: (withinMs: number) => Promise<Authorized>,
     ends: AbortSignal,
   ): Promise<Authorized> {
     if (held >= maxHeld) {
@@ -1355,9 +1362,15 @@ export function startCredentialProxy(
         );
         if (wait <= 0) return { kind: "undecided" };
         await untilEnded(Bun.sleep(wait), ends).catch(() => {});
-        if (ends.aborted) return { kind: "undecided" };
-        const again = await ask();
-        if (again.kind !== "undecided") return again;
+        const left = until - performance.now();
+        if (ends.aborted || left <= 0) return { kind: "undecided" };
+        const again = await ask(left);
+        if (again.kind === "undecided") continue;
+        const cut =
+          again.kind === "refused" &&
+          again.status === 503 &&
+          performance.now() >= until;
+        return cut ? { kind: "undecided" } : again;
       }
     } finally {
       held -= 1;
@@ -1399,6 +1412,8 @@ export function startCredentialProxy(
     // The exchange asking, which a conversation call's token is bound to.
     // A header: an authorizer before it ignores one, and refuses a field.
     exchangeId: string,
+    /** What is left of a hold; the ask is cut there if that comes first. */
+    withinMs = Number.POSITIVE_INFINITY,
   ): Promise<Authorized> {
     let response: Response;
     try {
@@ -1414,7 +1429,10 @@ export function startCredentialProxy(
         body: JSON.stringify({ token, purpose, ...question }),
         redirect: "error",
         signal: AbortSignal.timeout(
-          options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS,
+          Math.min(
+            options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS,
+            withinMs,
+          ),
         ),
       });
     } catch (error) {
@@ -2484,7 +2502,8 @@ export function startCredentialProxy(
             return reply(400, unmeterable, route.purpose);
           }
         }
-        const ask = () => authorize(token, route.purpose, question, exchangeId);
+        const ask = (withinMs?: number) =>
+          authorize(token, route.purpose, question, exchangeId, withinMs);
         let authorized = await ask();
         if (authorized.kind === "undecided" && route.purpose === "provider") {
           // Silent for the whole hold, so the idle clock is moved past it.

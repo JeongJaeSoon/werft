@@ -58,8 +58,9 @@ export const EGRESS_EXCHANGE_ID_HEADER = "x-werft-exchange-id";
 // headers; anything bigger is not a request from the proxy.
 const MAX_BODY_BYTES = 16 * 1024;
 // The proxy waits for this before the worker's request goes anywhere, so a
-// slow database answers 503 rather than holding the engine's call open.
-const AUTHORIZE_DEADLINE_MS = 10_000;
+// slow database answers 503 rather than holding the engine's call open. Under
+// the proxy's own wait for an answer, so that 503 is what the proxy reads.
+export const AUTHORIZE_DEADLINE_MS = 10_000;
 // A bearer an operator could type from memory is not a lock.
 const MIN_TOKEN_LENGTH = 32;
 

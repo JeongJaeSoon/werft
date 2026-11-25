@@ -16,6 +16,7 @@ import {
   ObjectStoreToken,
   objectStoreConfigFromEnv,
   resentUntilLeaseEnds,
+  TRANSCRIPT_RESEND_CEILING_MS,
 } from "./object-store.ts";
 
 const base = {
@@ -357,7 +358,7 @@ describe("resentUntilLeaseEnds", () => {
     expect(sent).toBe(5);
   });
 
-  test("the lease is the one the write was first refused under: a renewal since does not keep it going", async () => {
+  test("a lease renewed meanwhile keeps the batch being sent, and no longer than the SDK waits for it", async () => {
     let now = 0;
     const waits: number[] = [];
     const done = resentUntilLeaseEnds(
@@ -375,7 +376,9 @@ describe("resentUntilLeaseEnds", () => {
       },
     );
     await expect(done).rejects.toThrow("status 503");
-    expect(waits).toEqual([1_000, 2_000, 2_000]);
+    // Past the five seconds the lease had at the first outage, to the ceiling.
+    expect(waits.slice(0, 4)).toEqual([1_000, 2_000, 4_000, 4_000]);
+    expect(now).toBe(TRANSCRIPT_RESEND_CEILING_MS);
   });
 
   test("a refusal, or an outage with no lease left, fails the write at once", async () => {

@@ -136,13 +136,20 @@ export class ObjectStoreToken {
 }
 
 /**
+ * How long one transcript write is sent again at most, however long the lease
+ * goes on being renewed: under the 60 s the engine's SDK waits for an append,
+ * past which it has given the batch up itself.
+ */
+export const TRANSCRIPT_RESEND_CEILING_MS = 50_000;
+
+/**
  * Runs a transcript write and, while the store only failed to answer it
  * (`isObjectStoreOutage`), runs it again on the heartbeat's backoff until
- * what was left of the lease at the first failure has passed: the batch is
- * kept rather than dropped for as long as this attempt would still own what
- * it writes. An outage is never an answer: the write is done only once the
- * store took it, and at the lease's end it fails with the outage it last
- * met. Any other failure fails it at once.
+ * this attempt gives its lease up: the batch is kept rather than dropped for
+ * as long as the attempt still owns what it writes, up to the ceiling above.
+ * An outage is never an answer: the write is done only once the store took
+ * it, and at the lease's end it fails with the outage it last met. Any other
+ * failure fails it at once.
  */
 export async function resentUntilLeaseEnds(
   write: () => Promise<void>,
@@ -157,7 +164,7 @@ export async function resentUntilLeaseEnds(
   } = {},
 ): Promise<void> {
   const now = hooks.now ?? (() => performance.now());
-  let until: number | undefined;
+  let heldAt: number | undefined;
   for (let outages = 0; ; ) {
     try {
       await write();
@@ -165,12 +172,17 @@ export async function resentUntilLeaseEnds(
       return;
     } catch (error) {
       if (!isObjectStoreOutage(error)) throw error;
-      if (until === undefined) {
-        until = now() + leaseLeftMs();
+      if (heldAt === undefined) {
+        heldAt = now();
         hooks.onHeld?.(error);
       }
       outages += 1;
-      const wait = Math.min(notFoundBackoff(outages), until - now());
+      // The lease as it stands now: a beat that landed meanwhile extends it.
+      const wait = Math.min(
+        notFoundBackoff(outages),
+        leaseLeftMs(),
+        heldAt + TRANSCRIPT_RESEND_CEILING_MS - now(),
+      );
       if (wait <= 0) throw error;
       await (hooks.sleep ?? Bun.sleep)(wait);
     }
