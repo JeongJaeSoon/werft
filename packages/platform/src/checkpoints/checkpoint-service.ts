@@ -263,6 +263,12 @@ export type CheckpointServiceDependencies = {
   /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
   transcriptLimits?: TranscriptLimits;
   /**
+   * After a `protectedCommits` call took versions on the held pointer's
+   * word instead of a HEAD: how many, and which pointer vouched. A restore
+   * that later finds one of them damaged is traced back through this.
+   */
+  onProtectedCommits?: (event: ProtectedCommitsTrust) => void;
+  /**
    * How many committed revisions below the pointer a restore may try when
    * the pointer's own checkpoint does not verify. Each one tried is read and
    * hashed in full, bundle included, so this bounds what one restore can
@@ -321,6 +327,16 @@ export type CheckpointServiceDependencies = {
 };
 
 export type ObjectProtection = "locked" | "unversioned";
+
+export type ProtectedCommitsTrust = {
+  /** Distinct versions the call did not HEAD. */
+  heldSkipped: number;
+  judgedRevisions: number;
+  pointerRevision: number | null;
+  sessionId: string;
+  /** The committed pointer whose `versionsHeld` record they stood on. */
+  vouchingRevision: number | null;
+};
 
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
@@ -404,6 +420,8 @@ type SharedReads = {
     version: string | undefined,
     limit: number,
   ): Promise<Uint8Array | "over" | undefined>;
+  /** Every version the call took on the held pointer's word, without a HEAD. */
+  heldSkipped: Set<string>;
 };
 
 type SharedBundle =
@@ -851,7 +869,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const problems = await inBatches(refs, 32, async (ref) => {
       const token = refToken(ref);
       const known = token !== undefined && verified.objects.has(token);
-      if (known && held) return undefined;
+      if (known && held) {
+        shared?.heldSkipped.add(token);
+        return undefined;
+      }
       const head = await (shared?.head(ref.key, ref.version) ??
         objects.head(ref.key, ref.version));
       if (head === undefined) {
@@ -1321,6 +1342,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // way a call of its own reads it, into a spool removed after its chain.
     let spooledBytes = 0;
     const shared: SharedReads = {
+      heldSkipped: new Set(),
       head(key, version) {
         const at = id(key, version);
         let read = heads.get(at);
@@ -1976,20 +1998,41 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           pointer: reads.pointer,
           manifest: (checkpoint) => committedManifest(checkpoint, shared),
         });
-        return inBatches(checkpoints, PROTECTED_JUDGE_CONCURRENCY, (pointer) =>
-          judgeManifest({
-            checkpoint: checkpointRefOf(pointer),
-            ...(remembered === undefined
-              ? {}
-              : { remembered: remembered(pointer) }),
-            sessionId: input.sessionId,
-            shared,
-            verified,
-          }).then(
-            (verdict) => ({ verdict }),
-            (error: unknown) => ({ error }),
-          ),
+        const outcomes = await inBatches(
+          checkpoints,
+          PROTECTED_JUDGE_CONCURRENCY,
+          (pointer) =>
+            judgeManifest({
+              checkpoint: checkpointRefOf(pointer),
+              // The rule finalize already follows: a version the held
+              // pointer names was hashed and held before it committed, and
+              // collection keeps what the pointer names. So it is not asked
+              // after again here. Trusting it wrongly only protects a
+              // damaged checkpoint's commit; restore still HEADs it.
+              held: protection === "locked",
+              ...(remembered === undefined
+                ? {}
+                : { remembered: remembered(pointer) }),
+              sessionId: input.sessionId,
+              shared,
+              verified,
+            }).then(
+              (verdict) => ({ verdict }),
+              (error: unknown) => ({ error }),
+            ),
         );
+        if (shared.heldSkipped.size > 0) {
+          // The pointer that vouched: `verifiedRefs` read it through `reads`.
+          const vouching = await reads.pointer().catch(() => null);
+          deps.onProtectedCommits?.({
+            heldSkipped: shared.heldSkipped.size,
+            judgedRevisions: checkpoints.length,
+            pointerRevision: input.pointer?.revision ?? null,
+            sessionId: input.sessionId,
+            vouchingRevision: vouching?.revision ?? null,
+          });
+        }
+        return outcomes;
       });
       const commits: string[] = [];
       let current: string | undefined;

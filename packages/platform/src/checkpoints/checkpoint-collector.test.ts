@@ -420,6 +420,47 @@ describe("superseded revisions", () => {
     expect(kept).toEqual([false, true, true, true, true]);
   });
 
+  test("lifts no hold the pointer or its fallback window names: those versions never reach purge", async () => {
+    const parts: ObjectRef[] = [];
+    const published = [];
+    for (let revision = 0; revision < 8; revision += 1) {
+      parts.push(await transcriptPart(revision));
+      published.push(await commit(revision, "attempt-a", [...parts]));
+    }
+    const purged: string[] = [];
+    const spying = createCheckpointCollector({
+      codecs: { [runtime.engine]: codec },
+      collector: {
+        listVersions: (prefix) => objects.listVersions(prefix),
+        purge: async (entry) => {
+          purged.push(`${entry.key}@${entry.version}`);
+          await objects.purge(entry);
+        },
+      },
+      objectProtection: "locked",
+      objects,
+      store: session.store,
+    });
+
+    await spying.collectSession(sessionId, { dryRun: false });
+
+    // The pointer (7) and the default window of three below it: every
+    // version their manifests name, and the manifests themselves.
+    const named = published
+      .slice(4)
+      .flatMap((revision) => [
+        ...revision.versions,
+        ...revision.manifest.transcripts.root.parts.map(versionOf),
+      ]);
+    expect(purged.length).toBeGreaterThan(0);
+    for (const entry of named) {
+      expect(purged).not.toContain(`${entry.key}@${entry.version}`);
+      expect(await objects.head(entry.key, entry.version)).toMatchObject({
+        held: true,
+      });
+    }
+  });
+
   test("the fallback base a session was restored from stays, even outside the window", async () => {
     const part = await transcriptPart(0);
     const revision0 = await commit(0, "attempt-a", [part]);
