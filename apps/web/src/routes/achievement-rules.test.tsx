@@ -386,8 +386,19 @@ describe("성과 규칙", () => {
 
   for (const [who, setup] of [
     [
-      "설치 전체를 읽지 못하는 admin",
-      () => ({ who: me(undefined, "admin"), overrides: {} }),
+      "설치 전체 사용량 권한이 없는 사람",
+      () => {
+        const admin = me(undefined, "admin");
+        return {
+          who: {
+            ...admin,
+            permissions: admin.permissions.filter(
+              (action) => action !== "usage.installation_read",
+            ),
+          },
+          overrides: {},
+        };
+      },
     ],
     [
       "403을 받은 owner",

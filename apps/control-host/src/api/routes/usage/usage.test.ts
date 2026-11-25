@@ -52,6 +52,9 @@ const app = createApiApp({
           usageBreakdown: async () => {
             throw new Error("not read in these tests");
           },
+          usagePeople: async () => {
+            throw new Error("not read in these tests");
+          },
           usageTools: async () => {
             throw new Error("not read in these tests");
           },
@@ -93,6 +96,7 @@ test("refuses installation figures and a summary of one's own sessions under AUT
     "/v1/usage/outcomes?scope=me&since=2026-10-01",
     "/v1/usage/achievements?scope=installation&since=2026-10-01",
     "/v1/usage/achievements?scope=me&since=2026-10-01",
+    "/v1/usage/people?since=2026-10-01",
   ]) {
     const response = await app.request(path, { headers });
     expect(response.status, path).toBe(403);
@@ -239,6 +243,28 @@ test("answers 400 for a breakdown query it cannot read", async () => {
       "BAD_REQUEST",
     );
   }
+});
+
+test("answers 400 for a people query it cannot read, and 404 for an agent it does not have", async () => {
+  for (const query of [
+    "",
+    "since=2026-10-02&until=2026-10-01",
+    "since=2026-10-01&agent_id=not-a-uuid",
+    "since=2025-10-01&until=2026-10-03",
+  ]) {
+    const response = await app.request(`/v1/usage/people?${query}`, {
+      headers,
+    });
+    expect(response.status, query).toBe(400);
+  }
+  const missing = await app.request(
+    `/v1/usage/people?since=2026-10-01&agent_id=${crypto.randomUUID()}`,
+    { headers },
+  );
+  expect(missing.status).toBe(404);
+  expect(apiErrorResponseSchema.parse(await missing.json()).error.code).toBe(
+    "NOT_FOUND",
+  );
 });
 
 test("answers 400 for a tool calls query it cannot read", async () => {

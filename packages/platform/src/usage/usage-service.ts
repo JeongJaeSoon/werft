@@ -10,6 +10,8 @@ import {
   type UsageBreakdownResponse,
   type UsageOutcomesQuery,
   type UsageOutcomesResponse,
+  type UsagePeopleQuery,
+  type UsagePeopleResponse,
   type UsageSeriesQuery,
   type UsageSeriesResponse,
   type UsageSummaryQuery,
@@ -41,6 +43,7 @@ import type {
   UsageBreakdownFiguresRecord,
   UsageConversationCostRecord,
   UsageOutcomeFiguresRecord,
+  UsagePeopleRecord,
   UsageReader,
   UsageSummaryFilter,
   UsageSummaryRecord,
@@ -80,6 +83,10 @@ function conversationOf(
         turn_usd: record.byClass.turnUsd,
         summary_usd: record.byClass.summaryUsd,
         other_usd: record.byClass.otherUsd,
+      },
+      by_requester: {
+        person_usd: record.byRequester.personUsd,
+        agent_usd: record.byRequester.agentUsd,
       },
     },
   };
@@ -524,6 +531,59 @@ export function createUsageService(deps: {
           ...breakdownFigures(breakdown.totals),
           ...conversationOf(breakdown.totals.conversation),
         },
+      };
+    },
+
+    // Each person's own conversation calls: the workspace's for its managers,
+    // one agent's for that agent's admins too. Another workspace's agent is
+    // not found, whoever asks.
+    async getUsagePeople(
+      actor: Caller,
+      query: UsagePeopleQuery,
+    ): Promise<UsagePeopleResponse> {
+      const agentId = query.agent_id;
+      if (agentId === undefined) {
+        await requirePermitted(authorization, actor, "usage.people_read", {
+          kind: "workspace",
+          id: actor.ownerId,
+        });
+      } else {
+        if (!(await reader.agentExists(actor.ownerId, agentId))) {
+          throw new SessionServiceError("NOT_FOUND", "Agent not found");
+        }
+        await requirePermitted(authorization, actor, "usage.people_read", {
+          kind: "agent",
+          id: agentId,
+        });
+      }
+      const read = await reader.usagePeople(
+        {
+          ownerId: actor.ownerId,
+          ...(agentId === undefined ? {} : { agentId }),
+        },
+        {
+          since: query.since,
+          ...(query.until === undefined ? {} : { until: query.until }),
+        },
+      );
+      const figures = (row: UsagePeopleRecord["totals"]) => ({
+        call_count: row.callCount,
+        cost_usd: row.costUsd,
+        cost_complete: row.incompleteCallCount === 0,
+      });
+      return {
+        period: {
+          since: query.since.toISOString(),
+          until: read.until.toISOString(),
+        },
+        refreshed_at: read.readAt.toISOString(),
+        agent_id: agentId ?? null,
+        people: read.people.map((row) => ({
+          user_id: row.userId,
+          label: row.label,
+          ...figures(row),
+        })),
+        totals: figures(read.totals),
       };
     },
 
