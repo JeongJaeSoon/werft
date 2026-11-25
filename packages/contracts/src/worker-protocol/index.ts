@@ -1384,6 +1384,12 @@ export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
 export const TURN_WORKSPACE_QUOTA_EXCEEDED_REASON = "workspace_quota_exceeded";
 
 /**
+ * The terminal reason of a turn failed because its worker lost the lease
+ * mid-turn: the session stays and goes on from its last checkpoint.
+ */
+export const TURN_WORKER_OWNERSHIP_LOST_REASON = "worker_ownership_lost";
+
+/**
  * The terminal reason of a turn interrupted to park it on unanswered
  * requests. Its requests stay open, and the checkpoint it commits is what an
  * answer resumes from, so it is only ever an `interrupted` turn with one.

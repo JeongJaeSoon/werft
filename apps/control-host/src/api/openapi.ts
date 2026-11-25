@@ -4559,6 +4559,51 @@ export const API_ROUTE_DECLARATIONS = [
     },
   },
   {
+    method: "post",
+    path: "/v1/sessions/{id}/turns/{turn_id}/continue",
+    operationId: "continueSessionTurn",
+    tag: "Messages & turns",
+    summary: "Go on from a turn its worker's lost lease cut off",
+    description:
+      "Queues a new turn with the input of turn `turn_id`, which ended `failed` with `terminal_reason` `worker_ownership_lost`; the next worker takes it from the session's last checkpoint. The caller is judged as for `POST /v1/sessions/{id}/messages`: the person who asked or anyone who may write to the session, and on a private channel's session only a current member. One lost turn is continued once, whoever asks and from wherever, the Slack notice's Continue button included: a second request answers the first request's turn and receipt, whatever its `Idempotency-Key`. Once any later turn follows the lost one (a message sent since, or one that waited behind it), the request is refused with 409 `CONTROL_SUPERSEDED` and nothing is queued. Nothing runs a lost turn again by itself. What it did after the last checkpoint is not undone, so check it.",
+    scope: "write",
+    success: {
+      status: 202,
+      schema: "PostSessionMessageResponse",
+      description: "The lost turn's input is stored as a queued turn.",
+      example: {
+        turn_id: "4",
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        receipt_status: "accepted",
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 429, 503],
+    errorCodes: {
+      403: ["FORBIDDEN"],
+      409: [
+        "CONTROL_SUPERSEDED",
+        "SESSION_PAUSED",
+        "SESSION_RESUMING",
+        "SESSION_STOPPED",
+        "RECOVERY_REQUIRED",
+        "SESSION_CLOSING",
+        "SESSION_CLOSED",
+        "CHECKPOINT_UNAVAILABLE",
+        "TAKEOVER_REQUIRED",
+        "SOURCE_DELETED",
+      ],
+      413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
+    },
+    errorNotes: {
+      NOT_FOUND:
+        "Also when `turn_id` names no turn of the session that its worker's lost lease ended.",
+      CONTROL_SUPERSEDED:
+        "A later turn of the session already follows the lost one; nothing is queued.",
+      RATE_LIMITED:
+        "The session already holds the installation's maximum of queued inputs; `Retry-After` is 5.",
+    },
+  },
+  {
     method: "get",
     path: "/v1/sessions/{id}/events",
     operationId: "streamSessionEvents",

@@ -522,31 +522,62 @@ describe("going on from a lost turn", () => {
     expect(after.session.admission).toBe("active");
   });
 
-  test("a message that was sent under the key a continuation is named by does not stand in its way", async () => {
-    const worker = await runningTurn();
-    const sent = await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+  const send = (sessionId: string, idempotencyKey: string, message: string) =>
+    createPostgresSessionUnitOfWork(db).appendInputAtomic({
       principal: OWNER,
-      sessionId: worker.sessionId,
-      idempotencyKey: "continue:1",
-      payloadHash: "a message of the caller's own",
-      message: "second input",
+      sessionId,
+      idempotencyKey,
+      payloadHash: message,
+      message,
       limits: LIMITS,
     });
-    expect(sent.outcome).toBe("accepted");
+  const messagesOf = (sessionId: string) =>
+    db
+      .select({ sequence: turns.sequence, message: turns.message })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId))
+      .orderBy(asc(turns.sequence));
+
+  // A message after the lost turn goes on from it in its place, whether it
+  // waited behind the turn or was sent since: no continuation is queued.
+  test("a message that waited behind the lost turn takes the continuation's place", async () => {
+    const worker = await runningTurn();
+    expect((await send(worker.sessionId, "m-2", "second input")).outcome).toBe(
+      "accepted",
+    );
     await leaseEndsIn(worker.attemptId, -1_000);
     await seenGone(worker.executionId, WORKER_LEASE_LOST_END_REASON);
 
-    expect((await goOn(worker.sessionId, 1)).outcome).toBe("accepted");
-    expect((await goOn(worker.sessionId, 1)).outcome).toBe("replayed");
-    const rows = await db
-      .select({ sequence: turns.sequence, message: turns.message })
-      .from(turns)
-      .where(eq(turns.sessionId, worker.sessionId))
-      .orderBy(asc(turns.sequence));
-    expect(rows).toEqual([
+    expect((await goOn(worker.sessionId, 1)).outcome).toBe("superseded");
+    expect(await messagesOf(worker.sessionId)).toEqual([
       { sequence: 1, message: "first input" },
       { sequence: 2, message: "second input" },
-      { sequence: 3, message: "first input" },
+    ]);
+  });
+
+  test("a message sent since takes its place too, and a continuation taken before it still answers the same", async () => {
+    const lost = await lostTurn();
+    expect((await send(lost.sessionId, "m-2", "second input")).outcome).toBe(
+      "accepted",
+    );
+    expect((await goOn(lost.sessionId, 1)).outcome).toBe("superseded");
+
+    const other = await lostTurn();
+    const first = await goOn(other.sessionId, 1);
+    expect(first.outcome).toBe("accepted");
+    // A message under the key a continuation is named by is a message.
+    expect(
+      (await send(other.sessionId, "continue:1", "third input")).outcome,
+    ).toBe("accepted");
+    const again = await goOn(other.sessionId, 1);
+    expect(again.outcome).toBe("replayed");
+    expect(again).toMatchObject({
+      response: (first as { response: unknown }).response,
+    });
+    expect(await messagesOf(other.sessionId)).toEqual([
+      { sequence: 1, message: "first input" },
+      { sequence: 2, message: "first input" },
+      { sequence: 3, message: "third input" },
     ]);
   });
 

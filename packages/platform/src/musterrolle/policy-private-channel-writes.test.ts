@@ -18,6 +18,7 @@ import type {
   WorkerPendingStore,
 } from "../sessions/ports/pending-requests.ts";
 import type { PrivateChannelPlace } from "../sessions/ports/session-share-store.ts";
+import { createSessionService } from "../sessions/session-service.ts";
 import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
 import { testCatalog } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
@@ -864,5 +865,64 @@ describe("approving after the requester left the private channel", () => {
       present = new Set([USERS.member]);
       expect(await check()).toEqual({ allowed: true });
     });
+  });
+});
+
+// 94S-2259: [Continue] on a lost turn, from the web or Slack, is judged as a
+// message of the presser's own: the requester and those who may write to
+// the session, and on a private channel's session its current members only.
+describe("going on from a lost turn through the session service", () => {
+  function continuing() {
+    const reached: string[] = [];
+    const service = createSessionService({
+      authorization: policyFor(plain),
+      catalog: testCatalog({ repositories: {} }),
+      controls: {} as never,
+      reader: { getSession: async () => null } as never,
+      limits: {
+        queuedInputLimitPerSession: 10,
+        storageLimitBytes: 1e9,
+        sessionCostLimitUsd: 100,
+        sessionTokenLimit: null,
+      },
+      releases: {} as never,
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not used");
+        },
+        async appendInputAtomic(input) {
+          reached.push(input.callerSubject?.principal?.id ?? "");
+          return {
+            outcome: "accepted",
+            response: {
+              turn_id: "4",
+              receipt_id: "019a0000-0000-7000-8000-00000000b0b1",
+              receipt_status: "accepted",
+            },
+          };
+        },
+      },
+    });
+    const press = (who: Person, sessionId: string) =>
+      service.continueTurn(person(who), sessionId, { turnId: 3 }).then(
+        () => "continued",
+        (error: { code?: string }) => error.code ?? "error",
+      );
+    return { press, reached };
+  }
+
+  test("on a private channel's session, a current member goes on; the requester who left and a non-member do not", async () => {
+    const { press, reached } = continuing();
+    expect(await press("member", PRIVATE_SESSION)).toBe("continued");
+    expect(await press("requester", PRIVATE_SESSION)).toBe("NOT_FOUND");
+    expect(await press("nonmember", PRIVATE_SESSION)).toBe("NOT_FOUND");
+    expect(reached).toEqual([USERS.member]);
+  });
+
+  test("on a public channel's session, the requester and a member who may write go on", async () => {
+    const { press, reached } = continuing();
+    expect(await press("requester", PUBLIC_SESSION)).toBe("continued");
+    expect(await press("nonmember", PUBLIC_SESSION)).toBe("continued");
+    expect(reached).toEqual([USERS.requester, USERS.nonmember]);
   });
 });

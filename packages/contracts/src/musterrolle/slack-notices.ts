@@ -25,7 +25,7 @@ const SLACK_NOTICE_MESSAGES_KO = {
   codexSandboxNotInstalled:
     "이 에이전트의 실행 환경(Codex sandbox)이 이 설치에 없어요. 관리자에게 알려 주세요",
   ownershipLost:
-    "작업이 중간에 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
+    "작업이 중간에 끊겼어요. 서버 연결이 잠시 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
   ownershipLostContinue: "이어서 하기",
   ownershipLostContinued: "마지막 저장 지점에서 이어서 하고 있어요",
   repositoryRequired:
@@ -84,7 +84,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     codexSandboxNotInstalled:
       "このエージェントの実行環境（Codex サンドボックス）がこの環境にありません。管理者に知らせてください",
     ownershipLost:
-      "作業が途中で途切れました。最後の保存地点より後に行ったことは確認が必要です。",
+      "作業が途中で途切れました。サーバーとの接続が一時的に切れました。最後の保存地点より後に行ったことは確認が必要です。",
     ownershipLostContinue: "続きから進める",
     ownershipLostContinued: "最後の保存地点から続けています",
     repositoryRequired:
@@ -132,7 +132,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     codexSandboxNotInstalled:
       "This agent's runtime (the Codex sandbox) is not installed here. Tell an administrator",
     ownershipLost:
-      "The work was cut off partway. What it did after the last save point needs checking.",
+      "The work was cut off partway. The connection to the server dropped for a moment. What it did after the last save point needs checking.",
     ownershipLostContinue: "Continue",
     ownershipLostContinued: "Continuing from the last save point",
     repositoryRequired:
