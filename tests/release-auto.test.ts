@@ -72,14 +72,47 @@ const releaseJobs = [
 ];
 
 describe("the release jobs of a main run", () => {
-  test("nothing but release-detect runs for a push without a new version heading", () => {
+  test("nothing but release-detect runs for a main run without a version to release", () => {
     expect(jobs["release-detect"]?.if).toBe(
-      "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      "contains(fromJSON('[\"push\",\"workflow_dispatch\"]'), github.event_name) && github.ref == 'refs/heads/main'",
+    );
+    expect(jobs["release-detect"]?.steps.at(-1)?.env?.EVENT).toBe(
+      "${{ github.event_name }}",
     );
     for (const name of releaseJobs) {
-      expect(jobs[name]?.if).toBe(hasTag);
+      // release-gate adds only what lets a retry pass chart-publish-main,
+      // which runs on a push alone.
+      expect(jobs[name]?.if).toBe(
+        name === "release-gate"
+          ? `!cancelled() && ${hasTag} && (needs.chart-publish-main.result == 'success' || github.event_name == 'workflow_dispatch')`
+          : hasTag,
+      );
       expect(needsOf(name)).toContain("release-detect");
     }
+  });
+
+  test("a retry stages its own images up to index-main and promotes no main-<12>", () => {
+    expect(needsOf("publish-main")).toContain("release-detect");
+    expect(jobs["publish-main"]?.if).toBe(
+      "!cancelled() && needs.build.result == 'success' && needs.supply-chain.result == 'success'" +
+        " && github.ref == 'refs/heads/main'" +
+        ` && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && ${hasTag}))`,
+    );
+    const pushOrRetry =
+      "contains(fromJSON('[\"push\",\"workflow_dispatch\"]'), github.event_name) && github.ref == 'refs/heads/main'";
+    for (const name of ["sources-main", "index-main"]) {
+      expect(jobs[name]?.if).toBe(pushOrRetry);
+    }
+    for (const name of ["promote-main", "chart-main", "chart-publish-main"]) {
+      expect(jobs[name]?.if).toBe(
+        "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      );
+    }
+    // What a retry promotes and approves still comes from index-main.
+    for (const name of ["worker-compat-release", "promote-release"]) {
+      expect(needsOf(name)).toContain("index-main");
+    }
+    expect(needsOf("sources-release")).toContain("publish-main");
   });
 
   test("one approval, in front of every write the release makes", () => {
@@ -164,9 +197,18 @@ describe("the release jobs of a main run", () => {
     expect(jobs["release-gate"]?.steps.map((step) => step.run)).toEqual([
       undefined,
       ".github/scripts/release-auto.sh ci",
+      ".github/scripts/release-auto.sh main-chain",
       ".github/scripts/release-auto.sh conformance",
       ".github/scripts/release-auto.sh free",
     ]);
+    // The push run's chain stands in for a retry's own only on a retry.
+    expect(
+      (jobs["release-gate"]?.steps[2] as { if?: string } | undefined)?.if,
+    ).toBe("github.event_name == 'workflow_dispatch'");
+    expect(jobs["release-gate"]?.permissions).toEqual({
+      contents: "read",
+      actions: "read",
+    });
     // Every Debian source is verified, not only warned about, before the approval.
     expect(jobs["sources-release"]?.env?.RELEASE_REF).toBe(
       "refs/tags/${{ needs.release-detect.outputs.tag }}",
@@ -407,7 +449,12 @@ esac
         const run = sh(
           directory,
           [script("release-auto.sh"), "detect"],
-          { BEFORE: beforeSha, AFTER: second, GITHUB_OUTPUT: output },
+          {
+            EVENT: "push",
+            BEFORE: beforeSha,
+            AFTER: second,
+            GITHUB_OUTPUT: output,
+          },
           repo,
         );
         return {
@@ -551,6 +598,172 @@ esac
       const run = detect(null, base);
       expect(run.code).toBe(1);
       expect(run.err).toContain("more than one");
+    });
+
+    /** One commit with this CHANGELOG, read by a manual run (EVENT). */
+    const retry = (
+      body: string,
+      replies: Reply[] = [absent, noRelease],
+      event = "workflow_dispatch",
+    ) =>
+      sandbox((directory) => {
+        const repo = join(directory, "repo");
+        mkdirSync(repo);
+        git(repo, "init", "-q", "-b", "main");
+        writeFileSync(join(repo, "CHANGELOG.md"), body);
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m", "head");
+        const head = git(repo, "rev-parse", "HEAD");
+        const calls = fakeGh(directory, replies);
+        const output = join(directory, "github-output");
+        const run = sh(
+          directory,
+          [script("release-auto.sh"), "detect"],
+          { EVENT: event, AFTER: head, GITHUB_OUTPUT: output },
+          repo,
+        );
+        return {
+          ...run,
+          calls: calls(),
+          output: existsSync(output) ? readFileSync(output, "utf8") : "",
+        };
+      });
+
+    describe("a manual run (a retry)", () => {
+      test("retries the top version heading when its tag and Release are free", () => {
+        const run = retry(base);
+        expect(run.code).toBe(0);
+        expect(run.out).toContain("release tag: v0.1.1");
+        expect(run.output).toBe("tag=v0.1.1\n");
+        expect(run.calls.length).toBe(2);
+        expect(run.calls[0]).toContain("git/ref/tags/v0.1.1");
+      });
+
+      test("a released version is not retried, and that is no failure", () => {
+        const tagged = retry(base, [
+          { match: "git/ref/tags/", out: "{}" },
+          noRelease,
+        ]);
+        expect(tagged.code).toBe(0);
+        expect(tagged.out).toContain(
+          "v0.1.1 is not retried: tag v0.1.1 already exists",
+        );
+        expect(tagged.out).toContain("release tag: none");
+        expect(tagged.output).toBe("tag=\n");
+        // A draft Release holds the name as well.
+        const drafted = retry(base, [
+          absent,
+          { match: "releases?per_page", out: "991" },
+        ]);
+        expect(drafted.code).toBe(0);
+        expect(drafted.out).toContain("a Release for v0.1.1 already exists");
+        expect(drafted.output).toBe("tag=\n");
+      });
+
+      test("a lookup that fails stops the run rather than skipping the release", () => {
+        const run = retry(base, [
+          { match: "git/ref/tags/", code: 1, out: "Server Error (HTTP 500)" },
+          noRelease,
+        ]);
+        expect(run.code).toBe(1);
+        expect(run.err).toContain("could not look up");
+        expect(run.output).toBe("");
+      });
+
+      test("a CHANGELOG with no version heading releases nothing and asks GitHub nothing", () => {
+        const run = retry("# 변경 기록\n\n## 미출시\n\n- an edit\n");
+        expect(run.code).toBe(0);
+        expect(run.output).toBe("tag=\n");
+        expect(run.calls).toEqual([]);
+      });
+
+      test.each([
+        [
+          "a top heading that is no version",
+          changelog("v1.2", "v0.1.1"),
+          "is not v",
+        ],
+        [
+          "a top heading of build metadata",
+          changelog("v1.2.3+b", "v0.1.1"),
+          "is not v",
+        ],
+        [
+          "a duplicated heading",
+          changelog("v0.1.2", "v0.1.2", "v0.1.1"),
+          "more than one section",
+        ],
+      ])("%s is refused", (_name, body, why) => {
+        const run = retry(body);
+        expect(run.code).toBe(1);
+        expect(run.err).toContain(why);
+        expect(run.output).toBe("");
+      });
+
+      test("only a push and a manual run read a release", () => {
+        const run = retry(base, undefined, "schedule");
+        expect(run.code).toBe(1);
+        expect(run.err).toContain("no release is read from a schedule run");
+        expect(run.calls).toEqual([]);
+      });
+    });
+  });
+
+  describe("main-chain", () => {
+    // The fake gh prints what the script's --jq would have made of the answer.
+    const mainChain = (replies: Reply[]) =>
+      sandbox((directory) => {
+        const calls = fakeGh(directory, replies);
+        return {
+          ...sh(directory, [script("release-auto.sh"), "main-chain"], {
+            GITHUB_SHA: sha,
+          }),
+          calls: calls(),
+        };
+      });
+    const pushRun = { match: "actions/workflows/images.yml/runs", out: "4552" };
+
+    test("passes when the push run of this commit got chart-publish-main through", () => {
+      const run = mainChain([
+        pushRun,
+        { match: "actions/runs/4552/jobs", out: "success" },
+      ]);
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("chart-publish-main passed in Images run 4552");
+      expect(run.calls[0]).toContain(`head_sha=${sha}`);
+      expect(run.calls[0]).toContain("event=push");
+      expect(run.calls[0]).toContain("branch=main");
+      expect(run.calls[1]).toContain('select(.name == "chart-publish-main")');
+    });
+
+    test.each([
+      ["failure", "is failure"],
+      ["skipped", "is skipped"],
+      ["", "is absent"],
+    ])("a chart-publish-main that is %j stops the release", (answer, why) => {
+      const run = mainChain([
+        pushRun,
+        { match: "actions/runs/4552/jobs", out: answer },
+      ]);
+      expect(run.code).toBe(1);
+      expect(run.err).toContain(why);
+    });
+
+    test("no push run, or a failed lookup, stops the release", () => {
+      const none = mainChain([
+        { match: "actions/workflows/images.yml/runs", out: "" },
+      ]);
+      expect(none.code).toBe(1);
+      expect(none.err).toContain(`no Images push run of ${sha}`);
+      const broken = mainChain([
+        {
+          match: "actions/workflows/images.yml/runs",
+          code: 1,
+          out: "HTTP 500",
+        },
+      ]);
+      expect(broken.code).toBe(1);
+      expect(broken.err).toContain("could not read the Images push runs");
     });
   });
 
