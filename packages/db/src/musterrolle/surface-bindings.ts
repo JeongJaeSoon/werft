@@ -1421,7 +1421,7 @@ async function resolve(
         WHERE installation_id = ${after.installationId}
           AND channel_id = ${after.channelId}
           AND status = 'pending'
-          AND kind <> 'notice'`);
+          AND NOT (kind = 'notice' AND session_id IS NULL)`);
     }
     const receiptId = await writeReceipt(
       tx,

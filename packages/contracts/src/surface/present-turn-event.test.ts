@@ -315,6 +315,29 @@ describe("presentTurnEvent", () => {
     ]);
   });
 
+  test("a budget account's refusal says whose account by key; a refusal without an owner keeps its text", () => {
+    const refused = (budget_owner?: "user" | "team") => ({
+      code: contracts.BUDGET_ACCOUNT_REFUSED_EVENT_CODE,
+      message: "refused",
+      ...(budget_owner === undefined ? {} : { budget_owner }),
+    });
+    for (const [owner, key] of [
+      ["user", "session.event.error.budgetAccountUser"],
+      ["team", "session.event.error.budgetAccountTeam"],
+    ] as const) {
+      expect(
+        presentTurnEvent({ event: "error", data: refused(owner) }),
+      ).toEqual({
+        label: { key: "session.event.kind.error" },
+        summary: [{ key }],
+        error: true,
+      });
+    }
+    expect(
+      presentTurnEvent({ event: "error", data: refused() }).summary,
+    ).not.toContainEqual({ key: "session.event.error.budgetAccountUser" });
+  });
+
   test("an attempt cut for a removed model says so by key, other errors keep their text", () => {
     const cut = {
       code: contracts.MODEL_NOT_ALLOWED_EVENT_CODE,

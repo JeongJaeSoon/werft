@@ -1,5 +1,5 @@
 import { z } from "zod";
-
+import { BUDGET_OWNER_KIND_VALUES } from "../domain/budget.ts";
 import { releaseLabelSchema } from "../kollegium/agents.ts";
 import { envRefusalSchema } from "../kollegium/env-variables.ts";
 import {
@@ -225,10 +225,14 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   }),
   // The session has spent SESSION_COST_LIMIT_USD or used SESSION_TOKEN_LIMIT
   // tokens, so no further turn is
-  // dispatched; input is still queued.
+  // dispatched; input is still queued. With budget_owner, the session's own
+  // limit was not reached: the monthly budget account its calls are charged
+  // to refused one (the requester's, `user`, or the agent team's, `team`).
+  // That one is told until a turn of the session completes after it.
   z.object({
     code: z.literal("BUDGET_EXCEEDED"),
     reason: z.string().min(1),
+    budget_owner: z.enum(BUDGET_OWNER_KIND_VALUES).optional(),
   }),
   // A turn ran that no trusted checkpoint covers, so the next worker could
   // only start a new engine session without it. The session is
