@@ -514,6 +514,27 @@ describe("manifest check at a start of the API", () => {
     expect(waits).toEqual([30_000]);
   });
 
+  test.each([
+    [true, "slack_refused"],
+    [false, "no_answer"],
+  ] as const)(
+    "a config token rotation Slack answered %p to records %s",
+    async (answered, reason) => {
+      const { service, slack, appId, advance, sync } = await subscribedApp();
+      dropEvent(slack, appId);
+      advance(24 * 60 * 60_000);
+      slack.state.next.rotate = async () => {
+        throw new SlackApiError(
+          "tooling.tokens.rotate",
+          answered ? "internal_error" : "timeout",
+          answered,
+        );
+      };
+      expect((await service.syncAgentAppManifests()).failed).toBe(1);
+      expect((await sync())?.error).toBe(reason);
+    },
+  );
+
   test("an app with no event subscription is left for Finalize", async () => {
     const { service, slack, appId, calls } = await subscribedApp();
     delete manifestOf(slack, appId).settings.event_subscriptions;

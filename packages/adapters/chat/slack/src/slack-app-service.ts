@@ -1176,8 +1176,11 @@ function manifestSyncErrorOf(error: unknown): SlackManifestSyncError | null {
   if (
     error instanceof SessionServiceError &&
     error.code === "BACKEND_UNAVAILABLE"
-  )
+  ) {
+    if (error.cause instanceof SlackApiError)
+      return manifestSyncErrorOf(error.cause);
     return rateLimitOf(error) === null ? "no_answer" : "slack_refused";
+  }
   return null;
 }
 
