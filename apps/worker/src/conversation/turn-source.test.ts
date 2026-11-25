@@ -139,4 +139,45 @@ describe("HttpConversationTurnSource", () => {
       await expect(s.report(turn, failed)).rejects.toThrow(String(status));
     }
   });
+
+  test("a read tool call names the turn, its lease and the tool alone; the server's verdict on the turn is turn_not_held", async () => {
+    const { calls, source: s } = source(() =>
+      Response.json({ outcome: "read", text: "{}" }),
+    );
+    expect(await s.readTool(turn, "read_turns", live)).toEqual({
+      outcome: "read",
+      text: "{}",
+    });
+    expect(calls).toEqual([
+      {
+        url: "http://api:3000/internal/conversation-runtime/read-tool",
+        authorization: expect.stringMatching(/^Bearer /),
+        body: {
+          runtime_id: runtimeId,
+          turn_id: turn.turn_id,
+          lease_id: turn.lease_id,
+          tool: "read_turns",
+        },
+      },
+    ]);
+    for (const [status, code] of [
+      [403, "FORBIDDEN"],
+      [404, "NOT_FOUND"],
+      [409, "REQUEST_EXPIRED"],
+    ] as const) {
+      const { source: refused } = source(() => problem(status, code));
+      expect(await refused.readTool(turn, "read_thread", live)).toEqual({
+        outcome: "turn_not_held",
+      });
+    }
+    const { source: down } = source(() => problem(503, "BACKEND_UNAVAILABLE"));
+    await expect(down.readTool(turn, "read_thread", live)).rejects.toThrow(
+      "503",
+    );
+    // An answer off the schema is not handed to the model.
+    const { source: odd } = source(() =>
+      Response.json({ outcome: "read", text: "x".repeat(20_000) }),
+    );
+    await expect(odd.readTool(turn, "read_thread", live)).rejects.toThrow();
+  });
 });
