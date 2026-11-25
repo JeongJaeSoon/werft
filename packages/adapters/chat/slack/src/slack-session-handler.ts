@@ -161,7 +161,11 @@ export type SlackSessionHandlerDeps = {
    * table answers `m2`: a conversation turn, queued (v1-b/D1).
    */
   mentionTurns: {
-    start(request: MentionTurnRequest): Promise<MentionTurnStart>;
+    /** `queuing` runs between the turn's write and its queueing. */
+    start(
+      request: MentionTurnRequest,
+      queuing: () => Promise<void>,
+    ): Promise<MentionTurnStart>;
   };
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** The agent's active release, which a new thread's session runs. */
@@ -432,26 +436,45 @@ export function createSlackSessionHandler(
       if (conversation === null) {
         throw new Error("A Slack channel has no conversation");
       }
-      const started = await deps.mentionTurns.start({
-        workspaceId: agent.workspaceId,
-        agentId: agent.agentId,
-        conversationId: conversation.id,
-        topicId: await topicOf(
-          place,
-          claim.teamId,
-          threadTs,
-          agent,
-          conversation,
-        ),
-        slackInstallationId: agent.installationId,
-        message: {
-          teamId: claim.teamId,
-          channelId: event.channel,
-          ts: event.ts,
+      // Before a runtime can take the turn, so an ending never comes first.
+      const processing = async () => {
+        try {
+          await deps.slack.setStatus(botToken, {
+            channelId: event.channel,
+            threadTs,
+            status: "processing",
+          });
+        } catch (error) {
+          // The turn goes on without it; its end sets the thread back anyway.
+          deps.logger.warn("Slack status not set for a mention turn", {
+            ...ids,
+            code: error instanceof SlackApiError ? error.code : "error",
+          });
+        }
+      };
+      const started = await deps.mentionTurns.start(
+        {
+          workspaceId: agent.workspaceId,
+          agentId: agent.agentId,
+          conversationId: conversation.id,
+          topicId: await topicOf(
+            place,
+            claim.teamId,
+            threadTs,
+            agent,
+            conversation,
+          ),
+          slackInstallationId: agent.installationId,
+          message: {
+            teamId: claim.teamId,
+            channelId: event.channel,
+            ts: event.ts,
+          },
+          requesterUserId,
+          text,
         },
-        requesterUserId,
-        text,
-      });
+        processing,
+      );
       if (started.outcome !== "queued") {
         deps.logger.info("Slack mention not made a turn", {
           ...ids,
@@ -463,19 +486,6 @@ export function createSlackSessionHandler(
         ...ids,
         turn_id: started.turnId,
       });
-      try {
-        await deps.slack.setStatus(botToken, {
-          channelId: event.channel,
-          threadTs,
-          status: "processing",
-        });
-      } catch (error) {
-        // The turn goes on without it; its end sets the thread back anyway.
-        deps.logger.warn("Slack status not set for a mention turn", {
-          ...ids,
-          code: error instanceof SlackApiError ? error.code : "error",
-        });
-      }
     };
 
     // A person wrote in the thread, whatever becomes of it: the bots there

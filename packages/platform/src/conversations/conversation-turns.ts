@@ -277,7 +277,9 @@ export type MentionTurnStart =
   | { outcome: "unknown_agent" }
   | { outcome: "unknown_conversation" }
   | { outcome: "no_active_release" }
-  | { outcome: "connection_unavailable" };
+  | { outcome: "connection_unavailable" }
+  // Longer than a turn's input may be.
+  | { outcome: "too_long" };
 
 /** A mention's turn whose Slack thread was set to "processing" and not yet back. */
 export type MentionTurnDue = {
@@ -291,18 +293,25 @@ export type MentionTurnDue = {
 };
 
 export interface MentionTurnStatusStore {
-  /** Up to `limit` mention turns whose thread status is still due, oldest first. */
-  due(limit: number): Promise<MentionTurnDue[]>;
   /**
-   * Marks the turn's thread status set back, once: `send` for the one
-   * marker, `superseded` when a newer mention turn of the thread is still
-   * due, whose "processing" stays; `done` when it was marked before.
+   * Up to `limit` mention turns whose thread status is still due, oldest
+   * first; none another pass claimed within `claimMs`.
    */
-  markReset(
+  due(limit: number, claimMs: number): Promise<MentionTurnDue[]>;
+  /**
+   * Claims setting the turn's thread back, for `claimMs`: `send` for the
+   * one claim; `superseded`, marked set back with nothing to send, when a
+   * newer mention turn of the thread is still due, whose "processing"
+   * stays; `done` when it was set back or another pass holds it.
+   */
+  claimReset(
     turnId: ConversationTurnId,
+    claimMs: number,
   ): Promise<"send" | "superseded" | "done">;
-  /** Takes the mark back, so a later pass sends again. */
-  unmarkReset(turnId: ConversationTurnId): Promise<void>;
+  /** Marks the thread set back, once Slack took it. */
+  confirmReset(turnId: ConversationTurnId): Promise<void>;
+  /** Lets the claim go, so a later pass sends again. */
+  releaseReset(turnId: ConversationTurnId): Promise<void>;
 }
 
 export type MentionTurnEndings = {
@@ -338,6 +347,11 @@ export async function endMentionTurns(deps: {
   /** How long a turn may wait to be taken, and then run. */
   takeMs: number;
   leaseMs: number;
+  /**
+   * How long a claim to set a thread back holds: past it, the pass that
+   * claimed is taken to be gone and the next one sends.
+   */
+  claimMs: number;
   limit: number;
   /** Epoch milliseconds, by the pass's clock. */
   deadline: number;
@@ -354,7 +368,7 @@ export async function endMentionTurns(deps: {
     superseded: 0,
     failed: 0,
   };
-  for (const turn of await deps.statuses.due(deps.limit)) {
+  for (const turn of await deps.statuses.due(deps.limit, deps.claimMs)) {
     // The pass's own time, whatever clock the turns are judged by.
     if (Date.now() >= deps.deadline) break;
     const at = now();
@@ -382,16 +396,18 @@ export async function endMentionTurns(deps: {
           ? { turn_failure: outcome.reason }
           : {}),
       });
-      const mark = await deps.statuses.markReset(turn.turnId);
-      if (mark === "superseded") result.superseded += 1;
-      if (mark !== "send") continue;
+      const claim = await deps.statuses.claimReset(turn.turnId, deps.claimMs);
+      if (claim === "superseded") result.superseded += 1;
+      if (claim !== "send") continue;
       try {
         await deps.setActive(turn);
-        result.reset += 1;
       } catch (error) {
-        await deps.statuses.unmarkReset(turn.turnId);
+        await deps.statuses.releaseReset(turn.turnId);
         throw error;
       }
+      // Unconfirmed, the claim runs out and a later pass sends again.
+      await deps.statuses.confirmReset(turn.turnId);
+      result.reset += 1;
     } catch (error) {
       // One turn's failure leaves the others going; it is tried next pass.
       result.failed += 1;

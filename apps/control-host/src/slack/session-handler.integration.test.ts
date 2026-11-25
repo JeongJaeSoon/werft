@@ -21,6 +21,7 @@ import {
   agentCardRequestSchema,
   BOT_SCOPES,
   CONVERSATION_TURN_LEASE_MS,
+  CONVERSATION_TURN_TEXT_MAX,
   type ConversationInputId,
   type ConversationTurnId,
   type ConversationTurnResult,
@@ -43,6 +44,7 @@ import {
   createPostgresConversationTurnQueue,
   createPostgresCredentialBindingStore,
   createPostgresGitHubMcpStore,
+  createPostgresMentionTurnStatuses,
   createPostgresSecretStore,
   createPostgresSessionLinkStore,
   createPostgresSessionReader,
@@ -3795,7 +3797,7 @@ describe.each(ENGINES)(
         .map((status) => status.status);
     const secrets = () => createPostgresSecretStore(db, key);
     /** The Slack role's step, as a pass runs it after the inbox. */
-    const endings = (now?: Date) =>
+    const endings = (now?: Date, claimMs = 60_000) =>
       slackMentionTurnEndings({
         db,
         secretKey: key,
@@ -3805,6 +3807,7 @@ describe.each(ENGINES)(
           slackBotToken(secrets(), workspaceId, slackAppId),
         logger,
         limit: 10,
+        claimMs,
         deadline: Date.now() + 10_000,
         ...(now === undefined ? {} : { now: () => now }),
       });
@@ -4085,6 +4088,81 @@ describe.each(ENGINES)(
       await endings();
       await endings();
       expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a pass that dies between its claim and Slack leaves the thread to a later pass, once the claim runs out", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), { outcome: "completed", text: "ok" });
+      const [turn] = await mentionTurnsOf(fixture);
+      // The dead pass's claim, with no status sent after it.
+      expect(
+        await createPostgresMentionTurnStatuses(db).claimReset(
+          turn?.id as ConversationTurnId,
+          60_000,
+        ),
+      ).toBe("send");
+      await endings();
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+      expect((await mentionTurnsOf(fixture))[0]?.resetAt).toBeNull();
+      await endings(undefined, 0);
+      await endings(undefined, 0);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("two passes at once set the thread back once", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), { outcome: "completed", text: "ok" });
+      await Promise.all([endings(), endings()]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("the thread is processing before a runtime can take the turn", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const queued = () =>
+        db
+          .select({ id: schema.conversationTurnQueue.turnId })
+          .from(schema.conversationTurnQueue)
+          .then((rows) => rows.length);
+      const before = await queued();
+      // Read as Slack records the status, before its answer reaches the handler.
+      const atStatus: Promise<number>[] = [];
+      const push = slack.statuses.push.bind(slack.statuses);
+      slack.statuses.push = (...items) => {
+        atStatus.push(queued());
+        return push(...items);
+      };
+      try {
+        await deliver(fixture, mention("100.000100"));
+        await drain(handler().handle);
+      } finally {
+        delete (slack.statuses as { push?: unknown }).push;
+      }
+      expect(await Promise.all(atStatus)).toEqual([before]);
+      expect(await queued()).toBe(before + 1);
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+    });
+
+    test("rollout on: a mention longer than a turn's input is no turn, no status and no session", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle, notices } = handler();
+      await deliver(
+        fixture,
+        mention("100.000100", {
+          text: `<@${BOT_USER}> ${"a".repeat(CONVERSATION_TURN_TEXT_MAX + 1)}`,
+        }),
+      );
+      await drain(handle);
+      expect(await mentionTurnsOf(fixture)).toEqual([]);
+      expect(await db.select().from(schema.conversationEngagements)).toEqual(
+        [],
+      );
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(slack.statuses).toEqual([]);
+      expect(notices).toEqual([]);
     });
 
     test("rollout on: a mention where the channel listens to nothing is no turn and no session", async () => {

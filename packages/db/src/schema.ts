@@ -5789,6 +5789,11 @@ export const conversationTurns = pgTable(
     slackStatusResetAt: timestamp("slack_status_reset_at", {
       withTimezone: true,
     }),
+    // When a Slack role pass took on setting it back; a pass that died
+    // holding it is passed over once the claim runs out.
+    slackStatusClaimedAt: timestamp("slack_status_claimed_at", {
+      withTimezone: true,
+    }),
   },
   (table) => [
     foreignKey({

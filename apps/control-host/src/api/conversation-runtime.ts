@@ -311,7 +311,18 @@ export function createMentionConversationTurns(deps: {
 }) {
   const now = deps.now ?? (() => new Date());
   return {
-    async start(request: MentionTurnRequest): Promise<MentionTurnStart> {
+    /**
+     * `queuing` runs once the turn is written and before a runtime can take
+     * it, so what it tells the thread is never told after the turn's end.
+     */
+    async start(
+      request: MentionTurnRequest,
+      queuing: () => Promise<void>,
+    ): Promise<MentionTurnStart> {
+      // Before the turn is written: a turn's input could never hold it.
+      if (request.text.length > CONVERSATION_TURN_TEXT_MAX) {
+        return { outcome: "too_long" };
+      }
       const agent = await deps.agents.get(request.workspaceId, request.agentId);
       if (agent === null) return { outcome: "unknown_agent" };
       const release = agent.active_release;
@@ -347,6 +358,7 @@ export function createMentionConversationTurns(deps: {
       }
       if (issued.outcome !== "issued") return { outcome: issued.outcome };
       try {
+        await queuing();
         const at = now();
         // The engagement keeps a repeated event from a second turn, so each
         // turn's input is its own and tried once.

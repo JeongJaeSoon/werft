@@ -311,6 +311,8 @@ export function slackMentionTurnEndings(deps: {
   botToken: Parameters<typeof setMentionThreadActive>[0]["botToken"];
   logger: StructuredLogger;
   limit: number;
+  /** How long one pass may run, past which its claims are taken over. */
+  claimMs: number;
   deadline: number;
   now?: () => Date;
 }) {
@@ -329,6 +331,7 @@ export function slackMentionTurnEndings(deps: {
       ),
     takeMs: OPERATOR_TURN_TAKE_MS,
     leaseMs: CONVERSATION_TURN_LEASE_MS,
+    claimMs: deps.claimMs,
     limit: deps.limit,
     deadline: deps.deadline,
     logger: deps.logger,
@@ -433,6 +436,8 @@ export async function main(
       botToken,
       logger,
       limit: settings.batchSize,
+      // The pass's timeout: a pass still holding a claim then is gone.
+      claimMs: 2 * settings.passBudgetMs,
       deadline,
     });
     if (mentions.ended + mentions.failed > 0) {

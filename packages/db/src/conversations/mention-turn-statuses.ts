@@ -9,14 +9,14 @@ import { rowsOf } from "../statement-rows.ts";
 
 /**
  * The mention turns whose Slack thread was set to "processing": which are
- * still due to be set back, and the one mark that lets a thread be told
- * `active` once.
+ * still due to be set back, and the claim and mark that tell a thread
+ * `active` once, again only when a pass dies holding the claim.
  */
 export function createPostgresMentionTurnStatuses(
   db: Database,
 ): MentionTurnStatusStore {
   return {
-    async due(limit) {
+    async due(limit, claimMs) {
       const rows = rowsOf<{
         id: ConversationTurnId;
         workspace_id: string;
@@ -40,6 +40,9 @@ export function createPostgresMentionTurnStatuses(
           WHERE t.slack_status_reset_at IS NULL
             AND t.slack_installation_id IS NOT NULL
             AND t.origin = 'm2'
+            AND (t.slack_status_claimed_at IS NULL
+              OR t.slack_status_claimed_at
+                < now() - ${claimMs} * interval '1 millisecond')
             AND tp.slack_thread_ts IS NOT NULL
             AND EXISTS (SELECT 1 FROM conversation_engagements e
               WHERE e.conversation_turn_id = t.id AND e.kind = 'mention')
@@ -62,27 +65,38 @@ export function createPostgresMentionTurnStatuses(
       );
     },
 
-    async markReset(turnId) {
+    async claimReset(turnId, claimMs) {
       // A newer turn of the thread still due holds its "processing": this
-      // one is marked without being sent.
-      const [marked] = rowsOf<{ superseded: boolean }>(
+      // one is marked set back without being sent.
+      const [claimed] = rowsOf<{ superseded: boolean }>(
         await db.execute(sql`
-          UPDATE conversation_turns t SET slack_status_reset_at = now()
+          UPDATE conversation_turns t SET slack_status_claimed_at = now(),
+            slack_status_reset_at = CASE WHEN EXISTS (
+              SELECT 1 FROM conversation_turns n
+              WHERE n.topic_id = t.topic_id AND n.id <> t.id
+                AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
+                AND n.slack_status_reset_at IS NULL
+                AND n.created_at > t.created_at) THEN now() END
           WHERE t.id = ${turnId}::uuid AND t.slack_status_reset_at IS NULL
-          RETURNING EXISTS (SELECT 1 FROM conversation_turns n
-            WHERE n.topic_id = t.topic_id AND n.id <> t.id
-              AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
-              AND n.slack_status_reset_at IS NULL
-              AND n.created_at > t.created_at) AS superseded`),
+            AND (t.slack_status_claimed_at IS NULL
+              OR t.slack_status_claimed_at
+                < now() - ${claimMs} * interval '1 millisecond')
+          RETURNING t.slack_status_reset_at IS NOT NULL AS superseded`),
       );
-      if (marked === undefined) return "done";
-      return marked.superseded ? "superseded" : "send";
+      if (claimed === undefined) return "done";
+      return claimed.superseded ? "superseded" : "send";
     },
 
-    async unmarkReset(turnId) {
+    async confirmReset(turnId) {
       await db.execute(sql`
-        UPDATE conversation_turns SET slack_status_reset_at = NULL
-        WHERE id = ${turnId}::uuid`);
+        UPDATE conversation_turns SET slack_status_reset_at = now()
+        WHERE id = ${turnId}::uuid AND slack_status_reset_at IS NULL`);
+    },
+
+    async releaseReset(turnId) {
+      await db.execute(sql`
+        UPDATE conversation_turns SET slack_status_claimed_at = NULL
+        WHERE id = ${turnId}::uuid AND slack_status_reset_at IS NULL`);
     },
   };
 }
