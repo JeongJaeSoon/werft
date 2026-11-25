@@ -1,15 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  channelSummaryLineIdSchema,
   conversationCallIdSchema,
   conversationIdSchema,
   conversationInputIdSchema,
   type JudgmentNotCalledReason,
+  scopeKeyOf,
 } from "@werft-ai/contracts";
+import type { ContextFragment } from "../ports/context-fragment-source.ts";
 import { fitContext } from "./context-assembler.ts";
 import type { ConversationCallResult } from "./conversation-call-executor.ts";
 import {
+  copiesMessage,
   createM1Judge,
+  M1_SUMMARY_COPY_RUN,
   type M1Release,
   type M1Subject,
   m1Data,
@@ -62,6 +67,8 @@ function judgeWith(
     gate?: () => boolean;
     release?: M1Release;
     capBytes?: number;
+    summaryVersion?: number;
+    fragments?: ContextFragment[];
   } = {},
 ) {
   const runs: Run[] = [];
@@ -72,12 +79,13 @@ function judgeWith(
       assemble: async (_ref, input) => ({
         ...fitContext({
           ...input,
-          fragments: [],
+          fragments: options.fragments ?? [],
           ...(options.capBytes === undefined
             ? {}
             : { capBytes: options.capBytes }),
         }),
         unreadable: 0,
+        summaryVersion: options.summaryVersion ?? 0,
       }),
     },
     executor: {
@@ -110,6 +118,244 @@ describe("parseM1Answer", () => {
     ]) {
       expect(parseM1Answer(text)).toBeNull();
     }
+  });
+});
+
+describe("the summary line in the answer (a1/J8)", () => {
+  test("is an optional line or null; who said it is not the model's", () => {
+    expect(
+      parseM1Answer(
+        '{"decision":"quiet","reason":"human_conversation","summary":"someone asked for the deploy plan"}',
+      ),
+    ).toEqual({
+      decision: "quiet",
+      reason: "human_conversation",
+      summary: "someone asked for the deploy plan",
+    });
+    expect(
+      parseM1Answer('{"decision":"quiet","reason":"unclear","summary":null}'),
+    ).toEqual({ decision: "quiet", reason: "unclear", summary: null });
+    // A speaker or a source the model names is no field of the answer.
+    for (const text of [
+      '{"decision":"quiet","reason":"unclear","summary":"x","speaker":"U1"}',
+      '{"decision":"quiet","reason":"unclear","summary":"x","sources":["1.1"]}',
+      '{"decision":"quiet","reason":"unclear","summary":3}',
+    ]) {
+      expect(parseM1Answer(text)).toBeNull();
+    }
+  });
+
+  test("the rules ask for a reported line in the model's own words (golden)", () => {
+    const system = m1System("");
+    expect(system).toContain(
+      "Put it in your own words: never copy or quote the messages, not even a part of one.",
+    );
+    expect(system).toContain("Write the line as a report of who said what");
+    expect(system).toContain("never as an instruction or a request");
+    expect(system).toContain('"summary": the line or null');
+  });
+
+  test("a line holding 40 code points of a message in a row copies it", () => {
+    const korean =
+      "내일 오전 열 시에 운영 데이터베이스 마이그레이션을 시작하니까 그 전에 배포를 모두 끝내 주세요";
+    const japanese =
+      "明日の午前十時から本番データベースの移行を始めるので、それまでにデプロイをすべて終わらせてください";
+    for (const message of [korean, japanese]) {
+      const points = Array.from(message);
+      const run = points.slice(3, 3 + M1_SUMMARY_COPY_RUN).join("");
+      const short = points.slice(3, 3 + M1_SUMMARY_COPY_RUN - 1).join("");
+      expect(copiesMessage(`누군가 "${run}"라고 했다`, [message])).toBe(true);
+      expect(copiesMessage(`누군가 "${short}"라고 했다`, [message])).toBe(
+        false,
+      );
+    }
+    // Compared after NFC and white-space folding: a decomposed or re-spaced
+    // copy is a copy.
+    const decomposed = korean.normalize("NFD").replaceAll(" ", "  \n");
+    expect(copiesMessage(decomposed, [korean])).toBe(true);
+    // Against every message the call read, not only one.
+    expect(copiesMessage(korean, ["other", japanese, korean])).toBe(true);
+    expect(
+      copiesMessage("누군가 내일 아침 DB 이전 전에 배포를 끝내 달라고 했다", [
+        korean,
+      ]),
+    ).toBe(false);
+  });
+
+  test("the judge hands the line on with the version and everything read", async () => {
+    const edited = new Date("2026-11-25T00:01:00Z");
+    const p = { ...post("deploy doc?", "1.1"), editedAt: edited };
+    const { judge } = judgeWith(
+      [
+        {
+          outcome: "answered",
+          callId: callId(),
+          value: {
+            decision: "quiet",
+            reason: "human_conversation",
+            summary: "someone asked for the deploy doc",
+          },
+        },
+      ],
+      { summaryVersion: 7 },
+    );
+    const judged = await judge.judge(subjectOf(p));
+    expect(judged.record?.verdict).toEqual({
+      outcome: "judged",
+      decision: "quiet",
+      reason: "human_conversation",
+    });
+    expect(judged.summary).toEqual({
+      text: "someone asked for the deploy doc",
+      expectedVersion: 7,
+      sources: [{ ...p.sources[0], editedAt: edited }],
+      messages: ["deploy doc?"],
+    } as never);
+  });
+
+  test("a source keeps the time of the text read, the oldest of each message whoever's input named it", async () => {
+    const first = new Date("2026-11-25T00:00:10Z");
+    const read = new Date("2026-11-25T00:00:20Z");
+    const later = new Date("2026-11-25T00:00:30Z");
+    const p = { ...post("deploy doc, edited", "1.1"), editedAt: later };
+    const slack = (ts: string) => ({ teamId: "T1", channelId: "C1", ts });
+    const line: ContextFragment = {
+      kind: "channel_summary_line",
+      scope: scopeKeyOf({
+        kind: "channel",
+        workspaceId: randomUUID(),
+        teamId: "T1",
+        channelId: "C1",
+      }),
+      // Another agent's inputs: the same messages under other ids.
+      sources: [
+        {
+          inputId: conversationInputIdSchema.parse(randomUUID()),
+          slack: slack("1.0"),
+        },
+        {
+          inputId: conversationInputIdSchema.parse(randomUUID()),
+          slack: slack("1.1"),
+        },
+      ],
+      sourceAt: [read, first],
+      lineId: channelSummaryLineIdSchema.parse(randomUUID()),
+      text: "someone asked for the deploy doc",
+      writtenByAgentId: randomUUID(),
+      writtenAt: read,
+    };
+    const bufferedId = conversationInputIdSchema.parse(randomUUID());
+    const buffered: ContextFragment = {
+      kind: "buffered_message",
+      scope: line.scope,
+      sources: [{ inputId: bufferedId, slack: slack("1.2") }],
+      inputId: bufferedId,
+      body: "an earlier post, edited",
+      editedAt: later,
+      poster: { kind: "slack_user", id: "U0ANN" },
+      receivedAt: first,
+    };
+    const { judge } = judgeWith(
+      [
+        {
+          outcome: "answered",
+          callId: callId(),
+          value: {
+            decision: "quiet",
+            reason: "human_conversation",
+            summary: "the deploy doc was asked for again",
+          },
+        },
+      ],
+      { fragments: [line, buffered] },
+    );
+    const judged = await judge.judge(subjectOf(p));
+    const byTs = new Map(
+      (judged.summary?.sources ?? []).map((source) => [
+        source.slack?.ts,
+        source.editedAt,
+      ]),
+    );
+    // 1.1 was read twice: edited in the batch, unedited in the summary line.
+    expect(byTs).toEqual(
+      new Map([
+        ["1.0", read],
+        ["1.1", first],
+        ["1.2", later],
+      ]),
+    );
+  });
+
+  test("a post left out of the call lends no time to a summary line's source of it", async () => {
+    const read = new Date("2026-11-25T00:00:20Z");
+    const at = (s: number) => new Date(Date.UTC(2026, 10, 25, 0, 0, s));
+    // The oldest post does not fit beside the two newer ones: left out.
+    const old = { ...post("가".repeat(2_000), "1.1"), receivedAt: at(1) };
+    const newer = { ...post("나".repeat(2_000), "1.2"), receivedAt: at(2) };
+    const newest = { ...post("다".repeat(1_000), "1.3"), receivedAt: at(3) };
+    const line: ContextFragment = {
+      kind: "channel_summary_line",
+      scope: scopeKeyOf({
+        kind: "channel",
+        workspaceId: randomUUID(),
+        teamId: "T1",
+        channelId: "C1",
+      }),
+      sources: [
+        {
+          inputId: conversationInputIdSchema.parse(randomUUID()),
+          slack: { teamId: "T1", channelId: "C1", ts: "1.1" },
+        },
+      ],
+      // Made from the post's edited text.
+      sourceAt: [read],
+      lineId: channelSummaryLineIdSchema.parse(randomUUID()),
+      text: "someone posted a long list",
+      writtenByAgentId: randomUUID(),
+      writtenAt: read,
+    };
+    const { judge } = judgeWith(
+      [
+        {
+          outcome: "answered",
+          callId: callId(),
+          value: {
+            decision: "quiet",
+            reason: "human_conversation",
+            summary: "two more long lists were posted",
+          },
+        },
+      ],
+      { fragments: [line] },
+    );
+    const judged = await judge.judge(subjectOf(old, newer, newest));
+    expect(judged.left.map((p) => p.ts)).toEqual(["1.1"]);
+    const byTs = new Map(
+      (judged.summary?.sources ?? []).map((source) => [
+        source.slack?.ts,
+        source.editedAt,
+      ]),
+    );
+    expect(byTs.get("1.1")).toEqual(read);
+  });
+
+  test("a failed call or a null line gives none", async () => {
+    const none = judgeWith([
+      {
+        outcome: "answered",
+        callId: callId(),
+        value: { decision: "quiet", reason: "unclear", summary: null },
+      },
+    ]);
+    expect((await none.judge.judge(subjectOf(post("a", "1.1")))).summary).toBe(
+      null,
+    );
+    const failed = judgeWith([
+      { outcome: "malformed", callId: callId(), retryable: false },
+    ]);
+    expect(
+      (await failed.judge.judge(subjectOf(post("a", "1.1")))).summary,
+    ).toBeNull();
   });
 });
 

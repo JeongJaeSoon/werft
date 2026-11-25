@@ -25,7 +25,10 @@ import {
 } from "../surface/slack-source-marks.ts";
 import { fixtureTeamSql } from "../testing/fixture-team.ts";
 import { newPartitionedSession } from "../testing/sessions.ts";
-import { createPostgresChannelSummaryStore } from "./channel-summaries.ts";
+import {
+  createPostgresChannelSummaryStore,
+  pruneChannelSummaryHistory,
+} from "./channel-summaries.ts";
 import { createPostgresConversationStore } from "./conversation-store.ts";
 import { lockSlackSourceMark } from "./source-mark-lock.ts";
 
@@ -34,13 +37,17 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 test("a summary line takes no speaker or place from its writer (G8)", () => {
   const line: NewChannelSummaryLine = {
     text: "x",
-    inputId: conversationInputIdSchema.parse(randomUUID()),
+    sources: [
+      { inputId: conversationInputIdSchema.parse(randomUUID()), slack: null },
+    ],
     // @ts-expect-error who spoke is the input row's to say
     speaker: { kind: "user", id: "someone" },
   };
   const placed: NewChannelSummaryLine = {
     text: "x",
-    inputId: conversationInputIdSchema.parse(randomUUID()),
+    sources: [
+      { inputId: conversationInputIdSchema.parse(randomUUID()), slack: null },
+    ],
     // @ts-expect-error where it was said is the input row's too
     ts: "1792800000.000100",
   };
@@ -141,6 +148,10 @@ integration("channel summaries (0325)", () => {
     return { id, ts };
   }
 
+  const src = (row: { id: ConversationInputId }) => ({
+    inputId: row.id,
+    slack: null,
+  });
   const placeOf = (channelId: string): ChannelSummaryPlace => ({
     workspaceId,
     teamId,
@@ -192,7 +203,7 @@ integration("channel summaries (0325)", () => {
     const channel = newChannel();
     const said = await input(channel, "U0ALICE");
     const written = await append(channel, 0, [
-      { text: "Alice asked for the deploy plan", inputId: said.id },
+      { text: "Alice asked for the deploy plan", sources: [src(said)] },
     ]);
     expect(written).toMatchObject({ version: 1, skipped: [] });
     const summary = await summaries.read(placeOf(channel));
@@ -210,6 +221,7 @@ integration("channel summaries (0325)", () => {
             channelId: channel,
             ts: said.ts,
             speaker: { kind: "slack_bot", id: "U0ALICE" },
+            at: new Date(Math.floor(Number(said.ts) * 1000)),
           },
         ],
       },
@@ -224,10 +236,10 @@ integration("channel summaries (0325)", () => {
       await input(channel),
     ];
     if (!a || !b || !c) throw new Error("inputs");
-    await append(channel, 0, [{ text: "line a", inputId: a.id }]);
+    await append(channel, 0, [{ text: "line a", sources: [src(a)] }]);
     await append(channel, 1, [
-      { text: "line b", inputId: b.id },
-      { text: "line c", inputId: c.id },
+      { text: "line b", sources: [src(b)] },
+      { text: "line c", sources: [src(c)] },
     ]);
     expect(await everyVersion(channel)).toEqual([
       [],
@@ -265,8 +277,8 @@ integration("channel summaries (0325)", () => {
     const [a, b] = [await input(channel), await input(channel)];
     if (!a || !b) throw new Error("inputs");
     const first = await append(channel, 0, [
-      { text: "line a", inputId: a.id },
-      { text: "line b", inputId: b.id },
+      { text: "line a", sources: [src(a)] },
+      { text: "line b", sources: [src(b)] },
     ]);
     const folded = await summaries.fold({
       place: placeOf(channel),
@@ -317,8 +329,8 @@ integration("channel summaries (0325)", () => {
     const [a, b] = [await input(channel), await input(channel)];
     if (!a || !b) throw new Error("inputs");
     const first = await append(channel, 0, [
-      { text: "line a", inputId: a.id },
-      { text: "line b", inputId: b.id },
+      { text: "line a", sources: [src(a)] },
+      { text: "line b", sources: [src(b)] },
     ]);
     await summaries.fold({
       place: placeOf(channel),
@@ -344,8 +356,8 @@ integration("channel summaries (0325)", () => {
     const [a, b] = [await input(channel, "U0A"), await input(channel, "U0B")];
     if (!a || !b) throw new Error("inputs");
     const first = await append(channel, 0, [
-      { text: "line a", inputId: a.id },
-      { text: "line b", inputId: b.id },
+      { text: "line a", sources: [src(a)] },
+      { text: "line b", sources: [src(b)] },
     ]);
     const folded = await summaries.fold({
       place: placeOf(channel),
@@ -372,8 +384,8 @@ integration("channel summaries (0325)", () => {
     const [a, b] = [await input(channel), await input(channel)];
     if (!a || !b) throw new Error("inputs");
     await append(channel, 0, [
-      { text: "line a", inputId: a.id },
-      { text: "line b", inputId: b.id },
+      { text: "line a", sources: [src(a)] },
+      { text: "line b", sources: [src(b)] },
     ]);
     expect(await marks().markEdited(mark(channel, a.ts))).toBe("recorded");
     expect(await everyVersion(channel)).toEqual([[], ["line b"], ["line b"]]);
@@ -383,7 +395,7 @@ integration("channel summaries (0325)", () => {
     const channel = newChannel();
     const a = await input(channel);
     const other = await input(channel);
-    await append(channel, 0, [{ text: "line a", inputId: a.id }]);
+    await append(channel, 0, [{ text: "line a", sources: [src(a)] }]);
     await marks().markDeleted(mark(channel, other.ts));
     expect((await summaries.read(placeOf(channel)))?.version).toBe(1);
   });
@@ -392,12 +404,14 @@ integration("channel summaries (0325)", () => {
     const channel = newChannel();
     const a = await input(channel);
     const b = await input(channel);
-    const first = await append(channel, 0, [{ text: "line a", inputId: a.id }]);
+    const first = await append(channel, 0, [
+      { text: "line a", sources: [src(a)] },
+    ]);
     const stale = await summaries.append({
       place: placeOf(channel),
       agentId,
       expectedVersion: 0,
-      lines: [{ text: "line b", inputId: b.id }],
+      lines: [{ text: "line b", sources: [src(b)] }],
     });
     expect(stale).toEqual({ outcome: "conflict", version: 1 });
     expect(
@@ -430,9 +444,9 @@ integration("channel summaries (0325)", () => {
     await marks().markDeleted(mark(channel, a.ts));
     await marks().markEdited(mark(channel, b.ts));
     const written = await append(channel, 0, [
-      { text: "line a", inputId: a.id },
-      { text: "line b", inputId: b.id },
-      { text: "line c", inputId: c.id },
+      { text: "line a", sources: [src(a)] },
+      { text: "line b", sources: [src(b)] },
+      { text: "line c", sources: [src(c)] },
     ]);
     expect(written.skipped.sort()).toEqual([a.id, b.id].sort());
     expect(await everyVersion(channel)).toEqual([[], ["line c"]]);
@@ -462,7 +476,7 @@ integration("channel summaries (0325)", () => {
           place: placeOf(channel),
           agentId,
           expectedVersion: 0,
-          lines: [{ text: "line a", inputId: a.id }],
+          lines: [{ text: "line a", sources: [src(a)] }],
         })
         .then((result) => {
           settled = true;
@@ -494,7 +508,7 @@ integration("channel summaries (0325)", () => {
           place: placeOf(channel),
           agentId,
           expectedVersion: 0,
-          lines: [{ text: "line a", inputId: a.id }],
+          lines: [{ text: "line a", sources: [src(a)] }],
         }),
       ).toMatchObject({ outcome: "written", version: 1 });
       let settled = false;
@@ -516,8 +530,8 @@ integration("channel summaries (0325)", () => {
     const [a, b] = [await input(channel), await input(channel)];
     if (!a || !b) throw new Error("inputs");
     const first = await append(channel, 0, [
-      { text: "line a", inputId: a.id },
-      { text: "line b", inputId: b.id },
+      { text: "line a", sources: [src(a)] },
+      { text: "line b", sources: [src(b)] },
     ]);
     let deleting: Promise<string> | undefined;
     await db.transaction(async (tx) => {
@@ -547,7 +561,7 @@ integration("channel summaries (0325)", () => {
   test("a read in a caller's transaction gives each line its sources", async () => {
     const channel = newChannel();
     const a = await input(channel, "U0IN");
-    await append(channel, 0, [{ text: "line a", inputId: a.id }]);
+    await append(channel, 0, [{ text: "line a", sources: [src(a)] }]);
     await db.transaction(async (tx) => {
       const summary = await createPostgresChannelSummaryStore(tx).read(
         placeOf(channel),
@@ -570,9 +584,12 @@ integration("channel summaries (0325)", () => {
           place: placeOf(channel),
           agentId,
           expectedVersion: 0,
-          lines: [{ text: "x", inputId: source.id }],
+          lines: [{ text: "x", sources: [src(source)] }],
         }),
-      ).toEqual({ outcome: "invalid_source", inputId: source.id });
+      ).toEqual({
+        outcome: "invalid_source",
+        source: { inputId: source.id, slack: null },
+      });
     }
     expect(await summaries.read(placeOf(channel))).toBeNull();
   });
@@ -582,7 +599,9 @@ integration("channel summaries (0325)", () => {
     const kept = newChannel();
     for (const channel of [gone, kept]) {
       const a = await input(channel);
-      const first = await append(channel, 0, [{ text: "line", inputId: a.id }]);
+      const first = await append(channel, 0, [
+        { text: "line", sources: [src(a)] },
+      ]);
       await summaries.fold({
         place: placeOf(channel),
         agentId,
@@ -615,7 +634,7 @@ integration("channel summaries (0325)", () => {
   test("a mark of a message a summary line points at outlives its retention", async () => {
     const channel = newChannel();
     const a = await input(channel);
-    await append(channel, 0, [{ text: "line a", inputId: a.id }]);
+    await append(channel, 0, [{ text: "line a", sources: [src(a)] }]);
     // The input row may go before the line (buffer expiry); the line keeps
     // the mark. Written straight in, as no mark store path leaves a line.
     await pool.query("DELETE FROM conversation_inputs WHERE id = $1", [a.id]);
@@ -629,5 +648,327 @@ integration("channel summaries (0325)", () => {
       [workspaceId, channel, a.ts],
     );
     expect(rows).toHaveLength(1);
+  });
+
+  describe("a1/J8 writes", () => {
+    const editMark = (channelId: string, ts: string, editedAt: Date) => ({
+      workspaceId,
+      teamId,
+      channelId,
+      ts,
+      at: editedAt,
+    });
+
+    test("an edit removes the lines made from the text before it, not one made from the edited text", async () => {
+      const channel = newChannel();
+      const [a, c] = [await input(channel), await input(channel)];
+      if (!a || !c) throw new Error("inputs");
+      const edited = new Date("2026-11-24T00:00:00.000Z");
+      // Before: line a was made from a's first text, line a2 from its
+      // edited text, line c from c's first text (no edit time: its ts).
+      await append(channel, 0, [
+        { text: "line a", sources: [src(a)] },
+        { text: "line a2", sources: [{ ...src(a), editedAt: edited }] },
+        { text: "line c", sources: [src(c)] },
+      ]);
+      expect(await marks().markEdited(editMark(channel, a.ts, edited))).toBe(
+        "recorded",
+      );
+      // After: only the line made before the edit went, from every version.
+      expect(await everyVersion(channel)).toEqual([
+        [],
+        ["line a2", "line c"],
+        ["line a2", "line c"],
+      ]);
+      const summary = await summaries.read(placeOf(channel));
+      expect(
+        summary?.lines.find((line) => line.text === "line a2")?.sources[0]?.at,
+      ).toEqual(edited);
+      // An edit later than the edited text it was made from removes it too.
+      await marks().markEdited(
+        editMark(channel, a.ts, new Date("2026-11-24T00:05:00.000Z")),
+      );
+      expect(
+        (await summaries.read(placeOf(channel)))?.lines.map((l) => l.text),
+      ).toEqual(["line c"]);
+      // A line read off text already edited since is not written at all.
+      const late = await summaries.append({
+        place: placeOf(channel),
+        agentId,
+        expectedVersion: 3,
+        lines: [
+          { text: "line a3", sources: [{ ...src(a), editedAt: edited }] },
+        ],
+      });
+      expect(late).toEqual({
+        outcome: "written",
+        version: 3,
+        lineIds: [],
+        skipped: [a.id],
+      });
+    });
+
+    test("a source read off a summary line keeps the time of the text the call read, not a newer line's", async () => {
+      const channel = newChannel();
+      const a = await input(channel);
+      if (!a) throw new Error("input");
+      const edited = new Date("2026-11-24T00:00:00.000Z");
+      const at = (ts: string) => new Date(Number(ts) * 1000);
+      const ofA = (editedAt: Date) => ({
+        inputId: null,
+        slack: { teamId, channelId: channel, ts: a.ts },
+        editedAt,
+      });
+      // A late call read line A, made from a's first text. Meanwhile the
+      // edit removed line A and line B was made from the edited text.
+      await append(channel, 0, [{ text: "line A", sources: [src(a)] }]);
+      await marks().markEdited(editMark(channel, a.ts, edited));
+      // The edit took line A out: a version of its own.
+      const afterEdit = (await summaries.read(placeOf(channel)))?.version ?? 0;
+      const { version } = await append(channel, afterEdit, [
+        { text: "line B", sources: [{ ...src(a), editedAt: edited }] },
+      ]);
+      // The input row is gone: a is known only by line B's source row.
+      await pool.query("DELETE FROM conversation_inputs WHERE id = $1", [a.id]);
+      const write = (editedAt: Date) =>
+        summaries.append({
+          place: placeOf(channel),
+          agentId,
+          expectedVersion: version,
+          lines: [{ text: "line read", sources: [ofA(editedAt)] }],
+        });
+      expect(await write(at(a.ts))).toEqual({
+        outcome: "written",
+        version,
+        lineIds: [],
+        skipped: [a.id],
+      });
+      // One that read line B is the edited text's, and stays.
+      expect(await write(edited)).toMatchObject({
+        outcome: "written",
+        version: version + 1,
+      });
+    });
+
+    test("a message the call read that no row names (an engagement's) is kept with no speaker, and its delete removes the line", async () => {
+      const channel = newChannel();
+      const a = await input(channel, "U0ANN");
+      if (!a) throw new Error("input");
+      const engaged = "9000.000100";
+      const written = await append(channel, 0, [
+        {
+          text: "line E",
+          sources: [
+            src(a),
+            {
+              inputId: null,
+              slack: { teamId, channelId: channel, ts: engaged },
+            },
+          ],
+        },
+      ]);
+      expect(written.lineIds).toHaveLength(1);
+      const summary = await summaries.read(placeOf(channel));
+      expect(
+        new Map(
+          summary?.lines[0]?.sources.map((source) => [
+            source.ts,
+            source.speaker,
+          ]),
+        ),
+      ).toEqual(
+        new Map([
+          [a.ts, { kind: "slack_bot", id: "U0ANN" }],
+          [engaged, { kind: "unknown", id: "" }],
+        ]),
+      );
+      expect(await marks().markDeleted(mark(channel, engaged))).toBe(
+        "recorded",
+      );
+      // After: a version of its own without the line, and none holds it.
+      expect(await everyVersion(channel)).toEqual([[], [], []]);
+    });
+
+    test("a line keeps every source its call read, and one read off a summary line goes when that line's source is deleted", async () => {
+      const channel = newChannel();
+      const [a, b, c] = [
+        await input(channel, "U0ANN"),
+        await input(channel, "U0BOB"),
+        await input(channel, "U0CAT"),
+      ];
+      if (!a || !b || !c) throw new Error("inputs");
+      await append(channel, 0, [{ text: "line A", sources: [src(a)] }]);
+      // Line B read line A (named by its Slack place, as a fragment does)
+      // and b's own post.
+      await append(channel, 1, [
+        {
+          text: "line B",
+          sources: [
+            { inputId: null, slack: { teamId, channelId: channel, ts: a.ts } },
+            src(b),
+          ],
+        },
+      ]);
+      await append(channel, 2, [{ text: "line C", sources: [src(c)] }]);
+      const summary = await summaries.read(placeOf(channel));
+      expect(
+        summary?.lines.map((line) => [
+          line.text,
+          line.sources.map((source) => source.speaker.id),
+        ]),
+      ).toEqual([
+        ["line A", ["U0ANN"]],
+        ["line B", ["U0ANN", "U0BOB"]],
+        ["line C", ["U0CAT"]],
+      ]);
+      // The input rows may be gone (judged and dropped): the summary's own
+      // source rows still name who said it.
+      await pool.query("DELETE FROM conversation_inputs WHERE id = $1", [a.id]);
+      await append(channel, 3, [
+        {
+          text: "line D",
+          sources: [{ inputId: a.id, slack: null }],
+        },
+      ]);
+      expect(await marks().markDeleted(mark(channel, a.ts))).toBe("recorded");
+      // Before: A, B and D held a among their sources. After: none of them
+      // is in any version.
+      expect(await everyVersion(channel)).toEqual([
+        [],
+        [],
+        [],
+        ["line C"],
+        ["line C"],
+        ["line C"],
+      ]);
+    });
+
+    test("two writes that read one version: one loses, then adds only its own line", async () => {
+      const channel = newChannel();
+      const [a, b] = [await input(channel), await input(channel)];
+      if (!a || !b) throw new Error("inputs");
+      const write = (text: string, source: { id: ConversationInputId }) =>
+        summaries.append({
+          place: placeOf(channel),
+          agentId,
+          expectedVersion: 0,
+          lines: [{ text, sources: [src(source)] }],
+        });
+      const results = await Promise.all([
+        write("line a", a),
+        write("line b", b),
+      ]);
+      const lost = results.find((result) => result.outcome === "conflict");
+      expect(lost).toEqual({ outcome: "conflict", version: 1 });
+      const loser =
+        results[0]?.outcome === "conflict" ? ["line a", a] : ["line b", b];
+      const again = await summaries.append({
+        place: placeOf(channel),
+        agentId,
+        expectedVersion: 1,
+        lines: [
+          {
+            text: loser[0] as string,
+            sources: [src(loser[1] as { id: ConversationInputId })],
+          },
+        ],
+      });
+      expect(again).toMatchObject({ outcome: "written", version: 2 });
+      const texts = (await summaries.read(placeOf(channel)))?.lines.map(
+        (line) => line.text,
+      );
+      expect([...(texts ?? [])].sort()).toEqual(["line a", "line b"]);
+    });
+
+    test("versions current in the last 7 days stay; older ones go, and cannot be read or reverted to", async () => {
+      const channel = newChannel();
+      const [a, b, c] = [
+        await input(channel),
+        await input(channel),
+        await input(channel),
+      ];
+      if (!a || !b || !c) throw new Error("inputs");
+      const first = await append(channel, 0, [
+        { text: "line a", sources: [src(a)] },
+      ]);
+      await summaries.fold({
+        place: placeOf(channel),
+        agentId,
+        expectedVersion: 1,
+        lineIds: first.lineIds,
+        text: "folded a",
+      });
+      await append(channel, 2, [{ text: "line b", sources: [src(b)] }]);
+      await append(channel, 3, [{ text: "line c", sources: [src(c)] }]);
+      // Versions 0 to 2 were made 10 days ago, 3 and 4 two days ago.
+      const day = 24 * 60 * 60_000;
+      const now = new Date();
+      await pool.query(
+        "UPDATE channel_summary_versions SET made_at = $4 WHERE workspace_id = $1 AND team_id = $2 AND channel_id = $3 AND version <= 2",
+        [workspaceId, teamId, channel, new Date(now.getTime() - 10 * day)],
+      );
+      await pool.query(
+        "UPDATE channel_summary_versions SET made_at = $4 WHERE workspace_id = $1 AND team_id = $2 AND channel_id = $3 AND version > 2",
+        [workspaceId, teamId, channel, new Date(now.getTime() - 2 * day)],
+      );
+      expect(await everyVersion(channel)).toEqual([
+        [],
+        ["line a"],
+        ["folded a"],
+        ["folded a", "line b"],
+        ["folded a", "line b", "line c"],
+      ]);
+      const dry = await pruneChannelSummaryHistory(db, {
+        limit: 100,
+        dryRun: true,
+        now,
+      });
+      expect(dry.versions).toBeGreaterThanOrEqual(2);
+      expect(await summaries.read(placeOf(channel), 1)).not.toBeNull();
+
+      await pruneChannelSummaryHistory(db, { limit: 100, dryRun: false, now });
+      // Version 2 was current until version 3, two days ago: kept. 0 and 1
+      // stopped being current 10 days ago: gone, with line a, which only
+      // they held.
+      expect(await summaries.read(placeOf(channel), 0)).toBeNull();
+      expect(await summaries.read(placeOf(channel), 1)).toBeNull();
+      expect(
+        (await summaries.read(placeOf(channel), 2))?.lines.map((l) => l.text),
+      ).toEqual(["folded a"]);
+      const { rows } = await pool.query(
+        "SELECT text FROM channel_summary_lines WHERE workspace_id = $1 AND channel_id = $2 ORDER BY text",
+        [workspaceId, channel],
+      );
+      expect(rows.map((row) => row.text)).toEqual([
+        "folded a",
+        "line b",
+        "line c",
+      ]);
+      expect(
+        await summaries.revert({
+          place: placeOf(channel),
+          expectedVersion: 4,
+          toVersion: 1,
+        }),
+      ).toEqual({ outcome: "version_not_found" });
+      expect(
+        await summaries.revert({
+          place: placeOf(channel),
+          expectedVersion: 4,
+          toVersion: 2,
+        }),
+      ).toMatchObject({ outcome: "written", version: 5 });
+
+      // The current version stays however old it is.
+      await pool.query(
+        "UPDATE channel_summary_versions SET made_at = $4 WHERE workspace_id = $1 AND team_id = $2 AND channel_id = $3",
+        [workspaceId, teamId, channel, new Date(now.getTime() - 30 * day)],
+      );
+      await pruneChannelSummaryHistory(db, { limit: 100, dryRun: false, now });
+      expect(
+        (await summaries.read(placeOf(channel)))?.lines.map((l) => l.text),
+      ).toEqual(["folded a"]);
+      expect(await summaries.read(placeOf(channel), 4)).toBeNull();
+    });
   });
 });
