@@ -204,18 +204,28 @@ export async function subscribeSessionEvents(
     }
   };
 
+  /** Ends the subscription with the undecided refusal once its window is over. */
+  const expired = (): boolean => {
+    if (!undecided || Date.now() - undecided.since < undecidedMs) return false;
+    options.onError?.(undecided.error);
+    return true;
+  };
+
   try {
     while (!signal.aborted) {
       options.onState?.("connecting");
       const wait = await connect();
-      if (wait === null) return;
-      if (undecided && Date.now() - undecided.since >= undecidedMs) {
-        options.onError?.(undecided.error);
-        return;
-      }
+      if (wait === null || expired()) return;
       backoff = Math.min(backoff * 2, maxMs);
       options.onRetry?.(failedAttempts);
-      await sleep(wait, signal);
+      // No wait, a long Retry-After included, outlasts the window.
+      await sleep(
+        undecided
+          ? Math.min(wait, undecided.since + undecidedMs - Date.now())
+          : wait,
+        signal,
+      );
+      if (expired()) return;
     }
   } finally {
     options.onState?.("closed");

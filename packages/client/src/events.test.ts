@@ -466,6 +466,21 @@ describe("subscribeSessionEvents", () => {
     expect(server.requests.length).toBeGreaterThan(2);
   });
 
+  test("a long wait after an undecided refusal ends with the window, not after it", async () => {
+    const server = eventServer([
+      undecided,
+      { status: 503, headers: { "retry-after": "60" } },
+    ]);
+    const started = Date.now();
+    const run = subscribe(server, { undecidedMs: 30 });
+    await run.done;
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(run.errors.map((e) => [e.status, e.code])).toEqual([
+      [403, "FORBIDDEN"],
+    ]);
+    expect(server.requests).toHaveLength(2);
+  });
+
   for (const [status, code, details] of [
     [403, "FORBIDDEN", { reason_code: "role" }],
     [403, "FORBIDDEN", null],
