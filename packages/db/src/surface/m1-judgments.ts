@@ -92,11 +92,12 @@ function verdictColumns(record: M1Record) {
 
 /**
  * Check spot ② (a1/J6) for a record about to be written: a judged result
- * whose messages were deleted or edited while the model ran is voided. The
- * marks of what it read are locked to the end of `tx` either way, so call
- * it before the gate, as a hold takes a mark's lock before the agent's row.
- * A record the model gave no answer for (not called, failed) decided
- * nothing from the text and is written as it is.
+ * whose messages were deleted or edited while the model ran, or a context
+ * message it read deleted, is voided. The marks of what it read are locked
+ * to the end of `tx` either way, so call it before the gate, as a hold
+ * takes a mark's lock before the agent's row. A called judgment that failed
+ * is voided alike, so it keeps no deleted message's place; one never called
+ * read nothing.
  */
 async function voidedBy(
   tx: Database,
@@ -104,11 +105,16 @@ async function voidedBy(
   record: M1Record,
   messages: readonly ReadMessage[],
 ): Promise<{ reason: JudgmentVoidedReason; changes: ReadChanges } | null> {
-  if (record.verdict.outcome !== "judged" || messages.length === 0) {
-    return null;
-  }
-  const changes = await lockedReadChanges(tx, { ...place, messages });
-  if (changes.deleted.length > 0) {
+  if (record.attempts === 0 || messages.length === 0) return null;
+  const context = record.sources.keys.flatMap((key) =>
+    key.slack === null ? [] : [key.slack],
+  );
+  const changes = await lockedReadChanges(tx, {
+    ...place,
+    messages,
+    context,
+  });
+  if (changes.deleted.length > 0 || changes.contextDeleted) {
     return { reason: "voided_by_delete", changes };
   }
   if (changes.edited.length > 0) return { reason: "voided_by_edit", changes };
@@ -228,12 +234,15 @@ export function createPostgresM1JudgmentStore(
               ${record.callKey}, ${record.attempts}, ${M1_PROMPT_VERSION},
               'voided', ${voided.reason}, now()
             )`);
-          const deleted = new Set(voided.changes.deleted);
+          const left = new Set([
+            ...voided.changes.deleted,
+            ...voided.changes.gone,
+          ]);
           const edited = new Map(
             voided.changes.edited.map((post) => [post.ts, post.body]),
           );
           const remaining = judged
-            .filter((post) => !deleted.has(post.ts))
+            .filter((post) => !left.has(post.ts))
             .map((post) => ({
               ...post,
               body: edited.get(post.ts) ?? post.body,
@@ -241,10 +250,17 @@ export function createPostgresM1JudgmentStore(
           if (options.final !== true) {
             return { outcome: "voided", reason: voided.reason, remaining };
           }
-          // Judged once more and voided again: no third call on them.
+          // Judged once more and voided again: the batch's buffered rows go,
+          // those the judgment again had no room for too, so no third call.
+          const held = rowsOf<{ id: string }>(
+            await tx.execute(sql`
+              SELECT id FROM conversation_inputs
+              WHERE judgment_batch_id = ${batch.id}::uuid
+                AND buffer_expires_at IS NOT NULL`),
+          );
           await dropBufferedInputs(
             tx,
-            remaining.map((post) => post.inputId),
+            held.map((row) => row.id),
           );
           return { outcome: "voided", reason: voided.reason, remaining: [] };
         }
@@ -419,13 +435,19 @@ export function createPostgresM1JudgmentStore(
           return "dropped";
         }
         if (voided !== null) {
+          // Judged once more while the reply is there: on the buffer's new
+          // text when it was edited (an edit of a reply kept nowhere ends
+          // it), else on the text read when only its context went.
           const [edit] = voided.changes.edited;
-          const rejudge =
-            voided.reason === "voided_by_edit" &&
-            row.grade === "m1_engaged" &&
-            options.final !== true
-              ? (edit?.body ?? null)
-              : null;
+          const replyLeft =
+            voided.changes.deleted.length > 0 || voided.changes.gone.length > 0;
+          const text =
+            edit === undefined
+              ? (options.read ?? null)
+              : row.grade === "m1_engaged"
+                ? edit.body
+                : null;
+          const rejudge = !replyLeft && options.final !== true ? text : null;
           if (rejudge !== null) {
             // The voided call's row beside the reply's, which waits for its
             // judgment again.

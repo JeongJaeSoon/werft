@@ -810,5 +810,116 @@ integration("M1 judgment records", () => {
         rule_decision: "reply",
       });
     });
+
+    const withContext = (record: M1Record, ...places: [Place, string][]) => ({
+      ...record,
+      sources: {
+        keys: places.map(([place, ts]) => ({
+          inputId: null,
+          slack: { teamId: TEAM, channelId: place.channelId, ts },
+        })),
+        overflow: false,
+      },
+    });
+
+    test("a context message deleted while judged voids the result, and every post is judged again", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["2000.000002", "now"]]);
+      await marks().markDeleted(mark(place, "2000.000001"));
+      expect(
+        await store().recordBatch(
+          batch,
+          withContext(
+            judgedRecord(batch.id, ["2000.000002"]),
+            [place, "2000.000001"],
+            [place, "2000.000002"],
+          ),
+          held,
+        ),
+      ).toEqual({
+        outcome: "voided",
+        reason: "voided_by_delete",
+        remaining: held,
+      });
+    });
+
+    test("a called judgment that failed is voided too, keeping no deleted place", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["2100.000001", "one"]]);
+      await marks().markDeleted(mark(place, "2100.000001"));
+      const failed: M1Record = {
+        ...judgedRecord(batch.id, ["2100.000001"]),
+        verdict: { outcome: "failed", decision: "quiet", reason: "timed_out" },
+      };
+      expect((await store().recordBatch(batch, failed, held)).outcome).toBe(
+        "voided",
+      );
+      const [row] = await rowsOf(place.channelId);
+      expect(row).toMatchObject({
+        outcome: "voided",
+        refs: [],
+        decision: null,
+      });
+    });
+
+    test("voided again, the batch's buffered rows go, those not judged too", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [
+        ["2200.000001", "one"],
+        ["2200.000002", "two"],
+      ]);
+      const [one] = held;
+      if (!one) throw new Error("one");
+      await marks().markEdited(mark(place, "2200.000001"), "one, edited");
+      expect(
+        await store().recordBatch(
+          batch,
+          judgedRecord(`${batch.id}-rejudge`, ["2200.000001"]),
+          [one],
+          { final: true },
+        ),
+      ).toEqual({ outcome: "voided", reason: "voided_by_edit", remaining: [] });
+      expect(await bodiesOf(place)).toEqual([]);
+    });
+
+    test("a buffered post edited and then gone without a delete is voided and not judged again", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["2300.000001", "one"]]);
+      const [one] = held;
+      if (!one) throw new Error("one");
+      await marks().markEdited(mark(place, "2300.000001"), "one, edited");
+      // Gone as an expired row goes.
+      await pool.query("DELETE FROM conversation_inputs WHERE id = $1", [
+        one.inputId,
+      ]);
+      expect(
+        await store().recordBatch(
+          batch,
+          judgedRecord(batch.id, ["2300.000001"]),
+          held,
+        ),
+      ).toEqual({ outcome: "voided", reason: "voided_by_edit", remaining: [] });
+    });
+
+    test("an engaged reply whose context was deleted is judged again on the text it read", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
+      const place = await channel();
+      const inputId = await hold(place, "2400.000002", "reply", "m1_engaged");
+      const claimed = await store().claimReply();
+      if (claimed === null) throw new Error("none");
+      await marks().markDeleted(mark(place, "2400.000001"));
+      expect(
+        await store().finishReply(
+          claimed.id,
+          withContext(judgedRecord(inputId, ["2400.000002"]), [
+            place,
+            "2400.000001",
+          ]),
+          { read: "reply" },
+        ),
+      ).toEqual({ voided: "voided_by_delete", rejudge: "reply" });
+    });
   });
 });

@@ -270,6 +270,31 @@ describe("createM1BatchJudge at check spot ② (a1/J6)", () => {
     expect(recorded[1]?.final).toBe(true);
   });
 
+  test("voided again: nothing is left to a later batch", async () => {
+    const batch = batchOf("1.1", "1.2");
+    const [one, two] = batch.inputs;
+    if (!one || !two) throw new Error("two");
+    const judge = judgeOf(async (subject) => ({
+      ...judgedQuiet(subject),
+      left: subject.posts.filter((post) => post.ts === "1.2"),
+    }));
+    const { store } = batchStore([
+      {
+        outcome: "voided",
+        reason: "voided_by_edit",
+        remaining: [one, two].map(({ inputId, ts }) => ({
+          inputId,
+          ts,
+          body: "edited",
+        })),
+      },
+      { outcome: "voided", reason: "voided_by_edit", remaining: [] },
+    ]);
+    const result = await createM1BatchJudge({ judge, store }).judge(batch);
+    expect(judge.subjects).toHaveLength(2);
+    expect(result).toEqual({ modelCalled: true, left: [] });
+  });
+
   test("the gate closed at the write: nothing judged again", async () => {
     const judge = judgeOf(async (subject) => judgedQuiet(subject));
     const { store } = batchStore([{ outcome: "closed" }]);

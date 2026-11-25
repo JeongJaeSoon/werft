@@ -137,10 +137,14 @@ export type ReadMessage = {
 
 /** What became of the messages a call read while it ran. */
 export type ReadChanges = {
-  /** The ts Slack (or an admin) deleted. */
+  /** The ts of the messages read that Slack (or an admin) deleted. */
   deleted: string[];
+  /** Whether a context message the call read was deleted. */
+  contextDeleted: boolean;
   /** The ts edited since, with the buffer's new text; null when kept nowhere. */
   edited: { ts: string; body: string | null }[];
+  /** Buffered messages read whose row went without a delete. */
+  gone: string[];
 };
 
 /**
@@ -150,9 +154,10 @@ export type ReadChanges = {
  * caller's transaction: a delete or an edit under way is waited for and
  * seen, and one that comes later finds the result written. A buffered
  * message was edited when its row's text is no longer the text read (an
- * edit changes both under the same lock); one whose row went was not, and
- * its delete mark, if any, tells. Every write of a result a call made from
- * Slack messages (a judgment record, a summary line) asks this.
+ * edit changes both under the same lock); a message whose text is kept
+ * nowhere (never buffered, or its row went without a delete) when it has
+ * an edit mark. Every write of a result a call made from Slack messages (a
+ * judgment record, a summary line) asks this.
  */
 export async function lockedReadChanges(
   tx: Database,
@@ -161,56 +166,72 @@ export async function lockedReadChanges(
     teamId: string;
     channelId: string;
     messages: readonly ReadMessage[];
+    /**
+     * The other Slack messages the call read (earlier context): a delete of
+     * one voids the result as well. Their edits are not asked: a context
+     * message's mark may be older than the call.
+     */
+    context?: readonly SourcePlace[];
   },
 ): Promise<ReadChanges> {
-  const changes: ReadChanges = { deleted: [], edited: [] };
-  if (input.messages.length === 0) return changes;
+  const changes: ReadChanges = {
+    deleted: [],
+    contextDeleted: false,
+    edited: [],
+    gone: [],
+  };
+  const read = input.messages.map((message) => ({
+    teamId: input.teamId,
+    channelId: input.channelId,
+    ts: message.ts,
+  }));
   const places = [
     ...new Map(
-      input.messages.map((message) => {
-        const place = {
-          teamId: input.teamId,
-          channelId: input.channelId,
-          ts: message.ts,
-        };
-        return [placeOrder(place), place] as const;
-      }),
+      [...read, ...(input.context ?? [])].map(
+        (place) => [placeOrder(place), place] as const,
+      ),
     ).entries(),
-  ].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  for (const [, place] of places) {
+  ]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, place]) => place);
+  if (places.length === 0) return changes;
+  for (const place of places) {
     await tx.execute(
       lockSlackSourceMark({ workspaceId: input.workspaceId, ...place }),
     );
   }
-  const tsArray = (values: readonly string[]) =>
-    sql`ARRAY[${sql.join(
-      values.map((value) => sql`${value}::text`),
+  const tuples = (of: readonly SourcePlace[]) =>
+    sql.join(
+      of.map(
+        (place) =>
+          sql`(${place.teamId}::text, ${place.channelId}::text, ${place.ts}::text)`,
+      ),
       sql`, `,
-    )}]`;
-  const same = sql`workspace_id = ${input.workspaceId}::uuid
-    AND team_id = ${input.teamId} AND channel_id = ${input.channelId}`;
+    );
   const deleted = new Set(
-    rowsOf<{ ts: string }>(
+    rowsOf<{ team_id: string; channel_id: string; ts: string }>(
       await tx.execute(sql`
-        SELECT ts FROM deleted_sources
-        WHERE ${same} AND ts = ANY(${tsArray(places.map(([, p]) => p.ts))})`),
-    ).map((row) => row.ts),
+        SELECT team_id, channel_id, ts FROM deleted_sources
+        WHERE workspace_id = ${input.workspaceId}::uuid
+          AND (team_id, channel_id, ts) IN (${tuples(places)})`),
+    ).map((row) =>
+      placeOrder({
+        teamId: row.team_id,
+        channelId: row.channel_id,
+        ts: row.ts,
+      }),
+    ),
   );
-  const live = input.messages.filter((message) => !deleted.has(message.ts));
-  const unkept = live.filter((message) => message.buffered === null);
-  const markedEdited =
-    unkept.length === 0
-      ? new Set<string>()
-      : new Set(
-          rowsOf<{ ts: string }>(
-            await tx.execute(sql`
-              SELECT ts FROM edited_sources
-              WHERE ${same}
-                AND ts = ANY(${tsArray(unkept.map((message) => message.ts))})`),
-          ).map((row) => row.ts),
-        );
-  const rowIds = live.flatMap((message) =>
-    message.buffered?.inputId ? [message.buffered.inputId] : [],
+  const isDeleted = (ts: string) =>
+    deleted.has(
+      placeOrder({ teamId: input.teamId, channelId: input.channelId, ts }),
+    );
+  const readOrder = new Set(read.map(placeOrder));
+  changes.contextDeleted = [...deleted].some((place) => !readOrder.has(place));
+  const rowIds = input.messages.flatMap((message) =>
+    message.buffered?.inputId && !isDeleted(message.ts)
+      ? [message.buffered.inputId]
+      : [],
   );
   const bodies = new Map(
     rowIds.length === 0
@@ -224,18 +245,50 @@ export async function lockedReadChanges(
             )}) AND buffer_expires_at IS NOT NULL`),
         ).map((row) => [row.id, row.body] as const),
   );
+  // A message whose text is kept nowhere now: one never buffered, or one
+  // whose buffered row went without a delete (expired, past the limit).
+  const unkept = input.messages.filter(
+    (message) =>
+      !isDeleted(message.ts) &&
+      (message.buffered === null ||
+        message.buffered.inputId === null ||
+        typeof bodies.get(message.buffered.inputId) !== "string"),
+  );
+  const markedEdited =
+    unkept.length === 0
+      ? new Set<string>()
+      : new Set(
+          rowsOf<{ ts: string }>(
+            await tx.execute(sql`
+              SELECT ts FROM edited_sources
+              WHERE workspace_id = ${input.workspaceId}::uuid
+                AND (team_id, channel_id, ts) IN (${tuples(
+                  unkept.map((message) => ({
+                    teamId: input.teamId,
+                    channelId: input.channelId,
+                    ts: message.ts,
+                  })),
+                )})`),
+          ).map((row) => row.ts),
+        );
   for (const message of input.messages) {
-    if (deleted.has(message.ts)) {
+    if (isDeleted(message.ts)) {
       changes.deleted.push(message.ts);
-    } else if (message.buffered === null) {
-      if (markedEdited.has(message.ts)) {
-        changes.edited.push({ ts: message.ts, body: null });
-      }
-    } else if (message.buffered.inputId !== null) {
-      const now = bodies.get(message.buffered.inputId);
-      if (typeof now === "string" && now !== message.buffered.body) {
+      continue;
+    }
+    const now =
+      message.buffered?.inputId == null
+        ? undefined
+        : bodies.get(message.buffered.inputId);
+    if (message.buffered !== null && typeof now !== "string") {
+      changes.gone.push(message.ts);
+    }
+    if (typeof now === "string") {
+      if (now !== message.buffered?.body) {
         changes.edited.push({ ts: message.ts, body: now });
       }
+    } else if (markedEdited.has(message.ts)) {
+      changes.edited.push({ ts: message.ts, body: null });
     }
   }
   return changes;

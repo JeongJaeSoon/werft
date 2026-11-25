@@ -53,9 +53,10 @@ export type M1BatchWrite =
     };
 
 /**
- * What a reply's write found. `voided` with `rejudge`: its buffered text
- * changed, and the reply waits for one judgment again on that text; with
- * null, the reply's row is now the voided record.
+ * What a reply's write found. `voided` with `rejudge`: the reply waits
+ * for one judgment again on that text (its buffered text now, or the text
+ * read when only its context was deleted); with null, the reply's row is
+ * now the voided record.
  */
 export type M1ReplyWrite =
   | "written"
@@ -183,6 +184,8 @@ export function createM1BatchJudge(deps: {
         );
         if (written.outcome !== "voided") break;
         logVoided(deps.logger, record, written.reason);
+        // Voided again: the store dropped what the batch still held.
+        if (rejudge) return { modelCalled, left: [] };
         if (written.remaining.length === 0) break;
         const byInput = new Map(
           subject.posts.map((post) => [post.inputId, post]),
