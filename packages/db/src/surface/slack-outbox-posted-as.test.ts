@@ -47,6 +47,23 @@ async function sessionTitled(
   return sessionId;
 }
 
+async function linkSession(sessionId: string, closed: boolean) {
+  const id = crypto.randomUUID();
+  await client.query(
+    `INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id, closed_at, closed_reason)
+     VALUES ($1, $2, 'owner', $3, $4, $5, $6, 'C0ROOM', $6, $6, $7, 'release-1', ${closed ? "now(), 'completed'" : "NULL, NULL"})`,
+    [
+      id,
+      WORKSPACE,
+      sessionId,
+      INSTALL,
+      crypto.randomUUID(),
+      `${Date.now()}.${id.slice(0, 6)}`,
+      AGENT,
+    ],
+  );
+}
+
 // The session's first turn came from a Slack message that Slack deleted.
 async function firstMessageDeleted(sessionId: string) {
   const ts = `${Date.now()}.000100`;
@@ -140,6 +157,23 @@ describe("claiming an outbox row", () => {
     expect(await claimOne(kept.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: "Fix the login",
+    });
+  });
+
+  test("names the task on a row sent outside its thread while its link is open", async () => {
+    const open = await sessionTitled("Fix the login");
+    await linkSession(open, false);
+    const direct = await claimedPostedAs({ sessionId: open, linked: false });
+    expect(await claimOne(direct.outbox)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: "Fix the login",
+    });
+    const closed = await sessionTitled("Done already");
+    await linkSession(closed, true);
+    const late = await claimedPostedAs({ sessionId: closed, linked: false });
+    expect(await claimOne(late.outbox)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: null,
     });
   });
 

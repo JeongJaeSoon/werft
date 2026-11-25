@@ -81,7 +81,8 @@ export function slackAgentSender(
   const title = oneLine(postedAs?.taskTitle);
   // " [" and "]" around the title, and "…" when it is cut.
   const room = SLACK_USERNAME_MAX - name.length - 3;
-  if (title.length === 0 || room < 2) {
+  // A cut title needs room for one character and its "…".
+  if (title.length === 0 || (title.length > room && room < 2)) {
     return name.slice(0, SLACK_USERNAME_MAX).join("");
   }
   const shown =

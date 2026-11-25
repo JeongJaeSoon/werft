@@ -1790,14 +1790,21 @@ export function createPostgresSlackOutboxStore(
             JOIN slack_installations si ON si.id = ${t.installationId}
             WHERE s.id = ${t.sessionId}
           )`,
-          // The title as it is at the send, not at the enqueue, and as a
-          // reader is served it: none once Slack deleted what it came from.
+          // A task is a session with a Slack link: the row's own, or, for a
+          // row sent outside its thread (a direct message), an open one. Its
+          // title as it is at the send, not at the enqueue, and as a reader
+          // is served it: none once Slack deleted what it came from.
           postedAs: sql<SurfaceOutboxPostedAs | null>`(
             SELECT json_build_object(
               'agentName', a.name,
               'taskTitle', (
                 SELECT ${servedTitle("s")} FROM sessions s
-                WHERE s.id = ${t.sessionId} AND ${t.sessionLinkId} IS NOT NULL
+                WHERE s.id = ${t.sessionId} AND (
+                  ${t.sessionLinkId} IS NOT NULL OR EXISTS (
+                    SELECT 1 FROM session_links l
+                    WHERE l.session_id = s.id AND l.closed_at IS NULL
+                  )
+                )
               )
             )
             FROM agents a WHERE a.id = ${t.agentId}

@@ -60,6 +60,14 @@ describe("slackAgentSender", () => {
     expect(emoji?.endsWith("🚀…]")).toBe(true);
   });
 
+  test("keeps a title that fits exactly, and drops one with no room to cut", () => {
+    const name = "n".repeat(76);
+    expect(slackAgentSender({ agentName: name, taskTitle: "x" })).toBe(
+      `${name} [x]`,
+    );
+    expect(slackAgentSender({ agentName: name, taskTitle: "xy" })).toBe(name);
+  });
+
   test("cuts a name too long for a title at 80 and drops the title", () => {
     const long = "n".repeat(90);
     expect(slackAgentSender({ agentName: long, taskTitle: "x" })).toBe(
