@@ -52,6 +52,12 @@ import {
  * authorizer judges each one against the session's prefix and signs it with
  * the API's key, and only what it signed — its target, its headers — goes
  * upstream. Nothing of the worker's request travels but the body.
+ *
+ * An authorizer whose store cannot be read has not decided, which is neither
+ * a grant nor a refusal: nothing goes upstream, and the worker is told to
+ * send the request again (503 with Retry-After). A provider call is held
+ * here meanwhile and asked about again, since the engine sending it gives up
+ * after a few tries of its own.
  */
 
 export const DEFAULT_CREDENTIAL_PORT = 3129;
