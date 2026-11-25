@@ -143,7 +143,18 @@ export type SurfaceOutboxClaim = SurfaceOutboxEntry &
      * with no session, or a session with no parent conversation.
      */
     conversationScope?: SurfaceConversationScope | null;
+    /**
+     * Who the row goes out as, read at claim: the agent's name and, for a
+     * row of a linked session (a task), that session's title, null while it
+     * has none. Absent or null when unread.
+     */
+    postedAs?: SurfaceOutboxPostedAs | null;
   };
+
+export type SurfaceOutboxPostedAs = {
+  agentName: string;
+  taskTitle: string | null;
+};
 
 /** A row the lease ran out on mid-send, now `uncertain`. */
 export type SurfaceOutboxLost = SurfaceOutboxEntry & { id: string };

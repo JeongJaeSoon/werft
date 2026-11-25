@@ -22,6 +22,7 @@ import type {
   SurfaceConversationScope,
   SurfaceOpenPushCard,
   SurfaceOutboxFence,
+  SurfaceOutboxPostedAs,
   SurfaceOutboxStore,
   SurfacePendingPrompt,
   SurfacePromptCard,
@@ -1787,6 +1788,17 @@ export function createPostgresSlackOutboxStore(
             JOIN conversations cv ON cv.id = s.parent_conversation_id
             JOIN slack_installations si ON si.id = ${t.installationId}
             WHERE s.id = ${t.sessionId}
+          )`,
+          // The title as it is at the send, not at the enqueue.
+          postedAs: sql<SurfaceOutboxPostedAs | null>`(
+            SELECT json_build_object(
+              'agentName', a.name,
+              'taskTitle', (
+                SELECT s.title FROM sessions s
+                WHERE s.id = ${t.sessionId} AND ${t.sessionLinkId} IS NOT NULL
+              )
+            )
+            FROM agents a WHERE a.id = ${t.agentId}
           )`,
         });
       return rows

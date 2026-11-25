@@ -22,6 +22,7 @@ import {
   SLACK_OUTBOX_MESSAGES,
   type SlackTextGuard,
   sessionUrl,
+  slackAgentSender,
   slackInstructionFallbackText,
   slackOutboxGuard,
   slackOutboxPresentation,
@@ -124,6 +125,11 @@ function outcomeOf(settle: SurfaceOutboxSettle): DeliveryOutcome {
   }
 }
 
+const missingScope = (response: SlackSendResponse) =>
+  typeof response.body === "object" &&
+  response.body !== null &&
+  (response.body as { error?: unknown }).error === "missing_scope";
+
 // Nothing but formatting marks left: Slack would show an empty message.
 const isBlank = (text: string) => /^[\s*_~`>#|-]*$/.test(text);
 
@@ -156,13 +162,24 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     };
     const presentation = slackOutboxPresentation(claim, guard);
     if (presentation.kind !== "instruction") {
-      if (presentation.kind === "text") {
-        return deps.slack.postMessage(botToken, target);
-      }
-      const response = await deps.slack.postMessage(botToken, {
-        ...target,
-        blocks: presentation.blocks,
-      });
+      // The agent's own row goes under its name, and a task's under its
+      // title too. Slack posted nothing when it refused the name to an app
+      // without chat:write.customize; the row goes once more as the app.
+      let username = slackAgentSender(claim.postedAs);
+      const post = async (
+        input: Parameters<SlackBotSender["postMessage"]>[1],
+      ) => {
+        if (username === null) return deps.slack.postMessage(botToken, input);
+        const named = await deps.slack.postMessage(botToken, {
+          ...input,
+          username,
+        });
+        if (!missingScope(named)) return named;
+        username = null;
+        return deps.slack.postMessage(botToken, input);
+      };
+      if (presentation.kind === "text") return post(target);
+      const response = await post({ ...target, blocks: presentation.blocks });
       if (!presentation.fallback) return response;
       // Slack posted nothing when it refused the blocks (an app or workspace
       // without table support); the same reply goes once more as plain text.
@@ -171,7 +188,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
           ? (response.body as { error?: unknown }).error
           : undefined;
       return error === "invalid_blocks" || error === "msg_blocks_too_long"
-        ? deps.slack.postMessage(botToken, target)
+        ? post(target)
         : response;
     }
     const { sender } = presentation;
@@ -191,11 +208,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       username: sender.username,
       ...(iconUrl === null ? {} : { iconUrl }),
     });
-    const refused =
-      typeof response.body === "object" &&
-      response.body !== null &&
-      (response.body as { error?: unknown }).error === "missing_scope";
-    if (!refused) return response;
+    if (!missingScope(response)) return response;
     // Posted as the app, the sender's name moves into the text; a row queued
     // before the name left the text has it there already.
     return deps.slack.postMessage(botToken, {
