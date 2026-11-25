@@ -1070,7 +1070,16 @@ const githubApps = createGitHubAppService({
     webBase: "https://github.com",
     refused: (check) =>
       logger.warn("GitHub App manifest state refused", { check }),
-    followHook: (app) => githubWebhookSettingsAdmin.follow(app),
+    // The App and its key are stored by then: a failed follow must not turn
+    // the completion into an error the spent state cannot retry.
+    followHook: (app) =>
+      githubWebhookSettingsAdmin.follow(app).catch((error: unknown) => {
+        logger.warn("A new GitHub App's webhook URL was not checked", {
+          app_id: app.appId,
+          error: error instanceof Error ? error.name : "error",
+        });
+        return null;
+      }),
   },
   installations: {
     store: githubInstallations,

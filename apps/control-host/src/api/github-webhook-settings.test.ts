@@ -238,7 +238,10 @@ describe("the GitHub webhook settings service", () => {
       webhook_public_url: "https://b.example.test",
     });
     releaseFirst();
-    await first;
+    const answer = await first;
+    // The answer names the address the App was left on, not the one sent.
+    expect(answer.webhook_public_url).toBe("https://b.example.test");
+    expect(answer.webhook_url).toBe("https://b.example.test/v1/github/webhook");
     expect(sent).toEqual([
       "https://a.example.test/v1/github/webhook",
       "https://b.example.test/v1/github/webhook",

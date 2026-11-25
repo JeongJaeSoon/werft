@@ -152,8 +152,10 @@ export function createGitHubWebhookSettingsAdmin(deps: {
         changed && value !== null
           ? await Promise.all(apps.map((app) => converge(app, value)))
           : [];
+      // A save made meanwhile is what the Apps were left on.
+      const now = (await deps.store.read())?.publicUrl ?? null;
       return {
-        ...(await view(caller, value, apps)),
+        ...(await view(caller, now, apps)),
         ...(changed ? { receipt_id: audit.receiptId } : {}),
         updates,
       };
