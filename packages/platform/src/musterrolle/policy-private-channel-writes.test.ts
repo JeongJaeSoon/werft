@@ -4,6 +4,8 @@ import {
   type AuthorizationReason,
   type AuthorizationResource,
   authorizationDecisionSchema,
+  DEFAULT_SURFACE_CEILING,
+  INSTALLATION_SESSION_SCOPE_VALUES,
   type PostSessionAnswerRequest,
   type Principal,
   SESSION_SCOPE_VALUES,
@@ -344,12 +346,13 @@ describe("approving after the requester left the private channel", () => {
     pendingRequester?: string | null;
     inChannel?: (userId: string) => "member" | "not_member" | "unconfirmed";
     warned?: string[];
+    identity?: IdentityReader;
   }) {
     const answer =
       options.inChannel ??
       ((userId: string) => (inChannel(userId) ? "member" : "not_member"));
     return createAuthorizationPolicy({
-      identity: plain,
+      identity: options.identity ?? plain,
       agents,
       sessions: {
         ...sessionsSeen(),
@@ -624,10 +627,10 @@ describe("approving after the requester left the private channel", () => {
   });
 
   describe("answering through the pending request service", () => {
-    function answering() {
+    function answering(identity?: IdentityReader) {
       const stored: AnswerRequestInput[] = [];
       const service = createPendingRequestService({
-        authorization: policyWith({}),
+        authorization: policyWith(identity === undefined ? {} : { identity }),
         store: {
           async listOpen() {
             return [];
@@ -673,28 +676,68 @@ describe("approving after the requester left the private channel", () => {
 
     test("Codex round 1: an admin in the channel, who answers anyway, cannot allow for the session after the requester left either", async () => {
       const { service, stored } = answering();
-      const admin = callerFor(
-        {
-          kind: "user",
-          id: USERS.member,
-          workspace_id: WORKSPACE,
-          role: "admin",
-          scopes: [...scopesForRole("admin")],
-        },
-        { kind: "web" },
-        "r",
-      );
+      const adminUser: Principal = {
+        kind: "user",
+        id: USERS.member,
+        workspace_id: WORKSPACE,
+        role: "admin",
+        scopes: [...scopesForRole("admin")],
+      };
+      const admin = callerFor(adminUser, { kind: "web" }, "r");
       const body = {
         request_id: PENDING,
         kind: "permission",
         decision: "allow",
         remember: "session",
       } as const;
-      const error = await service
-        .answer(admin, PRIVATE_SESSION, { idempotencyKey: "k", body })
-        .catch((caught: unknown) => caught);
-      expect(error).toMatchObject({ code: "FORBIDDEN" });
-      expect(stored).toEqual([]);
+      // A card drawn before the requester left still offers the session
+      // allow in Slack; pressing it is refused the same way.
+      // The app's installation answers for the person the press names.
+      const slackAdmin: Caller = {
+        ownerId: WORKSPACE,
+        requestId: "r",
+        subject: {
+          principal: {
+            kind: "installation",
+            id: "019a0000-0000-7000-8000-0000000000d1",
+            owner_id: WORKSPACE,
+            workspace_id: WORKSPACE,
+            scopes: [...INSTALLATION_SESSION_SCOPE_VALUES],
+          },
+          actor_user_id: USERS.member,
+          surface: {
+            kind: "slack",
+            slack_user_kind: "member",
+            ceiling: DEFAULT_SURFACE_CEILING,
+            agent_id: AGENT,
+            channel_id: CHANNEL,
+          },
+        },
+      };
+      const asAdmin: IdentityReader = {
+        reread: async () => ({ status: "ok", principal: adminUser }),
+      };
+      const slack = answering(asAdmin);
+      for (const [caller, on] of [
+        [admin, service],
+        [slackAdmin, slack.service],
+      ] as const) {
+        const error = await on
+          .answer(caller, PRIVATE_SESSION, { idempotencyKey: "k", body })
+          .catch((caught: unknown) => caught);
+        expect(error).toMatchObject({ code: "FORBIDDEN" });
+      }
+      expect([...stored, ...slack.stored]).toEqual([]);
+      // The same Slack press without the session allow goes through, so the
+      // refusal above is the session allow's.
+      const plainSlack = answering(asAdmin);
+      await plainSlack.service.answer(slackAdmin, PRIVATE_SESSION, {
+        idempotencyKey: "k3",
+        body: { request_id: PENDING, kind: "permission", decision: "allow" },
+      });
+      expect(plainSlack.stored.map((input) => input.requesterLeft)).toEqual([
+        true,
+      ]);
       // Before the requester left, the same answer goes through as before.
       const before = createPendingRequestService({
         authorization: policyWith({
