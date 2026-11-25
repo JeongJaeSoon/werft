@@ -515,10 +515,12 @@ function ownEvents(fence: WorkerFence) {
   );
 }
 
-// The attempt's own numbering as two scalar subqueries: its first sequence,
-// and the first one with no successor. Whoever asks sends them in one
-// statement, since each round trip here is made under the session row lock.
-function sequenceBounds(tx: Database, fence: WorkerFence) {
+// How far the attempt's own sequences run from 1 without a hole, as one SQL
+// value: whoever asks sends it in one statement, since each round trip here
+// is made under the session row lock. A stream that does not start at 1 has
+// nothing durable, and the CASE keeps its successors from being computed at
+// all, as the two separate queries this replaced did.
+function durableThrough(tx: Database, fence: WorkerFence) {
   const own = ownEvents(fence);
   const first = tx
     .select({ sequence: sql`min(${events.sourceSequence})` })
@@ -538,17 +540,7 @@ function sequenceBounds(tx: Database, fence: WorkerFence) {
         )`,
       ),
     );
-  return {
-    first: sql<number | null>`(${first})`,
-    end: sql<number | null>`(${end})`,
-  };
-}
-
-// A stream that does not start at 1 has nothing durable, whatever it holds.
-function throughOf(
-  row: { first: number | null; end: number | null } | undefined,
-): number {
-  return row?.first === 1 ? (row.end ?? 0) : 0;
+  return sql<number | null>`CASE WHEN (${first}) = 1 THEN (${end}) END`;
 }
 
 async function contiguousThrough(
@@ -556,9 +548,9 @@ async function contiguousThrough(
   fence: WorkerFence,
 ): Promise<number> {
   const [row] = await tx
-    .select(sequenceBounds(tx, fence))
+    .select({ through: durableThrough(tx, fence) })
     .from(sql`(SELECT 1) AS one`);
-  return throughOf(row);
+  return row?.through ?? 0;
 }
 
 // What an append answers with: how far the attempt's sequences run without a
@@ -573,13 +565,13 @@ async function attemptStream(
     .where(ownEvents(fence));
   const [row] = await tx
     .select({
-      ...sequenceBounds(tx, fence),
+      through: durableThrough(tx, fence),
       // The driver hands a raw bigint back as text; the column's own mapping
       // makes it the number a cursor is built from.
       latestId: sql<number | null>`(${latest})`.mapWith(events.id),
     })
     .from(sql`(SELECT 1) AS one`);
-  return { through: throughOf(row), latestId: row?.latestId ?? 0 };
+  return { through: row?.through ?? 0, latestId: row?.latestId ?? 0 };
 }
 
 /**

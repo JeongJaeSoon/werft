@@ -80,6 +80,16 @@ async function runningTurn() {
   const turnId = next.input.turn_id;
   return {
     sessionId: worker.sessionId,
+    // A row no append would write: a sequence stored past a hole.
+    store: (sourceSequence: number) =>
+      db.insert(events).values({
+        sessionId: worker.sessionId,
+        type: "status",
+        payload: { phase: "running" },
+        attemptId: worker.scope.attempt_id,
+        sourceSequence,
+        occurredAt: new Date(OCCURRED_AT),
+      }),
     append: (sequences: number[]) =>
       gateway.appendEvents(worker.principal, {
         ...worker.scope,
@@ -137,5 +147,24 @@ describe("append-events round trips", () => {
     expect(refused?.message).toContain("resume from source_sequence 3");
     const extended = await turn.append([3]);
     expect(extended.accepted_through).toBe(3);
+  });
+
+  test("a stream stored with a hole is durable up to the hole, and past it once the hole is filled", async () => {
+    const turn = await runningTurn();
+    await turn.append([1, 2]);
+    await turn.store(4);
+    expect((await turn.append([1, 2])).accepted_through).toBe(2);
+    expect((await turn.append([3])).accepted_through).toBe(4);
+  });
+
+  test("a stream that does not start at 1 has nothing durable, whatever sequence it holds", async () => {
+    const turn = await runningTurn();
+    // The largest integer: its successor cannot be computed, and is not.
+    await turn.store(2_147_483_647);
+    const refused = await turn.append([5]).then(
+      () => undefined,
+      (error: Error) => error,
+    );
+    expect(refused?.message).toContain("resume from source_sequence 1");
   });
 });
