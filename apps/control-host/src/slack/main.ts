@@ -10,6 +10,7 @@ import {
   createPostgresCatalogRepositoryStore,
   createPostgresChannelMemberStore,
   createPostgresConversationCalls,
+  createPostgresConversationReplies,
   createPostgresConversationStore,
   createPostgresConversationTurnQueue,
   createPostgresCredentialBindingStore,
@@ -323,6 +324,10 @@ export function slackMentionTurnEndings(deps: {
   return endMentionTurns({
     statuses: deps.statuses ?? createPostgresMentionTurnStatuses(db),
     queue: createPostgresConversationTurnQueue(db, deps.secretKey),
+    replies: createPostgresConversationReplies(
+      db,
+      createPostgresSlackOutboxStore(db),
+    ),
     calls: createConversationCalls({
       store: createPostgresConversationCalls(db),
       catalog: deps.catalog,

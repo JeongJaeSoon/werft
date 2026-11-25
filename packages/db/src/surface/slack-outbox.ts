@@ -155,6 +155,7 @@ const entry = {
   correlationId: t.correlationId,
   heldForInputId: t.heldForInputId,
   progressKey: t.progressKey,
+  conversationTurnId: t.conversationTurnId,
 };
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
@@ -1948,16 +1949,20 @@ export function createPostgresSlackOutboxStore(
           seq: t.seq,
           ...entry,
           // A DM conversation keeps no team of its own; its install's is it.
+          // A conversation's answer has no session: its turn's conversation.
           conversationScope: sql<SurfaceConversationScope | null>`(
             SELECT json_build_object(
               'kind', cv.kind,
               'teamId', COALESCE(cv.team_id, si.team_id),
               'channelId', cv.channel_id
             )
-            FROM sessions s
-            JOIN conversations cv ON cv.id = s.parent_conversation_id
+            FROM conversations cv
             JOIN slack_installations si ON si.id = ${t.installationId}
-            WHERE s.id = ${t.sessionId}
+            WHERE cv.id = COALESCE(
+              (SELECT s.parent_conversation_id FROM sessions s
+               WHERE s.id = ${t.sessionId}),
+              (SELECT ct.conversation_id FROM conversation_turns ct
+               WHERE ct.id = ${t.conversationTurnId}))
           )`,
         });
       return rows

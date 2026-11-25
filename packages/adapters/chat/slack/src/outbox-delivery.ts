@@ -15,6 +15,7 @@ import type {
   SurfaceOutboxSettle,
 } from "@werft-ai/platform";
 import { SURFACE_PROGRESS_STOPPED_CODE } from "@werft-ai/platform";
+import { slackAiLabelMrkdwn } from "./slack-ai-label.ts";
 import {
   SlackApiError,
   type SlackBotSender,
@@ -421,9 +422,14 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       claim.kind === "input_notice" && claim.body.blocks !== undefined
         ? claim.body.text
         : slackOutboxText(body, guard);
-    const text = emptied(rendered)
+    const answer = emptied(rendered)
       ? slackOutboxText({ ...body, text: empty }, guard)
       : rendered;
+    // The notification, and the post when blocks cannot carry it.
+    const text =
+      claim.kind === "conversation_reply"
+        ? `${answer}\n\n${slackAiLabelMrkdwn(body.locale, body.requested_by)}`
+        : answer;
     try {
       const progress = postedAs?.progress;
       const response =

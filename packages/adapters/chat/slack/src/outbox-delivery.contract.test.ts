@@ -42,6 +42,7 @@ const bodies: Record<SurfaceOutboxKind, SurfaceOutboxClaim["body"]> = {
   input_mirror: { text: "From the web", sender: { username: "Ada (web)" } },
   channel_notice: { text: "The agent reads this channel" },
   reaction: { text: "" },
+  conversation_reply: { text: "Done.", requested_by: "Ada" },
 };
 
 function rowOf(kind: SurfaceOutboxKind): SurfaceOutboxClaim {

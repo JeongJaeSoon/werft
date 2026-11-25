@@ -8,10 +8,12 @@ import {
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  createRowDelivery,
   createSlackAudienceCache,
   createSlackBotApi,
   createSlackChannelSharingReader,
   drainSlackInbox,
+  drainSlackOutbox,
   type SlackAudienceCache,
   slackBotToken,
   slackConversationKey,
@@ -90,7 +92,7 @@ import {
   createTempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
@@ -3958,6 +3960,155 @@ describe.each(ENGINES)(
       expect(
         lines.filter((line) => line.includes("EARLIER-ANSWER")).length,
       ).toBe(1);
+    });
+
+    /** The outbox's sends, as the pass runs them after the endings. */
+    const sendOutbox = () => {
+      const api = createSlackBotApi({ apiUrl: slack.url });
+      const botToken = (workspaceId: string, slackAppId: string) =>
+        slackBotToken(secrets(), workspaceId, slackAppId);
+      return drainSlackOutbox({
+        outbox: schema.createPostgresSlackOutboxStore(db),
+        slack: api,
+        botToken,
+        delivery: createRowDelivery({
+          slack: api,
+          botToken,
+          consoleOrigin: null,
+        }),
+        logger,
+        consoleOrigin: null,
+        batchSize: 10,
+        leaseMs: 30_000,
+        deadline: Date.now() + 10_000,
+      });
+    };
+    const conversationRepliesOf = (fixture: Fixture) =>
+      db
+        .select({
+          status: schema.slackOutbox.status,
+          channelId: schema.slackOutbox.channelId,
+          threadTs: schema.slackOutbox.threadTs,
+          sessionId: schema.slackOutbox.sessionId,
+          turnId: schema.slackOutbox.conversationTurnId,
+        })
+        .from(schema.slackOutbox)
+        .where(
+          and(
+            eq(schema.slackOutbox.agentId, fixture.agentId),
+            eq(schema.slackOutbox.kind, "conversation_reply"),
+          ),
+        );
+    const postsIn = (threadTs: string) =>
+      slack.messages.filter(
+        (posted) =>
+          posted.method === "chat.postMessage" &&
+          posted.channelId === CHANNEL &&
+          posted.threadTs === threadTs,
+      );
+    const decided = async (body: string) => {
+      // The fake keeps every post: each test reads its own.
+      slack.messages.length = 0;
+      const turn = await leased();
+      expect(await decide(turn, body)).toMatchObject({ outcome: "recorded" });
+      await report(turn, {
+        outcome: "completed",
+        text: body,
+        // What the runtime reports is not where the answer goes (G3).
+        decision: { tool: "reply", body, reason: "asked" },
+      });
+      return turn;
+    };
+
+    test("a reply decision posts its answer once, in the top-level mention's own thread, as the agent with the AI line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await decided(
+        `Ship it on Friday. Also see <#C0ELSEWHERE1>, <#${CHANNEL}> and @here`,
+      );
+      expect(await endings()).toMatchObject({ ended: 1, replied: 1 });
+      // The same turn's effect again (a pass that died before the reset).
+      expect(
+        await schema
+          .createPostgresConversationReplies(
+            db,
+            schema.createPostgresSlackOutboxStore(db),
+          )
+          .post(turn.turn_id),
+      ).toBe("duplicate");
+      expect(await endings()).toMatchObject({ ended: 0, replied: 0 });
+      expect(await conversationRepliesOf(fixture)).toEqual([
+        {
+          status: "pending",
+          channelId: CHANNEL,
+          threadTs: "100.000100",
+          sessionId: null,
+          turnId: turn.turn_id,
+        },
+      ]);
+      await sendOutbox();
+      await sendOutbox();
+      const posts = postsIn("100.000100");
+      expect(posts).toHaveLength(1);
+      const [post] = posts;
+      expect(post?.text).toContain("Ship it on Friday.");
+      // Read against the turn's conversation: its own channel stays (A3).
+      expect(post?.text).not.toContain("C0ELSEWHERE1");
+      expect(post?.text).toContain(CHANNEL);
+      expect(post?.text).not.toContain("@here");
+      expect(post?.text.endsWith("AI agent · Werft · Requested by owner")).toBe(
+        true,
+      );
+      expect(post?.options.username).toBe("Notes");
+      expect(await conversationRepliesOf(fixture)).toMatchObject([
+        { status: "sent" },
+      ]);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+
+    test("a reply in a thread goes to that thread", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(
+        fixture,
+        mention("100.000300", { thread_ts: "100.000100" }),
+      );
+      await drain(handler().handle);
+      await decided("In the thread.");
+      await endings();
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        "In the thread.\n\nAI agent · Werft · Requested by owner",
+      ]);
+    });
+
+    test("a reply whose mention Slack deleted after the decision posts nothing", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await decided("Too late.");
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000100",
+        at: new Date(),
+      });
+      await endings();
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+      expect(await conversationRepliesOf(fixture)).toMatchObject([
+        { status: "voided_by_delete" },
+      ]);
+    });
+
+    test("no decision but a reply posts", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), { outcome: "completed", text: "hm" });
+      expect(await endings()).toMatchObject({ ended: 1, replied: 0 });
+      expect(await conversationRepliesOf(fixture)).toEqual([]);
     });
 
     // Each way a turn ends sets its thread back once.
