@@ -24,6 +24,7 @@ import { Pool } from "pg";
 import {
   appendChannelSummaryLines,
   createPostgresChannelSummaryStore,
+  deleteChannelSummary,
   holdChannelSummary,
 } from "../conversations/channel-summaries.ts";
 import { requestReplyJudgment } from "../conversations/conversation-judgments.ts";
@@ -552,9 +553,11 @@ integration("M1 judgment records", () => {
           draftOf(batch, "someone asked if the channel went"),
         ),
       ).toBe("channel_gone");
-      expect(
-        await createPostgresChannelSummaryStore(db).read(placeOf(batch)),
-      ).toBeNull();
+      const { rows } = await pool.query(
+        "SELECT (SELECT count(*) FROM channel_summaries WHERE channel_id = $1)::int AS summaries, (SELECT count(*) FROM channel_summary_versions WHERE channel_id = $1)::int AS versions",
+        [place.channelId],
+      );
+      expect(rows[0]).toEqual({ summaries: 0, versions: 0 });
     });
 
     test("a write that comes while another agent's channel delete runs waits for it, then writes nothing", async () => {
@@ -567,8 +570,10 @@ integration("M1 judgment records", () => {
       let settled = false;
       let write: Promise<unknown> = Promise.resolve();
       await db.transaction(async (tx) => {
-        // The delete's steps: the summary's row held, the binding gone.
+        // The delete's steps: the summary's row held and removed, the
+        // binding gone.
         await holdChannelSummary(tx, placeOf(batch));
+        await deleteChannelSummary(tx, placeOf(batch));
         await tx.execute(sql`
           UPDATE surface_bindings SET status = 'gone', revision = revision + 1
           WHERE agent_id = ${otherAgentId}::uuid
@@ -588,10 +593,11 @@ integration("M1 judgment records", () => {
       });
       // After: it saw the binding gone and wrote nothing.
       expect(await write).toEqual({ outcome: "channel_gone" });
-      expect(
-        (await createPostgresChannelSummaryStore(db).read(placeOf(batch)))
-          ?.lines,
-      ).toEqual([]);
+      const { rows } = await pool.query(
+        "SELECT (SELECT count(*) FROM channel_summaries WHERE channel_id = $1)::int AS summaries, (SELECT count(*) FROM channel_summary_versions WHERE channel_id = $1)::int AS versions",
+        [place.channelId],
+      );
+      expect(rows[0]).toEqual({ summaries: 0, versions: 0 });
     });
 
     test("three lost compares in a row drop the line and the record says so", async () => {

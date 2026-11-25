@@ -158,6 +158,9 @@ async function countIn(
   return Number(window?.counted ?? 0);
 }
 
+/** A summary write that found the channel deleted, to roll it back. */
+class ChannelGone extends Error {}
+
 /**
  * M1's judgment records over PostgreSQL. A record holds Slack ts, codes and
  * ids; a held reply's text goes once it is judged or given up.
@@ -170,19 +173,20 @@ export function createPostgresM1JudgmentStore(
   return {
     gateOpen: (place) => gateOpenIn(db, place, false, versions),
 
-    writeSummaryLine(batch, line) {
-      return db.transaction(async (tx) => {
-        if (!(await gateOpenIn(tx, batch, true, versions))) {
-          return { outcome: "gate_closed" as const };
-        }
-        // Locks: this agent's binding (the gate), the marks, the summary's
-        // row, as a channel delete takes its binding, then the summary's row.
-        // A delete of any agent's, committed first, keeps the summary gone:
-        // its binding is read with the row held, after that delete ends.
-        return appendChannelSummaryLines(tx, {
-          channelThere: async () =>
-            rowsOf(
-              await tx.execute(sql`
+    async writeSummaryLine(batch, line) {
+      try {
+        return await db.transaction(async (tx) => {
+          if (!(await gateOpenIn(tx, batch, true, versions))) {
+            return { outcome: "gate_closed" as const };
+          }
+          // Locks: this agent's binding (the gate), the marks, the summary's
+          // row, as a channel delete takes its binding, then the summary's row.
+          // A delete of any agent's, committed first, keeps the summary gone:
+          // its binding is read with the row held, after that delete ends.
+          const written = await appendChannelSummaryLines(tx, {
+            channelThere: async () =>
+              rowsOf(
+                await tx.execute(sql`
                 SELECT 1 FROM surface_bindings b
                 JOIN slack_installations i ON i.id = b.installation_id
                 WHERE b.workspace_id = ${batch.workspaceId}::uuid
@@ -190,17 +194,26 @@ export function createPostgresM1JudgmentStore(
                   AND b.external_surface_id = ${batch.channelId}
                   AND b.revoked_at IS NULL AND b.status = 'gone'
                 LIMIT 1`),
-            ).length === 0,
-          place: {
-            workspaceId: batch.workspaceId,
-            teamId: batch.teamId,
-            channelId: batch.channelId,
-          },
-          expectedVersion: line.expectedVersion,
-          agentId: batch.agentId,
-          lines: [{ text: line.text, sources: line.sources }],
+              ).length === 0,
+            place: {
+              workspaceId: batch.workspaceId,
+              teamId: batch.teamId,
+              channelId: batch.channelId,
+            },
+            expectedVersion: line.expectedVersion,
+            agentId: batch.agentId,
+            lines: [{ text: line.text, sources: line.sources }],
+          });
+          if (written.outcome === "channel_gone") throw new ChannelGone();
+          return written;
         });
-      });
+      } catch (error) {
+        // Rolled back, the summary row it made goes too.
+        if (error instanceof ChannelGone) {
+          return { outcome: "channel_gone" as const };
+        }
+        throw error;
+      }
     },
 
     async recordBatch(batch, record, judged) {
