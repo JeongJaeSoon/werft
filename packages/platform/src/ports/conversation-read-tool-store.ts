@@ -104,6 +104,9 @@ export interface ConversationReadToolStore {
    */
   recordDecision(input: {
     turnId: ConversationTurnId;
+    /** Held still, checked again as the decision is written. */
+    leaseId: ConversationTurnLeaseId;
+    runtimeId: ConversationRuntimeId;
     decision: ConversationDecision;
   }): Promise<
     | { outcome: "recorded"; state: "decided" | "voided_by_delete" }

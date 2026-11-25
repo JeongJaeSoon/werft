@@ -224,9 +224,19 @@ describe("the read tools' store on PostgreSQL", () => {
 
   describe("a turn's decision, written as its tool is called", () => {
     const decide = (
-      turnId: ConversationTurnId,
+      turn: {
+        turnId: ConversationTurnId;
+        leaseId: ConversationTurnLeaseId;
+        runtimeId: ConversationRuntimeId;
+      },
       decision: ConversationDecision,
-    ) => store().recordDecision({ turnId, decision });
+    ) =>
+      store().recordDecision({
+        turnId: turn.turnId,
+        leaseId: turn.leaseId,
+        runtimeId: turn.runtimeId,
+        decision,
+      });
     const end = (turnId: ConversationTurnId) =>
       createPostgresConversationCalls(db).endTurnAtomic({
         turnId,
@@ -277,7 +287,7 @@ describe("the read tools' store on PostgreSQL", () => {
       const before = await effects();
       for (const decision of DECISIONS) {
         const turn = await leased(open, { sources: [read] });
-        expect(await decide(turn.turnId, decision)).toEqual({
+        expect(await decide(turn, decision)).toEqual({
           outcome: "recorded",
           state: "decided",
         });
@@ -299,15 +309,15 @@ describe("the read tools' store on PostgreSQL", () => {
     test("the turn's first decision is its record: no other decision, tool call or end changes it, and its end closes the permit", async () => {
       const none = await leased();
       expect((await end(none.turnId)).state).toBe("no_decision");
-      expect(
-        await decide(none.turnId, DECISIONS[3] as ConversationDecision),
-      ).toEqual({ outcome: "turn_not_held" });
+      expect(await decide(none, DECISIONS[3] as ConversationDecision)).toEqual({
+        outcome: "turn_not_held",
+      });
       const turn = await leased(open, { sources: [read] });
       const first = DECISIONS[3] as ConversationDecision;
-      expect((await decide(turn.turnId, first)).outcome).toBe("recorded");
-      expect(
-        await decide(turn.turnId, DECISIONS[0] as ConversationDecision),
-      ).toEqual({ outcome: "turn_not_held" });
+      expect((await decide(turn, first)).outcome).toBe("recorded");
+      expect(await decide(turn, DECISIONS[0] as ConversationDecision)).toEqual({
+        outcome: "turn_not_held",
+      });
       // No read or decision tool call after the turn's decision.
       expect(await admit(turn)).toEqual({ outcome: "not_holder" });
       const live = (await permitOf(turn.turnId))?.expiresAt.getTime() ?? 0;
@@ -327,11 +337,44 @@ describe("the read tools' store on PostgreSQL", () => {
       ).toBeLessThanOrEqual(Date.now());
     });
 
+    test("a lease or permit that ran out, or another lease, since the call was admitted: nothing is written", async () => {
+      const decision = DECISIONS[3] as ConversationDecision;
+      const other = await leased();
+      expect(
+        await decide(
+          {
+            ...other,
+            leaseId: conversationTurnLeaseIdSchema.parse(randomUUID()),
+          },
+          decision,
+        ),
+      ).toEqual({ outcome: "turn_not_held" });
+      const lapsed = await leased();
+      await db.execute(sql`
+        UPDATE conversation_turn_queue
+        SET lease_expires_at = now() - interval '1 second'
+        WHERE turn_id = ${lapsed.turnId}::uuid`);
+      expect(await decide(lapsed, decision)).toEqual({
+        outcome: "turn_not_held",
+      });
+      const unpermitted = await leased();
+      await db
+        .update(conversationTurnPermits)
+        .set({ expiresAt: new Date(Date.now() - 1_000) })
+        .where(eq(conversationTurnPermits.turnId, unpermitted.turnId));
+      expect(await decide(unpermitted, decision)).toEqual({
+        outcome: "turn_not_held",
+      });
+      for (const turn of [other, lapsed, unpermitted]) {
+        expect((await rowOf(turn.turnId))?.state).toBe("running");
+      }
+    });
+
     test("two decisions of one turn at once: one is written, the other finds the turn ended", async () => {
       const turn = await leased(open, { sources: [read] });
       const both = await Promise.all([
-        decide(turn.turnId, DECISIONS[0] as ConversationDecision),
-        decide(turn.turnId, DECISIONS[3] as ConversationDecision),
+        decide(turn, DECISIONS[0] as ConversationDecision),
+        decide(turn, DECISIONS[3] as ConversationDecision),
       ]);
       expect(both.map((each) => each.outcome).sort()).toEqual([
         "recorded",
@@ -353,9 +396,10 @@ describe("the read tools' store on PostgreSQL", () => {
         ts: "42.0",
         deletedAt: new Date(),
       });
-      expect(
-        await decide(turn.turnId, DECISIONS[0] as ConversationDecision),
-      ).toEqual({ outcome: "recorded", state: "voided_by_delete" });
+      expect(await decide(turn, DECISIONS[0] as ConversationDecision)).toEqual({
+        outcome: "recorded",
+        state: "voided_by_delete",
+      });
       expect(await rowOf(turn.turnId)).toMatchObject({
         state: "voided_by_delete",
         decision: null,
@@ -375,7 +419,7 @@ describe("the read tools' store on PostgreSQL", () => {
       });
       const kept = await leased(open, { sources: [read], overflow: true });
       expect(
-        await decide(kept.turnId, DECISIONS[3] as ConversationDecision),
+        await decide(kept, DECISIONS[3] as ConversationDecision),
       ).toMatchObject({ state: "decided" });
       const voided = await leased(open, { sources: [read], overflow: true });
       await db.insert(deletedSources).values({
@@ -386,7 +430,7 @@ describe("the read tools' store on PostgreSQL", () => {
         deletedAt: new Date(),
       });
       expect(
-        await decide(voided.turnId, DECISIONS[3] as ConversationDecision),
+        await decide(voided, DECISIONS[3] as ConversationDecision),
       ).toMatchObject({ state: "voided_by_delete" });
     });
 

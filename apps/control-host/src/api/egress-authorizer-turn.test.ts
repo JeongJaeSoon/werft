@@ -5,8 +5,10 @@ import {
   type ConversationTurnId,
   conversationCallKeySchema,
   conversationIdSchema,
+  conversationRuntimeIdSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
+  conversationTurnLeaseIdSchema,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -472,10 +474,21 @@ describe("a conversation turn's provider calls", () => {
   });
 
   test("a decided turn's engine still makes the provider calls that close it, until its end; a voided turn or one with no decision makes none", async () => {
-    const turn = await operatorTurn();
+    const topicId = await newTopic();
+    const turn = await operatorTurn(topicId);
+    const leaseId = conversationTurnLeaseIdSchema.parse(crypto.randomUUID());
+    const runtimeId = conversationRuntimeIdSchema.parse(crypto.randomUUID());
+    await db.execute(sql`
+      INSERT INTO conversation_turn_queue (turn_id, input_id, attempt, topic_id,
+        state, take_by, take_ms, lease_id, runtime_id, lease_expires_at)
+      VALUES (${turn.turnId}::uuid, ${crypto.randomUUID()}::uuid, 1,
+        ${topicId}::uuid, 'leased', now(), 0, ${leaseId}::uuid,
+        ${runtimeId}::uuid, now() + interval '150 seconds')`);
     expect(
       await schema.createPostgresConversationReadToolStore(db).recordDecision({
         turnId: turn.turnId,
+        leaseId,
+        runtimeId,
         decision: { tool: "no_reply", reason: "nothing to add" },
       }),
     ).toEqual({ outcome: "recorded", state: "decided" });

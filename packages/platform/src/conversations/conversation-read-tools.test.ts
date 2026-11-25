@@ -461,7 +461,9 @@ describe("the decision tools as the control host answers them", () => {
       s.state.tasks = [task(taskId)];
       expect(await s.decide(decision)).toEqual({ outcome: "accepted" });
       expect(s.seen.admitted).toMatchObject([{ tool: decision.tool }]);
-      expect(s.seen.decisions).toEqual([{ turnId: s.turn.turnId, decision }]);
+      expect(s.seen.decisions).toMatchObject([
+        { turnId: s.turn.turnId, decision },
+      ]);
       expect(s.seen.added).toEqual([]);
     }
   });

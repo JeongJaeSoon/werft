@@ -374,6 +374,8 @@ export function createConversationReadTools(deps: {
       }
       const recorded = await deps.store.recordDecision({
         turnId: turn.turnId,
+        leaseId: lease.leaseId,
+        runtimeId: lease.runtimeId,
         decision,
       });
       // Another decision of the turn was written first.
