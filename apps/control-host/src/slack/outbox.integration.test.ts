@@ -29,6 +29,7 @@ import {
 } from "@werft-ai/chat-slack";
 import {
   agentCardRequestSchema,
+  BOT_SCOPES,
   type ConversationId,
   type ConversationInputId,
   type ConversationTopicId,
@@ -274,6 +275,7 @@ async function agentInSlack() {
   await createPostgresSlackAppStore(db, key).storeBotToken({
     workspaceId,
     slackAppId,
+    scopes: [...BOT_SCOPES],
     botToken: BOT_CREDENTIAL,
   });
   await registerSlackInstallation(db, {

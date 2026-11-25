@@ -269,6 +269,8 @@ export function createFakeSlackWebApi(
   const viewUpdates: FakeSlackWebApi["viewUpdates"] = [];
   /** The scopes each pending code's authorize URL asked for. */
   const scopesOf = new Map<string, string>();
+  /** The scopes each issued bot token holds, as Slack's header lists them. */
+  const tokenScopes = new Map<string, string>();
   const installAnswer: Record<string, unknown> = {};
   const manifestUpdateAnswer: Record<string, unknown> = {};
   const users = new Map<string, FakeSlackUser>();
@@ -788,6 +790,7 @@ export function createFakeSlackWebApi(
       }
       const bot = `xoxb-${hex(24)}`;
       app.botTokens.push(bot);
+      tokenScopes.set(bot, scope ?? "");
       return {
         access_token: bot,
         token_type: "bot",
@@ -1334,6 +1337,42 @@ export function createFakeSlackWebApi(
         );
         return Response.json({ ok: true });
       }
+      // An app made under fewer scopes: the scopes are taken from its
+      // manifest and from every bot token it holds, as for an install made
+      // before a build asked for them.
+      if (url.pathname === "/fake/scopes" && request.method === "POST") {
+        const input = (await request.json()) as {
+          app_id?: unknown;
+          remove?: unknown;
+        };
+        const app =
+          typeof input.app_id === "string" ? apps.get(input.app_id) : undefined;
+        const remove = Array.isArray(input.remove)
+          ? input.remove.filter(
+              (scope): scope is string => typeof scope === "string",
+            )
+          : [];
+        if (!app || remove.length === 0) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        const kept = (scopes: readonly string[]) =>
+          scopes.filter((scope) => !remove.includes(scope));
+        const bot = (
+          app.manifest as {
+            oauth_config?: { scopes?: { bot?: string[] } };
+          } | null
+        )?.oauth_config?.scopes;
+        if (bot?.bot) bot.bot = kept(bot.bot);
+        for (const token of app.botTokens) {
+          const held = tokenScopes.get(token);
+          if (held !== undefined)
+            tokenScopes.set(token, kept(held.split(",")).join(","));
+        }
+        return Response.json({ ok: true });
+      }
       if (url.pathname === "/fake/config-tokens" && request.method === "POST") {
         return Response.json({ ok: true, refresh_token: issueConfigToken() });
       }
@@ -1424,7 +1463,15 @@ export function createFakeSlackWebApi(
         const answer = run(context);
         if (answer === null) return null;
         calls.push({ method, ok: true });
-        return Response.json({ ok: true, ...answer });
+        // Slack names a token's scopes on every answer it gives it.
+        const scopes =
+          context.token === null ? undefined : tokenScopes.get(context.token);
+        return Response.json(
+          { ok: true, ...answer },
+          scopes === undefined
+            ? undefined
+            : { headers: { "X-OAuth-Scopes": scopes } },
+        );
       } catch (error) {
         if (!(error instanceof SlackError)) throw error;
         calls.push({ method, ok: false, error: error.code });

@@ -95,6 +95,10 @@ export const slackJa = {
     "manifest を Slack にもう一度送りました。アプリに新しい権限が加わり、アプリを再インストールすると適用されます。",
   "slack.eventsUrl.sent":
     "Request URL を Slack にもう一度送りました。URL が変わらなければ Slack は再び確認しないことがあります。確認待ちが続く場合は、アプリ設定の Event Subscriptions で Retry を押してください。",
+  "slack.reauthorize.needed": "Slack の再承認が必要",
+  "slack.reauthorize.body":
+    "このアプリに新しい権限（{scopes}）が加わりましたが、今のインストールはまだ承認していません。再承認するまでは、この権限が必要な機能だけが止まり、ほかはそのまま動きます。再承認を押すと、アプリの設定を Slack に送ってから Slack の承認画面に移ります。",
+  "slack.reauthorize.action": "再承認",
   "slack.manifestSync.needed": "更新が必要",
   "slack.manifestSync.config_token_inactive":
     "App Configuration Token が有効でないため、Werft はこのアプリの Slack 設定を確認・更新できませんでした。新しく加わったイベントを受け取れないことがあります。トークンを入れ直してから「再確認」を押してください。",

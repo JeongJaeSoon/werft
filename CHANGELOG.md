@@ -39,6 +39,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 여러 api replica가 함께 떠도 10분 안에는 한 replica만 앱을 확인한다. Slack이 `Retry-After` 120초 이하로 막으면 앱마다 한 번만 기다리고, 그보다 길거나 두 번째면 갱신 필요로 남긴다.
   - bot scope가 다르거나 user scope가 있는 앱과 이벤트 구독이 꺼진 앱은 건드리지 않는다.
   - `GET /v1/agents/{agent_id}/slack/app` 응답에 `manifest_sync` 칸이 더해진다.
+- **bot scope가 는 manifest는 api 기동 때 보내지 않고, 콘솔 Slack 탭의 앱 칸에 "Slack 재승인 필요"와 다시 승인 버튼을 띄운다**(JeongJaeSoon/werft#2212). migration `0366`이 `slack_apps`에 nullable 칸 `bot_scopes`를 더한다. 표나 칸을 지우지 않는다.
+  - 설치가 받은 scope를 기록하고, 기동할 때마다 bot token으로 `auth.test`를 불러 다시 읽는다. 올리기 전에 한 설치는 첫 기동 뒤에 채워진다. 읽지 못한 동안은 재승인 안내를 띄우지 않는다.
+  - 버튼은 manifest를 보내고(`apps.manifest.update`) Slack의 재설치(OAuth) 화면으로 옮겨 간다. 재승인 전에는 새 scope가 필요한 기능만 꺼진다.
+  - `GET /v1/agents/{agent_id}/slack/app` 응답에 `reauthorization` 칸이 더해진다.
 - **이 버전의 worker 이미지로 도는 모든 세션에 내장 MCP 서버 `werft`가 붙고, workspace MCP 서버 이름 `werft`가 예약된다. 이미 그 이름으로 등록한 workspace MCP 서버는 세션에 붙지 않는다**(JeongJaeSoon/werft#2192). migration은 없다. 내장 서버는 에이전트·workspace의 어떤 설정으로도 끌 수 없다.
   - `werft`라는 이름의 workspace MCP 서버를 쓰던 설치는 그 서버를 다른 이름으로 다시 등록한다. 도구 이름(`mcp__werft__…`)도 새 서버 이름을 따르므로, 그 이름을 적은 도구 정책도 함께 고친다. 올린 뒤에는 그 서버의 도구가 세션에 나오지 않는다. 올리기 전에 그 서버와 함께 찍힌 checkpoint는 그대로 복원된다.
   - 새 등록에서 이름 `werft`는 `github`·`browser`·`memory`와 같이 거절된다. release의 도구 정책 `per_tool`에 `mcp__werft__`로 시작하는 이름을 적으면 release를 만들 수 없다.

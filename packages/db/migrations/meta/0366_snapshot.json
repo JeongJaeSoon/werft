@@ -1,5 +1,5 @@
 {
-  "id": "3d4358d9-b518-4a29-b0b5-9faa5675ff82",
+  "id": "1a0009f8-a0cd-4eaf-aac6-c70ff1e6ea2d",
   "prevId": "cb04192b-7cf7-40e7-83f7-149b2a14de10",
   "version": "7",
   "dialect": "postgresql",
@@ -7054,20 +7054,6 @@
           "notNull": true,
           "default": 0
         },
-        "tool_calls": {
-          "name": "tool_calls",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "thread_reads": {
-          "name": "thread_reads",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -7127,10 +7113,6 @@
         "conversation_turn_permits_limits_check": {
           "name": "conversation_turn_permits_limits_check",
           "value": "\"conversation_turn_permits\".\"max_tokens\" >= 1 AND \"conversation_turn_permits\".\"max_request_bytes\" >= 1 AND \"conversation_turn_permits\".\"calls\" >= 0 AND \"conversation_turn_permits\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m2$'"
-        },
-        "conversation_turn_permits_tool_counts_check": {
-          "name": "conversation_turn_permits_tool_counts_check",
-          "value": "\"conversation_turn_permits\".\"tool_calls\" >= 0 AND \"conversation_turn_permits\".\"thread_reads\" >= 0"
         },
         "conversation_turn_permits_refusal_check": {
           "name": "conversation_turn_permits_refusal_check",
@@ -17947,6 +17929,12 @@
         "manifest_sync_checked_at": {
           "name": "manifest_sync_checked_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bot_scopes": {
+          "name": "bot_scopes",
+          "type": "text[]",
           "primaryKey": false,
           "notNull": false
         },

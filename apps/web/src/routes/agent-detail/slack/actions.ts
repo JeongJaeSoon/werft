@@ -112,11 +112,34 @@ export function useSlackApp(agentId: string) {
       await refresh();
     },
   });
+  // A scope the install lacks: Slack must hold the manifest that asks for it
+  // before its consent screen can grant it.
+  const reauthorize = useMutation({
+    onMutate: () => setNotice(""),
+    mutationFn: async () => {
+      await unwrap(
+        client.POST("/v1/agents/{id}/slack/app/events/recheck", {
+          params: { path: { id: agentId } },
+        }),
+      );
+      return unwrap(
+        client.POST("/v1/agents/{id}/slack/install/start", {
+          params: { path: { id: agentId } },
+        }),
+      );
+    },
+    onSuccess: ({ authorize_url }) => {
+      leave(authorize_url);
+    },
+    // A sent manifest shows in the app's state even when the link failed.
+    onError: () => void refresh(),
+  });
   const busy =
     connect.isPending ||
     remove.isPending ||
     revoke.isPending ||
-    recheck.isPending;
+    recheck.isPending ||
+    reauthorize.isPending;
   return {
     app,
     identities,
@@ -127,6 +150,7 @@ export function useSlackApp(agentId: string) {
     remove,
     revoke,
     recheck,
+    reauthorize,
     busy,
     /** The outcome for the wizard's one section, wherever it came from. */
     notice: outcome?.text ?? "",
