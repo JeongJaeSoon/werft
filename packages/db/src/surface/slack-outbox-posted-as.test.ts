@@ -1,8 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { PGlite } from "@electric-sql/pglite";
 import type { SurfaceOutboxEntry } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import {
+  createTempDatabase,
+  testDatabaseUrl,
+} from "@werft-ai/testkit/postgres";
+import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
+import { Pool } from "pg";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { createPostgresSlackOutboxStore } from "./slack-outbox.ts";
@@ -11,17 +16,46 @@ import { createPostgresSlackOutboxStore } from "./slack-outbox.ts";
 // task (a session with a Slack link), its session's title, under the locks
 // that order it against a Slack delete.
 
-let client: PGlite;
+const ENGINE = testDatabaseUrl() ? "PostgreSQL" : "PGlite";
+
+let client: {
+  query: <Row extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    params?: unknown[],
+  ) => Promise<{ rows: Row[] }>;
+  exec: (text: string) => Promise<unknown>;
+};
 let db: Database;
+let close = async () => {};
 const WORKSPACE = crypto.randomUUID();
 const AGENT = crypto.randomUUID();
 const INSTALL = crypto.randomUUID();
 
 beforeAll(async () => {
-  client = await migratedPGlite();
+  if (ENGINE === "PGlite") {
+    const pglite = await migratedPGlite();
+    client = pglite;
+    db = drizzle(pglite, { schema }) as unknown as Database;
+    close = () => pglite.close();
+  } else {
+    const database = await createTempDatabase({ prefix: "posted_as" });
+    // One connection, so the session setting below holds for every query.
+    const pool = new Pool({ connectionString: database.url, max: 1 });
+    client = {
+      query: <Row extends Record<string, unknown>>(
+        text: string,
+        params?: unknown[],
+      ) => pool.query<Row>(text, params),
+      exec: (text) => pool.query(text),
+    };
+    db = drizzlePostgres(pool, { schema }) as unknown as Database;
+    close = async () => {
+      await pool.end();
+      await database.drop();
+    };
+  }
   // The rows a row names are not what is under test; skip their foreign keys.
   await client.exec("SET session_replication_role = replica");
-  db = drizzle(client, { schema }) as unknown as Database;
   await client.query(
     "INSERT INTO slack_installations (id, workspace_id, app_id, team_id) VALUES ($1, $2, 'A0APP', 'T0INSTALL')",
     [INSTALL, WORKSPACE],
@@ -32,9 +66,7 @@ beforeAll(async () => {
   );
 }, 60_000);
 
-afterAll(async () => {
-  await client.close();
-});
+afterAll(() => close(), 60_000);
 
 async function sessionTitled(
   title: string | null,
@@ -132,7 +164,7 @@ async function begunAs(
   return outbox.beginSend(claim);
 }
 
-describe("beginning an outbox row's send", () => {
+describe(`beginning an outbox row's send on ${ENGINE}`, () => {
   test("reads a task's agent name and session title", async () => {
     const { outbox } = await claimedPostedAs({
       sessionId: await sessionTitled("Fix the login"),
