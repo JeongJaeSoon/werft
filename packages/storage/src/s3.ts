@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { HttpRequest } from "@smithy/core/protocols";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { ObjectIntegrityError } from "@werft-ai/runtime-core";
@@ -32,13 +32,14 @@ export type S3RequestBounds = {
  *
  * `requestTimeout` runs from `send()` until the response *headers* arrive, the
  * upload included, and it does not care whether bytes are moving. Five
- * minutes is the floor for every write; a streamed `putImmutable` stretches
- * it to its own size ({@link transferBudgetMs}), so a workspace bundle is
- * never held to a budget sized for a smaller one. A snappier value would
- * abort healthy checkpoint uploads on a slow link, three times over, and
- * still fail. Reads do not upload anything and so do not wait on that
- * budget: they pass {@link BodyReadBounds.requestTimeoutMs} per request
- * instead.
+ * minutes is the floor for a streamed write, and a streamed `putImmutable`
+ * stretches it to its own size ({@link transferBudgetMs}), so a workspace
+ * bundle is never held to a budget sized for a smaller one. A snappier value
+ * would abort healthy checkpoint uploads on a slow link, three times over,
+ * and still fail. Everything else passes a bound of its own per request: a
+ * read {@link BodyReadBounds.requestTimeoutMs}, a request that moves no body
+ * {@link S3_METADATA_REQUEST_TIMEOUT_MS}, a write from memory
+ * {@link S3_SMALL_WRITE_FLOOR_MS} scaled by its size.
  *
  * `throwOnRequestTimeout` is not optional dressing: without it
  * @smithy/node-http-handler 4.12.1 logs a warning when `requestTimeout`
@@ -280,6 +281,74 @@ function guardResponseBody(body: unknown, idleMs: number): void {
   stream.on?.("close", settle);
   stream.on?.("end", settle);
   timer = setTimeout(onIdle, idleMs);
+}
+
+/**
+ * Per-request bound for a request whose answer is a few KiB and whose upload
+ * is nothing: a HeadObject, a list page, a legal hold, a delete, a bucket
+ * setting. Such a store answers in well under a second, so five seconds a try
+ * is generous, and a store that took the connection and never answers costs
+ * a caller 5 s × {@link S3_MAX_ATTEMPTS} instead of the upload-sized 300 s ×
+ * {@link S3_MAX_ATTEMPTS}.
+ */
+export const S3_METADATA_REQUEST_TIMEOUT_MS = 5_000;
+
+/**
+ * The floor of the per-request bound for a write whose body is already in
+ * memory (a manifest, an archived event page), scaled up by its size at the
+ * slowest allowed link ({@link transferBudgetMs}). The same 30 s a read waits
+ * for its response headers. A streamed write is a workspace bundle and keeps
+ * the {@link S3_REQUEST_BOUNDS} floor.
+ */
+export const S3_SMALL_WRITE_FLOOR_MS = 30_000;
+
+/** Where {@link warnOnS3Timeouts} reports a request that ran out its bound. */
+export type S3TimeoutWarn = (
+  message: string,
+  fields: Record<string, unknown>,
+) => void;
+
+/**
+ * Reports, in one line, each call on `client` that failed with no answer:
+ * a bound that ran out, or a connection the SDK files under the same
+ * `TimeoutError` (a reset, a broken pipe), which `code` tells apart. After
+ * the client's own retries, so one call is one line however many attempts it
+ * took. The line names the operation and the bucket, never the key or the
+ * endpoint. The error itself goes on to the caller unchanged.
+ */
+export function warnOnS3Timeouts(
+  client: S3Client,
+  warn: S3TimeoutWarn,
+): S3Client {
+  client.middlewareStack.add(
+    (next, context) => async (args) => {
+      const startedAt = Date.now();
+      try {
+        return await next(args);
+      } catch (error) {
+        if (ranOutOfBound(error)) {
+          const bucket = (args.input as { Bucket?: unknown }).Bucket;
+          const code = (error as { code?: unknown }).code;
+          warn("S3 request ended without an answer", {
+            operation: context.commandName?.replace(/Command$/, ""),
+            ...(typeof bucket === "string" ? { bucket } : {}),
+            ...(typeof code === "string" ? { code } : {}),
+            elapsedMs: Date.now() - startedAt,
+            attempts: awsError(error)?.$metadata?.attempts,
+          });
+        }
+        throw error;
+      }
+    },
+    { name: "werftTimeoutWarning", step: "initialize" },
+  );
+  return client;
+}
+
+function ranOutOfBound(error: unknown): boolean {
+  return (
+    awsError(error)?.name === "TimeoutError" || error instanceof BodyStallError
+  );
 }
 
 /** Bounded retries on top of {@link S3_REQUEST_BOUNDS}. */
@@ -888,7 +957,7 @@ function closeBody(
 function awsError(error: unknown) {
   if (typeof error !== "object" || error === null) return undefined;
   return error as {
-    $metadata?: { httpStatusCode?: number };
+    $metadata?: { attempts?: number; httpStatusCode?: number };
     Code?: string;
     name?: string;
   };
