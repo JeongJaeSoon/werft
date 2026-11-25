@@ -269,6 +269,8 @@ export const slackKo = {
   "slack.judgments.instructions": "M1 지침: 릴리스 {release}, commit {commit}",
   "slack.judgments.instructionsAbsent":
     "M1 지침: 릴리스 {release}, commit {commit}에 지침 파일이 없어 고정 기준만 씁니다.",
+  "slack.judgments.instructionsNewer":
+    "저장소에 더 새 지침이 있습니다. 새 릴리스를 만들면 반영됩니다.",
   "slack.judgments.reason.not_for_agent": "에이전트에게 한 말이 아님",
   "slack.judgments.reason.human_conversation": "사람끼리의 대화",
   "slack.judgments.reason.already_handled": "이미 처리됨",
