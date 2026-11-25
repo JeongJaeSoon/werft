@@ -100,8 +100,16 @@ export function parseM1Answer(
   return parsed.success ? parsed.data : null;
 }
 
-/** A post M1 judges: an input of the agent, with its Slack ts for the record. */
-export type M1Post = CurrentPost & { inputId: ConversationInputId; ts: string };
+/**
+ * A post M1 judges: an input of the agent, with its Slack ts for the record
+ * and its edit mark as its text was read (null for none), which the write
+ * compares (a1/J6).
+ */
+export type M1Post = CurrentPost & {
+  inputId: ConversationInputId;
+  ts: string;
+  editMark: string | null;
+};
 
 /** What one judgment is about: a batch, or one reply. */
 export type M1Subject = {
@@ -162,6 +170,17 @@ type Deps = {
   executor: Pick<ConversationCallExecutor, "run">;
 };
 
+/**
+ * A judgment's call key: the subject's key, and for the one judgment again
+ * after a result was voided (a1/J6) a key of its own, so its calls are
+ * reserved and settled apart from the voided ones.
+ */
+export function m1CallKey(key: string, rejudge = false): ConversationCallKey {
+  return conversationCallKeySchema.parse(
+    rejudge ? `${key}-rejudge:m1` : `${key}:m1`,
+  );
+}
+
 const refsOf = (posts: readonly M1Post[]) => posts.map((post) => post.ts);
 
 /** The record of a judgment stopped before the model: silence, with why. */
@@ -197,7 +216,10 @@ const RETRYABLE_FAILED: Record<string, JudgmentFailedReason> = {
  */
 export function createM1Judge(deps: Deps) {
   return {
-    async judge(subject: M1Subject): Promise<M1Judgment> {
+    async judge(
+      subject: M1Subject,
+      options: { rejudge?: boolean } = {},
+    ): Promise<M1Judgment> {
       const none = { record: null, left: [], modelCalled: false };
       if (!(await deps.gate(subject))) return none;
       const release = await deps.release(subject);
@@ -234,7 +256,7 @@ export function createM1Judge(deps: Deps) {
         );
       const judged = postsOf(fitted.current);
       const left = postsOf(fitted.left);
-      const callKey = conversationCallKeySchema.parse(`${subject.key}:m1`);
+      const callKey = m1CallKey(subject.key, options.rejudge);
       const messages = [{ role: "user" as const, content: m1Data(fitted) }];
 
       let attempts = 0;

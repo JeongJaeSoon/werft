@@ -2556,6 +2556,80 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
   });
 
+  test("a budget account's refusals: the first in the thread, the next to the person alone, none to a channel waiting for approval; never 'try again'", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    // The turn ends failed on the attempt its refused call ran in.
+    const refused = async (sequence: number) => {
+      await endTurn(sessionId, sequence, "failed");
+      const [turn] = await db
+        .select({ attemptId: turns.attemptId })
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
+        );
+      expect(
+        await schema.recordBudgetAccountRefusal(db, {
+          sessionId,
+          attemptId: turn?.attemptId ?? "",
+          turnId: String(sequence),
+          owner: "user",
+        }),
+      ).toBe("recorded");
+    };
+    const isBudgetLine = (text: string) =>
+      Object.values(SLACK_NOTICE_MESSAGES).some((messages) =>
+        text.startsWith(messages.budgetAccountUser),
+      );
+
+    await refused(1);
+    await outboxPass();
+    await outboxPass();
+    expect(
+      slack.messages.map((message) => [
+        message.method,
+        message.userId,
+        isBudgetLine(message.text),
+      ]),
+    ).toEqual([["chat.postMessage", null, true]]);
+
+    await mention(fixture, "100.000200");
+    await refused(2);
+    await outboxPass();
+    await outboxPass();
+    expect(
+      slack.messages.map((message) => [
+        message.method,
+        message.userId,
+        isBudgetLine(message.text),
+      ]),
+    ).toEqual([
+      ["chat.postMessage", null, true],
+      ["chat.postEphemeral", PERSON, true],
+    ]);
+
+    // A later refusal's ephemeral to a channel now waiting for approval
+    // does not go: only the notice of no session that asks for approval may.
+    await mention(fixture, "100.000300");
+    await refused(3);
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    await outboxPass();
+    await outboxPass();
+    expect(slack.messages).toHaveLength(2);
+    expect(
+      (await rows()).map((row) => [row.kind, row.status, row.errorCode]),
+    ).toEqual([
+      ["failure_notice", "sent", null],
+      ["notice", "sent", null],
+      ["notice", "failed", "not_addressed"],
+    ]);
+  });
+
   test("a reply claimed before its channel began waiting for approval does not start sending", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

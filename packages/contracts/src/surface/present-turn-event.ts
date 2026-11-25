@@ -40,6 +40,8 @@ export type TurnEventMessageKey =
   | "session.event.kind.error"
   | "session.event.error.modelNotAllowed"
   | "session.event.error.modelConnectionRemoved"
+  | "session.event.error.budgetAccountUser"
+  | "session.event.error.budgetAccountTeam"
   | "session.event.noCapacity"
   | "session.event.noCapacityPaused"
   | "session.event.codexSandboxNotInstalled"
@@ -441,6 +443,22 @@ function present(
                 ? "session.event.error.modelConnectionRemoved"
                 : "session.event.error.modelNotAllowed",
               { model: clip(data.model) },
+            ),
+          ],
+          error: true,
+        };
+      }
+      if (
+        data.code === "BUDGET_EXCEEDED" &&
+        (data.budget_owner === "user" || data.budget_owner === "team")
+      ) {
+        return {
+          label: message("session.event.kind.error"),
+          summary: [
+            message(
+              data.budget_owner === "user"
+                ? "session.event.error.budgetAccountUser"
+                : "session.event.error.budgetAccountTeam",
             ),
           ],
           error: true,

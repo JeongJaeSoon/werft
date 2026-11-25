@@ -185,6 +185,17 @@ describe("database host resolution", () => {
     },
   );
 
+  test("a failed lookup is a lost connection whatever code the resolver gives it", () => {
+    // Bun's getaddrinfo on a node whose DNS is not up yet.
+    const lookup = Object.assign(new Error("getaddrinfo ENOTIMP"), {
+      code: "ENOTIMP",
+      syscall: "getaddrinfo",
+    });
+    expect(isConnectionFailure(lookup)).toBe(true);
+    expect(isConnectionFailure(new Error("some other failure"))).toBe(false);
+    expect(isConnectionFailure(null)).toBe(false);
+  });
+
   test("pg dials through that socket", () => {
     const client = new Client(enforcedConfig(url, JOB_POOL_TIMEOUTS, "job"));
     const { stream } = (
