@@ -40,7 +40,11 @@ export default async function Page(props: Props) {
   // The generated reference is English in every language: the spec is.
   if (page.type === "openapi") {
     return (
-      <DocsPage full>
+      // The browser's tree has no operations until it loads them; the server's has.
+      <DocsPage
+        full
+        footer={{ items: neighbours(source.getPageTree(lang), page.url) }}
+      >
         <DocsTitle lang="en" className="font-medium">
           {page.data.title}
         </DocsTitle>
