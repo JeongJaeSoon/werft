@@ -849,6 +849,21 @@ integration("pending requests and answers on PostgreSQL", () => {
       expect(await check(`req_${crypto.randomUUID()}`)).toEqual({
         allowed: false,
       });
+
+      // The run never took it: the allow covered nothing.
+      await gateway.pendingControl(worker.principal, {
+        ...worker.scope,
+        capabilities: { approval_remember: true, session_allow_check: true },
+        answers_after: 0,
+        settled: [
+          {
+            request_id: kept.requestId,
+            outcome: "cancelled",
+            answer_result: "stale",
+          },
+        ],
+      });
+      expect(await check(kept.requestId)).toEqual({ allowed: false });
     });
 
     test("a poll that does not announce the capability gets the plain allow", async () => {

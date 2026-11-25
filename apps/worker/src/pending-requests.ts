@@ -454,6 +454,7 @@ export class PendingRequestRegistry {
     requestId: string,
     decision: ApprovalDecisionPayload,
     answerSurface?: SurfaceKind,
+    onApplied?: () => void,
   ): void {
     const waiting = this.pending.get(requestId);
     if (waiting !== undefined) {
@@ -496,6 +497,7 @@ export class PendingRequestRegistry {
       .then((settled) => {
         this.answering.delete(requestId);
         this.settlements.set(requestId, settled);
+        if (settled.answer_result === "applied") onApplied?.();
         this.poll();
       });
     this.answering.set(requestId, answering);
@@ -899,16 +901,18 @@ export class PendingRequestRegistry {
       return true;
     }
     if (answer.kind === "permission") {
-      if (
+      // Held only once the run took the answer: one it never saw allows
+      // nothing after it either.
+      const held =
         answer.decision === "allow" &&
         answer.remember === "session" &&
         entry.rememberOffer.length > 0
-      ) {
-        this.options.onSessionAllow?.({
-          requestId: answer.request_id,
-          rules: entry.rememberOffer,
-        });
-      }
+          ? () =>
+              this.options.onSessionAllow?.({
+                requestId: answer.request_id,
+                rules: entry.rememberOffer,
+              })
+          : undefined;
       this.close(
         answer.request_id,
         answer.decision === "allow"
@@ -927,6 +931,7 @@ export class PendingRequestRegistry {
                 : { message: answer.reason }),
             },
         surface,
+        held,
       );
       return true;
     }

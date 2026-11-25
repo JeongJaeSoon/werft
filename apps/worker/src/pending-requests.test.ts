@@ -450,6 +450,30 @@ describe("PendingRequestRegistry", () => {
       expect(held).toEqual([]);
     });
 
+    test.each([
+      ["stale", "stale"],
+      ["unknown", "unknown"],
+      ["refused by a throw", new Error("run closed")],
+    ] as const)(
+      "holds nothing when the run calls the allow %s",
+      async (_said, result) => {
+        const held: SessionAllow[] = [];
+        const harness = registry({
+          onSessionAllow: (allow) => held.push(allow),
+        });
+        const decision = harness.ask(offered("req-lost"), result);
+        await harness.answer({
+          request_id: "req-lost",
+          kind: "permission",
+          decision: "allow",
+          remember: "session",
+        });
+        await decision;
+        await waitFor(() => harness.gateway.settled.length === 1, "settlement");
+        expect(held).toEqual([]);
+      },
+    );
+
     test("allows only this call when the request registered nothing to remember", async () => {
       const harness = registry();
       const decision = harness.ask(permission("req-nothing"));

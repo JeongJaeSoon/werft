@@ -1095,6 +1095,29 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       expect(run.answers).toHaveLength(1);
     });
 
+    test("an allow that comes back after its turn ended is not given to the run", async () => {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => {
+        call(run, sent, "c1");
+        setTimeout(() => call(run, sent, "c2", RUN_RULE), 5);
+        setTimeout(() => finish(run, sent), 15);
+      };
+      const { gateway, worker } = host(run);
+      gateway.grants = [parked()];
+      gateway.sessionAllowDelayMs = 40;
+      gateway.enqueue("hello");
+
+      await worker.runLoop();
+      await Bun.sleep(60);
+
+      expect(gateway.sessionAllowChecks).toHaveLength(1);
+      expect(gateway.registrations).toEqual([]);
+      expect(run.answers.at(-1)).toMatchObject({
+        kind: "cancelled",
+        message: "The turn ended before the call was allowed",
+      });
+    });
+
     test("a call offering another rule, or none, is put to a person without asking", async () => {
       const run = new ScriptedRun();
       run.onSend = (sent) => {

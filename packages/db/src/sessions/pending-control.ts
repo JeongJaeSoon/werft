@@ -405,6 +405,7 @@ export function createPostgresWorkerPendingStore(
             kind: pendingRequests.kind,
             answer: pendingRequests.answer,
             subject: pendingRequests.sessionAllowSubject,
+            settled: pendingRequests.settledOutcome,
           })
           .from(pendingRequests)
           .where(
@@ -419,6 +420,8 @@ export function createPostgresWorkerPendingStore(
           row !== undefined &&
           row.kind === "permission" &&
           row.subject !== null &&
+          // The worker said the run never took it: it allowed nothing.
+          (row.settled === null || row.settled === "answered") &&
           answer.success &&
           answer.data.kind === "permission" &&
           answer.data.decision === "allow" &&
