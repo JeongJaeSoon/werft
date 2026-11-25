@@ -10,6 +10,7 @@ import {
   scripted,
   write,
 } from "./client.ts";
+import { docker } from "./docker.ts";
 
 /**
  * A session that loses its workspace volume while paused comes back from its
@@ -43,19 +44,6 @@ if (!installation) {
   throw new Error(
     "EXECUTION_INSTALLATION_ID is unset: run tests/e2e/run.sh, or source its vars.sh (E2E_UP_ONLY=1)",
   );
-}
-
-async function docker(...args: string[]) {
-  const child = Bun.spawn(["docker", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, status] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  return { status, stdout, stderr };
 }
 
 /** The session's workspace volumes, found by the labels the backend sets. */

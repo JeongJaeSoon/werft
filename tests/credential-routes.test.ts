@@ -45,6 +45,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import {
+  AUTHORIZE_DEADLINE_MS,
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
 } from "../apps/control-host/src/api/egress-authorizer.ts";
@@ -54,6 +55,7 @@ import {
 } from "../apps/control-host/src/testing/releases.ts";
 import {
   type CredentialProxyServer,
+  DEFAULT_AUTHORIZE_TIMEOUT_MS,
   startCredentialProxy,
 } from "../apps/egress-proxy/src/credential.ts";
 import { createProxyLogger } from "../apps/egress-proxy/src/logger.ts";
@@ -350,6 +352,12 @@ async function meteredCost(sessionId: string, rows: number) {
     await Bun.sleep(20);
   }
 }
+
+test("the proxy waits for the authorizer past the authorizer's own deadline", () => {
+  // Otherwise a decision the authorizer could not reach in time never
+  // arrives as its undecided 503: the proxy has hung up, and reads silence.
+  expect(DEFAULT_AUTHORIZE_TIMEOUT_MS).toBeGreaterThan(AUTHORIZE_DEADLINE_MS);
+});
 
 describe("credential routes end to end", () => {
   test("AC1: the engine's Messages call gets the provider key only at the proxy", async () => {

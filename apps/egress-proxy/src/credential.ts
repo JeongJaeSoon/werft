@@ -52,10 +52,22 @@ import {
  * authorizer judges each one against the session's prefix and signs it with
  * the API's key, and only what it signed — its target, its headers — goes
  * upstream. Nothing of the worker's request travels but the body.
+ *
+ * An authorizer whose store cannot be read has not decided, which is neither
+ * a grant nor a refusal: nothing goes upstream, and the worker is told to
+ * send the request again (503 with Retry-After). A provider call is held
+ * here meanwhile and asked about again, since the engine sending it gives up
+ * after a few tries of its own.
  */
 
 export const DEFAULT_CREDENTIAL_PORT = 3129;
-const DEFAULT_AUTHORIZE_TIMEOUT_MS = 10_000;
+/**
+ * Above the authorizer's own deadline (10 s, `AUTHORIZE_DEADLINE_MS`), so
+ * what it answers at that deadline arrives rather than being cut off here:
+ * a decision it could not reach in time is undecided, an authorizer that
+ * said nothing is not.
+ */
+export const DEFAULT_AUTHORIZE_TIMEOUT_MS = 12_000;
 /**
  * One request to the exchange ledger. A billed call waits this long for its
  * open; renewals and releases are waited on by nothing.
@@ -99,6 +111,24 @@ const BUILTIN_RETRY_BUDGET_MS = 3_000;
 const BUILTIN_RETRY_BACKOFF_MS = [200, 400, 800];
 const BUILTIN_CONNECT_TIMEOUT_MS = 500;
 const BUILTIN_RETRY_AFTER_SECONDS = 5;
+/**
+ * How long a provider call waits for an authorizer whose store cannot be
+ * read, asking again meanwhile. A worker gives its lease up this long after
+ * the last heartbeat the same store took (the 30 s lease less its 10 s
+ * safety margin), so past it the engine that sent the call is being stopped
+ * anyway. Each ask is judged afresh, the attempt's hold on its session
+ * included: a call held here is never let through on an earlier answer.
+ */
+const DEFAULT_UNDECIDED_HOLD_MS = 20_000;
+/** Waits between those asks; the last repeats. */
+const DEFAULT_UNDECIDED_BACKOFF_MS = [1_000, 2_000, 4_000];
+/**
+ * Calls held that way at once: a quarter of the exchange slots, so an
+ * outage's held calls leave the other routes theirs. One over it is
+ * answered undecided at once.
+ */
+const DEFAULT_MAX_UNDECIDED_HELD = DEFAULT_MAX_EXCHANGES / 4;
+const UNDECIDED_RETRY_AFTER_SECONDS = 1;
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 /** How much of a refusing provider's error body the warn log keeps. */
 const REFUSAL_EXCERPT_CHARS = 512;
@@ -1195,6 +1225,11 @@ export type CredentialProxyOptions = {
   resolve?: EgressResolver;
   /** Waits between tries of a usage report the authorizer could not take. */
   usageReportBackoffMs?: readonly number[];
+  /**
+   * How a provider call the authorizer could not decide is held: for how
+   * long, the waits between asks, and how many calls at once.
+   */
+  undecidedHold?: { ms?: number; backoffMs?: readonly number[]; max?: number };
   /** Roots for https upstreams; tests name a private CA. */
   upstreamCa?: string;
 };
@@ -1204,14 +1239,20 @@ export type CredentialProxyServer = {
   stop(): void;
 };
 
-type Authorized =
+export type Authorized =
   | { kind: "granted"; grant: EgressGrant }
   | {
       kind: "refused";
       status: number;
       budgetExceeded?: true;
       receiptId?: string;
-    };
+    }
+  /**
+   * The authorizer could not read the store it decides from. Neither a
+   * grant nor a refusal: nothing goes upstream on it, and the same question
+   * may get an answer a moment later.
+   */
+  | { kind: "undecided" };
 
 const RECEIPT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -1222,6 +1263,45 @@ function receiptOf(body: unknown): string | null {
   return typeof receipt_id === "string" && RECEIPT_ID.test(receipt_id)
     ? receipt_id
     : null;
+}
+
+/**
+ * Asks again for a call the authorizer could not decide, until it decides,
+ * the hold is spent or the exchange ends. Undecided then. No ask is sent or
+ * outlasts the hold, and past it only a refusal is still taken for an
+ * answer: a grant that came too late is asked for afresh by the next try.
+ */
+export async function decidedWithin(
+  ask: (withinMs: number) => Promise<Authorized>,
+  hold: { ms: number; backoffMs: readonly number[] },
+  clock: {
+    now: () => number;
+    /** Resolves early once the exchange has ended. */
+    sleep: (ms: number) => Promise<unknown>;
+    ended: () => boolean;
+  },
+): Promise<Authorized> {
+  const until = clock.now() + hold.ms;
+  for (let asked = 0; ; asked += 1) {
+    const wait = Math.min(
+      hold.backoffMs[Math.min(asked, hold.backoffMs.length - 1)] ?? 0,
+      until - clock.now(),
+    );
+    if (wait <= 0) return { kind: "undecided" };
+    await clock.sleep(wait);
+    const left = until - clock.now();
+    if (clock.ended() || left <= 0) return { kind: "undecided" };
+    const again = await ask(left);
+    if (again.kind === "undecided") continue;
+    const refused = again.kind === "refused" && again.status !== 503;
+    return refused || clock.now() < until ? again : { kind: "undecided" };
+  }
+}
+
+function isUndecided(body: unknown): boolean {
+  if (typeof body !== "object" || body === null) return false;
+  const { code, retryable } = body as { code?: unknown; retryable?: unknown };
+  return code === "BACKEND_UNAVAILABLE" && retryable === true;
 }
 
 function isBudgetRefusal(body: unknown): boolean {
@@ -1247,6 +1327,11 @@ export function startCredentialProxy(
   const regrantGraceMs = options.regrantGraceMs ?? DEFAULT_REGRANT_GRACE_MS;
   const maxPerClient =
     options.maxExchangesPerClient ?? DEFAULT_MAX_EXCHANGES_PER_CLIENT;
+  const holdMs = options.undecidedHold?.ms ?? DEFAULT_UNDECIDED_HOLD_MS;
+  const holdBackoffMs =
+    options.undecidedHold?.backoffMs ?? DEFAULT_UNDECIDED_BACKOFF_MS;
+  const maxHeld = options.undecidedHold?.max ?? DEFAULT_MAX_UNDECIDED_HELD;
+  let held = 0;
   const authorizeUrl = new URL("/authorize", options.authorizer.url);
   const usageUrl = new URL("/usage", options.authorizer.url);
   const exchangesUrl = new URL("/exchanges", options.authorizer.url);
@@ -1272,6 +1357,44 @@ export function startCredentialProxy(
       status,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
+  }
+
+  // Retryable, and said so: the client's own retry sends the same request.
+  function undecidedReply(purpose: EgressPurpose): Response {
+    const response = reply(
+      503,
+      "egress authorization unavailable; retry in a few seconds",
+      purpose,
+    );
+    response.headers.set("retry-after", String(UNDECIDED_RETRY_AFTER_SECONDS));
+    return response;
+  }
+
+  /** `decidedWithin` for one more held call, or undecided at once over the cap. */
+  async function heldForDecision(
+    ask: (withinMs: number) => Promise<Authorized>,
+    ends: AbortSignal,
+  ): Promise<Authorized> {
+    if (held >= maxHeld) {
+      logger.warn("Not holding an undecided provider call: too many held", {
+        held,
+      });
+      return { kind: "undecided" };
+    }
+    held += 1;
+    try {
+      return await decidedWithin(
+        ask,
+        { ms: holdMs, backoffMs: holdBackoffMs },
+        {
+          now: () => performance.now(),
+          sleep: (ms) => untilEnded(Bun.sleep(ms), ends).catch(() => {}),
+          ended: () => ends.aborted,
+        },
+      );
+    } finally {
+      held -= 1;
+    }
   }
 
   function builtinUnavailable(): Response {
@@ -1309,7 +1432,11 @@ export function startCredentialProxy(
     // The exchange asking, which a conversation call's token is bound to.
     // A header: an authorizer before it ignores one, and refuses a field.
     exchangeId: string,
+    /** What is left of a hold; the ask is cut there if that comes first. */
+    withinMs = Number.POSITIVE_INFINITY,
   ): Promise<Authorized> {
+    const timeoutMs =
+      options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS;
     let response: Response;
     try {
       response = await fetch(authorizeUrl, {
@@ -1323,23 +1450,34 @@ export function startCredentialProxy(
         },
         body: JSON.stringify({ token, purpose, ...question }),
         redirect: "error",
-        signal: AbortSignal.timeout(
-          options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS,
-        ),
+        signal: AbortSignal.timeout(Math.min(timeoutMs, withinMs)),
       });
     } catch (error) {
       logger.warn("Egress authorizer unreachable", {
         error: error instanceof Error ? error.name : "error",
       });
+      // Cut by the hold, not by the authorizer's own limit: still undecided.
+      // A timer may fire a moment early, so the clock cannot tell the two apart.
+      if (
+        withinMs < timeoutMs &&
+        error instanceof Error &&
+        error.name === "TimeoutError"
+      ) {
+        return { kind: "undecided" };
+      }
       return { kind: "refused", status: 503 };
     }
     if (response.status !== 200) {
       // Its reasons stay with it: the worker learns only that it was refused,
       // and whether the session's budget is spent, which its turn reports.
       const refusal: unknown =
-        response.status === 403
+        response.status === 403 || response.status === 503
           ? await response.json().catch(() => null)
           : await response.body?.cancel();
+      if (response.status === 503 && isUndecided(refusal)) {
+        logger.warn("Egress authorizer could not decide", { purpose });
+        return { kind: "undecided" };
+      }
       const status = [401, 403, 409].includes(response.status)
         ? response.status
         : 503;
@@ -2329,7 +2467,12 @@ export function startCredentialProxy(
               attempt_id: grant.attemptId,
               judgment_id: grant.judgmentId,
               conversation_call_id: grant.conversationCallId,
-              status: again.kind === "refused" ? again.status : 200,
+              status:
+                again.kind === "refused"
+                  ? again.status
+                  : again.kind === "undecided"
+                    ? 503
+                    : 200,
               stale,
               client,
             });
@@ -2385,12 +2528,21 @@ export function startCredentialProxy(
             return reply(400, unmeterable, route.purpose);
           }
         }
-        const authorized = await authorize(
-          token,
-          route.purpose,
-          question,
-          exchangeId,
-        );
+        const ask = (withinMs?: number) =>
+          authorize(token, route.purpose, question, exchangeId, withinMs);
+        let authorized = await ask();
+        if (authorized.kind === "undecided" && route.purpose === "provider") {
+          // Silent for the whole hold, so the idle clock is moved past it.
+          server.timeout(
+            request,
+            UNAUTHORIZED_IDLE_SECONDS + Math.ceil(holdMs / 1000),
+          );
+          authorized = await heldForDecision(ask, ends);
+        }
+        if (authorized.kind === "undecided") {
+          release();
+          return undecidedReply(route.purpose);
+        }
         if (authorized.kind === "refused") {
           release();
           if (authorized.budgetExceeded && route.purpose === "provider") {
