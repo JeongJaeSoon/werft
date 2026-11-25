@@ -43,6 +43,7 @@ import {
   agents,
   agentVersions,
   receipts,
+  secretValues,
   slackApps,
   slackInstallations,
   surfaceBindings,
@@ -227,6 +228,7 @@ function recordFrom(
             error: row.manifestSyncError,
             checked_at: row.manifestSyncCheckedAt.toISOString(),
           },
+    botScopes: row.botScopes,
     secrets: Object.fromEntries(
       SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose) => [
         purpose,
@@ -497,6 +499,43 @@ export function createPostgresSlackAppStore(
           manifestSyncCheckedAt: sync.checkedAt,
         })
         .where(and(...createdApp(workspaceId, slackAppId)));
+    },
+    async setBotScopes(workspaceId, slackAppId, scopes, tokenVersion) {
+      if (!UUID.test(workspaceId) || !UUID.test(slackAppId)) return;
+      const slot = secretSlot(
+        {
+          workspaceId: workspaceId.toLowerCase(),
+          id: slackAppId.toLowerCase(),
+        },
+        "slack_bot_token",
+      );
+      await db.transaction(async (tx) => {
+        // storeBotToken holds this lock while it writes a new token, and the
+        // version is read by a statement of its own after it: one snapshot
+        // taken before the lock would still see the old token.
+        const row = await lockedApp(
+          tx,
+          slot.workspaceId,
+          slackAppId.toLowerCase(),
+        );
+        if (row?.state !== "created") return;
+        const [token] = await tx
+          .select({ version: secretValues.secretVersion })
+          .from(secretValues)
+          .where(
+            and(
+              eq(secretValues.workspaceId, slot.workspaceId),
+              eq(secretValues.ownerRef, secretOwnerRef(slot.owner)),
+              eq(secretValues.purpose, slot.purpose),
+            ),
+          );
+        if (token?.version !== tokenVersion) return;
+        // updated_at is left alone: Slack's grant changed, not the app.
+        await tx
+          .update(slackApps)
+          .set({ botScopes: [...scopes] })
+          .where(eq(slackApps.id, row.id));
+      });
     },
     async markEventsReceived(workspaceId, slackAppId, at) {
       // updated_at is left alone: it says when the app was last changed.
@@ -828,6 +867,7 @@ export function createPostgresSlackAppStore(
           .update(slackApps)
           .set({
             botTokenRef: slackAppSecretRef(row.id, "slack_bot_token"),
+            botScopes: [...input.scopes],
             updatedAt: DB_NOW,
           })
           .where(eq(slackApps.id, row.id))
