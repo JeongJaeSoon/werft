@@ -25,4 +25,7 @@ export const WORKER_CAPABILITIES: WorkerCapabilities = {
   // The adapters leave the built-in `werft` server out of the checkpoint
   // fingerprint and relay its instructions, resources and prompts.
   werft_mcp: true,
+  // worker-host.ts holds a session allow and asks `/session-allow` before
+  // each call it covers; the engine is never handed the rule.
+  session_allow_check: true,
 };

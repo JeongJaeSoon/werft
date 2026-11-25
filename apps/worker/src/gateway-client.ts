@@ -43,6 +43,9 @@ import {
   repositoryPinsResponseSchema,
   requestBodyInvalidDetailsSchema,
   restorePlanResponseSchema,
+  type SessionAllowRequest,
+  type SessionAllowResponse,
+  sessionAllowResponseSchema,
   type WorkerCapabilities,
   type WorkerReadyRequest,
   type WorkerReadyResponse,
@@ -64,6 +67,7 @@ const REFUSABLE_CAPABILITIES = [
   "repository_pins",
   "workspace_mcp",
   "werft_mcp",
+  "session_allow_check",
 ] as const;
 
 // Only what a response body has to answer, so the worker never imports zod.
@@ -233,6 +237,10 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     request: RepositoryPinsRequest,
   ): Promise<RepositoryPinsResponse> {
     return this.post("/repository-pins", request, repositoryPinsResponseSchema);
+  }
+
+  sessionAllow(request: SessionAllowRequest): Promise<SessionAllowResponse> {
+    return this.post("/session-allow", request, sessionAllowResponseSchema);
   }
 
   restorePlan(request: RestorePlanRequest): Promise<RestorePlanResponse> {
