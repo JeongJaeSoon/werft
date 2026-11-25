@@ -65,6 +65,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/slack-settings",
     "PUT /v1/slack-settings",
   ],
+  "routes/github/github-webhook-settings.test.ts": [
+    "GET /v1/github-webhook-settings",
+    "PUT /v1/github-webhook-settings",
+    "POST /v1/github-webhook-settings/retry",
+  ],
   "routes/sessions/sessions.test.ts": [
     "POST /v1/sessions",
     "GET /v1/sessions",

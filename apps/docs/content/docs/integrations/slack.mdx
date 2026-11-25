@@ -90,6 +90,8 @@ Slack 스레드에서 시작한 세션이 사람을 기다리면, 기다리는 �
 
 버튼과 창은 에이전트 앱의 Interactivity 주소 `/v1/slack/interactions/{agent_id}`로 온다. 요청은 이벤트와 같이 그 앱의 signing secret 서명과 300초 안의 시각을 확인한다. 설치 finalize가 Event Subscriptions 주소와 함께 manifest에 넣는다. 이 기능 전에 만든 앱은 **다시 확인**(`POST /v1/agents/{id}/slack/app/events/recheck`)으로 manifest를 다시 보내면 등록된다.
 
+세션의 스레드에 에이전트가 올리는 글(답변, 실패·대기 안내, 카드)은 보낸 사람 이름이 `에이전트 이름 [세션 제목]`이다. 제목이 아직 없으면 에이전트 이름만 보인다. Slack이 이름을 80자에서 자르므로 그 안에 맞추고, 넘치는 제목은 `…`로 줄인다. 세션 스레드 밖의 글(배포 환영 등)은 에이전트 이름으로 올라간다. `chat:write.customize` 권한이 없는 앱은 이름을 바꾸지 않고 지금처럼 앱 이름으로 올린다. 한 사람에게만 보이는 거절 안내도 앱 이름 그대로다.
+
 ## 원래 Slack 메시지 링크
 
 Slack 멘션·DM·스레드 답글로 시작하거나 보낸 지시는 그 Slack 메시지의 위치(팀·채널·`ts`, 답글이면 `thread_ts`)와 Slack이 준 링크를 함께 남긴다. 링크는 `chat.getPermalink`로 받고, 이 호출에는 scope가 더 필요 없다. 웹 세션 화면은 머리의 시작한 사람·경로 옆과 대화의 Slack 지시 말풍선에 **Slack에서 보기** 링크를 보이고, 누르면 새 탭에서 열린다. API에서는 세션의 `slack_permalink`(세션을 시작한 메시지)와 turn의 `slack_permalink`(그 지시를 보낸 메시지)로 읽는다.
@@ -245,7 +247,7 @@ release가 처음 배포되면 home 채널에 `안녕하세요, <에이전트 �
 
 ## 채널 보관·이름 변경·삭제
 
-에이전트 앱은 채널의 보관(`channel_archive`·`group_archive`), 보관 해제(`channel_unarchive`·`group_unarchive`), 이름 변경(`channel_rename`·`group_rename`), 삭제(`channel_deleted`·`group_deleted`) 이벤트를 받는다. `channel_*`은 공개 채널, `group_*`은 비공개 채널의 것이다. 앱이 이미 가진 scope로 오는 이벤트라 새 scope는 없다. Slack 문서로는 이미 가진 scope의 이벤트를 더하는 데 재설치가 필요 없다. 이 이벤트가 생기기 전에 만든 앱은 **다시 확인**(`POST /v1/agents/{id}/slack/app/events/recheck`)으로 manifest를 다시 보내야 받는다. 콘솔 없이 보내려면 API 컨테이너에서([운영자 명령 실행](#운영자-명령-실행)) `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>`를 실행한다. 다시 보낸 manifest가 설치에 없는 scope를 요청해 Slack이 권한이 바뀌었다고 답하면, 다시 확인의 응답(`reinstall_required: true`)과 콘솔 안내가 앱을 다시 설치하라고 알린다.
+에이전트 앱은 채널의 보관(`channel_archive`·`group_archive`), 보관 해제(`channel_unarchive`·`group_unarchive`), 이름 변경(`channel_rename`·`group_rename`), 삭제(`channel_deleted`·`group_deleted`) 이벤트를 받는다. `channel_*`은 공개 채널, `group_*`은 비공개 채널의 것이다. 앱이 이미 가진 scope로 오는 이벤트라 새 scope는 없다. Slack 문서로는 이미 가진 scope의 이벤트를 더하는 데 재설치가 필요 없다. 이 이벤트가 생기기 전에 만든 앱에는 API가 시작할 때 manifest를 저절로 다시 보낸다. 시작할 때마다 앱마다 Slack의 manifest를 읽어(`apps.manifest.export`) bot 이벤트만 다르면 manifest 전체를 보내고, bot scope가 다르거나 앱에 user scope가 있으면 보내지 않는다. 그 결과는 `GET /v1/agents/{id}/slack/app`의 `manifest_sync`에 남는다. `error`가 null이 아니면 콘솔 Slack 탭의 앱 칸에 "갱신 필요"와 이유가 나온다. 이유는 `config_token_inactive`(활성 App Configuration Token이 없어 읽지도 보내지도 않음), `events_url_unset`, `slack_refused`, `no_answer`다. 다음 시작이나 **다시 확인**(`POST /v1/agents/{id}/slack/app/events/recheck`)이 다시 시도하고, 따로 도는 재시도는 없다. 여러 API replica가 함께 떠도 한 앱은 10분 안에 한 번만 확인한다. 콘솔 없이 보내려면 API 컨테이너에서([운영자 명령 실행](#운영자-명령-실행)) `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>`를 실행한다. 다시 보낸 manifest가 설치에 없는 scope를 요청해 Slack이 권한이 바뀌었다고 답하면, 다시 확인의 응답(`reinstall_required: true`)과 콘솔 안내가 앱을 다시 설치하라고 알린다.
 
 채널이 다른 조직과 공유되거나 공유가 끝날 때 오는 `channel_shared`·`channel_unshared`도 받는다. 앱이 이미 가진 `channels:read`·`groups:read`로 오는 이벤트라 재설치는 필요 없고, 이 이벤트가 생기기 전에 만든 앱은 위와 같이 다시 확인으로 받는다. 이벤트를 받기 전에도 공유 여부는 채널 글이 올 때 Slack에 물어 안다.
 

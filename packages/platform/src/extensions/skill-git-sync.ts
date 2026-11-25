@@ -212,8 +212,8 @@ export function skillGitSourceView(
 
 export function createSkillGitSync(
   deps: SkillGitSyncDeps & {
-    /** Whether GitHub can reach this installation's webhook route. */
-    webhookUrl: string | null;
+    /** Whether GitHub can reach this installation's webhook route, read on every use. */
+    webhookUrl: () => Promise<string | null>;
   },
 ) {
   const { sources, reader, authorization } = deps;
@@ -415,7 +415,9 @@ export function createSkillGitSync(
   }
 
   async function webhookStates(workspaceId: string) {
-    if (deps.webhookUrl === null) return () => "no_public_url" as const;
+    if ((await deps.webhookUrl()) === null) {
+      return () => "no_public_url" as const;
+    }
     const secrets = await Promise.all(
       (await deps.apps(workspaceId)).map(async (app) => ({
         id: app.id,

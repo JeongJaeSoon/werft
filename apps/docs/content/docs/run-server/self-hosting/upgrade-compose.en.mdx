@@ -136,10 +136,19 @@ From this release on, the API no longer reads `SLACK_EVENTS_PUBLIC_URL`. When ev
 - Changing the saved address does not send it to apps already made. Press Recheck on the agent's Slack tab, or run `slack-app finalize`.
 - Keep the `slack_settings` table when rolling back. Earlier builds do not read it.
 
+<a id="웹으로-옮긴-github-webhook-입구-주소" />
+### GitHub webhook entrance moved to the web
+
+From this release on, the API no longer reads `GITHUB_WEBHOOK_BASE_URL`. An owner saves this API's https address that GitHub reaches from the internet as the webhook entrance under **Settings > Integrations > GitHub** (`PUT /v1/github-webhook-settings`, audit record `update_github_webhook_settings`). Saving a changed address also changes the webhook URL on GitHub of the GitHub Apps whose webhook secret is stored ([Git skill webhook](/integrations/github#git-스킬-webhook)). The value is one for the whole installation.
+
+- Migration `0360_github_webhook_settings` adds the `github_webhook_settings` table. When the new API first starts with that table empty and `GITHUB_WEBHOOK_BASE_URL` set in the API container, it carries the value in once and logs a warning without the value. The carry-over is recorded as an audit record without an author (`by: "env_import"`). Carrying it in changes no GitHub App: they were made with that address.
+- After the carry-over, delete the line from your env. While it stays, every start logs `Ignored removed settings: GITHUB_WEBHOOK_BASE_URL`. A value that is not https or has a query is not carried in, and a warning says so. Unlike earlier releases, the start does not stop.
+- Keep the `github_webhook_settings` table when rolling back. Earlier builds do not read it and read the env instead. To keep an address changed on the screen under the rolled-back build, put it back in the env. The GitHub Apps' webhook URL stays at the address last saved on the screen.
+
 <a id="slack-채널-이벤트와-manifest-다시-보내기" />
 ### Slack channel events and sending the manifest again
 
-After upgrading, press Recheck on each agent's Slack tab once, or run `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` in the API container once per agent. Only then does an app made earlier receive channel deletion, archive and rename events. Without it, a deleted channel is handled only when a post or a channel lookup gets `channel_not_found`. When the manifest sent again asks for a scope the install lacks, Recheck's notice and the command's `warnings` (`reinstall_required`) say to install the app again.
+When the upgraded API first starts, it reads each existing agent app's manifest from Slack and compares it with the new image's. When only the bot events differ, it sends the manifest again on its own; adding events needs no reinstall. So an app made earlier receives channel deletion, archive and rename events without anyone acting. When the App Configuration Token is not active or Slack refuses the update, the app section of that agent's Slack tab shows "Update needed" with the reason. Then press Recheck on the Slack tab, or run `bun run apps/control-host/src/api/slack-app.ts finalize --agent <agent_id>` in the API container; otherwise the next upgrade or API restart tries again. Until the app is updated, a deleted channel is handled only when a post or a channel lookup gets `channel_not_found`. A manifest whose bot scopes differ is never sent on its own. When a manifest sent by hand asks for a scope the install lacks, Recheck's notice and the command's `warnings` (`reinstall_required`) say to install the app again.
 
 <a id="웹으로-옮긴-실행-한도" />
 ### Execution limits moved to the web

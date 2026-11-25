@@ -280,6 +280,58 @@ async function usageOf(
   };
 }
 
+/** An App whose webhook points at this installation, once per App. */
+export type GitHubWebhookApp = {
+  appId: number;
+  apiBase: string;
+  name: string;
+  /** The workspaces with a connection of it that holds a webhook secret. */
+  workspaceIds: string[];
+  /** Null when no such connection's key opens under this master key. */
+  privateKey: string | null;
+};
+
+/**
+ * Every App, once per API base and App id, that a connection in any
+ * workspace holds a webhook secret for, with the key of the oldest such
+ * connection whose key opens. An App added with its key alone is left out:
+ * its webhook may point anywhere.
+ */
+export async function listGitHubWebhookApps(
+  db: Database,
+  key: SecretKey,
+): Promise<GitHubWebhookApp[]> {
+  const secrets = createPostgresSecretStore(db, key);
+  const rows = await db
+    .select()
+    .from(githubApps)
+    .where(notDeleted(githubApps))
+    .orderBy(asc(githubApps.createdAt), asc(githubApps.id));
+  const apps = new Map<string, GitHubWebhookApp>();
+  for (const row of rows) {
+    if ((await describeSecret(db, webhookSlot(row))) === null) continue;
+    const id = `${row.apiBase} ${row.appId}`;
+    const app = apps.get(id) ?? {
+      appId: row.appId,
+      apiBase: row.apiBase,
+      name: row.name,
+      workspaceIds: [],
+      privateKey: null,
+    };
+    apps.set(id, app);
+    if (!app.workspaceIds.includes(row.workspaceId)) {
+      app.workspaceIds.push(row.workspaceId);
+    }
+    if (app.privateKey !== null) continue;
+    try {
+      app.privateKey = await secrets.get(keySlot(row));
+    } catch (error) {
+      if (!(error instanceof SecretDecryptError)) throw error;
+    }
+  }
+  return [...apps.values()];
+}
+
 export function createPostgresGitHubAppStore(
   db: Database,
   key: SecretKey,

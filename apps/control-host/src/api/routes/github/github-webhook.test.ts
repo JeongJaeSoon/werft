@@ -6,10 +6,7 @@ import {
 import type { SkillGitSync } from "@werft-ai/platform";
 import { createSlackEventsLimiter } from "../../rate-limit.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
-import {
-  githubWebhookUrlFrom,
-  registerGitHubWebhookRoutes,
-} from "./github-webhook.ts";
+import { registerGitHubWebhookRoutes } from "./github-webhook.ts";
 
 const createApiApp = recordRouteErrors("routes/github/github-webhook.test.ts");
 
@@ -91,36 +88,5 @@ describe("the GitHub webhook route", () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).not.toBeNull();
     expect(received).toHaveLength(1);
-  });
-});
-
-describe("GITHUB_WEBHOOK_BASE_URL", () => {
-  test("unset is no webhook; an https base keeps its path prefix", () => {
-    expect(githubWebhookUrlFrom({})).toBeNull();
-    expect(githubWebhookUrlFrom({ GITHUB_WEBHOOK_BASE_URL: "" })).toBeNull();
-    expect(
-      githubWebhookUrlFrom({
-        GITHUB_WEBHOOK_BASE_URL: "https://werft.example.com/",
-      }),
-    ).toBe("https://werft.example.com/v1/github/webhook");
-    expect(
-      githubWebhookUrlFrom({
-        GITHUB_WEBHOOK_BASE_URL: "https://edge.example.com/werft",
-      }),
-    ).toBe("https://edge.example.com/werft/v1/github/webhook");
-  });
-
-  test("anything but a plain https URL stops the start", () => {
-    for (const value of [
-      "werft.example.com",
-      "http://werft.example.com",
-      "https://werft.example.com/?a=1",
-      "https://werft.example.com/#x",
-      "https://user@werft.example.com",
-    ]) {
-      expect(() =>
-        githubWebhookUrlFrom({ GITHUB_WEBHOOK_BASE_URL: value }),
-      ).toThrow("GITHUB_WEBHOOK_BASE_URL");
-    }
   });
 });
