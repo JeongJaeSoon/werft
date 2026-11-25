@@ -40,9 +40,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // channel's hourly M1 cap and the agent's M1 judgment records put
   // ./schemas 271 bytes over 151, so it moves to 152. The installation's
   // GitHub webhook settings and their per-App update answers add 150 bytes
-  // more, still under 152.
+  // more, still under 152. With both, ./forms is 160 bytes over 149, so it
+  // moves to 150.
   "./schemas": 152 * 1024,
-  "./forms": 149 * 1024,
+  "./forms": 150 * 1024,
 };
 
 test("every entry has a budget", () => {
