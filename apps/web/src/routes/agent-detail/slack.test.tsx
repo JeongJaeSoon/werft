@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { components } from "@werft-ai/client";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer, TEAM } from "../../test-support/fake-agents.ts";
+import {
+  AGENT_ID,
+  agentServer,
+  seedRelease,
+  TEAM,
+} from "../../test-support/fake-agents.ts";
 import {
   apiError,
   json,
@@ -85,6 +90,7 @@ const BINDING: components["schemas"]["ListSlackBindingsResponse"]["items"][numbe
     agent_id: AGENT_ID,
     mode: "on",
     listen: "free",
+    m1_judgments_per_hour: 12,
     ceiling: { actions: ["session.read"], disclosure: "summary" },
     home: true,
     memory_write_policy: "deny",
@@ -127,6 +133,13 @@ function routes(app: typeof APP | null = null, installed = false) {
         next_cursor: null,
         stale: false,
         truncated: false,
+      }),
+    [`GET ${PATH}/slack/judgments`]: () =>
+      json(200, {
+        window_days: 7,
+        since: AT,
+        channels: [],
+        recent: [],
       }),
   };
 }
@@ -458,6 +471,7 @@ describe("Slack management", () => {
       "Slack",
       "고지 승인",
       "채널",
+      "판단 기록",
       "기본",
       "Slack 앱 생성",
       "Slack 앱에 넣을 주소",
@@ -1638,6 +1652,7 @@ describe("Slack management", () => {
     expect(headings).toEqual([
       "고지 승인",
       "연결된 채널",
+      "판단 기록",
       "기본",
       "Slack 앱 생성",
       "Slack 앱에 넣을 주소",
@@ -2845,7 +2860,7 @@ describe("Slack management", () => {
           .map((link) => link.textContent),
       ).toEqual([
         "Slack",
-        ...(installed ? ["고지 승인", "채널", "기본"] : []),
+        ...(installed ? ["고지 승인", "채널", "판단 기록", "기본"] : []),
         "Slack 앱 생성",
         ...(app ? ["Slack 앱에 넣을 주소"] : []),
         "자동으로 만든 Slack 앱",
@@ -3647,5 +3662,221 @@ describe("Slack private channel states", () => {
     expect(within(list).queryByText("나감")).toBeNull();
     expect(within(list).queryByText("비활성")).toBeNull();
     expect(within(list).getAllByRole("switch")).toHaveLength(2);
+  });
+});
+
+describe("M1 shadow records on the Slack tab (a1/S3)", () => {
+  const JUDGMENTS: components["schemas"]["GetSlackJudgmentsResponse"] = {
+    window_days: 7,
+    since: "2026-10-17T00:00:00.000Z",
+    channels: [
+      {
+        slack_team_id: "T123",
+        channel_id: "C123",
+        channel_kind: "public_channel",
+        m1_judgments_per_hour: 12,
+        judgments: 4,
+        speak: 1,
+        reasons: [
+          { reason: "human_conversation", count: 2 },
+          { reason: "needs_agent", count: 1 },
+          { reason: "rate_limited", count: 1 },
+        ],
+      },
+    ],
+    recent: [
+      {
+        id: "00000000-0000-4000-8000-0000000000b1",
+        grade: "buffer_m1",
+        slack_team_id: "T123",
+        channel_id: "C123",
+        ts: "1761264000.000100",
+        url: "https://slack.com/archives/C123/p1761264000000100",
+        outcome: "judged",
+        decision: "speak",
+        reason: "needs_agent",
+        judged_at: AT,
+      },
+    ],
+  };
+  const withRelease = (
+    snapshot: NonNullable<
+      ReturnType<ReturnType<typeof agentServer>["detail"]>["active_release"]
+    >["instructions_snapshot"],
+  ) => {
+    const server = agentServer();
+    return {
+      [`GET ${PATH}`]: () =>
+        json(200, {
+          ...server.detail(),
+          active_release: {
+            ...seedRelease(1),
+            instructions_snapshot: snapshot,
+          },
+        }),
+    };
+  };
+
+  test("counts each channel and lists the newest judgments as Slack links and reasons only", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      ...withRelease({
+        kind: "text",
+        repository_id: "repo-1",
+        commit: "abcdef0123456789abcdef0123456789abcdef01",
+        file: "AGENTS.md",
+        text: "be brief",
+        bytes: 8,
+        truncated: true,
+      }),
+    });
+    const byChannel = await screen.findByRole("table", {
+      name: "채널별 판단",
+    });
+    expect(byChannel.textContent).toContain("4");
+    expect(byChannel.textContent).toContain("25% (1건)");
+    expect(byChannel.textContent).toContain("사람끼리의 대화 2");
+    expect(byChannel.textContent).toContain("시간당 상한 넘김 1");
+    const recent = screen.getByRole("table", { name: "최근 판단" });
+    const link = within(recent).getByRole("link", {
+      name: "채널 ID: C123의 글을 Slack에서 보기",
+    });
+    expect(link.getAttribute("href")).toBe(
+      "https://slack.com/archives/C123/p1761264000000100",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(recent.textContent).toContain("끼어들기");
+    expect(recent.textContent).toContain("에이전트가 필요함");
+    expect(document.body.textContent).toContain(
+      "M1 지침: 릴리스 2026-10-11_10:01:00, commit abcdef0",
+    );
+  });
+
+  test("says there is nothing to see, and which release has no instructions", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () =>
+        json(200, { ...JUDGMENTS, channels: [], recent: [] }),
+      ...withRelease({ kind: "no_repository" }),
+    });
+    expect(
+      await screen.findByText("볼 수 있는 판단 기록이 없습니다"),
+    ).toBeDefined();
+    expect(screen.queryByRole("table", { name: "채널별 판단" })).toBeNull();
+    expect(document.body.textContent).toContain(
+      "판단 지침은 저장소의 AGENTS.md로 정합니다.",
+    );
+  });
+
+  test("a member is told who reads the records and the server is not asked", async () => {
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      // Not the managing team's lead: not this agent's admin.
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+    });
+    expect(
+      await screen.findByText(
+        "판단 기록은 워크스페이스 owner·admin과 이 에이전트의 관리자만 봅니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      api.calls.some((call) => call.path.includes("/slack/judgments")),
+    ).toBe(false);
+  });
+
+  test("saves a channel's hourly cap within 1 to 60 and refuses the rest in place", async () => {
+    let row: typeof BINDING = { ...BINDING };
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        row = { ...row, m1_judgments_per_hour: body.m1_judgments_per_hour };
+        return json(200, {
+          slack_binding: row,
+          receipt_id: ID,
+          dropped_buffered: 0,
+        });
+      },
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const cap = (await within(list).findByRole("spinbutton", {
+      name: "채널 ID: C123 시간당 판단 상한",
+    })) as HTMLInputElement;
+    expect(cap.value).toBe("12");
+    const puts = () => api.calls.filter((call) => call.method === "PUT");
+
+    await user.clear(cap);
+    await user.type(cap, "61");
+    await user.tab();
+    expect(cap.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByText("1에서 60 사이의 정수로 정하세요.")).toBeDefined();
+    expect(puts()).toHaveLength(0);
+
+    await user.clear(cap);
+    await user.type(cap, "5{Enter}");
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "시간당 판단 상한을 저장했습니다. 다음 묶음부터 적용됩니다.",
+        ),
+      ).toBeDefined(),
+    );
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0]?.body).toMatchObject({
+      channel_id: "C123",
+      mode: "on",
+      m1_judgments_per_hour: 5,
+      home: true,
+    });
+  });
+
+  test("a cap typed while another save holds the request goes back to the saved value", async () => {
+    const other: typeof BINDING = {
+      ...BINDING,
+      id: "00000000-0000-4000-8000-0000000000c2",
+      external_surface_id: "C0B",
+      home: false,
+    };
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, other] }),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        await held;
+        return json(200, {
+          slack_binding: { ...BINDING, mode: body.mode },
+          receipt_id: ID,
+          dropped_buffered: 0,
+        });
+      },
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const cap = (await within(list).findByRole("spinbutton", {
+      name: "채널 ID: C0B 시간당 판단 상한",
+    })) as HTMLInputElement;
+    await user.click(within(list).getAllByRole("switch")[0] as HTMLElement);
+    await waitFor(() =>
+      expect(api.calls.filter((call) => call.method === "PUT")).toHaveLength(1),
+    );
+    await user.clear(cap);
+    await user.type(cap, "5");
+    await user.tab();
+    expect(cap.value).toBe("12");
+    release();
+    await waitFor(() =>
+      expect(cap.getAttribute("aria-disabled")).toBe("false"),
+    );
+    expect(api.calls.filter((call) => call.method === "PUT")).toHaveLength(1);
   });
 });

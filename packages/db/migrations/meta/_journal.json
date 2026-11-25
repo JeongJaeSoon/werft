@@ -1860,8 +1860,8 @@
     {
       "idx": 356,
       "version": "7",
-      "when": 1795584857712,
-      "tag": "0356_slack_manifest_sync",
+      "when": 1795586367713,
+      "tag": "0356_surface_binding_m1_cap",
       "breakpoints": true
     }
   ]
