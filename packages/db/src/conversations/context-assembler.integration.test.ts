@@ -239,7 +239,7 @@ integration("context assembler (G1, 9-2 leak table)", () => {
       place: summaryPlace,
       agentId: key.agentId,
       expectedVersion: current?.version ?? 0,
-      lines: [{ text, inputId }],
+      lines: [{ text, sources: [{ inputId, slack: null }] }],
     });
     if (written.outcome !== "written") throw new Error(written.outcome);
     return { lineId: written.lineIds[0] as string, ts };

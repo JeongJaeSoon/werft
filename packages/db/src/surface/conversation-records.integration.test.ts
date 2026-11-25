@@ -178,7 +178,12 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
       place: summaryPlace,
       agentId,
       expectedVersion: current?.version ?? 0,
-      lines: [{ text: "Friday it is", inputId: rows[0].id }],
+      lines: [
+        {
+          text: "Friday it is",
+          sources: [{ inputId: rows[0].id, slack: null }],
+        },
+      ],
     });
     if (written.outcome !== "written") throw new Error(written.outcome);
   }
@@ -311,7 +316,7 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
     // Nothing of the conversation is left to assemble.
     expect(
       await createPostgresContextFragmentSource(db).read(place.key),
-    ).toEqual({ fragments: [], unreadable: 0 });
+    ).toEqual({ fragments: [], unreadable: 0, summaryVersion: 0 });
 
     const row = await pool.query(
       "SELECT records_deleted_by_user_id AS by, records_deleted_at IS NOT NULL AS at FROM conversations WHERE id = $1",
