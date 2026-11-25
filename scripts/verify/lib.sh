@@ -7,7 +7,7 @@
 # project, so refuse to define them at all.
 unset VERIFY_RUN VERIFY_REPO VERIFY_API VERIFY_BUILT_FROM VERIFY_SETUP_TOKEN API EVIDENCE \
   COMPOSE_PROJECT_NAME COMPOSE_FILE EXECUTION_INSTALLATION_ID API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
-unset -f ap_compose ap_key ap_revoke ap_curl _ap_cookie_header ap_get ap_post ap_web ap_as 2>/dev/null
+unset -f ap_compose ap_urls ap_key ap_revoke ap_curl _ap_cookie_header ap_get ap_post ap_web ap_as 2>/dev/null
 # bash names a sourced file in BASH_SOURCE, zsh in $0.
 . "$(dirname "${BASH_SOURCE[0]:-$0}")/run.sh" "${1:-}" || return 1
 _verify_run=$VERIFY_RUN_DIR
@@ -20,8 +20,25 @@ fi
 EVIDENCE=$VERIFY_RUN/evidence
 API=$VERIFY_API
 
-# Compose against this run's project only.
-ap_compose() { (cd "$VERIFY_REPO" && docker compose --profile apps --profile fake-model "$@"); }
+# Compose against this run's project only. A service that up, restart or
+# start (re)creates can get a new ephemeral host port, so those refresh the
+# run's addresses (state.json, VERIFY_API and $API) afterwards.
+ap_compose() {
+  (cd "$VERIFY_REPO" && docker compose --profile apps --profile fake-model "$@")
+  local compose_rc=$?
+  case "${1:-}" in up | restart | start) ap_urls >/dev/null || true ;; esac
+  return "$compose_rc"
+}
+
+# The run's non-secret addresses as JSON (web_url, api_url, host ports by
+# service), read from compose now and written to $VERIFY_RUN/state.json.
+ap_urls() {
+  local urls
+  urls=$(node "$VERIFY_REPO/scripts/verify/run-urls.mjs" "$VERIFY_RUN") || return 1
+  API=$(printf '%s\n' "$urls" | sed -n 's/^  "api_url": "\(.*\)",$/\1/p')
+  VERIFY_API=$API
+  printf '%s\n' "$urls"
+}
 
 # Issue an API key; prints it (stdout) once. key id goes to stderr.
 ap_key() { (cd "$VERIFY_REPO" && scripts/local.sh key "$@"); }

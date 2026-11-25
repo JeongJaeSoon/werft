@@ -427,3 +427,163 @@ esac
     expect(await runs()).toEqual([]);
   });
 });
+describe("verify-werft run-urls.mjs and lib.sh's ap_urls", () => {
+  const repo = join(import.meta.dir, "..");
+  // Names of values the run's state carries that must never reach state.json:
+  // the setup link's token, Keycloak's overlay values, the master key.
+  const secretState = {
+    VERIFY_SETUP_TOKEN: "setup-value-0a1b2c",
+    KEYCLOAK_WERFT_CLIENT_SECRET: "client-value-3d4e5f",
+    KEYCLOAK_WERFT_USER_PASSWORD: "user-value-6a7b8c",
+    PLATFORM_SECRET_KEY: "master-value-9d0e1f",
+  };
+  const knownSecretNames =
+    /token|secret|password|passwd|(^|[_-])key([_-]|$)|cookie|credential/i;
+  let dir: string;
+  let runDir: string;
+
+  const container = (service: string, target: number, published: number) =>
+    JSON.stringify({
+      Service: service,
+      Publishers: [
+        {
+          URL: "127.0.0.1",
+          TargetPort: target,
+          PublishedPort: published,
+          Protocol: "tcp",
+        },
+        { URL: "", TargetPort: 9000, PublishedPort: 0, Protocol: "tcp" },
+      ],
+    });
+  const ps = (apiPort: number) =>
+    [
+      container("api", 3000, apiPort),
+      container("postgres", 5432, 33001),
+      container("keycloak", 8080, 33002),
+      JSON.stringify({ Service: "scheduler", Publishers: null }),
+    ].join("\n");
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "verify-run-urls-"));
+    runDir = join(dir, "runs", "20261125-010101-1");
+    await mkdir(join(dir, "bin"));
+    await mkdir(runDir, { recursive: true });
+    await writeFile(
+      join(dir, "bin", "docker"),
+      `#!/bin/sh
+echo "$*" >> "${dir}/docker-calls"
+case "$*" in
+  "compose --profile apps --profile fake-model ps --format json") cat "${dir}/ps" ;;
+  "compose --profile apps --profile fake-model restart api") ;;
+  *) exit 1 ;;
+esac
+`,
+      { mode: 0o755 },
+    );
+    await writeFile(
+      join(runDir, "state.env"),
+      [
+        `VERIFY_RUN=${runDir}`,
+        `VERIFY_REPO=${repo}`,
+        "export COMPOSE_PROJECT_NAME=verify-ap-20261125-010101-1",
+        ...Object.entries(secretState).map(([k, v]) => `export ${k}=${v}`),
+        "VERIFY_API=http://127.0.0.1:33154",
+        "VERIFY_BUILT_FROM=abc",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(dir, { force: true, recursive: true });
+  });
+
+  const env = () => ({
+    ...process.env,
+    PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+    VERIFY_AP_ROOT: join(dir, "runs"),
+  });
+
+  test("writes the addresses and host ports to state.json and moves VERIFY_API, holding no secret", async () => {
+    await writeFile(join(dir, "ps"), ps(33172));
+    const done = Bun.spawnSync(
+      ["node", join(scripts, "run-urls.mjs"), "20261125-010101-1"],
+      { env: env() },
+    );
+    expect(done.stderr.toString()).toBe("");
+    expect(done.exitCode).toBe(0);
+
+    const written = await Bun.file(join(runDir, "state.json")).text();
+    const urls = JSON.parse(written);
+    expect(urls).toEqual({
+      project: "verify-ap-20261125-010101-1",
+      web_url: "http://127.0.0.1:33172",
+      api_url: "http://127.0.0.1:33172",
+      ports: {
+        api: { "3000": 33172 },
+        postgres: { "5432": 33001 },
+        keycloak: { "8080": 33002 },
+      },
+    });
+    expect(JSON.parse(done.stdout.toString())).toEqual(urls);
+
+    // No field is named like a secret, at any depth, and no secret value shows.
+    const names: string[] = [];
+    const walk = (value: unknown) => {
+      if (value === null || typeof value !== "object") return;
+      for (const [name, inner] of Object.entries(value)) {
+        names.push(name);
+        walk(inner);
+      }
+    };
+    walk(urls);
+    expect(names.filter((name) => knownSecretNames.test(name))).toEqual([]);
+    for (const [name, value] of Object.entries(secretState)) {
+      expect(written).not.toContain(value);
+      expect(written).not.toContain(name);
+    }
+
+    const state = parseRunState(
+      await Bun.file(join(runDir, "state.env")).text(),
+    );
+    expect(state.VERIFY_API).toBe("http://127.0.0.1:33172");
+    expect(state).toMatchObject({ ...secretState, VERIFY_BUILT_FROM: "abc" });
+  });
+
+  test("refuses to write a field or a value named like a secret", async () => {
+    const { runUrls } = await import("../scripts/verify/run-urls.mjs");
+    const state = { COMPOSE_PROJECT_NAME: "verify-ap-x", ...secretState };
+    expect(() =>
+      runUrls(state, { api: { "3000": 1 }, "setup-token": { "1": 2 } }),
+    ).toThrow("secret-named field: ports.setup-token");
+    expect(() =>
+      runUrls(
+        { ...state, COMPOSE_PROJECT_NAME: secretState.VERIFY_SETUP_TOKEN },
+        { api: { "3000": 1 } },
+      ),
+    ).toThrow("the value of VERIFY_SETUP_TOKEN");
+    expect(() => runUrls(state, { postgres: { "5432": 1 } })).toThrow(
+      "publishes no port for 3000",
+    );
+  });
+
+  test("ap_compose restart refreshes state.json and $API in the same shell", async () => {
+    await writeFile(join(dir, "ps"), ps(33190));
+    const done = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        '. "$1/lib.sh" 20261125-010101-1 && echo "$API" && ap_compose restart api && echo "$API" && ap_urls | grep -c api_url',
+        "bash",
+        scripts,
+      ],
+      { env: env() },
+    );
+    expect(done.stdout.toString()).toBe(
+      "http://127.0.0.1:33154\nhttp://127.0.0.1:33190\n1\n",
+    );
+    expect(done.exitCode).toBe(0);
+    const urls = await Bun.file(join(runDir, "state.json")).json();
+    expect(urls.api_url).toBe("http://127.0.0.1:33190");
+  });
+});
