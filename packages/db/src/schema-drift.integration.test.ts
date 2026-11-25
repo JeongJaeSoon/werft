@@ -69,6 +69,9 @@ const MIGRATIONS_ONLY = [
   "function checkpoint_output_objects_forget() trigger language plpgsql volatility=v parallel=u body md5 1475242b94f49467838a4e0dcd12700e",
   "function checkpoint_output_objects_recount(affected uuid[]) void language plpgsql volatility=v parallel=u set enable_seqscan=off body md5 7feb5d0e1390b9bd183063c453496e88",
   "function checkpoint_output_objects_release() trigger language plpgsql volatility=v parallel=u set enable_seqscan=off body md5 f9c1384d33099e58aafbf4c3e1895063",
+  // 0375: a remembered bundle verdict goes with its checkpoint and with the
+  // checkpoints it builds on, whichever write removes them.
+  "function checkpoints_forget_bundle_verdicts() trigger language plpgsql volatility=v parallel=u body md5 51ee9d3f7a50cb11454d910627e52424",
   // 0143: an agent identity's credential name is never an agent's.
   "function credential_bindings_exclusive_target() trigger language plpgsql volatility=v parallel=u body md5 55270e3870adbfee5a5edd2ab0daf6a8",
   // 0249: a session's copied variable values go when it closes, by one write
@@ -149,6 +152,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER checkpoint_outputs_count_insert AFTER INSERT ON public.checkpoint_outputs REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_add() enabled=O",
   "trigger CREATE TRIGGER checkpoint_outputs_count_truncate AFTER TRUNCATE ON public.checkpoint_outputs FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_clear() enabled=O",
   "trigger CREATE TRIGGER checkpoints_count_release AFTER UPDATE ON public.checkpoints REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_release() enabled=O",
+  "trigger CREATE TRIGGER checkpoints_forget_bundle_verdicts AFTER DELETE OR UPDATE OF manifest_ref, manifest_sha256, manifest_version, collected_at ON public.checkpoints FOR EACH ROW EXECUTE FUNCTION checkpoints_forget_bundle_verdicts() enabled=O",
   "trigger CREATE TRIGGER credential_bindings_exclusive_target BEFORE INSERT OR UPDATE ON public.credential_bindings FOR EACH ROW EXECUTE FUNCTION credential_bindings_exclusive_target() enabled=O",
   "trigger CREATE TRIGGER mcp_servers_retired BEFORE INSERT OR UPDATE ON public.mcp_servers FOR EACH ROW EXECUTE FUNCTION refuse_catalog_mcp_write() enabled=O",
   "trigger CREATE TRIGGER mcp_servers_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.mcp_servers FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",

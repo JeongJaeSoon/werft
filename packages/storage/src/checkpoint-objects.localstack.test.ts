@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   DeleteObjectCommand,
   HeadObjectCommand,
@@ -45,6 +46,37 @@ localstackTest(
         );
         expect(stale.outcome).toBe("conflict");
         expect(await store.get(key)).toEqual(published);
+      },
+      { prefix: "checkpoint-objects-it" },
+    );
+  },
+  30_000,
+);
+
+// What lets a remembered bundle verdict be confirmed without reading the
+// bundle again: a workspace bundle is uploaded as a stream with its digest.
+localstackTest(
+  "a body streamed with its digest is stored with a SHA-256 the HEAD reports",
+  async () => {
+    await withLocalstackBucket(
+      async ({ bucket, s3 }) => {
+        const store = createCheckpointObjectStore({ bucket, client: s3 });
+        const key = "sessions/s1/checkpoints/0000000000/a/p/workspace.bundle";
+        const body = encode("bundle bytes\n");
+        const sha256 = createHash("sha256").update(body).digest("hex");
+        expect(
+          await store.putImmutable(key, {
+            bytes: body.byteLength,
+            async *open() {
+              yield body;
+            },
+            sha256,
+          }),
+        ).toEqual({ outcome: "created" });
+        expect(await store.head(key)).toEqual({
+          bytes: body.byteLength,
+          sha256,
+        });
       },
       { prefix: "checkpoint-objects-it" },
     );
