@@ -353,16 +353,19 @@ describe("resentUntilLeaseEnds", () => {
       },
     );
     await expect(done).rejects.toThrow("status 503");
-    // The last wait is cut to what the lease had left.
+    // The last wait is cut to what the lease had left, and nothing is sent
+    // once it is over.
     expect(lease.waits).toEqual([1_000, 2_000, 4_000, 3_000]);
-    expect(sent).toBe(5);
+    expect(sent).toBe(4);
   });
 
-  test("a lease renewed meanwhile keeps the batch being sent, and no longer than the SDK waits for it", async () => {
+  test("a lease renewed meanwhile keeps the batch being sent, and no send starts past the ceiling", async () => {
     let now = 0;
     const waits: number[] = [];
+    const sentAt: number[] = [];
     const done = resentUntilLeaseEnds(
       async () => {
+        sentAt.push(now);
         throw outage();
       },
       // Renewed at every look: always five seconds left.
@@ -379,6 +382,27 @@ describe("resentUntilLeaseEnds", () => {
     // Past the five seconds the lease had at the first outage, to the ceiling.
     expect(waits.slice(0, 4)).toEqual([1_000, 2_000, 4_000, 4_000]);
     expect(now).toBe(TRANSCRIPT_RESEND_CEILING_MS);
+    expect(Math.max(...sentAt)).toBeLessThan(TRANSCRIPT_RESEND_CEILING_MS);
+  });
+
+  test("a lease that ends during the wait is not written under", async () => {
+    let now = 0;
+    const sentAt: number[] = [];
+    const done = resentUntilLeaseEnds(
+      async () => {
+        sentAt.push(now);
+        throw outage();
+      },
+      () => Math.max(0, 1_000 - now),
+      {
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    );
+    await expect(done).rejects.toThrow("status 503");
+    expect(sentAt).toEqual([0]);
   });
 
   test("a refusal, or an outage with no lease left, fails the write at once", async () => {

@@ -136,9 +136,10 @@ export class ObjectStoreToken {
 }
 
 /**
- * How long one transcript write is sent again at most, however long the lease
- * goes on being renewed: under the 60 s the engine's SDK waits for an append,
- * past which it has given the batch up itself.
+ * No send of one transcript write starts later than this after its first,
+ * however long the lease goes on being renewed: the engine's SDK waits 60 s
+ * for an append and then gives the batch up itself. A send already under way
+ * is not cut short by it; how long one may take is the store's own bound.
  */
 export const TRANSCRIPT_RESEND_CEILING_MS = 50_000;
 
@@ -146,10 +147,10 @@ export const TRANSCRIPT_RESEND_CEILING_MS = 50_000;
  * Runs a transcript write and, while the store only failed to answer it
  * (`isObjectStoreOutage`), runs it again on the heartbeat's backoff until
  * this attempt gives its lease up: the batch is kept rather than dropped for
- * as long as the attempt still owns what it writes, up to the ceiling above.
- * An outage is never an answer: the write is done only once the store took
- * it, and at the lease's end it fails with the outage it last met. Any other
- * failure fails it at once.
+ * as long as the attempt still owns what it writes, up to the ceiling above,
+ * and nothing is sent once it does not. An outage is never an answer: the
+ * write is done only once the store took it, and at the lease's end it fails
+ * with the outage it last met. Any other failure fails it at once.
  */
 export async function resentUntilLeaseEnds(
   write: () => Promise<void>,
@@ -164,7 +165,10 @@ export async function resentUntilLeaseEnds(
   } = {},
 ): Promise<void> {
   const now = hooks.now ?? (() => performance.now());
-  let heldAt: number | undefined;
+  const until = now() + TRANSCRIPT_RESEND_CEILING_MS;
+  // The lease as it stands at each look: a beat that landed meanwhile
+  // extends it.
+  const left = () => Math.min(leaseLeftMs(), until - now());
   for (let outages = 0; ; ) {
     try {
       await write();
@@ -172,19 +176,13 @@ export async function resentUntilLeaseEnds(
       return;
     } catch (error) {
       if (!isObjectStoreOutage(error)) throw error;
-      if (heldAt === undefined) {
-        heldAt = now();
-        hooks.onHeld?.(error);
-      }
+      if (outages === 0) hooks.onHeld?.(error);
       outages += 1;
-      // The lease as it stands now: a beat that landed meanwhile extends it.
-      const wait = Math.min(
-        notFoundBackoff(outages),
-        leaseLeftMs(),
-        heldAt + TRANSCRIPT_RESEND_CEILING_MS - now(),
-      );
+      const wait = Math.min(notFoundBackoff(outages), left());
       if (wait <= 0) throw error;
       await (hooks.sleep ?? Bun.sleep)(wait);
+      // Looked at again after the wait: nothing is sent past the lease.
+      if (left() <= 0) throw error;
     }
   }
 }

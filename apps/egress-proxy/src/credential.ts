@@ -1239,7 +1239,7 @@ export type CredentialProxyServer = {
   stop(): void;
 };
 
-type Authorized =
+export type Authorized =
   | { kind: "granted"; grant: EgressGrant }
   | {
       kind: "refused";
@@ -1263,6 +1263,39 @@ function receiptOf(body: unknown): string | null {
   return typeof receipt_id === "string" && RECEIPT_ID.test(receipt_id)
     ? receipt_id
     : null;
+}
+
+/**
+ * Asks again for a call the authorizer could not decide, until it decides,
+ * the hold is spent or the exchange ends. Undecided then. No ask is sent or
+ * outlasts the hold, and past it only a refusal is still taken for an
+ * answer: a grant that came too late is asked for afresh by the next try.
+ */
+export async function decidedWithin(
+  ask: (withinMs: number) => Promise<Authorized>,
+  hold: { ms: number; backoffMs: readonly number[] },
+  clock: {
+    now: () => number;
+    /** Resolves early once the exchange has ended. */
+    sleep: (ms: number) => Promise<unknown>;
+    ended: () => boolean;
+  },
+): Promise<Authorized> {
+  const until = clock.now() + hold.ms;
+  for (let asked = 0; ; asked += 1) {
+    const wait = Math.min(
+      hold.backoffMs[Math.min(asked, hold.backoffMs.length - 1)] ?? 0,
+      until - clock.now(),
+    );
+    if (wait <= 0) return { kind: "undecided" };
+    await clock.sleep(wait);
+    const left = until - clock.now();
+    if (clock.ended() || left <= 0) return { kind: "undecided" };
+    const again = await ask(left);
+    if (again.kind === "undecided") continue;
+    const refused = again.kind === "refused" && again.status !== 503;
+    return refused || clock.now() < until ? again : { kind: "undecided" };
+  }
 }
 
 function isUndecided(body: unknown): boolean {
@@ -1337,11 +1370,7 @@ export function startCredentialProxy(
     return response;
   }
 
-  /**
-   * Asks again for a call the authorizer could not decide, until it decides,
-   * the hold runs out or the exchange ends. Still undecided then: no ask
-   * outlasts the hold, and one the hold's end cut short is no answer.
-   */
+  /** `decidedWithin` for one more held call, or undecided at once over the cap. */
   async function heldForDecision(
     ask: (withinMs: number) => Promise<Authorized>,
     ends: AbortSignal,
@@ -1353,25 +1382,16 @@ export function startCredentialProxy(
       return { kind: "undecided" };
     }
     held += 1;
-    const until = performance.now() + holdMs;
     try {
-      for (let asked = 0; ; asked += 1) {
-        const wait = Math.min(
-          holdBackoffMs[Math.min(asked, holdBackoffMs.length - 1)] ?? 0,
-          until - performance.now(),
-        );
-        if (wait <= 0) return { kind: "undecided" };
-        await untilEnded(Bun.sleep(wait), ends).catch(() => {});
-        const left = until - performance.now();
-        if (ends.aborted || left <= 0) return { kind: "undecided" };
-        const again = await ask(left);
-        if (again.kind === "undecided") continue;
-        const cut =
-          again.kind === "refused" &&
-          again.status === 503 &&
-          performance.now() >= until;
-        return cut ? { kind: "undecided" } : again;
-      }
+      return await decidedWithin(
+        ask,
+        { ms: holdMs, backoffMs: holdBackoffMs },
+        {
+          now: () => performance.now(),
+          sleep: (ms) => untilEnded(Bun.sleep(ms), ends).catch(() => {}),
+          ended: () => ends.aborted,
+        },
+      );
     } finally {
       held -= 1;
     }

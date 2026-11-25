@@ -11,8 +11,10 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type Authorized,
   bodyReservation,
   type CredentialProxyServer,
+  decidedWithin,
   type EgressGrant,
   isPushAdvertisement,
   mcpCallOf,
@@ -572,6 +574,123 @@ type UsageReport = {
   conversation_call_id?: string;
   usage: Record<string, unknown>;
 };
+
+describe("decidedWithin", () => {
+  const undecided: Authorized = { kind: "undecided" };
+  const granted: Authorized = { kind: "granted", grant: {} as EgressGrant };
+  const hold = { ms: 20_000, backoffMs: [1_000, 2_000, 4_000] };
+  /** A clock only the waits and the asks move. */
+  function clocked(ended = false) {
+    let now = 0;
+    return {
+      at: () => now,
+      pass: (ms: number) => {
+        now += ms;
+      },
+      clock: {
+        now: () => now,
+        sleep: async (ms: number) => {
+          now += ms;
+        },
+        ended: () => ended,
+      },
+    };
+  }
+
+  test("asks after 1, 2 and then every 4 seconds, each ask given only what is left, and is undecided once the hold is spent", async () => {
+    const time = clocked();
+    const asks: Array<{ at: number; within: number }> = [];
+    const result = await decidedWithin(
+      async (within) => {
+        asks.push({ at: time.at(), within });
+        return undecided;
+      },
+      hold,
+      time.clock,
+    );
+    expect(result).toEqual(undecided);
+    expect(asks.map((ask) => ask.at)).toEqual([
+      1_000, 3_000, 7_000, 11_000, 15_000, 19_000,
+    ]);
+    expect(asks.at(-1)?.within).toBe(1_000);
+    expect(time.at()).toBe(20_000);
+  });
+
+  test("a grant inside the hold is taken at once", async () => {
+    const time = clocked();
+    const answers = [undecided, granted];
+    const result = await decidedWithin(
+      async () => answers.shift() ?? undecided,
+      hold,
+      time.clock,
+    );
+    expect(result).toBe(granted);
+    expect(time.at()).toBe(3_000);
+  });
+
+  test("a grant that is in hand only after the hold ended is not taken", async () => {
+    const time = clocked();
+    const result = await decidedWithin(
+      async () => {
+        if (time.at() < 19_000) return undecided;
+        // Answered at 19,999 ms; read and checked by 20,001 ms.
+        time.pass(1_001);
+        return granted;
+      },
+      hold,
+      time.clock,
+    );
+    expect(result).toEqual(undecided);
+  });
+
+  test("a refusal is an answer whenever it comes; an ask the hold's end cut short is not", async () => {
+    const late = (answer: Authorized) => {
+      const time = clocked();
+      return decidedWithin(
+        async () => {
+          if (time.at() < 19_000) return undecided;
+          time.pass(1_001);
+          return answer;
+        },
+        hold,
+        time.clock,
+      );
+    };
+    const refusal: Authorized = { kind: "refused", status: 403 };
+    expect(await late(refusal)).toBe(refusal);
+    expect(await late({ kind: "refused", status: 503 })).toEqual(undecided);
+  });
+
+  test("an authorizer that stops answering inside the hold is not asked again", async () => {
+    const time = clocked();
+    const silent: Authorized = { kind: "refused", status: 503 };
+    let asked = 0;
+    const result = await decidedWithin(
+      async () => {
+        asked += 1;
+        return silent;
+      },
+      hold,
+      time.clock,
+    );
+    expect(result).toBe(silent);
+    expect(asked).toBe(1);
+  });
+
+  test("nothing is asked once the exchange has ended", async () => {
+    let asked = 0;
+    const result = await decidedWithin(
+      async () => {
+        asked += 1;
+        return granted;
+      },
+      hold,
+      clocked(true).clock,
+    );
+    expect(result).toEqual(undecided);
+    expect(asked).toBe(0);
+  });
+});
 
 async function until(done: () => boolean, ms = 3_000): Promise<void> {
   const by = performance.now() + ms;
