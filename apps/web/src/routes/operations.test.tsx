@@ -179,7 +179,27 @@ function toolCalls(name: string) {
 
 // The fake API answers by path, and nothing for /v1/usage/summary; the call
 // log says which period was asked.
+const PEOPLE = {
+  period: {
+    since: "2026-09-25T00:00:00.000Z",
+    until: "2026-10-25T00:00:00.000Z",
+  },
+  refreshed_at: "2026-10-25T00:00:00.000Z",
+  agent_id: null,
+  people: [
+    {
+      call_count: 3,
+      cost_usd: "0.050000",
+      cost_complete: true,
+      user_id: "11111111-1111-4111-8111-111111111111",
+      label: "Alice",
+    },
+  ],
+  totals: { call_count: 3, cost_usd: "0.050000", cost_complete: true },
+};
+
 const usageRoutes = {
+  "GET /v1/usage/people": () => json(200, PEOPLE),
   "GET /v1/sessions/counts": () => json(200, COUNTS),
   "GET /v1/usage/tools": () => json(200, TOOLS),
   ...Object.fromEntries(
@@ -388,10 +408,21 @@ describe("사용량·한도", () => {
     expect(search()).toEqual({});
   });
 
-  for (const [role, who] of [
-    ["admin", () => me(undefined, "admin")],
-    ["member", memberMe],
-  ] as const) {
+  test("admin: 개요에 설치 전체 범위와 slot 줄이 있고, 소유자처럼 설치 전체를 읽는다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+    });
+    expect(await screen.findByText("동시 실행 슬롯 · 설치 전체")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "집계 범위" })).toBeTruthy();
+    expect(
+      api.calls.find((call) => call.path === "/v1/usage/series")?.search,
+    ).toStartWith("?scope=installation&");
+  });
+
+  for (const [role, who] of [["member", memberMe]] as const) {
     test(`${role}: 개요에 설치 전체 범위·slot 줄이 없고 /v1/limits를 읽지 않으며, 한도 탭은 있다`, async () => {
       setSystemTime(NOW);
       const { api } = renderAt("/operations", {
@@ -935,8 +966,12 @@ describe("사용량·한도", () => {
     expect(usage.map((call) => call.path).sort()).toEqual([
       "/v1/usage/breakdown",
       "/v1/usage/breakdown",
+      "/v1/usage/people",
       "/v1/usage/series",
     ]);
+    expect(usage.find((call) => call.path === "/v1/usage/people")?.search).toBe(
+      "?since=2026-09-25T00%3A00%3A00.000Z&until=2026-10-25T00%3A00%3A00.000Z",
+    );
     expect(
       usage
         .filter((call) => call.path === "/v1/usage/breakdown")
@@ -984,6 +1019,7 @@ describe("사용량·한도", () => {
         summary_usd: "0",
         other_usd: "0",
       },
+      by_requester: { person_usd: "0.050000", agent_usd: "0.010000" },
     };
     renderAt("/operations/usage", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -1031,6 +1067,83 @@ describe("사용량·한도", () => {
     expect(screen.getByText("세션 $0.00 · 대화 $0.06")).toBeTruthy();
   });
 
+  const splitTalk = {
+    call_count: 4,
+    cost_usd: "0.060000",
+    cost_complete: true,
+    by_class: {
+      judgment_usd: "0.010000",
+      turn_usd: "0.050000",
+      summary_usd: "0",
+      other_usd: "0",
+    },
+    by_requester: { person_usd: "0.050000", agent_usd: "0.010000" },
+  };
+  const splitRoutes = (who: () => unknown) => ({
+    "GET /v1/auth/me": () => json(200, who()),
+    "GET /v1/limits": () => json(200, LIMITS),
+    ...usageRoutes,
+    "GET /v1/usage/breakdown": (request: Request) =>
+      new URL(request.url).searchParams.get("by") === "agent"
+        ? json(200, {
+            rows: [
+              {
+                key: "a1",
+                label: "slack-helper",
+                ...figures(1, "0.04"),
+                conversation: splitTalk,
+              },
+            ],
+            totals: { ...figures(1, "0.04"), conversation: splitTalk },
+          })
+        : json(200, { rows: [], totals: figures(1, "0.04") }),
+  });
+  const splitRows = async () => {
+    const split = await screen.findByRole("table", { name: "누가 시작했나" });
+    await waitFor(() =>
+      expect(within(split).getAllByText("$0.05").length).toBeGreaterThan(0),
+    );
+    return [...split.querySelectorAll("[role=row]")].map((row) =>
+      [...row.querySelectorAll("[role=cell]")]
+        .filter((_, i) => i !== 1)
+        .map((cell) => cell.textContent),
+    );
+  };
+
+  test("사용량 탭: owner에게 '누가 시작했나'는 사람·사람별 몫·에이전트·작업 세션이고, 판단 줄은 에이전트의 판단 기록으로 간다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations/usage", splitRoutes(me));
+    expect(await splitRows()).toEqual([
+      ["사람", "$0.05", "50%"],
+      ["Alice", "$0.05", "50%"],
+      ["에이전트", "$0.01", "10%"],
+      ["작업 세션", "$0.04", "40%"],
+    ]);
+    expect(
+      screen.getByRole("link", { name: "작업 세션" }).getAttribute("href"),
+    ).toBe("/sessions");
+    const agents = screen.getByRole("table", { name: "에이전트별" });
+    expect(
+      within(agents).getByRole("link", { name: /^판단/ }).getAttribute("href"),
+    ).toBe("/agents/a1?tab=slack#slack-judgments");
+    expect(
+      api.calls.filter((call) => call.path === "/v1/usage/people"),
+    ).toHaveLength(1);
+  });
+
+  test("사용량 탭: member는 사람별 몫을 읽지 않고 세 칸만 본다", async () => {
+    setSystemTime(NOW);
+    const { api } = renderAt("/operations/usage", splitRoutes(memberMe));
+    expect(await splitRows()).toEqual([
+      ["사람", "$0.05", "50%"],
+      ["에이전트", "$0.01", "10%"],
+      ["작업 세션", "$0.04", "40%"],
+    ]);
+    expect(api.calls.some((call) => call.path === "/v1/usage/people")).toBe(
+      false,
+    );
+  });
+
   test("사용량 탭: 비용 0으로 끝난 대화 호출만 있는 기간도 빈 상태가 아니다", async () => {
     setSystemTime(NOW);
     const talk = {
@@ -1043,6 +1156,7 @@ describe("사용량·한도", () => {
         summary_usd: "0",
         other_usd: "0",
       },
+      by_requester: { person_usd: "0", agent_usd: "0" },
     };
     renderAt("/operations/usage", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -1092,6 +1206,7 @@ describe("사용량·한도", () => {
         summary_usd: "0",
         other_usd: "0",
       },
+      by_requester: { person_usd: "9.000000", agent_usd: "1.000000" },
     };
     renderAt("/operations?days=7", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -1505,10 +1620,7 @@ describe("사용량·한도", () => {
     },
   };
 
-  for (const [role, who] of [
-    ["admin", () => me(undefined, "admin")],
-    ["member", memberMe],
-  ] as const) {
+  for (const [role, who] of [["member", memberMe]] as const) {
     test(`한도 탭: ${role}는 /v1/limits?scope=me만 읽어 세션 한도 4개와 정적 행을 본다`, async () => {
       setSystemTime(NOW);
       const { api } = renderAt("/operations/limits", {

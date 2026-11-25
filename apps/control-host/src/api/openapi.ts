@@ -397,6 +397,8 @@ import {
   usageBreakdownResponseSchema,
   usageOutcomesQuerySchema,
   usageOutcomesResponseSchema,
+  usagePeopleQuerySchema,
+  usagePeopleResponseSchema,
   usageSeriesQuerySchema,
   usageSeriesResponseSchema,
   usageSummaryQuerySchema,
@@ -449,6 +451,7 @@ const requestComponents = {
   UsageAchievementsQuery: usageAchievementsQuerySchema,
   UsageSeriesQuery: usageSeriesQuerySchema,
   UsageBreakdownQuery: usageBreakdownQuerySchema,
+  UsagePeopleQuery: usagePeopleQuerySchema,
   UsageToolsQuery: usageToolsQuerySchema,
   UsageToolCallsQuery: usageToolCallsQuerySchema,
   PostSessionMessageRequest: postSessionMessageRequestSchema,
@@ -701,6 +704,7 @@ const responseComponents = {
   UsageAchievementsResponse: usageAchievementsResponseSchema,
   UsageSeriesResponse: usageSeriesResponseSchema,
   UsageBreakdownResponse: usageBreakdownResponseSchema,
+  UsagePeopleResponse: usagePeopleResponseSchema,
   UsageToolsResponse: usageToolsResponseSchema,
   UsageToolCallsResponse: usageToolCallsResponseSchema,
   SessionUsageResponse: sessionUsageResponseSchema,
@@ -3957,6 +3961,7 @@ export const API_ROUTE_DECLARATIONS = [
           "session.admin_list",
           "usage.installation_read",
           "usage.agent_read",
+          "usage.people_read",
           "judgment.read",
           "installation.settings.manage",
         ],
@@ -9155,7 +9160,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Installation limits and installation-wide usage",
     description:
-      "Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.\n\nWithout `scope`, or with `scope=installation`, only the workspace owner, signed in, reads it: any other member and every API key get 403.\n\n`scope=me` gives any signed-in member the per-session limits alone (`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`), with no `usage`; an API key gets 403. It changes nothing.",
+      "Reads the limits this installation runs under (execution slots, queued input per session, storage, turn length, per-session cost and token limits, provider retries) and the usage against the installation-wide ones, summed over every owner. Use it to explain `STORAGE_LIMIT_EXCEEDED`, a full input queue, or sessions waiting in `queued` for a slot. `usage.outputs` is the bytes of session outputs kept in the object store, shown beside storage and never enforced.\n\nWithout `scope`, or with `scope=installation`, only the workspace's owner and admins, signed in, read it: any other member and every API key get 403.\n\n`scope=me` gives any signed-in member the per-session limits alone (`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`), with no `usage`; an API key gets 403. It changes nothing.",
     scope: "read",
     query: "LimitsQuery",
     success: {
@@ -9203,7 +9208,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Cost, tokens and run time of the sessions created in a period",
     description:
-      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.\n- `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name (never an email); under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
+      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace's owner and admins, signed in, read it: any other member and every API key get 403.\n- `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name (never an email); under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
     scope: "read",
     query: "UsageSummaryQuery",
     success: {
@@ -9424,7 +9429,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "The usage summary of a period by model or by agent",
     description:
-      "Groups the sessions `GET /v1/usage/summary` adds up by the model their metered calls named (`by=model`) or by their agent (`by=agent`), largest cost first, with the input, output, cache read and cache write tokens of those calls. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days.\n\n`token_count` is the four token columns' sum; the 1-hour cache writes are inside `cache_creation_input_tokens`. `totals` is the summary of the same period: its `session_count`, `token_count` and `cost_usd` equal it.\n\n- `by=agent`: each session counts once under its agent (`key` is the agent id, `label` its name), so the rows add up to `totals` in every column. Sessions without an agent are the row whose `key` and `label` are null.\n- `by=model`: a session counts under every model it called, so the rows' `session_count` may add up to more than the totals'. A session's cost its metered calls do not explain, such as an engine's turn totals from before proxy metering, is the row whose `key` and `label` are null, with no tokens.\n\nWith `by=agent` each row and `totals` carry `conversation`: the agent's conversation calls (a Slack mention or DM it answers, not a session) created in the period, apart from the sessions' figures, which they leave unchanged. `scope=installation` counts every call, `scope=me` the calls asked for by the caller as a person (a personal key's maker); a key no person created has none. An agent with calls and no session is a row with `session_count` 0, and the rows go largest session plus conversation cost first. A call counts as it settled: `cost_usd` is the settled calls' cost, split in `by_class` into `judgment_usd` (M1's judgment of whether to step in), `turn_usd` (an M2 conversation turn's calls), `summary_usd` (a channel summary's) and `other_usd` (a call from before the class was recorded), which add up to it. A call reserved, in flight (its end unknown included) or resolved without a report adds 0 and makes `cost_complete` false, as an open or unreported turn does to a session; a released call never ran and adds nothing. `call_count` counts every call but the released ones. `by=model` has no `conversation`.\n\nIt changes nothing.",
+      "Groups the sessions `GET /v1/usage/summary` adds up by the model their metered calls named (`by=model`) or by their agent (`by=agent`), largest cost first, with the input, output, cache read and cache write tokens of those calls. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days.\n\n`token_count` is the four token columns' sum; the 1-hour cache writes are inside `cache_creation_input_tokens`. `totals` is the summary of the same period: its `session_count`, `token_count` and `cost_usd` equal it.\n\n- `by=agent`: each session counts once under its agent (`key` is the agent id, `label` its name), so the rows add up to `totals` in every column. Sessions without an agent are the row whose `key` and `label` are null.\n- `by=model`: a session counts under every model it called, so the rows' `session_count` may add up to more than the totals'. A session's cost its metered calls do not explain, such as an engine's turn totals from before proxy metering, is the row whose `key` and `label` are null, with no tokens.\n\nWith `by=agent` each row and `totals` carry `conversation`: the agent's conversation calls (a Slack mention or DM it answers, not a session) created in the period, apart from the sessions' figures, which they leave unchanged. `scope=installation` counts every call, `scope=me` the calls asked for by the caller as a person (a personal key's maker); a key no person created has none. An agent with calls and no session is a row with `session_count` 0, and the rows go largest session plus conversation cost first. A call counts as it settled: `cost_usd` is the settled calls' cost, split in `by_class` into `judgment_usd` (M1's judgment of whether to step in), `turn_usd` (an M2 conversation turn's calls), `summary_usd` (a channel summary's) and `other_usd` (a call from before the class was recorded), which add up to it. A call reserved, in flight (its end unknown included) or resolved without a report adds 0 and makes `cost_complete` false, as an open or unreported turn does to a session; a released call never ran and adds nothing. `call_count` counts every call but the released ones. `by=model` has no `conversation`.\n\n`by_requester` splits the same `cost_usd` by who started each call's chain (its budget root): `person_usd` a person (root `user`) or a key a person made (`key`), `agent_usd` nobody (`none`, the agent on its own or for its team) or an allowed Slack bot (`slack_bot`). The two add up to `cost_usd`, so a row's or the totals' spend is three parts that add up: `person_usd`, `agent_usd` and the sessions' `cost_usd`. Each part's calls are listed by `GET /v1/agents/{id}/conversation-turns` with `initiator=person` or `initiator=agent`, except M1's judgments (`judgment_usd`), which are no turn: those are in `GET /v1/agents/{id}/slack/judgments`. The person part is split per person by `GET /v1/usage/people`.\n\nIt changes nothing.",
     scope: "read",
     query: "UsageBreakdownQuery",
     success: {
@@ -9468,6 +9473,48 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/usage/people",
+    operationId: "getUsagePeople",
+    tag: "Limits & receipts",
+    summary: "What each person's conversation calls cost in a period",
+    description:
+      "Splits the person part of the conversation cost (`by_requester.person_usd` of `GET /v1/usage/breakdown`) per person: the conversation calls created in `[since, until)` whose chain a person started (budget root `user`, or `key` for a key a person made), one row per requester, largest cost first. `user_id` is the requester and `label` their display name; a key no person made is the row whose `user_id` and `label` are null. Calls count as the breakdown counts them: `cost_usd` is the settled calls' cost, a call reserved, in flight or resolved without a report adds 0 and makes `cost_complete` false, and a released call is not one. `totals` adds up the rows. `since` and `until` work as in `GET /v1/usage/summary`; the period spans at most 366 days.\n\nWithout `agent_id` it reads the whole workspace: its owner and admins only. With `agent_id` it reads that agent's calls: the workspace's owner and admins and the agent's admins; an agent of another workspace, or none, is 404 for everyone. Anyone else, and every API key, gets 403; a member reads their own spend with `scope=me` on the other usage reads. Every place's calls count alike, a DM's and a private channel's too: what is returned is who asked and what it cost, never where or what anyone wrote.\n\nIt changes nothing.",
+    scope: "read",
+    query: "UsagePeopleQuery",
+    success: {
+      status: 200,
+      schema: "UsagePeopleResponse",
+      description: "Each person's calls and their totals.",
+      example: {
+        period: {
+          since: "2026-10-01T00:00:00.000Z",
+          until: "2026-10-08T00:00:00.000Z",
+        },
+        refreshed_at: "2026-10-08T00:00:00.000Z",
+        agent_id: null,
+        people: [
+          {
+            user_id: "8f14e45f-ceea-4e67-a2c4-1d7d9a9b0b11",
+            label: "Alice",
+            call_count: 12,
+            cost_usd: "0.184000",
+            cost_complete: true,
+          },
+          {
+            user_id: null,
+            label: null,
+            call_count: 2,
+            cost_usd: "0.006000",
+            cost_complete: true,
+          },
+        ],
+        totals: { call_count: 14, cost_usd: "0.190000", cost_complete: true },
+      },
+    },
+    errors: [400, 401, 404, 503],
   },
   {
     method: "get",

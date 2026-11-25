@@ -25,6 +25,7 @@ import type {
 import {
   scopedKey,
   usageBreakdownQuery,
+  usagePeopleQuery,
   usageSeriesQuery,
 } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
@@ -49,11 +50,19 @@ import {
   UsageCostTable,
   UsageDailyCost,
   UsageFilters,
+  UsageInitiatorSplit,
   UsageKpis,
   type UsagePeriod,
   UsageTokenMix,
 } from "@werft-ai/react/components";
-import { Badge, Card, EmptyState, Section, Skeleton } from "@werft-ai/ui";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  linkVariants,
+  Section,
+  Skeleton,
+} from "@werft-ai/ui";
 import { useId, useRef, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -430,6 +439,16 @@ export function OperationsUsageScreen() {
   });
   const models = useQuery(breakdown("model"));
   const agents = useQuery(breakdown("agent"));
+  // Each person's share of the person part: the workspace's readers, on the
+  // installation scope its figures are.
+  const seesPeople =
+    useHasPermission("usage.people_read") && filters.scope === "installation";
+  const people = useQuery({
+    ...usagePeopleQuery(client, since, until),
+    enabled: seesPeople,
+    placeholderData: keepPreviousData,
+    staleTime: USAGE_STALE_MS,
+  });
   // The three answers are shown as one set (figures, failures and the basis
   // line together). A set is taken once every query has answered for the
   // picked scope and period and none is fetching, or at once when the picked
@@ -489,6 +508,17 @@ export function OperationsUsageScreen() {
         by={by}
         rows={shownAnswer?.data?.rows}
         conversation={by === "agent"}
+        judgmentLink={(agentId, children) => (
+          <Link
+            to="/agents/$id"
+            params={{ id: agentId }}
+            search={{ tab: "slack" }}
+            hash="slack-judgments"
+            className={linkVariants()}
+          >
+            {children}
+          </Link>
+        )}
       />
     );
   return (
@@ -524,6 +554,22 @@ export function OperationsUsageScreen() {
                 buckets={shown?.series.data?.buckets}
                 days={shown?.series.data?.buckets.length ?? filters.days}
               />
+              {shown?.agents.error ? null : (
+                <div className="flex min-w-0 flex-col gap-3">
+                  <UsageInitiatorSplit
+                    totals={agentTotals}
+                    people={seesPeople ? people.data?.people : undefined}
+                    sessionsLink={(children) => (
+                      <Link to="/sessions" className={linkVariants()}>
+                        {children}
+                      </Link>
+                    )}
+                  />
+                  {seesPeople && people.error
+                    ? failure(people.error, people.refetch)
+                    : null}
+                </div>
+              )}
               {shown?.models.error ? null : (
                 <UsageTokenMix totals={shown?.models.data?.totals} />
               )}

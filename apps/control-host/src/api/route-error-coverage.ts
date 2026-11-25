@@ -128,6 +128,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/usage/achievements",
     "GET /v1/usage/series",
     "GET /v1/usage/breakdown",
+    "GET /v1/usage/people",
     "GET /v1/usage/tools",
     "GET /v1/usage/tools/{name}/calls",
   ],

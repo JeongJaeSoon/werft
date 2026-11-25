@@ -6,6 +6,7 @@ import {
   opaqueCursorSchema,
   sessionIdSchema,
   timestampSchema,
+  userIdSchema,
 } from "../shared/index.ts";
 import {
   achievementEvidenceKindSchema,
@@ -273,7 +274,7 @@ const DAY_MS = 86_400_000;
 export const USAGE_PERIOD_MAX_DAYS = 366;
 
 function checkBoundedPeriod(
-  query: z.infer<typeof usagePeriodQuerySchema>,
+  query: { since: Date; until?: Date | undefined },
   ctx: z.RefinementCtx,
 ) {
   checkPeriod(query, ctx);
@@ -298,6 +299,51 @@ export const USAGE_BREAKDOWN_BY_VALUES = ["model", "agent"] as const;
 export const usageBreakdownQuerySchema = usagePeriodQuerySchema
   .extend({ by: z.enum(USAGE_BREAKDOWN_BY_VALUES) })
   .superRefine(checkBoundedPeriod);
+
+/**
+ * GET /v1/usage/people: the period, and `agent_id` for one agent's share;
+ * without it, the whole workspace.
+ */
+export const usagePeopleQuerySchema = usagePeriodQuerySchema
+  .omit({ scope: true })
+  .extend({ agent_id: agentIdSchema.optional() })
+  .superRefine(checkBoundedPeriod);
+
+const usagePeopleFiguresSchema = z
+  .object({
+    call_count: countSchema,
+    cost_usd: costUsdSchema,
+    // false while one of the calls is reserved, in flight or resolved
+    // without a report.
+    cost_complete: z.boolean(),
+  })
+  .strict();
+
+/**
+ * The conversation calls a person started (root `user` or `key`), one row
+ * per person, largest cost first: the breakdown's `person_usd` of the same
+ * reach, split. Created in the period, counted as the breakdown counts them.
+ * `user_id` is the requester; null for a key no person made. `label` is
+ * the person's display name. Metadata only: no place, message or reply.
+ */
+export const usagePeopleResponseSchema = z
+  .object({
+    period: z
+      .object({ since: timestampSchema, until: timestampSchema })
+      .strict(),
+    refreshed_at: timestampSchema,
+    agent_id: agentIdSchema.nullable(),
+    people: z.array(
+      usagePeopleFiguresSchema
+        .extend({
+          user_id: userIdSchema.nullable(),
+          label: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    totals: usagePeopleFiguresSchema,
+  })
+  .strict();
 
 /**
  * GET /v1/usage/tools: the same scopes and period as the summary, the period
@@ -717,6 +763,15 @@ export const usageConversationCostSchema = z
         other_usd: costUsdSchema,
       })
       .strict(),
+    // Who started each call's chain (INITIATOR_ROOT_KINDS): `person_usd` a
+    // person or a key one made, `agent_usd` nobody or an allowed Slack bot.
+    // The two add up to `cost_usd`.
+    by_requester: z
+      .object({
+        person_usd: costUsdSchema,
+        agent_usd: costUsdSchema,
+      })
+      .strict(),
   })
   .strict();
 
@@ -775,6 +830,8 @@ export type UsageBreakdownResponse = z.infer<
   typeof usageBreakdownResponseSchema
 >;
 export type UsageConversationCost = z.infer<typeof usageConversationCostSchema>;
+export type UsagePeopleQuery = z.infer<typeof usagePeopleQuerySchema>;
+export type UsagePeopleResponse = z.infer<typeof usagePeopleResponseSchema>;
 export type UsageSeriesQuery = z.infer<typeof usageSeriesQuerySchema>;
 export type UsageSeriesResponse = z.infer<typeof usageSeriesResponseSchema>;
 export type UsageSummaryQuery = z.infer<typeof usageSummaryQuerySchema>;

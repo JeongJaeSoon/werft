@@ -387,11 +387,15 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // Starting a task from a conversation.
   "task.spawn",
   // Figures summed over every owner: GET /v1/limits and the installation
-  // usage summary (the owner's alone).
+  // usage summary (the workspace's owner and admins).
   "usage.installation_read",
   // One agent's summed usage: its workspace's managers and its admins,
   // recorded under its own name rather than agent.manage.
   "usage.agent_read",
+  // What each person's own conversation calls cost (v1-b/V1b), no text: the
+  // workspace's owner and admins for all of it, an agent's admins for that
+  // agent's share. Apart from installation_read so its readers can move alone.
+  "usage.people_read",
   // One agent's M1 judgment records in its Slack channels (a1/S3): its
   // workspace's managers and its admins, private channels' included.
   "judgment.read",
@@ -457,6 +461,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "task.spawn": new Set(["conversation"]),
   "usage.installation_read": new Set(["workspace"]),
   "usage.agent_read": new Set(["agent"]),
+  "usage.people_read": new Set(["workspace", "agent"]),
   "judgment.read": new Set(["agent"]),
   "installation.settings.manage": new Set(["workspace"]),
   "achievement_rule.manage": new Set(["workspace"]),
