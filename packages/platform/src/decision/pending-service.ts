@@ -44,22 +44,44 @@ export function createPendingRequestService(deps: {
       if (items === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      const answer = await authorization
-        .authorize(
-          {
-            subject: actor.subject,
-            action: "session.approve",
-            resource: {
-              kind: "session",
-              id: sessionId,
-              owner_scope: actor.ownerId,
+      const mayAnswer = (pendingRequestId?: string) =>
+        authorization
+          .authorize(
+            {
+              subject: actor.subject,
+              action: "session.approve",
+              resource: {
+                kind: "session",
+                id: sessionId,
+                owner_scope: actor.ownerId,
+                ...(pendingRequestId === undefined
+                  ? {}
+                  : { pending_request_id: pendingRequestId }),
+              },
+              request_id: actor.requestId,
             },
-            request_id: actor.requestId,
-          },
-          { record: false },
-        )
-        .catch(() => null);
-      return { items, answerable: answer?.outcome === "allow" };
+            { record: false },
+          )
+          .then(
+            (answer) => answer.outcome === "allow",
+            () => false,
+          );
+      const answerable = await mayAnswer();
+      // Judged per request as its answer and its Slack card are: a private
+      // channel's member may answer one whose requester left. Naming the
+      // request only ever lifts a refusal, so an allow above covers them all.
+      const each = answerable
+        ? items.map(() => true)
+        : await Promise.all(
+            items.map((request) => mayAnswer(request.request_id)),
+          );
+      return {
+        items: items.map((request, index) => ({
+          ...request,
+          answerable: each[index] === true,
+        })),
+        answerable,
+      };
     },
 
     async outcome(

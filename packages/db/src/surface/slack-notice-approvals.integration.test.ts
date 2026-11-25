@@ -566,10 +566,10 @@ integration("Slack notice approvals on PostgreSQL", () => {
         [],
       ),
     ).toEqual({ outcome: "no_notice" });
-    // The published list is empty until the first notice is written.
+    // The published list has a notice, which this agent has not approved.
     expect(await judgeSlackNotice(db, place)).toEqual({
       approved: false,
-      reason: "no_notice",
+      reason: "not_approved",
     });
     expect(await listSlackNoticeApprovals(db, { agentId })).toEqual([]);
   });

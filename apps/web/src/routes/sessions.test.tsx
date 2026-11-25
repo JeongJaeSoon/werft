@@ -2998,6 +2998,43 @@ describe("session runtime", () => {
         .hasAttribute("disabled"),
     ).toBe(false);
   });
+
+  test("a member answers the request whose requester left a private channel, and only that one (94S-2219)", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          answerable: false,
+          items: [
+            {
+              ...pending.items[0],
+              request_id: "req_left",
+              expires_at: LATER,
+              answerable: true,
+            },
+            {
+              ...pending.items[0],
+              request_id: "req_kept",
+              expires_at: LATER,
+              answerable: false,
+            },
+          ],
+        }),
+    });
+    await screen.findAllByRole("button", { name: "승인" });
+    const disabled = (name: string) =>
+      screen
+        .getAllByRole("button", { name })
+        .map((button) => button.hasAttribute("disabled"));
+    expect(disabled("승인")).toEqual([false, true]);
+    expect(disabled("거부")).toEqual([false, true]);
+    // Said at the request it holds for, not over the list.
+    expect(
+      screen.getAllByText(
+        "이 세션을 시작한 사람, 에이전트 관리자, 워크스페이스 오너·어드민만 답할 수 있습니다.",
+      ),
+    ).toHaveLength(1);
+  });
 });
 
 describe("세션 상세 레이아웃", () => {

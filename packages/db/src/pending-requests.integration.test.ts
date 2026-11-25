@@ -308,6 +308,7 @@ integration("pending requests and answers on PostgreSQL", () => {
         target: "ls -la",
         excerpt: null,
       },
+      answerable: true,
     });
     expect(byId.get(asked.requestId)).toMatchObject({
       kind: "question",

@@ -334,21 +334,35 @@ export function PendingAnswers({
       })
     | null
   >(null);
+  const notAnswerer = t("session.answer.notAnswerer");
+  // A request can be the reader's to answer when the session's others are
+  // not: a private channel's member takes one whose requester left.
+  const reasonFor = (request: PendingRequest) =>
+    unavailable?.answer ??
+    ((request.answerable ?? answerable) ? undefined : notAnswerer);
+  // Said once above the list when it holds for every request.
   const reason =
     unavailable?.answer ??
-    (answerable ? undefined : t("session.answer.notAnswerer"));
+    (items.length === 0
+      ? answerable
+        ? undefined
+        : notAnswerer
+      : items.every((request) => reasonFor(request) !== undefined)
+        ? notAnswerer
+        : undefined);
   // A list line has no room above it; why the reader may not answer joins
   // the line instead.
   const metaFor = (request: PendingRequest) => {
     const lead = meta?.(request);
-    if (reason === undefined) return lead;
+    const why = reasonFor(request);
+    if (why === undefined) return lead;
     return lead === undefined ? (
-      reason
+      why
     ) : (
       <>
         {lead}
         <span aria-hidden="true"> · </span>
-        {reason}
+        {why}
       </>
     );
   };
@@ -443,7 +457,7 @@ export function PendingAnswers({
       request={request}
       locale={locale}
       pending={busyId === request.request_id}
-      disabled={reason !== undefined || busyId !== undefined}
+      disabled={reasonFor(request) !== undefined || busyId !== undefined}
       error={errorFor(request)}
       messages={{
         title: t("session.pending.question"),
@@ -501,6 +515,13 @@ export function PendingAnswers({
         >
           {items.map((request) => (
             <li key={request.request_id}>
+              {reason !== undefined ||
+              summary ||
+              reasonFor(request) === undefined ? null : (
+                <p className="m-0 mb-2 text-muted-foreground text-body">
+                  {notAnswerer}
+                </p>
+              )}
               {request.kind === "permission" ? (
                 <Approval
                   request={request}
@@ -510,7 +531,9 @@ export function PendingAnswers({
                     : undefined)}
                   locale={locale}
                   pending={busyId === request.request_id}
-                  disabled={reason !== undefined || busyId !== undefined}
+                  disabled={
+                    reasonFor(request) !== undefined || busyId !== undefined
+                  }
                   error={errorFor(request)}
                   messages={{
                     title: (tool) => t("session.pending.permission", { tool }),

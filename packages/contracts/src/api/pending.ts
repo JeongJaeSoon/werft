@@ -40,6 +40,11 @@ const pendingRequestBase = {
     description:
       "The turn the request was asked in, as `turn_id`: a parked turn resumes once every request of its group is answered or expired, and they expire together.",
   }),
+  // Absent from a server older than it: read the list's `answerable`.
+  answerable: z.boolean().optional().meta({
+    description:
+      "Whether this caller may answer this request: as the list's `answerable`, and also a private channel's member with sessions:approve once the requester left the channel. A hint; the answer is judged again.",
+  }),
 };
 // presentPendingRequest's result: message keys, not text; each surface words them.
 export const toolRequestPresentationSchema = z.object({
@@ -72,7 +77,7 @@ export const listPendingRequestsResponseSchema = z.object({
   items: z.array(pendingRequestSchema),
   answerable: z.boolean().meta({
     description:
-      "Whether this caller may answer the session's requests: its creator, its agent's admins and the workspace's owners and admins may; someone who only sees it through its share may not (POST /answers is then 403). A hint for what to offer; the answer is judged again.",
+      "Whether this caller may answer the session's requests: its creator, its agent's admins and the workspace's owners and admins may; someone who only sees it through its share may not (POST /answers is then 403). Each item's `answerable` can say yes where this says no. A hint for what to offer; the answer is judged again.",
   }),
 });
 
