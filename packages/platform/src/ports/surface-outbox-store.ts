@@ -1,5 +1,6 @@
 import type {
   AdmissionState,
+  BudgetOwnerKind,
   ConversationInputId,
   ConversationKind,
   PendingQuestion,
@@ -182,6 +183,15 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
   terminalReason?: string | null;
   /** The session is paused: a resume that found no room went back to it. */
   sessionPaused?: boolean;
+  /**
+   * A failed turn a budget account refused (recordBudgetAccountRefusal):
+   * its notice says so in place of "try again". `first`: the session's first
+   * refusal while the limit holds (no told refusal on an earlier turn since
+   * the last completed one, in the same UTC month), told in the thread; a
+   * later one goes only to the person who asked, except in a direct message.
+   * Null or absent otherwise.
+   */
+  budgetRefusal?: { owner: BudgetOwnerKind; first: boolean } | null;
   /**
    * The final attempt's top-level assistant and tool_use event payloads,
    * in order; empty unless the turn completed.

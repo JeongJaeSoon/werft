@@ -33,6 +33,7 @@ function post(body: string, ts: string) {
     ts,
     body,
     receivedAt: new Date("2026-11-25T00:00:00Z"),
+    editMark: null,
     sources: [{ inputId, slack: { teamId: "T1", channelId: "C1", ts } }],
   };
 }
@@ -156,6 +157,25 @@ describe("the request", () => {
     expect(run?.system).not.toContain(p.body);
     expect(run?.messages).toHaveLength(1);
     expect(run?.messages[0]?.content).toContain(`| [now] ${p.body}`);
+  });
+
+  test("the judgment again after a void has a call key of its own, its attempts from 1", async () => {
+    const subject = subjectOf(post("a", "1.1"));
+    const { judge, runs } = judgeWith([
+      { outcome: "timed_out", callId: callId(), retryable: true },
+      {
+        outcome: "answered",
+        callId: callId(),
+        value: { decision: "quiet", reason: "unclear" },
+      },
+    ]);
+    const { record } = await judge.judge(subject, { rejudge: true });
+    expect(runs.map((run) => [String(run.callKey), run.attempt])).toEqual([
+      [`${subject.key}-rejudge:m1`, 1],
+      [`${subject.key}-rejudge:m1`, 2],
+    ]);
+    expect(String(record?.callKey)).toBe(`${subject.key}-rejudge:m1`);
+    expect(record?.attempts).toBe(2);
   });
 });
 

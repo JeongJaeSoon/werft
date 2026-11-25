@@ -36,6 +36,8 @@ export type JudgmentBatchInput = {
   slackUserId: string;
   body: string;
   receivedAt: Date;
+  /** Its edit mark as the close read it (marked_at); null for none. */
+  editMark: string | null;
 };
 
 export type JudgmentBatch = {
@@ -49,6 +51,12 @@ export type JudgmentBatch = {
   releaseId: string;
   /** Oldest first. */
   inputs: JudgmentBatchInput[];
+  /**
+   * The database's time once the channel's marks in progress at the close
+   * were done: a context message marked since is one the judgment may not
+   * have read (a1/J6). The close's time when not given.
+   */
+  readAt?: string;
 };
 
 export type ClosedJudgmentBatch =
