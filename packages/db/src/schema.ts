@@ -156,6 +156,11 @@ import {
   SURFACE_MEMBERSHIP_STATE_VALUES,
   type SurfaceKind,
   type SurfaceMembershipState,
+  TASK_CLOSED_REASONS,
+  type TaskClosedReason,
+  type TaskClosing,
+  type TaskInterpretation,
+  type TaskRequest,
   TEAM_MEMBER_ROLE_VALUES,
   TOOL_AUDIT_DECISION_VALUES,
   TOOL_AUDIT_PHASE_VALUES,
@@ -1880,6 +1885,17 @@ export const sessions = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    // A task session's fields (sessions/task-fields.ts), null on every other
+    // session and on rows from before them. The request and the closing
+    // rules are the server's, written once when the task opens; the
+    // interpretation is the model's. The closed reason is set when the task
+    // closes, which is only ever a closing or closed session (decision 35).
+    taskRequest: jsonb("task_request").$type<TaskRequest>(),
+    taskInterpretation: jsonb(
+      "task_interpretation",
+    ).$type<TaskInterpretation>(),
+    taskClosing: jsonb("task_closing").$type<TaskClosing>(),
+    taskClosedReason: text("task_closed_reason").$type<TaskClosedReason>(),
   },
   (table) => [
     check(
@@ -1910,6 +1926,10 @@ export const sessions = pgTable(
     check(
       "sessions_execution_revoked_check",
       sql`(${table.executionRevokedAt} IS NULL) = (${table.executionRevokedReason} IS NULL)`,
+    ),
+    check(
+      "sessions_task_closed_reason_check",
+      sql`${table.taskClosedReason} IS NULL OR (${table.taskClosedReason} IN (${sqlLiterals(TASK_CLOSED_REASONS)}) AND ${table.admissionState} IN ('closing', 'closed'))`,
     ),
     check(
       "sessions_repository_mode_check",
