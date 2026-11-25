@@ -16,8 +16,9 @@ import {
   type SlackBotSender,
   type SlackSendResponse,
 } from "./slack-config-api.ts";
-import { slackInboundBackoffMs } from "./slack-inbox.ts";
+import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
 import {
+  guardSlackOutboxBody,
   sessionUrl,
   slackInstructionFallbackText,
   slackOutboxPresentation,
@@ -98,6 +99,8 @@ export type RowDeliveryDeps = {
   /** Null when the app has no readable token: the row waits, unsent. */
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   consoleOrigin: string | null;
+  /** Told of the Slack references a row's text lost to its scope. */
+  logger?: Pick<SlackInboxLogger, "warn">;
 };
 
 /** The row settle each outcome stands for, and back: one to one. */
@@ -198,7 +201,11 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
   const deliver = async (
     input: DeliveryInput<SurfaceOutboxClaim>,
   ): Promise<DeliveryOutcome> => {
-    const { row: claim, attempts } = input;
+    const { row, attempts } = input;
+    // The one place a row's text is guarded: every way it goes out below
+    // draws from this body.
+    const guarded = guardSlackOutboxBody(row);
+    const claim = { ...row, body: guarded.body };
     // Before the token and any Slack call: such a row never goes out.
     if (slackOutboxChannelRefused(claim.kind, claim.channelId)) {
       return { kind: "failed", code: SLACK_USER_CHANNEL_CODE };
@@ -227,6 +234,18 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     }
     const iconUrl = await senderImage(botToken, claim);
     if (!(await input.begin())) return { kind: "lease_lost" };
+    if (guarded.dropped.length > 0) {
+      deps.logger?.warn(
+        "Slack send dropped references outside its conversation",
+        {
+          id: claim.id,
+          kind: claim.kind,
+          channel_id: claim.channelId,
+          session_id: claim.sessionId,
+          dropped: guarded.dropped,
+        },
+      );
+    }
 
     // A card's text is its own, escaped and linked already.
     // A model notice is a direct message with no thread: it opens the

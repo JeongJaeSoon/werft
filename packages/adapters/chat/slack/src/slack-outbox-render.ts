@@ -5,7 +5,11 @@ import type {
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
-import { escapeSlackControls, isSafeLink } from "./slack-presentation.ts";
+import {
+  escapeSlackControls,
+  isSafeLink,
+  mapCodeAndText,
+} from "./slack-presentation.ts";
 
 /** chat.postMessage truncates `text` past this many characters. */
 export const SLACK_TEXT_MAX = 40_000;
@@ -192,6 +196,157 @@ export function slackOutboxPresentation(
   return blocks === null
     ? { kind: "text" }
     : { kind: "blocks", blocks, fallback: true };
+}
+
+// Group notifications as Slack controls, and the bare words an app could
+// have Slack turn into them. The agent never calls a whole channel or group.
+const GROUP_CONTROL =
+  /(^|[ \t]+)?(?:<!(?:here|channel|everyone)(?:\|[^<>\n]*)?>|<!subteam\^[^<>\n]*>)([ \t]+)?/gim;
+const GROUP_WORD =
+  /(^|[ \t]+)?(?<![\w@.])@(?:here|channel|everyone)\b([ \t]+)?/gim;
+
+// One space stays where the mention stood between two words.
+const dropSpaced = (_: string, before?: string, after?: string) =>
+  before && after ? " " : "";
+
+/**
+ * The text without group mentions (G7), outside code: code shows them as
+ * written and escaped, so they notify no one there.
+ */
+export function stripSlackGroupMentions(text: string): string {
+  return mapCodeAndText(
+    text,
+    (part) =>
+      part.replace(GROUP_CONTROL, dropSpaced).replace(GROUP_WORD, dropSpaced),
+    (code) => code,
+  );
+}
+
+/** The one channel, in its team, a row's text may link to or name. */
+export type SlackOutboxScope = { teamId: string; channelId: string };
+
+/**
+ * The parent conversation's channel; a DM's is the row's own DM channel. A
+ * row with no conversation, or one sent outside it, has none.
+ */
+export function slackOutboxScope(
+  claim: Pick<SurfaceOutboxClaim, "channelId" | "conversationScope">,
+): SlackOutboxScope | null {
+  const scope = claim.conversationScope;
+  if (scope == null) return null;
+  const channelId =
+    scope.kind === "channel"
+      ? scope.channelId
+      : claim.channelId.startsWith("D")
+        ? claim.channelId
+        : null;
+  return channelId === null ? null : { teamId: scope.teamId, channelId };
+}
+
+function isSlackUrl(url: URL): boolean {
+  return (
+    url.protocol === "slack:" ||
+    url.hostname === "slack.com" ||
+    url.hostname.endsWith(".slack.com")
+  );
+}
+
+/**
+ * The channel and team ids a Slack URL names in its path or query
+ * (`/archives/C…`, `/client/T…/C…`, `?team=T…&id=C…`); empty for any other URL.
+ */
+function slackUrlRefs(raw: string): { channels: string[]; teams: string[] } {
+  const refs = { channels: [] as string[], teams: [] as string[] };
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return refs;
+  }
+  if (!isSlackUrl(url)) return refs;
+  const values = [...url.pathname.split("/"), ...url.searchParams.values()];
+  for (const value of values) {
+    if (/^[CGD][A-Z0-9]+$/.test(value)) refs.channels.push(value);
+    else if (/^[TE][A-Z0-9]+$/.test(value)) refs.teams.push(value);
+  }
+  return refs;
+}
+
+// A Markdown link, a Slack control, a bare URL, or a bare channel id shaped
+// as Slack makes them (a digit among 8 to 11 more capitals and digits).
+const SLACK_REFERENCE =
+  /\[[^\]\n]*\]\(\s*<?([^()\s<>]+)>?\s*\)|<([^<>\n]+)>|((?:https?|slack):\/\/[^\s<>()[\]|"'`]+)|\b([CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11})\b/g;
+
+/**
+ * The text without the Slack links and channel ids outside its scope (A3),
+ * and the ids that were outside. A stopgap only: a leak written out in words
+ * passes; the scope's isolation is what keeps a conversation's own.
+ */
+export function dropOutOfScopeSlackRefs(
+  text: string,
+  scope: SlackOutboxScope | null,
+): { text: string; dropped: string[] } {
+  const dropped: string[] = [];
+  const outside = (channels: string[], teams: string[]) => {
+    const out = [
+      ...channels.filter((id) => id !== scope?.channelId),
+      ...teams.filter((id) => id !== scope?.teamId),
+    ];
+    dropped.push(...out);
+    return out.length > 0;
+  };
+  const outsideUrl = (url: string) => {
+    const { channels, teams } = slackUrlRefs(url);
+    return outside(channels, teams);
+  };
+  const kept = text.replace(
+    SLACK_REFERENCE,
+    (
+      whole,
+      markdownUrl?: string,
+      control?: string,
+      bare?: string,
+      id?: string,
+    ) => {
+      if (markdownUrl !== undefined)
+        return outsideUrl(markdownUrl) ? "" : whole;
+      if (control !== undefined) {
+        const target = control.split("|", 1)[0] ?? "";
+        if (target.startsWith("#")) {
+          return outside([target.slice(1)], []) ? "" : whole;
+        }
+        return outsideUrl(target) ? "" : whole;
+      }
+      if (bare !== undefined) {
+        // A sentence's full stop is not the URL's.
+        const url = bare.replace(/[.,;:!?]+$/, "");
+        return outsideUrl(url) ? bare.slice(url.length) : whole;
+      }
+      return id !== undefined && outside([id], []) ? "" : whole;
+    },
+  );
+  return { text: kept, dropped };
+}
+
+/**
+ * The body as it may go out: no group mention, and, past a person's own
+ * words (an instruction or its mirror), no Slack reference outside the row's
+ * conversation. A card's blocks and text are its own, escaped already.
+ */
+export function guardSlackOutboxBody(
+  claim: Pick<
+    SurfaceOutboxClaim,
+    "kind" | "body" | "channelId" | "conversationScope"
+  >,
+): { body: SurfaceOutboxEntry["body"]; dropped: string[] } {
+  const { body } = claim;
+  if (body.blocks !== undefined) return { body, dropped: [] };
+  const text = stripSlackGroupMentions(body.text);
+  if (claim.kind === "instruction" || claim.kind === "input_mirror") {
+    return { body: { ...body, text }, dropped: [] };
+  }
+  const scoped = dropOutOfScopeSlackRefs(text, slackOutboxScope(claim));
+  return { body: { ...body, text: scoped.text }, dropped: scoped.dropped };
 }
 
 export function slackInstructionFallbackText(
