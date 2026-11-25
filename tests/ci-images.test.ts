@@ -133,7 +133,9 @@ describe("images.yml", () => {
     const common =
       `BUN_IMAGE=${expression("env.BUN_IMAGE")}\n` +
       `BUILDKIT_SYNTAX=${expression("env.DOCKERFILE_FRONTEND_IMAGE")}\n` +
-      `APT_UPGRADE_KEY=${expression("steps.meta.outputs.apt-upgrade-key")}\n`;
+      `APT_UPGRADE_KEY=${expression("steps.meta.outputs.apt-upgrade-key")}\n` +
+      // The version the built-in MCP server reports and links its docs at.
+      `WERFT_VERSION=${expression("github.ref_type == 'tag' && github.ref_name || github.sha")}\n`;
     // Every job's matrix has the Codex worker image; its leg picks the engine
     // with the extra argument, which is empty on every other leg.
     const codex = `${expression("matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || ''")}\n`;
