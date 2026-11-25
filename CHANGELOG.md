@@ -15,14 +15,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **"이 세션 동안 허용"이 그 허용을 준 사람의 권한에 묶인다. 세션 허용은 control-host와 worker 이미지를 둘 다 이 버전으로 올려야 동작한다**(PR_SELF). migration `0362_pending_session_allow_subject`가 `pending_requests`에 칸 `session_allow_subject` 하나를 더한다.
+- **"이 세션 동안 허용"이 그 허용을 준 사람의 권한에 묶인다. 세션 허용은 control-host와 worker 이미지를 둘 다 이 버전으로 올려야 동작한다**(JeongJaeSoon/werft#2208). migration `0362_pending_session_allow_subject`가 `pending_requests`에 칸 `session_allow_subject` 하나를 더한다.
   - 규칙에 맞는 호출마다 worker가 control-host에 묻고(`/internal/worker/session-allow`), 허용을 준 사람이 지금도 `session.approve`를 통과하는지(비공개 채널 세션이면 지금 채널 멤버인지) 다시 판정한다. 통과하지 못하면 그 호출부터 카드가 다시 뜬다. 다시 판정한 결정은 결정 기록에 그 tool call id로 남는다.
   - 엔진이 그 호출에 같은 규칙을 제안할 때만 허용으로 친다. 다른 규칙을 제안하는 호출, 올리기 전에 준 세션 허용, 세션이 다른 worker에서 이어진 뒤의 호출은 다시 묻는다.
   - 이 버전보다 오래된 worker 이미지에는 답과 재개 grant에서 `remember`를 빼고 보낸다. 그 이미지에서 "이 세션 동안 허용"은 그 호출 한 번만 허용한다. 올리기 전에 오래된 worker의 엔진에 이미 들어간 규칙은 그 worker가 끝날 때까지 남는다.
   - control-host만 v0.5.0으로 되돌리면 새 worker는 묻는 경로가 없어 규칙에 맞는 호출마다 카드를 다시 띄운다. 칸은 남아도 v0.5.0은 읽지 않는다.
 - **비공개 채널에서 요청자가 나간 도구 권한·질문 카드도 지금 채널 멤버가 답한다**(JeongJaeSoon/werft#2197). migration은 없고 따로 할 일도 없다.
   - 그 요청을 낸 턴의 사람(사람이 없으면 세션을 맡은 사람)이 세션의 비공개 채널을 모두 나가면, 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버가 답할 수 있다. 답한 사람은 `pending_requests.answered_by`에 남는다. 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 공개 채널은 그대로다.
-  - 요청자가 나간 뒤의 도구 권한 카드에서도 "이 세션 동안 허용"을 쓸 수 있고, 그 허용은 누른 멤버에게 묶인다(아래 PR_SELF).
+  - 요청자가 나간 뒤의 도구 권한 카드에서도 "이 세션 동안 허용"을 쓸 수 있고, 그 허용은 누른 멤버에게 묶인다(아래 JeongJaeSoon/werft#2208).
   - 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Pending request's requester channel membership unconfirmed`(event `pending.requester_left.unconfirmed`)를 남긴다. push 카드의 로그는 그대로다.
   - v0.5.0으로 되돌리면 이미 붙은 표시는 그 카드가 다음에 다시 그려질 때(답·만료 등) 사라지고, 그동안 멤버가 누르면 v0.5.0 규칙대로 거절된다.
 - **쓰지 않는 표 `agent_engine_settings`·`workspace_engine_settings`를 행째 지운다**(JeongJaeSoon/werft#2182). migration `0357_drop_engine_settings`가 지운다. 두 표에는 워크스페이스·에이전트의 실행 규칙이 들어 있었고, `v0.4.0`부터 어느 릴리스도 읽거나 쓰지 않았다. 마지막으로 읽은 릴리스는 `v0.3.0`이므로 지원 창 안의 이미지는 영향이 없다. 다만 `v0.3.0` 이하에서 저장한 규칙의 행이 남아 있을 수 있다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0357: dropped rows: …`). 그 행이 필요하면 올리기 전에 백업한다. 0357 아래로 스키마를 내려도 행은 돌아오지 않는다([업그레이드 문서](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose/#엔진-설정-표-둘을-지운-릴리스)).
