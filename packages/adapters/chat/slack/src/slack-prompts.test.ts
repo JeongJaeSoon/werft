@@ -19,6 +19,7 @@ import {
   slackPromptMessage,
   slackQuestionAnswers,
   slackRejectOnlyCard,
+  slackRequesterLeftCard,
   slackSettledCard,
 } from "./slack-prompts.ts";
 
@@ -1192,5 +1193,76 @@ describe("slackDoneCard", () => {
         },
       ],
     });
+  });
+});
+
+// Q5 (94S-2175): a member takes over a tool permission or question card
+// whose requester left the private channel.
+describe("a prompt card whose requester left", () => {
+  const ids = (blocks: unknown[]) =>
+    (blocks as { type: string; elements?: { action_id?: string }[] }[])
+      .filter((block) => block.type === "actions")
+      .flatMap((block) => block.elements ?? [])
+      .map((element) => element.action_id);
+  const texts = (blocks: unknown[]) =>
+    (blocks as { elements?: { text?: unknown }[] }[])
+      .flatMap((block) => block.elements ?? [])
+      .map((element) => element.text)
+      .filter((text): text is string => typeof text === "string");
+
+  test("a tool permission card says so and loses its session button and rules line, in every language (94S-2215)", () => {
+    for (const locale of USER_LOCALE_VALUES) {
+      const copy = SLACK_PROMPT_MESSAGES[locale];
+      const card = slackPromptMessage(
+        permission(
+          { command: "git status" },
+          { rememberOffer: [{ toolName: "Bash", ruleContent: "git status" }] },
+        ),
+        { locale, requesterSlackUserId: null },
+      );
+      // The requester's own card keeps them.
+      expect(ids(card.blocks)).toContain(
+        SLACK_INTERACTION_ACTIONS.permissionAllowSession,
+      );
+      expect(
+        texts(card.blocks).some((text) =>
+          text.startsWith(`${copy.allowSession}: `),
+        ),
+      ).toBe(true);
+      const left = slackRequesterLeftCard(card, locale);
+      expect(ids(left.blocks)).toEqual([
+        SLACK_INTERACTION_ACTIONS.permissionAllow,
+        SLACK_INTERACTION_ACTIONS.permissionAllowNote,
+        SLACK_INTERACTION_ACTIONS.permissionDeny,
+      ]);
+      expect(
+        texts(left.blocks).some((text) =>
+          text.startsWith(`${copy.allowSession}: `),
+        ),
+      ).toBe(false);
+      expect(texts(left.blocks)).toContain(
+        `:information_source: ${copy.pushRequesterLeft}`,
+      );
+      expect(left.text).toContain(copy.pushRequesterLeft);
+    }
+  });
+
+  test("a question card keeps its buttons and gains the line above them", () => {
+    const card = slackPromptMessage(
+      {
+        kind: "question",
+        sessionId: SESSION,
+        requestId: "r-1",
+        questions: [question(2)],
+        expiresAt: "2026-11-03T00:00:00Z",
+      },
+      { locale: "ko", requesterSlackUserId: null },
+    );
+    const left = slackRequesterLeftCard(card, "ko");
+    expect(ids(left.blocks)).toEqual(ids(card.blocks));
+    expect(left.blocks).toHaveLength(card.blocks.length + 1);
+    expect(texts(left.blocks)).toContain(
+      ":information_source: 요청자가 채널을 나갔어요",
+    );
   });
 });

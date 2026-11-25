@@ -4,11 +4,16 @@ import {
   type AuthorizationReason,
   type AuthorizationResource,
   authorizationDecisionSchema,
+  DEFAULT_SURFACE_CEILING,
+  INSTALLATION_SESSION_SCOPE_VALUES,
+  type PostSessionAnswerRequest,
   type Principal,
   SESSION_SCOPE_VALUES,
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import { createPendingRequestService } from "../decision/pending-service.ts";
+import type { AnswerRequestInput } from "../sessions/ports/pending-requests.ts";
 import type { PrivateChannelPlace } from "../sessions/ports/session-share-store.ts";
 import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
 import {
@@ -332,18 +337,22 @@ describe("approving after the requester left the private channel", () => {
   // Answer 15, second part: who decides a push whose requester (the person
   // of the turn that asked for it) is no longer in the private channel.
   const PUSH = "019a0000-0000-7000-8000-00000000d0a1";
+  // Q5 (94S-2175): a tool permission or question card the session waits on.
+  const PENDING = "toolu_pending_1";
   const B = "019a0000-0000-7000-8000-0000000000c7";
 
   function policyWith(options: {
     pushRequester?: string | null;
+    pendingRequester?: string | null;
     inChannel?: (userId: string) => "member" | "not_member" | "unconfirmed";
     warned?: string[];
+    identity?: IdentityReader;
   }) {
     const answer =
       options.inChannel ??
       ((userId: string) => (inChannel(userId) ? "member" : "not_member"));
     return createAuthorizationPolicy({
-      identity: plain,
+      identity: options.identity ?? plain,
       agents,
       sessions: {
         ...sessionsSeen(),
@@ -352,6 +361,13 @@ describe("approving after the requester left the private channel", () => {
             ? options.pushRequester === undefined
               ? USERS.requester
               : options.pushRequester
+            : null;
+        },
+        async pendingRequesterOf(_ownerId, sessionId, requestId) {
+          return sessionId === PRIVATE_SESSION && requestId === PENDING
+            ? options.pendingRequester === undefined
+              ? USERS.requester
+              : options.pendingRequester
             : null;
         },
       },
@@ -376,10 +392,23 @@ describe("approving after the requester left the private channel", () => {
     options: Parameters<typeof policyWith>[0] & {
       sessionId?: string;
       push?: string | null;
+      pending?: string;
     } = {},
   ): Promise<AuthorizationReason> {
-    const push = options.push === undefined ? PUSH : options.push;
-    const decision = await policyWith(options).authorize({
+    return (await decision(who, options)).reason_code;
+  }
+
+  async function decision(
+    who: Caller,
+    options: Parameters<typeof decide>[1] = {},
+  ) {
+    const push =
+      options.pending !== undefined
+        ? null
+        : options.push === undefined
+          ? PUSH
+          : options.push;
+    const decided = await policyWith(options).authorize({
       subject: who.subject,
       action: "session.approve",
       resource: {
@@ -387,10 +416,13 @@ describe("approving after the requester left the private channel", () => {
         id: options.sessionId ?? PRIVATE_SESSION,
         owner_scope: WORKSPACE,
         ...(push === null ? {} : { push_request_id: push }),
+        ...(options.pending === undefined
+          ? {}
+          : { pending_request_id: options.pending }),
       },
       request_id: who.requestId,
     });
-    return authorizationDecisionSchema.parse(decision).reason_code;
+    return authorizationDecisionSchema.parse(decided);
   }
 
   test("before 94S-2000 a member who did not start the session got role; now a member decides the push of a requester who left", async () => {
@@ -449,7 +481,7 @@ describe("approving after the requester left the private channel", () => {
     expect(warned).toEqual(["Push requester's channel membership unconfirmed"]);
   });
 
-  test("only a push decision: a permission or question answer keeps its rule", async () => {
+  test("a press that names no request keeps its rule", async () => {
     expect(await decide(person("member"), { push: null })).toBe("role");
   });
 
@@ -516,5 +548,245 @@ describe("approving after the requester left the private channel", () => {
     expect(await decide(person("member"), { pushRequester: null })).toBe(
       "role",
     );
+  });
+
+  // Q5 (94S-2175): tool permission and question cards follow the same rule.
+  test("before 94S-2175 a member got role on a tool permission or question; now a member answers one whose requester left", async () => {
+    // Before: the press named no request, as it still may.
+    expect(await decide(person("member"), { push: null })).toBe("role");
+    const answered = await decision(person("member"), { pending: PENDING });
+    expect(answered.reason_code).toBe("ok");
+    // The store under its locks takes the member only on this mark.
+    expect(answered.requester_left).toBe(true);
+  });
+
+  test("a tool permission or question: the requester who left and a non-member do not see it, a member without sessions:approve is refused", async () => {
+    expect(await decide(person("requester"), { pending: PENDING })).toBe(
+      "not_found",
+    );
+    expect(await decide(person("nonmember"), { pending: PENDING })).toBe(
+      "not_found",
+    );
+    const noApprove = callerFor(
+      {
+        kind: "user",
+        id: USERS.member,
+        workspace_id: WORKSPACE,
+        role: "member",
+        scopes: ["sessions:read", "sessions:write"],
+      },
+      { kind: "web" },
+      "r",
+    );
+    expect(await decide(noApprove, { pending: PENDING })).toBe("role");
+  });
+
+  test("a tool permission or question keeps its rule while the requester is in the channel, when no one can tell, or on a public channel", async () => {
+    const stays = (userId: string) =>
+      userId === USERS.member || userId === USERS.requester
+        ? ("member" as const)
+        : ("not_member" as const);
+    expect(
+      await decide(person("member"), { pending: PENDING, inChannel: stays }),
+    ).toBe("role");
+    // The requester still in the channel answers as before, with no mark.
+    const own = await decision(person("requester"), {
+      pending: PENDING,
+      inChannel: stays,
+    });
+    expect(own.reason_code).toBe("ok");
+    expect(own.requester_left).toBeUndefined();
+    const warned: string[] = [];
+    expect(
+      await decide(person("member"), {
+        pending: PENDING,
+        inChannel: (userId) =>
+          userId === USERS.member ? "member" : "unconfirmed",
+        warned,
+      }),
+    ).toBe("role");
+    expect(warned).toEqual([
+      "Pending request's requester channel membership unconfirmed",
+    ]);
+    expect(
+      await decide(person("member"), {
+        pending: PENDING,
+        sessionId: PUBLIC_SESSION,
+      }),
+    ).toBe("role");
+    // No person behind the request, or a request not the session's.
+    expect(
+      await decide(person("member"), {
+        pending: PENDING,
+        pendingRequester: null,
+      }),
+    ).toBe("role");
+    expect(await decide(person("member"), { pending: "toolu_other" })).toBe(
+      "role",
+    );
+  });
+
+  describe("answering through the pending request service", () => {
+    function answering(identity?: IdentityReader) {
+      const stored: AnswerRequestInput[] = [];
+      const service = createPendingRequestService({
+        authorization: policyWith(identity === undefined ? {} : { identity }),
+        store: {
+          async listOpen() {
+            return [];
+          },
+          async answerAtomic(input) {
+            stored.push(input);
+            return {
+              outcome: "accepted",
+              response: { receipt_id: RECEIPT, receipt_status: "accepted" },
+            };
+          },
+          async recordSelfApproval() {
+            throw new Error("never reached");
+          },
+          async requestOutcome() {
+            throw new Error("never reached");
+          },
+        },
+      });
+      return { service, stored };
+    }
+    const RECEIPT = "019a0000-0000-7000-8000-00000000b0a1";
+
+    test("a member's answer reaches the store marked, with its decision", async () => {
+      const { service, stored } = answering();
+      const member = person("member");
+      const bodies: PostSessionAnswerRequest[] = [
+        { request_id: PENDING, kind: "permission", decision: "allow" },
+        {
+          request_id: PENDING,
+          kind: "question",
+          answers: [{ question_id: "q1", selected_option_ids: ["o1"] }],
+        },
+      ];
+      for (const body of bodies) {
+        await service.answer(member, PRIVATE_SESSION, {
+          idempotencyKey: `k-${body.kind}`,
+          body,
+        });
+      }
+      expect(stored.map((input) => input.requesterLeft)).toEqual([true, true]);
+    });
+
+    test("Codex round 1: an admin in the channel, who answers anyway, cannot allow for the session after the requester left either", async () => {
+      const { service, stored } = answering();
+      const adminUser: Principal = {
+        kind: "user",
+        id: USERS.member,
+        workspace_id: WORKSPACE,
+        role: "admin",
+        scopes: [...scopesForRole("admin")],
+      };
+      const admin = callerFor(adminUser, { kind: "web" }, "r");
+      const body = {
+        request_id: PENDING,
+        kind: "permission",
+        decision: "allow",
+        remember: "session",
+      } as const;
+      // A card drawn before the requester left still offers the session
+      // allow in Slack; pressing it is refused the same way.
+      // The app's installation answers for the person the press names.
+      const slackAdmin: Caller = {
+        ownerId: WORKSPACE,
+        requestId: "r",
+        subject: {
+          principal: {
+            kind: "installation",
+            id: "019a0000-0000-7000-8000-0000000000d1",
+            owner_id: WORKSPACE,
+            workspace_id: WORKSPACE,
+            scopes: [...INSTALLATION_SESSION_SCOPE_VALUES],
+          },
+          actor_user_id: USERS.member,
+          surface: {
+            kind: "slack",
+            slack_user_kind: "member",
+            ceiling: DEFAULT_SURFACE_CEILING,
+            agent_id: AGENT,
+            channel_id: CHANNEL,
+          },
+        },
+      };
+      const asAdmin: IdentityReader = {
+        reread: async () => ({ status: "ok", principal: adminUser }),
+      };
+      const slack = answering(asAdmin);
+      for (const [caller, on] of [
+        [admin, service],
+        [slackAdmin, slack.service],
+      ] as const) {
+        const error = await on
+          .answer(caller, PRIVATE_SESSION, { idempotencyKey: "k", body })
+          .catch((caught: unknown) => caught);
+        expect(error).toMatchObject({ code: "FORBIDDEN" });
+      }
+      expect([...stored, ...slack.stored]).toEqual([]);
+      // The same Slack press without the session allow goes through, so the
+      // refusal above is the session allow's.
+      const plainSlack = answering(asAdmin);
+      await plainSlack.service.answer(slackAdmin, PRIVATE_SESSION, {
+        idempotencyKey: "k3",
+        body: { request_id: PENDING, kind: "permission", decision: "allow" },
+      });
+      expect(plainSlack.stored.map((input) => input.requesterLeft)).toEqual([
+        true,
+      ]);
+      // Before the requester left, the same answer goes through as before.
+      const before = createPendingRequestService({
+        authorization: policyWith({
+          inChannel: (userId) =>
+            userId === USERS.member || userId === USERS.requester
+              ? "member"
+              : "not_member",
+        }),
+        store: {
+          async listOpen() {
+            return [];
+          },
+          async answerAtomic(input) {
+            stored.push(input);
+            return {
+              outcome: "accepted",
+              response: { receipt_id: RECEIPT, receipt_status: "accepted" },
+            };
+          },
+          async recordSelfApproval() {
+            throw new Error("never reached");
+          },
+          async requestOutcome() {
+            throw new Error("never reached");
+          },
+        },
+      });
+      await before.answer(admin, PRIVATE_SESSION, {
+        idempotencyKey: "k2",
+        body,
+      });
+      expect(stored.map((input) => input.requesterLeft)).toEqual([undefined]);
+    });
+
+    test("a member answering for a requester who left cannot allow for the session (94S-2215)", async () => {
+      const { service, stored } = answering();
+      const error = await service
+        .answer(person("member"), PRIVATE_SESSION, {
+          idempotencyKey: "k",
+          body: {
+            request_id: PENDING,
+            kind: "permission",
+            decision: "allow",
+            remember: "session",
+          },
+        })
+        .catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ code: "FORBIDDEN" });
+      expect(stored).toEqual([]);
+    });
   });
 });

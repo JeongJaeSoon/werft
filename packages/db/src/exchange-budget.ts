@@ -1,21 +1,38 @@
 import {
+  BUDGET_ACCOUNT_REFUSED_EVENT_CODE,
+  BUDGET_OWNER_KIND_VALUES,
+  type BudgetOwnerKind,
+  SLACK_NOTICE_MESSAGES,
+} from "@werft-ai/contracts";
+import {
   type BudgetChoice,
   type BudgetRoot,
   budgetRootOfTurn,
   chooseBudgetAccount,
 } from "@werft-ai/platform";
-import { type AnyColumn, and, eq, type SQL, sql } from "drizzle-orm";
+import {
+  type AnyColumn,
+  and,
+  desc,
+  eq,
+  isNull,
+  type SQL,
+  sql,
+} from "drizzle-orm";
+import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
   agents,
   budgetAccounts,
   budgetReservations,
+  events,
   memberTeams,
   providerExchanges,
   sessions,
   turns,
 } from "./schema.ts";
+import { recordEvent } from "./sessions/session-events.ts";
 
 /**
  * The running turn a provider call of this attempt serves (its public
@@ -135,4 +152,129 @@ function firstTurnColumns(sessionId: string) {
     firstRequesterId: first(turns.requesterId) as SQL<string | null>,
     firstRequesterAuth: first(turns.requesterAuth) as SQL<unknown>,
   };
+}
+
+/**
+ * The session's record that a budget account refused one of its provider
+ * calls: an `error` event with code BUDGET_EXCEEDED and whose account it
+ * was, on the turn the call was chosen for (`turnId`, the public id
+ * budgetChoiceOfCall read; null for a call no single turn serves), even if
+ * that turn has ended since. The session's attention reads it, and so does
+ * the turn's Slack notice (unansweredTurns). Written once per turn, or once
+ * per attempt for calls no turn serves: the engine retrying the refused
+ * call adds nothing. The agent's own work with no team to charge is the
+ * team's.
+ */
+export async function recordBudgetAccountRefusal(
+  db: Database,
+  input: {
+    sessionId: string;
+    attemptId: string;
+    turnId: string | null;
+    owner: BudgetOwnerKind | null;
+  },
+): Promise<"recorded" | "recorded_before" | "no_session"> {
+  const owner = input.owner ?? "team";
+  return db.transaction(async (tx) => {
+    const [session] = await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.id, input.sessionId))
+      .for("update");
+    if (session === undefined) return "no_session";
+    const sequence = input.turnId === null ? null : Number(input.turnId);
+    const [turn] =
+      sequence === null || !Number.isSafeInteger(sequence)
+        ? []
+        : await tx
+            .select({ id: turns.id })
+            .from(turns)
+            .where(
+              and(
+                eq(turns.sessionId, input.sessionId),
+                eq(turns.sequence, sequence),
+              ),
+            )
+            .limit(1);
+    const turnRowId = turn?.id ?? null;
+    const [before] = await tx
+      .select({ id: events.id })
+      .from(events)
+      .where(
+        and(
+          eq(events.sessionId, input.sessionId),
+          budgetAccountRefusalEvent(),
+          turnRowId === null
+            ? and(isNull(events.turnId), eq(events.attemptId, input.attemptId))
+            : eq(events.turnId, turnRowId),
+        ),
+      )
+      .limit(1);
+    if (before !== undefined) return "recorded_before";
+    await recordEvent(tx, {
+      sessionId: input.sessionId,
+      type: "error",
+      payload: {
+        code: BUDGET_ACCOUNT_REFUSED_EVENT_CODE,
+        message:
+          SLACK_NOTICE_MESSAGES.en[
+            owner === "user" ? "budgetAccountUser" : "budgetAccountTeam"
+          ],
+        budget_owner: owner,
+      },
+      turnRowId,
+      attemptId: input.attemptId,
+      now: await dbNow(tx),
+    });
+    return "recorded";
+  });
+}
+
+/** An `error` event recordBudgetAccountRefusal wrote. */
+function budgetAccountRefusalEvent(): SQL | undefined {
+  return and(
+    eq(events.type, "error"),
+    sql`${events.payload}->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}`,
+    sql`${events.payload} ? 'budget_owner'`,
+  );
+}
+
+/** The id of the last event of the session's last completed turn, or 0. */
+function lastCompletedTurnEventId(sessionId: string): SQL {
+  return sql`coalesce((
+    SELECT max(e.id) FROM ${events} e
+    WHERE e.session_id = ${sessionId}::uuid AND e.turn_id = (
+      SELECT t.id FROM ${turns} t
+      WHERE t.session_id = ${sessionId}::uuid AND t.status = 'completed'
+      ORDER BY t.sequence DESC LIMIT 1)), 0)`;
+}
+
+const BUDGET_OWNERS: ReadonlySet<string> = new Set(BUDGET_OWNER_KIND_VALUES);
+
+/**
+ * Whose budget account refused the session's latest recorded call since its
+ * last completed turn, or null: a completed turn shows its calls go through
+ * again. Bounded by the id of that turn's last event, so the read scans
+ * only the events after it.
+ */
+export async function budgetAccountRefused(
+  tx: Database,
+  sessionId: string,
+): Promise<BudgetOwnerKind | null> {
+  const [row] = await tx
+    .select({ owner: sql<string | null>`${events.payload}->>'budget_owner'` })
+    .from(events)
+    .where(
+      and(
+        eq(events.sessionId, sessionId),
+        sql`${events.id} > ${lastCompletedTurnEventId(sessionId)}`,
+        budgetAccountRefusalEvent(),
+      ),
+    )
+    .orderBy(desc(events.id))
+    .limit(1);
+  const owner = row?.owner ?? null;
+  return owner !== null && BUDGET_OWNERS.has(owner)
+    ? (owner as BudgetOwnerKind)
+    : null;
 }

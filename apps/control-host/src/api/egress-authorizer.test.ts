@@ -1130,6 +1130,9 @@ describe("the budget account an open holds its call on", () => {
   function authorizerWith(
     open: ProviderExchangeLedger["open"],
     records: LogRecord[] = [],
+    recordAccountRefusal?: Parameters<
+      typeof createEgressAuthorizer
+    >[0]["recordAccountRefusal"],
   ) {
     const seen: { op: string; input: ProviderExchangeInput }[] = [];
     const asked: {
@@ -1158,6 +1161,7 @@ describe("the budget account an open holds its call on", () => {
         asked.push(call);
         return { choice, turnId: "3" };
       },
+      ...(recordAccountRefusal === undefined ? {} : { recordAccountRefusal }),
       token: proxyAuth,
     });
     const send = (body: unknown, extra: Record<string, string> = {}) =>
@@ -1237,6 +1241,7 @@ describe("the budget account an open holds its call on", () => {
         outcome: "budget_exceeded",
         by: "account",
         accountId: ACCOUNT as BudgetAccountId,
+        owner: "user",
       }),
       records,
     );
@@ -1258,6 +1263,86 @@ describe("the budget account an open holds its call on", () => {
     });
   });
 
+  test("an account's refusal is kept on its session, and stands when keeping it fails", async () => {
+    const kept: unknown[] = [];
+    const refusal = async () => ({
+      outcome: "budget_exceeded" as const,
+      by: "account" as const,
+      accountId: ACCOUNT as BudgetAccountId,
+      owner: "team" as const,
+    });
+    const told: LogRecord[] = [];
+    const { send } = authorizerWith(refusal, told, async (input) => {
+      kept.push(input);
+      return "recorded";
+    });
+    const refused = await send({ op: "open", ...call });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({
+      code: "BUDGET_EXCEEDED",
+      message:
+        "The budget account this call is charged to cannot hold its reserve",
+    });
+    expect(kept).toEqual([
+      {
+        sessionId: call.session_id,
+        attemptId: call.attempt_id,
+        // The turn the call was chosen for, as the refusal's log names it.
+        turnId: "3",
+        owner: "team",
+      },
+    ]);
+    expect(
+      told.find((record) => record.message === "Budget account refusal kept")
+        ?.fields,
+    ).toEqual({
+      session_id: call.session_id,
+      attempt_id: call.attempt_id,
+      result: "recorded",
+    });
+
+    const records: LogRecord[] = [];
+    const failing = authorizerWith(refusal, records, async () => {
+      throw new Error("database gone");
+    });
+    const still = await failing.send({ op: "open", ...call });
+    expect(still.status).toBe(403);
+    expect(((await still.json()) as { code: string }).code).toBe(
+      "BUDGET_EXCEEDED",
+    );
+    expect(
+      records.find(
+        (record) => record.message === "Budget account refusal not recorded",
+      )?.fields,
+    ).toEqual({
+      session_id: call.session_id,
+      attempt_id: call.attempt_id,
+      error: "Error",
+    });
+  });
+
+  test("a session's refusal is not kept as an account's", async () => {
+    const kept: unknown[] = [];
+    const { send } = authorizerWith(
+      async () => ({
+        outcome: "budget_exceeded",
+        by: "session",
+        accountId: null,
+        owner: null,
+      }),
+      [],
+      async (input) => {
+        kept.push(input);
+        return "recorded";
+      },
+    );
+    const refused = await send({ op: "open", ...call });
+    expect(((await refused.json()) as { message: string }).message).toBe(
+      "The session's spend with this call's reserve reaches its cost or token limit",
+    );
+    expect(kept).toEqual([]);
+  });
+
   test("a session's refusal names the session and no account", async () => {
     const records: LogRecord[] = [];
     const { send } = authorizerWith(
@@ -1265,6 +1350,7 @@ describe("the budget account an open holds its call on", () => {
         outcome: "budget_exceeded",
         by: "session",
         accountId: null,
+        owner: null,
       }),
       records,
     );

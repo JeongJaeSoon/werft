@@ -9,7 +9,7 @@ import { messageOf, type SurfaceBindingStore } from "@werft-ai/platform";
 import type { RowDelivery, RowDeliveryInput } from "./outbox-delivery.ts";
 import {
   SLACK_CARD_SETTLE_TIMING,
-  type SlackPushRequesterLeft,
+  type SlackRequesterLeft,
   settleSlackCards,
 } from "./slack-card-settle.ts";
 import { enqueueSlackChannelNotices } from "./slack-channel-notice.ts";
@@ -106,7 +106,7 @@ export async function drainSlackOutbox(deps: {
   deadline: number;
   /** Statuses in the first third, then posts; otherwise posts in the first two thirds, then statuses. */
   statusesFirst?: boolean;
-  requesterLeft?: SlackPushRequesterLeft;
+  requesterLeft?: SlackRequesterLeft;
   /** Defaults to `SLACK_INPUT_HOLD_MS`. */
   inputHoldMs?: number;
   /**

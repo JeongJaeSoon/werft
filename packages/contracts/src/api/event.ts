@@ -1,5 +1,4 @@
 import { z } from "zod";
-
 import {
   attemptIdSchema,
   opaqueCursorSchema,
@@ -22,6 +21,13 @@ export const SESSION_EVENT_NAMES = [
   "error",
 ] as const;
 export const SSE_SCHEMA_VERSION = 1;
+/**
+ * The `error` event code for a provider call a monthly budget account
+ * refused; `data.budget_owner` (`user` or `team`) says whose. Written once
+ * per turn. Carried as an extra field: the worker sends `error` events too,
+ * and a field the schema named would refuse a value an older worker sent.
+ */
+export const BUDGET_ACCOUNT_REFUSED_EVENT_CODE = "BUDGET_EXCEEDED";
 /** The `error` event code for an attempt cut because its model left the list. */
 export const MODEL_NOT_ALLOWED_EVENT_CODE = "MODEL_NOT_ALLOWED";
 /**

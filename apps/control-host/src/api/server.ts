@@ -95,6 +95,7 @@ import {
   newSessionGitHubReaders,
   openLostCheckpointNotices,
   reconcileRetiredCatalogDrafts,
+  recordBudgetAccountRefusal,
   slackAppKind,
   workspaceRepositoryCeiling,
 } from "@werft-ai/db";
@@ -176,8 +177,8 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   messageOf,
-  pushRequesterLeft,
   registryCatalog,
+  requesterLeft,
   resolveAgentRelease,
   SessionServiceError,
   SKILL_DAILY_CHECK_PASS_MS,
@@ -1531,6 +1532,8 @@ const authorizerListener =
                 admitsReservations(await installationConfig.sessionBudget()),
             }),
             budgetOf: (call) => budgetChoiceOfCall(db, call),
+            recordAccountRefusal: (refusal) =>
+              recordBudgetAccountRefusal(db, refusal),
             ...(githubMcpGrantKey === null
               ? {}
               : {
@@ -1625,10 +1628,10 @@ const slackInteractions = wireSlackInteractions({
   followUps: createPostgresPushFollowUpStore(db),
   outbox: createPostgresSlackOutboxStore(db),
   // The card's label asks what the policy asks a press (answer 15).
-  requesterLeft: (push) =>
-    pushRequesterLeft(
+  requesterLeft: (card) =>
+    requesterLeft(
       { sessions: sessionShares, channelMembers: slackChannelMembers, logger },
-      push,
+      card,
     ),
   consoleOrigin,
   logger,

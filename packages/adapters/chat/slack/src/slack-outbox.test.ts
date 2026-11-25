@@ -274,15 +274,31 @@ describe("settleSlackCards", () => {
       ]);
     });
 
-    test("as before: no requester check wired, or not a push card", async () => {
+    test("as before: no requester check wired; a question card whose requester left is labelled as a push card is (94S-2175)", async () => {
       expect((await redraw({ rendered: "open" })).calls).toEqual([["skip"]]);
       const prompt = await redraw({
         rendered: "open",
         kind: "prompt",
         left: true,
       });
-      expect(prompt.asked).toEqual([]);
-      expect(prompt.calls).toEqual([["skip"]]);
+      expect(prompt.asked).toEqual([
+        { workspaceId: "w", sessionId: "s", pendingRequestId: "push-1" },
+      ]);
+      expect(prompt.calls).toEqual([
+        [
+          "edit",
+          [{ type: "section" }, label, { type: "actions" }],
+          "push card\n요청자가 채널을 나갔어요",
+        ],
+        ["finish", "open_requester_left"],
+      ]);
+      // Still in the channel: the card stays as posted.
+      const stays = await redraw({
+        rendered: "open",
+        kind: "prompt",
+        left: false,
+      });
+      expect(stays.calls).toEqual([["skip"]]);
     });
 
     test("a labelled card is compared as its choice when its push goes stale", async () => {
