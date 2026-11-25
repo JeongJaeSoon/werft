@@ -3,20 +3,27 @@ import {
   type BudgetAccountId,
   type BudgetOwnerKind,
   type BudgetUnknownResolution,
+  type ConversationCallId,
   conversationCallIdSchema,
+  UNFINISHED_TURN_STATUSES,
   WORKSPACE_MANAGER_ROLES,
 } from "@werft-ai/contracts";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { lockBudgetCall } from "./budget-accounts.ts";
-import { DB_NOW } from "./db-clock.ts";
-import { lockProviderExchange } from "./provider-exchanges.ts";
+import { DB_NOW, fromDbNow } from "./db-clock.ts";
+import {
+  lockProviderExchange,
+  PROVIDER_EXCHANGE_LEASE_MS,
+} from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import {
   budgetAccounts,
   budgetReservations,
   conversationCalls,
+  conversationTurns,
   providerExchanges,
   receipts,
+  turns,
 } from "./schema.ts";
 import { rowsOf } from "./statement-rows.ts";
 
@@ -138,7 +145,7 @@ export type UnknownBudgetResolveInput = {
   callIds: readonly string[];
   /** A live owner or admin of each reservation's workspace, by address. */
   by: string;
-  resolution: BudgetUnknownResolution;
+  resolution: Exclude<BudgetUnknownResolution, "estimated">;
   /** Required to refund. */
   reason: string | null;
   dryRun: boolean;
@@ -309,6 +316,7 @@ async function resolveOneIn(
   const [call] = conversationCallId.success
     ? await tx
         .select({
+          id: conversationCalls.id,
           state: conversationCalls.state,
           agentId: conversationCalls.agentId,
           conversationTurnId: conversationCalls.conversationTurnId,
@@ -328,11 +336,70 @@ async function resolveOneIn(
   const held = { costUsd: row.costUsd, tokens: row.tokens };
   const charged =
     input.resolution === "spent" ? held : { costUsd: 0, tokens: 0 };
-  if (call?.state === "in_flight" && conversationCallId.success) {
+  const { callKind, receiptId } = await closeUnknownIn(tx, {
+    row,
+    unknownAt: row.unknownAt,
+    call,
+    resolution: input.resolution,
+    charged,
+    actor: {
+      principal: { kind: "user", id: operator },
+      actor_user_id: operator,
+      agent_id: null,
+    },
+    receipt: { reason: input.reason, run_id: input.runId, by: "operator_cli" },
+  });
+  return {
+    callId,
+    outcome: "resolved",
+    callKind,
+    accountId: row.accountId,
+    held,
+    charged,
+    receiptId,
+  };
+}
+
+type ReservationRow = typeof budgetReservations.$inferSelect;
+
+/**
+ * The writes of a close, under the locks resolveOneIn takes: its call leaves
+ * what is in progress (a conversation call becomes `resolved`, a session
+ * call's exchange row is released), the reservation becomes `resolved` at
+ * `charged`, the hold comes off its account, and a `resolve_unknown_budget`
+ * receipt is written with it.
+ */
+async function closeUnknownIn(
+  tx: Database,
+  input: {
+    row: ReservationRow;
+    unknownAt: Date;
+    call:
+      | {
+          id: ConversationCallId;
+          state: string;
+          agentId: string;
+          conversationTurnId: string | null;
+        }
+      | undefined;
+    resolution: BudgetUnknownResolution;
+    charged: { costUsd: number; tokens: number };
+    actor: {
+      principal: { kind: "user"; id: string };
+      actor_user_id: string;
+      agent_id: null;
+    } | null;
+    receipt: { reason: string | null; run_id: string | null; by: string };
+  },
+): Promise<{ callKind: UnknownBudgetCallKind; receiptId: string }> {
+  const { row, call, charged } = input;
+  const callId = row.callId;
+  const held = { costUsd: row.costUsd, tokens: row.tokens };
+  if (call?.state === "in_flight") {
     await tx
       .update(conversationCalls)
       .set({ state: "resolved", endedAt: DB_NOW })
-      .where(eq(conversationCalls.id, conversationCallId.data));
+      .where(eq(conversationCalls.id, call.id));
   }
   // Released as the proxy releases a call it gave up on: the session no
   // longer holds it, and a late report still settles by the call id.
@@ -393,30 +460,18 @@ async function resolveOneIn(
       owner_id: account?.ownerId ?? null,
       period_start: account?.periodStart ?? null,
       resolution: input.resolution,
-      reason: input.reason,
+      reason: input.receipt.reason,
       held_cost_usd: held.costUsd,
       held_tokens: held.tokens,
       charged_cost_usd: charged.costUsd,
       charged_tokens: charged.tokens,
-      unknown_at: row.unknownAt.toISOString(),
-      run_id: input.runId,
-      by: "operator_cli",
+      unknown_at: input.unknownAt.toISOString(),
+      run_id: input.receipt.run_id,
+      by: input.receipt.by,
     },
-    actor: {
-      principal: { kind: "user", id: operator },
-      actor_user_id: operator,
-      agent_id: null,
-    },
+    actor: input.actor,
   });
-  return {
-    callId,
-    outcome: "resolved",
-    callKind,
-    accountId: row.accountId,
-    held,
-    charged,
-    receiptId,
-  };
+  return { callKind, receiptId };
 }
 
 // The account's owner, or the workspace for a call no account held.
@@ -433,4 +488,193 @@ function targetOf(
       : { kind: "workspace", id: workspaceId },
     workspace_id: workspaceId,
   };
+}
+
+/**
+ * The longest a provider call can run, from its open (a session's) or its
+ * start (a conversation call's). Past it, a call whose turn ended cannot still
+ * be streaming: nothing the reconciler waits for can come but a late report.
+ */
+export const PROVIDER_CALL_MAX_MS = 3_600_000;
+
+// A session turn that ended without completing; a conversation turn has no
+// state past these.
+const ENDED_SESSION_TURN = ["cancelled", "failed"] as const;
+// A session turn that may still run or wait on a decision.
+const OPEN_SESSION_TURN = [
+  ...UNFINISHED_TURN_STATUSES,
+  "outcome_unknown",
+] as const;
+
+/**
+ * How far a turn's times (the API's clock) may be from a call's open (the
+ * database's) and still be taken for the call's turn.
+ */
+export const TURN_CLOCK_MARGIN_MS = 300_000;
+const ENDED_CONVERSATION_TURN = [
+  "decided",
+  "no_decision",
+  "voided_by_delete",
+] as const;
+
+const listOf = (values: readonly string[]) =>
+  sql.join(
+    values.map((value) => sql`${value}`),
+    sql`, `,
+  );
+
+// Reservations of unknown end whose call can no longer run: its turn ended
+// (cancelled or failed for a session's; any end for a conversation turn's),
+// its lease ran out, and PROVIDER_CALL_MAX_MS passed. A session call names no
+// turn, and its turns' times are the API's clock: so no turn of its attempt
+// may be open or of unknown outcome, and every turn of the attempt within
+// TURN_CLOCK_MARGIN_MS of the call's open must be cancelled or failed. A call
+// of no turn (a judgment, a summary) is left to an operator.
+function deadUnknownCandidates(limit: number, callId?: string) {
+  const callMaxPast = fromDbNow(-PROVIDER_CALL_MAX_MS);
+  const ofAttempt = sql`${turns.sessionId} = ${providerExchanges.sessionId} AND ${turns.attemptId} = ${providerExchanges.attemptId}`;
+  const margin = sql`${TURN_CLOCK_MARGIN_MS}::double precision * interval '1 millisecond'`;
+  const aroundOpen = sql`${turns.startedAt} <= ${providerExchanges.openedAt} + ${margin} AND (${turns.endedAt} IS NULL OR ${turns.endedAt} >= ${providerExchanges.openedAt} - ${margin})`;
+  const sessionCallDead = sql`EXISTS (
+    SELECT 1 FROM ${providerExchanges}
+    WHERE ${providerExchanges.exchangeId} = ${budgetReservations.callId}
+      AND ${providerExchanges.releasedAt} IS NULL
+      AND ${providerExchanges.leaseExpiresAt} < clock_timestamp()
+      AND ${providerExchanges.openedAt} < ${callMaxPast}
+      AND NOT EXISTS (
+        SELECT 1 FROM ${turns}
+        WHERE ${ofAttempt}
+          AND ${turns.status} IN (${listOf(OPEN_SESSION_TURN)}))
+      AND EXISTS (SELECT 1 FROM ${turns} WHERE ${ofAttempt} AND ${aroundOpen})
+      AND NOT EXISTS (
+        SELECT 1 FROM ${turns}
+        WHERE ${ofAttempt} AND ${aroundOpen}
+          AND ${turns.status} NOT IN (${listOf(ENDED_SESSION_TURN)})))`;
+  const conversationCallDead = sql`EXISTS (
+    SELECT 1 FROM ${conversationCalls}
+    JOIN ${conversationTurns}
+      ON ${conversationTurns.id} = ${conversationCalls.conversationTurnId}
+    WHERE ${conversationCallOf}
+      AND ${conversationCalls.state} = 'in_flight'
+      AND ${conversationCalls.unknownAt} IS NOT NULL
+      AND ${conversationCalls.startedAt} < ${fromDbNow(-PROVIDER_EXCHANGE_LEASE_MS)}
+      AND ${conversationCalls.startedAt} < ${callMaxPast}
+      AND ${conversationTurns.state} IN (${listOf(ENDED_CONVERSATION_TURN)}))`;
+  return sql`
+    SELECT ${budgetReservations.callId} AS call_id FROM ${budgetReservations}
+    WHERE ${unknownHeld}
+      AND (${sessionCallDead} OR ${conversationCallDead})
+      ${callId === undefined ? sql`` : sql`AND ${budgetReservations.callId} = ${callId}`}
+    ORDER BY ${budgetReservations.unknownAt}, ${budgetReservations.callId}
+    LIMIT ${limit}`;
+}
+
+/** One reservation the reconciler settled as estimated. */
+export type EstimatedBudgetLine = {
+  callId: string;
+  callKind: UnknownBudgetCallKind;
+  accountId: BudgetAccountId | null;
+  charged: { costUsd: number; tokens: number };
+  receiptId: string | null;
+};
+
+/**
+ * Settles each reservation of unknown end whose call can no longer run
+ * (deadUnknownCandidates), at most `limit`, each in a transaction of its own:
+ * charged at what it held, as `estimated`, and closed as an operator's
+ * resolve closes one, its receipt written by the reconciler. A late report
+ * then adds its difference as an adjustment, as for any resolved row. A dry
+ * run says what would be settled and changes nothing.
+ */
+export async function settleDeadUnknownBudget(
+  db: Database,
+  input: {
+    limit: number;
+    dryRun: boolean;
+    /** Called for each line once its transaction committed (or would). */
+    onSettled?: (line: EstimatedBudgetLine) => void;
+  },
+): Promise<EstimatedBudgetLine[]> {
+  const ids = rowsOf<{ call_id: string }>(
+    await db.execute(deadUnknownCandidates(input.limit)),
+  ).map((row) => row.call_id);
+  if (input.dryRun) {
+    const held =
+      ids.length === 0
+        ? []
+        : await db
+            .select({
+              callId: budgetReservations.callId,
+              accountId: budgetReservations.accountId,
+              costUsd: budgetReservations.costUsd,
+              tokens: budgetReservations.tokens,
+              conversation: sql<boolean>`${conversationCalls.id} IS NOT NULL`,
+            })
+            .from(budgetReservations)
+            .leftJoin(conversationCalls, conversationCallOf)
+            .where(inArray(budgetReservations.callId, ids));
+    const lines = held.map(
+      (row): EstimatedBudgetLine => ({
+        callId: row.callId,
+        callKind: row.conversation ? "conversation" : "session",
+        accountId: row.accountId,
+        charged: { costUsd: row.costUsd, tokens: row.tokens },
+        receiptId: null,
+      }),
+    );
+    for (const line of lines) input.onSettled?.(line);
+    return lines;
+  }
+  const lines: EstimatedBudgetLine[] = [];
+  for (const callId of ids) {
+    const line = await db.transaction((tx) => settleDeadOneIn(tx, callId));
+    if (!line) continue;
+    lines.push(line);
+    input.onSettled?.(line);
+  }
+  return lines;
+}
+
+// Locked as resolveOneIn locks, without an operator; judged again under the
+// locks, so a report or a renewal that came meanwhile keeps the row.
+async function settleDeadOneIn(
+  tx: Database,
+  callId: string,
+): Promise<EstimatedBudgetLine | null> {
+  await lockProviderExchange(tx, callId);
+  await lockBudgetCall(tx, callId);
+  const conversationCallId = conversationCallIdSchema.safeParse(callId);
+  const [call] = conversationCallId.success
+    ? await tx
+        .select({
+          id: conversationCalls.id,
+          state: conversationCalls.state,
+          agentId: conversationCalls.agentId,
+          conversationTurnId: conversationCalls.conversationTurnId,
+        })
+        .from(conversationCalls)
+        .where(eq(conversationCalls.id, conversationCallId.data))
+        .for("update")
+    : [];
+  const [row] = await tx
+    .select()
+    .from(budgetReservations)
+    .where(eq(budgetReservations.callId, callId))
+    .for("update");
+  if (!row || row.state !== "reserved" || row.unknownAt === null) return null;
+  const still = rowsOf<{ call_id: string }>(
+    await tx.execute(deadUnknownCandidates(1, callId)),
+  );
+  if (still.length === 0) return null;
+  const charged = { costUsd: row.costUsd, tokens: row.tokens };
+  const { callKind, receiptId } = await closeUnknownIn(tx, {
+    row,
+    unknownAt: row.unknownAt,
+    call,
+    resolution: "estimated",
+    charged,
+    actor: null,
+    receipt: { reason: null, run_id: null, by: "reconciler" },
+  });
+  return { callId, callKind, accountId: row.accountId, charged, receiptId };
 }
