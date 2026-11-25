@@ -1,4 +1,4 @@
-import type { UnknownBudgetHeld } from "@werft-ai/db";
+import type { EstimatedBudgetLine, UnknownBudgetHeld } from "@werft-ai/db";
 import {
   type ReconcilerEnvironment,
   type ReconcilerLogger,
@@ -16,10 +16,44 @@ export type UnknownBudgetReport = {
 };
 
 /**
+ * Settles, at most the batch size, the reservations of unknown end whose call
+ * can no longer run, at what each held, as estimated (settleDeadUnknownBudget),
+ * and logs each: money moved without an operator.
+ */
+export async function runDeadUnknownBudgetSettle(input: {
+  environment?: ReconcilerEnvironment;
+  logger: ReconcilerLogger;
+  settle(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<EstimatedBudgetLine[]>;
+}): Promise<EstimatedBudgetLine[]> {
+  const { limit, dryRun } = reconcilerSettings(
+    input.environment ?? process.env,
+  );
+  const lines = await input.settle({ dryRun, limit });
+  for (const line of lines) {
+    input.logger.warn(
+      "Budget reservation of unknown end settled as estimated",
+      {
+        dry_run: dryRun,
+        call_id: line.callId,
+        call_kind: line.callKind,
+        account_id: line.accountId,
+        charged_cost_usd: line.charged.costUsd,
+        charged_tokens: line.charged.tokens,
+        receipt_id: line.receiptId,
+      },
+    );
+  }
+  return lines;
+}
+
+/**
  * Logs the budget accounts holding the most reservations of unknown end, at
  * most the batch size, and the total over every account, so an account they
- * pile up on can be seen. Changes nothing: releasing them is an operator's
- * step a1 adds.
+ * pile up on can be seen. Changes nothing: an operator resolves them, or
+ * runDeadUnknownBudgetSettle once their call can no longer run.
  */
 export async function runUnknownBudgetReport(input: {
   environment?: ReconcilerEnvironment;

@@ -256,6 +256,8 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/conversation-reco
 
 lease(5 分)以内に使用量の報告が来ず、終わりのわからない呼び出し(`unknown_at`)の予約は、遅れた報告が来るまで口座に押さえられたままです。たまって口座やエージェントが止まったら、運用者がこのコマンドで確認して解消します。API route はありません。API コンテナでコマンドを実行できる運用者が、組織の管理者(owner・admin)を `--by` に指定して実行します。セッションの呼び出しと会話呼び出し(会話ターンの呼び出しを含む)を同じコマンドで扱います。
 
+終わったターンの予約は reconciler が自分で精算します。三つの条件がすべて満たされたときです: ターンが終わった(セッションのターンは `cancelled`・`failed`、会話ターンは `decided`・`no_decision`・`voided_by_delete`)、呼び出しの lease が切れた、呼び出しを開いてから provider 呼び出しの最大時間(1 時間)が過ぎた。押さえた分を返すのではなく、使ったものとして確定し `resolution: "estimated"` と記録します。それ以外の行(決定を待つ `outcome_unknown` のターン、ターンのない判断・要約の呼び出し)はこのコマンドで解消します。
+
 ```bash
 docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts list --limit 20
 docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts resolve --account <budget-account-id> --by admin@example.com --dry-run
@@ -270,7 +272,7 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/budget-unknown.ts
   - 終わりのわからない予約でない行(精算済み、または lease が更新された行)は `not_unknown` として残し、触りません。存在しない id は `not_found` です。
   - `--dry-run` は解消する行と金額(`would_resolve`)だけを出し、何も書きません。
 - **`--by`。** 選んだ予約が属するすべてのワークスペースで無効化されていない owner か admin のアドレスです。一つでも違えば何も書かず `not_admin`(終了コード 4)で終わります。実行中にロールを失うと、その場で止まり、`stopped_at` に止まった呼び出し id を出します(終了コード 4)。
-- **監査。** 解消した予約ごとに receipt `resolve_unknown_budget` が一行、その予約を解消するトランザクションの中で残ります。行為者は `--by` の人、対象は口座の持ち主(人かチーム、口座がなければワークスペース)で、結果に呼び出し、口座とその月、確定した側(`resolution`)、理由(`reason`)、押さえていた金額と課金した金額、実行 id(`run_id`)が入ります。時刻は receipt の `created_at` です。
+- **監査。** 解消した予約ごとに receipt `resolve_unknown_budget` が一行、その予約を解消するトランザクションの中で残ります。行為者は `--by` の人、対象は口座の持ち主(人かチーム、口座がなければワークスペース)で、結果に呼び出し、口座とその月、確定した側(`resolution`)、理由(`reason`)、押さえていた金額と課金した金額、実行 id(`run_id`)が入ります。時刻は receipt の `created_at` です。 reconciler が推定で精算した行も同じ receipt を残します。行為者はなく、`by` は `reconciler`、`resolution` は `estimated`、`reason` と `run_id` は null です。
 - **遅れた報告。** 解消した後に報告が来ても予約を開き直しません。実際の値と解消時に課金した値の差を、調整行(`budget_adjustments`)一つとして元の予約の口座に加えます。少なく使った報告は差を返し、多く使った報告と `--refund` で解消した行の報告は追加で課金します。調整は元の予約の月に付くので、月が変わった後に来ても今月の使用額は変わりません。調整行は元の予約の呼び出し id をキーに一度だけできます。同じ報告がもう一度来ても重ねて書きません。
 - **出力。** stdout に JSON 一行です。`resolve` は `outcome`(`resolved`、解消したものがなければ `unchanged`、`--dry-run` なら `dry_run`、`not_admin`)、`run_id`、`resolution`、解消した数 `resolved`、行ごとの結果 `lines` を出します。終了コードは 0 完了(解消するものがないときも)、1 予期しないエラー、2 使い方、4 拒否です。
 
