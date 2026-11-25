@@ -216,7 +216,15 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
         ["chat:write"],
         read,
       );
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Commit only once the late write is queued behind the install's lock.
+      for (let tries = 0; ; tries++) {
+        const { rows } = await pool.query(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        );
+        if (rows[0].n > 0) break;
+        if (tries > 100) throw new Error("the late write never waited");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
       await install.query("COMMIT");
       await late;
     } finally {
