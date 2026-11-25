@@ -45,6 +45,7 @@ export const JOB_POOL_TIMEOUTS: PoolTimeouts = {
 // timeout fires fails every queued statement immediately and marks the client
 // not queryable, which makes pg-pool discard it on release.
 const QUERY_READ_TIMEOUT = "Query read timeout";
+const CONNECTION_ENDED = "Connection ended under its holder";
 
 interface Checkout {
   readonly release: (error?: Error) => void;
@@ -66,6 +67,18 @@ export class EvictOnReadTimeoutClient extends Client {
     // and pg-pool discards the client on release. Not logged here: the
     // holder sees the failure, and a pass lock watches for it on its own.
     this.on("error", () => {});
+    // drizzle-orm 0.45.2's NodePgSession.transaction awaits BEGIN before the
+    // try/finally that releases, so a holder whose BEGIN fails never hands
+    // its client back and pg-pool counts the dead client for good: a pool's
+    // worth of them and every checkout times out until the process restarts.
+    // A connection that has ended can do nothing more for its holder, so the
+    // client returns itself, as evict() does for a timeout; the holder's own
+    // release() is then a no-op. Only an open checkout is handed back: an idle
+    // client that ends is pg-pool's to remove. Drop this once drizzle
+    // releases after a failed BEGIN.
+    this.once("end", () => {
+      this.checkout?.release(new Error(CONNECTION_ENDED));
+    });
   }
 
   // pg-pool assigns release() on every checkout and throws if it is called
