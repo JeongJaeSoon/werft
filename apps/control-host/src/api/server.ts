@@ -210,6 +210,7 @@ import {
 } from "../wiring/slack-api.ts";
 import { createAccountLinkCookies } from "./account-link-cookie.ts";
 import { ambiguousPathGuard } from "./ambiguous-path.ts";
+import { createSlackEventResponses, serveApiMetrics } from "./api-metrics.ts";
 import {
   API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
@@ -1585,6 +1586,7 @@ const slackInteractions = wireSlackInteractions({
   logger,
 });
 const probePool = createProbePool(databaseUrl, logger);
+const slackEventResponses = createSlackEventResponses();
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
@@ -1593,6 +1595,7 @@ const app = createApiApp({
   identity,
   authorization,
   skillUploads: skills !== undefined,
+  slackEventResponses,
   registerPublicRoutes: (router) => {
     registerPublicAuthRoutes(router, auth);
     registerSlackEventRoutes(router, {
@@ -1800,6 +1803,12 @@ const internalServer = serveApiApp(internalApp, {
 });
 logger.info("Internal API listening", { port: internalServer.port });
 
+// Off unless METRICS_PORT is set; never on the public or /internal port.
+const metricsServer = serveApiMetrics(process.env, slackEventResponses, logger);
+if (metricsServer !== undefined) {
+  logger.info("API metrics listening", { port: metricsServer.port });
+}
+
 const operatorTurns =
   conversationRuntime === null
     ? undefined
@@ -1840,6 +1849,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         internalServer,
         ...(authorizerListener === undefined ? [] : [authorizerListener]),
         ...(ingestListener === undefined ? [] : [ingestListener]),
+        ...(metricsServer === undefined ? [] : [metricsServer]),
       ],
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
