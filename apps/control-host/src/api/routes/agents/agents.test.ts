@@ -162,7 +162,6 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],
     activationActor: async () => null,
-    notifyModelMigrationFailed: async () => 0,
     insertRelease: async ({ release: { spec: _spec, ...release } }) => ({
       outcome: "created",
       release: {

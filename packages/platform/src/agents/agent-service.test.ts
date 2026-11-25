@@ -151,7 +151,6 @@ function memoryStore(
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],
     activationActor: async () => null,
-    notifyModelMigrationFailed: async () => 0,
     insertRelease: async ({ release, refuseGitHubWhenSettings }) => {
       if (
         refuseGitHubWhenSettings === true &&

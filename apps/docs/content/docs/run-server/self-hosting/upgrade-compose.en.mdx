@@ -541,6 +541,16 @@ GROUP BY 1, 2;
 - The sender also never posts such a row to Slack: it ends `failed` with the `error_code` `user_channel`.
 - Earlier images write no such row either, so rolling back with the constraint in place is safe.
 
+<a id="모델-안내를-사람에게-바로-보내지-않는-릴리스" />
+### The release that stops sending model notices straight to a person
+
+A model notice (`model_notice`: the session's model left the allowed list, the session's model moved, a `runtime_retired` stop, a worker image replacement) no longer goes to a person as a DM. If the session has a Slack thread, it is posted there once; without one, it shows only in the session's history in the web console. It does not go to a muted thread, a thread whose reports are off, or a closed thread. The agent-level notices of an automatic model move (moved, could not move) do not go to Slack. No migration, nothing to do.
+
+- At every start the api clears the model notice rows an earlier release wrote to a person. A row not yet sent moves to the session's thread if it has one (one row per notice); the rest (sent rows, failed rows, rows with no thread) are deleted. The counts go to the log `Model notices taken off people's direct messages` (`moved`, `deleted` by status). A row being sent is looked at again on the next start.
+- The sender never posts a row whose channel is a Slack user id, a model notice included: it ends `failed` with the `error_code` `user_channel`. Rows an earlier image writes while it runs beside this one end the same way.
+- The CHECK `slack_outbox_channel_check` still lets a model notice in, so rolling back to the earlier image does not block that image's model notice writes. A later release removes this exception.
+- The check that the person receiving a private channel session's DM is a member of that channel (`error_code` `reader_outside_channel`) is gone, since the notice goes only to the session's thread.
+
 <a id="호출을-턴의-예산-계정에-매기는-릴리스" />
 ### The release that charges calls to the turn's budget account
 

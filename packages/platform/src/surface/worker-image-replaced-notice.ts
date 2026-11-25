@@ -1,17 +1,13 @@
 import { DEFAULT_USER_LOCALE, type UserLocale } from "@werft-ai/contracts";
 
-/**
- * One DM per Slack account per launch that moved off a retracted image. A
- * Slack user id is unique only within its installation's team.
- */
+/** One post in the session's thread per launch that moved off a retracted image. */
 export function workerImageReplacedDedupeKey(
   workspaceId: string,
   sessionId: string,
   generation: number,
-  installationId: string,
-  slackUserId: string,
+  sessionLinkId: string,
 ): string {
-  return `worker-image-replaced:${workspaceId}:${sessionId}:${generation}:${installationId}:${slackUserId}`;
+  return `worker-image-replaced:${workspaceId}:${sessionId}:${generation}:${sessionLinkId}`;
 }
 
 const COPY: Record<UserLocale, (agent: string) => string> = {

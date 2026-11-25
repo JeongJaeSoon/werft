@@ -58,7 +58,6 @@ import {
   lockAgentKeyIssue,
   lockedRole,
 } from "./musterrolle/api-keys.ts";
-import { enqueueModelMoveNotices } from "./musterrolle/model-move-notices.ts";
 import type { Database } from "./queries.ts";
 import {
   agentActivationEvents,
@@ -1060,40 +1059,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return row?.actor ?? null;
     },
 
-    async notifyModelMigrationFailed(input) {
-      return await db.transaction(async (tx) => {
-        const [agent] = await tx
-          .select({
-            revision: agents.activationRevision,
-            releaseId: agents.activeReleaseId,
-          })
-          .from(agents)
-          .where(
-            and(
-              eq(agents.id, input.agentId),
-              eq(agents.workspaceId, input.workspaceId),
-            ),
-          )
-          .for("update")
-          .limit(1);
-        if (
-          !agent ||
-          agent.revision !== input.revision ||
-          agent.releaseId !== input.releaseId
-        ) {
-          return 0;
-        }
-        return await enqueueModelMoveNotices(tx, {
-          workspaceId: input.workspaceId,
-          agentId: input.agentId,
-          kind: "failed",
-          from: input.from,
-          to: input.to,
-          revision: agent.revision,
-        });
-      });
-    },
-
     insertRelease(input) {
       const { release } = input;
       return db.transaction(async (tx) => {
@@ -1327,16 +1292,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           actor: receiptActorOf(input.principal),
           receiptId,
         });
-        if (intent?.kind === "model_migration") {
-          await enqueueModelMoveNotices(tx, {
-            workspaceId: input.workspaceId,
-            agentId: agent.id,
-            kind: "moved",
-            from: intent.from,
-            to: intent.to,
-            revision: swapped.revision,
-          });
-        }
         return {
           outcome: "activated",
           revision: swapped.revision,

@@ -88,11 +88,21 @@ describe("enqueueing an outbox row whose channel is a Slack user id", () => {
     expect(await channels()).toEqual([]);
   });
 
-  test("stores a model notice, the one direct message there is", async () => {
+  // Before 94S-2040 the store took a model notice to a person: it was the
+  // one direct message there was. It goes to the session's thread now.
+  test("refuses a model notice too", async () => {
     const outbox = createPostgresSlackOutboxStore(db);
-    expect(await outbox.enqueue(entryOf("model_notice", "U0PERSON"))).toBe(
-      "enqueued",
-    );
+    await expect(
+      outbox.enqueue(entryOf("model_notice", "U0PERSON")),
+    ).rejects.toBeInstanceOf(SlackOutboxUserChannelError);
+    expect(await channels()).toEqual([]);
+  });
+
+  // The image before this one still writes one in the transaction of a model
+  // cut; refusing it there would roll the cut back (94S-2224 drops this).
+  test("the table still takes a model notice written around the store", async () => {
+    const entry = entryOf("model_notice", "U0PERSON");
+    await db.insert(slackOutbox).values({ ...entry, id: crypto.randomUUID() });
     expect(await channels()).toEqual(["U0PERSON"]);
   });
 });

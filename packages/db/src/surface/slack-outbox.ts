@@ -263,11 +263,10 @@ const channelNotWaiting = (row: SQL) => sql`(
 
 // Where a row may still go: an installation not revoked, for a session's row
 // the link it names (a row from before the column: its session's link in its
-// thread) still taking it (a
-// `model_notice` is a direct message with no thread, so it skips that), and for an
-// input notice its request still waiting: a card's own request, or, for a
-// turn's notice from before the cards, any of its turn's. Checked again at
-// claim, since a row can wait out a backoff after any of it changed.
+// thread) still taking it, and for an input notice its request still
+// waiting: a card's own request, or, for a turn's notice from before the
+// cards, any of its turn's. Checked again at claim, since a row can wait out
+// a backoff after any of it changed.
 const addressed = (
   db: Database,
   row: SQL,
@@ -281,7 +280,7 @@ const addressed = (
   -- A channel notice waits on its channel instead: claim holds it.
   AND (${row}.kind = 'channel_notice' OR ${channelNotWaiting(row)})
   AND (${row}.kind <> 'channel_notice' OR ${channelNoticeCurrent(row, noticeVersions)})
-  AND (${row}.session_id IS NULL OR ${row}.kind = 'model_notice' OR EXISTS (
+  AND (${row}.session_id IS NULL OR EXISTS (
     SELECT 1 FROM session_links l
     WHERE l.id = ${row}.session_link_id AND ${linkTakes(row)}
   ) OR (${row}.session_link_id IS NULL AND EXISTS (
@@ -857,7 +856,7 @@ export function createPostgresSlackOutboxStore(
     threadStatus: createPostgresSlackThreadStatusStore(db),
 
     async enqueue(input, whileHome) {
-      if (slackOutboxChannelRefused(input.kind, input.channelId)) {
+      if (slackOutboxChannelRefused(input.channelId)) {
         throw new SlackOutboxUserChannelError(input.kind);
       }
       return db.transaction(async (tx) => {

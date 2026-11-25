@@ -79,10 +79,14 @@ export async function enqueueEndedIntentNotices(
   }
 }
 
-async function enqueueNotice(
-  tx: Database,
-  input: { sessionId: string; notice: ActionNotice; dedupeKey: string },
-): Promise<"enqueued" | "duplicate" | "no_thread"> {
+/**
+ * The thread a session's notices go to: its primary live Slack link that
+ * still reports turns, the oldest if there are several; undefined for a
+ * session with none (started from the web or the API, or its thread muted,
+ * silent or closed). The language is the one of whoever started the session.
+ * Share-locked against closeFinishedLinks: a closed link takes no new row.
+ */
+export async function sessionNoticeThread(tx: Database, sessionId: string) {
   const [link] = await tx
     .select({
       id: sessionLinks.id,
@@ -109,7 +113,7 @@ async function enqueueNotice(
     .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
     .where(
       and(
-        eq(sessionLinks.sessionId, input.sessionId),
+        eq(sessionLinks.sessionId, sessionId),
         eq(sessionLinks.role, "primary"),
         isNull(sessionLinks.revokedAt),
         eq(sessionLinks.muted, false),
@@ -120,8 +124,15 @@ async function enqueueNotice(
     )
     .orderBy(asc(sessionLinks.createdAt))
     .limit(1)
-    // Ordered against closeFinishedLinks: a closed link takes no new row.
     .for("share", { of: sessionLinks });
+  return link;
+}
+
+async function enqueueNotice(
+  tx: Database,
+  input: { sessionId: string; notice: ActionNotice; dedupeKey: string },
+): Promise<"enqueued" | "duplicate" | "no_thread"> {
+  const link = await sessionNoticeThread(tx, input.sessionId);
   if (!link) return "no_thread";
   const [row] = await tx
     .insert(slackOutbox)

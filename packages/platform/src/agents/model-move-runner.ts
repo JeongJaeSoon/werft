@@ -29,8 +29,7 @@ export type ModelMoveRunnerLogger = {
 };
 
 export function createModelMoveRunner(deps: {
-  store: Pick<AgentStore, "modelMigrationCandidates"> &
-    Pick<AgentStore, "notifyModelMigrationFailed">;
+  store: Pick<AgentStore, "modelMigrationCandidates">;
   catalog: SessionCatalogView;
   agents: {
     migrateModel(input: {
@@ -80,15 +79,6 @@ export function createModelMoveRunner(deps: {
             retryAt.set(row.agentId, now() + retryMs);
           } else if (step.status === "failed") {
             retryAt.set(row.agentId, now() + retryMs);
-            await store.notifyModelMigrationFailed({
-              workspaceId: row.workspaceId,
-              agentId: row.agentId,
-              from: step.from,
-              to: step.to,
-              reason: step.reason,
-              releaseId: step.releaseId,
-              revision: step.revision,
-            });
             logger.warn("Agent could not move to the next model", {
               agent: row.agentId,
               from: step.from,

@@ -6,7 +6,6 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import {
   enqueueModelCutNotices,
-  enqueueRuntimeRetiredNotices,
   enqueueSessionModelMoveNotices,
 } from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
@@ -14,15 +13,14 @@ import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,
-  agentAdminTeams,
   agentReleases,
   agents,
   attempts,
   events,
   linkedAccounts,
   memberships,
-  memberTeamMembers,
   memberTeams,
+  sessionLinks,
   sessions,
   slackApps,
   slackInstallations,
@@ -57,6 +55,8 @@ afterEach(async () => {
 });
 
 const NOW = new Date("2026-11-09T00:00:00Z");
+const CHANNEL = "C0WORK";
+const THREAD = "1700000000.000100";
 
 type Person = {
   userId: string;
@@ -164,15 +164,6 @@ async function world(options: { installation?: "verified" | "pending" } = {}) {
     }
     return { userId, slackUserId };
   };
-  const inTeam = async (team: string, who: Person, role: "lead" | "member") => {
-    await db.insert(memberTeamMembers).values({
-      id: crypto.randomUUID(),
-      workspaceId,
-      teamId: team,
-      userId: who.userId,
-      role,
-    });
-  };
   const startSession = async (creator: Person | null) => {
     await db.insert(sessions).values({
       id: sessionId,
@@ -187,31 +178,42 @@ async function world(options: { installation?: "verified" | "pending" } = {}) {
       createdByUserId: creator?.userId ?? null,
     });
   };
-  /**
-   * A second installation of the agent's app, in team T2, where `who` is
-   * linked under the same Slack user id as in T1.
-   */
-  const secondInstallation = async (who: Person) => {
+  /** The session's Slack thread, as a mention that opened it leaves it. */
+  const thread = async (
+    startedBy: Person | null,
+    flags: {
+      role?: "primary" | "mirror";
+      muted?: boolean;
+      closed?: boolean;
+      revoked?: boolean;
+      reportMode?: "none";
+      threadId?: string;
+    } = {},
+  ) => {
     const id = crypto.randomUUID();
-    await db.insert(slackInstallations).values({
+    await db.insert(sessionLinks).values({
       id,
       workspaceId,
-      appId,
-      teamId: "T2",
-      status: "verified",
-      botUserId: "UBOT2",
-      verifiedAt: NOW,
-    });
-    await db.insert(linkedAccounts).values({
-      id: crypto.randomUUID(),
-      workspaceId,
-      userId: who.userId,
-      provider: "slack",
-      externalTenant: "T2",
-      externalUserId: who.slackUserId,
-      status: "active",
-      verifiedVia: "slack_oidc",
-      verifiedAt: NOW,
+      ownerId: "owner-model-cut",
+      sessionId,
+      installationId,
+      surfaceBindingId: crypto.randomUUID(),
+      surfaceRef: `slack:T1:${CHANNEL}:${flags.threadId ?? THREAD}`,
+      channelId: CHANNEL,
+      threadId: flags.threadId ?? THREAD,
+      openedByTs: flags.threadId ?? THREAD,
+      agentId,
+      releaseId,
+      role: flags.role ?? "primary",
+      muted: flags.muted ?? false,
+      ...(flags.reportMode === undefined
+        ? {}
+        : { reportMode: flags.reportMode }),
+      createdBy: startedBy?.userId ?? null,
+      ...(flags.closed
+        ? { closedAt: NOW, closedReason: "completed" as const }
+        : {}),
+      ...(flags.revoked ? { revokedAt: NOW } : {}),
     });
     return id;
   };
@@ -223,190 +225,133 @@ async function world(options: { installation?: "verified" | "pending" } = {}) {
     teamId,
     installationId,
     person,
-    inTeam,
     startSession,
-    secondInstallation,
+    thread,
     outbox,
   };
 }
 
+/** The rows written, as the thread reads them. */
+const posts = (rows: (typeof slackOutbox.$inferSelect)[]) =>
+  rows.map((row) => ({
+    kind: row.kind,
+    channelId: row.channelId,
+    threadTs: row.threadTs,
+    sessionLinkId: row.sessionLinkId,
+    slackUserId: row.slackUserId,
+  }));
+
+const errorEvents = (sessionId: string) =>
+  db
+    .select({ payload: events.payload })
+    .from(events)
+    .where(eq(events.sessionId, sessionId))
+    .then((rows) =>
+      rows
+        .map(({ payload }) => payload as Record<string, unknown>)
+        .filter(({ code }) => code === "MODEL_NOT_ALLOWED"),
+    );
+
 describe("enqueueModelCutNotices", () => {
-  test("tells the creator and each administrator once, as direct messages", async () => {
+  test("tells the session's thread once, in the language of whoever started it, and no person directly", async () => {
     const w = await world();
-    const creator = await w.person("creator", { locale: "en" });
-    const direct = await w.person("direct", { locale: "ja" });
-    const lead = await w.person("lead");
-    const viaTeam = await w.person("viateam");
-    const plainMember = await w.person("plain");
-    const outsider = await w.person("outsider");
-    await w.inTeam(w.teamId, lead, "lead");
-    await w.inTeam(w.teamId, plainMember, "member");
-    const adminTeam = crypto.randomUUID();
-    await db
-      .insert(memberTeams)
-      .values({ id: adminTeam, workspaceId: w.workspaceId, name: "admins" });
-    await w.inTeam(adminTeam, viaTeam, "member");
-    await db.insert(agentAdminTeams).values({
-      workspaceId: w.workspaceId,
-      agentId: w.agentId,
-      teamId: adminTeam,
-    });
-    await db.insert(agentAdmins).values({
-      workspaceId: w.workspaceId,
-      agentId: w.agentId,
-      userId: direct.userId,
-    });
-    await w.startSession(creator);
-
-    expect(
-      await enqueueModelCutNotices(db, {
-        sessionId: w.sessionId,
-        model: "claude-opus-5-5",
-      }),
-    ).toBe(4);
-
-    const rows = await w.outbox();
-    expect(rows.map((row) => row.channelId).sort()).toEqual(
-      [creator, direct, lead, viaTeam].map((p) => p.slackUserId).sort(),
-    );
-    expect(rows.map((row) => row.channelId)).not.toContain(
-      plainMember.slackUserId,
-    );
-    expect(rows.map((row) => row.channelId)).not.toContain(
-      outsider.slackUserId,
-    );
-    for (const row of rows) {
-      expect(row.kind).toBe("model_notice");
-      expect(row.threadTs).toBe("");
-      expect(row.slackUserId).toBeNull();
-      expect(row.sessionId).toBe(w.sessionId);
-      expect(row.installationId).toBe(w.installationId);
-      expect(row.agentId).toBe(w.agentId);
-      expect(row.body.text).toContain("claude-opus-5-5");
-      expect(row.dedupeKey).toBe(
-        `model-not-allowed:${w.workspaceId}:${w.sessionId}:${w.installationId}:${row.channelId}`,
-      );
-    }
-    const textOf = (who: Person) =>
-      rows.find((row) => row.channelId === who.slackUserId)?.body.text;
-    expect(textOf(creator)).toStartWith("The session stopped.");
-    expect(textOf(direct)).toStartWith("セッションが止まりました。");
-    // No locale on the account reads English.
-    expect(textOf(lead)).toStartWith("The session stopped.");
-  });
-
-  test("a second cut of the session, or a later administrator, adds nothing for the told", async () => {
-    const w = await world();
-    const creator = await w.person("creator");
-    await w.startSession(creator);
-    const cut = { sessionId: w.sessionId, model: "claude-opus-5-5" };
-    expect(await enqueueModelCutNotices(db, cut)).toBe(1);
-    expect(await enqueueModelCutNotices(db, cut)).toBe(0);
-    const late = await w.person("late");
-    await db.insert(agentAdmins).values({
-      workspaceId: w.workspaceId,
-      agentId: w.agentId,
-      userId: late.userId,
-    });
-    // The new administrator was not told at the first cut, and is now.
-    expect(await enqueueModelCutNotices(db, cut)).toBe(1);
-    expect(await w.outbox()).toHaveLength(2);
-  });
-
-  test("the same Slack user id in two of the agent's installations gets a DM in each", async () => {
-    const w = await world();
-    const creator = await w.person("creator");
-    const second = await w.secondInstallation(creator);
-    await w.startSession(creator);
-    const cut = { sessionId: w.sessionId, model: "claude-opus-5-5" };
-    expect(await enqueueModelCutNotices(db, cut)).toBe(2);
-    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
-      [w.installationId, second].sort(),
-    );
-    expect(await enqueueModelCutNotices(db, cut)).toBe(0);
-  });
-
-  test("an installation told under the key from before installations is not told again; the one it crowded out is", async () => {
-    const w = await world();
-    const creator = await w.person("creator");
-    await w.startSession(creator);
-    const cut = { sessionId: w.sessionId, model: "claude-opus-5-5" };
-    expect(await enqueueModelCutNotices(db, cut)).toBe(1);
-    // What a cut before the change left: the same row under the old key.
-    await db
-      .update(slackOutbox)
-      .set({
-        dedupeKey: `model-not-allowed:${w.workspaceId}:${w.sessionId}:${creator.slackUserId}`,
-      })
-      .where(eq(slackOutbox.sessionId, w.sessionId));
-    const second = await w.secondInstallation(creator);
-    expect(await enqueueModelCutNotices(db, cut)).toBe(1);
-    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
-      [w.installationId, second].sort(),
-    );
-  });
-
-  test("passes over disabled members, revoked or missing links and other Slack teams", async () => {
-    const w = await world();
-    const creator = await w.person("creator", { disabled: true });
-    const revoked = await w.person("revoked", { link: "revoked" });
-    const unlinked = await w.person("unlinked", { link: "none" });
-    const elsewhere = await w.person("elsewhere", { tenant: "T2" });
-    for (const who of [revoked, unlinked, elsewhere]) {
-      await db.insert(agentAdmins).values({
-        workspaceId: w.workspaceId,
-        agentId: w.agentId,
-        userId: who.userId,
-      });
-    }
-    await w.startSession(creator);
-    expect(
-      await enqueueModelCutNotices(db, {
-        sessionId: w.sessionId,
-        model: "claude-opus-5-5",
-      }),
-    ).toBe(0);
-    expect(await w.outbox()).toEqual([]);
-  });
-
-  test("writes nothing without a verified installation of the agent's app", async () => {
-    const w = await world({ installation: "pending" });
-    const creator = await w.person("creator");
-    await w.startSession(creator);
-    expect(
-      await enqueueModelCutNotices(db, {
-        sessionId: w.sessionId,
-        model: "claude-opus-5-5",
-      }),
-    ).toBe(0);
-  });
-
-  test("a session without a creator tells the administrators only", async () => {
-    const w = await world();
-    const admin = await w.person("admin");
-    // Linked and enabled, but neither creator nor administrator.
-    await w.person("bystander");
+    const creator = await w.person("creator", { locale: "ja" });
+    const admin = await w.person("admin", { locale: "en" });
     await db.insert(agentAdmins).values({
       workspaceId: w.workspaceId,
       agentId: w.agentId,
       userId: admin.userId,
     });
-    await w.startSession(null);
+    await w.startSession(creator);
+    const link = await w.thread(creator);
+
     expect(
       await enqueueModelCutNotices(db, {
         sessionId: w.sessionId,
         model: "claude-opus-5-5",
       }),
     ).toBe(1);
-    expect((await w.outbox()).map((row) => row.channelId)).toEqual([
-      admin.slackUserId,
+
+    const rows = await w.outbox();
+    expect(posts(rows)).toEqual([
+      {
+        kind: "model_notice",
+        channelId: CHANNEL,
+        threadTs: THREAD,
+        sessionLinkId: link,
+        slackUserId: null,
+      },
     ]);
+    const [row] = rows;
+    expect(row?.sessionId).toBe(w.sessionId);
+    expect(row?.installationId).toBe(w.installationId);
+    expect(row?.agentId).toBe(w.agentId);
+    expect(row?.body.text).toStartWith("セッションが止まりました。");
+    expect(row?.body.text).toContain("claude-opus-5-5");
+    expect(row?.body.locale).toBe("ja");
+    expect(row?.dedupeKey).toBe(
+      `model-not-allowed:${w.workspaceId}:${w.sessionId}:${link}`,
+    );
   });
 
-  test("the cut's error event and its notices are written by the same call, once per person across attempts", async () => {
+  test("a thread that is muted, silent, closed, revoked or only a mirror is no thread: nothing is written", async () => {
+    for (const [index, flags] of [
+      { muted: true },
+      { reportMode: "none" as const },
+      { closed: true },
+      { revoked: true },
+      { role: "mirror" as const },
+    ].entries()) {
+      const w = await world();
+      const creator = await w.person(`creator${index}`);
+      await w.startSession(creator);
+      await w.thread(creator, flags);
+      expect(
+        await enqueueModelCutNotices(db, {
+          sessionId: w.sessionId,
+          model: "claude-opus-5-5",
+        }),
+      ).toBe(0);
+      expect(await w.outbox()).toEqual([]);
+    }
+  });
+
+  test("a session with no thread is told on the web only: the cut's error event, no row", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "en" });
+    await w.startSession(creator);
+    await db.insert(attempts).values({
+      id: "att-1",
+      sessionId: w.sessionId,
+      executionId: "exec-att-1",
+      leaseEpoch: 1,
+      executionGeneration: 1,
+      authRevision: 1,
+      state: "running",
+      leaseExpiresAt: new Date("2030-01-01T00:00:00Z"),
+    });
+    expect(
+      await createPostgresWorkerUnitOfWork(db).recordModelCutAtomic({
+        sessionId: w.sessionId,
+        attemptId: "att-1",
+        model: "claude-opus-5-5",
+        cause: "model_removed",
+      }),
+    ).toEqual({ recorded: true });
+    expect(await errorEvents(w.sessionId)).toEqual([
+      expect.objectContaining({
+        model: "claude-opus-5-5",
+        cause: "model_removed",
+      }),
+    ]);
+    expect(await w.outbox()).toEqual([]);
+  });
+
+  test("the cut's error event and its notice are written by the same call, once across attempts", async () => {
     const w = await world();
     const creator = await w.person("creator");
     await w.startSession(creator);
+    await w.thread(creator);
     const attempt = async (id: string) =>
       db.insert(attempts).values({
         id,
@@ -432,21 +377,17 @@ describe("enqueueModelCutNotices", () => {
     // The proxy refuses every exchange of the attempt; only the first writes.
     expect(await cut("att-1")).toEqual({ recorded: false });
     expect(await w.outbox()).toHaveLength(1);
-    // A later attempt cut for the same reason adds an event, not a second DM.
+    // A later attempt cut for the same reason adds an event, not a second post.
     expect(await cut("att-2")).toEqual({ recorded: true });
     expect(await w.outbox()).toHaveLength(1);
-    expect(
-      await db
-        .select({ attemptId: events.attemptId })
-        .from(events)
-        .where(eq(events.type, "error")),
-    ).toHaveLength(2);
+    expect(await errorEvents(w.sessionId)).toHaveLength(2);
   });
 
   test("a call for an attempt the session does not have writes no notice", async () => {
     const w = await world();
     const creator = await w.person("creator");
     await w.startSession(creator);
+    await w.thread(creator);
     expect(
       await createPostgresWorkerUnitOfWork(db).recordModelCutAtomic({
         sessionId: w.sessionId,
@@ -458,10 +399,11 @@ describe("enqueueModelCutNotices", () => {
     expect(await w.outbox()).toEqual([]);
   });
 
-  test("a connection that is gone says so in the event and the DM, still naming the model", async () => {
+  test("a connection that is gone says so in the event and the post, still naming the model", async () => {
     const w = await world();
     const creator = await w.person("creator", { locale: "en" });
     await w.startSession(creator);
+    await w.thread(creator);
     await db.insert(attempts).values({
       id: "att-1",
       sessionId: w.sessionId,
@@ -478,38 +420,16 @@ describe("enqueueModelCutNotices", () => {
       model: "claude-opus-5-5",
       cause: "connection_removed",
     });
-    const [event] = await db
-      .select({ payload: events.payload })
-      .from(events)
-      .where(eq(events.type, "error"));
-    expect(event?.payload).toMatchObject({
-      code: "MODEL_NOT_ALLOWED",
-      model: "claude-opus-5-5",
-      cause: "connection_removed",
-    });
-    const [dm] = await w.outbox();
-    expect(dm?.body).toMatchObject({
+    expect(await errorEvents(w.sessionId)).toEqual([
+      expect.objectContaining({
+        model: "claude-opus-5-5",
+        cause: "connection_removed",
+      }),
+    ]);
+    const [post] = await w.outbox();
+    expect(post?.body).toMatchObject({
       text: expect.stringMatching(/claude-opus-5-5.* is gone/),
     });
-  });
-
-  test("a session from before workspaces and releases has nobody to tell", async () => {
-    const w = await world();
-    await w.person("creator");
-    await db.insert(sessions).values({
-      id: w.sessionId,
-      ownerId: "owner-legacy",
-      repoUrl: "https://github.com/acme/app.git",
-      branch: "main",
-      repositoryId: "app",
-      checkpointRevision: 1,
-    });
-    expect(
-      await enqueueModelCutNotices(db, {
-        sessionId: w.sessionId,
-        model: "claude-opus-5-5",
-      }),
-    ).toBe(0);
   });
 });
 
@@ -527,33 +447,33 @@ describe("a session held as runtime_retired", () => {
       now: NOW,
     });
 
-  test("tells only its creator, in their language, linked to the session", async () => {
+  test("tells its thread, in the language of whoever started it", async () => {
     const w = await world();
     const creator = await w.person("creator", { locale: "ja" });
-    const admin = await w.person("admin");
-    await db.insert(agentAdmins).values({
-      workspaceId: w.workspaceId,
-      agentId: w.agentId,
-      userId: admin.userId,
-    });
     await w.startSession(creator);
+    const link = await w.thread(creator);
 
     expect(await hold(w.sessionId, "runtime_retired")).toBe("held");
 
     const rows = await w.outbox();
-    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
-    const [row] = rows;
-    expect(row?.kind).toBe("model_notice");
-    expect(row?.threadTs).toBe("");
-    expect(row?.sessionId).toBe(w.sessionId);
-    expect(row?.body.text).toContain("worker イメージが撤回され");
-    expect(row?.body.locale).toBe("ja");
+    expect(posts(rows)).toEqual([
+      {
+        kind: "model_notice",
+        channelId: CHANNEL,
+        threadTs: THREAD,
+        sessionLinkId: link,
+        slackUserId: null,
+      },
+    ]);
+    expect(rows[0]?.body.text).toContain("worker イメージが撤回され");
+    expect(rows[0]?.body.locale).toBe("ja");
   });
 
   test("an incompatible checkpoint, or a hold that finds the session moved on, tells nobody", async () => {
     const w = await world();
     const creator = await w.person("creator");
     await w.startSession(creator);
+    await w.thread(creator);
     // Judged on a checkpoint the session has moved past: stale.
     expect(await hold(w.sessionId, "runtime_retired", 2)).toBe("stale");
     expect(await hold(w.sessionId, "incompatible_checkpoint")).toBe("held");
@@ -562,10 +482,11 @@ describe("a session held as runtime_retired", () => {
     expect(await w.outbox()).toEqual([]);
   });
 
-  test("held again on the same checkpoint after retry_restore tells nobody new; a later checkpoint tells again", async () => {
+  test("held again on the same checkpoint after retry_restore tells nothing new; a later checkpoint tells again", async () => {
     const w = await world();
     const creator = await w.person("creator");
     await w.startSession(creator);
+    await w.thread(creator);
     // What retry_restore leaves: the session launchable on its checkpoint.
     const retried = (checkpointRevision: number) =>
       db
@@ -587,20 +508,17 @@ describe("a session held as runtime_retired", () => {
     expect(await w.outbox()).toHaveLength(2);
   });
 
-  test("the same Slack user id in two of the agent's installations gets a DM in each", async () => {
+  test("a session with no thread is held, its stop on the web, and no row is written", async () => {
     const w = await world();
     const creator = await w.person("creator");
-    const second = await w.secondInstallation(creator);
     await w.startSession(creator);
-    expect(
-      await enqueueRuntimeRetiredNotices(db, {
-        sessionId: w.sessionId,
-        checkpointRevision: 1,
-      }),
-    ).toBe(2);
-    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
-      [w.installationId, second].sort(),
-    );
+    expect(await hold(w.sessionId, "runtime_retired")).toBe("held");
+    const [session] = await db
+      .select({ reason: sessions.restoreFailureReason })
+      .from(sessions)
+      .where(eq(sessions.id, w.sessionId));
+    expect(session?.reason).toBe("runtime_retired");
+    expect(await w.outbox()).toEqual([]);
   });
 });
 
@@ -657,16 +575,11 @@ describe("a launch that moves off a retracted worker image", () => {
       .onConflictDoNothing();
   };
 
-  test("records the move on the session and tells only its creator, in their language, linked to the session", async () => {
+  test("records the move on the session and tells its thread, in the language of whoever started it", async () => {
     const w = await world();
     const creator = await w.person("creator", { locale: "ko" });
-    const admin = await w.person("admin");
-    await db.insert(agentAdmins).values({
-      workspaceId: w.workspaceId,
-      agentId: w.agentId,
-      userId: admin.userId,
-    });
     await w.startSession(creator);
+    const link = await w.thread(creator);
     await signalled(w.sessionId);
     await launch(w.sessionId, RETRACTED);
     await signalled(w.sessionId);
@@ -682,20 +595,25 @@ describe("a launch that moves off a retracted worker image", () => {
       },
     ]);
     const rows = await w.outbox();
-    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
-    const [row] = rows;
-    expect(row?.kind).toBe("model_notice");
-    expect(row?.threadTs).toBe("");
-    expect(row?.sessionId).toBe(w.sessionId);
-    expect(row?.body.text).toContain("worker 이미지가 철회되어");
-    expect(row?.body.locale).toBe("ko");
-    expect(row?.dedupeKey).toContain(`:${moved.generation}:`);
+    expect(posts(rows)).toEqual([
+      {
+        kind: "model_notice",
+        channelId: CHANNEL,
+        threadTs: THREAD,
+        sessionLinkId: link,
+        slackUserId: null,
+      },
+    ]);
+    expect(rows[0]?.body.text).toContain("worker 이미지가 철회되어");
+    expect(rows[0]?.body.locale).toBe("ko");
+    expect(rows[0]?.dedupeKey).toContain(`:${moved.generation}:`);
   });
 
   test("a launch that is no move off a retracted image records and tells nothing", async () => {
     const w = await world();
     const creator = await w.person("creator");
     await w.startSession(creator);
+    await w.thread(creator);
     // The first launch has no earlier image to move off.
     await signalled(w.sessionId);
     await launch(w.sessionId, RETRACTED, [RETRACTED]);
@@ -720,6 +638,7 @@ describe("a launch that moves off a retracted worker image", () => {
     const w = await world();
     const creator = await w.person("creator");
     await w.startSession(creator);
+    await w.thread(creator);
     await signalled(w.sessionId);
     await launch(w.sessionId, `registry-a.invalid/worker@${digest}`);
     // Mirrored: the same image, pulled from another registry, moved nowhere.
@@ -740,7 +659,7 @@ describe("a launch that moves off a retracted worker image", () => {
     expect(await w.outbox()).toHaveLength(1);
   });
 
-  test("a session without a creator still records the move and tells nobody", async () => {
+  test("a session with no thread still records the move and writes no row", async () => {
     const w = await world();
     await w.startSession(null);
     await signalled(w.sessionId);
@@ -756,16 +675,11 @@ describe("a launch that moves off a retracted worker image", () => {
 describe("enqueueSessionModelMoveNotices", () => {
   const move = { from: "claude-sonnet-5", to: "claude-sonnet-5-1" };
 
-  test("tells only the session's creator, in their language, linked to the session", async () => {
+  test("tells the session's thread, in the language of whoever started it", async () => {
     const w = await world();
     const creator = await w.person("creator", { locale: "ko" });
-    const admin = await w.person("admin");
-    await db.insert(agentAdmins).values({
-      workspaceId: w.workspaceId,
-      agentId: w.agentId,
-      userId: admin.userId,
-    });
     await w.startSession(creator);
+    const link = await w.thread(creator);
 
     expect(
       await enqueueSessionModelMoveNotices(db, {
@@ -775,19 +689,24 @@ describe("enqueueSessionModelMoveNotices", () => {
     ).toBe(1);
 
     const rows = await w.outbox();
-    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
-    const [row] = rows;
-    expect(row?.kind).toBe("model_notice");
-    expect(row?.threadTs).toBe("");
-    expect(row?.sessionId).toBe(w.sessionId);
-    expect(row?.body.text).toContain("claude-sonnet-5-1(으)로 옮겼어요");
-    expect(row?.body.locale).toBe("ko");
+    expect(posts(rows)).toEqual([
+      {
+        kind: "model_notice",
+        channelId: CHANNEL,
+        threadTs: THREAD,
+        sessionLinkId: link,
+        slackUserId: null,
+      },
+    ]);
+    expect(rows[0]?.body.text).toContain("claude-sonnet-5-1(으)로 옮겼어요");
+    expect(rows[0]?.body.locale).toBe("ko");
   });
 
   test("one move tells once; a later move of the same session tells again", async () => {
     const w = await world();
     const creator = await w.person("creator", { locale: "en" });
     await w.startSession(creator);
+    await w.thread(creator);
     const moved = (to: string) =>
       enqueueSessionModelMoveNotices(db, {
         sessionId: w.sessionId,
@@ -799,43 +718,11 @@ describe("enqueueSessionModelMoveNotices", () => {
     expect(await moved("claude-sonnet-5-2")).toBe(1);
   });
 
-  test("the same Slack user id in two of the agent's installations gets a DM in each", async () => {
-    const w = await world();
-    const creator = await w.person("creator");
-    const second = await w.secondInstallation(creator);
-    await w.startSession(creator);
-    expect(
-      await enqueueSessionModelMoveNotices(db, {
-        sessionId: w.sessionId,
-        ...move,
-      }),
-    ).toBe(2);
-    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
-      [w.installationId, second].sort(),
-    );
-  });
-
-  test("a session without a creator tells nobody", async () => {
-    const w = await world();
-    const admin = await w.person("admin");
-    await db.insert(agentAdmins).values({
-      workspaceId: w.workspaceId,
-      agentId: w.agentId,
-      userId: admin.userId,
-    });
-    await w.startSession(null);
-    expect(
-      await enqueueSessionModelMoveNotices(db, {
-        sessionId: w.sessionId,
-        ...move,
-      }),
-    ).toBe(0);
-  });
-
-  test("the claim's move writes the timeline event and the creator's notice together", async () => {
+  test("the claim's move writes the timeline event and the thread's notice together", async () => {
     const w = await world();
     const creator = await w.person("creator", { locale: "en" });
     await w.startSession(creator);
+    await w.thread(creator);
     await db.insert(unassignedSessions).values({ sessionId: w.sessionId });
 
     expect(
@@ -862,14 +749,35 @@ describe("enqueueSessionModelMoveNotices", () => {
       expect.objectContaining({ subtype: "model_migrated", ...move }),
     );
     const rows = await w.outbox();
-    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
+    expect(rows.map((row) => row.channelId)).toEqual([CHANNEL]);
     expect(rows[0]?.body.text).toContain(`moved to ${move.to}`);
+  });
+
+  test("a session with no thread keeps the move on its timeline only", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    await db.insert(unassignedSessions).values({ sessionId: w.sessionId });
+    await moveSessionsToSuccessors(
+      db,
+      { partition: "default", sessionId: w.sessionId },
+      { modelMoves: [{ connectionId: TEST_CONNECTION_ID, ...move }], now: NOW },
+    );
+    const timeline = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, w.sessionId));
+    expect(timeline.map((row) => row.payload)).toContainEqual(
+      expect.objectContaining({ subtype: "model_migrated", ...move }),
+    );
+    expect(await w.outbox()).toEqual([]);
   });
 
   test("a claim that rolls back after the move leaves no notice behind", async () => {
     const w = await world();
     const creator = await w.person("creator", { locale: "en" });
     await w.startSession(creator);
+    await w.thread(creator);
     await db.insert(unassignedSessions).values({ sessionId: w.sessionId });
 
     const rolledBack = new Error("claim rolled back");
@@ -885,7 +793,7 @@ describe("enqueueSessionModelMoveNotices", () => {
         );
         expect(
           (await tx.select().from(slackOutbox)).map((row) => row.channelId),
-        ).toEqual([creator.slackUserId]);
+        ).toEqual([CHANNEL]);
         throw rolledBack;
       }),
     ).rejects.toBe(rolledBack);

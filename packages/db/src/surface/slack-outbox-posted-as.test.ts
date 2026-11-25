@@ -80,22 +80,17 @@ async function sessionTitled(
   return sessionId;
 }
 
-async function linkSession(sessionId: string, closed: boolean) {
+type Link = { id: string; threadTs: string };
+
+async function linkSession(sessionId: string, closed: boolean): Promise<Link> {
   const id = crypto.randomUUID();
+  const threadTs = `${Date.now()}.${id.slice(0, 6)}`;
   await client.query(
     `INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id, closed_at, closed_reason)
      VALUES ($1, $2, 'owner', $3, $4, $5, $6, 'C0ROOM', $6, $6, $7, 'release-1', ${closed ? "now(), 'completed'" : "NULL, NULL"})`,
-    [
-      id,
-      WORKSPACE,
-      sessionId,
-      INSTALL,
-      crypto.randomUUID(),
-      `${Date.now()}.${id.slice(0, 6)}`,
-      AGENT,
-    ],
+    [id, WORKSPACE, sessionId, INSTALL, crypto.randomUUID(), threadTs, AGENT],
   );
-  return id;
+  return { id, threadTs };
 }
 
 // The session's first turn came from a Slack message that Slack deleted.
@@ -129,25 +124,30 @@ async function markDeleted(ts: string) {
   );
 }
 
-// A model notice is sent whatever its link, so the claim reads only what is
-// under test; the link id alone is what makes the row a task's.
+// A session's row goes to its link's thread, a new open one unless given.
+// The link id on the row is what makes it a task's; a row without it (from
+// before the column) is one by its session's link, while that is open.
 async function claimedPostedAs(row: {
   sessionId: string | null;
   linked: boolean;
+  link?: Link;
 }) {
   await client.exec("DELETE FROM slack_outbox");
   const outbox = createPostgresSlackOutboxStore(db);
+  const link =
+    row.link ??
+    (row.sessionId === null ? null : await linkSession(row.sessionId, false));
   const entry: SurfaceOutboxEntry = {
     workspaceId: WORKSPACE,
     agentId: AGENT,
     slackAppId: crypto.randomUUID(),
     installationId: INSTALL,
     kind: "model_notice",
-    channelId: "U0PERSON",
-    threadTs: "",
+    channelId: "C0ROOM",
+    threadTs: link?.threadTs ?? "",
     slackUserId: null,
     sessionId: row.sessionId,
-    sessionLinkId: row.linked ? crypto.randomUUID() : null,
+    sessionLinkId: row.linked && link !== null ? link.id : null,
     body: { text: "Done." },
     dedupeKey: crypto.randomUUID(),
   };
@@ -270,15 +270,20 @@ describe(`beginning an outbox row's send on ${ENGINE}`, () => {
       agentName: "Payments Agent",
       taskTitle: "Fix the login",
     });
-    // A direct message of a task whose link closed since: no longer a task.
+    // A row from before the link column whose link closed since: no longer
+    // a task.
     const open = await sessionTitled("Fix the login");
-    const linkId = await linkSession(open, false);
-    const direct = await claimedPostedAs({ sessionId: open, linked: false });
+    const link = await linkSession(open, false);
+    const direct = await claimedPostedAs({
+      sessionId: open,
+      linked: false,
+      link,
+    });
     const [dm] = await direct.outbox.claim({ limit: 10, leaseMs: 30_000 });
     if (dm === undefined) throw new Error("no claim");
     await client.query(
       "UPDATE session_links SET closed_at = now(), closed_reason = 'completed' WHERE id = $1",
-      [linkId],
+      [link.id],
     );
     expect(await direct.outbox.beginSend(dm)).toEqual({
       agentName: "Payments Agent",
@@ -286,17 +291,19 @@ describe(`beginning an outbox row's send on ${ENGINE}`, () => {
     });
   });
 
-  test("names the task on a row sent outside its thread while its link is open", async () => {
+  test("names the task on a row from before the link column while its link is open", async () => {
     const open = await sessionTitled("Fix the login");
-    await linkSession(open, false);
     const direct = await claimedPostedAs({ sessionId: open, linked: false });
     expect(await begunAs(direct.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: "Fix the login",
     });
     const closed = await sessionTitled("Done already");
-    await linkSession(closed, true);
-    const late = await claimedPostedAs({ sessionId: closed, linked: false });
+    const late = await claimedPostedAs({
+      sessionId: closed,
+      linked: false,
+      link: await linkSession(closed, true),
+    });
     expect(await begunAs(late.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: null,
@@ -309,14 +316,6 @@ describe(`beginning an outbox row's send on ${ENGINE}`, () => {
       linked: true,
     });
     expect(await begunAs(untitled.outbox)).toEqual({
-      agentName: "Payments Agent",
-      taskTitle: null,
-    });
-    const unlinked = await claimedPostedAs({
-      sessionId: await sessionTitled("Not a task"),
-      linked: false,
-    });
-    expect(await begunAs(unlinked.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: null,
     });
