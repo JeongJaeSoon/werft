@@ -1863,6 +1863,13 @@
       "when": 1795586367713,
       "tag": "0356_surface_binding_m1_cap",
       "breakpoints": true
+    },
+    {
+      "idx": 357,
+      "version": "7",
+      "when": 1795588637177,
+      "tag": "0357_slack_manifest_sync",
+      "breakpoints": true
     }
   ]
 }
