@@ -434,6 +434,55 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     ]);
   });
 
+  test("a row waits while another Slack team of the agent has not approved", async () => {
+    const agent = await listening();
+    await channel(agent);
+    const store = storeOf(V1);
+    await pass(V1);
+    // The app installed in a second team, not approved there yet: the switch
+    // stays raised until the reconciler lowers it.
+    counter += 1;
+    const secondTeam = `T0NOTICE${counter}`;
+    const installationId = randomUUID();
+    await db.insert(slackInstallations).values({
+      id: installationId,
+      workspaceId: agent.workspaceId,
+      appId: `A0SECOND${counter}`,
+      teamId: secondTeam,
+    });
+    await db.insert(agentIdentities).values({
+      id: randomUUID(),
+      workspaceId: agent.workspaceId,
+      agentId: agent.agentId,
+      provider: "slack_bot",
+      installationId,
+      externalPrincipalId: `U0BOT${counter}`,
+      credentialRef: `slack/bot-${counter}`,
+    });
+    await store.closeUnaddressed();
+    expect(await claimOf(store, agent.agentId)).toEqual([]);
+
+    await agent.approve(V1);
+    expect(await claimOf(store, agent.agentId)).toHaveLength(1);
+  });
+
+  test("a private channel the bot left and was let back into is told once, however often", async () => {
+    const agent = await listening();
+    const c = await channel(agent, { surfaceKind: "private_channel" });
+    const store = storeOf(V1);
+    for (let i = 0; i < SLACK_CHANNEL_NOTICE_ATTEMPTS + 2; i += 1) {
+      await pass(V1);
+      await c.set({ status: "left", membership: null });
+      await store.closeUnaddressed();
+      expect(await claimOf(store, agent.agentId)).toEqual([]);
+      await c.set({ status: "ready", membership: "joined" });
+    }
+    expect((await noticesOf(agent.agentId)).map((row) => row.status)).toEqual([
+      "pending",
+    ]);
+    expect(await claimOf(store, agent.agentId)).toHaveLength(1);
+  });
+
   /** Claims the agent's row and settles it failed with `code`. */
   async function failOnce(agentId: string, code: string) {
     const store = storeOf(V1);

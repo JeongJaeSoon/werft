@@ -10,9 +10,11 @@ import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 /**
- * How many rows one (agent, channel, version) may take: a row that failed
+ * How many rows one (agent, channel, version) may take. A row that failed
  * never reached Slack, so the channel was not told and the next pass tries
- * again under the next key, up to this many in all.
+ * again under the next key, up to this many in all. A row whose channel is
+ * not read for now is held instead, so only Slack's refusals and rows that
+ * can never go (a revoked install, a deleted app) count.
  */
 export const SLACK_CHANNEL_NOTICE_ATTEMPTS = 5;
 
@@ -40,18 +42,44 @@ const LISTENS_TO_EVERY_MESSAGE = sql`b.surface = 'slack' AND b.status = 'ready'
       AND c.team_id = i.team_id AND c.channel_id = b.external_surface_id
       AND c.channel_state <> 'active')`;
 
+type NoticeWindow = NonNullable<ReturnType<typeof slackNoticeWindow>>;
+
+// `judgeSlackNotice` for the agent of `b`: every Slack team of its live
+// installs has a live approval within the counted versions.
+const approvedUnder = (window: NoticeWindow) => sql`NOT EXISTS (
+  SELECT 1 FROM agent_identities ai2
+  JOIN slack_installations i2 ON i2.id = ai2.installation_id
+    AND i2.workspace_id = ai2.workspace_id
+  WHERE ai2.workspace_id = b.workspace_id
+    AND ai2.agent_id = b.agent_id AND ai2.status = 'active'
+    AND i2.status <> 'revoked'
+    AND NOT EXISTS (
+      SELECT 1 FROM slack_notice_approvals n
+      WHERE n.workspace_id = b.workspace_id
+        AND n.agent_id = b.agent_id
+        AND n.slack_team_id = i2.team_id
+        AND n.revoked_at IS NULL
+        AND n.notice_version BETWEEN ${window.oldestCounted}::int
+          AND ${window.current}::int))`;
+
 /**
  * Whether the channel of a `channel_notice` outbox row (alias `row`) is still
- * one its agent reads every message of. A row whose channel is not is held,
- * unsent, and goes once the channel is again: it was never told.
+ * one its agent reads every message of, under a counted approval. A row
+ * whose channel is not is held, unsent, and goes once the channel is again:
+ * it was never told.
  */
-export function channelNoticeListening(row: SQL): SQL {
+export function channelNoticeListening(
+  row: SQL,
+  versions: readonly SlackNoticeVersionEntry[] = SLACK_NOTICE_VERSIONS,
+): SQL {
+  const window = slackNoticeWindow(versions);
+  if (window === null) return sql`false`;
   return sql`EXISTS (
     SELECT 1 FROM ${LISTENING_FROM}
     WHERE b.agent_id = ${row}.agent_id
       AND b.installation_id = ${row}.installation_id
       AND b.external_surface_id = ${row}.channel_id
-      AND ${LISTENS_TO_EVERY_MESSAGE})`;
+      AND ${LISTENS_TO_EVERY_MESSAGE} AND ${approvedUnder(window)})`;
 }
 
 /**
@@ -109,22 +137,7 @@ export async function unnoticedSlackChannels(
             WHERE o.dedupe_key = ANY(${keys})
               AND (o.status <> 'failed' OR o.error_code = 'missing_ts')) AS told
         FROM ${LISTENING_FROM}
-        WHERE ${LISTENS_TO_EVERY_MESSAGE}
-          AND NOT EXISTS (
-            SELECT 1 FROM agent_identities ai2
-            JOIN slack_installations i2 ON i2.id = ai2.installation_id
-              AND i2.workspace_id = ai2.workspace_id
-            WHERE ai2.workspace_id = b.workspace_id
-              AND ai2.agent_id = b.agent_id AND ai2.status = 'active'
-              AND i2.status <> 'revoked'
-              AND NOT EXISTS (
-                SELECT 1 FROM slack_notice_approvals n
-                WHERE n.workspace_id = b.workspace_id
-                  AND n.agent_id = b.agent_id
-                  AND n.slack_team_id = i2.team_id
-                  AND n.revoked_at IS NULL
-                  AND n.notice_version BETWEEN ${window.oldestCounted}::int
-                    AND ${window.current}::int))
+        WHERE ${LISTENS_TO_EVERY_MESSAGE} AND ${approvedUnder(window)}
       ) due
       WHERE NOT due.told AND due.attempt < ${SLACK_CHANNEL_NOTICE_ATTEMPTS}::int
       ORDER BY due.created_at, due.id

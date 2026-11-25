@@ -225,7 +225,8 @@ const addressed = (
     SELECT 1 FROM slack_installations i
     WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
   )
-  AND ${channelNotWaiting(row)}
+  -- A channel notice waits on its channel instead: claim holds it.
+  AND (${row}.kind = 'channel_notice' OR ${channelNotWaiting(row)})
   AND (${row}.kind <> 'channel_notice' OR ${channelNoticeCurrent(row, noticeVersions)})
   AND (${row}.session_id IS NULL OR ${row}.kind = 'model_notice' OR EXISTS (
     SELECT 1 FROM session_links l
@@ -1786,7 +1787,7 @@ export function createPostgresSlackOutboxStore(
               AND ${addressed(db, sql.raw("c"), noticeVersions)}
               -- Held while its channel is not one the agent reads.
               AND (c.kind <> 'channel_notice'
-                OR ${channelNoticeListening(sql.raw("c"))})
+                OR ${channelNoticeListening(sql.raw("c"), noticeVersions)})
             ORDER BY c.seq
             LIMIT ${limit}
             FOR UPDATE OF c SKIP LOCKED
@@ -1866,7 +1867,7 @@ export function createPostgresSlackOutboxStore(
               // The marks' locks may have been waited for.
               sql`${t.leaseExpiresAt} > clock_timestamp()`,
               channelNotWaiting(sql.raw('"slack_outbox"')),
-              sql`(${t.kind} <> 'channel_notice' OR (${channelNoticeListening(sql.raw('"slack_outbox"'))} AND ${channelNoticeCurrent(sql.raw('"slack_outbox"'), noticeVersions)}))`,
+              sql`(${t.kind} <> 'channel_notice' OR (${channelNoticeListening(sql.raw('"slack_outbox"'), noticeVersions)} AND ${channelNoticeCurrent(sql.raw('"slack_outbox"'), noticeVersions)}))`,
             ),
           )
           .returning({ id: t.id });
