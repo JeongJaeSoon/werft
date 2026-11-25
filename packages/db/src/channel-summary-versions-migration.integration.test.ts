@@ -20,7 +20,7 @@ import { migrationsThrough } from "./testing/migrations-through.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-integration("0360 on a database that already has a channel summary", () => {
+integration("0362 on a database that already has a channel summary", () => {
   let database: TempDatabase;
   let pool: Pool;
   let before: string;
@@ -36,10 +36,10 @@ integration("0360 on a database that already has a channel summary", () => {
       prefix: "summary_versions_migration",
     });
     pool = new Pool({ connectionString: database.url, max: 2 });
-    before = migrationsThrough("0360_channel_summary_writes", {
+    before = migrationsThrough("0362_channel_summary_writes", {
       exclusive: true,
     });
-    through = migrationsThrough("0360_channel_summary_writes");
+    through = migrationsThrough("0362_channel_summary_writes");
     await migrate(drizzle(pool), { migrationsFolder: before });
     await pool.query(
       "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'ws')",
