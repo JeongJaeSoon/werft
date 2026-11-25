@@ -14,6 +14,7 @@ import {
   type SlackPushRequesterLeft,
   settleSlackCards,
 } from "./slack-card-settle.ts";
+import { enqueueSlackChannelNotices } from "./slack-channel-notice.ts";
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import {
@@ -174,6 +175,7 @@ export async function drainSlackOutbox(deps: {
       case "input_mirror":
       case "reply":
       case "welcome":
+      case "channel_notice":
         return deps.delivery.direct(input);
     }
   };
@@ -231,6 +233,10 @@ export async function drainSlackOutbox(deps: {
   drain.enqueued += await enqueueSlackPrompts({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,
+    limit: deps.batchSize,
+  });
+  drain.enqueued += await enqueueSlackChannelNotices({
+    outbox: deps.outbox,
     limit: deps.batchSize,
   });
   // After the enqueues, so a link closes only past its last report's row;
