@@ -89,6 +89,36 @@ export function useSlackJudgments(agentId: string, enabled: boolean) {
   });
 }
 
+/**
+ * GitHub's head of the active release's repository branch, read when the
+ * tab opens: never on a timer, a focus, a reconnect or a Slack refresh. Keyed
+ * by the release, so a new release never shows the last one's comparison.
+ */
+export function useSlackInstructionsHead(
+  agentId: string,
+  releaseId: string | null,
+  enabled: boolean,
+) {
+  const { client } = useWerft();
+  return useQuery({
+    enabled: enabled && releaseId !== null,
+    queryKey: [
+      ...queryKeysOf(client).agent(agentId),
+      "instructions-head",
+      releaseId,
+    ],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack/instructions-head", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+  });
+}
+
 /** Channel names for the IDs, at most 50 per read. */
 export function useSlackChannelNames(agentId: string, ids: readonly string[]) {
   const { client } = useWerft();

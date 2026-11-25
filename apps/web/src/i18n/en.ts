@@ -273,6 +273,8 @@ export const slackEn = {
     "M1 instructions: release {release}, commit {commit}",
   "slack.judgments.instructionsAbsent":
     "M1 instructions: release {release}, commit {commit} has no instruction file, so judgments use the fixed criteria only.",
+  "slack.judgments.instructionsNewer":
+    "The repository has newer instructions. A new release picks them up.",
   "slack.judgments.reason.not_for_agent": "Not for the agent",
   "slack.judgments.reason.human_conversation": "People talking",
   "slack.judgments.reason.already_handled": "Already handled",
