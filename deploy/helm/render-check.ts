@@ -1132,6 +1132,84 @@ function checkMetrics(
 const componentOf = (m: Manifest) =>
   m.metadata.labels?.["app.kubernetes.io/component"];
 
+/**
+ * The api's own /metrics renders only when api.metrics is on: METRICS_PORT
+ * and a `metrics` container port on the api, a ClusterIP Service of its own,
+ * and a NetworkPolicy rule for that port alone. The public and /internal
+ * Services never carry it.
+ */
+function checkApiMetrics(
+  label: string,
+  manifests: Manifest[],
+  enabled: boolean,
+  networkPolicy: boolean,
+): string[] {
+  const errors: string[] = [];
+  const port = 9464;
+  const isApi = (m: Manifest) =>
+    m.metadata.labels?.["app.kubernetes.io/component"] === "api";
+  const api = manifests.find((m) => m.kind === "Deployment" && isApi(m));
+  const container = api
+    ? podSpecOf(api).containers.find((c: { name: string }) => c.name === "api")
+    : undefined;
+  const env = (container?.env ?? []).find(
+    (v: EnvVar) => v.name === "METRICS_PORT",
+  );
+  const containerPort = (container?.ports ?? []).find(
+    (p: { name?: string }) => p.name === "metrics",
+  );
+  if (enabled !== (env?.value === String(port))) {
+    errors.push(`${label}: api METRICS_PORT is ${JSON.stringify(env?.value)}`);
+  }
+  if (enabled !== (containerPort?.containerPort === port)) {
+    errors.push(`${label}: api metrics container port is wrong`);
+  }
+  const metricsServices = manifests.filter(
+    (m) =>
+      m.kind === "Service" &&
+      isApi(m) &&
+      m.spec.ports.some((p: Port) => p.port === port),
+  );
+  if (metricsServices.length !== (enabled ? 1 : 0)) {
+    errors.push(
+      `${label}: expected ${enabled ? 1 : 0} api Service carrying ${port}, got ${metricsServices.length}`,
+    );
+  }
+  for (const service of metricsServices) {
+    if (
+      !service.metadata.name.endsWith("-api-metrics") ||
+      service.spec.type !== "ClusterIP" ||
+      service.spec.ports.length !== 1
+    ) {
+      errors.push(
+        `${label}: Service/${service.metadata.name} must be the ClusterIP -api-metrics Service with ${port} alone`,
+      );
+    }
+  }
+  const policy = manifests.find(
+    (m) =>
+      m.kind === "NetworkPolicy" &&
+      m.spec.podSelector?.matchLabels?.["app.kubernetes.io/component"] ===
+        "api",
+  );
+  const rules = (policy?.spec.ingress ?? []).filter((rule: PolicyRule) =>
+    rule.ports?.some((p) => p.port === port),
+  );
+  if (rules.length !== (enabled && networkPolicy ? 1 : 0)) {
+    errors.push(
+      `${label}: api NetworkPolicy has ${rules.length} rules for ${port}`,
+    );
+  }
+  for (const rule of rules) {
+    if (rule.ports?.length !== 1) {
+      errors.push(
+        `${label}: api NetworkPolicy rule for ${port} admits other ports`,
+      );
+    }
+  }
+  return errors;
+}
+
 // The upgrade check gates the migration, so it must run first, on upgrades
 // only, once, and see nothing but the database and the release's own values.
 function checkUpgradeHook(
@@ -2182,6 +2260,26 @@ errors.push(
     false,
   ),
   ...checkMetrics("aws example, metrics on", metricsOnAws, true, true),
+  ...checkApiMetrics("default", render(["-f", ciDigests]), false, true),
+  ...checkApiMetrics(
+    "api metrics on",
+    render(["-f", ciDigests, "--set", "api.metrics.enabled=true"]),
+    true,
+    true,
+  ),
+  ...checkApiMetrics(
+    "api metrics on, no network policy",
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "api.metrics.enabled=true",
+      "--set",
+      "networkPolicy.enabled=false",
+    ]),
+    true,
+    false,
+  ),
 );
 const CURRENT_RUNTIME = {
   engine: "claude",
