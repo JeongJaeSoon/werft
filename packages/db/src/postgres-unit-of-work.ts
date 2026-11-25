@@ -848,8 +848,17 @@ export function createPostgresSessionUnitOfWork(
         actor: receiptActorOf(input.principal),
         requestId: input.principal.requestId ?? null,
         operation: APPEND_MESSAGE,
-        resource: sessionId,
-        key: input.idempotencyKey,
+        // A continuation is one request per lost turn, whoever asks and
+        // with whatever key: the turn is the key, in a scope of its own
+        // that no key a caller sends for a message can name.
+        resource:
+          input.continueTurn === undefined
+            ? sessionId
+            : `${sessionId}:continue`,
+        key:
+          input.continueTurn === undefined
+            ? input.idempotencyKey
+            : String(input.continueTurn),
       };
       return db.transaction(async (tx) => {
         await lockIdempotencyScope(tx, scope);

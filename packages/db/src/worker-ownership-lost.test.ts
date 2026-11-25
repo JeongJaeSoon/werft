@@ -478,8 +478,8 @@ describe("going on from a lost turn", () => {
     createPostgresSessionUnitOfWork(db).appendInputAtomic({
       principal: { ...OWNER, requestId: crypto.randomUUID() },
       sessionId,
-      // What the session service sends for the turn, whoever asks.
-      idempotencyKey: `continue:${turnId}`,
+      // Whatever key comes with it: the store keys a continuation by its turn.
+      idempotencyKey: crypto.randomUUID(),
       payloadHash: `continue:${turnId}`,
       message: "",
       continueTurn: turnId,
@@ -520,6 +520,34 @@ describe("going on from a lost turn", () => {
     ]);
     expect(after.signalled).toBe(true);
     expect(after.session.admission).toBe("active");
+  });
+
+  test("a message that was sent under the key a continuation is named by does not stand in its way", async () => {
+    const worker = await runningTurn();
+    const sent = await createPostgresSessionUnitOfWork(db).appendInputAtomic({
+      principal: OWNER,
+      sessionId: worker.sessionId,
+      idempotencyKey: "continue:1",
+      payloadHash: "a message of the caller's own",
+      message: "second input",
+      limits: LIMITS,
+    });
+    expect(sent.outcome).toBe("accepted");
+    await leaseEndsIn(worker.attemptId, -1_000);
+    await seenGone(worker.executionId, WORKER_LEASE_LOST_END_REASON);
+
+    expect((await goOn(worker.sessionId, 1)).outcome).toBe("accepted");
+    expect((await goOn(worker.sessionId, 1)).outcome).toBe("replayed");
+    const rows = await db
+      .select({ sequence: turns.sequence, message: turns.message })
+      .from(turns)
+      .where(eq(turns.sessionId, worker.sessionId))
+      .orderBy(asc(turns.sequence));
+    expect(rows).toEqual([
+      { sequence: 1, message: "first input" },
+      { sequence: 2, message: "second input" },
+      { sequence: 3, message: "first input" },
+    ]);
   });
 
   test("a turn that did not end as a lost one has nothing to go on from", async () => {

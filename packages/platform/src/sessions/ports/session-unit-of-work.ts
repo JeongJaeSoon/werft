@@ -201,7 +201,9 @@ export type AppendMessageInput = {
    * The public id of a turn of this session that its worker's lost lease
    * ended (`WORKER_OWNERSHIP_LOST_REASON`): the new turn takes that turn's
    * input, read from the turn, and `message` is not used. `not_found` for
-   * any other turn. The caller is judged as for any input of their own.
+   * any other turn. The caller is judged as for any input of their own. The
+   * turn is the request's key, apart from every key sent for a message, so
+   * `idempotencyKey` is not used either: one lost turn, one continuation.
    */
   continueTurn?: number;
 };

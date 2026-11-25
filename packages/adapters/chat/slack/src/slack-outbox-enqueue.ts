@@ -260,7 +260,13 @@ export async function enqueueSlackTurnAnswers(deps: {
   for (const turn of turns) {
     const link_url = sessionUrl(deps.consoleOrigin, turn.sessionId);
     const locale = turn.locale ?? DEFAULT_USER_LOCALE;
-    const refusal = turn.state === "completed" ? null : turn.budgetRefusal;
+    // How the turn ended decides its notice: one its worker's lost lease
+    // ended says so, whatever was refused before the lease went.
+    const ownershipLost =
+      turn.state === "failed" &&
+      turn.terminalReason === WORKER_OWNERSHIP_LOST_REASON;
+    const refusal =
+      turn.state === "completed" || ownershipLost ? null : turn.budgetRefusal;
     // A budget account's later refusal goes to the person who asked alone;
     // the first, and every one in a direct message, to the thread.
     const alone =
@@ -272,17 +278,14 @@ export async function enqueueSlackTurnAnswers(deps: {
         : null;
     // A turn its worker's lost lease ended says so in place of "try again",
     // with the button that goes on from it; nothing runs it again by itself.
-    const lost =
-      turn.state === "failed" &&
-      refusal == null &&
-      turn.terminalReason === WORKER_OWNERSHIP_LOST_REASON
-        ? slackOwnershipLostNotice({
-            locale,
-            sessionId: turn.sessionId,
-            turnId: turn.turnId,
-            ...(link_url === undefined ? {} : { linkUrl: link_url }),
-          })
-        : null;
+    const lost = ownershipLost
+      ? slackOwnershipLostNotice({
+          locale,
+          sessionId: turn.sessionId,
+          turnId: turn.turnId,
+          ...(link_url === undefined ? {} : { linkUrl: link_url }),
+        })
+      : null;
     const text =
       turn.state === "completed"
         ? finalReplyText(turn.events) ||

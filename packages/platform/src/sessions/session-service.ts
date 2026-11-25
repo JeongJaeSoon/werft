@@ -1228,7 +1228,8 @@ export function createSessionService(deps: {
       const result = await inputs.appendInputAtomic({
         principal: actor,
         sessionId,
-        // The turn alone, so every press of its button is one request.
+        // The store keys a continuation by its turn, apart from messages;
+        // this names the same turn for the receipt's reader.
         idempotencyKey: `continue:${input.turnId}`,
         payloadHash: payloadHash({ continue_turn: input.turnId }),
         message: "",

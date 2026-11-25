@@ -81,15 +81,20 @@ test("a turn its worker's lost lease ended is told as the turn's one failure not
   expect(plain?.body.blocks).toBeUndefined();
 });
 
-test("a budget account's refusal of the same turn still says whose limit", async () => {
+test("how the turn ended decides its notice: a budget refusal recorded before the lease went does not take the button away", async () => {
+  // A later refusal would go to the person who asked alone; this does not.
   const [row] = await rowsFor([
     turn(3, {
       terminalReason: WORKER_OWNERSHIP_LOST_REASON,
-      budgetRefusal: { owner: "user", first: true },
+      budgetRefusal: { owner: "user", first: false },
     }),
   ]);
-  expect(row?.body.text).toBe(SLACK_NOTICE_MESSAGES.ko.budgetAccountUser);
-  expect(row?.body.blocks).toBeUndefined();
+  expect(row?.kind).toBe("failure_notice");
+  expect(row?.slackUserId).toBeNull();
+  expect(row?.body.text).toBe(SLACK_NOTICE_MESSAGES.ko.ownershipLost);
+  expect(buttons(row?.body.blocks)[0]?.action_id).toBe(
+    SLACK_INTERACTION_ACTIONS.turnContinue,
+  );
 });
 
 test("once someone pressed, the notice keeps its words and link and has no button to press", () => {
