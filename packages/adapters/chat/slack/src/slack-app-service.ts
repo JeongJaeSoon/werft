@@ -1109,10 +1109,11 @@ export function createSlackAppService(deps: {
     if (secrets === undefined) return;
     try {
       const { apps } = ready();
-      // A token stored after this read (a new install) moves updated_at, and
-      // the scopes read with the old token are dropped.
+      // A token stored after this read (a new install) has a new version, and
+      // the scopes read with the old one are dropped.
       const before = await apps.find(workspaceId, slackAppId);
-      if (before?.state !== "created") return;
+      const tokenVersion = before?.secrets.slack_bot_token?.secretVersion;
+      if (before?.state !== "created" || tokenVersion === undefined) return;
       if (options.onlyUnknown && (before.botScopes ?? null) !== null) return;
       const botToken = await secrets.get({
         workspaceId,
@@ -1122,12 +1123,7 @@ export function createSlackAppService(deps: {
       if (botToken === null) return;
       const scopes = await api.botScopes(botToken);
       if (scopes !== null)
-        await apps.setBotScopes(
-          workspaceId,
-          slackAppId,
-          scopes,
-          before.updatedAt,
-        );
+        await apps.setBotScopes(workspaceId, slackAppId, scopes, tokenVersion);
     } catch (error) {
       deps.logger?.warn("Slack bot token scopes not read", {
         slack_app_id: slackAppId,

@@ -396,10 +396,13 @@ export function createMemorySlackAppStore(input: {
         checked_at: sync.checkedAt.toISOString(),
       };
     },
-    async setBotScopes(workspaceId, slackAppId, scopes, unchangedSince) {
+    async setBotScopes(workspaceId, slackAppId, scopes, tokenVersion) {
       const row = rows.get(slackAppId);
       if (row?.workspaceId !== workspaceId || row.state !== "created") return;
-      if (row.updatedAt.getTime() !== unchangedSince.getTime()) return;
+      const token = input.secrets.values.get(
+        input.secrets.slotKey(slot(row, "slack_bot_token")),
+      );
+      if (token?.summary.secretVersion !== tokenVersion) return;
       row.botScopes = [...scopes];
     },
     async getSettings(workspaceId, agentId) {

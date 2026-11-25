@@ -275,15 +275,15 @@ export interface SurfaceAppStore {
     scopes: readonly string[];
   }): Promise<SurfaceAppRecord | null>;
   /**
-   * Records the scopes Slack says the stored bot token holds now, unless the
-   * app changed (a new token was stored) after `unchangedSince`, its
-   * `updatedAt` when the token was read.
+   * Records the scopes Slack says the stored bot token holds now, unless a
+   * new token replaced the one read: `tokenVersion` is the secret version
+   * of the token the scopes were read with.
    */
   setBotScopes(
     workspaceId: string,
     slackAppId: string,
     scopes: readonly string[],
-    unchangedSince: Date,
+    tokenVersion: number,
   ): Promise<void>;
   /** Slack refused the creation: no app exists. */
   failCreate(workspaceId: string, slackAppId: string): Promise<void>;

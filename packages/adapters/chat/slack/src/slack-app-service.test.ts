@@ -778,6 +778,22 @@ describe("manifest check at a start of the API", () => {
     expect((await installBot.record()).botScopes).toEqual([...BOT_SCOPES]);
   });
 
+  test("scopes read while the app changed otherwise (an events recheck) are kept", async () => {
+    const { service, slack, advance, installBot } = await installedApp();
+    installBot.grantInSlack(BOT_SCOPES.filter((s) => s !== "groups:write"));
+    const read = slack.api.botScopes;
+    slack.api.botScopes = async (token) => {
+      const scopes = await read(token);
+      advance(1);
+      await service.recheckAgentAppEvents(user("owner"), AGENT);
+      return scopes;
+    };
+    await service.syncAgentAppManifests();
+    expect(
+      (await service.getAgentApp(user("owner"), AGENT)).reauthorization,
+    ).toEqual({ missing_scopes: ["groups:write"] });
+  });
+
   test("a start another check holds still reads a grant never read, and sends nothing", async () => {
     const { service, apps, advance, calls, installBot } = await installedApp([
       "groups:write",

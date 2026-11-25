@@ -11,6 +11,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
 import { agents, slackApps, workspaces } from "../schema.ts";
+import { createPostgresSecretStore } from "../secrets/secret-values.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { createPostgresSlackAppStore } from "./slack-apps.ts";
 
@@ -136,35 +137,38 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
     expect(row?.checkedAt).toBeNull();
   });
 
-  test("a bot token's scopes are replaced on a created app only and read back on it", async () => {
+  test("a bot token's scopes are written with the token they were read with only, on a created app", async () => {
     const store = createPostgresSlackAppStore(db, key);
+    const secrets = createPostgresSecretStore(db, key);
     const live = await agentApp();
     const gone = await agentApp("deleted");
-    const updatedAt = async (app: {
-      workspaceId: string;
-      slackAppId: string;
-    }) => {
-      const found = await store.find(app.workspaceId, app.slackAppId);
-      if (!found) throw new Error("no app");
-      return found.updatedAt;
-    };
+    const slot = (app: { workspaceId: string; slackAppId: string }) => ({
+      workspaceId: app.workspaceId,
+      owner: { kind: "slack_app" as const, id: app.slackAppId },
+      purpose: "slack_bot_token" as const,
+    });
+    const version = async (app: { workspaceId: string; slackAppId: string }) =>
+      (await store.find(app.workspaceId, app.slackAppId))?.secrets
+        .slack_bot_token?.secretVersion ?? 0;
+    for (const app of [live, gone]) await secrets.put(slot(app), "fixture-one");
+    const read = await version(live);
     for (const app of [live, gone])
       await store.setBotScopes(
         app.workspaceId,
         app.slackAppId,
         ["chat:write"],
-        await updatedAt(app),
+        await version(app),
       );
     expect(
       (await store.find(live.workspaceId, live.slackAppId))?.botScopes,
     ).toEqual(["chat:write"]);
-    // Read before the app changed (a new token was stored): dropped.
-    const stale = new Date((await updatedAt(live)).getTime() - 1000);
+    // A new install stored another token after the scopes were read.
+    await secrets.put(slot(live), "fixture-two");
     await store.setBotScopes(
       live.workspaceId,
       live.slackAppId,
       ["users:read"],
-      stale,
+      read,
     );
     expect(
       (await store.find(live.workspaceId, live.slackAppId))?.botScopes,

@@ -21,6 +21,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   inArray,
   isNotNull,
   isNull,
@@ -43,6 +44,7 @@ import {
   agents,
   agentVersions,
   receipts,
+  secretValues,
   slackApps,
   slackInstallations,
   surfaceBindings,
@@ -499,17 +501,35 @@ export function createPostgresSlackAppStore(
         })
         .where(and(...createdApp(workspaceId, slackAppId)));
     },
-    async setBotScopes(workspaceId, slackAppId, scopes, unchangedSince) {
+    async setBotScopes(workspaceId, slackAppId, scopes, tokenVersion) {
       if (!UUID.test(workspaceId) || !UUID.test(slackAppId)) return;
-      // updated_at is left alone: Slack's grant changed, not the app. A
-      // record carries it to the millisecond.
+      const slot = secretSlot(
+        {
+          workspaceId: workspaceId.toLowerCase(),
+          id: slackAppId.toLowerCase(),
+        },
+        "slack_bot_token",
+      );
+      // updated_at is left alone: Slack's grant changed, not the app.
       await db
         .update(slackApps)
         .set({ botScopes: [...scopes] })
         .where(
           and(
             ...createdApp(workspaceId, slackAppId),
-            sql`date_trunc('milliseconds', ${slackApps.updatedAt}) = ${unchangedSince.toISOString()}::timestamptz`,
+            exists(
+              db
+                .select({ id: secretValues.id })
+                .from(secretValues)
+                .where(
+                  and(
+                    eq(secretValues.workspaceId, slot.workspaceId),
+                    eq(secretValues.ownerRef, secretOwnerRef(slot.owner)),
+                    eq(secretValues.purpose, slot.purpose),
+                    eq(secretValues.secretVersion, tokenVersion),
+                  ),
+                ),
+            ),
           ),
         );
     },
