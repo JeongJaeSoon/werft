@@ -1,5 +1,5 @@
 {
-  "id": "203045d1-5e83-4b82-87b0-9cb55176f226",
+  "id": "92a76ab1-a75e-4232-b717-f73a67a6aac8",
   "prevId": "f5c53dc6-5085-4e76-893d-0b6f25227141",
   "version": "7",
   "dialect": "postgresql",
@@ -19278,7 +19278,7 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
@@ -19648,6 +19648,13 @@
           "notNull": true,
           "default": "'free'"
         },
+        "m1_judgments_per_hour": {
+          "name": "m1_judgments_per_hour",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 12
+        },
         "ceiling_actions": {
           "name": "ceiling_actions",
           "type": "text[]",
@@ -19933,6 +19940,10 @@
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",
           "value": "\"surface_bindings\".\"revision\" >= 1"
+        },
+        "surface_bindings_m1_judgments_per_hour_check": {
+          "name": "surface_bindings_m1_judgments_per_hour_check",
+          "value": "\"surface_bindings\".\"m1_judgments_per_hour\" BETWEEN 1 AND 60"
         }
       },
       "isRLSEnabled": false

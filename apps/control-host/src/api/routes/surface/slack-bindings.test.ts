@@ -35,6 +35,7 @@ const VIEW: SurfaceBinding = {
   agent_id: AGENT,
   mode: "on",
   listen: "free",
+  m1_judgments_per_hour: 12,
   ceiling: DEFAULT_SURFACE_CEILING,
   home: true,
   memory_write_policy: "deny",
