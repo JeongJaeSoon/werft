@@ -30,7 +30,9 @@ import {
   isPreconditionFailed,
   isUnreadableVersion,
   S3_MAX_ATTEMPTS,
+  S3_METADATA_REQUEST_TIMEOUT_MS,
   S3_REQUEST_BOUNDS,
+  S3_SMALL_WRITE_FLOOR_MS,
   type S3ClientLike,
   sha256,
   storedVersion,
@@ -41,6 +43,9 @@ import {
 // Bounded: a 409 means retry, but an endpoint that answers 409 forever must
 // surface as a failure rather than an unbounded loop inside a mirror write.
 const CONFLICT_ATTEMPTS = 4;
+
+/** What every request that moves no object body is sent with. */
+const METADATA = { requestTimeout: S3_METADATA_REQUEST_TIMEOUT_MS } as const;
 
 export type CheckpointObjectStoreOptions = {
   /** Defaults to `DEFAULT_BODY_READ_BOUNDS`; tests pin shorter bounds. */
@@ -115,6 +120,12 @@ export function createCheckpointObjectStore(
           IfNoneMatch: "*",
           Key: key,
         }),
+        {
+          requestTimeout: transferBudgetMs(
+            body.byteLength,
+            S3_SMALL_WRITE_FLOOR_MS,
+          ),
+        },
       );
     }
     // The length and the checksum up front keep the SDK from switching to
@@ -161,6 +172,7 @@ export function createCheckpointObjectStore(
             Key: key,
             VersionId: version,
           }),
+          METADATA,
         )) as {
           ContentLength?: number;
           ObjectLockLegalHoldStatus?: "ON" | "OFF";
@@ -190,6 +202,7 @@ export function createCheckpointObjectStore(
           LegalHold: { Status: "ON" },
           VersionId: version,
         }),
+        METADATA,
       );
     },
 
@@ -203,6 +216,7 @@ export function createCheckpointObjectStore(
             ContinuationToken: continuationToken,
             Prefix: prefix,
           }),
+          METADATA,
         )) as {
           Contents?: Array<{ Key?: string }>;
           IsTruncated?: boolean;
@@ -322,6 +336,7 @@ export function createCheckpointObjectCollector(options: {
             Prefix: prefix,
             VersionIdMarker: versionMarker,
           }),
+          METADATA,
         )) as {
           DeleteMarkers?: Array<{ Key?: string; VersionId?: string }>;
           IsTruncated?: boolean;
@@ -359,6 +374,7 @@ export function createCheckpointObjectCollector(options: {
             LegalHold: { Status: "OFF" },
             VersionId: entry.version,
           }),
+          METADATA,
         );
       }
       await client.send(
@@ -367,6 +383,7 @@ export function createCheckpointObjectCollector(options: {
           Key: entry.key,
           VersionId: entry.version,
         }),
+        METADATA,
       );
     },
   };
@@ -390,6 +407,7 @@ export async function bucketHoldsObjectVersion(
         KeyMarker: keyMarker,
         VersionIdMarker: versionMarker,
       }),
+      METADATA,
     )) as {
       IsTruncated?: boolean;
       NextKeyMarker?: string;
@@ -420,11 +438,13 @@ export async function describeBucketProtection(
 ): Promise<BucketProtection> {
   const versioning = (await client.send(
     new GetBucketVersioningCommand({ Bucket: bucket }),
+    METADATA,
   )) as { Status?: string };
   let objectLock = false;
   try {
     const found = (await client.send(
       new GetObjectLockConfigurationCommand({ Bucket: bucket }),
+      METADATA,
     )) as { ObjectLockConfiguration?: { ObjectLockEnabled?: string } };
     objectLock = found.ObjectLockConfiguration?.ObjectLockEnabled === "Enabled";
   } catch (error) {
@@ -451,6 +471,7 @@ export async function describeBucketEncryption(
   try {
     const found = (await client.send(
       new GetBucketEncryptionCommand({ Bucket: bucket }),
+      METADATA,
     )) as {
       ServerSideEncryptionConfiguration?: {
         Rules?: Array<{

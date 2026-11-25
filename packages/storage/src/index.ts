@@ -9,6 +9,8 @@ import {
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
   type S3RequestBounds,
+  type S3TimeoutWarn,
+  warnOnS3Timeouts,
 } from "./s3.ts";
 
 export {
@@ -45,9 +47,11 @@ export {
   BodyTruncatedError,
   FreshAddressHttpHandler,
   isObjectStoreUnreachable,
+  S3_METADATA_REQUEST_TIMEOUT_MS,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
   type S3RequestBounds,
+  type S3TimeoutWarn,
   transferBudgetMs,
 } from "./s3.ts";
 export { scopedCheckpointObjectStore } from "./scoped-objects.ts";
@@ -80,11 +84,13 @@ export function storageS3Credentials(
 /**
  * The one place this package builds an S3 client, so the bounds it runs under
  * are the ones in {@link S3_REQUEST_BOUNDS}. `bounds` exists for tests that
- * cannot wait out the shipped values.
+ * cannot wait out the shipped values. `warn` gets one line for each call
+ * that ran out its bound ({@link warnOnS3Timeouts}).
  */
 export function createStorageS3Client(
   config: { readonly s3: StorageS3Settings },
   bounds: S3RequestBounds = S3_REQUEST_BOUNDS,
+  warn?: S3TimeoutWarn,
 ): S3Client {
   const s3Config: S3ClientConfig = {
     credentials: storageS3Credentials(config.s3),
@@ -95,5 +101,6 @@ export function createStorageS3Client(
       ? {}
       : { endpoint: config.s3.endpoint, forcePathStyle: true }),
   };
-  return new S3Client(s3Config);
+  const client = new S3Client(s3Config);
+  return warn === undefined ? client : warnOnS3Timeouts(client, warn);
 }
