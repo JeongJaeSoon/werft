@@ -150,6 +150,7 @@ let clock = Date.now();
 let nextApp = 9100;
 const conversions: string[] = [];
 let conversion: "ok" | "rejected" | "unreachable" = "ok";
+let convertedHookSecret: string | null = null;
 
 async function convert(
   _apiBase: string,
@@ -176,7 +177,7 @@ async function convert(
     clientSecret: CLIENT_SECRET,
     privateKey: PEM,
     owner: "acme",
-    webhookSecret: null,
+    webhookSecret: convertedHookSecret,
   };
 }
 
@@ -185,7 +186,8 @@ function appWith(
   options: {
     origin?: string | null;
     enabled?: boolean;
-    webhookUrl?: string;
+    webhookUrl?: string | (() => string | null);
+    hooks?: Array<{ appId: number; name: string }>;
   } = {},
 ) {
   const origin = options.origin === undefined ? ORIGIN : options.origin;
@@ -205,7 +207,10 @@ function appWith(
           apiBase: "https://api.github.com",
           repositories: () => [],
           changed: async () => {},
-          webhookUrl: options.webhookUrl ?? null,
+          webhookUrl: async () =>
+            typeof options.webhookUrl === "function"
+              ? options.webhookUrl()
+              : (options.webhookUrl ?? null),
           manifests: {
             states: memory.states,
             convert,
@@ -215,6 +220,9 @@ function appWith(
             now: () => new Date(clock),
             refused: (check) =>
               logger.warn("GitHub App manifest state refused", { check }),
+            followHook: async (target) => {
+              options.hooks?.push({ appId: target.appId, name: target.name });
+            },
           },
         }),
         logger,
@@ -320,6 +328,30 @@ describe("making the author GitHub App from a manifest", () => {
       active: true,
     });
     expect(manifest.default_events).toEqual(["push"]);
+  });
+
+  test("a new App with a webhook secret is handed on to follow the saved address", async () => {
+    memory.clear();
+    const hooks: Array<{ appId: number; name: string }> = [];
+    const hooked = appWith(memory, {
+      webhookUrl: "https://a.example.test/v1/github/webhook",
+      hooks,
+    });
+    const owner = cookieFor("owner");
+    const { state } = await started(hooked, owner);
+    convertedHookSecret = "hook-secret-from-github";
+    try {
+      const done = await hooked("manifest/complete", {
+        cookie: owner,
+        body: { code: newCode(), state },
+      });
+      expect(done.status).toBe(200);
+      expect(hooks).toEqual([
+        { appId: nextApp - 1, name: `werft-acme-${nextApp - 1}` },
+      ]);
+    } finally {
+      convertedHookSecret = null;
+    }
   });
 
   test("a personal account posts to the user's own new-App page; public and Actions are opt-in", async () => {

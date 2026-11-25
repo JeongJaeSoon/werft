@@ -6,6 +6,7 @@ import {
   connectionsOf,
   createAppBotUsers,
   createGitHubAppDirectory,
+  createGitHubAppHookConfig,
   createGitHubManifestConverter,
   createGitHubSkillReader,
   createGitPusher,
@@ -37,6 +38,11 @@ export function wireGitHubAppDirectory(deps: {
   logger: StructuredLogger;
 }): GitHubAppDirectory {
   return createGitHubAppDirectory({ logger: deps.logger });
+}
+
+/** Sets an App's webhook URL on GitHub with its JWT. */
+export function wireGitHubAppHookConfig(deps: { logger: StructuredLogger }) {
+  return createGitHubAppHookConfig({ logger: deps.logger });
 }
 
 export type GitHubManifestConverter = ReturnType<

@@ -182,10 +182,10 @@ export function createGitHubAppService(deps: {
   changed: () => Promise<void>;
   newId?: () => string;
   /**
-   * The push webhook URL Git skills sync from: null without a public
-   * address, absent on a server that does not sync.
+   * The push webhook URL Git skills sync from, read on every use: null
+   * without a public address, absent on a server that does not sync.
    */
-  webhookUrl?: string | null;
+  webhookUrl?: () => Promise<string | null>;
   /** Making the author App from a manifest; absent, it is refused. */
   manifests?: {
     states: GitHubAppManifestStore;
@@ -203,6 +203,16 @@ export function createGitHubAppService(deps: {
     now?: () => Date;
     /** Which check refused a state; for the log, never the response. */
     refused?: (check: string) => void;
+    /**
+     * Sets a new App's webhook URL to the address saved now, again after any
+     * save made meanwhile; answers, never throws.
+     */
+    followHook?: (app: {
+      appId: number;
+      apiBase: string;
+      name: string;
+      privateKey: string;
+    }) => Promise<unknown>;
   };
   installations?: {
     store: GitHubInstallationStore;
@@ -213,6 +223,9 @@ export function createGitHubAppService(deps: {
 }) {
   const { authorization, directory } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
+  // Undefined on a server that does not sync, so `webhook` is left out.
+  const webhookUrl = async () =>
+    deps.webhookUrl === undefined ? undefined : await deps.webhookUrl();
 
   async function managedStore(
     caller: Caller,
@@ -368,7 +381,7 @@ export function createGitHubAppService(deps: {
                   clientId: profile.clientId,
                 },
             role,
-            deps.webhookUrl,
+            await webhookUrl(),
           ),
           owner: profile?.owner ?? null,
         },
@@ -384,9 +397,10 @@ export function createGitHubAppService(deps: {
     ): Promise<ListGitHubAppsResponse> {
       const store = await managedStore(caller, workspaceId);
       const records = await store.list(workspaceId);
+      const url = await webhookUrl();
       return {
         github_apps: records.map((record) =>
-          githubAppOf(record, record.role, deps.webhookUrl),
+          githubAppOf(record, record.role, url),
         ),
       };
     },
@@ -486,7 +500,7 @@ export function createGitHubAppService(deps: {
             public: body.public,
             actions: body.actions,
             suffix: randomBytes(2).toString("hex"),
-            webhookUrl: deps.webhookUrl ?? null,
+            webhookUrl: (await webhookUrl()) ?? null,
           }),
         ),
         expires_at: expiresAt.toISOString(),
@@ -600,6 +614,16 @@ export function createGitHubAppService(deps: {
           ...(error.details as object | null),
           app_id: app.appId,
           html_url: app.htmlUrl,
+        });
+      }
+      // The manifest carried the address saved when it was made. One saved
+      // while the owner was on GitHub could not list this App yet.
+      if (app.webhookSecret && manifests.followHook) {
+        await manifests.followHook({
+          appId: app.appId,
+          apiBase: deps.apiBase,
+          name: app.name,
+          privateKey: app.privateKey,
         });
       }
       return {
@@ -869,7 +893,11 @@ export function createGitHubAppService(deps: {
       case "stored":
         await reload();
         return {
-          github_app: githubAppOf(result.app, result.app.role, deps.webhookUrl),
+          github_app: githubAppOf(
+            result.app,
+            result.app.role,
+            await webhookUrl(),
+          ),
           ...(result.pinsCleared > 0
             ? { pins_cleared: result.pinsCleared }
             : {}),

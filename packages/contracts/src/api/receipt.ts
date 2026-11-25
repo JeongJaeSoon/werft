@@ -250,6 +250,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // The Slack events address for the whole installation: the address saved
   // and the one before it.
   "update_slack_settings",
+  // The GitHub webhook address for the whole installation: the address saved
+  // and the one before it. What GitHub said to each App is in no receipt.
+  "update_github_webhook_settings",
   // Installation settings by key: each changed key's value and the one
   // before it.
   "update_installation_config",
