@@ -441,15 +441,20 @@ EGRESS_PRIVATE_ALLOWLIST=api:3200,host.docker.internal:3200,api:4319
 会話ランタイムは、worker イメージを会話用のエントリポイント（`apps/worker/src/conversation/main.ts`）で起動した 1 つの process です。インストール内のすべてのエージェントの会話ターンを実行します。既定では無効で、テストスタックでのみ有効にします。人のメッセージをこのランタイムへ渡す経路はまだありません。ターンは、運用者が api コンテナで `bun run apps/control-host/src/api/conversation-turn.ts` を実行したときだけ始まります。
 
 - ランタイムは provider キーを持ちません。ターンごとに呼び出し許可を受け取り、egress proxy の credential route へ送ります。キーは proxy が付けます。1 ターンは provider を 8 回まで呼び出します。ツールの結果を受けた後の呼び出しも 1 回ずつ数えます。
-- workspace volume もリポジトリの checkout もありません。エンジンの組み込みツールはすべて拒否します。エンジンが呼べるのは下の読み取りツール 4 つだけです。一覧にないツールはエンジンに読み込まれず、呼ばれても実行されません。
+- workspace volume もリポジトリの checkout もありません。エンジンの組み込みツールはすべて拒否します。エンジンが呼べるのは下の読み取りツール 4 つと決定ツールだけです。一覧にないツールはエンジンに読み込まれず、呼ばれても実行されません。
 - 読み取りツール: 引数は取りません。何を読むかは api がターンの lease から決め、そのターンの会話の外は読みません。
   - `read_thread`: 今のトピックの Slack スレッドを最初のメッセージから 50 件まで読みます（`conversations.replies`）。アプリがすでに持つ history スコープを使うため、Slack アプリの再インストールは要りません。1 ターンに 2 回までです。Slack が 429 を返したら、そのターンでは呼び直さず、要約とターン記録で続けます。他の組織と共有しているチャンネルでは拒否されます。ゲスト、他の組織の人、作成者を確認できなかったメッセージはモデルに渡す前に除き、除いた件数だけを伝えます。削除されたメッセージも除きます。
   - `read_channel_summary`: 会話のチャンネルの要約行。出典のメッセージが削除された行はありません。
   - `read_turns`: この会話の終わったターン 20 件（終わった時刻、決定と理由、回答）。削除されたメッセージが入ったターンは除きます。
-  - `list_open_tasks`: この会話から始まり、まだ終わっていない作業 20 件（名前、状態、開始時刻）。依頼者が人なら、その人が見られる作業だけです。依頼者のないターン（運用者コマンド）は、人にだけ共有した作業を見ません。
+  - `list_open_tasks`: この会話から始まり、まだ終わっていない作業 20 件（id、名前、状態、開始時刻）。依頼者が人なら、その人が見られる作業だけです。依頼者のないターン（運用者コマンド）は、人にだけ共有した作業を見ません。
   - 非公開チャンネルの会話では、依頼者が今そのチャンネルのメンバーである必要があります。そうでないか確認できなければ拒否されます。
   - 結果は 12 KiB までで、指示ではなくデータだという文が先頭に付きます。読んだメッセージはそのターンの出典に加わり、そのメッセージが削除されるとトピックセッションを捨てます。
   - api はターンごとにツール呼び出しを数え、13 回目を拒否します。そのターンは `tool_call_limit` で終わり、守った側は `server` と残ります。
+- 決定ツール: ターンは決定 1 つで終わります。`reply`（答える: `body`、`reason`）、`route_to_task`（開いている作業に渡す: `list_open_tasks` が返す `task_id`、`reason`）、`spawn_task`（新しい作業を作る: `spec`、`reason`）、`no_reply`（黙る: `reason`）。
+  - 依頼者が人（Web の利用者、Slack の利用者）か運用者コマンドなら 4 つすべてを、ほかのエージェント（Slack bot）なら `reply` と `no_reply` だけをエンジンに読み込みます。依頼者は api が記録した値で、メッセージ本文に書かれた名前は使いません。api はツールが呼ばれたときにもう一度検査します。
+  - 決定ツールの呼び出しも読み取りツールと一緒に数えます。api はツールが呼ばれたその時にターン記録へ決定と理由を書きます。ターンの最初の決定がそのターンの決定で、その後のツール呼び出しは拒否します。回答の本文は `reply` のものだけが残ります。`task_id` と `spec` は保存しません。
+  - 決定を書く直前に、そのターンが読んだメッセージが削除されていないかを確認し直します。削除されていれば決定を捨て、`voided_by_delete` と残します。決定なしで終わったターン（上限、失敗）は `no_decision` です。
+  - 決定にはまだ効果がありません。Slack には投稿せず、作業を作ったり渡したりもしません。
 - トピックセッション: トピック（Slack スレッド 1 つ）ごとにエンジン process 1 つとメモリ上の一時ディレクトリ 1 つを持ちます。同じトピックの次のターンは、そのエンジンで前の会話を続けます。最後のターンが終わってから 10 分空くとセッションを捨て、ディレクトリを削除します。その後のターンは、api が組み立てたコンテキスト（チャンネル要約、そのトピックの前の回答、バッファのメッセージ）から新しいエンジンで始まります。エンジンの会話圧縮と再開（resume）は使いません。
 - ランタイムがターンを受け取るたびに、api はそのセッションが読んだメッセージが削除されていないかを確かめ直します。削除されていたとき、確かめられなかったとき、ターンが失敗したとき、セッションの会話が 96 KiB を超えたときは、セッションを捨てて新しく始めます。ランタイムを再起動すると、生きていたセッションはありません。
 - ランタイム 1 つはセッションを 8 個まで持ちます。もう 1 つ開くと、最も長く空いているセッションを捨てます。1 ターンを終えて待機しているエンジン 1 つの RSS は約 215 MiB です（macOS arm64 で測定）。chart のメモリ（`conversationRuntime.resources`）は request と limit がともに 2560Mi です。エンジン 8 個、ランタイム loop、トピックディレクトリの tmpfs（256Mi）と余裕を足した値です。
@@ -459,7 +464,7 @@ EGRESS_PRIVATE_ALLOWLIST=api:3200,host.docker.internal:3200,api:4319
 
 | 変数 | 読む場所 | 既定値 | 許容範囲 |
 |---|---|---|---|
-| `CONVERSATION_RUNTIME_TOKEN` | api、会話ランタイム（同じ値） | なし | 32 文字以上。ランタイムの 3 つの route（`/internal/conversation-runtime/next-turn`、`/internal/conversation-runtime/turn-result`、`/internal/conversation-runtime/read-tool`）だけを開く bearer です。ほかの `/internal` route に送ると 403 になります。api にない場合は 3 つの route と運用者コマンドが無効になり、ランタイムにない場合はランタイムが起動を拒否します。Helm では Secret の同名の key です |
+| `CONVERSATION_RUNTIME_TOKEN` | api、会話ランタイム（同じ値） | なし | 32 文字以上。ランタイムの 4 つの route（`/internal/conversation-runtime/next-turn`、`/internal/conversation-runtime/turn-result`、`/internal/conversation-runtime/read-tool`、`/internal/conversation-runtime/decision-tool`）だけを開く bearer です。ほかの `/internal` route に送ると 403 になります。api にない場合は 4 つの route と運用者コマンドが無効になり、ランタイムにない場合はランタイムが起動を拒否します。Helm では Secret の同名の key です |
 | `CONVERSATION_RUNTIME_TOKEN_PREVIOUS` | api | なし | 交換中の古い bearer。新しい値と並べて受け付けます。古い値をここに、新しい値を `CONVERSATION_RUNTIME_TOKEN` に置き、api とランタイムを再起動したあと、この値を削除します |
 | `CONVERSATION_TURN_DISPATCH` | api | `false` | 人のメッセージを会話ターンへ渡すスイッチ。無効のままにします。ターンの待ち行列がメモリ上にある間に有効にすると、api は起動を拒否します |
 | `CONVERSATION_TURN_SOCKET` | api | `/tmp/werft-conversation-turns.sock` | 運用者コマンドが api にターンを渡す unix socket のパス。同じコンテナ内からのみ到達できます |

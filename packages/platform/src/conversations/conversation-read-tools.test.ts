@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   CONVERSATION_READ_TOOL_RESULT_MAX_BYTES,
+  type ConversationDecision,
   type ConversationReadTool,
   conversationIdSchema,
   conversationInputIdSchema,
@@ -74,6 +75,10 @@ function setup(turn: ConversationToolTurn = turnOf()) {
     }[],
     records: [] as ConversationTurnRecord[],
     tasks: [] as ConversationOpenTask[],
+    running: true,
+    recorded: { outcome: "recorded", state: "decided" } as Awaited<
+      ReturnType<ConversationReadToolStore["recordDecision"]>
+    >,
   };
   const seen = {
     admitted: [] as unknown[],
@@ -82,17 +87,23 @@ function setup(turn: ConversationToolTurn = turnOf()) {
     added: [] as SourceKey[][],
     doors: [] as unknown[],
     viewers: [] as (SessionViewer | null)[],
+    decisions: [] as unknown[],
   };
   const store: ConversationReadToolStore = {
     async admit(input) {
       seen.admitted.push(input);
       return state.admission;
     },
+    async recordDecision(input) {
+      seen.decisions.push(input);
+      return state.recorded;
+    },
     async closeThreadReads(turnId) {
       seen.closed.push(turnId);
     },
     async addDirectSources(_turnId, keys) {
       seen.added.push([...keys]);
+      return state.running;
     },
     async deletedAmong(_workspaceId, places) {
       return places.filter((place) => state.deleted.has(place.ts));
@@ -147,7 +158,14 @@ function setup(turn: ConversationToolTurn = turnOf()) {
       throw new Error(`not read: ${answered.outcome}`);
     return JSON.parse(answered.text) as Record<string, unknown>;
   };
-  return { state, seen, call, data, turn };
+  const decide = (decision: ConversationDecision) =>
+    tools.decide({
+      runtimeId: conversationRuntimeIdSchema.parse(crypto.randomUUID()),
+      turnId: turn.turnId,
+      leaseId: conversationTurnLeaseIdSchema.parse(crypto.randomUUID()),
+      decision,
+    });
+  return { state, seen, call, data, decide, turn };
 }
 
 describe("createConversationReadTools", () => {
@@ -326,6 +344,7 @@ describe("createConversationReadTools", () => {
       read: "open_tasks",
       tasks: [
         {
+          task_id: "s1",
           name: "deploy",
           status: "running",
           created_at: "2026-11-24T00:00:00.000Z",
@@ -419,5 +438,125 @@ describe("createConversationReadTools", () => {
     expect(shown.messages.at(-1)?.ts).toBe("119.0");
     expect(shown.omitted).toBe(20 - shown.messages.length);
     expect(s.seen.added[0]).toHaveLength(shown.messages.length);
+  });
+});
+
+describe("the decision tools as the control host answers them", () => {
+  const taskId = crypto.randomUUID();
+  const ALL: ConversationDecision[] = [
+    { tool: "reply", body: "Here it is.", reason: "asked" },
+    { tool: "route_to_task", task_id: taskId, reason: "that task's" },
+    { tool: "spawn_task", spec: "write the report", reason: "new work" },
+    { tool: "no_reply", reason: "not for the agent" },
+  ];
+  const task = (sessionId: string): ConversationOpenTask => ({
+    sessionId,
+    title: "deploy",
+    titleSources: [],
+    status: "running",
+    createdAt: new Date("2026-11-24T00:00:00.000Z"),
+  });
+
+  test("a person's turn may make each of the four, counted as a tool call and written as the turn's record", async () => {
+    for (const decision of ALL) {
+      const s = setup();
+      s.state.tasks = [task(taskId)];
+      expect(await s.decide(decision)).toEqual({ outcome: "accepted" });
+      expect(s.seen.admitted).toMatchObject([{ tool: decision.tool }]);
+      expect(s.seen.decisions).toMatchObject([
+        { turnId: s.turn.turnId, decision },
+      ]);
+      expect(s.seen.added).toEqual([]);
+    }
+  });
+
+  test("a read the turn's decision overtook gives the engine nothing it read, as none of it was kept as the turn's sources", async () => {
+    const s = setup();
+    s.state.running = false;
+    expect(await s.call("read_thread")).toEqual({ outcome: "not_holder" });
+    expect(s.seen.added).toHaveLength(1);
+  });
+
+  test("a decision voided by a delete still ends the turn, and one after the turn's first is not held", async () => {
+    const s = setup();
+    s.state.recorded = { outcome: "recorded", state: "voided_by_delete" };
+    expect(await s.decide(ALL[0] as ConversationDecision)).toEqual({
+      outcome: "accepted",
+    });
+    s.state.recorded = { outcome: "turn_not_held" };
+    expect(await s.decide(ALL[3] as ConversationDecision)).toEqual({
+      outcome: "not_holder",
+    });
+  });
+
+  test("an agent requester's turn is refused route_to_task and spawn_task by the server, whatever its runtime loaded (G2)", async () => {
+    for (const decision of ALL) {
+      const s = setup(turnOf({ requester: { kind: "slack_bot", id: "B1" } }));
+      s.state.tasks = [task(taskId)];
+      const allowed = decision.tool === "reply" || decision.tool === "no_reply";
+      expect(await s.decide(decision)).toEqual(
+        allowed
+          ? { outcome: "accepted" }
+          : { outcome: "refused", reason: "tool_not_allowed" },
+      );
+    }
+    // A kind it does not know is held to the fewest.
+    const unknown = setup(turnOf({ requester: { kind: "agent", id: "a1" } }));
+    expect(await unknown.decide(ALL[2] as ConversationDecision)).toEqual({
+      outcome: "refused",
+      reason: "tool_not_allowed",
+    });
+    expect(unknown.seen.decisions).toEqual([]);
+  });
+
+  test("route_to_task names an open task the requester sees, behind the private channel's door", async () => {
+    const s = setup();
+    s.state.tasks = [task(crypto.randomUUID())];
+    expect(await s.decide(ALL[1] as ConversationDecision)).toEqual({
+      outcome: "refused",
+      reason: "unknown_task",
+    });
+    expect(s.seen.decisions).toEqual([]);
+    const place = {
+      kind: "channel",
+      teamId: "T1",
+      channelId: "C1",
+      private: true,
+    } as const;
+    const shut = setup(turnOf({ place }));
+    shut.state.tasks = [task(taskId)];
+    shut.state.member = "not_member";
+    expect(await shut.decide(ALL[1] as ConversationDecision)).toEqual({
+      outcome: "refused",
+      reason: "not_channel_member",
+    });
+    shut.state.member = "member";
+    expect(await shut.decide(ALL[1] as ConversationDecision)).toEqual({
+      outcome: "accepted",
+    });
+    expect(shut.seen.viewers.at(-1)).toEqual({
+      userId: shut.turn.requester.id,
+      apiKeyId: null,
+      privateChannels: [shut.turn.conversationId],
+    });
+  });
+
+  test("past the turn's tool calls, or on a turn the caller does not hold, nothing is decided", async () => {
+    const s = setup();
+    s.state.admission = { outcome: "tool_call_limit" };
+    expect(await s.decide(ALL[3] as ConversationDecision)).toEqual({
+      outcome: "refused",
+      reason: "tool_call_limit",
+    });
+    for (const outcome of [
+      "unknown_turn",
+      "not_holder",
+      "lease_expired",
+    ] as const) {
+      s.state.admission = { outcome };
+      expect(await s.decide(ALL[3] as ConversationDecision)).toEqual({
+        outcome,
+      });
+    }
   });
 });

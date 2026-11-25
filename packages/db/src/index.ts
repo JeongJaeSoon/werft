@@ -9,6 +9,7 @@ export * from "./agents.ts";
 export * from "./budget-accounts.ts";
 export * from "./budget-unknown.ts";
 export {
+  listSlotHoldingWorkerSessions,
   listUnreleasedLaunchImages,
   listUpgradeSessions,
   type RuntimeFingerprint,

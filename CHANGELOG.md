@@ -17,6 +17,11 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 - **에이전트 모델 자동 이동이 실패하면 웹 에이전트 화면에 무엇이 실패했고 무엇을 하면 되는지가 보인다**(JeongJaeSoon/werft#2223). migration `0370_model_migration_failure`가 `agents`에 nullable 칸 셋을 더한다(기본값이 없어 줄을 다시 쓰지 않는다). 따로 할 일은 없다. 실패는 api 로그 `Agent could not move to the next model`에도 그대로 남는다.
   - 앞선 이미지로 되돌리면 그 이미지는 이 칸을 읽지도 쓰지도 않고, 그 이미지가 활성화하면 남은 기록은 더는 보이지 않는다. 다시 올린 뒤 다음 자동 이동 시도가 실패하면 다시 기록된다.
+- **Kubernetes 업그레이드 전 검사(`upgrade-check`)가 그 upgrade로 끝나는 worker의 세션을 `affected`에 `worker_ends`로 올린다. worker에 주는 gateway 주소가 바뀌는 upgrade는 slot을 쥔 worker가 있으면 `proceed`가 아니라 `refused`로 멈춘다**(JeongJaeSoon/werft#2221). migration은 없다.
+  - 해당하는 것은 `v0.4.0` 이하 chart에서 올리는 설치다. 그 chart의 worker는 gateway를 3000번으로 부르고, 이후 chart는 3200번을 준다. 지금까지는 검사가 `proceed`, `affected []`를 냈고 돌던 worker는 올린 뒤 heartbeat 404로 끝났다.
+  - 고르는 것은 worker가 claim했고 아직 slot을 쥔 launch의 세션 전부다. 쉬는 worker도 든다. slot이 풀린 뒤 다시 돌리거나, 목록을 `upgrade.approvedSessions`에 그대로 넣는다. 승인한 세션의 worker는 올린 뒤 끝난다.
+  - `helm rollback` 전에 검사를 직접 돌리는 명령에 `UPGRADE_DEPLOYED_WORKER_GATEWAY_URL`(지금 scheduler의 `WORKER_GATEWAY_URL`)과 `WORKER_GATEWAY_URL`(되돌릴 revision의 scheduler 값)을 더한다. 배포된 worker 이미지가 있는데 둘 중 하나가 없으면 `check_failed`다. chart의 hook은 둘 다 넘기므로 `helm upgrade`에는 할 일이 없다.
+  - 검사가 읽는 것은 gateway 주소 변경뿐이다. scheduler가 격리 계약이 달라진 worker를 교체하는 경우와 대상이 철회한 이미지의 worker는 `worker_ends`로 오르지 않는다.
 - **lease를 스스로 내려놓고 끝난 worker의 turn은 `failed`(`worker_ownership_lost`)로 끝나고, 세션은 `recovery_required`로 가지 않는다**(JeongJaeSoon/werft#2218). migration은 없고 따로 할 일도 없다.
   - 조건은 둘 다다. scheduler가 그 worker의 exit code 75를 보았고, 그 lease가 만료됐다. 하나라도 없으면 지금대로 turn은 `outcome_unknown`이고 세션은 operator 결정을 기다린다.
   - 그 exit의 정리는 lease가 끝날 때까지 늦어진다. 기다리는 시간은 `HEARTBEAT_TTL_SEC`를 넘지 않고, 그동안 scheduler 로그에 `Worker gave its lease up; exit settles once the lease runs out`가 pass마다 남는다.

@@ -165,8 +165,16 @@ export type LocalTool = {
   /** Its name in its server: the engine calls it `mcp__<server>__<name>`. */
   name: string;
   description: string;
+  /**
+   * The JSON Schema of what it takes, an object; absent, it takes nothing
+   * and a call with an argument is refused.
+   */
+  inputSchema?: Record<string, unknown>;
   /** The result's text; `isError` when the call was refused. */
-  call(signal: AbortSignal): Promise<{ text: string; isError: boolean }>;
+  call(
+    signal: AbortSignal,
+    input: Record<string, unknown>,
+  ): Promise<{ text: string; isError: boolean }>;
 };
 
 /** Tools served in the worker's own process, which judges every call itself. */

@@ -19,6 +19,7 @@ import { sql } from "drizzle-orm";
 import { channelKindOf, sessionVisibleTo } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
+import { lockedTurnReadDeleted } from "./conversation-turns.ts";
 import { directSourceDeletedAt, servedTitle } from "./deleted-sources.ts";
 import { turnAnswerTexts } from "./input-texts.ts";
 
@@ -130,6 +131,15 @@ export function createPostgresConversationReadToolStore(
         ) {
           return { outcome: "lease_expired" };
         }
+        // A turn ends on one decision: no tool call after it. Its own
+        // statement, as one written while this waited on the permit reads as
+        // running in the statement that took it.
+        const [turn] = rowsOf<{ state: string }>(
+          await tx.execute(sql`
+            SELECT state FROM conversation_turns
+            WHERE id = ${input.turnId}::uuid`),
+        );
+        if (turn?.state !== "running") return { outcome: "not_holder" };
         const toolCalls = row.tool_calls + 1;
         const readsThread =
           input.tool === "read_thread" &&
@@ -152,6 +162,78 @@ export function createPostgresConversationReadToolStore(
       });
     },
 
+    async recordDecision({ turnId, leaseId, runtimeId, decision }) {
+      // A read that joined the sources after the check takes it all again:
+      // checking under the turn's row lock would turn the lock order round.
+      // Each read is a counted tool call, so the sources settle.
+      for (let attempt = 0; ; attempt++) {
+        const recorded = await db.transaction(async (tx) => {
+          // Check spot ②, its mark locks before any row's.
+          const read = await lockedTurnReadDeleted(tx, turnId);
+          // The permit before the turn, as the turn's end takes them.
+          await tx.execute(sql`
+            SELECT 1 FROM conversation_turn_permits
+            WHERE turn_id = ${turnId}::uuid FOR UPDATE`);
+          const [turn] = rowsOf<{ state: string; sources: unknown }>(
+            await tx.execute(sql`
+              SELECT state, sources FROM conversation_turns
+              WHERE id = ${turnId}::uuid AND origin = 'm2'
+              FOR UPDATE`),
+          );
+          // The first decision of the turn is its decision.
+          if (read === null || turn?.state !== "running") {
+            return { outcome: "turn_not_held" as const };
+          }
+          // The lease or permit ran out since the call was admitted, read in
+          // a statement after the locks: one that waited on them reads the
+          // clock from before (db-clock.ts).
+          const [held] = rowsOf<{ held: boolean }>(
+            await tx.execute(sql`
+              SELECT p.expires_at > clock_timestamp() AND EXISTS (
+                SELECT 1 FROM conversation_turn_queue q
+                WHERE q.turn_id = p.turn_id AND q.state = 'leased'
+                  AND q.lease_id = ${leaseId}::uuid
+                  AND q.runtime_id = ${runtimeId}::uuid
+                  AND q.lease_expires_at > clock_timestamp()
+              ) AS held
+              FROM conversation_turn_permits p
+              WHERE p.turn_id = ${turnId}::uuid`),
+          );
+          if (held?.held !== true) return { outcome: "turn_not_held" as const };
+          if (
+            JSON.stringify(read.sources ?? null) !==
+            JSON.stringify(turn.sources ?? null)
+          ) {
+            return null;
+          }
+          const state: "decided" | "voided_by_delete" = read.deleted
+            ? "voided_by_delete"
+            : "decided";
+          await tx.execute(
+            state === "decided"
+              ? sql`
+                UPDATE conversation_turns
+                SET state = 'decided', decision = ${decision.tool},
+                  decision_reason = ${decision.reason},
+                  answer_text = ${decision.tool === "reply" ? decision.body : null},
+                  ended_at = clock_timestamp()
+                WHERE id = ${turnId}::uuid`
+              : sql`
+                UPDATE conversation_turns
+                SET state = 'voided_by_delete', ended_at = clock_timestamp()
+                WHERE id = ${turnId}::uuid`,
+          );
+          return { outcome: "recorded" as const, state };
+        });
+        if (recorded !== null) return recorded;
+        if (attempt >= CONVERSATION_TURN_TOOL_CALL_LIMIT) {
+          throw new Error(
+            `Conversation turn ${turnId}'s sources did not settle`,
+          );
+        }
+      }
+    },
+
     async closeThreadReads(turnId) {
       await db.execute(sql`
         UPDATE conversation_turn_permits
@@ -168,7 +250,7 @@ export function createPostgresConversationReadToolStore(
             FOR UPDATE`),
         );
         // An ended turn's sources are what it ended with.
-        if (turn === undefined) return;
+        if (turn === undefined) return false;
         const stored = storedSourceSet(
           withDirectSources(sourceSetOf(turn.sources), keys),
         );
@@ -176,6 +258,7 @@ export function createPostgresConversationReadToolStore(
           UPDATE conversation_turns
           SET sources = ${stored === null ? null : JSON.stringify(stored)}::jsonb
           WHERE id = ${turnId}::uuid`);
+        return true;
       });
     },
 
