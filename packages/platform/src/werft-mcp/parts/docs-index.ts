@@ -145,11 +145,15 @@ export function anchorOf(heading: string): string {
 }
 
 function plainHeading(raw: string): string {
-  return raw
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, "$1")
-    .trim();
+  return (
+    raw
+      .replace(/`([^`]*)`/g, "$1")
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
+      // An underscore inside a word (outcome_unknown) is not emphasis.
+      .replace(/(?<![\p{L}\p{N}_])_{1,2}([^_]+)_{1,2}(?![\p{L}\p{N}_])/gu, "$1")
+      .trim()
+  );
 }
 
 function parsePage(

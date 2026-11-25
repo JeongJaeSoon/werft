@@ -544,10 +544,20 @@ describe("the documentation of this checkout", () => {
   test("a term only a section heading has finds that section", () => {
     const fixture = docsIndex(docsPages(FILES, "ko"));
     expect(fixture.search("주소", 1)[0]?.chunk.section.anchor).toBe("old-urls");
-    const index = docsIndex(docsPages(files, "en"));
-    expect(index.search("RECOVERYREQUIRED", 1)[0]?.chunk.page.slug).toBe(
-      "reference/api-guide",
+  });
+
+  test("a heading's anchor keeps the underscores of an identifier, as the site does", () => {
+    const guide = docsPages(files, "en").find(
+      (p) => p.slug === "reference/api-guide",
     );
+    expect(guide?.sections.map((s) => s.anchor)).toContain(
+      "7-recovery-decisions-for-outcome_unknown-and-recovery_required",
+    );
+    const [p] = docsPages(
+      [{ path: "a.mdx", text: page("A", "## _Some_ and **bold** a_b") }],
+      "en",
+    );
+    expect(p?.sections[0]?.anchor).toBe("some-and-bold-a_b");
   });
 
   test("no answer over the real docs is larger than ANSWER_BYTES", async () => {
