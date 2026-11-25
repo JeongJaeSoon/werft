@@ -228,7 +228,7 @@ curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://<host>/internal
 
 NetworkPolicy を強制しない CNI では worker は隔離されません。Secret key の欠落、不正な installationId、S3 保護設定エラー、image pull 失敗を Pod・Job ログで切り分けます。fixture chart の render 成功と公開 chart の設置成功は異なります。
 
-ノードを再起動したあと、api の準備には数分かかることがあります。PostgreSQL が同じノードで一緒に再起動する構成では、api Pod が 2 分以上準備できず、startup probe（5 秒間隔で 24 回、約 2 分）で再起動されてから準備完了になったことがあります。そのあいだ `kubectl rollout status` は再起動前の状態を見て成功で終わることがあります。準備状態は[確認](#확인)のブロックで `/readyz` を直接見ます。30 回以内に準備できなければ数分後に再実行し、`kubectl -n werft get pods` で api Pod の状態と `RESTARTS` を、`kubectl -n werft logs deploy/werft-api` でログを併せて確認します。
+ノードを再起動したあと、api の準備には時間がかかることがあります。api は起動時に object store と PostgreSQL が応答するまで最大 90 秒間再試行し、待っているあいだ `Waiting for the object store before starting` または `Waiting for the database before starting` をログに残します。90 秒以内に応答がなければ `Refusing to start` で始まる行を残して終了し、Kubernetes が起動し直します。そのあいだ `kubectl rollout status` は再起動前の状態を見て成功で終わることがあります。準備状態は[確認](#확인)のブロックで `/readyz` を直接見ます。30 回以内に準備できなければ数分後に再実行し、`kubectl -n werft get pods` で api Pod の状態と `RESTARTS` を、`kubectl -n werft logs deploy/werft-api` でログを併せて確認します。
 
 手順 5 のコンソールが切れたら、`sudo journalctl -u werft-console.service` で port-forward のログを見ます。`lost connection to pod` の後に `Forwarding from 127.0.0.1:3000` が再び出ていれば、新しい api Pod に接続し直しています。
 
