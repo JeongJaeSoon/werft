@@ -15,6 +15,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **에이전트 Slack 앱이 bot scope `reactions:write`를 받는다. 이미 설치한 앱은 Slack 관리자가 다시 승인해야 한다**(JeongJaeSoon/werft#2222). migration `0369_slack_outbox_reaction`이 `slack_outbox`의 종류 CHECK에 `reaction`을 더한다. 줄을 고치지 않는다.
+  - 에이전트가 답하기로 한 메시지에 👀 하나를 다는 데만 쓴다. 사람이 단 이모지는 읽지 않고, `reaction_added` 이벤트도 받지 않는다.
+  - 올린 뒤 api가 시작하면 기존 앱마다 콘솔 Slack 탭에 "Slack 재승인 필요"가 뜬다. 앱은 그대로 동작하고 다시 승인할 때까지 👀만 달지 않는다. **다시 승인**은 manifest를 보낸 뒤 Slack 동의 화면으로 간다. 워크스페이스의 설정 토큰이 살아 있어야 한다.
+  - 앞선 이미지로 되돌려도 된다. 그 이미지는 `reaction` 줄을 넣지 않는다.
 - **lease를 스스로 내려놓고 끝난 worker의 turn은 `failed`(`worker_ownership_lost`)로 끝나고, 세션은 `recovery_required`로 가지 않는다**(JeongJaeSoon/werft#2218). migration은 없고 따로 할 일도 없다.
   - 조건은 둘 다다. scheduler가 그 worker의 exit code 75를 보았고, 그 lease가 만료됐다. 하나라도 없으면 지금대로 turn은 `outcome_unknown`이고 세션은 operator 결정을 기다린다.
   - 그 exit의 정리는 lease가 끝날 때까지 늦어진다. 기다리는 시간은 `HEARTBEAT_TTL_SEC`를 넘지 않고, 그동안 scheduler 로그에 `Worker gave its lease up; exit settles once the lease runs out`가 pass마다 남는다.
