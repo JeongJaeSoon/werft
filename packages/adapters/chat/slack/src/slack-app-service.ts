@@ -16,6 +16,8 @@ import {
   type SlackAppSettings,
   type SlackBot,
   type SlackBotRefusal,
+  type SlackEventsUpdate,
+  type SlackEventsUpdateFailure,
   type SlackManifestSyncError,
   type SlackWarning,
 } from "@werft-ai/contracts";
@@ -921,6 +923,121 @@ export function createSlackAppService(deps: {
         if (outcome === "failed") summary.failed += 1;
       }
       return summary;
+    },
+    /**
+     * After the events address changed: every created agent app of every
+     * workspace (or those of `slackAppIds`) is sent its manifest with the
+     * address in effect, as a recheck sends it. A workspace's apps go one
+     * after another and a Retry-After is not waited out: the request is a
+     * person's, and the app is listed failed for them to retry. What Slack
+     * said is recorded on the app as its manifest_sync.
+     */
+    async resendAgentAppEvents(
+      slackAppIds?: readonly string[],
+    ): Promise<SlackEventsUpdate[]> {
+      const wanted = slackAppIds === undefined ? null : new Set(slackAppIds);
+      const targets =
+        deps.apps === null || deps.tokens === null
+          ? []
+          : (await deps.apps.listAgentAppsForManifestCheck()).filter(
+              (target) => wanted === null || wanted.has(target.slackAppId),
+            );
+      const byWorkspace = new Map<string, typeof targets>();
+      for (const target of targets) {
+        const group = byWorkspace.get(target.workspaceId) ?? [];
+        group.push(target);
+        byWorkspace.set(target.workspaceId, group);
+      }
+      /**
+       * Sends one app the address in effect until a send finds it unchanged: a
+       * save made while one was in flight is what the app is left on.
+       */
+      async function resendEvents(target: {
+        workspaceId: string;
+        slackAppId: string;
+        agentId: string;
+      }): Promise<SlackEventsUpdate> {
+        const { apps } = ready();
+        const { workspaceId, slackAppId, agentId } = target;
+        const agent = await apps.manifestAgent(workspaceId, agentId);
+        const failed = (
+          reason_code: SlackEventsUpdateFailure,
+        ): SlackEventsUpdate => ({
+          slack_app_id: slackAppId,
+          agent_id: agent === null ? null : agentId,
+          name: agent?.name ?? null,
+          outcome: "failed",
+          reason_code,
+        });
+        if (agent === null) return failed("not_found");
+        let reinstall = false;
+        for (;;) {
+          const eventsUrl = await eventsUrlOf(agentId);
+          if (eventsUrl === null) {
+            await recordManifestSync(
+              workspaceId,
+              slackAppId,
+              "events_url_unset",
+            );
+            return failed("events_url_unset");
+          }
+          try {
+            const { permissionsUpdated } = await updateAgentAppManifest(
+              workspaceId,
+              slackAppId,
+              {
+                name: agent.name,
+                botName: agent.slug,
+                description: agent.role,
+                eventsUrl,
+              },
+            );
+            reinstall ||= permissionsUpdated;
+          } catch (error) {
+            if (
+              error instanceof SessionServiceError &&
+              error.code === "NOT_FOUND"
+            )
+              return failed("not_found");
+            deps.logger?.warn("Slack app events address not sent", {
+              slack_app_id: slackAppId,
+              error: error instanceof Error ? error.name : "unknown",
+            });
+            // updateAgentAppManifest recorded why on the app.
+            const record = await apps.find(workspaceId, slackAppId);
+            return failed(record?.manifestSync?.error ?? "no_answer");
+          }
+          if ((await eventsUrlOf(agentId)) === eventsUrl) {
+            return {
+              slack_app_id: slackAppId,
+              agent_id: agentId,
+              name: agent.name,
+              outcome: "updated",
+              reinstall_required: reinstall,
+            };
+          }
+        }
+      }
+      const sent = await Promise.all(
+        [...byWorkspace.values()].map(async (group) => {
+          const updates: SlackEventsUpdate[] = [];
+          for (const target of group) updates.push(await resendEvents(target));
+          return updates;
+        }),
+      );
+      const found = new Set(targets.map((target) => target.slackAppId));
+      const missing = [...(wanted ?? [])]
+        .filter((id) => !found.has(id))
+        .map(
+          (id): SlackEventsUpdate => ({
+            slack_app_id: id,
+            agent_id: null,
+            name: null,
+            outcome: "failed",
+            reason_code: "not_found",
+          }),
+        );
+      return [...sent.flat(), ...missing];
     },
   };
   return service;

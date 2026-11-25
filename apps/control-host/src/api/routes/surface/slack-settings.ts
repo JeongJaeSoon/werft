@@ -1,4 +1,6 @@
 import {
+  retrySlackEventsUpdatesRequestSchema,
+  retrySlackEventsUpdatesResponseSchema,
   slackSettingsSchema,
   updateSlackSettingsRequestSchema,
   updateSlackSettingsResponseSchema,
@@ -27,5 +29,20 @@ export function registerSlackSettingsRoutes(
       admin.change(context.get("caller"), body),
     );
     return jsonWithSchema(context, updateSlackSettingsResponseSchema, changed);
+  });
+
+  apiRoute(router, "retrySlackEventsUpdates", async (context) => {
+    const body = await parseJsonBody(
+      context,
+      retrySlackEventsUpdatesRequestSchema,
+    );
+    const retried = await mapped(() =>
+      admin.retry(context.get("caller"), body),
+    );
+    return jsonWithSchema(
+      context,
+      retrySlackEventsUpdatesResponseSchema,
+      retried,
+    );
   });
 }

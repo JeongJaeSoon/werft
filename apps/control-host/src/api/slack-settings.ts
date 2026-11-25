@@ -1,4 +1,7 @@
 import type {
+  RetrySlackEventsUpdatesRequest,
+  RetrySlackEventsUpdatesResponse,
+  SlackEventsUpdate,
   SlackSettings,
   UpdateSlackSettingsRequest,
   UpdateSlackSettingsResponse,
@@ -27,13 +30,16 @@ export function slackEventsBaseOf(
 
 /**
  * The owner's Slack settings for the whole installation. A changed address
- * reaches an app made before it once its events are checked again from the
- * agent's Slack tab.
+ * commits first; then every created agent app of every workspace is sent
+ * the address in effect, and what Slack said comes back per app. A failed
+ * app keeps its old address and is retried from the answer.
  */
 export function createSlackSettingsAdmin(deps: {
   authorization: AuthorizationPolicy;
   store: SlackSettingsStore;
   consoleOrigin: string | null;
+  /** Sends the apps (all, or those named) the address in effect now. */
+  resend: (slackAppIds?: readonly string[]) => Promise<SlackEventsUpdate[]>;
 }) {
   const computed = computedEventsBase(deps.consoleOrigin);
   const viewOf = (saved: string | null): SlackSettings => {
@@ -70,10 +76,27 @@ export function createSlackSettingsAdmin(deps: {
         value,
         audit,
       });
+      // Cleared without an https CONSOLE_ORIGIN, no address is left to send.
+      const updates =
+        changed && (value ?? computed) !== null ? await deps.resend() : [];
+      // A save made meanwhile is what the apps were left on.
+      const now =
+        updates.length === 0
+          ? value
+          : ((await deps.store.read())?.eventsPublicUrl ?? null);
       return {
-        ...viewOf(value),
+        ...viewOf(now),
         ...(changed ? { receipt_id: audit.receiptId } : {}),
+        updates,
       };
+    },
+
+    async retry(
+      caller: Caller,
+      body: RetrySlackEventsUpdatesRequest,
+    ): Promise<RetrySlackEventsUpdatesResponse> {
+      await requireSignInOwner(deps.authorization, caller);
+      return { updates: await deps.resend([...new Set(body.slack_app_ids)]) };
     },
   };
 }

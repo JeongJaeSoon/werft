@@ -97,7 +97,7 @@ server {
 - `Host`는 `$http_host`로 브라우저가 보낸 값을 포트까지 그대로 넘긴다. `$host`는 포트를 떼므로 443이 아닌 포트로 콘솔을 열면 변경 요청이 `Origin`과 맞지 않아 거부된다.
 - 이벤트 스트림(SSE)이 지나는 콘솔 입구는 buffering을 끄고 read·send timeout을 1시간으로 둔다.
 
-공개 입구의 DNS 이름이 콘솔과 다르면 owner가 **설정 > 연동 > Slack**의 "이벤트 입구 주소"에 `https://<hooks-host>`를 저장한다(`PUT /v1/slack-settings`). 저장한 주소의 경로 prefix는 Slack에 보내는 URL에도 붙는데, 위 예는 prefix를 떼지 않으므로 host만 저장한다. 저장 전에 만든 에이전트 앱은 그 에이전트 Slack 탭의 **다시 확인**으로 새 주소를 보낸다.
+공개 입구의 DNS 이름이 콘솔과 다르면 owner가 **설정 > 연동 > Slack**의 "이벤트 입구 주소"에 `https://<hooks-host>`를 저장한다(`PUT /v1/slack-settings`). 저장한 주소의 경로 prefix는 Slack에 보내는 URL에도 붙는데, 위 예는 prefix를 떼지 않으므로 host만 저장한다. 저장하면 이미 만든 에이전트 앱 모두에 새 주소를 보내고, 앱마다 보냈는지와 이유를 그 자리에 보여 준다. 보내지 못한 앱은 **보내지 못한 앱 다시 보내기**로 다시 보낸다.
 
 터널(예: Cloudflare Tunnel)로 공개 입구를 만들 때도 규칙은 같다. 공개 hostname에는 Slack 경로 둘만 `http://127.0.0.1:3000`으로 보내고 나머지는 404로 답하게 두며, 콘솔은 다른 hostname과 접근 제한 뒤에 둔다. 경로를 어떻게 정리하는지는 터널 제품마다 다르므로 규칙을 쓴 뒤 아래 확인을 공개 주소로 돌린다.
 

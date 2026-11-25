@@ -101,7 +101,7 @@ server {
 - `Host` is passed as `$http_host`, the browser's value with its port. `$host` drops the port, so a console on a port other than 443 would have its changes refused for not matching `Origin`.
 - The console entrance carries the event stream (SSE), so it turns buffering off and sets read and send timeouts of 1 hour.
 
-When the public entrance's DNS name differs from the console's, an owner saves `https://<hooks-host>` as the events entrance under **Settings > Integrations > Slack** (`PUT /v1/slack-settings`). A path prefix in the saved address is kept in the URL Slack is sent; the example above does not strip a prefix, so save the host only. Agent apps made before the change get the new address with **Recheck** on that agent's Slack tab.
+When the public entrance's DNS name differs from the console's, an owner saves `https://<hooks-host>` as the events entrance under **Settings > Integrations > Slack** (`PUT /v1/slack-settings`). A path prefix in the saved address is kept in the URL Slack is sent; the example above does not strip a prefix, so save the host only. Saving sends the new address to every agent app made before, and shows per app whether it was sent and why not. **Send the apps not sent again** retries the ones that were not.
 
 A tunnel (for example Cloudflare Tunnel) as the public entrance follows the same rules. Send only the two Slack paths on the public hostname to `http://127.0.0.1:3000`, let everything else answer 404, and keep the console on another hostname behind access restrictions. Tunnel products normalize paths differently, so after writing the rules run the check below against the public address.
 

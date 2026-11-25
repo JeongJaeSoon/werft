@@ -485,11 +485,64 @@ export const updateSlackSettingsRequestSchema = z
   })
   .strict();
 
+/** How many apps one retry names at most. */
+export const SLACK_EVENTS_RETRY_MAX = 100;
+
+/**
+ * Why an app was not sent the new events address: a manifest check's
+ * reason, recorded on the app as its `manifest_sync`, or `not_found` (retry
+ * only) when it is no longer a created agent app.
+ */
+export const SLACK_EVENTS_UPDATE_FAILURE_VALUES = [
+  ...SLACK_MANIFEST_SYNC_ERROR_VALUES,
+  "not_found",
+] as const;
+
+/** What one agent app was sent after the events address changed. */
+export const slackEventsUpdateSchema = z.discriminatedUnion("outcome", [
+  z
+    .object({
+      slack_app_id: slackAppIdSchema,
+      agent_id: agentIdSchema,
+      name: z.string(),
+      outcome: z.literal("updated"),
+      /** Slack took new permissions with the manifest: install the app again. */
+      reinstall_required: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      slack_app_id: slackAppIdSchema,
+      /** Null with `not_found`. */
+      agent_id: agentIdSchema.nullable(),
+      name: z.string().nullable(),
+      outcome: z.literal("failed"),
+      reason_code: z.enum(SLACK_EVENTS_UPDATE_FAILURE_VALUES),
+    })
+    .strict(),
+]);
+
 export const updateSlackSettingsResponseSchema = slackSettingsSchema
   .extend({
     /** Only when the saved address changed. */
     receipt_id: z.uuid().optional(),
+    /**
+     * One per created agent app of every workspace, after the address
+     * committed; empty when nothing was sent.
+     */
+    updates: z.array(slackEventsUpdateSchema),
   })
+  .strict();
+
+/** The apps to send the events address in effect again. */
+export const retrySlackEventsUpdatesRequestSchema = z
+  .object({
+    slack_app_ids: z.array(slackAppIdSchema).min(1).max(SLACK_EVENTS_RETRY_MAX),
+  })
+  .strict();
+
+export const retrySlackEventsUpdatesResponseSchema = z
+  .object({ updates: z.array(slackEventsUpdateSchema) })
   .strict();
 
 export type SlackSettings = z.infer<typeof slackSettingsSchema>;
@@ -498,6 +551,15 @@ export type UpdateSlackSettingsRequest = z.infer<
 >;
 export type UpdateSlackSettingsResponse = z.infer<
   typeof updateSlackSettingsResponseSchema
+>;
+export type SlackEventsUpdateFailure =
+  (typeof SLACK_EVENTS_UPDATE_FAILURE_VALUES)[number];
+export type SlackEventsUpdate = z.infer<typeof slackEventsUpdateSchema>;
+export type RetrySlackEventsUpdatesRequest = z.infer<
+  typeof retrySlackEventsUpdatesRequestSchema
+>;
+export type RetrySlackEventsUpdatesResponse = z.infer<
+  typeof retrySlackEventsUpdatesResponseSchema
 >;
 export type SlackAppKind = z.infer<typeof slackAppKindSchema>;
 export type SlackAppState = z.infer<typeof slackAppStateSchema>;

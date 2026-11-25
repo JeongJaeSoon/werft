@@ -1,11 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type {
+  RetrySlackEventsUpdatesResponse,
+  SlackEventsUpdate,
+  SlackEventsUpdateFailure,
   SlackSettings,
   UpdateSlackSettingsResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
+  Badge,
   Button,
   Field,
   FieldDescription,
@@ -17,7 +21,7 @@ import {
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -28,6 +32,16 @@ const PERMISSION = "installation.settings.manage";
 const EVENTS_PATH = "/v1/slack/events/{agent_id}";
 // As the server keeps it (SLACK_EVENTS_PUBLIC_URL_MAX).
 const MAX_LENGTH = 2048;
+// SLACK_EVENTS_RETRY_MAX; contracts are type-only in the web app.
+const RETRY_BATCH = 100;
+
+const REASON = {
+  config_token_inactive: "workspace.eventsReason.config_token_inactive",
+  events_url_unset: "workspace.eventsReason.events_url_unset",
+  slack_refused: "workspace.eventsReason.slack_refused",
+  no_answer: "workspace.eventsReason.no_answer",
+  not_found: "workspace.eventsReason.not_found",
+} as const satisfies Record<SlackEventsUpdateFailure, string>;
 
 const settingsKey = (client: ApiClient) => scopedKey(client, "slack-settings");
 
@@ -55,7 +69,8 @@ export function eventsBaseOf(value: string): string | null {
 /**
  * Where Slack's events enter, for the whole installation: the owner's, in
  * the Slack card whatever state the token is in. Saving says what Slack will
- * be sent before it is.
+ * be sent before it is; after it, what each app was sent, with a retry for
+ * the apps that were not.
  */
 export function SlackEventsSetting({
   onOutcome,
@@ -78,11 +93,21 @@ export function SlackEventsSetting({
   const saved = read.data?.events_public_url ?? null;
   const [draft, setDraft] = useState("");
   const [shownError, setShownError] = useState<string | null>(null);
+  const [results, setResults] = useState<SlackEventsUpdate[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const resultsId = useId();
   // The field starts from what is saved, and follows it after a save.
   useEffect(() => {
     setDraft(saved ?? "");
   }, [saved]);
+
+  // An app left unsent draws the list where the reader lands.
+  const focusResults = useRef(false);
+  useEffect(() => {
+    if (focusResults.current && results.length > 0) resultsRef.current?.focus();
+    focusResults.current = false;
+  }, [results]);
 
   const save = useMutation<
     UpdateSlackSettingsResponse,
@@ -98,17 +123,26 @@ export function SlackEventsSetting({
     onMutate: () => {
       onOutcome(null);
       setShownError(null);
+      setResults([]);
     },
     onSuccess: (answer) => {
-      const { receipt_id: _receipt, ...next } = answer;
+      const { receipt_id: _receipt, updates, ...next } = answer;
       queryClient.setQueryData<SlackSettings>(settingsKey(client), next);
+      const sent = updates.filter((one) => one.outcome === "updated").length;
+      focusResults.current = sent < updates.length;
+      setResults(updates);
       onOutcome({
         kind: "notice",
-        text: t(
+        text:
           next.events_public_url === null
-            ? "workspace.eventsCleared"
-            : "workspace.eventsSaved",
-        ),
+            ? sent > 0
+              ? t("workspace.eventsClearedApps", { count: sent })
+              : next.computed_events_base === null
+                ? t("workspace.eventsClearedNone")
+                : t("workspace.eventsCleared")
+            : sent > 0
+              ? t("workspace.eventsSavedApps", { count: sent })
+              : t("workspace.eventsSaved"),
       });
       onSaved();
     },
@@ -120,6 +154,45 @@ export function SlackEventsSetting({
           : refusalText(t, error, PERMISSION, role),
       );
       inputRef.current?.focus();
+    },
+  });
+
+  const retry = useMutation<
+    RetrySlackEventsUpdatesResponse,
+    ApiError,
+    string[]
+  >({
+    mutationFn: async (ids) => {
+      const updates: SlackEventsUpdate[] = [];
+      for (let at = 0; at < ids.length; at += RETRY_BATCH) {
+        const part = await unwrap(
+          client.POST("/v1/slack-settings/retry", {
+            body: { slack_app_ids: ids.slice(at, at + RETRY_BATCH) },
+          }),
+        );
+        updates.push(...part.updates);
+      }
+      return { updates };
+    },
+    onMutate: () => onOutcome(null),
+    onSuccess: ({ updates }) => {
+      const again = new Map(updates.map((one) => [one.slack_app_id, one]));
+      const left = updates.some((one) => one.outcome === "failed");
+      focusResults.current = left;
+      setResults((shown) =>
+        shown.map((one) => again.get(one.slack_app_id) ?? one),
+      );
+      if (!left) {
+        onOutcome({ kind: "notice", text: t("workspace.eventsRetried") });
+        // The retry button leaves with the last failure.
+        inputRef.current?.focus();
+      }
+    },
+    onError: (error) => {
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, PERMISSION, role),
+      });
     },
   });
 
@@ -143,10 +216,12 @@ export function SlackEventsSetting({
   const effective = base === "" ? computed : base;
   const unchanged = base !== null && (base === "" ? null : base) === saved;
   const invalid = base === null;
+  const busy = save.isPending || retry.isPending;
+  const failed = results.filter((one) => one.outcome === "failed");
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (save.isPending || unchanged) return;
+    if (busy || unchanged) return;
     if (invalid) {
       setShownError(t("workspace.eventsInvalid"));
       inputRef.current?.focus();
@@ -201,23 +276,74 @@ export function SlackEventsSetting({
             <Text className="font-mono break-all">{`${effective}${EVENTS_PATH}`}</Text>
           )}
         </div>
+        {results.length === 0 ? null : (
+          <div
+            ref={resultsRef}
+            tabIndex={-1}
+            className="flex min-w-0 flex-col gap-2 outline-none"
+          >
+            <Text variant="meta" id={resultsId}>
+              {t("workspace.eventsResults")}
+            </Text>
+            <ul
+              aria-labelledby={resultsId}
+              className="flex min-w-0 flex-col gap-2"
+            >
+              {results.map((one) => (
+                <li key={one.slack_app_id} className="flex min-w-0 flex-col">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Text className="min-w-0 break-words">
+                      {one.name ?? one.slack_app_id}
+                    </Text>
+                    {one.outcome === "updated" ? (
+                      <Badge variant="green">
+                        {t("workspace.eventsUpdated")}
+                      </Badge>
+                    ) : (
+                      <Badge variant="red">{t("workspace.eventsFailed")}</Badge>
+                    )}
+                  </div>
+                  {one.outcome === "failed" ? (
+                    <Text variant="sub">{t(REASON[one.reason_code])}</Text>
+                  ) : one.reinstall_required ? (
+                    <Text variant="sub">{t("workspace.eventsReinstall")}</Text>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {failed.length === 0 ? null : (
+              <div className="flex min-w-0 flex-col items-start gap-2">
+                <Text variant="sub">{t("workspace.eventsFailedHint")}</Text>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-disabled={busy || undefined}
+                  onClick={() => {
+                    if (!busy) {
+                      retry.mutate(failed.map((one) => one.slack_app_id));
+                    }
+                  }}
+                >
+                  {t("workspace.eventsRetry")}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         <FormActions>
           {saved === null ? null : (
             <Button
               type="button"
               variant="ghost"
-              aria-disabled={save.isPending || undefined}
+              aria-disabled={busy || undefined}
               onClick={() => {
-                if (!save.isPending) save.mutate(null);
+                if (!busy) save.mutate(null);
               }}
             >
               {t("workspace.eventsClear")}
             </Button>
           )}
-          <Button
-            type="submit"
-            aria-disabled={save.isPending || unchanged || undefined}
-          >
+          <Button type="submit" aria-disabled={busy || unchanged || undefined}>
             {t("workspace.eventsSave")}
           </Button>
         </FormActions>

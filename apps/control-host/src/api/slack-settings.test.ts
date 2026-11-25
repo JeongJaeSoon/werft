@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type Principal, scopesForRole } from "@werft-ai/contracts";
+import {
+  type Principal,
+  type SlackEventsUpdate,
+  scopesForRole,
+} from "@werft-ai/contracts";
 import type { SlackSettingsStore } from "@werft-ai/db";
 import {
   type Caller,
@@ -67,14 +71,30 @@ function memoryStore(initial: { eventsPublicUrl: string | null } | null) {
   return { store, saves, imports, row: () => row };
 }
 
+const UPDATED: SlackEventsUpdate = {
+  slack_app_id: "019a0000-0000-7000-8000-0000000000b1",
+  agent_id: "019a0000-0000-7000-8000-0000000000d1",
+  name: "Release notes",
+  outcome: "updated",
+  reinstall_required: false,
+};
+
 function admin(
   initial: { eventsPublicUrl: string | null } | null,
   consoleOrigin: string | null = CONSOLE,
 ) {
   const memory = memoryStore(initial);
+  // What each send was asked for, and the address it read.
+  const resends: Array<{ ids: readonly string[] | undefined; at: unknown }> =
+    [];
   return {
     ...memory,
+    resends,
     admin: createSlackSettingsAdmin({
+      resend: async (ids) => {
+        resends.push({ ids, at: memory.row()?.eventsPublicUrl ?? null });
+        return [UPDATED];
+      },
       authorization: createAuthorizationPolicy({
         agents: { agentOf: async () => null, isAdmin: async () => false },
         decisions: { record: async () => {} },
@@ -114,6 +134,7 @@ describe("the Slack settings service", () => {
       computed_events_base: CONSOLE,
       events_url_template: `${EVENTS}/v1/slack/events/{agent_id}`,
       receipt_id: expect.any(String),
+      updates: [UPDATED],
     });
     expect(await service.read(caller("owner"))).toEqual({
       events_public_url: EVENTS,
@@ -146,6 +167,7 @@ describe("the Slack settings service", () => {
         computed_events_base: null,
         events_url_template: null,
         receipt_id: expect.any(String),
+        updates: [],
       });
       // The row stays, so a later start does not carry the old env in.
       expect(row()).toEqual({ eventsPublicUrl: null });
@@ -169,6 +191,62 @@ describe("the Slack settings service", () => {
       details: { reason_code: "events_url_invalid" },
     });
     expect(saves).toEqual([]);
+  });
+});
+
+describe("sending the apps the changed address", () => {
+  test("a changed address is sent after it commits, and the answer lists each app", async () => {
+    const { admin: service, resends } = admin(null);
+    const saved = await service.change(caller("owner"), {
+      events_public_url: EVENTS,
+    });
+    expect(resends).toEqual([{ ids: undefined, at: EVENTS }]);
+    expect(saved.updates).toEqual([UPDATED]);
+  });
+
+  test("the address already saved sends nothing", async () => {
+    const { admin: service, resends } = admin({ eventsPublicUrl: EVENTS });
+    const again = await service.change(caller("owner"), {
+      events_public_url: EVENTS,
+    });
+    expect(again.updates).toEqual([]);
+    expect(resends).toEqual([]);
+  });
+
+  test("clearing sends the console's address, and nothing when there is none", async () => {
+    const withConsole = admin({ eventsPublicUrl: EVENTS });
+    expect(
+      (
+        await withConsole.admin.change(caller("owner"), {
+          events_public_url: null,
+        })
+      ).updates,
+    ).toEqual([UPDATED]);
+    expect(withConsole.resends).toEqual([{ ids: undefined, at: null }]);
+    const without = admin({ eventsPublicUrl: EVENTS }, null);
+    expect(
+      (
+        await without.admin.change(caller("owner"), {
+          events_public_url: null,
+        })
+      ).updates,
+    ).toEqual([]);
+    expect(without.resends).toEqual([]);
+  });
+
+  test("a retry sends the named apps once each, and is the signed-in owner's", async () => {
+    const { admin: service, resends } = admin({ eventsPublicUrl: EVENTS });
+    const id = UPDATED.slack_app_id;
+    expect(
+      await service.retry(caller("owner"), { slack_app_ids: [id, id] }),
+    ).toEqual({ updates: [UPDATED] });
+    expect(resends).toEqual([{ ids: [id], at: EVENTS }]);
+    for (const who of [caller("admin"), caller("member"), apiKey]) {
+      expect(
+        (await refusal(service.retry(who, { slack_app_ids: [id] }))).code,
+      ).toBe("FORBIDDEN");
+    }
+    expect(resends).toHaveLength(1);
   });
 });
 

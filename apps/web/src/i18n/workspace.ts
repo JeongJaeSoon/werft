@@ -146,10 +146,30 @@ export const workspaceKo = {
     "보낼 주소가 없어 새로 설치하는 앱은 이벤트를 받지 못합니다.",
   "workspace.eventsSave": "저장",
   "workspace.eventsClear": "비우기",
-  "workspace.eventsSaved":
-    "이벤트 입구 주소를 저장했습니다. 이미 만든 앱은 에이전트의 Slack 탭에서 '다시 확인'을 눌러 새 주소를 보내세요.",
-  "workspace.eventsCleared":
-    "이벤트 입구 주소를 비웠습니다. 이미 만든 앱은 에이전트의 Slack 탭에서 '다시 확인'을 눌러 새 주소를 보내세요.",
+  "workspace.eventsSaved": "이벤트 입구 주소를 저장했습니다.",
+  "workspace.eventsCleared": "이벤트 입구 주소를 비웠습니다.",
+  "workspace.eventsSavedApps":
+    "이벤트 입구 주소를 저장하고 앱 {count}개에 새 주소를 보냈습니다.",
+  "workspace.eventsClearedApps":
+    "이벤트 입구 주소를 비우고 앱 {count}개에 콘솔의 공개 주소를 보냈습니다.",
+  "workspace.eventsClearedNone":
+    "이벤트 입구 주소를 비웠습니다. 보낼 주소가 없어 이미 만든 앱은 예전 주소를 그대로 씁니다.",
+  "workspace.eventsResults": "앱별 결과",
+  "workspace.eventsUpdated": "보냄",
+  "workspace.eventsFailed": "보내지 못함",
+  "workspace.eventsReinstall":
+    "Slack이 새 권한도 함께 받았습니다. 에이전트의 Slack 탭에서 앱을 다시 설치하세요.",
+  "workspace.eventsFailedHint":
+    "보내지 못한 앱은 예전 주소로 이벤트를 받고, 에이전트의 Slack 탭에 갱신 필요로 표시됩니다.",
+  "workspace.eventsRetry": "보내지 못한 앱 다시 보내기",
+  "workspace.eventsRetried": "남은 앱에 새 주소를 모두 보냈습니다.",
+  "workspace.eventsReason.config_token_inactive":
+    "App Configuration Token이 활성 상태가 아닙니다. 토큰을 다시 넣은 뒤 다시 보내세요.",
+  "workspace.eventsReason.events_url_unset": "보낼 이벤트 주소가 없습니다.",
+  "workspace.eventsReason.slack_refused":
+    "Slack이 거절했습니다. 요청이 몰렸을 수 있으니 잠시 뒤 다시 보내세요.",
+  "workspace.eventsReason.no_answer": "Slack이 답하지 않았습니다.",
+  "workspace.eventsReason.not_found": "이 앱은 더 이상 없습니다.",
 };
 
 export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
@@ -300,10 +320,31 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "No address to send, so apps installed from now on get no events.",
   "workspace.eventsSave": "Save",
   "workspace.eventsClear": "Clear",
-  "workspace.eventsSaved":
-    "Saved the events entrance. For apps made before, press “Recheck” on the agent's Slack tab to send them the new address.",
-  "workspace.eventsCleared":
-    "Cleared the events entrance. For apps made before, press “Recheck” on the agent's Slack tab to send them the new address.",
+  "workspace.eventsSaved": "Saved the events entrance.",
+  "workspace.eventsCleared": "Cleared the events entrance.",
+  "workspace.eventsSavedApps":
+    "Saved the events entrance and sent the new address to {count} apps.",
+  "workspace.eventsClearedApps":
+    "Cleared the events entrance and sent {count} apps the console's public address.",
+  "workspace.eventsClearedNone":
+    "Cleared the events entrance. There is no address to send, so apps made before keep their old one.",
+  "workspace.eventsResults": "Result per app",
+  "workspace.eventsUpdated": "Sent",
+  "workspace.eventsFailed": "Not sent",
+  "workspace.eventsReinstall":
+    "Slack took new permissions with it too. Install the app again from the agent's Slack tab.",
+  "workspace.eventsFailedHint":
+    "An app not sent keeps receiving events at its old address and shows “Update needed” on the agent's Slack tab.",
+  "workspace.eventsRetry": "Send the apps not sent again",
+  "workspace.eventsRetried": "Sent the new address to the remaining apps.",
+  "workspace.eventsReason.config_token_inactive":
+    "The App Configuration Token is not active. Enter the token again, then send again.",
+  "workspace.eventsReason.events_url_unset":
+    "There is no events address to send.",
+  "workspace.eventsReason.slack_refused":
+    "Slack refused. Requests may have piled up; send again in a moment.",
+  "workspace.eventsReason.no_answer": "Slack did not answer.",
+  "workspace.eventsReason.not_found": "This app no longer exists.",
 };
 
 export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
@@ -457,8 +498,29 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "送るアドレスがないため、これからインストールするアプリはイベントを受け取れません。",
   "workspace.eventsSave": "保存",
   "workspace.eventsClear": "クリア",
-  "workspace.eventsSaved":
-    "イベントの入口アドレスを保存しました。作成済みのアプリには、エージェントの Slack タブで「再確認」を押して新しいアドレスを送ってください。",
-  "workspace.eventsCleared":
-    "イベントの入口アドレスをクリアしました。作成済みのアプリには、エージェントの Slack タブで「再確認」を押して新しいアドレスを送ってください。",
+  "workspace.eventsSaved": "イベントの入口アドレスを保存しました。",
+  "workspace.eventsCleared": "イベントの入口アドレスをクリアしました。",
+  "workspace.eventsSavedApps":
+    "イベントの入口アドレスを保存し、{count} 個のアプリに新しいアドレスを送りました。",
+  "workspace.eventsClearedApps":
+    "イベントの入口アドレスをクリアし、{count} 個のアプリにコンソールの公開アドレスを送りました。",
+  "workspace.eventsClearedNone":
+    "イベントの入口アドレスをクリアしました。送るアドレスがないため、作成済みのアプリは前のアドレスのままです。",
+  "workspace.eventsResults": "アプリごとの結果",
+  "workspace.eventsUpdated": "送信済み",
+  "workspace.eventsFailed": "送れませんでした",
+  "workspace.eventsReinstall":
+    "Slack が新しい権限も一緒に受け取りました。エージェントの Slack タブからアプリをインストールし直してください。",
+  "workspace.eventsFailedHint":
+    "送れなかったアプリは前のアドレスでイベントを受け取り、エージェントの Slack タブに「更新が必要」と表示されます。",
+  "workspace.eventsRetry": "送れなかったアプリにもう一度送る",
+  "workspace.eventsRetried": "残りのアプリに新しいアドレスをすべて送りました。",
+  "workspace.eventsReason.config_token_inactive":
+    "App Configuration Token が有効ではありません。トークンを入れ直してから、もう一度送ってください。",
+  "workspace.eventsReason.events_url_unset":
+    "送るイベントのアドレスがありません。",
+  "workspace.eventsReason.slack_refused":
+    "Slack が拒否しました。リクエストが集中した可能性があるため、少し待ってからもう一度送ってください。",
+  "workspace.eventsReason.no_answer": "Slack が応答しませんでした。",
+  "workspace.eventsReason.not_found": "このアプリはもうありません。",
 };
