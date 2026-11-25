@@ -59,6 +59,14 @@ integration(
       return id;
     }
 
+    /** Revision 1's pass, whose bundles build on revision 0's. */
+    const pass = (sessionId: string) => ({
+      manifestSha256: "manifest-1",
+      prerequisiteRevisions: [0],
+      revision: 1,
+      sessionId,
+    });
+
     /** Collects `revision` in a transaction left open until `then` returns. */
     async function whileCollecting(
       sessionId: string,
@@ -85,51 +93,41 @@ integration(
       }
     }
 
-    test("a record made while its checkpoint is being collected waits for the collection, then keeps nothing", async () => {
-      const sessionId = await sessionWithCheckpoints(2);
-      const store = createPostgresCheckpointStore(db);
-      let settled = false;
-      let recording: Promise<void> | undefined;
-      await whileCollecting(sessionId, 1, async (collector) => {
-        recording = store
-          .recordBundleVerdict?.({
-            key: "key-1",
-            manifestSha256: "manifest-1",
-            prerequisiteRevisions: [0],
-            revision: 1,
-            sessionId,
-          })
-          .finally(() => {
-            settled = true;
-          });
-        expect(await waitsOn(db, collector, () => settled)).toBe(true);
-      });
-      await recording;
-      expect(await store.listBundleVerdicts?.(sessionId, [0, 1])).toEqual([]);
-    });
+    // The verification began before the collection; its record arrives
+    // while the collection is still open.
+    test.each([
+      ["its own checkpoint", 1],
+      ["a checkpoint it builds on", 0],
+    ] as const)(
+      "a record made while %s is being collected waits for the collection, then keeps nothing",
+      async (_which, collected) => {
+        const sessionId = await sessionWithCheckpoints(2);
+        const store = createPostgresCheckpointStore(db);
+        const basis = (await store.bundleVerdictBasis?.(pass(sessionId))) ?? "";
+        let settled = false;
+        let recording: Promise<void> | undefined;
+        await whileCollecting(sessionId, collected, async (collector) => {
+          recording = store
+            .recordBundleVerdict?.({ ...pass(sessionId), basis, key: "key-1" })
+            .finally(() => {
+              settled = true;
+            });
+          expect(await waitsOn(db, collector, () => settled)).toBe(true);
+        });
+        await recording;
+        expect(await store.listBundleVerdicts?.(sessionId, [0, 1])).toEqual([]);
+      },
+    );
 
-    test("a record waits for a collection of a checkpoint it builds on as well", async () => {
+    test("verified again after a prerequisite's collection, the pass is kept", async () => {
       const sessionId = await sessionWithCheckpoints(2);
       const store = createPostgresCheckpointStore(db);
-      let settled = false;
-      let recording: Promise<void> | undefined;
-      await whileCollecting(sessionId, 0, async (collector) => {
-        recording = store
-          .recordBundleVerdict?.({
-            key: "key-1",
-            manifestSha256: "manifest-1",
-            prerequisiteRevisions: [0],
-            revision: 1,
-            sessionId,
-          })
-          .finally(() => {
-            settled = true;
-          });
-        expect(await waitsOn(db, collector, () => settled)).toBe(true);
+      await whileCollecting(sessionId, 0, async () => {});
+      await store.recordBundleVerdict?.({
+        ...pass(sessionId),
+        basis: (await store.bundleVerdictBasis?.(pass(sessionId))) ?? "",
+        key: "key-1",
       });
-      await recording;
-      // Verified after that collection, so it stands: the bundles it read
-      // are the ones revision 1 still keeps.
       expect(await store.listBundleVerdicts?.(sessionId, [0, 1])).toEqual([
         { key: "key-1", revision: 1 },
       ]);

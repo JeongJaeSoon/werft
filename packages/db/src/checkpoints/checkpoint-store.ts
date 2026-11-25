@@ -52,6 +52,64 @@ import { sqlLiterals } from "../sql-literals.ts";
 import { readCheckpointPointer } from "../worker-unit-of-work.ts";
 
 /**
+ * The checkpoint rows a bundle verdict depends on: its own and those of the
+ * checkpoints whose bundles it builds on, in revision order.
+ */
+function verdictRows(
+  db: Database,
+  input: {
+    prerequisiteRevisions: readonly number[];
+    revision: number;
+    sessionId: string;
+  },
+) {
+  return db
+    .select({
+      collectedAt: checkpoints.collectedAt,
+      manifestRef: checkpoints.manifestRef,
+      manifestSha256: checkpoints.manifestSha256,
+      manifestVersion: checkpoints.manifestVersion,
+      revision: checkpoints.revision,
+    })
+    .from(checkpoints)
+    .where(
+      and(
+        eq(checkpoints.sessionId, input.sessionId),
+        inArray(checkpoints.revision, [
+          input.revision,
+          ...input.prerequisiteRevisions,
+        ]),
+      ),
+    )
+    .orderBy(asc(checkpoints.revision));
+}
+
+/**
+ * Everything about those rows whose change withdraws a verdict (the columns
+ * the trigger checkpoints_forget_bundle_verdicts fires on, and the rows
+ * being there at all), as one comparable string.
+ */
+function verdictBasisOf(
+  rows: ReadonlyArray<{
+    collectedAt: Date | null;
+    manifestRef: string;
+    manifestSha256: string;
+    manifestVersion: string | null;
+    revision: number;
+  }>,
+): string {
+  return JSON.stringify(
+    rows.map((row) => [
+      row.revision,
+      row.manifestRef,
+      row.manifestSha256,
+      row.manifestVersion,
+      row.collectedAt?.toISOString() ?? null,
+    ]),
+  );
+}
+
+/**
  * Whether any checkpoint garbage collection has not yet collected exists:
  * one whose objects a restore or a backup still expects in the bucket.
  */
@@ -540,32 +598,27 @@ export function createPostgresCheckpointStore(
         );
     },
 
+    async bundleVerdictBasis(input) {
+      return verdictBasisOf(await verdictRows(db, input).execute());
+    },
+
     async recordBundleVerdict(input) {
       await db.transaction(async (tx) => {
         // Locked against the writes that withdraw verdicts (the trigger
         // checkpoints_forget_bundle_verdicts): a collection or re-pin of the
         // checkpoint or of one it builds on either committed before this
-        // read, or waits and then finds the row written below.
-        const rows = await tx
-          .select({
-            collectedAt: checkpoints.collectedAt,
-            manifestSha256: checkpoints.manifestSha256,
-            revision: checkpoints.revision,
-          })
-          .from(checkpoints)
-          .where(
-            and(
-              eq(checkpoints.sessionId, input.sessionId),
-              inArray(checkpoints.revision, [
-                input.revision,
-                ...input.prerequisiteRevisions,
-              ]),
-            ),
-          )
-          .orderBy(asc(checkpoints.revision))
-          .for("share");
+        // read, or waits and then finds the row written below. One that
+        // committed since the verification began shows as another basis:
+        // its trigger ran before this verdict existed.
+        const rows = await verdictRows(tx, input).for("share");
         const judged = rows.find((row) => row.revision === input.revision);
+        const needed = new Set([
+          input.revision,
+          ...input.prerequisiteRevisions,
+        ]);
         if (
+          verdictBasisOf(rows) !== input.basis ||
+          rows.length !== needed.size ||
           judged === undefined ||
           judged.collectedAt !== null ||
           judged.manifestSha256 !== input.manifestSha256

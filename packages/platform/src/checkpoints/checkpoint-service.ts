@@ -407,9 +407,17 @@ type SharedBundle =
 type RememberedVerdict = {
   /** The key recorded for the checkpoint's revision, when one is. */
   key: string | undefined;
+  /**
+   * Before the bundles are read to be verified: the state of the checkpoint
+   * rows the pass will depend on. Undefined when the pass could be tied to
+   * no checkpoint and so is not to be recorded.
+   */
+  begin(
+    workspace: CheckpointManifest["workspace"],
+  ): Promise<{ basis: string; prerequisiteRevisions: number[] } | undefined>;
   record(
     key: string,
-    workspace: CheckpointManifest["workspace"],
+    begun: { basis: string; prerequisiteRevisions: number[] },
   ): Promise<void>;
   /** The verifier's version, which every key names. */
   version: string;
@@ -890,15 +898,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     shared?: SharedReads,
     remembered?: RememberedVerdict,
   ): Promise<Problem | undefined> {
-    const present = await bundlePresent(workspace, manifestRef, shared);
-    if ("reason" in present) return present;
     const key =
       remembered === undefined
         ? undefined
         : bundleVerdictKey(remembered.version, workspace);
-    if (remembered !== undefined && remembered.key === key) {
-      return unchanged(workspace, present.heads, shared);
-    }
+    const passed = remembered !== undefined && remembered.key === key;
+    // Before a bundle is asked about: a pass is kept only if the checkpoints
+    // it stands on are, when it is recorded, as they were when it began.
+    const begun = passed ? undefined : await remembered?.begin(workspace);
+    const present = await bundlePresent(workspace, manifestRef, shared);
+    if ("reason" in present) return present;
+    if (passed) return unchanged(workspace, present.heads, shared);
     // After the HEAD, so a bundle gone since is still damage a restore can
     // fall back from; before the gate and the download, which a bundle
     // cooling down costs nothing of. Again once a slot is free, since the
@@ -915,8 +925,8 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       return readAndVerifyBundle(workspace, present.heads, pinned, shared);
     });
     // Only here: git passed, on bundles this process read and hashed.
-    if (problem === undefined && key !== undefined) {
-      await remembered?.record(key, workspace);
+    if (problem === undefined && key !== undefined && begun !== undefined) {
+      await remembered?.record(key, begun);
     }
     return problem;
   }
@@ -979,9 +989,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
   ): Promise<
     ((checkpoint: CheckpointPointer) => RememberedVerdict) | undefined
   > {
+    const { bundleVerdictBasis, recordBundleVerdict } = store;
     if (
       store.listBundleVerdicts === undefined ||
-      store.recordBundleVerdict === undefined ||
+      bundleVerdictBasis === undefined ||
+      recordBundleVerdict === undefined ||
       bundles.version === undefined
     ) {
       return undefined;
@@ -997,12 +1009,21 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     );
     return (checkpoint) => ({
       key: keys.get(checkpoint.revision),
-      async record(key, workspace) {
+      async begin(workspace) {
         // A base stored outside a checkpoint directory ties the pass to no
         // checkpoint whose removal would withdraw it, so it is not kept.
         const prerequisiteRevisions = prerequisitesOf(sessionId, workspace);
-        if (prerequisiteRevisions === undefined) return;
-        await store.recordBundleVerdict?.({
+        if (prerequisiteRevisions === undefined) return undefined;
+        const basis = await bundleVerdictBasis.call(store, {
+          prerequisiteRevisions,
+          revision: checkpoint.revision,
+          sessionId,
+        });
+        return { basis, prerequisiteRevisions };
+      },
+      async record(key, { basis, prerequisiteRevisions }) {
+        await recordBundleVerdict.call(store, {
+          basis,
           key,
           manifestSha256: checkpoint.manifestSha256,
           prerequisiteRevisions,

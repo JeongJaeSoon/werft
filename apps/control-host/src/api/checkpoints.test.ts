@@ -268,6 +268,9 @@ describe("API checkpoint composition", () => {
             return key === undefined ? [] : [{ key, revision }];
           });
         },
+        async bundleVerdictBasis() {
+          return "rows";
+        },
         async recordBundleVerdict(input) {
           verdicts.set(input.revision, input.key);
         },

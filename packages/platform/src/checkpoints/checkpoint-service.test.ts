@@ -947,6 +947,7 @@ describe("protectedCommits", () => {
       function memory() {
         const verdicts = new Map<number, string>();
         const recorded: Recorded[] = [];
+        let withdrawals = 0;
         const store: CheckpointStore = {
           ...checkpoints.store,
           async listBundleVerdicts(_sessionId, revisions) {
@@ -955,12 +956,21 @@ describe("protectedCommits", () => {
               return key === undefined ? [] : [{ key, revision }];
             });
           },
+          // The rows' state is one number here: `withdraw` is any delete,
+          // collection or re-pin.
+          async bundleVerdictBasis() {
+            return String(withdrawals);
+          },
           async recordBundleVerdict(input) {
+            if (input.basis !== String(withdrawals)) return;
             recorded.push(input);
             verdicts.set(input.revision, input.key);
           },
         };
-        return { recorded, store, verdicts };
+        const withdraw = () => {
+          withdrawals += 1;
+        };
+        return { recorded, store, verdicts, withdraw };
       }
 
       function remembering(
@@ -1193,6 +1203,25 @@ describe("protectedCommits", () => {
         await expect(protect()).rejects.toThrow("git refused the pack");
         expect(calls.verify).toBe(1);
         expect(kept.verdicts.has(2)).toBe(false);
+      });
+
+      test("a pass is not remembered when a checkpoint it stands on was withdrawn while it was being verified", async () => {
+        const kept = memory();
+        const { calls, protect, reset } = remembering({
+          kept,
+          // A collection, re-pin or delete lands while git runs.
+          verify: async () => {
+            kept.withdraw();
+            return { status: "restorable" };
+          },
+        });
+        await commitHistory(remembering({ kept: memory() }).on, 3);
+        await protect();
+        expect(calls.verify).toBe(3);
+        expect(kept.recorded).toEqual([]);
+        reset();
+        await protect();
+        expect(calls.verify).toBe(3);
       });
 
       test("a verification that throws is not remembered either", async () => {
