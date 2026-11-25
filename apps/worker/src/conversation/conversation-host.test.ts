@@ -103,6 +103,9 @@ function harness(options: {
       reports.push({ turnId: turn.turn_id, result });
       return answer;
     },
+    async readTool() {
+      return { outcome: "turn_not_held" };
+    },
   };
   const runner: ConversationTurnRunner = {
     async run(turn, stop) {
@@ -314,6 +317,9 @@ describe("ConversationHost", () => {
         },
         async report() {
           return "recorded";
+        },
+        async readTool() {
+          return { outcome: "turn_not_held" };
         },
       },
       runner: { run: async () => ({ outcome: "completed", text: "" }) },

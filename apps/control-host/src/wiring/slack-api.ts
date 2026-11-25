@@ -8,6 +8,7 @@ import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
   ChannelMemberStore,
+  ConversationThreadReader,
   SecretStore,
   SurfaceAppStore,
   SurfaceBindingStore,
@@ -17,6 +18,8 @@ import {
   agentSlackBotToken,
   composeSlackFinalize,
   createSlackAppService,
+  createSlackAudience,
+  createSlackAudienceCache,
   createSlackBotApi,
   createSlackChannelJoiner,
   createSlackChannelKinds,
@@ -32,6 +35,7 @@ import {
   createSlackLinkAppService,
   createSlackSecretService,
   createSlackSigningSecrets,
+  createSlackThreadReader,
   createSlackTokenRevoked,
   createSlackWelcome,
   type SlackChannelMembers,
@@ -100,6 +104,37 @@ export function wireSlackChannelMembers(deps: {
   return createSlackChannelMembers({
     store: deps.store,
     slack: createSlackBotApi({ apiUrl: deps.apiUrl }),
+    botToken: (workspaceId, agentId) =>
+      agentSlackBotToken(
+        { apps: deps.appStore, secrets: deps.secrets() },
+        workspaceId,
+        agentId,
+      ),
+    logger: deps.logger,
+  });
+}
+
+/**
+ * A conversation turn's thread reads, with their own bot API and audience:
+ * whether the channel is shared, and who may be heard, as the slack role
+ * judges it for the judgment buffer.
+ */
+export function wireSlackThreadReader(deps: {
+  apiUrl: string;
+  appStore: SurfaceAppStore;
+  secrets: SecretStoreSource;
+  bindings: Pick<SurfaceBindingStore, "recordExternalShared">;
+  logger: StructuredLogger;
+}): ConversationThreadReader {
+  const slack = createSlackBotApi({ apiUrl: deps.apiUrl });
+  return createSlackThreadReader({
+    slack,
+    audience: createSlackAudience({
+      slack,
+      bindings: deps.bindings,
+      logger: deps.logger,
+      cache: createSlackAudienceCache(),
+    }),
     botToken: (workspaceId, agentId) =>
       agentSlackBotToken(
         { apps: deps.appStore, secrets: deps.secrets() },

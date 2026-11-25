@@ -96,6 +96,10 @@ export const slackEn = {
     "The manifest was sent to Slack again. It adds permissions to the app, which apply once the app is installed again.",
   "slack.eventsUrl.sent":
     "The Request URL was sent to Slack again. Slack may not check an unchanged URL again. If it keeps waiting, press Retry on the app's Event Subscriptions page.",
+  "slack.reauthorize.needed": "Slack reapproval needed",
+  "slack.reauthorize.body":
+    "This app now asks for new permissions ({scopes}) that its install has not approved yet. Until it is approved again, only what needs them is off; everything else keeps working. Reapprove sends the app's settings to Slack, then opens Slack's approval screen.",
+  "slack.reauthorize.action": "Reapprove",
   "slack.manifestSync.needed": "Update needed",
   "slack.manifestSync.config_token_inactive":
     "The App Configuration Token is not active, so Werft could not check or update this app's Slack settings. It may not receive newly added events. Enter the token again, then press Recheck.",

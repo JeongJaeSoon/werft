@@ -76,13 +76,20 @@ export function m1System(instructions: string): string {
   return lines.join("\n");
 }
 
+/**
+ * Text as one block of material: each of its lines prefixed, between the
+ * open and close lines, so nothing in it can close the block.
+ */
+export function dataBlock(text: string): string {
+  const lines = text.split("\n").map((line) => `${DATA_LINE}${line}`);
+  return [DATA_OPEN, ...lines, DATA_CLOSE].join("\n");
+}
+
 /** The fitted context as the one data block of the user message. */
 export function m1Data(
   fitted: Extract<FittedContext, { outcome: "fitted" }>,
 ): string {
-  const text = renderContext({ ...fitted, instructions: "" });
-  const lines = text.split("\n").map((line) => `${DATA_LINE}${line}`);
-  return [DATA_OPEN, ...lines, DATA_CLOSE].join("\n");
+  return dataBlock(renderContext({ ...fitted, instructions: "" }));
 }
 
 const answerSchema = z

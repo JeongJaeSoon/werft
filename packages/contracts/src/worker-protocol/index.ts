@@ -143,6 +143,12 @@ export const workerCapabilitiesSchema = z
      * `trusted` names though no `tools` list holds them.
      */
     werft_mcp: z.literal(true).optional(),
+    /**
+     * The worker keeps a permission answer's `remember` itself, never in the
+     * engine, and asks `/session-allow` before each call it would cover. A
+     * worker without the key gets no `remember`, in answers or grants.
+     */
+    session_allow_check: z.literal(true).optional(),
   })
   .strict();
 
@@ -1239,6 +1245,21 @@ export const repositoryPinsResponseSchema = z
   .object({ pins: z.array(repositoryPinSchema).max(REPOSITORY_PINS_MAX) })
   .strict();
 
+// Whether a session allow still stands for one more call: the person who
+// gave it is judged again as they stand now. `grant_request_id` is the
+// request the allow answered; the rest names the call, for the record.
+export const sessionAllowRequestSchema = workerScopeSchema
+  .extend({
+    turn_id: turnIdSchema,
+    grant_request_id: requestIdSchema,
+    tool_call_id: z.string().min(1).max(512),
+    input_hash: sha256HexSchema,
+  })
+  .strict();
+export const sessionAllowResponseSchema = z
+  .object({ allowed: z.boolean() })
+  .strict();
+
 // What the worker runs, so the server can say whether the committed
 // checkpoint can be resumed by it (runtime-core RuntimeFingerprint).
 export const runtimeFingerprintSchema = z
@@ -1477,6 +1498,8 @@ export type RepositoryPinsRequest = z.infer<typeof repositoryPinsRequestSchema>;
 export type RepositoryPinsResponse = z.infer<
   typeof repositoryPinsResponseSchema
 >;
+export type SessionAllowRequest = z.infer<typeof sessionAllowRequestSchema>;
+export type SessionAllowResponse = z.infer<typeof sessionAllowResponseSchema>;
 export type RestorePlanRequest = z.infer<typeof restorePlanRequestSchema>;
 export type RestorePlanWire = z.infer<typeof restorePlanSchema>;
 export type RestorePlanResponse = z.infer<typeof restorePlanResponseSchema>;
@@ -1600,6 +1623,10 @@ export const WORKER_PROTOCOL_ROUTES = {
   "/ready": {
     request: workerReadyRequestSchema,
     response: workerReadyResponseSchema,
+  },
+  "/session-allow": {
+    request: sessionAllowRequestSchema,
+    response: sessionAllowResponseSchema,
   },
   "/register-pending": {
     request: registerPendingRequestSchema,

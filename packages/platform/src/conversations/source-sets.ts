@@ -204,6 +204,28 @@ export function turnSources(input: {
   };
 }
 
+/**
+ * A turn's sources with `keys` added to its direct ones, as its read tools
+ * add what they read: a key it inherited becomes direct, and past `limit`
+ * the inherited ones go first and the set says `overflow`.
+ */
+export function withDirectSources(
+  set: SourceSet,
+  keys: readonly SourceKey[],
+  limit: number = SOURCE_SET_LIMIT,
+): SourceSet {
+  const direct = mergeSources([set.direct, keys], limit);
+  const kept = set.inherited.filter(
+    (key) => !direct.keys.some((own) => sameSource(own, key)),
+  );
+  const room = Math.max(0, limit - direct.keys.length);
+  return {
+    direct: direct.keys,
+    inherited: kept.slice(0, room),
+    overflow: set.overflow || direct.overflow || kept.length > room,
+  };
+}
+
 /** A Slack message's key before its input row is known. */
 export function placeSource(place: SourcePlace): SourceKey {
   return { inputId: null, slack: place };

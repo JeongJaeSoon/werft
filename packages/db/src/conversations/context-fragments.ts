@@ -15,8 +15,10 @@ import {
   type JudgmentContexts,
   judgmentContexts,
   type SourceKey,
+  type SummaryFoldContexts,
   sourceSetOf,
   storedSourceSet,
+  summaryFoldContexts,
   type TopicTurnContexts,
   topicTurnContexts,
 } from "@werft-ai/platform";
@@ -62,6 +64,13 @@ const conversationColumns = (alias: string) => {
 /** A judgment call's context, read through the assembler (G1). */
 export function createPostgresJudgmentContexts(db: Database): JudgmentContexts {
   return judgmentContexts(createPostgresContextFragmentSource(db));
+}
+
+/** What a summary fold reads, through the assembler (G1). */
+export function createPostgresSummaryFoldContexts(
+  db: Database,
+): SummaryFoldContexts {
+  return summaryFoldContexts(createPostgresContextFragmentSource(db));
 }
 
 /** A topic turn's context and checks, read through the assembler (G1). */
