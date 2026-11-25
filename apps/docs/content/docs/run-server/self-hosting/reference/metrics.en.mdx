@@ -93,11 +93,18 @@ The first matching row determines `state`. Each session matches exactly one row,
 
 The chart ships no alerting rules. Example Prometheus rules are in [Collect metrics](/run-server/self-hosting/collect-metrics#5-경보-규칙-예시).
 
+**Metrics the api process counts.** The metric below is counted in the api process's memory, not by the `metrics` role, so that the 503 and 500 answers sent to Slack while the database is slow or down are counted too. With `api.metrics.enabled` on, each api Pod serves `/metrics` and `/healthz` on `METRICS_PORT` (9464 in the chart). The public port 3000 and the `/internal` port 3200 have no `/metrics`. Each Pod counts on its own and starts again from 0 when it restarts, so scrape every Pod behind the Service `<fullname>-api-metrics` and add them up with `sum(rate(...))`.
+
+| Name | Type | Labels | Meaning |
+|---|---|---|---|
+| `werft_slack_event_responses_total` | counter | `code` | Answers sent to Slack's Events API request URL (`/v1/slack/events/{agent_id}`), by HTTP status. The 503 sent when an event is not recorded within 2.5 seconds and the request deadline's 503 are counted too |
+
 <a id="라벨-규칙" />
 ## Label rules
 
 - Session, turn, user, API key, agent, and attempt ids are never labels. Use `GET /v1/usage/*` for per-agent costs.
 - `state`, `status`, `admission`, `outcome`, `priced_by`, `kind`, and `le` have fixed value sets.
+- `code` is one of `200`, `400`, `401`, `408`, `413`, `429`, `500`, `503`, and `other`. Any other status is counted as `other`.
 - `image` is a worker image reference from the installation's configuration. Its values are bounded by the images that still have sessions.
 - `tool` and `model` come from data. MCP tools `mcp__<server>__<tool>` collapse to `mcp__<server>`. The first 100 tool names and 50 model names keep their names in order of appearance; the rest become `other`. Rows are not deleted, so named values usually remain. However, once the cap is full, a late projection row (`tool`) or late-committed row (`model`, where `recorded_at` is transaction start time) with an earlier timestamp can swap a name with `other`. The displaced series stops, the newly named series starts, and `other` may jump or look like a reset.
 - Tests: the cardinality test checks label names, absence of id-shaped values, and caps.

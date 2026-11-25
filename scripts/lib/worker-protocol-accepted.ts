@@ -14,16 +14,4 @@ export const ACCEPTED: readonly {
   problem: string;
   why: string;
   proof: string;
-}[] = [
-  {
-    problem: 'error $.error.code: the receiver refuses "NO_CAPACITY"',
-    why: "No route answers it: the scheduler writes it onto the receipts of input that waited too long for room, which only receipt reads on API and console routes return; no worker route reads a receipt.",
-    proof: "packages/db/src/scheduler/scheduler-store.test.ts",
-  },
-  {
-    problem:
-      'error $.error.code: the receiver refuses "CODEX_SANDBOX_NOT_INSTALLED"',
-    why: "No route answers it: the scheduler writes it onto the receipts of input whose launch it refused before creating the worker, which only receipt reads on API and console routes return; no worker route reads a receipt.",
-    proof: "packages/db/src/scheduler/scheduler-store.test.ts",
-  },
-];
+}[] = [];
