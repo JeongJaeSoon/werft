@@ -119,11 +119,15 @@ async function drawChoice(
     channelId: claim.channelId,
     conversationScope: claim.conversationScope ?? null,
   });
-  // The stored text is escaped mrkdwn: what the guard can still find there
-  // is a bare word, URL or id, and the platform's own controls stay in scope.
+  // The stored text is escaped mrkdwn. Each run between its escapes is
+  // guarded on its own, so an `&gt;` never reads as part of a URL or id; the
+  // platform's own controls stay in scope.
   const open = {
     rendered: "open" as const,
-    text: guard(claim.body.text),
+    text: claim.body.text
+      .split(/(&(?:lt|gt|amp);)/)
+      .map((part, index) => (index % 2 === 1 ? part : guard(part)))
+      .join(""),
     blocks: guardSlackCardBlocks(claim.body.blocks ?? [], guard),
   };
   const [prefix, , ...rest] = claim.dedupeKey.split(":");

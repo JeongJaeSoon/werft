@@ -34,7 +34,7 @@ const HOSTILE = `ping @channel <!here> see ${OUT} and ${IN}`;
 
 // An open card's text as stored before this change: escaped, with the
 // requester's mention and the console link the platform made.
-const LEGACY_TEXT = `<@U0ASKER> Tool permission\nping @channel &lt;!here&gt; see ${OUT} and ${IN}\n<https://console.example/sessions/s-1|Open on the web>`;
+const LEGACY_TEXT = `<@U0ASKER> Tool permission\nping @channel &lt;!here&gt; see ${OUT} and ${IN} &lt;https://app.slack.com/client/T0OTHER001&gt; &lt;${OUT}|x&gt; a=1&amp;id=${ELSE}\n<https://console.example/sessions/s-1|Open on the web>`;
 
 const guard = slackOutboxGuard({
   kind: "input_notice",
@@ -303,8 +303,12 @@ describe("a card redrawn", () => {
     const open = sent[0]?.text ?? "";
     expect(open).not.toContain("@channel");
     expect(open).not.toContain(ELSE);
+    expect(open).not.toContain("T0OTHER001");
     expect(open).toContain(IN);
     expect(open).toContain("<@U0ASKER>");
+    expect(open).toContain(
+      "<https://console.example/sessions/s-1|Open on the web>",
+    );
     expectGuarded(sent[1]?.text ?? "");
   });
 });
