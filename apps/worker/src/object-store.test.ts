@@ -222,7 +222,8 @@ describe("createWorkerObjectStore against a route that never answers", () => {
     expect(warned).toHaveLength(1);
     expect(warned[0]).toMatchObject({
       bucket: "claude-sessions",
-      message: "S3 request got no answer within its bound",
+      code: "ETIMEDOUT",
+      message: "S3 request ended without an answer",
       operation: "HeadObject",
     });
     expect(JSON.stringify(warned)).not.toContain("manifest");

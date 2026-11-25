@@ -360,7 +360,8 @@ describe("storage S3 client request bounds", () => {
       expect(line).toMatchObject({
         attempts: S3_MAX_ATTEMPTS,
         bucket: "bucket",
-        message: "S3 request got no answer within its bound",
+        code: "ETIMEDOUT",
+        message: "S3 request ended without an answer",
       });
       expect(line.elapsedMs as number).toBeGreaterThanOrEqual(
         S3_METADATA_REQUEST_TIMEOUT_MS * S3_MAX_ATTEMPTS,

@@ -309,10 +309,12 @@ export type S3TimeoutWarn = (
 ) => void;
 
 /**
- * Reports, in one line, each call on `client` that failed because a bound
- * ran out: after the client's own retries, so one call is one line however
- * many attempts it took. The line names the operation and the bucket, never
- * the key or the endpoint. The error itself goes on to the caller unchanged.
+ * Reports, in one line, each call on `client` that failed with no answer:
+ * a bound that ran out, or a connection the SDK files under the same
+ * `TimeoutError` (a reset, a broken pipe), which `code` tells apart. After
+ * the client's own retries, so one call is one line however many attempts it
+ * took. The line names the operation and the bucket, never the key or the
+ * endpoint. The error itself goes on to the caller unchanged.
  */
 export function warnOnS3Timeouts(
   client: S3Client,
@@ -326,9 +328,11 @@ export function warnOnS3Timeouts(
       } catch (error) {
         if (ranOutOfBound(error)) {
           const bucket = (args.input as { Bucket?: unknown }).Bucket;
-          warn("S3 request got no answer within its bound", {
+          const code = (error as { code?: unknown }).code;
+          warn("S3 request ended without an answer", {
             operation: context.commandName?.replace(/Command$/, ""),
             ...(typeof bucket === "string" ? { bucket } : {}),
+            ...(typeof code === "string" ? { code } : {}),
             elapsedMs: Date.now() - startedAt,
             attempts: awsError(error)?.$metadata?.attempts,
           });
