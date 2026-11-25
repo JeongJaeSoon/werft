@@ -33,6 +33,11 @@ import type {
  * `channel_notice`: the one line telling a channel the agent reads it, once
  * per agent, channel and notice version that asked for approval, outside any
  * thread (`threadTs` "").
+ * `progress`: one update of a message edited in place (its `progressKey`):
+ * the first goes as a new post, later ones edit it, at most one every
+ * `SURFACE_PROGRESS_EDIT_INTERVAL_MS`, and an update a newer one overtakes
+ * before it goes is dropped (`superseded`). A post Slack lost is put up
+ * again once; after that the message stops (`progress_stopped`).
  */
 export type SurfaceOutboxKind =
   | "instruction"
@@ -44,7 +49,18 @@ export type SurfaceOutboxKind =
   | "action_notice"
   | "model_notice"
   | "input_mirror"
-  | "channel_notice";
+  | "channel_notice"
+  | "progress";
+
+/** The least time between two sends of one progress message. */
+export const SURFACE_PROGRESS_EDIT_INTERVAL_MS = 10_000;
+/** A progress update a newer one overtook before it went: never sent. */
+export const SURFACE_PROGRESS_SUPERSEDED_CODE = "superseded";
+/**
+ * A progress message Slack lost after it was put up again: this update and
+ * every later one are never sent.
+ */
+export const SURFACE_PROGRESS_STOPPED_CODE = "progress_stopped";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
@@ -121,6 +137,8 @@ export type SurfaceOutboxEntry = {
    * A row enqueued once the thread is known goes there at once.
    */
   heldForInputId?: ConversationInputId | null;
+  /** The progress message a `progress` row updates; set on it alone. */
+  progressKey?: string | null;
 };
 
 export type SurfaceOutboxFence = { id: string; claimToken: string };
@@ -158,6 +176,15 @@ export type SurfaceOutboxClaim = SurfaceOutboxEntry &
 export type SurfaceOutboxPostedAs = {
   agentName: string;
   taskTitle: string | null;
+};
+
+/**
+ * What beginSend read for a row about to go. `progress`, on a `progress`
+ * row: the ts of the post its update edits, null when it posts, and whether
+ * the message was already put up again once.
+ */
+export type SurfaceOutboxBegun = SurfaceOutboxPostedAs & {
+  progress?: { ts: string | null; reposted: boolean };
 };
 
 /** A row the lease ran out on mid-send, now `uncertain`. */
@@ -739,7 +766,7 @@ export interface SurfaceOutboxStore {
    */
   beginSend(
     fence: SurfaceOutboxFence,
-  ): Promise<boolean | "voided_by_delete" | SurfaceOutboxPostedAs>;
+  ): Promise<boolean | "voided_by_delete" | SurfaceOutboxBegun>;
   /** False when the lease was lost: the row is someone else's now. */
   /**
    * False when the lease was lost. A sent `input_mirror` row gives its input

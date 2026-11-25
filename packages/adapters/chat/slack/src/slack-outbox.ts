@@ -174,6 +174,7 @@ export async function drainSlackOutbox(deps: {
       case "reply":
       case "welcome":
       case "channel_notice":
+      case "progress":
         return deps.delivery.direct(input);
     }
   };

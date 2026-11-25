@@ -1663,6 +1663,37 @@ describe("Slack edits and deletes", () => {
     }
   });
 
+  test("the echo of a progress message the agent edited is no input", async () => {
+    // chat.update's own message_changed, as Slack sends it back.
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    const own = {
+      type: "message",
+      bot_id: "B0OWN",
+      app_id: APP_ID,
+      subtype: "bot_message",
+      ts: "1792800000.000100",
+      thread_ts: "1792800000.000050",
+    };
+    const echo = {
+      ...EDITED,
+      message: {
+        ...own,
+        text: "Step 3 of 5",
+        edited: { user: "U0BOT", ts: "1792800000.000900" },
+      },
+      previous_message: { ...own, text: "Step 2 of 5" },
+    };
+    const answer = await w.service.receive(w.signed(w.event(echo)));
+    // As any edit: its mark alone, the row processed without its payload.
+    expect(answer).toMatchObject({ result: "recorded", status: "processed" });
+    for (const row of w.inbox.rows.values()) {
+      expect(row).toMatchObject({ status: "processed", payload: null });
+      expect(JSON.stringify(row)).not.toContain("Step");
+    }
+  });
+
   test("an edit leaves only its mark; a change no one made is dropped as before", async () => {
     const w = world();
     await w.install();

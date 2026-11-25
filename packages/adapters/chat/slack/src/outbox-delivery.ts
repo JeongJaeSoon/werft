@@ -9,10 +9,12 @@ import type {
   DeliveryInput,
   DeliveryOutcome,
   Notifiable,
+  SurfaceOutboxBegun,
   SurfaceOutboxClaim,
   SurfaceOutboxPostedAs,
   SurfaceOutboxSettle,
 } from "@werft-ai/platform";
+import { SURFACE_PROGRESS_STOPPED_CODE } from "@werft-ai/platform";
 import {
   SlackApiError,
   type SlackBotSender,
@@ -98,15 +100,19 @@ export type RowDelivery = {
 
 /**
  * A row's delivery, whose begin may also say who the row goes out as, read
- * when its send began (`beginSend`); `true` posts as the app.
+ * when its send began (`beginSend`), and for a progress update the post it
+ * edits; `true` posts as the app.
  */
 export type RowDeliveryInput = Omit<
   DeliveryInput<SurfaceOutboxClaim>,
   "begin"
-> & { begin: () => Promise<boolean | SurfaceOutboxPostedAs> };
+> & { begin: () => Promise<boolean | SurfaceOutboxBegun> };
 
 export type RowDeliveryDeps = {
-  slack: Pick<SlackBotSender, "postMessage" | "postEphemeral" | "userImage">;
+  slack: Pick<
+    SlackBotSender,
+    "postMessage" | "postEphemeral" | "userImage" | "editMessage"
+  >;
   /**
    * Whether a session's direct message would reach someone outside its
    * private channels (`readerOutsideChannels`); such a row never goes out.
@@ -141,6 +147,17 @@ const missingScope = (response: SlackSendResponse) =>
   typeof response.body === "object" &&
   response.body !== null &&
   (response.body as { error?: unknown }).error === "missing_scope";
+
+// Slack holds no post of that ts to edit any more: deleted, or not the bot's.
+const POST_LOST = new Set([
+  "message_not_found",
+  "cant_update_message",
+  "edit_window_closed",
+]);
+const postLost = (response: SlackSendResponse) =>
+  typeof response.body === "object" &&
+  response.body !== null &&
+  POST_LOST.has(String((response.body as { error?: unknown }).error));
 
 // Nothing but formatting marks left: Slack would show an empty message.
 const isBlank = (text: string) => /^[\s*_~`>#|-]*$/.test(text);
@@ -236,6 +253,32 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     });
   };
 
+  // A progress update edits the post the last one left. A post Slack lost
+  // goes up again once, its ts the message's from then on; the next loss
+  // stops the message.
+  const editProgress = async (
+    botToken: string,
+    claim: SurfaceOutboxClaim,
+    text: string,
+    guard: SlackTextGuard,
+    postedAs: SurfaceOutboxPostedAs,
+    progress: { ts: string; reposted: boolean },
+  ): Promise<SlackSendResponse | "stopped"> => {
+    if (deps.slack.editMessage === undefined) return "stopped";
+    const presentation = slackOutboxPresentation(claim, guard);
+    const edited = await deps.slack.editMessage(botToken, {
+      channelId: claim.channelId,
+      ts: progress.ts,
+      text,
+      ...(presentation.kind === "blocks"
+        ? { blocks: presentation.blocks }
+        : {}),
+    });
+    if (!postLost(edited)) return edited;
+    if (progress.reposted) return "stopped";
+    return postMessage(botToken, claim, text, null, guard, postedAs);
+  };
+
   const deliver = async (input: RowDeliveryInput): Promise<DeliveryOutcome> => {
     const { row, attempts } = input;
     // The one guard a row's text goes through: on its Markdown here, and
@@ -324,6 +367,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       ? slackOutboxText({ ...body, text: empty }, guard)
       : rendered;
     try {
+      const progress = postedAs?.progress;
       const response =
         claim.kind === "notice" && claim.slackUserId !== null
           ? await deps.slack.postEphemeral(botToken, {
@@ -332,8 +376,23 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
               threadTs: claim.threadTs,
               text,
             })
-          : await postMessage(botToken, claim, text, iconUrl, guard, postedAs);
+          : postedAs !== null && progress?.ts != null
+            ? await editProgress(botToken, claim, text, guard, postedAs, {
+                ts: progress.ts,
+                reposted: progress.reposted,
+              })
+            : await postMessage(
+                botToken,
+                claim,
+                text,
+                iconUrl,
+                guard,
+                postedAs,
+              );
       logDropped();
+      if (response === "stopped") {
+        return { kind: "failed", code: SURFACE_PROGRESS_STOPPED_CODE };
+      }
       return outcomeOf(slackOutboxSettleFor(attempts, response));
     } catch (error) {
       logDropped();
