@@ -30,7 +30,7 @@ At startup, API reads these through one parser. Unset values use defaults; inval
 
 | Variable | Default | Allowed range |
 |---|---|---|
-| `HEARTBEAT_TTL_SEC` | 30 | Greater than 15, at most 86400. Workers relinquish leases 10 seconds early (WORKER_LEASE_SAFETY_MARGIN_SEC) and heartbeat every 5 seconds (WORKER_HEARTBEAT_INTERVAL_SEC). A TTL at or below their sum loses attempts around their first heartbeat. Launchers do not pass these two worker settings, so validation uses defaults |
+| `HEARTBEAT_TTL_SEC` | 30 | Greater than 15, at most 86400. Workers relinquish leases 10 seconds early (WORKER_LEASE_SAFETY_MARGIN_SEC) and heartbeat every 5 seconds (WORKER_HEARTBEAT_INTERVAL_SEC). A TTL at or below their sum loses attempts around their first heartbeat. Launchers do not pass these two worker settings, so validation uses defaults. A heartbeat answered 403 ends the worker at once. One answered 404 is sent again after 1 second, then 2, then every 4, and the worker ends if none is accepted by the time it relinquishes the lease (4–6 resends with the defaults). While resending, the worker sends no other gateway call and uploads no checkpoint; it goes on once a heartbeat is accepted |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | Positive integers |
 | `LOG_LEVEL` | `info` | debug/info/warn/error, case-insensitive; empty means info. Scheduler/reconciler loops and egress-proxy reject invalid values by the same rule. Workers inherit scheduler's value |
 | `WEB_DIST_DIR` | Unset (no console); control-host image: `/app/apps/web/dist` | Absolute path containing index.html, the apps/web build output |
@@ -255,7 +255,7 @@ Kubernetes-only settings:
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | Ephemeral-storage requests/limits MiB, default 1024; exceeding it causes kubelet eviction |
 | `SCHEDULER_NODE_CAPACITY_CHECK` | Optional. `true` makes the scheduler log a warning at startup for each node that cannot hold two workers. Unset is `false`; a value other than `true`/`false` refuses startup. Needs permission to read Nodes. On, the scheduler also picks the worker to stop for a waiting Codex sandbox Pod by node label |
 
-Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. The log masking rule hides the tail line by line. A secret-shaped value hides only the lines it spans. A fragment such as `input:` hides its line and every line after it. The lines before it stay (a URL login in them is still masked). See storage/retention in the repository's Kubernetes execution adapter README.
+Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. The log masking rule hides the tail line by line. A secret-shaped value hides only the lines it spans. A fragment such as `input:` hides its line and every line after it. The lines before it stay (a URL login in them is still masked). When a worker ended because it lost its lease, `cause` on the same line is `worker.ownership.lost`, and `heartbeat_status` and `heartbeat_code` hold the status and error code its heartbeat was refused with. See storage/retention in the repository's Kubernetes execution adapter README.
 
 <a id="chart가-넣는-값" />
 ## Chart-generated values
