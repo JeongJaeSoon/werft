@@ -30,7 +30,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 여러 api replica가 함께 떠도 10분 안에는 한 replica만 앱을 확인한다. Slack이 `Retry-After` 120초 이하로 막으면 앱마다 한 번만 기다리고, 그보다 길거나 두 번째면 갱신 필요로 남긴다.
   - bot scope가 다르거나 user scope가 있는 앱과 이벤트 구독이 꺼진 앱은 건드리지 않는다.
   - `GET /v1/agents/{agent_id}/slack/app` 응답에 `manifest_sync` 칸이 더해진다.
-- **bot scope가 는 manifest는 api 기동 때 보내지 않고, 콘솔 Slack 탭의 앱 칸에 "Slack 재승인 필요"와 다시 승인 버튼을 띄운다**(JeongJaeSoon/werft#PRNUM). migration `0362`가 `slack_apps`에 nullable 칸 `bot_scopes`를 더한다. 표나 칸을 지우지 않는다.
+- **bot scope가 는 manifest는 api 기동 때 보내지 않고, 콘솔 Slack 탭의 앱 칸에 "Slack 재승인 필요"와 다시 승인 버튼을 띄운다**(JeongJaeSoon/werft#PRNUM). migration `0363`가 `slack_apps`에 nullable 칸 `bot_scopes`를 더한다. 표나 칸을 지우지 않는다.
   - 설치가 받은 scope를 기록하고, 기동할 때마다 bot token으로 `auth.test`를 불러 다시 읽는다. 올리기 전에 한 설치는 첫 기동 뒤에 채워진다. 읽지 못한 동안은 재승인 안내를 띄우지 않는다.
   - 버튼은 manifest를 보내고(`apps.manifest.update`) Slack의 재설치(OAuth) 화면으로 옮겨 간다. 재승인 전에는 새 scope가 필요한 기능만 꺼진다.
   - `GET /v1/agents/{agent_id}/slack/app` 응답에 `reauthorization` 칸이 더해진다.
