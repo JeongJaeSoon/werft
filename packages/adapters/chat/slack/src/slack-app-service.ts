@@ -1062,8 +1062,14 @@ export function createSlackAppService(deps: {
     }
   }
 
-  /** Calls once more after a Retry-After short enough to wait out. */
-  async function paced<T>(call: () => Promise<T>): Promise<T> {
+  /**
+   * Calls once more after a Retry-After short enough to wait out; one app's
+   * check shares `budget`, so it waits at most once.
+   */
+  async function paced<T>(
+    budget: { waited: boolean },
+    call: () => Promise<T>,
+  ): Promise<T> {
     try {
       return await call();
     } catch (error) {
@@ -1075,7 +1081,13 @@ export function createSlackAppService(deps: {
                 ?.slack_error === "ratelimited"
             ? (error.retry?.afterSeconds ?? null)
             : null;
-      if (wait === null || wait > MANIFEST_RATE_WAIT_MAX_SECONDS) throw error;
+      if (
+        wait === null ||
+        wait > MANIFEST_RATE_WAIT_MAX_SECONDS ||
+        budget.waited
+      )
+        throw error;
+      budget.waited = true;
       await sleep(wait * 1000);
       return call();
     }
@@ -1103,9 +1115,10 @@ export function createSlackAppService(deps: {
     const record = await apps.find(workspaceId, slackAppId);
     const appId = record?.state === "created" ? record.appId : null;
     if (!appId) return "left";
+    const budget = { waited: false };
     let exported: unknown;
     try {
-      exported = await paced(() =>
+      exported = await paced(budget, () =>
         tokens.withToken(workspaceId, (token) => api.exportApp(token, appId)),
       );
     } catch (error) {
@@ -1140,7 +1153,7 @@ export function createSlackAppService(deps: {
     if (agent === null) return "left";
     try {
       // Records its own outcome on the app.
-      await paced(() =>
+      await paced(budget, () =>
         updateAgentAppManifest(workspaceId, slackAppId, {
           name: agent.name,
           botName: agent.slug,
@@ -1164,5 +1177,14 @@ function manifestSyncErrorOf(error: unknown): SlackManifestSyncError | null {
     error.code === "CONFIG_TOKEN_INVALID"
   )
     return "config_token_inactive";
+  // A config token rotation Slack did not answer, or rate-limited.
+  if (
+    error instanceof SessionServiceError &&
+    error.code === "BACKEND_UNAVAILABLE"
+  )
+    return (error.details as { slack_error?: unknown } | null)?.slack_error ===
+      "ratelimited"
+      ? "slack_refused"
+      : "no_answer";
   return null;
 }

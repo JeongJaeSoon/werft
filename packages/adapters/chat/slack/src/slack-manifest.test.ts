@@ -266,6 +266,17 @@ describe("how an exported agent app manifest differs from this build's", () => {
     expect(agentManifestDrift(more)).toBe("scopes");
   });
 
+  test("user scopes an admin added are a scope change, events changed or not", () => {
+    const withUser = loose() as ReturnType<typeof loose> & {
+      oauth_config: { scopes: { user?: string[] } };
+    };
+    withUser.oauth_config.scopes.user = ["search:read"];
+    withUser.settings.event_subscriptions.bot_events.pop();
+    expect(agentManifestDrift(withUser)).toBe("scopes");
+    withUser.oauth_config.scopes.user = [];
+    expect(agentManifestDrift(withUser)).toBe("events");
+  });
+
   test("an app Finalize has not subscribed, and what is no manifest, are told apart", () => {
     const { event_subscriptions: _, ...settings } = built().settings;
     expect(agentManifestDrift({ ...built(), settings })).toBe("unsubscribed");

@@ -93,7 +93,12 @@ export function buildAgentAppManifest(input: AgentAppManifestInput) {
 const exportedManifestSchema = z.object({
   oauth_config: z
     .object({
-      scopes: z.object({ bot: z.array(z.string()).optional() }).optional(),
+      scopes: z
+        .object({
+          bot: z.array(z.string()).optional(),
+          user: z.array(z.string()).optional(),
+        })
+        .optional(),
     })
     .optional(),
   settings: z
@@ -108,8 +113,9 @@ const exportedManifestSchema = z.object({
 /**
  * How an exported agent app manifest differs from what this build sends.
  * `events`: only the bot events differ, which Slack takes without a new
- * install. `scopes`: the bot scopes differ, which needs one, so nothing is
- * sent on its own. `unsubscribed`: no event subscription yet, which
+ * install. `scopes`: the bot scopes differ, or the app has user scopes an
+ * agent app never asks for; either needs an install, so nothing is sent on
+ * its own. `unsubscribed`: no event subscription yet, which
  * Finalize adds. `unreadable`: not a manifest this code can read.
  */
 export type AgentManifestDrift =
@@ -130,7 +136,8 @@ export function agentManifestDrift(exported: unknown): AgentManifestDrift {
   if (!parsed.success) return "unreadable";
   const subscription = parsed.data.settings?.event_subscriptions;
   if (subscription === undefined) return "unsubscribed";
-  if (!sameSet(parsed.data.oauth_config?.scopes?.bot ?? [], BOT_SCOPES))
+  const scopes = parsed.data.oauth_config?.scopes;
+  if (!sameSet(scopes?.bot ?? [], BOT_SCOPES) || (scopes?.user ?? []).length)
     return "scopes";
   return sameSet(subscription.bot_events ?? [], SLACK_AGENT_BOT_EVENTS)
     ? "current"

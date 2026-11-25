@@ -454,6 +454,34 @@ describe("manifest check at a start of the API", () => {
     expect(calls("apps.manifest.update")).toBe(updates);
   });
 
+  test("an app with user scopes is left, also when an event is missing", async () => {
+    const { service, slack, appId, calls } = await subscribedApp();
+    dropEvent(slack, appId);
+    const manifest = manifestOf(slack, appId) as ExportedManifest & {
+      oauth_config: { scopes: { user?: string[] } };
+    };
+    manifest.oauth_config.scopes.user = ["search:read"];
+    const updates = calls("apps.manifest.update");
+    expect((await service.syncAgentAppManifests()).sent).toBe(0);
+    expect(calls("apps.manifest.update")).toBe(updates);
+    expect(manifest.oauth_config.scopes.user).toEqual(["search:read"]);
+  });
+
+  test("a config token rotation Slack does not answer is recorded as no answer", async () => {
+    const { service, slack, appId, advance, sync } = await subscribedApp();
+    dropEvent(slack, appId);
+    advance(24 * 60 * 60_000);
+    slack.state.next.rotate = async () => {
+      throw new SlackApiError("tooling.tokens.rotate", "timeout", false);
+    };
+    expect(await service.syncAgentAppManifests()).toEqual({
+      checked: 1,
+      sent: 0,
+      failed: 1,
+    });
+    expect((await sync())?.error).toBe("no_answer");
+  });
+
   test("an app with no event subscription is left for Finalize", async () => {
     const { service, slack, appId, calls } = await subscribedApp();
     delete manifestOf(slack, appId).settings.event_subscriptions;
@@ -537,6 +565,31 @@ describe("manifest check at a start of the API", () => {
     };
     expect((await service.syncAgentAppManifests()).sent).toBe(1);
     expect(waits).toEqual([30_000]);
+  });
+
+  test("one app waits out Retry-After at most once across export and update", async () => {
+    const waits: number[] = [];
+    const { service, slack, appId, sync } = await subscribedApp({
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    dropEvent(slack, appId);
+    const exportApp = slack.api.exportApp;
+    let exportLimited = true;
+    slack.api.exportApp = async (...args) => {
+      if (exportLimited) {
+        exportLimited = false;
+        throw new SlackRateLimitedError("apps.manifest.export", 120);
+      }
+      return exportApp(...args);
+    };
+    slack.api.updateApp = async () => {
+      throw new SlackRateLimitedError("apps.manifest.update", 120);
+    };
+    expect((await service.syncAgentAppManifests()).failed).toBe(1);
+    expect(waits).toEqual([120_000]);
+    expect((await sync())?.error).toBe("slack_refused");
   });
 
   test("a Retry-After too long to wait is recorded and not waited for", async () => {

@@ -17,8 +17,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 - **api가 기동할 때 콘솔이 만든 에이전트 Slack 앱마다 manifest를 받아 보고(`apps.manifest.export`), bot 이벤트만 모자라면 manifest 전체를 다시 보낸다. 설정 토큰이 살아 있어야 보낸다**(JeongJaeSoon/werft#2191). migration `0355`가 `slack_apps`에 nullable 칸 `manifest_sync_error`·`manifest_sync_checked_at`를 더한다. 표나 칸을 지우지 않는다.
   - 설정 토큰이 없거나 만료됐으면 Slack을 부르지 않고, 콘솔 Slack 탭의 앱 칸에 "갱신 필요"와 사유를 띄운다. 토큰을 다시 넣고 다시 확인을 누르면 그때 보낸다. 뒤에서 다시 시도하지 않는다. 다시 시도하는 때는 다음 기동이나 다시 확인이다.
-  - 여러 api replica가 함께 떠도 10분 안에는 한 replica만 앱을 확인한다. Slack이 `Retry-After` 120초 이하로 막으면 한 번 기다리고, 그보다 길면 갱신 필요로 남긴다.
-  - scope가 다른 앱과 이벤트 구독이 꺼진 앱은 건드리지 않는다.
+  - 여러 api replica가 함께 떠도 10분 안에는 한 replica만 앱을 확인한다. Slack이 `Retry-After` 120초 이하로 막으면 앱마다 한 번만 기다리고, 그보다 길거나 두 번째면 갱신 필요로 남긴다.
+  - bot scope가 다르거나 user scope가 있는 앱과 이벤트 구독이 꺼진 앱은 건드리지 않는다.
   - `GET /v1/agents/{agent_id}/slack/app` 응답에 `manifest_sync` 칸이 더해진다.
 
 ## v0.5.0
