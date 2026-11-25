@@ -29,6 +29,8 @@
 // 4xx/5xx response (method, path, status, masked body up to 2000 chars);
 // CAPTURE_URL='*/v1/x*' adds the responses of matching URLs. A command that
 // throws skips the lines; `accept` refusing still prints them.
+// Pages are opened on state.json's web_url (run-urls.mjs), which follows a
+// port that moved; a run from before it falls back to state.env's VERIFY_API.
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
@@ -161,6 +163,11 @@ if (cmd === "stop") {
 }
 
 const state = parseRunState(readFileSync(join(run, "state.env"), "utf8"));
+// state.json (run-urls.mjs) follows a port that moved when a service was
+// recreated; a run from before it has only state.env's VERIFY_API.
+const urlsFile = join(run, "state.json");
+if (existsSync(urlsFile))
+  state.VERIFY_API = JSON.parse(readFileSync(urlsFile, "utf8")).web_url;
 const url = (p) => (/^https?:/.test(p) ? p : state.VERIFY_API + p);
 const W = Number(process.env.W ?? 1280);
 const H = Number(process.env.H ?? 900);
