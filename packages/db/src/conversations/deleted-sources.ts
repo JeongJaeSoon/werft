@@ -6,7 +6,10 @@ import {
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
-import { lockSlackSourceMark } from "./source-mark-lock.ts";
+import {
+  lockSlackChannelDeletes,
+  lockSlackSourceMark,
+} from "./source-mark-lock.ts";
 import { sourcesHoldPlace } from "./turn-sources.ts";
 
 const placeOrder = (place: SourcePlace) =>
@@ -149,6 +152,8 @@ export type ReadChanges = {
   gone: string[];
   /** Each message's edit mark now, for one read again. */
   editMarks: Record<string, string | null>;
+  /** Whether a context message the call read was edited since it read. */
+  contextEdited: boolean;
 };
 
 /**
@@ -173,16 +178,17 @@ export async function lockedReadChanges(
     /**
      * The other sources the call read (earlier context): a delete of one
      * voids the result as well. A key naming only a web input is judged at
-     * its Slack alias. Their edits are not asked: a context message's mark
-     * may be older than the call.
+     * its Slack alias.
      */
     context?: readonly SourceKey[];
     /**
-     * The context's sources were cut (`overflow`): those past the cut are
-     * not named, so a delete in the channel marked since `readAt` voids
-     * the result too.
+     * When the call read its input. A context message edited since voids
+     * the result (its text as read is not kept, so its mark's time tells);
+     * with `overflow` (the context's sources were cut, so those past the
+     * cut are not named), so does any delete in the channel since.
      */
-    overflow?: { readAt: SQL };
+    readAt: SQL;
+    overflow?: boolean;
   },
 ): Promise<ReadChanges> {
   const changes: ReadChanges = {
@@ -191,6 +197,7 @@ export async function lockedReadChanges(
     edited: [],
     gone: [],
     editMarks: {},
+    contextEdited: false,
   };
   const read = input.messages.map((message) => ({
     teamId: input.teamId,
@@ -202,6 +209,9 @@ export async function lockedReadChanges(
   for (const place of read) places.set(placeOrder(place), place);
   for (const key of context) {
     if (key.slack !== null) places.set(placeOrder(key.slack), key.slack);
+  }
+  if (input.overflow === true) {
+    await tx.execute(lockSlackChannelDeletes(input, "exclusive"));
   }
   // As lockedDeletedSource: an alias row first, held for share, then marks.
   const unplaced = [
@@ -272,17 +282,32 @@ export async function lockedReadChanges(
   );
   const readOrder = new Set(read.map(placeOrder));
   changes.contextDeleted = [...deleted].some((place) => !readOrder.has(place));
-  if (!changes.contextDeleted && input.overflow !== undefined) {
+  if (!changes.contextDeleted && input.overflow === true) {
     // Sources past the cut are not named: a delete in the channel since.
     const [since] = rowsOf(
       await tx.execute(sql`
         SELECT 1 FROM deleted_sources
         WHERE workspace_id = ${input.workspaceId}::uuid
           AND team_id = ${input.teamId} AND channel_id = ${input.channelId}
-          AND marked_at >= ${input.overflow.readAt}
+          AND marked_at >= ${input.readAt}
         LIMIT 1`),
     );
     changes.contextDeleted = since !== undefined;
+  }
+  const contextPlaces = ordered.filter(
+    (place) =>
+      !readOrder.has(placeOrder(place)) && !deleted.has(placeOrder(place)),
+  );
+  if (contextPlaces.length > 0) {
+    const [edited] = rowsOf(
+      await tx.execute(sql`
+        SELECT 1 FROM edited_sources
+        WHERE workspace_id = ${input.workspaceId}::uuid
+          AND (team_id, channel_id, ts) IN (${tuples(contextPlaces)})
+          AND marked_at >= ${input.readAt}
+        LIMIT 1`),
+    );
+    changes.contextEdited = edited !== undefined;
   }
   const isDeleted = (ts: string) =>
     deleted.has(

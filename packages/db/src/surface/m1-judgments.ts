@@ -117,12 +117,13 @@ async function voidedBy(
     ...place,
     messages,
     context: record.sources.keys,
-    ...(record.sources.overflow ? { overflow: { readAt } } : {}),
+    readAt,
+    overflow: record.sources.overflow,
   });
   const reason: JudgmentVoidedReason | null =
     changes.deleted.length > 0 || changes.contextDeleted
       ? "voided_by_delete"
-      : changes.edited.length > 0
+      : changes.edited.length > 0 || changes.contextEdited
         ? "voided_by_edit"
         : null;
   if (reason === null) return null;

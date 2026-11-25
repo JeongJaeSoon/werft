@@ -41,7 +41,10 @@ export {
   JUDGMENT_BUFFER_TTL_MS,
 } from "./judgment-buffer.ts";
 export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
-export { lockSlackSourceMark } from "./source-mark-lock.ts";
+export {
+  lockSlackChannelDeletes,
+  lockSlackSourceMark,
+} from "./source-mark-lock.ts";
 export {
   lockSessionForSources,
   newTurnSources,

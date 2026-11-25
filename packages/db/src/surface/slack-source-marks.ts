@@ -4,6 +4,7 @@ import {
   dropChannelSummaryLinesOf,
   editBufferedMessage,
   JUDGMENT_BUFFER_TTL_MS,
+  lockSlackChannelDeletes,
   lockSlackSourceMark,
   sourceSetHoldsMark,
 } from "../conversations/index.ts";
@@ -77,6 +78,7 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
   return {
     async markDeleted(mark) {
       const recorded = await db.transaction(async (tx) => {
+        await tx.execute(lockSlackChannelDeletes(mark, "shared"));
         await tx.execute(lockSlackSourceMark(mark));
         const inserted = await tx.execute(sql`
           INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at)
@@ -116,9 +118,15 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
         RETURNING ts`);
         // An edited source leaves the summary as a deleted one does.
         await dropChannelSummaryLinesOf(tx, mark);
-        // A buffered message is judged by its latest text, kept only there.
-        if (body !== undefined && rowsOf(written).length > 0) {
-          await editBufferedMessage(tx, { ...mark, body });
+        // A buffered message is judged by its latest text, kept only there;
+        // an edit Slack gave with no text leaves none to judge (a1/J6), as a
+        // marked message is never held.
+        if (rowsOf(written).length > 0) {
+          if (body !== undefined) {
+            await editBufferedMessage(tx, { ...mark, body });
+          } else {
+            await dropBufferedMessage(tx, mark);
+          }
         }
         return rowsOf(written).length > 0 ? "recorded" : "deleted";
       });

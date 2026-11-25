@@ -1007,5 +1007,102 @@ integration("M1 judgment records", () => {
         ),
       ).toEqual({ voided: "voided_by_delete", rejudge: null });
     });
+
+    test("a context message edited while judged voids the result, and every post is judged again", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["2600.000002", "now"]]);
+      await marks().markEdited(mark(place, "2600.000001"), "changed");
+      expect(
+        await store().recordBatch(
+          batch,
+          withContext(
+            judgedRecord(batch.id, ["2600.000002"]),
+            [place, "2600.000001"],
+            [place, "2600.000002"],
+          ),
+          held,
+        ),
+      ).toMatchObject({
+        outcome: "voided",
+        reason: "voided_by_edit",
+        remaining: held,
+      });
+    });
+
+    test("a context message edited before the batch closed is not a change", async () => {
+      const place = await channel();
+      await marks().markEdited(mark(place, "2700.000001"), "changed");
+      const { batch, held } = await batchOver(place, [["2700.000002", "now"]]);
+      expect(
+        await store().recordBatch(
+          batch,
+          withContext(
+            judgedRecord(batch.id, ["2700.000002"]),
+            [place, "2700.000001"],
+            [place, "2700.000002"],
+          ),
+          held,
+        ),
+      ).toEqual({ outcome: "written" });
+    });
+
+    test("an edit with text, then one with none, leaves no stale text to judge again", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["2800.000001", "one"]]);
+      await marks().markEdited(mark(place, "2800.000001"), "between");
+      await marks().markEdited({
+        ...mark(place, "2800.000001"),
+        at: new Date(Date.now() + 1000),
+      });
+      expect(await bodiesOf(place)).toEqual([]);
+      expect(
+        await store().recordBatch(
+          batch,
+          judgedRecord(batch.id, ["2800.000001"]),
+          held,
+        ),
+      ).toMatchObject({
+        outcome: "voided",
+        reason: "voided_by_edit",
+        remaining: [],
+      });
+    });
+
+    test("with its context cut, a delete in the channel committing meanwhile is waited for and voids it", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["2900.000002", "one"]]);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          "SELECT pg_advisory_xact_lock_shared(hashtext('slack_channel_deletes'), hashtext(concat_ws('|', $1::text, $2::text, $3::text)))",
+          [workspaceId, TEAM, place.channelId],
+        );
+        await client.query(
+          "INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at) VALUES ($1, $2, $3, $4, now())",
+          [workspaceId, TEAM, place.channelId, "2900.000001"],
+        );
+        let settled = false;
+        const record = judgedRecord(batch.id, ["2900.000002"]);
+        const writing = store()
+          .recordBatch(
+            batch,
+            { ...record, sources: { ...record.sources, overflow: true } },
+            held,
+          )
+          .finally(() => {
+            settled = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(settled).toBe(false);
+        await client.query("COMMIT");
+        expect(await writing).toMatchObject({
+          outcome: "voided",
+          reason: "voided_by_delete",
+        });
+      } finally {
+        client.release();
+      }
+    });
   });
 });
