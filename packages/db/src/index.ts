@@ -135,6 +135,7 @@ export { notDeleted } from "./soft-delete.ts";
 export * from "./surface/conversation-records.ts";
 export * from "./surface/judgment-review.ts";
 export * from "./surface/m1-judgments.ts";
+export * from "./surface/model-notices-off-people.ts";
 export * from "./surface/slack-app-close.ts";
 export * from "./surface/slack-apps.ts";
 export * from "./surface/slack-channel-members.ts";

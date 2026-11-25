@@ -62,7 +62,6 @@ async function sessionIn(
   return sessionId;
 }
 
-// A model notice needs no link, so the claim reads only what is under test.
 function entryOf(sessionId: string | null): SurfaceOutboxEntry {
   return {
     workspaceId: WORKSPACE,
@@ -70,8 +69,8 @@ function entryOf(sessionId: string | null): SurfaceOutboxEntry {
     slackAppId: crypto.randomUUID(),
     installationId: INSTALL,
     kind: "model_notice",
-    channelId: "U0PERSON",
-    threadTs: "",
+    channelId: "C0ROOM",
+    threadTs: "1.0",
     slackUserId: null,
     sessionId,
     sessionLinkId: null,
@@ -80,10 +79,31 @@ function entryOf(sessionId: string | null): SurfaceOutboxEntry {
   };
 }
 
+// A session's row goes to its link's thread: the claim takes it there.
 async function claimedScope(sessionId: string | null) {
   await client.exec("DELETE FROM slack_outbox");
   const outbox = createPostgresSlackOutboxStore(db);
-  expect(await outbox.enqueue(entryOf(sessionId))).toBe("enqueued");
+  const linkId = crypto.randomUUID();
+  if (sessionId !== null) {
+    await client.query(
+      "INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id) VALUES ($1, $2, 'owner', $3, $4, $5, $7, 'C0ROOM', '1.0', '1.0', $6, 'r1')",
+      [
+        linkId,
+        WORKSPACE,
+        sessionId,
+        INSTALL,
+        crypto.randomUUID(),
+        AGENT,
+        `ref-${linkId}`,
+      ],
+    );
+  }
+  expect(
+    await outbox.enqueue({
+      ...entryOf(sessionId),
+      sessionLinkId: sessionId === null ? null : linkId,
+    }),
+  ).toBe("enqueued");
   const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
   return claim?.conversationScope;
 }

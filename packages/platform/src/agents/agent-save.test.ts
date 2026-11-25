@@ -183,7 +183,6 @@ function scripted(script: Script) {
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],
     activationActor: async () => null,
-    notifyModelMigrationFailed: async () => 0,
     insertRelease: async (input) => {
       calls.insert.push(input);
       const outcome = inserts.shift() ?? "created";

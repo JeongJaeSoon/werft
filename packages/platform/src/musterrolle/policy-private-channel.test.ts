@@ -16,10 +16,7 @@ import type {
   PrivateChannelPlace,
   SessionViewer,
 } from "../sessions/ports/session-share-store.ts";
-import type {
-  ChannelMemberCheckable,
-  ChannelMembership,
-} from "../surface/ports/channel-member-checkable.ts";
+import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
 import { createMemberService } from "./member-service.ts";
 import {
   type AgentAuthority,
@@ -27,7 +24,6 @@ import {
   callerFor,
   createAuthorizationPolicy,
   type IdentityReader,
-  readerOutsideChannels,
   type SessionAccess,
 } from "./policy.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
@@ -725,59 +721,6 @@ describe("taking over a private channel's session", () => {
     },
   );
 });
-// Answer 15 (PR2): a session's direct message reaches only someone who can
-// see it; the unknown counts as outside, as a notice leaks on a guess.
-describe("a direct message about a private channel's session", () => {
-  const sessions = sessionsSeen();
-  const privateChannels = (ownerId: string, sessionId: string | null) =>
-    sessions.privateChannels?.(ownerId, sessionId) ?? Promise.resolve([]);
-  test.each([
-    ["a session outside any channel", OPEN_SESSION, "not_member", false, 0],
-    ["an account in the channel", PRIVATE_SESSION, "member", false, 1],
-    [
-      "an account that left the channel",
-      PRIVATE_SESSION,
-      "not_member",
-      true,
-      1,
-    ],
-    ["a membership not confirmed", PRIVATE_SESSION, "unconfirmed", true, 1],
-  ] as const)("%s", async (_name, sessionId, answer, outside, asks) => {
-    const asked: PrivateChannelPlace[] = [];
-    expect(
-      await readerOutsideChannels(
-        { sessions: { privateChannels } },
-        {
-          workspaceId: WORKSPACE,
-          sessionId,
-          membership: async (place: PrivateChannelPlace) => {
-            asked.push(place);
-            return answer as ChannelMembership;
-          },
-        },
-      ),
-    ).toBe(outside);
-    expect(asked).toEqual(Array(asks).fill(PLACE));
-  });
-
-  test("counts as outside when the channels cannot be read", async () => {
-    expect(
-      await readerOutsideChannels(
-        {
-          sessions: {
-            privateChannels: () => Promise.reject(new Error("db down")),
-          },
-        },
-        {
-          workspaceId: WORKSPACE,
-          sessionId: PRIVATE_SESSION,
-          membership: async () => "member",
-        },
-      ),
-    ).toBe(true);
-  });
-});
-
 // 94S-2052, Architect: a channel no binding names is held private, and each
 // such decision leaves a warning to count them by.
 describe("a session from a channel of unknown kind", () => {

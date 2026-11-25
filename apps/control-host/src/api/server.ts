@@ -94,6 +94,7 @@ import {
   forgetLostCheckpointsAtStart,
   hasUncollectedCheckpoint,
   listGitHubWebhookApps,
+  moveModelNoticesOffPeople,
   moveSummaryLinks,
   newSessionGitHubReaders,
   openLostCheckpointNotices,
@@ -618,6 +619,34 @@ closeAgentlessSessions(db).then(
   (error: unknown) => {
     logger.warn(
       "Sessions without an agent release could not be read; the next start tries again",
+      { error_name: error instanceof Error ? error.name : typeof error },
+    );
+  },
+);
+// Model notices an earlier image wrote to a person go to their session's
+// thread or are deleted; a row that failed is tried again on the next start.
+moveModelNoticesOffPeople(db).then(
+  (notices) => {
+    if (notices.moved > 0 || Object.keys(notices.deleted).length > 0) {
+      logger.info("Model notices taken off people's direct messages", {
+        moved: notices.moved,
+        deleted: notices.deleted,
+        sending: notices.sending,
+      });
+    }
+    for (const { rowId, error } of notices.failed) {
+      logger.warn(
+        "A model notice could not be taken off a direct message; the next start tries again",
+        {
+          row_id: rowId,
+          error_name: error instanceof Error ? error.name : typeof error,
+        },
+      );
+    }
+  },
+  (error: unknown) => {
+    logger.warn(
+      "Model notices to people could not be read; the next start tries again",
       { error_name: error instanceof Error ? error.name : typeof error },
     );
   },

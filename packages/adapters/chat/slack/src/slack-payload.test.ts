@@ -899,12 +899,11 @@ describe("Slack payload fixtures: what the drain sends", () => {
         }),
         [],
       ),
-      // A model notice is a DM; the drain adds the session link itself.
+      // A model notice goes to its session's thread; the drain adds the
+      // session link itself.
       "model-notice-link": await sent(
         claim({
           kind: "model_notice",
-          channelId: "U0RECIPIENT",
-          threadTs: "",
           body: { text: "The model was changed", locale: "en" },
         }),
         [],

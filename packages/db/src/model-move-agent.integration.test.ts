@@ -82,8 +82,6 @@ const catalogOf = (offer: Offer): SessionCatalog =>
     },
   });
 
-const quiet = { info: () => {}, warn: () => {} };
-
 function card(model: string) {
   return agentCardRequestSchema.parse({
     rules: [{ id: "r1", text: "analyse", source: "user" }],
@@ -334,30 +332,6 @@ integration("an agent moves to the next model of its series", () => {
     expect(await activeModel(agentId)).toBe("claude-opus-5-1");
   });
 
-  test("a failure notice for a state the agent has left writes nothing", async () => {
-    const caller = await owner();
-    const agentId = await agentOn(caller);
-    const row = await agentRow(agentId);
-    const stale = {
-      workspaceId: caller.ownerId,
-      agentId,
-      from: "claude-opus-5-0",
-      to: "claude-opus-5-1",
-      reason: "actor_inactive",
-      releaseId: row?.activeReleaseId as string,
-      revision: (row?.activationRevision as number) + 1,
-    };
-
-    expect(await store().notifyModelMigrationFailed(stale)).toBe(0);
-    expect(
-      await store().notifyModelMigrationFailed({
-        ...stale,
-        revision: row?.activationRevision as number,
-        releaseId: "rel_other",
-      }),
-    ).toBe(0);
-  });
-
   test("the runner moves what can move, leaves the rest, and a failure waits before it is tried again", async () => {
     const caller = await owner();
     const moves = await agentOn(caller);
@@ -368,14 +342,17 @@ integration("an agent moves to the next model of its series", () => {
       store: {
         modelMigrationCandidates: (input) =>
           store().modelMigrationCandidates(input),
-        notifyModelMigrationFailed: async (input) => {
-          failedNotices.push(input.agentId);
-          return 0;
-        },
       },
       catalog: catalogOf(CUT),
       agents: service(CUT),
-      logger: quiet,
+      logger: {
+        info: () => {},
+        warn: (message, fields) => {
+          if (message === "Agent could not move to the next model") {
+            failedNotices.push(fields.agent as string);
+          }
+        },
+      },
       retryMs: 1_000,
       now: () => clock,
     });
