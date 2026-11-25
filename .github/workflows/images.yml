@@ -917,7 +917,10 @@ jobs:
   # release-approve included, on the main head; release-gate checks the
   # commit's push run got through chart-publish-main in place of this run's
   # own main-<12> chain. A manual run with nothing to retry stages images and
-  # releases nothing. A person starts the retry: the GITHUB_TOKEN of a run
+  # releases nothing. The retry is for a release stopped before promote-release:
+  # once vX names main's digests, a new build cannot take the tag over
+  # (image-promote.sh refuses it, before anything is written), so a release
+  # stopped after it continues with "Re-run failed jobs" on its own run. A person starts the retry: the GITHUB_TOKEN of a run
   # starts no run of this workflow, and no job here dispatches it.
   release-detect:
     if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
