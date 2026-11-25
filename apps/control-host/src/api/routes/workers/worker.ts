@@ -127,6 +127,9 @@ export function registerWorkerRoutes(
   call("/request-park", (principal, body) =>
     gateway.requestPark(principal, body),
   );
+  call("/session-allow", (principal, body) =>
+    gateway.sessionAllow(principal, body),
+  );
   call("/invalidate-approval-checkpoint", (principal, body) =>
     gateway.invalidateApprovalCheckpoint(principal, body),
   );
