@@ -583,6 +583,9 @@ esac
       "http://127.0.0.1:33154\nhttp://127.0.0.1:33190\n1\n",
     );
     expect(done.exitCode).toBe(0);
+    expect(done.stderr.toString()).toContain(
+      "ap_compose: the API moved to http://127.0.0.1:33190",
+    );
     const urls = await Bun.file(join(runDir, "state.json")).json();
     expect(urls.api_url).toBe("http://127.0.0.1:33190");
   });

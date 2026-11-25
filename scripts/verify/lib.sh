@@ -22,11 +22,18 @@ API=$VERIFY_API
 
 # Compose against this run's project only. A service that up, restart or
 # start (re)creates can get a new ephemeral host port, so those refresh the
-# run's addresses (state.json, VERIFY_API and $API) afterwards.
+# run's addresses (state.json, VERIFY_API and $API) afterwards. In a pipeline
+# (`ap_compose restart api | tail`) the function runs in a subshell: the files
+# follow, this shell's $API does not, hence the notice.
 ap_compose() {
   (cd "$VERIFY_REPO" && docker compose --profile apps --profile fake-model "$@")
-  local compose_rc=$?
-  case "${1:-}" in up | restart | start) ap_urls >/dev/null || true ;; esac
+  local compose_rc=$? api_before=${API:-}
+  case "${1:-}" in
+    up | restart | start)
+      ap_urls >/dev/null || true
+      [ "${API:-}" = "$api_before" ] || echo "ap_compose: the API moved to $API (state.json updated; in a pipeline, run ap_urls or source lib.sh again)" >&2
+      ;;
+  esac
   return "$compose_rc"
 }
 
