@@ -40,6 +40,7 @@ function batchOf(...ts: string[]): JudgmentBatch {
       slackUserId: "U1",
       body: `post ${t}`,
       receivedAt: new Date(),
+      editMark: null,
     })),
   };
 }
@@ -80,6 +81,7 @@ type Recorded = {
   judged: readonly string[];
   read: readonly M1ReadPost[];
   final: boolean;
+  readAt?: string;
 };
 
 /** A batch store whose writes answer `writes` in turn, then "written". */
@@ -92,6 +94,7 @@ function batchStore(writes: M1BatchWrite[] = []) {
         judged: judged.map((post) => post.inputId),
         read: judged,
         final: options.final === true,
+        ...(options.readAt === undefined ? {} : { readAt: options.readAt }),
       });
       return writes.shift() ?? { outcome: "written" };
     },
@@ -207,7 +210,9 @@ describe("createM1BatchJudge at check spot ② (a1/J6)", () => {
           inputId,
           ts,
           body,
+          editMark: null,
         })),
+        readAt: "t1",
       },
     ]);
     const { infos, logger } = loggerOf();
@@ -238,7 +243,12 @@ describe("createM1BatchJudge at check spot ② (a1/J6)", () => {
   test("every post deleted: no call again", async () => {
     const judge = judgeOf(async (subject) => judgedQuiet(subject));
     const { recorded, store } = batchStore([
-      { outcome: "voided", reason: "voided_by_delete", remaining: [] },
+      {
+        outcome: "voided",
+        reason: "voided_by_delete",
+        remaining: [],
+        readAt: "t1",
+      },
     ]);
     await createM1BatchJudge({ judge, store }).judge(batchOf("1.1", "1.2"));
     expect(judge.subjects).toHaveLength(1);
@@ -254,9 +264,22 @@ describe("createM1BatchJudge at check spot ② (a1/J6)", () => {
       {
         outcome: "voided",
         reason: "voided_by_edit",
-        remaining: [{ inputId: only.inputId, ts: "1.1", body: "new text" }],
+        remaining: [
+          {
+            inputId: only.inputId,
+            ts: "1.1",
+            body: "new text",
+            editMark: "m1",
+          },
+        ],
+        readAt: "t1",
       },
-      { outcome: "voided", reason: "voided_by_edit", remaining: [] },
+      {
+        outcome: "voided",
+        reason: "voided_by_edit",
+        remaining: [],
+        readAt: "t2",
+      },
     ]);
     await createM1BatchJudge({ judge, store }).judge(batch);
     expect(judge.subjects.map((subject) => subject.posts[0]?.body)).toEqual([
@@ -268,6 +291,9 @@ describe("createM1BatchJudge at check spot ② (a1/J6)", () => {
       "new text",
     ]);
     expect(recorded[1]?.final).toBe(true);
+    // The judgment again is checked against what it read, when it read it.
+    expect(recorded[1]?.read[0]?.editMark).toBe("m1");
+    expect(recorded[1]?.readAt).toBe("t1");
   });
 
   test("voided again: nothing is left to a later batch", async () => {
@@ -286,9 +312,16 @@ describe("createM1BatchJudge at check spot ② (a1/J6)", () => {
           inputId,
           ts,
           body: "edited",
+          editMark: "m1",
         })),
+        readAt: "t1",
       },
-      { outcome: "voided", reason: "voided_by_edit", remaining: [] },
+      {
+        outcome: "voided",
+        reason: "voided_by_edit",
+        remaining: [],
+        readAt: "t2",
+      },
     ]);
     const result = await createM1BatchJudge({ judge, store }).judge(batch);
     expect(judge.subjects).toHaveLength(2);
@@ -350,7 +383,7 @@ describe("runReplyJudgments", () => {
     const finished: {
       id: string;
       record: M1Record | null;
-      options?: { read?: string; final?: boolean };
+      options?: Parameters<M1JudgmentStore["finishReply"]>[2];
     }[] = [];
     const store: Pick<M1JudgmentStore, "claimReply" | "finishReply"> = {
       claimReply: async () => claims.shift() ?? null,
@@ -382,6 +415,7 @@ describe("runReplyJudgments", () => {
             ts: "1.1",
             body: "thanks all",
             receivedAt: new Date(),
+            editMark: null,
             sources: [],
           },
         ],
@@ -444,7 +478,11 @@ describe("runReplyJudgments", () => {
       deadline: Number.POSITIVE_INFINITY,
     });
     expect(finished).toEqual([
-      { id: claim.id, record: null, options: { read: "thanks all" } },
+      {
+        id: claim.id,
+        record: null,
+        options: { read: { body: "thanks all", editMark: null } },
+      },
     ]);
     expect(run).toEqual({ judged: 0, dropped: 1, voided: 0 });
     expect(JSON.stringify(warned)).not.toContain("thanks all");
@@ -454,7 +492,13 @@ describe("runReplyJudgments", () => {
     const claim = claimOf();
     const { store, finished } = replyStore(
       [claim],
-      [{ voided: "voided_by_edit", rejudge: "new text" }, "written"],
+      [
+        {
+          voided: "voided_by_edit",
+          rejudge: { body: "new text", editMark: "m1", readAt: "t1" },
+        },
+        "written",
+      ],
     );
     const judge = judgeOf(async (subject) => judgedQuiet(subject));
     const run = await runReplyJudgments({
@@ -466,8 +510,12 @@ describe("runReplyJudgments", () => {
     expect(judge.rejudged).toEqual([false, true]);
     expect(judge.subjects[1]?.posts[0]?.body).toBe("new text");
     expect(finished.map((write) => write.options)).toEqual([
-      { read: "thanks all" },
-      { read: "new text", final: true },
+      { read: { body: "thanks all", editMark: null } },
+      {
+        read: { body: "new text", editMark: "m1" },
+        readAt: "t1",
+        final: true,
+      },
     ]);
     expect(run).toEqual({ judged: 1, dropped: 0, voided: 0 });
   });

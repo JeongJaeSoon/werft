@@ -34,6 +34,8 @@ export type JudgmentBatchInput = {
   slackUserId: string;
   body: string;
   receivedAt: Date;
+  /** Its edit mark as the close read it (marked_at); null for none. */
+  editMark: string | null;
 };
 
 export type JudgmentBatch = {

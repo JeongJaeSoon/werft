@@ -100,8 +100,16 @@ export function parseM1Answer(
   return parsed.success ? parsed.data : null;
 }
 
-/** A post M1 judges: an input of the agent, with its Slack ts for the record. */
-export type M1Post = CurrentPost & { inputId: ConversationInputId; ts: string };
+/**
+ * A post M1 judges: an input of the agent, with its Slack ts for the record
+ * and its edit mark as its text was read (null for none), which the write
+ * compares (a1/J6).
+ */
+export type M1Post = CurrentPost & {
+  inputId: ConversationInputId;
+  ts: string;
+  editMark: string | null;
+};
 
 /** What one judgment is about: a batch, or one reply. */
 export type M1Subject = {

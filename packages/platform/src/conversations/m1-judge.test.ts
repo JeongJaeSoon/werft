@@ -33,6 +33,7 @@ function post(body: string, ts: string) {
     ts,
     body,
     receivedAt: new Date("2026-11-25T00:00:00Z"),
+    editMark: null,
     sources: [{ inputId, slack: { teamId: "T1", channelId: "C1", ts } }],
   };
 }

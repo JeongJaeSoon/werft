@@ -104,21 +104,32 @@ async function voidedBy(
   place: Pick<M1Place, "workspaceId" | "teamId" | "channelId">,
   record: M1Record,
   messages: readonly ReadMessage[],
-): Promise<{ reason: JudgmentVoidedReason; changes: ReadChanges } | null> {
+  /** When the call's input was read: the batch's close, the reply's claim. */
+  readAt: SQL,
+): Promise<{
+  reason: JudgmentVoidedReason;
+  changes: ReadChanges;
+  /** Now, under the marks' locks: when a judgment again reads its input. */
+  at: string;
+} | null> {
   if (record.attempts === 0 || messages.length === 0) return null;
-  const context = record.sources.keys.flatMap((key) =>
-    key.slack === null ? [] : [key.slack],
-  );
   const changes = await lockedReadChanges(tx, {
     ...place,
     messages,
-    context,
+    context: record.sources.keys,
+    ...(record.sources.overflow ? { overflow: { readAt } } : {}),
   });
-  if (changes.deleted.length > 0 || changes.contextDeleted) {
-    return { reason: "voided_by_delete", changes };
-  }
-  if (changes.edited.length > 0) return { reason: "voided_by_edit", changes };
-  return null;
+  const reason: JudgmentVoidedReason | null =
+    changes.deleted.length > 0 || changes.contextDeleted
+      ? "voided_by_delete"
+      : changes.edited.length > 0
+        ? "voided_by_edit"
+        : null;
+  if (reason === null) return null;
+  const [clock] = rowsOf<{ at: string }>(
+    await tx.execute(sql`SELECT clock_timestamp()::text AS at`),
+  );
+  return { reason, changes, at: clock?.at ?? new Date().toISOString() };
 }
 
 const textArray = (values: readonly string[]): SQL =>
@@ -212,8 +223,12 @@ export function createPostgresM1JudgmentStore(
           record,
           judged.map((post) => ({
             ts: post.ts,
+            editMark: post.editMark,
             buffered: { inputId: post.inputId, body: post.body },
           })),
+          options.readAt === undefined
+            ? sql`(SELECT closed_at FROM judgment_batches WHERE id = ${batch.id}::uuid)`
+            : sql`${options.readAt}::timestamptz`,
         );
         if (!(await gateOpenIn(tx, batch, true, versions))) {
           return { outcome: "closed" };
@@ -241,14 +256,23 @@ export function createPostgresM1JudgmentStore(
           const edited = new Map(
             voided.changes.edited.map((post) => [post.ts, post.body]),
           );
+          // A post edited with no new text held cannot be read again.
           const remaining = judged
-            .filter((post) => !left.has(post.ts))
+            .filter(
+              (post) => !left.has(post.ts) && edited.get(post.ts) !== null,
+            )
             .map((post) => ({
               ...post,
               body: edited.get(post.ts) ?? post.body,
+              editMark: voided.changes.editMarks[post.ts] ?? null,
             }));
           if (options.final !== true) {
-            return { outcome: "voided", reason: voided.reason, remaining };
+            return {
+              outcome: "voided",
+              reason: voided.reason,
+              remaining,
+              readAt: voided.at,
+            };
           }
           // Judged once more and voided again: the batch's buffered rows go,
           // those the judgment again had no room for too, so no third call.
@@ -262,7 +286,12 @@ export function createPostgresM1JudgmentStore(
             tx,
             held.map((row) => row.id),
           );
-          return { outcome: "voided", reason: voided.reason, remaining: [] };
+          return {
+            outcome: "voided",
+            reason: voided.reason,
+            remaining: [],
+            readAt: voided.at,
+          };
         }
         const columns = verdictColumns(record);
         await tx.execute(sql`
@@ -345,10 +374,17 @@ export function createPostgresM1JudgmentStore(
                 topic_id: ConversationTopicId;
                 received_at: Date | string;
                 body: string | null;
+                edit_mark: string | null;
               }>(
                 await db.execute(sql`
                   SELECT i.topic_id, i.received_at,
-                    COALESCE(i.body, t.message) AS body
+                    COALESCE(i.body, t.message) AS body,
+                    -- In one snapshot with the text, for the write's check.
+                    (SELECT m.marked_at::text FROM edited_sources m
+                      WHERE m.workspace_id = i.workspace_id
+                        AND m.team_id = i.slack_team_id
+                        AND m.channel_id = i.slack_channel_id
+                        AND m.ts = i.slack_ts) AS edit_mark
                   FROM conversation_inputs i
                   LEFT JOIN turns t ON t.id = i.turn_id
                   WHERE i.id = ${inputId}::uuid`),
@@ -381,6 +417,7 @@ export function createPostgresM1JudgmentStore(
                 ts,
                 body: post.body,
                 receivedAt: new Date(post.received_at),
+                editMark: post.edit_mark,
                 sources: [
                   {
                     inputId,
@@ -416,38 +453,53 @@ export function createPostgresM1JudgmentStore(
       };
       return db.transaction(async (tx) => {
         const [ts] = row.refs;
+        const { read } = options;
         // A held reply's text is in the buffer; a bound one's is kept
         // nowhere past its turn, so any edit mark changed it.
         const voided =
           record === null || ts === undefined
             ? null
-            : await voidedBy(tx, place, record, [
-                {
-                  ts,
-                  buffered:
-                    row.grade === "m1_engaged" && options.read !== undefined
-                      ? { inputId: row.input_id, body: options.read }
-                      : null,
-                },
-              ]);
+            : await voidedBy(
+                tx,
+                place,
+                record,
+                [
+                  {
+                    ts,
+                    editMark: read?.editMark ?? null,
+                    buffered:
+                      row.grade === "m1_engaged" && read !== undefined
+                        ? { inputId: row.input_id, body: read.body }
+                        : null,
+                  },
+                ],
+                options.readAt === undefined
+                  ? sql`(SELECT claimed_at FROM conversation_judgments WHERE id = ${id}::uuid)`
+                  : sql`${options.readAt}::timestamptz`,
+              );
         if (record === null || !(await gateOpenIn(tx, place, true, versions))) {
           await dropReply(tx, row);
           return "dropped";
         }
         if (voided !== null) {
-          // Judged once more while the reply is there: on the buffer's new
-          // text when it was edited (an edit of a reply kept nowhere ends
-          // it), else on the text read when only its context went.
+          // A held reply still there is judged once more: on the buffer's
+          // new text when it was edited, else on the text read when only
+          // its context went. A bound reply's is not (Architect, J6).
           const [edit] = voided.changes.edited;
           const replyLeft =
             voided.changes.deleted.length > 0 || voided.changes.gone.length > 0;
-          const text =
-            edit === undefined
-              ? (options.read ?? null)
-              : row.grade === "m1_engaged"
-                ? edit.body
-                : null;
-          const rejudge = !replyLeft && options.final !== true ? text : null;
+          const body = edit === undefined ? (read?.body ?? null) : edit.body;
+          const rejudge =
+            row.grade === "m1_engaged" &&
+            !replyLeft &&
+            options.final !== true &&
+            body !== null
+              ? {
+                  body,
+                  editMark: voided.changes.editMarks[ts ?? ""] ?? null,
+                  readAt: voided.at,
+                }
+              : null;
           if (rejudge !== null) {
             // The voided call's row beside the reply's, which waits for its
             // judgment again.

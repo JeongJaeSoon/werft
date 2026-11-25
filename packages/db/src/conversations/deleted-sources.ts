@@ -127,6 +127,8 @@ export async function lockedDeletedSource(
 /** One message a model call read, as check spot ② sees it. */
 export type ReadMessage = {
   ts: string;
+  /** Its edit mark as the call read it (marked_at); null for none. */
+  editMark: string | null;
   /**
    * A buffered message: its row (null once it went) and the text the call
    * read. None for one whose text is kept nowhere (a reply that became a
@@ -145,6 +147,8 @@ export type ReadChanges = {
   edited: { ts: string; body: string | null }[];
   /** Buffered messages read whose row went without a delete. */
   gone: string[];
+  /** Each message's edit mark now, for one read again. */
+  editMarks: Record<string, string | null>;
 };
 
 /**
@@ -153,10 +157,10 @@ export type ReadChanges = {
  * taken first, in lockedDeletedSource's order, and held to the end of the
  * caller's transaction: a delete or an edit under way is waited for and
  * seen, and one that comes later finds the result written. A buffered
- * message was edited when its row's text is no longer the text read (an
- * edit changes both under the same lock); a message whose text is kept
- * nowhere (never buffered, or its row went without a delete) when it has
- * an edit mark. Every write of a result a call made from Slack messages (a
+ * message was edited when its row's text is no longer the text read, or
+ * its edit mark is not the one read (an edit Slack gave with no text); a
+ * message whose text is kept nowhere (never buffered, or its row went
+ * without a delete) when it has an edit mark at all. Every write of a result a call made from Slack messages (a
  * judgment record, a summary line) asks this.
  */
 export async function lockedReadChanges(
@@ -167,11 +171,18 @@ export async function lockedReadChanges(
     channelId: string;
     messages: readonly ReadMessage[];
     /**
-     * The other Slack messages the call read (earlier context): a delete of
-     * one voids the result as well. Their edits are not asked: a context
-     * message's mark may be older than the call.
+     * The other sources the call read (earlier context): a delete of one
+     * voids the result as well. A key naming only a web input is judged at
+     * its Slack alias. Their edits are not asked: a context message's mark
+     * may be older than the call.
      */
-    context?: readonly SourcePlace[];
+    context?: readonly SourceKey[];
+    /**
+     * The context's sources were cut (`overflow`): those past the cut are
+     * not named, so a delete in the channel marked since `readAt` voids
+     * the result too.
+     */
+    overflow?: { readAt: SQL };
   },
 ): Promise<ReadChanges> {
   const changes: ReadChanges = {
@@ -179,23 +190,60 @@ export async function lockedReadChanges(
     contextDeleted: false,
     edited: [],
     gone: [],
+    editMarks: {},
   };
   const read = input.messages.map((message) => ({
     teamId: input.teamId,
     channelId: input.channelId,
     ts: message.ts,
   }));
-  const places = [
-    ...new Map(
-      [...read, ...(input.context ?? [])].map(
-        (place) => [placeOrder(place), place] as const,
+  const context = input.context ?? [];
+  const places = new Map<string, SourcePlace>();
+  for (const place of read) places.set(placeOrder(place), place);
+  for (const key of context) {
+    if (key.slack !== null) places.set(placeOrder(key.slack), key.slack);
+  }
+  // As lockedDeletedSource: an alias row first, held for share, then marks.
+  const unplaced = [
+    ...new Set(
+      context.flatMap((key) =>
+        key.slack === null && key.inputId !== null ? [key.inputId] : [],
       ),
-    ).entries(),
-  ]
+    ),
+  ].sort();
+  if (unplaced.length > 0) {
+    const aliases = rowsOf<{
+      slack_team_id: string | null;
+      slack_channel_id: string | null;
+      slack_ts: string | null;
+    }>(
+      await tx.execute(sql`
+        SELECT slack_team_id, slack_channel_id, slack_ts
+        FROM conversation_inputs
+        WHERE workspace_id = ${input.workspaceId}::uuid
+          AND id IN (${sql.join(
+            unplaced.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})
+        ORDER BY id
+        FOR SHARE`),
+    );
+    for (const alias of aliases) {
+      if (alias.slack_team_id && alias.slack_channel_id && alias.slack_ts) {
+        const place = {
+          teamId: alias.slack_team_id,
+          channelId: alias.slack_channel_id,
+          ts: alias.slack_ts,
+        };
+        places.set(placeOrder(place), place);
+      }
+    }
+  }
+  const ordered = [...places.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([, place]) => place);
-  if (places.length === 0) return changes;
-  for (const place of places) {
+  if (ordered.length === 0) return changes;
+  for (const place of ordered) {
     await tx.execute(
       lockSlackSourceMark({ workspaceId: input.workspaceId, ...place }),
     );
@@ -213,7 +261,7 @@ export async function lockedReadChanges(
       await tx.execute(sql`
         SELECT team_id, channel_id, ts FROM deleted_sources
         WHERE workspace_id = ${input.workspaceId}::uuid
-          AND (team_id, channel_id, ts) IN (${tuples(places)})`),
+          AND (team_id, channel_id, ts) IN (${tuples(ordered)})`),
     ).map((row) =>
       placeOrder({
         teamId: row.team_id,
@@ -222,16 +270,27 @@ export async function lockedReadChanges(
       }),
     ),
   );
+  const readOrder = new Set(read.map(placeOrder));
+  changes.contextDeleted = [...deleted].some((place) => !readOrder.has(place));
+  if (!changes.contextDeleted && input.overflow !== undefined) {
+    // Sources past the cut are not named: a delete in the channel since.
+    const [since] = rowsOf(
+      await tx.execute(sql`
+        SELECT 1 FROM deleted_sources
+        WHERE workspace_id = ${input.workspaceId}::uuid
+          AND team_id = ${input.teamId} AND channel_id = ${input.channelId}
+          AND marked_at >= ${input.overflow.readAt}
+        LIMIT 1`),
+    );
+    changes.contextDeleted = since !== undefined;
+  }
   const isDeleted = (ts: string) =>
     deleted.has(
       placeOrder({ teamId: input.teamId, channelId: input.channelId, ts }),
     );
-  const readOrder = new Set(read.map(placeOrder));
-  changes.contextDeleted = [...deleted].some((place) => !readOrder.has(place));
-  const rowIds = input.messages.flatMap((message) =>
-    message.buffered?.inputId && !isDeleted(message.ts)
-      ? [message.buffered.inputId]
-      : [],
+  const live = input.messages.filter((message) => !isDeleted(message.ts));
+  const rowIds = live.flatMap((message) =>
+    message.buffered?.inputId ? [message.buffered.inputId] : [],
   );
   const bodies = new Map(
     rowIds.length === 0
@@ -245,32 +304,23 @@ export async function lockedReadChanges(
             )}) AND buffer_expires_at IS NOT NULL`),
         ).map((row) => [row.id, row.body] as const),
   );
-  // A message whose text is kept nowhere now: one never buffered, or one
-  // whose buffered row went without a delete (expired, past the limit).
-  const unkept = input.messages.filter(
-    (message) =>
-      !isDeleted(message.ts) &&
-      (message.buffered === null ||
-        message.buffered.inputId === null ||
-        typeof bodies.get(message.buffered.inputId) !== "string"),
-  );
-  const markedEdited =
-    unkept.length === 0
-      ? new Set<string>()
-      : new Set(
-          rowsOf<{ ts: string }>(
-            await tx.execute(sql`
-              SELECT ts FROM edited_sources
-              WHERE workspace_id = ${input.workspaceId}::uuid
-                AND (team_id, channel_id, ts) IN (${tuples(
-                  unkept.map((message) => ({
-                    teamId: input.teamId,
-                    channelId: input.channelId,
-                    ts: message.ts,
-                  })),
-                )})`),
-          ).map((row) => row.ts),
+  const marks =
+    live.length === 0
+      ? []
+      : rowsOf<{ ts: string; mark: string }>(
+          await tx.execute(sql`
+            SELECT ts, marked_at::text AS mark
+            FROM edited_sources
+            WHERE workspace_id = ${input.workspaceId}::uuid
+              AND (team_id, channel_id, ts) IN (${tuples(
+                live.map((message) => ({
+                  teamId: input.teamId,
+                  channelId: input.channelId,
+                  ts: message.ts,
+                })),
+              )})`),
         );
+  const marked = new Map(marks.map((row) => [row.ts, row.mark]));
   for (const message of input.messages) {
     if (isDeleted(message.ts)) {
       changes.deleted.push(message.ts);
@@ -283,11 +333,16 @@ export async function lockedReadChanges(
     if (message.buffered !== null && typeof now !== "string") {
       changes.gone.push(message.ts);
     }
-    if (typeof now === "string") {
-      if (now !== message.buffered?.body) {
-        changes.edited.push({ ts: message.ts, body: now });
-      }
-    } else if (markedEdited.has(message.ts)) {
+    const mark = marked.get(message.ts) ?? null;
+    changes.editMarks[message.ts] = mark;
+    if (typeof now === "string" && now !== message.buffered?.body) {
+      // The buffer holds the edit's text.
+      changes.edited.push({ ts: message.ts, body: now });
+    } else if (
+      message.buffered === null ? mark !== null : mark !== message.editMark
+    ) {
+      // Marked since the read with no new text held (an edit Slack gave
+      // without one), or kept nowhere: what was read is out of date.
       changes.edited.push({ ts: message.ts, body: null });
     }
   }

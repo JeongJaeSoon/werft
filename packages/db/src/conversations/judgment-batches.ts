@@ -60,6 +60,7 @@ type HeldRow = {
   body: string;
   received_at: Date | string;
   rate_limited: boolean;
+  edit_mark: string | null;
 };
 
 const dateOf = (value: Date | string) =>
@@ -129,7 +130,13 @@ async function closeChannel(
   const rows = rowsOf<HeldRow>(
     await tx.execute(sql`
       SELECT i.id, i.topic_id, i.slack_ts, i.requester_id,
-        i.body, i.received_at, i.judgment_batch_id IS NOT NULL AS rate_limited
+        i.body, i.received_at, i.judgment_batch_id IS NOT NULL AS rate_limited,
+        -- Read with the text, for the write's check (a1/J6).
+        (SELECT m.marked_at::text FROM edited_sources m
+          WHERE m.workspace_id = i.workspace_id
+            AND m.team_id = i.slack_team_id
+            AND m.channel_id = i.slack_channel_id
+            AND m.ts = i.slack_ts) AS edit_mark
       FROM conversation_inputs i
       LEFT JOIN judgment_batches b ON b.id = i.judgment_batch_id
       WHERE i.agent_id = ${channel.agent_id}::uuid
@@ -209,6 +216,7 @@ async function closeChannel(
     slackUserId: row.requester_id,
     body: row.body,
     receivedAt: dateOf(row.received_at),
+    editMark: row.edit_mark,
   }));
   return {
     outcome: state,
