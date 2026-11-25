@@ -11,6 +11,7 @@ import {
   SlackApiError,
   type SlackBotApi,
   type SlackChannelSharingApi,
+  SlackRateLimitedError,
 } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 
@@ -25,6 +26,8 @@ export type SlackChannelQuestion = {
   botToken: string | null;
   /** Skips what is kept and asks Slack. */
   fresh?: boolean;
+  /** Throws Slack's 429 instead of answering null, for a caller that stops on it. */
+  rateLimitThrows?: boolean;
 };
 
 export type SlackAuthorQuestion = SlackChannelQuestion & {
@@ -129,6 +132,9 @@ export function createSlackAudience(deps: {
         question.channelId,
       );
     } catch (error) {
+      if (question.rateLimitThrows && error instanceof SlackRateLimitedError) {
+        throw error;
+      }
       unanswered("conversations.info", question, error);
       return null;
     }
@@ -160,6 +166,9 @@ export function createSlackAudience(deps: {
       keep(authors, key, kind);
       return kind;
     } catch (error) {
+      if (question.rateLimitThrows && error instanceof SlackRateLimitedError) {
+        throw error;
+      }
       unanswered("users.info", question, error);
       return null;
     }

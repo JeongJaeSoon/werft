@@ -1462,9 +1462,11 @@ const conversationTurnQueue = createPostgresConversationTurnQueue(
 );
 assertConversationTurnDispatch(process.env, conversationTurnQueue);
 const topicTurnContexts = createPostgresTopicTurnContexts(db);
+const conversationReadToolStore = createPostgresConversationReadToolStore(db);
 // What a topic's live session read, in this process's memory.
 const topicSessionChecks = createTopicSessionChecks({
   contexts: topicTurnContexts,
+  turns: conversationReadToolStore,
 });
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
@@ -1479,7 +1481,7 @@ const conversationTurns = createConversationRuntimeTurns({
 });
 // A turn's read tools, answered here: the runtime holds no Slack token.
 const conversationReadTools = createConversationReadTools({
-  store: createPostgresConversationReadToolStore(db),
+  store: conversationReadToolStore,
   threads: wireSlackThreadReader({
     apiUrl: slackApiUrlFrom(process.env),
     appStore: slackAppStore,
@@ -1489,7 +1491,6 @@ const conversationReadTools = createConversationReadTools({
   }),
   door: slackChannelMembers,
   contexts: topicTurnContexts,
-  topicSessions: topicSessionChecks,
 });
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),

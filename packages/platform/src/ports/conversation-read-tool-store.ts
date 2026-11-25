@@ -64,8 +64,19 @@ export type ConversationOpenTask = {
   sessionId: string;
   /** Null when it has none, or its title came from a deleted message. */
   title: string | null;
+  /** What the title was made from: a reader of it holds these too. */
+  titleSources: SourceKey[];
   status: string;
   createdAt: Date;
+};
+
+/** A topic's turn and every source it held, its tools' reads with them. */
+export type ConversationTopicTurn = {
+  turnId: ConversationTurnId;
+  ended: boolean;
+  sources: SourceKey[];
+  /** More than the set holds: what the turn held is not known whole. */
+  overflow: boolean;
 };
 
 /**
@@ -114,6 +125,15 @@ export interface ConversationReadToolStore {
     viewer: SessionViewer | null;
     limit: number;
   }): Promise<ConversationOpenTask[]>;
+  /**
+   * The topic's newest turn but `turnId`: the one its live session last
+   * ran, whichever API process served that turn's tools.
+   */
+  previousTurn(input: {
+    workspaceId: string;
+    topicId: ConversationTopicId;
+    turnId: ConversationTurnId;
+  }): Promise<ConversationTopicTurn | null>;
 }
 
 /** One message of a thread, its author judged where it may be heard. */

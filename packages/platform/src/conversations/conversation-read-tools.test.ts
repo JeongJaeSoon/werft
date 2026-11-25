@@ -80,7 +80,6 @@ function setup(turn: ConversationToolTurn = turnOf()) {
     threadReads: 0,
     closed: [] as string[],
     added: [] as SourceKey[][],
-    sessionReads: [] as SourceKey[][],
     doors: [] as unknown[],
     viewers: [] as (SessionViewer | null)[],
   };
@@ -104,6 +103,9 @@ function setup(turn: ConversationToolTurn = turnOf()) {
     async openTasks({ viewer }) {
       seen.viewers.push(viewer);
       return state.tasks;
+    },
+    async previousTurn() {
+      return null;
     },
   };
   const tools = createConversationReadTools({
@@ -129,11 +131,6 @@ function setup(turn: ConversationToolTurn = turnOf()) {
         outcome: "read" as const,
         lines: state.summaryLines,
       }),
-    },
-    topicSessions: {
-      read(_turnId, keys) {
-        seen.sessionReads.push([...keys]);
-      },
     },
     now: () => new Date("2026-11-25T00:00:00.000Z"),
   });
@@ -214,7 +211,6 @@ describe("createConversationReadTools", () => {
     });
     const keys = [placeSource(at("100.0")), placeSource(at("102.0"))];
     expect(s.seen.added).toEqual([keys]);
-    expect(s.seen.sessionReads).toEqual([keys]);
   });
 
   test("an external-shared channel's thread is refused; a 429 closes the turn's thread reads", async () => {
@@ -320,6 +316,7 @@ describe("createConversationReadTools", () => {
       {
         sessionId: "s1",
         title: "deploy",
+        titleSources: [placeSource(at("90.0"))],
         status: "running",
         createdAt: new Date("2026-11-24T00:00:00.000Z"),
       },
@@ -342,6 +339,8 @@ describe("createConversationReadTools", () => {
         privateChannels: [s.turn.conversationId],
       },
     ]);
+    // The title's message is held by whoever read the title.
+    expect(s.seen.added).toEqual([[placeSource(at("90.0"))]]);
   });
 
   test("the summary and turn records add what they came from to the turn's sources", async () => {

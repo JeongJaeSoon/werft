@@ -259,11 +259,16 @@ export function createPostgresConversationReadToolStore(
       const rows = rowsOf<{
         id: string;
         title: string | null;
+        title_sources: unknown;
         status: string;
         created_at: Date | string;
       }>(
         await db.execute(sql`
           SELECT sessions.id, ${servedTitle("sessions")} AS title,
+            CASE WHEN sessions.title_source IN ('derived', 'generated') THEN (
+              SELECT tt.sources FROM turns tt
+              WHERE tt.session_id = sessions.id AND tt.sequence = 1
+            ) END AS title_sources,
             sessions.status, sessions.created_at
           FROM sessions
           WHERE sessions.workspace_id = ${turn.workspaceId}::uuid
@@ -276,12 +281,43 @@ export function createPostgresConversationReadToolStore(
           ORDER BY sessions.created_at DESC, sessions.id DESC
           LIMIT ${limit}`),
       );
-      return rows.map((row) => ({
-        sessionId: row.id,
-        title: row.title,
-        status: row.status,
-        createdAt: new Date(row.created_at),
-      }));
+      return rows.map((row) => {
+        const set = sourceSetOf(row.title_sources);
+        // Past its list, a deleted source of the title would not be seen.
+        const shown = row.title !== null && !set.overflow;
+        return {
+          sessionId: row.id,
+          title: shown ? row.title : null,
+          titleSources: shown ? [...set.direct, ...set.inherited] : [],
+          status: row.status,
+          createdAt: new Date(row.created_at),
+        };
+      });
+    },
+
+    async previousTurn({ workspaceId, topicId, turnId }) {
+      const [row] = rowsOf<{
+        id: ConversationTurnId;
+        ended_at: Date | string | null;
+        sources: unknown;
+      }>(
+        await db.execute(sql`
+          SELECT id, ended_at, sources FROM conversation_turns
+          WHERE topic_id = ${topicId}::uuid
+            AND workspace_id = ${workspaceId}::uuid
+            AND origin = 'm2'
+            AND id <> ${turnId}::uuid
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1`),
+      );
+      if (row === undefined) return null;
+      const set = sourceSetOf(row.sources);
+      return {
+        turnId: row.id,
+        ended: row.ended_at !== null,
+        sources: [...set.direct, ...set.inherited],
+        overflow: set.overflow,
+      };
     },
   };
 }

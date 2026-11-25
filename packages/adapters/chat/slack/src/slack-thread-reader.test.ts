@@ -4,6 +4,7 @@ import type {
   SlackUnheardReason,
 } from "@werft-ai/contracts";
 import { createFakeSlackWebApi } from "@werft-ai/testkit/fake-slack-api";
+import { createSlackAudience } from "./slack-audience.ts";
 import {
   createSlackBotApi,
   SlackApiError,
@@ -189,5 +190,46 @@ describe("createSlackThreadReader", () => {
     const none = readerWith({ token: null });
     expect(await none.reader.read(asked)).toEqual({ outcome: "unavailable" });
     expect(none.calls).toEqual([]);
+  });
+
+  test("a 429 on the audience's own asks, the channel's sharing or an author's kind, says so too", async () => {
+    for (const limited of ["conversations.info", "users.info"] as const) {
+      const calls: string[] = [];
+      const warned: unknown[] = [];
+      const reader = createSlackThreadReader({
+        slack: {
+          async threadReplies() {
+            calls.push("conversations.replies");
+            return [{ ts: "100.0", user: "U0ASKER", text: "first" }];
+          },
+        },
+        audience: createSlackAudience({
+          slack: {
+            async channelSharing() {
+              calls.push("conversations.info");
+              if (limited === "conversations.info") {
+                throw new SlackRateLimitedError(limited, 30);
+              }
+              return "internal";
+            },
+            async userInfo() {
+              calls.push("users.info");
+              throw new SlackRateLimitedError("users.info", 30);
+            },
+          },
+          bindings: { recordExternalShared: async () => true },
+          logger: { warn: (_message, fields) => warned.push(fields) },
+        }),
+        botToken: async () => BOT,
+        logger: { warn: (_message, fields) => warned.push(fields) },
+      });
+      expect(await reader.read(asked)).toEqual({ outcome: "rate_limited" });
+      expect(calls).toEqual(
+        limited === "conversations.info"
+          ? ["conversations.info"]
+          : ["conversations.info", "conversations.replies", "users.info"],
+      );
+      expect(warned).toEqual([]);
+    }
   });
 });

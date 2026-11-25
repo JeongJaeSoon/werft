@@ -21,7 +21,6 @@ import type {
 } from "../surface/ports/channel-member-checkable.ts";
 import { type TopicTurnContexts, truncatePost } from "./context-assembler.ts";
 import { placeSource, type SourceKey } from "./source-sets.ts";
-import type { TopicSessionChecks } from "./topic-session-checks.ts";
 
 export type ConversationReadToolOutcome =
   | { outcome: "read"; text: string }
@@ -103,8 +102,6 @@ export function createConversationReadTools(deps: {
   door: ConversationChannelDoor;
   /** The channel summary, read through the context assembler (G1). */
   contexts: Pick<TopicTurnContexts, "channelSummary">;
-  /** Told what a topic's live session read by a tool. */
-  topicSessions?: Pick<TopicSessionChecks, "read">;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
@@ -140,8 +137,9 @@ export function createConversationReadTools(deps: {
     keys: SourceKey[],
   ): Promise<void> {
     if (keys.length === 0) return;
+    // The topic's next turn reads them back from there, whichever API
+    // process hands it out.
     await deps.store.addDirectSources(turn.turnId, keys);
-    deps.topicSessions?.read(turn.turnId, keys);
   }
 
   async function readThread(
@@ -282,19 +280,22 @@ export function createConversationReadTools(deps: {
       viewer,
       limit: CONVERSATION_READ_LIST_LIMIT,
     });
-    return {
-      outcome: "read",
-      text: fitted(
-        { read: "open_tasks" },
-        "tasks",
-        tasks.map((task) => ({
-          name: task.title,
-          status: task.status,
-          created_at: task.createdAt.toISOString(),
-        })),
-        dropLast,
-      ),
-    };
+    const text = fitted(
+      { read: "open_tasks" },
+      "tasks",
+      tasks.map((task) => ({
+        name: task.title,
+        status: task.status,
+        created_at: task.createdAt.toISOString(),
+      })),
+      dropLast,
+    );
+    const kept = (JSON.parse(text) as { tasks: unknown[] }).tasks.length;
+    await sourcesRead(
+      turn,
+      tasks.slice(0, kept).flatMap((task) => task.titleSources),
+    );
+    return { outcome: "read", text };
   }
 
   return {

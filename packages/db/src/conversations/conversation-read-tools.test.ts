@@ -48,6 +48,7 @@ import { fixtureTeam } from "../testing/fixture-team.ts";
 import { createPostgresConversationReadToolStore } from "./conversation-read-tools.ts";
 
 const TEAM = "T0READ";
+const at = (ts: string) => ({ teamId: TEAM, channelId: "C0OPEN", ts });
 
 describe("the read tools' store on PostgreSQL", () => {
   let client: PGlite;
@@ -455,5 +456,110 @@ describe("the read tools' store on PostgreSQL", () => {
     expect(
       await listed({ userId, apiKeyId: null, privateChannels: [] }),
     ).toEqual([ids.workspace, ids.mine].sort());
+  });
+
+  test("open tasks: a made title comes with its first turn's sources; past its list it is withheld", async () => {
+    const turn = await leased();
+    const admitted = await admit(turn);
+    if (admitted.outcome !== "admitted") throw new Error(admitted.outcome);
+    const asked = at("701.000001");
+    const made = (overflow: boolean) =>
+      storedSourceSet({
+        direct: [placeSource(asked)],
+        inherited: [],
+        overflow,
+      });
+    const ids = {
+      derived: randomUUID(),
+      overflowed: randomUUID(),
+      given: randomUUID(),
+    };
+    for (const [id, titleSource, sources] of [
+      [ids.derived, "derived", made(false)],
+      [ids.overflowed, "derived", made(true)],
+      [ids.given, "user", made(false)],
+    ] as const) {
+      await db.insert(sessions).values({
+        id,
+        ownerId: ws,
+        workspaceId: ws,
+        repoUrl: "https://example.invalid/repo.git",
+        branch: "main",
+        createdByUserId: userId,
+        parentConversationId: open,
+        title: `title ${titleSource}`,
+        titleSource,
+      });
+      await db.insert(schema.turns).values({
+        sessionId: id,
+        sequence: 1,
+        message: "the ask",
+        status: "queued",
+        sources,
+      });
+    }
+    const tasks = new Map(
+      (
+        await store().openTasks({
+          turn: admitted.turn,
+          viewer: null,
+          limit: 20,
+        })
+      ).map((task) => [task.sessionId, task]),
+    );
+    expect(tasks.get(ids.derived)).toMatchObject({
+      title: "title derived",
+      titleSources: [placeSource(asked)],
+    });
+    expect(tasks.get(ids.overflowed)).toMatchObject({
+      title: null,
+      titleSources: [],
+    });
+    // A title a person gave came from no message.
+    expect(tasks.get(ids.given)).toMatchObject({
+      title: "title user",
+      titleSources: [],
+    });
+  });
+
+  test("the topic's previous turn: the newest other one, with what its tools added", async () => {
+    const first = await leased();
+    const store_ = store();
+    const ask = { workspaceId: ws, topicId: first.topicId };
+    expect(await store_.previousTurn({ ...ask, turnId: first.turnId })).toBe(
+      null,
+    );
+    const read = placeSource(at("702.000001"));
+    await store_.addDirectSources(first.turnId, [read]);
+    const second = conversationTurnIdSchema.parse(randomUUID());
+    await db.insert(conversationTurns).values({
+      id: second,
+      workspaceId: ws,
+      agentId,
+      conversationId: open,
+      topicId: first.topicId,
+      origin: "m2",
+      state: "running",
+      requesterKind: "user",
+      requesterId: userId,
+      createdAt: new Date(Date.now() + 1_000),
+    });
+    expect(await store_.previousTurn({ ...ask, turnId: second })).toEqual({
+      turnId: first.turnId,
+      ended: false,
+      sources: [read],
+      overflow: false,
+    });
+    await db
+      .update(conversationTurns)
+      .set({ state: "no_decision", endedAt: new Date() })
+      .where(eq(conversationTurns.id, first.turnId));
+    expect((await store_.previousTurn({ ...ask, turnId: second }))?.ended).toBe(
+      true,
+    );
+    // From the first turn's side, the newer one is the topic's other turn.
+    expect(
+      (await store_.previousTurn({ ...ask, turnId: first.turnId }))?.turnId,
+    ).toBe(second);
   });
 });
