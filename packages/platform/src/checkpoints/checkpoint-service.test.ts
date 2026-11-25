@@ -810,6 +810,72 @@ describe("protectedCommits", () => {
       ).rejects.toThrow("stream close failed");
     });
 
+    test("two checkpoints naming one link with different digests each have it read against their own", async () => {
+      const base = bundleOf(0);
+      const tip = bundleOf(1);
+      await objects.overwrite(base.ref.key, encode(base.body));
+      await objects.overwrite(tip.ref.key, encode(tip.body));
+      // Committed around finalize, as a store rewritten behind it would leave
+      // them: revision 0 claims another digest for the same bytes.
+      const commitAs = async (body: CheckpointManifest) => {
+        const { checkpoint } = await upload(body);
+        await checkpoints.commit({
+          checkpoint,
+          fence: fence(),
+          now: new Date(),
+          turnId: String(body.revision + 1),
+        } as CommitCheckpointInput);
+      };
+      await commitAs(
+        manifest({
+          revision: 0,
+          workspace: workspace({
+            bundle: { ...base.ref, sha256: "0".repeat(64) },
+          }),
+        }),
+      );
+      await commitAs(
+        manifest({
+          revision: 1,
+          workspace: workspace({ baseBundles: [base.ref], bundle: tip.ref }),
+        }),
+      );
+      await expect(
+        serviceOver(objects).protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        }),
+      ).rejects.toThrow(`hashes to ${base.ref.sha256}, not ${"0".repeat(64)}`);
+    });
+
+    test("a link whose one read went wrong fails the call, even if reading it again would pass", async () => {
+      await commitHistory(serviceOver(objects), 3);
+      const base = bundleOf(0).ref;
+      let reads = 0;
+      const once = new Proxy(objects, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property !== "stream" || typeof value !== "function")
+            return value;
+          return async (key: string, version?: string) => {
+            if (key !== base.key || (reads += 1) > 1) {
+              return value.call(target, key, version);
+            }
+            return (async function* () {
+              yield new Uint8Array(base.bytes);
+            })();
+          };
+        },
+      });
+      await expect(
+        serviceOver(once).protectedCommits({
+          sessionId,
+          pointer: checkpoints.pointer(),
+        }),
+      ).rejects.toThrow("does not verify");
+      expect(reads).toBe(1);
+    });
+
     test("bundles past one ceiling are read per chain, and no spool outlives the call", async () => {
       const spoolRoot = await mkdtemp(join(tmpdir(), "protected-spool-"));
       try {
@@ -819,12 +885,34 @@ describe("protectedCommits", () => {
           maxWorkspaceBundleBytes: bundleOf(0).ref.bytes * 2,
         };
         await commitHistory(serviceOver(objects, limits), 6, true);
+        // What the call's shared files hold whenever a chain is verified.
+        let peak = 0;
+        const measuring: WorkspaceBundleVerifier = {
+          async verify() {
+            let held = 0;
+            for (const directory of await readdir(spoolRoot)) {
+              if (!directory.startsWith("bundle-shared-")) continue;
+              for (const name of await readdir(join(spoolRoot, directory))) {
+                held += (
+                  await Bun.file(join(spoolRoot, directory, name)).bytes()
+                ).byteLength;
+              }
+            }
+            peak = Math.max(peak, held);
+            return { status: "restorable" };
+          },
+        };
         expect(
-          await serviceOver(objects, limits).protectedCommits({
+          await serviceOver(objects, {
+            ...limits,
+            workspaceBundles: measuring,
+          }).protectedCommits({
             sessionId,
             pointer: checkpoints.pointer(),
           }),
         ).toEqual([workspaceBundle.commit]);
+        expect(peak).toBeGreaterThan(0);
+        expect(peak).toBeLessThanOrEqual(limits.maxWorkspaceBundleBytes);
         expect(await readdir(spoolRoot)).toEqual([]);
       } finally {
         await rm(spoolRoot, { force: true, recursive: true });

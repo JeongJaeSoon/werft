@@ -379,11 +379,11 @@ type CommittedReads = {
  */
 type SharedReads = {
   /**
-   * A file holding exactly `link`'s bytes, already hashed to its digest;
-   * undefined when it is not that, or once the call's spool holds a bundle
-   * ceiling's worth.
+   * The call's one read of `link`: a file of exactly its bytes and digest,
+   * or why it is not. Undefined once the call's spool holds a bundle
+   * ceiling's worth, for the chain to read itself.
    */
-  bundle(link: ObjectRef): Promise<string | undefined>;
+  bundle(link: ObjectRef): Promise<SharedBundle | undefined>;
   digest(
     key: string,
     version: string | undefined,
@@ -394,6 +394,11 @@ type SharedReads = {
     version: string | undefined,
   ): Promise<ObjectHead | undefined>;
 };
+
+type SharedBundle =
+  | { path: string }
+  | { problem: Problem }
+  | { error: unknown };
 
 type VerifiedRefs = {
   objects: ReadonlySet<string>;
@@ -948,24 +953,26 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // only after the digests proved they are the objects the manifest names.
     // A tee would let a slow second reader make the stream buffer for it, and
     // would show the verifier bytes nobody had checked yet.
-    // With `shared`, a link another revision of the call already read as
-    // exactly its claimed bytes is not read again: the chain's room is at
-    // least those bytes, so its own read would have passed the same way.
-    // Anything else is read here, where its verdict comes from.
+    // With `shared`, each link is read once per call. A read that was
+    // exactly the link stands for this chain's too, whose room is at least
+    // the link's bytes; one that was not fails this chain as it came, and
+    // is never read again to pass.
     let spool: string | undefined;
     const readLink = async (
       index: number,
       link: ObjectRef,
       left: number,
-    ): Promise<{
-      body: Awaited<ReturnType<typeof digestObject>>;
-      path: string;
-    }> => {
+    ): Promise<
+      | { problem: Problem }
+      | { body: Awaited<ReturnType<typeof digestObject>>; path: string }
+    > => {
       const kept = await shared?.bundle(link);
       if (kept !== undefined) {
+        if ("error" in kept) throw kept.error;
+        if ("problem" in kept) return kept;
         return {
           body: { bytes: link.bytes, sha256: link.sha256, status: "read" },
-          path: kept,
+          path: kept.path,
         };
       }
       spool ??= await mkdtemp(join(spoolRoot, "bundle-spool-"));
@@ -988,7 +995,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       const files: WorkspaceBundleFile[] = [];
       let left = maxBundleBytes;
       for (const [index, link] of chain.entries()) {
-        const { body, path } = await readLink(index, link, left);
+        const read = await readLink(index, link, left);
+        if ("problem" in read) return read.problem;
+        const { body, path } = read;
         if (body === undefined) {
           return broken(
             `manifest references a missing workspace bundle: ${link.key}${versionSuffix(link.version)}`,
@@ -1061,7 +1070,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       JSON.stringify([key, version ?? null]);
     const heads = new Map<string, Promise<ObjectHead | undefined>>();
     const digests = new Map<string, ReturnType<typeof digestObject>>();
-    const bundleFiles = new Map<string, Promise<string | undefined>>();
+    const bundleFiles = new Map<string, Promise<SharedBundle>>();
     let spool: Promise<string> | undefined;
     // Files stay until the call ends, so they are held to one bundle
     // ceiling, what a single chain may take; a link past it is read the
@@ -1087,7 +1096,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         return read;
       },
       bundle(link) {
-        const at = id(link.key, link.version);
+        const at = JSON.stringify([
+          link.key,
+          link.version ?? null,
+          link.bytes,
+          link.sha256,
+        ]);
         let read = bundleFiles.get(at);
         if (read === undefined) {
           if (spooledBytes + link.bytes > maxBundleBytes) {
@@ -1095,11 +1109,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           }
           spooledBytes += link.bytes;
           const index = bundleFiles.size;
-          // Kept only when it is exactly the link: anything else is left to
-          // the chain's own read, whose verdict is the one that counts. The
-          // read stops past the claimed size, so the files stay in budget.
-          read = (async () => {
-            spool ??= mkdtemp(join(spoolRoot, "bundle-spool-"));
+          // Stops past the claimed size, so the files stay in budget.
+          read = (async (): Promise<SharedBundle> => {
+            spool ??= mkdtemp(join(spoolRoot, "bundle-shared-"));
             const path = join(await spool, `workspace-${index}.bundle`);
             const file = await open(path, "wx", 0o600);
             try {
@@ -1110,15 +1122,32 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
                 link.bytes,
                 (chunk) => writeFully(file, chunk),
               );
-              return body?.status === "read" &&
-                body.bytes === link.bytes &&
-                body.sha256 === link.sha256
-                ? path
-                : undefined;
+              if (body === undefined) {
+                return {
+                  problem: broken(
+                    `manifest references a missing workspace bundle: ${link.key}${versionSuffix(link.version)}`,
+                  ),
+                };
+              }
+              if (body.status === "over") {
+                return {
+                  problem: broken(
+                    `workspace bundle ${link.key} delivered more than the ${link.bytes} bytes it was stored with`,
+                  ),
+                };
+              }
+              if (body.sha256 !== link.sha256) {
+                return {
+                  problem: broken(
+                    `workspace bundle ${link.key} hashes to ${body.sha256}, not ${link.sha256}`,
+                  ),
+                };
+              }
+              return { path };
             } finally {
               await file.close();
             }
-          })().catch(() => undefined);
+          })().catch((error: unknown) => ({ error }));
           bundleFiles.set(at, read);
         }
         return read;
