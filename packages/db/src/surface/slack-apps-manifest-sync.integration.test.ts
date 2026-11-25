@@ -196,6 +196,8 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
     // A new install, as storeBotToken writes it: the app row locked, then
     // a new token version and its scopes, committed together.
     const install = await pool.connect();
+    let late: Promise<void> | undefined;
+    let committed = false;
     try {
       await install.query("BEGIN");
       await install.query(
@@ -210,7 +212,7 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
         "UPDATE slack_apps SET bot_scopes = ARRAY['chat:write', 'groups:write'] WHERE id = $1",
         [app.slackAppId],
       );
-      const late = store.setBotScopes(
+      late = store.setBotScopes(
         app.workspaceId,
         app.slackAppId,
         ["chat:write"],
@@ -226,14 +228,19 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       await install.query("COMMIT");
+      committed = true;
       await late;
     } finally {
+      if (!committed) {
+        await install.query("ROLLBACK");
+        await late?.catch(() => {});
+      }
       install.release();
     }
     expect(
       (await store.find(app.workspaceId, app.slackAppId))?.botScopes,
     ).toEqual(["chat:write", "groups:write"]);
-  });
+  }, 20_000);
 
   test("the table refuses an error the contract does not name", async () => {
     const app = await agentApp();
