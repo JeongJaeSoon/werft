@@ -86,6 +86,7 @@ import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { SLACK_OUTBOX_APP_DELETED } from "./slack-app-close.ts";
 import { channelLeft } from "./slack-channel-left.ts";
+import { unnoticedSlackChannels } from "./slack-channel-notices.ts";
 import {
   closeHeldOfFailedMirror,
   inputMirrorThread,
@@ -1395,6 +1396,8 @@ export function createPostgresSlackOutboxStore(
         }),
       );
     },
+
+    unnoticedChannels: (limit) => unnoticedSlackChannels(db, { limit }),
 
     async capacityWaits(limit, waitedMs) {
       // The key the adapter's slackCapacityWaitDedupeKey makes, spelled in SQL.
