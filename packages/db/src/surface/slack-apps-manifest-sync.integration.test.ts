@@ -180,6 +180,53 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
     expect(row?.botScopes).toBeNull();
   });
 
+  test("scopes read with the old token wait for an install that holds the app and are dropped after it", async () => {
+    const store = createPostgresSlackAppStore(db, key);
+    const secrets = createPostgresSecretStore(db, key);
+    const app = await agentApp();
+    const slot = {
+      workspaceId: app.workspaceId,
+      owner: { kind: "slack_app" as const, id: app.slackAppId },
+      purpose: "slack_bot_token" as const,
+    };
+    await secrets.put(slot, "fixture-one");
+    const read =
+      (await store.find(app.workspaceId, app.slackAppId))?.secrets
+        .slack_bot_token?.secretVersion ?? 0;
+    // A new install, as storeBotToken writes it: the app row locked, then
+    // a new token version and its scopes, committed together.
+    const install = await pool.connect();
+    try {
+      await install.query("BEGIN");
+      await install.query(
+        "SELECT id FROM slack_apps WHERE id = $1 FOR UPDATE",
+        [app.slackAppId],
+      );
+      await install.query(
+        "UPDATE secret_values SET secret_version = secret_version + 1 WHERE workspace_id = $1 AND purpose = 'slack_bot_token'",
+        [app.workspaceId],
+      );
+      await install.query(
+        "UPDATE slack_apps SET bot_scopes = ARRAY['chat:write', 'groups:write'] WHERE id = $1",
+        [app.slackAppId],
+      );
+      const late = store.setBotScopes(
+        app.workspaceId,
+        app.slackAppId,
+        ["chat:write"],
+        read,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await install.query("COMMIT");
+      await late;
+    } finally {
+      install.release();
+    }
+    expect(
+      (await store.find(app.workspaceId, app.slackAppId))?.botScopes,
+    ).toEqual(["chat:write", "groups:write"]);
+  });
+
   test("the table refuses an error the contract does not name", async () => {
     const app = await agentApp();
     const refused = await db

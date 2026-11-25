@@ -21,7 +21,6 @@ import {
   asc,
   desc,
   eq,
-  exists,
   inArray,
   isNotNull,
   isNull,
@@ -510,28 +509,33 @@ export function createPostgresSlackAppStore(
         },
         "slack_bot_token",
       );
-      // updated_at is left alone: Slack's grant changed, not the app.
-      await db
-        .update(slackApps)
-        .set({ botScopes: [...scopes] })
-        .where(
-          and(
-            ...createdApp(workspaceId, slackAppId),
-            exists(
-              db
-                .select({ id: secretValues.id })
-                .from(secretValues)
-                .where(
-                  and(
-                    eq(secretValues.workspaceId, slot.workspaceId),
-                    eq(secretValues.ownerRef, secretOwnerRef(slot.owner)),
-                    eq(secretValues.purpose, slot.purpose),
-                    eq(secretValues.secretVersion, tokenVersion),
-                  ),
-                ),
-            ),
-          ),
+      await db.transaction(async (tx) => {
+        // storeBotToken holds this lock while it writes a new token, and the
+        // version is read by a statement of its own after it: one snapshot
+        // taken before the lock would still see the old token.
+        const row = await lockedApp(
+          tx,
+          slot.workspaceId,
+          slackAppId.toLowerCase(),
         );
+        if (row?.state !== "created") return;
+        const [token] = await tx
+          .select({ version: secretValues.secretVersion })
+          .from(secretValues)
+          .where(
+            and(
+              eq(secretValues.workspaceId, slot.workspaceId),
+              eq(secretValues.ownerRef, secretOwnerRef(slot.owner)),
+              eq(secretValues.purpose, slot.purpose),
+            ),
+          );
+        if (token?.version !== tokenVersion) return;
+        // updated_at is left alone: Slack's grant changed, not the app.
+        await tx
+          .update(slackApps)
+          .set({ botScopes: [...scopes] })
+          .where(eq(slackApps.id, row.id));
+      });
     },
     async markEventsReceived(workspaceId, slackAppId, at) {
       // updated_at is left alone: it says when the app was last changed.
