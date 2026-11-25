@@ -1,3 +1,4 @@
+-- migrate:no-transaction
 -- Each Slack channel binding's own cap on M1's judgments per hour (a1/S3),
 -- set with its listening. A constant default needs no table rewrite in
 -- PostgreSQL 11+, so every existing binding reads 12, the cap it had; the

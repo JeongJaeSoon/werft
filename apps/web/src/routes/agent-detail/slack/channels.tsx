@@ -359,8 +359,10 @@ export function SlackChannels({
       },
     });
   };
+  /** False when nothing was sent: the input goes back to the saved value. */
   const changeCap = (row: Binding, name: string, cap: number) => {
-    if (update.isPending || locked || cap === row.m1_judgments_per_hour) return;
+    if (update.isPending || locked || cap === row.m1_judgments_per_hour)
+      return false;
     update.mutate({
       kind: "cap",
       row: { id: row.id, name },
@@ -372,6 +374,7 @@ export function SlackChannels({
         ceiling: row.ceiling,
       },
     });
+    return true;
   };
   const actions =
     // Until the bindings load, it is not known which step this is.
@@ -857,7 +860,7 @@ function CapInput({
   readonly busy: boolean;
   readonly refused: boolean;
   readonly describedBy: string | undefined;
-  readonly onSave: (cap: number) => void;
+  readonly onSave: (cap: number) => boolean;
 }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(String(value));
@@ -865,7 +868,8 @@ function CapInput({
   const parsed = Number(draft);
   const valid = /^\d+$/.test(draft) && parsed >= 1 && parsed <= CAP_MAX;
   const save = () => {
-    if (valid) onSave(parsed);
+    // Another save holds the row's request: a value kept here would look saved.
+    if (valid && !onSave(parsed)) setDraft(String(value));
   };
   return (
     <span className="flex flex-col items-end gap-1">

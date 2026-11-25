@@ -3774,4 +3774,49 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
       home: true,
     });
   });
+
+  test("a cap typed while another save holds the request goes back to the saved value", async () => {
+    const other: typeof BINDING = {
+      ...BINDING,
+      id: "00000000-0000-4000-8000-0000000000c2",
+      external_surface_id: "C0B",
+      home: false,
+    };
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, other] }),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        await held;
+        return json(200, {
+          slack_binding: { ...BINDING, mode: body.mode },
+          receipt_id: ID,
+          dropped_buffered: 0,
+        });
+      },
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const cap = (await within(list).findByRole("spinbutton", {
+      name: "채널 ID: C0B 시간당 판단 상한",
+    })) as HTMLInputElement;
+    await user.click(within(list).getAllByRole("switch")[0] as HTMLElement);
+    await waitFor(() =>
+      expect(api.calls.filter((call) => call.method === "PUT")).toHaveLength(1),
+    );
+    await user.clear(cap);
+    await user.type(cap, "5");
+    await user.tab();
+    expect(cap.value).toBe("12");
+    release();
+    await waitFor(() =>
+      expect(cap.getAttribute("aria-disabled")).toBe("false"),
+    );
+    expect(api.calls.filter((call) => call.method === "PUT")).toHaveLength(1);
+  });
 });
