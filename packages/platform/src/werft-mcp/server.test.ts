@@ -369,7 +369,12 @@ describe("the parts as shipped", () => {
     const context = { version: "v9.9.9" };
     const parts = [
       docsPart(context, []),
-      statusPart(context),
+      statusPart(context, {
+        store: { factsOf: async () => null },
+        authorization: {
+          authorize: async () => ({ outcome: "deny" }) as never,
+        },
+      }),
       guidePart(context),
     ];
     const ask = serverOf(parts);

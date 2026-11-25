@@ -1,4 +1,8 @@
-import { type Database, sessionResponseLanguage } from "@werft-ai/db";
+import {
+  createPostgresWerftStatusStore,
+  type Database,
+  sessionResponseLanguage,
+} from "@werft-ai/db";
 import {
   type AuthorizationPolicy,
   docsPart,
@@ -31,7 +35,10 @@ export function werftMcpParts(
     ),
 
     // What this session's agent is connected to and may do.
-    statusPart(context),
+    statusPart(context, {
+      store: createPostgresWerftStatusStore(deps.db),
+      authorization: deps.authorization,
+    }),
 
     // The usage guide, its tool for an engine that takes no skill, and the
     // prompts for common checks.
