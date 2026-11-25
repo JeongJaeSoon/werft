@@ -4,6 +4,7 @@ import {
   type AuthorizationReason,
   type AuthorizationResource,
   authorizationDecisionSchema,
+  type PendingRequest,
   type PostSessionAnswerRequest,
   type Principal,
   SESSION_SCOPE_VALUES,
@@ -632,13 +633,29 @@ describe("approving after the requester left the private channel", () => {
   });
 
   describe("answering through the pending request service", () => {
-    function answering(identity?: IdentityReader) {
+    const open = (requestId: string): PendingRequest => ({
+      request_id: requestId,
+      turn_id: "1",
+      attempt_id: "att_1",
+      created_at: "2026-11-25T00:00:00.000Z",
+      expires_at: "2026-11-25T01:00:00.000Z",
+      kind: "permission",
+      tool: "Bash",
+      input: { command: "ls" },
+    });
+    function answering(
+      identity?: IdentityReader,
+      inChannel?: (userId: string) => "member" | "not_member" | "unconfirmed",
+    ) {
       const stored: AnswerRequestInput[] = [];
       const service = createPendingRequestService({
-        authorization: policyWith(identity === undefined ? {} : { identity }),
+        authorization: policyWith({
+          ...(identity === undefined ? {} : { identity }),
+          ...(inChannel === undefined ? {} : { inChannel }),
+        }),
         store: {
           async listOpen() {
-            return [];
+            return [open(PENDING), open("toolu_other")];
           },
           async answerAtomic(input) {
             stored.push(input);
@@ -677,6 +694,96 @@ describe("approving after the requester left the private channel", () => {
         });
       }
       expect(stored.map((input) => input.requesterLeft)).toEqual([true, true]);
+    });
+
+    // 94S-2219: the console's list judges each request as its answer does.
+    test("the console offers a member the request whose requester left, and nothing else of the session", async () => {
+      const { service } = answering();
+      const listed = await service.listPendingRequests(
+        person("member"),
+        PRIVATE_SESSION,
+      );
+      expect(listed.answerable).toBe(false);
+      expect(
+        listed.items.map((item) => [item.request_id, item.answerable]),
+      ).toEqual([
+        [PENDING, true],
+        ["toolu_other", false],
+      ]);
+      // While the requester is in the channel, the member answers none.
+      const stays = answering(undefined, (userId) =>
+        userId === USERS.member || userId === USERS.requester
+          ? "member"
+          : "not_member",
+      );
+      const before = await stays.service.listPendingRequests(
+        person("member"),
+        PRIVATE_SESSION,
+      );
+      expect(before.items.map((item) => item.answerable)).toEqual([
+        false,
+        false,
+      ]);
+    });
+
+    test("a person outside the channel, and the requester who left, get 404 from the list and the answer alike", async () => {
+      const { service, stored } = answering();
+      for (const who of ["nonmember", "requester"] as const) {
+        const caller = person(who);
+        expect(
+          await service
+            .listPendingRequests(caller, PRIVATE_SESSION)
+            .catch((caught: unknown) => caught),
+        ).toMatchObject({ code: "NOT_FOUND" });
+        expect(
+          await service
+            .answer(caller, PRIVATE_SESSION, {
+              idempotencyKey: `k-${who}`,
+              body: {
+                request_id: PENDING,
+                kind: "permission",
+                decision: "allow",
+              },
+            })
+            .catch((caught: unknown) => caught),
+        ).toMatchObject({ code: "NOT_FOUND" });
+      }
+      expect(stored).toEqual([]);
+    });
+
+    test("an answer the console sends for a request the list offered is taken, a session allow included", async () => {
+      const { service, stored } = answering();
+      const member = person("member");
+      const listed = await service.listPendingRequests(member, PRIVATE_SESSION);
+      const offered = listed.items.find((item) => item.answerable === true);
+      expect(offered?.request_id).toBe(PENDING);
+      await service.answer(member, PRIVATE_SESSION, {
+        idempotencyKey: "k-console",
+        body: {
+          request_id: PENDING,
+          kind: "permission",
+          decision: "allow",
+          remember: "session",
+        },
+      });
+      expect(stored[0]).toMatchObject({
+        requesterLeft: true,
+        answer: { remember: "session" },
+        sessionAllowSubject: member.subject,
+      });
+      // One the list did not offer is refused as its role.
+      expect(
+        await service
+          .answer(member, PRIVATE_SESSION, {
+            idempotencyKey: "k-other",
+            body: {
+              request_id: "toolu_other",
+              kind: "permission",
+              decision: "allow",
+            },
+          })
+          .catch((caught: unknown) => caught),
+      ).toMatchObject({ code: "FORBIDDEN" });
     });
 
     test("a member who took the card over may allow for the session, and the store keeps them as its giver", async () => {
