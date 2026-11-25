@@ -1180,7 +1180,7 @@ describe("a beat answered 404", () => {
       stopped = true;
     });
     await timer.advance(1_400);
-    expect(at).toEqual([5_000, 5_500, 6_500]);
+    expect(at).toEqual([5_000, 5_500]);
     expect(beat.unconfirmed).toBeDefined();
 
     // The answer to the beat sent at 5.5s lands at 7s, after its patience.
@@ -1190,6 +1190,25 @@ describe("a beat answered 404", () => {
     await stopping;
     expect(stopped).toBe(true);
     expect(lost).toEqual([]);
+  });
+
+  test("a gateway that stops answering after a 404 is asked at the same backoff", async () => {
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = direct(() => {
+      at.push(timer.now());
+      return at.length === 1
+        ? Promise.reject(notFound())
+        : new Promise<never>(() => {});
+    });
+    beat.start();
+    await timer.advance(19_999);
+    expect(at).toEqual([5_000, 6_000, 8_000, 12_000, 16_000]);
+    expect(lost).toEqual([]);
+
+    await timer.advance(1);
+    expect(at).toHaveLength(5);
+    expect(lost).toHaveLength(1);
+    await beat.stop();
   });
 
   test("a stop waits until the lease is confirmed", async () => {

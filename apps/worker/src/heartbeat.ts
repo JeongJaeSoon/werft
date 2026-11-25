@@ -329,6 +329,8 @@ export class Heartbeat {
       );
     // Only the loop's own beat: one sent for a caller is waited out.
     const fromLoop = Number.isFinite(patienceMs);
+    // False once another beat's refusal cut this one's wait short.
+    let outwaited = true;
     let cancel: (() => void) | undefined;
     const expired = new Promise<false>((resolve) => {
       const arm = (ms: number) => {
@@ -339,6 +341,7 @@ export class Heartbeat {
         // A refusal of another beat sets when the next one is due, which
         // can be before this one's patience runs out.
         this.rearm = () => {
+          outwaited = false;
           cancel?.();
           arm(this.dueInMs());
         };
@@ -359,6 +362,12 @@ export class Heartbeat {
     if (this.leaseLeftMs <= 0) {
       this.giveUp("the gateway had not answered the beat renewing it");
       return true;
+    }
+    if (outwaited && this.notFound > 0) {
+      // Unanswered for its whole patience, it used a step of the backoff as
+      // a refused one does: the next is due that much after it went out.
+      this.retries += 1;
+      this.retryAt = sentAt + notFoundBackoff(this.retries);
     }
     return false;
   }
