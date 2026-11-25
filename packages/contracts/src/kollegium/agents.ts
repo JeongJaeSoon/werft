@@ -421,8 +421,8 @@ export const agentSchema = z
      */
     auto_model_migration: z.boolean(),
     /**
-     * The last automatic model move that failed, while the release it tried
-     * to move from is still active; null otherwise. `reason` is the code a
+     * The last automatic model move that failed, while the activation it
+     * tried to move from is still the current one; null otherwise. `reason` is the code a
      * failed save reports. The move is tried again after
      * `MODEL_MIGRATION_RETRY_MINUTES`.
      */

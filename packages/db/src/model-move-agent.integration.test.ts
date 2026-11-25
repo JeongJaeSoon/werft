@@ -344,6 +344,14 @@ integration("an agent moves to the next model of its series", () => {
     expect(await failureOf(caller, agentId)).toMatchObject({
       reason: "actor_inactive",
     });
+
+    // An earlier image activates without clearing the columns: A -> B -> A
+    // leaves the release id as it was, the revision two ahead.
+    await db
+      .update(agents)
+      .set({ activationRevision: sql`${agents.activationRevision} + 2` })
+      .where(eq(agents.id, agentId));
+    expect(await failureOf(caller, agentId)).toBeNull();
   });
 
   test("a failed move is no longer shown once a later move succeeds", async () => {
@@ -361,7 +369,7 @@ integration("an agent moves to the next model of its series", () => {
     expect(await failureOf(caller, agentId)).toBeNull();
     const row = await agentRow(agentId);
     expect([
-      row?.modelMigrationFailedReleaseId,
+      row?.modelMigrationFailedRevision,
       row?.modelMigrationFailure,
       row?.modelMigrationFailedAt,
     ]).toEqual([null, null, null]);

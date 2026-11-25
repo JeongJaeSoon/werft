@@ -1,5 +1,5 @@
 {
-  "id": "da435077-f115-4d46-92a7-3f4dfb07ddca",
+  "id": "7d42c381-8de4-40b3-88aa-d9613246964d",
   "prevId": "7e4ac536-e135-42db-b1e9-98c1689c52e1",
   "version": "7",
   "dialect": "postgresql",
@@ -2573,9 +2573,9 @@
           "primaryKey": false,
           "notNull": false
         },
-        "model_migration_failed_release_id": {
-          "name": "model_migration_failed_release_id",
-          "type": "text",
+        "model_migration_failed_revision": {
+          "name": "model_migration_failed_revision",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },

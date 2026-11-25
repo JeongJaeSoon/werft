@@ -32,7 +32,7 @@ export const modelsKo = {
   "agent.modelMoves.failedTitle":
     "모델 {model}을(를) {successor}(으)로 자동으로 옮기지 못했습니다",
   "agent.modelMoves.failedText":
-    "이유: {reason}. 마지막 시도 {at}. {minutes}분마다 다시 시도합니다.",
+    "이유: {reason}. 마지막 시도 {at}. 약 {minutes}분마다 다시 시도합니다.",
   "agent.modelMoves.failedActorInactive":
     "자동 이동은 이 에이전트를 마지막으로 활성화한 사람의 이름으로 돕니다. 그 사람이 더는 오너나 어드민이 아닙니다. 오너나 어드민이 상세 설정 탭에서 모델을 {successor}(으)로 바꿔 저장하세요.",
   "agent.modelMoves.failedCredential":
@@ -84,7 +84,7 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
   "agent.modelMoves.failedTitle":
     "Model {model} could not move to {successor} automatically",
   "agent.modelMoves.failedText":
-    "Reason: {reason}. Last tried {at}. It is tried again every {minutes} minutes.",
+    "Reason: {reason}. Last tried {at}. It is tried again about every {minutes} minutes.",
   "agent.modelMoves.failedActorInactive":
     "The automatic move runs in the name of the person who last activated this agent, and that person is no longer an owner or admin. Have an owner or admin change the model to {successor} in the Settings tab and save.",
   "agent.modelMoves.failedCredential":
@@ -136,7 +136,7 @@ export const modelsJa: Record<keyof typeof modelsKo, string> = {
   "agent.modelMoves.failedTitle":
     "モデル {model} を {successor} に自動で切り替えられませんでした",
   "agent.modelMoves.failedText":
-    "理由: {reason}。最後の試行 {at}。{minutes} 分ごとに再試行します。",
+    "理由: {reason}。最後の試行 {at}。約 {minutes} 分ごとに再試行します。",
   "agent.modelMoves.failedActorInactive":
     "自動切り替えは、このエージェントを最後に有効化した人の名前で実行されます。その人はもうオーナーでもアドミンでもありません。オーナーかアドミンが詳細設定タブでモデルを {successor} に変更して保存してください。",
   "agent.modelMoves.failedCredential":

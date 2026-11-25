@@ -166,7 +166,7 @@ describe("에이전트 상세의 빠진 모델 경고", () => {
     const text = title.parentElement?.textContent ?? "";
     expect(text).toContain("이유: 자격 증명이 연결되지 않았습니다.");
     expect(text).toContain(
-      `${MODEL_MIGRATION_RETRY_MINUTES}분마다 다시 시도합니다.`,
+      `약 ${MODEL_MIGRATION_RETRY_MINUTES}분마다 다시 시도합니다.`,
     );
     expect(text).toContain(
       "자격 증명을 연결한 뒤 상세 설정 탭에서 모델을 claude-sonnet-5(으)로 바꿔 저장하세요.",

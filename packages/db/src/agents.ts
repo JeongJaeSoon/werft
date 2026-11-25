@@ -143,8 +143,7 @@ export function agentOf(
     activation_revision: row.activationRevision,
     auto_model_migration: row.autoModelMigration,
     model_migration_failure:
-      row.modelMigrationFailedReleaseId !== null &&
-      row.modelMigrationFailedReleaseId === row.activeReleaseId &&
+      row.modelMigrationFailedRevision === row.activationRevision &&
       row.modelMigrationFailure !== null &&
       row.modelMigrationFailedAt !== null
         ? {
@@ -1073,7 +1072,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       const recorded = await db
         .update(agents)
         .set({
-          modelMigrationFailedReleaseId: input.releaseId,
+          modelMigrationFailedRevision: input.revision,
           modelMigrationFailure: input.reason.slice(0, 128),
           modelMigrationFailedAt: DB_NOW,
         })
@@ -1263,7 +1262,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           .set({
             activeReleaseId: input.releaseId,
             activationRevision: sql`${agents.activationRevision} + 1`,
-            modelMigrationFailedReleaseId: null,
+            modelMigrationFailedRevision: null,
             modelMigrationFailure: null,
             modelMigrationFailedAt: null,
             updatedAt: DB_NOW,

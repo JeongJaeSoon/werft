@@ -4475,10 +4475,11 @@ export const agents = pgTable(
     draftFailure: text("draft_failure"),
     /**
      * The last automatic model move that failed, written together: the
-     * active release it tried to move from, why, and when. Every activation
-     * clears them, so a rollback to that release does not bring it back.
+     * activation revision it tried to move from, why, and when. It counts
+     * only while `activation_revision` is still that one, whichever image
+     * activated since; this one also clears them on activation.
      */
-    modelMigrationFailedReleaseId: text("model_migration_failed_release_id"),
+    modelMigrationFailedRevision: integer("model_migration_failed_revision"),
     modelMigrationFailure: text("model_migration_failure"),
     modelMigrationFailedAt: timestamp("model_migration_failed_at", {
       withTimezone: true,
