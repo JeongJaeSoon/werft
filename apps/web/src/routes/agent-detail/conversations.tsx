@@ -350,7 +350,7 @@ function TurnTable({ rows }: { readonly rows: readonly Turn[] }) {
                   count: format.tokens(row.input_tokens),
                 })}
               </span>
-              <Text variant="meta">
+              <Text variant="meta" className="whitespace-normal">
                 {t("agent.conversations.tokensOut", {
                   count: format.tokens(row.output_tokens),
                 })}
@@ -362,7 +362,7 @@ function TurnTable({ rows }: { readonly rows: readonly Turn[] }) {
               <span>{format.usd(row.cost_usd)}</span>
               {/* The sums can still grow while a call has no usage report. */}
               {row.unpriced_calls > 0 ? (
-                <Text variant="meta">
+                <Text variant="meta" className="whitespace-normal">
                   {t("agent.conversations.unpriced", {
                     count: row.unpriced_calls,
                   })}

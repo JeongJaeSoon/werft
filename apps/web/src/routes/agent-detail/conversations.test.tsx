@@ -243,6 +243,17 @@ describe("에이전트 상세의 대화 목록", () => {
     expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
   });
 
+  test("nothing is read before the tab opens", async () => {
+    const { api } = renderAt(`/agents/${AGENT_ID}`, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TURNS}`]: () => json(200, { items: [], next_cursor: null }),
+    });
+    await screen.findByRole("tab", { name: "대화" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reads(api)).toEqual([]);
+  });
+
   test("a failed read offers a retry", async () => {
     renderAt(TAB, {
       ...agentServer().routes,
