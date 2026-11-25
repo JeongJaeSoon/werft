@@ -436,6 +436,7 @@ describe("PUT /v1/agents/{id}/managing-team", () => {
       active_release_id: null,
       activation_revision: -1,
       auto_model_migration: true,
+      model_migration_failure: null,
       ownerless: false,
       ownerless_since: null,
       created_by: USER,

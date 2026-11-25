@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MODEL_MIGRATION_RETRY_MINUTES as CONTRACT_RETRY_MINUTES } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   AGENT_ID,
@@ -7,6 +8,7 @@ import {
 } from "../../test-support/fake-agents.ts";
 import { apiError, json, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
+import { MODEL_MIGRATION_RETRY_MINUTES } from "./model-removed.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
 
@@ -25,6 +27,7 @@ function agentRunning(
   model: string,
   listed: () => Response = () => json(200, { items: [CONNECTION] }),
   autoMove = true,
+  failure: { reason: string; failed_at: string } | null = null,
 ) {
   const server = agentServer();
   const release = seedRelease(1, { connection: CONNECTION.id, model });
@@ -36,6 +39,7 @@ function agentRunning(
         ...base.agent,
         active_release_id: release.id,
         auto_model_migration: autoMove,
+        model_migration_failure: failure,
       },
       releases: [release],
       active_release: release,
@@ -136,5 +140,95 @@ describe("에이전트 상세의 빠진 모델 경고", () => {
     await waitFor(() => expect(refused).toBeGreaterThan(0));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.queryByText(/모델 목록에서 빠졌습니다/)).toBeNull();
+  });
+  const MOVABLE = {
+    ...CONNECTION,
+    model_successors: { "claude-opus-5-5": "claude-sonnet-5" },
+  };
+  const FAILED_TITLE =
+    "모델 claude-opus-5-5을(를) claude-sonnet-5(으)로 자동으로 옮기지 못했습니다";
+  const failedOn = (reason: string, locale?: "en" | "ja") => {
+    renderAt(
+      DETAIL,
+      agentRunning(
+        "claude-opus-5-5",
+        () => json(200, { items: [MOVABLE] }),
+        true,
+        { reason, failed_at: "2026-11-25T03:04:05.000Z" },
+      ),
+      locale,
+    );
+  };
+
+  test("자동 이동이 실패했으면 옮겨 실행된다고 하지 않고, 무엇이 실패했는지와 관리자가 할 일을 보인다", async () => {
+    failedOn("credential_unbound");
+    const title = await screen.findByText(FAILED_TITLE);
+    const text = title.parentElement?.textContent ?? "";
+    expect(text).toContain("이유: 자격 증명이 연결되지 않았습니다.");
+    expect(text).toContain(
+      `${MODEL_MIGRATION_RETRY_MINUTES}분마다 다시 시도합니다.`,
+    );
+    expect(text).toContain(
+      "자격 증명을 연결한 뒤 상세 설정 탭에서 모델을 claude-sonnet-5(으)로 바꿔 저장하세요.",
+    );
+    expect(screen.getByRole("button", { name: "자동 이동 끄기" })).toBeTruthy();
+    expect(screen.queryByText(/옮겨 실행됩니다/)).toBeNull();
+  });
+
+  test("활성화한 사람이 권한을 잃어 실패했으면 오너나 어드민이 모델을 바꾸라고 한다", async () => {
+    failedOn("actor_inactive");
+    const title = await screen.findByText(FAILED_TITLE);
+    expect(title.parentElement?.textContent).toContain(
+      "그 사람이 더는 오너나 어드민이 아닙니다. 오너나 어드민이 상세 설정 탭에서 모델을 claude-sonnet-5(으)로 바꿔 저장하세요.",
+    );
+  });
+
+  test("이 화면이 모르는 이유는 코드 그대로 보이고 직접 바꿔 저장해 보라고 한다", async () => {
+    failedOn("github_failed");
+    const title = await screen.findByText(FAILED_TITLE);
+    const text = title.parentElement?.textContent ?? "";
+    expect(text).toContain("이유: github_failed.");
+    expect(text).toContain("같은 이유로 막히면 저장 결과에 이유가 나옵니다.");
+  });
+
+  test("영어 화면도 실패를 보인다", async () => {
+    failedOn("credential_unbound", "en");
+    await screen.findByText(
+      "Model claude-opus-5-5 could not move to claude-sonnet-5 automatically",
+    );
+  });
+
+  test("일본어 화면도 실패를 보인다", async () => {
+    failedOn("credential_unbound", "ja");
+    await screen.findByText(
+      "モデル claude-opus-5-5 を claude-sonnet-5 に自動で切り替えられませんでした",
+    );
+  });
+
+  test("실패 기록이 없으면 실패를 보이지 않는다", async () => {
+    renderAt(
+      DETAIL,
+      agentRunning("claude-opus-5-5", () => json(200, { items: [MOVABLE] })),
+    );
+    await screen.findByText(/옮겨 실행됩니다/);
+    expect(screen.queryByText(FAILED_TITLE)).toBeNull();
+  });
+
+  test("자동 이동을 끈 에이전트는 남은 실패 기록 대신 꺼져 있다고 알린다", async () => {
+    renderAt(
+      DETAIL,
+      agentRunning(
+        "claude-opus-5-5",
+        () => json(200, { items: [MOVABLE] }),
+        false,
+        { reason: "credential_unbound", failed_at: "2026-11-25T03:04:05.000Z" },
+      ),
+    );
+    await screen.findByText(/자동 이동이 꺼져 있어 멈춰 있습니다/);
+    expect(screen.queryByText(FAILED_TITLE)).toBeNull();
+  });
+
+  test("다시 시도 간격은 서버의 간격과 같다", () => {
+    expect(MODEL_MIGRATION_RETRY_MINUTES).toBe(CONTRACT_RETRY_MINUTES);
   });
 });

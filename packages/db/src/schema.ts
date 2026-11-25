@@ -4473,6 +4473,16 @@ export const agents = pgTable(
     draftVersionId: uuid("draft_version_id"),
     draftConnectionId: text("draft_connection_id"),
     draftFailure: text("draft_failure"),
+    /**
+     * The last automatic model move that failed, written together: the
+     * active release it tried to move from, why, and when. Read only while
+     * that release is still active.
+     */
+    modelMigrationFailedReleaseId: text("model_migration_failed_release_id"),
+    modelMigrationFailure: text("model_migration_failure"),
+    modelMigrationFailedAt: timestamp("model_migration_failed_at", {
+      withTimezone: true,
+    }),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

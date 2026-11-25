@@ -293,6 +293,90 @@ integration("an agent moves to the next model of its series", () => {
     expect(await activeModel(agentId)).toBe("claude-opus-5-0");
   });
 
+  const failureOf = async (caller: Caller, agentId: string) =>
+    (await store().get(caller.ownerId, agentId))?.agent.model_migration_failure;
+
+  function failingRunner() {
+    return createModelMoveRunner({
+      store: store(),
+      catalog: catalogOf(CUT),
+      agents: service(CUT),
+      logger: { info: () => {}, warn: () => {} },
+      retryMs: 0,
+    });
+  }
+
+  async function demote(caller: Caller, role: "member" | "owner") {
+    await db
+      .update(memberships)
+      .set({ role })
+      .where(eq(memberships.workspaceId, caller.ownerId));
+  }
+
+  test("a move that fails before any release is made is kept on the agent, and only for the state it failed in", async () => {
+    const caller = await owner();
+    const agentId = await agentOn(caller);
+    expect(await failureOf(caller, agentId)).toBeNull();
+    await demote(caller, "member");
+
+    await failingRunner().runOnce();
+
+    expect(await failureOf(caller, agentId)).toMatchObject({
+      reason: "actor_inactive",
+    });
+    expect(await activeModel(agentId)).toBe("claude-opus-5-0");
+    const row = await agentRow(agentId);
+    const stale = {
+      workspaceId: caller.ownerId,
+      agentId,
+      reason: "release_refused",
+      releaseId: row?.activeReleaseId as string,
+      revision: (row?.activationRevision as number) + 1,
+    };
+    expect(await store().recordModelMigrationFailure(stale)).toBe(false);
+    expect(
+      await store().recordModelMigrationFailure({
+        ...stale,
+        revision: row?.activationRevision as number,
+        releaseId: "rel_other",
+      }),
+    ).toBe(false);
+    expect(await failureOf(caller, agentId)).toMatchObject({
+      reason: "actor_inactive",
+    });
+  });
+
+  test("a failed move is no longer shown once a later move succeeds", async () => {
+    const caller = await owner();
+    const agentId = await agentOn(caller);
+    await demote(caller, "member");
+    const runner = failingRunner();
+    await runner.runOnce();
+    expect(await failureOf(caller, agentId)).not.toBeNull();
+
+    await demote(caller, "owner");
+    expect(await runner.runOnce()).toBe(1);
+
+    expect(await activeModel(agentId)).toBe("claude-opus-5-1");
+    expect(await failureOf(caller, agentId)).toBeNull();
+  });
+
+  test("a failed move is no longer shown once someone changes the model by hand", async () => {
+    const caller = await owner();
+    const agentId = await agentOn(caller);
+    await demote(caller, "member");
+    await failingRunner().runOnce();
+    expect(await failureOf(caller, agentId)).not.toBeNull();
+
+    await demote(caller, "owner");
+    await service(CUT).updateAgent(caller, agentId, {
+      card: card("claude-opus-5-1"),
+    });
+
+    expect(await activeModel(agentId)).toBe("claude-opus-5-1");
+    expect(await failureOf(caller, agentId)).toBeNull();
+  });
+
   test("the actor is whoever last activated the release, not whoever approved it first", async () => {
     const caller = await owner();
     const agentId = await agentOn(caller);
@@ -342,6 +426,8 @@ integration("an agent moves to the next model of its series", () => {
       store: {
         modelMigrationCandidates: (input) =>
           store().modelMigrationCandidates(input),
+        recordModelMigrationFailure: (input) =>
+          store().recordModelMigrationFailure(input),
       },
       catalog: catalogOf(CUT),
       agents: service(CUT),

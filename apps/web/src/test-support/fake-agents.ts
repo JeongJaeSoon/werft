@@ -199,6 +199,7 @@ export function agentServer({
         active_release_id: active,
         activation_revision: revision,
         auto_model_migration: true,
+        model_migration_failure: null,
         ownerless: ownerlessSince !== undefined,
         ownerless_since: ownerlessSince ?? null,
         created_by: USER_ID,

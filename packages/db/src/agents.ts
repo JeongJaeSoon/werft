@@ -142,6 +142,16 @@ export function agentOf(
     active_release_id: row.activeReleaseId,
     activation_revision: row.activationRevision,
     auto_model_migration: row.autoModelMigration,
+    model_migration_failure:
+      row.modelMigrationFailedReleaseId !== null &&
+      row.modelMigrationFailedReleaseId === row.activeReleaseId &&
+      row.modelMigrationFailure !== null &&
+      row.modelMigrationFailedAt !== null
+        ? {
+            reason: row.modelMigrationFailure,
+            failed_at: row.modelMigrationFailedAt.toISOString(),
+          }
+        : null,
     ownerless,
     ownerless_since: row.ownerlessSince?.toISOString() ?? null,
     created_by: row.createdBy,
@@ -1057,6 +1067,26 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .orderBy(desc(agentActivationEvents.createdAt))
         .limit(1);
       return row?.actor ?? null;
+    },
+
+    async recordModelMigrationFailure(input) {
+      const recorded = await db
+        .update(agents)
+        .set({
+          modelMigrationFailedReleaseId: input.releaseId,
+          modelMigrationFailure: input.reason.slice(0, 128),
+          modelMigrationFailedAt: DB_NOW,
+        })
+        .where(
+          and(
+            eq(agents.id, input.agentId),
+            eq(agents.workspaceId, input.workspaceId),
+            eq(agents.activeReleaseId, input.releaseId),
+            eq(agents.activationRevision, input.revision),
+          ),
+        )
+        .returning({ id: agents.id });
+      return recorded.length > 0;
     },
 
     insertRelease(input) {

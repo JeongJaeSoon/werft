@@ -10522,6 +10522,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -10868,6 +10873,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -11122,6 +11132,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -11732,6 +11747,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -11759,6 +11779,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;

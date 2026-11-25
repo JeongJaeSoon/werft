@@ -421,6 +421,19 @@ export const agentSchema = z
      */
     auto_model_migration: z.boolean(),
     /**
+     * The last automatic model move that failed, while the release it tried
+     * to move from is still active; null otherwise. `reason` is the code a
+     * failed save reports. The move is tried again after
+     * `MODEL_MIGRATION_RETRY_MINUTES`.
+     */
+    model_migration_failure: z
+      .object({
+        reason: z.string().min(1).max(128),
+        failed_at: timestampSchema,
+      })
+      .strict()
+      .nullable(),
+    /**
      * No one live administers the agent now: no admin of its own, no live
      * member of an admin team, no lead of its managing team. Workspace owners
      * and admins do not count.
@@ -438,6 +451,9 @@ export const agentSchema = z
     updated_at: timestampSchema,
   })
   .strict();
+
+/** Minutes before a failed automatic model move is tried again. */
+export const MODEL_MIGRATION_RETRY_MINUTES = 15;
 
 /** Days an ownerless agent keeps starting new sessions. */
 export const AGENT_OWNERLESS_GRACE_DAYS = 14;
