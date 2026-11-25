@@ -106,6 +106,7 @@ function record(): AgentRecord {
       active_release_id: active.id,
       activation_revision: 3,
       auto_model_migration: true,
+      model_migration_failure: null,
       ownerless: false,
       ownerless_since: null,
       created_by: OWNER,
@@ -183,6 +184,7 @@ function scripted(script: Script) {
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],
     activationActor: async () => null,
+    recordModelMigrationFailure: async () => false,
     insertRelease: async (input) => {
       calls.insert.push(input);
       const outcome = inserts.shift() ?? "created";

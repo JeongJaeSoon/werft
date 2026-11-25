@@ -25199,6 +25199,33 @@
                 "auto_model_migration": {
                   "type": "boolean"
                 },
+                "model_migration_failure": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "failed_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "reason",
+                        "failed_at"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "ownerless": {
                   "type": "boolean"
                 },
@@ -25432,6 +25459,7 @@
                 "active_release_id",
                 "activation_revision",
                 "auto_model_migration",
+                "model_migration_failure",
                 "ownerless",
                 "ownerless_since",
                 "created_by",
@@ -26980,6 +27008,33 @@
               "auto_model_migration": {
                 "type": "boolean"
               },
+              "model_migration_failure": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "failed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "failed_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ownerless": {
                 "type": "boolean"
               },
@@ -27030,6 +27085,7 @@
               "active_release_id",
               "activation_revision",
               "auto_model_migration",
+              "model_migration_failure",
               "ownerless",
               "ownerless_since",
               "created_by",
@@ -28358,6 +28414,33 @@
               "auto_model_migration": {
                 "type": "boolean"
               },
+              "model_migration_failure": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "failed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "failed_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ownerless": {
                 "type": "boolean"
               },
@@ -28408,6 +28491,7 @@
               "active_release_id",
               "activation_revision",
               "auto_model_migration",
+              "model_migration_failure",
               "ownerless",
               "ownerless_since",
               "created_by",
@@ -31709,6 +31793,33 @@
               "auto_model_migration": {
                 "type": "boolean"
               },
+              "model_migration_failure": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "failed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "failed_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ownerless": {
                 "type": "boolean"
               },
@@ -31759,6 +31870,7 @@
               "active_release_id",
               "activation_revision",
               "auto_model_migration",
+              "model_migration_failure",
               "ownerless",
               "ownerless_since",
               "created_by",
@@ -31864,6 +31976,33 @@
                 "auto_model_migration": {
                   "type": "boolean"
                 },
+                "model_migration_failure": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "failed_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "reason",
+                        "failed_at"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "ownerless": {
                   "type": "boolean"
                 },
@@ -31914,6 +32053,7 @@
                 "active_release_id",
                 "activation_revision",
                 "auto_model_migration",
+                "model_migration_failure",
                 "ownerless",
                 "ownerless_since",
                 "created_by",
@@ -78608,6 +78748,7 @@
                       "active_release_id": null,
                       "activation_revision": -1,
                       "auto_model_migration": true,
+                      "model_migration_failure": null,
                       "ownerless": false,
                       "ownerless_since": null,
                       "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
@@ -107612,6 +107753,7 @@
                     "active_release_id": null,
                     "activation_revision": -1,
                     "auto_model_migration": true,
+                    "model_migration_failure": null,
                     "ownerless": false,
                     "ownerless_since": null,
                     "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
