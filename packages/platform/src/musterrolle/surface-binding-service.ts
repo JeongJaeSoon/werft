@@ -59,6 +59,7 @@ export function surfaceBindingView(
     agent_id: record.agentId,
     mode: record.mode,
     listen: record.listen,
+    m1_judgments_per_hour: record.m1JudgmentsPerHour,
     ceiling: record.ceiling,
     home: record.home,
     memory_write_policy: record.memoryWritePolicy,
@@ -219,6 +220,9 @@ export function createSurfaceBindingService(deps: {
         mode: request.mode,
         ...(request.listen === undefined ? {} : { listen: request.listen }),
         ...(externalShared ? { newListen: "mention" as const } : {}),
+        ...(request.m1_judgments_per_hour === undefined
+          ? {}
+          : { m1JudgmentsPerHour: request.m1_judgments_per_hour }),
         home: request.home,
         ceiling: request.ceiling ?? DEFAULT_SURFACE_CEILING,
         managerRoles: MANAGERS,

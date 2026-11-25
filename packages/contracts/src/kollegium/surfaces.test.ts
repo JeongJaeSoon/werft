@@ -17,6 +17,7 @@ const BINDING = {
   agent_id: AGENT_ID,
   mode: "on",
   listen: "free",
+  m1_judgments_per_hour: 12,
   ceiling: { actions: ["session.read", "session.submit"], disclosure: "full" },
   home: false,
   memory_write_policy: "deny",

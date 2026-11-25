@@ -186,6 +186,8 @@ binding의 `mode`는 `off`(이 채널에서 쓰지 않음)·`on`(사용)이다. 
 
 binding에는 듣기 설정 `listen`도 있다. `free`(채널의 모든 글)·`mention`(멘션과 에이전트가 참여한 스레드)·`off`(듣지 않음) 가운데 하나다. 지금은 저장하고 읽기만 하며, 에이전트가 무엇에 반응하는지는 위의 `mode`와 `mention_only`가 정한다. 새로 연결한 채널은 `free`로 시작한다. 이 값이 생기기 전부터 있던 채널은 그때 에이전트의 `mention_only`를 따라 `true`면 `mention`, `false`면 `free`가 됐다. `PUT`에서 `listen`을 빼면 그 채널의 값을 그대로 둔다. 다른 조직과 공유한 채널(Slack Connect)은 `listen`을 `free`로 저장할 수 없다(400, `external_shared_channel`). `mention`과 `off`는 저장된다. 같은 Enterprise 안의 워크스페이스끼리만 공유한 채널은 여기에 들지 않는다.
 
+binding의 `m1_judgments_per_hour`는 그 채널에서 한 시간에 판단할 수 있는 수다. 대화 계층의 첫 판단(M1)이 채널 글을 묶어 에이전트가 끼어들지 판단하는데, 한 시간 안의 판단이 이 수에 닿은 채널의 다음 묶음은 M1을 부르지 않고 `rate_limited`로 기록된다. 1에서 60 사이의 정수이고, 새 채널과 이 값이 생기기 전부터 있던 채널은 12로 시작한다. 바꾼 값은 그 채널의 다음 묶음부터 적용된다. `PUT`에서 빼면 그 채널의 값을 그대로 둔다. 콘솔에서는 Slack 탭 **채널**의 **시간당 판단** 칸에서 바꾼다.
+
 에이전트마다 자기 Slack 앱을 갖는다. 연결에는 앱 id, 팀 id, bot token이 든 자격 참조의 이름(`credential_ref`, 값이 아니다)을 보낸다.
 
 ```sh
@@ -202,6 +204,14 @@ Werft가 만든 앱을 `DELETE /v1/workspaces/{id}/slack/apps/{app_id}`(콘솔: 
 Werft 쪽이 커밋된 뒤 Slack에 bot token 회수(`auth.revoke`)와 앱 삭제(`apps.manifest.delete`)를 한 번씩만 요청한다. Slack에 이미 없는 토큰이나 앱은 끝난 것으로 본다. 둘 중 하나라도 실패해도 삭제는 성공(`200`)이고, 응답의 `slack_cleanup`이 `failed`와 실패한 단계(`failed_steps`)를 알린다. 다시 시도하지 않으니 Slack 앱 관리 화면(api.slack.com/apps)에서 앱을 직접 지운다. 그 뒤 Slack이 `app_uninstalled`나 `tokens_revoked`를 보내도 바뀌는 것은 없다. 서명 secret이 앱과 함께 지워져 서명을 확인할 수 없는 요청에는 `401`로 답하고, Slack이 몇 번 다시 보내도 닫힌 상태는 그대로다.
 
 이벤트가 오지 않는 제거도 있다. 채널 목록·이름 조회·채널 binding처럼 bot token으로 Slack을 부른 요청이 `token_revoked`나 `account_inactive`로 거절되면 같은 해제를 한다. 이때도 응답은 409 `SLACK_NOT_INSTALLED`다. `invalid_auth`·`not_authed`·`token_expired`처럼 제거 말고도 나올 수 있는 오류, 429·5xx·통신 실패는 상태를 바꾸지 않는다.
+
+### 판단 기록
+
+`GET /v1/agents/{id}/slack/judgments`(콘솔: Slack 탭 **판단 기록**)는 최근 7일 동안 M1이 이 에이전트의 채널에서 판단한 기록을 보인다. 지금 M1은 shadow로 판단만 하고 Slack에 글을 올리지 않는다. 채널마다 판단 수, 그 가운데 `speak`(끼어들기)의 수, 이유 코드별 수(`rate_limited`와 `budget_refused` 포함)를 세고, 가장 최근 판단 50건을 이유 코드와 Slack 글 링크로 보인다. 글 본문은 Werft에 남지 않으므로 링크를 눌러 Slack에서 읽는다. 콘솔은 판단에 쓴 에이전트 지침도 함께 보인다: 활성 릴리스를 만들 때 저장소에서 읽은 지침 파일의 릴리스와 commit이고, 저장소가 없거나 파일이 없으면 그렇다고 알린다.
+
+워크스페이스 owner·admin과 그 에이전트의 관리자만 볼 수 있다. API 키로는 읽을 수 없다. 비공개 채널(살아 있는 binding이 공개 채널이라고 하지 않는 채널 포함)의 기록은 숫자까지 지금 그 채널의 멤버에게만 보인다. Slack에 멤버인지 묻고(최대 5분 캐시), 확인하지 못하면 그 채널을 뺀다. owner나 admin이라도 멤버가 아니면 그 채널은 목록과 합계 어디에도 나오지 않는다.
+
+판단이 너무 잦거나 드물면 채널의 듣기 설정, 시간당 판단 상한, 저장소의 에이전트 지침(AGENTS.md)으로 맞춘다.
 
 ## 다른 봇의 멘션
 
