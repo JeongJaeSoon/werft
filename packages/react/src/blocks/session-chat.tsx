@@ -7,6 +7,7 @@ import {
 } from "@werft-ai/contracts";
 import {
   Badge,
+  Button,
   ChatList,
   ChatMessage,
   ChatToolGroup,
@@ -254,7 +255,15 @@ export interface SessionChatProps {
   readonly working?: boolean;
   /** At the chat's end, full width: the requests waiting for an answer. */
   readonly after?: ReactNode;
+  /** Reconnects in a row that did not open, from `useSessionEvents`. */
+  readonly failedAttempts?: number;
+  /** Opens a closed stream again; without it the notice says to reload. */
+  readonly onReconnect?: () => void;
 }
+
+// A drop or two passes unannounced: the stream is back before the reader
+// would act on a notice.
+const NOTICE_AFTER_FAILURES = 3;
 
 /** The session's conversation, the person on the right and the agent left. */
 export function SessionChat({
@@ -264,6 +273,8 @@ export function SessionChat({
   agentName,
   working = false,
   after,
+  failedAttempts = 0,
+  onReconnect,
 }: SessionChatProps): JSX.Element {
   const { t, formatMessage, locale } = useBlockText();
   const items = useMemo(
@@ -287,13 +298,33 @@ export function SessionChat({
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <output className="sr-only">{status}</output>
-      {state === "open" ? null : (
+      {state === "closed" ? (
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+          <Text variant="meta" role="status" className="text-center">
+            {onReconnect
+              ? t("session.events.ended")
+              : t("session.events.closed")}
+          </Text>
+          {onReconnect ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onReconnect}
+            >
+              {t("session.events.reconnect")}
+            </Button>
+          ) : null}
+        </div>
+      ) : state === "connecting" && failedAttempts >= NOTICE_AFTER_FAILURES ? (
         <Text variant="meta" role="status" className="text-center">
-          {state === "connecting"
-            ? t("session.events.connecting")
-            : t("session.events.closed")}
+          {t("session.events.reconnecting")}
         </Text>
-      )}
+      ) : state === "connecting" && events.length === 0 ? (
+        <Text variant="meta" role="status" className="text-center">
+          {t("session.events.connecting")}
+        </Text>
+      ) : null}
       {items.length === 0 && state === "open" ? (
         <Text variant="meta" className="text-center">
           {t("session.events.empty")}
