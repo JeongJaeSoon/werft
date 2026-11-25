@@ -740,6 +740,29 @@ integration("conversation calls on PostgreSQL", () => {
       });
     });
 
+    test("an M1 attempt the provider answered with an error, reported at nothing, gives the channel's place and its reservation to the next attempt", async () => {
+      const agent = { agentId, conversationId };
+      const before = await teamReserved();
+      const first = tokenOf(await callOf(agent, { callClass: "m1" }));
+      const exchange = crypto.randomUUID();
+      expect((await grant(first.token, exchange)).outcome).toBe("ok");
+      // Bound and unreported, it holds the channel's one place.
+      expect(await callOf(agent, { callClass: "m1" })).toMatchObject({
+        outcome: "concurrency_limited",
+        limit: "channel",
+      });
+      // What the egress proxy reports for a provider's error answer.
+      const settled = await store().settleAtomic({
+        callId: first.callId,
+        exchangeId: exchange,
+        usage: { ...USED, inputTokens: 0, outputTokens: 0 },
+        priceFor: () => ({ costUsd: 0 }),
+      });
+      expect(settled).toMatchObject({ outcome: "settled", costUsd: 0 });
+      expect(await teamReserved()).toBe(before);
+      expect((await callOf(agent, { callClass: "m1" })).outcome).toBe("issued");
+    });
+
     test("a summary in progress does not hold a channel's first M1", async () => {
       const agent = { agentId, conversationId };
       tokenOf(await callOf(agent, { callClass: "summary" }));

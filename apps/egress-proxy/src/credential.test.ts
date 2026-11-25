@@ -873,6 +873,47 @@ describe("startCredentialProxy", () => {
     expect(report?.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
   });
 
+  test("a conversation call the provider answered with an error is reported unbilled before its caller hears", async () => {
+    const up = upstream(() =>
+      Response.json(
+        { type: "error", error: { type: "api_error", message: "boom" } },
+        { status: 500 },
+      ),
+    );
+    const auth = authorizer(() =>
+      Response.json({
+        conversation_call_id: "call-1",
+        upstream: {
+          url: `http://upstream.test:${up.port}/base`,
+          headers: [["x-api-key", PROVIDER_KEY]],
+        },
+        request_limits: {
+          path: "/v1/messages",
+          model: "m-call",
+          max_tokens: 64,
+          max_request_bytes: 80,
+        },
+      }),
+    );
+    const server = proxy(auth.url, up.port);
+    const response = await messages(server.port, {
+      path: "/provider/v1/messages",
+      body: '{"model":"m-call","max_tokens":64,"messages":[]}',
+    });
+    expect(response.status).toBe(500);
+    // Settled at nothing already, so a retry finds the call's place free.
+    expect(auth.reported).toHaveLength(1);
+    const [report] = auth.reported;
+    expect(report?.conversation_call_id).toBe("call-1");
+    expect(report?.exchange_id).toBe(auth.exchanges[0] as string);
+    expect(report?.usage).toMatchObject({
+      model: "m-call",
+      input_tokens: 0,
+      output_tokens: 0,
+      estimated: false,
+    });
+  });
+
   test("a conversation call's grant takes the engine's ?beta=true, which a title's does not", async () => {
     const up = upstream(() =>
       Response.json({

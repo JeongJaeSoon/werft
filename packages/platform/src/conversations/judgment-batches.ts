@@ -61,6 +61,11 @@ export type JudgmentBatch = {
   readAt?: string;
 };
 
+export type JudgmentBatchChannel = Pick<
+  JudgmentBatch,
+  "agentId" | "teamId" | "channelId"
+>;
+
 export type ClosedJudgmentBatch =
   // To judge: the channel's one judging batch until it ends.
   | { outcome: "judging"; batch: JudgmentBatch }
@@ -79,8 +84,8 @@ export type JudgmentBatchResult = {
   left: readonly ConversationInputId[];
   /**
    * Stopped before the model by a cause that clears by itself (the channel's
-   * concurrency cap): every message goes to a later batch, and this run
-   * judges no more, so the channel is not closed again at once.
+   * concurrency cap): every message goes to a later batch. The run goes on
+   * with the other channels and does not close this one again.
    */
   deferred?: true;
 };
@@ -88,9 +93,14 @@ export type JudgmentBatchResult = {
 export interface JudgmentBatchStore {
   /**
    * Closes the next channel that is due and not taken by another caller, or
-   * returns null when none is. `now` unset: the database clock.
+   * returns null when none is. A channel whose M1 call would find no place
+   * (a call in progress or of unknown end) is not closed to judge. `now`
+   * unset: the database clock. `skip`: channels not to close.
    */
-  closeNext(options?: { now?: Date }): Promise<ClosedJudgmentBatch | null>;
+  closeNext(options?: {
+    now?: Date;
+    skip?: readonly JudgmentBatchChannel[];
+  }): Promise<ClosedJudgmentBatch | null>;
   /** "late" when the batch had already been ended as failed. */
   finish(
     id: JudgmentBatchId,
@@ -116,7 +126,8 @@ export type JudgmentBatchRun = {
 
 /**
  * Closes and judges the channels that are due, one at a time, until none is
- * or `deadline` (epoch ms) passes. A judge that throws fails its batch.
+ * or `deadline` (epoch ms) passes. A judge that throws fails its batch; a
+ * deferred batch's channel is not closed again in the run.
  */
 export async function runJudgmentBatches(deps: {
   store: JudgmentBatchStore;
@@ -131,8 +142,12 @@ export async function runJudgmentBatches(deps: {
   const clock = deps.clock ?? Date.now;
   const at = () => (deps.now === undefined ? {} : { now: deps.now() });
   const run: JudgmentBatchRun = { judged: 0, rateLimited: 0, failed: 0 };
+  const deferred: JudgmentBatchChannel[] = [];
   while (clock() < deps.deadline) {
-    const closed = await deps.store.closeNext(at());
+    const closed = await deps.store.closeNext({
+      ...at(),
+      ...(deferred.length === 0 ? {} : { skip: deferred }),
+    });
     if (closed === null) break;
     const { batch } = closed;
     if (closed.outcome === "rate_limited") {
@@ -182,7 +197,13 @@ export async function runJudgmentBatches(deps: {
       continue;
     }
     run.judged += 1;
-    if (result.deferred === true) break;
+    if (result.deferred === true) {
+      deferred.push({
+        agentId: batch.agentId,
+        teamId: batch.teamId,
+        channelId: batch.channelId,
+      });
+    }
   }
   return run;
 }

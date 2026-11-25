@@ -235,6 +235,11 @@ function usageOf(
   };
 }
 
+/** A call the provider answered with an error, which it bills nothing for. */
+export function unbilledUsage(request: Uint8Array | null): MessagesUsage {
+  return usageOf(requested(request).model, {}, false, request);
+}
+
 /** A call charged from its request alone: see the module comment. */
 export function requestEstimate(
   request: Uint8Array | null,
