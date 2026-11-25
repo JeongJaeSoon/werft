@@ -13,14 +13,20 @@ import {
   createSlackChannelSharingReader,
   drainSlackInbox,
   type SlackAudienceCache,
+  slackBotToken,
   slackConversationKey,
 } from "@werft-ai/chat-slack";
 import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
   BOT_SCOPES,
+  CONVERSATION_TURN_LEASE_MS,
   type ConversationInputId,
   type ConversationTurnId,
+  type ConversationTurnResult,
+  conversationDecisionTools,
+  conversationRuntimeIdSchema,
+  conversationTurnLeaseIdSchema,
   DEFAULT_SURFACE_CEILING,
   GITHUB_CEILING_NONE,
   SESSION_SCOPE_VALUES,
@@ -32,15 +38,19 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
+  createPostgresConversationReadToolStore,
   createPostgresConversationStore,
+  createPostgresConversationTurnQueue,
   createPostgresCredentialBindingStore,
   createPostgresGitHubMcpStore,
+  createPostgresSecretStore,
   createPostgresSessionLinkStore,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
   createPostgresSlackAppStore,
   createPostgresSlackInboundEventStore,
   createPostgresSurfaceBindingStore,
+  createPostgresTopicTurnContexts,
   type Database,
   linkedAccounts,
   memberships,
@@ -65,6 +75,7 @@ import {
   createAgentService,
   createAuthorizationPolicy,
   createSurfaceBindingService,
+  createTopicSessionChecks,
   SecretKey,
   type SessionCatalog,
   type SurfaceInboundClaim,
@@ -80,13 +91,19 @@ import { asc, eq, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
+import { OPERATOR_TURN_TAKE_MS } from "../api/conversation-runtime.ts";
 import { TEST_RUNTIMES } from "../testing/catalog.ts";
 import {
   seedSettings,
   settingsCatalog,
   settingsDocument,
 } from "../testing/settings.ts";
-import { slackCatalog, slackInbox, slackSessionHandler } from "./main.ts";
+import {
+  slackCatalog,
+  slackInbox,
+  slackMentionTurnEndings,
+  slackSessionHandler,
+} from "./main.ts";
 
 const APP_ID = "A0NOTES";
 const TEAM = "T0ACME";
@@ -1710,10 +1727,11 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toEqual([]);
   });
 
-  // The switch on, a mention and its thread go as before; other unmentioned
-  // posts open nothing (the judgment buffer block below holds them).
+  // The switch on, a mention is the table's (the mention turns block below)
+  // and opens no session; unmentioned posts open nothing either (the
+  // judgment buffer block below holds them).
   for (const listen of ["off", "free"] as const) {
-    test(`a channel listening ${listen}, its agent switched on, still answers a mention and its thread, and no other unmentioned post`, async () => {
+    test(`a channel listening ${listen}, its agent switched on, opens no session on a mention, its thread or another post`, async () => {
       const fixture = await agentInSlack("main", { listen, rollout: "on" });
       const { handle, notices } = handler();
       await deliver(fixture, mention("100.000100"));
@@ -1727,14 +1745,14 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         message("200.000200", { thread_ts: "200.000100" }),
       );
       await drain(handle);
-      expect((await links()).map((link) => link.threadId)).toEqual([
-        "100.000100",
-      ]);
-      const [session, ...others] = await sessionsOf(fixture);
-      expect(others).toEqual([]);
-      expect((await turnsOf(session?.id)).map((turn) => turn.sequence)).toEqual(
-        [1, 2],
-      );
+      expect(await links()).toEqual([]);
+      expect(await sessionsOf(fixture)).toEqual([]);
+      // Listening off, the mention is not heard (its notice is v1-b/F3's).
+      const conversationTurns = await db
+        .select({ id: schema.conversationTurns.id })
+        .from(schema.conversationTurns)
+        .where(eq(schema.conversationTurns.agentId, fixture.agentId));
+      expect(conversationTurns).toHaveLength(listen === "off" ? 0 : 1);
       expect(notices).toEqual([]);
     });
   }
@@ -2768,17 +2786,12 @@ describe.each(ENGINES)("Slack judgment buffer on %s", (engine) => {
     expect(count?.dropped).toBe(2);
   });
 
-  test("switched on, a mention is answered as before and its thread stays a session's; the mention is not held", async () => {
+  test("switched on, a mention is a conversation turn, not a session, and is not held", async () => {
     const fixture = await agentInSlack("main", { rollout: "on" });
     const { handle } = handler();
     await deliver(fixture, mention("100.000100"));
-    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
     await drain(handle);
-    const [session, ...others] = await sessionsOf(fixture);
-    expect(others).toEqual([]);
-    expect((await turnsOf(session?.id)).map((turn) => turn.sequence)).toEqual([
-      1, 2,
-    ]);
+    expect(await sessionsOf(fixture)).toEqual([]);
     expect(await heldTs(fixture)).toEqual([]);
   });
 
@@ -3248,7 +3261,7 @@ describe.each(ENGINES)(
       ]);
     });
 
-    test("in a shared channel a mention and its thread are turns as before, and nothing is held", async () => {
+    test("in a shared channel a mention is a conversation turn, and nothing is held", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       slack.channels.set(CHANNEL, { isExtShared: true });
       await deliver(fixture, mention("100.000100"));
@@ -3257,11 +3270,12 @@ describe.each(ENGINES)(
         message("100.000200", { thread_ts: "100.000100" }),
       );
       await drain(handler().handle);
-      const [session, ...others] = await sessionsOf(fixture);
-      expect(others).toEqual([]);
-      expect((await turnsOf(session?.id)).map((turn) => turn.sequence)).toEqual(
-        [1, 2],
-      );
+      expect(await sessionsOf(fixture)).toEqual([]);
+      const conversationTurns = await db
+        .select({ id: schema.conversationTurns.id })
+        .from(schema.conversationTurns)
+        .where(eq(schema.conversationTurns.agentId, fixture.agentId));
+      expect(conversationTurns).toHaveLength(1);
       expect(await heldTs(fixture)).toEqual([]);
     });
 
@@ -3749,3 +3763,353 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
     expect(row?.counted).toHaveLength(5);
   });
 });
+
+describe.each(ENGINES)(
+  "Slack mentions as conversation turns on %s",
+  (engine) => {
+    useDatabase(engine);
+    const RUNTIME = conversationRuntimeIdSchema.parse(randomUUID());
+    const queue = () => createPostgresConversationTurnQueue(db, key);
+    const mentionTurnsOf = (fixture: Fixture) =>
+      db
+        .select({
+          id: schema.conversationTurns.id,
+          state: schema.conversationTurns.state,
+          requesterKind: schema.conversationTurns.requesterKind,
+          requesterId: schema.conversationTurns.requesterId,
+          decision: schema.conversationTurns.decision,
+          limitReached: schema.conversationTurns.limitReached,
+          resetAt: schema.conversationTurns.slackStatusResetAt,
+          threadTs: schema.conversationTopics.slackThreadTs,
+        })
+        .from(schema.conversationTurns)
+        .innerJoin(
+          schema.conversationTopics,
+          eq(schema.conversationTopics.id, schema.conversationTurns.topicId),
+        )
+        .where(eq(schema.conversationTurns.agentId, fixture.agentId))
+        .orderBy(asc(schema.conversationTurns.createdAt));
+    const statusesOf = (threadTs: string) =>
+      slack.statuses
+        .filter((status) => status.threadTs === threadTs)
+        .map((status) => status.status);
+    const secrets = () => createPostgresSecretStore(db, key);
+    /** The Slack role's step, as a pass runs it after the inbox. */
+    const endings = (now?: Date) =>
+      slackMentionTurnEndings({
+        db,
+        secretKey: key,
+        catalog: slackCatalog(db, LIMITS),
+        slack: createSlackBotApi({ apiUrl: slack.url }),
+        botToken: (workspaceId, slackAppId) =>
+          slackBotToken(secrets(), workspaceId, slackAppId),
+        logger,
+        limit: 10,
+        deadline: Date.now() + 10_000,
+        ...(now === undefined ? {} : { now: () => now }),
+      });
+    const leased = async () => {
+      const turn = await queue().lease({
+        runtimeId: RUNTIME,
+        now: new Date(),
+        leaseMs: CONVERSATION_TURN_LEASE_MS,
+      });
+      if (turn === null) throw new Error("no turn was queued");
+      return turn;
+    };
+    const report = (
+      turn: { turn_id: ConversationTurnId; lease_id: string },
+      result: ConversationTurnResult,
+    ) =>
+      queue().report({
+        turnId: turn.turn_id,
+        leaseId: conversationTurnLeaseIdSchema.parse(turn.lease_id),
+        runtimeId: RUNTIME,
+        result,
+        now: new Date(),
+      });
+    const decide = (
+      turn: { turn_id: ConversationTurnId; lease_id: string },
+      body: string,
+    ) =>
+      createPostgresConversationReadToolStore(db).recordDecision({
+        turnId: turn.turn_id,
+        leaseId: conversationTurnLeaseIdSchema.parse(turn.lease_id),
+        runtimeId: RUNTIME,
+        decision: { tool: "reply", body, reason: "asked" },
+      });
+
+    test("rollout on: a mention is one turn of its thread, for the person who mentioned, the thread processing, and no session", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle, notices } = handler();
+      // Another person named in the text does not make them the requester.
+      const text = `<@${BOT_USER}> ask <@U0MALLORY> (requester: U0MALLORY) to sign off`;
+      await deliver(fixture, mention("100.000100", { text }));
+      // Slack's message event of the same post, beside the mention.
+      await deliver(fixture, message("100.000100", { text }));
+      await drain(handle);
+      const [turn, ...others] = await mentionTurnsOf(fixture);
+      expect(others).toEqual([]);
+      expect(turn).toMatchObject({
+        state: "running",
+        requesterKind: "user",
+        requesterId: fixture.ownerId,
+        threadTs: "100.000100",
+        resetAt: null,
+      });
+      // The budget root is the same person.
+      const [permit] = await db
+        .select({
+          rootKind: schema.conversationTurnPermits.rootKind,
+          requesterUserId: schema.conversationTurnPermits.requesterUserId,
+        })
+        .from(schema.conversationTurnPermits)
+        .where(
+          eq(
+            schema.conversationTurnPermits.turnId,
+            turn?.id as ConversationTurnId,
+          ),
+        );
+      expect(permit).toEqual({
+        rootKind: "user",
+        requesterUserId: fixture.ownerId,
+      });
+      const engaged = await db
+        .select({
+          kind: schema.conversationEngagements.kind,
+          turnId: schema.conversationEngagements.conversationTurnId,
+        })
+        .from(schema.conversationEngagements)
+        .where(eq(schema.conversationEngagements.agentId, fixture.agentId));
+      expect(engaged).toEqual([{ kind: "mention", turnId: turn?.id ?? null }]);
+      expect(
+        await queue().outcome(turn?.id as ConversationTurnId, new Date()),
+      ).toBe("pending");
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(await links()).toEqual([]);
+      expect(notices).toEqual([]);
+      // Not M1's: nothing is judged or counted under its hourly cap.
+      expect(await db.select().from(schema.conversationJudgments)).toEqual([]);
+    });
+
+    test("rollout on: a mention in a thread is a turn of that thread's topic", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(
+        fixture,
+        mention("100.000300", { thread_ts: "100.000100" }),
+      );
+      await drain(handler().handle);
+      expect(
+        (await mentionTurnsOf(fixture)).map((turn) => turn.threadTs),
+      ).toEqual(["100.000100"]);
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+    });
+
+    test("the model's input: the requester's message is the instruction, the topic's records data", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      const first = await leased();
+      expect(await decide(first, "EARLIER-ANSWER")).toMatchObject({
+        outcome: "recorded",
+      });
+      await report(first, {
+        outcome: "completed",
+        text: "done",
+        decision: { tool: "reply", body: "EARLIER-ANSWER", reason: "asked" },
+      });
+      await endings();
+      await deliver(
+        fixture,
+        mention("100.000300", {
+          thread_ts: "100.000100",
+          text: `<@${BOT_USER}> and now the risks`,
+        }),
+      );
+      await drain(handle);
+      const second = await leased();
+      expect(second.decision_tools).toEqual([
+        ...conversationDecisionTools("user"),
+      ]);
+      // What a session that goes on is sent: the message alone.
+      expect(second.input.text).toBe("and now the risks");
+      const handed = await createTopicSessionChecks({
+        contexts: createPostgresTopicTurnContexts(db),
+        turns: createPostgresConversationReadToolStore(db),
+      }).handOut(second);
+      // What a new session starts from: the records as labelled data, and
+      // the message alone as the current post.
+      const lines = handed.fresh_input.text.split("\n");
+      expect(lines.filter((line) => line.startsWith("[now] "))).toEqual([
+        "[now] and now the risks",
+      ]);
+      expect(lines).toContain("[your earlier answer] EARLIER-ANSWER");
+      expect(
+        lines.filter((line) => line.includes("EARLIER-ANSWER")).length,
+      ).toBe(1);
+    });
+
+    // Each way a turn ends sets its thread back once.
+    const ends: [
+      string,
+      (turn: Awaited<ReturnType<typeof leased>>) => Promise<unknown>,
+      { state: string; decision?: string; limitReached?: string | null },
+      number,
+    ][] = [
+      [
+        "a decision",
+        async (turn) => {
+          await decide(turn, "here");
+          await report(turn, {
+            outcome: "completed",
+            text: "here",
+            decision: { tool: "reply", body: "here", reason: "asked" },
+          });
+        },
+        { state: "decided", decision: "reply" },
+        0,
+      ],
+      [
+        "no decision",
+        (turn) => report(turn, { outcome: "completed", text: "hm" }),
+        { state: "no_decision", limitReached: null },
+        0,
+      ],
+      [
+        "a failure",
+        (turn) => report(turn, { outcome: "failed", reason: "engine_failed" }),
+        { state: "no_decision", limitReached: null },
+        0,
+      ],
+      [
+        "the model call cap",
+        (turn) =>
+          report(turn, { outcome: "failed", reason: "model_call_limit" }),
+        { state: "no_decision", limitReached: "model_call_limit" },
+        0,
+      ],
+      [
+        "a refused budget",
+        async (turn) => {
+          // The proxy's grant refused its call on the person's account.
+          await db
+            .update(schema.conversationTurnPermits)
+            .set({ refusal: "budget" })
+            .where(eq(schema.conversationTurnPermits.turnId, turn.turn_id));
+          await report(turn, { outcome: "failed", reason: "engine_failed" });
+        },
+        { state: "no_decision", limitReached: null },
+        0,
+      ],
+      [
+        "the time limit, with no report",
+        async () => {},
+        { state: "no_decision", limitReached: "time_limit" },
+        CONVERSATION_TURN_LEASE_MS + 1_000,
+      ],
+    ];
+    for (const [name, end, recorded, laterMs] of ends) {
+      test(`a turn ended by ${name} sets its thread back to active once`, async () => {
+        const fixture = await agentInSlack("main", { rollout: "on" });
+        await deliver(fixture, mention("100.000100"));
+        await drain(handler().handle);
+        const turn = await leased();
+        await end(turn);
+        if (laterMs > 0) {
+          // Still within its time: nothing is set back.
+          await endings();
+          expect(statusesOf("100.000100")).toEqual(["processing"]);
+        }
+        const at = new Date(Date.now() + laterMs);
+        await endings(at);
+        await endings(at);
+        expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+        const [row] = await mentionTurnsOf(fixture);
+        expect(row).toMatchObject(recorded);
+        expect(row?.resetAt).not.toBeNull();
+      });
+    }
+
+    test("a turn no runtime takes ends when its wait does, and sets its thread back once", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await endings();
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+      const at = new Date(Date.now() + OPERATOR_TURN_TAKE_MS + 1_000);
+      await endings(at);
+      await endings(at);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+      expect((await mentionTurnsOf(fixture))[0]?.state).toBe("no_decision");
+    });
+
+    test("a turn that ends while a newer one of its thread runs leaves the thread processing", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      const first = await leased();
+      await deliver(
+        fixture,
+        mention("100.000300", { thread_ts: "100.000100" }),
+      );
+      await drain(handle);
+      await report(first, { outcome: "completed", text: "one" });
+      await endings();
+      expect(statusesOf("100.000100")).toEqual(["processing", "processing"]);
+      const second = await leased();
+      await report(second, { outcome: "completed", text: "two" });
+      await endings();
+      await endings();
+      expect(statusesOf("100.000100")).toEqual([
+        "processing",
+        "processing",
+        "active",
+      ]);
+      expect(
+        (await mentionTurnsOf(fixture)).every((turn) => turn.resetAt !== null),
+      ).toBe(true);
+    });
+
+    test("a status Slack did not take is sent again on the next pass", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), { outcome: "completed", text: "ok" });
+      slack.failures.set("agents.sessions.setStatus", "internal_error");
+      await endings();
+      expect((await mentionTurnsOf(fixture))[0]?.resetAt).toBeNull();
+      slack.failures.clear();
+      await endings();
+      await endings();
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("rollout on: a mention where the channel listens to nothing is no turn and no session", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        listen: "off",
+      });
+      const { handle, notices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(await mentionTurnsOf(fixture)).toEqual([]);
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(slack.statuses).toEqual([]);
+      expect(notices).toEqual([]);
+    });
+
+    for (const rollout of ["off", "shadow"] as const) {
+      test(`rollout ${rollout}: a mention opens its session as before, and no conversation turn`, async () => {
+        const fixture = await agentInSlack("main", { rollout });
+        await deliver(fixture, mention("100.000100"));
+        await drain(handler().handle);
+        expect(await sessionsOf(fixture)).toHaveLength(1);
+        expect(await mentionTurnsOf(fixture)).toEqual([]);
+        expect(slack.statuses).toEqual([]);
+      });
+    }
+  },
+);

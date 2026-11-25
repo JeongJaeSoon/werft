@@ -53,6 +53,7 @@ export interface SlackInboundDeps {
   welcomeApps: Param<typeof createSlackWelcome>["apps"];
   welcomeOutbox: Param<typeof createSlackWelcome>["outbox"];
   buffer: JudgmentBufferStore;
+  mentionTurns: Param<typeof createSlackSessionHandler>["mentionTurns"];
   /** Slack's answers about channels and people, kept across passes. */
   audienceCache?: SlackAudienceCache;
   logger: StructuredLogger;
@@ -88,6 +89,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     sessionLinks: deps.sessionLinks,
     conversations: deps.conversations,
     buffer: deps.buffer,
+    mentionTurns: deps.mentionTurns,
     audience,
     sessions: deps.sessions,
     agentDetails: deps.agentDetails,

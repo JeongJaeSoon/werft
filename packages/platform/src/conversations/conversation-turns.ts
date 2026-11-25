@@ -1,7 +1,9 @@
 import {
   CONVERSATION_TURN_LEASE_MS,
+  type ConversationId,
   type ConversationRuntimeId,
   type ConversationRuntimeTurn,
+  type ConversationTopicId,
   type ConversationTurnId,
   type ConversationTurnLeaseId,
   type ConversationTurnResult,
@@ -249,6 +251,158 @@ export function sameResult(
 export type ConversationRuntimeTurns = ReturnType<
   typeof createConversationRuntimeTurns
 >;
+
+/**
+ * A person's mention of the agent, to become a conversation turn of its
+ * thread's topic (v1-b/D1). The requester is the server's value for who
+ * mentioned the agent, never one read off the text.
+ */
+export type MentionTurnRequest = {
+  workspaceId: string;
+  agentId: string;
+  conversationId: ConversationId;
+  topicId: ConversationTopicId;
+  slackInstallationId: string;
+  message: { teamId: string; channelId: string; ts: string };
+  requesterUserId: string;
+  /** The mention's text, the bot's own mention taken out: the turn's instruction. */
+  text: string;
+};
+
+export type MentionTurnStart =
+  | { outcome: "queued"; turnId: ConversationTurnId }
+  // The message is a turn already: Slack sent its event again.
+  | { outcome: "duplicate" }
+  | { outcome: "source_deleted" }
+  | { outcome: "unknown_agent" }
+  | { outcome: "unknown_conversation" }
+  | { outcome: "no_active_release" }
+  | { outcome: "connection_unavailable" };
+
+/** A mention's turn whose Slack thread was set to "processing" and not yet back. */
+export type MentionTurnDue = {
+  turnId: ConversationTurnId;
+  workspaceId: string;
+  agentId: string;
+  createdAt: Date;
+  thread: { teamId: string; channelId: string; threadTs: string };
+  /** The agent's Slack app; null when it is gone. */
+  slackAppId: string | null;
+};
+
+export interface MentionTurnStatusStore {
+  /** Up to `limit` mention turns whose thread status is still due, oldest first. */
+  due(limit: number): Promise<MentionTurnDue[]>;
+  /**
+   * Marks the turn's thread status set back, once: `send` for the one
+   * marker, `superseded` when a newer mention turn of the thread is still
+   * due, whose "processing" stays; `done` when it was marked before.
+   */
+  markReset(
+    turnId: ConversationTurnId,
+  ): Promise<"send" | "superseded" | "done">;
+  /** Takes the mark back, so a later pass sends again. */
+  unmarkReset(turnId: ConversationTurnId): Promise<void>;
+}
+
+export type MentionTurnEndings = {
+  ended: number;
+  reset: number;
+  superseded: number;
+  failed: number;
+};
+
+/**
+ * Ends the mention turns whose run is over, each once however it ended
+ * (a decision, none, a limit, a failure, the time limit, a refused budget),
+ * and sets their thread back from "processing". A turn its queue has not
+ * ended by the time its permit could last is ended here as out of time; one
+ * the queue never held, once it is past being taken. At most `limit` turns,
+ * and none after `deadline`.
+ */
+export async function endMentionTurns(deps: {
+  statuses: MentionTurnStatusStore;
+  queue: Pick<ConversationTurnQueue, "outcome">;
+  calls: {
+    endTurn(
+      turnId: ConversationTurnId,
+      outcome?: ConversationTurnOutcome,
+    ): Promise<unknown>;
+  };
+  /**
+   * Sets the thread back to `active`: false when the thread shows no
+   * status (the app is gone, or Slack shows none there); throws when Slack
+   * may not have taken it.
+   */
+  setActive(turn: MentionTurnDue): Promise<boolean>;
+  /** How long a turn may wait to be taken, and then run. */
+  takeMs: number;
+  leaseMs: number;
+  limit: number;
+  /** Epoch milliseconds, by the pass's clock. */
+  deadline: number;
+  now?: () => Date;
+  logger: {
+    info(message: string, fields?: Record<string, unknown>): void;
+    warn(message: string, fields?: Record<string, unknown>): void;
+  };
+}): Promise<MentionTurnEndings> {
+  const now = deps.now ?? (() => new Date());
+  const result: MentionTurnEndings = {
+    ended: 0,
+    reset: 0,
+    superseded: 0,
+    failed: 0,
+  };
+  for (const turn of await deps.statuses.due(deps.limit)) {
+    // The pass's own time, whatever clock the turns are judged by.
+    if (Date.now() >= deps.deadline) break;
+    const at = now();
+    const ids = { turn_id: turn.turnId, agent_id: turn.agentId };
+    try {
+      const age = at.getTime() - turn.createdAt.getTime();
+      const queued = await deps.queue.outcome(turn.turnId, at);
+      let outcome: ConversationTurnOutcome | undefined;
+      if (queued === "pending") {
+        // Past its permit: no call of it is granted any more.
+        if (age < deps.takeMs + deps.leaseMs) continue;
+        outcome = { outcome: "failed", reason: "lease_expired" };
+      } else if (queued === null) {
+        // Not queued yet, or never: its writer died before the queue held it.
+        if (age < deps.takeMs) continue;
+      } else {
+        outcome = queued;
+      }
+      await deps.calls.endTurn(turn.turnId, outcome);
+      result.ended += 1;
+      deps.logger.info("Mention turn ended", {
+        ...ids,
+        turn_outcome: outcome?.outcome ?? "not_queued",
+        ...(outcome !== undefined && "reason" in outcome
+          ? { turn_failure: outcome.reason }
+          : {}),
+      });
+      const mark = await deps.statuses.markReset(turn.turnId);
+      if (mark === "superseded") result.superseded += 1;
+      if (mark !== "send") continue;
+      try {
+        await deps.setActive(turn);
+        result.reset += 1;
+      } catch (error) {
+        await deps.statuses.unmarkReset(turn.turnId);
+        throw error;
+      }
+    } catch (error) {
+      // One turn's failure leaves the others going; it is tried next pass.
+      result.failed += 1;
+      deps.logger.warn("Mention turn ending failed; tried again", {
+        ...ids,
+        error_name: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+  return result;
+}
 
 /**
  * The control host's side of the conversation runtime's protocol, over a turn

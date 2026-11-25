@@ -46,6 +46,7 @@ export {
   holdBufferedInput,
   JUDGMENT_BUFFER_TTL_MS,
 } from "./judgment-buffer.ts";
+export { createPostgresMentionTurnStatuses } from "./mention-turn-statuses.ts";
 export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 export {
   lockSlackChannelMarks,

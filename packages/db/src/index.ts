@@ -35,6 +35,7 @@ export {
   type JudgmentBufferPurge,
   purgeJudgmentBuffer,
 } from "./conversations/judgment-buffer.ts";
+export { createPostgresMentionTurnStatuses } from "./conversations/mention-turn-statuses.ts";
 export * from "./conversations/session-parents.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export {

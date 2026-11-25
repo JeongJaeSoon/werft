@@ -426,7 +426,11 @@ EGRESS_PRIVATE_ALLOWLIST=api:3200,host.docker.internal:3200,api:4319
 
 ## 대화 런타임
 
-대화 런타임은 worker 이미지를 대화용 진입점(`apps/worker/src/conversation/main.ts`)으로 띄운 process 하나다. 설치 안 모든 에이전트의 대화 턴을 함께 돌린다. 기본은 꺼져 있고, 시험 스택에서만 켠다. 사람의 메시지를 이 런타임으로 넘기는 길은 아직 없다. 턴은 운영자가 api 컨테이너에서 `bun run apps/control-host/src/api/conversation-turn.ts`를 돌릴 때만 시작한다.
+대화 런타임은 worker 이미지를 대화용 진입점(`apps/worker/src/conversation/main.ts`)으로 띄운 process 하나다. 설치 안 모든 에이전트의 대화 턴을 함께 돌린다. 기본은 꺼져 있고, 시험 스택에서만 켠다. 턴은 두 길로 시작한다. 하나는 운영자가 api 컨테이너에서 `bun run apps/control-host/src/api/conversation-turn.ts`를 돌리는 것이다. 다른 하나는 에이전트의 대화 rollout이 `on`일 때 Slack 채널에서 그 에이전트를 멘션하는 것이다. rollout `on`은 아직 API로 고를 수 없다.
+
+- 멘션 하나가 그 스레드(맨 위 글이면 그 글)의 턴 하나가 된다. 요청자와 예산 root는 멘션한 사람이다. api가 연결된 계정으로 기록한 사람이며, 글에 적힌 이름은 쓰지 않는다. 모델의 지시는 그 사람의 이번 글뿐이고, 주제의 기록은 자료로 따로 싣는다. 같은 글의 이벤트가 다시 와도 턴은 하나다. 결정은 기록만 하고 Slack에 아무것도 올리지 않는다. 멘션 턴은 M1의 채널당 시간 판단 수에 세지 않는다.
+- 턴이 도는 동안 slack 역할이 그 스레드의 상태를 "처리 중"으로 둔다. 턴이 어떻게 끝나든 slack 역할의 pass가 턴을 끝내고 상태를 `active`로 한 번 되돌린다. 결정, 결정 없음, 상한, 실패, 예산 거절, 아무도 가져가지 않은 턴, 시간 초과가 모두 그렇다. 큐가 끝내지 않은 턴은 permit이 끝나는 때(가져갈 시간 30초와 lease)에 시간 초과로 끝낸다. 같은 스레드에 더 새로운 턴이 돌고 있으면 상태는 그대로 둔다. Slack이 받지 않은 되돌리기는 다음 pass가 다시 보낸다.
+- rollout `on`이어도 채널의 듣기 설정이 `off`이거나, 에이전트가 비활성이거나, 채널이 보관되었거나 승인을 기다리면 멘션은 턴이 되지 않고 버려진다. 작업이 묶인 스레드의 멘션은 지금처럼 그 작업 세션으로 간다. `off`와 `shadow`에서는 멘션이 지금처럼 세션을 연다.
 
 - 런타임은 provider 키를 갖지 않는다. 턴마다 호출 허가를 받아 egress proxy의 credential route로 보내고, proxy가 키를 붙인다. 한 턴은 provider를 8번까지 부른다. 도구 결과를 받은 뒤의 호출도 하나씩 센다.
 - workspace volume과 저장소 checkout이 없다. 엔진의 내장 도구는 모두 막는다. 엔진이 부를 수 있는 것은 아래 읽기 도구 넷과 결정 도구뿐이다. 목록에 없는 도구는 엔진에 실리지 않고, 불러도 실행되지 않는다.

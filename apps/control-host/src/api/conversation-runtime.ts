@@ -24,6 +24,8 @@ import {
   type ConversationTurnQueue,
   connectionOf,
   hashToken,
+  type MentionTurnRequest,
+  type MentionTurnStart,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import type { Server } from "bun";
@@ -87,10 +89,11 @@ export function conversationRuntimeConfigFromEnv(
 }
 
 /**
- * Whether conversation turns are dispatched from people's messages. Nothing
- * dispatches them yet; the switch exists so that turning it on over a queue
- * held in one process's memory stops the API at start rather than losing
- * turns at its next restart.
+ * Whether conversation turns are dispatched from people's messages. The
+ * switch exists so that turning it on over a queue held in one process's
+ * memory stops the API at start rather than losing turns at its next
+ * restart. The Slack role's mention turns (rollout `on`) are queued in the
+ * database itself, whatever it says.
  */
 export function assertConversationTurnDispatch(
   env: Record<string, string | undefined>,
@@ -169,7 +172,8 @@ export type OperatorTurnResult =
  * permit, queues the turn for the runtime, waits for how it ends and then
  * ends the turn's row and permit. Each provider call the turn makes is
  * reserved on the agent's team as an operator's call when the proxy asks.
- * The only way a turn starts until people's messages dispatch them.
+ * Beside a person's mention under rollout `on` (createMentionConversationTurns),
+ * the only way a turn starts.
  */
 export function createOperatorConversationTurns(deps: {
   turns: ConversationRuntimeTurns;
@@ -287,6 +291,107 @@ export function createOperatorConversationTurns(deps: {
         ...(ended.refusal === null ? {} : { refused: ended.refusal }),
         ...(ended.limit === null ? {} : { limit_reached: ended.limit }),
       };
+    },
+  };
+}
+
+/**
+ * Starts the conversation turn of a person's mention of the agent (v1-b/D1):
+ * writes the turn, its permit and the mention's engagement, then queues the
+ * turn for the runtime. It does not wait: the Slack role's pass ends it
+ * (`endMentionTurns`). Sized as an operator's turn is. Its decision is
+ * recorded only.
+ */
+export function createMentionConversationTurns(deps: {
+  calls: Pick<ConversationCalls, "issueMentionTurn" | "endTurn">;
+  queue: Pick<ConversationTurnQueue, "enqueue">;
+  agents: Pick<AgentStore, "get">;
+  catalog: Pick<SessionCatalog, "connections">;
+  now?: () => Date;
+}) {
+  const now = deps.now ?? (() => new Date());
+  return {
+    async start(request: MentionTurnRequest): Promise<MentionTurnStart> {
+      const agent = await deps.agents.get(request.workspaceId, request.agentId);
+      if (agent === null) return { outcome: "unknown_agent" };
+      const release = agent.active_release;
+      if (release === null) return { outcome: "no_active_release" };
+      const connection = connectionOf(deps.catalog, release.connection_id);
+      const model = release.runtime_config_snapshot.model;
+      if (
+        connection === undefined ||
+        connection.provider.kind === "openai_responses" ||
+        typeof model !== "string"
+      ) {
+        return { outcome: "connection_unavailable" };
+      }
+      const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
+      const issued = await deps.calls.issueMentionTurn({
+        workspaceId: request.workspaceId,
+        agentId: request.agentId,
+        conversationId: request.conversationId,
+        topicId: request.topicId,
+        turnId,
+        requesterUserId: request.requesterUserId,
+        slackInstallationId: request.slackInstallationId,
+        message: request.message,
+        ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
+        releaseId: release.id,
+        connectionId: release.connection_id,
+        model,
+        maxTokens: OPERATOR_TURN_MAX_TOKENS,
+        maxRequestBytes: OPERATOR_TURN_MAX_REQUEST_BYTES,
+      });
+      if (issued.outcome === "unavailable") {
+        return { outcome: "connection_unavailable" };
+      }
+      if (issued.outcome !== "issued") return { outcome: issued.outcome };
+      try {
+        const at = now();
+        // The engagement keeps a repeated event from a second turn, so each
+        // turn's input is its own and tried once.
+        const inputId = conversationInputIdSchema.parse(crypto.randomUUID());
+        await deps.queue.enqueue(
+          {
+            turn_id: turnId,
+            scope: {
+              workspace_id: request.workspaceId,
+              agent_id: request.agentId,
+              conversation_id: request.conversationId,
+              topic_id: request.topicId,
+            },
+            model,
+            provider: {
+              kind: connection.provider.kind,
+              endpoint: connection.provider.endpoint,
+              auth: { kind: "egress_token", token: issued.token },
+            },
+            call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
+            // The instruction is the requester's message alone; what else
+            // the turn reads is assembled as data when a runtime takes it.
+            input: { id: inputId, text: request.text },
+            fresh_input: { id: crypto.randomUUID(), text: request.text },
+            decision_tools: [...conversationDecisionTools("user")],
+          },
+          {
+            inputId,
+            attempt: 1,
+            takeBy: new Date(
+              Math.min(
+                at.getTime() + OPERATOR_TURN_TAKE_MS,
+                issued.expiresAt.getTime(),
+              ),
+            ),
+            now: at,
+            usableUntil: issued.expiresAt,
+          },
+        );
+      } catch (error) {
+        // A turn that could not be queued gets no calls.
+        await deps.calls.endTurn(turnId);
+        throw error;
+      }
+      return { outcome: "queued", turnId };
     },
   };
 }

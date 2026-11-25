@@ -8,7 +8,8 @@
 // The conversation is one of the agent's and the topic one of its topics.
 // The turn's one provider call is charged to the agent's team as an
 // operator's call, and the API's log names the user and host that ran this.
-// Until people's messages dispatch turns, this is the only way one starts.
+// Besides a Slack mention of an agent whose rollout is on, this is the only
+// way one starts.
 import { hostname, userInfo } from "node:os";
 import { parseArgs } from "node:util";
 import {

@@ -19,9 +19,12 @@ import {
   type ConversationCallIssueInput,
   type ConversationCallStore,
   type ConversationTurnCallAuthorization,
+  type ConversationTurnPermitInput,
   type ConversationTurnPermitIssue,
   chooseBudgetAccount,
+  placeSource,
   reservationTokens,
+  storedSourceSet,
 } from "@werft-ai/platform";
 import {
   and,
@@ -42,6 +45,7 @@ import {
   reserveBudgetIn,
   settleBudgetIn,
 } from "./budget-accounts.ts";
+import { lockedDeletedSource } from "./conversations/deleted-sources.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { PROVIDER_EXCHANGE_LEASE_MS } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
@@ -50,6 +54,7 @@ import {
   budgetAdjustments,
   budgetReservations,
   conversationCalls,
+  conversationEngagements,
   conversations,
   conversationTopics,
   conversationTurnPermits,
@@ -336,6 +341,84 @@ function issueIn(
  * the topic in between. A first grant takes the call's limit keys' locks and
  * then the call's row, never an account.
  */
+/** Thrown to take back a mention's turn whose message another turn engaged first. */
+class MentionEngaged extends Error {}
+
+/**
+ * Why a turn cannot be written in its scope, or null when it can: the agent,
+ * its conversation, and the topic, held so the buffer does not drop it
+ * before the turn holds it.
+ */
+async function turnScopeIn(
+  tx: Database,
+  input: Pick<
+    ConversationTurnPermitInput,
+    "workspaceId" | "agentId" | "conversationId" | "topicId"
+  >,
+): Promise<Exclude<ConversationTurnPermitIssue, { outcome: "issued" }> | null> {
+  const [agent] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(
+      and(
+        eq(agents.id, input.agentId),
+        eq(agents.workspaceId, input.workspaceId),
+        isNull(agents.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!agent) return { outcome: "unknown_agent" };
+  const [conversation] = await tx
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, input.conversationId),
+        eq(conversations.agentId, input.agentId),
+        eq(conversations.workspaceId, input.workspaceId),
+      ),
+    );
+  if (!conversation) return { outcome: "unknown_conversation" };
+  const [topic] = await tx
+    .select({ id: conversationTopics.id })
+    .from(conversationTopics)
+    .where(
+      and(
+        eq(conversationTopics.id, input.topicId),
+        eq(conversationTopics.conversationId, input.conversationId),
+      ),
+    )
+    .for("key share");
+  if (!topic) return { outcome: "unknown_conversation" };
+  return null;
+}
+
+/** The permit of a turn written in `tx`. */
+async function insertTurnPermitIn(
+  tx: Database,
+  input: Omit<ConversationTurnPermitInput, "requester" | "root">,
+  root: BudgetRoot,
+): Promise<ConversationTurnPermitIssue> {
+  const [permit] = await tx
+    .insert(conversationTurnPermits)
+    .values({
+      turnId: input.turnId,
+      tokenHash: input.tokenHash,
+      rootKind: chooseBudgetAccount(root, null).rootKind,
+      requesterUserId: requesterUserOf(root),
+      connectionId: input.connectionId,
+      path: input.path,
+      model: input.model,
+      maxTokens: input.maxTokens,
+      maxRequestBytes: input.maxRequestBytes,
+      callKey: input.callKey,
+      expiresAt: fromDbNow(input.ttlMs),
+    })
+    .returning({ expiresAt: conversationTurnPermits.expiresAt });
+  if (!permit) throw new Error("turn permit row missing after insert");
+  return { outcome: "issued", expiresAt: permit.expiresAt };
+}
+
 export function createPostgresConversationCalls(
   db: Database,
 ): ConversationCallStore {
@@ -410,41 +493,8 @@ export function createPostgresConversationCalls(
     issueTurnPermitAtomic(input) {
       return db.transaction(
         async (tx): Promise<ConversationTurnPermitIssue> => {
-          const [agent] = await tx
-            .select({ id: agents.id })
-            .from(agents)
-            .where(
-              and(
-                eq(agents.id, input.agentId),
-                eq(agents.workspaceId, input.workspaceId),
-                isNull(agents.deletedAt),
-              ),
-            )
-            .limit(1);
-          if (!agent) return { outcome: "unknown_agent" };
-          const [conversation] = await tx
-            .select({ id: conversations.id })
-            .from(conversations)
-            .where(
-              and(
-                eq(conversations.id, input.conversationId),
-                eq(conversations.agentId, input.agentId),
-                eq(conversations.workspaceId, input.workspaceId),
-              ),
-            );
-          if (!conversation) return { outcome: "unknown_conversation" };
-          // So the buffer does not drop the topic before the turn holds it.
-          const [topic] = await tx
-            .select({ id: conversationTopics.id })
-            .from(conversationTopics)
-            .where(
-              and(
-                eq(conversationTopics.id, input.topicId),
-                eq(conversationTopics.conversationId, input.conversationId),
-              ),
-            )
-            .for("key share");
-          if (!topic) return { outcome: "unknown_conversation" };
+          const refused = await turnScopeIn(tx, input);
+          if (refused !== null) return refused;
           await tx.insert(conversationTurns).values({
             id: input.turnId,
             workspaceId: input.workspaceId,
@@ -457,26 +507,72 @@ export function createPostgresConversationCalls(
             requesterId: input.requester.id,
             releaseId: input.releaseId,
           });
-          const [permit] = await tx
-            .insert(conversationTurnPermits)
-            .values({
-              turnId: input.turnId,
-              tokenHash: input.tokenHash,
-              rootKind: chooseBudgetAccount(input.root, null).rootKind,
-              requesterUserId: requesterUserOf(input.root),
-              connectionId: input.connectionId,
-              path: input.path,
-              model: input.model,
-              maxTokens: input.maxTokens,
-              maxRequestBytes: input.maxRequestBytes,
-              callKey: input.callKey,
-              expiresAt: fromDbNow(input.ttlMs),
-            })
-            .returning({ expiresAt: conversationTurnPermits.expiresAt });
-          if (!permit) throw new Error("turn permit row missing after insert");
-          return { outcome: "issued", expiresAt: permit.expiresAt };
+          return insertTurnPermitIn(tx, input, input.root);
         },
       );
+    },
+
+    issueMentionTurnAtomic(input) {
+      const { message } = input;
+      const sources = storedSourceSet({
+        direct: [placeSource(message)],
+        inherited: [],
+        overflow: false,
+      });
+      return db
+        .transaction(async (tx) => {
+          const refused = await turnScopeIn(tx, input);
+          if (refused !== null) return refused;
+          // The message's mark lock first: a delete under way is waited for
+          // and refuses the turn, and one after it finds the turn holding it.
+          const deleted = await lockedDeletedSource(tx, {
+            workspaceId: input.workspaceId,
+            sessionId: null,
+            sources,
+            throughTurn: null,
+          });
+          if (deleted !== null) return { outcome: "source_deleted" as const };
+          await tx.insert(conversationTurns).values({
+            id: input.turnId,
+            workspaceId: input.workspaceId,
+            agentId: input.agentId,
+            conversationId: input.conversationId,
+            topicId: input.topicId,
+            origin: "m2",
+            state: "running",
+            requesterKind: "user",
+            requesterId: input.requesterUserId,
+            sources,
+            releaseId: input.releaseId,
+            slackInstallationId: input.slackInstallationId,
+          });
+          // A retry of the event, or two passes at once, meets the first
+          // turn's engagement: this turn goes back with the transaction.
+          const [engaged] = await tx
+            .insert(conversationEngagements)
+            .values({
+              workspaceId: input.workspaceId,
+              agentId: input.agentId,
+              teamId: message.teamId,
+              channelId: message.channelId,
+              ts: message.ts,
+              kind: "mention",
+              conversationTurnId: input.turnId,
+            })
+            .onConflictDoNothing()
+            .returning({ ts: conversationEngagements.ts });
+          if (engaged === undefined) throw new MentionEngaged();
+          return insertTurnPermitIn(tx, input, {
+            kind: "user",
+            userId: input.requesterUserId,
+          });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof MentionEngaged) {
+            return { outcome: "duplicate" as const };
+          }
+          throw error;
+        });
     },
 
     authorizeTurnCallAtomic(input) {
