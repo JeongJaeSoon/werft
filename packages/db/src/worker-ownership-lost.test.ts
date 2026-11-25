@@ -12,6 +12,7 @@ import { asc, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -390,6 +391,62 @@ describe("a kill asked of the execution", () => {
     const after = await stateOf(worker.sessionId);
     expect(after.turns).toEqual([LOST_TURN]);
     expect(after.session).toEqual(KEPT);
+  });
+});
+
+describe("the word kept before the exited resource is removed", () => {
+  const store = () =>
+    createPostgresSchedulerStore(db, {
+      sessionBudget: { costUsd: 1_000, tokens: null },
+      connectForLock: async () => {
+        throw new Error("not used");
+      },
+    });
+  const kept = (worker: { executionId: string }) =>
+    store().recordLeaseGivenUp({
+      executionId: worker.executionId,
+      generation: 1,
+    });
+
+  test("is enough for a later look that never saw the exit code", async () => {
+    const worker = await runningTurn();
+    await leaseEndsIn(worker.attemptId, 60_000);
+    await kept(worker);
+    expect((await stateOf(worker.sessionId)).attempt?.endReason).toBe(
+      WORKER_LEASE_LOST_END_REASON,
+    );
+
+    // The pass died after the removal: the next one has only the record.
+    expect(await seenGone(worker.executionId)).toEqual({
+      leasePending: true,
+      sessionReleased: false,
+      slotReleased: false,
+    });
+    await leaseEndsIn(worker.attemptId, -1_000);
+    expect(await seenGone(worker.executionId)).toEqual(RELEASED);
+    const after = await stateOf(worker.sessionId);
+    expect(after.turns).toEqual([LOST_TURN]);
+    expect(after.session).toEqual(KEPT);
+  });
+
+  test("goes over the sweep's lease_expired, and over nothing else", async () => {
+    const swept = await runningTurn();
+    await leaseEndsIn(swept.attemptId, -1_000);
+    await reconcileExpiredLeases(db, {});
+    await kept(swept);
+    expect((await stateOf(swept.sessionId)).attempt).toEqual({
+      state: "lost",
+      endReason: WORKER_LEASE_LOST_END_REASON,
+    });
+
+    // An attempt that ended saying something else keeps what it said.
+    const gone = await runningTurn();
+    await seenGone(gone.executionId);
+    await kept(gone);
+    expect((await stateOf(gone.sessionId)).attempt).toEqual({
+      state: "lost",
+      endReason: "execution_gone",
+    });
   });
 });
 

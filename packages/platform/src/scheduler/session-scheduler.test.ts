@@ -475,6 +475,12 @@ class MemoryStore implements SchedulerStore {
   readonly confirmLooks: [string, string | undefined][] = [];
   /** Executions whose worker gave its lease up and whose lease still runs. */
   readonly leasePending = new Set<string>();
+  /** Executions whose worker's word was kept, in the order it was. */
+  readonly leaseGivenUp: string[] = [];
+
+  async recordLeaseGivenUp(ref: ExecutionRef): Promise<void> {
+    this.leaseGivenUp.push(ref.executionId);
+  }
   /** Runs as a confirmation reaches the store, before it is judged. */
   duringConfirm: ((executionId: string) => void) | null = null;
 
@@ -2095,9 +2101,15 @@ describe("runScheduler", () => {
     };
     store.leasePending.add(executionId);
 
+    // The word is kept before the resource goes and before the settle is
+    // asked for, so a pass that dies in between loses nothing.
+    const keptAtSettle: string[][] = [];
+    store.duringConfirm = () => keptAtSettle.push([...store.leaseGivenUp]);
     // The pass that sees the exit says what it said; the resource is gone
     // after it, so the next pass can only ask again.
     await run();
+    expect(keptAtSettle).toEqual([[executionId]]);
+    expect(backend.containers.has(name)).toBe(false);
     await run();
     expect(store.confirmLooks).toEqual([
       [executionId, "worker_lease_lost"],
@@ -2131,6 +2143,7 @@ describe("runScheduler", () => {
     row.desiredState = "terminated";
 
     await run();
+    expect(store.leaseGivenUp).toEqual([executionId]);
     expect(store.confirmLooks).toEqual([[executionId, "worker_lease_lost"]]);
     expect(store.confirmedGone).toEqual([executionId]);
   });

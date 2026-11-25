@@ -108,6 +108,8 @@ export async function kill(
     .inspect(ref)
     .then(exitEndReason, () => undefined);
   lock.throwIfAborted();
+  // Kept before the removal, so a pass that dies after it loses nothing.
+  if (endReason !== undefined) await store.recordLeaseGivenUp(ref);
   let outcome: TerminateExecutionResult;
   try {
     outcome = await backend.terminate(ref, { waitForExit: false });

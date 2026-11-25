@@ -504,6 +504,11 @@ async function reconcile(
       ...observed,
       state: "terminating",
     });
+    // A worker's own word that it gave its lease up goes down before the
+    // removal erases it, so a pass that dies after it loses nothing.
+    if (exitEndReason(observed) !== undefined) {
+      await store.recordLeaseGivenUp(ref);
+    }
     lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {

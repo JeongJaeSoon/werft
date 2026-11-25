@@ -516,6 +516,13 @@ export interface SchedulerStore {
     observation: ExecutionObservation,
   ): Promise<void>;
   /**
+   * Keeps a worker's own word that it gave its lease up
+   * (`WORKER_LEASE_LOST_END_REASON`) on the launch's attempts, before the
+   * exited resource that said so is removed: the exit's settle reads it from
+   * there, whichever pass gets to it and however often it has to be asked.
+   */
+  recordLeaseGivenUp(ref: ExecutionRef): Promise<void>;
+  /**
    * The provider resource is gone for good: the one place a launch slot and
    * its session are handed back. Idempotent, however many passes see it.
    * Refused, changing nothing, while an unclaimed launch has a replacement
