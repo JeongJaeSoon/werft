@@ -5952,7 +5952,9 @@ export const conversationTurnPermits = pgTable(
  * leases it, `leased` until its report or its lease's end, then `ended`,
  * never handed out again. While queued it holds the turn sealed (its permit
  * token and its context), under a key derived for this use alone; the lease
- * clears it. The input id is the turn's own and need not be a
+ * clears it. Ten minutes after its end a row is `forgotten`: how it ended
+ * is dropped, and the row stays so that input's attempt is not queued
+ * again. The input id is the turn's own and need not be a
  * conversation_inputs row: an operator's input is in none.
  */
 export const conversationTurnQueue = pgTable(
@@ -5964,7 +5966,9 @@ export const conversationTurnQueue = pgTable(
     topicId: uuid("topic_id").$type<ConversationTopicId>().notNull(),
     // The order turns were queued in, oldest first.
     seq: bigserial({ mode: "number" }).notNull(),
-    state: text().$type<"queued" | "leased" | "ended">().notNull(),
+    state: text()
+      .$type<"queued" | "leased" | "ended" | "forgotten">()
+      .notNull(),
     takeBy: timestamp("take_by", { withTimezone: true }).notNull(),
     // How long it may wait from its topic's last turn's end.
     takeMs: integer("take_ms").notNull(),
@@ -5991,10 +5995,10 @@ export const conversationTurnQueue = pgTable(
       table.inputId,
       table.attempt,
     ),
-    // The rows a lease looks at; an ended row is history.
+    // The rows a lease looks at.
     index("conversation_turn_queue_open_idx")
       .on(table.seq)
-      .where(sql`${table.state} <> 'ended'`),
+      .where(sql`${table.state} IN ('queued', 'leased')`),
     // When each topic's last turn out ended.
     index("conversation_turn_queue_topic_idx").on(table.topicId, table.endedAt),
     check(
@@ -6003,6 +6007,7 @@ export const conversationTurnQueue = pgTable(
         WHEN 'queued' THEN ${table.turnNonce} IS NOT NULL AND ${table.turnCiphertext} IS NOT NULL AND ${table.leaseId} IS NULL AND ${table.runtimeId} IS NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
         WHEN 'leased' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND ${table.leaseId} IS NOT NULL AND ${table.runtimeId} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
         WHEN 'ended' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NOT NULL AND ${table.endedAt} IS NOT NULL
+        WHEN 'forgotten' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND ${table.leaseId} IS NULL AND ${table.runtimeId} IS NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NOT NULL
         ELSE false
       END`,
     ),

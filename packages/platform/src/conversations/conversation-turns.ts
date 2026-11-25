@@ -21,7 +21,7 @@ const tooLate = (usableUntil: Date | null, now: Date, leaseMs: number) =>
 
 // How long an ended turn is kept, so a repeated report is still told apart
 // from an unknown one and whoever queued the turn can read how it ended.
-const ENDED_TURN_KEPT_MS = 10 * 60_000;
+export const ENDED_TURN_KEPT_MS = 10 * 60_000;
 
 type Lease = {
   id: ConversationTurnLeaseId;
@@ -53,8 +53,8 @@ type Entry = { turn: QueuedConversationTurn } & (
  */
 export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   const entries = new Map<ConversationTurnId, Entry>();
-  // Each input's attempt, by the turn it was queued as.
-  const attempts = new Map<string, ConversationTurnId>();
+  // Each input's attempt queued, kept after its turn is forgotten.
+  const attempts = new Set<string>();
   const attemptKey = (inputId: string, attempt: number) =>
     `${inputId}:${attempt}`;
   // When each topic's last turn out ended: a turn queued behind it waits from then.
@@ -123,9 +123,6 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
         now.getTime() - current.at.getTime() >= ENDED_TURN_KEPT_MS
       ) {
         entries.delete(id);
-        for (const [key, turnId] of attempts) {
-          if (turnId === id) attempts.delete(key);
-        }
       }
     }
   }
@@ -143,7 +140,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
       }
       const key = attemptKey(inputId, attempt);
       if (attempts.has(key)) return "duplicate";
-      attempts.set(key, turn.turn_id);
+      attempts.add(key);
       entries.set(turn.turn_id, {
         turn,
         state: "queued",

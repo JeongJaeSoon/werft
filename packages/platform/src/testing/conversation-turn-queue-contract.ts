@@ -9,7 +9,10 @@ import {
   conversationTurnIdSchema,
   conversationTurnLeaseIdSchema,
 } from "@werft-ai/contracts";
-import { createConversationRuntimeTurns } from "../conversations/conversation-turns.ts";
+import {
+  createConversationRuntimeTurns,
+  ENDED_TURN_KEPT_MS,
+} from "../conversations/conversation-turns.ts";
 import type {
   ConversationTurnQueue,
   QueuedConversationTurn,
@@ -318,6 +321,38 @@ export function conversationTurnQueueContract(
         await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }),
       ).toBeNull();
       expect(await h.turns.queue.outcome(again.turn_id, h.at())).toBeNull();
+    });
+
+    test("ten minutes after its end a turn is forgotten, and its input's attempt is still not queued again", async () => {
+      const h = harness(subject);
+      const inputId = conversationInputIdSchema.parse(crypto.randomUUID());
+      const turn = await subject.turn();
+      await h.turns.queue.enqueue(turn, {
+        inputId,
+        attempt: 1,
+        takeBy: new Date(h.at().getTime() + 30_000),
+        now: h.at(),
+      });
+      const taken = await h.take();
+      expect(await h.report(taken)).toBe("recorded");
+
+      h.advance(ENDED_TURN_KEPT_MS - 1);
+      expect(await h.turns.queue.outcome(turn.turn_id, h.at())).toEqual(done);
+      h.advance(1);
+      // A poll sweeps the queue.
+      expect(
+        await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }),
+      ).toBeNull();
+      expect(await h.turns.queue.outcome(turn.turn_id, h.at())).toBeNull();
+      expect(await h.report(taken)).toBe("unknown_turn");
+      expect(
+        await h.turns.queue.enqueue(await subject.turn(turn), {
+          inputId,
+          attempt: 1,
+          takeBy: new Date(h.at().getTime() + 30_000),
+          now: h.at(),
+        }),
+      ).toBe("duplicate");
     });
 
     test("a turn id is queued once, and an unknown one has no end", async () => {

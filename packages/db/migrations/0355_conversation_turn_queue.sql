@@ -25,10 +25,11 @@ CREATE TABLE IF NOT EXISTS "conversation_turn_queue" (
         WHEN 'queued' THEN "conversation_turn_queue"."turn_nonce" IS NOT NULL AND "conversation_turn_queue"."turn_ciphertext" IS NOT NULL AND "conversation_turn_queue"."lease_id" IS NULL AND "conversation_turn_queue"."runtime_id" IS NULL AND "conversation_turn_queue"."lease_expires_at" IS NULL AND "conversation_turn_queue"."outcome" IS NULL AND "conversation_turn_queue"."ended_at" IS NULL
         WHEN 'leased' THEN "conversation_turn_queue"."turn_nonce" IS NULL AND "conversation_turn_queue"."turn_ciphertext" IS NULL AND "conversation_turn_queue"."lease_id" IS NOT NULL AND "conversation_turn_queue"."runtime_id" IS NOT NULL AND "conversation_turn_queue"."lease_expires_at" IS NOT NULL AND "conversation_turn_queue"."outcome" IS NULL AND "conversation_turn_queue"."ended_at" IS NULL
         WHEN 'ended' THEN "conversation_turn_queue"."turn_nonce" IS NULL AND "conversation_turn_queue"."turn_ciphertext" IS NULL AND ("conversation_turn_queue"."lease_id" IS NULL) = ("conversation_turn_queue"."runtime_id" IS NULL) AND ("conversation_turn_queue"."lease_id" IS NULL) = ("conversation_turn_queue"."lease_expires_at" IS NULL) AND "conversation_turn_queue"."outcome" IS NOT NULL AND "conversation_turn_queue"."ended_at" IS NOT NULL
+        WHEN 'forgotten' THEN "conversation_turn_queue"."turn_nonce" IS NULL AND "conversation_turn_queue"."turn_ciphertext" IS NULL AND "conversation_turn_queue"."lease_id" IS NULL AND "conversation_turn_queue"."runtime_id" IS NULL AND "conversation_turn_queue"."lease_expires_at" IS NULL AND "conversation_turn_queue"."outcome" IS NULL AND "conversation_turn_queue"."ended_at" IS NOT NULL
         ELSE false
       END)
 );
 --> statement-breakpoint
 ALTER TABLE "conversation_turn_queue" DROP CONSTRAINT IF EXISTS "conversation_turn_queue_turn_fk", ADD CONSTRAINT "conversation_turn_queue_turn_fk" FOREIGN KEY ("turn_id") REFERENCES "public"."conversation_turns"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "conversation_turn_queue_open_idx" ON "conversation_turn_queue" USING btree ("seq") WHERE "conversation_turn_queue"."state" <> 'ended';--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "conversation_turn_queue_open_idx" ON "conversation_turn_queue" USING btree ("seq") WHERE "conversation_turn_queue"."state" IN ('queued', 'leased');--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "conversation_turn_queue_topic_idx" ON "conversation_turn_queue" USING btree ("topic_id","ended_at");

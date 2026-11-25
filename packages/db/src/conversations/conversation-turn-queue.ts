@@ -11,12 +11,13 @@ import {
   type ConversationTurnOutcome,
   type ConversationTurnQueue,
   derivedSecretKey,
+  ENDED_TURN_KEPT_MS,
   openWithKey,
   type SecretKey,
   sameResult,
   sealWithKey,
 } from "@werft-ai/platform";
-import { and, eq, inArray, isNotNull, max, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, max, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { conversationTurnQueue as queue } from "../schema.ts";
 
@@ -34,6 +35,7 @@ const aadOf = (turnId: string) =>
   Buffer.from(`conversation_turn_queue|${turnId}`, "utf8");
 
 const notTaken = { outcome: "failed", reason: "not_taken" } as const;
+const OPEN = ["queued", "leased"] as const;
 
 function outcomeOf(stored: unknown): ConversationTurnOutcome {
   if (
@@ -89,8 +91,24 @@ export function createPostgresConversationTurnQueue(
       .where(eq(queue.turnId, turnId));
 
   // A turn nobody took, or whose holder went quiet, ends here: never
-  // requeued, since its permit may already be spent.
+  // requeued, since its permit may already be spent. One ended long enough
+  // ago is forgotten, as the memory queue forgets it, but its row stays.
   async function settle(tx: Database, now: Date): Promise<void> {
+    await tx
+      .update(queue)
+      .set({
+        state: "forgotten",
+        outcome: null,
+        leaseId: null,
+        runtimeId: null,
+        leaseExpiresAt: null,
+      })
+      .where(
+        and(
+          eq(queue.state, "ended"),
+          sql`${queue.endedAt} <= ${new Date(now.getTime() - ENDED_TURN_KEPT_MS).toISOString()}::timestamptz`,
+        ),
+      );
     await tx
       .update(queue)
       .set({
@@ -114,7 +132,7 @@ export function createPostgresConversationTurnQueue(
         usableUntil: queue.usableUntil,
       })
       .from(queue)
-      .where(ne(queue.state, "ended"))
+      .where(inArray(queue.state, [...OPEN]))
       .orderBy(queue.seq);
     const waiting = open.filter((row) => row.state === "queued");
     if (waiting.length === 0) return;
@@ -210,7 +228,7 @@ export function createPostgresConversationTurnQueue(
         const open = await tx
           .select()
           .from(queue)
-          .where(ne(queue.state, "ended"))
+          .where(inArray(queue.state, [...OPEN]))
           .orderBy(queue.seq);
         // One turn of a topic at a time: the next waits for the one out to end.
         const busy = new Set(
@@ -261,7 +279,9 @@ export function createPostgresConversationTurnQueue(
     report: ({ turnId, leaseId, runtimeId, result, now }) =>
       locked(async (tx) => {
         const row = await settledRow(tx, turnId, now);
-        if (row === undefined) return "unknown_turn";
+        if (row === undefined || row.state === "forgotten") {
+          return "unknown_turn";
+        }
         if (row.state === "queued") return "not_holder";
         if (row.leaseId !== leaseId || row.runtimeId !== runtimeId) {
           return "not_holder";
@@ -280,7 +300,7 @@ export function createPostgresConversationTurnQueue(
     outcome: (turnId, now) =>
       locked(async (tx) => {
         const row = await settledRow(tx, turnId, now);
-        if (row === undefined) return null;
+        if (row === undefined || row.state === "forgotten") return null;
         return row.state === "ended" ? outcomeOf(row.outcome) : "pending";
       }),
   };

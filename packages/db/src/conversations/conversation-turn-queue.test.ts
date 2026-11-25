@@ -102,6 +102,41 @@ describe("the conversation turn queue in the database (0355)", () => {
     });
   }, 60_000);
 
+  test("a forgotten turn's row keeps ids and times alone", async () => {
+    const { client, db } = await database();
+    const fixture = await conversationTurnQueueFixture(db);
+    const queue = createPostgresConversationTurnQueue(db, key());
+    const turn = await fixture.turn();
+    await queue.enqueue(turn, entry());
+    const taken = await queue.lease({
+      runtimeId,
+      now,
+      leaseMs: CONVERSATION_TURN_LEASE_MS,
+    });
+    if (taken === null) throw new Error("not taken");
+    await queue.report({
+      turnId: turn.turn_id,
+      leaseId: taken.lease_id,
+      runtimeId,
+      result: { outcome: "completed", text: "the answer" },
+      now,
+    });
+    await queue.outcome(turn.turn_id, new Date(now.getTime() + 10 * 60_000));
+    const rows = await client.query(
+      "SELECT state, outcome, lease_id, runtime_id, turn_ciphertext FROM conversation_turn_queue WHERE turn_id = $1",
+      [turn.turn_id],
+    );
+    expect(rows.rows).toEqual([
+      {
+        state: "forgotten",
+        outcome: null,
+        lease_id: null,
+        runtime_id: null,
+        turn_ciphertext: null,
+      },
+    ]);
+  }, 60_000);
+
   test("a turn's row goes with the turn", async () => {
     const { client, db } = await database();
     const fixture = await conversationTurnQueueFixture(db);
