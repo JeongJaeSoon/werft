@@ -1,3 +1,4 @@
+import { MODEL_MIGRATION_RETRY_MINUTES } from "@werft-ai/contracts";
 import { messageOf } from "@werft-ai/runtime-core";
 import {
   connectionOf,
@@ -9,7 +10,7 @@ import type { AgentStore } from "./ports/agent-store.ts";
 
 export const MODEL_MOVE_POLL_INTERVAL_MS = 60_000;
 export const MODEL_MOVE_PAGE = 200;
-export const MODEL_MOVE_RETRY_MS = 15 * 60_000;
+export const MODEL_MOVE_RETRY_MS = MODEL_MIGRATION_RETRY_MINUTES * 60_000;
 
 export type ModelMoveStep =
   | { status: "applied"; from: string; to: string }
@@ -29,7 +30,10 @@ export type ModelMoveRunnerLogger = {
 };
 
 export function createModelMoveRunner(deps: {
-  store: Pick<AgentStore, "modelMigrationCandidates">;
+  store: Pick<
+    AgentStore,
+    "modelMigrationCandidates" | "recordModelMigrationFailure"
+  >;
   catalog: SessionCatalogView;
   agents: {
     migrateModel(input: {
@@ -79,6 +83,13 @@ export function createModelMoveRunner(deps: {
             retryAt.set(row.agentId, now() + retryMs);
           } else if (step.status === "failed") {
             retryAt.set(row.agentId, now() + retryMs);
+            await store.recordModelMigrationFailure({
+              workspaceId: row.workspaceId,
+              agentId: row.agentId,
+              reason: step.reason,
+              releaseId: step.releaseId,
+              revision: step.revision,
+            });
             logger.warn("Agent could not move to the next model", {
               agent: row.agentId,
               from: step.from,

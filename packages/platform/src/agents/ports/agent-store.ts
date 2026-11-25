@@ -337,6 +337,18 @@ export interface AgentStore {
     releaseId: string,
   ): Promise<string | null>;
   /**
+   * Keeps why the automatic move off `releaseId` failed, for the agent's
+   * screen. Writes nothing unless the agent is still on `releaseId` at
+   * `revision`.
+   */
+  recordModelMigrationFailure(input: {
+    workspaceId: string;
+    agentId: string;
+    reason: string;
+    releaseId: string;
+    revision: number;
+  }): Promise<boolean>;
+  /**
    * `UPDATE agents … WHERE activation_revision = expected`, the release's
    * first approval, an `activated` event and a receipt in one transaction.
    */

@@ -51,6 +51,7 @@ function agent(id: string, name: string): Agent {
     active_release_id: null,
     activation_revision: -1,
     auto_model_migration: true,
+    model_migration_failure: null,
     ownerless: false,
     ownerless_since: null,
     created_by: USER_ID,
