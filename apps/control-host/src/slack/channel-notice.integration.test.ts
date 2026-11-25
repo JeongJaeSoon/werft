@@ -19,6 +19,7 @@ import {
   type Database,
   memberships,
   revokeSlackNotice,
+  SLACK_CHANNEL_NOTICE_ATTEMPTS,
   setConversationRollout,
   slackApps,
   slackInstallations,
@@ -390,6 +391,78 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     for (const other of [off, unapproved, revoked]) {
       expect(await noticesOf(other.agentId)).toEqual([]);
     }
+  });
+
+  test("a row whose channel stopped listening closes unsent, and the channel is told once it listens again", async () => {
+    const agent = await listening();
+    const c = await channel(agent);
+    const store = createPostgresSlackOutboxStore(db);
+    const base = `channel-notice:${agent.agentId}:${agent.slackTeam}:${c.channelId}:1`;
+    await pass(V1);
+    // Still listened: the row stays to be sent.
+    await store.closeUnaddressed();
+    expect((await noticesOf(agent.agentId)).map((row) => row.status)).toEqual([
+      "pending",
+    ]);
+
+    await c.set({ listen: "mention" });
+    await store.closeUnaddressed();
+    await pass(V1);
+    expect(
+      (await noticesOf(agent.agentId)).map((row) => [
+        row.dedupeKey,
+        row.status,
+      ]),
+    ).toEqual([[base, "failed"]]);
+
+    await c.set({ listen: "free" });
+    await pass(V1);
+    await pass(V1);
+    expect(
+      (await noticesOf(agent.agentId)).map((row) => [
+        row.dedupeKey,
+        row.status,
+      ]),
+    ).toEqual([
+      [base, "failed"],
+      [`${base}:1`, "pending"],
+    ]);
+  });
+
+  test("a channel the bot left before the line went is told when the bot is back", async () => {
+    const agent = await listening();
+    const c = await channel(agent);
+    const store = createPostgresSlackOutboxStore(db);
+    await pass(V1);
+    await c.set({ membership: "awaiting_invite" });
+    await store.closeUnaddressed();
+    await pass(V1);
+    expect((await noticesOf(agent.agentId)).map((row) => row.status)).toEqual([
+      "failed",
+    ]);
+
+    await c.set({ membership: "joined" });
+    await pass(V1);
+    expect((await noticesOf(agent.agentId)).map((row) => row.status)).toEqual([
+      "failed",
+      "pending",
+    ]);
+  });
+
+  test(`a channel takes at most ${SLACK_CHANNEL_NOTICE_ATTEMPTS} rows that failed`, async () => {
+    const agent = await listening();
+    const c = await channel(agent);
+    const store = createPostgresSlackOutboxStore(db);
+    for (let i = 0; i < SLACK_CHANNEL_NOTICE_ATTEMPTS + 2; i += 1) {
+      await pass(V1);
+      await c.set({ listen: "mention" });
+      await store.closeUnaddressed();
+      await c.set({ listen: "free" });
+    }
+    await pass(V1);
+    const rows = await noticesOf(agent.agentId);
+    expect(rows).toHaveLength(SLACK_CHANNEL_NOTICE_ATTEMPTS);
+    expect(new Set(rows.map((row) => row.status))).toEqual(new Set(["failed"]));
   });
 
   test("many channels go a batch per pass, each once", async () => {

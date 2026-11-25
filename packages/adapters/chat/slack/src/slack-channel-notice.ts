@@ -20,15 +20,18 @@ export function slackChannelNoticeText(): string {
  * Once per agent, channel and notice version that asked for approval: a
  * version that only rewords one, listening turned off and on, or a switch
  * lowered and raised again finds it taken. Channel ids are only unique
- * within a Slack team.
+ * within a Slack team. A later `attempt`, after rows that failed unsent,
+ * takes a key of its own.
  */
 export function slackChannelNoticeDedupeKey(target: {
   agentId: string;
   teamId: string;
   channelId: string;
   noticeVersion: SlackNoticeVersion;
+  attempt: number;
 }): string {
-  return `channel-notice:${target.agentId.toLowerCase()}:${target.teamId}:${target.channelId}:${target.noticeVersion}`;
+  const key = `channel-notice:${target.agentId.toLowerCase()}:${target.teamId}:${target.channelId}:${target.noticeVersion}`;
+  return target.attempt === 0 ? key : `${key}:${target.attempt}`;
 }
 
 /**

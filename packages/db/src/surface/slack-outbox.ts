@@ -86,7 +86,10 @@ import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { SLACK_OUTBOX_APP_DELETED } from "./slack-app-close.ts";
 import { channelLeft } from "./slack-channel-left.ts";
-import { unnoticedSlackChannels } from "./slack-channel-notices.ts";
+import {
+  channelNoticeAddressed,
+  unnoticedSlackChannels,
+} from "./slack-channel-notices.ts";
 import {
   closeHeldOfFailedMirror,
   inputMirrorThread,
@@ -216,6 +219,7 @@ const addressed = (db: Database, row: SQL) => sql`(
     WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
   )
   AND ${channelNotWaiting(row)}
+  AND (${row}.kind <> 'channel_notice' OR ${channelNoticeAddressed(row)})
   AND (${row}.session_id IS NULL OR ${row}.kind = 'model_notice' OR EXISTS (
     SELECT 1 FROM session_links l
     WHERE l.id = ${row}.session_link_id AND ${linkTakes(row)}

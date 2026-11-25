@@ -17,6 +17,7 @@ const TARGET = {
   teamId: "T0ACME",
   channelId: "C0GENERAL",
   noticeVersion: slackNoticeVersionSchema.parse(3),
+  attempt: 0,
 };
 
 describe("channel notice", () => {
@@ -67,6 +68,12 @@ describe("channel notice", () => {
       },
     ]);
     expect(slackChannelNoticeDedupeKey(TARGET)).toBe(rows[0]?.dedupeKey ?? "");
+  });
+
+  test("a later attempt after failed rows takes a key of its own", () => {
+    expect(slackChannelNoticeDedupeKey({ ...TARGET, attempt: 2 })).toBe(
+      "channel-notice:019a0000-0000-7000-8000-0000000000a1:T0ACME:C0GENERAL:3:2",
+    );
   });
 
   test("a store without the sweep enqueues nothing", async () => {
