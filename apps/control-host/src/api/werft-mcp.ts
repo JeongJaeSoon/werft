@@ -5,6 +5,7 @@ import {
   type WerftMcpPart,
   type WerftMcpPartContext,
 } from "@werft-ai/platform";
+import { installedWerftDocs } from "./werft-docs.ts";
 
 /**
  * The parts the built-in `werft` MCP server is made of, in the order their
@@ -14,7 +15,7 @@ import {
 export function werftMcpParts(context: WerftMcpPartContext): WerftMcpPart[] {
   return [
     // The installed documentation: search, and the pages as resources.
-    docsPart(context),
+    docsPart(context, installedWerftDocs()),
 
     // What this session's agent is connected to and may do.
     statusPart(context),

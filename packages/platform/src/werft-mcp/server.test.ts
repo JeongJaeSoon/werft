@@ -367,7 +367,11 @@ describe("what the server does not serve", () => {
 describe("the parts as shipped", () => {
   test("each area has its own part, and together they make a server", async () => {
     const context = { version: "v9.9.9" };
-    const parts = [docsPart(context), statusPart(context), guidePart(context)];
+    const parts = [
+      docsPart(context, []),
+      statusPart(context),
+      guidePart(context),
+    ];
     const ask = serverOf(parts);
     const { result } = await ask("initialize");
     expect(result?.instructions).toBe(WERFT_MCP_INSTRUCTIONS);
