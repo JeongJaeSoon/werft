@@ -28,6 +28,7 @@ import type {
   PushFollowUpStore,
   PushRequestService,
   SurfaceBindingStore,
+  SurfaceConversationScope,
   SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import {
@@ -152,17 +153,16 @@ type Pressed = {
 
 type Allowed = { caller: Caller; pressed: Pressed };
 
-// A card's text shown again on a press, scoped to the channel Slack says the
-// card sits in: the one it was posted to (94S-2213).
-const pressedGuard = (pressed: Pressed) =>
+// A card's text shown again on a press, in its session's conversation as the
+// server reads it; with none, every Slack channel is outside (94S-2213).
+const cardGuard = (
+  pressed: Pressed,
+  scope: SurfaceConversationScope | null | undefined,
+) =>
   slackOutboxGuard({
     kind: "input_notice",
     channelId: pressed.channelId,
-    conversationScope: {
-      kind: "channel",
-      teamId: pressed.teamId,
-      channelId: pressed.channelId,
-    },
+    conversationScope: scope ?? null,
   }).guard;
 
 export type SlackInteractionService = ReturnType<
@@ -268,7 +268,10 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         });
         return;
       }
-      const card = slackSettledCard(posted, pressedGuard(pressed));
+      const card = slackSettledCard(
+        posted,
+        cardGuard(pressed, posted.conversationScope),
+      );
       if (card === null) return;
       await deps.slack.updateMessage(pressed.botToken, {
         channelId: pressed.channelId,
@@ -814,6 +817,16 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         await show(copy.already[result]);
         return ok("already");
       }
+      // The card's row names the scope its questions were first shown in.
+      const posted =
+        questions === null
+          ? null
+          : await deps.outbox.promptCard({
+              sessionId: value.s,
+              requestId: value.r,
+              channelId: pressed.channelId,
+              slackTs: payload.message.ts,
+            });
       const view =
         questions === null
           ? slackNoteView(metadata, pressed.locale)
@@ -821,7 +834,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
               questions,
               metadata,
               pressed.locale,
-              pressedGuard(pressed),
+              cardGuard(pressed, posted?.conversationScope),
             );
       if (view === null) {
         await show(copy.unavailable);

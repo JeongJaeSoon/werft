@@ -32,6 +32,10 @@ const OUT = `https://acme.slack.com/archives/${ELSE}/p1700000000000100`;
 const IN = `https://acme.slack.com/archives/${HERE}/p1700000000000200`;
 const HOSTILE = `ping @channel <!here> see ${OUT} and ${IN}`;
 
+// An open card's text as stored before this change: escaped, with the
+// requester's mention and the console link the platform made.
+const LEGACY_TEXT = `<@U0ASKER> Tool permission\nping @channel &lt;!here&gt; see ${OUT} and ${IN}\n<https://console.example/sessions/s-1|Open on the web>`;
+
 const guard = slackOutboxGuard({
   kind: "input_notice",
   channelId: HERE,
@@ -251,7 +255,7 @@ describe("a card redrawn", () => {
       dedupeKey: `prompt:link:${id}`,
       // An open card as stored before cards were guarded.
       body: {
-        text: "card",
+        text: LEGACY_TEXT,
         blocks: [
           { type: "section", text: { type: "plain_text", text: HOSTILE } },
         ],
@@ -293,7 +297,15 @@ describe("a card redrawn", () => {
     });
     expect(pass.sent).toBe(2);
     expect(sent).toHaveLength(2);
-    for (const card of sent) expectGuarded(said(card));
+    for (const card of sent) expectGuarded(JSON.stringify(card.blocks));
+    // The open card's stored text, escaped as cards were before: Slack shows
+    // the escaped control as text, so only the live mention and link go.
+    const open = sent[0]?.text ?? "";
+    expect(open).not.toContain("@channel");
+    expect(open).not.toContain(ELSE);
+    expect(open).toContain(IN);
+    expect(open).toContain("<@U0ASKER>");
+    expectGuarded(sent[1]?.text ?? "");
   });
 });
 

@@ -325,6 +325,8 @@ export type SurfacePromptCard = {
   linkUrl: string | null;
   deciderSlackUserId: string | null;
   display: PendingRequestDisplay | ({ kind: "push" } & PushRequestDisplay);
+  /** The session's parent conversation, as the outbox claim reads it. */
+  conversationScope?: SurfaceConversationScope | null;
 };
 
 export type SurfaceOutboxSettle =

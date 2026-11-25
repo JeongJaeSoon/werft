@@ -119,9 +119,11 @@ async function drawChoice(
     channelId: claim.channelId,
     conversationScope: claim.conversationScope ?? null,
   });
+  // The stored text is escaped mrkdwn: what the guard can still find there
+  // is a bare word, URL or id, and the platform's own controls stay in scope.
   const open = {
     rendered: "open" as const,
-    text: claim.body.text,
+    text: guard(claim.body.text),
     blocks: guardSlackCardBlocks(claim.body.blocks ?? [], guard),
   };
   const [prefix, , ...rest] = claim.dedupeKey.split(":");

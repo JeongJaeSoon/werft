@@ -522,7 +522,6 @@ const CARD_RELEASED = sql`
 const settledAs = (rendered: SQL) =>
   sql`CASE WHEN coalesce(${rendered}, 'open') IN ${CHOICES} THEN NULL ELSE 'settled' END`;
 
-/** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
 /**
  * A session's parent conversation as the outbox claim reads it; a DM
  * conversation keeps no team of its own, so its install's is it.
@@ -540,6 +539,7 @@ const conversationScopeOf = (sessionId: SQL, installationId: SQL) =>
     WHERE s.id = ${sessionId}
   )`;
 
+/** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
 function createPostgresSlackCardSettleStore(
   db: Database,
 ): SurfaceCardSettleStore {
@@ -1733,6 +1733,10 @@ export function createPostgresSlackOutboxStore(
           teamId: slackInstallations.teamId,
           dedupeKey: t.dedupeKey,
           body: t.body,
+          conversationScope: conversationScopeOf(
+            sql`${t.sessionId}`,
+            sql`${t.installationId}`,
+          ),
         })
         .from(t)
         .innerJoin(sessions, eq(sessions.id, t.sessionId))
@@ -1753,10 +1757,12 @@ export function createPostgresSlackOutboxStore(
       // slackPromptDedupeKey: `<prefix>:<link id>:<request id>`.
       const [, , ...rest] = row.dedupeKey.split(":");
       if (rest.join(":") !== input.requestId) return null;
-      return promptCardOf(db, {
-        ...row,
+      const { conversationScope, ...card } = row;
+      const drawn = await promptCardOf(db, {
+        ...card,
         sessionId: input.sessionId.toLowerCase(),
       });
+      return drawn === null ? null : { ...drawn, conversationScope };
     },
 
     cards: createPostgresSlackCardSettleStore(db),
