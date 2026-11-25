@@ -1,0 +1,35 @@
+---
+title: Data handling and storage
+description: What an agent stores from Slack messages and when it deletes it
+---
+
+**Version 1.** Version 1 of the notice on the agent's Slack tab points to this version. When this page changes, the notice changes to a new version with the same number.
+
+## Training
+
+Werft does not train any AI model on messages it reads in Slack.
+
+The agent calls the model with the model key this organization connected. Messages sent to the model follow that model provider's data policy.
+
+## Messages it reads
+
+- **Requests to the agent.** A message that mentions the agent or is written in the agent's thread becomes a work request (session input).
+- **Channel messages without a mention.** Read only after a workspace owner or admin approves the notice and raises the agent's conversation switch, and only in channels whose listening setting is every message (`free`). They are held briefly in the judgment buffer while the agent judges whether to step in.
+
+## What is stored and when it is deleted
+
+| What | What it holds | When it is deleted |
+| --- | --- | --- |
+| Judgment buffer | The text of a message without a mention, its place (team, channel, ts), the writer's Slack id | Right after the judgment. A message that was not judged is deleted 10 minutes after it was held. Deleted at once when the message is deleted in Slack, the channel is archived or deleted, the bot leaves the channel, or listening is turned off for the channel |
+| Judgment records | The place of each message judged, the decision and a reason code. No message text and no model answer | Not deleted automatically |
+| Channel summary | Lines the agent wrote in its own words while judging, with the place and speaker of their source messages. The original text is not copied; a line that repeats more than 40 characters of a judged message is not written | The current version stays. Older versions stay only if they were current within the last 7 days. A line goes when its source message is deleted in Slack, and a line made from the text before an edit goes when the message is edited. When a channel is deleted, its whole summary is deleted |
+| Engagement records | The place and kind (mention, reply and so on) of messages the agent took part in. No text | Not deleted automatically |
+| Work requests (session input) and session records | The text of messages received as requests, the agent's answers, session events | For now, kept with no time limit |
+| Session metadata | Session id, times, cost ledger, audit records (receipts) | Kept |
+
+At an organization admin's request, an operator can delete the engagement records, channel summary and judgment buffer of one channel conversation. See [Admin delete of conversation records](/run-server/self-hosting/reference/storage#admin-delete-of-conversation-records).
+
+## Not yet
+
+- No retention period is set yet for work requests (session input). When one is set, this page and the notice change to a new version.
+- For now, deleting the app does not delete stored records automatically.
