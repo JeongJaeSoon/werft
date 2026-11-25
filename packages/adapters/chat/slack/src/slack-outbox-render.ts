@@ -5,7 +5,11 @@ import type {
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
-import { escapeSlackControls, isSafeLink } from "./slack-presentation.ts";
+import {
+  escapeSlackControls,
+  isSafeLink,
+  mapCodeAndText,
+} from "./slack-presentation.ts";
 
 /** chat.postMessage truncates `text` past this many characters. */
 export const SLACK_TEXT_MAX = 40_000;
@@ -70,9 +74,15 @@ function outboxLink(body: SurfaceOutboxEntry["body"]): string {
     : "";
 }
 
-function outboxEscaper(body: SurfaceOutboxEntry["body"]) {
+/** A last pass over the text as Slack will read it, before escaping. */
+export type SlackTextGuard = (text: string) => string;
+
+function outboxEscaper(
+  body: SurfaceOutboxEntry["body"],
+  guard: SlackTextGuard = (text) => text,
+) {
   return (value: string) =>
-    escapeSlackControls(value, {
+    escapeSlackControls(guard(value), {
       maskedLinks: "expand",
       ...(body.mention_user_ids === undefined
         ? {}
@@ -109,10 +119,11 @@ function sectionPieces(text: string): string[] | null {
  */
 export function slackReplyBlocks(
   body: SurfaceOutboxEntry["body"],
+  guard: SlackTextGuard = (text) => text,
 ): unknown[] | null {
   const parts = markdownToSlackParts(body.text);
   if (parts === null) return null;
-  const escaped = outboxEscaper(body);
+  const escaped = outboxEscaper(body, guard);
   const blocks: unknown[] = [];
   for (const part of parts) {
     if ("table" in part) {
@@ -120,7 +131,7 @@ export function slackReplyBlocks(
         type: "table",
         column_settings: part.table.rows[0]?.map(() => ({ is_wrapped: true })),
         rows: part.table.rows.map((row) =>
-          row.map((text) => ({ type: "raw_text", text })),
+          row.map((text) => ({ type: "raw_text", text: guard(text) })),
         ),
       });
       continue;
@@ -138,9 +149,12 @@ export function slackReplyBlocks(
   return blocks.length <= 50 ? blocks : null;
 }
 
-export function slackOutboxText(body: SurfaceOutboxEntry["body"]): string {
+export function slackOutboxText(
+  body: SurfaceOutboxEntry["body"],
+  guard?: SlackTextGuard,
+): string {
   const link = outboxLink(body) === "" ? "" : `\n\n${outboxLink(body)}`;
-  const escaped = outboxEscaper(body);
+  const escaped = outboxEscaper(body, guard);
   // Converted before the cut: the loop below re-escapes pieces of this text.
   const text = escaped(markdownToSlackMrkdwn(body.text));
   const room = SLACK_TEXT_MAX - link.length - 1;
@@ -171,6 +185,7 @@ export function sessionUrl(consoleOrigin: string | null, sessionId: string) {
 
 export function slackOutboxPresentation(
   claim: Pick<SurfaceOutboxClaim, "kind" | "body">,
+  guard?: SlackTextGuard,
 ):
   | {
       kind: "instruction";
@@ -188,19 +203,253 @@ export function slackOutboxPresentation(
   if (claim.body.blocks !== undefined) {
     return { kind: "blocks", blocks: claim.body.blocks, fallback: false };
   }
-  const blocks = claim.kind === "reply" ? slackReplyBlocks(claim.body) : null;
+  const blocks =
+    claim.kind === "reply" ? slackReplyBlocks(claim.body, guard) : null;
   return blocks === null
     ? { kind: "text" }
     : { kind: "blocks", blocks, fallback: true };
+}
+
+// Group notifications as Slack controls, and the bare words an app could
+// have Slack turn into them. The agent never calls a whole channel or group.
+const GROUP_CONTROL =
+  /(^|[ \t]+)?(?:<!(?:here|channel|everyone)(?:\|[^<>\n]*)?>|<!subteam\^[^<>\n]*>)([ \t]+)?/gim;
+const GROUP_WORD =
+  /(^|[ \t]+)?(?<![A-Za-z0-9@.])@(?:here|channel|everyone)(?![A-Za-z0-9])([ \t]+)?/gim;
+
+// One space stays where the mention stood between two words.
+const dropSpaced = (_: string, before?: string, after?: string) =>
+  before && after ? " " : "";
+
+/**
+ * The text without group mentions (G7), outside code: code shows them as
+ * written and escaped, so they notify no one there.
+ */
+export function stripSlackGroupMentions(text: string): string {
+  return mapCodeAndText(
+    text,
+    (part) =>
+      part.replace(GROUP_CONTROL, dropSpaced).replace(GROUP_WORD, dropSpaced),
+    (code) => code,
+  );
+}
+
+/** The one channel, in its team, a row's text may link to or name. */
+export type SlackOutboxScope = { teamId: string; channelId: string };
+
+/**
+ * The parent conversation's channel; a DM's is the row's own DM channel. A
+ * row with no conversation, or one sent outside it, has none.
+ */
+export function slackOutboxScope(
+  claim: Pick<SurfaceOutboxClaim, "channelId" | "conversationScope">,
+): SlackOutboxScope | null {
+  const scope = claim.conversationScope;
+  if (scope == null) return null;
+  const channelId =
+    scope.kind === "channel"
+      ? scope.channelId
+      : claim.channelId.startsWith("D")
+        ? claim.channelId
+        : null;
+  return channelId === null ? null : { teamId: scope.teamId, channelId };
+}
+
+function isSlackUrl(url: URL): boolean {
+  return (
+    url.protocol === "slack:" ||
+    url.hostname === "slack.com" ||
+    url.hostname.endsWith(".slack.com")
+  );
+}
+
+const CHANNEL_ID_IN_TEXT =
+  /(?<![A-Za-z0-9])[CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11}(?![A-Za-z0-9])/g;
+
+// A Slack id as Slack makes them: its kind's capital, then capitals and
+// digits with a digit among them. Links may write it in either case.
+const channelIdOf = (value: string) =>
+  /^[CGD](?=[A-Z0-9]*\d)[A-Z0-9]+$/i.test(value) ? value.toUpperCase() : null;
+const teamIdOf = (value: string) =>
+  /^[TE](?=[A-Z0-9]*\d)[A-Z0-9]+$/i.test(value) ? value.toUpperCase() : null;
+
+function parsedUrl(raw: string): URL | null {
+  for (const candidate of raw.includes("://") ? [raw] : [`https://${raw}`]) {
+    try {
+      return new URL(candidate);
+    } catch {}
+  }
+  return null;
+}
+
+// Each well-formed %XX, as often as it was encoded; a malformed one stays
+// as written and keeps none of the others from decoding.
+function decoded(value: string): string {
+  let text = value;
+  for (let pass = 0; pass < 5; pass += 1) {
+    const next = text.replace(/%([0-9A-Fa-f]{2})/g, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+    if (next === text) break;
+    text = next;
+  }
+  return text;
+}
+
+/**
+ * The channel and team ids a Slack URL names in its path or query
+ * (`/archives/C…`, `/client/T…/C…`, `?team=T…&id=C…`), percent-encoded
+ * or not; empty for any other URL.
+ */
+function slackUrlRefs(raw: string): { channels: string[]; teams: string[] } {
+  const refs = { channels: [] as string[], teams: [] as string[] };
+  // Any link, a fragment included, can carry an id as bare text would, and
+  // one that does not parse still shows it.
+  refs.channels = decoded(raw).match(CHANNEL_ID_IN_TEXT) ?? [];
+  const url = parsedUrl(raw);
+  if (url === null) return refs;
+  const values = [
+    ...url.pathname.split("/").map(decoded),
+    ...url.searchParams.values(),
+  ];
+  if (!isSlackUrl(url)) return refs;
+  for (const value of values) {
+    const channel = channelIdOf(value);
+    const team = channel === null ? teamIdOf(value) : null;
+    if (channel !== null) refs.channels.push(channel);
+    if (team !== null) refs.teams.push(team);
+  }
+  refs.channels = [...new Set(refs.channels)];
+  return refs;
+}
+
+// A Markdown link, a Slack control, a URL (any scheme, or a Slack host Slack
+// links without one), or a bare channel id.
+const SLACK_REFERENCE =
+  /\[([^\]\n]*)\]\(\s*<?([^()\s<>]+)>?\s*\)|<([^<>\n]+)>|((?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|\b(?:[A-Za-z0-9-]+\.)*slack\.com\/)[^\s<>()[\]|"'`]*)|(?<![A-Za-z0-9])([CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11})(?![A-Za-z0-9])/gi;
+
+/**
+ * The text without the Slack links and channel ids outside its scope (A3),
+ * and the ids that were outside. A link goes whole when its label holds one
+ * too. A stopgap only: a leak written out in words passes; the scope's
+ * isolation is what keeps a conversation's own.
+ */
+export function dropOutOfScopeSlackRefs(
+  text: string,
+  scope: SlackOutboxScope | null,
+): { text: string; dropped: string[] } {
+  const dropped: string[] = [];
+  const outside = (channels: string[], teams: string[]) => {
+    const out = [
+      ...channels.filter((id) => id !== scope?.channelId),
+      ...teams.filter((id) => id !== scope?.teamId),
+    ];
+    dropped.push(...out);
+    return out.length > 0;
+  };
+  const outsideUrl = (url: string) => {
+    const { channels, teams } = slackUrlRefs(url);
+    return outside(channels, teams);
+  };
+  const outsideLabel = (label: string) => {
+    const inner = dropOutOfScopeSlackRefs(label, scope).dropped;
+    dropped.push(...inner);
+    return inner.length > 0;
+  };
+  const kept = text.replace(
+    SLACK_REFERENCE,
+    (
+      whole,
+      markdownLabel?: string,
+      markdownUrl?: string,
+      control?: string,
+      bare?: string,
+      id?: string,
+    ) => {
+      if (markdownUrl !== undefined) {
+        const out = outsideUrl(markdownUrl);
+        return outsideLabel(markdownLabel ?? "") || out ? "" : whole;
+      }
+      if (control !== undefined) {
+        const bar = control.indexOf("|");
+        const target = bar === -1 ? control : control.slice(0, bar);
+        // Anything else in brackets is read as text: a bare id there too.
+        const out = target.startsWith("#")
+          ? outside([target.slice(1).toUpperCase()], [])
+          : target.includes("://")
+            ? outsideUrl(target)
+            : outsideLabel(target);
+        const label = bar === -1 ? "" : control.slice(bar + 1);
+        return outsideLabel(label) || out ? "" : whole;
+      }
+      if (bare !== undefined) {
+        // A sentence's full stop is not the URL's.
+        const url = bare.replace(/[.,;:!?]+$/, "");
+        return outsideUrl(url) ? bare.slice(url.length) : whole;
+      }
+      // The pattern's i flag reads a lower-case word too; a bare id is
+      // Slack's own capitals only.
+      return id !== undefined && id === id.toUpperCase() && outside([id], [])
+        ? ""
+        : whole;
+    },
+  );
+  return { text: kept, dropped };
+}
+
+/**
+ * What a row's text may say: no group mention, and, past a person's own words
+ * (an instruction or its mirror), no Slack reference outside the row's
+ * conversation. Each removal can join the text around it into a new one, so
+ * both run again until nothing changes; each pass only shortens the text.
+ * `dropped` gathers the ids taken out, over every text the guard is given.
+ */
+export function slackOutboxGuard(
+  claim: Pick<SurfaceOutboxClaim, "kind" | "channelId" | "conversationScope">,
+): { guard: SlackTextGuard; dropped: Set<string> } {
+  const own = claim.kind === "instruction" || claim.kind === "input_mirror";
+  const scope = slackOutboxScope(claim);
+  const dropped = new Set<string>();
+  const guard = (value: string) => {
+    let text = value;
+    for (;;) {
+      let next = stripSlackGroupMentions(text);
+      if (!own) {
+        const scoped = dropOutOfScopeSlackRefs(next, scope);
+        for (const id of scoped.dropped) dropped.add(id);
+        next = scoped.text;
+      }
+      if (next === text) return text;
+      text = next;
+    }
+  };
+  return { guard, dropped };
+}
+
+/**
+ * The body with its Markdown guarded. A card's blocks and text are its own,
+ * escaped already; its model text is left to the card's own renderer.
+ */
+export function guardSlackOutboxBody(
+  claim: Pick<
+    SurfaceOutboxClaim,
+    "kind" | "body" | "channelId" | "conversationScope"
+  >,
+): { body: SurfaceOutboxEntry["body"]; dropped: string[] } {
+  const { body } = claim;
+  if (body.blocks !== undefined) return { body, dropped: [] };
+  const { guard, dropped } = slackOutboxGuard(claim);
+  return { body: { ...body, text: guard(body.text) }, dropped: [...dropped] };
 }
 
 export function slackInstructionFallbackText(
   body: SurfaceOutboxEntry["body"],
   text: string,
   username: string,
+  guard?: SlackTextGuard,
 ): string {
   const named = `${username}\n`;
   return body.text.startsWith(named)
     ? text
-    : slackOutboxText({ ...body, text: named + body.text });
+    : slackOutboxText({ ...body, text: named + body.text }, guard);
 }
