@@ -152,6 +152,8 @@ export function ConversationsTab({
     onPageChange: setPage,
   });
   const forbidden = !manages || isApiError(pages.error, "FORBIDDEN");
+  // The agent went away after the page read it: no rows of it stay.
+  const gone = isApiError(pages.error, "NOT_FOUND");
   return (
     <Section
       className="min-w-0"
@@ -160,6 +162,13 @@ export function ConversationsTab({
     >
       {forbidden ? (
         <Text variant="sub">{t("agent.conversations.forbidden")}</Text>
+      ) : gone ? (
+        <EmptyState
+          framed
+          size="sm"
+          title={t("agent.notFound.title")}
+          description={t("agent.notFound.body")}
+        />
       ) : (
         <div className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-wrap gap-2">
@@ -211,7 +220,7 @@ export function ConversationsTab({
 // Started | requester | outcome | model | tokens | cost | links; one card per
 // row at 640px or less.
 const COLUMNS =
-  "max-content minmax(6rem,1fr) minmax(8rem,1.2fr) minmax(6rem,1fr) max-content max-content max-content";
+  "max-content minmax(0,1fr) minmax(0,1.2fr) minmax(0,1fr) max-content max-content max-content";
 const ALIGN = [
   "start",
   "start",
@@ -303,7 +312,10 @@ function TurnTable({ rows }: { readonly rows: readonly Turn[] }) {
           </GridTableCell>
           <GridTableCell cardLabel={column.outcome} className="min-w-0">
             <RowLines>
-              <StatusText status={STATE_DOT[row.state]}>
+              <StatusText
+                status={STATE_DOT[row.state]}
+                className="whitespace-normal"
+              >
                 {row.decision
                   ? t(DECISION_LABEL[row.decision])
                   : t(STATE_LABEL[row.state])}

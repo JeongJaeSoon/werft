@@ -108,7 +108,7 @@ describe("에이전트 상세의 대화 목록", () => {
     ).toBe("https://example.slack.com/archives/C01/p1700000000000100");
     expect(
       within(first)
-        .getByRole("link", { name: "작업 세션" })
+        .getByRole("link", { name: "스레드의 작업 세션" })
         .getAttribute("href"),
     ).toBe(`/sessions/${SESSION}`);
     expect(second.textContent).toContain("Slack 봇");
@@ -187,6 +187,60 @@ describe("에이전트 상세의 대화 목록", () => {
       ),
     ).toBeDefined();
     expect(screen.queryByRole("table", { name: "대화" })).toBeNull();
+  });
+
+  test("a new filter starts again from the first page, without the cursor", async () => {
+    const { api } = renderAt(TAB, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TURNS}`]: (request) => {
+        const params = new URL(request.url).searchParams;
+        if (params.get("initiator") === "person")
+          return json(200, {
+            items: [turn(3, { decision: "spawn_task" })],
+            next_cursor: null,
+          });
+        return params.get("cursor") === "next"
+          ? json(200, {
+              items: [turn(2, { decision: "no_reply" })],
+              next_cursor: null,
+            })
+          : json(200, {
+              items: Array.from({ length: 50 }, (_, n) => ({
+                ...turn(1),
+                id: `4c5d6e7f-0000-4000-8000-${String(n).padStart(12, "0")}` as ConversationTurnItem["id"],
+              })),
+              next_cursor: "next",
+            });
+      },
+    });
+    const user = await setupUser();
+    await table();
+    await user.click(
+      await screen.findByRole("button", { name: "다음 페이지" }),
+    );
+    expect(await screen.findByText("답하지 않음")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: /시작한 쪽/ }));
+    await user.click(await screen.findByRole("button", { name: "사람" }));
+    expect(await screen.findByText("새 작업 세션 시작")).toBeDefined();
+    const last = new URLSearchParams(reads(api).at(-1)?.search);
+    expect([last.get("initiator"), last.get("cursor")]).toEqual([
+      "person",
+      null,
+    ]);
+    expect(screen.queryByRole("navigation", { name: /페이지/ })).toBeNull();
+  });
+
+  test("an agent gone since the page read it says so instead of a retry", async () => {
+    renderAt(TAB, {
+      ...agentServer().routes,
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TURNS}`]: () => apiError(404, "NOT_FOUND", "not found"),
+    });
+    expect(
+      await screen.findByText("에이전트를 찾을 수 없습니다"),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
   });
 
   test("a failed read offers a retry", async () => {

@@ -45,7 +45,7 @@ export const agentConversationsKo = {
   "agent.conversations.tokensOut": "출력 {count}",
   "agent.conversations.unpriced": "집계 전 호출 {count}건",
   "agent.conversations.slackThread": "Slack 스레드",
-  "agent.conversations.taskSession": "작업 세션",
+  "agent.conversations.taskSession": "스레드의 작업 세션",
 } as const;
 
 export const agentConversationsEn: Record<
@@ -98,7 +98,7 @@ export const agentConversationsEn: Record<
   "agent.conversations.tokensOut": "Out {count}",
   "agent.conversations.unpriced": "{count} calls not counted yet",
   "agent.conversations.slackThread": "Slack thread",
-  "agent.conversations.taskSession": "Task session",
+  "agent.conversations.taskSession": "Task session in the thread",
 };
 
 export const agentConversationsJa: Record<
@@ -151,5 +151,5 @@ export const agentConversationsJa: Record<
   "agent.conversations.tokensOut": "出力 {count}",
   "agent.conversations.unpriced": "未集計の呼び出し {count}件",
   "agent.conversations.slackThread": "Slackスレッド",
-  "agent.conversations.taskSession": "作業セッション",
+  "agent.conversations.taskSession": "スレッドの作業セッション",
 };
