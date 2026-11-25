@@ -20,11 +20,16 @@ import {
 import { createLogger } from "@werft-ai/observability";
 import {
   createGitHubMcpServer,
+  createWerftMcpServer,
   createWorkerGateway,
   GITHUB_MCP_UPSTREAM_PATH,
   githubMcpBinding,
   type PushActor,
   type SessionCatalog,
+  WERFT_MCP_INSTRUCTIONS,
+  WERFT_MCP_UPSTREAM_PATH,
+  werftMcpBinding,
+  werftMcpToolNames,
 } from "@werft-ai/platform";
 import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
@@ -35,7 +40,9 @@ import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
   githubMcpGrantKeyOf,
+  werftMcpGrantKeyOf,
 } from "./egress-authorizer.ts";
+import { werftMcpParts } from "./werft-mcp.ts";
 
 const AUTHORIZER_BEARER = "authorizer-bearer-for-tests-0123456789abcdef";
 const GRANT_KEY = githubMcpGrantKeyOf({
@@ -43,6 +50,14 @@ const GRANT_KEY = githubMcpGrantKeyOf({
   port: 1,
   token: AUTHORIZER_BEARER,
 });
+
+const WERFT_GRANT_KEY = werftMcpGrantKeyOf({
+  hostname: "127.0.0.1",
+  port: 1,
+  token: AUTHORIZER_BEARER,
+});
+const WERFT_VERSION = "v9.9.9-test";
+const werftParts = werftMcpParts({ version: WERFT_VERSION });
 
 const catalog: SessionCatalog = testCatalog({
   provider: {
@@ -96,6 +111,10 @@ beforeEach(async () => {
     checkpoints: acceptAllCheckpoints,
     mcp: createPostgresMcpEgressStore(db),
     githubMcp: { store, grantKey: GRANT_KEY },
+    werftMcp: {
+      grantKey: WERFT_GRANT_KEY,
+      tools: werftMcpToolNames(werftParts),
+    },
     options: {
       sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 60_000,
@@ -108,6 +127,13 @@ beforeEach(async () => {
     gateway,
     logger: createLogger({ sinks: [] }),
     token: AUTHORIZER_BEARER,
+    werftMcp: {
+      grantKey: WERFT_GRANT_KEY,
+      handle: createWerftMcpServer({
+        parts: werftParts,
+        version: WERFT_VERSION,
+      }),
+    },
     githubMcp: {
       grantKey: GRANT_KEY,
       handle: createGitHubMcpServer({
@@ -149,7 +175,12 @@ afterEach(async () => {
 });
 
 async function seeded(
-  options: { github?: AgentGitHub | null; remote?: boolean } = {},
+  options: {
+    github?: AgentGitHub | null;
+    remote?: boolean;
+    /** The release denies the built-in `werft` server every way a release can. */
+    denyWerft?: boolean;
+  } = {},
 ) {
   const github = options.github === undefined ? settings() : options.github;
   const workspaceId = randomUUID();
@@ -201,13 +232,20 @@ async function seeded(
       cardSha256: "0".repeat(64),
       connectionId: TEST_CONNECTION_ID,
       ...releaseSpecColumns({ tools: ["Read"] }),
-      runtimeConfigSnapshot: { tools: ["Read"] },
+      runtimeConfigSnapshot: {
+        tools: ["Read"],
+        ...(options.denyWerft
+          ? { mcp_deny: ["mcp__werft__*", "mcp__werft__anything"] }
+          : {}),
+      },
       effectiveTools: { tools: ["Read"], mcp: [] },
       policyPins: {
         tools: {
-          per_tool: options.remote
-            ? { Read: "allow", mcp__fake__whoami: "allow" }
-            : { Read: "allow" },
+          per_tool: {
+            Read: "allow",
+            ...(options.remote ? { mcp__fake__whoami: "allow" } : {}),
+            ...(options.denyWerft ? { mcp__werft__anything: "deny" } : {}),
+          },
         },
         ...(github === null ? {} : { github }),
       },
@@ -283,11 +321,15 @@ function authorize(body: unknown) {
 
 // What the proxy does with a grant: the path on the authorizer, the
 // grant's headers in place of the worker's.
-async function relay(token: unknown, message: Record<string, unknown>) {
+async function relay(
+  token: unknown,
+  message: Record<string, unknown>,
+  server: "github" | "werft" = "github",
+) {
   const granted = await authorize({
     token,
     purpose: "mcp",
-    server: "github",
+    server,
     rpc: {
       method: message.method ?? null,
       tool:
@@ -329,6 +371,7 @@ describe("the built-in github MCP server on stored rows", () => {
         binding: githubMcpBinding(releaseId),
         access: { kind: "egress_token", token: expect.any(String) },
       }),
+      expect.objectContaining({ name: "werft", binding: werftMcpBinding() }),
     ]);
     expect(claim.runtime_config.tools).toEqual([
       "Read",
@@ -350,10 +393,10 @@ describe("the built-in github MCP server on stored rows", () => {
     expect(JSON.stringify(claim)).not.toMatch(GITHUB_TOKEN_SHAPES);
   });
 
-  test("beside a retired catalog server it is claimed alone, and the token reaches no other", async () => {
+  test("beside a retired catalog server it is claimed without that server, and the token does not reach it", async () => {
     const { claim } = await seeded({ remote: true });
     const servers = claim.runtime_config.mcp_servers ?? [];
-    expect(servers.map((server) => server.name)).toEqual(["github"]);
+    expect(servers.map((server) => server.name)).toEqual(["github", "werft"]);
     const token = servers[0]?.access.token;
     const remote = await authorize({
       token,
@@ -382,10 +425,19 @@ describe("the built-in github MCP server on stored rows", () => {
   test("a checkpoint made before get_pull_request was added still restores", async () => {
     const { claim } = await seeded({ github: settings({ actions: true }) });
     const current = claim.runtime_config;
+    // Every one of them is from before the built-in `werft` server: the
+    // config as it ran then, the one before `github`, and the earlier list.
+    const beforeWerft = {
+      ...current,
+      mcp_servers: current.mcp_servers?.filter(
+        (server) => server.name === "github",
+      ),
+    };
     expect(claim.restore_runtime_configs).toEqual([
+      beforeWerft,
       expect.objectContaining({ tools: ["Read"] }),
       {
-        ...current,
+        ...beforeWerft,
         tools: current.tools.filter(
           (tool) => tool !== "mcp__github__get_pull_request",
         ),
@@ -393,7 +445,7 @@ describe("the built-in github MCP server on stored rows", () => {
     ]);
   });
 
-  test("beside a retired catalog server, the configs a claim offered before come first, then today's", async () => {
+  test("beside a retired catalog server, the config from before werft comes first, then the configs a claim offered before the retire, then today's", async () => {
     const { claim } = await seeded({ remote: true });
     expect(
       claim.restore_runtime_configs?.map((config) => [
@@ -402,6 +454,7 @@ describe("the built-in github MCP server on stored rows", () => {
         config.tools.some((tool) => tool.startsWith("mcp__github__")),
       ]),
     ).toEqual([
+      [["github"], true, true],
       [["fake", "github"], true, true],
       [["fake"], false, false],
       [["fake", "github"], false, true],
@@ -410,9 +463,11 @@ describe("the built-in github MCP server on stored rows", () => {
     ]);
   });
 
-  test("a release without GitHub settings attaches no server", async () => {
+  test("a release without GitHub settings attaches only the built-in werft server", async () => {
     const { claim } = await seeded({ github: null });
-    expect(claim.runtime_config.mcp_servers).toBeUndefined();
+    expect(
+      claim.runtime_config.mcp_servers?.map((server) => server.name),
+    ).toEqual(["werft"]);
     expect(claim.runtime_config.tools).toEqual(["Read"]);
   });
 
@@ -547,5 +602,120 @@ describe("the built-in github MCP server on stored rows", () => {
         )
       ).status,
     ).toBe(202);
+  });
+});
+
+describe("the built-in werft MCP server on stored rows", () => {
+  const grantFor = async (token: unknown, server: "github" | "werft") =>
+    (
+      (await (
+        await authorize({
+          token,
+          purpose: "mcp",
+          server,
+          rpc: { method: "tools/list", tool: null },
+        })
+      ).json()) as {
+        upstream: { url: string; headers: Array<[string, string]> };
+      }
+    ).upstream;
+  const call = (path: string, headers: Array<[string, string]>) =>
+    serve(
+      new Request(`http://authorizer.invalid${path}`, {
+        method: "POST",
+        headers: [["content-type", "application/json"], ...headers],
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+    );
+
+  // Every session has it, last, whatever its release says of GitHub, MCP
+  // tools or their policy.
+  const releases: Array<[string, Parameters<typeof seeded>[0]]> = [
+    ["has no GitHub settings", { github: null }],
+    ["has GitHub settings", { github: settings() }],
+    ["named a retired catalog server", { remote: true }],
+    [
+      "denies its tools by name, by server and by policy",
+      { github: null, denyWerft: true },
+    ],
+  ];
+  for (const [what, release] of releases) {
+    test(`a session whose release ${what} has it`, async () => {
+      const { claim } = await seeded(release);
+      expect(claim.runtime_config.mcp_servers?.at(-1)).toEqual(
+        expect.objectContaining({ name: "werft", binding: werftMcpBinding() }),
+      );
+      // None of its tools is in the list a checkpoint is stamped with.
+      expect(
+        claim.runtime_config.tools.filter((tool) =>
+          tool.startsWith("mcp__werft__"),
+        ),
+      ).toEqual([]);
+    });
+  }
+
+  test("its handshake reaches the session through the authorizer, with the instructions and the build's version", async () => {
+    const { token } = await seeded({ github: null });
+    const answered = await relay(
+      token,
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+      "werft",
+    );
+    expect(answered.status).toBe(200);
+    expect(answered.body).toMatchObject({
+      result: {
+        serverInfo: { name: "werft", version: WERFT_VERSION },
+        instructions: WERFT_MCP_INSTRUCTIONS,
+      },
+    });
+  });
+
+  test("a release that denies it still reaches it, and it lists what its parts serve", async () => {
+    const { token } = await seeded({ github: null, denyWerft: true });
+    const listed = await relay(
+      token,
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      "werft",
+    );
+    expect(listed.status).toBe(200);
+    expect(
+      (
+        listed.body as { result: { tools: Array<{ name: string }> } }
+      ).result.tools.map((tool) => tool.name),
+    ).toEqual(werftMcpToolNames(werftParts));
+  });
+
+  test("a grant for one built-in server does not open the other", async () => {
+    const { token } = await seeded();
+    const werft = await grantFor(token, "werft");
+    const github = await grantFor(token, "github");
+    expect(werft.url).toBe(WERFT_MCP_UPSTREAM_PATH);
+    expect(github.url).toBe(GITHUB_MCP_UPSTREAM_PATH);
+    expect((await call(werft.url, werft.headers)).status).toBe(200);
+    expect((await call(github.url, github.headers)).status).toBe(200);
+    expect((await call(werft.url, github.headers)).status).toBe(401);
+    expect((await call(github.url, werft.headers)).status).toBe(401);
+    // Nor does the authorizer's own bearer.
+    expect(
+      (
+        await call(werft.url, [
+          ["authorization", `Bearer ${AUTHORIZER_BEARER}`],
+        ])
+      ).status,
+    ).toBe(401);
+  });
+
+  test("it answers no secret: neither a grant nor a token is in what it returns", async () => {
+    const { token } = await seeded({ github: null });
+    for (const method of ["initialize", "tools/list"]) {
+      const answered = await relay(
+        token,
+        { jsonrpc: "2.0", id: 1, method, params: {} },
+        "werft",
+      );
+      const text = JSON.stringify(answered.body);
+      expect(text).not.toContain(String(token));
+      expect(text).not.toMatch(GITHUB_TOKEN_SHAPES);
+    }
   });
 });

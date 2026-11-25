@@ -217,13 +217,18 @@ const skipped = (sessionId: string) =>
 describe("a session of a release that named a retired catalog server", () => {
   test("starts with that credential unbound, and claims without the server or its tools", async () => {
     const { claim } = await seeded();
-    expect(claim.runtime_config.mcp_servers).toBeUndefined();
+    // Only the built-in `werft` server, which every session has.
+    expect(
+      claim.runtime_config.mcp_servers?.map((server) => server.name),
+    ).toEqual(["werft"]);
     expect(claim.runtime_config.tools).toEqual(["Read"]);
   });
 
-  test("is offered first the config a claim gave before, for a checkpoint taken with the server", async () => {
+  test("is offered the config a claim gave before, for a checkpoint taken with the server, after the one it ran before werft", async () => {
     const { releaseId, claim } = await seeded();
-    const [first] = claim.restore_runtime_configs ?? [];
+    const [beforeWerft, first] = claim.restore_runtime_configs ?? [];
+    expect(beforeWerft?.mcp_servers).toBeUndefined();
+    expect(beforeWerft?.tools).toEqual(["Read"]);
     expect(first?.tools).toEqual(["Read", "mcp__fake__whoami"]);
     expect(first?.mcp_servers).toEqual([
       {
@@ -240,16 +245,20 @@ describe("a session of a release that named a retired catalog server", () => {
 
   test("a call to the server after a restore is refused", async () => {
     const { claim } = await seeded();
-    const token =
-      claim.restore_runtime_configs?.[0]?.mcp_servers?.[0]?.access.token;
+    // The attempt's one MCP token, as the restore config names it too.
+    const token = claim.runtime_config.mcp_servers?.[0]?.access.token;
+    expect(
+      claim.restore_runtime_configs?.[1]?.mcp_servers?.[0]?.access.token,
+    ).toBe(token);
     const refused = await ask({
       token,
       purpose: "mcp",
       server: "fake",
       rpc: { method: "tools/call", tool: "whoami" },
     });
-    // The claim held no server, so no MCP token was issued to call it with.
-    expect(refused.status).toBe(401);
+    // The token is for the built-in `werft` server: the retired one is no
+    // server of the session, and the catalog holds none.
+    expect(refused.status).toBe(403);
   });
 
   test("the skip is one line of the session, and a claim again adds none", async () => {

@@ -118,12 +118,17 @@ describe("run configs kept on the session row, at claim", () => {
     const response = await claimWith(connection, {
       legacyRuntimeConfigs: [stored],
     }).claimed;
-    const [offered] = response.restore_runtime_configs ?? [];
-    expect(offered).toMatchObject({
-      model: "sonnet-5-0",
-      permission_mode: "bypassPermissions",
-      provider: { auth: response.runtime_config.provider.auth },
-    });
+    // After the running config as it was before `werft`: the kept one with
+    // `werft` and without it.
+    const [, ...offered] = response.restore_runtime_configs ?? [];
+    expect(offered.map((c) => (c.mcp_servers ?? []).length)).toEqual([1, 0]);
+    for (const config of offered) {
+      expect(config).toMatchObject({
+        model: "sonnet-5-0",
+        permission_mode: "bypassPermissions",
+        provider: { auth: response.runtime_config.provider.auth },
+      });
+    }
     expect(JSON.stringify(response)).not.toContain(LEGACY_CONFIG_TOKEN);
     expect(bootstrapClaimResponseSchema.safeParse(response).success).toBe(true);
   });
@@ -135,9 +140,14 @@ describe("run configs kept on the session row, at claim", () => {
     }).claimed;
     expect(
       response.restore_runtime_configs?.map(
-        (c) => `${c.model}/${c.permission_mode}`,
+        (c) =>
+          `${c.model}/${c.permission_mode}/${(c.mcp_servers ?? []).map((s) => s.name)}`,
       ),
-    ).toEqual(["sonnet-5-0/bypassPermissions"]);
+    ).toEqual([
+      "sonnet-5-1/auto/",
+      "sonnet-5-0/bypassPermissions/werft",
+      "sonnet-5-0/bypassPermissions/",
+    ]);
   });
 
   test("with github tools added, the configs offered before keep their places and the earlier lists fill what the cap leaves", async () => {
@@ -165,25 +175,43 @@ describe("run configs kept on the session row, at claim", () => {
         ),
       };
     };
-    // What the claim offered before any earlier list: the running config
-    // without the server, then each kept one with it and without it.
+    // What the claim offers before any earlier list: the running config
+    // before `werft` and without `github`, then each kept one with both
+    // servers, before `werft` and without `github`.
     const before = (models: string[]) => [
+      "sonnet-5-1 1 3",
       "sonnet-5-1 0 0",
-      ...models.flatMap((model) => [`${model} 1 3`, `${model} 0 0`]),
+      ...models.flatMap((model) => [
+        `${model} 2 3`,
+        `${model} 1 3`,
+        `${model} 0 0`,
+      ]),
     ];
     // The running config before get_pull_request, then each kept one the
-    // same way, to the cap.
-    const five = await shapesWith(5);
-    expect(five.shapes).toEqual([
-      ...before(five.models),
+    // same way, to the cap. Every earlier list is from before `werft`.
+    const three = await shapesWith(3);
+    expect(three.shapes).toEqual([
+      ...before(three.models),
       "sonnet-5-1 1 2",
-      ...five.models.slice(0, 4).map((model) => `${model} 1 2`),
+      ...three.models.map((model) => `${model} 1 2`),
     ]);
-    const seven = await shapesWith(7);
-    expect(seven.shapes).toEqual([...before(seven.models), "sonnet-5-1 1 2"]);
-    // Eight kept configs already overflowed the cap: the same 16 as before.
-    const eight = await shapesWith(8);
-    expect(eight.shapes).toEqual(before(eight.models).slice(0, 16));
+    const four = await shapesWith(4);
+    expect(four.shapes).toEqual([
+      ...before(four.models),
+      "sonnet-5-1 1 2",
+      `${four.models[0]} 1 2`,
+    ]);
+    // Five kept configs already overflow the cap: the first 16 of them.
+    const five = await shapesWith(5);
+    expect(five.shapes).toEqual(before(five.models).slice(0, 16));
+  });
+
+  // The earlier lists are offered without the built-in `werft` server,
+  // since both additions so far were made before it was attached. The next
+  // one is made after: its earlier list has to be offered with `werft` too
+  // (`offeredFor` in worker-gateway.ts), and then this count moves.
+  test("no github tool was added after the built-in werft server was attached", () => {
+    expect(GITHUB_TOOL_ADDITIONS).toHaveLength(2);
   });
 
   test("every github tool has its place in the order the server gained them", () => {
@@ -222,11 +250,13 @@ describe("run configs kept on the session row, at claim", () => {
     ]);
   });
 
-  test("an entry that no longer parses, or no entry, offers nothing", async () => {
+  test("an entry that no longer parses, or no entry, offers nothing of its own", async () => {
     for (const legacyRuntimeConfigs of [null, undefined, {}, [{ model: 1 }]]) {
       const response = await claimWith(connection, { legacyRuntimeConfigs })
         .claimed;
-      expect(response.restore_runtime_configs).toBeUndefined();
+      // Only the running config as it was before `werft`.
+      const { mcp_servers: _, ...beforeWerft } = response.runtime_config;
+      expect(response.restore_runtime_configs).toEqual([beforeWerft]);
     }
   });
 });
@@ -289,7 +319,11 @@ describe("a model that left the list, at claim", () => {
       ],
     }).claimed;
     expect(response.runtime_config.model).toBe("sonnet-5-1");
+    // The new model as it ran before `werft`, then the old one with
+    // `werft` and without it.
     expect(response.restore_runtime_configs?.map((c) => c.model)).toEqual([
+      "sonnet-5-1",
+      "sonnet-5-0",
       "sonnet-5-0",
     ]);
     expect(bootstrapClaimResponseSchema.safeParse(response).success).toBe(true);

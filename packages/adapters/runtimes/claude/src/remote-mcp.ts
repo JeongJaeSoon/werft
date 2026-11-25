@@ -5,13 +5,28 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolRequestSchema,
   type CallToolResult,
+  GetPromptRequestSchema,
+  InitializeRequestSchema,
+  type InitializeResult,
+  LATEST_PROTOCOL_VERSION,
+  ListPromptsRequestSchema,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
+  ReadResourceRequestSchema,
+  SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { messageOf } from "@werft-ai/runtime-core";
 
 const CALL_TIMEOUT_MS = 30 * 60_000;
 const MAX_LIST_PAGES = 50;
+/**
+ * How long the engine's handshake waits for a platform server's own. Past
+ * it the engine starts without the server's instructions, resources and
+ * prompts; its tools still answer once the server does.
+ */
+const HANDSHAKE_WAIT_MS = 5_000;
 
 const listedDescriptions = new WeakMap<McpServer, Map<string, string>>();
 
@@ -41,8 +56,14 @@ export type RemoteMcpServer = {
   url: string;
   /** The attempt's egress token for that route. */
   token: string;
-  /** The `mcp__<name>__<tool>` names the release allows. */
+  /** The `mcp__<name>__<tool>` names the run exposes. */
   tools: readonly string[];
+  /**
+   * The platform's own server: the engine also gets what the server says of
+   * itself (its instructions) and its resources and prompts. A remote server
+   * an administrator named gives the engine its pinned tools and nothing else.
+   */
+  platform?: boolean;
 };
 
 /**
@@ -50,7 +71,7 @@ export type RemoteMcpServer = {
  * and the relay talks to the egress proxy with the attempt's token. The
  * token stays in this process, never in the engine's argv or environment,
  * where `--mcp-config` would have put it. The engine sees only the tools the
- * release pins; the proxy refuses any other call on its own.
+ * run exposes; the proxy refuses any other call on its own.
  */
 export function remoteMcpRelay(server: RemoteMcpServer): {
   type: "sdk";
@@ -79,9 +100,16 @@ export function remoteMcpRelay(server: RemoteMcpServer): {
     });
     return upstream;
   };
+  const platform = server.platform === true;
   const relay = new McpServer(
     { name: server.name, version: "1" },
-    { capabilities: { tools: {} } },
+    {
+      // What a handler may be registered for; the handshake below tells the
+      // engine only what the server itself has.
+      capabilities: platform
+        ? { tools: {}, resources: {}, prompts: {} }
+        : { tools: {} },
+    },
   );
   relay.server.setRequestHandler(ListToolsRequestSchema, async (_, extra) => {
     const client = await connected();
@@ -124,6 +152,73 @@ export function remoteMcpRelay(server: RemoteMcpServer): {
       }
     },
   );
+  if (platform) {
+    // The engine's handshake waits for the server's, so what the server says
+    // of itself reaches the engine as its own. A server that does not answer
+    // in time is shown with its tools alone.
+    relay.server.setRequestHandler(
+      InitializeRequestSchema,
+      async (request): Promise<InitializeResult> => {
+        const asked = request.params.protocolVersion;
+        const client = await Promise.race([
+          connected().catch(() => undefined),
+          new Promise<undefined>((resolve) => {
+            setTimeout(resolve, HANDSHAKE_WAIT_MS, undefined).unref?.();
+          }),
+        ]);
+        const served = client?.getServerCapabilities();
+        const instructions = client?.getInstructions();
+        return {
+          protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(asked)
+            ? asked
+            : LATEST_PROTOCOL_VERSION,
+          capabilities: {
+            tools: {},
+            ...(served?.resources === undefined ? {} : { resources: {} }),
+            ...(served?.prompts === undefined ? {} : { prompts: {} }),
+          },
+          serverInfo: { name: server.name, version: "1" },
+          ...(instructions === undefined || instructions === ""
+            ? {}
+            : { instructions }),
+        };
+      },
+    );
+    // Read-only and the platform's own: passed through as the server answers.
+    relay.server.setRequestHandler(
+      ListResourcesRequestSchema,
+      async (request, extra) =>
+        (await connected()).listResources(request.params, {
+          signal: extra.signal,
+        }),
+    );
+    relay.server.setRequestHandler(
+      ListResourceTemplatesRequestSchema,
+      async (request, extra) =>
+        (await connected()).listResourceTemplates(request.params, {
+          signal: extra.signal,
+        }),
+    );
+    relay.server.setRequestHandler(
+      ReadResourceRequestSchema,
+      async (request, extra) =>
+        (await connected()).readResource(request.params, {
+          signal: extra.signal,
+        }),
+    );
+    relay.server.setRequestHandler(
+      ListPromptsRequestSchema,
+      async (request, extra) =>
+        (await connected()).listPrompts(request.params, {
+          signal: extra.signal,
+        }),
+    );
+    relay.server.setRequestHandler(
+      GetPromptRequestSchema,
+      async (request, extra) =>
+        (await connected()).getPrompt(request.params, { signal: extra.signal }),
+    );
+  }
   return { type: "sdk", name: server.name, instance: relay };
 }
 

@@ -7,6 +7,8 @@ import {
 import {
   mcpBinding,
   type SessionWorkspaceMcp,
+  WERFT_MCP_ENDPOINT,
+  werftMcpBinding,
   workspaceMcpBinding,
 } from "../catalog/catalog.ts";
 import type {
@@ -139,7 +141,7 @@ const bindingsInput = (
 });
 
 describe("workspace MCP servers in the claim", () => {
-  test("a worker that announced workspace_mcp gets workspace, then github entries", async () => {
+  test("a worker that announced workspace_mcp gets workspace, then github, then werft entries", async () => {
     const { claim, asked } = claimWith(
       { outcome: "claimed", binding },
       { workspace_mcp: true },
@@ -155,6 +157,7 @@ describe("workspace MCP servers in the claim", () => {
     ).toEqual([
       ["docs", docs.url, workspaceMcpBinding(docs)],
       ["github", expect.any(String), expect.any(String)],
+      ["werft", WERFT_MCP_ENDPOINT, werftMcpBinding()],
     ]);
     expect(response.runtime_config.tools).toContain("mcp__docs__search");
     expect(bootstrapClaimResponseSchema.safeParse(response).success).toBe(true);
@@ -169,12 +172,14 @@ describe("workspace MCP servers in the claim", () => {
       const response = (await claim) as Claimed;
       expect(
         response.runtime_config.mcp_servers?.map((server) => server.name),
-      ).toEqual(["github"]);
+      ).toEqual(["github", "werft"]);
+      // The config before `werft`, then the one before `github`: none that
+      // only leaves workspace servers out.
       expect(
         response.restore_runtime_configs?.map((config) =>
           config.mcp_servers?.map((server) => server.name),
         ),
-      ).not.toContainEqual(["github"]);
+      ).toEqual([["github"], undefined]);
     }
   });
 
@@ -227,7 +232,7 @@ describe("workspace MCP servers in the claim", () => {
     manifest_sha256: "0".repeat(64),
   };
 
-  test("a session a claim gave the retired catalog server claims without it, and is offered that claim's config first", async () => {
+  test("a session a claim gave the retired catalog server claims without it, and is offered that claim's config after the one it ran before werft", async () => {
     const { claim } = claimWith(
       {
         outcome: "claimed",
@@ -246,9 +251,13 @@ describe("workspace MCP servers in the claim", () => {
     const response = (await claim) as Claimed;
     expect(
       response.runtime_config.mcp_servers?.map((server) => server.name),
-    ).toEqual(["docs", "github"]);
+    ).toEqual(["docs", "github", "werft"]);
     expect(response.runtime_config.tools).not.toContain("mcp__fake__whoami");
-    const [first] = response.restore_runtime_configs ?? [];
+    const [beforeWerft, first] = response.restore_runtime_configs ?? [];
+    expect(beforeWerft?.mcp_servers?.map((server) => server.name)).toEqual([
+      "docs",
+      "github",
+    ]);
     expect(
       first?.mcp_servers?.map((server) => [server.name, server.binding]),
     ).toEqual([
@@ -288,6 +297,7 @@ describe("workspace MCP servers in the claim", () => {
   describe("the retired server's configs under the restore cap", () => {
     // One server, no workspace or github one: each kept config offers one
     // config with the retired server, so the counts are the kept configs.
+    // The config the session ran before `werft` takes the first slot.
     const bare = { ...binding, workspaceMcp: [], githubMcp: null };
     type Served = {
       runtime_config: RuntimeConfig;
@@ -333,16 +343,19 @@ describe("workspace MCP servers in the claim", () => {
     const models = (count: number) =>
       Array.from({ length: count }, (_, at) => `sonnet-4-${at}`);
 
-    test("sixteen of them are all offered, the claim's running one first, and nothing is reported", async () => {
+    test("fifteen of them are all offered, the claim's running one first, and nothing is reported", async () => {
       const { response, dropped, retiredModels } = await claimKept(
-        await keptOf(models(15)),
+        await keptOf(models(14)),
       );
       expect(response.restore_runtime_configs).toHaveLength(
         MAX_RESTORE_CONFIGS,
       );
+      expect(
+        response.restore_runtime_configs?.[0]?.mcp_servers,
+      ).toBeUndefined();
       expect(retiredModels).toEqual([
         response.runtime_config.model,
-        ...models(15),
+        ...models(14),
       ]);
       expect(dropped).toEqual([]);
     });
@@ -355,16 +368,16 @@ describe("workspace MCP servers in the claim", () => {
       expect(dropped).toEqual([]);
     });
 
-    test("seventeen lose the oldest one, and the drop is reported with the session and the count", async () => {
+    test("sixteen lose the oldest one, and the drop is reported with the session and the count", async () => {
       const { response, dropped, retiredModels } = await claimKept(
-        await keptOf(models(16)),
+        await keptOf(models(15)),
       );
       expect(response.restore_runtime_configs).toHaveLength(
         MAX_RESTORE_CONFIGS,
       );
       expect(retiredModels).toEqual([
         response.runtime_config.model,
-        ...models(15),
+        ...models(14),
       ]);
       expect(dropped).toEqual([{ sessionId: SESSION, dropped: 1 }]);
     });

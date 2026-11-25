@@ -113,7 +113,7 @@ describe("push, pull request and repository read tools, across worker versions",
   test("a worker without the capability gets a claim with neither key, and its old strict schema parses it", async () => {
     const claim = await claimWith();
     const servers = claim.runtime_config.mcp_servers ?? [];
-    expect(servers).toHaveLength(1);
+    expect(servers.map((server) => server.name)).toEqual(["github", "werft"]);
     for (const server of servers) {
       expect(Object.keys(server)).not.toContain("platform");
       expect(Object.keys(server)).not.toContain("trusted");

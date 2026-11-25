@@ -8,6 +8,7 @@ import {
 import {
   assertGitEnvironment,
   assertUserEnvironment,
+  exposedMcpTools,
   type RuntimeHostDeps,
   type RuntimeProfileInput,
   type RuntimeStart,
@@ -340,9 +341,9 @@ export function codexLaunch(
       {
         url,
         bearer_token_env_var: MCP_RELAY_SECRET_VARIABLE,
-        enabled_tools: server.tools
-          .filter((tool) => tool.startsWith(prefix))
-          .map((tool) => tool.slice(prefix.length)),
+        enabled_tools: exposedMcpTools(server).map((tool) =>
+          tool.slice(prefix.length),
+        ),
       },
     ]);
   }

@@ -433,6 +433,15 @@ describe("resolveReleaseContent", () => {
     expect(withPerTool({ mcp__github__made_up: "deny" }).ok).toBe(false);
     // A server that only starts with the same letters is another server.
     expect(withPerTool({ mcp__github_enterprise__x: "allow" }).ok).toBe(true);
+    // The built-in werft server is every session's: no policy is taken for
+    // its tools, a deny least of all.
+    for (const policy of ["allow", "ask", "deny"] as const) {
+      const werft = withPerTool({ mcp__werft__anything: policy });
+      expect(!werft.ok && werft.error.message).toBe(
+        "mcp__werft__anything belongs to the built-in werft server, which every session has and no policy changes",
+      );
+    }
+    expect(withPerTool({ mcp__werft_docs__x: "deny" }).ok).toBe(true);
   });
 
   test("refuses a card on a model the connection does not offer", () => {

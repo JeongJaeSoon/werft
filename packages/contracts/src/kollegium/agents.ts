@@ -123,6 +123,12 @@ export const mcpServerIdSchema = z
  * built-in server and one kept for a future built-in.
  */
 export const MCP_RESERVED_SERVER_NAMES = ["github", "browser"] as const;
+/**
+ * The built-in MCP server every session has, whatever its agent or workspace
+ * says: the agent reads how Werft works and what it is connected to through
+ * it. Nothing turns it off, and no other MCP server takes its name.
+ */
+export const WERFT_MCP_SERVER = "werft";
 /** Shown wherever an installation catalog MCP entry is refused. */
 export const RETIRED_CATALOG_MCP_MESSAGE =
   "설치 카탈로그 MCP는 없어졌다. 워크스페이스 MCP 서버로 등록해 고른다";

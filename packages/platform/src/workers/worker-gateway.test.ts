@@ -10,6 +10,8 @@ import {
   type CatalogRepository,
   repositoryBinding,
   type SessionCatalog,
+  WERFT_MCP_ENDPOINT,
+  werftMcpBinding,
 } from "../catalog/catalog.ts";
 import {
   type GitHubConnection,
@@ -837,6 +839,15 @@ describe("WorkerGateway", () => {
         auth: { kind: "egress_token", token: expect.stringMatching(/^wep_/) },
       },
       project_settings: { claude_md: true },
+      // Every session has the built-in `werft` server.
+      mcp_servers: [
+        {
+          name: "werft",
+          endpoint: WERFT_MCP_ENDPOINT,
+          binding: werftMcpBinding(),
+          access: { kind: "egress_token", token: expect.any(String) },
+        },
+      ],
     });
     expect(JSON.stringify(claimed)).not.toContain("provider-key");
     const [egress] = issued;
@@ -866,6 +877,7 @@ describe("WorkerGateway", () => {
         repositoryId: "sample-app",
       }),
     ).toEqual({
+      mcp: werftMcpBinding(),
       object_store: "sessions/s-1/",
       packages: "public",
       provider: binding.specDigest,
@@ -1497,6 +1509,8 @@ describe("WorkerGateway", () => {
       provider: binding.specDigest,
       repository: "attached-only",
       object_store: "sessions/s-1/",
+      // The only MCP server it has: the built-in `werft`.
+      mcp: werftMcpBinding(),
       packages: "public",
     });
     expect(() =>
@@ -1554,7 +1568,9 @@ describe("WorkerGateway", () => {
         credential: { kind: "launch_nonce", nonce: "n" },
       },
     );
-    expect(claimed.runtime_config.mcp_servers ?? []).toEqual([]);
+    expect(
+      (claimed.runtime_config.mcp_servers ?? []).map((server) => server.name),
+    ).toEqual(["werft"]);
     expect(claimed.runtime_config.tools).not.toContain("mcp__gone__search");
     const [egress] = issued;
     if (!egress) throw new Error("claim was not asked to issue egress tokens");
@@ -1568,7 +1584,8 @@ describe("WorkerGateway", () => {
         githubPolicySource: "release",
         repositoryId: null,
       }).mcp,
-    ).toBeUndefined();
+      // Not the retired server's: the one server it has, the built-in `werft`.
+    ).toBe(werftMcpBinding());
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {

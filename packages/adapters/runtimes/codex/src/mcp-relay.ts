@@ -2,14 +2,23 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { PlatformMcpServer } from "@werft-ai/runtime-core";
-import { messageOf } from "@werft-ai/runtime-core";
+import {
+  exposedMcpTools,
+  messageOf,
+  type PlatformMcpServer,
+} from "@werft-ai/runtime-core";
 
 const CALL_TIMEOUT_MS = 30 * 60_000;
 const MAX_LIST_PAGES = 50;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 /** The newest revision the relay speaks; a client asking for another gets this one. */
 const PROTOCOL_VERSION = "2025-06-18";
+/**
+ * How long the engine's handshake waits for a platform server's own. Past
+ * it the engine starts without the server's instructions, resources and
+ * prompts; its tools still answer once the server does.
+ */
+const HANDSHAKE_WAIT_MS = 5_000;
 
 export type RelayCall = {
   /** The platform's name for the tool: `mcp__<server>__<tool>`. */
@@ -93,11 +102,64 @@ export function startMcpRelay(
   const pinned = (server: PlatformMcpServer) => {
     const prefix = `mcp__${server.name}__`;
     return new Set(
-      server.tools
-        .filter((name) => name.startsWith(prefix))
-        .map((name) => name.slice(prefix.length)),
+      exposedMcpTools(server).map((name) => name.slice(prefix.length)),
     );
   };
+
+  // What a platform server says of itself, for the engine's handshake. A
+  // server that does not answer in time is shown with its tools alone.
+  async function handshake(server: PlatformMcpServer) {
+    const client =
+      server.platform === true
+        ? await Promise.race([
+            connected(server).catch(() => undefined),
+            new Promise<undefined>((resolve) => {
+              setTimeout(resolve, HANDSHAKE_WAIT_MS, undefined).unref();
+            }),
+          ])
+        : undefined;
+    const served = client?.getServerCapabilities();
+    const instructions = client?.getInstructions();
+    return {
+      protocolVersion: PROTOCOL_VERSION,
+      capabilities: {
+        tools: {},
+        ...(served?.resources === undefined ? {} : { resources: {} }),
+        ...(served?.prompts === undefined ? {} : { prompts: {} }),
+      },
+      serverInfo: { name: server.name, version: "1" },
+      ...(instructions === undefined || instructions === ""
+        ? {}
+        : { instructions }),
+    };
+  }
+
+  // A platform server's resources and prompts: read-only and the platform's
+  // own, so they pass as the server answers. Undefined for any other method.
+  function passed(
+    server: PlatformMcpServer,
+    method: unknown,
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<unknown> | undefined {
+    if (server.platform !== true) return undefined;
+    const upstream = async <T>(ask: (client: Client) => Promise<T>) =>
+      ask(await connected(server));
+    switch (method) {
+      case "resources/list":
+        return upstream((c) => c.listResources(params, { signal }));
+      case "resources/templates/list":
+        return upstream((c) => c.listResourceTemplates(params, { signal }));
+      case "resources/read":
+        return upstream((c) => c.readResource(params as never, { signal }));
+      case "prompts/list":
+        return upstream((c) => c.listPrompts(params, { signal }));
+      case "prompts/get":
+        return upstream((c) => c.getPrompt(params as never, { signal }));
+      default:
+        return undefined;
+    }
+  }
 
   async function listTools(server: PlatformMcpServer, signal: AbortSignal) {
     const allowed = pinned(server);
@@ -192,11 +254,7 @@ export function startMcpRelay(
           : {};
       switch (method) {
         case "initialize":
-          return rpcResult(id, {
-            protocolVersion: PROTOCOL_VERSION,
-            capabilities: { tools: {} },
-            serverInfo: { name: server.name, version: "1" },
-          });
+          return rpcResult(id, await handshake(server));
         case "ping":
           return rpcResult(id, {});
         case "tools/list":
@@ -209,8 +267,17 @@ export function startMcpRelay(
           }
         case "tools/call":
           return rpcResult(id, await callTool(server, params, request.signal));
-        default:
-          return rpcError(id, -32601, "Method not found");
+        default: {
+          const answer = passed(server, method, params, request.signal);
+          if (answer === undefined) {
+            return rpcError(id, -32601, "Method not found");
+          }
+          try {
+            return rpcResult(id, await answer);
+          } catch (error) {
+            return rpcError(id, -32603, messageOf(error));
+          }
+        }
       }
     },
   });

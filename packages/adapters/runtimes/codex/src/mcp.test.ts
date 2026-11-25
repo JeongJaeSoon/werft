@@ -12,6 +12,12 @@ import type {
   RuntimeStart,
 } from "@werft-ai/runtime-core";
 import { type FakeMcp, startFakeMcp } from "@werft-ai/testkit/fake-mcp";
+import {
+  FAKE_PLATFORM_INSTRUCTIONS,
+  FAKE_PLATFORM_RESOURCE,
+  type FakePlatformMcp,
+  startFakePlatformMcp,
+} from "@werft-ai/testkit/fake-platform-mcp";
 
 import {
   assertStartable,
@@ -129,6 +135,43 @@ describe("codexLaunch with a relay", () => {
   });
 });
 
+describe("the built-in werft server, whose tools no release pins", () => {
+  const FIND = "mcp__werft__find";
+  const werft = (trusted: string[]) =>
+    serverOf(1, {
+      name: "werft",
+      tools: ["exec_command"],
+      trusted,
+    });
+  const start = (trusted: string[]) => {
+    const made = startOf([werft(trusted)]);
+    (made.config as unknown as { tools: string[] }).tools = ["exec_command"];
+    return made;
+  };
+
+  test("the engine is shown the tools the server serves, though no allowlist names them", () => {
+    const made = start([FIND, "mcp__github__request_push"]);
+    expect(() => assertStartable(made.config, made.bundle)).not.toThrow();
+    const launch = codexLaunch(
+      made,
+      { stateDir: "/state" },
+      { PATH: "/usr/bin" },
+      {
+        urls: new Map([["werft", "http://127.0.0.1:9/mcp/werft"]]),
+        secret: "s",
+      },
+    );
+    const entry = launch.args.find((a) => a.startsWith("mcp_servers.werft="));
+    expect(entry).toContain('"enabled_tools" = ["find"]');
+  });
+
+  test("serving another tool leaves the profile digest as it is", () => {
+    expect(codexProfileDigest(start([FIND, "mcp__werft__status"]))).toBe(
+      codexProfileDigest(start([])),
+    );
+  });
+});
+
 describe("the profile digest with servers", () => {
   test("moves with the server's release, its tools and its name, not its address or token", () => {
     const base = codexProfileDigest(startOf([serverOf(1)]));
@@ -233,6 +276,103 @@ describe("the relay", () => {
     expect(answer.result.isError).toBe(true);
     expect(asked).toBe(0);
     expect(upstream?.calls().calls).toBe(0);
+  });
+
+  describe("for a platform server", () => {
+    const ROUTE = "route-bearer-for-the-platform-test";
+    let platform: FakePlatformMcp | undefined;
+    afterEach(async () => {
+      await platform?.stop();
+      platform = undefined;
+    });
+
+    function bootPlatform(overrides: Partial<PlatformMcpServer> = {}) {
+      platform = startFakePlatformMcp({ bearer: ROUTE });
+      const server: PlatformMcpServer = {
+        name: "werft",
+        binding: "b",
+        url: platform.url,
+        token: ROUTE,
+        tools: ["exec_command"],
+        platform: true,
+        trusted: ["mcp__werft__probe"],
+        ...overrides,
+      };
+      const made = startMcpRelay([server], allow);
+      relay = made;
+      const url = made.urls.get("werft") as string;
+      return async (method: string, params: unknown = {}) =>
+        (await (
+          await fetch(url, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${made.secret}`,
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+          })
+        ).json()) as {
+          result?: Record<string, unknown>;
+          error?: { code: number };
+        };
+    }
+
+    test("the engine's handshake carries the server's own instructions and what it serves", async () => {
+      const rpc = bootPlatform();
+      expect((await rpc("initialize")).result).toEqual({
+        protocolVersion: "2025-06-18",
+        capabilities: { tools: {}, resources: {}, prompts: {} },
+        serverInfo: { name: "werft", version: "1" },
+        instructions: FAKE_PLATFORM_INSTRUCTIONS,
+      });
+    });
+
+    test("the tool it serves is listed and called, and its resources and prompts pass as the server answers them", async () => {
+      const rpc = bootPlatform();
+      expect((await rpc("tools/list")).result?.tools).toMatchObject([
+        { name: "probe" },
+      ]);
+      expect(
+        (await rpc("tools/call", { name: "probe", arguments: {} })).result
+          ?.content,
+      ).toEqual([{ type: "text", text: "probe:ok" }]);
+      expect((await rpc("resources/list")).result?.resources).toMatchObject([
+        { uri: FAKE_PLATFORM_RESOURCE },
+      ]);
+      expect(
+        (await rpc("resources/read", { uri: FAKE_PLATFORM_RESOURCE })).result
+          ?.contents,
+      ).toEqual([{ uri: FAKE_PLATFORM_RESOURCE, text: "resource:ok" }]);
+      expect((await rpc("prompts/list")).result?.prompts).toMatchObject([
+        { name: "check" },
+      ]);
+      expect(
+        (await rpc("prompts/get", { name: "check" })).result?.messages,
+      ).toEqual([
+        { role: "user", content: { type: "text", text: "prompt:ok" } },
+      ]);
+    });
+
+    test("a server that is not the platform's is shown with its tools alone", async () => {
+      const rpc = bootPlatform({ platform: false });
+      expect((await rpc("initialize")).result).toEqual({
+        protocolVersion: "2025-06-18",
+        capabilities: { tools: {} },
+        serverInfo: { name: "werft", version: "1" },
+      });
+      for (const method of ["resources/list", "prompts/list"]) {
+        expect((await rpc(method)).error?.code).toBe(-32601);
+      }
+    });
+
+    test("a platform server that does not answer is shown with its tools alone, and the engine still starts", async () => {
+      const rpc = bootPlatform({ url: "http://127.0.0.1:9/mcp" });
+      expect((await rpc("initialize")).result).toEqual({
+        protocolVersion: "2025-06-18",
+        capabilities: { tools: {} },
+        serverInfo: { name: "werft", version: "1" },
+      });
+    });
   });
 
   test("done runs once the call has ended, also when the server fails", async () => {
