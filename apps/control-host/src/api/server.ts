@@ -883,7 +883,6 @@ const slackBindings = createSurfaceBindingService({
 const slackJudgments = createJudgmentReviewService({
   authorization,
   store: createPostgresJudgmentReviewStore(db),
-  members: slackChannelMembers,
 });
 const slackInstructionsHead = createInstructionsHeadService({
   authorization,

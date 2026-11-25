@@ -22,6 +22,7 @@ import {
   type MessagesUsage,
   requestEstimate,
   type UsageMeter,
+  unbilledUsage,
   usageMeter,
 } from "./usage.ts";
 
@@ -1931,6 +1932,11 @@ export function startCredentialProxy(
     logger.info("Credential route", { ...fields, status: response.status });
     // A provider bills no call it answered with an error.
     if (!response.ok) ledger?.release();
+    // A conversation call so answered has ended: reported before its caller
+    // hears, so the place and the reservation it held are free for a retry.
+    if (!response.ok && grant.conversationCallId !== null) {
+      await reportUsage(grant, exchangeId, unbilledUsage(sent));
+    }
     let presigned: string[] = [];
     if (route.lfs !== undefined && response.ok) {
       const answered = await lfsAnswer(response);

@@ -15,6 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **에이전트 Slack 탭의 판단 기록(`GET /v1/agents/{id}/slack/judgments`)이 비공개 채널의 기록도 owner·admin·그 에이전트의 관리자에게 보인다**(JeongJaeSoon/werft#2227). 전에는 지금 그 채널의 멤버만 봤다. 이제 판단 수, speak 비율, 이유 코드, 최근 목록과 글 링크가 멤버 여부와 상관없이 나온다. 글 본문은 어디에도 없고 링크는 Slack에서 그 글을 읽을 수 있는 사람에게만 열린다. 판단 기록을 볼 권한(`judgment.read`)이 없는 사람과 API 키는 전과 같이 거절된다. migration은 없고 따로 할 일도 없다.
 - **에이전트 모델 자동 이동이 실패하면 웹 에이전트 화면에 무엇이 실패했고 무엇을 하면 되는지가 보인다**(JeongJaeSoon/werft#2223). migration `0370_model_migration_failure`가 `agents`에 nullable 칸 셋을 더한다(기본값이 없어 줄을 다시 쓰지 않는다). 따로 할 일은 없다. 실패는 api 로그 `Agent could not move to the next model`에도 그대로 남는다.
   - 앞선 이미지로 되돌리면 그 이미지는 이 칸을 읽지도 쓰지도 않고, 그 이미지가 활성화하면 남은 기록은 더는 보이지 않는다. 다시 올린 뒤 다음 자동 이동 시도가 실패하면 다시 기록된다.
 - **에이전트 Slack 앱이 bot scope `reactions:write`를 받는다. 이미 설치한 앱은 Slack 관리자가 다시 승인해야 한다**(JeongJaeSoon/werft#2222). migration `0369_slack_outbox_reaction`이 `slack_outbox`의 종류 CHECK에 `reaction`을 더한다. 줄을 고치지 않는다.

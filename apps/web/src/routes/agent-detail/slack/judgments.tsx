@@ -105,8 +105,7 @@ function InstructionsLine({
 /**
  * M1's shadow judgments of the agent's channels (a1/S3): counts per channel
  * and the newest records, each a link to its Slack message and a reason
- * code. What the server leaves out (a private channel the viewer is not in)
- * is not mentioned, so nothing of it shows.
+ * code; private channels are in it like the rest.
  */
 export function SlackJudgments({
   agentId,

@@ -7,7 +7,9 @@ import {
   judgmentBatchIdSchema,
 } from "@werft-ai/contracts";
 import {
+  CHANNEL_LIMITED_CLASS,
   type ClosedJudgmentBatch,
+  CONVERSATION_CALL_LIMITS,
   JUDGMENT_BATCH_DEADLINE_MS,
   JUDGMENT_BATCH_MAX_WAIT_MS,
   JUDGMENT_BATCH_QUIET_MS,
@@ -45,6 +47,39 @@ const countsAgainstM1Cap = sql`(b.state = 'judging' OR (b.state IN ('judged', 'f
  */
 const takeable = (at: SQL) =>
   sql`i.buffer_expires_at IS NOT NULL AND i.buffer_expires_at > ${at} AND (i.judgment_batch_id IS NULL OR b.state = 'rate_limited') AND NOT ${heldForReply}`;
+
+type ChannelColumns = { agentId: SQL; teamId: SQL; channelId: SQL };
+
+/** Whether the channel's M1 window has room for another judgment. */
+const m1WindowRoom = (channel: ChannelColumns, at: SQL) => sql`((
+  SELECT count(*) FROM judgment_batches b
+  WHERE b.agent_id = ${channel.agentId}
+    AND b.slack_team_id = ${channel.teamId}
+    AND b.slack_channel_id = ${channel.channelId}
+    AND b.closed_at > ${at} - ${secs(M1_CHANNEL_WINDOW_MS)}
+    AND ${countsAgainstM1Cap}) + ${engagedJudgmentsInWindow({ ...channel, at })} < ${m1ChannelCap(channel)})`;
+
+/**
+ * Whether a batch's M1 call would find no place, as holdConversationCallLimitsIn
+ * counts them: the channel's M1 calls or the agent's calls in progress at
+ * their limits, one of unknown end among them until it is settled or an
+ * operator releases it. A batch closed then could only be put off.
+ */
+const m1PlaceTaken = (channel: ChannelColumns, at: SQL) => {
+  const inProgress = sql`(k.state = 'in_flight' OR (k.state = 'reserved' AND k.expires_at > ${at}))`;
+  return sql`((
+    SELECT count(*) FROM conversation_calls k
+    JOIN conversations v ON v.id = k.conversation_id
+    WHERE k.agent_id = ${channel.agentId}
+      AND k.call_class = ${CHANNEL_LIMITED_CLASS}
+      AND v.kind = 'channel' AND v.team_id = ${channel.teamId}
+      AND v.channel_id = ${channel.channelId}
+      AND ${inProgress}) >= ${CONVERSATION_CALL_LIMITS.channel} OR (
+    SELECT count(DISTINCT COALESCE(k.conversation_turn_id, k.id))
+    FROM conversation_calls k
+    WHERE k.agent_id = ${channel.agentId} AND ${inProgress}
+  ) >= ${CONVERSATION_CALL_LIMITS.agent})`;
+};
 
 type Channel = {
   workspace_id: string;
@@ -160,21 +195,20 @@ async function closeChannel(
     fresh.length > 0 &&
     (now - Math.max(...received) >= JUDGMENT_BATCH_QUIET_MS ||
       now - Math.min(...received) >= JUDGMENT_BATCH_MAX_WAIT_MS);
-  const [window] = rowsOf<{ counted: number | string; cap: number | string }>(
-    await tx.execute(sql`
-      SELECT (SELECT count(*) FROM judgment_batches b
-        WHERE ${same} AND b.closed_at > ${at} - ${secs(M1_CHANNEL_WINDOW_MS)}
-          AND ${countsAgainstM1Cap}) + ${engagedJudgmentsInWindow({
-            agentId: sql`${channel.agent_id}::uuid`,
-            teamId: sql`${channel.slack_team_id}`,
-            channelId: sql`${channel.slack_channel_id}`,
-            at,
-          })} AS counted, ${m1ChannelCap({
-            agentId: sql`${channel.agent_id}::uuid`,
-            channelId: sql`${channel.slack_channel_id}`,
-          })} AS cap`),
+  const columns = {
+    agentId: sql`${channel.agent_id}::uuid`,
+    teamId: sql`${channel.slack_team_id}`,
+    channelId: sql`${channel.slack_channel_id}`,
+  };
+  const [place] = rowsOf<{ room: boolean; taken: boolean }>(
+    await tx.execute(
+      sql`SELECT ${m1WindowRoom(columns, at)} AS room, ${m1PlaceTaken(columns, at)} AS taken`,
+    ),
   );
-  const room = Number(window?.counted ?? 0) < Number(window?.cap ?? 0);
+  const room = place?.room === true;
+  // Its messages wait in the buffer for the place; past the cap, the window
+  // is what holds them, as before.
+  if (room && place?.taken === true) return null;
   // Messages past the cap go with the first batch the window has room for.
   const taken = room
     ? freshDue || fresh.length < rows.length
@@ -255,6 +289,23 @@ export function createPostgresJudgmentBatchStore(
   return {
     async closeNext(options = {}) {
       const at = atOf(options.now);
+      const columns = {
+        agentId: sql`i.agent_id`,
+        teamId: sql`i.slack_team_id`,
+        channelId: sql`i.slack_channel_id`,
+      };
+      const room = m1WindowRoom(columns, at);
+      const skip = options.skip ?? [];
+      const skipped =
+        skip.length === 0
+          ? sql``
+          : sql`AND (i.agent_id, i.slack_team_id, i.slack_channel_id) NOT IN (${sql.join(
+              skip.map(
+                (channel) =>
+                  sql`(${channel.agentId}::uuid, ${channel.teamId}, ${channel.channelId})`,
+              ),
+              sql`, `,
+            )})`;
       const closed = await db.transaction(async (tx) => {
         await failOverdue(tx, at);
         // Cheap first look; each channel is judged again under its lock.
@@ -275,27 +326,17 @@ export function createPostgresJudgmentBatchStore(
                   AND j.slack_team_id = i.slack_team_id
                   AND j.slack_channel_id = i.slack_channel_id
                   AND j.state = 'judging')
+              ${skipped}
             GROUP BY 1, 2, 3, 4
-            HAVING (bool_or(i.judgment_batch_id IS NOT NULL) AND (
-                SELECT count(*) FROM judgment_batches b
-                WHERE b.agent_id = i.agent_id
-                  AND b.slack_team_id = i.slack_team_id
-                  AND b.slack_channel_id = i.slack_channel_id
-                  AND b.closed_at > ${at} - ${secs(M1_CHANNEL_WINDOW_MS)}
-                  AND ${countsAgainstM1Cap}) + ${engagedJudgmentsInWindow({
-                    agentId: sql`i.agent_id`,
-                    teamId: sql`i.slack_team_id`,
-                    channelId: sql`i.slack_channel_id`,
-                    at,
-                  })} < ${m1ChannelCap({
-                    agentId: sql`i.agent_id`,
-                    channelId: sql`i.slack_channel_id`,
-                  })})
+            -- As closeChannel judges it, so a channel it would pass over
+            -- takes no candidate's place.
+            HAVING (NOT ${room} OR NOT ${m1PlaceTaken(columns, at)}) AND (
+              (bool_or(i.judgment_batch_id IS NOT NULL) AND ${room})
               -- New messages only: those past the cap make no batch of their own.
               OR max(i.received_at) FILTER (WHERE i.judgment_batch_id IS NULL)
                 <= ${at} - ${secs(JUDGMENT_BATCH_QUIET_MS)}
               OR min(i.received_at) FILTER (WHERE i.judgment_batch_id IS NULL)
-                <= ${at} - ${secs(JUDGMENT_BATCH_MAX_WAIT_MS)}
+                <= ${at} - ${secs(JUDGMENT_BATCH_MAX_WAIT_MS)})
             ORDER BY min(i.received_at)
             LIMIT ${CLOSE_CANDIDATES}`),
         );
