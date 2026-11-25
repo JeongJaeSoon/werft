@@ -43,10 +43,12 @@ const BUDGET_BYTES: Record<string, number> = {
   // to 150. The installation's GitHub webhook settings and their per-App
   // update answers fit under both. The worker's session allow check route
   // and its capability put ./schemas 17 bytes over 152, so it moves to 153.
-  // The conversation turn's decision tools and their decision put ./forms
-  // 110 bytes over 150, so it moves to 151.
-  "./schemas": 153 * 1024,
-  "./forms": 151 * 1024,
+  // The Slack notice's first version, its words in Korean and Japanese,
+  // put ./schemas 31 bytes over 153 and ./forms 280 bytes over 150, so they
+  // move to 154 and 151. The conversation turn's decision tools then put
+  // ./forms 40 bytes over 151, so it moves to 152.
+  "./schemas": 154 * 1024,
+  "./forms": 152 * 1024,
 };
 
 test("every entry has a budget", () => {

@@ -1,4 +1,8 @@
-import { createPostgresWerftStatusStore, type Database } from "@werft-ai/db";
+import {
+  createPostgresWerftStatusStore,
+  type Database,
+  sessionResponseLanguage,
+} from "@werft-ai/db";
 import {
   type AuthorizationPolicy,
   docsPart,
@@ -7,6 +11,7 @@ import {
   type WerftMcpPart,
   type WerftMcpPartContext,
 } from "@werft-ai/platform";
+import { installedWerftDocs } from "./werft-docs.ts";
 
 /** What a part may read beyond the context. */
 export type WerftMcpPartDeps = {
@@ -25,7 +30,9 @@ export function werftMcpParts(
 ): WerftMcpPart[] {
   return [
     // The installed documentation: search, and the pages as resources.
-    docsPart(context),
+    docsPart(context, installedWerftDocs(), (sessionId) =>
+      sessionResponseLanguage(deps.db, sessionId),
+    ),
 
     // What this session's agent is connected to and may do.
     statusPart(context, {

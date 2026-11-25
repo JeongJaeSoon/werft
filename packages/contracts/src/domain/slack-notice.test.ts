@@ -66,6 +66,26 @@ describe("slackNoticeWindow", () => {
 });
 
 describe("SLACK_NOTICE_VERSIONS", () => {
+  test("version 1 says Slack messages train no model and links the data page in its language", () => {
+    const [first] = SLACK_NOTICE_VERSIONS;
+    expect(first?.version).toBe(slackNoticeVersionSchema.parse(1));
+    expect(first?.requiresReapproval).toBe(true);
+    expect(first?.text.ko.body[0]).toBe(
+      "Werft는 Slack에서 읽은 글로 어떤 AI 모델도 학습시키지 않아요.",
+    );
+    expect(first?.text.ja.body[0]).toBe(
+      "Werft は、Slack で読んだメッセージでどの AI モデルも学習させません。",
+    );
+    for (const locale of SLACK_NOTICE_LOCALE_VALUES) {
+      const text = first?.text[locale];
+      expect(text?.body).toHaveLength(3);
+      expect(text?.policyLink.href).toBe(
+        `https://jeongjaesoon.github.io/werft/${locale}/integrations/slack-data/`,
+      );
+      expect(text?.policyLink.label).toMatch(/1/);
+    }
+  });
+
   test("every published version has its words in Korean and Japanese, with an https policy link", () => {
     for (const published of SLACK_NOTICE_VERSIONS) {
       for (const locale of SLACK_NOTICE_LOCALE_VALUES) {

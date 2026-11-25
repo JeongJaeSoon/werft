@@ -368,7 +368,7 @@ describe("the parts as shipped", () => {
   test("each area has its own part, and together they make a server", async () => {
     const context = { version: "v9.9.9" };
     const parts = [
-      docsPart(context),
+      docsPart(context, []),
       statusPart(context, {
         store: { factsOf: async () => null },
         authorization: {

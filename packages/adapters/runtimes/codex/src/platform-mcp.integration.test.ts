@@ -50,34 +50,39 @@ describe.skipIf(!available)(
      */
     async function turn(
       server: Omit<Parameters<typeof startFakePlatformMcp>[0], "bearer"> = {},
+      model?: { name: string; answer: (call: number) => unknown[] },
     ) {
       const platform = startFakePlatformMcp({ ...server, bearer: BEARER });
       const seen: Seen[] = [];
       // A server with nothing to serve has no tool for the model to call.
       const served = server.bare === true ? [] : [TOOL];
-      const model = fakeResponses(seen, (call) =>
-        call === 1 && served.length > 0
-          ? [
-              {
-                type: "function_call",
-                call_id: "call_probe_1",
-                namespace: "mcp__werft",
-                name: "probe",
-                arguments: "{}",
-              },
-            ]
-          : [assistantMessage("done")],
+      const upstream = fakeResponses(
+        seen,
+        model?.answer ??
+          ((call) =>
+            call === 1 && served.length > 0
+              ? [
+                  {
+                    type: "function_call",
+                    call_id: "call_probe_1",
+                    namespace: "mcp__werft",
+                    name: "probe",
+                    arguments: "{}",
+                  },
+                ]
+              : [assistantMessage("done")]),
       );
       turns += 1;
       const work = join(root, `work-${turns}`);
       await Bun.write(join(work, ".keep"), "");
       const base = startOf({
-        port: model.port as number,
+        port: upstream.port as number,
         work,
         egressToken: "egress-local",
       });
       const start = {
         ...base,
+        config: { ...base.config, model: model?.name ?? base.config.model },
         bundle: {
           ...base.bundle,
           mcpServers: [
@@ -112,7 +117,7 @@ describe.skipIf(!available)(
         await reading;
       } finally {
         await run.close();
-        await model.stop(true);
+        await upstream.stop(true);
         await platform.stop();
       }
       return {
@@ -147,6 +152,63 @@ describe.skipIf(!available)(
       expect(requests[0]).toContain(FAKE_PLATFORM_INSTRUCTIONS);
       expect(requests[0]).toContain('"name":"mcp__werft"');
       expect(calls).toBe(1);
+    }, 60_000);
+
+    // A model that searches for its tools (gpt-5.5 in this build) is shown
+    // every MCP server as a deferred namespace instead: its tools and the
+    // rest of its instructions come only with a `tool_search` answer. So
+    // the first line of a server's instructions is all such a model reads
+    // before it searches.
+    test("a model that searches for its tools reads the first line of the instructions up front and the rest with the search's answer", async () => {
+      const first = "FIRST_PARAGRAPH Ask this server first about the platform.";
+      const second = "SECOND_PARAGRAPH It answers from the installed docs.";
+      const { events, requests, calls } = await turn(
+        { instructions: `${first}\n\n${second}` },
+        {
+          name: "gpt-5.5",
+          answer: (call) =>
+            call === 1
+              ? [
+                  {
+                    type: "tool_search_call",
+                    id: "ts_1",
+                    call_id: "call_search_1",
+                    execution: "client",
+                    arguments: { query: "platform probe" },
+                    status: "completed",
+                  },
+                ]
+              : call === 2
+                ? [
+                    {
+                      type: "function_call",
+                      call_id: "call_probe_1",
+                      namespace: "mcp__werft",
+                      name: "probe",
+                      arguments: "{}",
+                    },
+                  ]
+                : [assistantMessage("done")],
+        },
+      );
+      expect(events.find((e) => e.type === "turn.ended")).toMatchObject({
+        turn: { isError: false },
+      });
+      // Up front: the server as a deferred namespace, described by the first
+      // line of its instructions alone, and none of its tools.
+      expect(requests[0]).toContain('"type":"tool_search"');
+      // The body is JSON: the line ends in an escaped newline.
+      expect(requests[0]).toContain(`- mcp__werft: ${first}\\n`);
+      expect(requests[0]).not.toContain(second);
+      expect(requests[0]).not.toContain('"name":"mcp__werft"');
+      // With the search's answer: the namespace, its tool and the whole text.
+      expect(requests[1]).toContain('"type":"tool_search_output"');
+      expect(requests[1]).toContain('"name":"mcp__werft"');
+      expect(requests[1]).toContain(second);
+      // The tool it found ran unasked, and its answer went back to the model.
+      expect(events.some((e) => e.type === "approval.requested")).toBe(false);
+      expect(calls).toBe(1);
+      expect(requests.at(-1)).toContain("probe:ok");
     }, 60_000);
 
     // What this build of the engine does, pinned so a change of it shows:
