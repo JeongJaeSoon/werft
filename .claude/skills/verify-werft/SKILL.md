@@ -55,6 +55,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 
 - run 디렉터리: `${VERIFY_AP_ROOT:-$TMPDIR/verify-werft}/<run id>/`
 - `state.env`: `COMPOSE_PROJECT_NAME`, `EXECUTION_INSTALLATION_ID`, `COMPOSE_FILE`(compose.yaml + 이 run의 ports overlay), `API_IMAGE`·`WORKER_IMAGE`·`EGRESS_PROXY_IMAGE`(run별 태그), `VERIFY_API`, `VERIFY_SETUP_TOKEN`(데모 run에는 없다)
+- `state.json`: 비밀이 없는 주소. `project`, `web_url`(콘솔, API와 같은 origin), `api_url`, `ports`(서비스별 `{"<컨테이너 포트>": <호스트 포트>}`, 예: `api`의 `3000`, `postgres`의 `5432`). `scripts/verify/run-urls.mjs`가 이 run의 `docker compose ps`에서 읽어 쓰고, 같은 값으로 `state.env`의 `VERIFY_API`도 고친다. `up.sh`가 끝날 때 한 번, 그 뒤에는 `ap_compose up`·`restart`·`start`가 끝날 때마다 다시 쓴다(서비스를 다시 만들거나 재시작하면 ephemeral 포트가 바뀐다). 토큰·비밀번호·key는 넣지 않는다. 비밀 이름(`token`·`secret`·`password`·`key`·`cookie`·`credential`)의 칸이나 `state.env`의 그런 값이 들어가면 쓰지 않고 exit 1이다(`tests/verify-stack.test.ts`). agent는 `state.env`를 열지 않고(agent-guard가 `*.env` 읽기를 막는다) `ap_urls`로 이 값을 본다
 - `users/<who>`(이메일·무작위 비밀번호), `users/<who>.invite`(초대 token), `keys/<who>`(웹에서 발급한 key secret), `cookie.<who>`: `web-user.mjs`가 쓴다. 모두 0600이고 `rm-volumes.sh`가 지운다
 - `browser/`: `browser.mjs`의 Chrome profile과 `pid`. `stop`(또는 `down.sh`)이 그 PID만 끝내고 profile을 지운다
 - `evidence/`: 증거. 내린 뒤에도 남는다
@@ -109,7 +110,8 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 | `ap_get PATH` / `ap_post PATH JSON` | `$KEY`로 Bearer 호출. `ap_post`는 `Idempotency-Key`를 새로 붙인다 |
 | `ap_curl key\|cookie <curl 인자…>` | 위 셋의 바탕. `$KEY`(Bearer) 또는 cookie와 CSRF 헤더를 `-H @<(…)`로 넘기는 `curl -sS`. 스트림(`-N`)이나 key로 보내는 `PATCH`처럼 위 셋이 못 하는 호출에 쓴다. cookie 쪽은 `$AP_COOKIE_EXTRA`(따로 한 줄로 대입)를 세션 cookie 뒤에 붙인다 |
 | `$VERIFY_RUN/headers` | `ap_get`·`ap_post`·`ap_web`이 남기는 마지막 응답 헤더(`X-Request-Id`, `Set-Cookie`) |
-| `ap_compose …` | 이 run의 project에만 거는 `docker compose` (`logs api`, `ps` 등) |
+| `ap_compose …` | 이 run의 project에만 거는 `docker compose` (`logs api`, `ps` 등). `up`·`restart`·`start` 뒤에는 `ap_urls`로 주소를 새로 읽어 `$API`·`state.json`을 고치고, 포트가 바뀌었으면 stderr에 `ap_compose: the API moved to …`를 낸다. 파이프 안(`ap_compose restart api \| tail`)에서는 subshell이라 파일만 바뀌고 그 셸의 `$API`는 그대로다. 그 뒤 같은 셸에서 `ap_urls`를 부르거나 다음 Bash 호출에서 `lib.sh`를 다시 source한다 |
+| `ap_urls` | 이 run의 주소를 compose에서 지금 읽어 `state.json`에 쓰고 그 JSON(`web_url`·`api_url`·`ports`)을 출력한다. `$API`·`$VERIFY_API`도 그 값으로 바꾼다. `ap_compose`를 거치지 않고 포트가 바뀌었으면(직접 부른 `docker compose`) 한 번 부른다 |
 | `ap_as <who>` | `web-user.mjs`가 로그인시킨 사람의 cookie로 바꾸고, 그 사람의 웹 key가 있으면 `$KEY`에 담는다(길이만 출력) |
 
 자격 값이 드는 요청과 화면은 node 스크립트로 몬다(host의 `node`, 의존성 없음). 둘 다 첫 인자가 run id다.
@@ -118,7 +120,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 |---|---|
 | `node scripts/verify/web-user.mjs <run id> <command> <who> …` | `bootstrap`·`bootstrap-bad-token`·`login`·`login-wrong`·`login-no-csrf`·`invite <inviter> <who> <role>`·`accept`·`key <who> <personal\|agent> <scopes> [agent id]`. 비밀번호·token·secret은 run 디렉터리에만 두고, 응답 본문(그 칸은 `(saved, N chars)`)과 상태 코드를 출력한다. [web-login.md](features/web-login.md) |
 | `node scripts/verify/web-user.mjs <run id> github-app <who> <workspace id> <app id>` | `<who>`의 cookie로 `PUT /v1/workspaces/{id}/github-app`. 키는 `VERIFY_GITHUB_APP_KEY_FILE`(기본 `~/.config/werft/github-app.pem`, 오너의 파일)에서 스크립트가 읽어 본문에만 넣는다. 경로도 명령에 쓰지 않는다(agent-guard가 키 파일 모양의 경로를 막는다). [github-sandbox.md](features/github-sandbox.md) |
-| `node scripts/verify/browser.mjs <run id> <command> …` | 이 run 전용 headless Chrome(CDP): `start`·`stop`, `open`, `login <who>`·`accept <who>`·`invite <who>`(초대 화면만 연다)·`bootstrap <who>`, `shot`(`W`·`THEME` env), `blockshot`(오류 상태), `slowshot`(로딩 상태), `click`·`press`(포커스 후 키)·`type`·`select`·`key`·`eval`, `measure`(간격·폭·정렬 실측, `layout-report.mjs`가 콘솔 간격 규칙 표로). 모든 페이지 명령은 끝에 4xx·5xx 응답의 본문을 가려서 stderr의 `! failed request:` 줄로 남긴다(`CAPTURE_URL` glob으로 성공 응답도). [web-console.md](features/web-console.md) |
+| `node scripts/verify/browser.mjs <run id> <command> …` | 이 run 전용 headless Chrome(CDP). 주소는 `state.json`의 `web_url`(없는 예전 run은 `state.env`의 `VERIFY_API`)에서 읽는다: `start`·`stop`, `open`, `login <who>`·`accept <who>`·`invite <who>`(초대 화면만 연다)·`bootstrap <who>`, `shot`(`W`·`THEME` env), `blockshot`(오류 상태), `slowshot`(로딩 상태), `click`·`press`(포커스 후 키)·`type`·`select`·`key`·`eval`, `measure`(간격·폭·정렬 실측, `layout-report.mjs`가 콘솔 간격 규칙 표로). 모든 페이지 명령은 끝에 4xx·5xx 응답의 본문을 가려서 stderr의 `! failed request:` 줄로 남긴다(`CAPTURE_URL` glob으로 성공 응답도). [web-console.md](features/web-console.md) |
 
 기능별 명령과 기대 결과는 `features/*.md`에 있다. 가장 짧은 한 바퀴는 [web-login.md](features/web-login.md)다.
 
