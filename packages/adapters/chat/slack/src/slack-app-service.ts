@@ -1142,6 +1142,8 @@ export function createSlackAppService(deps: {
           slack_app_id: slackAppId,
           drift,
         });
+      // Nothing is left to send on its own: an earlier failure no longer holds.
+      await recordManifestSync(workspaceId, slackAppId, null);
       return "left";
     }
     const eventsUrl = await eventsUrlOf(agentId);

@@ -482,6 +482,22 @@ describe("manifest check at a start of the API", () => {
     expect((await sync())?.error).toBe("no_answer");
   });
 
+  test("an app left for its scopes drops an earlier failure mark", async () => {
+    const { service, slack, appId, advance, sync } = await subscribedApp();
+    dropEvent(slack, appId);
+    const update = slack.api.updateApp;
+    slack.api.updateApp = async () => {
+      throw new SlackApiError("apps.manifest.update", "invalid_manifest", true);
+    };
+    await service.syncAgentAppManifests();
+    expect((await sync())?.error).toBe("slack_refused");
+    slack.api.updateApp = update;
+    manifestOf(slack, appId).oauth_config.scopes.bot = ["chat:write"];
+    advance(SLACK_MANIFEST_CHECK_STALE_MS + 1);
+    expect((await service.syncAgentAppManifests()).sent).toBe(0);
+    expect((await sync())?.error).toBeNull();
+  });
+
   test("an app with no event subscription is left for Finalize", async () => {
     const { service, slack, appId, calls } = await subscribedApp();
     delete manifestOf(slack, appId).settings.event_subscriptions;
