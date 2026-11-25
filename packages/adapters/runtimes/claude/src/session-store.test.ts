@@ -235,6 +235,55 @@ describe("Claude session store", () => {
     expect(mirror.unsettled).toBe(false);
   });
 
+  test("a write the host sends again is not unsettled meanwhile, and a capture waits for it", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const refused = Promise.withResolvers<void>();
+    const again = Promise.withResolvers<void>();
+    const mirror = new ClaudeSessionStore({
+      generation: 1,
+      objects,
+      prefix,
+      resend: async (write) => {
+        await write().catch(() => refused.resolve());
+        await again.promise;
+        await write();
+      },
+    });
+    objects.failWrites(1);
+    const appended = mirror.append(root, [entry("a", "kept")]);
+    await refused.promise;
+    // Refused once and still held: nothing landed, nothing given up on.
+    expect(mirror.unsettled).toBe(false);
+    expect(mirror.persistedAt).toBeNull();
+    const captured = mirror.captureRevision(root);
+    again.resolve();
+    await appended;
+
+    expect(mirror.persistedAt).toBeInstanceOf(Date);
+    expect((await captured)?.entryCount).toBe(1);
+    expect(await mirror.load(root)).toEqual([entry("a", "kept")]);
+  });
+
+  test("a write the host stops sending is unsettled, as one sent once is", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const mirror = new ClaudeSessionStore({
+      generation: 1,
+      objects,
+      prefix,
+      resend: async (write) => {
+        await write().catch(() => undefined);
+        await write();
+      },
+    });
+    objects.failWrites(2);
+
+    await expect(mirror.append(root, [entry("a", "lost")])).rejects.toThrow(
+      /Injected object store failure/,
+    );
+    expect(mirror.unsettled).toBe(true);
+    expect(mirror.persistedAt).toBeNull();
+  });
+
   test("ready() rejects before any append when the generation is taken", async () => {
     const objects = createMemoryCheckpointObjectStore();
     await store(objects).mirror.append(root, [entry("a", "other launch")]);

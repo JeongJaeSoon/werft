@@ -482,6 +482,11 @@ export class WorkerHost {
     });
   }
 
+  /** What is left before this attempt gives its lease up; 0 before a claim. */
+  get leaseLeftMs(): number {
+    return this.heartbeat?.leaseLeftMs ?? 0;
+  }
+
   /**
    * What every outside write waits on before it is sent (the gateway
    * client's calls, the object store's requests): `Heartbeat.unconfirmed`

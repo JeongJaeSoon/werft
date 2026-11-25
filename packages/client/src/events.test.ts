@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { jittered } from "./events.ts";
 import {
   type ApiError,
   type ContractMismatch,
@@ -79,10 +80,12 @@ function subscribe(
     sessionEvent?: Validator;
     lastEventId?: string;
     idleMs?: number;
+    undecidedMs?: number;
   } = {},
 ) {
   const events: SessionEventFrame[] = [];
   const states: StreamState[] = [];
+  const retries: number[] = [];
   const errors: ApiError[] = [];
   const mismatches: ContractMismatch[] = [];
   const client = createApiClient({
@@ -101,9 +104,14 @@ function subscribe(
     onEvent: (event) => events.push(event),
     onState: (state) => states.push(state),
     onError: (error) => errors.push(error),
-    retry: { ...FAST, ...(options.idleMs ? { idleMs: options.idleMs } : {}) },
+    onRetry: (failed) => retries.push(failed),
+    retry: {
+      ...FAST,
+      ...(options.idleMs ? { idleMs: options.idleMs } : {}),
+      ...(options.undecidedMs ? { undecidedMs: options.undecidedMs } : {}),
+    },
   });
-  return { events, states, errors, mismatches, stop, done };
+  return { events, states, errors, retries, mismatches, stop, done };
 }
 
 async function until(condition: () => boolean) {
@@ -396,6 +404,117 @@ describe("subscribeSessionEvents", () => {
     ]);
     expect(run.states).toEqual(["connecting", "closed"]);
     expect(server.requests).toHaveLength(1);
+  });
+
+  const undecided = {
+    status: 403,
+    body: {
+      error: {
+        code: "FORBIDDEN",
+        message: "This principal does not hold session.read",
+        details: { reason_code: "error" },
+      },
+    },
+  };
+
+  test("a refusal the policy could not decide is retried, counting the failed attempts", async () => {
+    const server = eventServer([
+      { text: frame("ev_1", "status", { phase: "running" }) },
+      undecided,
+      { status: 503 },
+      undecided,
+      { text: frame("ev_2", "status", { phase: "idle" }), hold: true },
+    ]);
+    const run = subscribe(server);
+    await until(() => run.events.length === 2);
+    expect(run.events.map((e) => e.id)).toEqual(["ev_1", "ev_2"]);
+    expect(lastEventIds(server)).toEqual([
+      null,
+      "ev_1",
+      "ev_1",
+      "ev_1",
+      "ev_1",
+    ]);
+    expect(run.retries).toEqual([0, 1, 2, 3]);
+    expect(run.errors).toEqual([]);
+    run.stop.abort();
+    await run.done;
+  });
+
+  test("a refusal it could not decide ends the stream once it lasts past the limit", async () => {
+    const server = eventServer(Array.from({ length: 500 }, () => undecided));
+    const run = subscribe(server, { undecidedMs: 30 });
+    await run.done;
+    expect(run.errors.map((e) => [e.status, e.code])).toEqual([
+      [403, "FORBIDDEN"],
+    ]);
+    expect(run.states.at(-1)).toBe("closed");
+    expect(server.requests.length).toBeGreaterThan(1);
+  });
+
+  test("the limit holds the failures that follow an undecided refusal too", async () => {
+    const server = eventServer([
+      undecided,
+      ...Array.from({ length: 500 }, () => ({ status: 503 })),
+    ]);
+    const run = subscribe(server, { undecidedMs: 30 });
+    await run.done;
+    expect(run.errors.map((e) => [e.status, e.code])).toEqual([
+      [403, "FORBIDDEN"],
+    ]);
+    expect(run.states.at(-1)).toBe("closed");
+    expect(server.requests.length).toBeGreaterThan(2);
+  });
+
+  test("a long wait after an undecided refusal ends with the window, not after it", async () => {
+    const server = eventServer([
+      undecided,
+      { status: 503, headers: { "retry-after": "60" } },
+    ]);
+    const started = Date.now();
+    const run = subscribe(server, { undecidedMs: 30 });
+    await run.done;
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(run.errors.map((e) => [e.status, e.code])).toEqual([
+      [403, "FORBIDDEN"],
+    ]);
+    expect(server.requests).toHaveLength(2);
+  });
+
+  for (const [status, code, details] of [
+    [403, "FORBIDDEN", { reason_code: "role" }],
+    [403, "FORBIDDEN", null],
+    [401, "UNAUTHORIZED", null],
+  ] as const) {
+    test(`a ${status} with reason ${details?.reason_code ?? "none"} ends the stream at once`, async () => {
+      const server = eventServer([
+        {
+          status,
+          body: { error: { code, message: "refused", details } },
+        },
+      ]);
+      const run = subscribe(server);
+      await run.done;
+      expect(run.errors.map((e) => [e.status, e.code])).toEqual([
+        [status, code],
+      ]);
+      expect(server.requests).toHaveLength(1);
+    });
+  }
+
+  test("each wait is drawn between half of the backoff and all of it", () => {
+    const random = spyOn(Math, "random");
+    try {
+      random
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(0.5)
+        .mockReturnValueOnce(1);
+      expect([jittered(800), jittered(800), jittered(800)]).toEqual([
+        400, 600, 800,
+      ]);
+    } finally {
+      random.mockRestore();
+    }
   });
 
   describe("an envelope that breaks the contract", () => {

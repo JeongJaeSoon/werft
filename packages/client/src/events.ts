@@ -19,13 +19,28 @@ export interface SubscribeOptions {
   readonly onState?: (state: StreamState) => void;
   /** An error the stream does not recover from; the subscription has ended. */
   readonly onError?: (error: ApiError) => void;
+  /**
+   * Before each wait to reconnect: how many attempts in a row failed to open
+   * the stream. An opened stream starts the count again.
+   */
+  readonly onRetry?: (failedAttempts: number) => void;
   readonly retry?: RetryTiming;
 }
 
 export interface RetryTiming {
-  /** First wait before reconnecting; doubles per failed attempt. */
+  /**
+   * First wait before reconnecting; doubles per failed attempt up to maxMs.
+   * Each wait is drawn between half of it and all of it, so clients dropped
+   * together do not come back together.
+   */
   readonly initialMs?: number;
   readonly maxMs?: number;
+  /**
+   * How long a refusal whose authorization could not be decided (403 with
+   * `reason_code` "error", as while storage is unreachable) is retried
+   * before the subscription ends with it.
+   */
+  readonly undecidedMs?: number;
   /**
    * No bytes for this long reads as a dead connection. The server sends a
    * keepalive comment every 15 s.
@@ -52,10 +67,17 @@ export async function subscribeSessionEvents(
   const initialMs = options.retry?.initialMs ?? 1_000;
   const maxMs = options.retry?.maxMs ?? 30_000;
   const idleMs = options.retry?.idleMs ?? 45_000;
+  const undecidedMs = options.retry?.undecidedMs ?? 300_000;
   // Recent ids only: a repeat can only come from a replay around a reconnect.
   const delivered = new Set<string>();
   let cursor = options.lastEventId || undefined;
   let backoff = initialMs;
+  let failedAttempts = 0;
+  // The first refusal the policy could not decide, while nothing has opened
+  // since: the window it starts holds whatever failures follow it.
+  let undecided:
+    | { readonly since: number; readonly error: ApiError }
+    | undefined;
 
   /** Returns false once the subscription must end. */
   const receive = (raw: RawFrame): boolean => {
@@ -126,18 +148,31 @@ export async function subscribeSessionEvents(
       try {
         result = await open();
       } catch {
-        return signal.aborted ? null : backoff;
+        failedAttempts += 1;
+        return signal.aborted ? null : jittered(backoff);
       }
       const { data: body, error, response } = result;
       if (!response.ok) {
+        failedAttempts += 1;
         const retryAfter = retryAfterSeconds(response);
         if (response.status === 429 || response.status === 503)
-          return retryAfter ? retryAfter * 1_000 : backoff;
-        if (response.status >= 500 || response.status === 408) return backoff;
-        options.onError?.(errorFromResponse(response, error));
+          return retryAfter ? retryAfter * 1_000 : jittered(backoff);
+        if (response.status >= 500 || response.status === 408)
+          return jittered(backoff);
+        const refusal = errorFromResponse(response, error);
+        if (couldNotDecide(refusal)) {
+          undecided ??= { since: Date.now(), error: refusal };
+          return jittered(backoff);
+        }
+        options.onError?.(refusal);
         return null;
       }
-      if (!body) return backoff;
+      if (!body) {
+        failedAttempts += 1;
+        return jittered(backoff);
+      }
+      failedAttempts = 0;
+      undecided = undefined;
       options.onState?.("open");
       const reader = body.getReader();
       const decoder = new TextDecoder();
@@ -162,24 +197,57 @@ export async function subscribeSessionEvents(
         }
       }
       await reader.cancel().catch(() => {});
-      return signal.aborted ? null : backoff;
+      return signal.aborted ? null : jittered(backoff);
     } finally {
       clearTimeout(idle);
       signal.removeEventListener("abort", stop);
     }
   };
 
+  /** Ends the subscription with the undecided refusal once its window is over. */
+  const expired = (): boolean => {
+    if (!undecided || Date.now() - undecided.since < undecidedMs) return false;
+    options.onError?.(undecided.error);
+    return true;
+  };
+
   try {
     while (!signal.aborted) {
       options.onState?.("connecting");
       const wait = await connect();
-      if (wait === null) return;
+      if (wait === null || expired()) return;
       backoff = Math.min(backoff * 2, maxMs);
-      await sleep(wait, signal);
+      options.onRetry?.(failedAttempts);
+      // No wait, a long Retry-After included, outlasts the window.
+      await sleep(
+        undecided
+          ? Math.min(wait, undecided.since + undecidedMs - Date.now())
+          : wait,
+        signal,
+      );
+      if (expired()) return;
     }
   } finally {
     options.onState?.("closed");
   }
+}
+
+export function jittered(ms: number): number {
+  return ms / 2 + Math.random() * (ms / 2);
+}
+
+/**
+ * The policy refused because it could not reach a decision, not because the
+ * caller lacks the grant; the same refusal the Slack adapter retries.
+ */
+function couldNotDecide(error: ApiError): boolean {
+  if (error.status !== 403) return false;
+  const details = error.details;
+  return (
+    typeof details === "object" &&
+    details !== null &&
+    (details as { reason_code?: unknown }).reason_code === "error"
+  );
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

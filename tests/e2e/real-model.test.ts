@@ -344,7 +344,7 @@ echo " 0 fail"
     expect(argv).not.toContain(OVERLAY);
     expect(argv).toContain(`-f ${FAKE_MODEL}`);
     expect(argv).toContain(
-      "bun test ./tests/e2e/workspace-mcp.e2e.ts./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
+      "bun test ./tests/e2e/workspace-mcp.e2e.ts./tests/e2e/alpha-path.e2e.ts ./tests/e2e/db-outage.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
     );
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh\n");

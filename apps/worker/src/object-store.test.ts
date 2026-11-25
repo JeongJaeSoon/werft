@@ -15,6 +15,8 @@ import {
   isObjectStoreOutage,
   ObjectStoreToken,
   objectStoreConfigFromEnv,
+  resentUntilLeaseEnds,
+  TRANSCRIPT_RESEND_CEILING_MS,
 } from "./object-store.ts";
 
 const base = {
@@ -285,6 +287,149 @@ describe("createWorkerObjectStore", () => {
     expect(put?.headers.get("authorization")).toContain(
       "Credential=weo_token/",
     );
+  });
+});
+
+describe("resentUntilLeaseEnds", () => {
+  const outage = () =>
+    Object.assign(new Error("status 503"), {
+      $metadata: { httpStatusCode: 503 },
+    });
+  /** A clock the waits advance, and a lease that runs down on it. */
+  function leased(leftMs: () => number) {
+    let now = 0;
+    const waits: number[] = [];
+    return {
+      waits,
+      leaseLeftMs: () => Math.max(0, leftMs() - now),
+      hooks: {
+        now: () => now,
+        sleep: async (ms: number) => {
+          waits.push(ms);
+          now += ms;
+        },
+      },
+    };
+  }
+
+  test("a write the store did not answer is kept and sent again on the heartbeat's backoff until it lands", async () => {
+    const lease = leased(() => 20_000);
+    const held: unknown[] = [];
+    const resent: number[] = [];
+    let refused = 3;
+    let landed = 0;
+    await resentUntilLeaseEnds(
+      async () => {
+        if (refused-- > 0) throw outage();
+        landed += 1;
+      },
+      lease.leaseLeftMs,
+      {
+        ...lease.hooks,
+        onHeld: (error) => held.push(error),
+        onResent: (outages) => resent.push(outages),
+      },
+    );
+    expect(landed).toBe(1);
+    expect(lease.waits).toEqual([1_000, 2_000, 4_000]);
+    expect(held).toHaveLength(1);
+    expect(resent).toEqual([3]);
+  });
+
+  test("an outage is never taken for the store's answer: the write fails at the lease's end, never reported done", async () => {
+    const lease = leased(() => 10_000);
+    let sent = 0;
+    const done = resentUntilLeaseEnds(
+      async () => {
+        sent += 1;
+        throw outage();
+      },
+      lease.leaseLeftMs,
+      {
+        ...lease.hooks,
+        onResent: () => {
+          throw new Error("reported done without the store taking it");
+        },
+      },
+    );
+    await expect(done).rejects.toThrow("status 503");
+    // The last wait is cut to what the lease had left, and nothing is sent
+    // once it is over.
+    expect(lease.waits).toEqual([1_000, 2_000, 4_000, 3_000]);
+    expect(sent).toBe(4);
+  });
+
+  test("a lease renewed meanwhile keeps the batch being sent, and no send starts past the ceiling", async () => {
+    let now = 0;
+    const waits: number[] = [];
+    const sentAt: number[] = [];
+    const done = resentUntilLeaseEnds(
+      async () => {
+        sentAt.push(now);
+        throw outage();
+      },
+      // Renewed at every look: always five seconds left.
+      () => 5_000,
+      {
+        now: () => now,
+        sleep: async (ms) => {
+          waits.push(ms);
+          now += ms;
+        },
+      },
+    );
+    await expect(done).rejects.toThrow("status 503");
+    // Past the five seconds the lease had at the first outage, to the ceiling.
+    expect(waits.slice(0, 4)).toEqual([1_000, 2_000, 4_000, 4_000]);
+    expect(now).toBe(TRANSCRIPT_RESEND_CEILING_MS);
+    expect(Math.max(...sentAt)).toBeLessThan(TRANSCRIPT_RESEND_CEILING_MS);
+  });
+
+  test("a lease that ends during the wait is not written under", async () => {
+    let now = 0;
+    const sentAt: number[] = [];
+    const done = resentUntilLeaseEnds(
+      async () => {
+        sentAt.push(now);
+        throw outage();
+      },
+      () => Math.max(0, 1_000 - now),
+      {
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    );
+    await expect(done).rejects.toThrow("status 503");
+    expect(sentAt).toEqual([0]);
+  });
+
+  test("a refusal, or an outage with no lease left, fails the write at once", async () => {
+    const lease = leased(() => 20_000);
+    const refusal = Object.assign(new Error("status 403"), {
+      $metadata: { httpStatusCode: 403 },
+    });
+    await expect(
+      resentUntilLeaseEnds(
+        async () => {
+          throw refusal;
+        },
+        lease.leaseLeftMs,
+        lease.hooks,
+      ),
+    ).rejects.toBe(refusal);
+    const none = leased(() => 0);
+    await expect(
+      resentUntilLeaseEnds(
+        async () => {
+          throw outage();
+        },
+        none.leaseLeftMs,
+        none.hooks,
+      ),
+    ).rejects.toThrow("status 503");
+    expect([...lease.waits, ...none.waits]).toEqual([]);
   });
 });
 

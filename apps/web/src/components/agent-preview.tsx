@@ -239,6 +239,8 @@ export function PreviewChat({
           <SessionChat
             events={events.events}
             state={events.state}
+            failedAttempts={events.failedAttempts}
+            onReconnect={events.reconnect}
             turns={turns.data?.items}
             agentName={agentName}
             working={

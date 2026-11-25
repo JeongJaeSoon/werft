@@ -9,6 +9,7 @@ import {
   type S3TimeoutWarn,
   scopedCheckpointObjectStore,
 } from "@werft-ai/storage";
+import { notFoundBackoff } from "./heartbeat.ts";
 
 /**
  * The one file in the worker that knows objects live in S3. Everything else
@@ -131,6 +132,58 @@ export class ObjectStoreToken {
       throw new Error("The object store was used before the claim");
     }
     return this.#value;
+  }
+}
+
+/**
+ * No send of one transcript write starts later than this after its first,
+ * however long the lease goes on being renewed: the engine's SDK waits 60 s
+ * for an append and then gives the batch up itself. A send already under way
+ * is not cut short by it; how long one may take is the store's own bound.
+ */
+export const TRANSCRIPT_RESEND_CEILING_MS = 50_000;
+
+/**
+ * Runs a transcript write and, while the store only failed to answer it
+ * (`isObjectStoreOutage`), runs it again on the heartbeat's backoff until
+ * this attempt gives its lease up: the batch is kept rather than dropped for
+ * as long as the attempt still owns what it writes, up to the ceiling above,
+ * and nothing is sent once it does not. An outage is never an answer: the
+ * write is done only once the store took it, and at the lease's end it fails
+ * with the outage it last met. Any other failure fails it at once.
+ */
+export async function resentUntilLeaseEnds(
+  write: () => Promise<void>,
+  leaseLeftMs: () => number,
+  hooks: {
+    /** The first outage of this write, before it is sent again. */
+    onHeld?: (error: unknown) => void;
+    /** The store took it after this many outages. */
+    onResent?: (outages: number) => void;
+    sleep?: (ms: number) => Promise<unknown>;
+    now?: () => number;
+  } = {},
+): Promise<void> {
+  const now = hooks.now ?? (() => performance.now());
+  const until = now() + TRANSCRIPT_RESEND_CEILING_MS;
+  // The lease as it stands at each look: a beat that landed meanwhile
+  // extends it.
+  const left = () => Math.min(leaseLeftMs(), until - now());
+  for (let outages = 0; ; ) {
+    try {
+      await write();
+      if (outages > 0) hooks.onResent?.(outages);
+      return;
+    } catch (error) {
+      if (!isObjectStoreOutage(error)) throw error;
+      if (outages === 0) hooks.onHeld?.(error);
+      outages += 1;
+      const wait = Math.min(notFoundBackoff(outages), left());
+      if (wait <= 0) throw error;
+      await (hooks.sleep ?? Bun.sleep)(wait);
+      // Looked at again after the wait: nothing is sent past the lease.
+      if (left() <= 0) throw error;
+    }
   }
 }
 
