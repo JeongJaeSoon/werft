@@ -272,4 +272,39 @@ describe("moveModelNoticesOffPeople", () => {
       sessionLinkId: link,
     });
   });
+
+  test("an earlier image's claim of a DM row ends when the row moves", async () => {
+    const session = crypto.randomUUID();
+    await threadOf(session);
+    const moved = await toPerson({ sessionId: session, person: "UCREATOR" });
+    // An earlier image's sender claimed the DM row and has not begun yet.
+    const token = crypto.randomUUID();
+    await client.query(
+      "UPDATE slack_outbox SET claim_token = $1, lease_expires_at = now() + interval '1 minute' WHERE id = $2",
+      [token, moved],
+    );
+    expect(await moveModelNoticesOffPeople(db)).toMatchObject({ moved: 1 });
+    const outbox = createPostgresSlackOutboxStore(db);
+    expect(await outbox.beginSend({ id: moved, claimToken: token })).toBe(
+      false,
+    );
+    expect(await rows()).toEqual([
+      expect.objectContaining({ id: moved, status: "pending" }),
+    ]);
+  });
+
+  test("the drain leaves a DM row waiting for the pass", async () => {
+    const session = crypto.randomUUID();
+    const link = await threadOf(session);
+    const waiting = await toPerson({ sessionId: session, person: "UCREATOR" });
+    // The Slack role's pass may run before the API's start pass.
+    await createPostgresSlackOutboxStore(db).closeUnaddressed();
+    expect(await rows()).toEqual([
+      expect.objectContaining({ id: waiting, status: "pending" }),
+    ]);
+    expect(await moveModelNoticesOffPeople(db)).toMatchObject({ moved: 1 });
+    expect(await rows()).toEqual([
+      expect.objectContaining({ id: waiting, sessionLinkId: link }),
+    ]);
+  });
 });

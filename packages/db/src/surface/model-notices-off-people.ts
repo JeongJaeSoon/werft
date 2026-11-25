@@ -105,6 +105,10 @@ export async function moveModelNoticesOffPeople(
                 threadTs: link.threadTs,
                 sessionLinkId: link.id,
                 dedupeKey,
+                // An earlier image's claim of the DM row ends here: its
+                // fence no longer matches, so it never sends to the person.
+                claimToken: null,
+                leaseExpiresAt: null,
               })
               .where(eq(slackOutbox.id, id));
             return "moved" as const;

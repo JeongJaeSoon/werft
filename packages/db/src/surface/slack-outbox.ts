@@ -1814,6 +1814,10 @@ export function createPostgresSlackOutboxStore(
               eq(t.status, "pending"),
               // A held row has no thread to check yet; its hold ends it.
               sql`${t.heldForInputId} IS NULL`,
+              // A model notice an earlier release wrote to a person is the
+              // API start pass's (moveModelNoticesOffPeople): it moves the
+              // row to its session's thread, so it is not closed before.
+              sql`NOT (${t.kind} = 'model_notice' AND ${t.channelId} ~ '^[UW]')`,
               sql`NOT ${addressed(tx, sql.raw('"slack_outbox"'), noticeVersions)}`,
             ),
           )
