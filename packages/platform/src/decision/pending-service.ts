@@ -83,7 +83,11 @@ export function createPendingRequestService(deps: {
         authorization,
         actor,
         "session.approve",
-        { kind: "session", id: sessionId },
+        {
+          kind: "session",
+          id: sessionId,
+          pending_request_id: input.body.request_id,
+        },
       ).catch(async (error: unknown) => {
         if (!selfApproval(error)) throw error;
         const receiptId = await store.recordSelfApproval({
@@ -103,6 +107,21 @@ export function createPendingRequestService(deps: {
           },
         );
       });
+      // Until a session-wide allow is bound to the authority of whoever gave
+      // it (94S-2215), a member answering for a requester who left gives
+      // none.
+      if (
+        decision.requester_left === true &&
+        input.body.kind === "permission" &&
+        input.body.remember !== undefined
+      ) {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "A member answering for a requester who left cannot allow for the session",
+          undefined,
+          { reason_code: "role" },
+        );
+      }
       const textRefusal = answerTextRefusal(input.body);
       if (textRefusal !== null) {
         throw new SessionServiceError("BAD_REQUEST", textRefusal);
@@ -117,6 +136,7 @@ export function createPendingRequestService(deps: {
           surface: actor.subject.surface.kind,
           decisionId: decision.decision_id,
         },
+        ...(decision.requester_left === true ? { requesterLeft: true } : {}),
       });
       switch (result.outcome) {
         case "conflict":

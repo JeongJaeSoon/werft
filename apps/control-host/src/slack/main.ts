@@ -45,10 +45,10 @@ import {
   createAuthorizationPolicy,
   createCatalogRegistry,
   createSessionService,
-  pushRequesterLeft,
   readerOutsideChannels,
   registryCatalog,
   repositoryView,
+  requesterLeft,
   type SecretKey,
   type SurfaceInboundEventStore,
   type SurfaceOutboxClaim,
@@ -281,7 +281,7 @@ export function slackSessionHandler(deps: {
 }
 
 /** The card's label and the policy ask the same question (answer 15). */
-function slackPushRequesterLeft(
+function slackRequesterLeft(
   db: Database,
   secretKey: SecretKey,
   environment: Environment,
@@ -298,8 +298,8 @@ function slackPushRequesterLeft(
     }),
     logger,
   };
-  return (push: Parameters<typeof pushRequesterLeft>[1]) =>
-    pushRequesterLeft(deps, push);
+  return (card: Parameters<typeof requesterLeft>[1]) =>
+    requesterLeft(deps, card);
 }
 
 /** A session's direct message goes only to someone who can see it. */
@@ -416,7 +416,7 @@ export async function main(
       leaseMs: settings.leaseMs,
       deadline,
       statusesFirst: nextStatusesFirst(),
-      requesterLeft: slackPushRequesterLeft(db, secretKey, environment, logger),
+      requesterLeft: slackRequesterLeft(db, secretKey, environment, logger),
       inputHoldMs: settings.inputHoldMs,
       closeLinks: settings.closeLinks,
     });

@@ -500,9 +500,9 @@ function createPostgresSlackCardSettleStore(
       );
     },
 
-    async markPushCardsDueIn({ installationId, channelId, windowMs }) {
+    async markChoiceCardsDueIn({ installationId, channelId, windowMs }) {
       const inChannel = sql`${SENT_CARD} AND ${SHOWS_CHOICE}
-        AND o.dedupe_key LIKE 'push:%'
+        AND (o.dedupe_key LIKE 'push:%' OR o.dedupe_key LIKE 'prompt:%')
         AND o.installation_id = ${installationId}
         AND o.channel_id = ${channelId}`;
       // One statement, so a redraw's finish lands wholly before or after it.

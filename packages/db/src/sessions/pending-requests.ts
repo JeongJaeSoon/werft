@@ -751,6 +751,7 @@ export function createPostgresPendingRequests(
         }
         const reach = await lockSessionReach(tx, requester, session, {
           answer: !agentKey,
+          ...(input.requesterLeft === true ? { requesterLeft: true } : {}),
         });
         if (reach !== "ok") return { outcome: reach };
         if (
