@@ -1062,7 +1062,7 @@ a0_sql "select count(buffer_expires_at) as buffered, count(*) from conversation_
 a0_sql "select conversation_rollout from agents where id='$AID'"
 ```
 
-기대: processed·dropped 행의 payload 0. 명령은 `{"outcome":"cleared",…,"cleared":0,…}` exit 0. buffered 0, `conversation_rollout`은 `off`(올린 적이 없을 때). 스위치를 올리고 버퍼의 10분 TTL을 보는 것은 P-A0-ROLLOUT이다.
+기대: processed·dropped 행의 payload 0. 명령은 `{"outcome":"cleared",…,"cleared":0,…}` exit 0. buffered 0, `conversation_rollout`은 `off`(올린 적이 없을 때). 스위치를 올리는 것은 P-A0-ROLLOUT이, 버퍼의 10분 TTL은 P-A1-BUFFER가 본다.
 
 ## P-A0-ROLLOUT — 대화 스위치와 판정 버퍼 TTL
 
@@ -1091,15 +1091,9 @@ a0_sql "select actor, result from receipts where operation='set_conversation_rol
 
 기대: 승인 전에는 스위치가 `aria-disabled="true"`이고 "고지를 승인한 뒤 켤 수 있습니다."가 보인다. 1 뒤 buffered 1, slack 로그 `Slack message held for the judgment`(`rollout:"shadow"`). 2 뒤 buffered 0이고, 그 뒤의 글도 0이다. 3의 `on`은 `{"outcome":"refused",…,"reason_code":"rollout_on_unavailable"}` exit 4, `shadow`·`off`는 `{"outcome":"changed",…}` exit 0이고 off의 `buffered_dropped`는 1이다. 같은 값을 다시 주면 `unchanged`이고 receipt는 늘지 않는다. receipt의 `result.by`는 웹이 `web`(actor는 그 사용자), 명령이 `operator_cli`(actor 없음)다. 워크스페이스 owner·admin이 아닌 사람은 에이전트 관리자여도 화면에 스위치가 없고("워크스페이스 owner·admin만 바꿀 수 있습니다."), API는 403 `workspace_admin_required`다. shadow에서 owner가 `POST /v1/agents/$AID/slack/notice/revoke`를 하면 `rollout:"off"`, buffered 0이고 receipt `reason:"notice_revoked"`다. 그 뒤 다시 올리면 409 `notice_not_approved`다.
 
-4. 10분 TTL: shadow로 올리고 글 하나를 담은 뒤 아무것도 하지 않는다. reconciler가 10초마다 `Judgment buffer purged`를 남긴다.
+담긴 글은 15–20초 뒤 M1이 판단해 버퍼에서 뺀다(팀 한도가 없는 run에서는 `budget_refused`로 기록한다). 그래서 위의 buffered와 `buffered_dropped`는 글을 보낸 바로 뒤에 읽는다. 늦게 읽으면 0이다.
 
-```sh
-a0_sql "select id, buffer_expires_at, now(), buffer_expires_at - now() as remaining from conversation_inputs where agent_id='$AID' and buffer_expires_at is not null"
-# 만료 60초 전에 한 번, 만료 뒤에 한 번 더 읽는다.
-ap_compose logs reconciler | grep '"Judgment buffer purged"' | grep -v '"expired_count":0'
-```
-
-기대: `buffer_expires_at`은 받은 시각 + 10분. 만료 60초 전에는 행이 남는다. 만료 뒤 첫 pass(10초 이내)에서 `expired_count:1`이 찍히고 행이 사라진다. 한 run에서 확인한 값: 만료 12:06:33.17, 12:05:35에 남은 시간 00:00:57, 12:06:34.19 pass의 `expired_count:1`, 12:06:35에 행 0.
+4. 10분 TTL: 담아 두고 기다리는 것으로는 이제 볼 수 없다. 기한은 시간당 판단 상한을 넘겨 글이 버퍼에 남는 채널에서 본다(P-A1-BUFFER). M1이 없던 때 한 run에서 확인한 값: 만료 12:06:33.17, 12:05:35에 남은 시간 00:00:57, 12:06:34.19 pass의 `expired_count:1`, 12:06:35에 행 0.
 
 
 ## P-A0-MODEL-CALLS — 예약과 대화 호출(조건 8)
@@ -1149,7 +1143,7 @@ grep -E '\((pass|fail|skip)\)' "$EVIDENCE/ci-<job>.log" | grep -F '<test name>'
 | 웹 입력(`createWebInputService`) | conversation-inputs(db), slack/outbox(surface) | "a retry with the same key and text gets the same input id and number back", "the post's record and its echo arriving at once leave one input and one alias" | 웹 입력 route를 여는 epic(실제 Slack에서 mirror 왕복) |
 | 요약 줄 삭제 | channel-summaries(db), m1-judgments(db) | "deleting one of three sources takes its line out of every version…", "a deletion deletes the channel's summary with every version…", "is written with the server's speakers before the buffer goes, again after a lost compare" | a1에서 냈다: P-A1-CONTEXT(출처 글을 지우면 줄이 모든 판에서 빠지고, 채널을 지우면 요약이 판째 지워진다) |
 
-`tests/a0-deferred-paths.test.ts`는 선언한 파일 밖의 제품 코드·`scripts/`에서 그 이름(식별자나 문자열)이 나오면 실패한다. 실패하면 그 경로에 호출자가 생긴 것이다. 그 epic에서 위 행의 실제 출력을 verify stack으로 내고 시험의 목록에서 뺀다. 지금 목록에 남은 것은 `createWebInputService` 하나다. 판정 버퍼의 10분 기한은 P-A0-ROLLOUT과 P-A1-BUFFER가 낸다. a1이 미룬 확인은 P-A1-DEFERRED에 있다.
+`tests/a0-deferred-paths.test.ts`는 선언한 파일 밖의 제품 코드·`scripts/`에서 그 이름(식별자나 문자열)이 나오면 실패한다. 실패하면 그 경로에 호출자가 생긴 것이다. 그 epic에서 위 행의 실제 출력을 verify stack으로 내고 시험의 목록에서 뺀다. 지금 목록에 남은 것은 `createWebInputService` 하나다. 판정 버퍼의 10분 기한은 P-A1-BUFFER가 낸다. a1이 미룬 확인은 P-A1-DEFERRED에 있다.
 
 실제 Slack(개발 워크스페이스)에서만 보이는 것은 mock으로 대신하지 않는다. `conversations.members`의 실제 응답, metadata가 붙은 mirror 왕복, tombstone 원본 필드는 bot token을 여는 단계가 필요하므로 오너가 직접 돌린다.
 
