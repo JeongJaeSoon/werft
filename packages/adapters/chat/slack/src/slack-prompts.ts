@@ -548,7 +548,8 @@ export function slackCardText(parts: SlackCardTextParts): string {
     parts.linkUrl && isSafeLink(parts.linkUrl)
       ? `<${parts.linkUrl}|${escapeMrkdwn(copy.link)}>`
       : escapeMrkdwn(copy.openConsole);
-  const guard = parts.guard ?? ((text: string) => text);
+  const guard =
+    parts.guard === undefined ? (text: string) => text : cutAware(parts.guard);
   return [
     `${who ? `${who} ` : ""}${escapeMrkdwn(clip(guard(parts.title), PLAIN_TEXT_MAX))}`,
     ...(parts.lines ?? [])
@@ -603,7 +604,7 @@ export function slackGuardedCardText(
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&");
-  if (guard(raw) === raw) return stored;
+  if (cutAware(guard)(raw) === raw) return stored;
   const copy = SLACK_PROMPT_MESSAGES[card.locale];
   return slackCardText({
     locale: card.locale,
@@ -617,11 +618,14 @@ export function slackGuardedCardText(
   });
 }
 
-// The guard over model text before it is cut to fit: a cut leaves `…` on
-// what it cut, which no longer reads as a link or id. Slack refuses an empty
-// text, so one the guard empties keeps a mark.
+// A cut leaves `…` on what it cut, which a link or id it cut through would
+// read as part of it: the guard reads each run around a mark on its own.
+const cutAware = (guard: SlackTextGuard) => (text: string) =>
+  text.split("…").map(guard).join("…");
+
+// Slack refuses an empty text, so one the guard empties keeps a mark.
 const keptBy = (guard: SlackTextGuard) => (text: string) => {
-  const kept = guard(text);
+  const kept = cutAware(guard)(text);
   return kept.trim() === "" && text.trim() !== "" ? "…" : kept;
 };
 
@@ -635,7 +639,7 @@ function guardedStrings(
   if (typeof value !== "object" || value === null) return value;
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
-      key,
+      guard(key),
       guardedStrings(item, guard),
     ]),
   );
@@ -668,6 +672,7 @@ function guardedPrompt(
         ...prompt,
         tool: kept(prompt.tool),
         input: guardedStrings(prompt.input, kept),
+        context: guardedStrings(prompt.context, kept) as ToolSummaryContext,
         ...(prompt.rememberOffer === undefined
           ? {}
           : {
@@ -704,6 +709,7 @@ function guardedDisplay(
         ...display,
         tool: kept(display.tool),
         input: guardedStrings(display.input, kept),
+        context: guardedStrings(display.context, kept) as ToolSummaryContext,
       };
     case "question":
       return {

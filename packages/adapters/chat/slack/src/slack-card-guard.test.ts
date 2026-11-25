@@ -11,6 +11,7 @@ import { settleSlackCards } from "./slack-card-settle.ts";
 import { enqueueSlackPrompts } from "./slack-outbox-enqueue.ts";
 import { slackOutboxGuard } from "./slack-outbox-render.ts";
 import {
+  guardSlackCardBlocks,
   type SlackPrompt,
   slackGuardedCardText,
   slackPromptMessage,
@@ -255,6 +256,74 @@ describe("a card's text cut to fit", () => {
       { ...options, guard },
     );
     expect(said(card)).not.toContain("T0OTHER001");
+  });
+});
+
+describe("a link a cut runs into", () => {
+  const u = "https://app.slack.com/client/T0OTHER001";
+
+  test("in a tool input's key, past the raw input's length", () => {
+    const asked = {
+      ...permission,
+      input: { [`${"x".repeat(2499 - u.length)}${u} tail`]: "v" },
+    };
+    expect(said(slackPromptMessage(asked, options))).toContain("T0OTHER001");
+    expect(
+      said(slackPromptMessage(asked, { ...options, guard })),
+    ).not.toContain("T0OTHER001");
+  });
+
+  test("in a push tool's branch, first drawn and settled", () => {
+    const branch = `${"x".repeat(199 - u.length)}/${u.slice(8)}/tail`;
+    const asked = {
+      ...permission,
+      tool: "mcp__github__request_push",
+      input: {},
+      context: { branch } as never,
+    };
+    expect(said(slackPromptMessage(asked, options))).toContain("T0OTHER001");
+    expect(
+      said(slackPromptMessage(asked, { ...options, guard })),
+    ).not.toContain("T0OTHER001");
+    const settled = slackSettledCard(
+      promptCard({
+        kind: "permission",
+        tool: "mcp__github__request_push",
+        input: {},
+        context: { branch },
+        state: "answered",
+        decision: "allow",
+        decidedByUserId: "019a0000-0000-7000-8000-00000000d0e1",
+        closedReason: null,
+        createdAt: "2026-11-03T00:00:00Z",
+        expiresAt: "2026-11-03T01:00:00Z",
+      } as PendingRequestDisplay),
+      guard,
+    );
+    expect(said(settled)).not.toContain("T0OTHER001");
+  });
+
+  test("in a card stored cut before this change, redrawn", () => {
+    for (const n of [199, 2999]) {
+      const legacy = slackPromptMessage(
+        {
+          kind: "question",
+          sessionId: "s-1",
+          requestId: "q",
+          questions: [question(`${"x".repeat(n - u.length)}${u} tail`, ["a"])],
+          expiresAt: "2026-11-03T00:00:00Z",
+        },
+        options,
+      );
+      expect(said(legacy)).toContain("T0OTHER001");
+      const card = { locale: "en", kind: "question", linkUrl: null } as const;
+      expect(slackGuardedCardText(legacy.text, guard, card)).not.toContain(
+        "T0OTHER001",
+      );
+      expect(
+        JSON.stringify(guardSlackCardBlocks(legacy.blocks, guard)),
+      ).not.toContain("T0OTHER001");
+    }
   });
 });
 
