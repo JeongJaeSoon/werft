@@ -389,7 +389,12 @@ integration("M1 judgment records", () => {
         ),
       );
       expect(outcome).toBe("written");
-      const judged = batch.inputs.map((input) => input.inputId);
+      const judged = batch.inputs.map(({ inputId, ts, body, editMark }) => ({
+        inputId,
+        ts,
+        body,
+        editMark,
+      }));
       expect(
         await store.recordBatch(
           batch,
@@ -399,7 +404,7 @@ integration("M1 judgment records", () => {
           },
           judged,
         ),
-      ).toBe(true);
+      ).toEqual({ outcome: "written" });
       const summary = await createPostgresChannelSummaryStore(db).read(
         placeOf(batch),
       );
@@ -635,7 +640,12 @@ integration("M1 judgment records", () => {
       await store.recordBatch(
         batch,
         { ...judgedRecord(batch.id, ["600.000001"]), summary: outcome },
-        batch.inputs.map((input) => input.inputId),
+        batch.inputs.map(({ inputId, ts, body, editMark }) => ({
+          inputId,
+          ts,
+          body,
+          editMark,
+        })),
       );
       const summary = await createPostgresChannelSummaryStore(db).read(
         placeOf(batch),

@@ -219,10 +219,11 @@ const logVoided = (
 
 /**
  * J4's batches judged by M1: each summary line written, then each record,
- * then the messages it judged removed. One the channel's concurrency cap stopped keeps its
- * messages for the next batch (J7). A result voided because a message it
- * read was deleted or edited meanwhile is judged once more on what is left,
- * with the new text (J6); none left, nothing is called again.
+ * then the messages it judged removed. One the channel's concurrency cap
+ * stopped keeps its messages for the next batch (J7). A result voided
+ * because a message it read was deleted or edited meanwhile is judged once
+ * more on what is left, with the new text (J6); none left, nothing is called
+ * again.
  */
 export function createM1BatchJudge(deps: {
   judge: M1Judge;

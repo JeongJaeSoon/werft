@@ -298,9 +298,10 @@ describe("the summary line (a1/J8)", () => {
   });
 
   test("a source marked since it was read, or a closed gate, adds no line", async () => {
-    const skipped = batchStore([], [
-      { outcome: "written", version: 4, lineIds: [], skipped: [] },
-    ]);
+    const skipped = batchStore(
+      [],
+      [{ outcome: "written", version: 4, lineIds: [], skipped: [] }],
+    );
     await createM1BatchJudge({
       judge: judgedWith("someone asked for a review"),
       store: skipped.store,
