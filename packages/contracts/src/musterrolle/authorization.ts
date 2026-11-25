@@ -391,6 +391,10 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // One agent's summed usage: its workspace's managers and its admins,
   // recorded under its own name rather than agent.manage.
   "usage.agent_read",
+  // One agent's M1 judgment records in its Slack channels (a1/S3): its
+  // workspace's managers and its admins; a private channel's only to its
+  // current members.
+  "judgment.read",
   // The installation's connections, repositories and remote MCP servers,
   // and the settings document that exports and imports them: the owner.
   "installation.settings.manage",
@@ -453,6 +457,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "task.spawn": new Set(["conversation"]),
   "usage.installation_read": new Set(["workspace"]),
   "usage.agent_read": new Set(["agent"]),
+  "judgment.read": new Set(["agent"]),
   "installation.settings.manage": new Set(["workspace"]),
   "achievement_rule.manage": new Set(["workspace"]),
   "achievement.review": new Set(["agent"]),

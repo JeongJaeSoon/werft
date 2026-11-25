@@ -235,6 +235,7 @@ function deps(): SlackInteractionDeps {
           channelKind: "public_channel",
           mode: "on",
           listen: "free",
+          m1JudgmentsPerHour: 12,
           ceiling: {
             actions: [
               "session.read",

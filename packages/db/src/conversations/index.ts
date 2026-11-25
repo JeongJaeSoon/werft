@@ -6,6 +6,7 @@ export {
 } from "./channel-summaries.ts";
 export {
   engagedJudgmentsInWindow,
+  m1ChannelCap,
   requestReplyJudgment,
 } from "./conversation-judgments.ts";
 export { createPostgresConversationStore } from "./conversation-store.ts";
