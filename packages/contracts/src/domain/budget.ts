@@ -44,8 +44,9 @@ export const BUDGET_LIMIT_SUBJECT_VALUES = [
 export type BudgetLimitSubject = (typeof BUDGET_LIMIT_SUBJECT_VALUES)[number];
 
 /**
- * `resolved`: an operator closed a reservation whose end was unknown, as
- * spent or refunded (BudgetUnknownResolution). A late report then adds a
+ * `resolved`: a reservation whose end was unknown was closed, by an
+ * operator as spent or refunded or by the reconciler as estimated
+ * (BudgetUnknownResolution). A late report then adds a
  * budget adjustment and leaves the row as it is.
  */
 export const BUDGET_RESERVATION_STATE_VALUES = [
@@ -75,10 +76,16 @@ export type ConversationCallState =
   (typeof CONVERSATION_CALL_STATE_VALUES)[number];
 
 /**
- * How an operator closed a reservation of unknown end: charged at what it
- * held (the default, never charging an unknown call less), or given back.
+ * How a reservation of unknown end was closed: an operator charged what it
+ * held (the default, never charging an unknown call less) or gave it back,
+ * or the reconciler charged what it held as an estimate, once its turn ended
+ * and the call could no longer run (PROVIDER_CALL_MAX_MS).
  */
-export const BUDGET_UNKNOWN_RESOLUTION_VALUES = ["spent", "refunded"] as const;
+export const BUDGET_UNKNOWN_RESOLUTION_VALUES = [
+  "spent",
+  "refunded",
+  "estimated",
+] as const;
 export type BudgetUnknownResolution =
   (typeof BUDGET_UNKNOWN_RESOLUTION_VALUES)[number];
 
