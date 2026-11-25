@@ -4,10 +4,7 @@ import {
   SLACK_NOTICE_MESSAGES,
   sessionEventPayloadSchema,
 } from "@werft-ai/contracts";
-import {
-  budgetRefusalTurnDedupeKey,
-  type ProviderUsage,
-} from "@werft-ai/platform";
+import type { ProviderUsage } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -30,7 +27,6 @@ import {
   sessions,
   slackApps,
   slackInstallations,
-  slackOutbox,
   turns,
   users,
 } from "./schema.ts";
@@ -186,7 +182,7 @@ async function threaded(
   async function run(end: "failed" | "completed" = "failed") {
     await db
       .update(turns)
-      .set({ status: end })
+      .set({ status: end, endedAt: new Date() })
       .where(and(eq(turns.sessionId, sessionId), eq(turns.status, "running")));
     sequence += 1;
     const [turn] = await db
@@ -218,11 +214,12 @@ async function open(who: { sessionId: string; attemptId: string }) {
     sessionId: who.sessionId,
     attemptId: who.attemptId,
   };
-  const { choice: budget } = await budgetChoiceOfCall(db, ids);
+  const { choice: budget, turnId } = await budgetChoiceOfCall(db, ids);
   const call = { ...ids, reserve: RESERVE };
-  return createProviderExchangeLedger(db, {
+  const opened = await createProviderExchangeLedger(db, {
     admits: async () => () => true,
   }).open(budget === undefined ? call : { ...call, budget });
+  return { opened, turnId };
 }
 
 async function refusalEvents(sessionId: string) {
@@ -233,38 +230,46 @@ async function refusalEvents(sessionId: string) {
     .orderBy(asc(events.id));
 }
 
-async function notices(sessionId: string) {
-  return db
-    .select({
-      kind: slackOutbox.kind,
-      slackUserId: slackOutbox.slackUserId,
-      status: slackOutbox.status,
-      channelId: slackOutbox.channelId,
-      threadTs: slackOutbox.threadTs,
-      sessionLinkId: slackOutbox.sessionLinkId,
-      body: slackOutbox.body,
-      dedupeKey: slackOutbox.dedupeKey,
-    })
-    .from(slackOutbox)
-    .where(eq(slackOutbox.sessionId, sessionId))
-    .orderBy(asc(slackOutbox.seq));
+/** The session's ended turns its thread is owed an answer for, and their refusals. */
+async function owed(sessionId: string) {
+  return (await createPostgresSlackOutboxStore(db).unansweredTurns(50))
+    .filter((turn) => turn.sessionId === sessionId)
+    .map(({ turnId, state, budgetRefusal }) => ({
+      turnId,
+      state,
+      budgetRefusal,
+    }));
 }
 
 /** Opens a call the person's zero limit refuses, and records it as the authorizer does. */
 async function refusedFor(who: { sessionId: string; attemptId: string }) {
-  const opened = await open(who);
+  const { opened, turnId } = await open(who);
   if (opened.outcome !== "budget_exceeded" || opened.by !== "account") {
     throw new Error(`not an account's refusal: ${JSON.stringify(opened)}`);
   }
   return recordBudgetAccountRefusal(db, {
     sessionId: who.sessionId,
     attemptId: who.attemptId,
+    turnId,
     owner: opened.owner,
   });
 }
 
+/** Records a refusal of the turn the call was chosen for, as the authorizer does. */
+const refuse = (
+  who: { sessionId: string; attemptId: string },
+  turnId: string | null,
+  owner: "user" | "team" | null = "user",
+) =>
+  recordBudgetAccountRefusal(db, {
+    sessionId: who.sessionId,
+    attemptId: who.attemptId,
+    turnId,
+    owner,
+  });
+
 describe("a budget account's refusal on its session", () => {
-  test("names whose account refused, on the turn; the thread hears the first, the person alone the next", async () => {
+  test("names whose account refused, on the turn the call was chosen for, once", async () => {
     const who = await threaded();
     await saveBudgetLimit(
       db,
@@ -273,12 +278,12 @@ describe("a budget account's refusal on its session", () => {
       { costUsd: 0, tokens: 0 },
     );
     const first = await who.run();
-    expect(await open(who)).toMatchObject({
+    expect((await open(who)).opened).toMatchObject({
       outcome: "budget_exceeded",
       by: "account",
       owner: "user",
     });
-    expect(await refusedFor(who)).toBe("thread");
+    expect(await refusedFor(who)).toBe("recorded");
     // The engine retrying the refused call within the same turn.
     expect(await refusedFor(who)).toBe("recorded_before");
     const recorded = await refusalEvents(who.sessionId);
@@ -299,208 +304,32 @@ describe("a budget account's refusal on its session", () => {
         data: recorded[0]?.payload,
       }).success,
     ).toBe(true);
-    const line = {
-      text: SLACK_NOTICE_MESSAGES.ko.budgetAccountUser,
-      locale: "ko" as const,
-    };
-    expect(await notices(who.sessionId)).toEqual([
-      {
-        kind: "failure_notice",
-        slackUserId: null,
-        status: "pending",
-        channelId: "C1",
-        threadTs: "1730000000.000100",
-        sessionLinkId: who.linkId,
-        body: line,
-        dedupeKey: budgetRefusalTurnDedupeKey(who.linkId ?? "", 1),
-      },
-    ]);
+  });
 
-    // The refused turn failed; the next is refused too: its own event, and
-    // the same line to the person who asked, in the thread, them alone.
-    const second = await who.run();
-    expect(await refusedFor(who)).toBe("ephemeral");
+  test("a turn that ended after its call was chosen still holds the refusal", async () => {
+    const who = await threaded();
+    const first = await who.run();
+    // The turn ends and the next starts between the choice and the record.
+    await who.run();
+    expect(await refuse(who, "1")).toBe("recorded");
     expect((await refusalEvents(who.sessionId)).map((e) => e.turnId)).toEqual([
       first,
-      second,
-    ]);
-    expect((await notices(who.sessionId))[1]).toEqual({
-      kind: "notice",
-      slackUserId: "U1",
-      status: "pending",
-      channelId: "C1",
-      threadTs: "1730000000.000100",
-      sessionLinkId: who.linkId,
-      body: line,
-      dedupeKey: budgetRefusalTurnDedupeKey(who.linkId ?? "", 2),
-    });
-  });
-
-  test("the refused turns' rows answer them: no failed-turn notice follows", async () => {
-    const who = await threaded();
-    await saveBudgetLimit(
-      db,
-      WORKSPACE,
-      { kind: "user", userId: who.userId },
-      { costUsd: 0, tokens: 0 },
-    );
-    await who.run();
-    await refusedFor(who);
-    await who.run();
-    await refusedFor(who);
-    await db
-      .update(turns)
-      .set({ status: "failed" })
-      .where(eq(turns.sessionId, who.sessionId));
-    const outbox = createPostgresSlackOutboxStore(db);
-    expect(await outbox.unansweredTurns(10)).toEqual([]);
-    // Without the refusal's row the same failed turn is owed its notice.
-    await db
-      .delete(slackOutbox)
-      .where(eq(slackOutbox.sessionId, who.sessionId));
-    expect(
-      (await outbox.unansweredTurns(10)).map((turn) => turn.turnId),
-    ).toEqual([1, 2]);
-  });
-
-  test("after a completed turn, or in a new month, a refusal is the first again", async () => {
-    const who = await threaded();
-    await who.run();
-    const refuse = () =>
-      recordBudgetAccountRefusal(db, {
-        sessionId: who.sessionId,
-        attemptId: who.attemptId,
-        owner: "user",
-      });
-    expect(await refuse()).toBe("thread");
-    await who.run();
-    expect(await refuse()).toBe("ephemeral");
-    // The limit was raised: this turn's calls went through and it completed.
-    const passed = await who.run();
-    await db.insert(events).values({
-      sessionId: who.sessionId,
-      type: "assistant",
-      payload: { type: "assistant" },
-      turnId: passed,
-    });
-    await who.run("completed");
-    expect(await refuse()).toBe("thread");
-    // The refusals so far were last month's; the account is a new one.
-    await db
-      .update(events)
-      .set({ createdAt: sql`now() - interval '40 days'` })
-      .where(eq(events.sessionId, who.sessionId));
-    await who.run();
-    expect(await refuse()).toBe("thread");
-  });
-
-  test("a direct message hears every refusal in the thread", async () => {
-    const who = await threaded({ channel: "D1" });
-    for (let turn = 1; turn <= 2; turn += 1) {
-      await who.run();
-      expect(
-        await recordBudgetAccountRefusal(db, {
-          sessionId: who.sessionId,
-          attemptId: who.attemptId,
-          owner: "user",
-        }),
-      ).toBe("thread");
-    }
-    expect((await notices(who.sessionId)).map((n) => n.kind)).toEqual([
-      "failure_notice",
-      "failure_notice",
     ]);
   });
 
-  test("a later refusal whose person has no Slack account stays silent", async () => {
-    const who = await threaded({ slackUser: null });
-    const refuse = () =>
-      recordBudgetAccountRefusal(db, {
-        sessionId: who.sessionId,
-        attemptId: who.attemptId,
-        owner: "user",
-      });
-    await who.run();
-    expect(await refuse()).toBe("thread");
-    await who.run();
-    expect(await refuse()).toBe("unposted");
-    const [, silent] = await db
-      .select({
-        kind: slackOutbox.kind,
-        status: slackOutbox.status,
-        errorCode: slackOutbox.errorCode,
-      })
-      .from(slackOutbox)
-      .where(eq(slackOutbox.sessionId, who.sessionId))
-      .orderBy(asc(slackOutbox.seq));
-    // Written failed: never sent, and still the turn's answer.
-    expect(silent).toEqual({
-      kind: "failure_notice",
-      status: "failed",
-      errorCode: "no_requester_slack_user",
-    });
-  });
-
-  test("the agent team's account says the team's, in the team's words", async () => {
-    const who = await threaded();
-    await saveBudgetLimit(
-      db,
-      WORKSPACE,
-      { kind: "team", teamId: who.teamId },
-      { costUsd: 0, tokens: 0 },
-    );
-    await who.run();
-    expect(
-      await recordBudgetAccountRefusal(db, {
-        sessionId: who.sessionId,
-        attemptId: who.attemptId,
-        owner: "team",
-      }),
-    ).toBe("thread");
-    expect(await budgetAccountRefused(db, who.sessionId)).toBe("team");
-    expect((await notices(who.sessionId))[0]?.body).toEqual({
-      text: SLACK_NOTICE_MESSAGES.ko.budgetAccountTeam,
-      locale: "ko",
-    });
-  });
-
-  test("the agent's own work with no team to charge reads as the team's", async () => {
-    const who = await threaded({ link: false });
-    await who.run();
-    await recordBudgetAccountRefusal(db, {
-      sessionId: who.sessionId,
-      attemptId: who.attemptId,
-      owner: null,
-    });
-    expect(await budgetAccountRefused(db, who.sessionId)).toBe("team");
-  });
-
-  test("a session with no thread, or a muted one, keeps the event and posts nothing", async () => {
-    for (const link of [false, { muted: true }] as const) {
-      const who = await threaded({ link });
+  test("the agent team's account, and the agent's own work with no team, read as the team's", async () => {
+    for (const owner of ["team", null] as const) {
+      const who = await threaded({ link: false });
       await who.run();
-      expect(
-        await recordBudgetAccountRefusal(db, {
-          sessionId: who.sessionId,
-          attemptId: who.attemptId,
-          owner: "user",
-        }),
-      ).toBe("unposted");
-      expect(await refusalEvents(who.sessionId)).toHaveLength(1);
-      expect(await notices(who.sessionId)).toEqual([]);
+      expect(await refuse(who, "1", owner)).toBe("recorded");
+      expect(await budgetAccountRefused(db, who.sessionId)).toBe("team");
     }
   });
 
-  test("a call between turns is the attempt's, recorded once", async () => {
+  test("a call no turn serves is the attempt's, recorded once", async () => {
     const who = await threaded({ link: false });
-    const refuse = () =>
-      recordBudgetAccountRefusal(db, {
-        sessionId: who.sessionId,
-        attemptId: who.attemptId,
-        owner: "user",
-      });
-    expect(await refuse()).toBe("unposted");
-    expect(await refuse()).toBe("recorded_before");
+    expect(await refuse(who, null)).toBe("recorded");
+    expect(await refuse(who, null)).toBe("recorded_before");
     expect((await refusalEvents(who.sessionId)).map((e) => e.turnId)).toEqual([
       null,
     ]);
@@ -508,12 +337,96 @@ describe("a budget account's refusal on its session", () => {
 
   test("no such session records nothing", async () => {
     expect(
-      await recordBudgetAccountRefusal(db, {
-        sessionId: crypto.randomUUID(),
-        attemptId: "att-none",
-        owner: "user",
-      }),
+      await refuse(
+        { sessionId: crypto.randomUUID(), attemptId: "att-none" },
+        "1",
+      ),
     ).toBe("no_session");
+  });
+});
+
+describe("the refused turns' Slack answers (unansweredTurns)", () => {
+  test("the first refused turn is the first; the next is not", async () => {
+    const who = await threaded();
+    await who.run();
+    await refuse(who, "1");
+    await who.run();
+    await refuse(who, "2");
+    await who.run();
+    expect(await owed(who.sessionId)).toEqual([
+      {
+        turnId: 1,
+        state: "failed",
+        budgetRefusal: { owner: "user", first: true },
+      },
+      {
+        turnId: 2,
+        state: "failed",
+        budgetRefusal: { owner: "user", first: false },
+      },
+    ]);
+  });
+
+  test("a refusal no turn holds told nobody, so the next turn's is the first", async () => {
+    const who = await threaded();
+    await refuse(who, null);
+    await who.run();
+    await refuse(who, "1");
+    await who.run();
+    expect((await owed(who.sessionId))[0]?.budgetRefusal).toEqual({
+      owner: "user",
+      first: true,
+    });
+  });
+
+  test("after a completed turn the limit was lifted: the next refusal is the first again", async () => {
+    const who = await threaded();
+    await who.run();
+    await refuse(who, "1");
+    await who.run();
+    await who.run("completed");
+    await refuse(who, "3");
+    await who.run();
+    expect(await owed(who.sessionId)).toEqual([
+      {
+        turnId: 1,
+        state: "failed",
+        budgetRefusal: { owner: "user", first: true },
+      },
+      { turnId: 2, state: "completed", budgetRefusal: null },
+      {
+        turnId: 3,
+        state: "failed",
+        budgetRefusal: { owner: "user", first: true },
+      },
+    ]);
+  });
+
+  test("a refusal last month does not hold this month's", async () => {
+    const who = await threaded();
+    await who.run();
+    await refuse(who, "1");
+    await db
+      .update(events)
+      .set({ createdAt: sql`now() - interval '40 days'` })
+      .where(eq(events.sessionId, who.sessionId));
+    await who.run();
+    await refuse(who, "2");
+    await who.run();
+    expect((await owed(who.sessionId))[1]?.budgetRefusal).toEqual({
+      owner: "user",
+      first: true,
+    });
+  });
+
+  test("a turn that completed after all is answered as a reply", async () => {
+    const who = await threaded();
+    await who.run();
+    await refuse(who, "1");
+    await who.run("completed");
+    expect(await owed(who.sessionId)).toEqual([
+      { turnId: 1, state: "completed", budgetRefusal: null },
+    ]);
   });
 });
 
@@ -525,6 +438,7 @@ describe("budgetAccountRefused", () => {
     await recordBudgetAccountRefusal(db, {
       sessionId: who.sessionId,
       attemptId: who.attemptId,
+      turnId: "1",
       owner: "user",
     });
     expect(await budgetAccountRefused(db, who.sessionId)).toBe("user");

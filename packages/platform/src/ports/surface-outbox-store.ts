@@ -12,6 +12,7 @@ import type {
   PendingRequestDisplay,
   ToolSummaryContext,
 } from "../sessions/ports/pending-requests.ts";
+import type { BudgetRefusalOfTurn } from "../surface/budget-refusal-notice.ts";
 
 /**
  * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model
@@ -159,6 +160,11 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
   terminalReason?: string | null;
   /** The session is paused: a resume that found no room went back to it. */
   sessionPaused?: boolean;
+  /**
+   * A failed turn a budget account refused (recordBudgetAccountRefusal):
+   * its notice says so in place of "try again". Null or absent otherwise.
+   */
+  budgetRefusal?: BudgetRefusalOfTurn | null;
   /**
    * The final attempt's top-level assistant and tool_use event payloads,
    * in order; empty unless the turn completed.

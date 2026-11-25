@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { UserLocale } from "@werft-ai/contracts";
-import {
-  budgetRefusalTurnDedupeKey,
-  type PushSource,
-  type SurfaceCardClaim,
-  type SurfaceCardRendered,
-  type SurfaceCardSettleStore,
-  type SurfaceOpenPushCard,
-  type SurfaceOutboxEntry,
+import type {
+  PushSource,
+  SurfaceCardClaim,
+  SurfaceCardRendered,
+  SurfaceCardSettleStore,
+  SurfaceOpenPushCard,
+  SurfaceOutboxEntry,
 } from "@werft-ai/platform";
 import { settleSlackCards } from "./slack-card-settle.ts";
 import {
@@ -555,10 +554,6 @@ describe("slackOutboxText", () => {
 test("one dedupe key per turn and kind", () => {
   expect(slackTurnDedupeKey("completed", "l1", 2)).toBe("reply:l1:2");
   expect(slackTurnDedupeKey("failed", "l1", 2)).toBe("failure:l1:2");
-  // A budget refusal's row stands in for the failed turn's notice.
-  expect(budgetRefusalTurnDedupeKey("l1", 2)).toBe(
-    slackTurnDedupeKey("failed", "l1", 2),
-  );
 });
 
 test("one dedupe key per request and thread, the request id last and whole", () => {

@@ -1287,6 +1287,8 @@ describe("the budget account an open holds its call on", () => {
       {
         sessionId: call.session_id,
         attemptId: call.attempt_id,
+        // The turn the call was chosen for, as the refusal's log names it.
+        turnId: "3",
         owner: "team",
       },
     ]);

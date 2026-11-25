@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  BUDGET_ACCOUNT_REFUSED_EVENT_CODE,
+  BUDGET_OWNER_KIND_VALUES,
   type ConversationInputId,
   DEFAULT_USER_LOCALE,
   type PushRequestOrigin,
@@ -159,9 +161,44 @@ const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
   )
 )`;
 
+// The refusal recordBudgetAccountRefusal kept on a failed turn, and whether
+// it is the session's first while the limit holds: no refusal on an
+// earlier turn after the last completed one ended, in the same UTC month.
+// A refusal no turn holds is not counted: nothing told it.
+const budgetRefusalOfTurn = sql<NonNullable<
+  SurfaceUnansweredTurn["budgetRefusal"]
+> | null>`(
+  CASE WHEN ${turns.status} <> 'completed' THEN (
+    SELECT jsonb_build_object(
+      'owner', r.payload->>'budget_owner',
+      'first', NOT EXISTS (
+        SELECT 1 FROM events p
+        WHERE p.session_id = r.session_id
+          AND p.type = 'error'
+          AND p.payload->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}
+          AND p.payload ? 'budget_owner'
+          AND p.turn_id IS NOT NULL
+          AND p.id < r.id
+          AND p.created_at >= date_trunc('month', r.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+          AND p.created_at > coalesce((
+            SELECT max(ct.ended_at) FROM ${turns} ct
+            WHERE ct.session_id = r.session_id
+              AND ct.status = 'completed'
+              AND ct.sequence < ${turns.sequence}), '-infinity')))
+    FROM events r
+    WHERE r.session_id = ${turns.sessionId}
+      AND r.turn_id = ${turns.id}
+      AND r.type = 'error'
+      AND r.payload->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}
+      AND r.payload->>'budget_owner' IN (${sqlLiterals(BUDGET_OWNER_KIND_VALUES)})
+    ORDER BY r.id
+    LIMIT 1)
+  END
+)`;
+
 // The thread's language: that of whoever started the session, its first
 // turn's actor, else the person whose message opened the link.
-export const starterLocale = sql<UserLocale | null>`(
+const starterLocale = sql<UserLocale | null>`(
   SELECT su.locale FROM users su
   WHERE su.id = coalesce(
     (SELECT st.actor_id FROM turns st
@@ -1259,6 +1296,7 @@ export function createPostgresSlackOutboxStore(
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
           locale: starterLocale,
+          budgetRefusal: budgetRefusalOfTurn,
         })
         .from(sessionLinks)
         .innerJoin(sessions, eq(sessions.id, sessionLinks.sessionId))

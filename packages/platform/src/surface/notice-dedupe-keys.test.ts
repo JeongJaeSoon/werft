@@ -3,7 +3,6 @@ import {
   actionNoticeDedupeKey,
   intentNoticeDedupeKey,
 } from "./action-notice.ts";
-import { budgetRefusalTurnDedupeKey } from "./budget-refusal-notice.ts";
 import {
   modelCutDedupeKey,
   modelCutDedupeKeyWithoutInstallation,
@@ -36,7 +35,6 @@ test("every notice keeps the dedupe key its outbox rows were written with", () =
     sessionModelMoveDedupeKey("w-1", "s-1", "m-old", "m-new", "inst-1", "U1"),
     runtimeRetiredDedupeKey("w-1", "s-1", 7, "inst-1", "U1"),
     workerImageReplacedDedupeKey("w-1", "s-1", 2, "inst-1", "U1"),
-    budgetRefusalTurnDedupeKey("l-1", 3),
   ]).toEqual([
     "action:p-1:opened",
     "intent:i-1:ended",
@@ -47,6 +45,5 @@ test("every notice keeps the dedupe key its outbox rows were written with", () =
     "session-model-move:w-1:s-1:m-old:m-new:inst-1:U1",
     "runtime-retired:w-1:s-1:7:inst-1:U1",
     "worker-image-replaced:w-1:s-1:2:inst-1:U1",
-    "failure:l-1:3",
   ]);
 });

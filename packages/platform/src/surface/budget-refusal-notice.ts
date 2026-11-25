@@ -1,12 +1,10 @@
+import type { BudgetOwnerKind } from "@werft-ai/contracts";
+
 /**
- * The key of a refusal's Slack row: the one a failed turn's notice carries
- * (chat-slack's `slackTurnDedupeKey("failed", …)`). The row answers its
- * turn, so the failed turn's "try again shortly" is not sent beside it and
- * the thread's answered mark moves past the turn.
+ * A failed turn a monthly budget account refused: whose account, and
+ * whether it is the session's first refusal while the limit holds (no
+ * refusal on an earlier turn since the last completed one, in the same UTC
+ * month). The first is told in the thread; a later one only to the person
+ * who asked, except in a direct message, where every one is.
  */
-export function budgetRefusalTurnDedupeKey(
-  sessionLinkId: string,
-  turnId: number,
-): string {
-  return `failure:${sessionLinkId}:${turnId}`;
-}
+export type BudgetRefusalOfTurn = { owner: BudgetOwnerKind; first: boolean };

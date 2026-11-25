@@ -338,6 +338,8 @@ export function createEgressAuthorizer(deps: {
   recordAccountRefusal?: (refusal: {
     sessionId: string;
     attemptId: string;
+    /** The public id of the turn the call was chosen for, as logged. */
+    turnId: string | null;
     owner: BudgetOwnerKind | null;
   }) => Promise<string>;
   /** Absent when the API runs without an object store: the route refuses. */
@@ -754,6 +756,7 @@ export function createEgressAuthorizer(deps: {
           .recordAccountRefusal?.({
             sessionId: body.session_id,
             attemptId: body.attempt_id,
+            turnId: chosen?.turnId ?? null,
             owner: opened.owner,
           })
           .then((notice) =>
