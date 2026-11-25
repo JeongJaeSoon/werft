@@ -1,6 +1,6 @@
 {
-  "id": "a99461b4-9cd6-467c-accc-75e3b6f40b2d",
-  "prevId": "7e4ac536-e135-42db-b1e9-98c1689c52e1",
+  "id": "d0117dca-0584-43c7-a6b4-af0246431e4f",
+  "prevId": "5e424ea7-a456-4105-a6b1-e6b2239b7d4c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2570,6 +2570,24 @@
         "draft_failure": {
           "name": "draft_failure",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model_migration_failed_revision": {
+          "name": "model_migration_failed_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model_migration_failure": {
+          "name": "model_migration_failure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model_migration_failed_at": {
+          "name": "model_migration_failed_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -19485,7 +19503,7 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress', 'reaction')"
         },
         "slack_outbox_progress_check": {
           "name": "slack_outbox_progress_check",
