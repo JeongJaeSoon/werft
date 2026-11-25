@@ -95,6 +95,15 @@ export const slackJa = {
     "manifest を Slack にもう一度送りました。アプリに新しい権限が加わり、アプリを再インストールすると適用されます。",
   "slack.eventsUrl.sent":
     "Request URL を Slack にもう一度送りました。URL が変わらなければ Slack は再び確認しないことがあります。確認待ちが続く場合は、アプリ設定の Event Subscriptions で Retry を押してください。",
+  "slack.manifestSync.needed": "更新が必要",
+  "slack.manifestSync.config_token_inactive":
+    "App Configuration Token が有効でないため、Werft はこのアプリの Slack 設定を確認・更新できませんでした。新しく加わったイベントを受け取れないことがあります。トークンを入れ直してから「再確認」を押してください。",
+  "slack.manifestSync.events_url_unset":
+    "イベントの送信先が分からないため、このアプリの Slack 設定を更新できませんでした。Slack 連携の設定で送信先を確認してから「再確認」を押してください。",
+  "slack.manifestSync.slack_refused":
+    "Slack がこのアプリの設定の更新を拒否しました。新しく加わったイベントを受け取れないことがあります。「再確認」を押してください。押さない場合は、サーバーの次の起動時にもう一度試します。",
+  "slack.manifestSync.no_answer":
+    "Slack がこのアプリの設定の更新に応答しませんでした。新しく加わったイベントを受け取れないことがあります。「再確認」を押してください。押さない場合は、サーバーの次の起動時にもう一度試します。",
   "slack.repositoryRequired.title": "Slack からはセッションを開始できません",
   "slack.repositoryRequired.body":
     "有効なリリース（{release}）では Slack のセッションを開始できません。リリースのリポジトリがカタログから外れているかワークスペースの上限が許可していない、またはエージェントの GitHub 設定を読み取れないためです。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。接続はできます。GitHub 設定を確認し、「詳細設定」で保存し直すと、新しいリリースが作成されます。",

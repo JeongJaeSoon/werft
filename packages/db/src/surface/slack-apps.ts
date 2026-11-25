@@ -220,6 +220,13 @@ function recordFrom(
         ? {}
         : { last_received_at: row.eventsReceivedAt.toISOString() }),
     },
+    manifestSync:
+      row.manifestSyncCheckedAt === null
+        ? null
+        : {
+            error: row.manifestSyncError,
+            checked_at: row.manifestSyncCheckedAt.toISOString(),
+          },
     secrets: Object.fromEntries(
       SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose) => [
         purpose,
@@ -448,6 +455,48 @@ export function createPostgresSlackAppStore(
             ne(slackApps.eventsState, "verified"),
           ),
         );
+    },
+    async listAgentAppsForManifestCheck() {
+      const rows = await db
+        .select({
+          workspaceId: slackApps.workspaceId,
+          slackAppId: slackApps.id,
+          agentId: slackApps.agentId,
+        })
+        .from(slackApps)
+        .where(and(eq(slackApps.kind, "agent"), eq(slackApps.state, "created")))
+        .orderBy(slackApps.workspaceId, slackApps.createdAt);
+      return rows.flatMap(({ agentId, ...row }) =>
+        agentId === null ? [] : [{ ...row, agentId }],
+      );
+    },
+    async claimManifestCheck({ workspaceId, slackAppId, at, staleBefore }) {
+      if (!UUID.test(workspaceId) || !UUID.test(slackAppId)) return false;
+      // updated_at is left alone: a check changes nothing the owner set.
+      const claimed = await db
+        .update(slackApps)
+        .set({ manifestSyncCheckedAt: at })
+        .where(
+          and(
+            ...createdApp(workspaceId, slackAppId),
+            or(
+              isNull(slackApps.manifestSyncCheckedAt),
+              lt(slackApps.manifestSyncCheckedAt, staleBefore),
+            ),
+          ),
+        )
+        .returning({ id: slackApps.id });
+      return claimed.length > 0;
+    },
+    async setManifestSync(workspaceId, slackAppId, sync) {
+      if (!UUID.test(workspaceId) || !UUID.test(slackAppId)) return;
+      await db
+        .update(slackApps)
+        .set({
+          manifestSyncError: sync.error,
+          manifestSyncCheckedAt: sync.checkedAt,
+        })
+        .where(and(...createdApp(workspaceId, slackAppId)));
     },
     async markEventsReceived(workspaceId, slackAppId, at) {
       // updated_at is left alone: it says when the app was last changed.

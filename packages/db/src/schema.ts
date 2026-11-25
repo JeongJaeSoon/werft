@@ -144,12 +144,14 @@ import {
   SLACK_CHANNEL_NAME_MAX,
   SLACK_INBOUND_DROP_REASON_VALUES,
   SLACK_INBOUND_EVENT_STATUS_VALUES,
+  SLACK_MANIFEST_SYNC_ERROR_VALUES,
   SLACK_SURFACE_ACTION_VALUES,
   type SlackAppKind,
   type SlackAppState,
   type SlackInboundDropFields,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
+  type SlackManifestSyncError,
   type SlackMessageRef,
   type SlackMirrorCorrelationId,
   SURFACE_BINDING_STATUS_VALUES,
@@ -1242,6 +1244,18 @@ export const slackApps = pgTable(
      * minute; null before any. Unlike events_state it also falls behind when Slack stops.
      */
     eventsReceivedAt: timestamp("events_received_at", { withTimezone: true }),
+    /**
+     * Why the app's manifest lacks what this build sends, from the last
+     * check (a start of the API, a recheck or Finalize); null when it was
+     * current or was never checked.
+     */
+    manifestSyncError: text(
+      "manifest_sync_error",
+    ).$type<SlackManifestSyncError>(),
+    /** When Werft last compared or sent the manifest; null before any. */
+    manifestSyncCheckedAt: timestamp("manifest_sync_checked_at", {
+      withTimezone: true,
+    }),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),
@@ -1287,6 +1301,10 @@ export const slackApps = pgTable(
     check(
       "slack_apps_agent_check",
       sql`(${table.kind} = 'agent') = (${table.agentId} IS NOT NULL)`,
+    ),
+    check(
+      "slack_apps_manifest_sync_error_check",
+      sql`${table.manifestSyncError} IS NULL OR ${table.manifestSyncError} IN (${sql.raw(sqlList(SLACK_MANIFEST_SYNC_ERROR_VALUES))})`,
     ),
     check(
       "slack_apps_created_check",

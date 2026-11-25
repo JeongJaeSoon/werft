@@ -362,6 +362,40 @@ export function createMemorySlackAppStore(input: {
       }
       row.events = { ...events, last_received_at: at.toISOString() };
     },
+    async listAgentAppsForManifestCheck() {
+      return [...rows.values()].flatMap((row) =>
+        row.kind === "agent" && row.state === "created" && row.agentId
+          ? [
+              {
+                workspaceId: row.workspaceId,
+                slackAppId: row.id,
+                agentId: row.agentId,
+              },
+            ]
+          : [],
+      );
+    },
+    async claimManifestCheck({ workspaceId, slackAppId, at, staleBefore }) {
+      const row = rows.get(slackAppId);
+      if (row?.workspaceId !== workspaceId || row.state !== "created")
+        return false;
+      const last = row.manifestSync?.checked_at;
+      if (last !== undefined && Date.parse(last) >= staleBefore.getTime())
+        return false;
+      row.manifestSync = {
+        error: row.manifestSync?.error ?? null,
+        checked_at: at.toISOString(),
+      };
+      return true;
+    },
+    async setManifestSync(workspaceId, slackAppId, sync) {
+      const row = rows.get(slackAppId);
+      if (row?.workspaceId !== workspaceId || row.state !== "created") return;
+      row.manifestSync = {
+        error: sync.error,
+        checked_at: sync.checkedAt.toISOString(),
+      };
+    },
     async getSettings(workspaceId, agentId) {
       const agent = input.agents.get(agentId);
       if (agent?.workspaceId !== workspaceId) return null;
@@ -779,9 +813,11 @@ export function createFakeSlackConfigApi(options?: {
         state.next.export = undefined;
         return behaviour();
       }
-      if (!state.apps.has(appId)) {
+      const app = state.apps.get(appId);
+      if (!app) {
         throw new SlackApiError("apps.manifest.export", "app_not_found", true);
       }
+      return app.manifest;
     },
     async exchangeInstallCode(input) {
       state.calls.push({ method: "oauth.v2.access" });

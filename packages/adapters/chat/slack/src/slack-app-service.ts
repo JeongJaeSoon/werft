@@ -16,6 +16,7 @@ import {
   type SlackAppSettings,
   type SlackBot,
   type SlackBotRefusal,
+  type SlackManifestSyncError,
   type SlackWarning,
 } from "@werft-ai/contracts";
 import {
@@ -45,6 +46,7 @@ import { type SlackConfigTokens, slackLacksApp } from "./slack-config-token.ts";
 import { slackEventsUrl } from "./slack-events-finalize.ts";
 import {
   type AgentAppManifestInput,
+  agentManifestDrift,
   buildAgentAppManifest,
   slackAppRedirectUrl,
 } from "./slack-manifest.ts";
@@ -56,6 +58,10 @@ const WORKSPACE_ACTION = "workspace.manage" as const;
 /** Longer than the create call's timeout plus the write after it. */
 export const SLACK_APP_CREATE_STALE_MS = 60_000;
 const FINISH_ATTEMPTS = 3;
+/** A manifest check begun longer ago than this died with its process. */
+export const SLACK_MANIFEST_CHECK_STALE_MS = 10 * 60_000;
+/** The longest Retry-After a start's manifest check waits out, once. */
+const MANIFEST_RATE_WAIT_MAX_SECONDS = 120;
 const SLACK_CLEANUP_FAILED_MESSAGE =
   "Werft closed the app, but Slack's side could not be cleaned up: delete the app in Slack's app management page (api.slack.com/apps)";
 
@@ -100,7 +106,9 @@ const slackRefused = (error: SlackApiError) =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
     `Slack refused ${error.method}: ${error.code}`,
-    undefined,
+    error instanceof SlackRateLimitedError
+      ? { afterSeconds: error.retryAfterSeconds }
+      : undefined,
     { reason_code: "slack_refused", slack_error: error.code },
   );
 const answerLost = (method: string) =>
@@ -214,6 +222,7 @@ export function createSlackAppService(deps: {
   };
   now?: () => Date;
   newId?: () => string;
+  sleep?: (ms: number) => Promise<void>;
 }) {
   const { authorization, api } = deps;
   const refuse = (error: SlackApiError) => {
@@ -227,6 +236,9 @@ export function createSlackAppService(deps: {
   };
   const now = deps.now ?? (() => new Date());
   const newId = deps.newId ?? (() => crypto.randomUUID());
+  const sleep =
+    deps.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const eventsUrlOf = async (agentId: string): Promise<string | null> => {
     const base = (await deps.eventsPublicUrl?.()) ?? null;
     return base === null ? null : slackEventsUrl(base, agentId);
@@ -565,6 +577,7 @@ export function createSlackAppService(deps: {
           checked_at: null,
           url: null,
         },
+        manifest_sync: record?.manifestSync ?? null,
         warnings: [
           ...issuerWarnings(record, token.issuer),
           ...(await agentWarnings(caller.ownerId, agentId)),
@@ -867,6 +880,48 @@ export function createSlackAppService(deps: {
         reinstall_required: permissionsUpdated,
       };
     },
+
+    /**
+     * Run once at each start of the API: an agent app whose manifest in
+     * Slack differs from this build's in its bot events only is sent its
+     * whole manifest, which Slack takes without a new install. One whose
+     * scopes differ, or that has no event subscription yet, is left alone.
+     * What could not be done is recorded on the app and tried again at the
+     * next start or recheck; nothing here runs on a timer.
+     */
+    async syncAgentAppManifests(): Promise<{
+      checked: number;
+      sent: number;
+      failed: number;
+    }> {
+      const summary = { checked: 0, sent: 0, failed: 0 };
+      if (deps.apps === null || deps.tokens === null) return summary;
+      const { apps } = deps;
+      const tokenActive = new Map<string, boolean>();
+      for (const target of await apps.listAgentAppsForManifestCheck()) {
+        const at = now();
+        const claimed = await apps.claimManifestCheck({
+          workspaceId: target.workspaceId,
+          slackAppId: target.slackAppId,
+          at,
+          staleBefore: new Date(at.getTime() - SLACK_MANIFEST_CHECK_STALE_MS),
+        });
+        if (!claimed) continue;
+        summary.checked += 1;
+        const outcome = await checkAgentAppManifest(target, tokenActive).catch(
+          (error: unknown) => {
+            deps.logger?.warn("Slack app manifest check failed", {
+              slack_app_id: target.slackAppId,
+              error: error instanceof Error ? error.name : "unknown",
+            });
+            return "failed" as const;
+          },
+        );
+        if (outcome === "sent") summary.sent += 1;
+        if (outcome === "failed") summary.failed += 1;
+      }
+      return summary;
+    },
   };
   return service;
 
@@ -957,9 +1012,11 @@ export function createSlackAppService(deps: {
         now().toISOString(),
       );
     try {
-      return await tokens.withToken(workspaceId, (token) =>
+      const sent = await tokens.withToken(workspaceId, (token) =>
         api.updateApp(token, appId, manifest),
       );
+      await recordManifestSync(workspaceId, slackAppId, null);
+      return sent;
     } catch (error) {
       // An unanswered call may still have reached Slack, whose challenge
       // then left `verified`. Any other failure, a refused token included,
@@ -974,6 +1031,9 @@ export function createSlackAppService(deps: {
         await apps.setEvents(workspaceId, slackAppId, failed);
       else if (input.eventsUrl !== undefined)
         await apps.setEventsUnlessVerified(workspaceId, slackAppId, failed);
+      const unsent = manifestSyncErrorOf(error);
+      if (unsent !== null)
+        await recordManifestSync(workspaceId, slackAppId, unsent);
       if (error instanceof SlackApiError) {
         throw error.answered
           ? refuse(error)
@@ -982,4 +1042,156 @@ export function createSlackAppService(deps: {
       throw error;
     }
   }
+
+  /** A failure to record is logged: it must not hide what Slack answered. */
+  async function recordManifestSync(
+    workspaceId: string,
+    slackAppId: string,
+    error: SlackManifestSyncError | null,
+  ) {
+    try {
+      await ready().apps.setManifestSync(workspaceId, slackAppId, {
+        error,
+        checkedAt: now(),
+      });
+    } catch (failure) {
+      deps.logger?.warn("Slack app manifest check not recorded", {
+        slack_app_id: slackAppId,
+        error: failure instanceof Error ? failure.name : "unknown",
+      });
+    }
+  }
+
+  /**
+   * Calls once more after a Retry-After short enough to wait out; one app's
+   * check shares `budget`, so it waits at most once.
+   */
+  async function paced<T>(
+    budget: { waited: boolean },
+    call: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      const wait = rateLimitOf(error);
+      if (
+        wait === null ||
+        wait > MANIFEST_RATE_WAIT_MAX_SECONDS ||
+        budget.waited
+      )
+        throw error;
+      budget.waited = true;
+      await sleep(wait * 1000);
+      return call();
+    }
+  }
+
+  async function checkAgentAppManifest(
+    target: { workspaceId: string; slackAppId: string; agentId: string },
+    tokenActive: Map<string, boolean>,
+  ): Promise<"current" | "sent" | "left" | "failed"> {
+    const { apps, tokens } = ready();
+    const { workspaceId, slackAppId, agentId } = target;
+    let active = tokenActive.get(workspaceId);
+    if (active === undefined) {
+      active = (await tokens.describe(workspaceId)).state === "active";
+      tokenActive.set(workspaceId, active);
+    }
+    if (!active) {
+      await recordManifestSync(
+        workspaceId,
+        slackAppId,
+        "config_token_inactive",
+      );
+      return "failed";
+    }
+    const record = await apps.find(workspaceId, slackAppId);
+    const appId = record?.state === "created" ? record.appId : null;
+    if (!appId) return "left";
+    const budget = { waited: false };
+    let exported: unknown;
+    try {
+      exported = await paced(budget, () =>
+        tokens.withToken(workspaceId, (token) => api.exportApp(token, appId)),
+      );
+    } catch (error) {
+      const unread = manifestSyncErrorOf(error);
+      if (unread === null) throw error;
+      if (unread === "config_token_inactive")
+        tokenActive.set(workspaceId, false);
+      await recordManifestSync(workspaceId, slackAppId, unread);
+      return "failed";
+    }
+    const drift = agentManifestDrift(exported);
+    if (drift === "current") {
+      await recordManifestSync(workspaceId, slackAppId, null);
+      return "current";
+    }
+    if (drift !== "events") {
+      // A scope change waits for an admin's new install; the rest is
+      // Finalize's, or not an agent app manifest at all.
+      if (drift !== "unsubscribed")
+        deps.logger?.warn("Slack app manifest left as it is", {
+          slack_app_id: slackAppId,
+          drift,
+        });
+      // Nothing is left to send on its own: an earlier failure no longer holds.
+      await recordManifestSync(workspaceId, slackAppId, null);
+      return "left";
+    }
+    const eventsUrl = await eventsUrlOf(agentId);
+    if (eventsUrl === null) {
+      await recordManifestSync(workspaceId, slackAppId, "events_url_unset");
+      return "failed";
+    }
+    const agent = await apps.manifestAgent(workspaceId, agentId);
+    if (agent === null) return "left";
+    try {
+      // Records its own outcome on the app.
+      await paced(budget, () =>
+        updateAgentAppManifest(workspaceId, slackAppId, {
+          name: agent.name,
+          botName: agent.slug,
+          description: agent.role,
+          eventsUrl,
+        }),
+      );
+      return "sent";
+    } catch {
+      return "failed";
+    }
+  }
+}
+
+/** What a manifest check records for a failure; null for one it cannot name. */
+function manifestSyncErrorOf(error: unknown): SlackManifestSyncError | null {
+  if (error instanceof SlackApiError)
+    return error.answered ? "slack_refused" : "no_answer";
+  if (
+    error instanceof SessionServiceError &&
+    error.code === "CONFIG_TOKEN_INVALID"
+  )
+    return "config_token_inactive";
+  // A config token rotation Slack did not answer, or rate-limited.
+  if (
+    error instanceof SessionServiceError &&
+    error.code === "BACKEND_UNAVAILABLE"
+  ) {
+    if (error.cause instanceof SlackApiError)
+      return manifestSyncErrorOf(error.cause);
+    return rateLimitOf(error) === null ? "no_answer" : "slack_refused";
+  }
+  return null;
+}
+
+/** Slack's Retry-After seconds when it rate-limited the call; else null. */
+function rateLimitOf(error: unknown): number | null {
+  if (error instanceof SlackRateLimitedError) return error.retryAfterSeconds;
+  if (!(error instanceof SessionServiceError)) return null;
+  if (error.cause instanceof SlackRateLimitedError)
+    return error.cause.retryAfterSeconds;
+  return (error.details as { slack_error?: unknown } | null)?.slack_error ===
+    "ratelimited"
+    ? (error.retry?.afterSeconds ?? null)
+    : null;
 }
