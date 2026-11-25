@@ -1144,6 +1144,55 @@ describe("사용량·한도", () => {
     );
   });
 
+  test("사용량 탭: 사람별 몫도 같은 묶음이라, 새 기간의 사람별이 늦으면 합계와 함께 앞 기간이 남는다", async () => {
+    setSystemTime(NOW);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const person = (usd: string) => ({
+      ...PEOPLE,
+      people: [{ ...PEOPLE.people[0], cost_usd: usd }],
+    });
+    const { api } = renderAt("/operations/usage", {
+      ...splitRoutes(me),
+      "GET /v1/usage/people": async (request: Request) => {
+        if (
+          new URL(request.url).searchParams
+            .get("since")
+            ?.startsWith("2026-09-25")
+        )
+          return json(200, person("0.050000"));
+        await held;
+        return json(200, person("0.020000"));
+      },
+    });
+    const alice = async () =>
+      (await splitRows()).find((row) => row[0] === "Alice");
+    expect(await alice()).toEqual(["Alice", "$0.05", "50%"]);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "7일" }));
+    // The new period's series and breakdowns have answered; its people not.
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (call) =>
+            call.path !== "/v1/usage/people" &&
+            call.path.startsWith("/v1/usage/") &&
+            call.search.includes("2026-10-18"),
+        ),
+      ).toHaveLength(3),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();
+    expect(await alice()).toEqual(["Alice", "$0.05", "50%"]);
+    release();
+    await waitFor(() =>
+      expect(screen.getByText(/^설치 전체 · 2026-10-18/)).toBeTruthy(),
+    );
+    expect(await alice()).toEqual(["Alice", "$0.02", "20%"]);
+  });
+
   test("사용량 탭: 비용 0으로 끝난 대화 호출만 있는 기간도 빈 상태가 아니다", async () => {
     setSystemTime(NOW);
     const talk = {

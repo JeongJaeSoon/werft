@@ -17,6 +17,7 @@ import type {
   MemberLimitsResponse,
   UsageBreakdownBy,
   UsageBreakdownResponse,
+  UsagePeopleResponse,
   UsageSeriesResponse,
   UsageSummaryScope,
   UsageToolCallsResponse,
@@ -419,6 +420,8 @@ type UsageSet = {
   readonly series: Answer<UsageSeriesResponse>;
   readonly models: Answer<UsageBreakdownResponse>;
   readonly agents: Answer<UsageBreakdownResponse>;
+  /** Absent when the reader may not see each person's share. */
+  readonly people: Answer<UsagePeopleResponse> | undefined;
 };
 
 export function OperationsUsageScreen() {
@@ -453,7 +456,9 @@ export function OperationsUsageScreen() {
   // line together). A set is taken once every query has answered for the
   // picked scope and period and none is fetching, or at once when the picked
   // period is already cached; otherwise the set on screen stays.
-  const queries = [series, models, agents];
+  const queries = seesPeople
+    ? [series, models, agents, people]
+    : [series, models, agents];
   const key = `${filters.scope} ${since} ${until}`;
   const answered = queries.every(
     (query) => !query.isPlaceholderData && (query.isSuccess || query.isError),
@@ -467,6 +472,9 @@ export function OperationsUsageScreen() {
       series: { data: series.data, error: series.error },
       models: { data: models.data, error: models.error },
       agents: { data: agents.data, error: agents.error },
+      people: seesPeople
+        ? { data: people.data, error: people.error }
+        : undefined,
     };
   const shown = set.current;
   // A conversation call may settle at no cost, so the agents' call count
@@ -558,15 +566,15 @@ export function OperationsUsageScreen() {
                 <div className="flex min-w-0 flex-col gap-3">
                   <UsageInitiatorSplit
                     totals={agentTotals}
-                    people={seesPeople ? people.data?.people : undefined}
+                    people={shown?.people?.data?.people}
                     sessionsLink={(children) => (
                       <Link to="/sessions" className={linkVariants()}>
                         {children}
                       </Link>
                     )}
                   />
-                  {seesPeople && people.error
-                    ? failure(people.error, people.refetch)
+                  {shown?.people?.error
+                    ? failure(shown.people.error, people.refetch)
                     : null}
                 </div>
               )}
