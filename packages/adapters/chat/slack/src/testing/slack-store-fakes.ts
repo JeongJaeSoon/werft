@@ -396,6 +396,15 @@ export function createMemorySlackAppStore(input: {
         checked_at: sync.checkedAt.toISOString(),
       };
     },
+    async setBotScopes(workspaceId, slackAppId, scopes, tokenVersion) {
+      const row = rows.get(slackAppId);
+      if (row?.workspaceId !== workspaceId || row.state !== "created") return;
+      const token = input.secrets.values.get(
+        input.secrets.slotKey(slot(row, "slack_bot_token")),
+      );
+      if (token?.summary.secretVersion !== tokenVersion) return;
+      row.botScopes = [...scopes];
+    },
     async getSettings(workspaceId, agentId) {
       const agent = input.agents.get(agentId);
       if (agent?.workspaceId !== workspaceId) return null;
@@ -533,13 +542,13 @@ export function createMemorySlackAppStore(input: {
       });
       return record(row);
     },
-    async storeBotToken({ workspaceId, slackAppId, botToken }) {
+    async storeBotToken({ workspaceId, slackAppId, botToken, scopes }) {
       const row = rows.get(slackAppId);
       if (!row || row.workspaceId !== workspaceId || row.state !== "created") {
         return null;
       }
       input.secrets.write(slot(row, "slack_bot_token"), botToken);
-      touch(row, {});
+      touch(row, { botScopes: [...scopes] });
       return record(row);
     },
     async failCreate(_workspaceId, slackAppId) {
@@ -840,13 +849,22 @@ export function createFakeSlackConfigApi(options?: {
       }
       const botToken = fakeSlackValue("xoxb");
       install.botTokens.set(botToken, pending.appId);
-      return install.grant({
+      const grant = install.grant({
         botToken,
         appId: pending.appId,
         teamId: state.teamId,
         enterpriseInstall: false,
         scopes: [...BOT_SCOPES],
       });
+      install.tokenScopes.set(botToken, [...grant.scopes]);
+      return grant;
+    },
+    async botScopes(botToken) {
+      state.calls.push({ method: "auth.test" });
+      if (!install.botTokens.has(botToken)) {
+        throw new SlackApiError("auth.test", "invalid_auth", true);
+      }
+      return install.tokenScopes.get(botToken) ?? null;
     },
     async botIdentity(botToken) {
       state.calls.push({ method: "auth.test" });
@@ -863,6 +881,8 @@ export function createFakeSlackConfigApi(options?: {
     codes: new Map<string, { appId: string; redirectUri: string }>(),
     /** Bot token to the app it was issued for. */
     botTokens: new Map<string, string>(),
+    /** The scopes `auth.test` says each bot token holds; set to change them. */
+    tokenScopes: new Map<string, string[]>(),
     /** Rewrites each grant before it is returned, e.g. to drop a scope. */
     grant: (grant: SlackInstallGrant) => grant,
     next: {} as { exchange?: Behaviour<SlackInstallGrant> },

@@ -1926,6 +1926,13 @@
       "when": 1795612995030,
       "tag": "0365_pending_session_allow_subject",
       "breakpoints": true
+    },
+    {
+      "idx": 366,
+      "version": "7",
+      "when": 1795613771446,
+      "tag": "0366_slack_app_bot_scopes",
+      "breakpoints": true
     }
   ]
 }

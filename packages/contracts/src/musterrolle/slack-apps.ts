@@ -233,6 +233,17 @@ export const slackManifestSyncSchema = z
   })
   .strict();
 
+/**
+ * The bot scopes this build asks for that the app's install does not hold:
+ * the manifest's scopes grew after the install, so an admin must send the
+ * manifest and approve the install again (OAuth). Until then only what
+ * needs a missing scope is off.
+ */
+export const slackReauthorizationSchema = z
+  .object({ missing_scopes: z.array(z.string()).min(1) })
+  .strict();
+export type SlackReauthorization = z.infer<typeof slackReauthorizationSchema>;
+
 export const getSlackAppResponseSchema = z
   .object({
     slack_app: slackAppSchema.nullable(),
@@ -252,6 +263,7 @@ export const getSlackAppResponseSchema = z
       })
       .strict(),
     manifest_sync: slackManifestSyncSchema.nullable(),
+    reauthorization: slackReauthorizationSchema.nullable(),
     warnings: z.array(
       z.discriminatedUnion("code", [
         slackWarningSchema,
