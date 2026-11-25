@@ -202,10 +202,7 @@ integration("parked pending requests on PostgreSQL", () => {
   }
 
   // A new worker for the session, handed its next input.
-  async function claim(
-    sessionId: string,
-    capabilities?: WorkerCapabilities,
-  ) {
+  async function claim(sessionId: string, capabilities?: WorkerCapabilities) {
     const { principal, scope, executionId, claimed } = await claimOnly(
       sessionId,
       capabilities,
