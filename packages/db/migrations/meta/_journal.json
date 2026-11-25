@@ -1919,6 +1919,13 @@
       "when": 1795607262754,
       "tag": "0364_slack_outbox_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 365,
+      "version": "7",
+      "when": 1795612995030,
+      "tag": "0365_pending_session_allow_subject",
+      "breakpoints": true
     }
   ]
 }
