@@ -45,6 +45,8 @@ export type ContextFragment = { scope: ScopeKey; sources: SourceKey[] } & (
       kind: "buffered_message";
       inputId: ConversationInputId;
       body: string;
+      /** When the body was last edited; unset or null, never. */
+      editedAt?: Date | null;
       poster: { kind: string; id: string };
       receivedAt: Date;
     }

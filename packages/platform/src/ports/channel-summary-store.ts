@@ -30,11 +30,15 @@ export type NewChannelSummaryLine = {
 
 /** A Slack message a line came from, as the server read it off the input row. */
 export type ChannelSummarySource = {
+  /** For a message no input row named, an id made from its place. */
   inputId: ConversationInputId;
   teamId: string;
   channelId: string;
   ts: string;
-  /** The input's requester; a kind the reader does not know is unknown. */
+  /**
+   * The input's requester; a kind the reader does not know is unknown. With
+   * no row naming the message, `{ kind: "unknown", id: "" }`.
+   */
   speaker: { kind: string; id: string };
   /**
    * When the text the line was made from was written: its last edit, else

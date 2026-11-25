@@ -300,14 +300,18 @@ export function createPostgresContextFragmentSource(
             requester_kind: string;
             requester_id: string;
             received_at: Date | string;
+            body_edited_at: Date | string | null;
             slack_team_id: string;
             slack_channel_id: string;
             slack_ts: string;
           }
         >(
+          // Read before the bodies: an edit in between leaves an edit time
+          // older than the body, which only drops a line made from it.
           await tx.execute(sql`
             SELECT i.id AS input_id, i.requester_kind, i.requester_id,
-              i.received_at, i.slack_team_id, i.slack_channel_id, i.slack_ts,
+              i.received_at, i.body_edited_at,
+              i.slack_team_id, i.slack_channel_id, i.slack_ts,
               ${conversationColumns("c")}
             FROM conversation_inputs i
             JOIN conversation_topics t ON t.id = i.topic_id
@@ -343,6 +347,8 @@ export function createPostgresContextFragmentSource(
             ],
             inputId: row.input_id,
             body,
+            editedAt:
+              row.body_edited_at === null ? null : new Date(row.body_edited_at),
             poster: { kind: row.requester_kind, id: row.requester_id },
             receivedAt: new Date(row.received_at),
           });

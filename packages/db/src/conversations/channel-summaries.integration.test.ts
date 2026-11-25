@@ -748,6 +748,44 @@ integration("channel summaries (0325)", () => {
       });
     });
 
+    test("a message the call read that no row names (an engagement's) is kept with no speaker, and its delete removes the line", async () => {
+      const channel = newChannel();
+      const a = await input(channel, "U0ANN");
+      if (!a) throw new Error("input");
+      const engaged = "9000.000100";
+      const written = await append(channel, 0, [
+        {
+          text: "line E",
+          sources: [
+            src(a),
+            {
+              inputId: null,
+              slack: { teamId, channelId: channel, ts: engaged },
+            },
+          ],
+        },
+      ]);
+      expect(written.lineIds).toHaveLength(1);
+      const summary = await summaries.read(placeOf(channel));
+      expect(
+        new Map(
+          summary?.lines[0]?.sources.map((source) => [
+            source.ts,
+            source.speaker,
+          ]),
+        ),
+      ).toEqual(
+        new Map([
+          [a.ts, { kind: "slack_bot", id: "U0ANN" }],
+          [engaged, { kind: "unknown", id: "" }],
+        ]),
+      );
+      expect(await marks().markDeleted(mark(channel, engaged))).toBe(
+        "recorded",
+      );
+      expect(await everyVersion(channel)).toEqual([[], []]);
+    });
+
     test("a line keeps every source its call read, and one read off a summary line goes when that line's source is deleted", async () => {
       const channel = newChannel();
       const [a, b, c] = [

@@ -1,8 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   CHANNEL_SUMMARY_LINE_TEXT_MAX,
   type ChannelSummaryLineId,
   type ConversationInputId,
+  conversationInputIdSchema,
 } from "@werft-ai/contracts";
 import {
   CHANNEL_SUMMARY_HISTORY_MS,
@@ -208,12 +209,36 @@ type ResolvedSource = {
 const dateOrNull = (value: Date | string | null) =>
   value === null ? null : new Date(value);
 
+/** Who said a message no row names: not guessed (Architect, 94S-2107). */
+const UNKNOWN_SPEAKER = { kind: "unknown", id: "" } as const;
+
+/**
+ * The id a source row keys a message by when no input row names it: made
+ * from its place, so a line holds it once. Names no input.
+ */
+function messageKeyId(
+  place: ChannelSummaryPlace,
+  ts: string,
+): ConversationInputId {
+  const hex = createHash("sha256")
+    .update(`${place.workspaceId}/${place.teamId}/${place.channelId}/${ts}`)
+    .digest("hex");
+  const variant = ((Number.parseInt(hex[16] ?? "0", 16) & 0x3) | 0x8).toString(
+    16,
+  );
+  return conversationInputIdSchema.parse(
+    `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`,
+  );
+}
+
 /**
  * Who said each source and when the text read was written: off the writing
  * agent's input row in the channel, else off a source row of the channel's
  * summary (the call read a line of it). The edit time is the caller's, as it
- * read the text; unset on a summary source, the row's. Null names a key
- * neither knows.
+ * read the text; unset on a summary source, the row's. A message of the
+ * channel neither knows (an engagement's, its input row gone) is kept with
+ * no speaker, so its delete or edit still removes the line. Null names a key
+ * with no message of the channel.
  */
 async function resolveSources(
   tx: Database,
@@ -307,7 +332,16 @@ async function resolveSources(
       const source = summed.find(
         (row) => row.input_id === key.inputId || row.ts === key.slack?.ts,
       );
-      if (source === undefined) return null;
+      if (source === undefined) {
+        if (key.slack === null) return null;
+        return {
+          inputId: key.inputId ?? messageKeyId(place, key.slack.ts),
+          ts: key.slack.ts,
+          speakerKind: UNKNOWN_SPEAKER.kind,
+          speakerId: UNKNOWN_SPEAKER.id,
+          editedAt: key.editedAt ?? null,
+        };
+      }
       return {
         inputId: source.input_id,
         ts: source.ts,

@@ -212,7 +212,7 @@ describe("the summary line in the answer (a1/J8)", () => {
     } as never);
   });
 
-  test("a source read off a summary line keeps the time it was read at, the oldest of each", async () => {
+  test("a source keeps the time of the text read, the oldest of each message whoever's input named it", async () => {
     const first = new Date("2026-11-25T00:00:10Z");
     const read = new Date("2026-11-25T00:00:20Z");
     const later = new Date("2026-11-25T00:00:30Z");
@@ -226,15 +226,33 @@ describe("the summary line in the answer (a1/J8)", () => {
         teamId: "T1",
         channelId: "C1",
       }),
+      // Another agent's inputs: the same messages under other ids.
       sources: [
-        { inputId: null, slack: slack("1.0") },
-        { inputId: null, slack: slack("1.1") },
+        {
+          inputId: conversationInputIdSchema.parse(randomUUID()),
+          slack: slack("1.0"),
+        },
+        {
+          inputId: conversationInputIdSchema.parse(randomUUID()),
+          slack: slack("1.1"),
+        },
       ],
       sourceAt: [read, first],
       lineId: channelSummaryLineIdSchema.parse(randomUUID()),
       text: "someone asked for the deploy doc",
       writtenByAgentId: randomUUID(),
       writtenAt: read,
+    };
+    const bufferedId = conversationInputIdSchema.parse(randomUUID());
+    const buffered: ContextFragment = {
+      kind: "buffered_message",
+      scope: line.scope,
+      sources: [{ inputId: bufferedId, slack: slack("1.2") }],
+      inputId: bufferedId,
+      body: "an earlier post, edited",
+      editedAt: later,
+      poster: { kind: "slack_user", id: "U0ANN" },
+      receivedAt: first,
     };
     const { judge } = judgeWith(
       [
@@ -248,7 +266,7 @@ describe("the summary line in the answer (a1/J8)", () => {
           },
         },
       ],
-      { fragments: [line] },
+      { fragments: [line, buffered] },
     );
     const judged = await judge.judge(subjectOf(p));
     const byTs = new Map(
@@ -262,6 +280,7 @@ describe("the summary line in the answer (a1/J8)", () => {
       new Map([
         ["1.0", read],
         ["1.1", first],
+        ["1.2", later],
       ]),
     );
   });

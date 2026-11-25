@@ -298,18 +298,39 @@ export function createM1Judge(deps: Deps) {
       const byInput = new Map(
         subject.posts.map((post) => [post.inputId, post]),
       );
-      // When each message's text the call read was written: the oldest of
-      // what it read, as a line made from an old text goes with that text.
-      const summaryAt = new Map<string, Date>();
+      // When each message's text the call read was written, by its Slack
+      // place whoever's input named it: the oldest read, as a line made from
+      // an old text goes with that text. Null: the message's first text.
+      const readAt = new Map<string, Date | null>();
+      const noteRead = (
+        slack: SourceKey["slack"],
+        at: Date | null | undefined,
+      ) => {
+        if (slack === null || at === undefined) return;
+        const key = slackKey(slack);
+        const seen = readAt.get(key);
+        if (
+          seen === undefined ||
+          (seen !== null && (at === null || at < seen))
+        ) {
+          readAt.set(key, at);
+        }
+      };
+      for (const post of subject.posts) {
+        for (const source of post.sources) {
+          noteRead(source.slack, post.editedAt ?? null);
+        }
+      }
       for (const piece of fitted.fragments) {
-        if (piece.kind !== "channel_summary_line") continue;
-        piece.sources.forEach((source, i) => {
-          const at = piece.sourceAt[i];
-          if (source.slack === null || at === undefined) return;
-          const key = slackKey(source.slack);
-          const seen = summaryAt.get(key);
-          if (seen === undefined || at < seen) summaryAt.set(key, at);
-        });
+        if (piece.kind === "channel_summary_line") {
+          piece.sources.forEach((source, i) => {
+            noteRead(source.slack, piece.sourceAt[i]);
+          });
+        } else if (piece.kind === "buffered_message") {
+          for (const source of piece.sources) {
+            noteRead(source.slack, piece.editedAt ?? null);
+          }
+        }
       }
       const postsOf = (posts: readonly CurrentPost[]) =>
         posts.flatMap((post) =>
@@ -418,23 +439,12 @@ export function createM1Judge(deps: Deps) {
                 text: line,
                 expectedVersion: fitted.summaryVersion,
                 sources: fitted.sources.keys.map((key) => {
-                  const post =
-                    key.inputId === null ? undefined : byInput.get(key.inputId);
                   const at =
                     key.slack === null
-                      ? undefined
-                      : summaryAt.get(slackKey(key.slack));
-                  if (post !== undefined) {
-                    // Unedited, the post is the message's first text.
-                    const edited = post.editedAt ?? null;
-                    return {
-                      ...key,
-                      editedAt:
-                        edited === null || at === undefined || edited < at
-                          ? edited
-                          : at,
-                    };
-                  }
+                      ? key.inputId === null
+                        ? undefined
+                        : (byInput.get(key.inputId)?.editedAt ?? null)
+                      : readAt.get(slackKey(key.slack));
                   return at === undefined ? key : { ...key, editedAt: at };
                 }),
                 messages: [
