@@ -129,6 +129,7 @@ export function createWorkerHost(
             config.objectStore,
             () => objectToken.current(),
             () => host?.ownershipUnconfirmed,
+            (message, fields) => checkpointLogger.warn(message, fields),
           ),
         workspaceRoot: config.runtime.cwd,
         home: config.runtime.home,

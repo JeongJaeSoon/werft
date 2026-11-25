@@ -1905,6 +1905,13 @@
       "when": 1795600788451,
       "tag": "0362_channel_summary_writes",
       "breakpoints": true
+    },
+    {
+      "idx": 363,
+      "version": "7",
+      "when": 1795603434837,
+      "tag": "0363_session_task_fields",
+      "breakpoints": true
     }
   ]
 }
