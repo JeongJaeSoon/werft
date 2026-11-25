@@ -17,12 +17,6 @@ export const conversationReactionDedupeKey = (target: {
   ts: string;
 }) => `reaction:${target.teamId}:${target.channelId}:${target.ts}`;
 
-function stripOverflow(sources: StoredSourceSet | null) {
-  if (sources === null) return null;
-  const { overflow: _cut, ...held } = sources;
-  return held;
-}
-
 /**
  * The 👀 of a conversation turn that took the message on (v1-b/E2): a
  * `reaction` outbox row for the message that called the turn, which its
@@ -85,6 +79,9 @@ export function createPostgresConversationReactions(
       ) {
         return "no_message";
       }
+      // The row has no turn to recover a cut-off set from, so a set that
+      // overflowed cannot be held to its channel's deletes as the answer is.
+      if (turn.sources?.overflow === true) return "unchecked";
       // An install from before the scope: the answer goes, the call is not made.
       if (turn.granted !== true) return "no_scope";
       const enqueued = await outbox.enqueue({
@@ -100,9 +97,8 @@ export function createPostgresConversationReactions(
         sessionId: null,
         body: { text: "" },
         // The turn's reads, so a message it read that Slack deleted before the
-        // send keeps the 👀 from going, as it keeps the answer. The row has no
-        // turn to recover a cut-off set from: what it holds is what is checked.
-        sources: stripOverflow(turn.sources),
+        // send keeps the 👀 from going, as it keeps the answer.
+        sources: turn.sources,
         dedupeKey: conversationReactionDedupeKey({
           teamId: turn.team_id,
           channelId: turn.channel_id,

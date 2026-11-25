@@ -63,7 +63,7 @@ type Ending =
 /** A mention's turn ended as given, with the engagement of its message `ts`. */
 async function turnOf(
   end: Ending,
-  options: { ts?: string | null; installed?: boolean } = {},
+  options: { ts?: string | null; installed?: boolean; overflow?: boolean } = {},
 ): Promise<{ turnId: ConversationTurnId; ts: string }> {
   const topic = crypto.randomUUID();
   const turn = crypto.randomUUID() as ConversationTurnId;
@@ -91,7 +91,7 @@ async function turnOf(
       JSON.stringify({
         direct: [{ team_id: TEAM, channel_id: ROOM, ts }],
         inherited: [],
-        overflow: true,
+        ...(options.overflow ? { overflow: true } : {}),
       }),
     ],
   );
@@ -198,6 +198,15 @@ describe("a conversation turn's 👀", () => {
       ["chat:write", SCOPE],
       SLACK_APP,
     ]);
+  });
+
+  test("a turn whose reads overflowed gets no 👀: its deletes cannot be checked", async () => {
+    const { turnId, ts } = await turnOf(
+      { state: "decided", decision: "reply" },
+      { overflow: true },
+    );
+    expect(await reactions().react(turnId)).toBe("unchecked");
+    expect(await rowsAt(ts)).toEqual([]);
   });
 
   test("a turn no Slack message called, or with no installation, gets no row", async () => {

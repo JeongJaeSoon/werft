@@ -356,14 +356,16 @@ export const CONVERSATION_ANSWERING_DECISIONS = [
  * What a turn's 👀 did: `enqueued` its reaction row; `duplicate` when the
  * message holds one already; `none` when the turn made no such decision;
  * `no_message` when no Slack message called it, or the agent has no Slack
- * app; `no_scope` when the app lacks `reactions:write`.
+ * app; `no_scope` when the app lacks `reactions:write`; `unchecked` when
+ * the turn's read messages overflowed, which a reaction row cannot be held to.
  */
 export type ConversationReactionEffect =
   | "enqueued"
   | "duplicate"
   | "none"
   | "no_message"
-  | "no_scope";
+  | "no_scope"
+  | "unchecked";
 
 export interface ConversationReactionStore {
   /** Puts one 👀 on the message that called the turn, once it took it on. */
