@@ -9,10 +9,10 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "./migrate.ts";
-import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
 import {
   BEFORE_PROFILE_REMOVAL,
+  ENGINE_SETTINGS_DROP,
   migrationsThrough,
 } from "./testing/migrations-through.ts";
 
@@ -28,6 +28,7 @@ integration("0270 removes the profiles from a database that used them", () => {
   let database: TempDatabase;
   let pool: Pool;
   let before: string;
+  let after: string;
   const workspaceId = randomUUID();
   const agentId = randomUUID();
   const versionId = randomUUID();
@@ -149,13 +150,16 @@ integration("0270 removes the profiles from a database that used them", () => {
       ).rows[0]?.seq,
     );
 
-    await migrate(drizzle(pool), { migrationsFolder: MIGRATIONS_FOLDER });
+    // Short of the engine settings drop, so the rules 0270 kept can be read.
+    after = migrationsThrough(ENGINE_SETTINGS_DROP, { exclusive: true });
+    await migrate(drizzle(pool), { migrationsFolder: after });
   }, 120_000);
 
   afterAll(async () => {
     await pool.end();
     await database.drop();
     rmSync(before, { recursive: true, force: true });
+    rmSync(after, { recursive: true, force: true });
   }, 60_000);
 
   test("the profile tables and the staged-removal gates are dropped", async () => {
