@@ -630,23 +630,37 @@ const keptBy = (guard: SlackTextGuard) => (text: string) => {
   return kept.trim() === "" && text.trim() !== "" ? "…" : kept;
 };
 
+/**
+ * The value with its strings guarded. With `keys`, for an input shown as
+ * written, its keys too, before JSON escapes them: a key the guard changes
+ * takes a numbered name no other key has, so no field is lost or shown under
+ * another's name. Read for its meaning (a summary), keys stay as they are.
+ */
 function guardedStrings(
   value: unknown,
   guard: (text: string) => string,
+  keys = false,
 ): unknown {
   if (typeof value === "string") return guard(value);
   if (Array.isArray(value))
-    return value.map((item) => guardedStrings(item, guard));
+    return value.map((item) => guardedStrings(item, guard, keys));
   if (typeof value !== "object" || value === null) return value;
-  // Keys too, before JSON escapes them; two the guard makes one keep both.
-  const guarded = new Map<string, unknown>();
-  Object.entries(value).forEach(([key, item], index) => {
-    const kept = guard(key);
-    let name = kept;
-    for (let n = index + 1; guarded.has(name); n += 1) name = `${kept} (${n})`;
-    guarded.set(name, guardedStrings(item, guard));
-  });
-  return Object.fromEntries(guarded);
+  const entries = Object.entries(value);
+  const taken = new Set(
+    entries.map(([key]) => key).filter((key) => !keys || guard(key) === key),
+  );
+  return Object.fromEntries(
+    entries.map(([key, item], index) => {
+      let name = key;
+      if (keys && guard(key) !== key) {
+        for (let n = index + 1; name === key || taken.has(name); n += 1) {
+          name = `${guard(key)} (${n})`;
+        }
+        taken.add(name);
+      }
+      return [name, guardedStrings(item, guard, keys)];
+    }),
+  );
 }
 
 function guardedQuestions(
@@ -833,7 +847,11 @@ export function slackPromptMessage(
     line = summaryLine(summary);
     blocks.push({ type: "section", text: plain(line) });
     if (summary.excerpt !== null) blocks.push(preformatted(summary.excerpt));
-    const preview = inputPreview(prompt.input);
+    const preview = inputPreview(
+      options.guard === undefined
+        ? prompt.input
+        : guardedStrings(prompt.input, keptBy(options.guard), true),
+    );
     if (preview !== null) {
       blocks.push(
         folded(

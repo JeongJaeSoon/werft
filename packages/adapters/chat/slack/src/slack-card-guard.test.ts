@@ -305,6 +305,42 @@ describe("a link a cut runs into", () => {
     ).not.toContain("T0OTHER001");
   });
 
+  test("summarizes the command the tool runs, not a key the guard renamed", () => {
+    const input = {
+      "command @here": "echo SAFE",
+      command: "rm -rf /important",
+    };
+    const card = slackPromptMessage(
+      { ...permission, input },
+      { ...options, guard },
+    );
+    const summary = JSON.stringify(card.blocks[1]);
+    expect(summary).toContain("rm -rf /important");
+    expect(summary).not.toContain("echo SAFE");
+    expect(card.text).toContain("rm -rf /important");
+    const settled = slackSettledCard(
+      promptCard({
+        kind: "permission",
+        tool: "Bash",
+        input,
+        context: {},
+        state: "answered",
+        decision: "allow",
+        decidedByUserId: "019a0000-0000-7000-8000-00000000d0e1",
+        closedReason: null,
+        createdAt: "2026-11-03T00:00:00Z",
+        expiresAt: "2026-11-03T01:00:00Z",
+      } as PendingRequestDisplay),
+      guard,
+    );
+    expect(said(settled)).toContain("rm -rf /important");
+    expect(said(settled)).not.toContain("echo SAFE");
+    // The raw input shows both, the renamed key never as `command`.
+    expect(said(card)).toContain("command: rm -rf /important");
+    expect(said(card)).not.toContain("command: echo SAFE");
+    expect(said(card)).toContain("echo SAFE");
+  });
+
   test("keeps every input field, whatever the guard takes from its key", () => {
     const card = slackPromptMessage(
       {
