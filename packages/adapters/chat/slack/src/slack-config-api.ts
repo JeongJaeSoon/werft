@@ -502,6 +502,29 @@ export interface SlackChannelMemberApi {
   ): Promise<SlackChannelMemberPage>;
 }
 
+/** One message of a thread as `conversations.replies` gives it. */
+export type SlackThreadMessage = {
+  ts: string;
+  /** The person who wrote it; absent for some bot posts. */
+  user?: string;
+  /** Set when an app or a bot posted it. */
+  botId?: string;
+  subtype?: string;
+  text: string;
+};
+
+/**
+ * `conversations.replies` (`channels:history`, `groups:history`,
+ * `im:history`, which an agent's app already holds): one thread from its
+ * first message, one page. Slack's Tier 3.
+ */
+export interface SlackThreadApi {
+  threadReplies(
+    botToken: string,
+    input: { channelId: string; threadTs: string; limit: number },
+  ): Promise<SlackThreadMessage[]>;
+}
+
 /** `conversations.info`, read for whether another organization shares it. */
 export interface SlackChannelSharingApi {
   channelSharing(
@@ -733,6 +756,20 @@ const channelMembersAnswer = z.object({
     .optional(),
 });
 
+const threadRepliesAnswer = z.object({
+  messages: z
+    .array(
+      z.object({
+        ts: z.string().regex(/^[0-9]{1,20}\.[0-9]{1,20}$/),
+        user: slackId.optional(),
+        bot_id: z.string().max(64).optional(),
+        subtype: z.string().max(64).optional(),
+        text: z.string().optional(),
+      }),
+    )
+    .max(1000),
+});
+
 export function createSlackBotApi(
   options?: SlackApiOptions,
 ): SlackBotApi &
@@ -740,10 +777,33 @@ export function createSlackBotApi(
   SlackBotSender &
   SlackBotDirectory &
   SlackChannelMemberApi &
-  SlackChannelSharingApi {
+  SlackChannelSharingApi &
+  SlackThreadApi {
   const call = slackCaller(options);
   const send = slackSender(options);
   return {
+    async threadReplies(botToken, input) {
+      const answer = await call(
+        "conversations.replies",
+        {
+          token: botToken,
+          body: new URLSearchParams({
+            channel: input.channelId,
+            ts: input.threadTs,
+            limit: String(input.limit),
+          }),
+        },
+        threadRepliesAnswer,
+      );
+      return answer.messages.slice(0, input.limit).map((message) => ({
+        ts: message.ts,
+        text: message.text ?? "",
+        ...(message.user === undefined ? {} : { user: message.user }),
+        ...(message.bot_id === undefined ? {} : { botId: message.bot_id }),
+        ...(message.subtype === undefined ? {} : { subtype: message.subtype }),
+      }));
+    },
+
     async listBots(token, cursor) {
       const answer = await call(
         "users.list",

@@ -1079,6 +1079,46 @@ describe("trustedTools", () => {
     ).not.toHaveProperty("trustedTools");
   });
 
+  test("trust a local server's tools the run allows, and only those; its server is the engine's in-process one", () => {
+    const local = {
+      name: "conversation",
+      binding: "conversation-read-tools-1",
+      tools: ["read_thread", "read_turns"].map((name) => ({
+        name,
+        description: name,
+        call: async () => ({ text: "", isError: false }),
+      })),
+    };
+    const base = start([]);
+    const config = claudeStartConfig(
+      {
+        ...base,
+        config: { ...base.config, tools: ["mcp__conversation__read_thread"] },
+        bundle: { ...base.bundle, localToolServers: [local] },
+      },
+      deps,
+    );
+    expect(config.trustedTools).toEqual(["mcp__conversation__read_thread"]);
+    expect(config.mcpServers?.conversation).toMatchObject({ type: "sdk" });
+    expect(config.identities?.mcpServers).toEqual({
+      conversation: "conversation-read-tools-1",
+    });
+    // A remote server of the same name would be two servers under one name.
+    expect(() =>
+      claudeStartConfig(
+        {
+          ...base,
+          bundle: {
+            ...base.bundle,
+            mcpServers: [{ ...server, name: "conversation" }] as never,
+            localToolServers: [local],
+          },
+        },
+        deps,
+      ),
+    ).toThrow('both named "conversation"');
+  });
+
   test("leave the checkpoint fingerprint as it is", () => {
     expect(
       claudeRuntimeModule.fingerprint(

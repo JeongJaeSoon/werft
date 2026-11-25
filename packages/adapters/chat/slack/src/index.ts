@@ -33,6 +33,7 @@ export * from "./slack-send-result.ts";
 export * from "./slack-session-handler.ts";
 export * from "./slack-session-status.ts";
 export * from "./slack-signature.ts";
+export * from "./slack-thread-reader.ts";
 export * from "./slack-thread-shadow.ts";
 export * from "./slack-token-gone.ts";
 export * from "./slack-welcome.ts";

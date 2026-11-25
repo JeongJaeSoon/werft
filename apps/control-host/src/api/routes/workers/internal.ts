@@ -1,4 +1,5 @@
 import type {
+  ConversationReadTools,
   ConversationRuntimeTurns,
   WorkerGateway,
 } from "@werft-ai/platform";
@@ -20,6 +21,7 @@ export function registerInternalApiRoutes(
     tracing: RequestTracing;
     conversationRuntime?: {
       turns: ConversationRuntimeTurns;
+      readTools: Pick<ConversationReadTools, "call">;
       isRuntimeBearer: (token: string | null) => boolean;
     };
     stop?: AbortSignal;

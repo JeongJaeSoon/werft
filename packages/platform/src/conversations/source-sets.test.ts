@@ -9,6 +9,7 @@ import {
   sourceSetOf,
   storedSourceSet,
   turnSources,
+  withDirectSources,
 } from "./source-sets.ts";
 
 const place = (ts: string) => ({ teamId: "T1", channelId: "C1", ts });
@@ -87,6 +88,26 @@ describe("turnSources", () => {
       earlier: [{ direct: [a], inherited: [], overflow: true }],
     });
     expect(set.overflow).toBe(true);
+  });
+});
+
+describe("withDirectSources", () => {
+  test("adds what a tool read to the direct sources, moving it out of the inherited ones", () => {
+    const c = placeSource(place("3.3"));
+    const set = { direct: [a], inherited: [b, c], overflow: false };
+    expect(withDirectSources(set, [b, a])).toEqual({
+      direct: [a, b],
+      inherited: [c],
+      overflow: false,
+    });
+  });
+
+  test("past the limit says overflow, which an earlier overflow keeps", () => {
+    const set = { direct: [a], inherited: [], overflow: false };
+    expect(withDirectSources(set, [b], 1).overflow).toBe(true);
+    expect(withDirectSources({ ...set, overflow: true }, [], 10).overflow).toBe(
+      true,
+    );
   });
 });
 

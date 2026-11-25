@@ -277,8 +277,17 @@ describe("topic turn fragments", () => {
     const read = ts();
     await answered({ answer: "about the message", read });
     let clock = 0;
+    // The turns are not rows here: the one served last is the topic's last.
+    let last: ConversationTurnId | null = null;
     const checks = createTopicSessionChecks({
       contexts: topicTurnContexts(source()),
+      turns: {
+        async previousTurn() {
+          return last === null
+            ? null
+            : { turnId: last, ended: true, sources: [], overflow: false };
+        },
+      },
       now: () => clock,
     });
     const turnOf = (text: string) =>
@@ -306,6 +315,7 @@ describe("topic turn fragments", () => {
       const turn = turnOf(text);
       const out = await checks.handOut(turn);
       checks.ended(turn.turn_id, true);
+      last = turn.turn_id;
       return out;
     };
 

@@ -4,11 +4,14 @@ import {
   type ConversationTopicId,
   type ConversationTurnId,
 } from "@werft-ai/contracts";
+import type { ConversationReadToolStore } from "../ports/conversation-read-tool-store.ts";
 import type { TopicRef, TopicTurnContexts } from "./context-assembler.ts";
 import { mergeSources, type SourceKey } from "./source-sets.ts";
 
 type Seen = {
   topic: TopicRef;
+  /** The topic's turn this process last handed out. */
+  turnId: ConversationTurnId;
   /** The conversation's last admin delete when the turn was handed out; NaN when unread. */
   recordsDeletedAt: number | null;
   handedOutAt: number;
@@ -25,12 +28,18 @@ type Seen = {
  * memory: for each topic, what its live session may have read. When a
  * runtime takes a turn, the turn gets the context a new session would start
  * from, assembled then, and `keep` only when the topic's last turn ended
- * within the idle time and none of what its session read was deleted since.
- * Whatever cannot be told is `drop`. A runtime that holds no session of the
+ * within the idle time, as the last of the topic's turns, and none of what
+ * its session read was deleted since; what that turn's tools read is in its
+ * row, as another API process may have served them. Whatever cannot be told
+ * is `drop`. A runtime that holds no session of the
  * topic starts anew either way, so this errs only towards a new session.
  */
 export function createTopicSessionChecks(deps: {
-  contexts: TopicTurnContexts;
+  contexts: Pick<
+    TopicTurnContexts,
+    "assemble" | "recordsDeletedAt" | "anyDeleted"
+  >;
+  turns: Pick<ConversationReadToolStore, "previousTurn">;
   /** The agent's instructions a new session starts from. */
   instructions?: (turn: ConversationRuntimeTurn) => string;
   now?: () => number;
@@ -53,23 +62,42 @@ export function createTopicSessionChecks(deps: {
     }
   }
 
-  async function mayGoOn(
+  // What the topic's live session holds, when it may go on; null when not.
+  async function goesOnWith(
     entry: Seen | undefined,
+    turnId: ConversationTurnId,
     recordsDeletedAt: number | null,
-  ): Promise<boolean> {
+  ): Promise<SourceKey[] | null> {
     // A turn still out is one that never reported: its session is gone.
     if (entry === undefined || entry.endedAt === null || entry.overflow) {
-      return false;
+      return null;
     }
     // NaN, unread either time, is equal to nothing.
-    if (recordsDeletedAt !== entry.recordsDeletedAt) return false;
+    if (recordsDeletedAt !== entry.recordsDeletedAt) return null;
     try {
-      return !(await deps.contexts.anyDeleted(
+      const before = await deps.turns.previousTurn({
+        workspaceId: entry.topic.workspaceId,
+        topicId: entry.topic.topicId,
+        turnId,
+      });
+      // Another process handed out a later turn, which this one never saw.
+      if (
+        before === null ||
+        before.turnId !== entry.turnId ||
+        !before.ended ||
+        before.overflow
+      ) {
+        return null;
+      }
+      const merged = mergeSources([entry.keys, before.sources]);
+      if (merged.overflow) return null;
+      const deleted = await deps.contexts.anyDeleted(
         entry.topic.workspaceId,
-        entry.keys,
-      ));
+        merged.keys,
+      );
+      return deleted ? null : merged.keys;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -91,7 +119,8 @@ export function createTopicSessionChecks(deps: {
       const recordsDeletedAt = await deps.contexts
         .recordsDeletedAt(topic)
         .catch(() => Number.NaN);
-      const keep = await mayGoOn(entry, recordsDeletedAt);
+      const held = await goesOnWith(entry, turn.turn_id, recordsDeletedAt);
+      const keep = held !== null;
       for (const [turnId, topic] of out)
         if (topic === topicId) out.delete(turnId);
       out.set(turn.turn_id, topicId);
@@ -110,6 +139,7 @@ export function createTopicSessionChecks(deps: {
         // Nothing read now is safe to start from but the turn's own input.
         seen.set(topicId, {
           topic,
+          turnId: turn.turn_id,
           recordsDeletedAt,
           handedOutAt: at,
           keys: [],
@@ -122,13 +152,11 @@ export function createTopicSessionChecks(deps: {
           topic_session: "drop",
         };
       }
-      const merged = mergeSources([
-        keep && entry !== undefined ? entry.keys : [],
-        assembled.sources.keys,
-      ]);
+      const merged = mergeSources([held ?? [], assembled.sources.keys]);
       const overflow = merged.overflow || assembled.sources.overflow;
       seen.set(topicId, {
         topic,
+        turnId: turn.turn_id,
         recordsDeletedAt,
         handedOutAt: at,
         keys: merged.keys,
