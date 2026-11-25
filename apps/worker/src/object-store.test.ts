@@ -4,10 +4,12 @@ import {
   BodyLimitError,
   BodyStallError,
   BodyTruncatedError,
+  createCheckpointObjectStore,
 } from "@werft-ai/storage";
 
 import {
   createWorkerObjectStore,
+  holdingS3Client,
   isObjectStoreOutage,
   ObjectStoreToken,
   objectStoreConfigFromEnv,
@@ -24,6 +26,80 @@ const closers: Array<() => void> = [];
 
 afterEach(() => {
   for (const close of closers.splice(0)) close();
+});
+
+describe("holdingS3Client", () => {
+  test("each request of a write waits while ownership is unconfirmed, and none is sent once it is lost", async () => {
+    const sent: string[] = [];
+    const doubt = Promise.withResolvers<void>();
+    let unconfirmed: Promise<void> | undefined;
+    const store = createCheckpointObjectStore({
+      bucket: "claude-sessions",
+      client: holdingS3Client(
+        {
+          async send(command) {
+            const { name } = (command as { constructor: { name: string } })
+              .constructor;
+            sent.push(name);
+            if (name !== "GetObjectCommand") return {};
+            // The write's own existence read answers, and ownership goes
+            // unconfirmed before the PUT that read decides.
+            unconfirmed = doubt.promise;
+            throw Object.assign(new Error("no such key"), {
+              name: "NoSuchKey",
+              $metadata: { httpStatusCode: 404 },
+            });
+          },
+        },
+        () => unconfirmed,
+      ),
+    });
+
+    const put = store.putImmutable("sessions/s1/a", new Uint8Array([1]));
+    await Bun.sleep(5);
+    expect(sent).toEqual(["GetObjectCommand"]);
+
+    doubt.resolve();
+    unconfirmed = undefined;
+    expect(await put).toEqual({ outcome: "created" });
+    expect(sent).toEqual(["GetObjectCommand", "PutObjectCommand"]);
+
+    unconfirmed = Promise.reject(new Error("Not sent: the lease was lost"));
+    await expect(
+      store.putImmutable("sessions/s1/b", new Uint8Array([2])),
+    ).rejects.toThrow("Not sent");
+    expect(sent).toHaveLength(2);
+  });
+
+  test("a held request reads ownership again when its wait ends, before it is sent", async () => {
+    const sent: unknown[] = [];
+    const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    let unconfirmed: Promise<void> | undefined = first.promise;
+    const client = holdingS3Client(
+      {
+        async send(command) {
+          sent.push(command);
+          return {};
+        },
+      },
+      () => unconfirmed,
+    );
+    // Confirmed, and unconfirmed again before the held request resumes.
+    void first.promise.then(() => {
+      unconfirmed = second.promise;
+    });
+
+    const request = client.send("put");
+    first.resolve();
+    await Bun.sleep(5);
+    expect(sent).toEqual([]);
+
+    unconfirmed = undefined;
+    second.resolve();
+    await request;
+    expect(sent).toEqual(["put"]);
+  });
 });
 
 describe("objectStoreConfigFromEnv", () => {

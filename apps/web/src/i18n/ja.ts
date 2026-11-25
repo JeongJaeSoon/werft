@@ -269,6 +269,8 @@ export const slackJa = {
     "M1の指示: リリース {release}、commit {commit}",
   "slack.judgments.instructionsAbsent":
     "M1の指示: リリース {release}、commit {commit}には指示ファイルがないため、固定の基準だけを使います。",
+  "slack.judgments.instructionsNewer":
+    "リポジトリにより新しい指示があります。新しいリリースを作ると反映されます。",
   "slack.judgments.reason.not_for_agent": "エージェント宛てではない",
   "slack.judgments.reason.human_conversation": "人どうしの会話",
   "slack.judgments.reason.already_handled": "対応済み",
