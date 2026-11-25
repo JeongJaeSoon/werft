@@ -122,6 +122,7 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { budgetAccountRefused } from "./exchange-budget.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
@@ -2066,6 +2067,7 @@ export function createPostgresSessionReader(
             ...summary,
             auto_model_migration: optedOut === undefined,
             holds_execution: row.executionId !== null,
+            budget_account_refused: await budgetAccountRefused(tx, sessionId),
             ...(workspaceLimitMode === undefined
               ? {}
               : { workspace_limit_mode: workspaceLimitMode }),

@@ -1327,6 +1327,7 @@ describe("session titles (94S-804)", () => {
     github_policy_source: "release",
     auto_model_migration: true,
     holds_execution: false,
+    budget_account_refused: null,
   };
   const accepted = {
     session_id: sessionId,

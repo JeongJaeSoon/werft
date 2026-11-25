@@ -255,33 +255,54 @@ export async function enqueueSlackTurnAnswers(deps: {
   for (const turn of turns) {
     const link_url = sessionUrl(deps.consoleOrigin, turn.sessionId);
     const locale = turn.locale ?? DEFAULT_USER_LOCALE;
+    const refusal = turn.state === "completed" ? null : turn.budgetRefusal;
+    // A budget account's later refusal goes to the person who asked alone;
+    // the first, and every one in a direct message, to the thread.
+    const alone =
+      refusal != null &&
+      !refusal.first &&
+      !turn.channelId.startsWith("D") &&
+      turn.requesterSlackUserId !== null
+        ? turn.requesterSlackUserId
+        : null;
     const text =
       turn.state === "completed"
         ? finalReplyText(turn.events) ||
           SLACK_OUTBOX_MESSAGES[locale].emptyReply
-        : turn.terminalReason === "no_capacity"
+        : refusal != null
           ? SLACK_NOTICE_MESSAGES[locale][
-              turn.sessionPaused ? "noCapacityPaused" : "noCapacity"
+              refusal.owner === "user"
+                ? "budgetAccountUser"
+                : "budgetAccountTeam"
             ]
-          : turn.terminalReason === "codex_sandbox_not_installed"
-            ? SLACK_NOTICE_MESSAGES[locale].codexSandboxNotInstalled
-            : SLACK_NOTICE_MESSAGES[locale].failed;
+          : turn.terminalReason === "no_capacity"
+            ? SLACK_NOTICE_MESSAGES[locale][
+                turn.sessionPaused ? "noCapacityPaused" : "noCapacity"
+              ]
+            : turn.terminalReason === "codex_sandbox_not_installed"
+              ? SLACK_NOTICE_MESSAGES[locale].codexSandboxNotInstalled
+              : SLACK_NOTICE_MESSAGES[locale].failed;
     await deps.outbox.enqueue({
       workspaceId: turn.workspaceId,
       agentId: turn.agentId,
       slackAppId: turn.slackAppId,
       installationId: turn.installationId,
-      kind: turn.state === "completed" ? "reply" : "failure_notice",
+      kind:
+        turn.state === "completed"
+          ? "reply"
+          : alone === null
+            ? "failure_notice"
+            : "notice",
       channelId: turn.channelId,
       threadTs: turn.threadTs,
-      slackUserId: null,
+      slackUserId: alone,
       sessionId: turn.sessionId,
       sessionLinkId: turn.sessionLinkId,
       body: {
         text,
         locale,
         ...(link_url === undefined ? {} : { link_url }),
-        ...(turn.requesterSlackUserId === null
+        ...(turn.requesterSlackUserId === null || alone !== null
           ? {}
           : { mention_user_ids: [turn.requesterSlackUserId] }),
       },

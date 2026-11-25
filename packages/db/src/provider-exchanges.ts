@@ -318,6 +318,7 @@ export function createProviderExchangeLedger(
             outcome: "budget_exceeded",
             by: "session",
             accountId: null,
+            owner: null,
           };
         }
         // The session admitted it; the account judges it next, in this
@@ -337,6 +338,7 @@ export function createProviderExchangeLedger(
                 outcome: "budget_exceeded",
                 by: "account",
                 accountId: reserved.accountId,
+                owner: input.budget.owner?.kind ?? null,
               };
             case "conflict":
               return { outcome: "conflict" };
