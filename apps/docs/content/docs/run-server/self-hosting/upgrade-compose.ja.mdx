@@ -141,7 +141,7 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 
 このリリースから、API は `GITHUB_WEBHOOK_BASE_URL` を読みません。GitHub がインターネットから届くこの API の https アドレスは、owner が **設定 > 連携 > GitHub** の「Webhook の入口アドレス」に保存します(`PUT /v1/github-webhook-settings`、監査記録 `update_github_webhook_settings`)。変えたアドレスを保存すると、webhook secret が保存された GitHub App の webhook URL も GitHub 上で一緒に変わります([Git スキルの webhook](/integrations/github#git-스킬-webhook))。この値はインストール全体で一つです。
 
-- migration `0359_github_webhook_settings` が `github_webhook_settings` テーブルを追加します。新しい API が初めて起動したときにこのテーブルが空で、API コンテナーに `GITHUB_WEBHOOK_BASE_URL` が入っていれば、その値を一度だけ移し、値を含まない警告を出します。移した記録は作成者のない監査記録(`by: "env_import"`)として残ります。移すときに GitHub App は変えません。App はすでにそのアドレスで作られています。
+- migration `0360_github_webhook_settings` が `github_webhook_settings` テーブルを追加します。新しい API が初めて起動したときにこのテーブルが空で、API コンテナーに `GITHUB_WEBHOOK_BASE_URL` が入っていれば、その値を一度だけ移し、値を含まない警告を出します。移した記録は作成者のない監査記録(`by: "env_import"`)として残ります。移すときに GitHub App は変えません。App はすでにそのアドレスで作られています。
 - 移したあと env の行を削除します。残っていると、起動のたびに `Ignored removed settings: GITHUB_WEBHOOK_BASE_URL` の警告が出ます。https でない値や query のある値は移さず、その旨を警告します。以前のリリースと違い、起動は止まりません。
 - ロールバックするときも `github_webhook_settings` テーブルは削除しません。以前のビルドはこのテーブルを読まずに env を読みます。画面で変えたアドレスをロールバックしたビルドでも使うには、その値を env に戻します。GitHub App の webhook URL は、画面で最後に保存したアドレスのまま残ります。
 

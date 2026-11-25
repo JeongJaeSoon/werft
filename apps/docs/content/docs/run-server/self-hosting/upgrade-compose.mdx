@@ -122,7 +122,7 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾼다.
 
 이 릴리스부터 API는 `GITHUB_WEBHOOK_BASE_URL`을 읽지 않는다. GitHub가 인터넷에서 닿는 이 API의 https 주소는 owner가 **설정 > 연동 > GitHub**의 "웹훅 입구 주소"에 저장한다(`PUT /v1/github-webhook-settings`, 감사 기록 `update_github_webhook_settings`). 주소를 바꿔 저장하면 webhook secret이 저장된 GitHub App의 webhook URL도 GitHub에서 함께 바뀐다([Git 스킬 webhook](/integrations/github#git-스킬-webhook)). 이 값은 설치 전체에 하나다.
 
-- migration `0359_github_webhook_settings`가 `github_webhook_settings` 표를 더한다. 새 API가 처음 뜰 때 이 표가 비어 있고 API 컨테이너에 `GITHUB_WEBHOOK_BASE_URL`이 들어와 있으면 그 값을 한 번 옮겨 담고, 값 없이 경고를 남긴다. 옮긴 기록은 작성자 없는 감사 기록(`by: "env_import"`)으로 남는다. 옮길 때는 GitHub App을 바꾸지 않는다. App은 이미 그 주소로 만들어졌다.
+- migration `0360_github_webhook_settings`가 `github_webhook_settings` 표를 더한다. 새 API가 처음 뜰 때 이 표가 비어 있고 API 컨테이너에 `GITHUB_WEBHOOK_BASE_URL`이 들어와 있으면 그 값을 한 번 옮겨 담고, 값 없이 경고를 남긴다. 옮긴 기록은 작성자 없는 감사 기록(`by: "env_import"`)으로 남는다. 옮길 때는 GitHub App을 바꾸지 않는다. App은 이미 그 주소로 만들어졌다.
 - 옮긴 뒤 env의 줄을 지운다. 남아 있으면 시작할 때마다 `Ignored removed settings: GITHUB_WEBHOOK_BASE_URL` 경고가 남는다. 값이 https가 아니거나 query가 있으면 옮기지 않고 그렇다고 경고한다. 앞선 릴리스와 달리 시작은 멈추지 않는다.
 - `github_webhook_settings` 표는 되돌릴 때 지우지 않는다. 앞선 빌드는 이 표를 읽지 않고 env를 읽는다. 화면에서 바꾼 주소를 되돌린 빌드에서도 쓰려면 그 값을 env에 다시 넣는다. GitHub App의 webhook URL은 화면에서 마지막으로 저장한 주소로 남아 있다.
 
