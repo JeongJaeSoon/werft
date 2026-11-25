@@ -4343,6 +4343,11 @@
               "off"
             ]
           },
+          "m1_judgments_per_hour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60
+          },
           "home": {
             "default": false,
             "type": "boolean"
@@ -22963,6 +22968,7 @@
                 "task.spawn",
                 "usage.installation_read",
                 "usage.agent_read",
+                "judgment.read",
                 "installation.settings.manage",
                 "achievement_rule.manage",
                 "achievement.review",
@@ -36508,6 +36514,11 @@
                     "off"
                   ]
                 },
+                "m1_judgments_per_hour": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 60
+                },
                 "ceiling": {
                   "type": "object",
                   "properties": {
@@ -36638,6 +36649,7 @@
                 "agent_id",
                 "mode",
                 "listen",
+                "m1_judgments_per_hour",
                 "ceiling",
                 "home",
                 "memory_write_policy",
@@ -36653,6 +36665,221 @@
         },
         "required": [
           "items"
+        ],
+        "additionalProperties": false
+      },
+      "GetSlackJudgmentsResponse": {
+        "type": "object",
+        "properties": {
+          "window_days": {
+            "type": "number",
+            "const": 7
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slack_team_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                },
+                "channel_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                },
+                "channel_kind": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "public_channel",
+                        "private_channel"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "m1_judgments_per_hour": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 60
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "judgments": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "speak": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reasons": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "not_for_agent",
+                          "human_conversation",
+                          "already_handled",
+                          "out_of_scope",
+                          "needs_agent",
+                          "unclear",
+                          "budget_refused",
+                          "concurrency_limited",
+                          "rate_limited",
+                          "input_too_large",
+                          "no_active_release",
+                          "model_unavailable",
+                          "timed_out",
+                          "unreachable",
+                          "provider_error",
+                          "malformed"
+                        ]
+                      },
+                      "count": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "count"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "slack_team_id",
+                "channel_id",
+                "channel_kind",
+                "m1_judgments_per_hour",
+                "judgments",
+                "speak",
+                "reasons"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "recent": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "grade": {
+                  "type": "string",
+                  "enum": [
+                    "buffer_m1",
+                    "m1",
+                    "m1_to_task",
+                    "m1_engaged"
+                  ]
+                },
+                "slack_team_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                },
+                "channel_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                },
+                "ts": {
+                  "type": "string",
+                  "pattern": "^\\d{1,20}\\.\\d{1,10}$"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": [
+                    "judged",
+                    "not_called",
+                    "failed"
+                  ]
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "speak",
+                    "quiet"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "not_for_agent",
+                    "human_conversation",
+                    "already_handled",
+                    "out_of_scope",
+                    "needs_agent",
+                    "unclear",
+                    "budget_refused",
+                    "concurrency_limited",
+                    "rate_limited",
+                    "input_too_large",
+                    "no_active_release",
+                    "model_unavailable",
+                    "timed_out",
+                    "unreachable",
+                    "provider_error",
+                    "malformed"
+                  ]
+                },
+                "judged_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": [
+                "id",
+                "grade",
+                "slack_team_id",
+                "channel_id",
+                "ts",
+                "url",
+                "outcome",
+                "decision",
+                "reason",
+                "judged_at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "window_days",
+          "since",
+          "channels",
+          "recent"
         ],
         "additionalProperties": false
       },
@@ -36742,6 +36969,11 @@
                   "mention",
                   "off"
                 ]
+              },
+              "m1_judgments_per_hour": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60
               },
               "ceiling": {
                 "type": "object",
@@ -36873,6 +37105,7 @@
               "agent_id",
               "mode",
               "listen",
+              "m1_judgments_per_hour",
               "ceiling",
               "home",
               "memory_write_policy",
@@ -36988,6 +37221,11 @@
                   "off"
                 ]
               },
+              "m1_judgments_per_hour": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60
+              },
               "ceiling": {
                 "type": "object",
                 "properties": {
@@ -37118,6 +37356,7 @@
               "agent_id",
               "mode",
               "listen",
+              "m1_judgments_per_hour",
               "ceiling",
               "home",
               "memory_write_policy",
@@ -57109,6 +57348,7 @@
                     "session.admin_list",
                     "usage.installation_read",
                     "usage.agent_read",
+                    "judgment.read",
                     "installation.settings.manage"
                   ]
                 },
@@ -91289,7 +91529,7 @@
           "Agents"
         ],
         "summary": "Set how the agent answers in one Slack channel or its DMs",
-        "description": "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention).`home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -91581,6 +91821,235 @@
                               "type": "string",
                               "enum": [
                                 "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/slack/judgments": {
+      "get": {
+        "operationId": "getSlackJudgments",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "M1's judgments in the agent's Slack channels",
+        "description": "What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`) with their reason code and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. A private channel, or one no live binding calls public, is left out of both, its counts included, unless the caller is a current member of it as Slack says (cached up to 5 minutes); when that cannot be confirmed it is left out. Owners, admins and the agent's admins; API keys are refused. It changes nothing.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The agent's id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The judged records of the last 7 days the caller may see, per channel and the newest 50.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "window_days": 7,
+                  "since": "2026-11-18T00:00:00.000Z",
+                  "channels": [
+                    {
+                      "slack_team_id": "T0123456",
+                      "channel_id": "C0123456",
+                      "channel_kind": "public_channel",
+                      "m1_judgments_per_hour": 12,
+                      "judgments": 3,
+                      "speak": 1,
+                      "reasons": [
+                        {
+                          "reason": "human_conversation",
+                          "count": 2
+                        },
+                        {
+                          "reason": "needs_agent",
+                          "count": 1
+                        }
+                      ]
+                    }
+                  ],
+                  "recent": [
+                    {
+                      "id": "019a0000-0000-7000-8000-0000000000b1",
+                      "grade": "buffer_m1",
+                      "slack_team_id": "T0123456",
+                      "channel_id": "C0123456",
+                      "ts": "1763942400.000100",
+                      "url": "https://slack.com/archives/C0123456/p1763942400000100",
+                      "outcome": "judged",
+                      "decision": "speak",
+                      "reason": "needs_agent",
+                      "judged_at": "2026-11-24T00:00:05.000Z"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetSlackJudgmentsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
                               ]
                             }
                           }

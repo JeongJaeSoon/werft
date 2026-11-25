@@ -250,7 +250,11 @@ function AgentView({
         />
       </TabsContent>
       <TabsContent {...tabPanel("slack")}>
-        <SlackPanel agent={agent} mounted={hasShown("slack")} />
+        <SlackPanel
+          agent={agent}
+          activeRelease={detail.active_release}
+          mounted={hasShown("slack")}
+        />
       </TabsContent>
       <TabsContent {...tabPanel("github")}>
         <GitHubPanel detail={detail} mounted={hasShown("github")} />

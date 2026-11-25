@@ -334,6 +334,9 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/slack-bindings/{binding_id}/approve",
     "POST /v1/agents/{id}/slack-bindings/{binding_id}/reject",
   ],
+  "routes/surface/slack-judgments.test.ts": [
+    "GET /v1/agents/{id}/slack/judgments",
+  ],
   "routes/surface/slack-channels.test.ts": [
     "GET /v1/agents/{id}/slack/channels",
     "GET /v1/agents/{id}/slack-channels",

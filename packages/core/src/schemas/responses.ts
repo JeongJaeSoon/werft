@@ -58,6 +58,7 @@ import {
   getSlackAppBotsResponseSchema,
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
+  getSlackJudgmentsResponseSchema,
   getSlackNoticeResponseSchema,
   getTurnResponseSchema,
   githubLinkCallbackResponseSchema,
@@ -475,6 +476,7 @@ export const responseSchemas = {
   "DELETE /v1/agents/{id}/identities/{identity_id}":
     revokeAgentIdentityResponseSchema,
   "GET /v1/agents/{id}/slack-bindings": listSlackBindingsResponseSchema,
+  "GET /v1/agents/{id}/slack/judgments": getSlackJudgmentsResponseSchema,
   "PUT /v1/agents/{id}/slack-bindings": putSlackBindingResponseSchema,
   "POST /v1/agents/{id}/slack-bindings/{binding_id}/approve":
     resolveSlackBindingResponseSchema,

@@ -11,7 +11,7 @@ export type Binding =
 type BindingInput = components["schemas"]["PutSlackBindingRequest"];
 export type BindingChange = {
   readonly body: BindingInput;
-  readonly kind: "reaction" | "home" | "connect" | "listen";
+  readonly kind: "reaction" | "home" | "connect" | "listen" | "cap";
   /** On a listen change: the row and its name, to say which one was refused. */
   readonly row?: { readonly id: string; readonly name: string };
 };
@@ -23,6 +23,7 @@ export const SECTION = {
   slack: "slack-overview",
   notice: "slack-notice",
   channels: "slack-channels",
+  judgments: "slack-judgments",
   basic: "slack-basic",
   token: "slack-token",
   addresses: "slack-addresses",
@@ -36,6 +37,7 @@ export const SECTION_LABEL = {
   slack: "agent.tabs.slack",
   notice: "slack.notice",
   channels: "slack.channels",
+  judgments: "slack.judgments",
   basic: "slack.basic",
   token: "workspace.tokenSection",
   addresses: "workspace.addressesTitle",
