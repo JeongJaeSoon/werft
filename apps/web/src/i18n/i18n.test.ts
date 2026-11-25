@@ -27,6 +27,11 @@ import {
   achievementsKo,
 } from "./achievements.ts";
 import { agentAccessEn, agentAccessJa, agentAccessKo } from "./agent-access.ts";
+import {
+  agentConversationsEn,
+  agentConversationsJa,
+  agentConversationsKo,
+} from "./agent-conversations.ts";
 import { agentGitHubEn, agentGitHubJa, agentGitHubKo } from "./agent-github.ts";
 import { agentsEn, agentsJa, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysJa, apiKeysKo } from "./api-keys.ts";
@@ -348,6 +353,7 @@ describe("i18n", () => {
         githubUserLinkKo,
         agentGitHubKo,
         agentAccessKo,
+        agentConversationsKo,
         usageKo,
         achievementsKo,
         achievementRulesKo,
@@ -383,6 +389,7 @@ describe("i18n", () => {
         githubUserLinkJa,
         agentGitHubJa,
         agentAccessJa,
+        agentConversationsJa,
         usageJa,
         achievementsJa,
         achievementRulesJa,
@@ -418,6 +425,7 @@ describe("i18n", () => {
         githubUserLinkEn,
         agentGitHubEn,
         agentAccessEn,
+        agentConversationsEn,
         usageEn,
         achievementsEn,
         achievementRulesEn,
