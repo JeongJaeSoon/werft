@@ -28,6 +28,8 @@ import type {
   RepositoryPinsResponse,
   RestorePlanRequest,
   RestorePlanResponse,
+  SessionAllowRequest,
+  SessionAllowResponse,
   WorkerReadyRequest,
   WorkerReadyResponse,
 } from "@werft-ai/contracts";
@@ -105,6 +107,12 @@ export interface WorkerGatewayClient {
   repositoryPins?(
     request: RepositoryPinsRequest,
   ): Promise<RepositoryPinsResponse>;
+  /**
+   * Whether the session allow `grant_request_id` answered still stands for
+   * this call. Optional, as `protectedCommits`: a worker without it asks
+   * every such call again.
+   */
+  sessionAllow?(request: SessionAllowRequest): Promise<SessionAllowResponse>;
   /**
    * The committed checkpoint judged against what this worker runs. Asked
    * after the claim, before the engine starts.

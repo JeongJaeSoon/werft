@@ -21,7 +21,10 @@ export const rememberRuleSchema = z
   })
   .strict();
 
-/** `session`: the engine process keeps the rule until it ends. */
+/**
+ * `session`: the rule stands for the rest of the session's run, and each
+ * call it covers is allowed only while the person who gave it still may.
+ */
 export const rememberSchema = z.literal("session");
 
 const REMEMBER_NEEDS_ALLOW = "Only an allow can be remembered for the session";
