@@ -31,6 +31,7 @@ import type { Database } from "../queries.ts";
 import { openResumeReceipt } from "../resume-control.ts";
 import {
   attempts,
+  checkpointBundleVerdicts,
   checkpoints,
   lostCheckpointNotices,
   pushIntents,
@@ -49,6 +50,54 @@ import {
 } from "../sessions/index.ts";
 import { sqlLiterals } from "../sql-literals.ts";
 import { readCheckpointPointer } from "../worker-unit-of-work.ts";
+
+/**
+ * The checkpoint rows a bundle verdict depends on: its own and those of the
+ * checkpoints whose bundles it builds on, in revision order. `rowVersion` is
+ * PostgreSQL's `xmin`, the transaction that wrote the row as it now is:
+ * every update gives the row another, and so does deleting it and inserting
+ * it again, even with the same values. A row lock does not change it.
+ */
+function verdictRows(
+  db: Database,
+  input: {
+    prerequisiteRevisions: readonly number[];
+    revision: number;
+    sessionId: string;
+  },
+) {
+  return db
+    .select({
+      collectedAt: checkpoints.collectedAt,
+      manifestSha256: checkpoints.manifestSha256,
+      revision: checkpoints.revision,
+      rowVersion: sql<string>`${checkpoints}.xmin::text`,
+    })
+    .from(checkpoints)
+    .where(
+      and(
+        eq(checkpoints.sessionId, input.sessionId),
+        inArray(checkpoints.revision, [
+          input.revision,
+          ...input.prerequisiteRevisions,
+        ]),
+      ),
+    )
+    .orderBy(asc(checkpoints.revision));
+}
+
+/**
+ * Which rows there are and which write each one is from, as one comparable
+ * string: the same only while none of them was written or replaced. That
+ * covers every write the trigger checkpoints_forget_bundle_verdicts fires
+ * on, a change later undone included, and others it does not, which only
+ * costs a verification made again.
+ */
+function verdictBasisOf(
+  rows: ReadonlyArray<{ revision: number; rowVersion: string }>,
+): string {
+  return JSON.stringify(rows.map((row) => [row.revision, row.rowVersion]));
+}
 
 /**
  * Whether any checkpoint garbage collection has not yet collected exists:
@@ -521,6 +570,71 @@ export function createPostgresCheckpointStore(
         versionsHeld: row.versionsHeld,
         turnId: row.turnSequence === null ? null : String(row.turnSequence),
       }));
+    },
+
+    async listBundleVerdicts(sessionId: string, revisions: readonly number[]) {
+      if (revisions.length === 0) return [];
+      return db
+        .select({
+          key: checkpointBundleVerdicts.verdictKey,
+          revision: checkpointBundleVerdicts.revision,
+        })
+        .from(checkpointBundleVerdicts)
+        .where(
+          and(
+            eq(checkpointBundleVerdicts.sessionId, sessionId),
+            inArray(checkpointBundleVerdicts.revision, [...revisions]),
+          ),
+        );
+    },
+
+    async bundleVerdictBasis(input) {
+      return verdictBasisOf(await verdictRows(db, input).execute());
+    },
+
+    async recordBundleVerdict(input) {
+      await db.transaction(async (tx) => {
+        // Locked against the writes that withdraw verdicts (the trigger
+        // checkpoints_forget_bundle_verdicts): a collection or re-pin of the
+        // checkpoint or of one it builds on either committed before this
+        // read, or waits and then finds the row written below. One that
+        // committed since the verification began shows as another basis:
+        // its trigger ran before this verdict existed.
+        const rows = await verdictRows(tx, input).for("share");
+        const judged = rows.find((row) => row.revision === input.revision);
+        const needed = new Set([
+          input.revision,
+          ...input.prerequisiteRevisions,
+        ]);
+        if (
+          verdictBasisOf(rows) !== input.basis ||
+          rows.length !== needed.size ||
+          judged === undefined ||
+          judged.collectedAt !== null ||
+          judged.manifestSha256 !== input.manifestSha256
+        ) {
+          return;
+        }
+        await tx
+          .insert(checkpointBundleVerdicts)
+          .values({
+            prerequisiteRevisions: [...input.prerequisiteRevisions],
+            revision: input.revision,
+            sessionId: input.sessionId,
+            verdictKey: input.key,
+          })
+          .onConflictDoUpdate({
+            target: [
+              checkpointBundleVerdicts.sessionId,
+              checkpointBundleVerdicts.revision,
+            ],
+            set: {
+              prerequisiteRevisions: [...input.prerequisiteRevisions],
+              verdictKey: input.key,
+              verifiedAt: DB_NOW,
+            },
+          });
+      });
     },
 
     async listPinnedCommits(sessionId: string, limit: number) {

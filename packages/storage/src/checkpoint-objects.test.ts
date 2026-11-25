@@ -386,3 +386,54 @@ describe("bucket default encryption", () => {
     );
   });
 });
+
+describe("head", () => {
+  const digest = createHash("sha256").update("bundle").digest();
+  async function headOf(response: Record<string, unknown>) {
+    const sent: Array<Record<string, unknown>> = [];
+    const client: S3ClientLike = {
+      async send(command) {
+        sent.push((command as Command).input);
+        return response;
+      },
+    };
+    const head = await createCheckpointObjectStore({
+      bucket: "b",
+      client,
+    }).head("k", "v1");
+    return { head, sent };
+  }
+
+  test("asks S3 for the checksum it keeps and reports a whole-object SHA-256 in hex", async () => {
+    const { head, sent } = await headOf({
+      ChecksumSHA256: digest.toString("base64"),
+      ChecksumType: "FULL_OBJECT",
+      ContentLength: 6,
+      VersionId: "v1",
+    });
+    expect(sent).toEqual([
+      { Bucket: "b", ChecksumMode: "ENABLED", Key: "k", VersionId: "v1" },
+    ]);
+    expect(head).toEqual({
+      bytes: 6,
+      sha256: digest.toString("hex"),
+      version: "v1",
+    });
+  });
+
+  test("reports no digest for an object S3 keeps none for, or only a multipart checksum of checksums", async () => {
+    for (const response of [
+      { ContentLength: 6 },
+      { ChecksumCRC32: "AAAAAA==", ContentLength: 6 },
+      {
+        ChecksumSHA256: digest.toString("base64"),
+        ChecksumType: "COMPOSITE",
+        ContentLength: 6,
+      },
+      { ChecksumSHA256: `${digest.toString("base64")}-3`, ContentLength: 6 },
+      { ChecksumSHA256: "not a digest", ContentLength: 6 },
+    ]) {
+      expect((await headOf(response)).head).toEqual({ bytes: 6 });
+    }
+  });
+});

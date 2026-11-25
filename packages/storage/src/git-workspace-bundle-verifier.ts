@@ -51,6 +51,15 @@ export type GitWorkspaceBundleVerifierOptions = {
 
 export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
 /**
+ * What `verify` checks and refuses, as a number. A pass is remembered only
+ * under the version it was made with (`version`), so raise this with any
+ * change to those: the checks below, the structural read they start from
+ * (`gitBundleOffersFrom`, `checkpointBundleRefs`, `manifestSourcesOf`), the
+ * git commands and their configuration. Limits and git's own version are in
+ * the version already.
+ */
+export const GIT_BUNDLE_VERIFIER_RULES = 1;
+/**
  * The bundle size the fixed timeout covers; larger bundles receive time in
  * direct proportion through `gitVerifyTimeoutMs`.
  */
@@ -151,8 +160,37 @@ export function createGitWorkspaceBundleVerifier(
   const maxPackObjects = options.maxPackObjects ?? DEFAULT_MAX_PACK_OBJECTS;
   const maxGitMemoryBytes =
     options.maxGitMemoryBytes ?? DEFAULT_MAX_GIT_MEMORY_BYTES;
+  const policy = JSON.stringify({
+    maxGitMemoryBytes,
+    maxPackObjects,
+    timeoutMs,
+  });
+  let version: Promise<string> | undefined;
   return {
-    policy: JSON.stringify({ maxGitMemoryBytes, maxPackObjects, timeoutMs }),
+    policy,
+    version() {
+      // A newer git may refuse what an older one passed, so the git that
+      // runs is named too. Asked once; a failure is not kept.
+      version ??= gitRunner(["--version"], {
+        clearGitEnvironment: true,
+        env: { LC_ALL: "C" },
+        timeoutMs,
+      })
+        .then((result) => {
+          const git = result.stdout.trim();
+          if (result.exitCode !== 0 || git.length === 0) {
+            throw new Error(
+              `git --version failed with exit code ${result.exitCode}: ${result.stderr.trim()}`,
+            );
+          }
+          return JSON.stringify([GIT_BUNDLE_VERIFIER_RULES, policy, git]);
+        })
+        .catch((error: unknown) => {
+          version = undefined;
+          throw error;
+        });
+      return version;
+    },
     async verify({ bases = [], bytes, commit, key, path, sources = [] }) {
       // The structural read is the cheap gate: no git process for bytes that
       // are not a whole chain of bundles offering the commit, and it hands
