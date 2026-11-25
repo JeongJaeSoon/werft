@@ -15,6 +15,7 @@ import type {
   SurfacePromptCard,
   ToolSummaryContext,
 } from "@werft-ai/platform";
+import type { SlackTextGuard } from "./slack-outbox-render.ts";
 import { isSafeLink } from "./slack-presentation.ts";
 import { summarizeToolRequest } from "./slack-prompt-summary.ts";
 
@@ -536,6 +537,8 @@ export type SlackCardTextParts = {
   mentionSlackUserId?: string | null;
   lines?: readonly string[];
   linkUrl?: string | null;
+  /** Run over the title and lines before they are escaped. */
+  guard?: SlackTextGuard;
 };
 
 export function slackCardText(parts: SlackCardTextParts): string {
@@ -545,13 +548,200 @@ export function slackCardText(parts: SlackCardTextParts): string {
     parts.linkUrl && isSafeLink(parts.linkUrl)
       ? `<${parts.linkUrl}|${escapeMrkdwn(copy.link)}>`
       : escapeMrkdwn(copy.openConsole);
+  const guard =
+    parts.guard === undefined ? (text: string) => text : cutAware(parts.guard);
   return [
-    `${who ? `${who} ` : ""}${escapeMrkdwn(clip(parts.title, PLAIN_TEXT_MAX))}`,
+    `${who ? `${who} ` : ""}${escapeMrkdwn(clip(guard(parts.title), PLAIN_TEXT_MAX))}`,
     ...(parts.lines ?? [])
+      .map(guard)
       .filter((line) => line !== "")
       .map((line) => escapeMrkdwn(clip(line, PLAIN_TEXT_MAX))),
     link,
   ].join("\n");
+}
+
+/**
+ * The blocks with the guard over every plain text in them, where a card's
+ * model text goes; its mrkdwn is the platform's own. Slack refuses an
+ * empty text, so one the guard empties keeps a mark.
+ */
+export function guardSlackCardBlocks<T>(node: T, guard?: SlackTextGuard): T {
+  if (guard === undefined) return node;
+  if (Array.isArray(node)) {
+    return node.map((item) => guardSlackCardBlocks(item, guard)) as T;
+  }
+  if (typeof node !== "object" || node === null) return node;
+  const entries = Object.entries(node).map(([key, value]) => [
+    key,
+    guardSlackCardBlocks(value, guard),
+  ]);
+  const record = Object.fromEntries(entries) as Record<string, unknown>;
+  if (
+    (record.type === "plain_text" || record.type === "text") &&
+    typeof record.text === "string"
+  ) {
+    record.text = keptBy(guard)(record.text);
+  }
+  return record as T;
+}
+
+/**
+ * A posted card's stored text, escaped as Slack reads it; when the guard
+ * would change any of it read unescaped, the platform's words alone. The
+ * escapes keep apart what the guard must read whole, so it reads the text
+ * as the card was drawn from.
+ */
+export function slackGuardedCardText(
+  stored: string,
+  guard: SlackTextGuard,
+  card: {
+    locale: UserLocale;
+    kind: SlackPrompt["kind"];
+    linkUrl: string | null;
+  },
+): string {
+  const raw = stored
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+  if (cutAware(guard)(raw) === raw) return stored;
+  const copy = SLACK_PROMPT_MESSAGES[card.locale];
+  return slackCardText({
+    locale: card.locale,
+    title:
+      card.kind === "permission"
+        ? copy.permissionTitle
+        : card.kind === "question"
+          ? copy.questionTitle
+          : copy.pushTitle,
+    linkUrl: card.linkUrl,
+  });
+}
+
+// A cut leaves `…` on what it cut, which a link or id it cut through would
+// read as part of it: past the whole text, the guard reads each run around a
+// mark on its own.
+const cutAware = (guard: SlackTextGuard) => (text: string) =>
+  guard(text).split("…").map(guard).join("…");
+
+// Slack refuses an empty text, so one the guard empties keeps a mark.
+const keptBy = (guard: SlackTextGuard) => (text: string) => {
+  const kept = cutAware(guard)(text);
+  return kept.trim() === "" && text.trim() !== "" ? "…" : kept;
+};
+
+/**
+ * The value with its strings guarded. With `keys`, for an input shown as
+ * written, its keys too, before JSON escapes them: a key the guard changes
+ * takes a numbered name no other key has, so no field is lost or shown under
+ * another's name. Read for its meaning (a summary), keys stay as they are.
+ */
+function guardedStrings(
+  value: unknown,
+  guard: (text: string) => string,
+  keys = false,
+): unknown {
+  if (typeof value === "string") return guard(value);
+  if (Array.isArray(value))
+    return value.map((item) => guardedStrings(item, guard, keys));
+  if (typeof value !== "object" || value === null) return value;
+  const entries = Object.entries(value);
+  const taken = new Set(
+    entries.map(([key]) => key).filter((key) => !keys || guard(key) === key),
+  );
+  return Object.fromEntries(
+    entries.map(([key, item], index) => {
+      let name = key;
+      if (keys && guard(key) !== key) {
+        for (let n = index + 1; name === key || taken.has(name); n += 1) {
+          name = `${guard(key)} (${n})`;
+        }
+        taken.add(name);
+      }
+      return [name, guardedStrings(item, guard, keys)];
+    }),
+  );
+}
+
+function guardedQuestions(
+  questions: PendingQuestion[],
+  guard: (text: string) => string,
+): PendingQuestion[] {
+  return questions.map((question) => ({
+    ...question,
+    prompt: guard(question.prompt),
+    options: question.options.map((option) => ({
+      ...option,
+      label: guard(option.label),
+    })),
+  }));
+}
+
+/** The request with its model-written fields guarded; ids stay as they are. */
+function guardedPrompt(
+  prompt: SlackPrompt,
+  guard?: SlackTextGuard,
+): SlackPrompt {
+  if (guard === undefined) return prompt;
+  const kept = keptBy(guard);
+  switch (prompt.kind) {
+    case "permission":
+      return {
+        ...prompt,
+        tool: kept(prompt.tool),
+        input: guardedStrings(prompt.input, kept),
+        context: guardedStrings(prompt.context, kept) as ToolSummaryContext,
+        ...(prompt.rememberOffer === undefined
+          ? {}
+          : {
+              rememberOffer: prompt.rememberOffer.map((rule) => ({
+                toolName: kept(rule.toolName),
+                ...(rule.ruleContent === undefined
+                  ? {}
+                  : { ruleContent: kept(rule.ruleContent) }),
+              })),
+            }),
+      };
+    case "question":
+      return { ...prompt, questions: guardedQuestions(prompt.questions, kept) };
+    case "push":
+      return {
+        ...prompt,
+        repositoryName:
+          prompt.repositoryName === null ? null : kept(prompt.repositoryName),
+        targetBranch: kept(prompt.targetBranch),
+      };
+  }
+}
+
+/** A stored request's display with its model-written fields guarded. */
+function guardedDisplay(
+  display: SurfacePromptCard["display"],
+  guard?: SlackTextGuard,
+): SurfacePromptCard["display"] {
+  if (guard === undefined) return display;
+  const kept = keptBy(guard);
+  switch (display.kind) {
+    case "permission":
+      return {
+        ...display,
+        tool: kept(display.tool),
+        input: guardedStrings(display.input, kept),
+        context: guardedStrings(display.context, kept) as ToolSummaryContext,
+      };
+    case "question":
+      return {
+        ...display,
+        questions: guardedQuestions(display.questions, kept),
+      };
+    case "push":
+      return {
+        ...display,
+        repositoryName:
+          display.repositoryName === null ? null : kept(display.repositoryName),
+        targetBranch: kept(display.targetBranch),
+      };
+  }
 }
 
 function preformatted(text: string) {
@@ -614,12 +804,15 @@ export type SlackPromptMessageOptions = {
   locale: UserLocale;
   requesterSlackUserId: string | null;
   linkUrl?: string;
+  /** G7 and A3 over the card's text, in its conversation's scope. */
+  guard?: SlackTextGuard;
 };
 
 export function slackPromptMessage(
-  prompt: SlackPrompt,
+  asked: SlackPrompt,
   options: SlackPromptMessageOptions,
 ): { text: string; blocks: unknown[] } {
+  const prompt = guardedPrompt(asked, options.guard);
   const copy = SLACK_PROMPT_MESSAGES[options.locale];
   const title =
     prompt.kind === "permission"
@@ -654,7 +847,11 @@ export function slackPromptMessage(
     line = summaryLine(summary);
     blocks.push({ type: "section", text: plain(line) });
     if (summary.excerpt !== null) blocks.push(preformatted(summary.excerpt));
-    const preview = inputPreview(prompt.input);
+    const preview = inputPreview(
+      options.guard === undefined
+        ? prompt.input
+        : guardedStrings(prompt.input, keptBy(options.guard), true),
+    );
     if (preview !== null) {
       blocks.push(
         folded(
@@ -865,8 +1062,9 @@ export function slackPromptMessage(
       mentionSlackUserId: options.requesterSlackUserId,
       lines: [line],
       linkUrl: link,
+      ...(options.guard === undefined ? {} : { guard: options.guard }),
     }),
-    blocks,
+    blocks: guardSlackCardBlocks(blocks, options.guard),
   };
 }
 
@@ -979,7 +1177,23 @@ const linkElements = (link: string | null, locale: UserLocale) =>
  * decider's mention, the request and the web link. A question keeps its
  * full text with the answer under it. Null while the request is open.
  */
-export function slackSettledCard(card: SurfacePromptCard): SlackCard | null {
+export function slackSettledCard(
+  card: SurfacePromptCard,
+  guard?: SlackTextGuard,
+): SlackCard | null {
+  const drawn = settledCard(
+    { ...card, display: guardedDisplay(card.display, guard) },
+    guard,
+  );
+  return drawn === null
+    ? null
+    : { text: drawn.text, blocks: guardSlackCardBlocks(drawn.blocks, guard) };
+}
+
+function settledCard(
+  card: SurfacePromptCard,
+  guard: SlackTextGuard | undefined,
+): SlackCard | null {
   const result = slackSettledResult(card.display);
   if (result === null) return null;
   const copy = SLACK_PROMPT_MESSAGES[card.locale];
@@ -1001,7 +1215,7 @@ export function slackSettledCard(card: SurfacePromptCard): SlackCard | null {
   const mark = SETTLED_MARK[result];
   const link = linkOf(card.linkUrl);
   const textOf = (lines: string[], title = head) =>
-    `${title}${slackCardText({ locale: card.locale, title: "", lines, linkUrl: link })}`;
+    `${title}${slackCardText({ locale: card.locale, title: "", lines, linkUrl: link, ...(guard === undefined ? {} : { guard }) })}`;
 
   if (card.display.kind !== "question") {
     const summary = settledSummary(card.display, card.locale);
@@ -1096,6 +1310,7 @@ export function slackRejectOnlyCard(
     display: { kind: "push" } & PushRequestDisplay;
   },
   ids: { sessionId: string; requestId: string },
+  guard?: SlackTextGuard,
 ): SlackCard {
   const copy = SLACK_PROMPT_MESSAGES[card.locale];
   // An intent push never goes stale by a newer commit; it is here because its
@@ -1104,37 +1319,45 @@ export function slackRejectOnlyCard(
     card.pushRevisions?.origin === "intent"
       ? copy.pushPinnedSourceInvalid
       : copy.pushStale;
-  const summary = `${card.display.repositoryName ?? card.display.repositoryId} ← ${shortCommit(card.display.gitCommit)}`;
+  const repositoryName =
+    card.display.repositoryName === null || guard === undefined
+      ? card.display.repositoryName
+      : keptBy(guard)(card.display.repositoryName);
+  const summary = `${repositoryName ?? card.display.repositoryId} ← ${shortCommit(card.display.gitCommit)}`;
   return {
     text: slackCardText({
       locale: card.locale,
       title: reason,
       lines: [summary],
       linkUrl: linkOf(card.linkUrl),
+      ...(guard === undefined ? {} : { guard }),
     }),
-    blocks: [
-      {
-        type: "context",
-        elements: [
-          {
-            type: "mrkdwn",
-            text: `:warning: *${escapeMrkdwn(reason)}*`,
-          },
-          plain(summary, CONTEXT_TEXT_MAX),
-        ],
-      },
-      {
-        type: "actions",
-        elements: [
-          button(
-            copy.reject,
-            SLACK_INTERACTION_ACTIONS.pushReject,
-            slackPromptValue(ids),
-            "danger",
-          ),
-        ],
-      },
-    ],
+    blocks: guardSlackCardBlocks(
+      [
+        {
+          type: "context",
+          elements: [
+            {
+              type: "mrkdwn",
+              text: `:warning: *${escapeMrkdwn(reason)}*`,
+            },
+            plain(summary, CONTEXT_TEXT_MAX),
+          ],
+        },
+        {
+          type: "actions",
+          elements: [
+            button(
+              copy.reject,
+              SLACK_INTERACTION_ACTIONS.pushReject,
+              slackPromptValue(ids),
+              "danger",
+            ),
+          ],
+        },
+      ],
+      guard,
+    ),
   };
 }
 
@@ -1215,10 +1438,13 @@ const textBlock = (index: number) => `q${index}.text`;
 
 /** The modal for a question request; null when it has too many to show. */
 export function slackQuestionView(
-  questions: PendingQuestion[],
+  asked: PendingQuestion[],
   metadata: SlackQuestionViewMetadata,
   locale: UserLocale,
+  guard?: SlackTextGuard,
 ): Record<string, unknown> | null {
+  const questions =
+    guard === undefined ? asked : guardedQuestions(asked, keptBy(guard));
   if (questions.length === 0 || questions.length > QUESTIONS_MAX) return null;
   const copy = SLACK_PROMPT_MESSAGES[locale];
   const blocks: unknown[] = [];
@@ -1264,7 +1490,7 @@ export function slackQuestionView(
     title: plain(copy.modalTitle, MODAL_TITLE_MAX),
     submit: plain(copy.submit, MODAL_TITLE_MAX),
     close: plain(copy.cancel, MODAL_TITLE_MAX),
-    blocks,
+    blocks: guardSlackCardBlocks(blocks, guard),
   };
 }
 
