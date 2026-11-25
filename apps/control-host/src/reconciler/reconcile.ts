@@ -1,6 +1,7 @@
 import { integerSetting } from "@werft-ai/contracts/settings";
 import type {
   AnnouncedInputReturn,
+  ChannelSummaryHistoryPrune,
   JudgmentBufferPurge,
   OwnershipReconciled,
   ReconciledInterrupt,
@@ -44,6 +45,9 @@ export type ReconcilerRun = {
   judgmentBufferPurged: JudgmentBufferPurge;
   // Marks of deleted and edited Slack messages nothing points at.
   slackSourceMarksPurged: { deleted: number; edited: number };
+  // Channel summary versions no longer current at any time in the last 7
+  // days, and the lines only they held.
+  channelSummaryHistoryPruned: ChannelSummaryHistoryPrune;
   slackMembersPurged: number;
   ownership: OwnershipReconciled;
   // null on a dry run, which projects nothing.
@@ -163,6 +167,11 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<{ deleted: number; edited: number }>;
+  // Old versions of channel summaries, past their 7 days of history.
+  pruneChannelSummaryHistory(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<ChannelSummaryHistoryPrune>;
   // Slack channel member lists and voids past their TTL.
   purgeSlackChannelMembers(options: {
     dryRun: boolean;
@@ -308,6 +317,16 @@ export async function runReconciler(input: {
     deleted_count: slackSourceMarksPurged.deleted,
     edited_count: slackSourceMarksPurged.edited,
   });
+  const channelSummaryHistoryPruned = await input.pruneChannelSummaryHistory({
+    dryRun,
+    limit,
+  });
+  input.logger.info("Old channel summary versions pruned", {
+    dry_run: dryRun,
+    channel_count: channelSummaryHistoryPruned.channels,
+    version_count: channelSummaryHistoryPruned.versions,
+    line_count: channelSummaryHistoryPruned.lines,
+  });
   const slackMembersPurged = await input.purgeSlackChannelMembers({
     dryRun,
     limit,
@@ -370,6 +389,7 @@ export async function runReconciler(input: {
     rolloutsLowered,
     judgmentBufferPurged,
     slackSourceMarksPurged,
+    channelSummaryHistoryPruned,
     slackMembersPurged,
     ownership,
     toolCalls,

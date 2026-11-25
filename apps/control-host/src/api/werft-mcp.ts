@@ -1,4 +1,6 @@
+import type { Database } from "@werft-ai/db";
 import {
+  type AuthorizationPolicy,
   docsPart,
   guidePart,
   statusPart,
@@ -6,12 +8,21 @@ import {
   type WerftMcpPartContext,
 } from "@werft-ai/platform";
 
+/** What a part may read beyond the context. */
+export type WerftMcpPartDeps = {
+  db: Database;
+  authorization: AuthorizationPolicy;
+};
+
 /**
  * The parts the built-in `werft` MCP server is made of, in the order their
  * tools, resources and prompts are listed. Each part is one area's: what it
- * needs beyond the context is passed on its own line here.
+ * takes from `deps` is passed on its own line here.
  */
-export function werftMcpParts(context: WerftMcpPartContext): WerftMcpPart[] {
+export function werftMcpParts(
+  context: WerftMcpPartContext,
+  _deps: WerftMcpPartDeps,
+): WerftMcpPart[] {
   return [
     // The installed documentation: search, and the pages as resources.
     docsPart(context),

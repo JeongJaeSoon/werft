@@ -59,6 +59,7 @@ const appResponse = (
   // A server computes the address once there is an app to put it in.
   event_url: app ? `https://events.test/v1/slack/events/${AGENT_ID}` : null,
   events: { state: "pending", checked_at: null, url: null },
+  manifest_sync: null,
   warnings,
   config_token: configToken,
 });
@@ -2128,6 +2129,65 @@ describe("Slack management", () => {
       "manifest를 Slack에 다시 보냈습니다. 앱에 새 권한이 더해져, 앱을 다시 설치해야 적용됩니다.",
     );
     expect(addresses.textContent).not.toContain("Request URL을 확인했습니다");
+  });
+
+  test("says in the app section that the app needs an update, why, and clears it with a recheck there", async () => {
+    const events = { state: "verified", checked_at: AT, url: SENT } as const;
+    let sync: components["schemas"]["GetSlackAppResponse"]["manifest_sync"] = {
+      error: "config_token_inactive",
+      checked_at: AT,
+    };
+    const posts: string[] = [];
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events,
+          manifest_sync: sync,
+        }),
+      [`POST ${PATH}/slack/app/events/recheck`]: () => {
+        posts.push("recheck");
+        sync = { error: null, checked_at: AT };
+        return json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events,
+          manifest_sync: sync,
+          reinstall_required: false,
+        });
+      },
+    });
+    const user = await setupUser();
+    const app = await screen.findByRole("region", {
+      name: "자동으로 만든 Slack 앱",
+    });
+    await within(app).findByText("갱신 필요");
+    within(app).getByText(
+      "App Configuration Token이 활성 상태가 아니어서 Werft가 이 앱의 Slack 설정을 확인하거나 갱신하지 못했습니다. 새로 더해진 이벤트를 받지 못할 수 있습니다. 토큰을 다시 넣은 뒤 다시 확인을 누르세요.",
+    );
+    await user.click(within(app).getByRole("button", { name: "다시 확인" }));
+    expect(posts).toEqual(["recheck"]);
+    await waitFor(() =>
+      expect(within(app).queryByText("갱신 필요")).toBeNull(),
+    );
+  });
+
+  test("says nothing about an update when the manifest is current or the API is older", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          manifest_sync: { error: null, checked_at: AT },
+        }),
+    });
+    const app = await screen.findByRole("region", {
+      name: "자동으로 만든 Slack 앱",
+    });
+    await within(app).findByText("A123");
+    expect(within(app).queryByText("갱신 필요")).toBeNull();
   });
 
   test("locks picking the home until Slack checks the Request URL", async () => {

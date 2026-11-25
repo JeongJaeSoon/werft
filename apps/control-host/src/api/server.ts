@@ -958,6 +958,19 @@ const {
   activeReleaseWarning: slackActiveReleaseWarning,
   logger,
 });
+// Once per start: an agent app whose manifest lacks only the events this
+// build subscribes to is sent them, so a deploy needs no recheck per agent.
+void slackApps
+  .syncAgentAppManifests()
+  .then((summary) => {
+    if (summary.checked > 0)
+      logger.info("Slack app manifests checked", summary);
+  })
+  .catch((error: unknown) =>
+    logger.warn("The Slack app manifest check failed", {
+      error_name: error instanceof Error ? error.name : typeof error,
+    }),
+  );
 const slackNotices = createSlackNoticeService({ authorization, db });
 const slackSettingsAdmin = createSlackSettingsAdmin({
   authorization,
@@ -1367,7 +1380,10 @@ const githubMcpGrantKey =
 // The built-in `werft` MCP server every session has: what it serves is its
 // parts', and a claim trusts exactly the tools they name.
 const werftVersion = werftVersionOf(process.env);
-const werftMcpServerParts = werftMcpParts({ version: werftVersion });
+const werftMcpServerParts = werftMcpParts(
+  { version: werftVersion },
+  { db, authorization },
+);
 const werftMcp = createWerftMcpServer({
   parts: werftMcpServerParts,
   version: werftVersion,

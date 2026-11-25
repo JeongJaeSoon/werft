@@ -223,6 +223,7 @@ function summaryLine(n: number, text: string): ContextFragment {
     kind: "channel_summary_line",
     scope: OWN,
     sources: [key(`1.${n}`)],
+    sourceAt: [at(n)],
     lineId: channelSummaryLineIdSchema.parse(uuid("d", n)),
     text,
     writtenByAgentId: A,

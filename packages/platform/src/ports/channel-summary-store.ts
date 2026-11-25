@@ -2,6 +2,7 @@ import type {
   ChannelSummaryLineId,
   ConversationInputId,
 } from "@werft-ai/contracts";
+import type { SourceKey } from "../conversations/index.ts";
 
 /** The channel a summary is of: one per channel, shared by its agents. */
 export type ChannelSummaryPlace = {
@@ -11,23 +12,39 @@ export type ChannelSummaryPlace = {
 };
 
 /**
- * A line an agent adds: its own text and the input it sums up. Who spoke and
- * where are the input row's to say, never the writer's (G8), so neither is
- * taken here.
+ * What a new line read: an input, or a message a summary line it read came
+ * from. `editedAt`: when the text read was last edited; unset, the text is
+ * taken as the message's first.
+ */
+export type ChannelSummarySourceKey = SourceKey & { editedAt?: Date | null };
+
+/**
+ * A line an agent adds: its own text and everything the call that made it
+ * read (decision 37). Who spoke is the input row's, or the summary source
+ * row's, to say, never the writer's (G8), so it is not taken here.
  */
 export type NewChannelSummaryLine = {
   text: string;
-  inputId: ConversationInputId;
+  sources: readonly ChannelSummarySourceKey[];
 };
 
 /** A Slack message a line came from, as the server read it off the input row. */
 export type ChannelSummarySource = {
+  /** For a message no input row named, an id made from its place. */
   inputId: ConversationInputId;
   teamId: string;
   channelId: string;
   ts: string;
-  /** The input's requester; a kind the reader does not know is unknown. */
+  /**
+   * The input's requester; a kind the reader does not know is unknown. With
+   * no row naming the message, `{ kind: "unknown", id: "" }`.
+   */
   speaker: { kind: string; id: string };
+  /**
+   * When the text the line was made from was written: its last edit, else
+   * the message's ts. An edit mark at or before it leaves the line.
+   */
+  at: Date;
 };
 
 export type ChannelSummaryLine = {
@@ -51,8 +68,9 @@ export type ChannelSummaryWriteResult =
     }
   // The summary is at another version than the writer read; read again.
   | { outcome: "conflict"; version: number }
-  // Not an input of the writing agent in this channel with a Slack place.
-  | { outcome: "invalid_source"; inputId: ConversationInputId }
+  // Neither an input of the writing agent with a Slack place nor a source
+  // of a line of this channel's summary.
+  | { outcome: "invalid_source"; source: SourceKey }
   | { outcome: "invalid_text" }
   // Not a line of the current version.
   | { outcome: "line_not_found"; lineId: ChannelSummaryLineId }
@@ -65,7 +83,8 @@ type Expected = { place: ChannelSummaryPlace; expectedVersion: number };
  * write names the version it read (compare-and-set; retries are the
  * caller's). A line lives from the version that added it to the one that
  * folded or reverted it away. A line whose source message is deleted or
- * edited is removed from every version, so no revert brings it back.
+ * edited after the text the line was made from is removed from every
+ * version, so no revert brings it back.
  */
 export interface ChannelSummaryStore {
   /** The summary as of `version` (the current one by default); null if none. */
@@ -91,3 +110,9 @@ export interface ChannelSummaryStore {
   /** Removes the channel's summary, its lines and history. */
   deleteChannel(place: ChannelSummaryPlace): Promise<{ lines: number }>;
 }
+
+/**
+ * How long an old version stays: one current at any time in this window
+ * can be read and reverted to; an older one is removed (Architect, 94S-2107).
+ */
+export const CHANNEL_SUMMARY_HISTORY_MS = 7 * 24 * 60 * 60_000;
