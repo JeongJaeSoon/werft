@@ -47,6 +47,7 @@ import {
   inputTexts,
   lockedDeletedSource,
   outboxSources,
+  servedTitle,
 } from "../conversations/index.ts";
 import {
   mirrorsInstructions,
@@ -1789,12 +1790,13 @@ export function createPostgresSlackOutboxStore(
             JOIN slack_installations si ON si.id = ${t.installationId}
             WHERE s.id = ${t.sessionId}
           )`,
-          // The title as it is at the send, not at the enqueue.
+          // The title as it is at the send, not at the enqueue, and as a
+          // reader is served it: none once Slack deleted what it came from.
           postedAs: sql<SurfaceOutboxPostedAs | null>`(
             SELECT json_build_object(
               'agentName', a.name,
               'taskTitle', (
-                SELECT s.title FROM sessions s
+                SELECT ${servedTitle("s")} FROM sessions s
                 WHERE s.id = ${t.sessionId} AND ${t.sessionLinkId} IS NOT NULL
               )
             )

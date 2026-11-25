@@ -35,13 +35,35 @@ afterAll(async () => {
   await client.close();
 });
 
-async function sessionTitled(title: string | null) {
+async function sessionTitled(
+  title: string | null,
+  titleSource: "user" | "derived" = "user",
+) {
   const sessionId = crypto.randomUUID();
   await client.query(
-    "INSERT INTO sessions (id, owner_id, repository_mode, title) VALUES ($1, 'owner', 'none', $2)",
-    [sessionId, title],
+    "INSERT INTO sessions (id, workspace_id, owner_id, repository_mode, title, title_source) VALUES ($1, $2, 'owner', 'none', $3, $4)",
+    [sessionId, WORKSPACE, title, titleSource],
   );
   return sessionId;
+}
+
+// The session's first turn came from a Slack message that Slack deleted.
+async function firstMessageDeleted(sessionId: string) {
+  const ts = `${Date.now()}.000100`;
+  await client.query(
+    "INSERT INTO turns (session_id, sequence, message, status, sources) VALUES ($1, 1, 'summarize the thread', 'completed', $2)",
+    [
+      sessionId,
+      JSON.stringify({
+        direct: [{ team_id: "T0INSTALL", channel_id: "C0ROOM", ts }],
+        inherited: [],
+      }),
+    ],
+  );
+  await client.query(
+    "INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at) VALUES ($1, 'T0INSTALL', 'C0ROOM', $2, now())",
+    [WORKSPACE, ts],
+  );
 }
 
 // A model notice is sent whatever its link, so the claim reads only what is
@@ -101,6 +123,23 @@ describe("claiming an outbox row", () => {
     expect(await claimOne(outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: "Named later",
+    });
+  });
+
+  test("withholds a title cut from a message Slack deleted, not one a person gave", async () => {
+    const derived = await sessionTitled("summarize the thread", "derived");
+    await firstMessageDeleted(derived);
+    const cut = await claimedPostedAs({ sessionId: derived, linked: true });
+    expect(await claimOne(cut.outbox)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: null,
+    });
+    const given = await sessionTitled("Fix the login");
+    await firstMessageDeleted(given);
+    const kept = await claimedPostedAs({ sessionId: given, linked: true });
+    expect(await claimOne(kept.outbox)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: "Fix the login",
     });
   });
 

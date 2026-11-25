@@ -635,6 +635,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         text: `Done: ping, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`&lt;!here&gt;\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
         ts: expect.any(String),
         options: {
+          // N1: a task's answer goes under "agent [task]", the session's
+          // title cut from the mention.
+          username: "Notes [summarize the thread]",
           link_names: "false",
           unfurl_links: "false",
           unfurl_media: "false",
@@ -943,7 +946,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       {
         threadTs: THREAD,
         text: expect.stringMatching(/^Added\./),
-        username: undefined,
+        username: "Notes [summarize the thread]",
         icon_url: undefined,
       },
     ]);
@@ -983,7 +986,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         .map(({ text, options }) => [text.split("\n")[0], options.username]),
     ).toEqual([
       ["Run the checks", "API"],
-      [expect.stringMatching(/^Checks pass\./), undefined],
+      [expect.stringMatching(/^Checks pass\./), "Notes [summarize the thread]"],
     ]);
   });
 
