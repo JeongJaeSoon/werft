@@ -34,6 +34,7 @@ import {
   launchNonceFingerprint,
   parseExecutionResources,
   readSetting,
+  WORKER_LEASE_LOST_END_REASON,
 } from "@werft-ai/platform";
 import {
   and,
@@ -64,6 +65,7 @@ import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
 import { enqueueWorkerImageReplacedNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
+  attempts,
   executions,
   sessions,
   turns,
@@ -1510,6 +1512,24 @@ export function createPostgresSchedulerStore(
         );
     },
 
+    async recordLeaseGivenUp(ref) {
+      // Over the lease sweep's word as well: that the lease ran out says
+      // less than that the worker gave it up, and the settle needs both.
+      await db
+        .update(attempts)
+        .set({ endReason: WORKER_LEASE_LOST_END_REASON })
+        .where(
+          and(
+            eq(attempts.executionId, ref.executionId),
+            eq(attempts.executionGeneration, ref.generation),
+            or(
+              isNull(attempts.endReason),
+              eq(attempts.endReason, "lease_expired"),
+            ),
+          ),
+        );
+    },
+
     async confirmExecutionGone(executionId, now, incarnation, endReason) {
       const result = await work.confirmExecutionGoneAtomic({
         executionId,
@@ -1521,7 +1541,9 @@ export function createPostgresSchedulerStore(
         ? "superseded"
         : result.deferred
           ? "deferred"
-          : "confirmed";
+          : result.leasePending
+            ? "lease_pending"
+            : "confirmed";
     },
 
     async desiredStateOf(ref) {

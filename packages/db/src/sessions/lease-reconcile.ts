@@ -9,6 +9,7 @@ import {
   lte,
   ne,
   notInArray,
+  sql,
 } from "drizzle-orm";
 import { OPEN_TURN_STATUSES } from "../control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
@@ -140,7 +141,13 @@ export async function reconcileExpiredLeases(
 
       await tx
         .update(attempts)
-        .set({ state: "lost", endedAt: now, endReason: "lease_expired" })
+        .set({
+          state: "lost",
+          endedAt: now,
+          // A worker's own word that it lost the lease is kept: the exit's
+          // settle reads it once the removal is confirmed.
+          endReason: sql`COALESCE(${attempts.endReason}, 'lease_expired')`,
+        })
         .where(eq(attempts.id, attempt.id));
       await tx
         .update(workerCredentials)

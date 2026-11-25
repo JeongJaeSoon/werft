@@ -56,7 +56,11 @@ import {
   verifySlackRequest,
 } from "./slack-events-service.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
-import { slackOutboxGuard, slackOutboxText } from "./slack-outbox-render.ts";
+import {
+  sessionUrl,
+  slackOutboxGuard,
+  slackOutboxText,
+} from "./slack-outbox-render.ts";
 import {
   SLACK_PROMPT_MESSAGES,
   type SlackPromptResult,
@@ -64,6 +68,7 @@ import {
   slackNoteView,
   slackNoticeView,
   slackOptionAnswer,
+  slackOwnershipLostNotice,
   slackQuestionAnswers,
   slackQuestionView,
   slackSettledCard,
@@ -103,7 +108,7 @@ export type SlackInteractionDeps = {
     "answer" | "listPendingRequests" | "outcome"
   >;
   pushes: Pick<PushRequestService, "decide" | "get">;
-  sessions: Pick<SessionService, "queuePushFollowUp">;
+  sessions: Pick<SessionService, "queuePushFollowUp" | "continueTurn">;
   followUps: PushFollowUpStore;
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
@@ -352,7 +357,8 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   async function admit(
     pressed: Pressed,
     sessionId: string,
-    request: { pushRequestId: string } | { pendingRequestId: string },
+    request: { pushRequestId?: string; pendingRequestId?: string },
+    action: "session.approve" | "session.submit" = "session.approve",
   ): Promise<Allowed | { refused: string }> {
     const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
@@ -363,7 +369,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         agentId: pressed.agentId,
       },
       user,
-      action: "session.approve",
+      action,
       channel: { id: pressed.channelId, dm: pressed.channelId.startsWith("D") },
       resource: { kind: "session", id: sessionId, ...request },
       requestId,
@@ -856,6 +862,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     value: SlackInteractionValue,
   ): Promise<SlackInteractionOutcome> {
     try {
+      if (actionId === SLACK_INTERACTION_ACTIONS.turnContinue) {
+        return ok(await continueTurn(pressed, payload.message.ts, value));
+      }
       // A press names its request, which the policy reads for a requester
       // who left a private channel.
       const push =
@@ -932,6 +941,45 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       await notice(pressed, "failed");
       return ok("failed");
     }
+  }
+
+  /**
+   * [Continue] on the notice of a turn its worker's lost lease ended: a new
+   * queued turn with that turn's input, for the person who pressed, judged
+   * as a message they typed in the thread would be. The session takes one
+   * such turn per lost turn, whoever presses and however often.
+   */
+  async function continueTurn(
+    pressed: Pressed,
+    ts: string,
+    value: SlackInteractionValue,
+  ): Promise<string> {
+    const turnId = Number(value.r);
+    if (!Number.isSafeInteger(turnId) || turnId < 1) return "ignored";
+    const admitted = await admit(pressed, value.s, {}, "session.submit");
+    if ("refused" in admitted) return `refused:${admitted.refused}`;
+    await deps.sessions.continueTurn(admitted.caller, value.s, { turnId });
+    try {
+      // The console is where a person links their Slack account, too.
+      const linkUrl = sessionUrl(new URL(deps.connectUrl).origin, value.s);
+      await deps.slack.updateMessage(pressed.botToken, {
+        channelId: pressed.channelId,
+        ts,
+        ...slackOwnershipLostNotice({
+          locale: pressed.locale,
+          sessionId: value.s,
+          turnId,
+          continued: true,
+          ...(linkUrl === undefined ? {} : { linkUrl }),
+        }),
+      });
+    } catch (error) {
+      deps.logger.warn("Slack notice update failed", {
+        agent_id: pressed.agentId,
+        error: messageOf(error),
+      });
+    }
+    return "continued";
   }
 
   async function onSubmit(

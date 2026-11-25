@@ -1203,6 +1203,49 @@ export function createSessionService(deps: {
     },
 
     /**
+     * Goes on from a turn its worker's lost lease ended: a new queued turn
+     * with that turn's input, for whoever asks, judged as a message of
+     * their own would be. Asked twice for one turn, by anyone, it is queued
+     * once; `NOT_FOUND` for a turn that did not end that way.
+     */
+    async continueTurn(
+      actor: Caller,
+      sessionId: string,
+      input: { turnId: number },
+    ): Promise<PostSessionMessageResponse> {
+      const agentPrivate = await requirePermitted(
+        authorization,
+        actor,
+        "session.submit",
+        { kind: "session", id: sessionId },
+      ).then(
+        () => null,
+        (error: unknown) => {
+          if (isAgentPrivate(error)) return error;
+          throw error;
+        },
+      );
+      const result = await inputs.appendInputAtomic({
+        principal: actor,
+        sessionId,
+        // The store keys a continuation by its turn, apart from messages;
+        // this names the same turn for the receipt's reader.
+        idempotencyKey: `continue:${input.turnId}`,
+        payloadHash: payloadHash({ continue_turn: input.turnId }),
+        message: "",
+        continueTurn: input.turnId,
+        limits: await inputLimits(),
+        callerSubject: actor.subject,
+        channel: actor.subject.surface.kind,
+        ...(agentPrivate ? { agentPrivate: true as const } : {}),
+      });
+      const response = await appended(actor.ownerId, result, agentPrivate);
+      if (response === null)
+        throw new Error("Only a push follow-up is queued once");
+      return response;
+    },
+
+    /**
      * The turn that follows a push decision, queued as the agent's own work:
      * nothing about a person is judged or recorded, and the session's own
      * checks and limits hold as for any input. Not an API route. Null when

@@ -73,6 +73,25 @@ const QUERIES: Query[] = [
     params: () => [],
   },
   {
+    id: "context.lost_turn_left_unknown",
+    invariant: "context",
+    title:
+      "turns their worker's lost lease ended that are not plainly failed, or whose input receipt does not say so — the session goes on from its last checkpoint only when both do",
+    sql: `SELECT t.session_id::text, t.sequence, t.status, t.outcome_unknown,
+                 r.status AS receipt_status, r.error->>'code' AS receipt_code
+            FROM turns t
+            LEFT JOIN receipts r
+                   ON r.operation IN ('create_session', 'append_message')
+                  AND r.target_ref->>'session_id' = t.session_id::text
+                  AND r.target_ref->>'turn_id' = t.sequence::text
+           WHERE t.terminal_reason = 'worker_ownership_lost'
+             AND (t.status <> 'failed' OR t.outcome_unknown
+                  OR (r.id IS NOT NULL
+                      AND (r.status <> 'failed'
+                           OR r.error->>'code' IS DISTINCT FROM 'WORKER_OWNERSHIP_LOST')))`,
+    params: () => [],
+  },
+  {
     id: "stale_write.after_attempt_end",
     invariant: "stale_write",
     title: "events written by an attempt after it ended",

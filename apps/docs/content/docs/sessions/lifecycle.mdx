@@ -110,6 +110,8 @@ curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '
 
 `queued`·`running`·`needs_input`은 진행 중이고, `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`은 끝난 상태다. `completed`는 엔진이 turn을 정상 종료했다는 뜻이지, 요청한 일을 다 했다는 뜻은 아니다. 일이 끝났는지는 이벤트의 `assistant`·`tool_result`를 읽고 판단한다. 이벤트의 `result`도 완료 판정이 아니다.
 
+turn을 돌리던 worker가 lease를 잃고 스스로 끝나면 그 turn은 `failed`로 끝나고 `terminal_reason`은 `worker_ownership_lost`다. 그 입력의 접수는 `WORKER_OWNERSHIP_LOST`로 실패한다. 세션은 실패로 바뀌지 않는다. `idle`로 돌아가 다음 메시지를 받고, 다음 worker가 마지막 checkpoint에서 이어 간다. 끊긴 turn은 스스로 다시 돌지 않는다. 마지막 checkpoint 뒤에 그 turn이 한 일은 남아 있을 수 있으니 확인한다. 세션이 Slack 스레드와 이어져 있으면 그 스레드에 안내와 "이어서 하기" 버튼이 올라가고, 누르면 끊긴 turn의 입력으로 새 turn이 대기열에 들어간다. worker가 그 밖의 이유로 사라진 turn은 `outcome_unknown`이 되고 세션은 `recovery_required`로 간다.
+
 ## interrupt
 
 돌고 있는 turn 하나만 멈춘다. worker는 남아 다음 메시지를 받는다. 아래 대본은 답을 5분 늦게 보내서, 그동안 turn이 `running`에 머문다. 이 지연은 개발용 서버의 fake 모델에서만 된다. 실제 모델에서는 오래 걸리는 일을 시킨 turn으로 해 본다.

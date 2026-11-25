@@ -516,6 +516,13 @@ export interface SchedulerStore {
     observation: ExecutionObservation,
   ): Promise<void>;
   /**
+   * Keeps a worker's own word that it gave its lease up
+   * (`WORKER_LEASE_LOST_END_REASON`) on the launch's attempts, before the
+   * exited resource that said so is removed: the exit's settle reads it from
+   * there, whichever pass gets to it and however often it has to be asked.
+   */
+  recordLeaseGivenUp(ref: ExecutionRef): Promise<void>;
+  /**
    * The provider resource is gone for good: the one place a launch slot and
    * its session are handed back. Idempotent, however many passes see it.
    * Refused, changing nothing, while an unclaimed launch has a replacement
@@ -530,13 +537,18 @@ export interface SchedulerStore {
    *
    * `endReason` is what the attempts it ends record, when the exit said more
    * than that the execution is gone.
+   *
+   * `lease_pending`: the worker said it lost its lease while a turn was
+   * open, and that lease has not run out. The word is kept and nothing else
+   * changed; a call after the lease runs out settles the exit, failing the
+   * turn and keeping the session.
    */
   confirmExecutionGone(
     executionId: string,
     now: Date,
     incarnation: ExecutionIncarnation | null,
     endReason?: string,
-  ): Promise<"confirmed" | "deferred" | "superseded">;
+  ): Promise<"confirmed" | "deferred" | "superseded" | "lease_pending">;
   /**
    * The row's kill intent as it stands now, not as the pass's snapshot had
    * it. A terminate can commit while the pass is out at the provider, and

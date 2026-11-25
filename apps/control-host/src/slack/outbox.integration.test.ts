@@ -1138,6 +1138,35 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
+  test("a turn its worker's lost lease ended is told once, with the button that goes on from it", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "failed");
+    await db
+      .update(turns)
+      .set({ terminalReason: "worker_ownership_lost" })
+      .where(eq(turns.sessionId, sessionId));
+    await outboxPass();
+    await outboxPass();
+    const sent = posted();
+    expect(sent.map((message) => message.text)).toEqual([
+      `${SLACK_NOTICE_MESSAGES.ko.ownershipLost}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+    ]);
+    // The blocks go to Slack as one JSON field.
+    expect(
+      String((sent[0] as { options?: { blocks?: string } }).options?.blocks),
+    ).toContain('"action_id":"turn.continue"');
+    expect(JSON.stringify(sent[0])).not.toContain(
+      SLACK_NOTICE_MESSAGES.ko.failed,
+    );
+    expect(
+      (await rows()).map((row) => [row.kind, row.status, row.dedupeKey]),
+    ).toEqual([
+      ["failure_notice", "sent", expect.stringMatching(/^failure:.+:1$/)],
+    ]);
+  });
+
   test("a resume that found no room says the session stays paused", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
