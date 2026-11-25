@@ -6,7 +6,7 @@ import type {
   SetManagingTeamResult,
   TeamActor,
 } from "@werft-ai/platform";
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { agentOf, managingTeamName, ownerlessNow } from "../agents.ts";
 import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
@@ -507,7 +507,7 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
             liveMember(db, workspaceId, userId.toLowerCase()),
           ),
         )
-        .orderBy(asc(agents.createdAt), asc(agents.id))
+        .orderBy(desc(agents.createdAt), desc(agents.id))
         .limit(limit);
       return rows.map((row) => agentOf(row.agent, row.teamName, row.ownerless));
     },
