@@ -13,6 +13,12 @@ spec:
     metadata:
       labels:
         {{- include "ap.labels" (dict "root" . "component" "api") | nindent 8 }}
+      {{- if .Values.api.metrics.enabled }}
+      {{- with .Values.api.metrics.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "ap.fullname" . }}-api
       automountServiceAccountToken: false
@@ -35,9 +41,18 @@ spec:
             # Opens only when OTEL_TRACES_EXPORTER=otlp (api.extraEnv).
             - name: trace-ingest
               containerPort: {{ .Values.config.tracing.ingestPort }}
+            {{- if .Values.api.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.api.metrics.port }}
+            {{- end }}
           env:
             - name: TRACE_INGEST_PORT
               value: {{ .Values.config.tracing.ingestPort | quote }}
+            {{- if .Values.api.metrics.enabled }}
+            # Unset, the api opens no /metrics listener.
+            - name: METRICS_PORT
+              value: {{ .Values.api.metrics.port | quote }}
+            {{- end }}
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
             {{- include "ap.secretEnv" (dict "root" . "key" "EGRESS_AUTHORIZER_TOKEN") | nindent 12 }}
             - name: PLATFORM_SECRET_KEY
@@ -189,3 +204,23 @@ spec:
     - name: internal
       port: 3200
       targetPort: internal
+{{- if .Values.api.metrics.enabled }}
+---
+# Each api Pod's /metrics. ClusterIP only and apart from the public Service, so
+# no Ingress names it; a collector scrapes every Pod behind it, not the
+# Service's one pick.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ap.apiHost" . }}-metrics
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.api.metrics.port }}
+      targetPort: metrics
+{{- end }}
