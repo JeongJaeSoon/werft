@@ -263,7 +263,8 @@ function isSlackUrl(url: URL): boolean {
   );
 }
 
-const BARE_CHANNEL_ID = /^[CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11}$/;
+const CHANNEL_ID_IN_TEXT =
+  /(?<![A-Za-z0-9])[CGD](?=[A-Z0-9]*\d)[A-Z0-9]{8,11}(?![A-Za-z0-9])/g;
 
 // A Slack id as Slack makes them: its kind's capital, then capitals and
 // digits with a digit among them. Links may write it in either case.
@@ -302,17 +303,16 @@ function slackUrlRefs(raw: string): { channels: string[]; teams: string[] } {
     ...url.pathname.split("/").map(decoded),
     ...url.searchParams.values(),
   ];
-  // Another site's link can still carry an id, as a bare one would be.
-  if (!isSlackUrl(url)) {
-    refs.channels = values.filter((value) => BARE_CHANNEL_ID.test(value));
-    return refs;
-  }
+  // Any link, a fragment included, can carry an id as bare text would.
+  refs.channels = decoded(raw).match(CHANNEL_ID_IN_TEXT) ?? [];
+  if (!isSlackUrl(url)) return refs;
   for (const value of values) {
     const channel = channelIdOf(value);
     const team = channel === null ? teamIdOf(value) : null;
     if (channel !== null) refs.channels.push(channel);
     if (team !== null) refs.teams.push(team);
   }
+  refs.channels = [...new Set(refs.channels)];
   return refs;
 }
 

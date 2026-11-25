@@ -72,6 +72,9 @@ describe("dropOutOfScopeSlackRefs", () => {
     [`see https://acme.slack.com/archives/${ELSEWHERE.toLowerCase()}`, "see "],
     [`see acme.slack.com/archives/%4308AWAY222`, "see "],
     [`see HTTPS://ACME.SLACK.COM/archives/%4308AWAY222`, "see "],
+    // In a link's fragment, on any site.
+    [`see https://example.com/#${ELSEWHERE}`, "see "],
+    [`see ${here}#${ELSEWHERE}`, "see "],
     // An id in brackets of its own.
     [`see <${ELSEWHERE}>`, "see "],
     // Another site's link that carries the id.
@@ -242,6 +245,16 @@ describe("the outbox sends the guarded text", () => {
     const table = "| a |\n| --- |\n| # @cha**nn**el |";
     await send(claim({ body: { text: table } }));
     expect(JSON.stringify(fakeSlack.messages)).not.toContain("@channel");
+  });
+
+  test("a reply the guard empties still says it is done", async () => {
+    for (const text of ["<!here>", ELSEWHERE, "# @cha**nn**el"]) {
+      const { outcome, posted } = await send(
+        claim({ body: { text, locale: "en" } }),
+      );
+      expect(outcome.kind).toBe("sent");
+      expect(posted).toEqual(["The answer is done. See it on the web"]);
+    }
   });
 
   test("a table reply's blocks are guarded too", async () => {

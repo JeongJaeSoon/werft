@@ -1,4 +1,5 @@
 import {
+  DEFAULT_USER_LOCALE,
   SLACK_INPUT_MIRROR_EVENT_TYPE,
   SLACK_USER_CHANNEL_CODE,
   slackOutboxChannelRefused,
@@ -18,6 +19,7 @@ import {
 } from "./slack-config-api.ts";
 import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
 import {
+  SLACK_OUTBOX_MESSAGES,
   type SlackTextGuard,
   sessionUrl,
   slackInstructionFallbackText,
@@ -122,6 +124,9 @@ function outcomeOf(settle: SurfaceOutboxSettle): DeliveryOutcome {
   }
 }
 
+// Nothing but formatting marks left: Slack would show an empty message.
+const isBlank = (text: string) => /^[\s*_~`>#|-]*$/.test(text);
+
 /** A session's direct message held back from someone who cannot see it. */
 export const SLACK_READER_OUTSIDE_CODE = "reader_outside_channel";
 
@@ -213,10 +218,20 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     // again on the text Slack reads once rendered (the render can join
     // pieces), every way it goes out below.
     const { guard, dropped } = slackOutboxGuard(row);
+    // A text the guard emptied still says the answer is done.
+    const empty =
+      SLACK_OUTBOX_MESSAGES[row.body.locale ?? DEFAULT_USER_LOCALE].emptyReply;
+    const kept = guard(row.body.text);
     const claim =
-      row.body.blocks === undefined
-        ? { ...row, body: { ...row.body, text: guard(row.body.text) } }
-        : row;
+      row.body.blocks !== undefined
+        ? row
+        : {
+            ...row,
+            body: {
+              ...row.body,
+              text: isBlank(kept) && !isBlank(row.body.text) ? empty : kept,
+            },
+          };
     const logDropped = () => {
       if (dropped.size === 0) return;
       deps.logger?.warn(
@@ -266,15 +281,17 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       claim.kind === "model_notice" && claim.sessionId !== null
         ? sessionUrl(deps.consoleOrigin, claim.sessionId)
         : undefined;
-    const text =
+    const body =
+      modelLink === undefined
+        ? claim.body
+        : { ...claim.body, link_url: modelLink };
+    const rendered =
       claim.kind === "input_notice" && claim.body.blocks !== undefined
         ? claim.body.text
-        : slackOutboxText(
-            modelLink === undefined
-              ? claim.body
-              : { ...claim.body, link_url: modelLink },
-            guard,
-          );
+        : slackOutboxText(body, guard);
+    const text = isBlank(rendered)
+      ? slackOutboxText({ ...body, text: empty }, guard)
+      : rendered;
     try {
       const response =
         claim.kind === "notice" && claim.slackUserId !== null
