@@ -4,7 +4,7 @@ import {
   capacityShortageOf,
   waitForCapacity,
 } from "./capacity.ts";
-import { confirmGone, kill, killRequested } from "./kill.ts";
+import { confirmGone, exitEndReason, kill, killRequested } from "./kill.ts";
 import {
   giveBackCause,
   launchFailed,
@@ -504,6 +504,11 @@ async function reconcile(
       ...observed,
       state: "terminating",
     });
+    // A worker's own word that it gave its lease up goes down before the
+    // removal erases it, so a pass that dies after it loses nothing.
+    if (exitEndReason(observed) !== undefined) {
+      await store.recordLeaseGivenUp(ref);
+    }
     lock.throwIfAborted();
     let outcome: TerminateExecutionResult;
     try {
@@ -547,9 +552,7 @@ async function reconcile(
         ctx,
         execution,
         seenIncarnation(execution, observed),
-        observed.exitCode === WORKER_EXIT_LEASE_LOST
-          ? "worker_lease_lost"
-          : undefined,
+        exitEndReason(observed),
       ))
     ) {
       return;

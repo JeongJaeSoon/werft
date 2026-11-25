@@ -18,7 +18,7 @@
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
 //   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request (join|leave: the bot enters or leaves channel, leave as group_left/channel_left, leave-member as member_left_channel; archive|unarchive|rename|channel-delete: Slack's channel_* or group_* (G channel) lifecycle event, rename to the last word; a higher seq is later; edit|delete|delete-bot|tombstone change post seq, parent 0 for none, the last word tags the event id)
 //   web-user.mjs <run> slack-cards <agent>           the mock's cards: ts, buttons, updates so far
-//   web-user.mjs <run> slack-click <agent> <allow|allow-session|allow-note|deny|push-approve|push-reject>  press that button on the newest card, signed by the mock
+//   web-user.mjs <run> slack-click <agent> <allow|allow-session|allow-note|deny|push-approve|push-reject|continue>  press that button on the newest card, signed by the mock
 //   web-user.mjs <run> slack-submit-note <agent> <text>  submit the newest filled note modal with that instruction, signed by the mock
 //   web-user.mjs <run> slack-click-bad <agent>       a press with a wrong signature (401)
 //   web-user.mjs <run> github-app <who> <workspace> <app id> [connection id]  register the App, or a new key for that connection; key read from its file
@@ -329,10 +329,11 @@ switch (cmd) {
         "deny",
         "push-approve",
         "push-reject",
+        "continue",
       ].includes(action)
     )
       throw new Error(
-        "action must be allow, allow-session, allow-note, deny, push-approve or push-reject",
+        "action must be allow, allow-session, allow-note, deny, push-approve, push-reject or continue",
       );
     if (cmd === "slack-submit-note" && action === "")
       throw new Error("the instruction text is required");

@@ -43,6 +43,10 @@ export const API_ERROR_CODE_VALUES = [
   // is disabled), so a Codex session cannot start; the queued input failed
   // and the session waits for its next one.
   "CODEX_SANDBOX_NOT_INSTALLED",
+  // The worker running the turn lost its lease and stopped by itself; the
+  // turn failed and the session goes on from its last checkpoint with the
+  // next input. Nothing runs the turn again by itself.
+  "WORKER_OWNERSHIP_LOST",
   // The session's connection, model or repository is no longer in the
   // catalog, so no worker may run it until an operator restores it.
   "CATALOG_MISMATCH",

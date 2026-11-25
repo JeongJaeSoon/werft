@@ -563,6 +563,17 @@ export type ConfirmExecutionGoneInput = {
   /** What the attempts it ends record; `execution_gone` when left out. */
   endReason?: string;
 };
+/**
+ * The end reason of an attempt whose worker gave its lease up by itself and
+ * exited (`WORKER_EXIT_LEASE_LOST`): the server's record that it stopped
+ * writing of its own accord.
+ */
+export const WORKER_LEASE_LOST_END_REASON = "worker_lease_lost";
+/**
+ * The terminal reason of a turn failed because its worker lost the lease
+ * mid-turn: the session stays and goes on from its last checkpoint.
+ */
+export const WORKER_OWNERSHIP_LOST_REASON = "worker_ownership_lost";
 export type ConfirmExecutionGoneResult = {
   sessionReleased: boolean;
   slotReleased: boolean;
@@ -573,6 +584,12 @@ export type ConfirmExecutionGoneResult = {
    * resource being gone is the rebuild in progress, not an exit.
    */
   deferred?: true;
+  /**
+   * Present when the worker said it lost its lease, a turn is open and the
+   * lease has not run out yet: the record was kept and nothing else changed.
+   * The look after the lease runs out settles the exit.
+   */
+  leasePending?: true;
 };
 
 export interface WorkerUnitOfWork {

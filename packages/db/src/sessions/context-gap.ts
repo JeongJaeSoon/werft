@@ -1,5 +1,6 @@
 import type { SessionAttention } from "@werft-ai/contracts";
-import { and, eq, inArray, isNotNull, max } from "drizzle-orm";
+import { WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/platform";
+import { and, eq, inArray, isNotNull, max, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { openResumeReceipt } from "../resume-control.ts";
 import {
@@ -22,7 +23,9 @@ type SessionRow = typeof sessions.$inferSelect;
 // counting it would leave start_fresh as the only way past an abandon, since
 // no checkpoint ever covers a turn whose outcome was unknown. A turn counts
 // only once it was delivered: one the scheduler failed for want of a launch
-// never reached an engine.
+// never reached an engine. Nor does a turn its worker's lost lease ended
+// (`WORKER_OWNERSHIP_LOST_REASON`): the session goes on from the checkpoint
+// before it by design, and its notice tells the people there so.
 const RAN_TURN_STATUSES = ["completed", "failed", "interrupted"];
 
 /**
@@ -60,6 +63,7 @@ export async function contextCoverage(
         eq(turns.sessionId, session.id),
         inArray(turns.status, RAN_TURN_STATUSES),
         isNotNull(turns.deliveryStartedAt),
+        sql`${turns.terminalReason} IS DISTINCT FROM ${WORKER_OWNERSHIP_LOST_REASON}`,
       ),
     );
   const lastRanTurn = ran?.sequence ?? null;

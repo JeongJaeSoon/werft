@@ -52,6 +52,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "지금 자리가 없어 시작하지 못했습니다 — 잠시 뒤 다시 요청해 주세요.",
   CODEX_SANDBOX_NOT_INSTALLED:
     "이 설치에는 Codex sandbox가 없어 시작하지 못했습니다 — 관리자에게 알려 주세요. 관리자는 codexSandbox.provider를 installer로 켜거나, cluster 관리자가 sandbox를 먼저 설치해야 합니다.",
+  WORKER_OWNERSHIP_LOST:
+    "작업이 중간에 끊겼습니다 — 마지막 저장 지점 뒤에 한 일을 확인한 뒤 새 메시지로 이어 가세요.",
   LOGIN_LINK_REQUIRED:
     "이 이메일로 만든 계정이 이미 있습니다 — 기존 계정으로 로그인한 뒤 설정에서 Google을 연결하세요.",
   TAKEOVER_REQUIRED:
@@ -217,6 +219,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "There was no room to start this right now — please ask again in a little while.",
   CODEX_SANDBOX_NOT_INSTALLED:
     "This installation has no Codex sandbox, so this could not start — tell an administrator. They need to set codexSandbox.provider to installer, or a cluster admin installs the sandbox first.",
+  WORKER_OWNERSHIP_LOST:
+    "The work was cut off partway — check what it did after the last save point, then send a new message to continue.",
   LOGIN_LINK_REQUIRED:
     "An account with this email already exists — sign in with it, then connect Google in settings.",
   TAKEOVER_REQUIRED:
@@ -402,6 +406,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "今は空きがなく開始できませんでした — しばらくしてから、もう一度リクエストしてください。",
   CODEX_SANDBOX_NOT_INSTALLED:
     "この環境には Codex サンドボックスがないため開始できませんでした — 管理者に知らせてください。管理者は codexSandbox.provider を installer にするか、クラスター管理者が先にサンドボックスを入れる必要があります。",
+  WORKER_OWNERSHIP_LOST:
+    "作業が途中で途切れました — 最後の保存地点より後に行ったことを確認してから、新しいメッセージで続けてください。",
   LOGIN_LINK_REQUIRED:
     "このメールアドレスのアカウントがすでにあります — 既存のアカウントでログインし、設定で Google を連携してください。",
   TAKEOVER_REQUIRED:

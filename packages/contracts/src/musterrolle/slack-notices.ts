@@ -24,6 +24,10 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "자리가 없어 다시 시작하지 못했어요. 세션은 일시 정지 상태로 두었으니 잠시 뒤 다시 시작해 주세요",
   codexSandboxNotInstalled:
     "이 에이전트의 실행 환경(Codex sandbox)이 이 설치에 없어요. 관리자에게 알려 주세요",
+  ownershipLost:
+    "작업이 중간에 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
+  ownershipLostContinue: "이어서 하기",
+  ownershipLostContinued: "마지막 저장 지점에서 이어서 하고 있어요",
   repositoryRequired:
     "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
   releaseUnavailable:
@@ -79,6 +83,10 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "空きがなく再開できませんでした。セッションは一時停止のままにしてあるので、しばらくしてからもう一度再開してください",
     codexSandboxNotInstalled:
       "このエージェントの実行環境（Codex サンドボックス）がこの環境にありません。管理者に知らせてください",
+    ownershipLost:
+      "作業が途中で途切れました。最後の保存地点より後に行ったことは確認が必要です。",
+    ownershipLostContinue: "続きから進める",
+    ownershipLostContinued: "最後の保存地点から続けています",
     repositoryRequired:
       "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
     releaseUnavailable:
@@ -123,6 +131,10 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "There was no room to resume this. The session stays paused; please resume it again in a little while",
     codexSandboxNotInstalled:
       "This agent's runtime (the Codex sandbox) is not installed here. Tell an administrator",
+    ownershipLost:
+      "The work was cut off partway. What it did after the last save point needs checking.",
+    ownershipLostContinue: "Continue",
+    ownershipLostContinued: "Continuing from the last save point",
     repositoryRequired:
       "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
     releaseUnavailable:
