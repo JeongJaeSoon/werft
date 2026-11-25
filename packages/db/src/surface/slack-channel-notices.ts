@@ -42,10 +42,10 @@ const LISTENS_TO_EVERY_MESSAGE = sql`b.surface = 'slack' AND b.status = 'ready'
 
 /**
  * Whether the channel of a `channel_notice` outbox row (alias `row`) is still
- * one its agent reads every message of: a row that no longer is closes
- * unsent, and the channel is told once it is again.
+ * one its agent reads every message of. A row whose channel is not is held,
+ * unsent, and goes once the channel is again: it was never told.
  */
-export function channelNoticeAddressed(row: SQL): SQL {
+export function channelNoticeListening(row: SQL): SQL {
   return sql`EXISTS (
     SELECT 1 FROM ${LISTENING_FROM}
     WHERE b.agent_id = ${row}.agent_id
@@ -55,14 +55,31 @@ export function channelNoticeAddressed(row: SQL): SQL {
 }
 
 /**
+ * Whether a `channel_notice` row (alias `row`) is of the version the notice
+ * asks for now. One of an older version is never sent: the channel is told
+ * under the current one instead.
+ */
+export function channelNoticeCurrent(
+  row: SQL,
+  versions: readonly SlackNoticeVersionEntry[] = SLACK_NOTICE_VERSIONS,
+): SQL {
+  const window = slackNoticeWindow(versions);
+  if (window === null) return sql`false`;
+  // The version is the key's fifth part (slackChannelNoticeDedupeKey).
+  return sql`split_part(${row}.dedupe_key, ':', 5) = ${String(window.oldestCounted)}`;
+}
+
+/**
  * Channels whose every message the agent now reads that were not told so
  * under the latest notice version that asked for approval, oldest binding
  * first, at most `limit`. Every Slack team of the agent's live installs has
  * a counted approval, as `judgeSlackNotice` asks. Whichever condition
  * turned true last, the next pass finds the channel, so joining, listening
- * `free` and raising the switch all lead here. A row pending, being sent,
- * sent or of unknown outcome counts as told; one that failed does not, and
- * `attempt` numbers the next row's key.
+ * `free` and raising the switch all lead here. A row pending (held
+ * included), being sent, sent or of unknown outcome counts as told, and so
+ * does one Slack took without naming its post (`missing_ts`). Any other that
+ * failed never reached Slack: the channel is tried again under the next key
+ * (`attempt`), up to `SLACK_CHANNEL_NOTICE_ATTEMPTS` rows.
  */
 export async function unnoticedSlackChannels(
   db: Database,
@@ -89,7 +106,8 @@ export async function unnoticedSlackChannels(
             WHERE o.dedupe_key = ANY(${keys})) AS attempt,
           EXISTS (
             SELECT 1 FROM slack_outbox o
-            WHERE o.dedupe_key = ANY(${keys}) AND o.status <> 'failed') AS told
+            WHERE o.dedupe_key = ANY(${keys})
+              AND (o.status <> 'failed' OR o.error_code = 'missing_ts')) AS told
         FROM ${LISTENING_FROM}
         WHERE ${LISTENS_TO_EVERY_MESSAGE}
           AND NOT EXISTS (

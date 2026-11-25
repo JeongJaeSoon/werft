@@ -7,7 +7,9 @@ import {
   type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
+  SLACK_NOTICE_VERSIONS,
   SLACK_USER_CHANNEL_CODE,
+  type SlackNoticeVersionEntry,
   slackOutboxChannelRefused,
   type UserLocale,
   withStoredNeutralFields,
@@ -87,7 +89,8 @@ import { rowsOf } from "../statement-rows.ts";
 import { SLACK_OUTBOX_APP_DELETED } from "./slack-app-close.ts";
 import { channelLeft } from "./slack-channel-left.ts";
 import {
-  channelNoticeAddressed,
+  channelNoticeCurrent,
+  channelNoticeListening,
   unnoticedSlackChannels,
 } from "./slack-channel-notices.ts";
 import {
@@ -212,14 +215,18 @@ const channelNotWaiting = (row: SQL) => sql`(
 // input notice its request still waiting: a card's own request, or, for a
 // turn's notice from before the cards, any of its turn's. Checked again at
 // claim, since a row can wait out a backoff after any of it changed.
-const addressed = (db: Database, row: SQL) => sql`(
+const addressed = (
+  db: Database,
+  row: SQL,
+  noticeVersions: readonly SlackNoticeVersionEntry[],
+) => sql`(
   ${requestWaits(db, row)}
   AND EXISTS (
     SELECT 1 FROM slack_installations i
     WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
   )
   AND ${channelNotWaiting(row)}
-  AND (${row}.kind <> 'channel_notice' OR ${channelNoticeAddressed(row)})
+  AND (${row}.kind <> 'channel_notice' OR ${channelNoticeCurrent(row, noticeVersions)})
   AND (${row}.session_id IS NULL OR ${row}.kind = 'model_notice' OR EXISTS (
     SELECT 1 FROM session_links l
     WHERE l.id = ${row}.session_link_id AND ${linkTakes(row)}
@@ -761,8 +768,13 @@ export function createPostgresSlackOutboxStore(
   db: Database,
   // Fills the neutral fields of an event stored before they were written,
   // so a reply read ahead of the fill still has its text.
-  options: { neutralize?: NeutralizeEvent } = {},
+  options: {
+    neutralize?: NeutralizeEvent;
+    /** The notice versions a `channel_notice` row is judged by. */
+    noticeVersions?: readonly SlackNoticeVersionEntry[];
+  } = {},
 ): SurfaceOutboxStore {
+  const noticeVersions = options.noticeVersions ?? SLACK_NOTICE_VERSIONS;
   return {
     threadStatus: createPostgresSlackThreadStatusStore(db),
 
@@ -1401,7 +1413,8 @@ export function createPostgresSlackOutboxStore(
       );
     },
 
-    unnoticedChannels: (limit) => unnoticedSlackChannels(db, { limit }),
+    unnoticedChannels: (limit) =>
+      unnoticedSlackChannels(db, { limit, versions: noticeVersions }),
 
     async capacityWaits(limit, waitedMs) {
       // The key the adapter's slackCapacityWaitDedupeKey makes, spelled in SQL.
@@ -1713,7 +1726,7 @@ export function createPostgresSlackOutboxStore(
               eq(t.status, "pending"),
               // A held row has no thread to check yet; its hold ends it.
               sql`${t.heldForInputId} IS NULL`,
-              sql`NOT ${addressed(tx, sql.raw('"slack_outbox"'))}`,
+              sql`NOT ${addressed(tx, sql.raw('"slack_outbox"'), noticeVersions)}`,
             ),
           )
           .returning({
@@ -1770,7 +1783,10 @@ export function createPostgresSlackOutboxStore(
               AND (c.claim_token IS NULL OR c.lease_expires_at <= now())
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
               AND c.held_for_input_id IS NULL
-              AND ${addressed(db, sql.raw("c"))}
+              AND ${addressed(db, sql.raw("c"), noticeVersions)}
+              -- Held while its channel is not one the agent reads.
+              AND (c.kind <> 'channel_notice'
+                OR ${channelNoticeListening(sql.raw("c"))})
             ORDER BY c.seq
             LIMIT ${limit}
             FOR UPDATE OF c SKIP LOCKED
@@ -1850,6 +1866,7 @@ export function createPostgresSlackOutboxStore(
               // The marks' locks may have been waited for.
               sql`${t.leaseExpiresAt} > clock_timestamp()`,
               channelNotWaiting(sql.raw('"slack_outbox"')),
+              sql`(${t.kind} <> 'channel_notice' OR (${channelNoticeListening(sql.raw('"slack_outbox"'))} AND ${channelNoticeCurrent(sql.raw('"slack_outbox"'), noticeVersions)}))`,
             ),
           )
           .returning({ id: t.id });
