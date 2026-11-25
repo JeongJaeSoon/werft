@@ -449,13 +449,18 @@ export function OperationsUsageScreen() {
       agents: { data: agents.data, error: agents.error },
     };
   const shown = set.current;
+  // A conversation call may settle at no cost, so the agents' call count
+  // says whether the period had one; the series alone cannot.
+  const talked = (shown?.agents.data?.totals.conversation?.call_count ?? 0) > 0;
   const empty =
-    shown?.series.data?.buckets.every(
+    !talked &&
+    (shown?.series.data?.buckets.every(
       (bucket) =>
         bucket.session_count === 0 &&
         Number(bucket.conversation_cost_usd) === 0 &&
         bucket.conversation_cost_complete,
-    ) ?? false;
+    ) ??
+      false);
   const failure = (error: Error, retry: () => unknown) => (
     <Card className="py-0">
       <LoadFailure error={error} onRetry={() => void retry()} />

@@ -129,7 +129,8 @@ function talkedBy(filter: UsageSummaryFilter): SQL {
 
 // Only a settled call has a cost (conversation_calls_settled_check); a
 // reserved, in-flight or resolved one keeps the figure incomplete, as an open
-// or unreported turn keeps a session's; a released one never ran.
+// or unreported turn keeps a session's. A released one never ran and is
+// read nowhere (talkInPeriod), so an agent with only those has no row.
 const talkIncomplete = sql`${conversationCalls.state} IN ('reserved', 'in_flight', 'resolved')`;
 
 // Each split of a conversation's cost is one FILTER over the calls; another
@@ -143,7 +144,7 @@ const TALK_BY_CLASS = [
 
 const talkFigures = sql.join(
   [
-    sql`count(*) FILTER (WHERE ${conversationCalls.state} <> 'released') AS call_count`,
+    sql`count(*) AS call_count`,
     sql`coalesce(sum(${conversationCalls.costUsd}), 0) AS cost_usd`,
     sql`count(*) FILTER (WHERE ${talkIncomplete}) AS incomplete`,
     ...TALK_BY_CLASS.map(
@@ -157,6 +158,7 @@ const talkFigures = sql.join(
 function talkInPeriod(filter: UsageSummaryFilter, since: SQL, until: SQL) {
   return sql`${conversationCalls.createdAt} >= ${since}
     AND ${conversationCalls.createdAt} < ${until}
+    AND ${conversationCalls.state} <> 'released'
     AND ${talkedBy(filter)}`;
 }
 

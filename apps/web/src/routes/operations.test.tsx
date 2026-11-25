@@ -1031,6 +1031,55 @@ describe("사용량·한도", () => {
     expect(screen.getByText("세션 $0.00 · 대화 $0.06")).toBeTruthy();
   });
 
+  test("사용량 탭: 비용 0으로 끝난 대화 호출만 있는 기간도 빈 상태가 아니다", async () => {
+    setSystemTime(NOW);
+    const talk = {
+      call_count: 1,
+      cost_usd: "0",
+      cost_complete: true,
+      by_class: {
+        judgment_usd: "0",
+        turn_usd: "0",
+        summary_usd: "0",
+        other_usd: "0",
+      },
+    };
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": (request: Request) =>
+        new URL(request.url).searchParams.get("by") === "agent"
+          ? json(200, {
+              rows: [
+                {
+                  key: "a1",
+                  label: "free-helper",
+                  ...figures(0, "0"),
+                  conversation: talk,
+                },
+              ],
+              totals: { ...figures(0, "0"), conversation: talk },
+            })
+          : json(200, { rows: [], totals: figures(0, "0") }),
+      "GET /v1/usage/series": () => {
+        const body = series("me", 30);
+        return json(200, {
+          ...body,
+          buckets: body.buckets.map((bucket) => ({
+            ...bucket,
+            session_count: 0,
+            cost_usd: "0",
+            token_count: 0,
+            run_seconds: 0,
+          })),
+        });
+      },
+    });
+    const agents = await screen.findByRole("table", { name: "에이전트별" });
+    expect(await within(agents).findByText("free-helper")).toBeTruthy();
+    expect(screen.queryByText("이 기간에 시작한 세션이 없습니다.")).toBeNull();
+  });
+
   test("사용량 탭: 기간에 세션이 없으면 KPI 아래 빈 상태만 보인다", async () => {
     setSystemTime(NOW);
     renderAt("/operations/usage", {

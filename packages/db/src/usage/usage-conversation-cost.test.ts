@@ -37,6 +37,8 @@ describe("conversation call cost on the usage reads", () => {
   const agentA = randomUUID();
   const agentB = randomUUID();
   const agentC = randomUUID();
+  // Its one call was released: it never ran, so the agent has no row.
+  const agentD = randomUUID();
   const conversationOf = new Map<string, string>();
   const period = {
     since: new Date("2026-10-20T00:00:00.000Z"),
@@ -82,7 +84,7 @@ describe("conversation call cost on the usage reads", () => {
     client = await migratedPGlite();
     db = drizzle(client, { schema }) as unknown as Database;
     for (const [id, agentIds] of [
-      [ws, [agentA, agentB]],
+      [ws, [agentA, agentB, agentD]],
       [elsewhere, [agentC]],
     ] as const) {
       await db
@@ -199,6 +201,13 @@ describe("conversation call cost on the usage reads", () => {
       state: "settled",
       cls: "m1",
       cost: 5,
+      by: me,
+    });
+    await call({
+      agent: agentD,
+      at: day1,
+      state: "released",
+      cls: "m1",
       by: me,
     });
     // Outside the period.
