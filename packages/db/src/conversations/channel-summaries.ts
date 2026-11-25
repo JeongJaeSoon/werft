@@ -659,10 +659,10 @@ export async function releaseChannelSummaryFold(
 class FoldChannelGone extends Error {}
 
 /**
- * The fold's view of one channel's summary (a1/J10): it reads only the
- * channel it folds, for the agent whose gate the caller asks. Its write
- * asks `gateOpen` under the agent's row, then holds the summary's row and
- * asks `channelThere`, as a line's write does; false, it writes nothing.
+ * Where a fold (a1/J10) holds and writes one channel's summary; it reads
+ * it through the context assembler. Its write asks `gateOpen` under the
+ * agent's row, then holds the summary's row and asks `channelThere`, as a
+ * line's write does; false, it writes nothing.
  */
 export function createChannelSummaryFoldStore(
   db: Database,
@@ -671,9 +671,7 @@ export function createChannelSummaryFoldStore(
     channelThere(tx: Database, subject: M1Place): Promise<boolean>;
   },
 ): SummaryFoldStore {
-  const summaries = createPostgresChannelSummaryStore(db);
   return {
-    read: (place) => summaries.read(place),
     claim: (place, claim) => claimChannelSummaryFold(db, place, claim),
     release: (place) => releaseChannelSummaryFold(db, place),
     async write(subject, fold) {

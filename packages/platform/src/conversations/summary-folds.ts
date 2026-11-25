@@ -6,11 +6,11 @@ import {
 } from "@werft-ai/contracts";
 import { z } from "zod";
 import type {
-  ChannelSummary,
   ChannelSummaryLine,
   ChannelSummaryPlace,
   ChannelSummaryWriteResult,
 } from "../ports/channel-summary-store.ts";
+import type { SummaryFoldContexts } from "./context-assembler.ts";
 import type { ConversationCallExecutor } from "./conversation-call-executor.ts";
 import { dataBlock, type M1Release } from "./m1-judge.ts";
 import type { M1Place } from "./m1-judgments.ts";
@@ -44,9 +44,9 @@ const FOLDED_LINE_CHARS = 350;
  * deleted message takes the folded line alone (decision 37), not the
  * whole summary.
  */
-export function linesToFold(
-  lines: readonly ChannelSummaryLine[],
-): ChannelSummaryLine[] {
+export function linesToFold<L extends Pick<ChannelSummaryLine, "text">>(
+  lines: readonly L[],
+): L[] {
   const sizes = lines.map((line) => bytesOf(line.text));
   let rest = sizes.reduce((sum, size) => sum + size, 0);
   if (rest <= CHANNEL_SUMMARY_FOLD_BYTES) return [];
@@ -98,9 +98,11 @@ export type SummaryFoldWrite =
   | { outcome: "gate_closed" }
   | { outcome: "channel_gone" };
 
-/** Where a fold reads and writes the summary it folds. */
+/**
+ * Where a fold holds and writes the summary it folds; it reads it through
+ * the context assembler (summaryFoldContexts, G1).
+ */
 export interface SummaryFoldStore {
-  read(place: ChannelSummaryPlace): Promise<ChannelSummary | null>;
   /**
    * Takes the channel's summary for this fold: false when another fold
    * holds it or one started within `intervalMs`.
@@ -153,6 +155,7 @@ export type SummaryFold =
 export function createSummaryFolder(deps: {
   gate(subject: M1Place): Promise<boolean>;
   release(subject: SummaryFoldSubject): Promise<M1Release>;
+  context: Pick<SummaryFoldContexts, "read">;
   store: SummaryFoldStore;
   executor: Pick<ConversationCallExecutor, "run">;
   intervalMs?: number;
@@ -166,7 +169,7 @@ export function createSummaryFolder(deps: {
         channelId: subject.channelId,
       };
       if (!(await deps.gate(subject))) return "gate_closed";
-      const summary = await deps.store.read(place);
+      const summary = await deps.context.read(subject);
       const lines = linesToFold(summary?.lines ?? []);
       if (summary === null || lines.length === 0) return "within_cap";
       const claimed = await deps.store.claim(place, {
@@ -177,6 +180,9 @@ export function createSummaryFolder(deps: {
       try {
         const release = await deps.release(subject);
         if (release.outcome !== "ready") return "no_release";
+        // Again right before the call: the claim or the release may have
+        // waited while the switch went down or the approval went.
+        if (!(await deps.gate(subject))) return "gate_closed";
         const result = await deps.executor.run({
           workspaceId: subject.workspaceId,
           agentId: subject.agentId,

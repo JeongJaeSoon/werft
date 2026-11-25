@@ -3,6 +3,7 @@ import {
   createPostgresJudgmentBatchStore,
   createPostgresJudgmentContexts,
   createPostgresM1JudgmentStore,
+  createPostgresSummaryFoldContexts,
   createPostgresSummaryFoldStore,
 } from "@werft-ai/db";
 import {
@@ -79,6 +80,7 @@ export function wireM1JudgmentRunner(deps: Deps) {
     folder: createSummaryFolder({
       gate,
       release,
+      context: createPostgresSummaryFoldContexts(deps.db),
       store: createPostgresSummaryFoldStore(deps.db),
       executor,
     }),

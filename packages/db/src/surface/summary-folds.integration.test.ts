@@ -12,7 +12,9 @@ import {
   createConversationCallExecutor,
   createConversationCalls,
   createSummaryFolder,
+  hashConversationCallToken,
   type OutboundHttp,
+  type ProviderUsage,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import {
@@ -29,6 +31,7 @@ import {
   createPostgresChannelSummaryStore,
   releaseChannelSummaryFold,
 } from "../conversations/channel-summaries.ts";
+import { createPostgresSummaryFoldContexts } from "../conversations/context-fragments.ts";
 import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
 import { holdBufferedInput } from "../conversations/judgment-buffer.ts";
 import type { Database } from "../queries.ts";
@@ -79,6 +82,20 @@ const catalog = {
 } as unknown as Pick<SessionCatalog, "connections">;
 
 const FOLDED = "people talked about the release and the broken build";
+const USED: ProviderUsage = {
+  model: MODEL,
+  inputTokens: 1_800,
+  outputTokens: 40,
+  cacheCreationInputTokens: 0,
+  cacheCreation1hInputTokens: 0,
+  cacheReadInputTokens: 0,
+  speed: "standard",
+  inferenceGeo: "unknown",
+  webSearchRequests: 0,
+  webFetchRequests: 0,
+  codeExecutionRequests: 0,
+  estimated: false,
+};
 
 integration("channel summary folds (a1/J10)", () => {
   let database: TempDatabase;
@@ -292,12 +309,32 @@ integration("channel summary folds (a1/J10)", () => {
     return sources;
   }
 
-  /** The folder as control-host wires it, its model a fake one. */
+  /**
+   * The folder as control-host wires it. Its transport stands in for the
+   * egress proxy and the model: it grants the call's token, waits on
+   * `during` as the model runs, then settles what the call used.
+   */
   function folderOf(options: { during?: () => Promise<void> } = {}) {
     let calls = 0;
-    const http: OutboundHttp = async () => {
+    const http: OutboundHttp = async (request) => {
       calls += 1;
+      const ledger = createPostgresConversationCalls(db);
+      const exchangeId = randomUUID();
+      const granted = await ledger.authorizeAtomic({
+        tokenHash: hashConversationCallToken(
+          request.headers?.["x-api-key"] ?? "",
+        ),
+        exchangeId,
+      });
+      if (granted.outcome !== "ok") throw new Error(granted.outcome);
       await options.during?.();
+      const settled = await ledger.settleAtomic({
+        callId: granted.callId,
+        exchangeId,
+        usage: USED,
+        priceFor: () => ({ costUsd: 0.001 }),
+      });
+      if (settled.outcome !== "settled") throw new Error(settled.outcome);
       return {
         status: 200,
         headers: new Headers(),
@@ -333,6 +370,7 @@ integration("channel summary folds (a1/J10)", () => {
           instructions: "",
         };
       },
+      context: createPostgresSummaryFoldContexts(db),
       store: createPostgresSummaryFoldStore(db, { versions: VERSIONS }),
       executor,
     });
@@ -355,7 +393,8 @@ integration("channel summary folds (a1/J10)", () => {
   const callsOf = async (agent: Agent) =>
     (
       await pool.query(
-        `SELECT c.call_class, c.root_kind, a.owner_kind, a.owner_id
+        `SELECT c.call_class, c.root_kind, a.owner_kind, a.owner_id,
+           r.state AS reservation, r.settled_tokens::int AS settled_tokens
          FROM conversation_calls c
          LEFT JOIN budget_reservations r ON r.call_id = c.id::text
          LEFT JOIN budget_accounts a ON a.id = r.account_id
@@ -399,8 +438,11 @@ integration("channel summary folds (a1/J10)", () => {
         root_kind: "none",
         owner_kind: "team",
         owner_id: agent.teamId,
+        reservation: "settled",
+        settled_tokens: expect.any(Number),
       },
     ]);
+    expect((await callsOf(agent))[0]?.settled_tokens).toBeGreaterThan(0);
   });
 
   test("the folded line's sources are all the folded lines'; one deleted takes it out of every version", async () => {
@@ -512,8 +554,10 @@ integration("channel summary folds (a1/J10)", () => {
       );
       expect(run.calls()).toBe(1);
       expect(await texts(channel)).toEqual(before);
-      // The call was reserved; the proxy settles it as any other's.
-      expect((await callsOf(agent)).length).toBe(1);
+      // The call was reserved, and is settled at what it used.
+      expect(await callsOf(agent)).toMatchObject([
+        { call_class: "summary", reservation: "settled" },
+      ]);
     });
 
     test(`${what} before it starts: no model call, no reservation`, async () => {
