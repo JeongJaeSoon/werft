@@ -69,6 +69,7 @@ async function turnOf(input: {
   answer?: string;
   requester?: string;
   source?: string;
+  overflow?: boolean;
 }): Promise<ConversationTurnId> {
   const topic = crypto.randomUUID();
   const turn = crypto.randomUUID() as ConversationTurnId;
@@ -99,6 +100,7 @@ async function turnOf(input: {
       JSON.stringify({
         direct: [{ team_id: TEAM, channel_id: ROOM, ts: source }],
         inherited: [],
+        ...(input.overflow ? { overflow: true } : {}),
       }),
       INSTALL,
     ],
@@ -204,6 +206,21 @@ describe("a conversation turn's reply decision", () => {
     await client.query(
       "INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at) VALUES ($1, $2, $3, $4, now())",
       [WORKSPACE, TEAM, ROOM, threadTs],
+    );
+    const claimed = (await outbox().claim({ limit: 10, leaseMs: 60_000 })).find(
+      (row) => row.conversationTurnId === turnId,
+    );
+    if (claimed === undefined) throw new Error("the row was not claimed");
+    expect(await outbox().beginSend(claimed)).toBe("voided_by_delete");
+  });
+
+  test("a turn whose sources overflowed is held to any delete in its channel since it began", async () => {
+    const turnId = await turnOf({ threadTs: nextTs(), overflow: true });
+    expect(await replies().post(turnId)).toBe("enqueued");
+    // A message the set cut off: named by no source the row carries.
+    await client.query(
+      "INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at) VALUES ($1, $2, $3, $4, now())",
+      [WORKSPACE, TEAM, ROOM, nextTs()],
     );
     const claimed = (await outbox().claim({ limit: 10, leaseMs: 60_000 })).find(
       (row) => row.conversationTurnId === turnId,

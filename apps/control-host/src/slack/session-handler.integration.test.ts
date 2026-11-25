@@ -4057,8 +4057,10 @@ describe.each(ENGINES)(
       expect(post?.text).not.toContain("C0ELSEWHERE1");
       expect(post?.text).toContain(CHANNEL);
       expect(post?.text).not.toContain("@here");
-      expect(post?.text.endsWith("AI agent · Werft · Requested by owner")).toBe(
-        true,
+      // The name rides only the block, which Slack does not parse.
+      expect(post?.text.endsWith("\n\nAI agent · Werft")).toBe(true);
+      expect(JSON.stringify(post?.options.blocks)).toContain(
+        "AI agent · Werft · Requested by owner",
       );
       expect(post?.options.username).toBe("Notes");
       expect(await conversationRepliesOf(fixture)).toMatchObject([
@@ -4078,7 +4080,7 @@ describe.each(ENGINES)(
       await endings();
       await sendOutbox();
       expect(postsIn("100.000100").map((post) => post.text)).toEqual([
-        "In the thread.\n\nAI agent · Werft · Requested by owner",
+        "In the thread.\n\nAI agent · Werft",
       ]);
     });
 

@@ -53,15 +53,9 @@ export function slackAiLabelBlock(
 }
 
 /**
- * The line as mrkdwn, for a post's text: every `&`, `<` and `>` escaped, so
- * no control in a name, a link included, is read as one.
+ * The line for a post's text, which Slack parses: without the name, as no
+ * escape stops Slack linking a bare URL in one. The block carries the name.
  */
-export function slackAiLabelMrkdwn(
-  locale: UserLocale | undefined,
-  requestedBy?: string,
-): string {
-  return slackAiLabelText(locale, requestedBy)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+export function slackAiLabelMrkdwn(locale: UserLocale | undefined): string {
+  return slackAiLabelText(locale);
 }

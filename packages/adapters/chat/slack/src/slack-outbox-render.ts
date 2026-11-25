@@ -179,12 +179,14 @@ export function slackReplyBlocks(
 export function slackOutboxText(
   body: SurfaceOutboxEntry["body"],
   guard?: SlackTextGuard,
+  // Room kept for what the caller adds after, so the cut never drops it.
+  reserve = 0,
 ): string {
   const link = outboxLink(body) === "" ? "" : `\n\n${outboxLink(body)}`;
   const escaped = outboxEscaper(body, guard);
   // Converted before the cut: the loop below re-escapes pieces of this text.
   const text = escaped(markdownToSlackMrkdwn(body.text));
-  const room = SLACK_TEXT_MAX - link.length - 1;
+  const room = SLACK_TEXT_MAX - link.length - 1 - reserve;
   if (text.length <= room + 1) return text + link;
   let piece = text;
   let cut = room;

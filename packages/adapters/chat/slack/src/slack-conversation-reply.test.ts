@@ -3,6 +3,7 @@ import type { SurfaceOutboxClaim } from "@werft-ai/platform";
 import { createRowDelivery } from "./outbox-delivery.ts";
 import { slackAiLabelBlock, slackAiLabelText } from "./slack-ai-label.ts";
 import type { SlackBotSender, SlackSendResponse } from "./slack-config-api.ts";
+import { SLACK_TEXT_MAX } from "./slack-outbox-render.ts";
 
 // v1-b/E1: a conversation turn's answer, posted in its thread under the
 // agent's name, ending with the AI line (Architect Q2).
@@ -66,8 +67,8 @@ function deliveryAnswering(answers: SlackSendResponse["body"][]) {
   return { deliver, posted };
 }
 
-const contextOf = (input: Posted | undefined) =>
-  (input?.blocks as { type: string }[] | undefined)?.at(-1);
+const contextOf = (input: Posted | undefined): unknown =>
+  (input?.blocks as unknown[] | undefined)?.at(-1);
 
 describe("a conversation reply row", () => {
   test("posts in its thread as the agent, ending with the AI line", async () => {
@@ -82,7 +83,7 @@ describe("a conversation reply row", () => {
       channelId: "C0ROOM1",
       threadTs: "1700000000.000100",
       username: "Notes Agent",
-      text: "The plan is set.\n\nAI 에이전트 · Werft · Ada 님 요청",
+      text: "The plan is set.\n\nAI 에이전트 · Werft",
     });
     expect(posted[0]?.blocks).toEqual([
       { type: "section", text: { type: "mrkdwn", text: "The plan is set." } },
@@ -105,12 +106,28 @@ describe("a conversation reply row", () => {
         },
       ],
     });
-    // Every control escaped in the text.
+    // Slack parses the text: the name stays out of it.
+    expect(posted[0]?.text).toBe("Done.\n\nAI agent · Werft");
+  });
+
+  test("a bare URL as a name stays out of the text Slack links", async () => {
+    const name = "https://evil.example";
+    const { deliver, posted } = deliveryAnswering([
+      { ok: false, error: "invalid_blocks" },
+    ]);
+    await deliver(row({ text: "Done.", locale: "en", requested_by: name }));
+    expect(JSON.stringify(posted[0]?.blocks)).toContain(name);
+    expect(posted[1]?.blocks).toBeUndefined();
+    expect(posted[1]?.text).toBe("Done.\n\nAI agent · Werft");
+  });
+
+  test("an answer cut to Slack's limit keeps the AI line whole", async () => {
+    const { deliver, posted } = deliveryAnswering([]);
+    // Allowed in length, past the limit once each & is escaped.
+    await deliver(row({ text: "&".repeat(16_000), locale: "en" }));
     const text = posted[0]?.text ?? "";
-    expect(text).not.toContain("<@U0BOSS>");
-    expect(text).not.toContain("<!here>");
-    expect(text).not.toContain("<https://");
-    expect(text).toContain("&lt;@U0BOSS&gt; &amp; &lt;!here&gt;");
+    expect(text.length).toBeLessThanOrEqual(SLACK_TEXT_MAX);
+    expect(text.endsWith("…\n\nAI agent · Werft")).toBe(true);
   });
 
   test("the answer loses group mentions and channels outside its conversation", async () => {

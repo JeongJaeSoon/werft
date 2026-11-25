@@ -38,6 +38,7 @@ import {
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
   SURFACE_REACTION_MAX_ATTEMPTS,
+  sourceSetOf,
 } from "@werft-ai/platform";
 import {
   and,
@@ -56,6 +57,7 @@ import { UUID } from "../control-shared.ts";
 import {
   inputTexts,
   lockedDeletedSource,
+  lockedTurnReadDeleted,
   outboxSources,
   servedTitle,
 } from "../conversations/index.ts";
@@ -2013,6 +2015,7 @@ export function createPostgresSlackOutboxStore(
             throughTurn: t.sourcesTurn,
             progressKey: t.progressKey,
             installationId: t.installationId,
+            conversationTurnId: t.conversationTurnId,
           })
           .from(t)
           .where(
@@ -2119,9 +2122,14 @@ export function createPostgresSlackOutboxStore(
         }
         // A row whose sources hold a message Slack deleted is never sent;
         // a delete that comes once it is sending leaves what went out.
+        // A turn's set that overflowed has no session to recover what was
+        // cut: held, as the turn's decision was, to its channel's deletes.
         if (
           row.sources !== null &&
-          (await lockedDeletedSource(tx, row)) !== null
+          (row.conversationTurnId !== null && sourceSetOf(row.sources).overflow
+            ? (await lockedTurnReadDeleted(tx, row.conversationTurnId))
+                ?.deleted !== false
+            : (await lockedDeletedSource(tx, row)) !== null)
         ) {
           await tx
             .update(t)
