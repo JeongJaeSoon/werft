@@ -1839,6 +1839,7 @@ export function createPostgresSlackOutboxStore(
           .select({
             workspaceId: t.workspaceId,
             sessionId: t.sessionId,
+            sessionLinkId: t.sessionLinkId,
             sources: t.sources,
             throughTurn: t.sourcesTurn,
           })
@@ -1852,6 +1853,36 @@ export function createPostgresSlackOutboxStore(
           )
           .for("update");
         if (row === undefined) return false;
+        // A task's title cut or made from its first message, as claim read
+        // it: that message's direct sources. Their marks are taken with the
+        // row's, in one order, before either is judged.
+        const [title] =
+          row.sessionId === null
+            ? []
+            : rowsOf<{ sources: StoredSourceSet }>(
+                await tx.execute(sql`
+                  SELECT jsonb_build_object(
+                    'direct', tt.sources -> 'direct', 'inherited', '[]'::jsonb
+                  ) AS sources
+                  FROM sessions s
+                  JOIN turns tt ON tt.session_id = s.id AND tt.sequence = 1
+                  WHERE s.id = ${row.sessionId}
+                    AND s.title_source IN ('derived', 'generated')
+                    AND jsonb_typeof(tt.sources -> 'direct') = 'array'
+                    AND (${row.sessionLinkId}::uuid IS NOT NULL OR EXISTS (
+                      SELECT 1 FROM session_links l
+                      WHERE l.session_id = s.id AND l.closed_at IS NULL
+                    ))`),
+              );
+        if (title !== undefined) {
+          await lockedDeletedSource(tx, {
+            ...row,
+            sources: {
+              ...(row.sources ?? { inherited: [] }),
+              direct: [...(row.sources?.direct ?? []), ...title.sources.direct],
+            },
+          });
+        }
         // A row whose sources hold a message Slack deleted is never sent;
         // a delete that comes once it is sending leaves what went out.
         if (
@@ -1868,6 +1899,15 @@ export function createPostgresSlackOutboxStore(
             .where(eq(t.id, fence.id));
           return "voided_by_delete" as const;
         }
+        // Deleted since the claim: the post goes, without the title.
+        const untitled =
+          title !== undefined &&
+          (await lockedDeletedSource(tx, {
+            workspaceId: row.workspaceId,
+            sessionId: row.sessionId,
+            sources: title.sources,
+            throughTurn: 1,
+          })) !== null;
         const rows = await tx
           .update(t)
           .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
@@ -1880,7 +1920,8 @@ export function createPostgresSlackOutboxStore(
             ),
           )
           .returning({ id: t.id });
-        return rows.length > 0;
+        if (rows.length === 0) return false;
+        return untitled ? ("untitled" as const) : true;
       });
     },
 

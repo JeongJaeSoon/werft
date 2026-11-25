@@ -1,14 +1,12 @@
 import { DEFAULT_USER_LOCALE } from "@werft-ai/contracts";
 import type {
-  DeliveryInput,
   DeliveryOutcome,
-  SurfaceOutboxClaim,
   SurfaceOutboxLost,
   SurfaceOutboxSettle,
   SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import { messageOf, type SurfaceBindingStore } from "@werft-ai/platform";
-import type { RowDelivery } from "./outbox-delivery.ts";
+import type { RowDelivery, RowDeliveryInput } from "./outbox-delivery.ts";
 import {
   SLACK_CARD_SETTLE_TIMING,
   type SlackPushRequesterLeft,
@@ -161,7 +159,7 @@ export async function drainSlackOutbox(deps: {
   };
   // The notice kinds go through Notifiable, a decision request through
   // Approvable; the rest the sender posts itself.
-  const deliver = (input: DeliveryInput<SurfaceOutboxClaim>) => {
+  const deliver = (input: RowDeliveryInput) => {
     switch (input.row.kind) {
       case "notice":
       case "failure_notice":
@@ -356,7 +354,7 @@ export async function drainSlackOutbox(deps: {
         begin: async () => {
           const begun = await deps.outbox.beginSend(claim);
           voided = begun === "voided_by_delete";
-          return begun === true;
+          return begun === "untitled" ? begun : begun === true;
         },
       });
       if (outcome.kind === "lease_lost" && voided) {

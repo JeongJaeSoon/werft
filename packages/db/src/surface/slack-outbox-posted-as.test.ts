@@ -66,7 +66,15 @@ async function linkSession(sessionId: string, closed: boolean) {
 
 // The session's first turn came from a Slack message that Slack deleted.
 async function firstMessageDeleted(sessionId: string) {
-  const ts = `${Date.now()}.000100`;
+  await markDeleted(await firstTurnFrom(sessionId));
+}
+
+let turnCount = 0;
+
+async function firstTurnFrom(sessionId: string) {
+  // A Slack ts: seconds, a dot, six digits.
+  turnCount += 1;
+  const ts = `${Date.now()}.${String(turnCount).padStart(6, "0")}`;
   await client.query(
     "INSERT INTO turns (session_id, sequence, message, status, sources) VALUES ($1, 1, 'summarize the thread', 'completed', $2)",
     [
@@ -77,6 +85,10 @@ async function firstMessageDeleted(sessionId: string) {
       }),
     ],
   );
+  return ts;
+}
+
+async function markDeleted(ts: string) {
   await client.query(
     "INSERT INTO deleted_sources (workspace_id, team_id, channel_id, ts, deleted_at) VALUES ($1, 'T0INSTALL', 'C0ROOM', $2, now())",
     [WORKSPACE, ts],
@@ -158,6 +170,44 @@ describe("claiming an outbox row", () => {
       agentName: "Payments Agent",
       taskTitle: "Fix the login",
     });
+  });
+
+  test("a title whose message Slack deleted after the claim is left out at the send", async () => {
+    const derived = await sessionTitled("summarize the thread", "derived");
+    const ts = await firstTurnFrom(derived);
+    const { outbox } = await claimedPostedAs({
+      sessionId: derived,
+      linked: true,
+    });
+    const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (claim === undefined) throw new Error("no claim");
+    expect(claim.postedAs?.taskTitle).toBe("summarize the thread");
+    await markDeleted(ts);
+    expect(await outbox.beginSend(claim)).toBe("untitled");
+    const [row] = (
+      await client.query<{ status: string }>(
+        "SELECT status FROM slack_outbox WHERE id = $1",
+        [claim.id],
+      )
+    ).rows;
+    expect(row?.status).toBe("sending");
+  });
+
+  test("a title kept until the send begins as it is", async () => {
+    const derived = await sessionTitled("summarize the thread", "derived");
+    await firstTurnFrom(derived);
+    const kept = await claimedPostedAs({ sessionId: derived, linked: true });
+    const [claim] = await kept.outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (claim === undefined) throw new Error("no claim");
+    expect(await kept.outbox.beginSend(claim)).toBe(true);
+    // A person's title is theirs, whatever happened to the first message.
+    const given = await sessionTitled("Fix the login");
+    const ts = await firstTurnFrom(given);
+    const named = await claimedPostedAs({ sessionId: given, linked: true });
+    const [own] = await named.outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (own === undefined) throw new Error("no claim");
+    await markDeleted(ts);
+    expect(await named.outbox.beginSend(own)).toBe(true);
   });
 
   test("names the task on a row sent outside its thread while its link is open", async () => {

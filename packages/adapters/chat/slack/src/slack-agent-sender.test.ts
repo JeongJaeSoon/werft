@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { SurfaceOutboxClaim } from "@werft-ai/platform";
+import type {
+  SurfaceOutboxClaim,
+  SurfaceOutboxStore,
+} from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import { createRowDelivery } from "./outbox-delivery.ts";
 import {
@@ -7,6 +10,7 @@ import {
   type SlackBotSender,
   type SlackSendResponse,
 } from "./slack-config-api.ts";
+import { drainSlackOutbox } from "./slack-outbox.ts";
 import { slackAgentSender } from "./slack-outbox-render.ts";
 
 // v1-b/N1: a task's rows go out as "agent [task]", the agent's other rows
@@ -277,5 +281,86 @@ describe("an app without chat:write.customize", () => {
     ]);
     expect(outcome).toEqual({ kind: "failed", code: "channel_not_found" });
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe("a title whose message Slack deleted since the claim", () => {
+  const ok: SlackSendResponse = {
+    httpStatus: 200,
+    retryAfterHeader: null,
+    body: { ok: true, ts: "200.000200" },
+  };
+
+  test("goes out under the agent's name alone", async () => {
+    const sent: (string | null)[] = [];
+    const delivery = createRowDelivery({
+      slack: {
+        postMessage: async (_token, input) => {
+          sent.push(input.username ?? null);
+          return ok;
+        },
+        postEphemeral: async () => ok,
+        userImage: async () => null,
+      },
+      botToken: async () => TOKEN,
+      consoleOrigin: null,
+    });
+    for (const row of [claim({}), claim({ kind: "failure_notice" })]) {
+      expect(
+        await delivery.direct({
+          row,
+          attempts: 1,
+          begin: async () => "untitled",
+        }),
+      ).toMatchObject({ kind: "sent" });
+    }
+    expect(sent).toEqual(["Payments Agent", "Payments Agent"]);
+  });
+
+  test("the drain hands beginSend's untitled to the delivery", async () => {
+    const sent: (string | null)[] = [];
+    const batches = [[claim({})], []];
+    const outbox = {
+      advanceAnswered: async () => 0,
+      closeFinishedLinks: async () => 0,
+      unpostedInstructions: async () => [],
+      unmirroredInputs: async () => [],
+      closeOverdueHeld: async () => 0,
+      unansweredTurns: async () => [],
+      unpromptedRequests: async () => [],
+      expireSending: async () => [],
+      closeUnaddressed: async () => [],
+      untoldUncertain: async () => [],
+      claim: async () => batches.shift() ?? [],
+      beginSend: async () => "untitled" as const,
+      settle: async () => true,
+      enqueue: async () => "enqueued" as const,
+    } as unknown as SurfaceOutboxStore;
+    const slack = {
+      postMessage: async (
+        _token: string,
+        input: Parameters<SlackBotSender["postMessage"]>[1],
+      ) => {
+        sent.push(input.username ?? null);
+        return ok;
+      },
+      postEphemeral: async () => ok,
+      userImage: async () => null,
+      setStatus: async () => {},
+    };
+    const botToken = async () => TOKEN;
+    await drainSlackOutbox({
+      outbox,
+      slack: slack as never,
+      botToken,
+      delivery: createRowDelivery({ slack, botToken, consoleOrigin: null }),
+      logger: { info: () => {}, warn: () => {} },
+      consoleOrigin: null,
+      batchSize: 10,
+      leaseMs: 30_000,
+      deadline: 1_000,
+      now: () => 0,
+    });
+    expect(sent).toEqual(["Payments Agent"]);
   });
 });

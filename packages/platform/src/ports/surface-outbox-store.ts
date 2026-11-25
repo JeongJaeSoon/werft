@@ -695,9 +695,13 @@ export interface SurfaceOutboxStore {
   /**
    * `sending` from here on: a lease that runs out now leaves it `uncertain`.
    * `voided_by_delete`: a source of the row was deleted in Slack, and the
-   * row is settled so; nothing may go out.
+   * row is settled so; nothing may go out. `untitled`: `sending`, but the
+   * claimed task title was cut or made from a message Slack deleted since,
+   * so it goes out under the agent's name alone.
    */
-  beginSend(fence: SurfaceOutboxFence): Promise<boolean | "voided_by_delete">;
+  beginSend(
+    fence: SurfaceOutboxFence,
+  ): Promise<boolean | "voided_by_delete" | "untitled">;
   /** False when the lease was lost: the row is someone else's now. */
   /**
    * False when the lease was lost. A sent `input_mirror` row gives its input
