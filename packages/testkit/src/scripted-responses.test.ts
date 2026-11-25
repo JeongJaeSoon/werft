@@ -213,6 +213,18 @@ describe("scripted Responses API", () => {
     expect(recorded[0]?.found).toEqual([]);
   });
 
+  test("a probe says whether the request carried a text, which the prompt itself does not hold", async () => {
+    const probed = "Ask this server first.";
+    const probe = Buffer.from(probed, "utf8").toString("base64");
+    const input = [user(spec({ id: "p", steps: [], final: "done", probe }))];
+    expect(await replyFor({ input, tools }, [])).toEqual({
+      text: "done [probe:missing]",
+    });
+    expect(
+      await replyFor({ input, tools, instructions: `a ${probed} b` }, []),
+    ).toEqual({ text: "done [probe:found]" });
+  });
+
   test("a request without tools never reads the spec", async () => {
     const recorded: ScriptedCall[] = [];
     const reply = await replyFor(

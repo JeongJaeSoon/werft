@@ -413,5 +413,6 @@ GATE-SPEC {"id":"<이름>","steps":[{"tool":"<도구>","input":{…},"delayMs":<
 
 - `steps`의 도구 호출을 하나씩 순서대로 보내고, 도구 결과를 다 받으면 `final` 텍스트로 turn을 끝낸다. 몇 번째 단계인지는 대본 뒤에 쌓인 도구 결과 수로 정하므로 서버는 상태를 갖지 않는다.
 - `delayMs`·`finalDelayMs`는 그 응답을 늦춘다. 긴 turn(interrupt·terminate 시연)을 만들 때 쓴다.
+- `probe`(선택)는 모델이 받은 요청에 어떤 글이 들어 있는지 알려 준다. 찾을 글을 base64로 적으면(프롬프트 자체에 그 글이 들어가지 않게) 마지막 답 끝에 ` [probe:found]` 또는 ` [probe:missing]`이 붙는다. 엔진이 모델 앞에 놓은 것(예: 내장 `werft` MCP 서버의 instructions)을 세션 결과로 확인할 때 쓴다. fake Responses API도 같은 칸을 읽는다.
 - 대본이 없는 메시지에는 `Hello from the local fake Messages API.`로 답한다.
 - 도구는 release의 `effective_tools`(런타임의 내장 도구 전부) 안에 있어야 한다.

@@ -1,5 +1,6 @@
 import type { FakeResponse, ResponsesRequest } from "./fake-responses.ts";
 import {
+  finalOf,
   firstJsonObject,
   type GateSpec,
   SPEC_MARKER,
@@ -196,7 +197,10 @@ export function replyFor(
   const next = spec.steps[step];
   const reply: FakeResponse =
     next === undefined
-      ? { text: spec.final, ...(spec.usage ? { usage: spec.usage } : {}) }
+      ? {
+          text: finalOf(spec, body),
+          ...(spec.usage ? { usage: spec.usage } : {}),
+        }
       : {
           toolCalls: [
             {

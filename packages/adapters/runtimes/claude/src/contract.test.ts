@@ -1086,6 +1086,63 @@ describe("trustedTools", () => {
       ),
     ).toEqual(claudeRuntimeModule.fingerprint(start([server])));
   });
+
+  describe("the built-in werft server", () => {
+    const werft = {
+      name: "werft",
+      binding: `sha256:${"1".repeat(64)}`,
+      url: "http://egress-proxy:3129/mcp/werft",
+      token: "t",
+      tools,
+      platform: true,
+    };
+    const FIND = "mcp__werft__find";
+
+    test("its trusted tools are served, not trusted: in no allowlist, and the github server's stay as they were", () => {
+      const config = claudeStartConfig(
+        start([
+          { ...server, platform: true, trusted: [PUSH] },
+          { ...werft, trusted: [FIND, "mcp__github__request_push"] },
+        ]),
+        deps,
+      );
+      expect(config.servedTools).toEqual([FIND]);
+      expect(config.trustedTools).toEqual([PUSH]);
+      expect(config.tools).not.toContain(FIND);
+    });
+
+    test("with nothing to serve, the run has no served tools", () => {
+      expect(claudeStartConfig(start([werft]), deps)).not.toHaveProperty(
+        "servedTools",
+      );
+    });
+
+    test("serving another tool leaves the checkpoint fingerprint as it is", () => {
+      expect(
+        claudeRuntimeModule.fingerprint(
+          start([{ ...werft, trusted: [FIND, "mcp__werft__status"] }]),
+        ),
+      ).toEqual(claudeRuntimeModule.fingerprint(start([werft])));
+    });
+
+    test("it is in no checkpoint fingerprint: a run with it has the digest of the run without it", () => {
+      expect(
+        claudeRuntimeModule.fingerprint(
+          start([server, { ...werft, trusted: [FIND] }]),
+        ),
+      ).toEqual(claudeRuntimeModule.fingerprint(start([server])));
+      expect(claudeRuntimeModule.fingerprint(start([werft]))).toEqual(
+        claudeRuntimeModule.fingerprint(start([])),
+      );
+    });
+
+    test("a server of that name the platform did not mark stays in the fingerprint", () => {
+      const { platform: _, ...unmarked } = werft;
+      expect(claudeRuntimeModule.fingerprint(start([unmarked]))).not.toEqual(
+        claudeRuntimeModule.fingerprint(start([])),
+      );
+    });
+  });
 });
 
 describe("the judgment a person's answer comes to", () => {

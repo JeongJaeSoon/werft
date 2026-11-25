@@ -201,6 +201,8 @@ export * from "./sessions/session-title.ts";
 export * from "./sessions/session-titler.ts";
 export * from "./usage/usage-service.ts";
 export * from "./workers/github-mcp-egress.ts";
+export * from "./workers/werft-mcp-egress.ts";
+export * from "./werft-mcp/index.ts";
 export * from "./workers/legacy-runtime-configs.ts";
 export * from "./github/egress/github-packages.ts";
 export * from "./github/egress/github-packages-egress.ts";
