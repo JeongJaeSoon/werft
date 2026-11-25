@@ -3,11 +3,13 @@ import {
   createPostgresJudgmentBatchStore,
   createPostgresJudgmentContexts,
   createPostgresM1JudgmentStore,
+  createPostgresSummaryFoldStore,
 } from "@werft-ai/db";
 import {
   type AgentStore,
   createM1Judge,
   createM1JudgmentRunner,
+  createSummaryFolder,
   judgmentCallOf,
   type M1Release,
   type SessionCatalog,
@@ -47,25 +49,39 @@ export function m1ReleaseOf(
 /**
  * M1's shadow judge over PostgreSQL (a1/J5): the buffer's batches and the
  * replies of bound or lately engaged threads, judged on the agent's active
- * release and recorded, never answered.
+ * release and recorded, never answered. A summary a batch's line takes past
+ * its cap is folded on the same release's judgment model (a1/J10).
  */
 export function wireM1JudgmentRunner(deps: Deps) {
   const store = createPostgresM1JudgmentStore(deps.db);
+  const executor = wireConversationCallExecutor(deps);
+  const gate = (subject: Parameters<typeof store.gateOpen>[0]) =>
+    store.gateOpen(subject);
+  async function release(subject: {
+    workspaceId: string;
+    agentId: string;
+  }): Promise<M1Release> {
+    const agent = await deps.agents.get(subject.workspaceId, subject.agentId);
+    const active = agent?.active_release ?? null;
+    if (active === null) return { outcome: "no_active_release" };
+    return m1ReleaseOf(deps.catalog, active);
+  }
   const judge = createM1Judge({
-    gate: (subject) => store.gateOpen(subject),
-    async release(subject): Promise<M1Release> {
-      const agent = await deps.agents.get(subject.workspaceId, subject.agentId);
-      const release = agent?.active_release ?? null;
-      if (release === null) return { outcome: "no_active_release" };
-      return m1ReleaseOf(deps.catalog, release);
-    },
+    gate,
+    release,
     context: createPostgresJudgmentContexts(deps.db),
-    executor: wireConversationCallExecutor(deps),
+    executor,
   });
   return createM1JudgmentRunner({
     batches: createPostgresJudgmentBatchStore(deps.db),
     store,
     judge,
+    folder: createSummaryFolder({
+      gate,
+      release,
+      store: createPostgresSummaryFoldStore(deps.db),
+      executor,
+    }),
     logger: deps.logger,
   });
 }

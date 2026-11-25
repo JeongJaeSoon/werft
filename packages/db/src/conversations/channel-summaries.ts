@@ -13,7 +13,9 @@ import {
   type ChannelSummarySourceKey,
   type ChannelSummaryStore,
   type ChannelSummaryWriteResult,
+  type M1Place,
   type NewChannelSummaryLine,
+  type SummaryFoldStore,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
@@ -106,21 +108,32 @@ async function setVersion(
     ON CONFLICT DO NOTHING`);
 }
 
-/** A new line row; `writtenAt` is kept by a revert's copy. */
+/**
+ * A new line row. A revert's copy (`copyOf`) is that line again, written
+ * when it was; a fold's line stands where `placeOf`, the last line it
+ * folds, stood, so the lines it leaves stay after it.
+ */
 async function insertLine(
   tx: Database,
   place: ChannelSummaryPlace,
-  line: { text: string; agentId: string; version: number; copyOf?: string },
+  line: {
+    text: string;
+    agentId: string;
+    version: number;
+    copyOf?: string;
+    placeOf?: string;
+  },
 ): Promise<ChannelSummaryLineId> {
   const id = randomUUID() as ChannelSummaryLineId;
-  const original = line.copyOf;
+  const origin = line.copyOf;
+  const original = line.copyOf ?? line.placeOf;
   await tx.execute(sql`
     INSERT INTO channel_summary_lines (
       id, origin_id, workspace_id, team_id, channel_id, text,
       written_by_agent_id, written_at, ordinal, from_version
     ) VALUES (
       ${id}::uuid,
-      ${original === undefined ? sql`${id}::uuid` : sql`(SELECT origin_id FROM channel_summary_lines WHERE id = ${original}::uuid)`},
+      ${origin === undefined ? sql`${id}::uuid` : sql`(SELECT origin_id FROM channel_summary_lines WHERE id = ${origin}::uuid)`},
       ${place.workspaceId}::uuid, ${place.teamId}, ${place.channelId},
       ${line.text}, ${line.agentId}::uuid,
       ${original === undefined ? sql`now()` : sql`(SELECT written_at FROM channel_summary_lines WHERE id = ${original}::uuid)`},
@@ -536,6 +549,163 @@ export type ChannelSummaryHistoryPrune = {
 };
 
 /**
+ * Replaces current lines of the channel's summary with one line whose
+ * sources are all of theirs (decision 37), as one version, if it is at
+ * `expectedVersion`, in the caller's transaction. A line no longer current
+ * (folded, reverted, or removed for a deleted or edited source) is
+ * `line_not_found`.
+ */
+export async function foldChannelSummaryLines(
+  tx: Database,
+  request: {
+    place: ChannelSummaryPlace;
+    expectedVersion: number;
+    agentId: string;
+    lineIds: readonly ChannelSummaryLineId[];
+    text: string;
+    /** Asked before the summary's row is locked. */
+    gateOpen?: () => Promise<boolean>;
+    /** Asked with the summary's row held; false writes nothing. */
+    channelThere?: () => Promise<boolean>;
+  },
+): Promise<
+  | ChannelSummaryWriteResult
+  | { outcome: "channel_gone" }
+  | { outcome: "gate_closed" }
+> {
+  const { place } = request;
+  if (!validText(request.text)) return { outcome: "invalid_text" };
+  const lineIds = [...new Set(request.lineIds)];
+  if (lineIds.length === 0) return { outcome: "invalid_text" };
+  if (request.gateOpen !== undefined && !(await request.gateOpen())) {
+    return { outcome: "gate_closed" };
+  }
+  const version = await lockSummary(tx, place, false);
+  if (version === null) {
+    return {
+      outcome: "line_not_found",
+      lineId: lineIds[0] as ChannelSummaryLineId,
+    };
+  }
+  if (request.channelThere !== undefined && !(await request.channelThere())) {
+    return { outcome: "channel_gone" };
+  }
+  if (version !== request.expectedVersion) {
+    return { outcome: "conflict", version };
+  }
+  // In the summary's order, the last line folded last.
+  const live = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      SELECT l.id FROM channel_summary_lines l
+      WHERE (l.workspace_id, l.team_id, l.channel_id) = ${placeKey(place)}
+        AND l.id IN (${uuids(lineIds)}) AND l.to_version IS NULL
+      ORDER BY l.written_at, l.ordinal`),
+  );
+  const missing = lineIds.find((id) => !live.some((row) => row.id === id));
+  if (missing !== undefined) {
+    return { outcome: "line_not_found", lineId: missing };
+  }
+  const next = version + 1;
+  await tx.execute(sql`
+    UPDATE channel_summary_lines SET to_version = ${next}
+    WHERE id IN (${uuids(lineIds)})`);
+  const id = await insertLine(tx, place, {
+    text: request.text,
+    agentId: request.agentId,
+    version: next,
+    placeOf: live.at(-1)?.id as string,
+  });
+  await copySources(tx, id, lineIds);
+  await setVersion(tx, place, next);
+  return { outcome: "written", version: next, lineIds: [id], skipped: [] };
+}
+
+/**
+ * Takes the channel's summary for one fold: none other holds it, and none
+ * started within `intervalMs`. Held until `leaseMs` from now or
+ * `releaseChannelSummaryFold`. False when there is no summary to fold.
+ */
+export async function claimChannelSummaryFold(
+  db: Database,
+  place: ChannelSummaryPlace,
+  options: { leaseMs: number; intervalMs: number },
+): Promise<boolean> {
+  const secs = (ms: number) => sql`make_interval(secs => ${ms / 1000})`;
+  return (
+    rowsOf(
+      await db.execute(sql`
+        UPDATE channel_summaries
+        SET fold_claimed_until = now() + ${secs(options.leaseMs)},
+          fold_tried_at = now()
+        WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}
+          AND (fold_claimed_until IS NULL OR fold_claimed_until <= now())
+          AND (fold_tried_at IS NULL
+            OR fold_tried_at <= now() - ${secs(options.intervalMs)})
+        RETURNING 1`),
+    ).length > 0
+  );
+}
+
+/** Lets the next fold take the summary once its interval has passed. */
+export async function releaseChannelSummaryFold(
+  db: Database,
+  place: ChannelSummaryPlace,
+): Promise<void> {
+  await db.execute(sql`
+    UPDATE channel_summaries SET fold_claimed_until = NULL
+    WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}`);
+}
+
+class FoldChannelGone extends Error {}
+
+/**
+ * The fold's view of one channel's summary (a1/J10): it reads only the
+ * channel it folds, for the agent whose gate the caller asks. Its write
+ * asks `gateOpen` under the agent's row, then holds the summary's row and
+ * asks `channelThere`, as a line's write does; false, it writes nothing.
+ */
+export function createChannelSummaryFoldStore(
+  db: Database,
+  checks: {
+    gateOpen(tx: Database, subject: M1Place): Promise<boolean>;
+    channelThere(tx: Database, subject: M1Place): Promise<boolean>;
+  },
+): SummaryFoldStore {
+  const summaries = createPostgresChannelSummaryStore(db);
+  return {
+    read: (place) => summaries.read(place),
+    claim: (place, claim) => claimChannelSummaryFold(db, place, claim),
+    release: (place) => releaseChannelSummaryFold(db, place),
+    async write(subject, fold) {
+      try {
+        return await db.transaction(async (tx) => {
+          const written = await foldChannelSummaryLines(tx, {
+            place: {
+              workspaceId: subject.workspaceId,
+              teamId: subject.teamId,
+              channelId: subject.channelId,
+            },
+            agentId: subject.agentId,
+            expectedVersion: fold.expectedVersion,
+            lineIds: fold.lineIds,
+            text: fold.text,
+            gateOpen: () => checks.gateOpen(tx, subject),
+            channelThere: () => checks.channelThere(tx, subject),
+          });
+          if (written.outcome === "channel_gone") throw new FoldChannelGone();
+          return written;
+        });
+      } catch (error) {
+        if (error instanceof FoldChannelGone) {
+          return { outcome: "channel_gone" as const };
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+/**
  * Removes the summaries' old versions: each no longer current at any time
  * in the last `historyMs`, with the lines no kept version holds. Up to
  * `limit` channels, each under its summary's lock; a dry run counts them.
@@ -741,50 +911,16 @@ export function createPostgresChannelSummaryStore(
     },
 
     async fold(request) {
-      const { place } = request;
-      if (!validText(request.text)) return { outcome: "invalid_text" };
-      const lineIds = [...new Set(request.lineIds)];
-      if (lineIds.length === 0) return { outcome: "invalid_text" };
       return db.transaction(async (tx) => {
-        const version = await lockSummary(tx, place, false);
-        if (version === null) {
-          return {
-            outcome: "line_not_found",
-            lineId: lineIds[0] as ChannelSummaryLineId,
-          };
+        const folded = await foldChannelSummaryLines(tx, request);
+        // Only a caller's checks answer these.
+        if (
+          folded.outcome === "channel_gone" ||
+          folded.outcome === "gate_closed"
+        ) {
+          throw new Error(folded.outcome);
         }
-        if (version !== request.expectedVersion) {
-          return { outcome: "conflict", version };
-        }
-        const live = rowsOf<{ id: string }>(
-          await tx.execute(sql`
-            SELECT l.id FROM channel_summary_lines l
-            WHERE (l.workspace_id, l.team_id, l.channel_id) = ${placeKey(place)}
-              AND l.id IN (${uuids(lineIds)}) AND l.to_version IS NULL`),
-        );
-        const missing = lineIds.find(
-          (id) => !live.some((row) => row.id === id),
-        );
-        if (missing !== undefined) {
-          return { outcome: "line_not_found", lineId: missing };
-        }
-        const next = version + 1;
-        await tx.execute(sql`
-          UPDATE channel_summary_lines SET to_version = ${next}
-          WHERE id IN (${uuids(lineIds)})`);
-        const id = await insertLine(tx, place, {
-          text: request.text,
-          agentId: request.agentId,
-          version: next,
-        });
-        await copySources(tx, id, lineIds);
-        await setVersion(tx, place, next);
-        return {
-          outcome: "written",
-          version: next,
-          lineIds: [id],
-          skipped: [],
-        };
+        return folded;
       });
     },
 
