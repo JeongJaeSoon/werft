@@ -95,7 +95,8 @@ integration("slack-notice command on PostgreSQL", () => {
   }, 60_000);
 
   test("show and list print the approval rows, ids, versions and times only", async () => {
-    const empty = await command(["show", "--agent", agentId]);
+    // With no version published, so the approvals below never count.
+    const empty = await command(["show", "--agent", agentId], []);
     expect(empty.code).toBe(SLACK_NOTICE_EXIT.ok);
     expect(JSON.parse(empty.out[0] ?? "")).toEqual({
       outcome: "shown",
@@ -121,11 +122,10 @@ integration("slack-notice command on PostgreSQL", () => {
       V1,
     );
 
-    const shown = await command(["show", "--agent", agentId]);
+    const shown = await command(["show", "--agent", agentId], []);
     expect(shown.code).toBe(SLACK_NOTICE_EXIT.ok);
     expect(shown.out).toHaveLength(1);
     const line = JSON.parse(shown.out[0] ?? "");
-    // The published list is still empty, so the command reports no notice.
     expect(line).toMatchObject({ approved: false, reason: "no_notice" });
     expect(line.approvals).toHaveLength(2);
     expect(line.approvals[0]).toEqual({

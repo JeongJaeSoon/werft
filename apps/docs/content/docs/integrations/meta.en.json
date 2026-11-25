@@ -1,4 +1,4 @@
 {
   "title": "Integrations",
-  "pages": ["github", "slack", "slack-console"]
+  "pages": ["github", "slack", "slack-console", "slack-data"]
 }

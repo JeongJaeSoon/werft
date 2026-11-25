@@ -40,10 +40,47 @@ export type SlackNoticeVersionEntry = {
 };
 
 /**
- * Oldest first, versions increasing. Publishing a version is adding an entry
- * here. Empty until the first notice is written, so no agent is approved.
+ * The docs page each version links to, in the notice's language. The page
+ * carries the same version number as the notice that links to it.
  */
-export const SLACK_NOTICE_VERSIONS: readonly SlackNoticeVersionEntry[] = [];
+export function slackDataPolicyUrl(locale: SlackNoticeLocale): string {
+  return `https://jeongjaesoon.github.io/werft/${locale}/integrations/slack-data/`;
+}
+
+/**
+ * Oldest first, versions increasing. Publishing a version is adding an entry
+ * here; the words of a published version never change.
+ */
+export const SLACK_NOTICE_VERSIONS: readonly SlackNoticeVersionEntry[] = [
+  {
+    version: slackNoticeVersionSchema.parse(1),
+    requiresReapproval: true,
+    text: {
+      ko: {
+        body: [
+          "Werft는 Slack에서 읽은 글로 어떤 AI 모델도 학습시키지 않아요.",
+          "에이전트는 이 조직이 연결한 모델 키로 모델을 부르고, 그 글은 그 모델 제공자의 데이터 정책을 따라요.",
+          "에이전트가 Slack 글에서 무엇을 저장하고 언제 지우는지는 아래 문서에 적었어요.",
+        ],
+        policyLink: {
+          label: "데이터 처리와 저장 (1판)",
+          href: slackDataPolicyUrl("ko"),
+        },
+      },
+      ja: {
+        body: [
+          "Werft は、Slack で読んだメッセージでどの AI モデルも学習させません。",
+          "エージェントはこの組織が接続したモデルキーでモデルを呼び出し、そのメッセージはそのモデル提供元のデータポリシーに従います。",
+          "エージェントが Slack のメッセージから何を保存し、いつ削除するかは、下のドキュメントに記載しています。",
+        ],
+        policyLink: {
+          label: "データの取り扱いと保存（第1版）",
+          href: slackDataPolicyUrl("ja"),
+        },
+      },
+    },
+  },
+];
 
 /** The versions an approval must fall within to count. */
 export type SlackNoticeWindow = {
