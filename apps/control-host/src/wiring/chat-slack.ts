@@ -57,6 +57,7 @@ export {
   type SlackOidcTransport,
   SlackOidcUnavailableError,
   type SlackSecretService,
+  setMentionThreadStatus,
   slackBotToken,
   slackEventsUrl,
   slackLinkAuthorizeUrl,
