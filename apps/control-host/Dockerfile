@@ -71,6 +71,13 @@ RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-pa
 USER 1000:1000
 ENV NODE_ENV=production
 ENV WEB_DIST_DIR=/app/apps/web/dist
+# The Werft version this image is (a release tag or a commit), which the
+# built-in `werft` MCP server answers as and pins its docs links to. images.yml
+# passes it; a local build leaves it empty (0.0.0-unknown). The docs it
+# answers from are apps/docs/content, copied with apps above; the smoke test
+# checks they are there.
+ARG WERFT_VERSION=
+ENV WERFT_VERSION=${WERFT_VERSION}
 EXPOSE 3000
 # An init as PID 1 wherever the image runs, not only under compose's
 # `init: true`: the checkpoint verifier kills a git that outlives its timeout

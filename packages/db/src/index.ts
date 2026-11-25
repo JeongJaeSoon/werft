@@ -115,6 +115,7 @@ export * from "./sessions/pending-control.ts";
 export { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 export * from "./sessions/private-channel-scope.ts";
 export * from "./sessions/repository-attachments.ts";
+export * from "./sessions/response-language.ts";
 export * from "./sessions/session-attribution.ts";
 export {
   type ArchivedEventSource,
