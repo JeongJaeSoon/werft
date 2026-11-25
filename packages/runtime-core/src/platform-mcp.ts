@@ -18,7 +18,10 @@ export function servedMcpTools(server: PlatformMcpServer): string[] {
 }
 
 /** Whether `server` is the built-in `werft` server, as the platform marked it. */
-function builtinWerft(server: PlatformMcpServer): boolean {
+export function builtinWerft(server: {
+  name: string;
+  platform?: boolean | undefined;
+}): boolean {
   return server.platform === true && server.name === WERFT_MCP_SERVER;
 }
 
