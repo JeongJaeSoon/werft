@@ -141,6 +141,14 @@ export const githubKo = {
     "App은 GitHub에 만들어졌지만 키를 저장하지 못했습니다. App 설정에서 새 개인 키를 만들어 '이미 있는 App 연결'로 연결하세요.",
   "github.newApp.openApp": "GitHub에서 App 열기",
   "github.newApp.back": "연동 > GitHub로",
+  "github.newApp.webhookFailed":
+    "App을 저장했지만 webhook URL을 GitHub에 넣지 못했습니다",
+  "github.newApp.webhookFailedHint":
+    "GitHub에는 이 App을 만들 때의 webhook URL이 남아 있습니다. 다시 시도하거나, 설치를 이어간 뒤 설정 > 연동 > GitHub의 웹훅 입구 주소를 비웠다가 다시 저장하세요.",
+  "github.newApp.webhookFailedHintMember":
+    "GitHub에는 이 App을 만들 때의 webhook URL이 남아 있습니다. 설치는 이어갈 수 있습니다. owner에게 설정 > 연동 > GitHub의 웹훅 입구 주소를 비웠다가 다시 저장해 달라고 하세요.",
+  "github.newApp.install": "GitHub에 설치하기",
+  "github.newApp.retryFailed": "다시 시도했지만 이번에도 넣지 못했습니다.",
   "github.install.done": "GitHub 설치를 연결했습니다.",
   "github.install.stateInvalid":
     "설치는 GitHub에 있지만, 시작한 지 1시간이 지났거나 이미 쓰인 링크라 연결한 사람을 기록하지 않았습니다.",
@@ -490,6 +498,15 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "The App was created on GitHub but its key could not be stored. Generate a new private key in the App's settings and connect it with 'Connect an existing App'.",
   "github.newApp.openApp": "Open the App on GitHub",
   "github.newApp.back": "Back to Integrations > GitHub",
+  "github.newApp.webhookFailed":
+    "Saved the App, but its webhook URL could not be set on GitHub",
+  "github.newApp.webhookFailedHint":
+    "GitHub keeps the webhook URL the App was made with. Retry, or go on to install and later clear and save again the webhook entrance in Settings > Integrations > GitHub.",
+  "github.newApp.webhookFailedHintMember":
+    "GitHub keeps the webhook URL the App was made with. You can still install it. Ask the owner to clear and save again the webhook entrance in Settings > Integrations > GitHub.",
+  "github.newApp.install": "Install on GitHub",
+  "github.newApp.retryFailed":
+    "Retried, and it could not be set this time either.",
   "github.install.done": "Connected the GitHub installation.",
   "github.install.stateInvalid":
     "The installation is on GitHub, but the link was over an hour old or already used, so who connected it was not recorded.",
@@ -843,6 +860,14 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "App は GitHub に作成されましたが、鍵を保存できませんでした。App 設定で新しい秘密鍵を作成し、「既存の App を接続」で接続してください。",
   "github.newApp.openApp": "GitHub で App を開く",
   "github.newApp.back": "連携 > GitHub に戻る",
+  "github.newApp.webhookFailed":
+    "App を保存しましたが、webhook URL を GitHub に設定できませんでした",
+  "github.newApp.webhookFailedHint":
+    "GitHub には App を作成したときの webhook URL が残っています。再試行するか、インストールを続けたあとで 設定 > 連携 > GitHub の Webhook の入口アドレスを空にしてからもう一度保存してください。",
+  "github.newApp.webhookFailedHintMember":
+    "GitHub には App を作成したときの webhook URL が残っています。インストールは続けられます。オーナーに 設定 > 連携 > GitHub の Webhook の入口アドレスを空にしてからもう一度保存するよう依頼してください。",
+  "github.newApp.install": "GitHub にインストール",
+  "github.newApp.retryFailed": "再試行しましたが、今回も設定できませんでした。",
   "github.install.done": "GitHub のインストールを接続しました。",
   "github.install.stateInvalid":
     "インストールは GitHub にありますが、開始から 1 時間が過ぎたか使用済みのリンクのため、接続した人を記録しませんでした。",
