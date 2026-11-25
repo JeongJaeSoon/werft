@@ -15,6 +15,7 @@ import {
   SLACK_OUTBOX_MESSAGES,
   sessionUrl,
   slackInstructionSender,
+  slackOutboxGuard,
 } from "./slack-outbox-render.ts";
 import { slackPromptMessage } from "./slack-prompts.ts";
 
@@ -327,12 +328,19 @@ export async function enqueueSlackPrompts(deps: {
   for (const row of pending) {
     const locale = row.locale ?? DEFAULT_USER_LOCALE;
     const link_url = sessionUrl(deps.consoleOrigin, row.sessionId);
+    // A card is the agent's words, never a person's own: G7 and A3 both.
+    const { guard } = slackOutboxGuard({
+      kind: "input_notice",
+      channelId: row.channelId,
+      conversationScope: row.conversationScope ?? null,
+    });
     const message = slackPromptMessage(
       { ...row.prompt, sessionId: row.sessionId },
       {
         locale,
         requesterSlackUserId: row.requesterSlackUserId,
         ...(link_url === undefined ? {} : { linkUrl: link_url }),
+        guard,
       },
     );
     await deps.outbox.enqueue({
