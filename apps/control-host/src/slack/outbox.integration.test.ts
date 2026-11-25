@@ -25,6 +25,7 @@ import {
   settleSlackCards,
   slackBotToken,
   slackConversationKey,
+  slackReactionDedupeKey,
   writeSlackThreadStatuses,
 } from "@werft-ai/chat-slack";
 import {
@@ -85,6 +86,7 @@ import {
   type PushSource,
   SecretKey,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
+  SURFACE_REACTION_MAX_ATTEMPTS,
 } from "@werft-ai/platform";
 import {
   slackEventEnvelope,
@@ -5995,6 +5997,164 @@ describe.each(ENGINES)("closing a closed session's link on %s", (engine) => {
     await outboxPass({ closeLinks: true });
     expect(await rows()).toEqual(before);
     expect(posted()).toEqual([]);
+  });
+});
+
+describe.each(ENGINES)("a reaction on %s", (engine) => {
+  useDatabase(engine);
+
+  beforeEach(() => {
+    slack.reactions.length = 0;
+  });
+
+  // The 👀 on the mention that opened the thread.
+  async function react(channelId = CHANNEL) {
+    const [link] = await db.select().from(sessionLinks);
+    const [app] = await db.select({ id: slackApps.id }).from(slackApps);
+    if (!link?.sessionId || !app) throw new Error("no link");
+    return createPostgresSlackOutboxStore(db).enqueue({
+      workspaceId: link.workspaceId,
+      agentId: link.agentId,
+      slackAppId: app.id,
+      installationId: link.installationId,
+      kind: "reaction",
+      channelId,
+      threadTs: THREAD,
+      slackUserId: null,
+      sessionId: link.sessionId,
+      sessionLinkId: link.id,
+      body: { text: "" },
+      dedupeKey: slackReactionDedupeKey({
+        teamId: TEAM,
+        channelId,
+        ts: THREAD,
+      }),
+    });
+  }
+
+  const reactionRows = () =>
+    db
+      .select({
+        status: slackOutbox.status,
+        errorCode: slackOutbox.errorCode,
+        slackTs: slackOutbox.slackTs,
+        attempts: slackOutbox.attempts,
+      })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "reaction"));
+
+  const reactionCalls = () =>
+    slack.calls.filter((call) => call.method === "reactions.add").length;
+
+  test("two rows for one message leave one, and it puts one 👀 on it, posting nothing", async () => {
+    await mention(await agentInSlack(), THREAD);
+    expect(await react()).toBe("enqueued");
+    expect(await react()).toBe("duplicate");
+    const posts = posted().length;
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(slack.reactions).toEqual([
+      { appId: APP_ID, channelId: CHANNEL, ts: THREAD, name: "eyes" },
+    ]);
+    expect(await reactionRows()).toEqual([
+      { status: "sent", errorCode: null, slackTs: THREAD, attempts: 1 },
+    ]);
+    expect(posted().length).toBe(posts);
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+  });
+
+  test("a person's id is never a reaction's channel", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await expect(react(PERSON)).rejects.toThrow(/Slack user/);
+    expect(await reactionRows()).toEqual([]);
+  });
+
+  test("a 👀 Slack already holds is sent, not a failure", async () => {
+    await mention(await agentInSlack(), THREAD);
+    slack.reactions.push({
+      appId: APP_ID,
+      channelId: CHANNEL,
+      ts: THREAD,
+      name: "eyes",
+    });
+    await react();
+    expect(await outboxPass()).toMatchObject({ sent: 1, failed: 0 });
+    expect(await reactionRows()).toEqual([
+      { status: "sent", errorCode: null, slackTs: THREAD, attempts: 1 },
+    ]);
+    expect(slack.reactions).toHaveLength(1);
+  });
+
+  test("a send that outlived its lease is asked again, not left uncertain, and puts one 👀", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await react();
+    const outbox = createPostgresSlackOutboxStore(db);
+    const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (claim?.kind !== "reaction") throw new Error("no reaction claimed");
+    expect(await outbox.beginSend(claim)).not.toBe(false);
+    // The pass died mid-send; Slack may hold the reaction.
+    slack.reactions.push({
+      appId: APP_ID,
+      channelId: CHANNEL,
+      ts: THREAD,
+      name: "eyes",
+    });
+    await db
+      .update(slackOutbox)
+      .set({ leaseExpiresAt: sql`now() - interval '1 second'` });
+
+    expect(await outboxPass()).toMatchObject({ uncertain: 0, sent: 1 });
+    expect(await reactionRows()).toEqual([
+      { status: "sent", errorCode: null, slackTs: THREAD, attempts: 2 },
+    ]);
+    expect(slack.reactions).toHaveLength(1);
+  });
+
+  test("a reaction whose lease ran out on its last send is uncertain", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await react();
+    await db
+      .update(slackOutbox)
+      .set({
+        status: "sending",
+        claimToken: randomUUID(),
+        leaseExpiresAt: sql`now() - interval '1 second'`,
+        attempts: SURFACE_REACTION_MAX_ATTEMPTS,
+      })
+      .where(eq(slackOutbox.kind, "reaction"));
+    expect(await outboxPass()).toMatchObject({ uncertain: 1, claimed: 0 });
+    expect(await reactionRows()).toEqual([
+      {
+        status: "uncertain",
+        errorCode: "lease_expired",
+        slackTs: null,
+        attempts: SURFACE_REACTION_MAX_ATTEMPTS,
+      },
+    ]);
+  });
+
+  test("missing_scope ends the row at once, and it is never asked again", async () => {
+    await mention(await agentInSlack(), THREAD);
+    slack.failures.set("reactions.add", "missing_scope");
+    await react();
+    const calls = reactionCalls();
+    expect(await outboxPass()).toMatchObject({ failed: 1, retried: 0 });
+    expect(reactionCalls()).toBe(calls + 1);
+    expect(await reactionRows()).toEqual([
+      {
+        status: "failed",
+        errorCode: "missing_scope",
+        slackTs: null,
+        attempts: 1,
+      },
+    ]);
+    slack.failures.delete("reactions.add");
+    await db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: sql`now()` })
+      .where(eq(slackOutbox.kind, "reaction"));
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(reactionCalls()).toBe(calls + 1);
+    expect(slack.reactions).toEqual([]);
   });
 });
 

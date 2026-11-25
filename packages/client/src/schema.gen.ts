@@ -10522,6 +10522,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -10868,6 +10873,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -11122,6 +11132,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -11732,6 +11747,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -11759,6 +11779,11 @@ export interface components {
                 active_release_id: string | null;
                 activation_revision: number;
                 auto_model_migration: boolean;
+                model_migration_failure: {
+                    reason: string;
+                    /** Format: date-time */
+                    failed_at: string;
+                } | null;
                 ownerless: boolean;
                 ownerless_since: string | null;
                 created_by: string | null;
@@ -32351,6 +32376,7 @@ export interface operations {
                      *           "active_release_id": null,
                      *           "activation_revision": -1,
                      *           "auto_model_migration": true,
+                     *           "model_migration_failure": null,
                      *           "ownerless": false,
                      *           "ownerless_since": null,
                      *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
@@ -43311,7 +43337,7 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cchat%3Awrite.customize%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback&state=<single-use>",
+                     *       "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cchat%3Awrite.customize%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite%2Creactions%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback&state=<single-use>",
                      *       "expires_at": "2026-10-24T09:10:00Z"
                      *     }
                      */
@@ -46267,6 +46293,7 @@ export interface operations {
                      *         "active_release_id": null,
                      *         "activation_revision": -1,
                      *         "auto_model_migration": true,
+                     *         "model_migration_failure": null,
                      *         "ownerless": false,
                      *         "ownerless_since": null,
                      *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",

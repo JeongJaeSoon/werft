@@ -69,6 +69,7 @@ const detail: AgentRecord = {
     active_release_id: null,
     activation_revision: -1,
     auto_model_migration: true,
+    model_migration_failure: null,
     ownerless: false,
     ownerless_since: null,
     created_by: OWNER_USER,
@@ -162,6 +163,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],
     activationActor: async () => null,
+    recordModelMigrationFailure: async () => false,
     insertRelease: async ({ release: { spec: _spec, ...release } }) => ({
       outcome: "created",
       release: {

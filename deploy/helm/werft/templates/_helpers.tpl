@@ -509,5 +509,15 @@ built-in tool denied, which the Codex runtime does not offer.
 {{- /* The api's /internal listener, on a ClusterIP Service of its own. */}}
 {{- define "ap.apiInternalHost" -}}{{ include "ap.apiHost" . }}-internal{{- end -}}
 {{- define "ap.workerGatewayUrl" -}}http://{{ include "ap.apiInternalHost" . }}:3200{{- end -}}
+{{- /* The address the scheduler ends up with: its env lists the chart's value, then config.limits, then scheduler.extraEnv, and the last one wins. An empty value set there stays empty. */}}
+{{- define "ap.schedulerGatewayUrl" -}}
+{{- $url := include "ap.workerGatewayUrl" . -}}
+{{- range $values := list .Values.config.limits .Values.scheduler.extraEnv -}}
+{{- if hasKey $values "WORKER_GATEWAY_URL" -}}
+{{- $url = index $values "WORKER_GATEWAY_URL" | toString -}}
+{{- end -}}
+{{- end -}}
+{{- $url -}}
+{{- end -}}
 {{- define "ap.privateAllowlist" -}}{{ .Values.config.egress.privateAllowlist | default (printf "%s:3200" (include "ap.apiInternalHost" .)) }}{{- end -}}
 {{- define "ap.proxyHost" -}}{{ include "ap.fullname" . }}-egress-proxy{{- end -}}

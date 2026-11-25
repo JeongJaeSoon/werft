@@ -25189,6 +25189,33 @@
                 "auto_model_migration": {
                   "type": "boolean"
                 },
+                "model_migration_failure": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "failed_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "reason",
+                        "failed_at"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "ownerless": {
                   "type": "boolean"
                 },
@@ -25422,6 +25449,7 @@
                 "active_release_id",
                 "activation_revision",
                 "auto_model_migration",
+                "model_migration_failure",
                 "ownerless",
                 "ownerless_since",
                 "created_by",
@@ -26970,6 +26998,33 @@
               "auto_model_migration": {
                 "type": "boolean"
               },
+              "model_migration_failure": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "failed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "failed_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ownerless": {
                 "type": "boolean"
               },
@@ -27020,6 +27075,7 @@
               "active_release_id",
               "activation_revision",
               "auto_model_migration",
+              "model_migration_failure",
               "ownerless",
               "ownerless_since",
               "created_by",
@@ -28348,6 +28404,33 @@
               "auto_model_migration": {
                 "type": "boolean"
               },
+              "model_migration_failure": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "failed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "failed_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ownerless": {
                 "type": "boolean"
               },
@@ -28398,6 +28481,7 @@
               "active_release_id",
               "activation_revision",
               "auto_model_migration",
+              "model_migration_failure",
               "ownerless",
               "ownerless_since",
               "created_by",
@@ -31699,6 +31783,33 @@
               "auto_model_migration": {
                 "type": "boolean"
               },
+              "model_migration_failure": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "failed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "failed_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ownerless": {
                 "type": "boolean"
               },
@@ -31749,6 +31860,7 @@
               "active_release_id",
               "activation_revision",
               "auto_model_migration",
+              "model_migration_failure",
               "ownerless",
               "ownerless_since",
               "created_by",
@@ -31854,6 +31966,33 @@
                 "auto_model_migration": {
                   "type": "boolean"
                 },
+                "model_migration_failure": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "failed_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        }
+                      },
+                      "required": [
+                        "reason",
+                        "failed_at"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "ownerless": {
                   "type": "boolean"
                 },
@@ -31904,6 +32043,7 @@
                 "active_release_id",
                 "activation_revision",
                 "auto_model_migration",
+                "model_migration_failure",
                 "ownerless",
                 "ownerless_since",
                 "created_by",
@@ -78598,6 +78738,7 @@
                       "active_release_id": null,
                       "activation_revision": -1,
                       "auto_model_migration": true,
+                      "model_migration_failure": null,
                       "ownerless": false,
                       "ownerless_since": null,
                       "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
@@ -101408,7 +101549,7 @@
             "content": {
               "application/json": {
                 "example": {
-                  "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cchat%3Awrite.customize%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback&state=<single-use>",
+                  "authorize_url": "https://slack.com/oauth/v2/authorize?client_id=1234567890.9876543210&scope=assistant%3Awrite%2Capp_mentions%3Aread%2Cchat%3Awrite%2Cchat%3Awrite.customize%2Cim%3Ahistory%2Cchannels%3Ahistory%2Cgroups%3Ahistory%2Cchannels%3Aread%2Cgroups%3Aread%2Cusers%3Aread%2Cchannels%3Ajoin%2Cgroups%3Awrite%2Creactions%3Awrite&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fagents%2F8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d%2Fslack%2Fcallback&state=<single-use>",
                   "expires_at": "2026-10-24T09:10:00Z"
                 },
                 "schema": {
@@ -107602,6 +107743,7 @@
                     "active_release_id": null,
                     "activation_revision": -1,
                     "auto_model_migration": true,
+                    "model_migration_failure": null,
                     "ownerless": false,
                     "ownerless_since": null,
                     "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",

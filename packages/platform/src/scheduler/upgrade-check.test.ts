@@ -4,6 +4,7 @@ import {
   assessNothingReplaced,
   assessUpgrade,
   type UpgradeSession,
+  type UpgradeWorkers,
 } from "./upgrade-check.ts";
 
 const current = {
@@ -797,7 +798,155 @@ describe("assessUpgrade with two engines", () => {
   });
 });
 
+describe("a worker holding a slot", () => {
+  // What a control-host-only upgrade deploys: the worker images as they are.
+  const sameImages: Omit<Assessed, "sessions" | "approved"> = {
+    deployed: [{ image: n, runtime: previous }],
+    target: [{ image: n, runtime: previous }],
+    writers: [{ image: n, runtime: previous }],
+  };
+  const moved = (...sessions: string[]): UpgradeWorkers => ({
+    gateway: {
+      deployed: "http://api:3000/",
+      target: "http://api-internal:3200/",
+    },
+    sessions,
+  });
+  const stays = (...sessions: string[]): UpgradeWorkers => ({
+    gateway: {
+      deployed: "http://api-internal:3200/",
+      target: "http://api-internal:3200/",
+    },
+    sessions,
+  });
+  const ends = (sessionId: string): AffectedSession => ({
+    sessionId,
+    reason: "worker_ends",
+  });
+
+  test("is listed when the target gives workers another gateway address, and stops the upgrade until approved exactly", () => {
+    const upgrading = {
+      ...sameImages,
+      sessions: [on("s-a", previous), on("s-idle", previous)],
+      // Two launches of one session are one entry.
+      workers: moved("s-b", "s-a", "s-a"),
+    };
+
+    const unapproved = assessUpgrade({ ...upgrading, approved: [] });
+    expect(unapproved.verdict).toBe("refused");
+    expect(unapproved.affected).toEqual([ends("s-a"), ends("s-b")]);
+    expect(unapproved.reason).toStartWith(
+      "the worker images do not change, but 2 worker(s) holding a slot end with this upgrade",
+    );
+    expect(unapproved.reason).toContain(
+      "not approved: s-a s-b; no longer affected: none",
+    );
+
+    const extra = assessUpgrade({
+      ...upgrading,
+      approved: ["s-a", "s-b", "s-idle"],
+    });
+    expect(extra.verdict).toBe("refused");
+    expect(extra.reason).toContain(
+      "not approved: none; no longer affected: s-idle",
+    );
+
+    expect(assessUpgrade({ ...upgrading, approved: ["s-b", "s-a"] })).toEqual({
+      verdict: "proceed",
+      affected: [ends("s-a"), ends("s-b")],
+      approved: ["s-a", "s-b"],
+    });
+  });
+
+  test("is not listed when the gateway address stays, with the worker images as they are or changing", () => {
+    for (const images of [sameImages, upgrade]) {
+      expect(
+        assessUpgrade({
+          ...images,
+          sessions: [on("s-a", previous)],
+          workers: stays("s-a", "s-b"),
+          approved: [],
+        }),
+      ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+    }
+    // An approval for it is then a stale one.
+    const stale = assessUpgrade({
+      ...sameImages,
+      sessions: [],
+      workers: stays("s-a"),
+      approved: ["s-a"],
+    });
+    expect(stale.verdict).toBe("refused");
+    expect(stale.reason).toContain("no longer affected: s-a");
+  });
+
+  test("is listed beside the sessions no target image resumes, each session under one reason", () => {
+    const sessions = [on("s-older", older), on("s-current", current)];
+    const assessed = assessUpgrade({
+      ...upgrade,
+      sessions,
+      workers: moved("s-current", "s-older"),
+      approved: [],
+    });
+    expect(assessed.verdict).toBe("refused");
+    expect(assessed.affected).toEqual([
+      ends("s-current"),
+      { sessionId: "s-older", reason: "no_image" },
+    ]);
+    expect(assessed.reason).toStartWith(
+      "1 session(s) could resume on no unretracted target image",
+    );
+    expect(assessed.reason).toContain(
+      ", and 1 worker(s) holding a slot end with this upgrade",
+    );
+    expect(
+      assessUpgrade({
+        ...upgrade,
+        sessions,
+        workers: moved("s-current", "s-older"),
+        approved: ["s-current", "s-older"],
+      }).verdict,
+    ).toBe("proceed");
+  });
+
+  test("with no worker holding a slot, a moved gateway address lists nothing", () => {
+    expect(
+      assessUpgrade({
+        ...sameImages,
+        sessions: [on("s-a", previous)],
+        workers: moved(),
+        approved: [],
+      }),
+    ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+  });
+});
+
 describe("assessNothingReplaced", () => {
+  test("lists the workers a moved gateway address ends, and no other", () => {
+    const workers = (target: string): UpgradeWorkers => ({
+      gateway: { deployed: "http://api:3000/", target },
+      sessions: ["s-1"],
+    });
+    expect(
+      assessNothingReplaced(
+        ["s-1"],
+        "the worker image does not change",
+        workers("http://api-internal:3200/"),
+      ),
+    ).toEqual({
+      verdict: "proceed",
+      affected: [{ sessionId: "s-1", reason: "worker_ends" }],
+      approved: ["s-1"],
+    });
+    expect(
+      assessNothingReplaced(
+        [],
+        "the worker image does not change",
+        workers("http://api:3000/"),
+      ),
+    ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+  });
+
   test("proceeds with no approvals, saying nothing about any session", () => {
     expect(assessNothingReplaced([], "nothing was deployed")).toEqual({
       verdict: "proceed",

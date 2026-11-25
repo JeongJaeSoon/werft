@@ -42,7 +42,16 @@ export type UnresumableReason =
 
 export type AffectedSession = {
   readonly sessionId: string;
-  readonly reason: UnresumableReason;
+  /** `worker_ends`: it resumes, but the worker running it now ends. */
+  readonly reason: UnresumableReason | "worker_ends";
+};
+
+/** The workers running now, and the gateway address a worker is given. */
+export type UpgradeWorkers = {
+  /** What the deployed scheduler hands the workers it creates, and the target's. */
+  readonly gateway: { readonly deployed: string; readonly target: string };
+  /** The session of each launch a worker claimed that still holds its slot. */
+  readonly sessions: readonly string[];
 };
 
 export type UpgradeAssessment = {
@@ -56,13 +65,23 @@ export type UpgradeAssessment = {
  * An upgrade that replaces no worker image, `because` naming why. Approvals
  * stay in the release values, so a stale list must be cleared before any
  * upgrade: carried to a later one it could approve sessions the operator
- * never read.
+ * never read. The workers it ends all the same are affected, and approved
+ * like any other.
  */
 export function assessNothingReplaced(
   approvedSessions: readonly string[],
   because: string,
+  workers?: UpgradeWorkers,
 ): UpgradeAssessment {
   const approved = [...new Set(approvedSessions)].sort();
+  const ending = endingWorkers(workers);
+  if (ending.length > 0) {
+    return settle(
+      ending.map((sessionId) => ({ sessionId, reason: "worker_ends" })),
+      approved,
+      `${because}, but ${endingClause(ending.length)}`,
+    );
+  }
   return approved.length === 0
     ? { verdict: "proceed", affected: [], approved: [] }
     : {
@@ -70,6 +89,45 @@ export function assessNothingReplaced(
         affected: [],
         approved,
         reason: `${because}, so upgrade.approvedSessions must be empty — no longer affected: ${approved.join(" ")}`,
+      };
+}
+
+/**
+ * The sessions whose worker the upgrade ends. A worker calls the gateway
+ * address it was created with for as long as it lives, and the isolation
+ * stamp does not hold that address, so no scheduler drains or replaces it:
+ * a release that hands out another address promises nothing at the old one,
+ * and the worker gives its lease up when its heartbeat is refused there.
+ * Nothing else that ends a worker is read: a changed isolation stamp, an
+ * image the target retracts.
+ */
+function endingWorkers(workers: UpgradeWorkers | undefined): string[] {
+  return workers === undefined ||
+    workers.gateway.deployed === workers.gateway.target
+    ? []
+    : [...new Set(workers.sessions)].sort();
+}
+
+function endingClause(count: number): string {
+  return `${count} worker(s) holding a slot end with this upgrade (the target gives workers another gateway address than the one they were created with; run it once their slots are released to end none)`;
+}
+
+// Goes ahead when the approvals are the affected sessions, exactly.
+function settle(
+  affected: readonly AffectedSession[],
+  approved: readonly string[],
+  why: string,
+): UpgradeAssessment {
+  const ids = affected.map((session) => session.sessionId);
+  const missing = ids.filter((id) => !approved.includes(id));
+  const extra = approved.filter((id) => !ids.includes(id));
+  return missing.length === 0 && extra.length === 0
+    ? { verdict: "proceed", affected, approved }
+    : {
+        verdict: "refused",
+        affected,
+        approved,
+        reason: `${why}; approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
       };
 }
 
@@ -88,6 +146,9 @@ export function assessNothingReplaced(
  * checkpoints the deployed images cannot restore either is stranded already,
  * not by this release. A retracted image restores nothing, deployed or
  * target, and new sessions start on the newest unretracted one.
+ *
+ * A session whose worker the upgrade ends is affected too, under one reason:
+ * its checkpoint's when it has one.
  */
 export function assessUpgrade(input: {
   /** Newest first, as the cluster runs them now. */
@@ -97,6 +158,8 @@ export function assessUpgrade(input: {
   /** What the launches that have not released their slot run. */
   readonly writers: readonly UpgradeImage[];
   readonly sessions: readonly UpgradeSession[];
+  /** Left out, no running worker is judged. */
+  readonly workers?: UpgradeWorkers;
   readonly approved: readonly string[];
 }): UpgradeAssessment {
   const { deployed, target } = input;
@@ -139,15 +202,23 @@ export function assessUpgrade(input: {
     return assessNothingReplaced(
       input.approved,
       "the worker images do not change",
+      input.workers,
     );
   }
   const approved = [...new Set(input.approved)].sort();
-  const affected = input.sessions
-    .flatMap((session): AffectedSession[] => {
-      const reason = unresumable(session, target);
-      return reason === null ? [] : [{ sessionId: session.sessionId, reason }];
-    })
-    .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+  const stuck = input.sessions.flatMap((session): AffectedSession[] => {
+    const reason = unresumable(session, target);
+    return reason === null ? [] : [{ sessionId: session.sessionId, reason }];
+  });
+  const ending = endingWorkers(input.workers).filter(
+    (id) => !stuck.some((session) => session.sessionId === id),
+  );
+  const affected = [
+    ...stuck,
+    ...ending.map(
+      (sessionId): AffectedSession => ({ sessionId, reason: "worker_ends" }),
+    ),
+  ].sort((a, b) => a.sessionId.localeCompare(b.sessionId));
   const restorers = {
     deployed: deployed.filter((image) => !image.retracted),
     target: target.filter((image) => !image.retracted),
@@ -230,18 +301,11 @@ export function assessUpgrade(input: {
       reason: `workers on ${launches.join(" ")} still hold a slot and keep sealing checkpoints no unretracted target image restores, so no approval covers them: list an unretracted image that restores them in the target release (the image itself, or a fixed build of the same engine, SDK and CLI), or run the upgrade once no launch on it holds a slot`,
     };
   }
-  const ids = affected.map((session) => session.sessionId);
-  const missing = ids.filter((id) => !approved.includes(id));
-  const extra = approved.filter((id) => !ids.includes(id));
-  if (missing.length > 0 || extra.length > 0) {
-    return {
-      verdict: "refused",
-      affected,
-      approved,
-      reason: `${ids.length} session(s) could resume on no unretracted target image (deployed images dropped, redeclared or retracted: ${changed.join(" ") || "none"}; newest ${deployedNewest?.image ?? "none"} → ${targetNewest?.image ?? "none"}); approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
-    };
-  }
-  return { verdict: "proceed", affected, approved };
+  return settle(
+    affected,
+    approved,
+    `${stuck.length} session(s) could resume on no unretracted target image (deployed images dropped, redeclared or retracted: ${changed.join(" ") || "none"}; newest ${deployedNewest?.image ?? "none"} → ${targetNewest?.image ?? "none"})${ending.length === 0 ? "" : `, and ${endingClause(ending.length)}`}`,
+  );
 }
 
 /** What new sessions start on; none when every image is retracted. */

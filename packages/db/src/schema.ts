@@ -4473,6 +4473,17 @@ export const agents = pgTable(
     draftVersionId: uuid("draft_version_id"),
     draftConnectionId: text("draft_connection_id"),
     draftFailure: text("draft_failure"),
+    /**
+     * The last automatic model move that failed, written together: the
+     * activation revision it tried to move from, why, and when. It counts
+     * only while `activation_revision` is still that one, whichever image
+     * activated since; this one also clears them on activation.
+     */
+    modelMigrationFailedRevision: integer("model_migration_failed_revision"),
+    modelMigrationFailure: text("model_migration_failure"),
+    modelMigrationFailedAt: timestamp("model_migration_failed_at", {
+      withTimezone: true,
+    }),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -6957,7 +6968,7 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress', 'reaction')`,
     ),
     check(
       "slack_outbox_progress_check",
