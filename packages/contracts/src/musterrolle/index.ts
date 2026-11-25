@@ -5,6 +5,7 @@ export * from "./api-keys.ts";
 export * from "./audit-log.ts";
 export * from "./auth.ts";
 export * from "./authorization.ts";
+export * from "./conversation-turns.ts";
 export * from "./credential-bindings.ts";
 export * from "./github-app.ts";
 export * from "./github-packages.ts";

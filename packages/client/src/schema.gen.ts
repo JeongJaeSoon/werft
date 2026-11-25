@@ -3647,6 +3647,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/conversation-turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The agent's conversation turns, newest first
+         * @description The agent's conversation turns, newest `started_at` first (ties by `id`, descending), `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400. A turn that is still `running` shows with what it has so far. Each item says when the turn started and ended, its `state` (`running`, `decided`, `no_decision` or `voided_by_delete`: a message it read was deleted before its result was written), the `limit` that ended a `no_decision` turn and who held it there (`runner` or `server`), its `decision` (`reply`, `route_to_task`, `spawn_task` or `no_reply`; null without one) and its `requester`: `kind` always (`user`, `slack_user`, `slack_bot` or `operator`), and `user_id` only for a Werft user; no Slack id is returned. `models` are its provider calls' models, first used first (a call whose token was released unused is not one); `input_tokens`, `output_tokens` (uncached input and output, cache reads and writes not included) and `cost_usd` sum its settled calls, and `unpriced_calls` counts the calls with no usage report yet (reserved, in flight, or closed with their end unknown), so the sums can still grow. `slack_thread` is the Slack thread the turn is in, with its `url`; null for a web topic. `thread_task_session_id` is the task session open in that thread now (its open Slack link), not necessarily a session this turn handed to; null when none is open. Nothing anyone wrote is returned: no message, decision reason or reply. `initiator` keeps the turns of one side of the usage split, by the budget root the turn is charged to: `person` is root `user` and `key` (a key a person made), `agent` is root `none` and `slack_bot` (no person asked); the two add up to every turn. Every place's turns are listed alike, a private channel's and a DM's too, whether or not the caller is in it: what is listed is metadata, never text. Owners, admins and the agent's admins; API keys are refused. It changes nothing.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["listConversationTurns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/slack/instructions-head": {
         parameters: {
             query?: never;
@@ -5513,6 +5535,13 @@ export interface components {
             limit: number;
             /** @description Keeps the teams whose name contains it, ignoring case. `%` and `_` match themselves. */
             q?: string;
+        };
+        ListConversationTurnsQuery: {
+            cursor?: string;
+            /** @default 50 */
+            limit: number;
+            /** @enum {string} */
+            initiator?: "person" | "agent";
         };
         ListMyTeamsQuery: {
             cursor?: string;
@@ -10187,7 +10216,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "conversation.view" | "conversation.post" | "task.spawn" | "usage.installation_read" | "usage.agent_read" | "judgment.read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "conversation.view" | "conversation.post" | "task.spawn" | "usage.installation_read" | "usage.agent_read" | "judgment.read" | "conversation_turn.read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
             /** @constant */
             codex_sandbox_missing?: true;
         };
@@ -12866,6 +12895,53 @@ export interface components {
                 /** Format: date-time */
                 judged_at: string;
             }[];
+        };
+        ListConversationTurnsResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                started_at: string;
+                ended_at: string | null;
+                /** @enum {string} */
+                state: "running" | "decided" | "no_decision" | "voided_by_delete";
+                limit: {
+                    /** @enum {string} */
+                    reached: "model_call_limit" | "tool_call_limit" | "time_limit";
+                    /** @enum {string} */
+                    by: "runner" | "server";
+                } | null;
+                requester: {
+                    /** @constant */
+                    kind: "user";
+                    /** Format: uuid */
+                    user_id: string;
+                } | {
+                    /** @constant */
+                    kind: "slack_user";
+                } | {
+                    /** @constant */
+                    kind: "slack_bot";
+                } | {
+                    /** @constant */
+                    kind: "operator";
+                };
+                decision: ("reply" | "route_to_task" | "spawn_task" | "no_reply") | null;
+                models: string[];
+                input_tokens: number;
+                output_tokens: number;
+                cost_usd: string;
+                unpriced_calls: number;
+                slack_thread: {
+                    team_id: string;
+                    channel_id: string;
+                    thread_ts: string;
+                    /** Format: uri */
+                    url: string;
+                } | null;
+                thread_task_session_id: string | null;
+            }[];
+            next_cursor: string | null;
         };
         GetSlackInstructionsHeadResponse: {
             /** @constant */
@@ -22910,6 +22986,7 @@ export interface operations {
                      *         "usage.installation_read",
                      *         "usage.agent_read",
                      *         "judgment.read",
+                     *         "conversation_turn.read",
                      *         "installation.settings.manage"
                      *       ]
                      *     }
@@ -39166,6 +39243,146 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["GetSlackJudgmentsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listConversationTurns: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
+                cursor?: string;
+                /** @description How many items a page holds at most. */
+                limit?: number;
+                initiator?: "person" | "agent";
+            };
+            header?: never;
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the agent's conversation turns the caller may see. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "019a0000-0000-7000-8000-0000000000c1",
+                     *           "started_at": "2026-11-24T00:00:00.000Z",
+                     *           "ended_at": "2026-11-24T00:00:09.000Z",
+                     *           "state": "decided",
+                     *           "limit": null,
+                     *           "requester": {
+                     *             "kind": "user",
+                     *             "user_id": "019a0000-0000-7000-8000-0000000000a1"
+                     *           },
+                     *           "decision": "reply",
+                     *           "models": [
+                     *             "claude-sonnet-4-5"
+                     *           ],
+                     *           "input_tokens": 900,
+                     *           "output_tokens": 40,
+                     *           "cost_usd": "0.003300",
+                     *           "unpriced_calls": 0,
+                     *           "slack_thread": {
+                     *             "team_id": "T0123456",
+                     *             "channel_id": "C0123456",
+                     *             "thread_ts": "1763942400.000100",
+                     *             "url": "https://slack.com/archives/C0123456/p1763942400000100"
+                     *           },
+                     *           "thread_task_session_id": null
+                     *         }
+                     *       ],
+                     *       "next_cursor": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListConversationTurnsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
