@@ -9008,7 +9008,7 @@ export interface components {
                 slack_app_id: string;
                 /** Format: uuid */
                 agent_id: string;
-                name: string;
+                name: string | null;
                 /** @constant */
                 outcome: "sending";
             })[];
@@ -9037,7 +9037,7 @@ export interface components {
                 slack_app_id: string;
                 /** Format: uuid */
                 agent_id: string;
-                name: string;
+                name: string | null;
                 /** @constant */
                 outcome: "sending";
             })[];

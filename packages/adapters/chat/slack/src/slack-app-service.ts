@@ -950,16 +950,6 @@ export function createSlackAppService(deps: {
           : (await deps.apps.listAgentAppsForManifestCheck()).filter(
               (target) => wanted === null || wanted.has(target.slackAppId),
             );
-      const { apps } = deps;
-      const targets = await Promise.all(
-        listed.map(async (target) => ({
-          ...target,
-          agent:
-            apps === null
-              ? null
-              : await apps.manifestAgent(target.workspaceId, target.agentId),
-        })),
-      );
       const notFound = (slackAppId: string): SlackEventsUpdate => ({
         slack_app_id: slackAppId,
         agent_id: null,
@@ -972,11 +962,13 @@ export function createSlackAppService(deps: {
        * save made while one was in flight is what the app is left on.
        */
       async function resendEvents(
-        target: (typeof targets)[number],
+        target: (typeof listed)[number],
       ): Promise<SlackEventsUpdate> {
         const { apps } = ready();
-        const { workspaceId, slackAppId, agentId, agent } = target;
+        const { workspaceId, slackAppId, agentId } = target;
+        const agent = await apps.manifestAgent(workspaceId, agentId);
         if (agent === null) return notFound(slackAppId);
+        names.set(slackAppId, agent.name);
         const failed = (
           reason_code: SlackEventsUpdateFailure,
         ): SlackEventsUpdate => ({
@@ -1035,8 +1027,10 @@ export function createSlackAppService(deps: {
         }
       }
       const answered = new Map<string, SlackEventsUpdate>();
+      // Known once the app's agent is read, inside the wait like the send.
+      const names = new Map<string, string>();
       const sending = Promise.all(
-        targets.map(async (target) => {
+        listed.map(async (target) => {
           const update = await resendEvents(target).catch(
             (error: unknown): SlackEventsUpdate => {
               deps.logger?.warn("Slack app events address not sent", {
@@ -1046,7 +1040,7 @@ export function createSlackAppService(deps: {
               return {
                 slack_app_id: target.slackAppId,
                 agent_id: target.agentId,
-                name: target.agent?.name ?? null,
+                name: names.get(target.slackAppId) ?? null,
                 outcome: "failed",
                 reason_code: "no_answer",
               };
@@ -1057,19 +1051,16 @@ export function createSlackAppService(deps: {
       );
       await Promise.race([sending, waited]);
       clearTimeout(timer);
-      const found = new Set(targets.map((target) => target.slackAppId));
+      const found = new Set(listed.map((target) => target.slackAppId));
       return [
-        ...targets.map(
+        ...listed.map(
           (target): SlackEventsUpdate =>
-            answered.get(target.slackAppId) ??
-            (target.agent === null
-              ? notFound(target.slackAppId)
-              : {
-                  slack_app_id: target.slackAppId,
-                  agent_id: target.agentId,
-                  name: target.agent.name,
-                  outcome: "sending",
-                }),
+            answered.get(target.slackAppId) ?? {
+              slack_app_id: target.slackAppId,
+              agent_id: target.agentId,
+              name: names.get(target.slackAppId) ?? null,
+              outcome: "sending",
+            },
         ),
         ...[...(wanted ?? [])].filter((id) => !found.has(id)).map(notFound),
       ];

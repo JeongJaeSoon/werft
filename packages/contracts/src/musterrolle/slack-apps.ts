@@ -528,7 +528,8 @@ export const slackEventsUpdateSchema = z.discriminatedUnion("outcome", [
     .object({
       slack_app_id: slackAppIdSchema,
       agent_id: agentIdSchema,
-      name: z.string(),
+      /** Null while the app's agent was still being read. */
+      name: z.string().nullable(),
       outcome: z.literal("sending"),
     })
     .strict(),

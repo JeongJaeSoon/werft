@@ -1578,6 +1578,32 @@ describe("sending the events address after it changed", () => {
     expect((await sync())?.error).toBeNull();
   });
 
+  test("an agent read slower than the wait is inside it: the app is answered sending without its name", async () => {
+    const { service, apps, base, slackAppId, requestUrl } = await madeApp();
+    base.eventsPublicUrl = NEW;
+    const manifestAgent = apps.store.manifestAgent;
+    let answer = () => {};
+    apps.store.manifestAgent = async (...args) => {
+      await new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      return manifestAgent(...args);
+    };
+    const started = Date.now();
+    expect(await service.resendAgentAppEvents(undefined, 5)).toEqual([
+      {
+        slack_app_id: slackAppId,
+        agent_id: AGENT,
+        name: null,
+        outcome: "sending",
+      },
+    ]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    answer();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requestUrl()).toBe(`${NEW}/v1/slack/events/${AGENT}`);
+  });
+
   test("an id that is no created agent app answers not_found", async () => {
     const { service } = await madeApp();
     const unknown = "019a0000-0000-7000-8000-0000000000b9";
