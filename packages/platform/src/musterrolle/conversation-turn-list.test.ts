@@ -4,6 +4,7 @@ import {
   INITIATOR_ROOT_KINDS,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
+import type { AgentRecord } from "../agents/ports/agent-store.ts";
 import {
   type ConversationTurnListStore,
   createConversationTurnListService,
@@ -13,7 +14,7 @@ import { SessionServiceError } from "./service-errors.ts";
 const WORKSPACE = "019a0000-0000-7000-8000-000000000021";
 const AGENT = "019a0000-0000-7000-8000-000000000022";
 
-function service(allow = true) {
+function service(allow = true, exists = true) {
   const authorized: unknown[] = [];
   const paged: Parameters<ConversationTurnListStore["page"]>[0][] = [];
   const list = createConversationTurnListService({
@@ -28,6 +29,12 @@ function service(allow = true) {
               effective_scopes: [],
             }) as unknown as AuthorizationDecision;
       },
+    },
+    agents: {
+      get: async (workspaceId, agentId) =>
+        exists && workspaceId === WORKSPACE && agentId === AGENT
+          ? ({ id: AGENT } as unknown as AgentRecord)
+          : null,
     },
     store: {
       page: async (input) => {
@@ -70,6 +77,16 @@ describe("who reads an agent's conversation turns", () => {
         limit: 20,
       },
     ]);
+  });
+
+  test("an agent the workspace does not hold, or no longer, is 404 and reads nothing", async () => {
+    const { list, paged } = service(true, false);
+    const refused = await list
+      .listConversationTurns(testCaller(WORKSPACE), AGENT, { limit: 50 })
+      .catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(SessionServiceError);
+    expect((refused as SessionServiceError).code).toBe("NOT_FOUND");
+    expect(paged).toEqual([]);
   });
 
   test("initiator reads the shared split of root kinds", async () => {

@@ -193,7 +193,9 @@ describe("an agent's conversation turns, for its admins", () => {
     const place = await topic(AGENT, conversationId, PUBLIC);
     const calls = createPostgresConversationCalls(db);
     const turnId = conversationTurnIdSchema.parse(randomUUID());
-    const token = `${CONVERSATION_TURN_PERMIT_TOKEN_PREFIX}${randomUUID()}`;
+    const token = [CONVERSATION_TURN_PERMIT_TOKEN_PREFIX, randomUUID()].join(
+      "",
+    );
     const issued = await calls.issueTurnPermitAtomic({
       turnId,
       tokenHash: hashConversationCallToken(token),
@@ -435,6 +437,110 @@ describe("an agent's conversation turns, for its admins", () => {
       ]);
     }
     expect(JSON.stringify(page)).not.toContain("SECRET");
+  });
+
+  test("sums every settled call, counts the unpriced, leaves released ones out, and names the limit", async () => {
+    const conversationId = await conversation(AGENT, PUBLIC);
+    const place = await topic(AGENT, conversationId, PUBLIC);
+    const turnId = await turn({
+      conversationId,
+      topicId: place.id,
+      at: "2026-11-25 10:00:00+00",
+    });
+    await client.query(
+      `UPDATE conversation_turns SET state = 'no_decision', decision = NULL,
+        limit_reached = 'model_call_limit', limit_reached_by = 'server'
+       WHERE id = $1`,
+      [turnId],
+    );
+    let attempt = 0;
+    const call = async (
+      state: "settled" | "released" | "resolved" | "in_flight",
+      model: string,
+      at: string,
+      usage?: { input: number; output: number; cost: string },
+    ) => {
+      attempt += 1;
+      const used = state !== "released";
+      const ended =
+        state === "settled" || state === "resolved" || state === "released";
+      await client.query(
+        `INSERT INTO conversation_calls (id, workspace_id, agent_id, token_hash,
+          root_kind, connection_id, path, model, max_tokens, max_request_bytes,
+          state, exchange_id, expires_at, usage, cost_usd, tokens, created_at,
+          started_at, ended_at, conversation_id, call_class, call_key, attempt,
+          conversation_turn_id)
+         VALUES ($1, $2, $3, $4, 'user', 'conn', '/v1/messages', $5, 256, 4096,
+          $6, $7, now(), $8::jsonb, $9::numeric, $10, $11::timestamptz,
+          CASE WHEN $12 THEN $11::timestamptz END,
+          CASE WHEN $13 THEN $11::timestamptz END, $14, 'm2', $15, $16, $17)`,
+        [
+          randomUUID(),
+          WORKSPACE,
+          AGENT,
+          Buffer.from(randomUUID()),
+          model,
+          state,
+          used ? randomUUID() : null,
+          usage === undefined
+            ? null
+            : JSON.stringify({
+                ...USED,
+                model,
+                inputTokens: usage.input,
+                outputTokens: usage.output,
+              }),
+          usage?.cost ?? null,
+          usage === undefined ? null : usage.input + usage.output,
+          at,
+          used,
+          ended,
+          conversationId,
+          `turn-${turnId}:m2`,
+          attempt,
+          turnId,
+        ],
+      );
+    };
+    await call("settled", "claude-sonnet-4-5", "2026-11-25 10:00:02+00", {
+      input: 100,
+      output: 10,
+      cost: "0.001000",
+    });
+    await call("settled", MODEL, "2026-11-25 10:00:01+00", {
+      input: 900,
+      output: 40,
+      cost: "0.002100",
+    });
+    await call("settled", MODEL, "2026-11-25 10:00:03+00", {
+      input: 1,
+      output: 2,
+      cost: "0.000003",
+    });
+    await call("resolved", MODEL, "2026-11-25 10:00:04+00");
+    await call("in_flight", MODEL, "2026-11-25 10:00:05+00");
+    await call("released", "claude-opus-4-5", "2026-11-25 10:00:06+00");
+    // The same agent id in another workspace is not this workspace's.
+    await client.query(
+      `INSERT INTO conversation_turns (id, workspace_id, agent_id, conversation_id,
+        topic_id, origin, state, requester_kind, requester_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'm2', 'running', 'user', $6, now())`,
+      [randomUUID(), randomUUID(), AGENT, conversationId, place.id, USER],
+    );
+
+    const page = await read();
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      id: turnId,
+      state: "no_decision",
+      decision: null,
+      limit: { reached: "model_call_limit", by: "server" },
+      models: [MODEL, "claude-sonnet-4-5"],
+      input_tokens: 1001,
+      output_tokens: 52,
+      cost_usd: "0.003103",
+      unpriced_calls: 2,
+    });
   });
 
   test("each side of initiator keeps its root kinds, and the two add up to every turn", async () => {

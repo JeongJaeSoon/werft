@@ -890,6 +890,7 @@ const slackJudgments = createJudgmentReviewService({
 });
 const conversationTurnList = createConversationTurnListService({
   authorization,
+  agents: agentStore,
   store: createPostgresConversationTurnListStore(db),
 });
 const slackInstructionsHead = createInstructionsHeadService({

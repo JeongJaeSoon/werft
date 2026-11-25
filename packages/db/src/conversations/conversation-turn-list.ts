@@ -83,7 +83,9 @@ export function createPostgresConversationTurnListStore(
                 (SELECT array_agg(m.model ORDER BY m.first_at, m.model)
                   FROM (SELECT model, min(created_at) AS first_at
                     FROM conversation_calls
-                    WHERE conversation_turn_id = ct.id GROUP BY model) m
+                    -- A released token's request was never sent.
+                    WHERE conversation_turn_id = ct.id AND state <> 'released'
+                    GROUP BY model) m
                 ) AS models,
                 COALESCE(sum((cc.usage->>'inputTokens')::bigint)
                   FILTER (WHERE cc.state = 'settled'), 0) AS input_tokens,

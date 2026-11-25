@@ -62,7 +62,7 @@ export const conversationTurnItemSchema = z
       .nullable(),
     requester: conversationTurnRequesterSchema,
     decision: z.enum(CONVERSATION_TURN_DECISION_VALUES).nullable(),
-    /** Its provider calls' models, first used first. */
+    /** Its provider calls' models, first used first; no released call's. */
     models: z.array(z.string()),
     /** Summed over its settled calls. */
     input_tokens: countSchema,

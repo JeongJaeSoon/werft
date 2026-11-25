@@ -3,8 +3,10 @@ import {
   type ListConversationTurnsQuery,
   type ListConversationTurnsResponse,
 } from "@werft-ai/contracts";
+import type { AgentStore } from "../agents/ports/agent-store.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import { requirePermitted } from "./require-permitted.ts";
+import { NOT_FOUND } from "./service-errors.ts";
 
 /** An agent's conversation turns, for its admins; no text. */
 export interface ConversationTurnListStore {
@@ -31,9 +33,10 @@ export interface ConversationTurnListStore {
  */
 export function createConversationTurnListService(deps: {
   authorization: AuthorizationPolicy;
+  agents: Pick<AgentStore, "get">;
   store: ConversationTurnListStore;
 }) {
-  const { authorization, store } = deps;
+  const { authorization, agents, store } = deps;
   return {
     async listConversationTurns(
       caller: Caller,
@@ -44,6 +47,11 @@ export function createConversationTurnListService(deps: {
         kind: "agent",
         id: agentId,
       });
+      // A manager is allowed whatever the id names; a deleted agent's turns
+      // are not listed either.
+      if ((await agents.get(caller.ownerId, agentId)) === null) {
+        throw NOT_FOUND();
+      }
       const page = await store.page({
         workspaceId: caller.ownerId,
         agentId,
