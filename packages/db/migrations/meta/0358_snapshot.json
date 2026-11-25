@@ -1,5 +1,5 @@
 {
-  "id": "d569cbb2-33ab-4f14-b19c-ed608d82f507",
+  "id": "7add76ed-8ccd-46f4-9e5f-8a006d410000",
   "prevId": "476a29cf-2cf8-452f-bfaa-9708294e0d02",
   "version": "7",
   "dialect": "postgresql",
@@ -17113,30 +17113,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::uuid[]"
-        },
-        "task_request": {
-          "name": "task_request",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_interpretation": {
-          "name": "task_interpretation",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_closing": {
-          "name": "task_closing",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_closed_reason": {
-          "name": "task_closed_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -17346,10 +17322,6 @@
         "sessions_execution_revoked_check": {
           "name": "sessions_execution_revoked_check",
           "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
-        },
-        "sessions_task_closed_reason_check": {
-          "name": "sessions_task_closed_reason_check",
-          "value": "\"sessions\".\"task_closed_reason\" IS NULL OR (\"sessions\".\"task_closed_reason\" IN ('completed', 'cancelled', 'failed', 'abandoned') AND \"sessions\".\"admission_state\" IN ('closing', 'closed'))"
         },
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",
@@ -19224,7 +19196,7 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
