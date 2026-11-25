@@ -67,9 +67,10 @@ export const WERFT_TEST_QUESTIONS: readonly WerftTestQuestion[] = [
   },
   {
     id: "q06",
-    question: "방금 명령은 왜 거절됐어?",
+    question: "도구 사용이 거절되면 어디서 허용을 바꿔?",
     language: "ko",
-    tools: ["read_skill", "search_docs"],
+    tools: ["search_docs", "get_status"],
+    status: "tools",
     docs: ["agents/permissions"],
     not: "a guess about OS permissions or sudo",
   },
@@ -105,7 +106,10 @@ export const WERFT_TEST_QUESTIONS: readonly WerftTestQuestion[] = [
     language: "ko",
     tools: ["get_status", "search_docs"],
     status: "mcp_servers",
-    docs: ["agents/instructions-and-roles"],
+    docs: [
+      "agents/instructions-and-roles",
+      "run-server/self-hosting/reference/configuration",
+    ],
     not: "claude mcp add, or editing an MCP config file",
   },
 ];
