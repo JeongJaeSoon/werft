@@ -299,7 +299,8 @@ describe("OpenAPI document", () => {
           path === "/v1/installation-config" ||
           path.startsWith("/v1/lost-checkpoint-notices") ||
           path === "/v1/installation-status" ||
-          path === "/v1/slack-settings"
+          path === "/v1/slack-settings" ||
+          path.startsWith("/v1/github-webhook-settings")
         ) {
           expect(tag, `${method} ${path}`).toBe("Installation settings");
         } else if (/^\/v1\/slack\/(events|interactions)\//.test(path)) {
@@ -523,6 +524,8 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack/channels",
         "/v1/agents/{id}/slack/install/start",
         "/v1/slack-settings",
+        "/v1/github-webhook-settings",
+        "/v1/github-webhook-settings/retry",
         "/v1/installation-config",
         "/v1/lost-checkpoint-notices",
         "/v1/lost-checkpoint-notices/close",

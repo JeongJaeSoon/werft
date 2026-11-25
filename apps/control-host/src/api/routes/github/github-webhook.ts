@@ -12,36 +12,6 @@ import type { SlackEventsLimiter } from "../../rate-limit.ts";
 
 export const GITHUB_WEBHOOK_PATH = "/v1/github/webhook";
 
-/**
- * GITHUB_WEBHOOK_BASE_URL: the https address GitHub reaches this API at,
- * without a query, fragment or credentials. A path prefix stays, for a proxy
- * that routes on it. Unset, Apps get no webhook.
- */
-export function githubWebhookUrlFrom(
-  env: Record<string, string | undefined>,
-): string | null {
-  const value = env.GITHUB_WEBHOOK_BASE_URL;
-  if (!value) return null;
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("GITHUB_WEBHOOK_BASE_URL must be an absolute URL");
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.search !== "" ||
-    url.hash !== "" ||
-    url.username !== "" ||
-    url.password !== ""
-  ) {
-    throw new Error(
-      "GITHUB_WEBHOOK_BASE_URL must be an https URL without a query, fragment or credentials",
-    );
-  }
-  return `${url.origin}${url.pathname.replace(/\/+$/, "")}${GITHUB_WEBHOOK_PATH}`;
-}
-
 export function registerGitHubWebhookRoutes(
   router: ApiRouter,
   deps: {

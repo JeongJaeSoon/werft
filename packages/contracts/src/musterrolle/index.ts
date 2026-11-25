@@ -10,6 +10,7 @@ export * from "./github-app.ts";
 export * from "./github-packages.ts";
 export * from "./github-repository.ts";
 export * from "./github-settings.ts";
+export * from "./github-webhook-settings.ts";
 export * from "./linked-accounts.ts";
 export * from "./login-providers.ts";
 export * from "./my-login-methods.ts";

@@ -47,6 +47,7 @@ export * from "./github/github-oauth.ts";
 export * from "./github/github-packages.ts";
 export * from "./github/github-pins.ts";
 export * from "./github/github-settings.ts";
+export * from "./github/github-webhook-settings.ts";
 export * from "./github/mcp-egress.ts";
 export * from "./installation-config.ts";
 export * from "./installation-settings.ts";

@@ -206,6 +206,7 @@ describe("database schema", () => {
       "github_installation_snapshots",
       "github_installation_states",
       "github_packages_settings",
+      "github_webhook_settings",
       "github_workflow_dispatches",
       "github_workspace_settings",
       "grants",

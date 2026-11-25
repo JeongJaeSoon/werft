@@ -205,7 +205,7 @@ function appWith(
           apiBase: "https://api.github.com",
           repositories: () => [],
           changed: async () => {},
-          webhookUrl: options.webhookUrl ?? null,
+          webhookUrl: async () => options.webhookUrl ?? null,
           manifests: {
             states: memory.states,
             convert,

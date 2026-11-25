@@ -51,6 +51,7 @@ import type {
 } from "@werft-ai/platform";
 import type { AccountLinkCookies } from "./account-link-cookie.ts";
 import { createApiApp } from "./app.ts";
+import type { GitHubWebhookSettingsAdmin } from "./github-webhook-settings.ts";
 import type { InstallationConfigAdmin } from "./installation-config.ts";
 import type { InstallationStatusReader } from "./installation-status.ts";
 import type { LoginSettingsAdmin } from "./login-settings.ts";
@@ -72,6 +73,7 @@ import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts
 import { registerGitHubRepositoryRoutes } from "./routes/github/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
 import { registerGitHubWebhookRoutes } from "./routes/github/github-webhook.ts";
+import { registerGitHubWebhookSettingsRoutes } from "./routes/github/github-webhook-settings.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
@@ -222,6 +224,10 @@ function apiApp() {
       registerLoginProviderRoutes(router, {} as ProviderAdmin);
       registerLoginSettingsRoutes(router, {} as LoginSettingsAdmin);
       registerSlackSettingsRoutes(router, {} as SlackSettingsAdmin);
+      registerGitHubWebhookSettingsRoutes(
+        router,
+        {} as GitHubWebhookSettingsAdmin,
+      );
       registerSlackNoticeRoutes(router, {} as SlackNoticeService);
       registerInstallationConfigRoutes(router, {} as InstallationConfigAdmin);
       registerLostCheckpointNoticeRoutes(

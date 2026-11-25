@@ -1849,6 +1849,13 @@
       "when": 1795545436486,
       "tag": "0354_release_instructions_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 355,
+      "version": "7",
+      "when": 1795576659023,
+      "tag": "0355_github_webhook_settings",
+      "breakpoints": true
     }
   ]
 }
