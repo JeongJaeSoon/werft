@@ -332,6 +332,63 @@ describe("HttpWorkerGatewayClient", () => {
     expect(error.retryable).toBe(false);
   });
 
+  test("holds every call but the heartbeat while ownership is unconfirmed, and sends none once it is lost", async () => {
+    const { gateway, recorded } = client((entry) =>
+      entry.url.endsWith("/heartbeat")
+        ? ok({
+            lease_expires_at: new Date().toISOString(),
+            lease_remaining_ms: 30_000,
+            control_pending: false,
+          })
+        : ok({ released: true }),
+    );
+    const paths = () =>
+      recorded.map((entry) => entry.url.split("/internal/worker")[1]);
+    const doubt = Promise.withResolvers<void>();
+    let unconfirmed: Promise<void> | undefined = doubt.promise;
+    gateway.holdWhile(() => unconfirmed);
+
+    const release = gateway.release({ ...scope, reason: "done" });
+    await gateway.heartbeat({ ...scope, attempt_state: "running" });
+    expect(paths()).toEqual(["/heartbeat"]);
+
+    doubt.resolve();
+    unconfirmed = undefined;
+    expect(await release).toEqual({ released: true });
+    expect(paths()).toEqual(["/heartbeat", "/release"]);
+
+    unconfirmed = Promise.reject(
+      new WorkerGatewayRequestError(0, "LEASE_EXPIRED", "Not sent", false),
+    );
+    const refused = await gateway
+      .release({ ...scope, reason: "done" })
+      .catch((caught: unknown) => caught);
+    expect(isOwnershipLost(refused)).toBe(true);
+    expect(paths()).toEqual(["/heartbeat", "/release"]);
+  });
+
+  test("a held call reads ownership again when its wait ends, before it is sent", async () => {
+    const { gateway, recorded } = client(() => ok({ released: true }));
+    const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    let unconfirmed: Promise<void> | undefined = first.promise;
+    gateway.holdWhile(() => unconfirmed);
+    // Confirmed, and unconfirmed again before the held call resumes.
+    void first.promise.then(() => {
+      unconfirmed = second.promise;
+    });
+
+    const release = gateway.release({ ...scope, reason: "done" });
+    first.resolve();
+    await Bun.sleep(5);
+    expect(recorded).toHaveLength(0);
+
+    unconfirmed = undefined;
+    second.resolve();
+    expect(await release).toEqual({ released: true });
+    expect(recorded).toHaveLength(1);
+  });
+
   test("sends the current traceparent per request and none when it is unset", async () => {
     const { gateway, recorded } = client(() => apiError(409, "conflict"));
     const first = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;

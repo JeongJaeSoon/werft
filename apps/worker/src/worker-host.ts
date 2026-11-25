@@ -98,6 +98,12 @@ export interface WorkerGatewaySession extends WorkerGatewayClient {
   /** Swaps the launch nonce for the credential bootstrapClaim issued. */
   useCredential(credential: string): void;
   useTraceparent?(current: () => string | undefined): void;
+  /**
+   * Every call but the heartbeat waits on the promise `unconfirmed` returns
+   * before it is sent, and is not sent at all once that rejects (see
+   * `Heartbeat.unconfirmed`).
+   */
+  holdWhile?(unconfirmed: () => Promise<void> | undefined): void;
 }
 
 /**
@@ -236,6 +242,8 @@ export type WorkerHostOptions = {
 type Stop = {
   kind: "drain" | "failed" | "idle" | "lost" | "paused";
   reason: string;
+  /** What the gateway answered the heartbeat that lost the lease with. */
+  heartbeat?: { status: number; code: string | null };
   /**
    * A drain asked of this process from outside (`drain`), unlike the ones
    * it decides itself: a mirror error can end a startup as surely as a
@@ -462,6 +470,26 @@ export class WorkerHost {
     });
   }
 
+  /**
+   * What every outside write waits on before it is sent (the gateway
+   * client's calls, the object store's requests): `Heartbeat.unconfirmed`
+   * while the lease is held, and a refusal once it is lost, however it was
+   * lost. A lost lease writes nothing more.
+   */
+  get ownershipUnconfirmed(): Promise<void> | undefined {
+    if (this.stopping?.kind === "lost") {
+      return Promise.reject(
+        new WorkerGatewayRequestError(
+          0,
+          "LEASE_EXPIRED",
+          `Not sent: ${this.stopping.reason}`,
+          false,
+        ),
+      );
+    }
+    return this.heartbeat?.unconfirmed;
+  }
+
   /** The secrets this process holds so far, for loggers built before it. */
   get secrets(): SecretScrubber {
     return this.scrubber;
@@ -600,10 +628,24 @@ export class WorkerHost {
       lease,
       safetyMarginMs:
         this.options.timeouts.leaseSafetyMarginMs ?? LEASE_SAFETY_MARGIN_MS,
-      onLost: (reason, error) => this.lose(reason, error),
+      onLost: (reason, error) =>
+        this.lose(
+          reason,
+          error,
+          error instanceof WorkerGatewayRequestError && error.status > 0
+            ? { status: error.status, code: error.code }
+            : undefined,
+        ),
+      onUnconfirmed: (reason) =>
+        this.logger.warn("worker.ownership.unconfirmed", { reason }),
+      onConfirmed: (beats) =>
+        this.logger.info("worker.ownership.confirmed", {
+          not_found_beats: beats,
+        }),
       onControlPending: () => this.pending?.poll(true),
       transcript: () => this.transcriptReport(),
     });
+    this.options.gateway.holdWhile?.(() => this.ownershipUnconfirmed);
 
     let run: AgentRun | undefined;
     try {
@@ -1146,7 +1188,11 @@ export class WorkerHost {
     this.logger.error("worker.failed", { reason });
   }
 
-  private lose(reason: string, error?: unknown): void {
+  private lose(
+    reason: string,
+    error?: unknown,
+    heartbeat?: Stop["heartbeat"],
+  ): void {
     // A poll still in flight when the session was given back comes home to
     // a fence that is gone; that is the release, not a lease loss.
     if (this.released) return;
@@ -1163,7 +1209,11 @@ export class WorkerHost {
       return;
     }
     this.stopping = undefined;
-    this.stop({ kind: "lost", reason });
+    this.stop({
+      kind: "lost",
+      reason,
+      ...(heartbeat === undefined ? {} : { heartbeat }),
+    });
     // Owner loss means no further durable writes from this attempt, so the
     // queued tail is dropped rather than retried against someone else's lease.
     this.publisher?.abandon(reason);
@@ -3520,7 +3570,20 @@ export class WorkerHost {
 
   private reportedOwnerLost(): boolean {
     if (this.stopping?.kind !== "lost") return false;
-    this.logger.warn("worker.ownership.lost", { reason: this.stopping.reason });
+    const { heartbeat, reason } = this.stopping;
+    // The scheduler lifts the two heartbeat fields from this line onto its
+    // own (`packages/platform/src/scheduler/reconcile.ts`).
+    this.logger.warn("worker.ownership.lost", {
+      reason,
+      ...(heartbeat === undefined
+        ? {}
+        : {
+            heartbeat_status: heartbeat.status,
+            ...(heartbeat.code === null
+              ? {}
+              : { heartbeat_code: heartbeat.code }),
+          }),
+    });
     return true;
   }
 

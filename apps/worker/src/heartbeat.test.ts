@@ -72,6 +72,7 @@ const scope: WorkerScope = {
 function heartbeat(
   beat: (request: HeartbeatRequest) => Promise<HeartbeatResponse>,
   options: {
+    intervalMs?: number;
     remainingMs?: number;
     safetyMarginMs?: number;
     monotonicNow?: () => number;
@@ -79,6 +80,8 @@ function heartbeat(
   } = {},
 ) {
   const lost: string[] = [];
+  const errors: unknown[] = [];
+  const ownership: string[] = [];
   const beats: HeartbeatRequest[] = [];
   const monotonicNow = options.monotonicNow ?? timer.now;
   const instance = new Heartbeat({
@@ -90,20 +93,25 @@ function heartbeat(
     },
     scope: () => scope,
     attemptState: () => "running",
-    intervalMs: 1,
+    intervalMs: options.intervalMs ?? 1,
     lease: {
       remainingMs: options.remainingMs ?? 30_000,
       sentAt: monotonicNow(),
     },
     safetyMarginMs: options.safetyMarginMs ?? 1_000,
-    onLost: (reason) => lost.push(reason),
+    onLost: (reason, error) => {
+      lost.push(reason);
+      errors.push(error);
+    },
+    onUnconfirmed: () => ownership.push("unconfirmed"),
+    onConfirmed: (beats) => ownership.push(`confirmed after ${beats}`),
     monotonicNow,
     scheduleTimer: timer.schedule,
     ...(options.transcript === undefined
       ? {}
       : { transcript: options.transcript }),
   });
-  return { beats, heartbeat: instance, lost };
+  return { beats, errors, heartbeat: instance, lost, ownership };
 }
 
 function answer(remainingMs: number) {
@@ -786,6 +794,26 @@ describe("Heartbeat", () => {
     expect(beat.mirrorErrorRecorded).toBe(true);
   });
 
+  // a 403 says another side owns the session: riding it out would
+  // leave two workers on one session.
+  test("ends at once on a 403, with no beat after it", async () => {
+    const {
+      beats,
+      heartbeat: beat,
+      lost,
+    } = heartbeat(async () => {
+      throw new WorkerGatewayRequestError(403, "FORBIDDEN", "not yours", false);
+    });
+    beat.start();
+    await settle();
+    await beat.stop();
+
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toContain("FORBIDDEN");
+    expect(beats).toHaveLength(1);
+    expect(beat.unconfirmed).toBeUndefined();
+  });
+
   test("stops beating once it has lost ownership", async () => {
     const { beats, heartbeat: beat } = heartbeat(async () => {
       throw new WorkerGatewayRequestError(409, "STALE_EPOCH", "gone", false);
@@ -798,5 +826,413 @@ describe("Heartbeat", () => {
 
     expect(beats).toHaveLength(afterLoss);
     expect(afterLoss).toBe(1);
+  });
+});
+
+describe("a beat answered 404", () => {
+  // The lease as the control plane grants it and the worker's own defaults.
+  const defaults = {
+    intervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+    remainingMs: 30_000,
+    safetyMarginMs: WORKER_LEASE_SAFETY_MARGIN_MS,
+  };
+  const notFound = () =>
+    new WorkerGatewayRequestError(
+      404,
+      "NOT_FOUND",
+      "POST /heartbeat failed with NOT_FOUND: Not Found",
+      false,
+    );
+
+  test("is asked again after 1s, 2s and then every 4s, until the lease is given up", async () => {
+    const at: number[] = [];
+    const {
+      errors,
+      heartbeat: beat,
+      lost,
+      ownership,
+    } = heartbeat(async () => {
+      at.push(timer.now());
+      throw notFound();
+    }, defaults);
+    beat.start();
+    await timer.advance(19_999);
+
+    expect(at).toEqual([5_000, 6_000, 8_000, 12_000, 16_000]);
+    expect(lost).toEqual([]);
+    expect(ownership).toEqual(["unconfirmed"]);
+    const held = beat.unconfirmed;
+    expect(held).toBeDefined();
+
+    // 20s in, the lease has its 10s margin left: given up, not asked again.
+    await timer.advance(1);
+    expect(at).toHaveLength(5);
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toContain("lease given up 10000ms before it runs out");
+    expect(lost[0]).toContain("beats answered 404 in a row: 5");
+    expect(lost[0]).toContain("NOT_FOUND");
+    expect((errors[0] as WorkerGatewayRequestError).status).toBe(404);
+    // What waited on the answer is refused unsent, as a lost lease.
+    const refusal = await held?.catch((caught: unknown) => caught);
+    expect(refusal).toMatchObject({ code: "LEASE_EXPIRED", status: 0 });
+    expect(await beat.unconfirmed?.catch(() => "still refused")).toBe(
+      "still refused",
+    );
+    await beat.stop();
+  });
+
+  test("goes on at its interval once a beat is accepted", async () => {
+    const at: number[] = [];
+    const {
+      heartbeat: beat,
+      lost,
+      ownership,
+    } = heartbeat(async () => {
+      at.push(timer.now());
+      if (at.length <= 2) throw notFound();
+      return answer(30_000);
+    }, defaults);
+    beat.start();
+    await timer.advance(7_999);
+    let confirmed = false;
+    void beat.unconfirmed?.then(() => {
+      confirmed = true;
+    });
+    expect(at).toEqual([5_000, 6_000]);
+    expect(confirmed).toBe(false);
+
+    await timer.advance(1);
+    await settle();
+    expect(confirmed).toBe(true);
+    expect(beat.unconfirmed).toBeUndefined();
+    expect(ownership).toEqual(["unconfirmed", "confirmed after 2"]);
+
+    await timer.advance(5_000);
+    expect(at).toEqual([5_000, 6_000, 8_000, 13_000]);
+    expect(lost).toEqual([]);
+    await beat.stop();
+  });
+
+  // The beat a stop still owes goes out after the loop has ended. Answered
+  // 404, it must be asked again all the same: the release waits on it.
+  test("a 404 to the beat a stop still owed is asked again until it is settled", async () => {
+    for (const accepted of [true, false]) {
+      timer = new FakeClock();
+      const at: number[] = [];
+      const { heartbeat: beat, lost } = heartbeat(
+        async () => {
+          at.push(timer.now());
+          if (at.length === 1 || !accepted) throw notFound();
+          return answer(30_000);
+        },
+        { ...defaults, intervalMs: 60_000 },
+      );
+      beat.start();
+      await timer.advance(100);
+      beat.beatNow();
+      let stopped = false;
+      const stopping = beat.stop().then(() => {
+        stopped = true;
+      });
+      await timer.advance(999);
+      expect(at).toEqual([100]);
+      expect(beat.unconfirmed).toBeDefined();
+      expect(stopped).toBe(false);
+
+      await timer.advance(30_000);
+      await stopping;
+      if (accepted) {
+        expect(at).toEqual([100, 1_100]);
+        expect(beat.unconfirmed).toBeUndefined();
+        expect(lost).toEqual([]);
+      } else {
+        // The claim's 30s lease, less the 10s margin: given up at 20s.
+        expect(at).toEqual([100, 1_100, 3_100, 7_100, 11_100, 15_100, 19_100]);
+        expect(lost).toHaveLength(1);
+        expect(await beat.unconfirmed?.catch(() => "refused")).toBe("refused");
+      }
+    }
+  });
+
+  test("a 404 to a beat sent before one the gateway has since accepted is not news", async () => {
+    let refuseFirst: (error: unknown) => void = () => {};
+    const at: number[] = [];
+    const {
+      heartbeat: beat,
+      lost,
+      ownership,
+    } = heartbeat(async () => {
+      at.push(timer.now());
+      if (at.length > 1) return answer(30_000);
+      return new Promise<never>((_, reject) => {
+        refuseFirst = reject;
+      });
+    }, defaults);
+    beat.start();
+    // The first beat goes unanswered; the next one is sent over it and accepted.
+    await timer.advance(10_050);
+    expect(at).toEqual([5_000, 10_000]);
+
+    refuseFirst(notFound());
+    await settle();
+    expect(beat.unconfirmed).toBeUndefined();
+    expect(ownership).toEqual([]);
+    expect(lost).toEqual([]);
+    await beat.stop();
+  });
+
+  // Built without the helper's async wrapper: these orderings turn on the
+  // tick an answer lands in.
+  function direct(beat: () => Promise<HeartbeatResponse>) {
+    const lost: string[] = [];
+    const instance = new Heartbeat({
+      gateway: { heartbeat: beat },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: defaults.intervalMs,
+      lease: { remainingMs: defaults.remainingMs, sentAt: timer.now() },
+      safetyMarginMs: defaults.safetyMarginMs,
+      onLost: (reason) => lost.push(reason),
+      monotonicNow: timer.now,
+      scheduleTimer: timer.schedule,
+    });
+    return { heartbeat: instance, lost };
+  }
+
+  test("a 404 that lands as a stop ends the loop is still asked again", async () => {
+    let refuse: (error: unknown) => void = () => {};
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = direct(() => {
+      at.push(timer.now());
+      if (at.length > 1) return Promise.resolve(answer(30_000));
+      return new Promise<never>((_, reject) => {
+        refuse = reject;
+      });
+    });
+    beat.start();
+    await timer.advance(100);
+    const once = beat.beatOnce();
+    let stopped = false;
+    const stopping = beat.stop().then(() => {
+      stopped = true;
+    });
+    // In the same tick as the stop: the loop is on its way out.
+    refuse(notFound());
+    await timer.advance(999);
+    expect(beat.unconfirmed).toBeDefined();
+    expect(stopped).toBe(false);
+
+    await timer.advance(1);
+    await stopping;
+    await once;
+    expect(at).toEqual([100, 1_100]);
+    expect(beat.unconfirmed).toBeUndefined();
+    expect(lost).toEqual([]);
+  });
+
+  test("an answer accepting a beat sent before the one answered 404 does not confirm the lease", async () => {
+    let acceptFirst: (response: HeartbeatResponse) => void = () => {};
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = direct(() => {
+      at.push(timer.now());
+      if (at.length === 1) {
+        return new Promise<HeartbeatResponse>((resolve) => {
+          acceptFirst = resolve;
+        });
+      }
+      return at.length === 2
+        ? Promise.reject(notFound())
+        : Promise.resolve(answer(30_000));
+    });
+    beat.start();
+    // The first beat goes unanswered; the one sent over it is answered 404.
+    await timer.advance(10_050);
+    expect(at).toEqual([5_000, 10_000]);
+    expect(beat.unconfirmed).toBeDefined();
+
+    acceptFirst(answer(30_000));
+    await settle();
+    expect(beat.unconfirmed).toBeDefined();
+
+    await timer.advance(950);
+    expect(at).toEqual([5_000, 10_000, 11_000]);
+    expect(beat.unconfirmed).toBeUndefined();
+    expect(lost).toEqual([]);
+    await beat.stop();
+  });
+
+  test("the beat after a late 404 is due a second after it, whatever the loop was waiting on", async () => {
+    // Waiting on another unanswered beat: not sent the moment that wait ends.
+    {
+      let refuseFirst: (error: unknown) => void = () => {};
+      const at: number[] = [];
+      const { heartbeat: beat } = direct(() => {
+        at.push(timer.now());
+        if (at.length === 1) {
+          return new Promise<never>((_, reject) => {
+            refuseFirst = reject;
+          });
+        }
+        return at.length === 2
+          ? new Promise<never>(() => {})
+          : Promise.resolve(answer(30_000));
+      });
+      beat.start();
+      await timer.advance(14_900);
+      expect(at).toEqual([5_000, 10_000]);
+      refuseFirst(notFound());
+      await timer.advance(999);
+      expect(at).toEqual([5_000, 10_000]);
+      await timer.advance(1);
+      expect(at).toEqual([5_000, 10_000, 15_900]);
+      await beat.stop();
+    }
+    // Just after that other beat went out: not left until its patience ends.
+    {
+      timer = new FakeClock();
+      let refuseFirst: (error: unknown) => void = () => {};
+      const at: number[] = [];
+      const { heartbeat: beat } = direct(() => {
+        at.push(timer.now());
+        if (at.length === 1) {
+          return new Promise<never>((_, reject) => {
+            refuseFirst = reject;
+          });
+        }
+        return at.length === 2
+          ? new Promise<never>(() => {})
+          : Promise.resolve(answer(30_000));
+      });
+      beat.start();
+      await timer.advance(10_100);
+      expect(at).toEqual([5_000, 10_000]);
+      refuseFirst(notFound());
+      await timer.advance(999);
+      expect(at).toEqual([5_000, 10_000]);
+      await timer.advance(1);
+      expect(at).toEqual([5_000, 10_000, 11_100]);
+      await beat.stop();
+    }
+    // Waiting out the interval: not left until the interval ends.
+    {
+      timer = new FakeClock();
+      let refuseFirst: (error: unknown) => void = () => {};
+      const at: number[] = [];
+      const { heartbeat: beat } = direct(() => {
+        at.push(timer.now());
+        if (at.length > 1) return Promise.resolve(answer(30_000));
+        return new Promise<never>((_, reject) => {
+          refuseFirst = reject;
+        });
+      });
+      beat.start();
+      const once = beat.beatOnce();
+      await timer.advance(1_000);
+      refuseFirst(notFound());
+      await timer.advance(999);
+      expect(at).toEqual([0]);
+      await timer.advance(1);
+      await once;
+      expect(at).toEqual([0, 2_000]);
+      expect(beat.unconfirmed).toBeUndefined();
+      await beat.stop();
+    }
+  });
+
+  test("a gateway that turns unreachable after a 404 is still asked at the backoff, not in a burst", async () => {
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = heartbeat(async () => {
+      at.push(timer.now());
+      if (at.length === 1) throw notFound();
+      throw new WorkerGatewayRequestError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "down",
+        true,
+      );
+    }, defaults);
+    beat.start();
+    await timer.advance(19_999);
+    expect(at).toEqual([5_000, 6_000, 8_000, 12_000, 16_000]);
+    expect(beat.unconfirmed).toBeDefined();
+    expect(lost).toEqual([]);
+
+    await timer.advance(1);
+    expect(at).toHaveLength(5);
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toContain("beats answered 404 in a row: 1");
+    expect(lost[0]).toContain("BACKEND_UNAVAILABLE");
+    await beat.stop();
+  });
+
+  test("a stop that is settling an unconfirmed lease takes answers that come after their beat's patience", async () => {
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = direct(() => {
+      at.push(timer.now());
+      if (at.length === 1) return Promise.reject(notFound());
+      // Slower than the second the loop waits for it.
+      return timer.sleep(1_500).then(() => answer(30_000));
+    });
+    beat.start();
+    await timer.advance(5_500);
+    let stopped = false;
+    const stopping = beat.stop().then(() => {
+      stopped = true;
+    });
+    await timer.advance(1_400);
+    expect(at).toEqual([5_000, 5_500]);
+    expect(beat.unconfirmed).toBeDefined();
+
+    // The answer to the beat sent at 5.5s lands at 7s, after its patience.
+    await timer.advance(100);
+    expect(beat.unconfirmed).toBeUndefined();
+    await timer.advance(1_000);
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(lost).toEqual([]);
+  });
+
+  test("a gateway that stops answering after a 404 is asked at the same backoff", async () => {
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = direct(() => {
+      at.push(timer.now());
+      return at.length === 1
+        ? Promise.reject(notFound())
+        : new Promise<never>(() => {});
+    });
+    beat.start();
+    await timer.advance(19_999);
+    expect(at).toEqual([5_000, 6_000, 8_000, 12_000, 16_000]);
+    expect(lost).toEqual([]);
+
+    await timer.advance(1);
+    expect(at).toHaveLength(5);
+    expect(lost).toHaveLength(1);
+    await beat.stop();
+  });
+
+  test("a stop waits until the lease is confirmed", async () => {
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = heartbeat(async () => {
+      at.push(timer.now());
+      if (at.length <= 2) throw notFound();
+      return answer(30_000);
+    }, defaults);
+    beat.start();
+    await timer.advance(5_500);
+    let stopped = false;
+    const stopping = beat.stop().then(() => {
+      stopped = true;
+    });
+    // The stop asks at once; that beat is answered 404 as well.
+    await timer.advance(1_000);
+    expect(at).toEqual([5_000, 5_500]);
+    expect(stopped).toBe(false);
+
+    await timer.advance(1_500);
+    await stopping;
+    expect(at).toEqual([5_000, 5_500, 7_500]);
+    expect(beat.unconfirmed).toBeUndefined();
+    expect(lost).toEqual([]);
   });
 });
