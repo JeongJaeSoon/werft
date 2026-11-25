@@ -819,11 +819,46 @@ esac
       expect(timedOut.err).toContain("still queued");
     });
 
+    test("a push run that ends between two reads is judged on its final jobs", () => {
+      // The job was still running when read, and the run completed right
+      // after: the next round reads the run first, then its final jobs.
+      const run = mainChain(
+        [
+          pushRun,
+          {
+            match: "actions/runs/4552/jobs",
+            seq: [
+              ["in_progress none", 0],
+              ["completed success", 0],
+            ],
+          },
+          {
+            match: "--jq .status",
+            seq: [
+              ["in_progress", 0],
+              ["completed", 0],
+            ],
+          },
+        ],
+        retry,
+      );
+      expect(run.code).toBe(0);
+      const order = run.calls.map((call) =>
+        call.includes("/jobs")
+          ? "jobs"
+          : call.includes(".status")
+            ? "run"
+            : "list",
+      );
+      expect(order).toEqual(["list", "run", "jobs", "run", "jobs"]);
+    });
+
     test("a retry reads the push run of this commit", () => {
       const run = mainChain(
         [
           pushRun,
           { match: "actions/runs/4552/jobs", out: "completed success" },
+          { match: "--jq .status", out: "completed" },
         ],
         retry,
       );
@@ -832,7 +867,7 @@ esac
       expect(run.calls[0]).toContain(`head_sha=${sha}`);
       expect(run.calls[0]).toContain("event=push");
       expect(run.calls[0]).toContain("branch=main");
-      expect(run.calls[1]).toContain('select(.name == "chart-publish-main")');
+      expect(run.calls[2]).toContain('select(.name == "chart-publish-main")');
     });
 
     test.each([

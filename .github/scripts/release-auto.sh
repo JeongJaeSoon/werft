@@ -176,6 +176,14 @@ main_chain() {
   esac
   deadline=$((SECONDS + ${MAIN_CHAIN_WAIT_SECONDS:-3600}))
   while :; do
+    # A retry started right after the merge can find the push run still on
+    # its way. Its status is read before its jobs: a run already completed
+    # then has final jobs, and one not done there never ran.
+    run_status=""
+    if [ "$EVENT" = workflow_dispatch ]; then
+      run_status="$(gh api "repos/${repo}/actions/runs/${id}" --jq .status)" \
+        || fail "could not read Images run ${id}"
+    fi
     line="$(gh api --paginate "repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100" \
       --jq '.jobs[] | select(.name == "chart-publish-main") | "\(.status) \(.conclusion // "none")"')" \
       || fail "could not read the jobs of Images run ${id}"
@@ -186,14 +194,8 @@ main_chain() {
       echo "main chain: chart-publish-main passed in Images run ${id}"
       return 0
     fi
-    # A retry started right after the merge can find the push run still on
-    # its way; once that run has ended, a job not done there never ran.
-    if [ "$EVENT" = workflow_dispatch ]; then
-      run_status="$(gh api "repos/${repo}/actions/runs/${id}" --jq .status)" \
-        || fail "could not read Images run ${id}"
-      [ "$run_status" != completed ] \
-        || fail "chart-publish-main of the ended Images run ${id} on ${sha} is ${status:-absent}, not completed"
-    fi
+    [ "$run_status" != completed ] \
+      || fail "chart-publish-main of the ended Images run ${id} on ${sha} is ${status:-absent}, not completed"
     [ "$SECONDS" -lt "$deadline" ] \
       || fail "chart-publish-main of Images run ${id} is still ${status:-absent} after ${MAIN_CHAIN_WAIT_SECONDS:-3600}s"
     sleep "${CI_POLL_SECONDS:-60}"
