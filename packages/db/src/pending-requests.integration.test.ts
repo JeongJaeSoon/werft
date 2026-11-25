@@ -114,10 +114,14 @@ integration("pending requests and answers on PostgreSQL", () => {
   let gateway: WorkerGateway;
   let service: ReturnType<typeof createPendingRequestService>;
 
-  const gatewayWith = (pendingTtlMs?: number | (() => Promise<number>)) =>
+  const gatewayWith = (
+    pendingTtlMs?: number | (() => Promise<number>),
+    authorization?: ReturnType<typeof createAuthorizationPolicy>,
+  ) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog,
+      ...(authorization === undefined ? {} : { authorization }),
       checkpoints: {
         async verify() {
           return { status: "verified" };
@@ -770,13 +774,81 @@ integration("pending requests and answers on PostgreSQL", () => {
       await answer(owner, sessionId, remembering(requestId));
       const capable = await gateway.pendingControl(worker.principal, {
         ...worker.scope,
-        capabilities: { approval_remember: true },
+        capabilities: { approval_remember: true, session_allow_check: true },
         answers_after: 0,
         settled: [],
       });
       expect(capable.answers.map((item) => item.answer)).toEqual([
         { ...remembering(requestId) },
       ]);
+    });
+
+    test("a poll that keeps no allow bound to its giver gets the plain allow", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, {
+        ...permission("git status"),
+        remember_offer: offer,
+      } as RegisterPendingRequest["request"]);
+      await answer(owner, sessionId, remembering(requestId));
+      const unbound = await gateway.pendingControl(worker.principal, {
+        ...worker.scope,
+        capabilities: { approval_remember: true },
+        answers_after: 0,
+        settled: [],
+      });
+      expect(unbound.answers.map((item) => item.answer)).toEqual([
+        { request_id: requestId, kind: "permission", decision: "allow" },
+      ]);
+    });
+
+    test("whoever allowed for the session is kept with the answer and judged again for a later call", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const kept = await register(worker, {
+        ...permission("git status"),
+        remember_offer: offer,
+      } as RegisterPendingRequest["request"]);
+      const once = await register(
+        worker,
+        {
+          ...permission("git status"),
+          remember_offer: offer,
+        } as RegisterPendingRequest["request"],
+        HASH_B,
+      );
+      await answer(owner, sessionId, remembering(kept.requestId));
+      await answer(owner, sessionId, {
+        request_id: once.requestId,
+        kind: "permission",
+        decision: "allow",
+      });
+      const rows = await db
+        .select({
+          requestId: pendingRequests.requestId,
+          subject: pendingRequests.sessionAllowSubject,
+        })
+        .from(pendingRequests)
+        .where(eq(pendingRequests.sessionId, sessionId));
+      const subjectOf = (id: string) =>
+        rows.find((row) => row.requestId === id)?.subject;
+      expect(subjectOf(kept.requestId)).toEqual(
+        JSON.parse(JSON.stringify(owner.subject)),
+      );
+      expect(subjectOf(once.requestId)).toBeNull();
+
+      const judged = gatewayWith(undefined, createAuthorizationPolicy());
+      const check = (grant: string) =>
+        judged.sessionAllow(worker.principal, {
+          ...(worker.scope as WorkerScope & { turn_id: string }),
+          grant_request_id: grant,
+          tool_call_id: "toolu_later",
+          input_hash: HASH_A,
+        });
+      expect(await check(kept.requestId)).toEqual({ allowed: true });
+      expect(await check(once.requestId)).toEqual({ allowed: false });
+      // Another session's request stands for nothing here.
+      expect(await check(`req_${crypto.randomUUID()}`)).toEqual({
+        allowed: false,
+      });
     });
 
     test("a poll that does not announce the capability gets the plain allow", async () => {

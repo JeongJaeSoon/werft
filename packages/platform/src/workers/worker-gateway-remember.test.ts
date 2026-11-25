@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type AuthorizationRequest,
+  type AuthorizationSubject,
   bootstrapClaimResponseSchema,
   type PostSessionAnswerRequest,
   pendingControlResponseSchema,
+  type WorkerCapabilities,
 } from "@werft-ai/contracts";
 import { z } from "zod";
+import type { AuthorizationPolicy } from "../musterrolle/index.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
@@ -62,15 +66,60 @@ const oldGrant = z
   })
   .strict();
 
-function wired() {
+const BOUND = { approval_remember: true, session_allow_check: true } as const;
+
+// A Slack member's answer as the answer path keeps it.
+const SLACK_SUBJECT: AuthorizationSubject = {
+  principal: {
+    kind: "user",
+    id: "11111111-1111-4111-8111-111111111111",
+    workspace_id: "22222222-2222-4222-8222-222222222222",
+    role: "member",
+    scopes: ["sessions:approve"],
+  },
+  actor_user_id: "11111111-1111-4111-8111-111111111111",
+  surface: {
+    kind: "slack",
+    agent_id: "33333333-3333-4333-8333-333333333333",
+    channel_id: "C0PRIVATE",
+  },
+};
+
+function wired(
+  options: {
+    grant?: { ownerScope: string; subject: unknown } | null;
+    outcome?: "allow" | "deny";
+    authorization?: false;
+  } = {},
+) {
   const stored: PostSessionAnswerRequest = {
     request_id: "req_1",
     kind: "permission",
     decision: "allow",
     remember: "session",
   };
+  const asked: AuthorizationRequest[] = [];
+  const authorization = {
+    async authorize(request: AuthorizationRequest) {
+      asked.push(request);
+      return {
+        outcome: options.outcome ?? "allow",
+        reason_code: options.outcome === "deny" ? "not_found" : "ok",
+        effective_scopes: [],
+        policy_version: "test",
+        decision_id: "44444444-4444-4444-8444-444444444444",
+      };
+    },
+  } as unknown as AuthorizationPolicy;
   const pending = {
     hasUndelivered: async () => false,
+    sessionAllowAtomic: async () => ({
+      outcome: "ok",
+      grant:
+        options.grant === undefined
+          ? { ownerScope: "owner-a", subject: SLACK_SUBJECT }
+          : options.grant,
+    }),
     pendingControlAtomic: async () => ({
       outcome: "ok",
       control: null,
@@ -125,12 +174,13 @@ function wired() {
     catalog,
     pending,
     checkpoints: acceptAllCheckpoints,
+    ...(options.authorization === false ? {} : { authorization }),
     options: {
       sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 30_000,
     },
   });
-  const claim = (capabilities?: { approval_remember: true }) =>
+  const claim = (capabilities?: WorkerCapabilities) =>
     gateway.bootstrapClaim(
       { kind: "bootstrap" },
       {
@@ -140,23 +190,38 @@ function wired() {
         credential: { kind: "launch_nonce", nonce: "n" },
       },
     );
-  const poll = (
-    capabilities?: { approval_remember: true } | { answer_surface: true },
-  ) =>
+  const poll = (capabilities?: WorkerCapabilities) =>
     gateway.pendingControl(principal, {
       ...scope,
       ...(capabilities === undefined ? {} : { capabilities }),
       answers_after: 0,
     });
-  return { claim, poll };
+  const check = () =>
+    gateway.sessionAllow(principal, {
+      ...scope,
+      turn_id: "1",
+      grant_request_id: "req_1",
+      tool_call_id: "toolu_2",
+      input_hash: HASH,
+    });
+  return { claim, poll, check, asked };
 }
 
 describe("an answer remembered for the session, across worker versions", () => {
-  test("a poll that announces approval_remember gets the answer as stored", async () => {
-    const response = await wired().poll({ approval_remember: true });
+  test("a poll that announces session_allow_check gets the answer as stored", async () => {
+    const response = await wired().poll(BOUND);
     expect(
       pendingControlResponseSchema.parse(response).answers[0],
     ).toMatchObject({ answer: { decision: "allow", remember: "session" } });
+  });
+
+  test("a poller with approval_remember alone gets the plain allow: its engine would keep the rule for anyone", async () => {
+    const response = await wired().poll({ approval_remember: true });
+    expect(response.answers[0]?.answer).toEqual({
+      request_id: "req_1",
+      kind: "permission",
+      decision: "allow",
+    });
   });
 
   test("an older poller gets the plain allow, which its strict parser takes", async () => {
@@ -170,7 +235,7 @@ describe("an answer remembered for the session, across worker versions", () => {
   });
 
   test("the same response with remember is what the older parser refuses", async () => {
-    const response = await wired().poll({ approval_remember: true });
+    const response = await wired().poll(BOUND);
     expect(oldAnswers.safeParse(response).success).toBe(false);
   });
 
@@ -180,22 +245,24 @@ describe("an answer remembered for the session, across worker versions", () => {
     );
     expect(announced.answers[0]?.answer_surface).toBe("slack");
 
-    for (const response of [
-      await wired().poll(),
-      await wired().poll({ approval_remember: true }),
-    ]) {
+    for (const response of [await wired().poll(), await wired().poll(BOUND)]) {
       expect(response.answers[0]).not.toHaveProperty("answer_surface");
     }
   });
 
   test("a claim that announces it carries the rules a parked allow keeps", async () => {
     const claimed = bootstrapClaimResponseSchema.parse(
-      await wired().claim({ approval_remember: true }),
+      await wired().claim(BOUND),
     );
     expect(claimed.grants?.map((grant) => grant.remember_offer)).toEqual([
       OFFER,
       undefined,
     ]);
+  });
+
+  test("a claim with approval_remember alone carries no rules", async () => {
+    const claimed = await wired().claim({ approval_remember: true });
+    expect(claimed.grants?.every((g) => !("remember_offer" in g))).toBe(true);
   });
 
   test("an older claimer gets grants its strict parser takes", async () => {
@@ -204,5 +271,52 @@ describe("an answer remembered for the session, across worker versions", () => {
     for (const grant of claimed.grants ?? []) {
       expect(oldGrant.safeParse(grant).success).toBe(true);
     }
+  });
+});
+
+describe("a session allow judged again before a call it covers", () => {
+  test("the giver is judged on session.approve for the request they answered, without their click's channel", async () => {
+    const { check, asked } = wired();
+    expect(await check()).toEqual({ allowed: true });
+    expect(asked).toHaveLength(1);
+    const { surface, ...rest } = SLACK_SUBJECT;
+    const { channel_id: _channel, ...unclicked } = surface;
+    expect(asked[0]).toEqual({
+      subject: { ...rest, surface: unclicked },
+      action: "session.approve",
+      resource: {
+        kind: "session",
+        id: SESSION,
+        owner_scope: "owner-a",
+        pending_request_id: "req_1",
+      },
+      request_id: "toolu_2",
+    });
+  });
+
+  test("a giver who no longer passes ends the allow", async () => {
+    expect(await wired({ outcome: "deny" }).check()).toEqual({
+      allowed: false,
+    });
+  });
+
+  test("a request that is no session allow with its giver on record stands for nothing", async () => {
+    const { check, asked } = wired({ grant: null });
+    expect(await check()).toEqual({ allowed: false });
+    expect(asked).toHaveLength(0);
+  });
+
+  test("a stored subject that no longer parses stands for nothing", async () => {
+    const { check, asked } = wired({
+      grant: { ownerScope: "owner-a", subject: { principal: "someone" } },
+    });
+    expect(await check()).toEqual({ allowed: false });
+    expect(asked).toHaveLength(0);
+  });
+
+  test("a gateway with no policy allows nothing", async () => {
+    expect(await wired({ authorization: false }).check()).toEqual({
+      allowed: false,
+    });
   });
 });

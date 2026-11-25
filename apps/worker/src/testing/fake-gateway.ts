@@ -35,6 +35,8 @@ import {
   type RestorePlanRequest,
   type RestorePlanResponse,
   type RuntimeConfig,
+  type SessionAllowRequest,
+  type SessionAllowResponse,
   type SessionEventPayload,
   type SessionRuntime,
   type WorkerEvent,
@@ -127,6 +129,10 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   readonly delivered: ParkedDelivery[] = [];
   /** Handed to the claim as its `grants`; absent while empty. */
   grants: PermissionGrant[] = [];
+  /** Every session-allow check, as sent. */
+  readonly sessionAllowChecks: SessionAllowRequest[] = [];
+  /** What `/session-allow` answers for each check. */
+  sessionAllowed: (request: SessionAllowRequest) => boolean = () => true;
   /** How each registered request ended, as the worker reported it. */
   readonly settled: PendingSettlement[] = [];
   credential: string | undefined;
@@ -521,6 +527,14 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       accepted_through: this.acceptedThrough,
       cursor: `cursor-${this.acceptedThrough}`,
     };
+  }
+
+  async sessionAllow(
+    request: SessionAllowRequest,
+  ): Promise<SessionAllowResponse> {
+    this.calls.push("sessionAllow");
+    this.sessionAllowChecks.push(request);
+    return { allowed: this.sessionAllowed(request) };
   }
 
   async registerPending(

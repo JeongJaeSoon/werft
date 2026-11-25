@@ -24,6 +24,7 @@ import {
   isOwnershipLost,
   isRetryable,
   type ParkedApproval,
+  type RememberRule,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
@@ -62,8 +63,20 @@ export type PendingRequestsOptions = {
   onAttachments?: (orders: RepositoryAttachOrder[]) => void;
   // Observation only: the registry never waits on it.
   onDecided?: (decided: PendingDecided) => void;
+  /**
+   * An allow for the session, held by the host instead of the engine: the
+   * engine gets the plain allow, and later calls are asked again unless
+   * the host covers them.
+   */
+  onSessionAllow?: (allow: SessionAllow) => void;
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
+};
+
+export type SessionAllow = {
+  /** The request the allow answered; the gateway judges its giver again. */
+  requestId: string;
+  rules: readonly RememberRule[];
 };
 
 export type PendingDecided = {
@@ -886,21 +899,22 @@ export class PendingRequestRegistry {
       return true;
     }
     if (answer.kind === "permission") {
+      if (
+        answer.decision === "allow" &&
+        answer.remember === "session" &&
+        entry.rememberOffer.length > 0
+      ) {
+        this.options.onSessionAllow?.({
+          requestId: answer.request_id,
+          rules: entry.rememberOffer,
+        });
+      }
       this.close(
         answer.request_id,
         answer.decision === "allow"
           ? {
               kind: "selected",
               optionKind: "allow_once",
-              ...(answer.remember === undefined ||
-              entry.rememberOffer.length === 0
-                ? {}
-                : {
-                    remember: {
-                      scope: answer.remember,
-                      rules: entry.rememberOffer,
-                    },
-                  }),
               ...(answer.reason === undefined
                 ? {}
                 : { message: answer.reason }),

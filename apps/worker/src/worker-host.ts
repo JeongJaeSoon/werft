@@ -40,6 +40,7 @@ import {
   isRetryable,
   type ParkedApproval,
   type ParkReadiness,
+  type RememberRule,
   type RuntimeEvent,
   runtimeRequirementsOf,
   type ToolDecisionObserver,
@@ -63,6 +64,7 @@ import { messageOf as describe } from "./message-of.ts";
 import {
   type ApprovalCheckpointer,
   PendingRequestRegistry,
+  type SessionAllow,
 } from "./pending-requests.ts";
 import { goPrivateModules } from "./repository-routes.ts";
 import {
@@ -322,6 +324,8 @@ function parkReadinessOf(run: AgentRun): ParkReadiness {
 const TELEMETRY_SHUTDOWN_MS = 1_500;
 const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
+// A session asks for few; the oldest goes first, and is only asked again.
+const SESSION_ALLOWS_HELD = 100;
 
 /** What is left of a lease, counted from when the request it answered went out. */
 type ClaimedLease = { remainingMs: number; sentAt: number };
@@ -439,6 +443,12 @@ export class WorkerHost {
   private turn: Turn | undefined;
   /** The claim's: allows the turn this attempt resumes may spend once each. */
   private grants: PermissionGrant[] = [];
+  /**
+   * Allows for the session, newest last. The engine never holds them: each
+   * call one covers is put to the gateway first, which judges the person who
+   * gave it as they stand now. Memory only, so a new attempt asks again.
+   */
+  private sessionAllows: SessionAllow[] = [];
   /** Park controls already carried out or declined; polls repeat them. */
   private readonly parksTaken = new Set<string>();
   /**
@@ -613,6 +623,7 @@ export class WorkerHost {
       onControl: (control, poll) => this.onControl(control, poll),
       onAttachments: (orders) => this.onAttachments(claim, orders),
       onDecided: (decided) => this.turn?.spans.decided(decided),
+      onSessionAllow: (allow) => this.holdSessionAllow(allow),
     });
     const toolAudit = new ToolAuditCollector({
       scrubber: () => this.scrubber,
@@ -3103,13 +3114,63 @@ export class WorkerHost {
       }
       return result;
     };
+    const pending = this.askable(answer);
+    if (pending === undefined) return;
+    const grant = this.takeGrant(request);
+    if (grant !== undefined) {
+      pending.bind(request.localId, grant.request_id);
+      this.turn?.spans.granted(request.localId);
+      if (grant.remember_offer !== undefined) {
+        this.holdSessionAllow({
+          requestId: grant.request_id,
+          rules: grant.remember_offer.map((rule) => ({
+            toolName: rule.tool_name,
+            ...(rule.rule_content === undefined
+              ? {}
+              : { ruleContent: rule.rule_content }),
+          })),
+        });
+      }
+      void answer({ kind: "selected", optionKind: "allow_once" }).then(
+        (result) => this.grantAnswered(grant, result),
+        () => this.grantAnswered(grant, "stale"),
+      );
+      return;
+    }
+    const allow = this.sessionAllowFor(request);
+    const turnId = this.turn?.turnId;
+    if (allow === undefined || turnId === undefined) {
+      pending.request(request, answer, this.approvalCheckpointer(run));
+      return;
+    }
+    void this.sessionAllowStands(request, allow, turnId).then((stands) => {
+      const now = this.askable(answer);
+      if (now === undefined) return;
+      if (!stands) this.dropSessionAllow(allow.requestId);
+      if (!stands || this.turn?.turnId !== turnId) {
+        now.request(request, answer, this.approvalCheckpointer(run));
+        return;
+      }
+      now.bind(request.localId, allow.requestId);
+      this.turn?.spans.granted(request.localId);
+      void answer({ kind: "selected", optionKind: "allow_once" });
+    });
+  }
+
+  /**
+   * The registry to ask through, or undefined once the request is answered
+   * for a worker winding down or a turn being interrupted.
+   */
+  private askable(
+    answer: (decision: ApprovalDecisionPayload) => Promise<AnswerResult>,
+  ): PendingRequestRegistry | undefined {
     if (this.stopping !== undefined || this.pending === undefined) {
       void answer({
         kind: "cancelled",
         reason: "shutdown",
         message: "This worker is winding down and cannot ask for approval",
       });
-      return;
+      return undefined;
     }
     // The interrupt voided the turn's callbacks; one raised after it is no
     // different, and asking would only hold the turn open again.
@@ -3119,35 +3180,75 @@ export class WorkerHost {
         reason: "interrupt",
         message: "The turn was interrupted",
       });
-      return;
+      return undefined;
     }
-    const grant = this.takeGrant(request);
-    if (grant !== undefined) {
-      this.pending.bind(request.localId, grant.request_id);
-      this.turn?.spans.granted(request.localId);
-      void answer({
-        kind: "selected",
-        optionKind: "allow_once",
-        ...(grant.remember_offer === undefined
-          ? {}
-          : {
-              remember: {
-                scope: "session" as const,
-                rules: grant.remember_offer.map((rule) => ({
-                  toolName: rule.tool_name,
-                  ...(rule.rule_content === undefined
-                    ? {}
-                    : { ruleContent: rule.rule_content }),
-                })),
-              },
-            }),
-      }).then(
-        (result) => this.grantAnswered(grant, result),
-        () => this.grantAnswered(grant, "stale"),
+    return this.pending;
+  }
+
+  private holdSessionAllow(allow: SessionAllow): void {
+    this.dropSessionAllow(allow.requestId);
+    this.sessionAllows.push(allow);
+    if (this.sessionAllows.length > SESSION_ALLOWS_HELD) {
+      this.sessionAllows.shift();
+    }
+  }
+
+  private dropSessionAllow(requestId: string): void {
+    this.sessionAllows = this.sessionAllows.filter(
+      (held) => held.requestId !== requestId,
+    );
+  }
+
+  /**
+   * The newest allow whose rules include every rule the engine offers for
+   * this call, compared as written: the engine's own matching is not
+   * repeated here, so a call it would have covered another way is asked.
+   */
+  private sessionAllowFor(
+    request: ApprovalRequested,
+  ): SessionAllow | undefined {
+    if (request.kind !== "permission") return undefined;
+    const offered = request.rememberOffer ?? [];
+    if (offered.length === 0) return undefined;
+    const same = (a: RememberRule, b: RememberRule) =>
+      a.toolName === b.toolName && a.ruleContent === b.ruleContent;
+    return [...this.sessionAllows]
+      .reverse()
+      .find((held) =>
+        offered.every((rule) => held.rules.some((kept) => same(kept, rule))),
       );
-      return;
+  }
+
+  /** Anything but the gateway's yes is a no: the person is asked again. */
+  private async sessionAllowStands(
+    request: ApprovalRequested,
+    allow: SessionAllow,
+    turnId: string,
+  ): Promise<boolean> {
+    const gateway = this.options.gateway;
+    if (gateway.sessionAllow === undefined) return false;
+    try {
+      const { allowed } = await gateway.sessionAllow({
+        ...this.scope,
+        turn_id: turnId,
+        grant_request_id: allow.requestId,
+        tool_call_id: request.toolCallId,
+        input_hash: request.inputHash,
+      });
+      this.logger.info("worker.session_allow.checked", {
+        request_id: allow.requestId,
+        tool_call_id: request.toolCallId,
+        allowed,
+      });
+      return allowed;
+    } catch (error) {
+      this.logger.warn("worker.session_allow.unconfirmed", {
+        request_id: allow.requestId,
+        tool_call_id: request.toolCallId,
+        error: describe(error),
+      });
+      return false;
     }
-    this.pending.request(request, answer, this.approvalCheckpointer(run));
   }
 
   /**

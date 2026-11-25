@@ -1884,6 +1884,13 @@
       "when": 1795592610910,
       "tag": "0359_conversation_judgments_voided",
       "breakpoints": true
+    },
+    {
+      "idx": 360,
+      "version": "7",
+      "when": 1795599414680,
+      "tag": "0360_pending_session_allow_subject",
+      "breakpoints": true
     }
   ]
 }

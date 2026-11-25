@@ -18,6 +18,8 @@ import type {
   RegisterPendingResult,
   RequestParkInput,
   RequestParkResult,
+  SessionAllowInput,
+  SessionAllowResult,
   WorkerFence,
   WorkerPendingStore,
 } from "@werft-ai/platform";
@@ -390,6 +392,43 @@ export function createPostgresWorkerPendingStore(
             .onConflictDoNothing();
         }
         return { outcome: "ok", invalidated: voided.length === 1 };
+      });
+    },
+
+    sessionAllowAtomic(input: SessionAllowInput): Promise<SessionAllowResult> {
+      const { fence } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const [row] = await tx
+          .select({
+            kind: pendingRequests.kind,
+            answer: pendingRequests.answer,
+            subject: pendingRequests.sessionAllowSubject,
+          })
+          .from(pendingRequests)
+          .where(
+            and(
+              eq(pendingRequests.requestId, input.grantRequestId),
+              eq(pendingRequests.sessionId, fence.sessionId),
+            ),
+          )
+          .limit(1);
+        const answer = postSessionAnswerRequestSchema.safeParse(row?.answer);
+        const allows =
+          row !== undefined &&
+          row.kind === "permission" &&
+          row.subject !== null &&
+          answer.success &&
+          answer.data.kind === "permission" &&
+          answer.data.decision === "allow" &&
+          answer.data.remember === "session";
+        return {
+          outcome: "ok",
+          grant: allows
+            ? { ownerScope: fenced.session.ownerId, subject: row.subject }
+            : null,
+        };
       });
     },
 
