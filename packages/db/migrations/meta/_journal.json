@@ -1933,6 +1933,13 @@
       "when": 1795613771446,
       "tag": "0366_slack_app_bot_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 367,
+      "version": "7",
+      "when": 1795614612471,
+      "tag": "0367_channel_summary_folds",
+      "breakpoints": true
     }
   ]
 }

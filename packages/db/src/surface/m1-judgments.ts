@@ -15,12 +15,14 @@ import {
   type M1JudgmentStore,
   type M1Place,
   type M1Record,
+  type SummaryFoldStore,
   storedSourceSet,
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import {
   appendChannelSummaryLines,
   channelMarksSettledAt,
+  createChannelSummaryFoldStore,
   dropBufferedInputs,
   engagedJudgmentsInWindow,
   JUDGMENT_BUFFER_TTL_MS,
@@ -213,6 +215,28 @@ async function atCap(
 class ChannelGone extends Error {}
 
 /**
+ * Whether no agent's binding of the channel is gone; read with the summary's
+ * row held, after any channel delete that took it first has ended.
+ */
+async function channelThere(
+  tx: Database,
+  place: Pick<M1Place, "workspaceId" | "teamId" | "channelId">,
+): Promise<boolean> {
+  return (
+    rowsOf(
+      await tx.execute(sql`
+        SELECT 1 FROM surface_bindings b
+        JOIN slack_installations i ON i.id = b.installation_id
+        WHERE b.workspace_id = ${place.workspaceId}::uuid
+          AND b.surface = 'slack' AND i.team_id = ${place.teamId}
+          AND b.external_surface_id = ${place.channelId}
+          AND b.revoked_at IS NULL AND b.status = 'gone'
+        LIMIT 1`),
+    ).length === 0
+  );
+}
+
+/**
  * M1's judgment records over PostgreSQL. A record holds Slack ts, codes and
  * ids; a held reply's text goes once it is judged or given up.
  */
@@ -234,17 +258,7 @@ export function createPostgresM1JudgmentStore(
           // is read with the row held, after that delete ends.
           const written = await appendChannelSummaryLines(tx, {
             gateOpen: () => gateOpenIn(tx, batch, true, versions),
-            channelThere: async () =>
-              rowsOf(
-                await tx.execute(sql`
-                SELECT 1 FROM surface_bindings b
-                JOIN slack_installations i ON i.id = b.installation_id
-                WHERE b.workspace_id = ${batch.workspaceId}::uuid
-                  AND b.surface = 'slack' AND i.team_id = ${batch.teamId}
-                  AND b.external_surface_id = ${batch.channelId}
-                  AND b.revoked_at IS NULL AND b.status = 'gone'
-                LIMIT 1`),
-              ).length === 0,
+            channelThere: () => channelThere(tx, batch),
             place: {
               workspaceId: batch.workspaceId,
               teamId: batch.teamId,
@@ -606,4 +620,21 @@ export function createPostgresM1JudgmentStore(
       });
     },
   };
+}
+
+/**
+ * A channel summary's fold (a1/J10) over PostgreSQL. Its write asks the
+ * folding agent's gate again under the agent's row, then holds the
+ * summary's row, as a line's write does; once any agent's binding of the
+ * channel is gone it writes nothing.
+ */
+export function createPostgresSummaryFoldStore(
+  db: Database,
+  options: { versions?: GateVersions } = {},
+): SummaryFoldStore {
+  const { versions } = options;
+  return createChannelSummaryFoldStore(db, {
+    gateOpen: (tx, subject) => gateOpenIn(tx, subject, true, versions),
+    channelThere: (tx, subject) => channelThere(tx, subject),
+  });
 }
