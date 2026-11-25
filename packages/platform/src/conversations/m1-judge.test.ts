@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  channelSummaryLineIdSchema,
   conversationCallIdSchema,
   conversationIdSchema,
   conversationInputIdSchema,
   type JudgmentNotCalledReason,
+  scopeKeyOf,
 } from "@werft-ai/contracts";
+import type { ContextFragment } from "../ports/context-fragment-source.ts";
 import { fitContext } from "./context-assembler.ts";
 import type { ConversationCallResult } from "./conversation-call-executor.ts";
 import {
@@ -64,6 +67,7 @@ function judgeWith(
     release?: M1Release;
     capBytes?: number;
     summaryVersion?: number;
+    fragments?: ContextFragment[];
   } = {},
 ) {
   const runs: Run[] = [];
@@ -74,7 +78,7 @@ function judgeWith(
       assemble: async (_ref, input) => ({
         ...fitContext({
           ...input,
-          fragments: [],
+          fragments: options.fragments ?? [],
           ...(options.capBytes === undefined
             ? {}
             : { capBytes: options.capBytes }),
@@ -206,6 +210,60 @@ describe("the summary line in the answer (a1/J8)", () => {
       sources: [{ ...p.sources[0], editedAt: edited }],
       messages: ["deploy doc?"],
     } as never);
+  });
+
+  test("a source read off a summary line keeps the time it was read at, the oldest of each", async () => {
+    const first = new Date("2026-11-25T00:00:10Z");
+    const read = new Date("2026-11-25T00:00:20Z");
+    const later = new Date("2026-11-25T00:00:30Z");
+    const p = { ...post("deploy doc, edited", "1.1"), editedAt: later };
+    const slack = (ts: string) => ({ teamId: "T1", channelId: "C1", ts });
+    const line: ContextFragment = {
+      kind: "channel_summary_line",
+      scope: scopeKeyOf({
+        kind: "channel",
+        workspaceId: randomUUID(),
+        teamId: "T1",
+        channelId: "C1",
+      }),
+      sources: [
+        { inputId: null, slack: slack("1.0") },
+        { inputId: null, slack: slack("1.1") },
+      ],
+      sourceAt: [read, first],
+      lineId: channelSummaryLineIdSchema.parse(randomUUID()),
+      text: "someone asked for the deploy doc",
+      writtenByAgentId: randomUUID(),
+      writtenAt: read,
+    };
+    const { judge } = judgeWith(
+      [
+        {
+          outcome: "answered",
+          callId: callId(),
+          value: {
+            decision: "quiet",
+            reason: "human_conversation",
+            summary: "the deploy doc was asked for again",
+          },
+        },
+      ],
+      { fragments: [line] },
+    );
+    const judged = await judge.judge(subjectOf(p));
+    const byTs = new Map(
+      (judged.summary?.sources ?? []).map((source) => [
+        source.slack?.ts,
+        source.editedAt,
+      ]),
+    );
+    // 1.1 was read twice: edited in the batch, unedited in the summary line.
+    expect(byTs).toEqual(
+      new Map([
+        ["1.0", read],
+        ["1.1", first],
+      ]),
+    );
   });
 
   test("a failed call or a null line gives none", async () => {

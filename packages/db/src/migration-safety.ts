@@ -18,6 +18,7 @@ export const GROWING_TABLES: readonly string[] = [
   "channel_summaries",
   "channel_summary_line_sources",
   "channel_summary_lines",
+  "channel_summary_versions",
   "checkpoint_output_objects",
   "checkpoint_outputs",
   "checkpoints",

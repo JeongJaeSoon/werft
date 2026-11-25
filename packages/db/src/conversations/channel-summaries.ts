@@ -211,8 +211,9 @@ const dateOrNull = (value: Date | string | null) =>
 /**
  * Who said each source and when the text read was written: off the writing
  * agent's input row in the channel, else off a source row of the channel's
- * summary (the call read a line of it). The caller gives only the edit time
- * of a text it read off an input row. Null names a key neither knows.
+ * summary (the call read a line of it). The edit time is the caller's, as it
+ * read the text; unset on a summary source, the row's. Null names a key
+ * neither knows.
  */
 async function resolveSources(
   tx: Database,
@@ -312,7 +313,10 @@ async function resolveSources(
         ts: source.ts,
         speakerKind: source.speaker_kind,
         speakerId: source.speaker_id,
-        editedAt: dateOrNull(source.edited_at),
+        editedAt:
+          key.editedAt === undefined
+            ? dateOrNull(source.edited_at)
+            : key.editedAt,
       };
     }),
   };
@@ -356,10 +360,15 @@ export async function appendChannelSummaryLines(
         source: { inputId: key.inputId, slack: key.slack },
       };
     }
-    // One row per message: the first read of it.
+    // One row per message: the oldest text of it read.
     const byTs = new Map<string, ResolvedSource>();
+    const timeOf = (source: ResolvedSource) =>
+      (source.editedAt ?? tsTime(source.ts)).getTime();
     for (const source of found as ResolvedSource[]) {
-      if (!byTs.has(source.ts)) byTs.set(source.ts, source);
+      const seen = byTs.get(source.ts);
+      if (seen === undefined || timeOf(source) < timeOf(seen)) {
+        byTs.set(source.ts, source);
+      }
     }
     resolved.push([...byTs.values()]);
   }

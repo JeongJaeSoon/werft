@@ -185,6 +185,7 @@ export function createPostgresContextFragmentSource(
                 },
               })),
               lineId: line.id,
+              sourceAt: line.sources.map((source) => source.at),
               text: line.text,
               writtenByAgentId: line.writtenByAgentId,
               writtenAt: line.writtenAt,

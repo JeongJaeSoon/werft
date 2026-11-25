@@ -1253,8 +1253,10 @@ async function channelDeleted(
       })
       .from(slackInstallations)
       .where(eq(slackInstallations.id, installation));
-    if (install) await deleteChannelSummary(tx, { ...install, channelId });
+    // The binding before the summary, as a summary line's write takes them
+    // (its gate, then the summary): the other way, the two wait on each other.
     const current = await lockBinding(tx, channelOf(installation, channelId));
+    if (install) await deleteChannelSummary(tx, { ...install, channelId });
     if (!current || !ACTIVE_OR_LEFT.has(current.status)) return false;
     await markGone(tx, current, "channel_deleted", at);
     return true;

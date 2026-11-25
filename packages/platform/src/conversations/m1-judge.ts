@@ -230,6 +230,9 @@ type Deps = {
 
 const refsOf = (posts: readonly M1Post[]) => posts.map((post) => post.ts);
 
+const slackKey = (place: NonNullable<SourceKey["slack"]>) =>
+  `${place.teamId}/${place.channelId}/${place.ts}`;
+
 /** The record of a judgment stopped before the model: silence, with why. */
 export function m1NotCalled(
   subject: Pick<M1Subject, "posts">,
@@ -295,6 +298,19 @@ export function createM1Judge(deps: Deps) {
       const byInput = new Map(
         subject.posts.map((post) => [post.inputId, post]),
       );
+      // When each message's text the call read was written: the oldest of
+      // what it read, as a line made from an old text goes with that text.
+      const summaryAt = new Map<string, Date>();
+      for (const piece of fitted.fragments) {
+        if (piece.kind !== "channel_summary_line") continue;
+        piece.sources.forEach((source, i) => {
+          const at = piece.sourceAt[i];
+          if (source.slack === null || at === undefined) return;
+          const key = slackKey(source.slack);
+          const seen = summaryAt.get(key);
+          if (seen === undefined || at < seen) summaryAt.set(key, at);
+        });
+      }
       const postsOf = (posts: readonly CurrentPost[]) =>
         posts.flatMap((post) =>
           post.inputId === null ? [] : (byInput.get(post.inputId) ?? []),
@@ -404,9 +420,22 @@ export function createM1Judge(deps: Deps) {
                 sources: fitted.sources.keys.map((key) => {
                   const post =
                     key.inputId === null ? undefined : byInput.get(key.inputId);
-                  return post === undefined
-                    ? key
-                    : { ...key, editedAt: post.editedAt ?? null };
+                  const at =
+                    key.slack === null
+                      ? undefined
+                      : summaryAt.get(slackKey(key.slack));
+                  if (post !== undefined) {
+                    // Unedited, the post is the message's first text.
+                    const edited = post.editedAt ?? null;
+                    return {
+                      ...key,
+                      editedAt:
+                        edited === null || at === undefined || edited < at
+                          ? edited
+                          : at,
+                    };
+                  }
+                  return at === undefined ? key : { ...key, editedAt: at };
                 }),
                 messages: [
                   ...fitted.current.map((post) => post.body),

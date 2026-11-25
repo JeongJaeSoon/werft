@@ -708,6 +708,46 @@ integration("channel summaries (0325)", () => {
       });
     });
 
+    test("a source read off a summary line keeps the time of the text the call read, not a newer line's", async () => {
+      const channel = newChannel();
+      const a = await input(channel);
+      if (!a) throw new Error("input");
+      const edited = new Date("2026-11-24T00:00:00.000Z");
+      const at = (ts: string) => new Date(Number(ts) * 1000);
+      const ofA = (editedAt: Date) => ({
+        inputId: null,
+        slack: { teamId, channelId: channel, ts: a.ts },
+        editedAt,
+      });
+      // A late call read line A, made from a's first text. Meanwhile the
+      // edit removed line A and line B was made from the edited text.
+      await append(channel, 0, [{ text: "line A", sources: [src(a)] }]);
+      await marks().markEdited(editMark(channel, a.ts, edited));
+      await append(channel, 1, [
+        { text: "line B", sources: [{ ...src(a), editedAt: edited }] },
+      ]);
+      // The input row is gone: a is known only by line B's source row.
+      await pool.query("DELETE FROM conversation_inputs WHERE id = $1", [a.id]);
+      const write = (editedAt: Date) =>
+        summaries.append({
+          place: placeOf(channel),
+          agentId,
+          expectedVersion: 2,
+          lines: [{ text: "line read", sources: [ofA(editedAt)] }],
+        });
+      expect(await write(at(a.ts))).toEqual({
+        outcome: "written",
+        version: 2,
+        lineIds: [],
+        skipped: [a.id],
+      });
+      // One that read line B is the edited text's, and stays.
+      expect(await write(edited)).toMatchObject({
+        outcome: "written",
+        version: 3,
+      });
+    });
+
     test("a line keeps every source its call read, and one read off a summary line goes when that line's source is deleted", async () => {
       const channel = newChannel();
       const [a, b, c] = [

@@ -18,13 +18,18 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresChannelSummaryStore } from "../conversations/channel-summaries.ts";
+import {
+  appendChannelSummaryLines,
+  createPostgresChannelSummaryStore,
+} from "../conversations/channel-summaries.ts";
 import { requestReplyJudgment } from "../conversations/conversation-judgments.ts";
 import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
 import { createPostgresJudgmentBatchStore } from "../conversations/judgment-batches.ts";
 import { holdBufferedInput } from "../conversations/judgment-buffer.ts";
+import { createPostgresSurfaceBindingStore } from "../musterrolle/surface-bindings.ts";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { fixtureTeamSql } from "../testing/fixture-team.ts";
@@ -401,6 +406,58 @@ integration("M1 judgment records", () => {
       expect(rows).toEqual([]);
       const [row] = await rowsOf(place.channelId);
       expect(row).toMatchObject({ summary: "written", prompt_version: 2 });
+    });
+
+    test("a channel delete and a write under the gate take the binding, then the summary, so neither waits on the other", async () => {
+      const place = await channel();
+      const first = await hold(place, "800.000001", "first post");
+      const second = await hold(place, "800.000002", "second post");
+      const summaryPlace = {
+        workspaceId,
+        teamId: TEAM,
+        channelId: place.channelId,
+      };
+      const summaries = createPostgresChannelSummaryStore(db);
+      const made = await summaries.append({
+        place: summaryPlace,
+        agentId,
+        expectedVersion: 0,
+        lines: [
+          { text: "first line", sources: [{ inputId: first, slack: null }] },
+        ],
+      });
+      if (made.outcome !== "written") throw new Error(made.outcome);
+      let deletion: Promise<boolean> = Promise.resolve(false);
+      const written = await db.transaction(async (tx) => {
+        // The binding as writeSummaryLine's gate holds it.
+        await tx.execute(sql`
+          SELECT 1 FROM surface_bindings
+          WHERE agent_id = ${agentId}::uuid AND surface = 'slack'
+            AND external_surface_id = ${place.channelId}
+          FOR SHARE`);
+        // The delete starts now and waits on that binding.
+        deletion = createPostgresSurfaceBindingStore(db).channelDeleted(
+          installationId,
+          place.channelId,
+          null,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return appendChannelSummaryLines(tx, {
+          place: summaryPlace,
+          expectedVersion: 1,
+          agentId,
+          lines: [
+            {
+              text: "second line",
+              sources: [{ inputId: second, slack: null }],
+            },
+          ],
+        });
+      });
+      expect(written).toMatchObject({ outcome: "written", version: 2 });
+      expect(await deletion).toBe(true);
+      // After: the delete ran second and took the summary with it.
+      expect(await summaries.read(summaryPlace)).toBeNull();
     });
 
     test("three lost compares in a row drop the line and the record says so", async () => {

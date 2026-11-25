@@ -19,6 +19,8 @@ export type ContextFragment = { scope: ScopeKey; sources: SourceKey[] } & (
   | {
       kind: "channel_summary_line";
       lineId: ChannelSummaryLineId;
+      /** Each source's `at` as read, in `sources` order. */
+      sourceAt: Date[];
       text: string;
       writtenByAgentId: string;
       writtenAt: Date;
