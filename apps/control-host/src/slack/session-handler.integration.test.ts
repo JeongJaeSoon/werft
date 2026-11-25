@@ -4526,8 +4526,8 @@ describe.each(ENGINES)(
           await drain(handle);
           return claim;
         },
-        async reprocess(turnId) {
-          const left = await store.reprocess(turnId);
+        async confirmReset(turnId) {
+          const left = await store.confirmReset(turnId);
           slack.failures.set("agents.sessions.setStatus", "internal_error");
           return left;
         },
@@ -4622,11 +4622,12 @@ describe.each(ENGINES)(
       // Another pass sends the newer turn's `active` after this one read
       // "processing", and marks it only after this one's send is in.
       const store = createPostgresMentionTurnStatuses(db);
-      let confirm = async () => {};
+      let confirm: () => Promise<unknown> = async () => {};
       const other: MentionTurnStatusStore = {
         ...store,
         async confirmReset(turnId) {
           confirm = () => store.confirmReset(turnId);
+          return false;
         },
       };
       const statuses: MentionTurnStatusStore = {
@@ -4658,6 +4659,92 @@ describe.each(ENGINES)(
       expect(statusesOf("100.000100").at(-1)).toBe("active");
       expect(await threadsLeft()).toEqual([]);
     });
+
+    /**
+     * A pass that dies in its ending of the older turn, a newer mention
+     * written just after its claim: past `setStatus`, Slack took the
+     * `active` and nothing is marked; past `confirmReset`, it is marked;
+     * past `releaseReset`, its claim was let go.
+     * Nothing after runs.
+     */
+    const dies = (
+      fixture: Fixture,
+      handle: ReturnType<typeof handler>["handle"],
+      past: "setStatus" | "confirmReset" | "releaseReset",
+    ) => {
+      const store = createPostgresMentionTurnStatuses(db);
+      const statuses: MentionTurnStatusStore = {
+        ...store,
+        async claimReset(turnId, claimMs) {
+          const claim = await store.claimReset(turnId, claimMs);
+          await deliver(
+            fixture,
+            mention("100.000300", { thread_ts: "100.000100" }),
+          );
+          await drain(handle);
+          return claim;
+        },
+        async confirmReset(turnId) {
+          if (past === "confirmReset") await store.confirmReset(turnId);
+          // As when Slack took the `active` but its answer failed.
+          if (past === "releaseReset") await store.releaseReset(turnId);
+          throw new Error("the pass died");
+        },
+        async claimThreads() {
+          return [];
+        },
+      };
+      return endings(undefined, 60_000, statuses);
+    };
+
+    test.each([
+      ["once the older turn is marked set back", "confirmReset", 60_000],
+      [
+        "before the older turn is marked, once its claim runs out",
+        "setStatus",
+        0,
+      ],
+      ["after letting its claim go", "releaseReset", 60_000],
+    ] as const)(
+      "a pass that dies %s still has the newer turn told processing again",
+      async (_, past, claimMs) => {
+        const fixture = await agentInSlack("main", { rollout: "on" });
+        const { handle } = handler();
+        await deliver(fixture, mention("100.000100"));
+        await drain(handle);
+        await report(await leased(), { outcome: "completed", text: "one" });
+        await dies(fixture, handle, past);
+        expect(statusesOf("100.000100")).toEqual([
+          "processing",
+          "processing",
+          "active",
+        ]);
+        await endings(undefined, claimMs);
+        await endings(undefined, claimMs);
+        expect(statusesOf("100.000100")).toEqual([
+          "processing",
+          "processing",
+          "active",
+          "processing",
+        ]);
+        expect(await threadsLeft()).toEqual([]);
+        await report(await leased(), { outcome: "completed", text: "two" });
+        await endings();
+        await endings();
+        expect(statusesOf("100.000100")).toEqual([
+          "processing",
+          "processing",
+          "active",
+          "processing",
+          "active",
+        ]);
+        expect(
+          (await mentionTurnsOf(fixture)).every(
+            (turn) => turn.resetAt !== null,
+          ),
+        ).toBe(true);
+      },
+    );
 
     test("a thread left again while a pass sends it is not sent beside it, and ends as its turns say", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
