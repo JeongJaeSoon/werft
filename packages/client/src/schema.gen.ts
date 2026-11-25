@@ -7309,6 +7309,8 @@ export interface components {
                 park_at?: string | null;
                 /** @description The turn the request was asked in, as `turn_id`: a parked turn resumes once every request of its group is answered or expired, and they expire together. */
                 group?: string;
+                /** @description Whether this caller may answer this request: as the list's `answerable`, and also a private channel's member with sessions:approve once the requester left the channel. A hint; the answer is judged again. */
+                answerable?: boolean;
                 /** @constant */
                 kind: "permission";
                 tool: string;
@@ -7342,6 +7344,8 @@ export interface components {
                 park_at?: string | null;
                 /** @description The turn the request was asked in, as `turn_id`: a parked turn resumes once every request of its group is answered or expired, and they expire together. */
                 group?: string;
+                /** @description Whether this caller may answer this request: as the list's `answerable`, and also a private channel's member with sessions:approve once the requester left the channel. A hint; the answer is judged again. */
+                answerable?: boolean;
                 /** @constant */
                 kind: "question";
                 questions: {
@@ -7355,7 +7359,7 @@ export interface components {
                     allow_free_text: boolean;
                 }[];
             })[];
-            /** @description Whether this caller may answer the session's requests: its creator, its agent's admins and the workspace's owners and admins may; someone who only sees it through its share may not (POST /answers is then 403). A hint for what to offer; the answer is judged again. */
+            /** @description Whether this caller may answer the session's requests: its creator, its agent's admins and the workspace's owners and admins may; someone who only sees it through its share may not (POST /answers is then 403). Each item's `answerable` can say yes where this says no. A hint for what to offer; the answer is judged again. */
             answerable: boolean;
         };
         ListTakeoversResponse: {
