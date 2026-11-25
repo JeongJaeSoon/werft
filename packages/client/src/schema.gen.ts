@@ -1150,7 +1150,7 @@ export interface paths {
         get: operations["getSlackSettings"];
         /**
          * Save or clear where Slack's events enter
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `events_public_url`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from `CONSOLE_ORIGIN` again. A change is one transaction and one receipt (`update_slack_settings`, the saved and the previous address); the value already saved answers 200 without `receipt_id`, leaves no receipt and sends no app. After a changed address commits, every `created` agent app of every workspace is sent its manifest with the events address in effect (the saved one, or `computed_events_base` after clearing), as POST /v1/agents/{id}/slack/app/events/recheck sends it: one workspace's apps one after another, through that workspace's App Configuration Token. `updates` says per app what happened: `updated` (`reinstall_required` when Slack took new permissions with it), or `failed` with `reason_code` `config_token_inactive`, `events_url_unset`, `slack_refused` (a rate limit included: its Retry-After is not waited out) or `no_answer`, the same reason the app's `manifest_sync` records. A failed app keeps the address it was sent before; the new address stays saved either way, and POST /v1/slack-settings/retry sends it again. `updates` is empty when nothing changed, or when clearing leaves no https address.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `events_public_url`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from `CONSOLE_ORIGIN` again. A change is one transaction and one receipt (`update_slack_settings`, the saved and the previous address); the value already saved answers 200 without `receipt_id`, leaves no receipt and sends no app. After a changed address commits, every `created` agent app of every workspace is sent its manifest with the events address in effect (the saved one, or `computed_events_base` after clearing), as POST /v1/agents/{id}/slack/app/events/recheck sends it: all at once, each through its workspace's App Configuration Token. The answer waits at most 20 seconds. `updates` says per app what happened: `updated` (`reinstall_required` when Slack took new permissions with it), `sending` (Slack had not answered when the wait ended; the outcome lands on the app's `manifest_sync` once it does), or `failed` with `reason_code` `config_token_inactive`, `events_url_unset`, `slack_refused` (a rate limit included: its Retry-After is not waited out) or `no_answer`, the same reason the app's `manifest_sync` records. A failed app keeps the address it was sent before; the new address stays saved either way, and POST /v1/slack-settings/retry sends it again. `updates` is empty when nothing changed, or when clearing leaves no https address.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -9003,6 +9003,14 @@ export interface components {
                 outcome: "failed";
                 /** @enum {string} */
                 reason_code: "config_token_inactive" | "events_url_unset" | "slack_refused" | "no_answer" | "not_found";
+            } | {
+                /** Format: uuid */
+                slack_app_id: string;
+                /** Format: uuid */
+                agent_id: string;
+                name: string;
+                /** @constant */
+                outcome: "sending";
             })[];
         };
         RetrySlackEventsUpdatesResponse: {
@@ -9024,6 +9032,14 @@ export interface components {
                 outcome: "failed";
                 /** @enum {string} */
                 reason_code: "config_token_inactive" | "events_url_unset" | "slack_refused" | "no_answer" | "not_found";
+            } | {
+                /** Format: uuid */
+                slack_app_id: string;
+                /** Format: uuid */
+                agent_id: string;
+                name: string;
+                /** @constant */
+                outcome: "sending";
             })[];
         };
         GitHubWebhookSettings: {

@@ -299,12 +299,18 @@ export function SlackEventsSetting({
                       <Badge variant="green">
                         {t("workspace.eventsUpdated")}
                       </Badge>
+                    ) : one.outcome === "sending" ? (
+                      <Badge>{t("workspace.eventsSending")}</Badge>
                     ) : (
                       <Badge variant="red">{t("workspace.eventsFailed")}</Badge>
                     )}
                   </div>
                   {one.outcome === "failed" ? (
                     <Text variant="sub">{t(REASON[one.reason_code])}</Text>
+                  ) : one.outcome === "sending" ? (
+                    <Text variant="sub">
+                      {t("workspace.eventsSendingHint")}
+                    </Text>
                   ) : one.reinstall_required ? (
                     <Text variant="sub">{t("workspace.eventsReinstall")}</Text>
                   ) : null}

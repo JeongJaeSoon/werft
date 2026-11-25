@@ -157,6 +157,9 @@ export const workspaceKo = {
   "workspace.eventsResults": "앱별 결과",
   "workspace.eventsUpdated": "보냄",
   "workspace.eventsFailed": "보내지 못함",
+  "workspace.eventsSending": "답 기다리는 중",
+  "workspace.eventsSendingHint":
+    "Slack이 아직 답하지 않았습니다. 결과는 에이전트의 Slack 탭에 나옵니다.",
   "workspace.eventsReinstall":
     "Slack이 새 권한도 함께 받았습니다. 에이전트의 Slack 탭에서 앱을 다시 설치하세요.",
   "workspace.eventsFailedHint":
@@ -331,6 +334,9 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.eventsResults": "Result per app",
   "workspace.eventsUpdated": "Sent",
   "workspace.eventsFailed": "Not sent",
+  "workspace.eventsSending": "Waiting for Slack",
+  "workspace.eventsSendingHint":
+    "Slack has not answered yet. The result shows on the agent's Slack tab.",
   "workspace.eventsReinstall":
     "Slack took new permissions with it too. Install the app again from the agent's Slack tab.",
   "workspace.eventsFailedHint":
@@ -509,6 +515,9 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.eventsResults": "アプリごとの結果",
   "workspace.eventsUpdated": "送信済み",
   "workspace.eventsFailed": "送れませんでした",
+  "workspace.eventsSending": "応答待ち",
+  "workspace.eventsSendingHint":
+    "Slack がまだ応答していません。結果はエージェントの Slack タブに表示されます。",
   "workspace.eventsReinstall":
     "Slack が新しい権限も一緒に受け取りました。エージェントの Slack タブからアプリをインストールし直してください。",
   "workspace.eventsFailedHint":

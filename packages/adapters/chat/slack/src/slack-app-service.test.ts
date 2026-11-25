@@ -1552,6 +1552,32 @@ describe("sending the events address after it changed", () => {
     );
   });
 
+  test("an app Slack has not answered when the wait ends is answered sending, and records its outcome after", async () => {
+    const { service, slack, base, slackAppId, requestUrl, sync } =
+      await madeApp();
+    base.eventsPublicUrl = NEW;
+    const update = slack.api.updateApp;
+    let answer = () => {};
+    slack.api.updateApp = async (...args) => {
+      await new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      return update(...args);
+    };
+    expect(await service.resendAgentAppEvents(undefined, 5)).toEqual([
+      {
+        slack_app_id: slackAppId,
+        agent_id: AGENT,
+        name: "Release notes",
+        outcome: "sending",
+      },
+    ]);
+    answer();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requestUrl()).toBe(`${NEW}/v1/slack/events/${AGENT}`);
+    expect((await sync())?.error).toBeNull();
+  });
+
   test("an id that is no created agent app answers not_found", async () => {
     const { service } = await madeApp();
     const unknown = "019a0000-0000-7000-8000-0000000000b9";

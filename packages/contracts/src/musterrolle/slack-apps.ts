@@ -520,6 +520,18 @@ export const slackEventsUpdateSchema = z.discriminatedUnion("outcome", [
       reason_code: z.enum(SLACK_EVENTS_UPDATE_FAILURE_VALUES),
     })
     .strict(),
+  /**
+   * Slack had not answered when the save stopped waiting; the outcome lands
+   * on the app's `manifest_sync` once it does.
+   */
+  z
+    .object({
+      slack_app_id: slackAppIdSchema,
+      agent_id: agentIdSchema,
+      name: z.string(),
+      outcome: z.literal("sending"),
+    })
+    .strict(),
 ]);
 
 export const updateSlackSettingsResponseSchema = slackSettingsSchema
