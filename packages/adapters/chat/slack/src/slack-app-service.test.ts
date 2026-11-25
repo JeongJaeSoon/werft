@@ -800,7 +800,7 @@ describe("manifest check at a start of the API", () => {
     ]);
     const row = apps.rows.get((await installBot.record()).id);
     if (!row) throw new Error("no row");
-    // As migration 0363 leaves an install made before it.
+    // As migration 0364 leaves an install made before it.
     row.botScopes = null;
     // An older build checked the app moments ago.
     expect((await service.syncAgentAppManifests()).checked).toBe(1);
