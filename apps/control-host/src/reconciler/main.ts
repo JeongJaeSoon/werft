@@ -22,6 +22,7 @@ import {
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
   reconcileProviderExchanges,
+  settleDeadUnknownBudget,
   unknownBudgetByAccount,
 } from "@werft-ai/db";
 import { SEQUENTIAL_ROLE_POOL_MAX } from "@werft-ai/db/pool";
@@ -34,7 +35,10 @@ import {
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { queueDatabaseUrl } from "../database-url.ts";
 import { withJobDatabase } from "../job-database.ts";
-import { runUnknownBudgetReport } from "./budget-unknown.ts";
+import {
+  runDeadUnknownBudgetSettle,
+  runUnknownBudgetReport,
+} from "./budget-unknown.ts";
 import { runConversationCallReconciler } from "./conversation-calls.ts";
 import { runProviderExchangeReconciler } from "./provider-exchanges.ts";
 import {
@@ -91,6 +95,18 @@ export async function main(
         releaseExpired: (options) => conversationCalls.releaseExpired(options),
         markUnknown: (options) => conversationCalls.markUnknown(options),
         unknownByAgent: (options) => conversationCalls.unknownByAgent(options),
+      });
+      await runDeadUnknownBudgetSettle({
+        environment: {
+          ...(environment.RECONCILER_BATCH_SIZE === undefined
+            ? {}
+            : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
+          ...(environment.RECONCILER_DRY_RUN === undefined
+            ? {}
+            : { RECONCILER_DRY_RUN: environment.RECONCILER_DRY_RUN }),
+        },
+        logger,
+        settle: (options) => settleDeadUnknownBudget(db, options),
       });
       await runUnknownBudgetReport({
         environment: {
