@@ -1,7 +1,7 @@
 -- migrate:no-transaction
--- What a conversation turn's read tools have used: the tool calls the server
--- let through and the thread reads among them, counted on the turn's permit
--- so every API process holds the turn to the same limits.
+-- What a conversation turn's read tools have used: their calls, the one
+-- refused past the limit too, and the thread reads among them, counted on
+-- the turn's permit so every API process holds the turn to the same limits.
 -- conversation_turn_permits gains two columns with a constant default, which
 -- rewrites no row; their constraint is added NOT VALID and validated in its
 -- own statement. Every statement may run again.
