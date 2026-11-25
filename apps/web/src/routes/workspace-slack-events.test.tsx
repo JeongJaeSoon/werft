@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SlackSettings } from "@werft-ai/contracts";
+import type { SlackEventsUpdate, SlackSettings } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, WORKSPACE_ID } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -74,6 +74,7 @@ describe("연동 › Slack의 이벤트 입구 주소", () => {
         return json(200, {
           ...settings(saved),
           receipt_id: "019a0000-0000-7000-8000-0000000000e1",
+          updates: [],
         });
       },
     });
@@ -87,9 +88,7 @@ describe("연동 › Slack의 이벤트 입구 주소", () => {
         .length;
     const before = tokenReads();
     await user.click(within(area).getByRole("button", { name: "저장" }));
-    await screen.findByText(
-      "이벤트 입구 주소를 저장했습니다. 이미 만든 앱은 에이전트의 Slack 탭에서 '다시 확인'을 눌러 새 주소를 보내세요.",
-    );
+    await screen.findByText("이벤트 입구 주소를 저장했습니다.");
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       events_public_url: EVENTS,
     });
@@ -127,6 +126,7 @@ describe("연동 › Slack의 이벤트 입구 주소", () => {
         return json(200, {
           ...settings(null),
           receipt_id: "019a0000-0000-7000-8000-0000000000e2",
+          updates: [],
         });
       },
     });
@@ -136,15 +136,89 @@ describe("연동 › Slack의 이벤트 입구 주소", () => {
     await user.click(within(area).getByRole("button", { name: "저장" }));
     expect(api.calls.filter((call) => call.method === "PUT")).toHaveLength(0);
     await user.click(within(area).getByRole("button", { name: "비우기" }));
-    await screen.findByText(
-      "이벤트 입구 주소를 비웠습니다. 이미 만든 앱은 에이전트의 Slack 탭에서 '다시 확인'을 눌러 새 주소를 보내세요.",
-    );
+    await screen.findByText("이벤트 입구 주소를 비웠습니다.");
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       events_public_url: null,
     });
     await waitFor(() => expect(field(area).value).toBe(""));
     expect(
       within(area).queryByRole("button", { name: "비우기" }) === null,
+    ).toBe(true);
+  });
+
+  test("저장하면 앱마다 보낸 결과를 보이고, 보내지 못한 앱만 그 자리에서 다시 보낸다", async () => {
+    const sent: SlackEventsUpdate = {
+      slack_app_id: "019a0000-0000-7000-8000-0000000000b1",
+      agent_id: "019a0000-0000-7000-8000-0000000000c1",
+      name: "Release notes",
+      outcome: "updated",
+      reinstall_required: false,
+    };
+    const unsent: SlackEventsUpdate = {
+      slack_app_id: "019a0000-0000-7000-8000-0000000000b2",
+      agent_id: "019a0000-0000-7000-8000-0000000000c2",
+      name: "Triage",
+      outcome: "failed",
+      reason_code: "config_token_inactive",
+    };
+    const { api } = renderAt(SLACK, {
+      ...routes(null),
+      [`PUT ${API}`]: () =>
+        json(200, {
+          ...settings(EVENTS),
+          receipt_id: "019a0000-0000-7000-8000-0000000000e3",
+          updates: [sent, unsent],
+        }),
+      [`POST ${API}/retry`]: () =>
+        json(200, {
+          updates: [
+            {
+              slack_app_id: unsent.slack_app_id,
+              agent_id: unsent.agent_id,
+              name: unsent.name,
+              outcome: "updated",
+              reinstall_required: true,
+            },
+          ],
+        }),
+    });
+    const user = await setupUser();
+    const area = await section();
+    await waitFor(() => expect(area.textContent).toContain(CONSOLE));
+    await user.type(field(area), EVENTS);
+    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await screen.findByText(
+      "이벤트 입구 주소를 저장하고 앱 1개에 새 주소를 보냈습니다.",
+    );
+    const list = within(area).getByRole("list", { name: "앱별 결과" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "Release notes보냄",
+      "Triage보내지 못함App Configuration Token이 활성 상태가 아닙니다. 토큰을 다시 넣은 뒤 다시 보내세요.",
+    ]);
+    // The reader lands on the list, the retry inside it.
+    await waitFor(() =>
+      expect(document.activeElement?.contains(list)).toBe(true),
+    );
+    await user.click(
+      within(area).getByRole("button", { name: "보내지 못한 앱 다시 보내기" }),
+    );
+    await screen.findByText("남은 앱에 새 주소를 모두 보냈습니다.");
+    expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+      slack_app_ids: [unsent.slack_app_id],
+    });
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((row) => row.textContent),
+    ).toEqual([
+      "Release notes보냄",
+      "Triage보냄Slack이 새 권한도 함께 받았습니다. 에이전트의 Slack 탭에서 앱을 다시 설치하세요.",
+    ]);
+    expect(
+      within(area).queryByRole("button", {
+        name: "보내지 못한 앱 다시 보내기",
+      }) === null,
     ).toBe(true);
   });
 
