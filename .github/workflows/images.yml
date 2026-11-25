@@ -943,11 +943,12 @@ jobs:
   # on a push only, and a skipped job in a retry's graph would skip every
   # release job after it, release-approve included (actions/runner#491). A
   # push waits for this run's, a retry reads the push run of its commit.
+  # Its timeout holds both waits, ci (90 min) and main-chain (60 min).
   release-gate:
     needs: [release-detect, index-main]
     if: needs.release-detect.outputs.tag != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    timeout-minutes: 160
     permissions:
       contents: read
       actions: read

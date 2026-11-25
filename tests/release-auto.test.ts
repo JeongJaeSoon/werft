@@ -221,6 +221,22 @@ describe("the release jobs of a main run", () => {
       contents: "read",
       actions: "read",
     });
+    // It starts before chart-publish-main on a push, so its timeout holds
+    // the default waits of ci and main-chain one after the other.
+    const script = readFileSync(
+      join(root, ".github/scripts/release-auto.sh"),
+      "utf8",
+    );
+    const wait = (name: string) =>
+      Number(new RegExp(`\\$\\{${name}:-(\\d+)\\}`).exec(script)?.[1]);
+    expect(wait("CI_WAIT_SECONDS")).toBe(5400);
+    expect(wait("MAIN_CHAIN_WAIT_SECONDS")).toBe(3600);
+    const timeout = (jobs["release-gate"] as { "timeout-minutes"?: number })[
+      "timeout-minutes"
+    ];
+    expect((timeout ?? 0) * 60).toBeGreaterThan(
+      wait("CI_WAIT_SECONDS") + wait("MAIN_CHAIN_WAIT_SECONDS"),
+    );
     // Every Debian source is verified, not only warned about, before the approval.
     expect(jobs["sources-release"]?.env?.RELEASE_REF).toBe(
       "refs/tags/${{ needs.release-detect.outputs.tag }}",
@@ -767,10 +783,40 @@ esac
     test("a push whose chart-publish-main does not finish in time fails", () => {
       const run = mainChain(
         [{ match: "actions/runs/77/jobs", out: "in_progress none" }],
-        { ...push, CI_WAIT_SECONDS: "0" },
+        { ...push, MAIN_CHAIN_WAIT_SECONDS: "0" },
       );
       expect(run.code).toBe(1);
       expect(run.err).toContain("still in_progress");
+    });
+
+    test("a retry started while the push run is still on its way waits for it", () => {
+      const run = mainChain(
+        [
+          pushRun,
+          {
+            match: "actions/runs/4552/jobs",
+            seq: [
+              ["", 0],
+              ["in_progress none", 0],
+              ["completed success", 0],
+            ],
+          },
+          { match: "--jq .status", out: "in_progress" },
+        ],
+        retry,
+      );
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("chart-publish-main passed in Images run 4552");
+      const timedOut = mainChain(
+        [
+          pushRun,
+          { match: "actions/runs/4552/jobs", out: "queued none" },
+          { match: "--jq .status", out: "in_progress" },
+        ],
+        { ...retry, MAIN_CHAIN_WAIT_SECONDS: "0" },
+      );
+      expect(timedOut.code).toBe(1);
+      expect(timedOut.err).toContain("still queued");
     });
 
     test("a retry reads the push run of this commit", () => {
@@ -794,13 +840,20 @@ esac
       [push, "completed skipped", "concluded skipped"],
       [retry, "completed failure", "concluded failure"],
       [retry, "completed skipped", "concluded skipped"],
-      // The push run a retry reads has ended: what is not done never ran.
+      // Once the push run a retry reads has ended, what is not done never ran.
       [retry, "", "is absent, not completed"],
       [retry, "in_progress none", "is in_progress, not completed"],
     ])(
       "%j with chart-publish-main %j stops the release",
       (env, answer, why) => {
-        const run = mainChain([pushRun, { match: "/jobs", out: answer }], env);
+        const run = mainChain(
+          [
+            pushRun,
+            { match: "/jobs", out: answer },
+            { match: "--jq .status", out: "completed" },
+          ],
+          env,
+        );
         expect(run.code).toBe(1);
         expect(run.err).toContain(why);
       },

@@ -21,8 +21,9 @@
 # env: GH_REPO, GH_TOKEN, GITHUB_SHA; TAG for free/tag; EVENT, AFTER and (push)
 # BEFORE for detect;
 # GITHUB_RUN_ID for tag and (push) main-chain; EVENT for main-chain.
-# CI_WAIT_SECONDS (default 5400) and CI_POLL_SECONDS (default 60) bound the
-# wait in `ci` and `main-chain`.
+# CI_WAIT_SECONDS (default 5400) bounds the wait in `ci`, MAIN_CHAIN_WAIT_SECONDS
+# (default 3600) the one in `main-chain`; CI_POLL_SECONDS (default 60) is the
+# poll interval of both. release-gate's timeout-minutes covers the two.
 set -euo pipefail
 
 repo="${GH_REPO:?}"
@@ -163,7 +164,7 @@ ci() {
 # is the push run's, and a new build of it is refused (image-promote.sh). The
 # push run's chain through chart-publish-main is what a release push waits for.
 main_chain() {
-  local sha="${GITHUB_SHA:?}" id deadline line status conclusion
+  local sha="${GITHUB_SHA:?}" id deadline line status conclusion run_status
   case "${EVENT:?}" in
     push) id="${GITHUB_RUN_ID:?}" ;;
     workflow_dispatch)
@@ -173,7 +174,7 @@ main_chain() {
       ;;
     *) fail "no main chain is read for a ${EVENT} run" ;;
   esac
-  deadline=$((SECONDS + ${CI_WAIT_SECONDS:-5400}))
+  deadline=$((SECONDS + ${MAIN_CHAIN_WAIT_SECONDS:-3600}))
   while :; do
     line="$(gh api --paginate "repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100" \
       --jq '.jobs[] | select(.name == "chart-publish-main") | "\(.status) \(.conclusion // "none")"')" \
@@ -185,10 +186,16 @@ main_chain() {
       echo "main chain: chart-publish-main passed in Images run ${id}"
       return 0
     fi
-    # The push run a retry reads has ended: a job missing there never ran.
-    [ "$EVENT" = push ] || fail "chart-publish-main of Images run ${id} on ${sha} is ${status:-absent}, not completed"
+    # A retry started right after the merge can find the push run still on
+    # its way; once that run has ended, a job not done there never ran.
+    if [ "$EVENT" = workflow_dispatch ]; then
+      run_status="$(gh api "repos/${repo}/actions/runs/${id}" --jq .status)" \
+        || fail "could not read Images run ${id}"
+      [ "$run_status" != completed ] \
+        || fail "chart-publish-main of the ended Images run ${id} on ${sha} is ${status:-absent}, not completed"
+    fi
     [ "$SECONDS" -lt "$deadline" ] \
-      || fail "chart-publish-main of Images run ${id} is still ${status:-absent} after ${CI_WAIT_SECONDS:-5400}s"
+      || fail "chart-publish-main of Images run ${id} is still ${status:-absent} after ${MAIN_CHAIN_WAIT_SECONDS:-3600}s"
     sleep "${CI_POLL_SECONDS:-60}"
   done
 }
