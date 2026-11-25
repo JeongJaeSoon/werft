@@ -2,6 +2,7 @@ import { DEFAULT_USER_LOCALE, type UserLocale } from "@werft-ai/contracts";
 import type {
   SurfaceOutboxClaim,
   SurfaceOutboxEntry,
+  SurfaceOutboxPostedAs,
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
@@ -62,6 +63,31 @@ export function slackInstructionSender(
   if (!name) return via;
   const suffix = ` (${via})`;
   return `${[...name].slice(0, SLACK_USERNAME_MAX - suffix.length).join("")}${suffix}`;
+}
+
+/**
+ * The name the agent's own row goes out under: "agent [task]" for a task,
+ * the agent alone otherwise. A title too long to fit is cut inside its
+ * brackets; a name too long for one is cut alone. Null with no name.
+ */
+export function slackAgentSender(
+  postedAs: SurfaceOutboxPostedAs | null | undefined,
+): string | null {
+  const oneLine = (value: string | null | undefined) => [
+    ...(value?.replace(/\s+/g, " ").trim() ?? ""),
+  ];
+  const name = oneLine(postedAs?.agentName);
+  if (name.length === 0) return null;
+  const title = oneLine(postedAs?.taskTitle);
+  // " [" and "]" around the title, and "…" when it is cut.
+  const room = SLACK_USERNAME_MAX - name.length - 3;
+  // A cut title needs room for one character and its "…".
+  if (title.length === 0 || (title.length > room && room < 2)) {
+    return name.slice(0, SLACK_USERNAME_MAX).join("");
+  }
+  const shown =
+    title.length <= room ? title : [...title.slice(0, room - 1), "…"];
+  return `${name.join("")} [${shown.join("")}]`;
 }
 
 /**
