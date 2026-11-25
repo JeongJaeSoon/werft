@@ -78,7 +78,7 @@ spec:
             - name: UPGRADE_DEPLOYED_WORKER_GATEWAY_URL
               value: {{ $gateway | quote }}
             - name: WORKER_GATEWAY_URL
-              value: {{ get .Values.scheduler.extraEnv "WORKER_GATEWAY_URL" | default (include "ap.workerGatewayUrl" .) | quote }}
+              value: {{ include "ap.schedulerGatewayUrl" . | quote }}
             {{- with include "ap.workerImageEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             - name: UPGRADE_APPROVED_SESSIONS
