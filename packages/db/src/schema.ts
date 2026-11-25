@@ -5919,6 +5919,50 @@ export const conversationTurns = pgTable(
 );
 
 /**
+ * A Slack thread of mention turns whose status is to be set again from what
+ * its turns say: "processing" while one of them is still due, `active`
+ * otherwise. Left when a newer turn's "processing" may have been overtaken by
+ * an older one's `active`, and by a delete of the conversation's records,
+ * which takes the turns away; it names the thread itself, so it outlives
+ * them. Gone once Slack took the status it read; `rev` counts each time it
+ * was left again, so a send read before that leaves it for the next pass.
+ */
+export const mentionThreadStatuses = pgTable(
+  "mention_thread_statuses",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    slackInstallationId: uuid("slack_installation_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    threadTs: text("thread_ts").notNull(),
+    rev: integer().notNull().default(1),
+    // The pass sending it; one that died holding it is passed over once the
+    // claim runs out.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "mention_thread_statuses_pkey",
+      columns: [table.agentId, table.teamId, table.channelId, table.threadTs],
+    }),
+    foreignKey({
+      name: "mention_thread_statuses_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "mention_thread_statuses_slack_installation_fk",
+      columns: [table.slackInstallationId],
+      foreignColumns: [slackInstallations.id],
+    }).onDelete("cascade"),
+  ],
+);
+
+/**
  * A running conversation turn's permit: the token its runtime sends with
  * every provider request, and what each request may use. It reserves
  * nothing itself; each request the proxy is granted on it is a call of its

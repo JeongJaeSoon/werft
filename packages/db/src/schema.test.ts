@@ -234,6 +234,7 @@ describe("database schema", () => {
       "memory_promotions",
       "memory_revisions",
       "memory_tombstones",
+      "mention_thread_statuses",
       "neutral_field_progress",
       "outcome_refresh_quotas",
       "password_resets",
