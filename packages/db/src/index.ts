@@ -22,6 +22,7 @@ export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
 export { createPostgresConversationReadToolStore } from "./conversations/conversation-read-tools.ts";
 export * from "./conversations/conversation-store.ts";
+export * from "./conversations/conversation-turn-list.ts";
 export { createPostgresConversationTurnQueue } from "./conversations/conversation-turn-queue.ts";
 export {
   backfillWebInputTurns,

@@ -474,6 +474,7 @@ export const MANAGEMENT_ROLES: Partial<
   "usage.installation_read": ["owner"],
   "usage.agent_read": ["owner", "admin"],
   "judgment.read": ["owner", "admin"],
+  "conversation_turn.read": ["owner", "admin"],
   "installation.settings.manage": ["owner"],
   "achievement_rule.manage": ["owner", "admin"],
   "achievement.review": ["owner", "admin"],
@@ -501,6 +502,7 @@ export const AGENT_ADMIN_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
   "binding.manage",
   "usage.agent_read",
   "judgment.read",
+  "conversation_turn.read",
   "achievement.review",
 ]);
 
