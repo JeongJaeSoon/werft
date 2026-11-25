@@ -10,7 +10,6 @@ import {
   type SlackJudgmentChannel,
   slackMessageUrl,
 } from "@werft-ai/contracts";
-import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import { requirePermitted } from "./require-permitted.ts";
 
@@ -63,16 +62,14 @@ const channelKey = (teamId: string, channelId: string) =>
 
 /**
  * Who sees M1's shadow records (a1/S3, Architect Q15): owners, admins and
- * the agent's admins. A private channel's records, its counts included,
- * only its current members: a channel no live binding calls public is
- * treated as private, and a membership that cannot be confirmed hides it.
+ * the agent's admins, every channel's, a private channel's included. Codes
+ * and links only; no message text is stored here to show.
  */
 export function createJudgmentReviewService(deps: {
   authorization: AuthorizationPolicy;
   store: JudgmentReviewStore;
-  members: Pick<ChannelMemberCheckable, "isMember">;
 }) {
-  const { authorization, store, members } = deps;
+  const { authorization, store } = deps;
   return {
     async getSlackJudgments(
       caller: Caller,
@@ -87,59 +84,33 @@ export function createJudgmentReviewService(deps: {
         (await store.now()).getTime() - SLACK_JUDGMENT_WINDOW_DAYS * DAY_MS,
       );
       const rows = await store.tallies({ workspaceId, agentId, since });
-      const byChannel = new Map<
-        string,
-        { channel: SlackJudgmentChannel; kind: JudgmentTallyRow["channelKind"] }
-      >();
+      const byChannel = new Map<string, SlackJudgmentChannel>();
       for (const row of rows) {
         const key = channelKey(row.teamId, row.channelId);
-        let entry = byChannel.get(key);
-        if (entry === undefined) {
-          entry = {
-            kind: row.channelKind,
-            channel: {
-              slack_team_id: row.teamId,
-              channel_id: row.channelId,
-              channel_kind:
-                row.channelKind === "public_channel" ||
-                row.channelKind === "private_channel"
-                  ? row.channelKind
-                  : null,
-              m1_judgments_per_hour: row.m1JudgmentsPerHour,
-              judgments: 0,
-              speak: 0,
-              reasons: [],
-            },
+        let channel = byChannel.get(key);
+        if (channel === undefined) {
+          channel = {
+            slack_team_id: row.teamId,
+            channel_id: row.channelId,
+            channel_kind:
+              row.channelKind === "public_channel" ||
+              row.channelKind === "private_channel"
+                ? row.channelKind
+                : null,
+            m1_judgments_per_hour: row.m1JudgmentsPerHour,
+            judgments: 0,
+            speak: 0,
+            reasons: [],
           };
-          byChannel.set(key, entry);
+          byChannel.set(key, channel);
         }
-        const { channel } = entry;
         channel.judgments += row.count;
         if (row.decision === "speak") channel.speak += row.count;
         const reason = channel.reasons.find((r) => r.reason === row.reason);
         if (reason) reason.count += row.count;
         else channel.reasons.push({ reason: row.reason, count: row.count });
       }
-      const userId = caller.actor?.userId ?? null;
-      const entries = [...byChannel.values()];
-      const sees = await Promise.all(
-        entries.map(
-          async ({ channel, kind }) =>
-            kind === "public_channel" ||
-            (userId !== null &&
-              (await members
-                .isMember({
-                  workspaceId,
-                  agentId,
-                  channelId: channel.channel_id,
-                  userId,
-                })
-                .catch(() => false))),
-        ),
-      );
-      const visible = entries
-        .filter((_, index) => sees[index])
-        .map(({ channel }) => channel);
+      const visible = [...byChannel.values()];
       for (const channel of visible) {
         channel.reasons.sort(
           (a, b) => b.count - a.count || a.reason.localeCompare(b.reason),

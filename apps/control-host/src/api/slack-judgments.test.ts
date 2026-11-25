@@ -14,7 +14,6 @@ import {
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   type Caller,
-  type ChannelMemberQuestion,
   callerFor,
   createAuthorizationPolicy,
   createJudgmentReviewService,
@@ -37,9 +36,6 @@ describe("M1 shadow records over the real policy (a1/S3)", () => {
     agentAdmin: crypto.randomUUID(),
     member: crypto.randomUUID(),
   };
-  // Slack's answer per user: who is in the private channel now.
-  const inPrivate = new Set<string>([ids.agentAdmin]);
-  const asked: ChannelMemberQuestion[] = [];
 
   function user(who: keyof typeof ids, role: WorkspaceRole): Caller {
     return callerFor(
@@ -109,12 +105,6 @@ describe("M1 shadow records over the real policy (a1/S3)", () => {
         decisions: createPostgresDecisionLog(db),
       }),
       store: createPostgresJudgmentReviewStore(db),
-      members: {
-        isMember: async (question) => {
-          asked.push(question);
-          return inPrivate.has(question.userId);
-        },
-      },
     });
     await db
       .insert(workspaces)
@@ -249,25 +239,39 @@ describe("M1 shadow records over the real policy (a1/S3)", () => {
     }
   });
 
-  test("a private channel is in neither the counts nor the list of an owner who is not its member", async () => {
-    for (const [caller, sees] of [
-      [user("owner", "owner"), false],
-      [user("admin", "admin"), false],
-      [user("agentAdmin", "member"), true],
-    ] as const) {
+  test("a private channel's counts and list reach every reader of the judgments, member or not", async () => {
+    for (const caller of [
+      user("owner", "owner"),
+      user("admin", "admin"),
+      user("agentAdmin", "member"),
+    ]) {
       const read = await review.getSlackJudgments(caller, agentId);
-      const channels = read.channels.map((channel) => channel.channel_id);
-      expect(channels.includes("G0PRIVATE")).toBe(sees);
-      expect(read.recent.some((item) => item.channel_id === "G0PRIVATE")).toBe(
-        sees,
+      expect(read.channels.map((channel) => channel.channel_id).sort()).toEqual(
+        ["C0PUBLIC", "G0PRIVATE"],
       );
-      // Nothing of it mixes into what is left.
+      const private_ = read.channels.find(
+        (channel) => channel.channel_id === "G0PRIVATE",
+      );
+      expect(private_?.judgments).toBe(2);
+      expect(private_?.speak).toBe(1);
+      expect(
+        read.recent.filter((item) => item.channel_id === "G0PRIVATE"),
+      ).toHaveLength(2);
       expect(
         read.channels.reduce((sum, channel) => sum + channel.judgments, 0),
-      ).toBe(sees ? 5 : 3);
+      ).toBe(5);
     }
-    expect(asked.every((question) => question.channelId === "G0PRIVATE")).toBe(
-      true,
+  });
+
+  test("a member without the permission reads none of it, and no response holds a body", async () => {
+    const refused = await review
+      .getSlackJudgments(user("member", "member"), agentId)
+      .catch((error: unknown) => error);
+    expect((refused as SessionServiceError).code).toBe("FORBIDDEN");
+    const read = await review.getSlackJudgments(
+      user("owner", "owner"),
+      agentId,
     );
+    expect(JSON.stringify(read)).not.toMatch(/"(text|body|message|content)"/);
   });
 });

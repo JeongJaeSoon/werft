@@ -243,7 +243,7 @@ export const slackEn = {
     "Judgments per hour for {channel} were not saved. {reason}",
   "slack.judgments": "Judgments",
   "slack.judgments.hint":
-    "What this agent decided about joining channel conversations in the last {days} days (shadow: nothing is posted to Slack). Open a link to read the message in Slack. A private channel's records and counts show only to its current members.",
+    "What this agent decided about joining channel conversations in the last {days} days (shadow: nothing is posted to Slack). Open a link to read the message in Slack. A private channel's records and counts are shown too.",
   "slack.judgments.knobs":
     "If judgments come too often or too rarely, adjust the channel's listening, its judgments per hour, or the agent instructions in the repository (AGENTS.md).",
   "slack.judgments.forbidden":

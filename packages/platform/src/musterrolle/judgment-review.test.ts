@@ -5,7 +5,6 @@ import {
   conversationJudgmentIdSchema,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
-import type { ChannelMemberQuestion } from "../surface/ports/channel-member-checkable.ts";
 import {
   createJudgmentReviewService,
   type JudgmentReviewItem,
@@ -61,12 +60,7 @@ const item = (n: number, channelId: string): JudgmentReviewItem => ({
   judgedAt: NOW,
 });
 
-function service(options: {
-  tallies: JudgmentTallyRow[];
-  members?: (question: ChannelMemberQuestion) => Promise<boolean>;
-  allow?: boolean;
-}) {
-  const asked: ChannelMemberQuestion[] = [];
+function service(options: { tallies: JudgmentTallyRow[]; allow?: boolean }) {
   const listed: string[][] = [];
   const review = createJudgmentReviewService({
     authorization: {
@@ -88,14 +82,8 @@ function service(options: {
         );
       },
     },
-    members: {
-      isMember: async (question) => {
-        asked.push(question);
-        return (await options.members?.(question)) ?? false;
-      },
-    },
   });
-  return { review, asked, listed };
+  return { review, listed };
 }
 
 describe("who sees M1's shadow records (a1/S3)", () => {
@@ -149,54 +137,54 @@ describe("who sees M1's shadow records (a1/S3)", () => {
     ]);
   });
 
-  test("a private channel's list and counts reach only its current members", async () => {
-    const { review, asked, listed } = service({
+  test("a private channel's counts, list and links are read like a public one's", async () => {
+    const { review, listed } = service({
       tallies: [
         tally("C0PUBLIC", "public_channel"),
-        tally("G0MEMBER", "private_channel", { count: 4 }),
-        tally("G0OUTSIDE", "private_channel", { count: 9 }),
+        tally("G0PRIVATE", "private_channel", { count: 4 }),
+        tally("C0UNBOUND", null, { count: 2 }),
       ],
-      members: async (question) => question.channelId === "G0MEMBER",
     });
     const read = await review.getSlackJudgments(person, AGENT);
     expect(read.channels.map((channel) => channel.channel_id)).toEqual([
-      "G0MEMBER",
+      "G0PRIVATE",
+      "C0UNBOUND",
       "C0PUBLIC",
     ]);
-    // Nothing of the channel the caller is not in: no row, no list entry.
-    expect(JSON.stringify(read)).not.toContain("G0OUTSIDE");
-    expect(listed).toEqual([["G0MEMBER", "C0PUBLIC"]]);
-    expect(asked.map((question) => question.channelId).sort()).toEqual([
-      "G0MEMBER",
-      "G0OUTSIDE",
-    ]);
-    expect(asked.every((question) => question.userId === USER)).toBe(true);
+    expect(read.channels[0]?.channel_kind).toBe("private_channel");
+    expect(listed).toEqual([["G0PRIVATE", "C0UNBOUND", "C0PUBLIC"]]);
+    expect(read.recent.map((entry) => entry.url)).toContain(
+      "https://slack.com/archives/G0PRIVATE/p1764000000000001",
+    );
   });
 
-  test("a channel no live binding calls public is hidden unless membership is confirmed", async () => {
+  test("a caller with no person behind it, but the permission, reads it too", async () => {
     const { review } = service({
-      tallies: [
-        tally("C0UNBOUND", null),
-        tally("C0FAILING", "private_channel"),
-      ],
-      members: async (question) => {
-        if (question.channelId === "C0FAILING") throw new Error("slack down");
-        return false;
-      },
-    });
-    const read = await review.getSlackJudgments(person, AGENT);
-    expect(read.channels).toEqual([]);
-    expect(read.recent).toEqual([]);
-  });
-
-  test("a caller with no person behind it sees no private channel", async () => {
-    const { review, asked } = service({
       tallies: [tally("G0PRIVATE", "private_channel")],
-      members: async () => true,
     });
     const read = await review.getSlackJudgments(testCaller(WORKSPACE), AGENT);
-    expect(read.channels).toEqual([]);
-    expect(asked).toEqual([]);
+    expect(read.channels.map((channel) => channel.channel_id)).toEqual([
+      "G0PRIVATE",
+    ]);
+  });
+
+  test("no response field holds a message body", async () => {
+    const { review } = service({
+      tallies: [tally("G0PRIVATE", "private_channel")],
+    });
+    const read = await review.getSlackJudgments(person, AGENT);
+    const keys = new Set<string>();
+    const walk = (value: unknown) => {
+      if (Array.isArray(value)) value.forEach(walk);
+      else if (value !== null && typeof value === "object")
+        for (const [key, inner] of Object.entries(value)) {
+          keys.add(key);
+          walk(inner);
+        }
+    };
+    walk(read);
+    for (const key of keys)
+      expect(key).not.toMatch(/^(text|body|message|content|blocks)$/);
   });
 
   test("a caller the policy refuses gets FORBIDDEN and nothing is read", async () => {

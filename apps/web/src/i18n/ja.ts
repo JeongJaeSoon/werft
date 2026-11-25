@@ -248,7 +248,7 @@ export const slackJa = {
     "{channel}の1時間の判断上限を保存できませんでした。{reason}",
   "slack.judgments": "判断の記録",
   "slack.judgments.hint":
-    "直近{days}日間に、このエージェントがチャンネルの会話に加わるかを判断した記録です(shadow: Slackには投稿しません)。メッセージの本文はリンクからSlackで読みます。非公開チャンネルの記録と数は、今そのチャンネルのメンバーにだけ表示されます。",
+    "直近{days}日間に、このエージェントがチャンネルの会話に加わるかを判断した記録です(shadow: Slackには投稿しません)。メッセージの本文はリンクからSlackで読みます。非公開チャンネルの記録と数も表示されます。",
   "slack.judgments.knobs":
     "判断が多すぎる・少なすぎるときは、チャンネルの聞き取り設定、1時間の判断上限、リポジトリのエージェント指示(AGENTS.md)で調整します。",
   "slack.judgments.forbidden":
