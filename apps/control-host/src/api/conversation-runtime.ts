@@ -6,6 +6,8 @@ import {
   CONVERSATION_TURN_LEASE_MS,
   CONVERSATION_TURN_TEXT_MAX,
   type ConversationTurnCallRefusal,
+  type ConversationTurnState,
+  conversationDecisionTools,
   conversationIdSchema,
   conversationInputIdSchema,
   conversationTopicIdSchema,
@@ -153,6 +155,8 @@ export type OperatorTurnResult =
       outcome: "ended";
       turn_id: string;
       turn: ConversationTurnOutcome;
+      // How the turn's record ended: decided, no_decision or voided_by_delete.
+      recorded: ConversationTurnState | null;
       // The last call the turn asked for was refused, and why: the turn
       // ended on it.
       refused?: ConversationTurnCallRefusal;
@@ -254,6 +258,8 @@ export function createOperatorConversationTurns(deps: {
             input: { id: inputId, text: request.text },
             // Assembled when a runtime takes the turn.
             fresh_input: { id: crypto.randomUUID(), text: request.text },
+            // The requester issueOperatorTurn wrote.
+            decision_tools: [...conversationDecisionTools("operator")],
           },
           {
             inputId,
@@ -277,6 +283,7 @@ export function createOperatorConversationTurns(deps: {
         outcome: "ended",
         turn_id: turnId,
         turn,
+        recorded: ended.state,
         ...(ended.refusal === null ? {} : { refused: ended.refusal }),
         ...(ended.limit === null ? {} : { limit_reached: ended.limit }),
       };
@@ -332,6 +339,11 @@ export async function serveOperatorConversationTurns(deps: {
                     ? {}
                     : { turn_refused: result.refused }),
                   turn_outcome: result.turn.outcome,
+                  turn_recorded: result.recorded,
+                  ...(result.turn.outcome === "completed" &&
+                  result.turn.decision !== undefined
+                    ? { turn_decision: result.turn.decision.tool }
+                    : {}),
                   ...("reason" in result.turn
                     ? { turn_failure: result.turn.reason }
                     : {}),

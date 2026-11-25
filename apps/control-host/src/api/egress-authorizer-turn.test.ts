@@ -5,8 +5,10 @@ import {
   type ConversationTurnId,
   conversationCallKeySchema,
   conversationIdSchema,
+  conversationRuntimeIdSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
+  conversationTurnLeaseIdSchema,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -350,6 +352,7 @@ describe("a conversation turn's provider calls", () => {
 
     expect(await calls.endTurn(second.turnId)).toEqual({
       ended: "recorded",
+      state: "no_decision",
       refusal: "budget",
       limit: null,
     });
@@ -470,6 +473,48 @@ describe("a conversation turn's provider calls", () => {
     expect(await callsOf(late.turnId)).toEqual([]);
   });
 
+  test("a decided turn's engine still makes the provider calls that close it, until its end; a voided turn or one with no decision makes none", async () => {
+    const topicId = await newTopic();
+    const turn = await operatorTurn(topicId);
+    const leaseId = conversationTurnLeaseIdSchema.parse(crypto.randomUUID());
+    const runtimeId = conversationRuntimeIdSchema.parse(crypto.randomUUID());
+    await db.execute(sql`
+      INSERT INTO conversation_turn_queue (turn_id, input_id, attempt, topic_id,
+        state, take_by, take_ms, lease_id, runtime_id, lease_expires_at)
+      VALUES (${turn.turnId}::uuid, ${crypto.randomUUID()}::uuid, 1,
+        ${topicId}::uuid, 'leased', now(), 0, ${leaseId}::uuid,
+        ${runtimeId}::uuid, now() + interval '150 seconds')`);
+    expect(
+      await schema.createPostgresConversationReadToolStore(db).recordDecision({
+        turnId: turn.turnId,
+        leaseId,
+        runtimeId,
+        decision: { tool: "no_reply", reason: "nothing to add" },
+      }),
+    ).toEqual({ outcome: "recorded", state: "decided" });
+    const closing = await granted(turn.token);
+    expect((await report(closing)).status).toBe(200);
+    expect(await calls.endTurn(turn.turnId)).toMatchObject({
+      ended: "already_ended",
+      state: "decided",
+    });
+    expect((await providerAsk(turn.token, crypto.randomUUID())).status).toBe(
+      401,
+    );
+    expect(await callsOf(turn.turnId)).toHaveLength(1);
+    for (const state of ["voided_by_delete", "no_decision"] as const) {
+      const ended = await operatorTurn();
+      await db
+        .update(schema.conversationTurns)
+        .set({ state, endedAt: new Date() })
+        .where(eq(schema.conversationTurns.id, ended.turnId));
+      expect((await providerAsk(ended.token, crypto.randomUUID())).status).toBe(
+        401,
+      );
+      expect(await callsOf(ended.turnId)).toEqual([]);
+    }
+  });
+
   test("a model gone from the connection since the turn began: no new call on it, while the call already made carries on and settles", async () => {
     const turn = await operatorTurn();
     const call = await granted(turn.token);
@@ -573,6 +618,7 @@ describe("a conversation turn's limits, held by the server", () => {
       }),
     ).toEqual({
       ended: "recorded",
+      state: "no_decision",
       refusal: "turn_limit",
       limit: { limit: "model_call_limit", by: "server" },
     });

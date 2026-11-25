@@ -32,7 +32,7 @@ export function localToolRelay(server: LocalToolServer): {
     tools: server.tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      inputSchema: NO_ARGUMENTS,
+      inputSchema: tool.inputSchema ?? NO_ARGUMENTS,
     })),
   }));
   relay.server.setRequestHandler(
@@ -42,11 +42,13 @@ export function localToolRelay(server: LocalToolServer): {
       if (tool === undefined) {
         return failed(`Tool ${request.params.name} is not allowed`);
       }
-      if (Object.keys(request.params.arguments ?? {}).length > 0) {
+      const input = request.params.arguments ?? {};
+      if (tool.inputSchema === undefined && Object.keys(input).length > 0) {
         return failed(`Tool ${tool.name} takes no arguments`);
       }
       try {
-        const answer = await tool.call(extra.signal);
+        // A tool with a schema judges its own input.
+        const answer = await tool.call(extra.signal, input);
         return {
           ...(answer.isError ? { isError: true } : {}),
           content: [{ type: "text", text: answer.text }],

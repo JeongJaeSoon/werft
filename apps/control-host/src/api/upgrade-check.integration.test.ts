@@ -96,6 +96,84 @@ integration("runUpgradeCheck on PostgreSQL", () => {
     released_at: "2026-11-01T00:00:00Z",
   });
 
+  function insertSession(pool: Pool, id: string, state: string, kind: string) {
+    const spec = { runtime: { kind } };
+    return pool.query(
+      `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id, admission_state,
+         runtime_spec, spec_source, spec_source_digest, spec_digest)
+       VALUES ($1, 'owner', 'https://example.invalid/a.git', 'main', 'repo-a', $2, $3, $3, $4, $4)`,
+      [id, state, spec, "d".repeat(64)],
+    );
+  }
+
+  test("a worker holding a slot is listed when the target gives workers another gateway address, and not when it stays", async () => {
+    database = await createTempDatabase({ prefix: "upgrade_check_workers" });
+    const pool = new Pool({ connectionString: database.url });
+    const [holding, released, unclaimed] = [
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+    ];
+    try {
+      for (const [id, claimed, slotReleased] of [
+        [holding, true, false],
+        [released, true, true],
+        [unclaimed, false, false],
+      ] as const) {
+        await insertSession(pool, id, "active", "claude_agent_sdk");
+        if (claimed) {
+          await pool.query(
+            `INSERT INTO attempts (id, session_id, execution_id, lease_epoch, execution_generation,
+               auth_revision, state, lease_expires_at)
+             VALUES ($1, $2, $3, 1, 1, 1, 'active', now() + interval '30 seconds')`,
+            [`attempt-${id}`, id, `exec-${id}`],
+          );
+        }
+        await pool.query(
+          `INSERT INTO worker_launches (execution_id, generation, backend, session_id,
+             claimed_attempt_id, slot_released_at)
+           VALUES ($1, 1, 'kubernetes', $2, $3, $4)`,
+          [
+            `exec-${id}`,
+            id,
+            claimed ? `attempt-${id}` : null,
+            slotReleased ? new Date() : null,
+          ],
+        );
+      }
+    } finally {
+      await pool.end();
+    }
+    // A control-host-only upgrade: the worker images stay as they are.
+    const images = JSON.stringify([entry(claudeImage, claude)]);
+    const check = async (deployedGateway: string) => {
+      const lines: string[] = [];
+      const code = await runUpgradeCheck({
+        environment: {
+          DATABASE_URL: database.url,
+          UPGRADE_DEPLOYED_WORKER_IMAGE: "",
+          UPGRADE_DEPLOYED_WORKER_IMAGES: images,
+          UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: deployedGateway,
+          WORKER_IMAGES: images,
+          WORKER_GATEWAY_URL: "http://werft-api-internal:3200",
+        },
+        logger: createLogger({ sinks: [{ write() {} }] }),
+        write: (line) => lines.push(line),
+      });
+      return { code, output: JSON.parse(lines[0] as string) };
+    };
+
+    const moved = await check("http://werft-api:3000");
+    expect(moved.code).toBe(2);
+    expect(moved.output.affected).toEqual([
+      { sessionId: holding, reason: "worker_ends" },
+    ]);
+
+    const stays = await check("http://werft-api-internal:3200");
+    expect(stays.code).toBe(0);
+    expect(stays.output.affected).toEqual([]);
+  }, 60_000);
+
   test("dropping an engine lists its open sessions by the engine their runtime kind runs on", async () => {
     database = await createTempDatabase({ prefix: "upgrade_check_engine" });
     const pool = new Pool({ connectionString: database.url });
@@ -109,14 +187,8 @@ integration("runUpgradeCheck on PostgreSQL", () => {
         [openCodex, "active", "codex_app_server"],
         [openClaude, "active", "claude_agent_sdk"],
         [closedCodex, "closed", "codex_app_server"],
-      ]) {
-        const spec = { runtime: { kind } };
-        await pool.query(
-          `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id, admission_state,
-             runtime_spec, spec_source, spec_source_digest, spec_digest)
-           VALUES ($1, 'owner', 'https://example.invalid/a.git', 'main', 'repo-a', $2, $3, $3, $4, $4)`,
-          [id, state, spec, "d".repeat(64)],
-        );
+      ] as const) {
+        await insertSession(pool, id, state, kind);
       }
     } finally {
       await pool.end();
@@ -130,7 +202,9 @@ integration("runUpgradeCheck on PostgreSQL", () => {
           entry(claudeImage, claude),
           entry(codexImage, codex),
         ]),
+        UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: "http://werft-api-internal:3200",
         WORKER_IMAGES: JSON.stringify([entry(claudeImage, claude)]),
+        WORKER_GATEWAY_URL: "http://werft-api-internal:3200",
       },
       logger: createLogger({ sinks: [{ write() {} }] }),
       listWriters: async () => [],
