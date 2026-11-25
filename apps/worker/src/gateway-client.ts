@@ -407,7 +407,10 @@ function failure(
     // Not the gateway's answer. A proxy on the way says why in plain text
     // (`egress denied: destination is not allowlisted`), and this message is
     // the only place that reason shows.
-    const said = (body.split("\n", 1)[0] ?? "").trim().slice(0, 200);
+    const said = (body.split("\n", 1)[0] ?? "")
+      .replace(/\p{Cc}+/gu, " ")
+      .trim()
+      .slice(0, 200);
     // 5xx without a body is still the gateway being unavailable rather than
     // this request being wrong, so it stays retryable.
     return new WorkerGatewayRequestError(

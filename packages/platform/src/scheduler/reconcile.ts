@@ -37,6 +37,12 @@ import { replace, teardown } from "./replace.ts";
 const GATEWAY_PORT_DOC =
   "https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/upgrade-compose/#the-release-that-moves-the-worker-gateway-to-port-3200";
 
+// The worker's error line for a claim the proxy refused. The proxy's reason
+// follows only from a worker that relays it; an older one prints the status.
+const CLAIM_REFUSED =
+  /POST \/bootstrap-claim failed with HTTP 403(?:: egress denied: ([^\n]*))?/;
+const NOT_ALLOWLISTED = "destination is not allowlisted";
+
 /**
  * What to tell the operator when a worker died before its claim because the
  * egress proxy turned its gateway call away. The gateway's own refusals carry
@@ -45,14 +51,14 @@ const GATEWAY_PORT_DOC =
  * the tail, which may carry whatever the worker printed.
  */
 function proxyRefusalOf(logTail: string | undefined): string | undefined {
-  if (!logTail?.includes("POST /bootstrap-claim failed with HTTP 403")) {
-    return undefined;
+  const refused = logTail?.match(CLAIM_REFUSED);
+  if (!refused) return undefined;
+  const said = refused[1];
+  if (said !== undefined && !said.startsWith(NOT_ALLOWLISTED)) {
+    // An address the proxy never dials, say: the allowlist is not the fix.
+    return "the egress proxy refused the worker's bootstrap-claim; its Egress denied log line has the reason";
   }
-  // A worker older than this reason's relay prints the status alone.
-  const reason = logTail.includes("destination is not allowlisted")
-    ? "destination is not allowlisted"
-    : "HTTP 403";
-  return `the egress proxy refused the worker's bootstrap-claim (${reason}): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. See ${GATEWAY_PORT_DOC}`;
+  return `the egress proxy refused the worker's bootstrap-claim (${said === undefined ? "HTTP 403" : NOT_ALLOWLISTED}): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. See ${GATEWAY_PORT_DOC}`;
 }
 
 /** Step 1: reconcile rows against the provider. */

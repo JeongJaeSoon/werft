@@ -1937,6 +1937,9 @@ describe("runScheduler", () => {
     const tails = [
       "WorkerGatewayRequestError: POST /bootstrap-claim failed with HTTP 403\n    status: 403,\n      code: null,\n",
       "WorkerGatewayRequestError: POST /bootstrap-claim failed with HTTP 403: egress denied: destination is not allowlisted\n",
+      // Another refusal of the proxy's, with the allowlist phrase on a line
+      // that is not the claim's: no allowlist advice.
+      "destination is not allowlisted\nWorkerGatewayRequestError: POST /bootstrap-claim failed with HTTP 403: egress denied: 10.0.0.7 is private, not public\n",
       "WorkerGatewayRequestError: POST /bootstrap-claim failed with LAUNCH_FAILED: refused\n",
     ];
     const { backend, records, run, store } = harness();
@@ -1963,6 +1966,7 @@ describe("runScheduler", () => {
     expect(errors).toEqual([
       `resource exited before a worker claimed it (exit code 1, Error): the egress proxy refused the worker's bootstrap-claim (HTTP 403): ${doc}`,
       `resource exited before a worker claimed it (exit code 1, Error): the egress proxy refused the worker's bootstrap-claim (destination is not allowlisted): ${doc}`,
+      "resource exited before a worker claimed it (exit code 1, Error): the egress proxy refused the worker's bootstrap-claim; its Egress denied log line has the reason",
       "resource exited before a worker claimed it (exit code 1, Error)",
     ]);
   });

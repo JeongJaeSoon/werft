@@ -190,11 +190,11 @@ describe("HttpWorkerGatewayClient", () => {
     expect(error.retryable).toBe(false);
   });
 
-  test("an untyped refusal keeps the first line of what answered", async () => {
+  test("an untyped refusal keeps the first line of what answered, without control characters", async () => {
     const { gateway } = client(
       () =>
         new Response(
-          "egress denied: destination is not allowlisted\nsecond line",
+          "egress denied:\tdestination is not allowlisted\r\nsecond line",
           { status: 403 },
         ),
     );
