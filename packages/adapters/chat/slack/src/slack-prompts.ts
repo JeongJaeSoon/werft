@@ -579,10 +579,145 @@ export function guardSlackCardBlocks<T>(node: T, guard?: SlackTextGuard): T {
     (record.type === "plain_text" || record.type === "text") &&
     typeof record.text === "string"
   ) {
-    const kept = guard(record.text);
-    record.text = kept.trim() === "" && record.text.trim() !== "" ? "…" : kept;
+    record.text = keptBy(guard)(record.text);
   }
   return record as T;
+}
+
+/**
+ * A posted card's stored text, escaped as Slack reads it; when the guard
+ * would change any of it read unescaped, the platform's words alone. The
+ * escapes keep apart what the guard must read whole, so it reads the text
+ * as the card was drawn from.
+ */
+export function slackGuardedCardText(
+  stored: string,
+  guard: SlackTextGuard,
+  card: {
+    locale: UserLocale;
+    kind: SlackPrompt["kind"];
+    linkUrl: string | null;
+  },
+): string {
+  const raw = stored
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+  if (guard(raw) === raw) return stored;
+  const copy = SLACK_PROMPT_MESSAGES[card.locale];
+  return slackCardText({
+    locale: card.locale,
+    title:
+      card.kind === "permission"
+        ? copy.permissionTitle
+        : card.kind === "question"
+          ? copy.questionTitle
+          : copy.pushTitle,
+    linkUrl: card.linkUrl,
+  });
+}
+
+// The guard over model text before it is cut to fit: a cut leaves `…` on
+// what it cut, which no longer reads as a link or id. Slack refuses an empty
+// text, so one the guard empties keeps a mark.
+const keptBy = (guard: SlackTextGuard) => (text: string) => {
+  const kept = guard(text);
+  return kept.trim() === "" && text.trim() !== "" ? "…" : kept;
+};
+
+function guardedStrings(
+  value: unknown,
+  guard: (text: string) => string,
+): unknown {
+  if (typeof value === "string") return guard(value);
+  if (Array.isArray(value))
+    return value.map((item) => guardedStrings(item, guard));
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      guardedStrings(item, guard),
+    ]),
+  );
+}
+
+function guardedQuestions(
+  questions: PendingQuestion[],
+  guard: (text: string) => string,
+): PendingQuestion[] {
+  return questions.map((question) => ({
+    ...question,
+    prompt: guard(question.prompt),
+    options: question.options.map((option) => ({
+      ...option,
+      label: guard(option.label),
+    })),
+  }));
+}
+
+/** The request with its model-written fields guarded; ids stay as they are. */
+function guardedPrompt(
+  prompt: SlackPrompt,
+  guard?: SlackTextGuard,
+): SlackPrompt {
+  if (guard === undefined) return prompt;
+  const kept = keptBy(guard);
+  switch (prompt.kind) {
+    case "permission":
+      return {
+        ...prompt,
+        tool: kept(prompt.tool),
+        input: guardedStrings(prompt.input, kept),
+        ...(prompt.rememberOffer === undefined
+          ? {}
+          : {
+              rememberOffer: prompt.rememberOffer.map((rule) => ({
+                toolName: kept(rule.toolName),
+                ...(rule.ruleContent === undefined
+                  ? {}
+                  : { ruleContent: kept(rule.ruleContent) }),
+              })),
+            }),
+      };
+    case "question":
+      return { ...prompt, questions: guardedQuestions(prompt.questions, kept) };
+    case "push":
+      return {
+        ...prompt,
+        repositoryName:
+          prompt.repositoryName === null ? null : kept(prompt.repositoryName),
+        targetBranch: kept(prompt.targetBranch),
+      };
+  }
+}
+
+/** A stored request's display with its model-written fields guarded. */
+function guardedDisplay(
+  display: SurfacePromptCard["display"],
+  guard?: SlackTextGuard,
+): SurfacePromptCard["display"] {
+  if (guard === undefined) return display;
+  const kept = keptBy(guard);
+  switch (display.kind) {
+    case "permission":
+      return {
+        ...display,
+        tool: kept(display.tool),
+        input: guardedStrings(display.input, kept),
+      };
+    case "question":
+      return {
+        ...display,
+        questions: guardedQuestions(display.questions, kept),
+      };
+    case "push":
+      return {
+        ...display,
+        repositoryName:
+          display.repositoryName === null ? null : kept(display.repositoryName),
+        targetBranch: kept(display.targetBranch),
+      };
+  }
 }
 
 function preformatted(text: string) {
@@ -650,9 +785,10 @@ export type SlackPromptMessageOptions = {
 };
 
 export function slackPromptMessage(
-  prompt: SlackPrompt,
+  asked: SlackPrompt,
   options: SlackPromptMessageOptions,
 ): { text: string; blocks: unknown[] } {
+  const prompt = guardedPrompt(asked, options.guard);
   const copy = SLACK_PROMPT_MESSAGES[options.locale];
   const title =
     prompt.kind === "permission"
@@ -1017,7 +1153,10 @@ export function slackSettledCard(
   card: SurfacePromptCard,
   guard?: SlackTextGuard,
 ): SlackCard | null {
-  const drawn = settledCard(card, guard);
+  const drawn = settledCard(
+    { ...card, display: guardedDisplay(card.display, guard) },
+    guard,
+  );
   return drawn === null
     ? null
     : { text: drawn.text, blocks: guardSlackCardBlocks(drawn.blocks, guard) };
@@ -1152,7 +1291,11 @@ export function slackRejectOnlyCard(
     card.pushRevisions?.origin === "intent"
       ? copy.pushPinnedSourceInvalid
       : copy.pushStale;
-  const summary = `${card.display.repositoryName ?? card.display.repositoryId} ← ${shortCommit(card.display.gitCommit)}`;
+  const repositoryName =
+    card.display.repositoryName === null || guard === undefined
+      ? card.display.repositoryName
+      : keptBy(guard)(card.display.repositoryName);
+  const summary = `${repositoryName ?? card.display.repositoryId} ← ${shortCommit(card.display.gitCommit)}`;
   return {
     text: slackCardText({
       locale: card.locale,
@@ -1267,11 +1410,13 @@ const textBlock = (index: number) => `q${index}.text`;
 
 /** The modal for a question request; null when it has too many to show. */
 export function slackQuestionView(
-  questions: PendingQuestion[],
+  asked: PendingQuestion[],
   metadata: SlackQuestionViewMetadata,
   locale: UserLocale,
   guard?: SlackTextGuard,
 ): Record<string, unknown> | null {
+  const questions =
+    guard === undefined ? asked : guardedQuestions(asked, keptBy(guard));
   if (questions.length === 0 || questions.length > QUESTIONS_MAX) return null;
   const copy = SLACK_PROMPT_MESSAGES[locale];
   const blocks: unknown[] = [];

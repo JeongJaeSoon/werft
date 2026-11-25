@@ -19,6 +19,7 @@ import { slackOutboxGuard } from "./slack-outbox-render.ts";
 import {
   guardSlackCardBlocks,
   slackDoneCard,
+  slackGuardedCardText,
   slackRejectOnlyCard,
   slackRequesterLeftCard,
   slackSettledCard,
@@ -119,15 +120,9 @@ async function drawChoice(
     channelId: claim.channelId,
     conversationScope: claim.conversationScope ?? null,
   });
-  // The stored text is escaped mrkdwn. Each run between its escapes is
-  // guarded on its own, so an `&gt;` never reads as part of a URL or id; the
-  // platform's own controls stay in scope.
   const open = {
     rendered: "open" as const,
-    text: claim.body.text
-      .split(/(&(?:lt|gt|amp);)/)
-      .map((part, index) => (index % 2 === 1 ? part : guard(part)))
-      .join(""),
+    text: claim.body.text,
     blocks: guardSlackCardBlocks(claim.body.blocks ?? [], guard),
   };
   const [prefix, , ...rest] = claim.dedupeKey.split(":");
@@ -143,6 +138,15 @@ async function drawChoice(
   }
   const card = await store.card(claim);
   if (card === null) return null;
+  const locale = claim.body.locale ?? DEFAULT_USER_LOCALE;
+  const choice = {
+    ...open,
+    text: slackGuardedCardText(claim.body.text, guard, {
+      locale,
+      kind: card.display.kind,
+      linkUrl: claim.body.link_url ?? null,
+    }),
+  };
   const result = slackSettledResult(card.display);
   if (result !== null) {
     const settled = slackSettledCard(card, guard);
@@ -153,7 +157,7 @@ async function drawChoice(
     claim.sessionId === null ||
     card.pushRevisions === undefined
   ) {
-    return open;
+    return choice;
   }
   const verdict = await pushApprovability(
     { id: claim.sessionId, checkpointRevision: card.pushRevisions.session },
@@ -165,7 +169,7 @@ async function drawChoice(
     },
     pushSource,
   );
-  if (verdict.approvable) return open;
+  if (verdict.approvable) return choice;
   return {
     rendered: "reject_only",
     ...slackRejectOnlyCard(

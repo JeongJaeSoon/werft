@@ -12,6 +12,7 @@ import { enqueueSlackPrompts } from "./slack-outbox-enqueue.ts";
 import { slackOutboxGuard } from "./slack-outbox-render.ts";
 import {
   type SlackPrompt,
+  slackGuardedCardText,
   slackPromptMessage,
   slackQuestionView,
   slackRejectOnlyCard,
@@ -202,6 +203,61 @@ const promptCard = (
   display: shown,
 });
 
+describe("a card's stored text", () => {
+  const card = { locale: "en", kind: "question", linkUrl: null } as const;
+
+  test("stays as stored when the card was drawn guarded", () => {
+    const drawn = slackPromptMessage(
+      {
+        kind: "question",
+        sessionId: "s-1",
+        requestId: "q",
+        questions: [question(`${HOSTILE} &lt; & >`, ["a", "b"])],
+        expiresAt: "2026-11-03T00:00:00Z",
+      },
+      { ...options, guard },
+    );
+    expect(slackGuardedCardText(drawn.text, guard, card)).toBe(drawn.text);
+  });
+
+  test("is the platform's words alone when an escape hid a reference", () => {
+    for (const hidden of [
+      "https://app.slack.com/client?foo=1&amp;amp;team=T0OTHER001",
+      `https://x.example/a?b=1&amp;amp;id=%43%30%45%4c%53%45%30%30%30%31`,
+      "&lt;https://app.slack.com/client/T0OTHER001&gt;",
+    ]) {
+      const text = slackGuardedCardText(`<@U0ASKER> Q\n${hidden}`, guard, card);
+      expect(text).not.toContain("T0OTHER001");
+      expect(text).not.toContain("%43");
+      expect(text).not.toContain("<@U0ASKER>");
+    }
+  });
+});
+
+describe("a card's text cut to fit", () => {
+  test("is guarded before the cut leaves its mark on a link", () => {
+    const option = `${"x".repeat(34)} https://app.slack.com/client/T0OTHER001 tail`;
+    const view = slackQuestionView(
+      [question("Which?", [option, "b"])],
+      { s: "s-1", r: "q", c: HERE, m: "1.1", t: "1.0" },
+      "en",
+      guard,
+    );
+    expect(JSON.stringify(view)).not.toContain("T0OTHER001");
+    const card = slackPromptMessage(
+      {
+        kind: "question",
+        sessionId: "s-1",
+        requestId: "q",
+        questions: [question("Which?", [option, "b"])],
+        expiresAt: "2026-11-03T00:00:00Z",
+      },
+      { ...options, guard },
+    );
+    expect(said(card)).not.toContain("T0OTHER001");
+  });
+});
+
 describe("a card redrawn", () => {
   test("a settled question card", () => {
     const card = slackSettledCard(
@@ -298,17 +354,12 @@ describe("a card redrawn", () => {
     expect(pass.sent).toBe(2);
     expect(sent).toHaveLength(2);
     for (const card of sent) expectGuarded(JSON.stringify(card.blocks));
-    // The open card's stored text, escaped as cards were before: Slack shows
-    // the escaped control as text, so only the live mention and link go.
+    // The open card's stored text, escaped as cards were before: the guard
+    // would change it, so the card keeps the platform's words alone.
     const open = sent[0]?.text ?? "";
-    expect(open).not.toContain("@channel");
+    expect(open).not.toContain("ping");
     expect(open).not.toContain(ELSE);
     expect(open).not.toContain("T0OTHER001");
-    expect(open).toContain(IN);
-    expect(open).toContain("<@U0ASKER>");
-    expect(open).toContain(
-      "<https://console.example/sessions/s-1|Open on the web>",
-    );
     expectGuarded(sent[1]?.text ?? "");
   });
 });
