@@ -680,6 +680,11 @@ integration("worker gateway on PostgreSQL", () => {
   test("the egress check refuses on every fence condition", async () => {
     const session = await queuedSession(partitionFor("egress-fence"));
     const claimed = await claim(await launch(session.session_id));
+    // A lease longer than the fixture's, so a slow runner cannot end it here.
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
     const work = createPostgresWorkerUnitOfWork(db);
     const tokenHash = hashWorkerToken(
       claimed.runtime_config.provider.auth.token,
@@ -775,6 +780,14 @@ integration("worker gateway on PostgreSQL", () => {
         "expires_at = clock_timestamp() + interval '1 minute'",
         "invalid_token",
       ],
+      // A stale fence is named as such even when the lease has also run out.
+      [
+        "stale and expired",
+        attemptRow,
+        "lease_epoch = lease_epoch + 1, lease_expires_at = clock_timestamp() - interval '1 second'",
+        "lease_epoch = lease_epoch - 1, lease_expires_at = clock_timestamp() + interval '1 minute'",
+        "stale_epoch",
+      ],
     ] as const;
     const seen: [string, string][] = [];
     for (const [name, row, change, undo] of cases) {
@@ -793,11 +806,31 @@ integration("worker gateway on PostgreSQL", () => {
     );
     // A token presented for another route than its own.
     expect(await check("repository")).toBe("invalid_token");
+    // A token with no binding stands for nothing.
+    const { rows: bound } = await pool.query(
+      "SELECT binding FROM worker_credentials WHERE attempt_id = $1 AND purpose = 'provider'",
+      [claimed.attempt_id],
+    );
+    await pool.query(
+      "UPDATE worker_credentials SET binding = NULL WHERE attempt_id = $1 AND purpose = 'provider'",
+      [claimed.attempt_id],
+    );
+    expect(await check()).toBe("invalid_token");
+    await pool.query(
+      "UPDATE worker_credentials SET binding = $2 WHERE attempt_id = $1 AND purpose = 'provider'",
+      [claimed.attempt_id, bound[0].binding],
+    );
+    expect(await check()).toBe("ok");
   });
 
   test("a fence change not yet committed does not hold the check up, and refuses once committed", async () => {
     const session = await queuedSession(partitionFor("egress-bump"));
     const claimed = await claim(await launch(session.session_id));
+    // A lease longer than the fixture's, so a slow runner cannot end it here.
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
     const work = createPostgresWorkerUnitOfWork(db);
     const tokenHash = hashWorkerToken(
       claimed.runtime_config.provider.auth.token,
@@ -831,6 +864,17 @@ integration("worker gateway on PostgreSQL", () => {
 
   test("the first egress call waits for the session row and judges the fence it finds there", async () => {
     const work = createPostgresWorkerUnitOfWork(db);
+    // Until a backend in this test's database waits on a lock.
+    const lockWaitSeen = async () => {
+      for (let tries = 0; tries < 250; tries += 1) {
+        const { rows } = await pool.query(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        );
+        if (rows[0].n > 0) return true;
+        await sleep(20);
+      }
+      return false;
+    };
     const stateOf = async (attemptId: string) =>
       (
         await db
@@ -848,6 +892,11 @@ integration("worker gateway on PostgreSQL", () => {
     ] as const) {
       const session = await queuedSession(partitionFor("egress-first"));
       const claimed = await claim(await launch(session.session_id));
+      // A lease longer than the fixture's, so a slow runner cannot end it here.
+      await pool.query(
+        "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+        [claimed.attempt_id],
+      );
       expect(await stateOf(claimed.attempt_id)).toBe("allocated");
       const blocker = await pool.connect();
       let pending: Promise<string>;
@@ -862,8 +911,10 @@ integration("worker gateway on PostgreSQL", () => {
             purpose: "provider",
           })
           .then((result) => result.outcome);
+        // Seen waiting on the row lock, not merely not yet scheduled.
+        expect(await lockWaitSeen()).toBe(true);
         expect(
-          await Promise.race([pending, sleep(300).then(() => "waiting")]),
+          await Promise.race([pending, sleep(50).then(() => "waiting")]),
         ).toBe("waiting");
         await blocker.query("COMMIT");
       } catch (error) {
