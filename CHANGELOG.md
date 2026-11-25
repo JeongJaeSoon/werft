@@ -15,7 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **쓰지 않는 표 `agent_engine_settings`·`workspace_engine_settings`를 행째 지운다**(JeongJaeSoon/werft#2182). migration `0355_drop_engine_settings`가 지운다. 두 표에는 워크스페이스·에이전트의 실행 규칙이 들어 있었고, `v0.4.0`부터 어느 릴리스도 읽거나 쓰지 않았다. 마지막으로 읽은 릴리스는 `v0.3.0`이므로 지원 창 안의 이미지는 영향이 없다. 다만 `v0.3.0` 이하에서 저장한 규칙의 행이 남아 있을 수 있다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0355: dropped rows: …`). 그 행이 필요하면 올리기 전에 백업한다. 0355 아래로 스키마를 내려도 행은 돌아오지 않는다([업그레이드 문서](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose/#엔진-설정-표-둘을-지운-릴리스)).
+- **쓰지 않는 표 `agent_engine_settings`·`workspace_engine_settings`를 행째 지운다**(JeongJaeSoon/werft#2182). migration `0356_drop_engine_settings`가 지운다. 두 표에는 워크스페이스·에이전트의 실행 규칙이 들어 있었고, `v0.4.0`부터 어느 릴리스도 읽거나 쓰지 않았다. 마지막으로 읽은 릴리스는 `v0.3.0`이므로 지원 창 안의 이미지는 영향이 없다. 다만 `v0.3.0` 이하에서 저장한 규칙의 행이 남아 있을 수 있다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0356: dropped rows: …`). 그 행이 필요하면 올리기 전에 백업한다. 0356 아래로 스키마를 내려도 행은 돌아오지 않는다([업그레이드 문서](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose/#엔진-설정-표-둘을-지운-릴리스)).
 - **Slack 역할의 스위치 `SLACK_ROLE_CLOSE_LINKS`의 기본이 `true`로 바뀐다. 닫힌 세션의 Slack 스레드에 다시 멘션하면 그 세션이 아니라 새 세션이 열린다**(JeongJaeSoon/werft#2180). migration은 없다. 끈 채로 두려면 slack 역할에 `SLACK_ROLE_CLOSE_LINKS=false`를 준다(Compose는 같은 이름, Helm은 `slack.extraEnv`).
   - 올린 뒤 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결을 마지막 보고 줄을 넣은 뒤 닫는다. 올리기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
   - 닫는 사유(`closed_reason`)는 v0.5.0과 같다. 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기와 에이전트 릴리스가 없어 정리로 닫힌 세션은 `abandoned`다. 세션에 취소·실패 닫힘이 생기면 `cancelled`·`failed`를 쓴다.

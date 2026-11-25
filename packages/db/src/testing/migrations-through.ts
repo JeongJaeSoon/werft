@@ -15,7 +15,7 @@ export const BEFORE_PROFILE_REMOVAL = "0269_session_caller_limit";
  * `workspace_engine_settings`. A test that reads them back migrates to just
  * before it.
  */
-export const ENGINE_SETTINGS_DROP = "0355_drop_engine_settings";
+export const ENGINE_SETTINGS_DROP = "0356_drop_engine_settings";
 
 /**
  * A copy of the migrations folder whose journal ends at `lastTag` (or just
