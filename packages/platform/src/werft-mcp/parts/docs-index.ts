@@ -174,10 +174,17 @@ function parsePage(
   };
   // A repeated heading's id gets -1, -2, … as github-slugger gives it.
   const anchors = new Map<string, number>();
+  // As github-slugger numbers them: a number already taken by another
+  // heading ("A", "A-1", "A") moves on to the next.
   const unique = (anchor: string) => {
-    const seen = anchors.get(anchor);
-    anchors.set(anchor, (seen ?? -1) + 1);
-    return seen === undefined ? anchor : `${anchor}-${seen + 1}`;
+    let result = anchor;
+    while (anchors.has(result)) {
+      const n = (anchors.get(anchor) ?? 0) + 1;
+      anchors.set(anchor, n);
+      result = `${anchor}-${n}`;
+    }
+    anchors.set(result, 0);
+    return result;
   };
   let fence: string | null = null;
   for (const line of body.split(/\r?\n/)) {

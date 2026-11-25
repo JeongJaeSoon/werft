@@ -136,6 +136,11 @@ describe("the pages of a language", () => {
       "다음-단계-1",
       "다음-단계-2",
     ]);
+    const [q] = docsPages(
+      [{ path: "b.mdx", text: page("B", "## A\n\n## A-1\n\n## A") }],
+      "ko",
+    );
+    expect(q?.sections.map((s) => s.anchor)).toEqual(["a", "a-1", "a-2"]);
   });
 
   test("a chunk is at most CHUNK_CHARS, cut at paragraph ends", () => {
@@ -372,6 +377,7 @@ describe("the docs as resources", () => {
       "werft://docs/ko/integrations/github#%E0%A4%A",
       // The URI is echoed back: a second fragment would make it any size.
       `werft://docs/ko/integrations/github#old-urls#${"x".repeat(70_000)}`,
+      `werft://docs/ko/integrations/github#${"x".repeat(70_000)}`,
     ]) {
       expect((await ask(FILES, "resources/read", { uri })).error?.code).toBe(
         -32002,

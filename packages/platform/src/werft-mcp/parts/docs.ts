@@ -26,9 +26,10 @@ export const SEARCH_DOCS_TOOL = "search_docs";
 /** The most results one search returns. */
 export const SEARCH_RESULTS_MAX = 10;
 /**
- * The most one answer holds, in UTF-8 bytes. A worker reports a tool result
- * as one event, and the gateway takes at most 64 KiB in one report, so an
- * answer stays far below it, room left for how an engine frames it.
+ * The most the text of one answer takes, in UTF-8 bytes as JSON. A worker
+ * reports a tool result as one event, and the gateway takes at most 64 KiB in
+ * one report, so an answer stays far below it: the rest is room for the
+ * frame around it (the URI, the JSON-RPC envelope) and how an engine wraps it.
  */
 export const ANSWER_BYTES = 20_000;
 
@@ -72,6 +73,7 @@ function cutToBytes(text: string, budget: number): string {
 }
 
 const RESOURCE_ROOT = "werft://docs";
+const URI_MAX = 2_048;
 // The home page has no path of its own on the site.
 const HOME = "index";
 
@@ -173,11 +175,14 @@ export function docsPart(
         },
       ],
       async read(uri) {
-        if (!uri.startsWith(`${RESOURCE_ROOT}/`)) return null;
+        // The URI is echoed back, so one no page or section has is refused
+        // before it can make the answer any size.
+        if (!uri.startsWith(`${RESOURCE_ROOT}/`) || uri.length > URI_MAX) {
+          return null;
+        }
         const [path = "", fragment, ...extra] = uri
           .slice(RESOURCE_ROOT.length + 1)
           .split("#");
-        // The URI is echoed back, so only one a page or section has passes.
         if (extra.length > 0) return null;
         const [language, ...rest] = path.split("/");
         if (!(DOCS_LANGUAGES as readonly string[]).includes(language ?? "")) {
