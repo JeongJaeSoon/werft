@@ -30,6 +30,7 @@ import { createPostgresCheckpointStore } from "./checkpoints/checkpoint-store.ts
 import { encodeEventCursor } from "./cursors.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresGitHubGateStore } from "./github/github-settings.ts";
+import { isConnectionFailure } from "./pool.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -672,6 +673,249 @@ integration("worker gateway on PostgreSQL", () => {
       status: 401,
       code: "UNAUTHORIZED",
     });
+  });
+
+  // The proxy's check reads without the session row lock; every condition
+  // the locked fence refused on still refuses.
+  test("the egress check refuses on every fence condition", async () => {
+    const session = await queuedSession(partitionFor("egress-fence"));
+    const claimed = await claim(await launch(session.session_id));
+    const work = createPostgresWorkerUnitOfWork(db);
+    const tokenHash = hashWorkerToken(
+      claimed.runtime_config.provider.auth.token,
+    );
+    const check = (purpose: "provider" | "repository" = "provider") =>
+      work
+        .authorizeEgressAtomic({ tokenHash, purpose })
+        .then((result) => result.outcome);
+    // The first call moves the attempt out of `allocated`; the rest read.
+    expect(await check()).toBe("ok");
+    const sessionRow = { table: "sessions", id: session.session_id };
+    const attemptRow = { table: "attempts", id: claimed.attempt_id };
+    const tokenRow = {
+      table: "worker_credentials",
+      id: claimed.attempt_id,
+      key: "attempt_id = $1 AND purpose = 'provider'",
+    };
+    const cases = [
+      [
+        "session lease epoch",
+        sessionRow,
+        "lease_epoch = lease_epoch + 1",
+        "lease_epoch = lease_epoch - 1",
+        "stale_epoch",
+      ],
+      [
+        "session generation",
+        sessionRow,
+        "execution_generation = execution_generation + 1",
+        "execution_generation = execution_generation - 1",
+        "stale_epoch",
+      ],
+      [
+        "session auth revision",
+        sessionRow,
+        "auth_revision = auth_revision + 1",
+        "auth_revision = auth_revision - 1",
+        "stale_epoch",
+      ],
+      [
+        "attempt lease epoch",
+        attemptRow,
+        "lease_epoch = lease_epoch + 1",
+        "lease_epoch = lease_epoch - 1",
+        "stale_epoch",
+      ],
+      [
+        "attempt generation",
+        attemptRow,
+        "execution_generation = execution_generation + 1",
+        "execution_generation = execution_generation - 1",
+        "stale_epoch",
+      ],
+      [
+        "attempt auth revision",
+        attemptRow,
+        "auth_revision = auth_revision + 1",
+        "auth_revision = auth_revision - 1",
+        "stale_epoch",
+      ],
+      [
+        "attempt exited",
+        attemptRow,
+        "state = 'exited'",
+        "state = 'starting'",
+        "stale_epoch",
+      ],
+      [
+        "attempt lost",
+        attemptRow,
+        "state = 'lost'",
+        "state = 'starting'",
+        "stale_epoch",
+      ],
+      [
+        "lease ran out",
+        attemptRow,
+        "lease_expires_at = clock_timestamp() - interval '1 second'",
+        "lease_expires_at = clock_timestamp() + interval '1 minute'",
+        "lease_expired",
+      ],
+      [
+        "token revoked",
+        tokenRow,
+        "revoked_at = clock_timestamp()",
+        "revoked_at = NULL",
+        "invalid_token",
+      ],
+      [
+        "token expired",
+        tokenRow,
+        "expires_at = clock_timestamp() - interval '1 second'",
+        "expires_at = clock_timestamp() + interval '1 minute'",
+        "invalid_token",
+      ],
+    ] as const;
+    const seen: [string, string][] = [];
+    for (const [name, row, change, undo] of cases) {
+      const where = "key" in row ? row.key : "id = $1";
+      await pool.query(`UPDATE ${row.table} SET ${change} WHERE ${where}`, [
+        row.id,
+      ]);
+      seen.push([name, await check()]);
+      await pool.query(`UPDATE ${row.table} SET ${undo} WHERE ${where}`, [
+        row.id,
+      ]);
+      expect([name, await check()]).toEqual([name, "ok"]);
+    }
+    expect(seen).toEqual(
+      cases.map(([name, , , , expected]) => [name, expected]),
+    );
+    // A token presented for another route than its own.
+    expect(await check("repository")).toBe("invalid_token");
+  });
+
+  test("a fence change not yet committed does not hold the check up, and refuses once committed", async () => {
+    const session = await queuedSession(partitionFor("egress-bump"));
+    const claimed = await claim(await launch(session.session_id));
+    const work = createPostgresWorkerUnitOfWork(db);
+    const tokenHash = hashWorkerToken(
+      claimed.runtime_config.provider.auth.token,
+    );
+    const check = () =>
+      work
+        .authorizeEgressAtomic({ tokenHash, purpose: "provider" })
+        .then((result) => result.outcome);
+    expect(await check()).toBe("ok");
+    const blocker = await pool.connect();
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query(
+        "UPDATE sessions SET lease_epoch = lease_epoch + 1 WHERE id = $1",
+        [session.session_id],
+      );
+      // The bump holds the session row. The check reads the fence last
+      // committed, the same answer it would have had a moment earlier.
+      expect(
+        await Promise.race([check(), sleep(2_000).then(() => "waited")]),
+      ).toBe("ok");
+      await blocker.query("COMMIT");
+    } catch (error) {
+      await blocker.query("ROLLBACK");
+      throw error;
+    } finally {
+      blocker.release();
+    }
+    expect(await check()).toBe("stale_epoch");
+  });
+
+  test("the first egress call waits for the session row and judges the fence it finds there", async () => {
+    const work = createPostgresWorkerUnitOfWork(db);
+    const stateOf = async (attemptId: string) =>
+      (
+        await db
+          .select({ state: attempts.state })
+          .from(attempts)
+          .where(eq(attempts.id, attemptId))
+      )[0]?.state;
+    for (const [change, expected, state] of [
+      [
+        "UPDATE sessions SET lease_epoch = lease_epoch + 1 WHERE id = $1",
+        "stale_epoch",
+        "allocated",
+      ],
+      ["SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE", "ok", "starting"],
+    ] as const) {
+      const session = await queuedSession(partitionFor("egress-first"));
+      const claimed = await claim(await launch(session.session_id));
+      expect(await stateOf(claimed.attempt_id)).toBe("allocated");
+      const blocker = await pool.connect();
+      let pending: Promise<string>;
+      try {
+        await blocker.query("BEGIN");
+        await blocker.query(change, [session.session_id]);
+        pending = work
+          .authorizeEgressAtomic({
+            tokenHash: hashWorkerToken(
+              claimed.runtime_config.provider.auth.token,
+            ),
+            purpose: "provider",
+          })
+          .then((result) => result.outcome);
+        expect(
+          await Promise.race([pending, sleep(300).then(() => "waiting")]),
+        ).toBe("waiting");
+        await blocker.query("COMMIT");
+      } catch (error) {
+        await blocker.query("ROLLBACK");
+        throw error;
+      } finally {
+        blocker.release();
+      }
+      expect(await pending).toBe(expected);
+      expect(await stateOf(claimed.attempt_id)).toBe(state);
+    }
+  });
+
+  test("an egress check that cannot reach the database fails as a connection failure, never a grant", async () => {
+    const listener = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: { data() {} },
+    });
+    const port = listener.port;
+    listener.stop(true);
+    const url = new URL(database.url);
+    url.hostname = "127.0.0.1";
+    url.port = String(port);
+    const unreachable = new Pool({
+      connectionString: url.href,
+      max: 1,
+      connectionTimeoutMillis: 2_000,
+    });
+    try {
+      const outcome = await createPostgresWorkerUnitOfWork(
+        drizzle(unreachable, { schema }),
+      )
+        .authorizeEgressAtomic({
+          tokenHash: hashWorkerToken("wep_unreachable"),
+          purpose: "provider",
+        })
+        .then(
+          (result) => result.outcome,
+          (error: unknown) => error,
+        );
+      expect(outcome).toBeInstanceOf(Error);
+      // What the authorizer reads as storage unavailable and answers 503
+      // retryable on.
+      let current: unknown = outcome;
+      while (current instanceof Error && !isConnectionFailure(current)) {
+        current = current.cause;
+      }
+      expect(isConnectionFailure(current)).toBe(true);
+    } finally {
+      await unreachable.end();
+    }
   });
 
   test("release GitHub settings remain readable by the gate across release changes", async () => {
