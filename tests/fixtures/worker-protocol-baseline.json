@@ -1,6 +1,6 @@
 {
-  "release": "v0.4.0",
-  "commit": "10e98b9a98ec52078ee6543470b5e49d3d708ded",
+  "release": "v0.5.0",
+  "commit": "48ba67d44a3bbeaff6b192868808d9dfcd540fb4",
   "routes": {
     "/bootstrap-claim": {
       "request": {
@@ -4478,6 +4478,8 @@
                 "TURN_NOT_STARTED",
                 "BACKEND_UNAVAILABLE",
                 "LAUNCH_FAILED",
+                "NO_CAPACITY",
+                "CODEX_SANDBOX_NOT_INSTALLED",
                 "CATALOG_MISMATCH",
                 "TAKEOVER_REQUIRED",
                 "SOURCE_DELETED",
