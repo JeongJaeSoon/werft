@@ -313,6 +313,54 @@ describe("the GitHub webhook settings service", () => {
     expect(saved.sent.map(({ url }) => url)).toEqual([URL]);
   });
 
+  test("a failed PATCH ends the loop at once, even when the address moved meanwhile", async () => {
+    for (const failure of [
+      "url_refused",
+      "github_rejected",
+      "github_unreachable",
+    ] as const) {
+      const memory = memoryStore(null);
+      const sent: string[] = [];
+      const service = createGitHubWebhookSettingsAdmin({
+        authorization: createAuthorizationPolicy({
+          agents: { agentOf: async () => null, isAdmin: async () => false },
+          decisions: { record: async () => {} },
+        }),
+        store: memory.store,
+        apps: async () => [app(7, [WORKSPACE])],
+        setHook: async (_target, url) => {
+          sent.push(url);
+          await memory.store.setPublicUrl({
+            value: "https://b.example.test",
+            audit: {
+              userId: USERS.owner,
+              workspaceId: WORKSPACE,
+              receiptId: crypto.randomUUID(),
+            },
+          });
+          return failure;
+        },
+        warn: () => {},
+      });
+      const answer = await service.change(caller("owner"), {
+        webhook_public_url: "https://a.example.test",
+      });
+      expect(answer.updates).toEqual([
+        { app_id: 7, name: "werft-7", outcome: "failed", reason_code: failure },
+      ]);
+      expect(sent).toEqual(["https://a.example.test/v1/github/webhook"]);
+    }
+  });
+
+  test("an updated App gets one PATCH when the address did not move, and one more per address saved since", async () => {
+    const still = admin(null, [app(7, [WORKSPACE])]);
+    await still.admin.change(caller("owner"), { webhook_public_url: BASE });
+    expect(still.sent.map(({ url }) => url)).toEqual([URL]);
+    const retried = admin({ publicUrl: BASE }, [app(7, [WORKSPACE])]);
+    await retried.admin.retry(caller("owner"), { app_ids: [7] });
+    expect(retried.sent.map(({ url }) => url)).toEqual([URL]);
+  });
+
   test("the address already saved leaves no receipt and sends no App", async () => {
     const { admin: service, sent } = admin({ publicUrl: BASE }, [
       app(7, [WORKSPACE]),
