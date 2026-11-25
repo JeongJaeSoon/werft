@@ -25,6 +25,17 @@ const fileOf = (locale: keyof typeof VERSION_LINE) =>
   `${page}${locale === "ko" ? "" : `.${locale}`}.mdx`;
 
 /**
+ * The current version's page in each language, as sha256 of its file. A
+ * changed page is a new version: bump the notice and its version line, then
+ * record the new digests here.
+ */
+const CURRENT_PAGE: Record<"ko" | "ja" | "en", string> = {
+  ko: "15b457b3537d32b260e24c226a34a3b40f535805bf335bdebb142558e94dc6f1",
+  ja: "c43035d5b552da46adf7da912d7d16166fcb09b1cd23e23eb75a1947968e5994",
+  en: "ddfb90001187fddcc7cb635e4a91f2f271974efe1acb692865f89ad0d5d6ecf7",
+};
+
+/**
  * The words of each published version, as sha256 of its text. A version's
  * words never change once published: new words are a new version, added
  * here with its digest.
@@ -55,6 +66,18 @@ describe("the data page the notice links to", () => {
         expect(existsSync(fileOf(locale))).toBe(true);
       }
     }
+  });
+
+  test("the page does not change without a new version", () => {
+    const digests = Object.fromEntries(
+      (["ko", "ja", "en"] as const).map((locale) => [
+        locale,
+        createHash("sha256")
+          .update(readFileSync(fileOf(locale), "utf8"))
+          .digest("hex"),
+      ]),
+    );
+    expect(digests).toEqual(CURRENT_PAGE);
   });
 
   test("a published version's words never change", () => {
