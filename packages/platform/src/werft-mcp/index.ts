@@ -15,7 +15,11 @@ export type {
 export { werftTool } from "./part.ts";
 export { docsPart } from "./parts/docs.ts";
 export { guidePart } from "./parts/guide.ts";
-export { statusPart } from "./parts/status.ts";
+export {
+  statusPart,
+  type WerftStatusFacts,
+  type WerftStatusStore,
+} from "./parts/status.ts";
 export { MASKED, maskSecrets } from "./secrets.ts";
 export {
   createWerftMcpServer,

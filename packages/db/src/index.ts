@@ -150,4 +150,5 @@ export * from "./telemetry-ingest-store.ts";
 export * from "./usage/agent-usage.ts";
 export * from "./usage/metrics-reader.ts";
 export * from "./usage/usage-reader.ts";
+export * from "./werft-mcp/status.ts";
 export { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
