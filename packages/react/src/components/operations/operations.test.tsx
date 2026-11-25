@@ -20,6 +20,7 @@ const { OperationsHead } = await import("./operations-head.tsx");
 const { UsageFilters } = await import("./usage-filters.tsx");
 const { UsageKpis } = await import("./usage-kpis.tsx");
 const { UsageCostTable } = await import("./usage-cost-table.tsx");
+const { UsageInitiatorSplit } = await import("./usage-initiator-split.tsx");
 const { UsageDailyCost } = await import("./usage-daily-cost.tsx");
 const { UsageBasis } = await import("./usage-basis.tsx");
 const { OPERATIONS_MESSAGES } = await import("./messages.ts");
@@ -1170,6 +1171,10 @@ describe("UsageCostTable", () => {
         summary_usd: "0.010000",
         other_usd: other,
       },
+      by_requester: {
+        person_usd: (0.06 + Number(other)).toFixed(6),
+        agent_usd: "0.010000",
+      },
     });
     const table = withPlatform(
       <UsageCostTable
@@ -1197,9 +1202,11 @@ describe("UsageCostTable", () => {
           [i]?.querySelectorAll<HTMLElement>("[role=cell]") ?? []),
       ].map((cell) => cell.textContent);
     expect(cells(1)[3]).toBe(
-      "$0.09판단 $0.01대화 턴 $0.05요약 $0.01기타 $0.02",
+      "$0.09판단 $0.01대화 턴 $0.05요약 $0.01기타 $0.02사람 $0.08에이전트 $0.01",
     );
-    expect(cells(2)[3]).toBe("$0.07판단 $0.01대화 턴 $0.05요약 $0.01");
+    expect(cells(2)[3]).toBe(
+      "$0.07판단 $0.01대화 턴 $0.05요약 $0.01사람 $0.06에이전트 $0.01",
+    );
     expect(cells(3)[3]).toBe("$0.00");
     // The cost column stays the sessions'.
     expect(cells(1)[4]).toBe("$3.00");
@@ -1213,6 +1220,81 @@ describe("UsageCostTable", () => {
       />,
     );
     expect(plain.queryByText("대화")).toBeNull();
+    plain.unmount();
+    // The judgment line goes to the agent's M1 judgment records.
+    const linked = withPlatform(
+      <UsageCostTable
+        label="에이전트별"
+        head="에이전트"
+        by="agent"
+        conversation
+        judgmentLink={(agentId, children) => (
+          <a href={`/agents/${agentId}/slack#slack-judgments`}>{children}</a>
+        )}
+        rows={[{ ...row("a1", "triage", "3.00"), conversation: talk("0") }]}
+      />,
+    );
+    expect(
+      linked.getByRole("link", { name: "판단 $0.01" }).getAttribute("href"),
+    ).toBe("/agents/a1/slack#slack-judgments");
+    expect(linked.getAllByRole("link")).toHaveLength(1);
+  });
+
+  test("누가 시작했나: 사람·에이전트·작업 세션이 합계를 나누고, 사람 아래 사람별 줄을 둔다", () => {
+    const totals = {
+      session_count: 2,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      token_count: 0,
+      cost_usd: "0.400000",
+      conversation: {
+        call_count: 4,
+        cost_usd: "0.600000",
+        cost_complete: true,
+        by_class: {
+          judgment_usd: "0.100000",
+          turn_usd: "0.500000",
+          summary_usd: "0",
+          other_usd: "0",
+        },
+        by_requester: { person_usd: "0.500000", agent_usd: "0.100000" },
+      },
+    };
+    const person = (label: string | null, usd: string) => ({
+      user_id: label ? crypto.randomUUID() : null,
+      label,
+      call_count: 1,
+      cost_usd: usd,
+      cost_complete: true,
+    });
+    const view = withPlatform(
+      <UsageInitiatorSplit
+        totals={totals}
+        people={[person("Alice", "0.450000"), person(null, "0.050000")]}
+        sessionsLink={(children) => <a href="/sessions">{children}</a>}
+      />,
+    );
+    const rows = view
+      .getAllByRole("row")
+      .map((r) =>
+        [...r.querySelectorAll("[role=cell]")].map((c) => c.textContent),
+      );
+    expect(rows.map((cells) => [cells[0], cells[2], cells[3]])).toEqual([
+      ["사람", "$0.50", "50%"],
+      ["Alice", "$0.45", "45%"],
+      ["사람 없는 key", "$0.05", "5%"],
+      ["에이전트", "$0.10", "10%"],
+      ["작업 세션", "$0.40", "40%"],
+    ]);
+    expect(
+      view.getByRole("link", { name: "작업 세션" }).getAttribute("href"),
+    ).toBe("/sessions");
+    view.unmount();
+    // Without people the parts stand alone.
+    const bare = withPlatform(<UsageInitiatorSplit totals={totals} />);
+    expect(bare.getAllByRole("row")).toHaveLength(3);
   });
 
   test("빈 rows는 빈 상태, undefined는 자리 행을 placeholderRows만큼 둔다", () => {

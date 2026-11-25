@@ -38,6 +38,7 @@ export {
   teamQuery,
   teamsQuery,
   usageBreakdownQuery,
+  usagePeopleQuery,
   usageSeriesQuery,
   viewerQuery,
   waitingSessionsByQuery,

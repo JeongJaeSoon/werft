@@ -1,19 +1,25 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import {
+  type BudgetRootKind,
   scopesForRole,
   type UsageBreakdownResponse,
+  type UsagePeopleResponse,
   usageBreakdownQuerySchema,
   usageBreakdownResponseSchema,
+  usagePeopleQuerySchema,
+  usagePeopleResponseSchema,
   usageSummaryQuerySchema,
   usageSummaryResponseSchema,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  agentAdmins,
   agentReleases,
   agents,
   agentVersions,
+  createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresSessionUnitOfWork,
   createPostgresUsageReader,
@@ -88,6 +94,7 @@ integration("usage breakdown on PostgreSQL", () => {
     return createUsageService({
       authorization: createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
+        agents: createDatabaseAgentAuthority(db),
       }),
       reader: createPostgresUsageReader(db),
       limits: {
@@ -490,6 +497,7 @@ integration("usage breakdown on PostgreSQL", () => {
                   summary_usd: "0",
                   other_usd: "0",
                 },
+                by_requester: { person_usd: "0", agent_usd: "0" },
               },
             }
           : {}),
@@ -505,27 +513,45 @@ integration("usage breakdown on PostgreSQL", () => {
     at: string,
     callClass: "m1" | "m2" | "summary",
     costUsd: number | null,
+    // Who started the chain; a person when there is one, nobody otherwise.
+    root: BudgetRootKind = who ? "user" : "none",
+    // A public channel, a private one (Slack's G… ids), or a DM with `who`.
+    place: "channel" | "private" | "dm" = "channel",
   ) {
-    const channel = `C${agent.slice(0, 8)}`;
-    await pool.query(
-      `INSERT INTO channel_contexts (id, workspace_id, team_id, channel_id)
-       VALUES ($1, $2, 'T0ACME', $3) ON CONFLICT DO NOTHING`,
-      [crypto.randomUUID(), workspaceId, channel],
-    );
-    const conversation = await pool.query<{ id: string }>(
-      `INSERT INTO conversations (id, workspace_id, agent_id, kind, team_id, channel_id)
-       VALUES ($1, $2, $3, 'channel', 'T0ACME', $4)
-       ON CONFLICT DO NOTHING RETURNING id`,
-      [crypto.randomUUID(), workspaceId, agent, channel],
-    );
-    const conversationId =
-      conversation.rows[0]?.id ??
-      (
+    let conversationId: string | undefined;
+    if (place === "dm") {
+      const person = ids[who ?? "alice"];
+      conversationId = (
         await pool.query<{ id: string }>(
-          "SELECT id FROM conversations WHERE agent_id = $1 AND channel_id = $2",
-          [agent, channel],
+          `INSERT INTO conversations (id, workspace_id, agent_id, kind, person_user_id)
+           VALUES ($1, $2, $3, 'dm', $4)
+           ON CONFLICT (agent_id, person_user_id) DO UPDATE SET kind = 'dm'
+           RETURNING id`,
+          [crypto.randomUUID(), workspaceId, agent, person],
         )
       ).rows[0]?.id;
+    } else {
+      const channel = `${place === "private" ? "G" : "C"}${agent.slice(0, 8)}`;
+      await pool.query(
+        `INSERT INTO channel_contexts (id, workspace_id, team_id, channel_id)
+         VALUES ($1, $2, 'T0ACME', $3) ON CONFLICT DO NOTHING`,
+        [crypto.randomUUID(), workspaceId, channel],
+      );
+      const conversation = await pool.query<{ id: string }>(
+        `INSERT INTO conversations (id, workspace_id, agent_id, kind, team_id, channel_id)
+         VALUES ($1, $2, $3, 'channel', 'T0ACME', $4)
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [crypto.randomUUID(), workspaceId, agent, channel],
+      );
+      conversationId =
+        conversation.rows[0]?.id ??
+        (
+          await pool.query<{ id: string }>(
+            "SELECT id FROM conversations WHERE agent_id = $1 AND channel_id = $2",
+            [agent, channel],
+          )
+        ).rows[0]?.id;
+    }
     const settled = costUsd !== null;
     await pool.query(
       `INSERT INTO conversation_calls (id, workspace_id, agent_id, token_hash,
@@ -542,7 +568,7 @@ integration("usage breakdown on PostgreSQL", () => {
         workspaceId,
         agent,
         crypto.randomUUID(),
-        who ? "user" : "none",
+        root,
         who ? ids[who] : null,
         settled ? "settled" : "reserved",
         settled ? crypto.randomUUID() : null,
@@ -629,21 +655,17 @@ integration("usage breakdown on PostgreSQL", () => {
     expect(bobs.rows.map(talk)).toEqual([
       ["Checkout fixer", 0, 0, 1, 10_000, true, 10_000, 0, 0],
     ]);
-    // An admin reads the whole installation no more than for sessions.
-    const error = await service()
-      .getUsageBreakdown(
-        user("admin", "admin"),
-        usageBreakdownQuerySchema.parse({
-          scope: "installation",
-          ...period,
-          by: "agent",
-        }),
-      )
-      .catch((caught: unknown) => caught);
-    expect((error as SessionServiceError).code).toBe("FORBIDDEN");
+    // An admin reads the whole installation as the owner does.
+    expect(
+      await breakdown(user("admin", "admin"), {
+        scope: "installation",
+        ...period,
+        by: "agent",
+      }),
+    ).toEqual(whole);
   });
 
-  test("scope=installation is the signed-in owner's alone", async () => {
+  test("scope=installation is the signed-in owner's and admins' alone", async () => {
     const query = usageBreakdownQuerySchema.parse({
       scope: "installation",
       since: "2005-01-01",
@@ -651,7 +673,6 @@ integration("usage breakdown on PostgreSQL", () => {
       by: "agent",
     });
     for (const [label, caller] of [
-      ["admin", user("admin", "admin")],
       ["member", user("alice", "member")],
       ["member claiming owner", user("alice", "owner")],
     ] as const) {
@@ -661,5 +682,139 @@ integration("usage breakdown on PostgreSQL", () => {
       expect(error, label).toBeInstanceOf(SessionServiceError);
       expect((error as SessionServiceError).code, label).toBe("FORBIDDEN");
     }
+  });
+  async function people(caller: Caller, query: Record<string, string>) {
+    return usagePeopleResponseSchema.parse(
+      await service().getUsagePeople(
+        caller,
+        usagePeopleQuerySchema.parse(query),
+      ),
+    );
+  }
+
+  // What anyone wrote, under any name a response could carry it by.
+  function textKeys(value: unknown, path = ""): string[] {
+    if (Array.isArray(value))
+      return value.flatMap((item, i) => textKeys(item, `${path}[${i}]`));
+    if (value === null || typeof value !== "object") return [];
+    return Object.entries(value).flatMap(([key, inner]) => [
+      ...(/text|message|body|reply|reason|content|prompt/i.test(key)
+        ? [`${path}.${key}`]
+        : []),
+      ...textKeys(inner, `${path}.${key}`),
+    ]);
+  }
+
+  test("who started it: person, agent and session parts add up, and people split the person part by reach", async () => {
+    const period = { since: "2012-03-01", until: "2012-03-03" };
+    const at = (minute: number) =>
+      `2012-03-01T10:${String(minute).padStart(2, "0")}:00Z`;
+    await session("alice", at(0), agentX, 0.4, []);
+    // People: alice in a DM and a public channel, bob in a private channel
+    // (and one still open), and a key nobody made.
+    await conversationCall(agentX, "alice", at(1), "m2", 0.3, "user", "dm");
+    await conversationCall(agentY, "alice", at(2), "m1", 0.05);
+    await conversationCall(agentX, "bob", at(3), "m2", 0.2, "user", "private");
+    await conversationCall(agentX, "bob", at(4), "m1", null, "user", "private");
+    await conversationCall(agentX, null, at(5), "m2", 0.04, "key");
+    // The agent's side: its own summary, and an allowed Slack bot's ask.
+    await conversationCall(agentY, null, at(6), "summary", 0.01);
+    await conversationCall(agentY, null, at(7), "m1", 0.02, "slack_bot");
+    // alice manages Docs writer (agentY) alone.
+    await db
+      .insert(agentAdmins)
+      .values({ workspaceId, agentId: agentY, userId: ids.alice });
+
+    const owner = user("owner", "owner");
+    const whole = await breakdown(owner, {
+      scope: "installation",
+      ...period,
+      by: "agent",
+    });
+    for (const row of [...whole.rows, whole.totals]) {
+      const talk = row.conversation;
+      if (!talk) throw new Error("no conversation figures");
+      expect(
+        micro(talk.by_requester.person_usd) +
+          micro(talk.by_requester.agent_usd),
+      ).toBe(micro(talk.cost_usd));
+    }
+    const split = whole.totals.conversation?.by_requester;
+    // The three parts of the period's spend, each from its own source.
+    expect([
+      micro(split?.person_usd ?? "0"),
+      micro(split?.agent_usd ?? "0"),
+      micro(whole.totals.cost_usd),
+    ]).toEqual([590_000, 30_000, 400_000]);
+    expect(
+      micro(split?.person_usd ?? "0") +
+        micro(split?.agent_usd ?? "0") +
+        micro(whole.totals.cost_usd),
+    ).toBe(
+      micro(whole.totals.conversation?.cost_usd ?? "0") +
+        micro(whole.totals.cost_usd),
+    );
+
+    // Owner and admin read every person, the DM's and private channel's
+    // calls included; the people add up to the person part.
+    const rows = (response: UsagePeopleResponse) =>
+      response.people.map((row) => [
+        row.label,
+        row.call_count,
+        micro(row.cost_usd),
+        row.cost_complete,
+      ]);
+    for (const caller of [owner, user("admin", "admin")]) {
+      const all = await people(caller, period);
+      expect(rows(all)).toEqual([
+        ["alice", 2, 350_000, true],
+        ["bob", 2, 200_000, false],
+        [null, 1, 40_000, true],
+      ]);
+      expect(all.people[0]?.user_id).toBe(ids.alice);
+      expect(micro(all.totals.cost_usd)).toBe(micro(split?.person_usd ?? "0"));
+      expect(all.agent_id).toBeNull();
+    }
+
+    // An agent's admin reads that agent's share, and nothing wider.
+    const docs = whole.rows.find((row) => row.key === agentY);
+    const alice = user("alice", "member");
+    const mine = await people(alice, { ...period, agent_id: agentY });
+    expect(rows(mine)).toEqual([["alice", 1, 50_000, true]]);
+    expect(micro(mine.totals.cost_usd)).toBe(
+      micro(docs?.conversation?.by_requester.person_usd ?? "0"),
+    );
+    for (const [label, caller, query] of [
+      ["agent admin, another agent", alice, { ...period, agent_id: agentX }],
+      ["agent admin, the workspace", alice, period],
+      ["member", user("bob", "member"), period],
+      [
+        "member, an agent",
+        user("bob", "member"),
+        { ...period, agent_id: agentX },
+      ],
+    ] as const) {
+      const error = await service()
+        .getUsagePeople(caller, usagePeopleQuerySchema.parse(query))
+        .catch((caught: unknown) => caught);
+      expect((error as SessionServiceError).code, label).toBe("FORBIDDEN");
+    }
+    // A member still reads their own spend with scope=me.
+    const bobs = await breakdown(user("bob", "member"), {
+      scope: "me",
+      ...period,
+      by: "agent",
+    });
+    expect(
+      bobs.rows.map((row) => [
+        row.label,
+        micro(row.conversation?.by_requester.person_usd ?? "0"),
+      ]),
+    ).toEqual([["Checkout fixer", 200_000]]);
+
+    // No response carries anything anyone wrote.
+    expect(textKeys([whole, bobs, mine, await people(owner, period)])).toEqual(
+      [],
+    );
   });
 });
