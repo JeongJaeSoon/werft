@@ -27,7 +27,7 @@ API는 설치 상한 말고도 아래 값을 기동 때 한 parser로 읽는다.
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
-| `HEARTBEAT_TTL_SEC` | 30 | 15 초과 86400 이하. worker는 lease가 끝나기 10초 전에 lease를 내려놓고(`WORKER_LEASE_SAFETY_MARGIN_SEC`), 5초마다 heartbeat를 보낸다(`WORKER_HEARTBEAT_INTERVAL_SEC`). 두 값의 합 이하이면 attempt가 첫 heartbeat 무렵 lease를 잃는다. launcher는 두 worker 값을 넘기지 않으므로 기본값을 기준으로 판정한다 |
+| `HEARTBEAT_TTL_SEC` | 30 | 15 초과 86400 이하. worker는 lease가 끝나기 10초 전에 lease를 내려놓고(`WORKER_LEASE_SAFETY_MARGIN_SEC`), 5초마다 heartbeat를 보낸다(`WORKER_HEARTBEAT_INTERVAL_SEC`). 두 값의 합 이하이면 attempt가 첫 heartbeat 무렵 lease를 잃는다. launcher는 두 worker 값을 넘기지 않으므로 기본값을 기준으로 판정한다. heartbeat가 403을 받으면 worker는 바로 끝난다. 404를 받으면 1초, 2초 뒤에, 그다음부터는 4초마다 다시 보내고, lease를 내려놓는 시각까지 받아들여지지 않으면 끝난다(기본값에서는 다시 보내기 4–6회). 다시 보내는 동안 worker는 gateway의 다른 호출과 checkpoint 올리기를 보내지 않고, heartbeat가 받아들여지면 이어서 보낸다 |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 양의 정수 |
 | `LOG_LEVEL` | `info` | `debug`·`info`·`warn`·`error`(대소문자 무관, 빈 값은 `info`). scheduler·reconciler loop와 egress-proxy도 같은 규칙으로 기동을 거부한다. worker는 scheduler의 값을 받는다 |
 | `WEB_DIST_DIR` | 없음(웹 콘솔을 서빙하지 않음). control-host 이미지는 `/app/apps/web/dist` | `index.html`이 있는 절대 경로. 웹 콘솔(`apps/web`)의 빌드 결과다 |
@@ -248,7 +248,7 @@ kubernetes 모드에서만 읽는 설정은 다음과 같다.
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker 컨테이너의 ephemeral-storage requests·limits(MiB). 기본 1024. 넘으면 kubelet이 Pod를 evict한다. |
 | `SCHEDULER_NODE_CAPACITY_CHECK` | 선택. `true`면 scheduler가 시작할 때 worker 둘을 받지 못하는 노드마다 경고 로그를 남긴다. 미설정이면 `false`이며 `true`/`false` 밖의 값은 기동을 거부한다. Node를 읽을 권한이 필요하다. 켜면 Codex sandbox Pod가 자리를 기다릴 때 내릴 worker도 노드 라벨로 고른다. |
 
-실패한 worker의 종료 사유와 로그 tail(마지막 8 KiB)은 scheduler 로그의 `Execution resource failed; log tail kept` 줄에 남는다. 로그 마스킹 규칙은 tail을 줄 단위로 가린다. 비밀 모양의 값은 그 값이 걸친 줄만 가린다. `input:` 같은 조각은 그 줄부터 끝까지 가린다. 그 앞의 줄은 남는다(URL login은 그 부분만 가린다). 저장 위치와 보존 기간은 저장소의 Kubernetes 실행 어댑터 README(종료 사유와 로그 tail 절)에 있다.
+실패한 worker의 종료 사유와 로그 tail(마지막 8 KiB)은 scheduler 로그의 `Execution resource failed; log tail kept` 줄에 남는다. 로그 마스킹 규칙은 tail을 줄 단위로 가린다. 비밀 모양의 값은 그 값이 걸친 줄만 가린다. `input:` 같은 조각은 그 줄부터 끝까지 가린다. 그 앞의 줄은 남는다(URL login은 그 부분만 가린다). worker가 lease를 잃어 끝났으면 같은 줄의 `cause`가 `worker.ownership.lost`이고, heartbeat가 거절된 상태 코드와 오류 코드가 `heartbeat_status`·`heartbeat_code`에 남는다. 저장 위치와 보존 기간은 저장소의 Kubernetes 실행 어댑터 README(종료 사유와 로그 tail 절)에 있다.
 
 ## chart가 넣는 값
 
