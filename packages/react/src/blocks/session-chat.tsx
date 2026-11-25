@@ -6,6 +6,7 @@ import {
   type TurnSummary,
 } from "@werft-ai/contracts";
 import {
+  Alert,
   Badge,
   Button,
   ChatList,
@@ -299,27 +300,37 @@ export function SessionChat({
     <div className="flex min-w-0 flex-col gap-6">
       <output className="sr-only">{status}</output>
       {state === "closed" ? (
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
-          <Text variant="meta" role="status" className="text-center">
-            {onReconnect
-              ? t("session.events.ended")
-              : t("session.events.closed")}
-          </Text>
-          {onReconnect ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onReconnect}
-            >
-              {t("session.events.reconnect")}
-            </Button>
-          ) : null}
+        // Stays at the top of the scrolled chat: the reader is usually at
+        // its end, far from where the list starts.
+        <div className="sticky top-0 z-10 bg-background">
+          <Alert variant="red" className="items-center">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <Text role="status" className="text-foreground">
+                {onReconnect
+                  ? t("session.events.ended")
+                  : t("session.events.closed")}
+              </Text>
+              {onReconnect ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onReconnect}
+                >
+                  {t("session.events.reconnect")}
+                </Button>
+              ) : null}
+            </div>
+          </Alert>
         </div>
       ) : state === "connecting" && failedAttempts >= NOTICE_AFTER_FAILURES ? (
-        <Text variant="meta" role="status" className="text-center">
-          {t("session.events.reconnecting")}
-        </Text>
+        <div className="sticky top-0 z-10 bg-background">
+          <Alert variant="amber">
+            <Text role="status" className="text-foreground">
+              {t("session.events.reconnecting")}
+            </Text>
+          </Alert>
+        </div>
       ) : state === "connecting" && events.length === 0 ? (
         <Text variant="meta" role="status" className="text-center">
           {t("session.events.connecting")}
