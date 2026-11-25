@@ -311,7 +311,8 @@ describe("a link a cut runs into", () => {
         ...permission,
         input: {
           "field @here": "FIRST VALUE",
-          "field @channel": "SECOND VALUE",
+          "field (3)": "SECOND VALUE",
+          "field @channel": "THIRD VALUE",
         },
       },
       { ...options, guard },
@@ -319,6 +320,7 @@ describe("a link a cut runs into", () => {
     const text = said(card);
     expect(text).toContain("FIRST VALUE");
     expect(text).toContain("SECOND VALUE");
+    expect(text).toContain("THIRD VALUE");
     expect(text).not.toContain("@here");
     expect(text).not.toContain("@channel");
   });

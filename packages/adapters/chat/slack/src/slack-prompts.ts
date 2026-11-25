@@ -642,10 +642,9 @@ function guardedStrings(
   const guarded = new Map<string, unknown>();
   Object.entries(value).forEach(([key, item], index) => {
     const kept = guard(key);
-    guarded.set(
-      guarded.has(kept) ? `${kept} (${index + 1})` : kept,
-      guardedStrings(item, guard),
-    );
+    let name = kept;
+    for (let n = index + 1; guarded.has(name); n += 1) name = `${kept} (${n})`;
+    guarded.set(name, guardedStrings(item, guard));
   });
   return Object.fromEntries(guarded);
 }
