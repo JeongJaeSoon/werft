@@ -236,6 +236,63 @@ describe("API checkpoint composition", () => {
     expect(new Set(memory)).toEqual(new Set([768 * 1024 * 1024]));
   });
 
+  test("remembers a pass in a store that can keep one: the next protected-commits answer starts no git", async () => {
+    const started: string[][] = [];
+    const gitRunner: GitCommandRunner = (args, options) => {
+      started.push([...args]);
+      return defaultGitRunner(args, options);
+    };
+    const { objects, checkpoint } = await checkpointWith(
+      bundle.bytes,
+      bundle.commit,
+    );
+    const pointer = {
+      committedAt: new Date(),
+      manifestRef: checkpoint.manifest_ref,
+      manifestSha256: checkpoint.manifest_sha256,
+      revision: 0,
+      turnId: "1",
+    };
+    const verdicts = new Map<number, string>();
+    const service = createApiCheckpointService({
+      codecs,
+      objectProtection: "unversioned",
+      gitRunner,
+      objects,
+      store: {
+        ...store,
+        readPointer: async () => pointer,
+        async listBundleVerdicts(_sessionId, revisions) {
+          return revisions.flatMap((revision) => {
+            const key = verdicts.get(revision);
+            return key === undefined ? [] : [{ key, revision }];
+          });
+        },
+        async bundleVerdictBasis() {
+          return "rows";
+        },
+        async recordBundleVerdict(input) {
+          verdicts.set(input.revision, input.key);
+        },
+      },
+    });
+    expect(await service.protectedCommits({ sessionId, pointer })).toEqual([
+      bundle.commit,
+    ]);
+    expect(started.some((args) => args.includes("fetch"))).toBe(true);
+    expect(verdicts.size).toBe(1);
+    started.length = 0;
+    expect(await service.protectedCommits({ sessionId, pointer })).toEqual([
+      bundle.commit,
+    ]);
+    expect(started).toEqual([]);
+    // The bundle is still held to its digest on every call.
+    await objects.overwrite(bundleKey, new Uint8Array(bundle.bytes.byteLength));
+    await expect(
+      service.protectedCommits({ sessionId, pointer }),
+    ).rejects.toThrow("hashes to");
+  });
+
   test("keeps the verifier's default cap when the environment names none", () => {
     expect(checkpointGitMemoryBytesFromEnv({})).toBe(
       DEFAULT_MAX_GIT_MEMORY_BYTES,
