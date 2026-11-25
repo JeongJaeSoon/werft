@@ -15,7 +15,8 @@ on:
 # Read-only for every job but the publish, index and promote jobs: a pull
 # request can edit this file, so a token with package write in the PR job would
 # let a branch publish images before merge. Those jobs alone get package write,
-# and only run on a main or tag push. Only the jobs that write a release (its
+# and only run on a main or tag push, or a manual run on main (staging tags
+# only, for a release it retries: see publish-main). Only the jobs that write a release (its
 # tag, the Release, the "Latest" mark) get contents write, after the approval.
 permissions:
   contents: read
@@ -613,9 +614,15 @@ jobs:
           path: digests/*.json
           if-no-files-found: error
 
+  # A manual run on main also publishes, under staging tags only and up to
+  # index-main: a release it retries (release-detect) promotes those digests.
+  # Its promote-main would move main-<12>, which the push run of the commit
+  # owns and image-promote.sh refuses to move to a new build. Nothing here
+  # needs release-detect: a skipped or failed ancestor skips every job after
+  # it (actions/runner#491), and a push's chain must not wait on a release.
   publish-main:
     needs: [build, supply-chain]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     permissions:
@@ -628,14 +635,14 @@ jobs:
 
   sources-main:
     needs: publish-main
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps: *sources-steps
 
   index-main:
     needs: sources-main
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -900,8 +907,23 @@ jobs:
   # `RELEASE_REF` stands in for GITHUB_REF in the scripts of these jobs, and
   # ARTIFACT_SUFFIX keeps their artifacts apart from main's in the same run.
   # A tag a person pushes runs its own chain above, unchanged.
+  #
+  # A release whose run failed (a gate, worker-compat) is retried by a manual
+  # run of this workflow on main, `gh workflow run images.yml --ref main`, once
+  # the fix is merged: re-running the failed run would test the old commit, and
+  # the fixing push adds no heading. release-detect then takes the top
+  # `## vX.Y.Z` heading when neither its tag nor its Release exists, and
+  # prints `release tag: none` otherwise. Every job above runs for it,
+  # release-approve included, on the main head; release-gate checks the
+  # commit's push run got through chart-publish-main in place of this run's
+  # own main-<12> chain. A manual run with nothing to retry stages images and
+  # releases nothing. The retry is for a release stopped before promote-release:
+  # once vX names main's digests, a new build cannot take the tag over
+  # (image-promote.sh refuses it, before anything is written), so a release
+  # stopped after it continues with "Re-run failed jobs" on its own run. A person starts the retry: the GITHUB_TOKEN of a run
+  # starts no run of this workflow, and no job here dispatches it.
   release-detect:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -913,17 +935,23 @@ jobs:
           persist-credentials: false
       - id: detect
         env:
+          EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/release-auto.sh detect
 
+  # Waits for chart-publish-main by reading the run, not by `needs`: it runs
+  # on a push only, and a skipped job in a retry's graph would skip every
+  # release job after it, release-approve included (actions/runner#491). A
+  # push waits for this run's, a retry reads the push run of its commit.
+  # Its timeout holds both waits, ci (90 min) and main-chain (60 min).
   release-gate:
-    needs: [release-detect, chart-publish-main]
+    needs: [release-detect, index-main]
     if: needs.release-detect.outputs.tag != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    timeout-minutes: 160
     permissions:
       contents: read
       actions: read
@@ -936,6 +964,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/release-auto.sh ci
+      - name: main's chain of this commit got through chart-publish-main
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh main-chain
       # That run planned the suite for this release push (ci.yml `changes`);
       # this holds the release to its having run and passed on every engine.
       - name: ci.yml passed the conformance suite on this commit
