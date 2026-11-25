@@ -93,11 +93,29 @@ export function sealSecret(
   if (fields.keyVersion !== key.version) {
     throw new Error("Secret key version does not match the AAD");
   }
+  return sealWithKey(key.bytes(), secretAad(fields), value);
+}
+
+export function openSecret(
+  key: SecretKey,
+  fields: SecretAadFields,
+  sealed: SealedSecret,
+): string {
+  if (fields.keyVersion !== key.version) throw new SecretDecryptError();
+  return openWithKey(key.bytes(), secretAad(fields), sealed);
+}
+
+/** Seals under a 32-byte key of one use (`derivedSecretKey`), bound to `aad`. */
+export function sealWithKey(
+  key: Buffer,
+  aad: Buffer,
+  value: string,
+): SealedSecret {
   const nonce = randomBytes(NONCE_BYTES);
-  const cipher = createCipheriv(ALGORITHM, key.bytes(), nonce, {
+  const cipher = createCipheriv(ALGORITHM, key, nonce, {
     authTagLength: TAG_BYTES,
   });
-  cipher.setAAD(secretAad(fields));
+  cipher.setAAD(aad);
   const ciphertext = Buffer.concat([
     cipher.update(value, "utf8"),
     cipher.final(),
@@ -106,23 +124,22 @@ export function sealSecret(
   return { nonce, ciphertext };
 }
 
-export function openSecret(
-  key: SecretKey,
-  fields: SecretAadFields,
+export function openWithKey(
+  key: Buffer,
+  aad: Buffer,
   sealed: SealedSecret,
 ): string {
   if (
-    fields.keyVersion !== key.version ||
     sealed.nonce.length !== NONCE_BYTES ||
     sealed.ciphertext.length < TAG_BYTES
   ) {
     throw new SecretDecryptError();
   }
   try {
-    const decipher = createDecipheriv(ALGORITHM, key.bytes(), sealed.nonce, {
+    const decipher = createDecipheriv(ALGORITHM, key, sealed.nonce, {
       authTagLength: TAG_BYTES,
     });
-    decipher.setAAD(secretAad(fields));
+    decipher.setAAD(aad);
     decipher.setAuthTag(sealed.ciphertext.subarray(-TAG_BYTES));
     return Buffer.concat([
       decipher.update(sealed.ciphertext.subarray(0, -TAG_BYTES)),

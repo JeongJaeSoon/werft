@@ -20,6 +20,7 @@ export * from "./conversations/channel-summaries.ts";
 export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
 export * from "./conversations/conversation-store.ts";
+export { createPostgresConversationTurnQueue } from "./conversations/conversation-turn-queue.ts";
 export {
   backfillWebInputTurns,
   beginConversationTurn,

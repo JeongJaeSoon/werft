@@ -1,4 +1,5 @@
 import type {
+  ConversationInputId,
   ConversationRuntimeId,
   ConversationRuntimeTurn,
   ConversationTurnId,
@@ -33,6 +34,21 @@ export type ConversationTurnReport =
   // The holder reported this turn before, with another result.
   | "conflict";
 
+export type EnqueueConversationTurn = {
+  /**
+   * The input the turn answers and which try at it this is, from 1: one
+   * input's same attempt is queued once, so a repeated event adds no turn,
+   * and a retry comes in under the next number.
+   */
+  inputId: ConversationInputId;
+  attempt: number;
+  /** When a runtime must have taken it. */
+  takeBy: Date;
+  now?: Date;
+  /** When its permit ends. */
+  usableUntil?: Date;
+};
+
 /**
  * The conversation turns waiting for a runtime and held by one. A turn is
  * leased to one runtime at most once: it ends with that runtime's report or
@@ -48,14 +64,13 @@ export interface ConversationTurnQueue {
    * Queues a turn a runtime must take before `takeBy`. Queued behind another
    * turn of its topic, it waits as long again from that turn's end, but is
    * never taken once a whole lease would outlast `usableUntil`, when its
-   * permit ends.
+   * permit ends. `duplicate`: that input's attempt is queued already, and
+   * this turn is not. A turn id queued before throws.
    */
   enqueue(
     turn: QueuedConversationTurn,
-    takeBy: Date,
-    now?: Date,
-    usableUntil?: Date,
-  ): Promise<void>;
+    entry: EnqueueConversationTurn,
+  ): Promise<"queued" | "duplicate">;
   /** Leases the oldest waiting turn to `runtimeId`, or null when none waits. */
   lease(input: {
     runtimeId: ConversationRuntimeId;

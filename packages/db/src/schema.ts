@@ -5957,6 +5957,74 @@ export const conversationTurnPermits = pgTable(
 );
 
 /**
+ * The conversation turns waiting for a runtime and held by one, for every API
+ * process alike. A row is one attempt at one input: `queued` until a runtime
+ * leases it, `leased` until its report or its lease's end, then `ended`,
+ * never handed out again. While queued it holds the turn sealed (its permit
+ * token and its context), under a key derived for this use alone; the lease
+ * clears it. Ten minutes after its end a row is `forgotten`: how it ended
+ * is dropped, and the row stays so that input's attempt is not queued
+ * again, with its lease's end for a turn queued behind it. The input id is the turn's own and need not be a
+ * conversation_inputs row: an operator's input is in none.
+ */
+export const conversationTurnQueue = pgTable(
+  "conversation_turn_queue",
+  {
+    turnId: uuid("turn_id").$type<ConversationTurnId>().primaryKey(),
+    inputId: uuid("input_id").$type<ConversationInputId>().notNull(),
+    attempt: integer().notNull(),
+    topicId: uuid("topic_id").$type<ConversationTopicId>().notNull(),
+    // The order turns were queued in, oldest first.
+    seq: bigserial({ mode: "number" }).notNull(),
+    state: text()
+      .$type<"queued" | "leased" | "ended" | "forgotten">()
+      .notNull(),
+    takeBy: timestamp("take_by", { withTimezone: true }).notNull(),
+    // How long it may wait from its topic's last turn's end.
+    takeMs: integer("take_ms").notNull(),
+    usableUntil: timestamp("usable_until", { withTimezone: true }),
+    turnNonce: bytea("turn_nonce"),
+    turnCiphertext: bytea("turn_ciphertext"),
+    leaseId: uuid("lease_id"),
+    runtimeId: uuid("runtime_id"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    // How it ended: the holder's result, or not_taken / lease_expired.
+    outcome: jsonb(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "conversation_turn_queue_turn_fk",
+      columns: [table.turnId],
+      foreignColumns: [conversationTurns.id],
+    }).onDelete("cascade"),
+    unique("conversation_turn_queue_attempt_uniq").on(
+      table.inputId,
+      table.attempt,
+    ),
+    // The rows a lease looks at.
+    index("conversation_turn_queue_open_idx")
+      .on(table.seq)
+      .where(sql`${table.state} IN ('queued', 'leased')`),
+    // When each topic's last turn out ended.
+    index("conversation_turn_queue_topic_idx").on(table.topicId, table.endedAt),
+    check(
+      "conversation_turn_queue_state_check",
+      sql`${table.attempt} >= 1 AND ${table.takeMs} >= 0 AND CASE ${table.state}
+        WHEN 'queued' THEN ${table.turnNonce} IS NOT NULL AND ${table.turnCiphertext} IS NOT NULL AND ${table.leaseId} IS NULL AND ${table.runtimeId} IS NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
+        WHEN 'leased' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND ${table.leaseId} IS NOT NULL AND ${table.runtimeId} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
+        WHEN 'ended' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NOT NULL AND ${table.endedAt} IS NOT NULL
+        WHEN 'forgotten' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NULL AND ${table.endedAt} IS NOT NULL
+        ELSE false
+      END`,
+    ),
+  ],
+);
+
+/**
  * One input an agent took into a topic, numbered in the order the server took
  * it. The Slack (team, channel, ts) is an alias, not the input's id. Holds no
  * message text.

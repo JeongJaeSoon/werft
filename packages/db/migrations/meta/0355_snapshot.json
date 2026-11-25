@@ -1,5 +1,5 @@
 {
-  "id": "c91df85b-9f54-4c5b-9dec-96fcfcf9cd51",
+  "id": "f5c53dc6-5085-4e76-893d-0b6f25227141",
   "prevId": "0b8815b9-b911-4bc4-b35e-87074d624d72",
   "version": "7",
   "dialect": "postgresql",
@@ -7102,6 +7102,181 @@
         "conversation_turn_permits_refusal_check": {
           "name": "conversation_turn_permits_refusal_check",
           "value": "\"conversation_turn_permits\".\"refusal\" IN ('budget','concurrency','turn_limit')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.conversation_turn_queue": {
+      "name": "conversation_turn_queue",
+      "schema": "",
+      "columns": {
+        "turn_id": {
+          "name": "turn_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "input_id": {
+          "name": "input_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "topic_id": {
+          "name": "topic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigserial",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "take_by": {
+          "name": "take_by",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "take_ms": {
+          "name": "take_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "usable_until": {
+          "name": "usable_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "turn_nonce": {
+          "name": "turn_nonce",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "turn_ciphertext": {
+          "name": "turn_ciphertext",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_id": {
+          "name": "lease_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_id": {
+          "name": "runtime_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "conversation_turn_queue_open_idx": {
+          "name": "conversation_turn_queue_open_idx",
+          "columns": [
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turn_queue\".\"state\" IN ('queued', 'leased')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turn_queue_topic_idx": {
+          "name": "conversation_turn_queue_topic_idx",
+          "columns": [
+            {
+              "expression": "topic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ended_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_turn_queue_turn_fk": {
+          "name": "conversation_turn_queue_turn_fk",
+          "tableFrom": "conversation_turn_queue",
+          "tableTo": "conversation_turns",
+          "columnsFrom": ["turn_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "conversation_turn_queue_attempt_uniq": {
+          "name": "conversation_turn_queue_attempt_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["input_id", "attempt"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "conversation_turn_queue_state_check": {
+          "name": "conversation_turn_queue_state_check",
+          "value": "\"conversation_turn_queue\".\"attempt\" >= 1 AND \"conversation_turn_queue\".\"take_ms\" >= 0 AND CASE \"conversation_turn_queue\".\"state\"\n        WHEN 'queued' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NOT NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NOT NULL AND \"conversation_turn_queue\".\"lease_id\" IS NULL AND \"conversation_turn_queue\".\"runtime_id\" IS NULL AND \"conversation_turn_queue\".\"lease_expires_at\" IS NULL AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NULL\n        WHEN 'leased' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND \"conversation_turn_queue\".\"lease_id\" IS NOT NULL AND \"conversation_turn_queue\".\"runtime_id\" IS NOT NULL AND \"conversation_turn_queue\".\"lease_expires_at\" IS NOT NULL AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NULL\n        WHEN 'ended' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"runtime_id\" IS NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"lease_expires_at\" IS NULL) AND \"conversation_turn_queue\".\"outcome\" IS NOT NULL AND \"conversation_turn_queue\".\"ended_at\" IS NOT NULL\n        WHEN 'forgotten' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"runtime_id\" IS NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"lease_expires_at\" IS NULL) AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NOT NULL\n        ELSE false\n      END"
         }
       },
       "isRLSEnabled": false
@@ -19473,13 +19648,6 @@
           "notNull": true,
           "default": "'free'"
         },
-        "m1_judgments_per_hour": {
-          "name": "m1_judgments_per_hour",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 12
-        },
         "ceiling_actions": {
           "name": "ceiling_actions",
           "type": "text[]",
@@ -19765,10 +19933,6 @@
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",
           "value": "\"surface_bindings\".\"revision\" >= 1"
-        },
-        "surface_bindings_m1_judgments_per_hour_check": {
-          "name": "surface_bindings_m1_judgments_per_hour_check",
-          "value": "\"surface_bindings\".\"m1_judgments_per_hour\" BETWEEN 1 AND 60"
         }
       },
       "isRLSEnabled": false
