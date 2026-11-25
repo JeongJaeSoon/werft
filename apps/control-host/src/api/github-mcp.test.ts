@@ -996,4 +996,78 @@ describe("the built-in werft MCP server on stored rows", () => {
       expect(text).not.toContain(name);
     }
   });
+
+  test("its status tool names nothing when the running turn's requester, not the starter, is outside the agent", async () => {
+    const { agentId, claim, token } = await seeded({ werft: true });
+    const [agent] = await db
+      .select({ workspaceId: schema.agents.workspaceId })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId));
+    if (agent === undefined) throw new Error("no agent");
+    const outsider = randomUUID();
+    await db.insert(schema.users).values({
+      id: outsider,
+      email: `${outsider}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "outsider",
+    });
+    await db.insert(schema.memberships).values({
+      workspaceId: agent.workspaceId,
+      userId: outsider,
+      role: "member",
+    });
+    const detailsFor = async (requester: {
+      kind: string;
+      id: string;
+      auth: unknown;
+    }) => {
+      await db
+        .update(schema.turns)
+        .set({
+          requesterKind: requester.kind,
+          requesterId: requester.id,
+          requesterAuth: requester.auth,
+        })
+        .where(eq(schema.turns.sessionId, claim.session_id));
+      const called = await relay(
+        token,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "get_status", arguments: {} },
+        },
+        "werft",
+      );
+      return (
+        called.body as { result: { structuredContent: { details: string } } }
+      ).result.structuredContent.details;
+    };
+    const [turn] = await db
+      .select({
+        id: schema.turns.requesterId,
+        auth: schema.turns.requesterAuth,
+      })
+      .from(schema.turns)
+      .where(eq(schema.turns.sessionId, claim.session_id));
+    if (turn?.id == null) throw new Error("no turn");
+    const starter = turn.id;
+    expect(
+      await detailsFor({ kind: "user", id: starter, auth: turn.auth }),
+    ).toBe("shown");
+    expect(
+      await detailsFor({ kind: "user", id: outsider, auth: turn.auth }),
+    ).toBe("hidden");
+    // A push follow-up acts for its root's requester, not the approver.
+    expect(
+      await detailsFor({
+        kind: "user",
+        id: starter,
+        auth: {
+          method: "push_decision",
+          root: { requester_kind: "user", requester_id: outsider },
+        },
+      }),
+    ).toBe("hidden");
+  });
 });
