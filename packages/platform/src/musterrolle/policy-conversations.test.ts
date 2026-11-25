@@ -6,6 +6,7 @@ import {
   type AuthorizationSubject,
   authorizationDecisionSchema,
   type Principal,
+  SLACK_SURFACE_ACTION_VALUES,
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -500,36 +501,6 @@ describe("every conversation decision", () => {
     }
   });
 
-  test("is refused on Slack until v1-b opens it", async () => {
-    const user = userSubject("member").principal as Principal;
-    const installation: Principal = {
-      kind: "installation",
-      id: "019a0000-0000-7000-8000-0000000000e1",
-      owner_id: WORKSPACE,
-      workspace_id: WORKSPACE,
-      scopes: ["sessions:read", "sessions:write"],
-    };
-    for (const action of NEW_ACTIONS) {
-      const decision = await decide(
-        {
-          principal: installation,
-          actor_user_id: USERS.member,
-          surface: {
-            kind: "slack",
-            slack_user_kind: "member",
-            agent_id: AGENT,
-          },
-        },
-        action,
-        PUBLIC,
-        {
-          identity: { reread: async () => ({ status: "ok", principal: user }) },
-        },
-      );
-      expect(decision.reason_code).toBe("surface_ceiling");
-    }
-  });
-
   test("is refused without the conversation store, or for an id that is no conversation id", async () => {
     for (const action of [...NEW_ACTIONS, "session.audit_read"] as const) {
       const unwired = await decide(
@@ -592,5 +563,262 @@ describe("every conversation decision", () => {
     ] as const) {
       expect(await on(action, "conversation")).toBe("error");
     }
+  });
+});
+
+// v1-b/S1: Slack opens task.spawn as the linked person; view and post stay
+// on the web and the API.
+const INSTALLATION: Principal = {
+  kind: "installation",
+  id: "019a0000-0000-7000-8000-0000000000e1",
+  owner_id: WORKSPACE,
+  workspace_id: WORKSPACE,
+  scopes: ["sessions:read", "sessions:write", "sessions:approve"],
+};
+const CHANNEL_OF: Record<string, string | undefined> = Object.fromEntries(
+  Object.entries(PLACES).map(([id, place]) => [
+    id,
+    place.kind === "channel" ? place.channelId : undefined,
+  ]),
+);
+
+// As the database reader: a linked account resolves to its person, with
+// their role now; no link names nobody.
+const slackIdentity: IdentityReader = {
+  reread: async (s) => {
+    const who = (Object.keys(USERS) as Who[]).find(
+      (w) => USERS[w] === s.actor_user_id,
+    );
+    return who === undefined || !LINKED.has(USERS[who])
+      ? { status: "unlinked" }
+      : { status: "ok", principal: userSubject(who).principal as Principal };
+  },
+};
+
+function slackSubject(
+  who: Who,
+  conversationId: string,
+  surface: Partial<Extract<AuthorizationSubject["surface"], object>> = {},
+): AuthorizationSubject {
+  const channelId = CHANNEL_OF[conversationId];
+  return {
+    principal: INSTALLATION,
+    actor_user_id: USERS[who],
+    linked_account: {
+      id: "019a0000-0000-7000-8000-0000000000d1",
+      revision: 1,
+    },
+    surface: {
+      kind: "slack",
+      slack_user_kind: "member",
+      agent_id: AGENT,
+      ceiling: {
+        actions: [...SLACK_SURFACE_ACTION_VALUES],
+        disclosure: "full",
+      },
+      ...(channelId === undefined ? {} : { channel_id: channelId }),
+      ...surface,
+    },
+  };
+}
+
+const slackDecide = (
+  subject: AuthorizationSubject,
+  action: AuthorizationAction,
+  conversationId: string,
+  options: Parameters<typeof decide>[3] = {},
+) =>
+  decide(subject, action, conversationId, {
+    identity: slackIdentity,
+    ...options,
+  });
+
+const onSlack = async (
+  who: Who,
+  conversationId: string,
+  action: AuthorizationAction = "task.spawn",
+) =>
+  (await slackDecide(slackSubject(who, conversationId), action, conversationId))
+    .reason_code;
+
+describe("task.spawn on Slack", () => {
+  test("is post on a channel or the person's own DM, and today's start, as the linked person", async () => {
+    const rows: Row[] = [
+      // A public channel: no membership check.
+      ["member", PUBLIC, "ok"],
+      ["outsider", PUBLIC, "ok"],
+      ["owner", PUBLIC, "ok"],
+      ["user_only", PUBLIC, "role"],
+      ["unlinked", PUBLIC, "unlinked"],
+      ["member", ARCHIVED, "conversation_archived"],
+      ["member", NOT_LISTENING, "listening_off"],
+      // A private channel: a member now, and the rest hidden.
+      ["member", PRIVATE, "ok"],
+      ["user_only", PRIVATE, "role"],
+      ["outsider", PRIVATE, "not_found"],
+      ["owner", PRIVATE, "not_found"],
+      ["unlinked", PRIVATE, "unlinked"],
+      // A DM: its person alone.
+      ["member", MEMBERS_DM, "ok"],
+      ["outsider", MEMBERS_DM, "not_found"],
+      ["owner", MEMBERS_DM, "not_found"],
+      ["unlinked", MEMBERS_DM, "unlinked"],
+    ];
+    const got = await Promise.all(rows.map(([who, id]) => onSlack(who, id)));
+    expect(got).toEqual(rows.map(([, , want]) => want));
+  });
+
+  test("asks Slack for the private channel's membership now, and refuses what it cannot confirm", async () => {
+    const { port, reads } = access();
+    await slackDecide(slackSubject("member", PRIVATE), "task.spawn", PRIVATE, {
+      conversations: port,
+    });
+    expect(reads).toContain("member");
+    const unconfirmed = access({ isMember: async () => false });
+    const decision = await slackDecide(
+      slackSubject("member", PRIVATE),
+      "task.spawn",
+      PRIVATE,
+      { conversations: unconfirmed.port },
+    );
+    expect(decision.outcome).toBe("deny");
+    expect(decision.reason_code).toBe("not_found");
+  });
+
+  test("is the private agent's usage rule", async () => {
+    const as = (who: Who, id: string) =>
+      slackDecide(
+        slackSubject(who, id, { agent_id: PRIVATE_AGENT }),
+        "task.spawn",
+        id,
+      ).then((d) => d.reason_code);
+    expect(await as("member", PRIVATE_AGENTS)).toBe("agent_private");
+    expect(await as("member", PRIVATE_AGENTS_DM)).toBe("agent_private");
+    expect(await as("member", PRIVATE_AGENTS_PRIVATE)).toBe("not_found");
+  });
+
+  test("reaches only the conversations of the agent whose app heard it, from that very place", async () => {
+    const other = await slackDecide(
+      slackSubject("admin", PRIVATE_AGENTS),
+      "task.spawn",
+      PRIVATE_AGENTS,
+    );
+    expect(other.reason_code).toBe("agent_ceiling");
+    for (const [id, channel_id] of [
+      [PUBLIC, "C0QUIET"],
+      [MEMBERS_DM, "C0PUBLIC"],
+    ] as const) {
+      const elsewhere = await slackDecide(
+        slackSubject("member", id, { channel_id }),
+        "task.spawn",
+        id,
+      );
+      expect(elsewhere.reason_code).toBe("error");
+    }
+    const { channel_id: _dropped, ...noChannel } = slackSubject(
+      "member",
+      PUBLIC,
+    ).surface;
+    const fromDm = await slackDecide(
+      { ...slackSubject("member", PUBLIC), surface: noChannel },
+      "task.spawn",
+      PUBLIC,
+    );
+    expect(fromDm.reason_code).toBe("error");
+  });
+
+  test("passes the channel's ceiling a session start does", async () => {
+    const decision = await slackDecide(
+      slackSubject("member", PUBLIC, {
+        ceiling: { actions: ["session.read"], disclosure: "full" },
+      }),
+      "task.spawn",
+      PUBLIC,
+    );
+    expect(decision.reason_code).toBe("surface_ceiling");
+    const readOnlyInstall = await slackDecide(
+      {
+        ...slackSubject("member", PUBLIC),
+        principal: { ...INSTALLATION, scopes: ["sessions:read"] },
+      },
+      "task.spawn",
+      PUBLIC,
+    );
+    expect(readOnlyInstall.reason_code).toBe("surface_ceiling");
+  });
+
+  test("leaves view and post refused on Slack", async () => {
+    for (const action of ["conversation.view", "conversation.post"] as const) {
+      expect(await onSlack("member", PUBLIC, action)).toBe("surface_ceiling");
+      expect(await onSlack("member", MEMBERS_DM, action)).toBe(
+        "surface_ceiling",
+      );
+    }
+  });
+
+  test("refuses a key, and a bot that stands in for its agent (decision 44)", async () => {
+    const key: Principal = {
+      kind: "api_key",
+      id: "019a0000-0000-7000-8000-0000000000f1",
+      owner_id: WORKSPACE,
+      workspace_id: WORKSPACE,
+      scopes: ["sessions:read", "sessions:write", "sessions:approve"],
+    };
+    const keyed = await slackDecide(
+      { ...slackSubject("member", PUBLIC), principal: key },
+      "task.spawn",
+      PUBLIC,
+      { identity: { reread: async () => ({ status: "ok", principal: key }) } },
+    );
+    expect(keyed.outcome).toBe("deny");
+    const {
+      actor_user_id: _a,
+      linked_account: _l,
+      ...unnamed
+    } = slackSubject("member", PUBLIC);
+    const bot = await slackDecide(
+      {
+        ...unnamed,
+        surface: { ...unnamed.surface, slack_bot_user_id: "U0BOT" },
+      },
+      "task.spawn",
+      PUBLIC,
+      {
+        identity: {
+          reread: async () => ({
+            status: "ok",
+            principal: INSTALLATION,
+            keyAgentId: AGENT,
+          }),
+        },
+      },
+    );
+    expect(bot.outcome).toBe("deny");
+    expect(bot.reason_code).toBe("role");
+  });
+
+  test("is recorded, allows included", async () => {
+    const recorded: DecisionEntry[] = [];
+    await slackDecide(slackSubject("member", PUBLIC), "task.spawn", PUBLIC, {
+      recorded,
+    });
+    await slackDecide(
+      slackSubject("outsider", PRIVATE),
+      "task.spawn",
+      PRIVATE,
+      {
+        recorded,
+      },
+    );
+    expect(
+      recorded.map(({ request, decision }) => [
+        request.subject.surface.kind,
+        decision.outcome,
+        decision.reason_code,
+      ]),
+    ).toEqual([
+      ["slack", "allow", "ok"],
+      ["slack", "deny", "not_found"],
+    ]);
   });
 });
