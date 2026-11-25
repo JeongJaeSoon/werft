@@ -400,6 +400,7 @@ describe("the agent Slack app API", () => {
       slack_app: null,
       event_url: `https://events.example.test/v1/slack/events/${IDLE_AGENT}`,
       events: { state: "pending", checked_at: null, url: null },
+      manifest_sync: null,
       warnings: [],
       config_token: "active",
     });
