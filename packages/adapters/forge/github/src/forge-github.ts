@@ -1044,6 +1044,51 @@ async function installationFor(
   }
 }
 
+/** What GitHub said to an App's new webhook URL. */
+export type GitHubAppHookOutcome =
+  | "updated"
+  | "github_rejected"
+  | "url_refused"
+  | "github_unreachable";
+
+/**
+ * Sets an App's webhook URL (`PATCH /app/hook/config`), asked with its JWT.
+ * Only the URL is sent: the secret and the content type stay as they are.
+ */
+export function createGitHubAppHookConfig(
+  options: { logger?: Logger; retryAfterBaseMs?: number } = {},
+): (
+  app: { appId: number; apiBase: string; privateKey: string },
+  url: string,
+) => Promise<GitHubAppHookOutcome> {
+  const { logger } = options;
+  const clientFor = clientsByBase(logger, options);
+  return async (app, url) => {
+    const client = clientFor(app.apiBase);
+    try {
+      const auth = createAppAuth({
+        appId: app.appId,
+        privateKey: app.privateKey,
+        request: client.request,
+      });
+      // `data`, not `url`: Octokit reads a `url` parameter as the request's
+      // own address and would send the PATCH to the webhook URL.
+      await client.request("PATCH /app/hook/config", {
+        data: { url },
+        headers: await appHeaders(auth),
+      });
+      return "updated";
+    } catch (error) {
+      const status = statusOf(error);
+      failure(logger, "App webhook config", error);
+      if (status === 401 || status === 404) return "github_rejected";
+      // GitHub checks the URL it is given, and refuses one it cannot use.
+      if (status === 422) return "url_refused";
+      return "github_unreachable";
+    }
+  };
+}
+
 const MAX_INSTALLATION_REPOSITORY_PAGES = 10;
 const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
 const MAX_INSTALLATION_PAGES = 10;
