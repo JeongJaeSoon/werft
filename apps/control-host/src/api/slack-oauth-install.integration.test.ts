@@ -621,7 +621,7 @@ integration(
 
       const app = await apps.getAgentApp(caller, agentId);
       expect(app).toMatchObject({
-        state: "created",
+        slack_app: { state: "created" },
         manifest_sync: { error: null },
         reauthorization: { missing_scopes: [SLACK_REACTION_SCOPE] },
       });
