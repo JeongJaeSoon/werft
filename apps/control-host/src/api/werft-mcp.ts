@@ -1,4 +1,4 @@
-import type { Database } from "@werft-ai/db";
+import { type Database, sessionResponseLanguage } from "@werft-ai/db";
 import {
   type AuthorizationPolicy,
   docsPart,
@@ -22,11 +22,13 @@ export type WerftMcpPartDeps = {
  */
 export function werftMcpParts(
   context: WerftMcpPartContext,
-  _deps: WerftMcpPartDeps,
+  deps: WerftMcpPartDeps,
 ): WerftMcpPart[] {
   return [
     // The installed documentation: search, and the pages as resources.
-    docsPart(context, installedWerftDocs()),
+    docsPart(context, installedWerftDocs(), (sessionId) =>
+      sessionResponseLanguage(deps.db, sessionId),
+    ),
 
     // What this session's agent is connected to and may do.
     statusPart(context),

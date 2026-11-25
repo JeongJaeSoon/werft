@@ -232,6 +232,46 @@ describe(SEARCH_DOCS_TOOL, () => {
     expect(none.structuredContent.language).toBe("ko");
   });
 
+  test("the agent's own response language comes before the argument; an agent that fixes none takes the argument", async () => {
+    const asked: string[] = [];
+    const searchAs = async (
+      fixed: "ko" | "en" | "ja" | null,
+      language?: string,
+    ) => {
+      const handle = createWerftMcpServer({
+        parts: [
+          docsPart({ version: "v1" }, FILES, async (sessionId) => {
+            asked.push(sessionId);
+            return fixed;
+          }),
+        ],
+        version: "v1",
+      });
+      const answered = (await handle(
+        { sessionId: "session-1", attemptId: "a" },
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: SEARCH_DOCS_TOOL,
+            arguments: {
+              query: "GitHub",
+              ...(language === undefined ? {} : { language }),
+            },
+          },
+        },
+        "r",
+      )) as { result: { structuredContent: { language: string } } };
+      return answered.result.structuredContent.language;
+    };
+    expect(await searchAs("en", "ja")).toBe("en");
+    expect(await searchAs("ja")).toBe("ja");
+    expect(await searchAs(null, "ja")).toBe("ja");
+    expect(await searchAs(null)).toBe("ko");
+    expect(asked.every((id) => id === "session-1")).toBe(true);
+  });
+
   test("a build that wrote no version links no source", async () => {
     const { structuredContent } = await search(
       { query: "GitHub" },

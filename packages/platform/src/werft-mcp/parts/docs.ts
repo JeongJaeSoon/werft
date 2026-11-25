@@ -83,7 +83,7 @@ const searchInput = z.object({
     .enum(DOCS_LANGUAGES)
     .optional()
     .describe(
-      "The language you answer in: ko, en or ja. Without it the Korean original is searched",
+      "The language you answer in: ko, en or ja. An agent set to answer in one language is searched in that one whatever this says; without either, the Korean original",
     ),
   limit: z
     .number()
@@ -102,6 +102,9 @@ const searchInput = z.object({
 export function docsPart(
   context: WerftMcpPartContext,
   files: readonly DocsFile[],
+  /** The response language the session's agent fixes, if it fixes one. */
+  languageOf: (sessionId: string) => Promise<DocsLanguage | null> = async () =>
+    null,
 ): WerftMcpPart {
   const version =
     context.version === WERFT_VERSION_UNKNOWN ? null : context.version;
@@ -247,12 +250,17 @@ export function docsPart(
       description: [
         "Search the documentation of the Werft version installed here, by keyword: how to set up and use Werft (GitHub and Slack connection, agents, sessions, approvals, API keys, members, self-hosting).",
         "Returns, for each matching section: the page title, the section heading, a short excerpt, the public docs URL, the page's source at this version, and the page's resource URI to read the whole page.",
-        "Pass the language you answer in; results are in it, and a page not translated yet comes in the Korean original.",
+        "Results come in this agent's response language; for an agent that answers in the user's language, pass the language you answer in. A page not translated yet comes in the Korean original.",
         'Example questions: "How do I connect GitHub to Werft?", "Slack 연결은 어디서 해?", "API キーの発行方法は?".',
       ].join(" "),
       input: searchInput,
-      async call({ query, language, limit }) {
-        const lang = language ?? DOCS_SOURCE_LANGUAGE;
+      async call({ query, language, limit }, call) {
+        // The agent's own response language first; then the one the model
+        // says it answers in (an agent that follows the user's); else Korean.
+        const lang =
+          (await languageOf(call.sessionId)) ??
+          language ??
+          DOCS_SOURCE_LANGUAGE;
         const hits = indexOf(lang).search(query, limit ?? 5);
         const results = hits.map(({ chunk }) => {
           const source = sourceUrl(chunk.page, version);
