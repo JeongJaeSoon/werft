@@ -182,6 +182,7 @@ import {
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
+import { isObjectStoreUnreachable } from "@werft-ai/storage";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { installationProfileFromEnv } from "../installation-profile.ts";
 import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
@@ -217,7 +218,11 @@ import {
   apiReadinessConfigProblems,
   apiSettingsFromEnv,
 } from "./api-settings.ts";
-import { createApiApp, createInternalApiApp } from "./app.ts";
+import {
+  createApiApp,
+  createInternalApiApp,
+  isStorageUnavailable,
+} from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { AuthAttemptKeys } from "./auth-attempts.ts";
 import {
@@ -373,6 +378,7 @@ import {
   createSlackSettingsAdmin,
   slackEventsBaseOf,
 } from "./slack-settings.ts";
+import { createStartupWait } from "./startup-wait.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 import {
   startTelemetryIngest,
@@ -441,6 +447,7 @@ const checkpointStorage = checkpointStorageConfigFromEnv(process.env);
 const checkpointGitMemoryBytes = checkpointGitMemoryBytesFromEnv(process.env);
 const installationProfile = installationProfileFromEnv(process.env);
 const noDiskQuota = noDiskQuotaFromEnv(process.env);
+const startupWait = createStartupWait({ logger });
 if (noDiskQuota) {
   logger.warn(noDiskQuotaWarning(installationProfile), {
     profile: installationProfile,
@@ -457,15 +464,31 @@ if (checkpointStorage === "disabled") {
     { bucket: checkpointStorage.bucket },
   );
 } else {
-  await assertCheckpointBucketProtection(checkpointStorage);
+  await startupWait(
+    "object store",
+    () => assertCheckpointBucketProtection(checkpointStorage),
+    isObjectStoreUnreachable,
+  );
 }
 if (checkpointStorage !== "disabled") {
-  await assertCheckpointBucketEncryption(checkpointStorage, {
-    warn: (message, fields) => logger.warn(message, fields),
-  });
+  await startupWait(
+    "object store",
+    () =>
+      assertCheckpointBucketEncryption(checkpointStorage, {
+        warn: (message, fields) => logger.warn(message, fields),
+      }),
+    isObjectStoreUnreachable,
+  );
 }
 
 const pool = createApiPool(databaseUrl, logger);
+// Before anything below reads it: the passes that run once per start leave
+// what they could not read to the next start.
+await startupWait(
+  "database",
+  () => pool.query("SELECT 1"),
+  isStorageUnavailable,
+);
 const db = drizzle(pool, { schema });
 const installationConfigStore = createPostgresInstallationConfigStore(db);
 const installationConfig = createInstallationConfigSource({

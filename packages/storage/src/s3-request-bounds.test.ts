@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer as createHttpServer } from "node:http";
 import { createServer, type Socket } from "node:net";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  GetBucketVersioningCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
 import { createStorageS3Client, type StorageS3Settings } from "./index.ts";
 import {
   DEFAULT_BODY_READ_BOUNDS,
+  isObjectStoreUnreachable,
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
 } from "./s3.ts";
@@ -78,6 +82,65 @@ describe("storage S3 client request bounds", () => {
     expect(outcome).toBe("TimeoutError");
     expect(Date.now() - startedAt).toBeLessThan(10_000);
   }, 20_000);
+
+  test("a peer that never answers, or refuses the connection, is one a caller may wait out", async () => {
+    const { endpoint: silent } = await silentPeer();
+    const closed = createServer();
+    const refusing = await listen(closed);
+    await new Promise((resolve) => closed.close(resolve));
+
+    for (const endpoint of [silent, refusing]) {
+      const client = createStorageS3Client(configFor(endpoint), {
+        ...S3_REQUEST_BOUNDS,
+        requestTimeout: 300,
+      });
+      const failure = await client
+        .send(new GetBucketVersioningCommand({ Bucket: "bucket" }))
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      client.destroy();
+      expect(isObjectStoreUnreachable(failure)).toBe(true);
+    }
+  }, 20_000);
+
+  test("an answer that says no is not one to wait out", () => {
+    const answered = (status: number, name: string) =>
+      Object.assign(new Error(name), {
+        name,
+        $metadata: { httpStatusCode: status },
+      });
+    expect(isObjectStoreUnreachable(answered(503, "ServiceUnavailable"))).toBe(
+      true,
+    );
+    expect(isObjectStoreUnreachable(answered(404, "NoSuchBucket"))).toBe(false);
+    expect(isObjectStoreUnreachable(answered(403, "AccessDenied"))).toBe(false);
+    // What Bun's resolver reports while a cluster's DNS is not up yet.
+    expect(
+      isObjectStoreUnreachable(
+        Object.assign(new Error("getaddrinfo ENOTIMP"), {
+          code: "ENOTIMP",
+          $metadata: { attempts: 1 },
+        }),
+      ),
+    ).toBe(true);
+    // No response either, but nothing a wait changes.
+    expect(
+      isObjectStoreUnreachable(
+        Object.assign(new Error("Could not load credentials"), {
+          name: "CredentialsProviderError",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isObjectStoreUnreachable(
+        Object.assign(new TypeError("Invalid URL"), {
+          code: "ERR_INVALID_URL",
+        }),
+      ),
+    ).toBe(false);
+  });
 
   test("lets a slow but advancing upload finish", async () => {
     // Why the client's bound is measured in minutes: it covers the upload

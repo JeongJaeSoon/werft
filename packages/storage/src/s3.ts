@@ -708,6 +708,23 @@ export function isConditionalConflict(error: unknown): boolean {
   );
 }
 
+/**
+ * The store gave no answer, as opposed to an answer that says no: a request
+ * past its timeout, a socket or a name lookup that failed (an errno code,
+ * whichever one), or a 5xx. A caller may wait this out; a 4xx is a verdict
+ * on the request and waiting does not change it.
+ */
+export function isObjectStoreUnreachable(error: unknown): boolean {
+  const value = awsError(error);
+  const status = value?.$metadata?.httpStatusCode;
+  if (status !== undefined) return status >= 500;
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    value?.name === "TimeoutError" ||
+    (typeof code === "string" && /^E(AI_)?[A-Z0-9]+$/.test(code))
+  );
+}
+
 async function readIterable(
   body: AsyncIterable<Uint8Array | string>,
   bounds: BodyReadBounds,
