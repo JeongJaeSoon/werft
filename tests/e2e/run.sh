@@ -402,8 +402,13 @@ elif [ -n "$real_model$local_model" ]; then
 else
   # The MCP suites first: the other suites leave their sessions holding
   # every execution slot.
-  suites=(./tests/e2e/workspace-mcp.e2e.ts./tests/e2e/alpha-path.e2e.ts ./tests/e2e/db-outage.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
+  suites=(./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/db-outage.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
 fi
+# A path that names no file would make bun test match nothing for it and
+# still exit 0 (a missing space once glued two paths, and two suites did not run).
+for suite in "${suites[@]}"; do
+  [ -f "$suite" ] || { echo "e2e: no such suite: $suite" >&2; exit 1; }
+done
 # The suites drive the public API and never need the provider key.
 env -u ANTHROPIC_API_KEY bun test "${suites[@]}" --timeout 900000 \
   --reporter=junit --reporter-outfile="$out/junit.xml" 2>&1 | tee "$out/test.log"
