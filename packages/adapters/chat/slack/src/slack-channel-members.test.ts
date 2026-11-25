@@ -255,7 +255,7 @@ describe("Slack channel member check", () => {
       members: t.memory.store,
       // Answer 15 (94S-2000): a push card's requester may be the one.
       cards: {
-        markPushCardsDueIn: async (input) => {
+        markChoiceCardsDueIn: async (input) => {
           redrawn.push(input);
           return 1;
         },

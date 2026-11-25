@@ -558,7 +558,14 @@ export async function lockSessionReach(
   tx: Database,
   requester: Requester,
   session: LockedSession,
-  options: { answer?: boolean } = {},
+  options: {
+    answer?: boolean;
+    /**
+     * The policy, just before, found the request's requester gone from the
+     * session's private channel; only behind that door does it count.
+     */
+    requesterLeft?: true;
+  } = {},
 ): Promise<"ok" | "not_found" | "role"> {
   const { userId, apiKeyId } = requester;
   const workspaceId = session.workspaceId;
@@ -571,7 +578,7 @@ export async function lockSessionReach(
       ? same(session.createdByUserId, userId)
       : same(session.createdByApiKeyId, apiKeyId);
   const manager = requester.role !== null && MANAGERS.includes(requester.role);
-  const answerer = !options.answer || manager || creator;
+  let answerer = !options.answer || manager || creator;
 
   // Read under the session row, which a share change now takes first.
   const [share] = await tx
@@ -585,6 +592,9 @@ export async function lockSessionReach(
     .from(sessions)
     .where(eq(sessions.id, session.id))
     .limit(1);
+  // A current member answers for a requester who left (answer 15, Q5); the
+  // door below still asks that they see the session.
+  if (options.requesterLeft === true && door?.behind === true) answerer = true;
   const targets =
     scope === "people" || scope === "team"
       ? await tx

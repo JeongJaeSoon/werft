@@ -39,7 +39,7 @@ export interface SlackInboundDeps {
   links: Param<typeof createSlackSessionHandler>["links"];
   bindings: SurfaceBindingStore;
   members: Pick<ChannelMemberStore, "forget">;
-  cards: Pick<SurfaceCardSettleStore, "markPushCardsDueIn"> | undefined;
+  cards: Pick<SurfaceCardSettleStore, "markChoiceCardsDueIn"> | undefined;
   settings: Param<typeof createSlackSessionHandler>["settings"];
   botTurns: Param<typeof createSlackSessionHandler>["botTurns"];
   sessionLinks: Param<typeof createSlackSessionHandler>["sessionLinks"];

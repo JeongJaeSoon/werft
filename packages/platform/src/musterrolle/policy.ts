@@ -276,7 +276,12 @@ export const slackGuestsDisabled: SlackGuestSetting = {
 
 /** Who made a session and whom it is shared with, read for every decision. */
 export type SessionAccess = Pick<SessionShareStore, "visibleTo" | "originOf"> &
-  Partial<Pick<SessionShareStore, "privateChannels" | "pushRequesterOf">>;
+  Partial<
+    Pick<
+      SessionShareStore,
+      "privateChannels" | "pushRequesterOf" | "pendingRequesterOf"
+    >
+  >;
 
 // Member checks run at once per decision; more would spend the Slack
 // install's rate limit on one list.
@@ -294,12 +299,20 @@ export const workspaceWideSessions: SessionAccess = {
 };
 
 /**
- * Answer 15, second part (94S-2000): whether a push request's requester has
- * left the private channel its session belongs to, so the channel's members
- * decide it. Only a confirmed absence counts; a check that cannot tell, or
- * a session that is no private channel's, keeps the usual rule.
+ * The request a card waits on: a push, or a tool permission or a question.
  */
-export async function pushRequesterLeft(
+export type CardRequestRef =
+  | { pushRequestId: string }
+  | { pendingRequestId: string };
+
+/**
+ * Answer 15, second part (94S-2000), and Q5 for permission and question
+ * cards (94S-2175): whether a request's requester has left the private
+ * channel its session belongs to, so the channel's members decide it. Only
+ * a confirmed absence counts; a check that cannot tell, or a session that is
+ * no private channel's, keeps the usual rule.
+ */
+export async function requesterLeft(
   deps: {
     sessions: SessionAccess;
     channelMembers?: ChannelMemberCheckable | undefined;
@@ -315,26 +328,47 @@ export async function pushRequesterLeft(
   input: {
     workspaceId: string;
     sessionId: string;
-    pushRequestId: string;
     /** The session's private channels, when the caller read them already. */
     places?: readonly PrivateChannelPlace[];
-  },
+  } & CardRequestRef,
 ): Promise<boolean> {
   const { sessions, channelMembers } = deps;
   const membership = channelMembers?.membership.bind(channelMembers);
-  if (membership === undefined || sessions.pushRequesterOf === undefined) {
-    return false;
-  }
+  const { workspaceId, sessionId } = input;
+  const push = "pushRequestId" in input;
+  const requestId = push ? input.pushRequestId : input.pendingRequestId;
+  const requesterOf = push
+    ? sessions.pushRequesterOf
+    : sessions.pendingRequesterOf;
+  const unconfirmed = push
+    ? {
+        message: "Push requester's channel membership unconfirmed",
+        fields: {
+          event: "push.requester_left.unconfirmed",
+          session_id: sessionId,
+          push_request_id: requestId,
+        },
+      }
+    : {
+        message: "Pending request's requester channel membership unconfirmed",
+        fields: {
+          event: "pending.requester_left.unconfirmed",
+          session_id: sessionId,
+          pending_request_id: requestId,
+        },
+      };
+  if (membership === undefined || requesterOf === undefined) return false;
   try {
     const places =
       input.places ??
       (await sessions.privateChannels?.(input.workspaceId, input.sessionId)) ??
       [];
     if (places.length === 0) return false;
-    const requester = await sessions.pushRequesterOf(
-      input.workspaceId,
-      input.sessionId,
-      input.pushRequestId,
+    const requester = await requesterOf.call(
+      sessions,
+      workspaceId,
+      sessionId,
+      requestId,
     );
     if (requester === null) return false;
     const answers = await Promise.all(
@@ -348,19 +382,13 @@ export async function pushRequesterLeft(
       ),
     );
     if (answers.includes("unconfirmed")) {
-      deps.logger?.warn("Push requester's channel membership unconfirmed", {
-        event: "push.requester_left.unconfirmed",
-        session_id: input.sessionId,
-        push_request_id: input.pushRequestId,
-      });
+      deps.logger?.warn(unconfirmed.message, unconfirmed.fields);
       return false;
     }
     return answers.every((answer) => answer === "not_member");
   } catch (error) {
-    deps.logger?.warn("Push requester's channel membership unconfirmed", {
-      event: "push.requester_left.unconfirmed",
-      session_id: input.sessionId,
-      push_request_id: input.pushRequestId,
+    deps.logger?.warn(unconfirmed.message, {
+      ...unconfirmed.fields,
       error_name: error instanceof Error ? error.name : typeof error,
     });
     return false;
@@ -373,7 +401,7 @@ export async function pushRequesterLeft(
  * none of the session's channels, or that cannot be told (answer 15, PR2).
  * `membership` asks about that account itself, not whoever links it now. A
  * notice leaks on a guess, so the unknown counts as outside, unlike
- * `pushRequesterLeft`, where the guess would widen an approval.
+ * `requesterLeft`, where the guess would widen an approval.
  */
 export async function readerOutsideChannels(
   deps: { sessions: Pick<SessionShareStore, "privateChannels"> },
@@ -608,7 +636,13 @@ const SLACK_ACTIONS: ReadonlySet<AuthorizationAction> = new Set(
   SLACK_SURFACE_ACTION_VALUES,
 );
 
-type Judgement = [AuthorizationReason, SessionScope[], redact?: true];
+// requesterLeft: an allow that only a requester's leaving let through.
+type Judgement = [
+  AuthorizationReason,
+  SessionScope[],
+  redact?: true | undefined,
+  requesterLeft?: true | undefined,
+];
 
 // Web and api add no ceiling of their own. On Slack the person acts through
 // the installation and the channel: the smallest of the three.
@@ -1164,6 +1198,7 @@ export function createAuthorizationPolicy(
       redact =
         action === "session.read" && surface.ceiling?.disclosure === "summary";
     }
+    let requesterGone: true | undefined;
     if (action === "session.approve" || action === "session.rename") {
       const answer =
         resource.id === null
@@ -1174,15 +1209,27 @@ export function createAuthorizationPolicy(
               resource.id,
               action === "session.approve",
             );
-      // A private channel's member, who sees the session, decides a push
-      // whose requester left the channel; the requester no longer sees it.
-      // Only the role refusal is lifted: every check below still runs.
-      const requesterLeft =
-        answer === "role" &&
+      // A private channel's member, who sees the session, decides a push, a
+      // tool permission or a question whose requester left the channel; the
+      // requester no longer sees it. Only the role refusal is lifted: every
+      // check below still runs. A tool permission or question answered by
+      // anyone after its requester left is marked too, so no one gives it a
+      // session-wide allow there (94S-2215).
+      const request: CardRequestRef | null =
+        resource.push_request_id !== undefined
+          ? { pushRequestId: resource.push_request_id }
+          : resource.pending_request_id !== undefined
+            ? { pendingRequestId: resource.pending_request_id }
+            : null;
+      const left =
+        (answer === "role" ||
+          (answer === "ok" &&
+            request !== null &&
+            "pendingRequestId" in request)) &&
         action === "session.approve" &&
         resource.id !== null &&
-        resource.push_request_id !== undefined &&
-        (await pushRequesterLeft(
+        request !== null &&
+        (await requesterLeft(
           {
             sessions,
             channelMembers: deps.channelMembers,
@@ -1191,11 +1238,12 @@ export function createAuthorizationPolicy(
           {
             workspaceId: resource.owner_scope,
             sessionId: resource.id,
-            pushRequestId: resource.push_request_id,
             places,
+            ...request,
           },
         ));
-      if (answer !== "ok" && !requesterLeft) return [answer, scopes];
+      if (answer !== "ok" && !left) return [answer, scopes];
+      if (left) requesterGone = true;
     }
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
@@ -1256,7 +1304,9 @@ export function createAuthorizationPolicy(
       if (unbound.length > 0) return ["credential_unbound", scopes];
     }
     // A summary is still a ceiling: the reason names it.
-    return redact ? ["surface_ceiling", scopes, true] : ["ok", scopes];
+    return redact
+      ? ["surface_ceiling", scopes, true]
+      : ["ok", scopes, undefined, requesterGone];
   }
 
   return {
@@ -1312,8 +1362,9 @@ export function createAuthorizationPolicy(
       let reason: AuthorizationReason;
       let effective_scopes: SessionScope[];
       let redact: true | undefined;
+      let left: true | undefined;
       try {
-        [reason, effective_scopes, redact] = await decide(request);
+        [reason, effective_scopes, redact, left] = await decide(request);
       } catch (error) {
         deps.logger?.warn("Authorization could not decide; refusing", {
           action: request.action,
@@ -1336,6 +1387,7 @@ export function createAuthorizationPolicy(
             effective_scopes,
             policy_version: POLICY_VERSION,
             decision_id,
+            ...(left && reason === "ok" ? { requester_left: true } : {}),
           };
       const parsed = authorizationRequestSchema.safeParse(request);
       if (
