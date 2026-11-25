@@ -41,9 +41,11 @@ const BUDGET_BYTES: Record<string, number> = {
   // ./schemas 271 bytes over 151, so it moves to 152. The Slack tab's
   // instruction branch head read put ./forms 52 bytes over 149, so it moves
   // to 150. The installation's GitHub webhook settings and their per-App
-  // update answers fit under both.
-  "./schemas": 152 * 1024,
-  "./forms": 150 * 1024,
+  // update answers fit under both. The Slack notice's first version, its
+  // words in Korean and Japanese, put ./schemas 561 bytes over 152 and
+  // ./forms 280 bytes over 150, so they move to 153 and 151.
+  "./schemas": 153 * 1024,
+  "./forms": 151 * 1024,
 };
 
 test("every entry has a budget", () => {
