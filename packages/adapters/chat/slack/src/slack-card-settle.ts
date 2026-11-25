@@ -15,8 +15,11 @@ import {
   SlackRateLimitedError,
 } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
+import { slackOutboxGuard } from "./slack-outbox-render.ts";
 import {
+  guardSlackCardBlocks,
   slackDoneCard,
+  slackGuardedCardText,
   slackRejectOnlyCard,
   slackRequesterLeftCard,
   slackSettledCard,
@@ -111,10 +114,16 @@ async function drawChoice(
   claim: SurfaceCardClaim,
   pushSource: PushSource | undefined,
 ): Promise<DrawnCard | null> {
+  // Redrawn in the scope the card was first drawn in (94S-2213).
+  const { guard } = slackOutboxGuard({
+    kind: "input_notice",
+    channelId: claim.channelId,
+    conversationScope: claim.conversationScope ?? null,
+  });
   const open = {
     rendered: "open" as const,
     text: claim.body.text,
-    blocks: claim.body.blocks ?? [],
+    blocks: guardSlackCardBlocks(claim.body.blocks ?? [], guard),
   };
   const [prefix, , ...rest] = claim.dedupeKey.split(":");
   if (prefix !== "prompt" && prefix !== "push") {
@@ -129,9 +138,18 @@ async function drawChoice(
   }
   const card = await store.card(claim);
   if (card === null) return null;
+  const locale = claim.body.locale ?? DEFAULT_USER_LOCALE;
+  const choice = {
+    ...open,
+    text: slackGuardedCardText(claim.body.text, guard, {
+      locale,
+      kind: card.display.kind,
+      linkUrl: claim.body.link_url ?? null,
+    }),
+  };
   const result = slackSettledResult(card.display);
   if (result !== null) {
-    const settled = slackSettledCard(card);
+    const settled = slackSettledCard(card, guard);
     return settled === null ? null : { rendered: result, ...settled };
   }
   if (
@@ -139,7 +157,7 @@ async function drawChoice(
     claim.sessionId === null ||
     card.pushRevisions === undefined
   ) {
-    return open;
+    return choice;
   }
   const verdict = await pushApprovability(
     { id: claim.sessionId, checkpointRevision: card.pushRevisions.session },
@@ -151,12 +169,13 @@ async function drawChoice(
     },
     pushSource,
   );
-  if (verdict.approvable) return open;
+  if (verdict.approvable) return choice;
   return {
     rendered: "reject_only",
     ...slackRejectOnlyCard(
       { ...card, display: card.display },
       { sessionId: claim.sessionId, requestId: rest.join(":") },
+      guard,
     ),
   };
 }

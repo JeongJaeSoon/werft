@@ -71,6 +71,7 @@ let viewUpdateError: Error | null;
 let channelLeft: boolean;
 // null: derived from the request id; undefined: no card row found.
 let posted: SurfacePromptCard["display"] | null | undefined;
+let postedScope: SurfacePromptCard["conversationScope"];
 
 beforeEach(() => {
   calls = [];
@@ -90,6 +91,7 @@ beforeEach(() => {
   hold = "now";
   flow = "legacy";
   posted = null;
+  postedScope = undefined;
 });
 
 const OTHER_USER = "019a0000-0000-7000-8000-000000000102";
@@ -346,6 +348,9 @@ function deps(): SlackInteractionDeps {
           decidedVia: display.decidedByUserId === null ? null : "slack",
           deciderSlackUserId: display.decidedByUserId === USER ? LINKED : null,
           display,
+          ...(postedScope === undefined
+            ? {}
+            : { conversationScope: postedScope }),
         };
       },
       readerLocale: async () => "en",
@@ -862,6 +867,48 @@ describe("Slack interactions", () => {
       c: CHANNEL,
       m: CARD_TS,
       t: THREAD_TS,
+    });
+  });
+
+  // 94S-2213: the modal shows the card's questions in the scope the server
+  // reads for the card's session, not the channel the press came from.
+  describe("the question modal's links", () => {
+    const link = (channel: string) =>
+      `https://ops.slack.com/archives/${channel}/p1700000000000100`;
+    const shown = async () => {
+      listed = [
+        {
+          request_id: "q_1",
+          kind: "question",
+          questions: [
+            {
+              ...question,
+              prompt: `Which database? @channel ${link(CHANNEL)} ${link("C0HOME0001")}`,
+            },
+          ],
+        },
+      ];
+      await send(
+        press(SLACK_INTERACTION_ACTIONS.questionOpen, { s: SESSION, r: "q_1" }),
+      );
+      return JSON.stringify(called("viewUpdate")[0]?.args[1]);
+    };
+
+    test("keep only the session's own channel", async () => {
+      postedScope = { kind: "channel", teamId: TEAM, channelId: "C0HOME0001" };
+      const view = await shown();
+      expect(view).toContain("Which database?");
+      expect(view).toContain(link("C0HOME0001"));
+      expect(view).not.toContain(link(CHANNEL));
+      expect(view).not.toContain("@channel");
+    });
+
+    test("keep none without a conversation", async () => {
+      postedScope = null;
+      const view = await shown();
+      expect(view).toContain("Which database?");
+      expect(view).not.toContain(link(CHANNEL));
+      expect(view).not.toContain(link("C0HOME0001"));
     });
   });
 
