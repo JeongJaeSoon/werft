@@ -5658,8 +5658,24 @@ describe.each(ENGINES)("model notices on %s", (engine) => {
     });
     const before = posted().length;
 
-    expect(await outboxPass()).toMatchObject({ claimed: 0, failed: 1 });
+    // It waits for the API's start pass, unclaimed and not closed.
+    expect(await outboxPass()).toMatchObject({ claimed: 0, failed: 0 });
     expect(posted()).toHaveLength(before);
+    expect(
+      (await db.select().from(schema.slackOutbox)).filter(
+        (row) => row.kind === "model_notice",
+      ),
+    ).toEqual([
+      expect.objectContaining({ channelId: PERSON, status: "pending" }),
+    ]);
+    // The pass moves it to the session's thread, where it goes once.
+    expect(await schema.moveModelNoticesOffPeople(db)).toMatchObject({
+      moved: 1,
+    });
+    expect(await outboxPass()).toMatchObject({ failed: 0 });
+    expect(posted().slice(before)).toEqual([
+      expect.objectContaining({ channelId: CHANNEL, threadTs: THREAD }),
+    ]);
     expect(posted().map((post) => post.channelId)).not.toContain(PERSON);
   });
 
