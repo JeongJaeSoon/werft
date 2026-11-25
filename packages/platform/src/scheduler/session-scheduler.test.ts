@@ -1940,6 +1940,8 @@ describe("runScheduler", () => {
       // Another refusal of the proxy's, with the allowlist phrase on a line
       // that is not the claim's: no allowlist advice.
       "destination is not allowlisted\nWorkerGatewayRequestError: POST /bootstrap-claim failed with HTTP 403: egress denied: 10.0.0.7 is private, not public\n",
+      // Not the proxy's words at all.
+      "WorkerGatewayRequestError: POST /bootstrap-claim failed with HTTP 403: <html>Access denied</html>\n",
       "WorkerGatewayRequestError: POST /bootstrap-claim failed with LAUNCH_FAILED: refused\n",
     ];
     const { backend, records, run, store } = harness();
@@ -1961,12 +1963,15 @@ describe("runScheduler", () => {
         (r) => r.message === "Launch attempt failed; retrying after a backoff",
       )
       .map((r) => (r.fields as { error: string }).error);
-    const doc =
-      "its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. See https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/upgrade-compose/#the-release-that-moves-the-worker-gateway-to-port-3200";
+    const see =
+      "See https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/upgrade-compose/#the-release-that-moves-the-worker-gateway-to-port-3200";
+    const doc = `its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. ${see}`;
+    const other = `resource exited before a worker claimed it (exit code 1, Error): the worker's bootstrap-claim was answered with HTTP 403 before it reached the gateway; if the egress proxy refused it, its Egress denied log line has the reason. ${see}`;
     expect(errors).toEqual([
       `resource exited before a worker claimed it (exit code 1, Error): the egress proxy refused the worker's bootstrap-claim (HTTP 403): ${doc}`,
       `resource exited before a worker claimed it (exit code 1, Error): the egress proxy refused the worker's bootstrap-claim (destination is not allowlisted): ${doc}`,
-      "resource exited before a worker claimed it (exit code 1, Error): the egress proxy refused the worker's bootstrap-claim; its Egress denied log line has the reason",
+      other,
+      other,
       "resource exited before a worker claimed it (exit code 1, Error)",
     ]);
   });

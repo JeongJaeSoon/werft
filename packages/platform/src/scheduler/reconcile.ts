@@ -37,11 +37,12 @@ import { replace, teardown } from "./replace.ts";
 const GATEWAY_PORT_DOC =
   "https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/upgrade-compose/#the-release-that-moves-the-worker-gateway-to-port-3200";
 
-// The worker's error line for a claim the proxy refused. The proxy's reason
-// follows only from a worker that relays it; an older one prints the status.
+// The worker's error line for a claim answered with a 403 that is not the
+// gateway's. What answered follows only from a worker that relays it; an
+// older one prints the status alone.
 const CLAIM_REFUSED =
-  /POST \/bootstrap-claim failed with HTTP 403(?:: egress denied: ([^\n]*))?/;
-const NOT_ALLOWLISTED = "destination is not allowlisted";
+  /POST \/bootstrap-claim failed with HTTP 403(?:: ([^\n]*))?/;
+const NOT_ALLOWLISTED = "egress denied: destination is not allowlisted";
 
 /**
  * What to tell the operator when a worker died before its claim because the
@@ -55,10 +56,11 @@ function proxyRefusalOf(logTail: string | undefined): string | undefined {
   if (!refused) return undefined;
   const said = refused[1];
   if (said !== undefined && !said.startsWith(NOT_ALLOWLISTED)) {
-    // An address the proxy never dials, say: the allowlist is not the fix.
-    return "the egress proxy refused the worker's bootstrap-claim; its Egress denied log line has the reason";
+    // Another refusal of the proxy's (an address it never dials) or another
+    // hop's answer: the allowlist is not the fix.
+    return `the worker's bootstrap-claim was answered with HTTP 403 before it reached the gateway; if the egress proxy refused it, its Egress denied log line has the reason. See ${GATEWAY_PORT_DOC}`;
   }
-  return `the egress proxy refused the worker's bootstrap-claim (${said === undefined ? "HTTP 403" : NOT_ALLOWLISTED}): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. See ${GATEWAY_PORT_DOC}`;
+  return `the egress proxy refused the worker's bootstrap-claim (${said === undefined ? "HTTP 403" : "destination is not allowlisted"}): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. See ${GATEWAY_PORT_DOC}`;
 }
 
 /** Step 1: reconcile rows against the provider. */
