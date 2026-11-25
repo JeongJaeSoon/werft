@@ -460,6 +460,36 @@ integration("M1 judgment records", () => {
       expect(await summaries.read(summaryPlace)).toBeNull();
     });
 
+    test("a write after the channel's delete makes no summary again", async () => {
+      const place = await channel();
+      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const batch = await closedBatch(place, [
+        ["810.000001", "is this channel going away?"],
+      ]);
+      // The channel went while the call ran.
+      expect(
+        await createPostgresSurfaceBindingStore(db).channelDeleted(
+          installationId,
+          place.channelId,
+          null,
+        ),
+      ).toBe(true);
+      expect(
+        await store.writeSummaryLine(
+          batch,
+          draftOf(batch, "someone asked if the channel goes away"),
+        ),
+      ).toEqual({ outcome: "gate_closed" });
+      expect(
+        await createPostgresChannelSummaryStore(db).read(placeOf(batch)),
+      ).toBeNull();
+      const { rows } = await pool.query(
+        "SELECT (SELECT count(*) FROM channel_summary_lines WHERE channel_id = $1)::int AS lines, (SELECT count(*) FROM channel_summary_line_sources WHERE channel_id = $1)::int AS sources",
+        [place.channelId],
+      );
+      expect(rows[0]).toEqual({ lines: 0, sources: 0 });
+    });
+
     test("three lost compares in a row drop the line and the record says so", async () => {
       const place = await channel();
       const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
