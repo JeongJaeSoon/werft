@@ -10,6 +10,7 @@ import type {
   ConversationTurnId,
   ConversationTurnLimit,
   ConversationTurnLimitSide,
+  ConversationTurnState,
 } from "@werft-ai/contracts";
 import type { BudgetRoot } from "../budget-accounts.ts";
 import type { ConversationCallLimit } from "../conversation-call-limits.ts";
@@ -69,7 +70,7 @@ export interface ConversationCallStore {
     }): { reserve: BudgetAmount; unmetered: boolean } | null;
   }): Promise<ConversationTurnCallAuthorization>;
   /**
-   * Ends a running turn without a decision, which also ends its permit, and
+   * Ends a turn's permit, and a running turn without a decision, and
    * says what its last refused call was refused for. `limitReached` says,
    * from that refusal and whether a read tool call was refused past the
    * turn's count, which limit ended the turn, kept on its row.
@@ -82,6 +83,8 @@ export interface ConversationCallStore {
     ) => ConversationTurnLimitReached | null;
   }): Promise<{
     ended: "recorded" | "already_ended" | "gone";
+    /** The turn's state after this, as recorded now or before; null when gone. */
+    state: ConversationTurnState | null;
     refusal: ConversationTurnCallRefusal | null;
     limit: ConversationTurnLimitReached | null;
   }>;

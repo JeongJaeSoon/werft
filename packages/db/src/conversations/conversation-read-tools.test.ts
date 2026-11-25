@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import {
+  type ConversationDecision,
   type ConversationId,
   type ConversationReadTool,
   type ConversationRuntimeId,
@@ -44,8 +45,10 @@ import {
   users,
   workspaces,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { createPostgresConversationReadToolStore } from "./conversation-read-tools.ts";
+import { beginConversationTurn } from "./conversation-turns.ts";
 
 const TEAM = "T0READ";
 const at = (ts: string) => ({ teamId: TEAM, channelId: "C0OPEN", ts });
@@ -145,7 +148,12 @@ describe("the read tools' store on PostgreSQL", () => {
   /** A running turn of the conversation, leased to a runtime now. */
   async function leased(
     conversationId: ConversationId = open,
-    options: { sources?: SourceKey[]; leaseMs?: number } = {},
+    options: {
+      sources?: SourceKey[];
+      leaseMs?: number;
+      overflow?: boolean;
+      requester?: { kind: string; id: string };
+    } = {},
   ) {
     const topicId = await topicOf(conversationId);
     const turnId = conversationTurnIdSchema.parse(randomUUID());
@@ -159,13 +167,13 @@ describe("the read tools' store on PostgreSQL", () => {
       topicId,
       origin: "m2",
       state: "running",
-      requesterKind: "user",
-      requesterId: userId,
+      requesterKind: options.requester?.kind ?? "user",
+      requesterId: options.requester?.id ?? userId,
       slackInstallationId: installationId,
       sources: storedSourceSet({
         direct: options.sources ?? [],
         inherited: [],
-        overflow: false,
+        overflow: options.overflow ?? false,
       }),
     });
     await db.insert(conversationTurnPermits).values({
@@ -213,6 +221,245 @@ describe("the read tools' store on PostgreSQL", () => {
         .from(conversationTurnPermits)
         .where(eq(conversationTurnPermits.turnId, turnId))
     )[0];
+
+  describe("a turn's decision, written as its tool is called", () => {
+    const decide = (
+      turn: {
+        turnId: ConversationTurnId;
+        leaseId: ConversationTurnLeaseId;
+        runtimeId: ConversationRuntimeId;
+      },
+      decision: ConversationDecision,
+    ) =>
+      store().recordDecision({
+        turnId: turn.turnId,
+        leaseId: turn.leaseId,
+        runtimeId: turn.runtimeId,
+        decision,
+      });
+    const end = (turnId: ConversationTurnId) =>
+      createPostgresConversationCalls(db).endTurnAtomic({
+        turnId,
+        limitReached: (refusal, toolCallRefused) =>
+          conversationTurnLimitReached(
+            { outcome: "completed", text: "" },
+            refusal,
+            toolCallRefused,
+          ),
+      });
+    const rowOf = async (turnId: ConversationTurnId) =>
+      (
+        await db
+          .select({
+            state: conversationTurns.state,
+            decision: conversationTurns.decision,
+            reason: conversationTurns.decisionReason,
+            answer: conversationTurns.answerText,
+            requesterKind: conversationTurns.requesterKind,
+            requesterId: conversationTurns.requesterId,
+            limit: conversationTurns.limitReached,
+          })
+          .from(conversationTurns)
+          .where(eq(conversationTurns.id, turnId))
+      )[0];
+    const effects = async () => {
+      const [row] = rowsOf<{ outbox: number; sessions: number; turns: number }>(
+        await db.execute(sql`
+          SELECT (SELECT count(*)::int FROM slack_outbox) AS outbox,
+            (SELECT count(*)::int FROM sessions) AS sessions,
+            (SELECT count(*)::int FROM turns) AS turns`),
+      );
+      return row;
+    };
+    const read = placeSource({ teamId: TEAM, channelId: "C0OPEN", ts: "41.0" });
+    const DECISIONS: ConversationDecision[] = [
+      {
+        tool: "reply",
+        body: "Ask <@U0OTHER>, who owns it.",
+        reason: "asked who owns the deploy",
+      },
+      { tool: "route_to_task", task_id: randomUUID(), reason: "its task's" },
+      { tool: "spawn_task", spec: "write the report", reason: "new work" },
+      { tool: "no_reply", reason: "people talking to each other" },
+    ];
+
+    test("each of the four is the turn's record, with its reason and only a reply's body, and has no effect", async () => {
+      const before = await effects();
+      for (const decision of DECISIONS) {
+        const turn = await leased(open, { sources: [read] });
+        expect(await decide(turn, decision)).toEqual({
+          outcome: "recorded",
+          state: "decided",
+        });
+        expect(await rowOf(turn.turnId)).toEqual({
+          state: "decided",
+          decision: decision.tool,
+          reason: decision.reason,
+          answer: decision.tool === "reply" ? decision.body : null,
+          // The server's value, whoever the reply's body names (G4).
+          requesterKind: "user",
+          requesterId: userId,
+          limit: null,
+        });
+      }
+      // a1: no post, no task, nothing put into a session.
+      expect(await effects()).toEqual(before);
+    });
+
+    test("the turn's first decision is its record: no other decision, tool call or end changes it, and its end closes the permit", async () => {
+      const none = await leased();
+      expect((await end(none.turnId)).state).toBe("no_decision");
+      expect(await decide(none, DECISIONS[3] as ConversationDecision)).toEqual({
+        outcome: "turn_not_held",
+      });
+      const turn = await leased(open, { sources: [read] });
+      const first = DECISIONS[3] as ConversationDecision;
+      expect((await decide(turn, first)).outcome).toBe("recorded");
+      expect(await decide(turn, DECISIONS[0] as ConversationDecision)).toEqual({
+        outcome: "turn_not_held",
+      });
+      // No read or decision tool call after the turn's decision, nor the
+      // sources of a read admitted before it.
+      expect(await admit(turn)).toEqual({ outcome: "not_holder" });
+      expect(await store().addDirectSources(turn.turnId, [read])).toBe(false);
+      const live = (await permitOf(turn.turnId))?.expiresAt.getTime() ?? 0;
+      expect(live).toBeGreaterThan(Date.now());
+      // Whatever its runtime reports of a decision, the end leaves the record.
+      expect(await end(turn.turnId)).toMatchObject({
+        ended: "already_ended",
+        state: "decided",
+      });
+      expect(await rowOf(turn.turnId)).toMatchObject({
+        state: "decided",
+        decision: "no_reply",
+        reason: first.reason,
+      });
+      expect(
+        (await permitOf(turn.turnId))?.expiresAt.getTime() ?? 0,
+      ).toBeLessThanOrEqual(Date.now());
+    });
+
+    test("a lease or permit that ran out, or another lease, since the call was admitted: nothing is written", async () => {
+      const decision = DECISIONS[3] as ConversationDecision;
+      const other = await leased();
+      expect(
+        await decide(
+          {
+            ...other,
+            leaseId: conversationTurnLeaseIdSchema.parse(randomUUID()),
+          },
+          decision,
+        ),
+      ).toEqual({ outcome: "turn_not_held" });
+      const lapsed = await leased();
+      await db.execute(sql`
+        UPDATE conversation_turn_queue
+        SET lease_expires_at = now() - interval '1 second'
+        WHERE turn_id = ${lapsed.turnId}::uuid`);
+      expect(await decide(lapsed, decision)).toEqual({
+        outcome: "turn_not_held",
+      });
+      const unpermitted = await leased();
+      await db
+        .update(conversationTurnPermits)
+        .set({ expiresAt: new Date(Date.now() - 1_000) })
+        .where(eq(conversationTurnPermits.turnId, unpermitted.turnId));
+      expect(await decide(unpermitted, decision)).toEqual({
+        outcome: "turn_not_held",
+      });
+      for (const turn of [other, lapsed, unpermitted]) {
+        expect((await rowOf(turn.turnId))?.state).toBe("running");
+      }
+    });
+
+    test("two decisions of one turn at once: one is written, the other finds the turn ended", async () => {
+      const turn = await leased(open, { sources: [read] });
+      const both = await Promise.all([
+        decide(turn, DECISIONS[0] as ConversationDecision),
+        decide(turn, DECISIONS[3] as ConversationDecision),
+      ]);
+      expect(both.map((each) => each.outcome).sort()).toEqual([
+        "recorded",
+        "turn_not_held",
+      ]);
+    });
+
+    test("a message the turn read, deleted before its decision is written, voids it (check spot ②)", async () => {
+      const gone = placeSource({
+        teamId: TEAM,
+        channelId: "C0OPEN",
+        ts: "42.0",
+      });
+      const turn = await leased(open, { sources: [read, gone] });
+      await db.insert(deletedSources).values({
+        workspaceId: ws,
+        teamId: TEAM,
+        channelId: "C0OPEN",
+        ts: "42.0",
+        deletedAt: new Date(),
+      });
+      expect(await decide(turn, DECISIONS[0] as ConversationDecision)).toEqual({
+        outcome: "recorded",
+        state: "voided_by_delete",
+      });
+      expect(await rowOf(turn.turnId)).toMatchObject({
+        state: "voided_by_delete",
+        decision: null,
+        reason: null,
+        answer: null,
+      });
+    });
+
+    test("a turn whose sources overflowed is void on a delete in its channel since it began, and not on one before", async () => {
+      await db.insert(deletedSources).values({
+        workspaceId: ws,
+        teamId: TEAM,
+        channelId: "C0OPEN",
+        ts: "43.0",
+        deletedAt: new Date(),
+        markedAt: new Date(Date.now() - 60_000),
+      });
+      const kept = await leased(open, { sources: [read], overflow: true });
+      expect(
+        await decide(kept, DECISIONS[3] as ConversationDecision),
+      ).toMatchObject({ state: "decided" });
+      const voided = await leased(open, { sources: [read], overflow: true });
+      await db.insert(deletedSources).values({
+        workspaceId: ws,
+        teamId: TEAM,
+        channelId: "C0OPEN",
+        ts: "44.0",
+        deletedAt: new Date(),
+      });
+      expect(
+        await decide(voided, DECISIONS[3] as ConversationDecision),
+      ).toMatchObject({ state: "voided_by_delete" });
+    });
+
+    test("no Slack or user path begins a turn as the operator's", async () => {
+      const topicId = await topicOf(open);
+      expect(() =>
+        beginConversationTurn(db, {
+          workspaceId: ws,
+          agentId,
+          conversationId: open,
+          topicId,
+          requester: { kind: "operator", id: "ops@host" } as never,
+          sources: null,
+          releaseId: null,
+          slackInstallationId: null,
+          engagement: null,
+        }),
+      ).toThrow(RangeError);
+      expect(
+        rowsOf(
+          await db.execute(
+            sql`SELECT 1 FROM conversation_turns WHERE topic_id = ${topicId}::uuid`,
+          ),
+        ),
+      ).toEqual([]);
+    });
+  });
 
   test("admits the turn its runtime holds under its lease, with the server's place and thread", async () => {
     const turn = await leased();

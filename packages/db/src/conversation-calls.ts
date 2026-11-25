@@ -541,7 +541,12 @@ export function createPostgresConversationCalls(
             .select({ state: t.state })
             .from(t)
             .where(eq(t.id, permit.turnId));
-          if (turn?.state !== "running" || permit.expiresAt <= now) {
+          // A decided turn's engine still closes it: its provider calls only,
+          // as a tool call on it is refused (admit), and none once it ends.
+          if (
+            (turn?.state !== "running" && turn?.state !== "decided") ||
+            permit.expiresAt <= now
+          ) {
             return { outcome: "invalid_token" };
           }
           const [taken] = await tx
@@ -706,9 +711,21 @@ export function createPostgresConversationCalls(
             ),
           )
           .for("update");
-        if (!turn) return { ended: "gone" as const, refusal, limit: null };
+        if (!turn) {
+          return { ended: "gone" as const, state: null, refusal, limit: null };
+        }
+        // A decided turn's permit took its last provider calls: it ends here.
+        await tx
+          .update(p)
+          .set({ expiresAt: sql`LEAST(${p.expiresAt}, ${DB_NOW})` })
+          .where(eq(p.turnId, turnId));
         if (turn.state !== "running") {
-          return { ended: "already_ended" as const, refusal, limit: null };
+          return {
+            ended: "already_ended" as const,
+            state: turn.state,
+            refusal,
+            limit: null,
+          };
         }
         const limit = limitReached?.(refusal, toolCallRefused) ?? null;
         await tx
@@ -720,7 +737,12 @@ export function createPostgresConversationCalls(
             limitReachedBy: limit?.by ?? null,
           })
           .where(eq(conversationTurns.id, turnId));
-        return { ended: "recorded" as const, refusal, limit };
+        return {
+          ended: "recorded" as const,
+          state: "no_decision" as const,
+          refusal,
+          limit,
+        };
       });
     },
 

@@ -214,7 +214,7 @@ const runnerOf = (module: RuntimeModule, limitMs?: number) => {
 const live = () => new AbortController().signal;
 
 describe("createConversationTurnRunner", () => {
-  test("starts the engine in the topic's own directory with the four read tools alone, every built-in one denied, the call limit and its session's key for the relay", async () => {
+  test("starts the engine in the topic's own directory with the four read tools and, for a turn the server gave none, reply and no_reply alone, every built-in one denied, the call limit and its session's key for the relay", async () => {
     const { module, seen } = scripted([said("hel"), said("lo"), ended()]);
 
     expect(await runnerOf(module).run(turn, live())).toEqual({
@@ -240,6 +240,8 @@ describe("createConversationTurnRunner", () => {
         "mcp__conversation__read_channel_summary",
         "mcp__conversation__read_turns",
         "mcp__conversation__list_open_tasks",
+        "mcp__conversation__reply",
+        "mcp__conversation__no_reply",
       ],
       disallowedTools: BUILTIN,
       maxTurns: 8,
@@ -280,6 +282,8 @@ describe("createConversationTurnRunner", () => {
           "read_channel_summary",
           "read_turns",
           "list_open_tasks",
+          "reply",
+          "no_reply",
         ],
       },
     ]);
@@ -440,5 +444,130 @@ describe("createConversationTurnRunner", () => {
     expect(runtime.builtinTools).toEqual(
       expect.arrayContaining(["Bash", "Write", "Edit", "NotebookEdit"]),
     );
+  });
+});
+
+describe("a conversation turn's decision tools", () => {
+  /** A runtime whose engine calls `tool` with `input`, says "done" and ends. */
+  function deciding(tool: string, input: Record<string, unknown>) {
+    const { module, seen } = scripted([]);
+    const created = module.createRuntime;
+    (module as { createRuntime: unknown }).createRuntime = (
+      deps: RuntimeHostDeps,
+    ) => {
+      const runtime = created(deps);
+      return {
+        start: (start: RuntimeStart) => {
+          const run = runtime.start(start);
+          return Object.assign(run, {
+            async *events() {
+              const local = start.bundle.localToolServers?.[0]?.tools.find(
+                (each) => each.name === tool,
+              );
+              await local?.call(new AbortController().signal, input);
+              yield said("done");
+              yield ended();
+            },
+          });
+        },
+      };
+    };
+    return { module, seen };
+  }
+  const ALL = ["reply", "route_to_task", "spawn_task", "no_reply"] as const;
+  const named = (tools: readonly string[]) =>
+    tools.map((tool) => `mcp__conversation__${tool}`);
+  const READS = named([
+    "read_thread",
+    "read_channel_summary",
+    "read_turns",
+    "list_open_tasks",
+  ]);
+
+  test("a turn is given the decision tools the server chose, and ends with the one the control host accepted", async () => {
+    const { module, seen } = deciding("reply", {
+      body: "Here it is.",
+      reason: "asked",
+    });
+    const tools = fakeConversationTools();
+    relay = fakePermitRelay();
+    const runner = createConversationTurnRunner({
+      runtime: module,
+      sessions: new TopicSessions(new TopicDirectories(root), relay),
+      relay,
+      tools,
+    });
+    const full = { ...turn, decision_tools: [...ALL] };
+    expect(await runner.run(full, live())).toEqual({
+      outcome: "completed",
+      text: "done",
+      decision: { tool: "reply", body: "Here it is.", reason: "asked" },
+    });
+    // The golden list: the four reads and the four decisions, nothing else.
+    expect(seen.start?.config.tools).toEqual([...READS, ...named(ALL)]);
+    expect(
+      seen.start?.bundle.localToolServers?.[0]?.tools.map((each) => each.name),
+    ).toEqual([
+      "read_thread",
+      "read_channel_summary",
+      "read_turns",
+      "list_open_tasks",
+      ...ALL,
+    ]);
+    expect(tools.decisions).toEqual([
+      {
+        turnId: turn.turn_id,
+        leaseId: turn.lease_id,
+        decision: { tool: "reply", body: "Here it is.", reason: "asked" },
+      },
+    ]);
+  });
+
+  test("an agent requester's next turn on the topic does not go on in a session given more tools", async () => {
+    const { module, seen } = deciding("no_reply", { reason: "quiet" });
+    relay = fakePermitRelay();
+    const runner = createConversationTurnRunner({
+      runtime: module,
+      sessions: new TopicSessions(new TopicDirectories(root), relay),
+      relay,
+      tools: fakeConversationTools(),
+    });
+    await runner.run({ ...turn, decision_tools: [...ALL] }, live());
+    const first = seen.start;
+    const agents = {
+      ...turn,
+      turn_id: conversationRuntimeTurnSchema.shape.turn_id.parse(
+        crypto.randomUUID(),
+      ),
+      topic_session: "keep" as const,
+      decision_tools: ["reply", "no_reply"] as ("reply" | "no_reply")[],
+    };
+    expect(await runner.run(agents, live())).toMatchObject({
+      outcome: "completed",
+      decision: { tool: "no_reply" },
+    });
+    // A new engine, started with the agent's tools alone.
+    expect(seen.start).not.toBe(first);
+    expect(seen.start?.config.tools).toEqual([
+      ...READS,
+      ...named(["reply", "no_reply"]),
+    ]);
+  });
+
+  test("a turn that ends with no accepted decision reports none", async () => {
+    const { module } = deciding("no_reply", { reason: "quiet" });
+    relay = fakePermitRelay();
+    const tools = fakeConversationTools();
+    tools.decide = () => ({ outcome: "refused", reason: "tool_not_allowed" });
+    const runner = createConversationTurnRunner({
+      runtime: module,
+      sessions: new TopicSessions(new TopicDirectories(root), relay),
+      relay,
+      tools,
+    });
+    expect(await runner.run(turn, live())).toEqual({
+      outcome: "completed",
+      text: "done",
+    });
   });
 });
