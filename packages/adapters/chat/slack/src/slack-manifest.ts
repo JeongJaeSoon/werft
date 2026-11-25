@@ -144,6 +144,29 @@ export function agentManifestDrift(exported: unknown): AgentManifestDrift {
     : "events";
 }
 
+/**
+ * The bot scopes this build asks for that an install's grant lacks; null
+ * when the grant is not known.
+ */
+export function slackMissingScopes(
+  granted: readonly string[] | null | undefined,
+): string[] | null {
+  if (granted === null || granted === undefined) return null;
+  return BOT_SCOPES.filter((scope) => !granted.includes(scope));
+}
+
+/**
+ * Whether what needs `scope` may run on this app: only once its install is
+ * known to hold it, so a scope added after the install stays off until an
+ * admin approves the install again.
+ */
+export function slackAppGrants(
+  app: { readonly botScopes?: readonly string[] | null },
+  scope: string,
+): boolean {
+  return app.botScopes?.includes(scope) ?? false;
+}
+
 /** The console page Slack sends the installer back to. */
 export function slackAppRedirectUrl(
   consoleOrigin: string,

@@ -4,8 +4,6 @@ import {
   type AuthorizationReason,
   type AuthorizationResource,
   authorizationDecisionSchema,
-  DEFAULT_SURFACE_CEILING,
-  INSTALLATION_SESSION_SCOPE_VALUES,
   type PostSessionAnswerRequest,
   type Principal,
   SESSION_SCOPE_VALUES,
@@ -13,9 +11,16 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { createPendingRequestService } from "../decision/pending-service.ts";
-import type { AnswerRequestInput } from "../sessions/ports/pending-requests.ts";
+import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
+import type {
+  AnswerRequestInput,
+  WorkerPendingStore,
+} from "../sessions/ports/pending-requests.ts";
 import type { PrivateChannelPlace } from "../sessions/ports/session-share-store.ts";
 import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
+import { testCatalog } from "../testing/catalog-fakes.ts";
+import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
+import { createWorkerGateway } from "../workers/worker-gateway.ts";
 import {
   type AgentAuthority,
   type Caller,
@@ -674,119 +679,83 @@ describe("approving after the requester left the private channel", () => {
       expect(stored.map((input) => input.requesterLeft)).toEqual([true, true]);
     });
 
-    test("Codex round 1: an admin in the channel, who answers anyway, cannot allow for the session after the requester left either", async () => {
+    test("a member who took the card over may allow for the session, and the store keeps them as its giver", async () => {
       const { service, stored } = answering();
-      const adminUser: Principal = {
-        kind: "user",
-        id: USERS.member,
-        workspace_id: WORKSPACE,
-        role: "admin",
-        scopes: [...scopesForRole("admin")],
-      };
-      const admin = callerFor(adminUser, { kind: "web" }, "r");
-      const body = {
-        request_id: PENDING,
-        kind: "permission",
-        decision: "allow",
-        remember: "session",
-      } as const;
-      // A card drawn before the requester left still offers the session
-      // allow in Slack; pressing it is refused the same way.
-      // The app's installation answers for the person the press names.
-      const slackAdmin: Caller = {
-        ownerId: WORKSPACE,
-        requestId: "r",
-        subject: {
-          principal: {
-            kind: "installation",
-            id: "019a0000-0000-7000-8000-0000000000d1",
-            owner_id: WORKSPACE,
-            workspace_id: WORKSPACE,
-            scopes: [...INSTALLATION_SESSION_SCOPE_VALUES],
-          },
-          actor_user_id: USERS.member,
-          surface: {
-            kind: "slack",
-            slack_user_kind: "member",
-            ceiling: DEFAULT_SURFACE_CEILING,
-            agent_id: AGENT,
-            channel_id: CHANNEL,
-          },
-        },
-      };
-      const asAdmin: IdentityReader = {
-        reread: async () => ({ status: "ok", principal: adminUser }),
-      };
-      const slack = answering(asAdmin);
-      for (const [caller, on] of [
-        [admin, service],
-        [slackAdmin, slack.service],
-      ] as const) {
-        const error = await on
-          .answer(caller, PRIVATE_SESSION, { idempotencyKey: "k", body })
-          .catch((caught: unknown) => caught);
-        expect(error).toMatchObject({ code: "FORBIDDEN" });
-      }
-      expect([...stored, ...slack.stored]).toEqual([]);
-      // The same Slack press without the session allow goes through, so the
-      // refusal above is the session allow's.
-      const plainSlack = answering(asAdmin);
-      await plainSlack.service.answer(slackAdmin, PRIVATE_SESSION, {
-        idempotencyKey: "k3",
-        body: { request_id: PENDING, kind: "permission", decision: "allow" },
-      });
-      expect(plainSlack.stored.map((input) => input.requesterLeft)).toEqual([
-        true,
-      ]);
-      // Before the requester left, the same answer goes through as before.
-      const before = createPendingRequestService({
-        authorization: policyWith({
-          inChannel: (userId) =>
-            userId === USERS.member || userId === USERS.requester
-              ? "member"
-              : "not_member",
-        }),
-        store: {
-          async listOpen() {
-            return [];
-          },
-          async answerAtomic(input) {
-            stored.push(input);
-            return {
-              outcome: "accepted",
-              response: { receipt_id: RECEIPT, receipt_status: "accepted" },
-            };
-          },
-          async recordSelfApproval() {
-            throw new Error("never reached");
-          },
-          async requestOutcome() {
-            throw new Error("never reached");
-          },
+      const member = person("member");
+      await service.answer(member, PRIVATE_SESSION, {
+        idempotencyKey: "k",
+        body: {
+          request_id: PENDING,
+          kind: "permission",
+          decision: "allow",
+          remember: "session",
         },
       });
-      await before.answer(admin, PRIVATE_SESSION, {
-        idempotencyKey: "k2",
-        body,
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({
+        requesterLeft: true,
+        answer: { remember: "session" },
+        sessionAllowSubject: member.subject,
       });
-      expect(stored.map((input) => input.requesterLeft)).toEqual([undefined]);
     });
 
-    test("a member answering for a requester who left cannot allow for the session (94S-2215)", async () => {
-      const { service, stored } = answering();
-      const error = await service
-        .answer(person("member"), PRIVATE_SESSION, {
-          idempotencyKey: "k",
-          body: {
-            request_id: PENDING,
-            kind: "permission",
-            decision: "allow",
-            remember: "session",
+    test("that member's session allow covers a later call only while they may still answer it", async () => {
+      const member = person("member");
+      let present = new Set<string>([USERS.member]);
+      const gateway = createWorkerGateway({
+        work: {} as WorkerUnitOfWork,
+        catalog: testCatalog(),
+        checkpoints: acceptAllCheckpoints,
+        pending: {
+          sessionAllowAtomic: async () => ({
+            outcome: "ok",
+            grant: { ownerScope: WORKSPACE, subject: member.subject },
+          }),
+        } as unknown as WorkerPendingStore,
+        authorization: policyWith({
+          inChannel: (userId) =>
+            present.has(userId) ? "member" : "not_member",
+        }),
+        options: {
+          sessionBudget: { costUsd: 1_000, tokens: null },
+          leaseTtlMs: 30_000,
+        },
+      });
+      const scope = {
+        session_id: PRIVATE_SESSION,
+        attempt_id: "att_1",
+        lease_epoch: 1,
+        execution_generation: 1,
+        auth_revision: 0,
+      };
+      const check = () =>
+        gateway.sessionAllow(
+          {
+            kind: "session",
+            sessionId: PRIVATE_SESSION,
+            attemptId: "att_1",
+            leaseEpoch: 1,
+            executionGeneration: 1,
+            authRevision: 0,
           },
-        })
-        .catch((caught: unknown) => caught);
-      expect(error).toMatchObject({ code: "FORBIDDEN" });
-      expect(stored).toEqual([]);
+          {
+            ...scope,
+            turn_id: "1",
+            grant_request_id: PENDING,
+            tool_call_id: "toolu_later",
+            input_hash: "a".repeat(64),
+          },
+        );
+      expect(await check()).toEqual({ allowed: true });
+      // The member left the channel: the next call is put to a person.
+      present = new Set();
+      expect(await check()).toEqual({ allowed: false });
+      // Back in, and the requester too: the usual rule decides again, and a
+      // member's role alone does not approve.
+      present = new Set([USERS.member, USERS.requester]);
+      expect(await check()).toEqual({ allowed: false });
+      present = new Set([USERS.member]);
+      expect(await check()).toEqual({ allowed: true });
     });
   });
 });

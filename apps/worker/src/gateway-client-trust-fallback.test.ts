@@ -110,6 +110,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       repository_pins: true,
       workspace_mcp: true,
       werft_mcp: true,
+      session_allow_check: true,
     });
   });
 
@@ -132,6 +133,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -142,6 +144,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
     ]);
   });
@@ -176,6 +179,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -186,6 +190,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -196,6 +201,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
     ]);
   });
@@ -268,6 +274,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -278,6 +285,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
     ]);
   });
@@ -300,6 +308,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -309,6 +318,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
     ]);
   });
@@ -349,6 +359,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -359,6 +370,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -369,6 +381,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -378,6 +391,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
     ]);
   });
@@ -400,6 +414,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
       {
         approval_remember: true,
@@ -410,6 +425,7 @@ describe("claim against a control-host older than user_env", () => {
         repository_pins: true,
         workspace_mcp: true,
         werft_mcp: true,
+        session_allow_check: true,
       },
     ]);
   });

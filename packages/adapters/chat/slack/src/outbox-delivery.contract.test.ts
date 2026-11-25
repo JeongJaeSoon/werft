@@ -38,6 +38,7 @@ const bodies: Record<SurfaceOutboxKind, SurfaceOutboxClaim["body"]> = {
   welcome: { text: "Hello" },
   action_notice: { text: "Pushed to agent/1" },
   model_notice: { text: "The model is not on the list" },
+  progress: { text: "Working on it" },
   input_mirror: { text: "From the web", sender: { username: "Ada (web)" } },
   channel_notice: { text: "The agent reads this channel" },
 };

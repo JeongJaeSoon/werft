@@ -1213,8 +1213,8 @@ export function createAuthorizationPolicy(
       // tool permission or a question whose requester left the channel; the
       // requester no longer sees it. Only the role refusal is lifted: every
       // check below still runs. A tool permission or question answered by
-      // anyone after its requester left is marked too, so no one gives it a
-      // session-wide allow there (94S-2215).
+      // anyone after its requester left is marked too; a session allow given
+      // there is bound to its giver and judged again before each later call.
       const request: CardRequestRef | null =
         resource.push_request_id !== undefined
           ? { pushRequestId: resource.push_request_id }

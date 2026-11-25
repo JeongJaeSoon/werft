@@ -40,6 +40,7 @@ export type DeliveryInput<Row = ClaimedOutboxRow> = {
 export type DeliveryOutcome =
   | { kind: "sent"; ref: string }
   | { kind: "retry"; code: string; retryAfterMs: number }
-  | { kind: "failed"; code: string }
+  /** `retryAfterMs`: what the channel asked to wait, given up on all the same. */
+  | { kind: "failed"; code: string; retryAfterMs?: number }
   | { kind: "uncertain"; code: string }
   | { kind: "lease_lost" };

@@ -19,6 +19,7 @@ import {
   type SlackEventsUpdate,
   type SlackEventsUpdateFailure,
   type SlackManifestSyncError,
+  type SlackReauthorization,
   type SlackWarning,
 } from "@werft-ai/contracts";
 import {
@@ -51,6 +52,7 @@ import {
   agentManifestDrift,
   buildAgentAppManifest,
   slackAppRedirectUrl,
+  slackMissingScopes,
 } from "./slack-manifest.ts";
 import { slackSecretSummaryOf } from "./slack-secret-service.ts";
 import { isTokenGone } from "./slack-token-gone.ts";
@@ -580,6 +582,7 @@ export function createSlackAppService(deps: {
           url: null,
         },
         manifest_sync: record?.manifestSync ?? null,
+        reauthorization: reauthorizationOf(record),
         warnings: [
           ...issuerWarnings(record, token.issuer),
           ...(await agentWarnings(caller.ownerId, agentId)),
@@ -908,7 +911,13 @@ export function createSlackAppService(deps: {
           at,
           staleBefore: new Date(at.getTime() - SLACK_MANIFEST_CHECK_STALE_MS),
         });
-        if (!claimed) continue;
+        // Another check holds the app; only a grant never read is read here.
+        if (!claimed) {
+          await refreshBotScopes(target.workspaceId, target.slackAppId, {
+            onlyUnknown: true,
+          });
+          continue;
+        }
         summary.checked += 1;
         const outcome = await checkAgentAppManifest(target, tokenActive).catch(
           (error: unknown) => {
@@ -1229,12 +1238,53 @@ export function createSlackAppService(deps: {
     }
   }
 
+  /**
+   * Reads the scopes the app's bot token holds now (`auth.test`), which an
+   * install made before the grant was recorded lacks. A failure keeps what
+   * was known.
+   */
+  async function refreshBotScopes(
+    workspaceId: string,
+    slackAppId: string,
+    options: { onlyUnknown?: boolean } = {},
+  ) {
+    const secrets = deps.bots?.secrets;
+    if (secrets === undefined) return;
+    try {
+      const { apps } = ready();
+      // A token stored after this read (a new install) has a new version, and
+      // the scopes read with the old one are dropped.
+      const before = await apps.find(workspaceId, slackAppId);
+      const tokenVersion = before?.secrets.slack_bot_token?.secretVersion;
+      if (before?.state !== "created" || tokenVersion === undefined) return;
+      if (options.onlyUnknown && (before.botScopes ?? null) !== null) return;
+      const botToken = await secrets.get({
+        workspaceId,
+        owner: { kind: "slack_app", id: slackAppId },
+        purpose: "slack_bot_token",
+      });
+      if (botToken === null) return;
+      const scopes = await api.botScopes(botToken);
+      if (scopes !== null)
+        await apps.setBotScopes(workspaceId, slackAppId, scopes, tokenVersion);
+    } catch (error) {
+      deps.logger?.warn("Slack bot token scopes not read", {
+        slack_app_id: slackAppId,
+        ...(error instanceof SlackApiError
+          ? { slack_error: error.code, answered: error.answered }
+          : { error: error instanceof Error ? error.name : "unknown" }),
+      });
+    }
+  }
+
   async function checkAgentAppManifest(
     target: { workspaceId: string; slackAppId: string; agentId: string },
     tokenActive: Map<string, boolean>,
   ): Promise<"current" | "sent" | "left" | "failed"> {
     const { apps, tokens } = ready();
     const { workspaceId, slackAppId, agentId } = target;
+    // Needs only the bot token, so it runs whatever the config token's state.
+    await refreshBotScopes(workspaceId, slackAppId);
     let active = tokenActive.get(workspaceId);
     if (active === undefined) {
       active = (await tokens.describe(workspaceId)).state === "active";
@@ -1304,6 +1354,21 @@ export function createSlackAppService(deps: {
       return "failed";
     }
   }
+}
+
+/**
+ * An installed app whose grant lacks a scope this build asks for; null
+ * when nothing is missing or the grant is not known.
+ */
+function reauthorizationOf(
+  record: SurfaceAppRecord | null,
+): SlackReauthorization | null {
+  if (record?.state !== "created" || record.secrets.slack_bot_token === null)
+    return null;
+  const missing = slackMissingScopes(record.botScopes);
+  return missing === null || missing.length === 0
+    ? null
+    : { missing_scopes: missing };
 }
 
 /** What a manifest check records for a failure; null for one it cannot name. */

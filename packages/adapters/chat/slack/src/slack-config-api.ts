@@ -99,6 +99,11 @@ export interface SlackConfigApi {
    * the app to this token's user.
    */
   exportApp(configToken: string, appId: string): Promise<unknown>;
+  /**
+   * The scopes the bot token holds, from `auth.test`'s `X-OAuth-Scopes`
+   * header; null when Slack sent none.
+   */
+  botScopes(botToken: string): Promise<string[] | null>;
   /** `auth.revoke` with the bot token itself. */
   revokeBotToken(botToken: string): Promise<void>;
 }
@@ -215,6 +220,14 @@ function noAnswer(method: string, error: unknown, httpStatus?: number) {
   });
 }
 
+/** Slack's comma-separated scope list, as `oauth.v2.access` and headers give it. */
+function scopeList(scopes: string): string[] {
+  return scopes
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter((scope) => scope.length > 0);
+}
+
 function slackCaller(options?: SlackApiOptions) {
   const apiUrl = (options?.apiUrl ?? SLACK_API_URL).replace(/\/+$/, "");
   const fetchImpl = options?.fetch ?? fetch;
@@ -222,7 +235,12 @@ function slackCaller(options?: SlackApiOptions) {
 
   return async function call<T>(
     method: string,
-    init: { token?: string; body: URLSearchParams | object },
+    init: {
+      token?: string;
+      body: URLSearchParams | object;
+      /** Reads the headers of an answer that passed. */
+      onHeaders?: (headers: Headers) => void;
+    },
     schema: z.ZodType<T>,
   ): Promise<T> {
     const json = !(init.body instanceof URLSearchParams);
@@ -285,6 +303,7 @@ function slackCaller(options?: SlackApiOptions) {
         failure: "unexpected_answer",
       });
     }
+    init.onHeaders?.(response.headers);
     return parsed.data;
   };
 }
@@ -418,7 +437,7 @@ export function createSlackConfigApi(
         appId: answer.app_id,
         teamId: answer.team?.id ?? null,
         enterpriseInstall: answer.is_enterprise_install === true,
-        scopes: answer.scope.split(",").filter((scope) => scope.length > 0),
+        scopes: scopeList(answer.scope),
       };
     },
 
@@ -438,6 +457,22 @@ export function createSlackConfigApi(
         botUserId: auth.user_id,
         appId: info.bot.app_id,
       };
+    },
+
+    async botScopes(botToken) {
+      let header: string | null = null;
+      await call(
+        "auth.test",
+        {
+          token: botToken,
+          body: new URLSearchParams(),
+          onHeaders: (headers) => {
+            header = headers.get("x-oauth-scopes");
+          },
+        },
+        z.object({}),
+      );
+      return header === null ? null : scopeList(header);
     },
   };
 }
@@ -584,6 +619,14 @@ export interface SlackBotSender {
         event_payload: Record<string, string>;
       };
     },
+  ): Promise<SlackSendResponse>;
+  /**
+   * `chat.update` of a message the bot posted. Answers what Slack said,
+   * whatever it was; throws `SlackApiError` only when no answer came.
+   */
+  editMessage?(
+    botToken: string,
+    input: { channelId: string; ts: string; text: string; blocks?: unknown[] },
   ): Promise<SlackSendResponse>;
   /** `users.info`'s 48px profile image; null when Slack names none. */
   userImage(botToken: string, userId: string): Promise<string | null>;
@@ -936,6 +979,16 @@ export function createSlackBotApi(
         link_names: false,
         unfurl_links: false,
         unfurl_media: false,
+      });
+    },
+
+    editMessage(botToken, input) {
+      return send("chat.update", botToken, {
+        channel: input.channelId,
+        ts: input.ts,
+        text: input.text,
+        ...(input.blocks === undefined ? {} : { blocks: input.blocks }),
+        link_names: false,
       });
     },
 

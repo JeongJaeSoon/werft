@@ -1263,6 +1263,11 @@ export const slackApps = pgTable(
     manifestSyncCheckedAt: timestamp("manifest_sync_checked_at", {
       withTimezone: true,
     }),
+    /**
+     * The scopes Slack granted the stored bot token (the install's answer,
+     * refreshed by each start's manifest check); null when not known.
+     */
+    botScopes: text("bot_scopes").array(),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),
@@ -2782,6 +2787,11 @@ export const pendingRequests = pgTable(
     answeredBy: jsonb("answered_by"),
     answerSurface: text("answer_surface"),
     answerDecisionId: uuid("answer_decision_id"),
+    // The authorization subject of whoever allowed this request for the
+    // session, judged again before each later call the allow covers. Null
+    // for every other answer, and for allows given before the column, which then
+    // cover nothing.
+    sessionAllowSubject: jsonb("session_allow_subject"),
     settledAt: timestamp("settled_at", { withTimezone: true }),
     // answered | expired | cancelled from the worker; lost when the
     // execution went away before it said.
@@ -6869,6 +6879,14 @@ export const slackOutbox = pgTable(
      * is known, the thread written in; left on a row closed unsent.
      */
     heldForInputId: uuid("held_for_input_id").$type<ConversationInputId>(),
+    /** The progress message a `progress` row updates; set on it alone. */
+    progressKey: text("progress_key"),
+    /**
+     * The post a `progress` row's send edits, read when the send began; null
+     * when it posts. A sent row whose `slack_ts` differs put the message up
+     * again.
+     */
+    progressTs: text("progress_ts"),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
@@ -6930,8 +6948,16 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress')`,
     ),
+    check(
+      "slack_outbox_progress_check",
+      sql`(${table.kind} = 'progress') = (${table.progressKey} IS NOT NULL) AND (${table.progressTs} IS NULL OR ${table.kind} = 'progress')`,
+    ),
+    // A progress message's rows, read whenever one of them is claimed.
+    index("slack_outbox_progress_idx")
+      .on(table.installationId, table.progressKey, table.seq)
+      .where(sql`${table.progressKey} IS NOT NULL`),
     check(
       "slack_outbox_status_check",
       sql`${table.status} IN ('pending', 'sending', 'sent', 'failed', 'uncertain', 'voided_by_delete')`,

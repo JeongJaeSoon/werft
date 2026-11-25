@@ -505,6 +505,7 @@ integration("deleting an agent on PostgreSQL", () => {
       await store.storeBotToken({
         workspaceId,
         slackAppId: createdApp,
+        scopes: [],
         botToken: "placeholder-not-a-secret",
       }),
     ).toBe(null);
