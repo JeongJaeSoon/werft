@@ -22,6 +22,7 @@ export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
 export { createPostgresConversationReadToolStore } from "./conversations/conversation-read-tools.ts";
 export * from "./conversations/conversation-store.ts";
+export * from "./conversations/conversation-turn-list.ts";
 export { createPostgresConversationTurnQueue } from "./conversations/conversation-turn-queue.ts";
 export {
   backfillWebInputTurns,
@@ -134,6 +135,7 @@ export { expireOverdueInterrupts } from "./sessions/turn-interrupts.ts";
 export * from "./sessions/workspace-mcp-egress.ts";
 export * from "./settings-document.ts";
 export { notDeleted } from "./soft-delete.ts";
+export * from "./surface/conversation-reactions.ts";
 export * from "./surface/conversation-records.ts";
 export * from "./surface/conversation-replies.ts";
 export * from "./surface/judgment-review.ts";

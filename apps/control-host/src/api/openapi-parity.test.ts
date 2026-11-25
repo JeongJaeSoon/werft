@@ -19,6 +19,7 @@ import type {
   AgentWorkspaceMcpService,
   ApiKeyService,
   AuditLogService,
+  ConversationTurnListService,
   CredentialBindingService,
   EnvVariableService,
   GitHubAppService,
@@ -126,6 +127,7 @@ import { registerPauseRoutes } from "./routes/sessions/pause.ts";
 import { registerPendingRoutes } from "./routes/sessions/pending.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
+import { registerConversationTurnRoutes } from "./routes/surface/conversation-turns.ts";
 import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
 import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
@@ -206,6 +208,7 @@ function apiApp() {
         service: {} as SlackChannelSearchService,
       });
       registerSlackJudgmentRoutes(router, {} as JudgmentReviewService);
+      registerConversationTurnRoutes(router, {} as ConversationTurnListService);
       registerSlackInstructionsHeadRoutes(
         router,
         {} as InstructionsHeadService,

@@ -24,6 +24,7 @@ import {
   BOT_SCOPES,
   CONVERSATION_TURN_LEASE_MS,
   CONVERSATION_TURN_TEXT_MAX,
+  type ConversationDecision,
   type ConversationInputId,
   type ConversationTurnId,
   type ConversationTurnResult,
@@ -4111,6 +4112,138 @@ describe.each(ENGINES)(
       await report(await leased(), { outcome: "completed", text: "hm" });
       expect(await endings()).toMatchObject({ ended: 1, replied: 0 });
       expect(await conversationRepliesOf(fixture)).toEqual([]);
+    });
+
+    // v1-b/E2: the 👀 on the message that called a turn that took it on.
+    const reactionCalls = () =>
+      slack.calls.filter((call) => call.method === "reactions.add").length;
+    // The fixture's app holds the scope; an install from before it does not.
+    const revokeReactions = (fixture: Fixture) =>
+      db
+        .update(slackApps)
+        .set({ botScopes: ["chat:write"] })
+        .where(eq(slackApps.agentId, fixture.agentId));
+    const ZERO_ID = "00000000-0000-4000-8000-000000000001";
+    const decisions: [string, ConversationDecision | null, boolean][] = [
+      ["reply", { tool: "reply", body: "Ok.", reason: "asked" }, true],
+      [
+        "spawn_task",
+        { tool: "spawn_task", spec: "Write it up.", reason: "asked" },
+        true,
+      ],
+      [
+        "route_to_task",
+        { tool: "route_to_task", task_id: ZERO_ID, reason: "asked" },
+        true,
+      ],
+      ["no_reply", { tool: "no_reply", reason: "quiet" }, false],
+      ["no decision", null, false],
+    ];
+
+    test.each(decisions)(
+      "a turn ending in %s: the 👀 is %p on the mention",
+      async (_name, decision, reacts) => {
+        const fixture = await agentInSlack("main", { rollout: "on" });
+        await deliver(fixture, mention("100.000100"));
+        await drain(handler().handle);
+        slack.reactions.length = 0;
+        slack.calls.length = 0;
+        const turn = await leased();
+        if (decision !== null) {
+          await createPostgresConversationReadToolStore(db).recordDecision({
+            turnId: turn.turn_id,
+            leaseId: conversationTurnLeaseIdSchema.parse(turn.lease_id),
+            runtimeId: RUNTIME,
+            decision,
+          });
+        }
+        await report(turn, {
+          outcome: "completed",
+          text: "done",
+          ...(decision === null ? {} : { decision }),
+        });
+        expect(await endings()).toMatchObject({
+          ended: 1,
+          reacted: reacts ? 1 : 0,
+        });
+        // The same turn's effect again, and the sends again: one call.
+        expect(await endings()).toMatchObject({ ended: 0, reacted: 0 });
+        await sendOutbox();
+        await sendOutbox();
+        expect(reactionCalls()).toBe(reacts ? 1 : 0);
+        expect(slack.reactions).toEqual(
+          reacts
+            ? [
+                {
+                  appId: APP_ID,
+                  channelId: CHANNEL,
+                  ts: "100.000100",
+                  name: "eyes",
+                },
+              ]
+            : [],
+        );
+      },
+    );
+
+    test("a message already holding the turn's 👀 is not asked for twice, whichever turn", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await decided("Once.");
+      slack.calls.length = 0;
+      await endings();
+      expect(
+        await schema
+          .createPostgresConversationReactions(
+            db,
+            schema.createPostgresSlackOutboxStore(db),
+            "reactions:write",
+          )
+          .react(turn.turn_id),
+      ).toBe("duplicate");
+      await sendOutbox();
+      await sendOutbox();
+      expect(reactionCalls()).toBe(1);
+    });
+
+    test("a mention Slack deleted after the decision gets no 👀, as its answer goes unsent", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await decided("Too late.");
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000100",
+        at: new Date(),
+      });
+      slack.calls.length = 0;
+      slack.reactions.length = 0;
+      expect(await endings()).toMatchObject({ reacted: 1 });
+      await sendOutbox();
+      expect(reactionCalls()).toBe(0);
+      expect(slack.reactions).toEqual([]);
+    });
+
+    test("an install without reactions:write: the answer goes out and no reaction is asked for", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await revokeReactions(fixture);
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await decided("Still answered.");
+      slack.calls.length = 0;
+      slack.reactions.length = 0;
+      expect(await endings()).toMatchObject({
+        ended: 1,
+        replied: 1,
+        reacted: 0,
+      });
+      await sendOutbox();
+      expect(postsIn("100.000100")).toHaveLength(1);
+      expect(reactionCalls()).toBe(0);
+      expect(slack.reactions).toEqual([]);
     });
 
     // Each way a turn ends sets its thread back once.

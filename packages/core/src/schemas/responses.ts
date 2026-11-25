@@ -88,6 +88,7 @@ import {
   listApiKeysResponseSchema,
   listAuditEventsResponseSchema,
   listConnectionOptionsResponseSchema,
+  listConversationTurnsResponseSchema,
   listCredentialBindingsResponseSchema,
   listGitHubAppsResponseSchema,
   listGitHubRepositoriesResponseSchema,
@@ -481,6 +482,7 @@ export const responseSchemas = {
     revokeAgentIdentityResponseSchema,
   "GET /v1/agents/{id}/slack-bindings": listSlackBindingsResponseSchema,
   "GET /v1/agents/{id}/slack/judgments": getSlackJudgmentsResponseSchema,
+  "GET /v1/agents/{id}/conversation-turns": listConversationTurnsResponseSchema,
   "GET /v1/agents/{id}/slack/instructions-head":
     getSlackInstructionsHeadResponseSchema,
   "PUT /v1/agents/{id}/slack-bindings": putSlackBindingResponseSchema,
