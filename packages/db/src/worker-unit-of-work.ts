@@ -80,6 +80,8 @@ import {
   transcriptLimitReachedEvent,
   transcriptWarnBytes,
   verifyReleaseSpec,
+  WORKER_LEASE_LOST_END_REASON,
+  WORKER_OWNERSHIP_LOST_REASON,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
@@ -325,6 +327,81 @@ function expectFenced(rows: unknown[], what: string) {
 // Date, which drops the database's sub-millisecond part, so it may stand up
 // to 1ms before the instant actually read: counted from the next whole
 // millisecond instead.
+/** On the receipt and the status event of a turn its worker's lost lease ended. */
+const WORKER_OWNERSHIP_LOST_MESSAGE =
+  "the worker lost its lease before the turn was finalized; the session goes on from its last checkpoint";
+
+/**
+ * Whether the worker of an execution seen gone gave its lease up by itself.
+ * `lost` takes both halves: the scheduler saw it exit as a worker that lost
+ * its lease (`said`, or the mark an earlier look left on the attempt), and
+ * every lease the execution held has run out on the database clock, so the
+ * server no longer counts it the owner either. `waiting`: it said so, but a
+ * lease is still live under an open turn that nothing asked to kill; the mark
+ * is left for the look that comes after the lease runs out. `no`: judged as
+ * any other vanished worker.
+ */
+async function ownershipLoss(
+  tx: Database,
+  input: { executionId: string; sessionId: string | null; said: boolean },
+): Promise<"lost" | "waiting" | "no"> {
+  const held = await tx
+    .select({
+      endReason: attempts.endReason,
+      leaseExpiresAt: attempts.leaseExpiresAt,
+    })
+    .from(attempts)
+    .where(eq(attempts.executionId, input.executionId))
+    .for("update");
+  if (
+    held.length === 0 ||
+    !(
+      input.said ||
+      held.some((attempt) => attempt.endReason === WORKER_LEASE_LOST_END_REASON)
+    )
+  ) {
+    return "no";
+  }
+  const at = await dbNow(tx);
+  if (
+    held.every((attempt) => attempt.leaseExpiresAt.getTime() < at.getTime())
+  ) {
+    return "lost";
+  }
+  if (input.sessionId === null) return "no";
+  const [open] = await tx
+    .select({ id: turns.id })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, input.sessionId),
+        inArray(turns.status, OPEN_TURN_STATUSES),
+      ),
+    )
+    .limit(1);
+  // Nothing to judge: the exit settles now, as an idle worker's does.
+  if (!open) return "no";
+  // Nor is a kill asked of the execution held up: the stop or the fence
+  // that asked for it settles now, as before.
+  const [execution] = await tx
+    .select({ desiredState: executions.desiredState })
+    .from(executions)
+    .where(eq(executions.id, input.executionId))
+    .limit(1);
+  if (execution?.desiredState === "terminated") return "no";
+  await tx
+    .update(attempts)
+    .set({ endReason: WORKER_LEASE_LOST_END_REASON })
+    .where(
+      and(
+        eq(attempts.executionId, input.executionId),
+        notInArray(attempts.state, ENDED_ATTEMPT_STATES),
+        isNull(attempts.endReason),
+      ),
+    );
+  return "waiting";
+}
+
 function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
   return Math.max(0, leaseExpiresAt.getTime() - (at.getTime() + 1));
 }
@@ -3760,6 +3837,29 @@ export function createPostgresWorkerUnitOfWork(
             };
           }
         }
+        // Every path takes its locks in the same order — launch, session,
+        // attempt, execution — so a heartbeat and an exit observation that
+        // overlap queue up instead of deadlocking each other.
+        const [found] = await tx
+          .select()
+          .from(sessions)
+          .where(eq(sessions.executionId, executionId))
+          .limit(1)
+          .for("update");
+        // Before the slot and the binding go back: a worker that said it
+        // lost its lease is judged only once that lease has run out too.
+        const ownership = await ownershipLoss(tx, {
+          executionId,
+          sessionId: found?.id ?? null,
+          said: input.endReason === WORKER_LEASE_LOST_END_REASON,
+        });
+        if (ownership === "waiting") {
+          return {
+            leasePending: true,
+            sessionReleased: false,
+            slotReleased: false,
+          };
+        }
         // One slot returns per launch, however many times the exit is seen.
         const slot = await tx
           .update(workerLaunches)
@@ -3771,15 +3871,6 @@ export function createPostgresWorkerUnitOfWork(
             ),
           )
           .returning({ executionId: workerLaunches.executionId });
-        // Every path takes its locks in the same order — launch, session,
-        // attempt, execution — so a heartbeat and an exit observation that
-        // overlap queue up instead of deadlocking each other.
-        const [found] = await tx
-          .select()
-          .from(sessions)
-          .where(eq(sessions.executionId, executionId))
-          .limit(1)
-          .for("update");
         // Before anything below ends the attempt and moves the epoch it
         // judges by; re-read after, since it may have moved the pointer.
         const crashParked =
@@ -3815,7 +3906,8 @@ export function createPostgresWorkerUnitOfWork(
           .set({
             state: "lost",
             endedAt: now,
-            endReason: input.endReason ?? "execution_gone",
+            // The mark an earlier look left says more than this one can.
+            endReason: sql`COALESCE(${attempts.endReason}, ${input.endReason ?? "execution_gone"})`,
           })
           .where(
             and(
@@ -3828,7 +3920,76 @@ export function createPostgresWorkerUnitOfWork(
           await revokeCredentials(tx, attempt.id, now);
         }
 
-        // A turn that was handed to the execution and never finalized has no
+        // A worker that gave its lease up by itself wrote nothing after it,
+        // and its lease has run out: its turn failed, and the session goes
+        // on from its last checkpoint. Nothing runs the turn again; what it
+        // did after that checkpoint is for a person to check.
+        const lostTurns =
+          ownership === "lost"
+            ? await tx
+                .update(turns)
+                .set({
+                  status: "failed",
+                  endedAt: now,
+                  terminalReason: WORKER_OWNERSHIP_LOST_REASON,
+                })
+                .where(
+                  and(
+                    eq(turns.sessionId, session.id),
+                    inArray(turns.status, OPEN_TURN_STATUSES),
+                  ),
+                )
+                .returning({ id: turns.id, sequence: turns.sequence })
+            : [];
+        for (const turn of lostTurns) {
+          controlResults.push(
+            ...(await settleTurnInterrupts(tx, {
+              sessionId: session.id,
+              turnRowId: turn.id,
+              turnSequence: turn.sequence,
+              terminal: "failed",
+              terminalReason: WORKER_OWNERSHIP_LOST_REASON,
+              at: now,
+            })),
+          );
+          // The turn left no state to push.
+          await settleTurnPushIntents(tx, {
+            turnRowId: turn.id,
+            completedRevision: null,
+          });
+        }
+        if (lostTurns.length > 0) {
+          // A terminal head would block delivery of what is queued behind it.
+          await tx.delete(queueMessages).where(
+            inArray(
+              queueMessages.turnId,
+              lostTurns.map((turn) => turn.id),
+            ),
+          );
+          // `result` stays the acceptance response (receiptSchema.result).
+          await tx
+            .update(receipts)
+            .set({
+              status: "failed",
+              error: {
+                code: "WORKER_OWNERSHIP_LOST",
+                message: WORKER_OWNERSHIP_LOST_MESSAGE,
+              },
+              updatedAt: now,
+            })
+            .where(
+              and(
+                inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
+                eq(receipts.status, "accepted"),
+                sql`${receipts.targetRef}->>'session_id' = ${session.id}`,
+                inArray(
+                  sql`${receipts.targetRef}->>'turn_id'`,
+                  lostTurns.map((turn) => String(turn.sequence)),
+                ),
+              ),
+            );
+        }
+        // Any other turn that was handed to the execution and never finalized has no
         // knowable result now that the execution is gone. Saying nothing
         // would leave it looking like work in progress, so it is recorded as
         // unknown here and its input stays on the queue until an operator
@@ -3979,6 +4140,27 @@ export function createPostgresWorkerUnitOfWork(
           session.restoreAttemptId === launch.claimedAttemptId
             ? launch.claimedAttemptId
             : null;
+        // Where a lost turn leaves a session nothing below moves: taking
+        // input with nothing running, as after an idle worker's end. Never
+        // `failed`: the session did not fail, and no launch is counted.
+        const [waiting] =
+          lostTurns.length === 0 || closed
+            ? []
+            : await tx
+                .select({ queued: count() })
+                .from(turns)
+                .where(
+                  and(
+                    eq(turns.sessionId, session.id),
+                    eq(turns.status, "queued"),
+                  ),
+                );
+        const lostInto =
+          waiting === undefined
+            ? null
+            : waiting.queued > 0
+              ? ("queued" as const)
+              : ("idle" as const);
         await tx
           .update(sessions)
           .set({
@@ -3987,6 +4169,7 @@ export function createPostgresWorkerUnitOfWork(
             leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
             restoreAttemptId: null,
             updatedAt: now,
+            ...(lostInto === null ? {} : { status: lostInto, lastTurnAt: now }),
             ...(closed
               ? {}
               : unresolved.length > 0
@@ -4121,6 +4304,22 @@ export function createPostgresWorkerUnitOfWork(
                       : "pause_failed"]: pauseBlockedBy,
                   }
                 : {}),
+            },
+            turnRowId: null,
+            now: observedAt,
+          });
+        }
+        // A lost turn under an admission this exit does not settle: the
+        // stream says why the turn ended and that the session stays.
+        if (lostInto !== null && settledInto === null) {
+          await recordStatus(tx, {
+            sessionId: session.id,
+            phase: lostInto,
+            extra: {
+              admission_state: session.admissionState,
+              code: "WORKER_OWNERSHIP_LOST",
+              message: WORKER_OWNERSHIP_LOST_MESSAGE,
+              failed_turn_count: lostTurns.length,
             },
             turnRowId: null,
             now: observedAt,

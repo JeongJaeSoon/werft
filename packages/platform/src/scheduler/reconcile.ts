@@ -4,7 +4,7 @@ import {
   capacityShortageOf,
   waitForCapacity,
 } from "./capacity.ts";
-import { confirmGone, kill, killRequested } from "./kill.ts";
+import { confirmGone, exitEndReason, kill, killRequested } from "./kill.ts";
 import {
   giveBackCause,
   launchFailed,
@@ -547,9 +547,7 @@ async function reconcile(
         ctx,
         execution,
         seenIncarnation(execution, observed),
-        observed.exitCode === WORKER_EXIT_LEASE_LOST
-          ? "worker_lease_lost"
-          : undefined,
+        exitEndReason(observed),
       ))
     ) {
       return;

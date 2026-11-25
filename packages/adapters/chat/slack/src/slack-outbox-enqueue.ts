@@ -10,6 +10,7 @@ import type {
   SurfacePendingPrompt,
   SurfaceUnansweredTurn,
 } from "@werft-ai/platform";
+import { WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/platform";
 import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 import {
   SLACK_OUTBOX_MESSAGES,
@@ -17,7 +18,10 @@ import {
   slackInstructionSender,
   slackOutboxGuard,
 } from "./slack-outbox-render.ts";
-import { slackPromptMessage } from "./slack-prompts.ts";
+import {
+  slackOwnershipLostNotice,
+  slackPromptMessage,
+} from "./slack-prompts.ts";
 
 /** Enqueues the instructions sent from the web or the API, once each. */
 export async function enqueueSlackInstructions(deps: {
@@ -266,23 +270,38 @@ export async function enqueueSlackTurnAnswers(deps: {
       turn.requesterSlackUserId !== null
         ? turn.requesterSlackUserId
         : null;
+    // A turn its worker's lost lease ended says so in place of "try again",
+    // with the button that goes on from it; nothing runs it again by itself.
+    const lost =
+      turn.state === "failed" &&
+      refusal == null &&
+      turn.terminalReason === WORKER_OWNERSHIP_LOST_REASON
+        ? slackOwnershipLostNotice({
+            locale,
+            sessionId: turn.sessionId,
+            turnId: turn.turnId,
+            ...(link_url === undefined ? {} : { linkUrl: link_url }),
+          })
+        : null;
     const text =
       turn.state === "completed"
         ? finalReplyText(turn.events) ||
           SLACK_OUTBOX_MESSAGES[locale].emptyReply
-        : refusal != null
-          ? SLACK_NOTICE_MESSAGES[locale][
-              refusal.owner === "user"
-                ? "budgetAccountUser"
-                : "budgetAccountTeam"
-            ]
-          : turn.terminalReason === "no_capacity"
+        : lost !== null
+          ? lost.text
+          : refusal != null
             ? SLACK_NOTICE_MESSAGES[locale][
-                turn.sessionPaused ? "noCapacityPaused" : "noCapacity"
+                refusal.owner === "user"
+                  ? "budgetAccountUser"
+                  : "budgetAccountTeam"
               ]
-            : turn.terminalReason === "codex_sandbox_not_installed"
-              ? SLACK_NOTICE_MESSAGES[locale].codexSandboxNotInstalled
-              : SLACK_NOTICE_MESSAGES[locale].failed;
+            : turn.terminalReason === "no_capacity"
+              ? SLACK_NOTICE_MESSAGES[locale][
+                  turn.sessionPaused ? "noCapacityPaused" : "noCapacity"
+                ]
+              : turn.terminalReason === "codex_sandbox_not_installed"
+                ? SLACK_NOTICE_MESSAGES[locale].codexSandboxNotInstalled
+                : SLACK_NOTICE_MESSAGES[locale].failed;
     await deps.outbox.enqueue({
       workspaceId: turn.workspaceId,
       agentId: turn.agentId,
@@ -303,6 +322,7 @@ export async function enqueueSlackTurnAnswers(deps: {
         text,
         locale,
         ...(link_url === undefined ? {} : { link_url }),
+        ...(lost === null ? {} : { blocks: lost.blocks }),
         ...(turn.requesterSlackUserId === null || alone !== null
           ? {}
           : { mention_user_ids: [turn.requesterSlackUserId] }),

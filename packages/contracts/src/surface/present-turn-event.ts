@@ -45,6 +45,7 @@ export type TurnEventMessageKey =
   | "session.event.noCapacity"
   | "session.event.noCapacityPaused"
   | "session.event.codexSandboxNotInstalled"
+  | "session.event.workerOwnershipLost"
   | "session.event.modelMigrated"
   | "session.event.workerImageReplaced"
   | `session.event.approvalCheckpointFailed.${ApprovalCheckpointFailure}`
@@ -424,6 +425,13 @@ function present(
         return {
           label: message("session.event.kind.status"),
           summary: [message("session.event.codexSandboxNotInstalled")],
+          error: true,
+        };
+      }
+      if (data.code === "WORKER_OWNERSHIP_LOST") {
+        return {
+          label: message("session.event.kind.status"),
+          summary: [message("session.event.workerOwnershipLost")],
           error: true,
         };
       }

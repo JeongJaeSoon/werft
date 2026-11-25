@@ -471,6 +471,10 @@ class MemoryStore implements SchedulerStore {
   readonly supersededConfirms: string[] = [];
   /** The end reason each confirmation was given, by execution. */
   readonly confirmEndReasons = new Map<string, string | undefined>();
+  /** Every look at a gone execution, in order, with what the exit said. */
+  readonly confirmLooks: [string, string | undefined][] = [];
+  /** Executions whose worker gave its lease up and whose lease still runs. */
+  readonly leasePending = new Set<string>();
   /** Runs as a confirmation reaches the store, before it is judged. */
   duringConfirm: ((executionId: string) => void) | null = null;
 
@@ -479,9 +483,10 @@ class MemoryStore implements SchedulerStore {
     _now: Date,
     incarnation: ExecutionIncarnation | null,
     endReason?: string,
-  ): Promise<"confirmed" | "deferred" | "superseded"> {
+  ): Promise<"confirmed" | "deferred" | "superseded" | "lease_pending"> {
     this.duringConfirm?.(executionId);
     this.confirmEndReasons.set(executionId, endReason);
+    this.confirmLooks.push([executionId, endReason]);
     const row = this.executions.get(executionId);
     if (
       incarnation !== null &&
@@ -501,6 +506,7 @@ class MemoryStore implements SchedulerStore {
     ) {
       return "deferred";
     }
+    if (this.leasePending.has(executionId)) return "lease_pending";
     this.confirmedGone.push(executionId);
     if (!row) return "confirmed";
     row.slotReleased = true;
@@ -2070,6 +2076,63 @@ describe("runScheduler", () => {
     expect(
       store.confirmEndReasons.get(failed[0].split("#")[0] ?? ""),
     ).toBeUndefined();
+  });
+
+  test("a worker that gave its lease up mid-turn is asked about on every pass until the lease runs out, its slot kept till then", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [entry] = [...backend.containers.entries()];
+    if (!entry) throw new Error("no container");
+    const [name, container] = entry;
+    const executionId = name.split("#")[0] ?? "";
+    claimLaunchOf(store, name);
+    container.exited = true;
+    container.failure = {
+      exitCode: WORKER_EXIT_LEASE_LOST,
+      logTail: "lease given up\n",
+      terminationReason: "Error",
+    };
+    store.leasePending.add(executionId);
+
+    // The pass that sees the exit says what it said; the resource is gone
+    // after it, so the next pass can only ask again.
+    await run();
+    await run();
+    expect(store.confirmLooks).toEqual([
+      [executionId, "worker_lease_lost"],
+      [executionId, undefined],
+    ]);
+    expect(store.confirmedGone).toEqual([]);
+
+    store.leasePending.delete(executionId);
+    await run();
+    expect(store.confirmedGone).toEqual([executionId]);
+  });
+
+  test("a kill of a worker that already exited for a lost lease carries its word to the store", async () => {
+    const { backend, run, store } = harness();
+    store.addUnassigned(1);
+    await run();
+    const [entry] = [...backend.containers.entries()];
+    if (!entry) throw new Error("no container");
+    const [name, container] = entry;
+    const executionId = name.split("#")[0] ?? "";
+    claimLaunchOf(store, name);
+    container.exited = true;
+    container.failure = {
+      exitCode: WORKER_EXIT_LEASE_LOST,
+      logTail: "lease given up\n",
+      terminationReason: "Error",
+    };
+    // The lease sweep fenced it before any pass saw the exit.
+    const row = store.executions.get(executionId);
+    if (!row) throw new Error("no execution");
+    row.desiredState = "terminated";
+
+    await run();
+    expect(store.confirmLooks).toEqual([[executionId, "worker_lease_lost"]]);
+    expect(store.confirmedGone).toEqual([executionId]);
   });
 
   test("a session with a live execution is not launched twice", async () => {

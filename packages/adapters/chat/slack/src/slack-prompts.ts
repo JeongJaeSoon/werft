@@ -5,6 +5,7 @@ import {
   questionAnswerMismatch,
   SLACK_INTERACTION_ACTIONS,
   SLACK_NOTE_VIEW_CALLBACK,
+  SLACK_NOTICE_MESSAGES,
   SLACK_QUESTION_VIEW_CALLBACK,
   type SlackInteractionValue,
   type SlackQuestionViewMetadata,
@@ -438,6 +439,65 @@ const plain = (text: string, max = PLAIN_TEXT_MAX) => ({
 });
 const mention = (slackUserId: string) =>
   SLACK_ID.test(slackUserId) ? `<@${slackUserId}>` : "";
+
+/**
+ * The notice of a turn its worker's lost lease ended: what happened, the
+ * button that goes on from it, and the console link. `continued`: the same
+ * notice once someone pressed, with no button left to press.
+ */
+export function slackOwnershipLostNotice(input: {
+  locale: UserLocale;
+  sessionId: string;
+  turnId: number;
+  linkUrl?: string;
+  continued?: boolean;
+}): { text: string; blocks: unknown[] } {
+  const copy = SLACK_NOTICE_MESSAGES[input.locale];
+  const value: SlackInteractionValue = {
+    s: input.sessionId,
+    r: String(input.turnId),
+  };
+  const elements = [
+    ...(input.continued
+      ? []
+      : [
+          button(
+            copy.ownershipLostContinue,
+            SLACK_INTERACTION_ACTIONS.turnContinue,
+            JSON.stringify(value),
+            "primary",
+          ),
+        ]),
+    ...(input.linkUrl !== undefined && isSafeLink(input.linkUrl)
+      ? [
+          {
+            type: "button",
+            action_id: SLACK_OPEN_WEB_ACTION,
+            text: plain(
+              SLACK_PROMPT_MESSAGES[input.locale].link,
+              BUTTON_TEXT_MAX,
+            ),
+            url: input.linkUrl,
+          },
+        ]
+      : []),
+  ];
+  return {
+    text: copy.ownershipLost,
+    blocks: [
+      { type: "section", text: plain(copy.ownershipLost) },
+      ...(input.continued
+        ? [
+            {
+              type: "context",
+              elements: [plain(copy.ownershipLostContinued)],
+            },
+          ]
+        : []),
+      ...(elements.length === 0 ? [] : [{ type: "actions", elements }]),
+    ],
+  };
+}
 
 export function slackPromptValue(
   prompt: Pick<SlackPrompt, "sessionId" | "requestId">,

@@ -20,6 +20,8 @@ export const SLACK_INTERACTION_ACTIONS = {
   questionOpen: "question.open",
   pushApprove: "push.approve",
   pushReject: "push.reject",
+  /** Goes on from a turn its worker's lost lease ended; `r` is the turn id. */
+  turnContinue: "turn.continue",
 } as const;
 export const SLACK_QUESTION_VIEW_CALLBACK = "question.answer";
 export const SLACK_NOTE_VIEW_CALLBACK = "permission.allow_note";

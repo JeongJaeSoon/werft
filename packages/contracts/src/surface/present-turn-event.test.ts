@@ -315,6 +315,23 @@ describe("presentTurnEvent", () => {
     ]);
   });
 
+  test("a status that says the worker lost its lease reads as the cut-off turn, not as a phase", () => {
+    expect(
+      presentTurnEvent({
+        event: "status",
+        data: {
+          phase: "idle",
+          code: "WORKER_OWNERSHIP_LOST",
+          admission_state: "active",
+        },
+      }),
+    ).toEqual({
+      label: { key: "session.event.kind.status" },
+      summary: [{ key: "session.event.workerOwnershipLost" }],
+      error: true,
+    });
+  });
+
   test("a budget account's refusal says whose account by key; a refusal without an owner keeps its text", () => {
     const refused = (budget_owner?: "user" | "team") => ({
       code: contracts.BUDGET_ACCOUNT_REFUSED_EVENT_CODE,

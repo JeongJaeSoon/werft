@@ -530,13 +530,18 @@ export interface SchedulerStore {
    *
    * `endReason` is what the attempts it ends record, when the exit said more
    * than that the execution is gone.
+   *
+   * `lease_pending`: the worker said it lost its lease while a turn was
+   * open, and that lease has not run out. The word is kept and nothing else
+   * changed; a call after the lease runs out settles the exit, failing the
+   * turn and keeping the session.
    */
   confirmExecutionGone(
     executionId: string,
     now: Date,
     incarnation: ExecutionIncarnation | null,
     endReason?: string,
-  ): Promise<"confirmed" | "deferred" | "superseded">;
+  ): Promise<"confirmed" | "deferred" | "superseded" | "lease_pending">;
   /**
    * The row's kill intent as it stands now, not as the pass's snapshot had
    * it. A terminate can commit while the pass is out at the provider, and

@@ -1521,7 +1521,9 @@ export function createPostgresSchedulerStore(
         ? "superseded"
         : result.deferred
           ? "deferred"
-          : "confirmed";
+          : result.leasePending
+            ? "lease_pending"
+            : "confirmed";
     },
 
     async desiredStateOf(ref) {
