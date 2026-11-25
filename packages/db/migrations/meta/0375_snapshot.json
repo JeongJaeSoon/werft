@@ -1,6 +1,6 @@
 {
-  "id": "59b14d07-8759-4434-a7f0-267973f4b12c",
-  "prevId": "d63ef021-fc03-4711-bc6a-90da0e5c081e",
+  "id": "d33fb3db-c001-468c-b7f7-77b5fd34fa6e",
+  "prevId": "72f033ea-d998-4639-82bc-cee6de3173a7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -12709,6 +12709,99 @@
           "value": "\"memory_tombstones\".\"kind\" IN ('normal', 'contaminated')"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.mention_thread_statuses": {
+      "name": "mention_thread_statuses",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slack_installation_id": {
+          "name": "slack_installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "thread_ts": {
+          "name": "thread_ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rev": {
+          "name": "rev",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "mention_thread_statuses_agent_fk": {
+          "name": "mention_thread_statuses_agent_fk",
+          "tableFrom": "mention_thread_statuses",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "mention_thread_statuses_slack_installation_fk": {
+          "name": "mention_thread_statuses_slack_installation_fk",
+          "tableFrom": "mention_thread_statuses",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["slack_installation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "mention_thread_statuses_pkey": {
+          "name": "mention_thread_statuses_pkey",
+          "columns": ["agent_id", "team_id", "channel_id", "thread_ts"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.neutral_field_progress": {
