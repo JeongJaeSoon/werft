@@ -2270,10 +2270,14 @@ describe("a turn its worker's lost lease cut off", () => {
   const CONTINUE = { name: "이어서 하기" };
   const continuePath = `/v1/sessions/${SESSION_ID}/turns/1/continue`;
 
-  function render(turns: () => unknown[], continued?: () => Response) {
+  function render(
+    turns: () => unknown[],
+    continued?: () => Response,
+    session: SessionDetail = resting,
+  ) {
     return renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
-      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, resting),
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, session),
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { answerable: true, items: [] }),
       [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
@@ -2339,6 +2343,17 @@ describe("a turn its worker's lost lease cut off", () => {
         terminal_reason: "completed",
       },
     ]);
+    expect(await screen.findByText(CUT)).toBeTruthy();
+    expect(screen.queryByRole("button", CONTINUE)).toBeNull();
+    expect((await head()).textContent).not.toContain("중단됨");
+  });
+
+  test("a session already running again, though its turns lag behind, has no button", async () => {
+    render(() => [lost], undefined, {
+      ...resting,
+      status: "running",
+      current_turn_id: "2",
+    } as SessionDetail);
     expect(await screen.findByText(CUT)).toBeTruthy();
     expect(screen.queryByRole("button", CONTINUE)).toBeNull();
     expect((await head()).textContent).not.toContain("중단됨");

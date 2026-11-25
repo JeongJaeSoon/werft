@@ -250,7 +250,9 @@ export function SessionDetail({
             failedAttempts={events.failedAttempts}
             onReconnect={events.reconnect}
             lostTurnAction={(turnId) =>
-              turnId === lostTurnId && detail.admission_state === "active" ? (
+              cutOff &&
+              turnId === lostTurnId &&
+              detail.admission_state === "active" ? (
                 <ContinueTurn
                   sessionId={id}
                   turnId={turnId}
