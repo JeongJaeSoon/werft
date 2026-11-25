@@ -1,6 +1,6 @@
 {
-  "id": "4a7860bf-6454-4ef2-b07c-08b5ad4eec7c",
-  "prevId": "b241cd57-32aa-4af6-b71c-062ea67f50b3",
+  "id": "59b14d07-8759-4434-a7f0-267973f4b12c",
+  "prevId": "d63ef021-fc03-4711-bc6a-90da0e5c081e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4143,7 +4143,7 @@
         },
         "budget_reservations_resolution_check": {
           "name": "budget_reservations_resolution_check",
-          "value": "(\"budget_reservations\".\"state\" = 'resolved') = (\"budget_reservations\".\"resolution\" IS NOT NULL) AND \"budget_reservations\".\"resolution\" IN ('spent','refunded')"
+          "value": "(\"budget_reservations\".\"state\" = 'resolved') = (\"budget_reservations\".\"resolution\" IS NOT NULL) AND \"budget_reservations\".\"resolution\" IN ('spent','refunded','estimated')"
         },
         "budget_reservations_nonneg_check": {
           "name": "budget_reservations_nonneg_check",
