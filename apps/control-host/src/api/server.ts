@@ -140,6 +140,7 @@ import {
   createGitHubRepositoryService,
   createGitHubSettingsService,
   createGitHubWorkService,
+  createInstructionsHeadService,
   createInterruptService,
   createInviteService,
   createJudgmentReviewService,
@@ -199,7 +200,10 @@ import {
 } from "../wiring/github-api.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
 import { wireM1JudgmentRunner } from "../wiring/m1-judgments.ts";
-import { wireReleaseInstructions } from "../wiring/release-instructions.ts";
+import {
+  wireBranchHeads,
+  wireReleaseInstructions,
+} from "../wiring/release-instructions.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
 import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
@@ -355,6 +359,7 @@ import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
 import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/surface/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
+import { registerSlackInstructionsHeadRoutes } from "./routes/surface/slack-instructions-head.ts";
 import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
 import { registerSlackJudgmentRoutes } from "./routes/surface/slack-judgments.ts";
 import { registerSlackNoticeRoutes } from "./routes/surface/slack-notice.ts";
@@ -808,6 +813,11 @@ const slackJudgments = createJudgmentReviewService({
   authorization,
   store: createPostgresJudgmentReviewStore(db),
   members: slackChannelMembers,
+});
+const slackInstructionsHead = createInstructionsHeadService({
+  authorization,
+  agents: agentStore,
+  heads: wireBranchHeads({ catalog, gate: () => github, logger }),
 });
 const linkedAccounts = createLinkedAccountService({
   authorization,
@@ -1729,6 +1739,7 @@ const app = createApiApp({
       logger,
     });
     registerSlackJudgmentRoutes(router, slackJudgments);
+    registerSlackInstructionsHeadRoutes(router, slackInstructionsHead);
     registerSlackChannelRoutes(router, { service: slackChannels, logger });
     registerSlackAppRoutes(router, {
       apps: slackApps,

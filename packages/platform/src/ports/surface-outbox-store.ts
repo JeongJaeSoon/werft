@@ -6,6 +6,7 @@ import type {
   PendingQuestion,
   PushRequestOrigin,
   SlackMirrorCorrelationId,
+  SlackNoticeVersion,
   UserLocale,
 } from "@werft-ai/contracts";
 import type { PushRequestDisplay } from "../action/ports/push-requests.ts";
@@ -29,6 +30,9 @@ import type {
  * left the agent's allowed list. `input_mirror`: a web input shown in Slack
  * as an `instruction` is, with no session; its post's ts becomes the input's
  * Slack alias, and its topic's when the topic had none (`threadTs` "" then).
+ * `channel_notice`: the one line telling a channel the agent reads it, once
+ * per agent, channel and notice version that asked for approval, outside any
+ * thread (`threadTs` "").
  */
 export type SurfaceOutboxKind =
   | "instruction"
@@ -39,7 +43,8 @@ export type SurfaceOutboxKind =
   | "welcome"
   | "action_notice"
   | "model_notice"
-  | "input_mirror";
+  | "input_mirror"
+  | "channel_notice";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
@@ -192,6 +197,25 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
    * in order; empty unless the turn completed.
    */
   events: { type: string; payload: unknown }[];
+};
+
+/**
+ * A channel the agent now reads every message of (`stillListened`): its
+ * switch is raised under a counted notice approval, the binding is `ready`,
+ * `on`, listening `free`, not shared with another organization, and the bot
+ * is in it. `noticeVersion`: the latest version that asked for approval, so
+ * a version that only rewords it is told nothing new. `attempt`: how many
+ * rows the channel took for it before, all failed unsent.
+ */
+export type SurfaceChannelNoticeTarget = {
+  workspaceId: string;
+  agentId: string;
+  slackAppId: string;
+  installationId: string;
+  teamId: string;
+  channelId: string;
+  noticeVersion: SlackNoticeVersion;
+  attempt: number;
 };
 
 /**
@@ -660,6 +684,11 @@ export interface SurfaceOutboxStore {
     limit: number,
     waitedMs: number,
   ): Promise<SurfaceCapacityWait[]>;
+  /**
+   * Channels the agent reads every message of that have not been told so
+   * under the current notice (`slackChannelNoticeDedupeKey`).
+   */
+  unnoticedChannels?(limit: number): Promise<SurfaceChannelNoticeTarget[]>;
   /**
    * The card posted as that message for that request, or null when no
    * `input_notice` row of the session sent it.

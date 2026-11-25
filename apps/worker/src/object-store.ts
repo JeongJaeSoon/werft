@@ -5,6 +5,7 @@ import {
   createCheckpointObjectStore,
   createObjectRouteClient,
   S3_REQUEST_BOUNDS,
+  type S3ClientLike,
   scopedCheckpointObjectStore,
 } from "@werft-ai/storage";
 
@@ -73,16 +74,39 @@ export function objectStoreConfigFromEnv(
  * refuses what the confinement would have (`object-route.ts`).
  * `token` is the claim's object store token, asked for on every request.
  */
+/**
+ * An S3 client each of whose requests waits on the promise `unconfirmed`
+ * returns, and is not sent once it rejects: what the gateway client does for
+ * its calls (see `WorkerHost.ownershipUnconfirmed`). Every request, reads
+ * included: one write is several of them, and a read decides its next one.
+ */
+export function holdingS3Client(
+  client: S3ClientLike,
+  unconfirmed: () => Promise<void> | undefined,
+): S3ClientLike {
+  return {
+    async send(command, options) {
+      // Read again after each wait, and sent in the tick it reads open.
+      for (let held = unconfirmed(); held; held = unconfirmed()) await held;
+      return client.send(command, options);
+    },
+  };
+}
+
 export function createWorkerObjectStore(
   config: WorkerObjectStoreConfig,
   token: () => string,
+  unconfirmed: () => Promise<void> | undefined = () => undefined,
 ): CheckpointObjectStore {
   const client = createObjectRouteClient(
     { endpoint: config.endpoint, region: config.region, token },
     S3_REQUEST_BOUNDS,
   );
   return scopedCheckpointObjectStore(
-    createCheckpointObjectStore({ bucket: config.bucket, client }),
+    createCheckpointObjectStore({
+      bucket: config.bucket,
+      client: holdingS3Client(client, unconfirmed),
+    }),
     config.scope,
   );
 }
