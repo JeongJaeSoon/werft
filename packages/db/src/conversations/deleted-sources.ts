@@ -168,6 +168,26 @@ export type ReadChanges = {
  * without a delete) when it has an edit mark at all. Every write of a result a call made from Slack messages (a
  * judgment record, a summary line) asks this.
  */
+/**
+ * Waits out every delete and edit mark of the channel in progress and
+ * returns the database's time after them. A judgment that reads its context
+ * after this sees each such mark, and a later one is dated after it: so a
+ * context message's mark since this time is one the judgment did not read.
+ */
+export async function channelMarksSettledAt(
+  db: Database,
+  channel: { workspaceId: string; teamId: string; channelId: string },
+): Promise<string> {
+  return db.transaction(async (tx) => {
+    await tx.execute(lockSlackChannelMarks(channel, "exclusive"));
+    const [row] = rowsOf<{ at: string }>(
+      await tx.execute(sql`SELECT clock_timestamp()::text AS at`),
+    );
+    if (row === undefined) throw new Error("no clock");
+    return row.at;
+  });
+}
+
 export async function lockedReadChanges(
   tx: Database,
   input: {
@@ -323,7 +343,7 @@ export async function lockedReadChanges(
           AND marked_at >= ${input.readAt}
         LIMIT 1`),
     );
-    changes.contextEdited = edited !== undefined;
+    if (edited !== undefined) changes.contextEdited = true;
   }
   const isDeleted = (ts: string) =>
     deleted.has(

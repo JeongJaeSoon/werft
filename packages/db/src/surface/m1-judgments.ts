@@ -20,6 +20,7 @@ import {
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import {
+  channelMarksSettledAt,
   dropBufferedInputs,
   engagedJudgmentsInWindow,
   JUDGMENT_BUFFER_TTL_MS,
@@ -227,9 +228,9 @@ export function createPostgresM1JudgmentStore(
             editMark: post.editMark,
             buffered: { inputId: post.inputId, body: post.body },
           })),
-          options.readAt === undefined
+          (options.readAt ?? batch.readAt) === undefined
             ? sql`(SELECT closed_at FROM judgment_batches WHERE id = ${batch.id}::uuid)`
-            : sql`${options.readAt}::timestamptz`,
+            : sql`${options.readAt ?? batch.readAt}::timestamptz`,
         );
         if (!(await gateOpenIn(tx, batch, true, versions))) {
           return { outcome: "closed" };
@@ -403,6 +404,12 @@ export function createPostgresM1JudgmentStore(
         const claimed: ClaimedReplyJudgment = {
           id: row.id,
           rateLimited,
+          // Before the judgment reads its context (a1/J6).
+          readAt: await channelMarksSettledAt(db, {
+            workspaceId: row.workspace_id,
+            teamId: row.slack_team_id,
+            channelId: row.slack_channel_id,
+          }),
           subject: {
             grade: row.grade,
             workspaceId: row.workspace_id,

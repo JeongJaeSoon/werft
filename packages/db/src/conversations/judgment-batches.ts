@@ -23,6 +23,7 @@ import {
   engagedJudgmentsInWindow,
   heldForReply,
 } from "./conversation-judgments.ts";
+import { channelMarksSettledAt } from "./deleted-sources.ts";
 import { rowColumns, stillListened } from "./judgment-buffer.ts";
 
 /** Channels a close looks at in one call; the rest wait for the next. */
@@ -248,7 +249,7 @@ export function createPostgresJudgmentBatchStore(
   return {
     async closeNext(options = {}) {
       const at = atOf(options.now);
-      return db.transaction(async (tx) => {
+      const closed = await db.transaction(async (tx) => {
         await failOverdue(tx, at);
         // Cheap first look; each channel is judged again under its lock.
         const channels = rowsOf<Channel>(
@@ -295,6 +296,15 @@ export function createPostgresJudgmentBatchStore(
         }
         return null;
       });
+      if (closed?.outcome !== "judging") return closed;
+      // Before the judgment reads its context (a1/J6).
+      return {
+        ...closed,
+        batch: {
+          ...closed.batch,
+          readAt: await channelMarksSettledAt(db, closed.batch),
+        },
+      };
     },
 
     async finish(id: JudgmentBatchId, result, options = {}) {

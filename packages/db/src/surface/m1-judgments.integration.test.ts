@@ -1075,7 +1075,7 @@ integration("M1 judgment records", () => {
       try {
         await client.query("BEGIN");
         await client.query(
-          "SELECT pg_advisory_xact_lock_shared(hashtext('slack_channel_deletes'), hashtext(concat_ws('|', $1::text, $2::text, $3::text)))",
+          "SELECT pg_advisory_xact_lock_shared(hashtext('slack_channel_marks'), hashtext(concat_ws('|', $1::text, $2::text, $3::text)))",
           [workspaceId, TEAM, place.channelId],
         );
         await client.query(
@@ -1155,6 +1155,76 @@ integration("M1 judgment records", () => {
         await editing.catch(() => undefined);
         client.release();
       }
+    });
+
+    test("with its context cut and a named context message unchanged, an edit past the cut still voids it", async () => {
+      const place = await channel();
+      const { batch, held } = await batchOver(place, [["3200.000003", "one"]]);
+      await marks().markEdited(mark(place, "3200.000001"), "changed");
+      const record = withContext(
+        judgedRecord(batch.id, ["3200.000003"]),
+        [place, "3200.000002"],
+        [place, "3200.000003"],
+      );
+      expect(
+        await store().recordBatch(
+          batch,
+          { ...record, sources: { ...record.sources, overflow: true } },
+          held,
+        ),
+      ).toMatchObject({ outcome: "voided", reason: "voided_by_edit" });
+    });
+
+    test("a close waits out a mark in progress and reads after it", async () => {
+      const place = await channel();
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          "SELECT pg_advisory_xact_lock_shared(hashtext('slack_channel_marks'), hashtext(concat_ws('|', $1::text, $2::text, $3::text)))",
+          [workspaceId, TEAM, place.channelId],
+        );
+        await client.query(
+          "INSERT INTO edited_sources (workspace_id, team_id, channel_id, ts, edited_at, marked_at) VALUES ($1, $2, $3, $4, now(), clock_timestamp())",
+          [workspaceId, TEAM, place.channelId, "3300.000001"],
+        );
+        let settled = false;
+        const closing = batchOver(place, [["3300.000002", "one"]]).finally(
+          () => {
+            settled = true;
+          },
+        );
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(settled).toBe(false);
+        await client.query("COMMIT");
+        const { batch } = await closing;
+        const [marked] = (
+          await pool.query<{ after: boolean }>(
+            "SELECT $1::timestamptz > marked_at AS after FROM edited_sources WHERE channel_id = $2",
+            [batch.readAt, place.channelId],
+          )
+        ).rows;
+        expect(marked?.after).toBe(true);
+      } finally {
+        client.release();
+      }
+    });
+
+    test("an older edit with no text arriving late keeps the newer text held", async () => {
+      const place = await channel();
+      await hold(place, "3400.000001", "one");
+      const now = Date.now();
+      await marks().markEdited(
+        { ...mark(place, "3400.000001"), at: new Date(now) },
+        "newer",
+      );
+      await marks().markEdited({
+        ...mark(place, "3400.000001"),
+        at: new Date(now - 60_000),
+      });
+      expect(await bodiesOf(place)).toEqual([
+        { slack_ts: "3400.000001", body: "newer" },
+      ]);
     });
   });
 });

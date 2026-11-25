@@ -31,6 +31,8 @@ export type ClaimedReplyJudgment = {
   subject: M1Subject;
   /** Past the channel's M1 cap (counted for `m1_engaged` alone): no call. */
   rateLimited: boolean;
+  /** As JudgmentBatch's: when the claim's channel marks were done. */
+  readAt?: string;
 };
 
 /** A post a judgment read, with the text it read. */
@@ -167,7 +169,7 @@ export function createM1BatchJudge(deps: {
     async judge(batch) {
       let subject = subjectOfBatch(batch);
       let modelCalled = false;
-      let readAt: string | undefined;
+      let readAt = batch.readAt;
       const left: M1Post[] = [];
       for (const rejudge of [false, true]) {
         const judgment = await deps.judge.judge(subject, { rejudge });
@@ -266,6 +268,7 @@ export async function runReplyJudgments(deps: {
       ...(post === undefined
         ? {}
         : { read: { body: post.body, editMark: post.editMark } }),
+      ...(claimed.readAt === undefined ? {} : { readAt: claimed.readAt }),
     });
     if (typeof written === "object" && record !== null) {
       logVoided(deps.logger, record, written.voided);

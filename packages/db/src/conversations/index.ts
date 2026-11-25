@@ -20,6 +20,7 @@ export {
   type WebInputTurnsBackfilled,
 } from "./conversation-turns.ts";
 export {
+  channelMarksSettledAt,
   directSourceDeletedAt,
   firstTurnDeletedAt,
   lockedDeletedSource,

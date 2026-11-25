@@ -10,7 +10,7 @@ export function lockSlackChannelMarks(
   channel: { workspaceId: string; teamId: string; channelId: string },
   mode: "shared" | "exclusive",
 ): SQL {
-  const key = sql`hashtext('slack_channel_deletes'), hashtext(concat_ws('|', ${channel.workspaceId}::text, ${channel.teamId}::text, ${channel.channelId}::text))`;
+  const key = sql`hashtext('slack_channel_marks'), hashtext(concat_ws('|', ${channel.workspaceId}::text, ${channel.teamId}::text, ${channel.channelId}::text))`;
   return mode === "shared"
     ? sql`SELECT pg_advisory_xact_lock_shared(${key})`
     : sql`SELECT pg_advisory_xact_lock(${key})`;
