@@ -29,6 +29,7 @@ import {
   defaultGitRunner,
   type GitCommandRunner,
   isObjectStoreUnreachable,
+  S3_METADATA_REQUEST_TIMEOUT_MS,
 } from "@werft-ai/storage";
 import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import {
@@ -41,7 +42,6 @@ import {
   type ApiCheckpointServiceDependencies,
   assertCheckpointBucketEncryption,
   assertCheckpointBucketProtection,
-  BUCKET_CHECK_BOUNDS,
   type CheckpointStorageConfig,
   checkpointGitMemoryBytesFromEnv,
   checkpointObjectsAtStart,
@@ -517,27 +517,27 @@ describe("checkpoint bucket checks at startup", () => {
     const { port } = silent.address() as AddressInfo;
     try {
       const startedAt = Date.now();
-      const failure = await assertCheckpointBucketProtection(
-        {
-          bucket: "claude-sessions",
-          credentials: { accessKeyId: "unit", secretAccessKey: "unit" },
-          endpoint: `http://127.0.0.1:${port}`,
-          protection: "locked",
-          region: "ap-northeast-1",
-        },
-        { ...BUCKET_CHECK_BOUNDS, requestTimeout: 300 },
-      ).then(
+      const failure = await assertCheckpointBucketProtection({
+        bucket: "claude-sessions",
+        credentials: { accessKeyId: "unit", secretAccessKey: "unit" },
+        endpoint: `http://127.0.0.1:${port}`,
+        protection: "locked",
+        region: "ap-northeast-1",
+      }).then(
         () => undefined,
         (error: unknown) => error,
       );
       // What a start waits out with a log line: no verdict on the bucket.
       expect(isObjectStoreUnreachable(failure)).toBe(true);
-      expect(Date.now() - startedAt).toBeLessThan(10_000);
+      // The shipped bound: each try, then the SDK's backoff between tries.
+      expect(Date.now() - startedAt).toBeLessThan(
+        S3_METADATA_REQUEST_TIMEOUT_MS * 3 + 5_000,
+      );
     } finally {
       for (const socket of accepted) socket.destroy();
       silent.close();
     }
-  }, 20_000);
+  }, 40_000);
 });
 
 describe("checkpoint bucket encryption at startup", () => {

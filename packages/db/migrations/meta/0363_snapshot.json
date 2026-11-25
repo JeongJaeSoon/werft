@@ -1,5 +1,5 @@
 {
-  "id": "cc0097ea-1f8c-481a-b6fe-abc046bc74d7",
+  "id": "dd018794-34f0-43ab-8d97-0870e9f31a31",
   "prevId": "65383695-b58b-45d3-8515-a72dfe752ca4",
   "version": "7",
   "dialect": "postgresql",
@@ -7054,20 +7054,6 @@
           "notNull": true,
           "default": 0
         },
-        "tool_calls": {
-          "name": "tool_calls",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "thread_reads": {
-          "name": "thread_reads",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -7127,10 +7113,6 @@
         "conversation_turn_permits_limits_check": {
           "name": "conversation_turn_permits_limits_check",
           "value": "\"conversation_turn_permits\".\"max_tokens\" >= 1 AND \"conversation_turn_permits\".\"max_request_bytes\" >= 1 AND \"conversation_turn_permits\".\"calls\" >= 0 AND \"conversation_turn_permits\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m2$'"
-        },
-        "conversation_turn_permits_tool_counts_check": {
-          "name": "conversation_turn_permits_tool_counts_check",
-          "value": "\"conversation_turn_permits\".\"tool_calls\" >= 0 AND \"conversation_turn_permits\".\"thread_reads\" >= 0"
         },
         "conversation_turn_permits_refusal_check": {
           "name": "conversation_turn_permits_refusal_check",
@@ -17266,6 +17248,30 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::uuid[]"
+        },
+        "task_request": {
+          "name": "task_request",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_interpretation": {
+          "name": "task_interpretation",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_closing": {
+          "name": "task_closing",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_closed_reason": {
+          "name": "task_closed_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -17475,6 +17481,10 @@
         "sessions_execution_revoked_check": {
           "name": "sessions_execution_revoked_check",
           "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
+        },
+        "sessions_task_closed_reason_check": {
+          "name": "sessions_task_closed_reason_check",
+          "value": "\"sessions\".\"task_closed_reason\" IS NULL OR (\"sessions\".\"task_closed_reason\" IN ('completed', 'cancelled', 'failed', 'abandoned') AND \"sessions\".\"admission_state\" IN ('closing', 'closed'))"
         },
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",
