@@ -31,6 +31,7 @@ const text: ReleaseInstructions = {
 function service(options: {
   snapshot?: ReleaseInstructions | null;
   noRelease?: boolean;
+  noAgent?: boolean;
   head?: BranchHeadReadable["branchHead"];
   allow?: boolean;
   timeoutMs?: number;
@@ -48,14 +49,16 @@ function service(options: {
     },
     agents: {
       get: async () =>
-        ({
-          active_release: options.noRelease
-            ? null
-            : {
-                instructions_snapshot:
-                  options.snapshot === undefined ? text : options.snapshot,
-              },
-        }) as unknown as AgentRecord,
+        options.noAgent
+          ? null
+          : ({
+              active_release: options.noRelease
+                ? null
+                : {
+                    instructions_snapshot:
+                      options.snapshot === undefined ? text : options.snapshot,
+                  },
+            } as unknown as AgentRecord),
     },
     heads: {
       branchHead: async (read) => {
@@ -159,6 +162,15 @@ describe("the instruction snapshot against its branch head (a1/S3)", () => {
       expect(failed).toBeInstanceOf(SessionServiceError);
       expect((failed as SessionServiceError).code).toBe("BACKEND_UNAVAILABLE");
     }
+  });
+
+  test("an agent the workspace does not have is NOT_FOUND, not unread", async () => {
+    const { heads, reads } = service({ noAgent: true });
+    const missing = await heads
+      .getSlackInstructionsHead(caller, AGENT)
+      .catch((error: unknown) => error);
+    expect((missing as SessionServiceError).code).toBe("NOT_FOUND");
+    expect(reads).toEqual([]);
   });
 
   test("a caller the policy refuses gets FORBIDDEN and GitHub is not read", async () => {

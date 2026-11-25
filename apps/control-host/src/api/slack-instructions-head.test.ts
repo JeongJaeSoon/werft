@@ -64,15 +64,17 @@ describe("the branch head read over the real policy (a1/S3)", () => {
       }),
       agents: {
         get: async (_workspaceId, agentId) =>
-          ({
-            active_release: {
-              instructions_snapshot: {
-                kind: "absent",
-                repository_id: repositoryOf[agentId],
-                commit: "a".repeat(40),
-              },
-            },
-          }) as unknown as AgentRecord,
+          agentId in repositoryOf
+            ? ({
+                active_release: {
+                  instructions_snapshot: {
+                    kind: "absent",
+                    repository_id: repositoryOf[agentId],
+                    commit: "a".repeat(40),
+                  },
+                },
+              } as unknown as AgentRecord)
+            : null,
       },
       heads: {
         branchHead: async (read) => {
@@ -128,6 +130,15 @@ describe("the branch head read over the real policy (a1/S3)", () => {
       });
       expect(reads.map((read) => read.repositoryId)).toEqual(["repo-a"]);
     }
+  });
+
+  test("an agent this workspace does not have is NOT_FOUND, even for its owner", async () => {
+    reads.length = 0;
+    const missing = await heads
+      .getSlackInstructionsHead(user("owner", "owner"), crypto.randomUUID())
+      .catch((error: unknown) => error);
+    expect((missing as SessionServiceError).code).toBe("NOT_FOUND");
+    expect(reads).toEqual([]);
   });
 
   test("a member, or another agent's admin, is refused before GitHub is read", async () => {

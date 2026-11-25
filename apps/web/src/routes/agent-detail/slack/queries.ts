@@ -91,13 +91,22 @@ export function useSlackJudgments(agentId: string, enabled: boolean) {
 
 /**
  * GitHub's head of the active release's repository branch, read when the
- * tab opens: never on a timer, a focus or a reconnect.
+ * tab opens: never on a timer, a focus, a reconnect or a Slack refresh. Keyed
+ * by the release, so a new release never shows the last one's comparison.
  */
-export function useSlackInstructionsHead(agentId: string, enabled: boolean) {
+export function useSlackInstructionsHead(
+  agentId: string,
+  releaseId: string | null,
+  enabled: boolean,
+) {
   const { client } = useWerft();
   return useQuery({
-    enabled,
-    queryKey: [...slackKey(client, agentId), "instructions-head"],
+    enabled: enabled && releaseId !== null,
+    queryKey: [
+      ...queryKeysOf(client).agent(agentId),
+      "instructions-head",
+      releaseId,
+    ],
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/slack/instructions-head", {

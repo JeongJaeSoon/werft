@@ -3,6 +3,7 @@ import type { GitHubReleaseRead } from "../github/ports/github-gate.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
+  NOT_FOUND,
   receiptActorOf,
   requirePermitted,
   SessionServiceError,
@@ -46,9 +47,9 @@ export function createInstructionsHeadService(deps: {
         kind: "agent",
         id: agentId,
       });
-      const release =
-        (await deps.agents.get(caller.ownerId, agentId))?.active_release ??
-        null;
+      const agent = await deps.agents.get(caller.ownerId, agentId);
+      if (agent === null) throw NOT_FOUND();
+      const release = agent.active_release;
       if (release === null) return { state: "unread", reason: "no_release" };
       const snapshot = release.instructions_snapshot;
       if (snapshot == null || !("commit" in snapshot)) {

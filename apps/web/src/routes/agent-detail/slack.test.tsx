@@ -3777,6 +3777,42 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
     });
   }
 
+  test("hides the notice when a later read fails, and a Slack refresh does not read GitHub", async () => {
+    let head = () =>
+      json(200, { state: "read", commit: "f".repeat(40), newer: true });
+    const { api, services } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/instructions-head`]: () => head(),
+      ...withRelease(TEXT),
+    });
+    expect(await screen.findByText(NEWER)).toBeDefined();
+    const heads = () =>
+      api.calls.filter((call) => call.path.endsWith("/slack/instructions-head"))
+        .length;
+    const user = await setupUser();
+    await refreshSlack(user);
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.path.endsWith("/slack/app")).length,
+      ).toBeGreaterThan(1),
+    );
+    expect(heads()).toBe(1);
+    head = () =>
+      json(503, {
+        error: {
+          code: "BACKEND_UNAVAILABLE",
+          message: "GitHub could not be read",
+        },
+      });
+    await act(() => services.queryClient.invalidateQueries());
+    await waitFor(() => expect(heads()).toBe(2));
+    await waitFor(() => expect(screen.queryByText(NEWER)).toBeNull());
+    expect(document.body.textContent).toContain(
+      "M1 지침: 릴리스 2026-10-11_10:01:00, commit abcdef0",
+    );
+  });
+
   test("a snapshot with no commit asks GitHub nothing", async () => {
     const { api } = renderAt(DETAIL, {
       ...routes(APP, true),

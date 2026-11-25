@@ -123,6 +123,7 @@ export function SlackJudgments({
   const snapshot = activeRelease?.instructions_snapshot;
   const head = useSlackInstructionsHead(
     agentId,
+    activeRelease?.id ?? null,
     manages && snapshot != null && "commit" in snapshot,
   );
   const data = judgments.data;
@@ -158,7 +159,9 @@ export function SlackJudgments({
       <div className="flex min-w-0 flex-col gap-[var(--werft-space-block)]">
         <InstructionsLine
           release={activeRelease}
-          newer={head.data?.state === "read" && head.data.newer}
+          newer={
+            !head.isError && head.data?.state === "read" && head.data.newer
+          }
         />
         {forbidden ? (
           <Text variant="sub">{t("slack.judgments.forbidden")}</Text>
