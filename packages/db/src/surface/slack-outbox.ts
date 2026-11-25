@@ -38,6 +38,7 @@ import {
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
   SURFACE_REACTION_MAX_ATTEMPTS,
+  sourceSetOf,
 } from "@werft-ai/platform";
 import {
   and,
@@ -56,6 +57,7 @@ import { UUID } from "../control-shared.ts";
 import {
   inputTexts,
   lockedDeletedSource,
+  lockedTurnReadDeleted,
   outboxSources,
   servedTitle,
 } from "../conversations/index.ts";
@@ -155,6 +157,7 @@ const entry = {
   correlationId: t.correlationId,
   heldForInputId: t.heldForInputId,
   progressKey: t.progressKey,
+  conversationTurnId: t.conversationTurnId,
 };
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
@@ -1948,16 +1951,20 @@ export function createPostgresSlackOutboxStore(
           seq: t.seq,
           ...entry,
           // A DM conversation keeps no team of its own; its install's is it.
+          // A conversation's answer has no session: its turn's conversation.
           conversationScope: sql<SurfaceConversationScope | null>`(
             SELECT json_build_object(
               'kind', cv.kind,
               'teamId', COALESCE(cv.team_id, si.team_id),
               'channelId', cv.channel_id
             )
-            FROM sessions s
-            JOIN conversations cv ON cv.id = s.parent_conversation_id
+            FROM conversations cv
             JOIN slack_installations si ON si.id = ${t.installationId}
-            WHERE s.id = ${t.sessionId}
+            WHERE cv.id = COALESCE(
+              (SELECT s.parent_conversation_id FROM sessions s
+               WHERE s.id = ${t.sessionId}),
+              (SELECT ct.conversation_id FROM conversation_turns ct
+               WHERE ct.id = ${t.conversationTurnId}))
           )`,
         });
       return rows
@@ -2008,6 +2015,7 @@ export function createPostgresSlackOutboxStore(
             throughTurn: t.sourcesTurn,
             progressKey: t.progressKey,
             installationId: t.installationId,
+            conversationTurnId: t.conversationTurnId,
           })
           .from(t)
           .where(
@@ -2114,9 +2122,14 @@ export function createPostgresSlackOutboxStore(
         }
         // A row whose sources hold a message Slack deleted is never sent;
         // a delete that comes once it is sending leaves what went out.
+        // A turn's set that overflowed has no session to recover what was
+        // cut: held, as the turn's decision was, to its channel's deletes.
         if (
           row.sources !== null &&
-          (await lockedDeletedSource(tx, row)) !== null
+          (row.conversationTurnId !== null && sourceSetOf(row.sources).overflow
+            ? (await lockedTurnReadDeleted(tx, row.conversationTurnId))
+                ?.deleted !== false
+            : (await lockedDeletedSource(tx, row)) !== null)
         ) {
           await tx
             .update(t)

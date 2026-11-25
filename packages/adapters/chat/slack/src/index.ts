@@ -1,4 +1,5 @@
 export * from "./outbox-delivery.ts";
+export * from "./slack-ai-label.ts";
 export * from "./slack-app-service.ts";
 export * from "./slack-audience.ts";
 export * from "./slack-bot-token.ts";
