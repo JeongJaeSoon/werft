@@ -12,7 +12,7 @@ BEGIN
   SELECT count(*) INTO agent_rules FROM "agent_engine_settings";
   SELECT count(*) INTO workspace_rules FROM "workspace_engine_settings";
   IF agent_rules > 0 OR workspace_rules > 0 THEN
-    RAISE NOTICE '0356: dropped rows: agent_engine_settings %, workspace_engine_settings %', agent_rules, workspace_rules;
+    RAISE NOTICE '0357: dropped rows: agent_engine_settings %, workspace_engine_settings %', agent_rules, workspace_rules;
   END IF;
 END $$;--> statement-breakpoint
 DROP TABLE "agent_engine_settings";--> statement-breakpoint

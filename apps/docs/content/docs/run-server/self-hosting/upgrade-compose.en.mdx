@@ -301,10 +301,10 @@ Migration `0305_drop_unused_tables` drops the `catalog_authority`, `owner_worksp
 <a id="엔진-설정-표-둘을-지운-릴리스" />
 ### The release that drops the two engine settings tables
 
-Migration `0356_drop_engine_settings` drops the `agent_engine_settings` and `workspace_engine_settings` tables with their rows. They held the run rules of workspaces and agents (ask, pattern block and auto mode rules). No release since `v0.4.0` reads or writes them, and the last release that read them is `v0.3.0`. Rolling back to an image inside the support window is therefore unaffected.
+Migration `0357_drop_engine_settings` drops the `agent_engine_settings` and `workspace_engine_settings` tables with their rows. They held the run rules of workspaces and agents (ask, pattern block and auto mode rules). No release since `v0.4.0` reads or writes them, and the last release that read them is `v0.3.0`. Rolling back to an image inside the support window is therefore unaffected.
 
-- The tables may still hold rows: run rules saved on `v0.3.0` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0356: dropped rows: …`). The values of the rows stay out of the log.
-- If you need those rows, back them up before the upgrade. Rolling the schema below 0356 does not bring them back.
+- The tables may still hold rows: run rules saved on `v0.3.0` or earlier. When there are rows, the migrate log `db.migrate.notice` records how many each table lost (`0357: dropped rows: …`). The values of the rows stay out of the log.
+- If you need those rows, back them up before the upgrade. Rolling the schema below 0357 does not bring them back.
 
 <a id="대화-턴-기록-표를-더하는-릴리스" />
 

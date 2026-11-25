@@ -272,10 +272,10 @@ migration `0305_drop_unused_tables`가 `catalog_authority`·`owner_workspace_map
 
 ### 엔진 설정 표 둘을 지운 릴리스
 
-migration `0356_drop_engine_settings`가 `agent_engine_settings`·`workspace_engine_settings` 표를 행째 지운다. 두 표에는 워크스페이스·에이전트의 실행 규칙(묻기·패턴 막기·자동 모드 규칙)이 들어 있었다. `v0.4.0`부터 어느 릴리스도 두 표를 읽거나 쓰지 않았고, 마지막으로 읽은 릴리스는 `v0.3.0`이다. 그래서 지원 창 안의 이미지로 되돌려도 영향이 없다.
+migration `0357_drop_engine_settings`가 `agent_engine_settings`·`workspace_engine_settings` 표를 행째 지운다. 두 표에는 워크스페이스·에이전트의 실행 규칙(묻기·패턴 막기·자동 모드 규칙)이 들어 있었다. `v0.4.0`부터 어느 릴리스도 두 표를 읽거나 쓰지 않았고, 마지막으로 읽은 릴리스는 `v0.3.0`이다. 그래서 지원 창 안의 이미지로 되돌려도 영향이 없다.
 
-- 표에 행이 남아 있을 수 있다. `v0.3.0` 이하에서 저장한 실행 규칙이다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0356: dropped rows: …`). 행의 값은 로그에 남지 않는다.
-- 그 행이 필요하면 올리기 전에 백업한다. 0356 아래로 스키마를 내려도 행은 돌아오지 않는다.
+- 표에 행이 남아 있을 수 있다. `v0.3.0` 이하에서 저장한 실행 규칙이다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0357: dropped rows: …`). 행의 값은 로그에 남지 않는다.
+- 그 행이 필요하면 올리기 전에 백업한다. 0357 아래로 스키마를 내려도 행은 돌아오지 않는다.
 
 ### 대화 턴 기록 표를 더하는 릴리스
 
