@@ -6874,7 +6874,7 @@ export const slackOutbox = pgTable(
     ),
     // A progress message's rows, read whenever one of them is claimed.
     index("slack_outbox_progress_idx")
-      .on(table.progressKey, table.seq)
+      .on(table.installationId, table.progressKey, table.seq)
       .where(sql`${table.progressKey} IS NOT NULL`),
     check(
       "slack_outbox_status_check",

@@ -44,6 +44,8 @@ export const SLACK_OUTBOX_MAX_ATTEMPTS = 10;
 export function slackOutboxSettleFor(
   attempts: number,
   response: SlackSendResponse,
+  /** A progress message waits out the whole Retry-After. */
+  retryAfterMaxMs = SLACK_RETRY_AFTER_MAX_MS,
 ): SurfaceOutboxSettle {
   // A 2xx or 5xx whose answer could not be read: Slack may hold the
   // message, so this is no failure to retry. A 4xx, 429 included, is
@@ -72,7 +74,7 @@ export function slackOutboxSettleFor(
         : {
             status: "pending",
             errorCode: "ratelimited",
-            retryInMs: Math.min(outcome.waitMs, SLACK_RETRY_AFTER_MAX_MS),
+            retryInMs: Math.min(outcome.waitMs, retryAfterMaxMs),
           };
     case "retry":
       return {
@@ -148,16 +150,18 @@ const missingScope = (response: SlackSendResponse) =>
   response.body !== null &&
   (response.body as { error?: unknown }).error === "missing_scope";
 
-// Slack holds no post of that ts to edit any more: deleted, or not the bot's.
-const POST_LOST = new Set([
-  "message_not_found",
-  "cant_update_message",
-  "edit_window_closed",
-]);
-const postLost = (response: SlackSendResponse) =>
-  typeof response.body === "object" &&
-  response.body !== null &&
-  POST_LOST.has(String((response.body as { error?: unknown }).error));
+// Why Slack took no edit: the post is gone, or still there and frozen.
+const editRefusal = (response: SlackSendResponse) => {
+  const error =
+    typeof response.body === "object" && response.body !== null
+      ? (response.body as { error?: unknown }).error
+      : undefined;
+  if (error === "message_not_found") return "gone";
+  if (error === "cant_update_message" || error === "edit_window_closed") {
+    return "frozen";
+  }
+  return null;
+};
 
 // Nothing but formatting marks left: Slack would show an empty message.
 const isBlank = (text: string) => /^[\s*_~`>#|-]*$/.test(text);
@@ -255,7 +259,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
 
   // A progress update edits the post the last one left. A post Slack lost
   // goes up again once, its ts the message's from then on; the next loss
-  // stops the message.
+  // stops the message, as does a post Slack keeps but takes no edit of.
   const editProgress = async (
     botToken: string,
     claim: SurfaceOutboxClaim,
@@ -274,8 +278,9 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
         ? { blocks: presentation.blocks }
         : {}),
     });
-    if (!postLost(edited)) return edited;
-    if (progress.reposted) return "stopped";
+    const refused = editRefusal(edited);
+    if (refused === null) return edited;
+    if (refused === "frozen" || progress.reposted) return "stopped";
     return postMessage(botToken, claim, text, null, guard, postedAs);
   };
 
@@ -393,7 +398,13 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       if (response === "stopped") {
         return { kind: "failed", code: SURFACE_PROGRESS_STOPPED_CODE };
       }
-      return outcomeOf(slackOutboxSettleFor(attempts, response));
+      return outcomeOf(
+        slackOutboxSettleFor(
+          attempts,
+          response,
+          claim.kind === "progress" ? Number.POSITIVE_INFINITY : undefined,
+        ),
+      );
     } catch (error) {
       logDropped();
       // No answer came: the request may have reached Slack.

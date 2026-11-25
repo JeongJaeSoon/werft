@@ -1837,7 +1837,7 @@ export function createPostgresSlackOutboxStore(
           status = 'failed',
           error_code = CASE WHEN EXISTS (
             SELECT 1 FROM slack_outbox s
-            WHERE s.progress_key = o.progress_key
+            WHERE s.installation_id = o.installation_id AND s.progress_key = o.progress_key
               AND (s.error_code = ${SURFACE_PROGRESS_STOPPED_CODE}
                 OR ((s.status = 'uncertain' OR s.error_code = 'missing_ts') AND s.progress_ts IS NULL))
           ) THEN ${SURFACE_PROGRESS_STOPPED_CODE} ELSE ${SURFACE_PROGRESS_SUPERSEDED_CODE} END,
@@ -1849,7 +1849,7 @@ export function createPostgresSlackOutboxStore(
             AND (p.claim_token IS NULL OR p.lease_expires_at <= now())
             AND EXISTS (
               SELECT 1 FROM slack_outbox n
-              WHERE n.progress_key = p.progress_key
+              WHERE n.installation_id = p.installation_id AND n.progress_key = p.progress_key
                 AND (n.seq > p.seq OR n.error_code = ${SURFACE_PROGRESS_STOPPED_CODE}
                   OR ((n.status = 'uncertain' OR n.error_code = 'missing_ts') AND n.progress_ts IS NULL))
             )
@@ -1877,7 +1877,7 @@ export function createPostgresSlackOutboxStore(
               -- a Retry-After an update it overtook was told.
               AND (c.kind <> 'progress' OR NOT EXISTS (
                 SELECT 1 FROM slack_outbox p
-                WHERE p.progress_key = c.progress_key AND p.id <> c.id
+                WHERE p.installation_id = c.installation_id AND p.progress_key = c.progress_key AND p.id <> c.id
                   AND (p.seq > c.seq
                     OR p.status = 'sending'
                     OR (p.status = 'pending' AND p.claim_token IS NOT NULL
@@ -1935,12 +1935,15 @@ export function createPostgresSlackOutboxStore(
         if (install?.status === "revoked") return false;
         // A progress message's begins go one at a time, before any row lock.
         const [keyed] = await tx
-          .select({ progressKey: t.progressKey })
+          .select({
+            progressKey: t.progressKey,
+            installationId: t.installationId,
+          })
           .from(t)
           .where(eq(t.id, fence.id));
         if (keyed?.progressKey) {
           await tx.execute(
-            sql`SELECT pg_advisory_xact_lock(hashtextextended(${`slack_outbox_progress:${keyed.progressKey}`}, 0))`,
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${`slack_outbox_progress:${keyed.installationId}:${keyed.progressKey}`}, 0))`,
           );
         }
         const [row] = await tx
@@ -1952,6 +1955,7 @@ export function createPostgresSlackOutboxStore(
             sources: t.sources,
             throughTurn: t.sourcesTurn,
             progressKey: t.progressKey,
+            installationId: t.installationId,
           })
           .from(t)
           .where(
@@ -1983,7 +1987,8 @@ export function createPostgresSlackOutboxStore(
               k AS (
                 SELECT seq, status, error_code, slack_ts, progress_ts, next_attempt_at
                 FROM slack_outbox
-                WHERE progress_key = ${row.progressKey} AND id <> ${fence.id}::uuid
+                WHERE installation_id = ${row.installationId}::uuid
+                  AND progress_key = ${row.progressKey} AND id <> ${fence.id}::uuid
               )
               SELECT
                 EXISTS (SELECT 1 FROM k WHERE status = 'sending') AS busy,
@@ -2002,7 +2007,7 @@ export function createPostgresSlackOutboxStore(
                     OR (status = 'sent' AND slack_ts <> progress_ts))
                 ) AS reposted`),
           );
-          if (state === undefined || state.busy) return false;
+          if (state === undefined) return false;
           if (state.stopped || state.superseded) {
             await tx
               .update(t)
@@ -2016,6 +2021,7 @@ export function createPostgresSlackOutboxStore(
               .where(eq(t.id, fence.id));
             return false;
           }
+          if (state.busy) return false;
           if (state.wait_until !== null) {
             await tx
               .update(t)
@@ -2138,7 +2144,12 @@ export function createPostgresSlackOutboxStore(
                 // interval at least.
                 nextAttemptAt: sql`now() + CASE WHEN ${t.kind} = 'progress' THEN greatest(${ms(outcome.retryInMs)}, ${ms(progressIntervalMs)}) ELSE ${ms(outcome.retryInMs)} END`,
               }
-            : { status: outcome.status, errorCode: outcome.errorCode };
+            : {
+                status: outcome.status,
+                errorCode: outcome.errorCode,
+                // A call that ended a progress row still spaces the next.
+                nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + ${ms(progressIntervalMs)} ELSE ${t.nextAttemptAt} END`,
+              };
       return db.transaction(async (tx) => {
         const [row] = await tx
           .update(t)

@@ -15,4 +15,4 @@ ALTER TABLE "slack_outbox" DROP CONSTRAINT IF EXISTS "slack_outbox_progress_chec
 ALTER TABLE "slack_outbox" ADD CONSTRAINT "slack_outbox_progress_check" CHECK (("slack_outbox"."kind" = 'progress') = ("slack_outbox"."progress_key" IS NOT NULL) AND ("slack_outbox"."progress_ts" IS NULL OR "slack_outbox"."kind" = 'progress')) NOT VALID;--> statement-breakpoint
 ALTER TABLE "slack_outbox" VALIDATE CONSTRAINT "slack_outbox_progress_check";--> statement-breakpoint
 DROP INDEX CONCURRENTLY IF EXISTS "slack_outbox_progress_idx";--> statement-breakpoint
-CREATE INDEX CONCURRENTLY "slack_outbox_progress_idx" ON "slack_outbox" USING btree ("progress_key","seq") WHERE "slack_outbox"."progress_key" IS NOT NULL;
+CREATE INDEX CONCURRENTLY "slack_outbox_progress_idx" ON "slack_outbox" USING btree ("installation_id","progress_key","seq") WHERE "slack_outbox"."progress_key" IS NOT NULL;
