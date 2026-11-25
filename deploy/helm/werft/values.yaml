@@ -359,7 +359,9 @@ metrics:
 # The pre-upgrade check (templates/upgrade-check-job.yaml): an upgrade that
 # changes the worker image, or drops or replaces the previous image deployed
 # now, stops unless every session it would leave with no image to resume on
-# is listed here, exactly the list the check prints.
+# is listed here, exactly the list the check prints. So does one that gives
+# workers another gateway address while a worker holds a slot: the sessions
+# of the workers it ends are in the same list.
 upgrade:
   approvedSessions: []
   activeDeadlineSeconds: 300

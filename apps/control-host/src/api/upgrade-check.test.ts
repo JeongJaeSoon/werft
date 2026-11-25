@@ -22,6 +22,8 @@ const environment: UpgradeCheckEnvironment = {
   WORKER_IMAGE_RUNTIME: JSON.stringify(current),
   WORKER_IMAGE_PREVIOUS: "worker@sha256:n",
   WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(previous),
+  UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: "http://werft-api-internal:3200",
+  WORKER_GATEWAY_URL: "http://werft-api-internal:3200",
 };
 
 const unrecorded: UpgradeSession = {
@@ -55,6 +57,7 @@ async function run(
     throw new Error("the database use was read");
   },
   listWriters: () => Promise<readonly UpgradeImage[]> = async () => [],
+  listWorkers: () => Promise<readonly string[]> = async () => [],
 ) {
   const lines: string[] = [];
   const code = await runUpgradeCheck({
@@ -62,6 +65,7 @@ async function run(
     logger: createLogger({ sinks: [{ write() {} }] }),
     listSessions,
     listWriters,
+    listWorkers,
     databaseUnused,
     write: (line) => lines.push(line),
   });
@@ -135,6 +139,111 @@ describe("runUpgradeCheck", () => {
       "workers on worker@sha256:n-minus-1 still hold a slot",
     );
     expect((await run(dropped, listed)).code).toBe(0);
+  });
+
+  describe("workers holding a slot", () => {
+    // The chart that moved the gateway to a port of its own, control-host
+    // first: the worker image stays, and the address workers are given moves.
+    const gatewayMoves = {
+      UPGRADE_DEPLOYED_WORKER_IMAGE: "worker@sha256:n",
+      UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME: JSON.stringify(previous),
+      WORKER_IMAGE: "worker@sha256:n",
+      WORKER_IMAGE_RUNTIME: JSON.stringify(previous),
+      WORKER_IMAGE_PREVIOUS: undefined,
+      WORKER_IMAGE_PREVIOUS_RUNTIME: undefined,
+      UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: "http://werft-api:3000",
+      WORKER_GATEWAY_URL: "http://werft-api-internal:3200",
+    };
+    const holding = async () => ["s-worker"];
+    const check = (overrides: Partial<UpgradeCheckEnvironment>) =>
+      run(overrides, undefined, undefined, undefined, holding);
+
+    test("are listed when the target gives workers another gateway address, and refuse until approved exactly", async () => {
+      const refused = await check(gatewayMoves);
+      expect(refused.code).toBe(2);
+      expect(refused.output.verdict).toBe("refused");
+      expect(refused.output.affected).toEqual([
+        { sessionId: "s-worker", reason: "worker_ends" },
+      ]);
+      expect(refused.output.reason).toContain(
+        "1 worker(s) holding a slot end with this upgrade",
+      );
+
+      const approved = await check({
+        ...gatewayMoves,
+        UPGRADE_APPROVED_SESSIONS: '["s-worker"]',
+      });
+      expect(approved.code).toBe(0);
+      expect(approved.output.affected).toEqual([
+        { sessionId: "s-worker", reason: "worker_ends" },
+      ]);
+    });
+
+    test("are listed on an install with one image and no runtime, where nothing else is compared", async () => {
+      const { code, output } = await check({
+        ...sameOneImage,
+        UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: "http://werft-api:3000",
+      });
+      expect(code).toBe(2);
+      expect(output.affected).toEqual([
+        { sessionId: "s-worker", reason: "worker_ends" },
+      ]);
+      expect(output.reason).toStartWith(
+        "the worker image does not change, but",
+      );
+    });
+
+    test("are not listed when the gateway address stays, however it is spelled", async () => {
+      for (const address of [
+        "http://werft-api-internal:3200",
+        "http://werft-api-internal:3200/",
+      ]) {
+        const { code, output } = await check({
+          ...gatewayMoves,
+          UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: address,
+        });
+        expect(code).toBe(0);
+        expect(output.verdict).toBe("proceed");
+        expect(output.affected).toEqual([]);
+      }
+    });
+
+    test("stop the upgrade with exit 1 when either gateway address is missing or not a URL", async () => {
+      for (const [overrides, reason] of [
+        [
+          { UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: "" },
+          "UPGRADE_DEPLOYED_WORKER_GATEWAY_URL is not set",
+        ],
+        [
+          { UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: undefined },
+          "UPGRADE_DEPLOYED_WORKER_GATEWAY_URL is not set",
+        ],
+        [{ WORKER_GATEWAY_URL: undefined }, "WORKER_GATEWAY_URL is not set"],
+        [
+          { WORKER_GATEWAY_URL: "werft-api-internal" },
+          "WORKER_GATEWAY_URL is not a URL",
+        ],
+      ] as const) {
+        const { code, output } = await check({ ...gatewayMoves, ...overrides });
+        expect(code).toBe(1);
+        expect(output.verdict).toBe("check_failed");
+        expect(output.reason).toStartWith(reason);
+      }
+    });
+
+    test("a worker list that cannot be read stops the upgrade with exit 1", async () => {
+      const { code, output } = await run(
+        gatewayMoves,
+        undefined,
+        undefined,
+        undefined,
+        async () => {
+          throw new Error("connect ECONNREFUSED");
+        },
+      );
+      expect(code).toBe(1);
+      expect(output.reason).toContain("ECONNREFUSED");
+    });
   });
 
   test("a launch list that cannot be read stops the upgrade with exit 1", async () => {
@@ -401,9 +510,13 @@ describe("runUpgradeCheck", () => {
   });
 
   describe("a release with no scheduler Deployment", () => {
-    test("proceeds on an unused database, needing no runtime", async () => {
+    test("proceeds on an unused database, needing no runtime and no gateway address", async () => {
       const { code, output } = await run(
-        nothingDeployed,
+        {
+          ...nothingDeployed,
+          UPGRADE_DEPLOYED_WORKER_GATEWAY_URL: "",
+          WORKER_GATEWAY_URL: undefined,
+        },
         async () => {
           throw new Error("sessions were read");
         },

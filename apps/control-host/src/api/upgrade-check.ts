@@ -1,4 +1,8 @@
-import { listUnreleasedLaunchImages, listUpgradeSessions } from "@werft-ai/db";
+import {
+  listSlotHoldingWorkerSessions,
+  listUnreleasedLaunchImages,
+  listUpgradeSessions,
+} from "@werft-ai/db";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
 import {
   assessNothingReplaced,
@@ -9,6 +13,7 @@ import {
   type UpgradeAssessment,
   type UpgradeImage,
   type UpgradeSession,
+  type UpgradeWorkers,
   type WorkerImagesEnvironment,
   workerImageListFromEnv,
   workerImageRuntimesFromEnv,
@@ -28,6 +33,8 @@ export type UpgradeCheckEnvironment = Readonly<
     UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME?: string | undefined;
     UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS?: string | undefined;
     UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS_RUNTIME?: string | undefined;
+    UPGRADE_DEPLOYED_WORKER_GATEWAY_URL?: string | undefined;
+    WORKER_GATEWAY_URL?: string | undefined;
   };
 
 type Images<I> = readonly [I, ...I[]];
@@ -43,7 +50,10 @@ const UPGRADE_CHECK_EXIT = {
  * `helm rollback`): reads every session holding an uncollected checkpoint,
  * and every one not closed with the engine its runtime kind runs on, and
  * prints one JSON line saying whether the target release's worker images
- * leave any of them with nothing to resume on.
+ * leave any of them with nothing to resume on. It also reads the session of
+ * every worker holding a slot, and lists them when the target gives workers
+ * another gateway address than the deployed scheduler does: those workers
+ * end with the upgrade.
  *
  * Read: `DATABASE_URL`; the target's `WORKER_IMAGES`, or its `WORKER_IMAGE`,
  * `WORKER_IMAGE_RUNTIME`, `WORKER_IMAGE_PREVIOUS`,
@@ -51,7 +61,9 @@ const UPGRADE_CHECK_EXIT = {
  * `WORKER_IMAGES` as `UPGRADE_DEPLOYED_WORKER_IMAGES`, or its single-image
  * settings as `UPGRADE_DEPLOYED_WORKER_IMAGE` and
  * `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS` (empty when it has none), with the
- * `_RUNTIME` of each (empty when none was declared);
+ * `_RUNTIME` of each (empty when none was declared); the target's
+ * `WORKER_GATEWAY_URL` and the running scheduler's as
+ * `UPGRADE_DEPLOYED_WORKER_GATEWAY_URL`;
  * `UPGRADE_APPROVED_SESSIONS`, a JSON array of session ids; and
  * `UPGRADE_DEPLOYED_STATE`, what the chart read about the deployed release
  * when it has no worker image or runtime to compare:
@@ -72,6 +84,7 @@ export async function runUpgradeCheck(input: {
   /** Tests substitute the database; the product path connects to it. */
   listSessions?: (databaseUrl: string) => Promise<readonly UpgradeSession[]>;
   listWriters?: (databaseUrl: string) => Promise<readonly UpgradeImage[]>;
+  listWorkers?: (databaseUrl: string) => Promise<readonly string[]>;
   databaseUnused?: (databaseUrl: string) => Promise<boolean>;
   write?: (line: string) => void;
 }): Promise<number> {
@@ -138,8 +151,25 @@ export async function runUpgradeCheck(input: {
     );
   }
 
+  let gateway: UpgradeWorkers["gateway"];
+  try {
+    gateway = {
+      deployed: gatewayAddress(
+        "UPGRADE_DEPLOYED_WORKER_GATEWAY_URL",
+        environment.UPGRADE_DEPLOYED_WORKER_GATEWAY_URL,
+      ),
+      target: gatewayAddress(
+        "WORKER_GATEWAY_URL",
+        environment.WORKER_GATEWAY_URL,
+      ),
+    };
+  } catch (error) {
+    return failed((error as Error).message);
+  }
+
   let sessions: readonly UpgradeSession[];
   let writers: readonly UpgradeImage[];
+  let workers: UpgradeWorkers;
   try {
     sessions = await (input.listSessions ?? listSessions(input.logger))(
       settings.databaseUrl,
@@ -147,6 +177,12 @@ export async function runUpgradeCheck(input: {
     writers = await (input.listWriters ?? listWriters(input.logger))(
       settings.databaseUrl,
     );
+    workers = {
+      gateway,
+      sessions: await (input.listWorkers ?? listWorkers(input.logger))(
+        settings.databaseUrl,
+      ),
+    };
   } catch (error) {
     return failed(`could not read sessions: ${causeOf(error)}`);
   }
@@ -157,15 +193,32 @@ export async function runUpgradeCheck(input: {
       ? assessNothingReplaced(
           settings.approved,
           "the worker image does not change",
+          workers,
         )
       : assessUpgrade({
           deployed: settings.deployed,
           target: candidates,
           writers,
           sessions,
+          workers,
           approved: settings.approved,
         }),
   );
+}
+
+// The same address spelled two ways is one address. Not quoted: a value that
+// is not a URL may still hold a credential.
+function gatewayAddress(name: string, value: string | undefined): string {
+  if (!value) {
+    throw new Error(
+      `${name} is not set: the gateway address workers are given could not be compared`,
+    );
+  }
+  try {
+    return new URL(value).href;
+  } catch {
+    throw new Error(`${name} is not a URL`);
+  }
 }
 
 // Only the newest image of a target can lack a runtime, and only alone.
@@ -342,6 +395,13 @@ function listWriters(logger: StructuredLogger) {
   return (databaseUrl: string) =>
     withJobDatabase("upgrade-check", databaseUrl, logger, ({ db }) =>
       listUnreleasedLaunchImages(db),
+    );
+}
+
+function listWorkers(logger: StructuredLogger) {
+  return (databaseUrl: string) =>
+    withJobDatabase("upgrade-check", databaseUrl, logger, ({ db }) =>
+      listSlotHoldingWorkerSessions(db),
     );
 }
 
