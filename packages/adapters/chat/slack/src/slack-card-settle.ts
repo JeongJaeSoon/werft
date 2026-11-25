@@ -15,7 +15,9 @@ import {
   SlackRateLimitedError,
 } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
+import { slackOutboxGuard } from "./slack-outbox-render.ts";
 import {
+  guardSlackCardBlocks,
   slackDoneCard,
   slackRejectOnlyCard,
   slackRequesterLeftCard,
@@ -111,10 +113,16 @@ async function drawChoice(
   claim: SurfaceCardClaim,
   pushSource: PushSource | undefined,
 ): Promise<DrawnCard | null> {
+  // Redrawn in the scope the card was first drawn in (94S-2213).
+  const { guard } = slackOutboxGuard({
+    kind: "input_notice",
+    channelId: claim.channelId,
+    conversationScope: claim.conversationScope ?? null,
+  });
   const open = {
     rendered: "open" as const,
     text: claim.body.text,
-    blocks: claim.body.blocks ?? [],
+    blocks: guardSlackCardBlocks(claim.body.blocks ?? [], guard),
   };
   const [prefix, , ...rest] = claim.dedupeKey.split(":");
   if (prefix !== "prompt" && prefix !== "push") {
@@ -131,7 +139,7 @@ async function drawChoice(
   if (card === null) return null;
   const result = slackSettledResult(card.display);
   if (result !== null) {
-    const settled = slackSettledCard(card);
+    const settled = slackSettledCard(card, guard);
     return settled === null ? null : { rendered: result, ...settled };
   }
   if (
@@ -157,6 +165,7 @@ async function drawChoice(
     ...slackRejectOnlyCard(
       { ...card, display: card.display },
       { sessionId: claim.sessionId, requestId: rest.join(":") },
+      guard,
     ),
   };
 }

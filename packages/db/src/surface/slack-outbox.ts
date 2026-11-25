@@ -523,6 +523,23 @@ const settledAs = (rendered: SQL) =>
   sql`CASE WHEN coalesce(${rendered}, 'open') IN ${CHOICES} THEN NULL ELSE 'settled' END`;
 
 /** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
+/**
+ * A session's parent conversation as the outbox claim reads it; a DM
+ * conversation keeps no team of its own, so its install's is it.
+ */
+const conversationScopeOf = (sessionId: SQL, installationId: SQL) =>
+  sql<SurfaceConversationScope | null>`(
+    SELECT json_build_object(
+      'kind', cv.kind,
+      'teamId', COALESCE(cv.team_id, si.team_id),
+      'channelId', cv.channel_id
+    )
+    FROM sessions s
+    JOIN conversations cv ON cv.id = s.parent_conversation_id
+    JOIN slack_installations si ON si.id = ${installationId}
+    WHERE s.id = ${sessionId}
+  )`;
+
 function createPostgresSlackCardSettleStore(
   db: Database,
 ): SurfaceCardSettleStore {
@@ -666,7 +683,8 @@ function createPostgresSlackCardSettleStore(
             st.slack_app_id, st.session_id, st.channel_id, st.slack_ts,
             st.dedupe_key, st.body, st.settle_rendered, st.settle_uncertain_rev,
             st.settle_uncertain_latest_at IS NOT NULL AS uncertain,
-            pick.inherited, st.settle_attempts`),
+            pick.inherited, st.settle_attempts,
+            ${conversationScopeOf(sql`st.session_id`, sql`st.installation_id`)} AS conversation_scope`),
       );
       return rows.map(
         (row): SurfaceCardClaim => ({
@@ -684,6 +702,8 @@ function createPostgresSlackCardSettleStore(
           uncertain: Boolean(row.uncertain),
           inherited: Boolean(row.inherited),
           attempts: Number(row.settle_attempts),
+          conversationScope:
+            (row.conversation_scope as SurfaceConversationScope | null) ?? null,
         }),
       );
     },
@@ -1523,6 +1543,10 @@ export function createPostgresSlackOutboxStore(
         channelId: sessionLinks.channelId,
         threadTs: sessionLinks.threadId,
         locale: starterLocale,
+        conversationScope: conversationScopeOf(
+          sql`${sessions.id}`,
+          sql`${sessionLinks.installationId}`,
+        ),
       };
       const live = and(
         isNull(sessionLinks.revokedAt),

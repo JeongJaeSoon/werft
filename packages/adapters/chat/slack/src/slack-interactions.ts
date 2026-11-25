@@ -55,7 +55,7 @@ import {
   verifySlackRequest,
 } from "./slack-events-service.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
-import { slackOutboxText } from "./slack-outbox-render.ts";
+import { slackOutboxGuard, slackOutboxText } from "./slack-outbox-render.ts";
 import {
   SLACK_PROMPT_MESSAGES,
   type SlackPromptResult,
@@ -151,6 +151,19 @@ type Pressed = {
 };
 
 type Allowed = { caller: Caller; pressed: Pressed };
+
+// A card's text shown again on a press, scoped to the channel Slack says the
+// card sits in: the one it was posted to (94S-2213).
+const pressedGuard = (pressed: Pressed) =>
+  slackOutboxGuard({
+    kind: "input_notice",
+    channelId: pressed.channelId,
+    conversationScope: {
+      kind: "channel",
+      teamId: pressed.teamId,
+      channelId: pressed.channelId,
+    },
+  }).guard;
 
 export type SlackInteractionService = ReturnType<
   typeof createSlackInteractionService
@@ -255,7 +268,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         });
         return;
       }
-      const card = slackSettledCard(posted);
+      const card = slackSettledCard(posted, pressedGuard(pressed));
       if (card === null) return;
       await deps.slack.updateMessage(pressed.botToken, {
         channelId: pressed.channelId,
@@ -804,7 +817,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       const view =
         questions === null
           ? slackNoteView(metadata, pressed.locale)
-          : slackQuestionView(questions, metadata, pressed.locale);
+          : slackQuestionView(
+              questions,
+              metadata,
+              pressed.locale,
+              pressedGuard(pressed),
+            );
       if (view === null) {
         await show(copy.unavailable);
         return ok("failed");
