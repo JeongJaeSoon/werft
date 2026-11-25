@@ -171,20 +171,9 @@ export function createPostgresConversationReadToolStore(
           // Check spot ②, its mark locks before any row's.
           const read = await lockedTurnReadDeleted(tx, turnId);
           // The permit before the turn, as the turn's end takes them.
-          const [held] = rowsOf<{ held: boolean }>(
-            await tx.execute(sql`
-              SELECT p.expires_at > clock_timestamp() AND EXISTS (
-                SELECT 1 FROM conversation_turn_queue q
-                WHERE q.turn_id = p.turn_id AND q.state = 'leased'
-                  AND q.lease_id = ${leaseId}::uuid
-                  AND q.runtime_id = ${runtimeId}::uuid
-                  AND q.lease_expires_at > clock_timestamp()
-              ) AS held
-              FROM conversation_turn_permits p
-              WHERE p.turn_id = ${turnId}::uuid FOR UPDATE OF p`),
-          );
-          // The lease or permit ran out since the call was admitted.
-          if (held?.held !== true) return { outcome: "turn_not_held" as const };
+          await tx.execute(sql`
+            SELECT 1 FROM conversation_turn_permits
+            WHERE turn_id = ${turnId}::uuid FOR UPDATE`);
           const [turn] = rowsOf<{ state: string; sources: unknown }>(
             await tx.execute(sql`
               SELECT state, sources FROM conversation_turns
@@ -195,6 +184,22 @@ export function createPostgresConversationReadToolStore(
           if (read === null || turn?.state !== "running") {
             return { outcome: "turn_not_held" as const };
           }
+          // The lease or permit ran out since the call was admitted, read in
+          // a statement after the locks: one that waited on them reads the
+          // clock from before (db-clock.ts).
+          const [held] = rowsOf<{ held: boolean }>(
+            await tx.execute(sql`
+              SELECT p.expires_at > clock_timestamp() AND EXISTS (
+                SELECT 1 FROM conversation_turn_queue q
+                WHERE q.turn_id = p.turn_id AND q.state = 'leased'
+                  AND q.lease_id = ${leaseId}::uuid
+                  AND q.runtime_id = ${runtimeId}::uuid
+                  AND q.lease_expires_at > clock_timestamp()
+              ) AS held
+              FROM conversation_turn_permits p
+              WHERE p.turn_id = ${turnId}::uuid`),
+          );
+          if (held?.held !== true) return { outcome: "turn_not_held" as const };
           if (
             JSON.stringify(read.sources ?? null) !==
             JSON.stringify(turn.sources ?? null)
