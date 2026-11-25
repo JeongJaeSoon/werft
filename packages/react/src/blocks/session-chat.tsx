@@ -302,7 +302,7 @@ export function SessionChat({
       {state === "closed" ? (
         // Stays at the top of the scrolled chat: the reader is usually at
         // its end, far from where the list starts.
-        <div className="sticky top-0 z-10 bg-background">
+        <div className="-top-2 sticky z-10 bg-background py-2">
           <Alert variant="red" className="items-center">
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <Text role="status" className="text-foreground">
@@ -324,7 +324,7 @@ export function SessionChat({
           </Alert>
         </div>
       ) : state === "connecting" && failedAttempts >= NOTICE_AFTER_FAILURES ? (
-        <div className="sticky top-0 z-10 bg-background">
+        <div className="-top-2 sticky z-10 bg-background py-2">
           <Alert variant="amber">
             <Text role="status" className="text-foreground">
               {t("session.events.reconnecting")}
