@@ -210,6 +210,16 @@ api:
   #   extraEnv:
   #     CONSOLE_ORIGIN: https://werft.example.com
   extraEnv: {}
+  # Each api Pod's own GET /metrics: its answers to Slack's events URL by
+  # status, counted in the process (werft_slack_event_responses_total). A
+  # Pod's counts start at 0 when it starts; a collector sums the Pods. Off by
+  # default; on, the port gets a ClusterIP Service <fullname>-api-metrics and
+  # never rides the public Service or /internal.
+  metrics:
+    enabled: false
+    port: 9464
+    # How the collector finds the Pods, as metrics.podAnnotations does.
+    podAnnotations: {}
 
 # One replica, replaced with Recreate: a second scheduler never gets the
 # pass lock, so its health goes stale and liveness restarts it in a loop.
@@ -532,6 +542,10 @@ networkPolicy:
     # balancer reaches pods from outside the namespace. Workers need none of
     # it: /internal is on 3200, which admits the egress proxy alone.
     ingressFrom: []
+    metrics:
+      # Peers allowed to reach api.metrics.port. Empty allows any source;
+      # narrow it to the collector's namespace.
+      ingressFrom: []
   worker:
     # Workers reach the gateway through the egress proxy, whose NO_PROXY
     # names only localhost and the proxy, so they need no direct route.

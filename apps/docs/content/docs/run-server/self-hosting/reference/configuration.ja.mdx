@@ -188,6 +188,7 @@ egress-proxy と API の authorizer listener は次の値を読みます。一�
 | `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` | 空一覧 | `config.egress.packagesRedirectAllowlist` | packages redirect と Git LFS object の public 宛先。資格情報なしで取得し、forward 一覧との重複禁止 |
 | `INTERNAL_API_PORT` | 3200 | 個別 key なし | API の `/internal` listener ポート。worker と会話ランタイムが egress proxy を経由して呼びます。公開ポート（`PORT`、3000）には `/internal` route がありません。Compose はホストに割り当てず、chart は ClusterIP Service `<fullname>-api-internal` でだけ開き、NetworkPolicy で egress-proxy だけを通します |
 | `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | 個別 key なし | API authorizer listener アドレス |
+| `METRICS_PORT` | API コード：未設定なら listener なし。chart：`api.metrics.enabled` のとき `api.metrics.port`（9464） | 個別 key なし | API の `/metrics`・`/healthz` listener ポート。Slack イベント応答の counter（`werft_slack_event_responses_total`）を出します。公開ポートと `/internal` ポートには `/metrics` がありません。Compose は設定しません |
 | `EGRESS_AUTHORIZER_PORT` | API コード：未設定なら listener なし。Compose・chart：3100 | 自動生成 | API では token と両方設定するか両方省略。`AUTH_MODE=none` と併用すると起動拒否 |
 | `EGRESS_AUTHORIZER_URL` | proxy コード：なし。Compose：`http://api:3100`、chart：API authorizer Service | 自動生成 | http/https URL。proxy では token と両方設定するか両方省略。API listener ポートとの一致が必要です |
 | `EGRESS_AUTHORIZER_TOKEN` | 運用既定値なし | Secret の同名 key | API・proxy で共有する最小 32 文字の秘密。API では PORT、proxy では URL と対で必須。運用では環境ごとに生成し、ローカル試験値は使いません |
