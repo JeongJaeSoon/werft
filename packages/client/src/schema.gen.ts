@@ -5316,7 +5316,9 @@ export interface paths {
          * The usage summary of a period, one bucket per UTC day
          * @description Splits `GET /v1/usage/summary` by the UTC day each session was created on: one bucket per day the period `[since, until)` touches, oldest first, days without sessions included. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days. `bucket` is `day`, the only size.
          *
-         *     The buckets of one response add up to the summary of the same period: `session_count`, `cost_usd` and `token_count` sum, and `cost_complete` is false on a day whose sessions include one the summary would mark incomplete. `run_seconds` is the floor of the running total of turn time minus the floor of the one before it, so two days of 0.6 seconds read 0 and 1, as the summary reads 1. A long session's cost and time count on the day it started. It changes nothing.
+         *     The buckets of one response add up to the summary of the same period: `session_count`, `cost_usd` and `token_count` sum, and `cost_complete` is false on a day whose sessions include one the summary would mark incomplete. `run_seconds` is the floor of the running total of turn time minus the floor of the one before it, so two days of 0.6 seconds read 0 and 1, as the summary reads 1. A long session's cost and time count on the day it started.
+         *
+         *     `conversation_cost_usd` is the conversation calls (a Slack mention or DM an agent answers, not a session) created that day, apart from `cost_usd`: the day's whole spend is the two together. It counts a call as it settled, as `GET /v1/usage/breakdown?by=agent` `conversation` does, under the same `scope` (`me`: the calls asked for by the caller as a person; a key no person created has none). `conversation_cost_complete` is false on a day with a call reserved, in flight or resolved without a report. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -5344,6 +5346,8 @@ export interface paths {
          *
          *     - `by=agent`: each session counts once under its agent (`key` is the agent id, `label` its name), so the rows add up to `totals` in every column. Sessions without an agent are the row whose `key` and `label` are null.
          *     - `by=model`: a session counts under every model it called, so the rows' `session_count` may add up to more than the totals'. A session's cost its metered calls do not explain, such as an engine's turn totals from before proxy metering, is the row whose `key` and `label` are null, with no tokens.
+         *
+         *     With `by=agent` each row and `totals` carry `conversation`: the agent's conversation calls (a Slack mention or DM it answers, not a session) created in the period, apart from the sessions' figures, which they leave unchanged. `scope=installation` counts every call, `scope=me` the calls asked for by the caller as a person (a personal key's maker); a key no person created has none. An agent with calls and no session is a row with `session_count` 0, and the rows go largest session plus conversation cost first. A call counts as it settled: `cost_usd` is the settled calls' cost, split in `by_class` into `judgment_usd` (M1's judgment of whether to step in), `turn_usd` (an M2 conversation turn's calls), `summary_usd` (a channel summary's) and `other_usd` (a call from before the class was recorded), which add up to it. A call reserved, in flight (its end unknown included) or resolved without a report adds 0 and makes `cost_complete` false, as an open or unreported turn does to a session; a released call never ran and adds nothing. `call_count` counts every call but the released ones. `by=model` has no `conversation`.
          *
          *     It changes nothing.
          *
@@ -10435,6 +10439,8 @@ export interface components {
                 cost_complete: boolean;
                 token_count: number;
                 run_seconds: number;
+                conversation_cost_usd: string;
+                conversation_cost_complete: boolean;
             }[];
         };
         UsageBreakdownResponse: {
@@ -10448,6 +10454,17 @@ export interface components {
                 cost_usd: string;
                 key: string | null;
                 label: string | null;
+                conversation?: {
+                    call_count: number;
+                    cost_usd: string;
+                    cost_complete: boolean;
+                    by_class: {
+                        judgment_usd: string;
+                        turn_usd: string;
+                        summary_usd: string;
+                        other_usd: string;
+                    };
+                };
             }[];
             totals: {
                 session_count: number;
@@ -10457,6 +10474,17 @@ export interface components {
                 cache_creation_input_tokens: number;
                 token_count: number;
                 cost_usd: string;
+                conversation?: {
+                    call_count: number;
+                    cost_usd: string;
+                    cost_complete: boolean;
+                    by_class: {
+                        judgment_usd: string;
+                        turn_usd: string;
+                        summary_usd: string;
+                        other_usd: string;
+                    };
+                };
             };
         };
         UsageToolsResponse: {
@@ -51702,7 +51730,9 @@ export interface operations {
                      *           "cost_usd": "1.204100",
                      *           "cost_complete": true,
                      *           "token_count": 702300,
-                     *           "run_seconds": 2210
+                     *           "run_seconds": 2210,
+                     *           "conversation_cost_usd": "0.052300",
+                     *           "conversation_cost_complete": true
                      *         },
                      *         {
                      *           "date": "2026-10-10",
@@ -51710,7 +51740,9 @@ export interface operations {
                      *           "cost_usd": "0",
                      *           "cost_complete": true,
                      *           "token_count": 0,
-                     *           "run_seconds": 0
+                     *           "run_seconds": 0,
+                     *           "conversation_cost_usd": "0.008100",
+                     *           "conversation_cost_complete": true
                      *         },
                      *         {
                      *           "date": "2026-10-11",
@@ -51718,7 +51750,9 @@ export interface operations {
                      *           "cost_usd": "0.381000",
                      *           "cost_complete": false,
                      *           "token_count": 154200,
-                     *           "run_seconds": 640
+                     *           "run_seconds": 640,
+                     *           "conversation_cost_usd": "0.011400",
+                     *           "conversation_cost_complete": false
                      *         }
                      *       ]
                      *     }

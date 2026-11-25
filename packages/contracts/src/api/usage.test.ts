@@ -36,6 +36,38 @@ describe("usageBreakdownResponseSchema", () => {
     expect(parsed.rows[0]).toMatchObject({ key: null, label: null });
   });
 
+  test("carries an agent's conversation cost split by class beside its sessions", () => {
+    const conversation = {
+      call_count: 4,
+      cost_usd: "0.064000",
+      cost_complete: false,
+      by_class: {
+        judgment_usd: "0.010000",
+        turn_usd: "0.050000",
+        summary_usd: "0.003000",
+        other_usd: "0.001000",
+      },
+    };
+    const parsed = usageBreakdownResponseSchema.parse({
+      rows: [{ key: "agt_review", label: "리뷰 봇", ...figures, conversation }],
+      totals: { ...figures, conversation },
+    });
+    expect(parsed.rows[0]?.conversation).toEqual(conversation);
+    // A split the contract does not name is refused, not dropped.
+    expect(
+      usageBreakdownResponseSchema.safeParse({
+        rows: [],
+        totals: {
+          ...figures,
+          conversation: {
+            ...conversation,
+            by_class: { ...conversation.by_class, extra_usd: "0" },
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   test("asks for by=model or by=agent", () => {
     const ok = (by?: string) =>
       usageBreakdownQuerySchema.safeParse({
@@ -97,6 +129,8 @@ describe("usageSeriesResponseSchema", () => {
           cost_complete: true,
           token_count: 1527000,
           run_seconds: 7020,
+          conversation_cost_usd: "0.42",
+          conversation_cost_complete: true,
         },
         {
           date: "2026-10-23",
@@ -105,6 +139,8 @@ describe("usageSeriesResponseSchema", () => {
           cost_complete: false,
           token_count: 222000,
           run_seconds: 1080,
+          conversation_cost_usd: "0",
+          conversation_cost_complete: false,
         },
       ],
     });

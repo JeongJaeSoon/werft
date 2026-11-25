@@ -251,6 +251,8 @@ integration("usage series on PostgreSQL", () => {
         cost_complete: true,
         token_count: 0,
         run_seconds: 0,
+        conversation_cost_usd: "0",
+        conversation_cost_complete: true,
       });
       expect(totals(days)).toEqual({
         session_count: whole.session_count,
