@@ -1263,6 +1263,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           .set({
             activeReleaseId: input.releaseId,
             activationRevision: sql`${agents.activationRevision} + 1`,
+            modelMigrationFailedReleaseId: null,
+            modelMigrationFailure: null,
+            modelMigrationFailedAt: null,
             updatedAt: DB_NOW,
             ...intentColumns,
           })

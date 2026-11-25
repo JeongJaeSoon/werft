@@ -359,6 +359,12 @@ integration("an agent moves to the next model of its series", () => {
 
     expect(await activeModel(agentId)).toBe("claude-opus-5-1");
     expect(await failureOf(caller, agentId)).toBeNull();
+    const row = await agentRow(agentId);
+    expect([
+      row?.modelMigrationFailedReleaseId,
+      row?.modelMigrationFailure,
+      row?.modelMigrationFailedAt,
+    ]).toEqual([null, null, null]);
   });
 
   test("a failed move is no longer shown once someone changes the model by hand", async () => {
