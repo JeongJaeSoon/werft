@@ -6912,7 +6912,7 @@
         },
         "conversation_judgments_summary_check": {
           "name": "conversation_judgments_summary_check",
-          "value": "\"conversation_judgments\".\"summary\" IS NULL OR (\"conversation_judgments\".\"summary\" IN ('written','skipped','copied','invalid','lost') AND \"conversation_judgments\".\"grade\" = 'buffer_m1' AND \"conversation_judgments\".\"outcome\" = 'judged')"
+          "value": "\"conversation_judgments\".\"summary\" IS NULL OR (\"conversation_judgments\".\"summary\" IN ('written','skipped','copied','invalid','lost','channel_gone') AND \"conversation_judgments\".\"grade\" = 'buffer_m1' AND \"conversation_judgments\".\"outcome\" = 'judged')"
         }
       },
       "isRLSEnabled": false

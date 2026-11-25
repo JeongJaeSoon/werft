@@ -45,6 +45,18 @@ const tsTime = (ts: string) => new Date(Math.floor(Number(ts) * 1000));
  * Locks the channel's summary row and returns its version, first making it
  * at version 0 when `create` and there is none. Null when there is none.
  */
+/**
+ * Holds the channel's summary row, made if there is none, so a write that
+ * comes after waits for this transaction: a channel delete takes it before
+ * it removes the summary.
+ */
+export async function holdChannelSummary(
+  tx: Database,
+  place: ChannelSummaryPlace,
+): Promise<void> {
+  await lockSummary(tx, place, true);
+}
+
 async function lockSummary(
   tx: Database,
   place: ChannelSummaryPlace,
@@ -369,8 +381,10 @@ export async function appendChannelSummaryLines(
     expectedVersion: number;
     agentId: string;
     lines: readonly NewChannelSummaryLine[];
+    /** Asked with the summary's row held; false writes nothing. */
+    channelThere?: () => Promise<boolean>;
   },
-): Promise<ChannelSummaryWriteResult> {
+): Promise<ChannelSummaryWriteResult | { outcome: "channel_gone" }> {
   const { place } = request;
   if (!request.lines.every((line) => validText(line.text))) {
     return { outcome: "invalid_text" };
@@ -447,6 +461,9 @@ export async function appendChannelSummaryLines(
   const version = await lockSummary(tx, place, true);
   // Gone under a channel delete that this write waited for.
   if (version === null) return { outcome: "conflict", version: 0 };
+  if (request.channelThere !== undefined && !(await request.channelThere())) {
+    return { outcome: "channel_gone" };
+  }
   if (version !== request.expectedVersion) {
     return { outcome: "conflict", version };
   }
@@ -690,7 +707,13 @@ export function createPostgresChannelSummaryStore(
     },
 
     append(request) {
-      return db.transaction((tx) => appendChannelSummaryLines(tx, request));
+      return db.transaction(async (tx) => {
+        const written = await appendChannelSummaryLines(tx, request);
+        // Only a caller's check answers channel_gone.
+        if (written.outcome === "channel_gone")
+          throw new Error(written.outcome);
+        return written;
+      });
     },
 
     async fold(request) {

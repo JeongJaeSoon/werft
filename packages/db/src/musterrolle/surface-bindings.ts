@@ -35,6 +35,7 @@ import { findPgError, UUID } from "../control-shared.ts";
 import {
   deleteChannelSummary,
   dropUnlistenedBuffer,
+  holdChannelSummary,
 } from "../conversations/index.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
@@ -1255,8 +1256,13 @@ async function channelDeleted(
       .where(eq(slackInstallations.id, installation));
     // The binding before the summary, as a summary line's write takes them
     // (its gate, then the summary): the other way, the two wait on each other.
+    // The summary's row is held even when there is none, so a write of any
+    // agent waits for this delete and then sees the binding gone.
     const current = await lockBinding(tx, channelOf(installation, channelId));
-    if (install) await deleteChannelSummary(tx, { ...install, channelId });
+    if (install) {
+      await holdChannelSummary(tx, { ...install, channelId });
+      await deleteChannelSummary(tx, { ...install, channelId });
+    }
     if (!current || !ACTIVE_OR_LEFT.has(current.status)) return false;
     await markGone(tx, current, "channel_deleted", at);
     return true;

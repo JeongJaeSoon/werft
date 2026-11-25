@@ -73,7 +73,11 @@ const judgeOf = (
 };
 
 function batchStore(
-  writes: (ChannelSummaryWriteResult | { outcome: "gate_closed" })[] = [],
+  writes: (
+    | ChannelSummaryWriteResult
+    | { outcome: "gate_closed" }
+    | { outcome: "channel_gone" }
+  )[] = [],
 ) {
   const recorded: { record: M1Record; judged: readonly string[] }[] = [];
   const lines: { text: string; expectedVersion: number }[] = [];
@@ -271,6 +275,14 @@ describe("the summary line (a1/J8)", () => {
       store: closed.store,
     }).judge(batchOf("1.1"));
     expect(closed.recorded[0]?.record.summary).toBeNull();
+
+    // A deleted channel's: the record says why.
+    const gone = batchStore([{ outcome: "channel_gone" }]);
+    await createM1BatchJudge({
+      judge: judgedWith("someone asked for a review"),
+      store: gone.store,
+    }).judge(batchOf("1.1"));
+    expect(gone.recorded[0]?.record.summary).toBe("channel_gone");
   });
 
   test("an empty or too long line, or none, is not written", async () => {

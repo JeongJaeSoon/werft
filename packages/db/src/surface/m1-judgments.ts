@@ -175,17 +175,22 @@ export function createPostgresM1JudgmentStore(
         if (!(await gateOpenIn(tx, batch, true, versions))) {
           return { outcome: "gate_closed" as const };
         }
-        // A channel deleted while the call ran keeps no summary: the gate's
-        // lock makes a delete wait for this write, or this one see it.
-        const bound = rowsOf(
-          await tx.execute(sql`
-            SELECT 1 FROM surface_bindings
-            WHERE agent_id = ${batch.agentId}::uuid AND surface = 'slack'
-              AND external_surface_id = ${batch.channelId}
-              AND status <> 'gone'`),
-        );
-        if (bound.length === 0) return { outcome: "gate_closed" as const };
+        // Locks: this agent's binding (the gate), the marks, the summary's
+        // row, as a channel delete takes its binding, then the summary's row.
+        // A delete of any agent's, committed first, keeps the summary gone:
+        // its binding is read with the row held, after that delete ends.
         return appendChannelSummaryLines(tx, {
+          channelThere: async () =>
+            rowsOf(
+              await tx.execute(sql`
+                SELECT 1 FROM surface_bindings b
+                JOIN slack_installations i ON i.id = b.installation_id
+                WHERE b.workspace_id = ${batch.workspaceId}::uuid
+                  AND b.surface = 'slack' AND i.team_id = ${batch.teamId}
+                  AND b.external_surface_id = ${batch.channelId}
+                  AND b.revoked_at IS NULL AND b.status = 'gone'
+                LIMIT 1`),
+            ).length === 0,
           place: {
             workspaceId: batch.workspaceId,
             teamId: batch.teamId,

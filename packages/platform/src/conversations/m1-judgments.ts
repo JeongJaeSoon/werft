@@ -52,12 +52,18 @@ export interface M1JudgmentStore {
   /**
    * Adds a batch judgment's line to its channel's summary if the summary is
    * at `expectedVersion`, in a transaction of its own under the gate;
-   * `gate_closed`, writing nothing, when the gate has closed.
+   * `gate_closed`, writing nothing, when the gate has closed;
+   * `channel_gone` when any agent's binding of the channel is gone, as a
+   * delete of the channel removes the summary every agent shares.
    */
   writeSummaryLine(
     batch: JudgmentBatch,
     line: NewChannelSummaryLine & { expectedVersion: number },
-  ): Promise<ChannelSummaryWriteResult | { outcome: "gate_closed" }>;
+  ): Promise<
+    | ChannelSummaryWriteResult
+    | { outcome: "gate_closed" }
+    | { outcome: "channel_gone" }
+  >;
   /**
    * Writes a batch's record and removes the buffered messages it judged;
    * false, writing and removing nothing, when the gate has closed.
@@ -139,6 +145,8 @@ export async function writeM1SummaryLine(
     switch (result.outcome) {
       case "gate_closed":
         return null;
+      case "channel_gone":
+        return "channel_gone";
       case "written":
         return result.lineIds.length > 0 ? "written" : "skipped";
       case "conflict":

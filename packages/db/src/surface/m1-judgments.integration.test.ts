@@ -24,6 +24,7 @@ import { Pool } from "pg";
 import {
   appendChannelSummaryLines,
   createPostgresChannelSummaryStore,
+  holdChannelSummary,
 } from "../conversations/channel-summaries.ts";
 import { requestReplyJudgment } from "../conversations/conversation-judgments.ts";
 import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
@@ -70,6 +71,9 @@ integration("M1 judgment records", () => {
   const releaseId = `rel-${randomUUID()}`;
   const TEAM = "T0M1";
   let installationId = "";
+  // Another agent of the workspace in the same Slack team, by its own app.
+  const otherAgentId = randomUUID();
+  let otherInstallationId = "";
   let channelSeq = 0;
 
   beforeAll(async () => {
@@ -84,6 +88,10 @@ integration("M1 judgment records", () => {
     await pool.query(
       "INSERT INTO agents (id, workspace_id, managing_team_id, slug, name, status, conversation_rollout) VALUES ($1, $2, $3, 'judged', 'judged', 'active', 'shadow')",
       [agentId, workspaceId, team],
+    );
+    await pool.query(
+      "INSERT INTO agents (id, workspace_id, managing_team_id, slug, name, status, conversation_rollout) VALUES ($1, $2, $3, 'other', 'other', 'active', 'shadow')",
+      [otherAgentId, workspaceId, team],
     );
     const versionId = randomUUID();
     await pool.query(
@@ -106,6 +114,11 @@ integration("M1 judgment records", () => {
     await pool.query(
       "INSERT INTO slack_installations (id, workspace_id, app_id, team_id) VALUES ($1, $2, 'A0M1', $3)",
       [installationId, workspaceId, TEAM],
+    );
+    otherInstallationId = randomUUID();
+    await pool.query(
+      "INSERT INTO slack_installations (id, workspace_id, app_id, team_id) VALUES ($1, $2, 'A0M1OTHER', $3)",
+      [otherInstallationId, workspaceId, TEAM],
     );
     await pool.query(
       `INSERT INTO agent_identities
@@ -466,6 +479,15 @@ integration("M1 judgment records", () => {
       const batch = await closedBatch(place, [
         ["810.000001", "is this channel going away?"],
       ]);
+      // An earlier binding of the channel, revoked, stays behind.
+      await pool.query(
+        `INSERT INTO surface_bindings (id, workspace_id, agent_id, surface,
+          installation_id, external_surface_id, surface_kind, mode, listen,
+          ceiling_actions, ceiling_disclosure, status, revoked_at)
+         VALUES ($1, $2, $3, 'slack', $4, $5, 'public_channel', 'on', 'free',
+          '{}', 'full', 'revoked', now())`,
+        [randomUUID(), workspaceId, agentId, installationId, place.channelId],
+      );
       // The channel went while the call ran.
       expect(
         await createPostgresSurfaceBindingStore(db).channelDeleted(
@@ -479,7 +501,7 @@ integration("M1 judgment records", () => {
           batch,
           draftOf(batch, "someone asked if the channel goes away"),
         ),
-      ).toEqual({ outcome: "gate_closed" });
+      ).toEqual({ outcome: "channel_gone" });
       expect(
         await createPostgresChannelSummaryStore(db).read(placeOf(batch)),
       ).toBeNull();
@@ -488,6 +510,88 @@ integration("M1 judgment records", () => {
         [place.channelId],
       );
       expect(rows[0]).toEqual({ lines: 0, sources: 0 });
+    });
+
+    /** The other agent's binding of the channel, in use. */
+    async function otherBinding(channelId: string) {
+      await pool.query(
+        `INSERT INTO surface_bindings (id, workspace_id, agent_id, surface,
+          installation_id, external_surface_id, surface_kind, mode, listen,
+          ceiling_actions, ceiling_disclosure, status)
+         VALUES ($1, $2, $3, 'slack', $4, $5, 'public_channel', 'on', 'free',
+          '{}', 'full', 'ready')`,
+        [
+          randomUUID(),
+          workspaceId,
+          otherAgentId,
+          otherInstallationId,
+          channelId,
+        ],
+      );
+    }
+
+    test("another agent's channel delete, committed first, keeps the shared summary gone", async () => {
+      const place = await channel();
+      await otherBinding(place.channelId);
+      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const batch = await closedBatch(place, [
+        ["830.000001", "did the channel just go?"],
+      ]);
+      // The other agent's event came first; this agent's is still to come.
+      expect(
+        await createPostgresSurfaceBindingStore(db).channelDeleted(
+          otherInstallationId,
+          place.channelId,
+          null,
+        ),
+      ).toBe(true);
+      expect(
+        await writeM1SummaryLine(
+          store,
+          batch,
+          draftOf(batch, "someone asked if the channel went"),
+        ),
+      ).toBe("channel_gone");
+      expect(
+        await createPostgresChannelSummaryStore(db).read(placeOf(batch)),
+      ).toBeNull();
+    });
+
+    test("a write that comes while another agent's channel delete runs waits for it, then writes nothing", async () => {
+      const place = await channel();
+      await otherBinding(place.channelId);
+      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const batch = await closedBatch(place, [
+        ["840.000001", "is anyone archiving this?"],
+      ]);
+      let settled = false;
+      let write: Promise<unknown> = Promise.resolve();
+      await db.transaction(async (tx) => {
+        // The delete's steps: the summary's row held, the binding gone.
+        await holdChannelSummary(tx, placeOf(batch));
+        await tx.execute(sql`
+          UPDATE surface_bindings SET status = 'gone', revision = revision + 1
+          WHERE agent_id = ${otherAgentId}::uuid
+            AND external_surface_id = ${place.channelId}`);
+        write = store
+          .writeSummaryLine(
+            batch,
+            draftOf(batch, "someone asked about archiving"),
+          )
+          .then((result) => {
+            settled = true;
+            return result;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        // Before: the write waits on the held row.
+        expect(settled).toBe(false);
+      });
+      // After: it saw the binding gone and wrote nothing.
+      expect(await write).toEqual({ outcome: "channel_gone" });
+      expect(
+        (await createPostgresChannelSummaryStore(db).read(placeOf(batch)))
+          ?.lines,
+      ).toEqual([]);
     });
 
     test("three lost compares in a row drop the line and the record says so", async () => {

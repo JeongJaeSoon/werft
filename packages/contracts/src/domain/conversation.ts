@@ -409,5 +409,6 @@ export const M1_SUMMARY_OUTCOME_VALUES = [
   "copied",
   "invalid",
   "lost",
+  "channel_gone",
 ] as const;
 export type M1SummaryOutcome = (typeof M1_SUMMARY_OUTCOME_VALUES)[number];

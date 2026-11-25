@@ -4,6 +4,7 @@ export {
   appendChannelSummaryLines,
   deleteChannelSummary,
   dropChannelSummaryLinesOf,
+  holdChannelSummary,
 } from "./channel-summaries.ts";
 export {
   engagedJudgmentsInWindow,
