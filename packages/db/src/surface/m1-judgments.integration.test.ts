@@ -199,7 +199,7 @@ integration("M1 judgment records", () => {
   const rowsOf = async (channelId: string) =>
     (
       await pool.query(
-        "SELECT * FROM conversation_judgments WHERE slack_channel_id = $1 ORDER BY created_at",
+        "SELECT * FROM conversation_judgments WHERE slack_channel_id = $1 ORDER BY created_at, judged_at NULLS FIRST",
         [channelId],
       )
     ).rows;
@@ -758,8 +758,8 @@ integration("M1 judgment records", () => {
       ).toBe("written");
       rows = await rowsOf(place.channelId);
       expect(rows.map((row) => [row.outcome, row.call_key])).toEqual([
-        ["judged", `${inputId}-rejudge:m1`],
         ["voided", `${inputId}:m1`],
+        ["judged", `${inputId}-rejudge:m1`],
       ]);
     });
 
@@ -1123,36 +1123,42 @@ integration("M1 judgment records", () => {
       });
     });
 
-    test("an edit begun before the read and committed after it is dated after it", async () => {
+    test("a reply's claim waits out a mark in progress and reads after it", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
       const place = await channel();
+      await hold(place, "3100.000002", "reply", "m1_engaged");
       const client = await pool.connect();
-      let editing: Promise<unknown> = Promise.resolve();
       try {
         await client.query("BEGIN");
         await client.query(
-          "SELECT pg_advisory_xact_lock(hashtext('slack_source_marks'), hashtext(concat_ws('|', $1::text, $2::text, $3::text, $4::text)))",
+          "SELECT pg_advisory_xact_lock_shared(hashtext('slack_channel_marks'), hashtext(concat_ws('|', $1::text, $2::text, $3::text)))",
+          [workspaceId, TEAM, place.channelId],
+        );
+        await client.query(
+          "INSERT INTO edited_sources (workspace_id, team_id, channel_id, ts, edited_at, marked_at) VALUES ($1, $2, $3, $4, now(), clock_timestamp())",
           [workspaceId, TEAM, place.channelId, "3100.000001"],
         );
-        editing = marks().markEdited(mark(place, "3100.000001"), "changed");
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        const { batch, held } = await batchOver(place, [
-          ["3100.000002", "one"],
-        ]);
+        let settled = false;
+        const claiming = store()
+          .claimReply()
+          .finally(() => {
+            settled = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(settled).toBe(false);
         await client.query("COMMIT");
-        await editing;
-        expect(
-          await store().recordBatch(
-            batch,
-            withContext(
-              judgedRecord(batch.id, ["3100.000002"]),
-              [place, "3100.000001"],
-              [place, "3100.000002"],
-            ),
-            held,
-          ),
-        ).toMatchObject({ outcome: "voided", reason: "voided_by_edit" });
+        const claimed = await claiming;
+        expect(claimed?.subject.channelId).toBe(place.channelId);
+        const [marked] = (
+          await pool.query<{ after: boolean }>(
+            "SELECT $1::timestamptz > marked_at AS after FROM edited_sources WHERE channel_id = $2",
+            [claimed?.readAt, place.channelId],
+          )
+        ).rows;
+        expect(marked?.after).toBe(true);
       } finally {
-        await editing.catch(() => undefined);
         client.release();
       }
     });
