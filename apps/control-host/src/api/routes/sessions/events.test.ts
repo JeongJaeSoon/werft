@@ -245,7 +245,9 @@ class FrameReader {
       this.#buffer += new TextDecoder().decode(chunk.value);
       let end = this.#buffer.indexOf("\n\n");
       while (end !== -1) {
-        this.#frames.push(parseFrame(this.#buffer.slice(0, end)));
+        const frame = parseFrame(this.#buffer.slice(0, end));
+        // The comment every stream opens with; its own test reads it.
+        if (frame.comment !== "connected") this.#frames.push(frame);
         this.#buffer = this.#buffer.slice(end + 2);
         end = this.#buffer.indexOf("\n\n");
       }
@@ -521,6 +523,32 @@ describe("GET /v1/sessions/{id}/events", () => {
     }
     expect(store.reads.at(-1)?.after).toBe("ev_3");
     await frames.cancel();
+  });
+
+  test("a stream with nothing to replay sends its first bytes at once, not at the keepalive", async () => {
+    const { app, store } = harness({ keepaliveMs: 5_000 });
+    store.append(event(1));
+    const response = await open(app, { "Last-Event-ID": "ev_1" });
+    expect(response.status).toBe(200);
+    if (!response.body) throw new Error("no body");
+    const reader = response.body.getReader();
+    const started = Date.now();
+    const first = await reader.read();
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(new TextDecoder().decode(first.value)).toBe(": connected\n\n");
+    await reader.cancel();
+  });
+
+  test("a stream with events to replay starts with them, not the comment", async () => {
+    const { app, store } = harness({ keepaliveMs: 5_000 });
+    store.append(event(1));
+    const response = await open(app);
+    if (!response.body) throw new Error("no body");
+    const reader = response.body.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    expect(first).not.toContain(": connected");
+    expect(first).toContain("id: ev_1\n");
+    await reader.cancel();
   });
 
   test("sends a keepalive comment on the clock while idle", async () => {

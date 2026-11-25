@@ -49,6 +49,7 @@ import {
   type TranscriptRevision,
   type TranscriptSizeProblem,
   type TranscriptStore,
+  type TranscriptStoreOptions,
   TranscriptTooLargeError,
   transcriptBytes,
   transcriptParts,
@@ -177,6 +178,8 @@ export type SessionCheckpointsOptions = {
   outputLimits?: OutputLimits;
   /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
   transcriptLimits?: TranscriptLimits;
+  /** How a mirror append's write is sent again (`TranscriptStoreOptions.resend`). */
+  resendTranscriptWrite?: (write: () => Promise<void>) => Promise<void>;
   now?: () => Date;
   /** Waits out a restore's backoff; resolves early once `signal` aborts. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
@@ -419,7 +422,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ...(engineDirectory === undefined ? {} : { engineDirectory }),
         objects: this.#options.objects,
         prefix: this.#transcriptPrefix(),
-        ...this.#storeLimits(),
+        ...this.#storeSettings(),
       });
       try {
         // Before the engine starts: a generation another launch already wrote
@@ -533,7 +536,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       },
       objects,
       prefix: this.#transcriptPrefix(),
-      ...this.#storeLimits(),
+      ...this.#storeSettings(),
     });
     await store.ready();
     await store.verifyInherited(signal);
@@ -756,9 +759,15 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     return this.#options.transcriptLimits ?? TRANSCRIPT_LIMITS;
   }
 
-  #storeLimits(): { transcriptLimits?: TranscriptLimits } {
-    const limits = this.#options.transcriptLimits;
-    return limits === undefined ? {} : { transcriptLimits: limits };
+  #storeSettings(): Pick<
+    TranscriptStoreOptions,
+    "resend" | "transcriptLimits"
+  > {
+    const { resendTranscriptWrite: resend, transcriptLimits } = this.#options;
+    return {
+      ...(transcriptLimits === undefined ? {} : { transcriptLimits }),
+      ...(resend === undefined ? {} : { resend }),
+    };
   }
 
   #transcriptPrefix(): string {
@@ -796,14 +805,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         }
         return null;
       }
-      const limited = await this.#limitReached(
-        bound,
-        preparation,
-        context,
-      ).catch((error: unknown) => {
-        if (isOwnershipLost(error)) reasonCode = "ownership_lost";
-        throw error;
-      });
+      const limited = await timer
+        .time("limit", () => this.#limitReached(bound, preparation, context))
+        .catch((error: unknown) => {
+          if (isOwnershipLost(error)) reasonCode = "ownership_lost";
+          throw error;
+        });
       if (limited !== undefined) {
         outcome = "refused";
         reasonCode = limited;
@@ -1134,16 +1141,18 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
     // The lease is held and the engine stopped: the one moment the session's
     // own commits may be remade before this capture pins the tip.
-    const repaired = await repairAttribution({
-      root: this.#options.workspaceRoot,
-      home: this.#options.home ?? "",
-      tool: this.#options.repairTool,
-      gateway: this.#options.gateway,
-      scope: context.scope,
-      spool,
-      ...(bound.judgedTip === undefined ? {} : { judged: [bound.judgedTip] }),
-      logger: this.#captureLogger(context),
-    });
+    const repaired = await timer.time("attribution_repair", () =>
+      repairAttribution({
+        root: this.#options.workspaceRoot,
+        home: this.#options.home ?? "",
+        tool: this.#options.repairTool,
+        gateway: this.#options.gateway,
+        scope: context.scope,
+        spool,
+        ...(bound.judgedTip === undefined ? {} : { judged: [bound.judgedTip] }),
+        logger: this.#captureLogger(context),
+      }),
+    );
     if ("head" in repaired && repaired.head !== undefined) {
       bound.judgedTip = repaired.head;
     }
@@ -1220,14 +1229,18 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     // repair has run.
     const mismatches =
       capture.gitCommit === capture.headCommit
-        ? await workspaceMismatches({
-            root: this.#options.workspaceRoot,
-            tip: capture.gitCommit,
-            expectations: claimExpectations(bound.claim),
-            stripEmails: bound.claim.git_strip ?? [],
-            protectedCommits:
-              repaired.status === "skipped" ? null : repaired.protectedCommits,
-          })
+        ? await timer.time("attribution_check", () =>
+            workspaceMismatches({
+              root: this.#options.workspaceRoot,
+              tip: capture.gitCommit,
+              expectations: claimExpectations(bound.claim),
+              stripEmails: bound.claim.git_strip ?? [],
+              protectedCommits:
+                repaired.status === "skipped"
+                  ? null
+                  : repaired.protectedCommits,
+            }),
+          )
         : [workingTreeSnapshotMismatch(capture.gitCommit)];
     const bases = capture.bundle.incremental ? (previous?.links ?? []) : [];
     timer.reused(bases.length);

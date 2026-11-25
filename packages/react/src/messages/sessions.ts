@@ -203,6 +203,9 @@ export const sessionsKo = {
   "session.events.connecting": "이벤트에 연결하는 중…",
   "session.events.closed":
     "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
+  "session.events.ended": "이벤트 연결이 끊겼습니다.",
+  "session.events.reconnecting": "이벤트 연결이 끊겼습니다. 다시 연결하는 중…",
+  "session.events.reconnect": "다시 연결",
   "session.events.prompt": "지시",
   "session.events.more": "더 보기",
   "session.events.less": "접기",
@@ -474,6 +477,9 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.events.connecting": "Connecting to events…",
   "session.events.closed":
     "The event connection ended. Reload the page to reconnect.",
+  "session.events.ended": "The event connection ended.",
+  "session.events.reconnecting": "The event connection dropped. Reconnecting…",
+  "session.events.reconnect": "Reconnect",
   "session.events.prompt": "Instruction",
   "session.events.more": "Show more",
   "session.events.less": "Show less",
@@ -746,6 +752,10 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.events.connecting": "イベントに接続中…",
   "session.events.closed":
     "イベントの接続が切れました。ページを再読み込みすると再接続します。",
+  "session.events.ended": "イベントの接続が切れました。",
+  "session.events.reconnecting":
+    "イベントの接続が切れました。再接続しています…",
+  "session.events.reconnect": "再接続",
   "session.events.prompt": "指示",
 
   "session.event.kind.status": "状態",

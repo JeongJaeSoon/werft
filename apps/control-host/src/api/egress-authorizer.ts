@@ -58,8 +58,9 @@ export const EGRESS_EXCHANGE_ID_HEADER = "x-werft-exchange-id";
 // headers; anything bigger is not a request from the proxy.
 const MAX_BODY_BYTES = 16 * 1024;
 // The proxy waits for this before the worker's request goes anywhere, so a
-// slow database answers 503 rather than holding the engine's call open.
-const AUTHORIZE_DEADLINE_MS = 10_000;
+// slow database answers 503 rather than holding the engine's call open. Under
+// the proxy's own wait for an answer, so that 503 is what the proxy reads.
+export const AUTHORIZE_DEADLINE_MS = 10_000;
 // A bearer an operator could type from memory is not a lock.
 const MIN_TOKEN_LENGTH = 32;
 
@@ -316,6 +317,18 @@ async function readAtMost(
 
 function problem(status: number, code: string, message: string): Response {
   return Response.json({ code, message }, { status });
+}
+
+/**
+ * The store a decision is read from could not be read in time. No decision,
+ * so no grant; marked apart from every other 503 because this one alone may
+ * be answered differently a moment later, and the proxy asks again on it.
+ */
+function undecided(message: string): Response {
+  return Response.json(
+    { code: "BACKEND_UNAVAILABLE", message, retryable: true },
+    { status: 503, headers: { "retry-after": "1" } },
+  );
 }
 
 export function createEgressAuthorizer(deps: {
@@ -836,7 +849,7 @@ export function createEgressAuthorizer(deps: {
           purpose: fields.purpose,
           deadline_ms: deadlineMs,
         });
-        return problem(503, "BACKEND_UNAVAILABLE", "Authorization timed out");
+        return undecided("Authorization timed out");
       }
       deadline.finish();
       return outcome instanceof Response ? outcome : Response.json(outcome);
@@ -872,12 +885,19 @@ export function createEgressAuthorizer(deps: {
         }
         return problem(error.status, error.code, error.message);
       }
-      if (!isStorageUnavailable(error)) {
-        deps.logger.error("Egress authorization failed", {
-          purpose: fields.purpose,
-          error: error instanceof Error ? error.name : "error",
-        });
+      if (isStorageUnavailable(error)) {
+        deps.logger.warn(
+          "Egress authorization undecided: storage unavailable",
+          {
+            purpose: fields.purpose,
+          },
+        );
+        return undecided("Authorization unavailable");
       }
+      deps.logger.error("Egress authorization failed", {
+        purpose: fields.purpose,
+        error: error instanceof Error ? error.name : "error",
+      });
       return problem(503, "BACKEND_UNAVAILABLE", "Authorization unavailable");
     } finally {
       clearTimeout(timer);

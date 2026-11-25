@@ -482,6 +482,11 @@ export class WorkerHost {
     });
   }
 
+  /** What is left before this attempt gives its lease up; 0 before a claim. */
+  get leaseLeftMs(): number {
+    return this.heartbeat?.leaseLeftMs ?? 0;
+  }
+
   /**
    * What every outside write waits on before it is sent (the gateway
    * client's calls, the object store's requests): `Heartbeat.unconfirmed`
@@ -2282,6 +2287,7 @@ export class WorkerHost {
         );
       };
       let finalized: Awaited<ReturnType<typeof finalize>>;
+      const finalizeStarted = performance.now();
       try {
         finalized = await finalize(
           terminal,
@@ -2335,6 +2341,8 @@ export class WorkerHost {
       this.logger.info("worker.turn.finalized", {
         turn_id: turnId,
         status: terminal.status,
+        // The control plane's verification of the checkpoint, retries included.
+        finalize_ms: Math.round(performance.now() - finalizeStarted),
       });
       this.turn = undefined;
       this.scope.turn_id = null;

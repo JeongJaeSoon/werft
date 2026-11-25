@@ -543,11 +543,11 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
   test("a NOTIFY wakes an idle stream well inside the keepalive", async () => {
     const sessionId = await createdSession();
     const response = await stream(sessionId);
-    // Idle: the first thing on the wire is a keepalive comment.
+    // Idle: the first thing on the wire is the comment a stream opens with.
     const reader = response.body?.getReader();
     if (!reader) throw new Error("no body");
     const first = await reader.read();
-    expect(new TextDecoder().decode(first.value)).toBe(": keepalive\n\n");
+    expect(new TextDecoder().decode(first.value)).toBe(": connected\n\n");
 
     const started = Date.now();
     await appendLikeWorker(sessionId, 1);
@@ -585,6 +585,9 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     expect(response.status).toBe(200);
     const reader = response.body?.getReader();
     if (!reader) throw new Error("no body");
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(
+      ": connected\n\n",
+    );
     expect(new TextDecoder().decode((await reader.read()).value)).toBe(
       ": keepalive\n\n",
     );

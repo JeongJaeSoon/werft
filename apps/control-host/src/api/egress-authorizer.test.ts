@@ -1365,3 +1365,88 @@ describe("the budget account an open holds its call on", () => {
     expect(logged?.fields?.budget_account_id).toBeUndefined();
   });
 });
+
+describe("a decision the store could not give", () => {
+  const unreadable = Object.assign(new Error("connect ECONNREFUSED"), {
+    code: "ECONNREFUSED",
+  });
+
+  function asking(
+    authorizeConversationCallEgress: () => Promise<never>,
+    deadlineMs?: number,
+  ) {
+    const records: LogRecord[] = [];
+    const answer = createEgressAuthorizer({
+      gateway: { ...gateway, authorizeConversationCallEgress },
+      logger: createLogger({
+        sinks: [{ write: (record) => void records.push(record) }],
+      }),
+      token: AUTHORIZER_TOKEN,
+      ...(deadlineMs === undefined ? {} : { deadlineMs }),
+    });
+    return {
+      records,
+      ask: () =>
+        answer(
+          new Request(`http://authorizer.invalid${EGRESS_AUTHORIZER_PATH}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+            },
+            body: JSON.stringify({ token: "weg_any", purpose: "provider" }),
+          }),
+        ),
+    };
+  }
+
+  test("a store that cannot be read is answered 503 and retryable, never with a grant", async () => {
+    const { ask, records } = asking(async () => {
+      throw unreadable;
+    });
+    const response = await ask();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("1");
+    expect(await response.json()).toEqual({
+      code: "BACKEND_UNAVAILABLE",
+      message: "Authorization unavailable",
+      retryable: true,
+    });
+    expect(records.map((record) => record.message)).toEqual([
+      "Egress authorization undecided: storage unavailable",
+    ]);
+  });
+
+  test("a decision past its deadline is retryable the same way", async () => {
+    const { ask } = asking(() => new Promise<never>(() => {}), 10);
+    const response = await ask();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      code: "BACKEND_UNAVAILABLE",
+      message: "Authorization timed out",
+      retryable: true,
+    });
+  });
+
+  test("any other failure is a 503 that is not marked retryable", async () => {
+    const { ask, records } = asking(async () => {
+      throw new Error("a bug, not an outage");
+    });
+    const response = await ask();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual({
+      code: "BACKEND_UNAVAILABLE",
+      message: "Authorization unavailable",
+    });
+    expect(records.map((record) => record.message)).toEqual([
+      "Egress authorization failed",
+    ]);
+  });
+
+  test("a refusal stays a refusal", async () => {
+    const response = await ask({ token: "weg_unknown", purpose: "provider" });
+    expect(response.status).toBe(401);
+    expect(await response.json()).not.toHaveProperty("retryable");
+  });
+});

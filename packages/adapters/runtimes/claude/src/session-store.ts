@@ -80,6 +80,7 @@ export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
   readonly #prefix: string;
   readonly #inherit: Inheritance | undefined;
   readonly #limits: TranscriptLimits;
+  readonly #resend: (write: () => Promise<void>) => Promise<void>;
   /**
    * Per transcript (`""` for the root), what a capture pins ahead of this
    * generation's own parts once a merge replaced the adopted ones, and which
@@ -166,6 +167,7 @@ export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
         : inheritance(options.inherit, this.#namespace, generation);
     this.revisionScoped = this.#inherit !== undefined;
     this.#limits = options.transcriptLimits ?? TRANSCRIPT_LIMITS;
+    this.#resend = options.resend ?? ((write) => write());
     // Started now rather than on first use, so two stores a host opens
     // together for one generation both find it empty. Every operation awaits
     // it; the catch only keeps a store nobody used from reporting an
@@ -217,7 +219,9 @@ export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
     const write = async () => {
       await this.#opened;
       try {
-        await this.#write(prefix, entries);
+        // Unsettled only once the host stops sending it again: a capture
+        // waits on a batch still being sent, and refuses one that was lost.
+        await this.#resend(() => this.#write(prefix, entries));
       } catch (error) {
         this.#unsettled.add(prefix);
         throw error;
