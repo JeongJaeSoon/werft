@@ -1263,6 +1263,11 @@ export const slackApps = pgTable(
     manifestSyncCheckedAt: timestamp("manifest_sync_checked_at", {
       withTimezone: true,
     }),
+    /**
+     * The scopes Slack granted the stored bot token (the install's answer,
+     * refreshed by each start's manifest check); null when not known.
+     */
+    botScopes: text("bot_scopes").array(),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),
@@ -2782,6 +2787,11 @@ export const pendingRequests = pgTable(
     answeredBy: jsonb("answered_by"),
     answerSurface: text("answer_surface"),
     answerDecisionId: uuid("answer_decision_id"),
+    // The authorization subject of whoever allowed this request for the
+    // session, judged again before each later call the allow covers. Null
+    // for every other answer, and for allows given before the column, which then
+    // cover nothing.
+    sessionAllowSubject: jsonb("session_allow_subject"),
     settledAt: timestamp("settled_at", { withTimezone: true }),
     // answered | expired | cancelled from the worker; lost when the
     // execution went away before it said.

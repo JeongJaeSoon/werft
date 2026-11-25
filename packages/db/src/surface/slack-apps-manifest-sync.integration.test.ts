@@ -11,6 +11,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
 import { agents, slackApps, workspaces } from "../schema.ts";
+import { createPostgresSecretStore } from "../secrets/secret-values.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
 import { createPostgresSlackAppStore } from "./slack-apps.ts";
 
@@ -135,6 +136,111 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
       .where(eq(slackApps.id, app.slackAppId));
     expect(row?.checkedAt).toBeNull();
   });
+
+  test("a bot token's scopes are written with the token they were read with only, on a created app", async () => {
+    const store = createPostgresSlackAppStore(db, key);
+    const secrets = createPostgresSecretStore(db, key);
+    const live = await agentApp();
+    const gone = await agentApp("deleted");
+    const slot = (app: { workspaceId: string; slackAppId: string }) => ({
+      workspaceId: app.workspaceId,
+      owner: { kind: "slack_app" as const, id: app.slackAppId },
+      purpose: "slack_bot_token" as const,
+    });
+    const version = async (app: { workspaceId: string; slackAppId: string }) =>
+      (await store.find(app.workspaceId, app.slackAppId))?.secrets
+        .slack_bot_token?.secretVersion ?? 0;
+    for (const app of [live, gone]) await secrets.put(slot(app), "fixture-one");
+    const read = await version(live);
+    for (const app of [live, gone])
+      await store.setBotScopes(
+        app.workspaceId,
+        app.slackAppId,
+        ["chat:write"],
+        await version(app),
+      );
+    expect(
+      (await store.find(live.workspaceId, live.slackAppId))?.botScopes,
+    ).toEqual(["chat:write"]);
+    // A new install stored another token after the scopes were read.
+    await secrets.put(slot(live), "fixture-two");
+    await store.setBotScopes(
+      live.workspaceId,
+      live.slackAppId,
+      ["users:read"],
+      read,
+    );
+    expect(
+      (await store.find(live.workspaceId, live.slackAppId))?.botScopes,
+    ).toEqual(["chat:write"]);
+    const [row] = await db
+      .select({ botScopes: slackApps.botScopes })
+      .from(slackApps)
+      .where(eq(slackApps.id, gone.slackAppId));
+    expect(row?.botScopes).toBeNull();
+  });
+
+  test("scopes read with the old token wait for an install that holds the app and are dropped after it", async () => {
+    const store = createPostgresSlackAppStore(db, key);
+    const secrets = createPostgresSecretStore(db, key);
+    const app = await agentApp();
+    const slot = {
+      workspaceId: app.workspaceId,
+      owner: { kind: "slack_app" as const, id: app.slackAppId },
+      purpose: "slack_bot_token" as const,
+    };
+    await secrets.put(slot, "fixture-one");
+    const read =
+      (await store.find(app.workspaceId, app.slackAppId))?.secrets
+        .slack_bot_token?.secretVersion ?? 0;
+    // A new install, as storeBotToken writes it: the app row locked, then
+    // a new token version and its scopes, committed together.
+    const install = await pool.connect();
+    let late: Promise<void> | undefined;
+    let committed = false;
+    try {
+      await install.query("BEGIN");
+      await install.query(
+        "SELECT id FROM slack_apps WHERE id = $1 FOR UPDATE",
+        [app.slackAppId],
+      );
+      await install.query(
+        "UPDATE secret_values SET secret_version = secret_version + 1 WHERE workspace_id = $1 AND purpose = 'slack_bot_token'",
+        [app.workspaceId],
+      );
+      await install.query(
+        "UPDATE slack_apps SET bot_scopes = ARRAY['chat:write', 'groups:write'] WHERE id = $1",
+        [app.slackAppId],
+      );
+      late = store.setBotScopes(
+        app.workspaceId,
+        app.slackAppId,
+        ["chat:write"],
+        read,
+      );
+      // Commit only once the late write is queued behind the install's lock.
+      for (let tries = 0; ; tries++) {
+        const { rows } = await pool.query(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        );
+        if (rows[0].n > 0) break;
+        if (tries > 100) throw new Error("the late write never waited");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await install.query("COMMIT");
+      committed = true;
+      await late;
+    } finally {
+      if (!committed) {
+        await install.query("ROLLBACK");
+        await late?.catch(() => {});
+      }
+      install.release();
+    }
+    expect(
+      (await store.find(app.workspaceId, app.slackAppId))?.botScopes,
+    ).toEqual(["chat:write", "groups:write"]);
+  }, 20_000);
 
   test("the table refuses an error the contract does not name", async () => {
     const app = await agentApp();

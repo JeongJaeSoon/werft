@@ -25,6 +25,7 @@ import {
 import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
+  BOT_SCOPES,
   SESSION_SCOPE_VALUES,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
@@ -268,6 +269,7 @@ async function installedAgent() {
   await appStore.storeBotToken({
     workspaceId,
     slackAppId,
+    scopes: [...BOT_SCOPES],
     botToken: BOT_CREDENTIAL,
   });
   await registerSlackInstallation(db, {

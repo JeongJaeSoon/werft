@@ -1,0 +1,1 @@
+ALTER TABLE "pending_requests" ADD COLUMN "session_allow_subject" jsonb;

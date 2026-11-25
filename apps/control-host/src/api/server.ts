@@ -1506,6 +1506,7 @@ const conversationTurns = createConversationRuntimeTurns({
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   telemetry,
+  authorization,
   catalog,
   neutralize,
   ...(extensionBundles === undefined ? {} : { extensions: extensionBundles }),
