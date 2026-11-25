@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { hostname, tmpdir, userInfo } from "node:os";
@@ -8,13 +9,17 @@ import {
   CONVERSATION_TURN_LIMIT_MS,
   conversationRuntimeIdSchema,
 } from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import {
   type ConversationCalls,
   conversationTurnLimitReached,
   createConversationRuntimeTurns,
   createMemoryConversationTurnQueue,
+  SecretKey,
 } from "@werft-ai/platform";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import { drizzle } from "drizzle-orm/pglite";
 import { ambiguousPathGuard } from "./ambiguous-path.ts";
 import {
   assertConversationTurnDispatch,
@@ -129,6 +134,19 @@ describe("assertConversationTurnDispatch", () => {
       ),
     ).not.toThrow();
   });
+
+  test("on starts over the queue in the database", async () => {
+    const queue = schema.createPostgresConversationTurnQueue(
+      drizzle(await migratedPGlite(), { schema }),
+      SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY"),
+    );
+    expect(() =>
+      assertConversationTurnDispatch(
+        { CONVERSATION_TURN_DISPATCH: "true" },
+        queue,
+      ),
+    ).not.toThrow();
+  }, 60_000);
 
   test("refuses a value that is neither", () => {
     expect(() =>
