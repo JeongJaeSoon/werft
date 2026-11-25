@@ -19,6 +19,8 @@ export type ContextFragment = { scope: ScopeKey; sources: SourceKey[] } & (
   | {
       kind: "channel_summary_line";
       lineId: ChannelSummaryLineId;
+      /** Each source's `at` as read, in `sources` order. */
+      sourceAt: Date[];
       text: string;
       writtenByAgentId: string;
       writtenAt: Date;
@@ -43,6 +45,8 @@ export type ContextFragment = { scope: ScopeKey; sources: SourceKey[] } & (
       kind: "buffered_message";
       inputId: ConversationInputId;
       body: string;
+      /** When the body was last edited; unset or null, never. */
+      editedAt?: Date | null;
       poster: { kind: string; id: string };
       receivedAt: Date;
     }
@@ -55,6 +59,8 @@ export type ContextRead = {
   fragments: ContextFragment[];
   /** Left out: their text could not be read again where it points (deleted, no access). */
   unreadable: number;
+  /** The version of the channel summary the lines were read at; unset: none. */
+  summaryVersion?: number;
 };
 
 /**
