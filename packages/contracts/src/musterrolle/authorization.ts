@@ -396,7 +396,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // workspace's managers and its admins, private channels' included.
   "judgment.read",
   // One agent's conversation turns, no text (v1-b/V2): the same readers as
-  // judgment.read, a private channel's turns only to its current members.
+  // judgment.read, every place's turns alike.
   "conversation_turn.read",
   // The installation's connections, repositories and remote MCP servers,
   // and the settings document that exports and imports them: the owner.
