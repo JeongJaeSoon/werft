@@ -68,7 +68,8 @@ const oldGrant = z
 
 const BOUND = { approval_remember: true, session_allow_check: true } as const;
 
-// A Slack member's answer as the answer path keeps it.
+// A stored giver for a faked policy: only its shape and channel matter here.
+// The real policy judges a Slack giver in policy-private-channel-writes.test.ts.
 const SLACK_SUBJECT: AuthorizationSubject = {
   principal: {
     kind: "user",

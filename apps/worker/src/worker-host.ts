@@ -3124,19 +3124,22 @@ export class WorkerHost {
     if (grant !== undefined) {
       pending.bind(request.localId, grant.request_id);
       this.turn?.spans.granted(request.localId);
-      if (grant.remember_offer !== undefined) {
-        this.holdSessionAllow({
-          requestId: grant.request_id,
-          rules: grant.remember_offer.map((rule) => ({
-            toolName: rule.tool_name,
-            ...(rule.rule_content === undefined
-              ? {}
-              : { ruleContent: rule.rule_content }),
-          })),
-        });
-      }
       void answer({ kind: "selected", optionKind: "allow_once" }).then(
-        (result) => this.grantAnswered(grant, result),
+        (result) => {
+          // As with a fresh answer: one the run never took allows nothing.
+          if (result === "applied" && grant.remember_offer !== undefined) {
+            this.holdSessionAllow({
+              requestId: grant.request_id,
+              rules: grant.remember_offer.map((rule) => ({
+                toolName: rule.tool_name,
+                ...(rule.rule_content === undefined
+                  ? {}
+                  : { ruleContent: rule.rule_content }),
+              })),
+            });
+          }
+          this.grantAnswered(grant, result);
+        },
         () => this.grantAnswered(grant, "stale"),
       );
       return;

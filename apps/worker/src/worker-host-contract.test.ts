@@ -1044,6 +1044,27 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       });
     });
 
+    test.each(["stale", "unknown"] as const)(
+      "a resumed allow the run calls %s covers no later call",
+      async (result) => {
+        const run = new ScriptedRun();
+        run.answerResult = result;
+        run.onSend = (sent) => {
+          call(run, sent, "c1");
+          setTimeout(() => call(run, sent, "c2", RUN_RULE), 5);
+          setTimeout(() => finish(run, sent), 40);
+        };
+        const { gateway, worker } = host(run);
+        gateway.grants = [parked()];
+        gateway.enqueue("hello");
+
+        await worker.runLoop();
+
+        expect(gateway.sessionAllowChecks).toEqual([]);
+        expect(gateway.registrations).toHaveLength(1);
+      },
+    );
+
     test("once its giver no longer may, the call is put to a person and the allow is dropped", async () => {
       const run = new ScriptedRun();
       run.onSend = (sent) => {
