@@ -723,7 +723,9 @@ integration("channel summaries (0325)", () => {
       // edit removed line A and line B was made from the edited text.
       await append(channel, 0, [{ text: "line A", sources: [src(a)] }]);
       await marks().markEdited(editMark(channel, a.ts, edited));
-      await append(channel, 1, [
+      // The edit took line A out: a version of its own.
+      const afterEdit = (await summaries.read(placeOf(channel)))?.version ?? 0;
+      const { version } = await append(channel, afterEdit, [
         { text: "line B", sources: [{ ...src(a), editedAt: edited }] },
       ]);
       // The input row is gone: a is known only by line B's source row.
@@ -732,19 +734,19 @@ integration("channel summaries (0325)", () => {
         summaries.append({
           place: placeOf(channel),
           agentId,
-          expectedVersion: 2,
+          expectedVersion: version,
           lines: [{ text: "line read", sources: [ofA(editedAt)] }],
         });
       expect(await write(at(a.ts))).toEqual({
         outcome: "written",
-        version: 2,
+        version,
         lineIds: [],
         skipped: [a.id],
       });
       // One that read line B is the edited text's, and stays.
       expect(await write(edited)).toMatchObject({
         outcome: "written",
-        version: 3,
+        version: version + 1,
       });
     });
 
@@ -783,7 +785,8 @@ integration("channel summaries (0325)", () => {
       expect(await marks().markDeleted(mark(channel, engaged))).toBe(
         "recorded",
       );
-      expect(await everyVersion(channel)).toEqual([[], []]);
+      // After: a version of its own without the line, and none holds it.
+      expect(await everyVersion(channel)).toEqual([[], [], []]);
     });
 
     test("a line keeps every source its call read, and one read off a summary line goes when that line's source is deleted", async () => {

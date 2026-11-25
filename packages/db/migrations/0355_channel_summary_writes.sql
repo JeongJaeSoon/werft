@@ -1,10 +1,11 @@
+-- migrate:no-transaction
 -- Channel summary writes (a1/J8). Each version's time, so the reconciler
 -- keeps 7 days of history; the edit time of a text a summary line was made
 -- from and of a buffered message's edited body, so an edit removes only the
 -- lines made before it; and what became of a batch judgment's summary line.
 -- New columns are nullable with no default, so no row is rewritten. The
--- summary check is NOT VALID: every existing row has no summary, and new
--- rows are checked. Every statement may run again.
+-- summary check is added NOT VALID and validated in its own statement
+-- (every existing row has no summary). Every statement may run again.
 CREATE TABLE IF NOT EXISTS "channel_summary_versions" (
 	"workspace_id" uuid NOT NULL,
 	"team_id" text NOT NULL,
@@ -32,4 +33,5 @@ SELECT s."workspace_id", s."team_id", s."channel_id", v.version, s."updated_at"
 FROM "channel_summaries" s
 CROSS JOIN LATERAL generate_series(0, s."version" - 1) AS v(version)
 ON CONFLICT DO NOTHING;--> statement-breakpoint
-ALTER TABLE "conversation_judgments" DROP CONSTRAINT IF EXISTS "conversation_judgments_summary_check", ADD CONSTRAINT "conversation_judgments_summary_check" CHECK ("conversation_judgments"."summary" IS NULL OR ("conversation_judgments"."summary" IN ('written','skipped','copied','invalid','lost','channel_gone') AND "conversation_judgments"."grade" = 'buffer_m1' AND "conversation_judgments"."outcome" = 'judged')) NOT VALID;
+ALTER TABLE "conversation_judgments" DROP CONSTRAINT IF EXISTS "conversation_judgments_summary_check", ADD CONSTRAINT "conversation_judgments_summary_check" CHECK ("conversation_judgments"."summary" IS NULL OR ("conversation_judgments"."summary" IN ('written','skipped','copied','invalid','lost','channel_gone') AND "conversation_judgments"."grade" = 'buffer_m1' AND "conversation_judgments"."outcome" = 'judged')) NOT VALID;--> statement-breakpoint
+ALTER TABLE "conversation_judgments" VALIDATE CONSTRAINT "conversation_judgments_summary_check";

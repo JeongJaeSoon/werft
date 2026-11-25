@@ -54,7 +54,18 @@ export async function holdChannelSummary(
   tx: Database,
   place: ChannelSummaryPlace,
 ): Promise<void> {
-  await lockSummary(tx, place, true);
+  // A channel with no context row has no summary to make, nor can a write
+  // make one.
+  await tx.execute(sql`
+    WITH made AS (
+      INSERT INTO channel_summaries (workspace_id, team_id, channel_id)
+      SELECT workspace_id, team_id, channel_id FROM channel_contexts
+      WHERE (workspace_id, team_id, channel_id) = ${placeKey(place)}
+      ON CONFLICT DO NOTHING
+      RETURNING workspace_id, team_id, channel_id)
+    INSERT INTO channel_summary_versions (workspace_id, team_id, channel_id, version)
+    SELECT workspace_id, team_id, channel_id, 0 FROM made`);
+  await lockSummary(tx, place, false);
 }
 
 async function lockSummary(
