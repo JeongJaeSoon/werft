@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BOT_SCOPES,
   SLACK_AGENT_BOT_EVENTS,
   type SlackAgentWarning,
   scopesForRole,
@@ -23,6 +24,7 @@ import {
   SlackRateLimitedError,
 } from "./slack-config-api.ts";
 import { createSlackConfigTokens } from "./slack-config-token.ts";
+import { slackAppGrants } from "./slack-manifest.ts";
 import {
   createFakeSlackConfigApi,
   createMemoryConfigTokenStore,
@@ -402,6 +404,52 @@ async function subscribedApp(options: Parameters<typeof setup>[0] = {}) {
   return { ...ctx, appId, calls, sync };
 }
 
+/**
+ * A subscribed app whose bot token holds every scope but `lacking`, as an
+ * install made before a build asked for them.
+ */
+async function installedApp(
+  lacking: readonly string[] = [],
+  options: Parameters<typeof setup>[0] = {},
+) {
+  const ctx = await subscribedApp({ ...options, bots: true });
+  const record = async () => {
+    const found = await ctx.apps.store.findForAgent(WORKSPACE, AGENT);
+    if (!found) throw new Error("no app");
+    return found;
+  };
+  let token = "";
+  const reinstall = async (scopes: readonly string[]) => {
+    token = `xoxb-${crypto.randomUUID()}`;
+    ctx.slack.install.botTokens.set(token, ctx.appId);
+    ctx.slack.install.tokenScopes.set(token, [...scopes]);
+    await ctx.apps.store.storeBotToken({
+      workspaceId: WORKSPACE,
+      slackAppId: (await record()).id,
+      botToken: token,
+      scopes,
+    });
+  };
+  await reinstall(BOT_SCOPES.filter((scope) => !lacking.includes(scope)));
+  const installBot = {
+    record,
+    reinstall,
+    calls: () => ctx.slack.state.calls,
+    grantInSlack: (scopes: readonly string[]) => {
+      ctx.slack.install.tokenScopes.set(token, [...scopes]);
+    },
+    forget: () => {
+      ctx.slack.install.botTokens.delete(token);
+    },
+  };
+  return { ...ctx, installBot };
+}
+
+function authTests(installBot: { calls(): { method: string }[] }) {
+  return installBot.calls().filter((call) => call.method === "auth.test")
+    .length;
+}
+
 describe("manifest check at a start of the API", () => {
   test("an app whose manifest lacks only events is sent the whole manifest", async () => {
     const { service, slack, appId, calls, sync } = await subscribedApp();
@@ -669,6 +717,64 @@ describe("manifest check at a start of the API", () => {
     expect((await service.syncAgentAppManifests()).checked).toBe(1);
   });
 
+  test("an install that lacks a scope this build asks for is not sent the manifest, and only that scope is off", async () => {
+    const { service, slack, appId, calls, installBot } = await installedApp([
+      "groups:write",
+    ]);
+    // Slack holds the manifest the install was made under.
+    dropEvent(slack, appId);
+    const manifest = manifestOf(slack, appId);
+    manifest.oauth_config.scopes.bot = manifest.oauth_config.scopes.bot.filter(
+      (scope) => scope !== "groups:write",
+    );
+    const updates = calls("apps.manifest.update");
+    expect((await service.syncAgentAppManifests()).sent).toBe(0);
+    expect(calls("apps.manifest.update")).toBe(updates);
+    const read = await service.getAgentApp(user("owner"), AGENT);
+    expect(read.reauthorization).toEqual({ missing_scopes: ["groups:write"] });
+    const record = await installBot.record();
+    expect(slackAppGrants(record, "groups:write")).toBe(false);
+    expect(slackAppGrants(record, "chat:write")).toBe(true);
+  });
+
+  test("a start reads the token's scopes again, so a grant Slack narrowed asks for a reapproval", async () => {
+    const { service, installBot } = await installedApp();
+    expect(
+      (await service.getAgentApp(user("owner"), AGENT)).reauthorization,
+    ).toBeNull();
+    installBot.grantInSlack(BOT_SCOPES.filter((s) => s !== "channels:join"));
+    await service.syncAgentAppManifests();
+    expect(
+      (await service.getAgentApp(user("owner"), AGENT)).reauthorization,
+    ).toEqual({ missing_scopes: ["channels:join"] });
+    expect(authTests(installBot)).toBe(1);
+  });
+
+  test("a sent manifest keeps the reapproval until a new install holds every scope", async () => {
+    const { service, installBot } = await installedApp(["groups:write"]);
+    const sent = await service.recheckAgentAppEvents(user("owner"), AGENT);
+    expect(sent.reauthorization).toEqual({ missing_scopes: ["groups:write"] });
+    await installBot.reinstall([...BOT_SCOPES]);
+    expect(
+      (await service.getAgentApp(user("owner"), AGENT)).reauthorization,
+    ).toBeNull();
+  });
+
+  test("a token Slack does not answer for keeps the scopes known before", async () => {
+    const warned: Record<string, unknown>[] = [];
+    const { service, installBot } = await installedApp(["groups:write"], {
+      logger: { warn: (_message, fields) => warned.push(fields ?? {}) },
+    });
+    installBot.forget();
+    await service.syncAgentAppManifests();
+    expect(
+      (await service.getAgentApp(user("owner"), AGENT)).reauthorization,
+    ).toEqual({ missing_scopes: ["groups:write"] });
+    expect(warned).toContainEqual(
+      expect.objectContaining({ slack_error: "invalid_auth" }),
+    );
+  });
+
   test("an API without its secret store checks nothing", async () => {
     const ctx = await setup();
     const off = createSlackAppService({
@@ -719,6 +825,8 @@ async function setup(
       agentId: string,
     ) => Promise<SlackAgentWarning | null>;
     sleep?: (ms: number) => Promise<void>;
+    /** Gives the service the bot tokens' secret store. */
+    bots?: boolean;
   } = {},
 ) {
   let clock = new Date("2026-10-23T00:00:00.000Z");
@@ -771,6 +879,17 @@ async function setup(
       ? { activeReleaseWarning: options.activeReleaseWarning }
       : {}),
     ...(options.sleep ? { sleep: options.sleep } : {}),
+    ...(options.bots
+      ? {
+          bots: {
+            secrets: secrets.store,
+            api: {
+              listBots: async () => ({ bots: [], nextCursor: null }),
+              findBot: async () => null,
+            },
+          },
+        }
+      : {}),
     now: () => clock,
   });
   await tokens.register(WORKSPACE, slack.issueRefresh(), {

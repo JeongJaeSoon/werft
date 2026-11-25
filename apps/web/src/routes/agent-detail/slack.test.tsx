@@ -60,6 +60,7 @@ const appResponse = (
   event_url: app ? `https://events.test/v1/slack/events/${AGENT_ID}` : null,
   events: { state: "pending", checked_at: null, url: null },
   manifest_sync: null,
+  reauthorization: null,
   warnings,
   config_token: configToken,
 });
@@ -2188,6 +2189,75 @@ describe("Slack management", () => {
     });
     await within(app).findByText("A123");
     expect(within(app).queryByText("갱신 필요")).toBeNull();
+  });
+
+  test("asks for a Slack reapproval in the app section, sends the manifest and leaves for Slack's consent screen", async () => {
+    const events = { state: "verified", checked_at: AT, url: SENT } as const;
+    const reauthorization = { missing_scopes: ["reactions:write"] };
+    const posts: string[] = [];
+    const { left } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events,
+          reauthorization,
+        }),
+      [`POST ${PATH}/slack/app/events/recheck`]: () => {
+        posts.push("recheck");
+        return json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events,
+          reauthorization,
+          reinstall_required: true,
+        });
+      },
+      [`POST ${PATH}/slack/install/start`]: () => {
+        posts.push("install");
+        return json(200, {
+          authorize_url: "https://slack.com/oauth/v2/authorize",
+          expires_at: AT,
+        });
+      },
+    });
+    const user = await setupUser();
+    const app = await screen.findByRole("region", {
+      name: "자동으로 만든 Slack 앱",
+    });
+    await within(app).findByText("Slack 재승인 필요");
+    within(app).getByText(/새 권한\(reactions:write\)/);
+    await user.click(within(app).getByRole("button", { name: "다시 승인" }));
+    await waitFor(() =>
+      expect(left).toEqual(["https://slack.com/oauth/v2/authorize"]),
+    );
+    expect(posts).toEqual(["recheck", "install"]);
+  });
+
+  test("says nothing about a reapproval once the install holds every scope", async () => {
+    renderAt(DETAIL, { ...routes(APP, true) });
+    const app = await screen.findByRole("region", {
+      name: "자동으로 만든 Slack 앱",
+    });
+    await within(app).findByText("A123");
+    expect(within(app).queryByText("Slack 재승인 필요")).toBeNull();
+  });
+
+  test("shows no reapproval or its button to someone who does not manage the agent", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          reauthorization: { missing_scopes: ["reactions:write"] },
+        }),
+    });
+    await screen.findByRole("table", { name: "연결된 채널" });
+    expect(screen.queryByText("Slack 재승인 필요")).toBeNull();
+    expect(screen.queryByRole("button", { name: "다시 승인" })).toBeNull();
   });
 
   test("locks picking the home until Slack checks the Request URL", async () => {

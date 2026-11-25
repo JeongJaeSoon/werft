@@ -227,6 +227,7 @@ function recordFrom(
             error: row.manifestSyncError,
             checked_at: row.manifestSyncCheckedAt.toISOString(),
           },
+    botScopes: row.botScopes,
     secrets: Object.fromEntries(
       SLACK_APP_SECRET_PURPOSE_VALUES.map((purpose) => [
         purpose,
@@ -496,6 +497,14 @@ export function createPostgresSlackAppStore(
           manifestSyncError: sync.error,
           manifestSyncCheckedAt: sync.checkedAt,
         })
+        .where(and(...createdApp(workspaceId, slackAppId)));
+    },
+    async setBotScopes(workspaceId, slackAppId, scopes) {
+      if (!UUID.test(workspaceId) || !UUID.test(slackAppId)) return;
+      // updated_at is left alone: Slack's grant changed, not the app.
+      await db
+        .update(slackApps)
+        .set({ botScopes: [...scopes] })
         .where(and(...createdApp(workspaceId, slackAppId)));
     },
     async markEventsReceived(workspaceId, slackAppId, at) {
@@ -828,6 +837,7 @@ export function createPostgresSlackAppStore(
           .update(slackApps)
           .set({
             botTokenRef: slackAppSecretRef(row.id, "slack_bot_token"),
+            botScopes: [...input.scopes],
             updatedAt: DB_NOW,
           })
           .where(eq(slackApps.id, row.id))

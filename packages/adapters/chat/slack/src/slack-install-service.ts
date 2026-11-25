@@ -376,6 +376,7 @@ export function createSlackInstallService(deps: {
       const stored = await apps.storeBotToken({
         workspaceId: app.workspaceId,
         slackAppId: app.id,
+        scopes: grant.scopes,
         botToken: grant.botToken,
       });
       if (stored === null) throw unsettled("This agent's Slack app changed");

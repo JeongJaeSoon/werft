@@ -1256,6 +1256,11 @@ export const slackApps = pgTable(
     manifestSyncCheckedAt: timestamp("manifest_sync_checked_at", {
       withTimezone: true,
     }),
+    /**
+     * The scopes Slack granted the stored bot token (the install's answer,
+     * refreshed by each start's manifest check); null when not known.
+     */
+    botScopes: text("bot_scopes").array(),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),

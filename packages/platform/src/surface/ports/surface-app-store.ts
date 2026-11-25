@@ -34,6 +34,11 @@ export type SurfaceAppRecord = {
   updatedAt: Date;
   events?: GetSlackAppResponse["events"];
   manifestSync?: SlackManifestSync | null;
+  /**
+   * The scopes Slack granted the stored bot token, from the install or a
+   * later `auth.test`; null when not known.
+   */
+  botScopes?: readonly string[] | null;
   secrets: Record<SlackAppSecretPurpose, SecretSummary | null>;
 };
 
@@ -266,7 +271,15 @@ export interface SurfaceAppStore {
     workspaceId: string;
     slackAppId: string;
     botToken: string;
+    /** What Slack granted the token. */
+    scopes: readonly string[];
   }): Promise<SurfaceAppRecord | null>;
+  /** Records the scopes Slack says the stored bot token holds now. */
+  setBotScopes(
+    workspaceId: string,
+    slackAppId: string,
+    scopes: readonly string[],
+  ): Promise<void>;
   /** Slack refused the creation: no app exists. */
   failCreate(workspaceId: string, slackAppId: string): Promise<void>;
   find(

@@ -136,6 +136,22 @@ integration("slack_apps manifest checks on PostgreSQL", () => {
     expect(row?.checkedAt).toBeNull();
   });
 
+  test("a bot token's scopes are replaced on a created app only and read back on it", async () => {
+    const store = createPostgresSlackAppStore(db, key);
+    const live = await agentApp();
+    const gone = await agentApp("deleted");
+    for (const app of [live, gone])
+      await store.setBotScopes(app.workspaceId, app.slackAppId, ["chat:write"]);
+    expect(
+      (await store.find(live.workspaceId, live.slackAppId))?.botScopes,
+    ).toEqual(["chat:write"]);
+    const [row] = await db
+      .select({ botScopes: slackApps.botScopes })
+      .from(slackApps)
+      .where(eq(slackApps.id, gone.slackAppId));
+    expect(row?.botScopes).toBeNull();
+  });
+
   test("the table refuses an error the contract does not name", async () => {
     const app = await agentApp();
     const refused = await db

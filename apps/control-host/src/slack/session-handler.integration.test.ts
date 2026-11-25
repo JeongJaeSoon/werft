@@ -18,6 +18,7 @@ import {
 import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
+  BOT_SCOPES,
   type ConversationInputId,
   type ConversationTurnId,
   DEFAULT_SURFACE_CEILING,
@@ -277,6 +278,7 @@ async function agentInSlack(
   await createPostgresSlackAppStore(db, key).storeBotToken({
     workspaceId,
     slackAppId,
+    scopes: [...BOT_SCOPES],
     botToken: BOT_CREDENTIAL,
   });
   await registerSlackInstallation(db, {

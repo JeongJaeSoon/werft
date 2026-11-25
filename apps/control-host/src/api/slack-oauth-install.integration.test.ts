@@ -497,6 +497,85 @@ integration(
       }
     });
 
+    test("a manifest whose scopes grew is not sent at a start; the app asks for a reapproval until a new install holds them", async () => {
+      const setup = await installed(PUBLIC);
+      const { caller, agentId, appId, install } = setup;
+      // Slack holds the app as an older build installed it: one scope and
+      // one event short.
+      const narrowed = await fetch(
+        `${slack.url.replace(/\/api$/, "")}/fake/scopes`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ app_id: appId, remove: ["groups:write"] }),
+        },
+      );
+      expect(narrowed.status).toBe(200);
+      const manifest = slack.apps.get(appId)?.manifest as {
+        oauth_config: { scopes: { bot: string[] } };
+        settings: { event_subscriptions: { bot_events: string[] } };
+      };
+      expect(manifest.oauth_config.scopes.bot).not.toContain("groups:write");
+      manifest.settings.event_subscriptions.bot_events =
+        manifest.settings.event_subscriptions.bot_events.filter(
+          (event) => event !== "channel_shared",
+        );
+      const api = createSlackConfigApi({ apiUrl: slack.url });
+      const apps = createSlackAppService({
+        authorization: createAuthorizationPolicy({}),
+        apps: createPostgresSlackAppStore(db, key),
+        tokens: createSlackConfigTokens({
+          store: createPostgresSlackConfigTokenStore(db, key),
+          api,
+        }),
+        api,
+        consoleOrigin: CONSOLE,
+        eventsPublicUrl: async () => PUBLIC,
+        bots: {
+          secrets: createPostgresSecretStore(db, key),
+          api: {
+            listBots: async () => ({ bots: [], nextCursor: null }),
+            findBot: async () => null,
+          },
+        },
+        // Past the stale mark of the check Finalize recorded.
+        now: () => new Date(Date.now() + 11 * 60_000),
+      });
+      const updates = () =>
+        slack.calls.filter((call) => call.method === "apps.manifest.update")
+          .length;
+      const before = updates();
+      await apps.syncAgentAppManifests();
+      expect(updates()).toBe(before);
+      expect(manifest.oauth_config.scopes.bot).not.toContain("groups:write");
+      expect((await apps.getAgentApp(caller, agentId)).reauthorization).toEqual(
+        { missing_scopes: ["groups:write"] },
+      );
+
+      // The console's button: the manifest, then Slack's consent screen.
+      const sent = await apps.recheckAgentAppEvents(caller, agentId);
+      expect(updates()).toBe(before + 1);
+      expect(
+        (slack.apps.get(appId)?.manifest as typeof manifest).oauth_config.scopes
+          .bot,
+      ).toContain("groups:write");
+      expect(sent.reauthorization).toEqual({
+        missing_scopes: ["groups:write"],
+      });
+      const again = await consent(
+        (await install.start(caller, agentId)).authorize_url,
+      );
+      await install.complete(caller, { agent_id: agentId, ...again });
+      expect(
+        (await apps.getAgentApp(caller, agentId)).reauthorization,
+      ).toBeNull();
+      const [row] = await db
+        .select({ botScopes: slackApps.botScopes })
+        .from(slackApps)
+        .where(eq(slackApps.id, setup.slackAppId));
+      expect(row?.botScopes).toEqual([...BOT_SCOPES]);
+    });
+
     test("an event signed with the installed app's secret lands in slack_inbound_events once", async () => {
       const { agentId, appId, workspaceId } = await installed(PUBLIC);
       const events = createSlackEventsService({

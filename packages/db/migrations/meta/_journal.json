@@ -1898,6 +1898,13 @@
       "when": 1795599830705,
       "tag": "0361_slack_manifest_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 362,
+      "version": "7",
+      "when": 1795601285058,
+      "tag": "0362_slack_app_bot_scopes",
+      "breakpoints": true
     }
   ]
 }
