@@ -11,9 +11,11 @@ const LOADING = <Skeleton shape="block" height="24rem" decorative />;
 /** Loaded on first open, then kept mounted so leaving the tab keeps a draft. */
 export function SlackPanel({
   agent,
+  activeRelease,
   mounted,
 }: {
   readonly agent: Agent;
+  readonly activeRelease: AgentDetail["active_release"];
   readonly mounted: boolean;
 }) {
   if (!mounted) return null;
@@ -24,6 +26,7 @@ export function SlackPanel({
         slug={agent.slug}
         name={agent.name}
         active={agent.active_release_id !== null}
+        activeRelease={activeRelease}
       />
     </Suspense>
   );

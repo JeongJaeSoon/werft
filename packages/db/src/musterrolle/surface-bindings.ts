@@ -75,6 +75,7 @@ const columns = {
   channelKind: surfaceBindings.surfaceKind,
   mode: surfaceBindings.mode,
   listen: surfaceBindings.listen,
+  m1JudgmentsPerHour: surfaceBindings.m1JudgmentsPerHour,
   ceilingActions: surfaceBindings.ceilingActions,
   ceilingDisclosure: surfaceBindings.ceilingDisclosure,
   home: surfaceBindings.home,
@@ -176,6 +177,7 @@ async function writeReceipt(
       channel_kind: binding.channelKind,
       mode: binding.mode,
       listen: binding.listen,
+      m1_judgments_per_hour: binding.m1JudgmentsPerHour,
       home: binding.home,
       ceiling: binding.ceiling,
       status: binding.status,
@@ -287,6 +289,9 @@ async function set(
         mode: input.mode,
         // Absent, an update keeps the channel's and an insert takes the default.
         ...(input.listen === undefined ? {} : { listen: input.listen }),
+        ...(input.m1JudgmentsPerHour === undefined
+          ? {}
+          : { m1JudgmentsPerHour: input.m1JudgmentsPerHour }),
         home: input.home,
         ceilingActions: [...input.ceiling.actions],
         ceilingDisclosure: input.ceiling.disclosure,

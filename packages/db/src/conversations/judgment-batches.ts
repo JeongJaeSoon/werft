@@ -14,7 +14,6 @@ import {
   type JudgmentBatchInput,
   type JudgmentBatchStore,
   M1_CHANNEL_WINDOW_MS,
-  M1_JUDGMENTS_PER_CHANNEL_WINDOW,
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
@@ -22,6 +21,7 @@ import { rowsOf } from "../statement-rows.ts";
 import {
   engagedJudgmentsInWindow,
   heldForReply,
+  m1ChannelCap,
 } from "./conversation-judgments.ts";
 import { rowColumns, stillListened } from "./judgment-buffer.ts";
 
@@ -152,7 +152,7 @@ async function closeChannel(
     fresh.length > 0 &&
     (now - Math.max(...received) >= JUDGMENT_BATCH_QUIET_MS ||
       now - Math.min(...received) >= JUDGMENT_BATCH_MAX_WAIT_MS);
-  const [window] = rowsOf<{ counted: number | string }>(
+  const [window] = rowsOf<{ counted: number | string; cap: number | string }>(
     await tx.execute(sql`
       SELECT (SELECT count(*) FROM judgment_batches b
         WHERE ${same} AND b.closed_at > ${at} - ${secs(M1_CHANNEL_WINDOW_MS)}
@@ -161,9 +161,12 @@ async function closeChannel(
             teamId: sql`${channel.slack_team_id}`,
             channelId: sql`${channel.slack_channel_id}`,
             at,
-          })} AS counted`),
+          })} AS counted, ${m1ChannelCap({
+            agentId: sql`${channel.agent_id}::uuid`,
+            channelId: sql`${channel.slack_channel_id}`,
+          })} AS cap`),
   );
-  const room = Number(window?.counted ?? 0) < M1_JUDGMENTS_PER_CHANNEL_WINDOW;
+  const room = Number(window?.counted ?? 0) < Number(window?.cap ?? 0);
   // Messages past the cap go with the first batch the window has room for.
   const taken = room
     ? freshDue || fresh.length < rows.length
@@ -275,7 +278,10 @@ export function createPostgresJudgmentBatchStore(
                     teamId: sql`i.slack_team_id`,
                     channelId: sql`i.slack_channel_id`,
                     at,
-                  })} < ${M1_JUDGMENTS_PER_CHANNEL_WINDOW})
+                  })} < ${m1ChannelCap({
+                    agentId: sql`i.agent_id`,
+                    channelId: sql`i.slack_channel_id`,
+                  })})
               -- New messages only: those past the cap make no batch of their own.
               OR max(i.received_at) FILTER (WHERE i.judgment_batch_id IS NULL)
                 <= ${at} - ${secs(JUDGMENT_BATCH_QUIET_MS)}

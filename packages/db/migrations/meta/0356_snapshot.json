@@ -1,5 +1,5 @@
 {
-  "id": "09834906-616f-404d-a371-b5c8d879f0ce",
+  "id": "92a76ab1-a75e-4232-b717-f73a67a6aac8",
   "prevId": "f5c53dc6-5085-4e76-893d-0b6f25227141",
   "version": "7",
   "dialect": "postgresql",
@@ -4727,12 +4727,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "edited_at": {
-          "name": "edited_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -4948,81 +4942,6 @@
           "value": "\"channel_summary_lines\".\"from_version\" >= 1 AND (\"channel_summary_lines\".\"to_version\" IS NULL OR \"channel_summary_lines\".\"to_version\" > \"channel_summary_lines\".\"from_version\")"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.channel_summary_versions": {
-      "name": "channel_summary_versions",
-      "schema": "",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version": {
-          "name": "version",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "made_at": {
-          "name": "made_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "channel_summary_versions_made_idx": {
-          "name": "channel_summary_versions_made_idx",
-          "columns": [
-            {
-              "expression": "made_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "channel_summary_versions_summary_fk": {
-          "name": "channel_summary_versions_summary_fk",
-          "tableFrom": "channel_summary_versions",
-          "tableTo": "channel_summaries",
-          "columnsFrom": ["workspace_id", "team_id", "channel_id"],
-          "columnsTo": ["workspace_id", "team_id", "channel_id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "channel_summary_versions_workspace_id_team_id_channel_id_version_pk": {
-          "name": "channel_summary_versions_workspace_id_team_id_channel_id_version_pk",
-          "columns": ["workspace_id", "team_id", "channel_id", "version"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.checkpoint_output_objects": {
@@ -6351,12 +6270,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "body_edited_at": {
-          "name": "body_edited_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "conversation_turn_id": {
           "name": "conversation_turn_id",
           "type": "uuid",
@@ -6730,12 +6643,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "claimed_at": {
           "name": "claimed_at",
           "type": "timestamp with time zone",
@@ -6909,10 +6816,6 @@
         "conversation_judgments_call_check": {
           "name": "conversation_judgments_call_check",
           "value": "\"conversation_judgments\".\"attempts\" >= 0 AND (\"conversation_judgments\".\"call_key\" IS NULL OR \"conversation_judgments\".\"call_key\" ~ '^[A-Za-z0-9_-]{1,128}:m1$') AND (\"conversation_judgments\".\"attempts\" = 0 OR \"conversation_judgments\".\"call_key\" IS NOT NULL)"
-        },
-        "conversation_judgments_summary_check": {
-          "name": "conversation_judgments_summary_check",
-          "value": "\"conversation_judgments\".\"summary\" IS NULL OR (\"conversation_judgments\".\"summary\" IN ('written','skipped','copied','invalid','lost','channel_gone') AND \"conversation_judgments\".\"grade\" = 'buffer_m1' AND \"conversation_judgments\".\"outcome\" = 'judged')"
         }
       },
       "isRLSEnabled": false
@@ -19745,6 +19648,13 @@
           "notNull": true,
           "default": "'free'"
         },
+        "m1_judgments_per_hour": {
+          "name": "m1_judgments_per_hour",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 12
+        },
         "ceiling_actions": {
           "name": "ceiling_actions",
           "type": "text[]",
@@ -20030,6 +19940,10 @@
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",
           "value": "\"surface_bindings\".\"revision\" >= 1"
+        },
+        "surface_bindings_m1_judgments_per_hour_check": {
+          "name": "surface_bindings_m1_judgments_per_hour_check",
+          "value": "\"surface_bindings\".\"m1_judgments_per_hour\" BETWEEN 1 AND 60"
         }
       },
       "isRLSEnabled": false

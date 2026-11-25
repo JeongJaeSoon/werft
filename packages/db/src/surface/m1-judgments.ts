@@ -11,7 +11,6 @@ import {
   type ClaimedReplyJudgment,
   JUDGMENT_BATCH_DEADLINE_MS,
   M1_CHANNEL_WINDOW_MS,
-  M1_JUDGMENTS_PER_CHANNEL_WINDOW,
   type M1JudgmentStore,
   type M1Place,
   type M1Record,
@@ -23,6 +22,7 @@ import {
   dropBufferedInputs,
   engagedJudgmentsInWindow,
   JUDGMENT_BUFFER_TTL_MS,
+  m1ChannelCap,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -134,15 +134,15 @@ async function lockChannelWindow(
   );
 }
 
-/** How many judgments of the channel count against M1's cap at `at`. */
-async function countIn(
+/** Whether the channel's judgments at `at` have reached M1's cap. */
+async function atCap(
   db: Database,
   row: Pick<WaitingRow, "agent_id" | "slack_team_id" | "slack_channel_id">,
   at: SQL,
-): Promise<number> {
-  const [window] = rowsOf<{ counted: number | string }>(
+): Promise<boolean> {
+  const [window] = rowsOf<{ full: boolean }>(
     await db.execute(sql`
-      SELECT (SELECT count(*) FROM judgment_batches b
+      SELECT ((SELECT count(*) FROM judgment_batches b
         WHERE b.agent_id = ${row.agent_id}::uuid
           AND b.slack_team_id = ${row.slack_team_id}
           AND b.slack_channel_id = ${row.slack_channel_id}
@@ -153,9 +153,12 @@ async function countIn(
           teamId: sql`${row.slack_team_id}`,
           channelId: sql`${row.slack_channel_id}`,
           at,
-        })} AS counted`),
+        })}) >= ${m1ChannelCap({
+          agentId: sql`${row.agent_id}::uuid`,
+          channelId: sql`${row.slack_channel_id}`,
+        })} AS full`),
   );
-  return Number(window?.counted ?? 0);
+  return window?.full ?? false;
 }
 
 /** A summary write that found the channel deleted, to roll it back. */
@@ -278,8 +281,7 @@ export function createPostgresM1JudgmentStore(
           let rateLimited = false;
           if (row.grade === "m1_engaged") {
             await lockChannelWindow(tx, row);
-            rateLimited =
-              (await countIn(tx, row, at)) >= M1_JUDGMENTS_PER_CHANNEL_WINDOW;
+            rateLimited = await atCap(tx, row, at);
           }
           await tx.execute(sql`
             UPDATE conversation_judgments SET claimed_at = ${at}

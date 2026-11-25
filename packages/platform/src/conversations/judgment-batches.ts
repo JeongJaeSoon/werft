@@ -1,8 +1,9 @@
-import type {
-  ConversationId,
-  ConversationInputId,
-  ConversationTopicId,
-  JudgmentBatchId,
+import {
+  type ConversationId,
+  type ConversationInputId,
+  type ConversationTopicId,
+  type JudgmentBatchId,
+  M1_JUDGMENTS_PER_HOUR_DEFAULT,
 } from "@werft-ai/contracts";
 
 /** A batch closes once its channel has been quiet this long (decision 24). */
@@ -24,7 +25,8 @@ export const JUDGMENT_BATCH_DEADLINE_MS = 120_000;
  * replies do not count (Q2).
  */
 export const M1_CHANNEL_WINDOW_MS = 60 * 60_000;
-export const M1_JUDGMENTS_PER_CHANNEL_WINDOW = 12;
+/** A channel whose binding is gone has the starting cap. */
+export const M1_JUDGMENTS_PER_CHANNEL_WINDOW = M1_JUDGMENTS_PER_HOUR_DEFAULT;
 
 /** One buffered message as a batch carries it, its text as of the close. */
 export type JudgmentBatchInput = {

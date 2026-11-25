@@ -72,6 +72,41 @@ export function useSlackBindings(agentId: string) {
   });
 }
 
+/** Asked only of a viewer who may read it: anyone else gets 403. */
+export function useSlackJudgments(agentId: string, enabled: boolean) {
+  const { client } = useWerft();
+  return useQuery({
+    enabled,
+    queryKey: [...slackKey(client, agentId), "judgments"],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack/judgments", {
+          params: { path: { id: agentId } },
+        }),
+      ),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/** Channel names for the IDs, at most 50 per read. */
+export function useSlackChannelNames(agentId: string, ids: readonly string[]) {
+  const { client } = useWerft();
+  const wanted = [...new Set(ids)].sort().slice(0, 50);
+  return useQuery({
+    enabled: wanted.length > 0,
+    queryKey: [...slackKey(client, agentId), "channel-names", wanted],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/agents/{id}/slack-channels", {
+          params: { path: { id: agentId }, query: { ids: wanted.join(",") } },
+        }),
+      ),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
 export function useSlackSettings(agentId: string) {
   const { client } = useWerft();
   return useQuery({

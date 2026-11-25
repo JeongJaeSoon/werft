@@ -226,6 +226,65 @@ export const slackJa = {
     "{channel} の聞き取りの設定を保存できませんでした。{reason}",
   "slack.listenExternalShared":
     "{channel} は外部の組織と共有しているチャンネルのため、メンションのみ聞き取れます。「メンションのみ」か「聞かない」を選んでください。",
+  "slack.capColumn": "1時間の判断数",
+  "slack.capOf": "{channel}の1時間の判断上限",
+  "slack.capRange": "1から{max}までの整数で指定してください。",
+  "slack.capSaved":
+    "1時間の判断上限を保存しました。次のまとまりから適用されます。",
+  "slack.capFailed":
+    "{channel}の1時間の判断上限を保存できませんでした。{reason}",
+  "slack.judgments": "判断の記録",
+  "slack.judgments.hint":
+    "直近{days}日間に、このエージェントがチャンネルの会話に加わるかを判断した記録です(shadow: Slackには投稿しません)。メッセージの本文はリンクからSlackで読みます。非公開チャンネルの記録と数は、今そのチャンネルのメンバーにだけ表示されます。",
+  "slack.judgments.knobs":
+    "判断が多すぎる・少なすぎるときは、チャンネルの聞き取り設定、1時間の判断上限、リポジトリのエージェント指示(AGENTS.md)で調整します。",
+  "slack.judgments.forbidden":
+    "判断の記録は、ワークスペースのowner・adminとこのエージェントの管理者だけが見られます。",
+  "slack.judgments.loading": "判断の記録を読み込んでいます",
+  "slack.judgments.empty": "表示できる判断の記録はありません",
+  "slack.judgments.emptyHint":
+    "静かに聞くをオンにし、聞き取りが「すべてのメッセージ」のチャンネルにメッセージが届くと記録ができます。",
+  "slack.judgments.byChannel": "チャンネル別の判断",
+  "slack.judgments.count": "判断数",
+  "slack.judgments.speakRate": "発言の割合",
+  "slack.judgments.speakOf": "{percent}%({speak}件)",
+  "slack.judgments.reasons": "理由コード",
+  "slack.judgments.reasonCount": "{reason} {count}",
+  "slack.judgments.recent": "最近の判断",
+  "slack.judgments.when": "判断日時",
+  "slack.judgments.decision": "判断",
+  "slack.judgments.reason": "理由",
+  "slack.judgments.message": "Slackのメッセージ",
+  "slack.judgments.speak": "発言する",
+  "slack.judgments.quiet": "黙る",
+  "slack.judgments.open": "Slackで表示",
+  "slack.judgments.openOf": "{channel}のメッセージをSlackで表示",
+  "slack.judgments.noRelease":
+    "有効なリリースがないため、判断に使うエージェント指示はありません。",
+  "slack.judgments.noSnapshot":
+    "有効なリリースは指示を残す前に作られたため、判断は固定の基準だけを使います。新しいリリースを作るとリポジトリの指示が反映されます。",
+  "slack.judgments.noRepository":
+    "判断の指示はリポジトリのAGENTS.mdで決めます。リポジトリを接続すると使えます。",
+  "slack.judgments.instructions":
+    "M1の指示: リリース {release}、commit {commit}",
+  "slack.judgments.instructionsAbsent":
+    "M1の指示: リリース {release}、commit {commit}には指示ファイルがないため、固定の基準だけを使います。",
+  "slack.judgments.reason.not_for_agent": "エージェント宛てではない",
+  "slack.judgments.reason.human_conversation": "人どうしの会話",
+  "slack.judgments.reason.already_handled": "対応済み",
+  "slack.judgments.reason.out_of_scope": "担当外",
+  "slack.judgments.reason.needs_agent": "エージェントが必要",
+  "slack.judgments.reason.unclear": "はっきりしない",
+  "slack.judgments.reason.budget_refused": "予算で拒否",
+  "slack.judgments.reason.concurrency_limited": "同時呼び出しの上限",
+  "slack.judgments.reason.rate_limited": "1時間の上限超え",
+  "slack.judgments.reason.input_too_large": "入力が大きすぎる",
+  "slack.judgments.reason.no_active_release": "有効なリリースなし",
+  "slack.judgments.reason.model_unavailable": "モデルを使えない",
+  "slack.judgments.reason.timed_out": "時間切れ",
+  "slack.judgments.reason.unreachable": "モデルに届かない",
+  "slack.judgments.reason.provider_error": "モデル提供元のエラー",
+  "slack.judgments.reason.malformed": "回答を読めない",
   "slack.basic": "基本",
   "slack.advanced": "詳細",
   "slack.homeChannel": "ホームチャンネル",
