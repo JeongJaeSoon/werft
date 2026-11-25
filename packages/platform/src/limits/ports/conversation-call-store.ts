@@ -47,6 +47,15 @@ export interface ConversationCallStore {
     input: ConversationTurnPermitInput,
   ): Promise<ConversationTurnPermitIssue>;
   /**
+   * A person's mention of the agent as a conversation turn: writes the turn
+   * `running` with the mention as its source, its permit, and the
+   * mention's engagement pointing at it, together or not at all. A message
+   * already engaged (Slack's retry of the event) adds nothing.
+   */
+  issueMentionTurnAtomic(
+    input: ConversationMentionTurnInput,
+  ): Promise<ConversationMentionTurnIssue>;
+  /**
    * The proxy's grant question on a turn's permit. A new exchange is a new
    * call of the turn: counted by the call limits, reserved on the account the
    * turn's root chooses and recorded bound to that exchange, or refused with
@@ -201,6 +210,24 @@ export type ConversationTurnPermitInput = {
   callKey: ConversationCallKey;
   ttlMs: number;
 };
+
+export type ConversationMentionTurnInput = Omit<
+  ConversationTurnPermitInput,
+  "requester" | "root"
+> & {
+  /** Who mentioned the agent, as the server knows them: the turn's requester and its budget root. */
+  requesterUserId: string;
+  slackInstallationId: string;
+  /** The mention: the turn's source and the message it engages. */
+  message: { teamId: string; channelId: string; ts: string };
+};
+
+export type ConversationMentionTurnIssue =
+  | ConversationTurnPermitIssue
+  // The message is engaged already: its turn was written before.
+  | { outcome: "duplicate" }
+  // The message is marked deleted.
+  | { outcome: "source_deleted" };
 
 export type ConversationTurnPermitIssue =
   | { outcome: "issued"; expiresAt: Date }

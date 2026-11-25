@@ -1,3 +1,4 @@
+import { CONVERSATION_TURN_LEASE_MS } from "@werft-ai/contracts";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import * as schema from "@werft-ai/db";
 import {
@@ -8,12 +9,15 @@ import {
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
   createPostgresChannelMemberStore,
+  createPostgresConversationCalls,
   createPostgresConversationStore,
+  createPostgresConversationTurnQueue,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationSettingsStore,
   createPostgresJudgmentBufferStore,
   createPostgresLinkedAccountStore,
+  createPostgresMentionTurnStatuses,
   createPostgresSecretStore,
   createPostgresSessionControl,
   createPostgresSessionLinkStore,
@@ -44,7 +48,10 @@ import {
   agentReleaseReaders,
   createAuthorizationPolicy,
   createCatalogRegistry,
+  createConversationCalls,
   createSessionService,
+  endMentionTurns,
+  type MentionTurnStatusStore,
   registryCatalog,
   repositoryView,
   requesterLeft,
@@ -59,6 +66,10 @@ import {
   loadSecretKey,
   runtimeVersionsFromEnv,
 } from "../api/catalog-config.ts";
+import {
+  createMentionConversationTurns,
+  OPERATOR_TURN_TAKE_MS,
+} from "../api/conversation-runtime.ts";
 import { extensionDepsFor } from "../api/extension-deps.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
@@ -75,6 +86,7 @@ import {
   type SlackInboundHandler,
   type SlackInboxDrain,
   type SlackNoticeSink,
+  setMentionThreadStatus,
 } from "../wiring/chat-slack.ts";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
@@ -260,6 +272,16 @@ export function slackSessionHandler(deps: {
     sessionLinks: createPostgresSessionLinkStore(db),
     conversations: createPostgresConversationStore(db),
     buffer: createPostgresJudgmentBufferStore(db),
+    mentionTurns: createMentionConversationTurns({
+      calls: createConversationCalls({
+        store: createPostgresConversationCalls(db),
+        catalog,
+      }),
+      queue: createPostgresConversationTurnQueue(db, secretKey),
+      statuses: createPostgresMentionTurnStatuses(db),
+      agents: agentStore,
+      catalog,
+    }),
     sessions,
     agentDetails: agentStore,
     releaseRepositoryUnusable: async (workspaceId, releaseId) => {
@@ -275,6 +297,49 @@ export function slackSessionHandler(deps: {
     welcomeOutbox: createPostgresSlackOutboxStore(db),
     cards: createPostgresSlackOutboxStore(db).cards,
     logger,
+  });
+}
+
+/**
+ * The pass's step that ends mention turns (v1-b/D1) and sets their threads
+ * back from "processing", each once: also the one that ends a turn out of
+ * time, so the time limit holds as long as the passes run.
+ */
+export function slackMentionTurnEndings(deps: {
+  db: Database;
+  secretKey: SecretKey;
+  catalog: Parameters<typeof createConversationCalls>[0]["catalog"];
+  slack: Parameters<typeof setMentionThreadStatus>[0]["slack"];
+  botToken: Parameters<typeof setMentionThreadStatus>[0]["botToken"];
+  logger: StructuredLogger;
+  limit: number;
+  /** How long one pass may run, past which its claims are taken over. */
+  claimMs: number;
+  deadline: number;
+  now?: () => Date;
+  statuses?: MentionTurnStatusStore;
+}) {
+  const { db } = deps;
+  return endMentionTurns({
+    statuses: deps.statuses ?? createPostgresMentionTurnStatuses(db),
+    queue: createPostgresConversationTurnQueue(db, deps.secretKey),
+    calls: createConversationCalls({
+      store: createPostgresConversationCalls(db),
+      catalog: deps.catalog,
+    }),
+    setStatus: (turn, status) =>
+      setMentionThreadStatus(
+        { slack: deps.slack, botToken: deps.botToken },
+        turn,
+        status,
+      ),
+    takeMs: OPERATOR_TURN_TAKE_MS,
+    leaseMs: CONVERSATION_TURN_LEASE_MS,
+    claimMs: deps.claimMs,
+    limit: deps.limit,
+    deadline: deps.deadline,
+    logger: deps.logger,
+    ...(deps.now === undefined ? {} : { now: deps.now }),
   });
 }
 
@@ -366,6 +431,22 @@ export async function main(
       consoleOrigin,
       logger,
     });
+    // Before the outbox: a turn that ended sets its thread back now.
+    const mentions = await slackMentionTurnEndings({
+      db,
+      secretKey,
+      catalog,
+      slack: slackApi,
+      botToken,
+      logger,
+      limit: settings.batchSize,
+      // The pass's timeout: a pass still holding a claim then is gone.
+      claimMs: 2 * settings.passBudgetMs,
+      deadline,
+    });
+    if (mentions.ended + mentions.failed > 0) {
+      logger.info("Slack mention turns pass", mentions);
+    }
     const sent = await drainSlackOutbox({
       outbox,
       slack: slackApi,

@@ -1,4 +1,5 @@
 import type {
+  MentionTurnDue,
   SurfaceThreadStatusFacts,
   SurfaceThreadStatusStore,
 } from "@werft-ai/platform";
@@ -93,6 +94,41 @@ const SET_STATUS_DISABLED = new Set([
   "feature_disabled",
   "thread_ts_required",
 ]);
+
+/**
+ * Sets a mention turn's thread status: `active` once the turn ended, or
+ * `processing` again for a newer turn of the thread. False when there is
+ * nothing to set (the app or its token is gone, or the workspace shows no
+ * status there); throws when Slack may not have taken it.
+ */
+export async function setMentionThreadStatus(
+  deps: {
+    slack: Pick<SlackBotApi, "setStatus">;
+    botToken: (
+      workspaceId: string,
+      slackAppId: string,
+    ) => Promise<string | null>;
+  },
+  turn: Pick<MentionTurnDue, "workspaceId" | "slackAppId" | "thread">,
+  status: Extract<SlackThreadStatus, "active" | "processing">,
+): Promise<boolean> {
+  if (turn.slackAppId === null) return false;
+  const token = await deps.botToken(turn.workspaceId, turn.slackAppId);
+  if (token === null) return false;
+  try {
+    await deps.slack.setStatus(token, {
+      channelId: turn.thread.channelId,
+      threadTs: turn.thread.threadTs,
+      status,
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof SlackApiError && SET_STATUS_DISABLED.has(error.code)) {
+      return false;
+    }
+    throw error;
+  }
+}
 
 export async function slackStatusMaterial(
   sessionId: string,
