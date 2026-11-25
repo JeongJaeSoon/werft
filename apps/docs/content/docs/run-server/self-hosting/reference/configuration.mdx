@@ -183,6 +183,7 @@ egress-proxy와 API의 authorizer listener는 아래 값을 읽는다. 목록 �
 | `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` | 빈 목록 | `config.egress.packagesRedirectAllowlist` | packages redirect와 Git LFS 객체의 public 목적지. 자격 증명 없이 받으며 forward 목록과 중복 금지 |
 | `INTERNAL_API_PORT` | 3200 | 별도 키 없음 | API의 `/internal` listener 포트. worker와 대화 런타임이 egress proxy를 거쳐 부른다. 공개 포트(`PORT`, 3000)에는 `/internal` route가 없다. Compose는 호스트에 묶지 않고, chart는 ClusterIP Service `<fullname>-api-internal`로만 열며 NetworkPolicy로 egress-proxy만 들인다 |
 | `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | 별도 키 없음 | API authorizer listener 주소 |
+| `METRICS_PORT` | API 코드: 미설정 시 listener 없음. chart: `api.metrics.enabled`일 때 `api.metrics.port`(9464) | 별도 키 없음 | API의 `/metrics`·`/healthz` listener 포트. Slack 이벤트 응답 counter(`werft_slack_event_responses_total`)를 낸다. 공개 포트와 `/internal` 포트에는 `/metrics`가 없다. Compose는 설정하지 않는다 |
 | `EGRESS_AUTHORIZER_PORT` | API 코드: 미설정 시 listener 없음. Compose·chart: 3100 | 자동 생성 | API에서는 토큰과 함께 설정하거나 둘 다 생략. `AUTH_MODE=none`과 함께 쓰면 기동 거부 |
 | `EGRESS_AUTHORIZER_URL` | proxy 코드: 없음. Compose: `http://api:3100`, chart: API authorizer Service | 자동 생성 | http/https URL. proxy에서는 토큰과 함께 설정하거나 둘 다 생략. API listener 포트와 일치해야 함 |
 | `EGRESS_AUTHORIZER_TOKEN` | 운영 기본값 없음 | Secret의 같은 이름 key | API·proxy가 공유하는 최소 32자 비밀. API에서는 PORT, proxy에서는 URL과 짝으로 필수. 운영에서는 설치별로 생성하며 로컬 시험 값을 쓰지 않음 |
@@ -273,7 +274,7 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 | `SCHEDULER_*` | `scheduler.intervalSec` 등 | `SCHEDULER_PASS_TIMEOUT_SEC`(`scheduler.passTimeoutSec`, 기본 180)는 150보다 커야 한다 |
 | `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC`, `SLACK_ROLE_INPUT_HOLD_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec`, `slack.inputHoldSec` | 기본 2, 60, 3, 90, 10, 60, 3600. `SLACK_ROLE_INPUT_HOLD_SEC`는 웹 입력의 Slack 글 위치를 기다리는 줄이 보내지 않은 채 닫히기까지의 초다. `slack.enabled: false`면 slack Deployment를 그리지 않는다 |
 | `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS`(slack) | `api.extraEnv` | slack은 api와 같은 카탈로그를 읽으므로 api의 값을 따른다. `slack.extraEnv`에 적으면 그 값이 이긴다 |
-| `SLACK_ROLE_CLOSE_LINKS`(slack) | `slack.extraEnv` | 기본 `false`. 켜면 닫힌 세션의 Slack 스레드 연결을 마지막 보고 줄을 넣은 뒤 닫고, 같은 스레드의 다음 멘션은 새 세션이 된다. 지금은 끈 채로 둔다 |
+| `SLACK_ROLE_CLOSE_LINKS`(slack) | `slack.extraEnv` | 기본 `true`. 닫힌 세션의 Slack 스레드 연결을 마지막 보고 줄을 넣은 뒤 닫고, 같은 스레드의 다음 멘션은 새 세션이 된다. `false`면 닫힌 세션의 스레드가 연결을 그대로 붙든다 |
 
 어느 Deployment에나 `extraEnv`로 env를 더할 수 있다. Secret에서 오는 값(`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, AWS key, 카탈로그 credential)은 [Kubernetes 설치 (Helm chart)의 준비 절](/run-server/self-hosting/kubernetes)의 표에 있다.
 

@@ -93,11 +93,18 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 
 chart はアラートルールを含みません。Prometheus ルールの例は[メトリクス収集](/run-server/self-hosting/collect-metrics#5-경보-규칙-예시)にあります。
 
+**api プロセスが数えるメトリクス。** 次のメトリクスは `metrics` ロールではなく api プロセスがメモリ上で数えます。DB が遅いか止まっている間に Slack へ返した 503・500 も数えるためです。`api.metrics.enabled` を有効にすると、api Pod ごとに `METRICS_PORT`（chart の既定は 9464）で `/metrics` と `/healthz` を開きます。公開ポート 3000 と `/internal` の 3200 には `/metrics` がありません。Pod ごとに別々に数え、Pod が再起動すると 0 から数え直します。そのため Service `<fullname>-api-metrics` の後ろの Pod をすべて scrape し、`sum(rate(...))` で合計します。
+
+| 名前 | 型 | label | 意味 |
+|---|---|---|---|
+| `werft_slack_event_responses_total` | counter | `code` | Slack Events API のリクエスト URL（`/v1/slack/events/{agent_id}`）に返した応答の数を HTTP status 別に数えます。記録前の 2.5 秒の上限に達したときの 503 と、リクエスト時間の上限による 503 も数えます |
+
 <a id="라벨-규칙" />
 ## label の規則
 
 - セッション id、turn id、利用者 id、API key id、エージェント id、attempt id は label にしません。エージェント別費用は `GET /v1/usage/*` で確認します。
 - `state`・`status`・`admission`・`outcome`・`priced_by`・`kind`・`le` には定義済みの値だけが出ます。
+- `code` には `200`・`400`・`401`・`408`・`413`・`429`・`500`・`503`・`other` だけが出ます。それ以外の status は `other` として数えます。
 - `image` はインストール設定の worker イメージ参照です。値の数は、まだセッションが残っているイメージの数に収まります。
 - `tool` と `model` はデータに由来します。MCP ツールの `mcp__<server>__<tool>` は `mcp__<server>` にまとめます。その後、初出順に `tool` は 100 個、`model` は 50 個まで名前を保持し、残りは `other` にまとめます。行を削除しないため、名前を得た値は通常そのまま残ります。ただし上限到達後、projection が遅れて追加した行（`tool`）や遅れて commit された行（`model`、`recorded_at` は transaction 開始時刻）の時刻がより早いと、名前が一つ `other` と入れ替わる場合があります。そのとき押し出された名前の series は途切れ、入った名前は新しい series として始まり、`other` は一度跳ねるか reset として読まれます。
 - テスト：cardinality のテストで、label 名の一覧、id 形式の値がないこと、上限を確認します。
