@@ -1,0 +1,3 @@
+ALTER TABLE "slack_apps" ADD COLUMN "manifest_sync_error" text;--> statement-breakpoint
+ALTER TABLE "slack_apps" ADD COLUMN "manifest_sync_checked_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "slack_apps" ADD CONSTRAINT "slack_apps_manifest_sync_error_check" CHECK ("slack_apps"."manifest_sync_error" IS NULL OR "slack_apps"."manifest_sync_error" IN ('config_token_inactive','events_url_unset','slack_refused','no_answer'));

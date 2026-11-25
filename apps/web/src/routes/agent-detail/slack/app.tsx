@@ -24,7 +24,7 @@ import {
   RowMenuItem,
   RowMenuLink,
 } from "../../../components/row-menu.tsx";
-import { useI18n } from "../../../i18n/i18n.tsx";
+import { type MessageKey, useI18n } from "../../../i18n/i18n.tsx";
 import type { RecheckSite, SlackActionSite, SlackApp } from "./actions.ts";
 import {
   SlackDangerRows,
@@ -317,6 +317,9 @@ export function SlackAppSection({
   }
   const appName = t("slack.appName", { name });
   const state = slackState(slack.readError, identity, record);
+  // An older API sends no check; say nothing rather than guess.
+  const unsynced =
+    record.state === "created" ? (app.data.manifest_sync?.error ?? null) : null;
   const updated = (
     <RelativeTime
       value={record.updated_at}
@@ -421,6 +424,16 @@ export function SlackAppSection({
     {
       foot: (
         <div className="flex flex-col gap-2">
+          {unsynced ? (
+            <div className="flex flex-col items-start gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="amber">{t("slack.manifestSync.needed")}</Badge>
+                <RecheckButton slack={slack} site="app" />
+              </div>
+              <Text variant="sub">{t(MANIFEST_SYNC_REASON[unsynced])}</Text>
+              <RecheckError slack={slack} site="app" />
+            </div>
+          ) : null}
           <Text id={`${SECTION.app}-install-hint`} variant="meta">
             {t(identity ? "slack.reinstallHint" : "slack.installHint")}
           </Text>
@@ -469,6 +482,17 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
     </>
   );
 }
+
+const MANIFEST_SYNC_REASON = {
+  config_token_inactive: "slack.manifestSync.config_token_inactive",
+  events_url_unset: "slack.manifestSync.events_url_unset",
+  slack_refused: "slack.manifestSync.slack_refused",
+  no_answer: "slack.manifestSync.no_answer",
+} as const satisfies Record<
+  NonNullable<NonNullable<SlackApp["app"]["data"]>["manifest_sync"]>["error"] &
+    string,
+  MessageKey
+>;
 
 // App, state, updated, actions; a phone keeps the app (with the state and
 // the time under it) and the actions. The app takes the leftover; the rest

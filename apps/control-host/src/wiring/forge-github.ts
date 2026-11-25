@@ -4,6 +4,7 @@ export {
   connectionsOf,
   createAppBotUsers,
   createGitHubAppDirectory,
+  createGitHubAppHookConfig,
   createGitHubManifestConverter,
   createGitHubSkillReader,
   createGitPusher,
