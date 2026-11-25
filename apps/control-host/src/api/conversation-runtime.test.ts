@@ -165,6 +165,8 @@ function operatorHarness(
     issue?: () => Issue;
     /** What the turn's permit was last refused for. */
     refusal?: "budget" | "concurrency";
+    /** The turn's decision the server wrote as its tool was called. */
+    decided?: boolean;
     release?: unknown;
     /** Wait in real time, for a test that acts while the operator waits. */
     realTime?: boolean;
@@ -202,16 +204,14 @@ function operatorHarness(
       async endTurn(turnId, outcome) {
         ended.push(turnId);
         const refusal = options.refusal ?? null;
-        const decided =
-          outcome?.outcome === "completed" && outcome.decision !== undefined;
-        return {
-          ended: "recorded",
-          state: decided ? "decided" : "no_decision",
-          refusal,
-          limit: decided
-            ? null
-            : conversationTurnLimitReached(outcome ?? null, refusal),
-        };
+        return options.decided
+          ? { ended: "already_ended", state: "decided", refusal, limit: null }
+          : {
+              ended: "recorded",
+              state: "no_decision",
+              refusal,
+              limit: conversationTurnLimitReached(outcome ?? null, refusal),
+            };
       },
     },
     agents: {
@@ -265,8 +265,8 @@ describe("an operator's conversation turn", () => {
     expect(h.issued).toEqual([]);
   });
 
-  test("is given every decision tool, and ends on the decision its runtime reports", async () => {
-    const h = operatorHarness({ realTime: true });
+  test("is given every decision tool, and ends on the record the server wrote of its decision", async () => {
+    const h = operatorHarness({ realTime: true, decided: true });
     expect(await h.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
     const running = h.operator.run(h.request);
     const turn = await h.turns.nextTurn({ runtimeId, waitMs: 2_000 });

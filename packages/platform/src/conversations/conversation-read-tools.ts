@@ -331,7 +331,8 @@ export function createConversationReadTools(deps: {
      * A decision tool call: counted as a tool call, refused when the turn's
      * requester's kind is not given the tool (G2, by the server's value),
      * and for route_to_task, when it names no open task the requester sees.
-     * Nothing is written: the turn's end writes the decision it ended on.
+     * One allowed is written as the turn's record here, the turn's first;
+     * the turn's end leaves it be.
      */
     async decide(request: {
       runtimeId: ConversationRuntimeId;
@@ -371,6 +372,14 @@ export function createConversationReadTools(deps: {
           return { outcome: "refused", reason: "unknown_task" };
         }
       }
+      const recorded = await deps.store.recordDecision({
+        turnId: turn.turnId,
+        decision,
+      });
+      // Another decision of the turn was written first.
+      if (recorded.outcome === "turn_not_held")
+        return { outcome: "not_holder" };
+      // Voided by a delete or not, the turn has ended on it.
       return { outcome: "accepted" };
     },
 

@@ -75,6 +75,9 @@ function setup(turn: ConversationToolTurn = turnOf()) {
     }[],
     records: [] as ConversationTurnRecord[],
     tasks: [] as ConversationOpenTask[],
+    recorded: { outcome: "recorded", state: "decided" } as Awaited<
+      ReturnType<ConversationReadToolStore["recordDecision"]>
+    >,
   };
   const seen = {
     admitted: [] as unknown[],
@@ -83,11 +86,16 @@ function setup(turn: ConversationToolTurn = turnOf()) {
     added: [] as SourceKey[][],
     doors: [] as unknown[],
     viewers: [] as (SessionViewer | null)[],
+    decisions: [] as unknown[],
   };
   const store: ConversationReadToolStore = {
     async admit(input) {
       seen.admitted.push(input);
       return state.admission;
+    },
+    async recordDecision(input) {
+      seen.decisions.push(input);
+      return state.recorded;
     },
     async closeThreadReads(turnId) {
       seen.closed.push(turnId);
@@ -447,14 +455,27 @@ describe("the decision tools as the control host answers them", () => {
     createdAt: new Date("2026-11-24T00:00:00.000Z"),
   });
 
-  test("a person's turn may make each of the four, counted as a tool call, and nothing is written", async () => {
+  test("a person's turn may make each of the four, counted as a tool call and written as the turn's record", async () => {
     for (const decision of ALL) {
       const s = setup();
       s.state.tasks = [task(taskId)];
       expect(await s.decide(decision)).toEqual({ outcome: "accepted" });
       expect(s.seen.admitted).toMatchObject([{ tool: decision.tool }]);
+      expect(s.seen.decisions).toEqual([{ turnId: s.turn.turnId, decision }]);
       expect(s.seen.added).toEqual([]);
     }
+  });
+
+  test("a decision voided by a delete still ends the turn, and one after the turn's first is not held", async () => {
+    const s = setup();
+    s.state.recorded = { outcome: "recorded", state: "voided_by_delete" };
+    expect(await s.decide(ALL[0] as ConversationDecision)).toEqual({
+      outcome: "accepted",
+    });
+    s.state.recorded = { outcome: "turn_not_held" };
+    expect(await s.decide(ALL[3] as ConversationDecision)).toEqual({
+      outcome: "not_holder",
+    });
   });
 
   test("an agent requester's turn is refused route_to_task and spawn_task by the server, whatever its runtime loaded (G2)", async () => {
@@ -474,6 +495,7 @@ describe("the decision tools as the control host answers them", () => {
       outcome: "refused",
       reason: "tool_not_allowed",
     });
+    expect(unknown.seen.decisions).toEqual([]);
   });
 
   test("route_to_task names an open task the requester sees, behind the private channel's door", async () => {
@@ -483,6 +505,7 @@ describe("the decision tools as the control host answers them", () => {
       outcome: "refused",
       reason: "unknown_task",
     });
+    expect(s.seen.decisions).toEqual([]);
     const place = {
       kind: "channel",
       teamId: "T1",

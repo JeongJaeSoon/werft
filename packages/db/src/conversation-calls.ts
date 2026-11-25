@@ -8,8 +8,6 @@ import {
   type ConversationTopicId,
   type ConversationTurnCallRefusal,
   type ConversationTurnId,
-  type ConversationTurnState,
-  conversationDecisionTools,
 } from "@werft-ai/contracts";
 import {
   type BudgetChoice,
@@ -44,7 +42,6 @@ import {
   reserveBudgetIn,
   settleBudgetIn,
 } from "./budget-accounts.ts";
-import { lockedTurnReadDeleted } from "./conversations/conversation-turns.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { PROVIDER_EXCHANGE_LEASE_MS } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
@@ -544,7 +541,12 @@ export function createPostgresConversationCalls(
             .select({ state: t.state })
             .from(t)
             .where(eq(t.id, permit.turnId));
-          if (turn?.state !== "running" || permit.expiresAt <= now) {
+          // A decided turn's engine still closes it: its provider calls only,
+          // as a tool call on it is refused (admit), and none once it ends.
+          if (
+            (turn?.state !== "running" && turn?.state !== "decided") ||
+            permit.expiresAt <= now
+          ) {
             return { outcome: "invalid_token" };
           }
           const [taken] = await tx
@@ -686,13 +688,8 @@ export function createPostgresConversationCalls(
         .where(eq(conversationTurnPermits.turnId, turnId));
     },
 
-    endTurnAtomic({ turnId, decision, limitReached }) {
+    endTurnAtomic({ turnId, limitReached }) {
       return db.transaction(async (tx) => {
-        // Check spot ②, its mark locks before any row's.
-        let read =
-          decision === undefined
-            ? null
-            : await lockedTurnReadDeleted(tx, turnId);
         const p = conversationTurnPermits;
         // The permit first, as a call on it takes it.
         const [permit] = await tx
@@ -705,11 +702,7 @@ export function createPostgresConversationCalls(
         const toolCallRefused =
           (permit?.toolCalls ?? 0) > CONVERSATION_TURN_TOOL_CALL_LIMIT;
         const [turn] = await tx
-          .select({
-            state: conversationTurns.state,
-            requesterKind: conversationTurns.requesterKind,
-            sources: conversationTurns.sources,
-          })
+          .select({ state: conversationTurns.state })
           .from(conversationTurns)
           .where(
             and(
@@ -721,6 +714,11 @@ export function createPostgresConversationCalls(
         if (!turn) {
           return { ended: "gone" as const, state: null, refusal, limit: null };
         }
+        // A decided turn's permit took its last provider calls: it ends here.
+        await tx
+          .update(p)
+          .set({ expiresAt: sql`LEAST(${p.expiresAt}, ${DB_NOW})` })
+          .where(eq(p.turnId, turnId));
         if (turn.state !== "running") {
           return {
             ended: "already_ended" as const,
@@ -728,41 +726,6 @@ export function createPostgresConversationCalls(
             refusal,
             limit: null,
           };
-        }
-        // A tool's read joined the sources after the check: check them as they are.
-        if (
-          read !== null &&
-          JSON.stringify(read.sources ?? null) !==
-            JSON.stringify(turn.sources ?? null)
-        ) {
-          read = await lockedTurnReadDeleted(tx, turnId);
-        }
-        // G2 again, by the server's value: a tool not the requester's is no decision.
-        const decided =
-          decision !== undefined &&
-          read !== null &&
-          conversationDecisionTools(turn.requesterKind).includes(decision.tool)
-            ? decision
-            : null;
-        if (decided !== null) {
-          const state: ConversationTurnState = read?.deleted
-            ? "voided_by_delete"
-            : "decided";
-          await tx
-            .update(conversationTurns)
-            .set(
-              state === "decided"
-                ? {
-                    state,
-                    decision: decided.tool,
-                    decisionReason: decided.reason,
-                    answerText: decided.tool === "reply" ? decided.body : null,
-                    endedAt: DB_NOW,
-                  }
-                : { state, endedAt: DB_NOW },
-            )
-            .where(eq(conversationTurns.id, turnId));
-          return { ended: "recorded" as const, state, refusal, limit: null };
         }
         const limit = limitReached?.(refusal, toolCallRefused) ?? null;
         await tx

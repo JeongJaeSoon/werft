@@ -222,11 +222,14 @@ describe("the read tools' store on PostgreSQL", () => {
         .where(eq(conversationTurnPermits.turnId, turnId))
     )[0];
 
-  describe("a turn's end on its decision", () => {
-    const end = (turnId: ConversationTurnId, decision?: ConversationDecision) =>
+  describe("a turn's decision, written as its tool is called", () => {
+    const decide = (
+      turnId: ConversationTurnId,
+      decision: ConversationDecision,
+    ) => store().recordDecision({ turnId, decision });
+    const end = (turnId: ConversationTurnId) =>
       createPostgresConversationCalls(db).endTurnAtomic({
         turnId,
-        ...(decision === undefined ? {} : { decision }),
         limitReached: (refusal, toolCallRefused) =>
           conversationTurnLimitReached(
             { outcome: "completed", text: "" },
@@ -274,11 +277,9 @@ describe("the read tools' store on PostgreSQL", () => {
       const before = await effects();
       for (const decision of DECISIONS) {
         const turn = await leased(open, { sources: [read] });
-        expect(await end(turn.turnId, decision)).toEqual({
-          ended: "recorded",
+        expect(await decide(turn.turnId, decision)).toEqual({
+          outcome: "recorded",
           state: "decided",
-          refusal: null,
-          limit: null,
         });
         expect(await rowOf(turn.turnId)).toEqual({
           state: "decided",
@@ -295,31 +296,47 @@ describe("the read tools' store on PostgreSQL", () => {
       expect(await effects()).toEqual(before);
     });
 
-    test("a turn that ends with no decision, or on a tool its requester is not given, records no decision", async () => {
+    test("the turn's first decision is its record: no other decision, tool call or end changes it, and its end closes the permit", async () => {
       const none = await leased();
       expect((await end(none.turnId)).state).toBe("no_decision");
-      const agent = await leased(open, {
-        requester: { kind: "slack_bot", id: "B0OTHER" },
+      expect(
+        await decide(none.turnId, DECISIONS[3] as ConversationDecision),
+      ).toEqual({ outcome: "turn_not_held" });
+      const turn = await leased(open, { sources: [read] });
+      const first = DECISIONS[3] as ConversationDecision;
+      expect((await decide(turn.turnId, first)).outcome).toBe("recorded");
+      expect(
+        await decide(turn.turnId, DECISIONS[0] as ConversationDecision),
+      ).toEqual({ outcome: "turn_not_held" });
+      // No read or decision tool call after the turn's decision.
+      expect(await admit(turn)).toEqual({ outcome: "not_holder" });
+      const live = (await permitOf(turn.turnId))?.expiresAt.getTime() ?? 0;
+      expect(live).toBeGreaterThan(Date.now());
+      // Whatever its runtime reports of a decision, the end leaves the record.
+      expect(await end(turn.turnId)).toMatchObject({
+        ended: "already_ended",
+        state: "decided",
+      });
+      expect(await rowOf(turn.turnId)).toMatchObject({
+        state: "decided",
+        decision: "no_reply",
+        reason: first.reason,
       });
       expect(
-        await end(agent.turnId, DECISIONS[2] as ConversationDecision),
-      ).toMatchObject({ ended: "recorded", state: "no_decision" });
-      expect(await rowOf(agent.turnId)).toMatchObject({
-        state: "no_decision",
-        decision: null,
-        answer: null,
-      });
-      // An agent's own two are its to make.
-      const quiet = await leased(open, {
-        requester: { kind: "slack_bot", id: "B0OTHER" },
-      });
-      expect(
-        (await end(quiet.turnId, DECISIONS[3] as ConversationDecision)).state,
-      ).toBe("decided");
-      // Once ended, a later end changes nothing.
-      expect(
-        await end(quiet.turnId, DECISIONS[0] as ConversationDecision),
-      ).toMatchObject({ ended: "already_ended", state: "decided" });
+        (await permitOf(turn.turnId))?.expiresAt.getTime() ?? 0,
+      ).toBeLessThanOrEqual(Date.now());
+    });
+
+    test("two decisions of one turn at once: one is written, the other finds the turn ended", async () => {
+      const turn = await leased(open, { sources: [read] });
+      const both = await Promise.all([
+        decide(turn.turnId, DECISIONS[0] as ConversationDecision),
+        decide(turn.turnId, DECISIONS[3] as ConversationDecision),
+      ]);
+      expect(both.map((each) => each.outcome).sort()).toEqual([
+        "recorded",
+        "turn_not_held",
+      ]);
     });
 
     test("a message the turn read, deleted before its decision is written, voids it (check spot ②)", async () => {
@@ -337,8 +354,8 @@ describe("the read tools' store on PostgreSQL", () => {
         deletedAt: new Date(),
       });
       expect(
-        await end(turn.turnId, DECISIONS[0] as ConversationDecision),
-      ).toMatchObject({ ended: "recorded", state: "voided_by_delete" });
+        await decide(turn.turnId, DECISIONS[0] as ConversationDecision),
+      ).toEqual({ outcome: "recorded", state: "voided_by_delete" });
       expect(await rowOf(turn.turnId)).toMatchObject({
         state: "voided_by_delete",
         decision: null,
@@ -358,8 +375,8 @@ describe("the read tools' store on PostgreSQL", () => {
       });
       const kept = await leased(open, { sources: [read], overflow: true });
       expect(
-        (await end(kept.turnId, DECISIONS[3] as ConversationDecision)).state,
-      ).toBe("decided");
+        await decide(kept.turnId, DECISIONS[3] as ConversationDecision),
+      ).toMatchObject({ state: "decided" });
       const voided = await leased(open, { sources: [read], overflow: true });
       await db.insert(deletedSources).values({
         workspaceId: ws,
@@ -369,8 +386,8 @@ describe("the read tools' store on PostgreSQL", () => {
         deletedAt: new Date(),
       });
       expect(
-        (await end(voided.turnId, DECISIONS[3] as ConversationDecision)).state,
-      ).toBe("voided_by_delete");
+        await decide(voided.turnId, DECISIONS[3] as ConversationDecision),
+      ).toMatchObject({ state: "voided_by_delete" });
     });
 
     test("no Slack or user path begins a turn as the operator's", async () => {

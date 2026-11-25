@@ -19,11 +19,13 @@ import { sql } from "drizzle-orm";
 import { channelKindOf, sessionVisibleTo } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
+import { lockedTurnReadDeleted } from "./conversation-turns.ts";
 import { directSourceDeletedAt, servedTitle } from "./deleted-sources.ts";
 import { turnAnswerTexts } from "./input-texts.ts";
 
 type AdmitRow = {
   state: string;
+  turn_state: string;
   lease_id: string | null;
   runtime_id: string | null;
   lease_expires_at: Date | string | null;
@@ -99,7 +101,8 @@ export function createPostgresConversationReadToolStore(
       return db.transaction(async (tx) => {
         const [row] = rowsOf<AdmitRow>(
           await tx.execute(sql`
-            SELECT q.state, q.lease_id, q.runtime_id, q.lease_expires_at,
+            SELECT q.state, t.state AS turn_state, q.lease_id, q.runtime_id,
+              q.lease_expires_at,
               t.workspace_id, t.agent_id, t.conversation_id, t.topic_id,
               t.requester_kind, t.requester_id, t.slack_installation_id,
               c.kind, c.team_id, c.channel_id, c.person_user_id,
@@ -124,6 +127,8 @@ export function createPostgresConversationReadToolStore(
         ) {
           return { outcome: "not_holder" };
         }
+        // A turn ends on one decision: no tool call after it.
+        if (row.turn_state !== "running") return { outcome: "not_holder" };
         if (
           row.lease_expires_at === null ||
           new Date(row.lease_expires_at).getTime() <= input.now.getTime()
@@ -150,6 +155,62 @@ export function createPostgresConversationReadToolStore(
         }
         return { outcome: "admitted", turn: toolTurnOf(input.turnId, row) };
       });
+    },
+
+    async recordDecision({ turnId, decision }) {
+      // A read that joined the sources after the check takes it all again:
+      // checking under the turn's row lock would turn the lock order round.
+      // Each read is a counted tool call, so the sources settle.
+      for (let attempt = 0; ; attempt++) {
+        const recorded = await db.transaction(async (tx) => {
+          // Check spot ②, its mark locks before any row's.
+          const read = await lockedTurnReadDeleted(tx, turnId);
+          // The permit before the turn, as the turn's end takes them.
+          await tx.execute(sql`
+            SELECT 1 FROM conversation_turn_permits
+            WHERE turn_id = ${turnId}::uuid FOR UPDATE`);
+          const [turn] = rowsOf<{ state: string; sources: unknown }>(
+            await tx.execute(sql`
+              SELECT state, sources FROM conversation_turns
+              WHERE id = ${turnId}::uuid AND origin = 'm2'
+              FOR UPDATE`),
+          );
+          // The first decision of the turn is its decision.
+          if (read === null || turn?.state !== "running") {
+            return { outcome: "turn_not_held" as const };
+          }
+          if (
+            JSON.stringify(read.sources ?? null) !==
+            JSON.stringify(turn.sources ?? null)
+          ) {
+            return null;
+          }
+          const state: "decided" | "voided_by_delete" = read.deleted
+            ? "voided_by_delete"
+            : "decided";
+          await tx.execute(
+            state === "decided"
+              ? sql`
+                UPDATE conversation_turns
+                SET state = 'decided', decision = ${decision.tool},
+                  decision_reason = ${decision.reason},
+                  answer_text = ${decision.tool === "reply" ? decision.body : null},
+                  ended_at = clock_timestamp()
+                WHERE id = ${turnId}::uuid`
+              : sql`
+                UPDATE conversation_turns
+                SET state = 'voided_by_delete', ended_at = clock_timestamp()
+                WHERE id = ${turnId}::uuid`,
+          );
+          return { outcome: "recorded" as const, state };
+        });
+        if (recorded !== null) return recorded;
+        if (attempt >= CONVERSATION_TURN_TOOL_CALL_LIMIT) {
+          throw new Error(
+            `Conversation turn ${turnId}'s sources did not settle`,
+          );
+        }
+      }
     },
 
     async closeThreadReads(turnId) {

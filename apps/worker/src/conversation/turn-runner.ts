@@ -297,7 +297,7 @@ export function createConversationTurnRunner(deps: {
             return failed("engine_failed", engineWord);
           }
           if (cut !== null) return failed("engine_failed");
-          // The one decision the control host accepted, written at the turn's end.
+          // The one decision the control host accepted and recorded, reported for its log.
           const decision = deps.tools.decision(session.permitKey);
           return {
             outcome: "completed",

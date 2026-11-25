@@ -4,7 +4,6 @@ import type {
   ConversationCallClass,
   ConversationCallId,
   ConversationCallKey,
-  ConversationDecision,
   ConversationId,
   ConversationTopicId,
   ConversationTurnCallRefusal,
@@ -71,19 +70,13 @@ export interface ConversationCallStore {
     }): { reserve: BudgetAmount; unmetered: boolean } | null;
   }): Promise<ConversationTurnCallAuthorization>;
   /**
-   * Ends a running turn without a decision, which also ends its permit, and
+   * Ends a turn's permit, and a running turn without a decision, and
    * says what its last refused call was refused for. `limitReached` says,
    * from that refusal and whether a read tool call was refused past the
    * turn's count, which limit ended the turn, kept on its row.
    */
   endTurnAtomic(input: {
     turnId: ConversationTurnId;
-    /**
-     * The decision the turn ended on, checked again before it is written:
-     * a tool its requester's kind is not given ends it with none, and a
-     * message it read that was deleted voids it (check spot ②).
-     */
-    decision?: ConversationDecision;
     limitReached?: (
       refusal: ConversationTurnCallRefusal | null,
       toolCallRefused: boolean,

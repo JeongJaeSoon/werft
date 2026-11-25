@@ -327,11 +327,10 @@ export function createConversationCalls(deps: {
      * permit with it: no call is granted on it after this.
      */
     endTurn(turnId: ConversationTurnId, outcome?: ConversationTurnOutcome) {
+      // A decision is the server's, written as its tool was called: what the
+      // runtime reports of one does not change the record.
       return deps.store.endTurnAtomic({
         turnId,
-        ...(outcome?.outcome === "completed" && outcome.decision !== undefined
-          ? { decision: outcome.decision }
-          : {}),
         limitReached: (refusal, toolCallRefused) =>
           conversationTurnLimitReached(
             outcome ?? null,

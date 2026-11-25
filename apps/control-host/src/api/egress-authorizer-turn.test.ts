@@ -471,6 +471,37 @@ describe("a conversation turn's provider calls", () => {
     expect(await callsOf(late.turnId)).toEqual([]);
   });
 
+  test("a decided turn's engine still makes the provider calls that close it, until its end; a voided turn or one with no decision makes none", async () => {
+    const turn = await operatorTurn();
+    expect(
+      await schema.createPostgresConversationReadToolStore(db).recordDecision({
+        turnId: turn.turnId,
+        decision: { tool: "no_reply", reason: "nothing to add" },
+      }),
+    ).toEqual({ outcome: "recorded", state: "decided" });
+    const closing = await granted(turn.token);
+    expect((await report(closing)).status).toBe(200);
+    expect(await calls.endTurn(turn.turnId)).toMatchObject({
+      ended: "already_ended",
+      state: "decided",
+    });
+    expect((await providerAsk(turn.token, crypto.randomUUID())).status).toBe(
+      401,
+    );
+    expect(await callsOf(turn.turnId)).toHaveLength(1);
+    for (const state of ["voided_by_delete", "no_decision"] as const) {
+      const ended = await operatorTurn();
+      await db
+        .update(schema.conversationTurns)
+        .set({ state, endedAt: new Date() })
+        .where(eq(schema.conversationTurns.id, ended.turnId));
+      expect((await providerAsk(ended.token, crypto.randomUUID())).status).toBe(
+        401,
+      );
+      expect(await callsOf(ended.turnId)).toEqual([]);
+    }
+  });
+
   test("a model gone from the connection since the turn began: no new call on it, while the call already made carries on and settles", async () => {
     const turn = await operatorTurn();
     const call = await granted(turn.token);
