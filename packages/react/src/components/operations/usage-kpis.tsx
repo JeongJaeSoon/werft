@@ -11,17 +11,32 @@ type Bucket = UsageSeriesResponse["buckets"][number];
 interface Totals {
   readonly session_count: number;
   readonly run_seconds: number;
+  /** The sessions' and the conversation calls' together. */
   readonly cost_usd: number;
+  readonly session_cost_usd: number;
+  readonly conversation_cost_usd: number;
   readonly cost_complete: boolean;
   readonly token_count: number;
+}
+
+/** A day's whole spend: its sessions' and its conversation calls'. */
+export function spentOn(bucket: Bucket): number {
+  return Number(bucket.cost_usd) + Number(bucket.conversation_cost_usd);
 }
 
 function totalsOf(buckets: readonly Bucket[]): Totals {
   return {
     session_count: buckets.reduce((sum, b) => sum + b.session_count, 0),
     run_seconds: buckets.reduce((sum, b) => sum + b.run_seconds, 0),
-    cost_usd: buckets.reduce((sum, b) => sum + Number(b.cost_usd), 0),
-    cost_complete: buckets.every((b) => b.cost_complete),
+    cost_usd: buckets.reduce((sum, b) => sum + spentOn(b), 0),
+    session_cost_usd: buckets.reduce((sum, b) => sum + Number(b.cost_usd), 0),
+    conversation_cost_usd: buckets.reduce(
+      (sum, b) => sum + Number(b.conversation_cost_usd),
+      0,
+    ),
+    cost_complete: buckets.every(
+      (b) => b.cost_complete && b.conversation_cost_complete,
+    ),
     token_count: buckets.reduce((sum, b) => sum + b.token_count, 0),
   };
 }
@@ -69,7 +84,7 @@ export function UsageKpis({
         label={messages.cost}
         badge={<Badge>{messages.estimated}</Badge>}
         value={value("5rem", (t) => format.usd(t.cost_usd))}
-        chart={spark((b) => Number(b.cost_usd), messages.costChart)}
+        chart={spark(spentOn, messages.costChart)}
         description={
           totals === undefined ? (
             // Most periods hold a running turn; keeping its room stops the
@@ -77,8 +92,22 @@ export function UsageKpis({
             <span aria-hidden="true" className="invisible">
               {messages.costIncomplete}
             </span>
-          ) : totals.cost_complete ? undefined : (
-            messages.costIncomplete
+          ) : totals.conversation_cost_usd === 0 ? (
+            totals.cost_complete ? undefined : (
+              messages.costIncomplete
+            )
+          ) : (
+            <>
+              <span className="block">
+                {messages.costSplit(
+                  format.usd(totals.session_cost_usd),
+                  format.usd(totals.conversation_cost_usd),
+                )}
+              </span>
+              {totals.cost_complete ? null : (
+                <span className="block">{messages.costIncomplete}</span>
+              )}
+            </>
           )
         }
       />

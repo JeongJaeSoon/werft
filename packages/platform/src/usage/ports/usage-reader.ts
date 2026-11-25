@@ -95,6 +95,9 @@ export type UsageSeriesBucketRecord = {
   incompleteTurnCount: number;
   /** The floor of the running total minus the floor of the one before. */
   runSeconds: number;
+  /** The conversation calls created that day. */
+  conversationCostUsd: string;
+  conversationIncompleteCallCount: number;
 };
 
 /** Every UTC day [since, until) touches, read in one statement. */
@@ -211,6 +214,24 @@ export type UsageAchievementsRecord = UsageAchievementCountsRecord & {
   }[];
 };
 
+/**
+ * Conversation calls created in the period: settled cost alone, by call
+ * class; `other` is a call with no class. Costs as the database prints them.
+ */
+export type UsageConversationCostRecord = {
+  /** Every call but the released ones. */
+  callCount: number;
+  costUsd: string;
+  /** Reserved, in flight, or resolved without a report. */
+  incompleteCallCount: number;
+  byClass: {
+    judgmentUsd: string;
+    turnUsd: string;
+    summaryUsd: string;
+    otherUsd: string;
+  };
+};
+
 export type UsageBreakdownFiguresRecord = {
   sessionCount: number;
   inputTokens: number;
@@ -230,9 +251,13 @@ export type UsageBreakdownRecord = {
   rows: (UsageBreakdownFiguresRecord & {
     key: string | null;
     label: string | null;
+    /** By agent only. */
+    conversation?: UsageConversationCostRecord;
   })[];
   /** `sessionCount` and `costUsd` are the summary's. */
-  totals: UsageBreakdownFiguresRecord;
+  totals: UsageBreakdownFiguresRecord & {
+    conversation?: UsageConversationCostRecord;
+  };
 };
 
 /**

@@ -10,6 +10,7 @@ import type { JSX } from "react";
 
 import type { UsageDailyCostMessages } from "./messages.ts";
 import { Box } from "./placeholders.tsx";
+import { spentOn } from "./usage-kpis.tsx";
 import { useOperationsMessages } from "./use-messages.ts";
 
 type Bucket = UsageSeriesResponse["buckets"][number];
@@ -38,7 +39,10 @@ export interface UsageDailyCostProps {
   readonly messages?: Partial<UsageDailyCostMessages> | undefined;
 }
 
-/** Each day's estimated cost; a day with unreported cost is hatched. */
+/**
+ * Each day's estimated cost, its sessions' and conversation calls' together;
+ * a day with unreported cost is hatched.
+ */
 export function UsageDailyCost({
   buckets,
   days,
@@ -48,7 +52,7 @@ export function UsageDailyCost({
     "usageDailyCost",
     override,
   );
-  const max = Math.max(0, ...(buckets ?? []).map((b) => Number(b.cost_usd)));
+  const max = Math.max(0, ...(buckets ?? []).map(spentOn));
   const designSteps = max >= DESIGN_Y_STEP_USD;
   const step = designSteps || max === 0 ? undefined : yStep(max);
   const subCent = step !== undefined && step < SUB_CENT_STEP;
@@ -79,8 +83,8 @@ export function UsageDailyCost({
               label={messages.chart(days)}
               data={buckets.map((b) => ({
                 x: b.date,
-                y: Number(b.cost_usd),
-                partial: !b.cost_complete,
+                y: spentOn(b),
+                partial: !(b.cost_complete && b.conversation_cost_complete),
               }))}
               {...(yMax === undefined ? {} : { yMax })}
               formatX={monthDay}

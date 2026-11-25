@@ -392,6 +392,7 @@ export function OperationsOverviewScreen() {
               by="agent"
               rows={agents.data?.rows.slice(0, TOP_AGENTS)}
               tokens={false}
+              conversation
               placeholderRows={TOP_AGENTS}
             />
           )}
@@ -449,9 +450,24 @@ export function OperationsUsageScreen() {
       agents: { data: agents.data, error: agents.error },
     };
   const shown = set.current;
+  // A conversation call may settle at no cost, so the agents' call count
+  // says whether the period had one; the series alone cannot.
+  // Without the agents' answer, or when their refetch failed over an older
+  // one, the period is not called empty: the failure and its retry stay.
+  const agentTotals = shown?.agents.error
+    ? undefined
+    : shown?.agents.data?.totals;
+  const talked = (agentTotals?.conversation?.call_count ?? 0) > 0;
   const empty =
-    shown?.series.data?.buckets.every((bucket) => bucket.session_count === 0) ??
-    false;
+    agentTotals !== undefined &&
+    !talked &&
+    (shown?.series.data?.buckets.every(
+      (bucket) =>
+        bucket.session_count === 0 &&
+        Number(bucket.conversation_cost_usd) === 0 &&
+        bucket.conversation_cost_complete,
+    ) ??
+      false);
   const failure = (error: Error, retry: () => unknown) => (
     <Card className="py-0">
       <LoadFailure error={error} onRetry={() => void retry()} />
@@ -472,6 +488,7 @@ export function OperationsUsageScreen() {
         head={head}
         by={by}
         rows={shownAnswer?.data?.rows}
+        conversation={by === "agent"}
       />
     );
   return (
