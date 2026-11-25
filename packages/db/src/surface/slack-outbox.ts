@@ -1790,25 +1790,6 @@ export function createPostgresSlackOutboxStore(
             JOIN slack_installations si ON si.id = ${t.installationId}
             WHERE s.id = ${t.sessionId}
           )`,
-          // A task is a session with a Slack link: the row's own, or, for a
-          // row sent outside its thread (a direct message), an open one. Its
-          // title as it is at the send, not at the enqueue, and as a reader
-          // is served it: none once Slack deleted what it came from.
-          postedAs: sql<SurfaceOutboxPostedAs | null>`(
-            SELECT json_build_object(
-              'agentName', a.name,
-              'taskTitle', (
-                SELECT ${servedTitle("s")} FROM sessions s
-                WHERE s.id = ${t.sessionId} AND (
-                  ${t.sessionLinkId} IS NOT NULL OR EXISTS (
-                    SELECT 1 FROM session_links l
-                    WHERE l.session_id = s.id AND l.closed_at IS NULL
-                  )
-                )
-              )
-            )
-            FROM agents a WHERE a.id = ${t.agentId}
-          )`,
         });
       return rows
         .sort((a, b) => a.seq - b.seq)
@@ -1838,6 +1819,7 @@ export function createPostgresSlackOutboxStore(
         const [row] = await tx
           .select({
             workspaceId: t.workspaceId,
+            agentId: t.agentId,
             sessionId: t.sessionId,
             sessionLinkId: t.sessionLinkId,
             sources: t.sources,
@@ -1853,9 +1835,9 @@ export function createPostgresSlackOutboxStore(
           )
           .for("update");
         if (row === undefined) return false;
-        // A task's title cut or made from its first message, as claim read
-        // it: that message's direct sources. Their marks are taken with the
-        // row's, in one order, before either is judged.
+        // A title cut or made from the session's first message: that
+        // message's direct sources. Their marks are taken with the row's, in
+        // one order, so the title read below sees a delete under way.
         const [title] =
           row.sessionId === null
             ? []
@@ -1868,11 +1850,7 @@ export function createPostgresSlackOutboxStore(
                   JOIN turns tt ON tt.session_id = s.id AND tt.sequence = 1
                   WHERE s.id = ${row.sessionId}
                     AND s.title_source IN ('derived', 'generated')
-                    AND jsonb_typeof(tt.sources -> 'direct') = 'array'
-                    AND (${row.sessionLinkId}::uuid IS NOT NULL OR EXISTS (
-                      SELECT 1 FROM session_links l
-                      WHERE l.session_id = s.id AND l.closed_at IS NULL
-                    ))`),
+                    AND jsonb_typeof(tt.sources -> 'direct') = 'array'`),
               );
         if (title !== undefined) {
           await lockedDeletedSource(tx, {
@@ -1899,15 +1877,6 @@ export function createPostgresSlackOutboxStore(
             .where(eq(t.id, fence.id));
           return "voided_by_delete" as const;
         }
-        // Deleted since the claim: the post goes, without the title.
-        const untitled =
-          title !== undefined &&
-          (await lockedDeletedSource(tx, {
-            workspaceId: row.workspaceId,
-            sessionId: row.sessionId,
-            sources: title.sources,
-            throughTurn: 1,
-          })) !== null;
         const rows = await tx
           .update(t)
           .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
@@ -1921,7 +1890,27 @@ export function createPostgresSlackOutboxStore(
           )
           .returning({ id: t.id });
         if (rows.length === 0) return false;
-        return untitled ? ("untitled" as const) : true;
+        // Who the row goes out as, read under those locks. A task is a
+        // session with a Slack link: the row's own, or, for a row sent
+        // outside its thread (a direct message), an open one. Its title as a
+        // reader is served it: none once Slack deleted what it came from.
+        const [sender] = rowsOf<{ posted_as: SurfaceOutboxPostedAs }>(
+          await tx.execute(sql`
+            SELECT json_build_object(
+              'agentName', a.name,
+              'taskTitle', (
+                SELECT ${servedTitle("s")} FROM sessions s
+                WHERE s.id = ${row.sessionId}::uuid AND (
+                  ${row.sessionLinkId}::uuid IS NOT NULL OR EXISTS (
+                    SELECT 1 FROM session_links l
+                    WHERE l.session_id = s.id AND l.closed_at IS NULL
+                  )
+                )
+              )
+            ) AS posted_as
+            FROM agents a WHERE a.id = ${row.agentId}::uuid`),
+        );
+        return sender?.posted_as ?? true;
       });
     },
 

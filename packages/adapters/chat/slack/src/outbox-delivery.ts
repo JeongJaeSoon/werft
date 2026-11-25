@@ -10,6 +10,7 @@ import type {
   DeliveryOutcome,
   Notifiable,
   SurfaceOutboxClaim,
+  SurfaceOutboxPostedAs,
   SurfaceOutboxSettle,
 } from "@werft-ai/platform";
 import {
@@ -96,14 +97,13 @@ export type RowDelivery = {
 };
 
 /**
- * A row's delivery, whose begin may also say `untitled`: begun, but the
- * task's title came from a message Slack deleted since the claim, so the
- * post goes out under the agent's name alone.
+ * A row's delivery, whose begin may also say who the row goes out as, read
+ * when its send began (`beginSend`); `true` posts as the app.
  */
 export type RowDeliveryInput = Omit<
   DeliveryInput<SurfaceOutboxClaim>,
   "begin"
-> & { begin: () => Promise<boolean | "untitled"> };
+> & { begin: () => Promise<boolean | SurfaceOutboxPostedAs> };
 
 export type RowDeliveryDeps = {
   slack: Pick<SlackBotSender, "postMessage" | "postEphemeral" | "userImage">;
@@ -166,6 +166,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     text: string,
     iconUrl: string | null,
     guard: SlackTextGuard,
+    postedAs: SurfaceOutboxPostedAs | null,
   ) => {
     const target = {
       channelId: claim.channelId,
@@ -177,7 +178,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       // The agent's own row goes under its name, and a task's under its
       // title too. Slack posted nothing when it refused the name to an app
       // without chat:write.customize; the row goes once more as the app.
-      let username = slackAgentSender(claim.postedAs);
+      let username = slackAgentSender(postedAs);
       const post = async (
         input: Parameters<SlackBotSender["postMessage"]>[1],
       ) => {
@@ -302,10 +303,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     const iconUrl = await senderImage(botToken, claim);
     const begun = await input.begin();
     if (begun === false) return { kind: "lease_lost" };
-    const sending =
-      begun === "untitled" && claim.postedAs != null
-        ? { ...claim, postedAs: { ...claim.postedAs, taskTitle: null } }
-        : claim;
+    const postedAs = begun === true ? null : begun;
 
     // A card's text is its own, escaped and linked already.
     // A model notice is a direct message with no thread: it opens the
@@ -334,7 +332,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
               threadTs: claim.threadTs,
               text,
             })
-          : await postMessage(botToken, sending, text, iconUrl, guard);
+          : await postMessage(botToken, claim, text, iconUrl, guard, postedAs);
       logDropped();
       return outcomeOf(slackOutboxSettleFor(attempts, response));
     } catch (error) {

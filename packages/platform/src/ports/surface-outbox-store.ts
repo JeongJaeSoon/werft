@@ -143,14 +143,12 @@ export type SurfaceOutboxClaim = SurfaceOutboxEntry &
      * with no session, or a session with no parent conversation.
      */
     conversationScope?: SurfaceConversationScope | null;
-    /**
-     * Who the row goes out as, read at claim: the agent's name and, for a
-     * row of a linked session (a task), that session's title, null while it
-     * has none. Absent or null when unread.
-     */
-    postedAs?: SurfaceOutboxPostedAs | null;
   };
 
+/**
+ * Who a row goes out as: the agent's name and, for a task (a session with a
+ * Slack link), that session's title, null while it has none.
+ */
 export type SurfaceOutboxPostedAs = {
   agentName: string;
   taskTitle: string | null;
@@ -695,13 +693,13 @@ export interface SurfaceOutboxStore {
   /**
    * `sending` from here on: a lease that runs out now leaves it `uncertain`.
    * `voided_by_delete`: a source of the row was deleted in Slack, and the
-   * row is settled so; nothing may go out. `untitled`: `sending`, but the
-   * claimed task title was cut or made from a message Slack deleted since,
-   * so it goes out under the agent's name alone.
+   * row is settled so; nothing may go out. Begun, who the row goes out as
+   * when the store reads it, under the same locks: a title whose message
+   * Slack deleted is never sent; `true` when it reads none.
    */
   beginSend(
     fence: SurfaceOutboxFence,
-  ): Promise<boolean | "voided_by_delete" | "untitled">;
+  ): Promise<boolean | "voided_by_delete" | SurfaceOutboxPostedAs>;
   /** False when the lease was lost: the row is someone else's now. */
   /**
    * False when the lease was lost. A sent `input_mirror` row gives its input

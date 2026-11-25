@@ -354,7 +354,7 @@ export async function drainSlackOutbox(deps: {
         begin: async () => {
           const begun = await deps.outbox.beginSend(claim);
           voided = begun === "voided_by_delete";
-          return begun === "untitled" ? begun : begun === true;
+          return begun === "voided_by_delete" ? false : begun;
         },
       });
       if (outcome.kind === "lease_lost" && voided) {

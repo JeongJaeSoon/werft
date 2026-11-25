@@ -7,8 +7,9 @@ import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { createPostgresSlackOutboxStore } from "./slack-outbox.ts";
 
-// v1-b/N1: a claimed row carries the agent's name and, for a task (a row of
-// a linked session), its session's title as it is at the claim.
+// v1-b/N1: a row's send, as it begins, reads the agent's name and, for a
+// task (a session with a Slack link), its session's title, under the locks
+// that order it against a Slack delete.
 
 let client: PGlite;
 let db: Database;
@@ -62,6 +63,7 @@ async function linkSession(sessionId: string, closed: boolean) {
       AGENT,
     ],
   );
+  return id;
 }
 
 // The session's first turn came from a Slack message that Slack deleted.
@@ -121,26 +123,28 @@ async function claimedPostedAs(row: {
   return { outbox, sessionId: row.sessionId };
 }
 
-async function claimOne(
+// Claimed, then begun: who the row goes out as.
+async function begunAs(
   outbox: ReturnType<typeof createPostgresSlackOutboxStore>,
 ) {
   const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
-  return claim?.postedAs;
+  if (claim === undefined) throw new Error("no claim");
+  return outbox.beginSend(claim);
 }
 
-describe("claiming an outbox row", () => {
+describe("beginning an outbox row's send", () => {
   test("reads a task's agent name and session title", async () => {
     const { outbox } = await claimedPostedAs({
       sessionId: await sessionTitled("Fix the login"),
       linked: true,
     });
-    expect(await claimOne(outbox)).toEqual({
+    expect(await begunAs(outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: "Fix the login",
     });
   });
 
-  test("reads the title at the claim, not at the enqueue", async () => {
+  test("reads the title at the send, not at the enqueue", async () => {
     const { outbox, sessionId } = await claimedPostedAs({
       sessionId: await sessionTitled(null),
       linked: true,
@@ -149,7 +153,7 @@ describe("claiming an outbox row", () => {
       "UPDATE sessions SET title = 'Named later' WHERE id = $1",
       [sessionId],
     );
-    expect(await claimOne(outbox)).toEqual({
+    expect(await begunAs(outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: "Named later",
     });
@@ -159,14 +163,14 @@ describe("claiming an outbox row", () => {
     const derived = await sessionTitled("summarize the thread", "derived");
     await firstMessageDeleted(derived);
     const cut = await claimedPostedAs({ sessionId: derived, linked: true });
-    expect(await claimOne(cut.outbox)).toEqual({
+    expect(await begunAs(cut.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: null,
     });
     const given = await sessionTitled("Fix the login");
     await firstMessageDeleted(given);
     const kept = await claimedPostedAs({ sessionId: given, linked: true });
-    expect(await claimOne(kept.outbox)).toEqual({
+    expect(await begunAs(kept.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: "Fix the login",
     });
@@ -181,9 +185,11 @@ describe("claiming an outbox row", () => {
     });
     const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
     if (claim === undefined) throw new Error("no claim");
-    expect(claim.postedAs?.taskTitle).toBe("summarize the thread");
     await markDeleted(ts);
-    expect(await outbox.beginSend(claim)).toBe("untitled");
+    expect(await outbox.beginSend(claim)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: null,
+    });
     const [row] = (
       await client.query<{ status: string }>(
         "SELECT status FROM slack_outbox WHERE id = $1",
@@ -199,7 +205,10 @@ describe("claiming an outbox row", () => {
     const kept = await claimedPostedAs({ sessionId: derived, linked: true });
     const [claim] = await kept.outbox.claim({ limit: 10, leaseMs: 30_000 });
     if (claim === undefined) throw new Error("no claim");
-    expect(await kept.outbox.beginSend(claim)).toBe(true);
+    expect(await kept.outbox.beginSend(claim)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: "summarize the thread",
+    });
     // A person's title is theirs, whatever happened to the first message.
     const given = await sessionTitled("Fix the login");
     const ts = await firstTurnFrom(given);
@@ -207,21 +216,56 @@ describe("claiming an outbox row", () => {
     const [own] = await named.outbox.claim({ limit: 10, leaseMs: 30_000 });
     if (own === undefined) throw new Error("no claim");
     await markDeleted(ts);
-    expect(await named.outbox.beginSend(own)).toBe(true);
+    expect(await named.outbox.beginSend(own)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: "Fix the login",
+    });
+  });
+
+  test("a rename or a closed link after the claim is what the send reads", async () => {
+    // Renamed by a person, then the first message deleted: the new title.
+    const derived = await sessionTitled("summarize the thread", "derived");
+    const ts = await firstTurnFrom(derived);
+    const renamed = await claimedPostedAs({ sessionId: derived, linked: true });
+    const [claim] = await renamed.outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (claim === undefined) throw new Error("no claim");
+    await client.query(
+      "UPDATE sessions SET title = 'Fix the login', title_source = 'user' WHERE id = $1",
+      [derived],
+    );
+    await markDeleted(ts);
+    expect(await renamed.outbox.beginSend(claim)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: "Fix the login",
+    });
+    // A direct message of a task whose link closed since: no longer a task.
+    const open = await sessionTitled("Fix the login");
+    const linkId = await linkSession(open, false);
+    const direct = await claimedPostedAs({ sessionId: open, linked: false });
+    const [dm] = await direct.outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (dm === undefined) throw new Error("no claim");
+    await client.query(
+      "UPDATE session_links SET closed_at = now(), closed_reason = 'completed' WHERE id = $1",
+      [linkId],
+    );
+    expect(await direct.outbox.beginSend(dm)).toEqual({
+      agentName: "Payments Agent",
+      taskTitle: null,
+    });
   });
 
   test("names the task on a row sent outside its thread while its link is open", async () => {
     const open = await sessionTitled("Fix the login");
     await linkSession(open, false);
     const direct = await claimedPostedAs({ sessionId: open, linked: false });
-    expect(await claimOne(direct.outbox)).toEqual({
+    expect(await begunAs(direct.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: "Fix the login",
     });
     const closed = await sessionTitled("Done already");
     await linkSession(closed, true);
     const late = await claimedPostedAs({ sessionId: closed, linked: false });
-    expect(await claimOne(late.outbox)).toEqual({
+    expect(await begunAs(late.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: null,
     });
@@ -232,7 +276,7 @@ describe("claiming an outbox row", () => {
       sessionId: await sessionTitled(null),
       linked: true,
     });
-    expect(await claimOne(untitled.outbox)).toEqual({
+    expect(await begunAs(untitled.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: null,
     });
@@ -240,7 +284,7 @@ describe("claiming an outbox row", () => {
       sessionId: await sessionTitled("Not a task"),
       linked: false,
     });
-    expect(await claimOne(unlinked.outbox)).toEqual({
+    expect(await begunAs(unlinked.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: null,
     });
@@ -248,7 +292,7 @@ describe("claiming an outbox row", () => {
       sessionId: null,
       linked: false,
     });
-    expect(await claimOne(sessionless.outbox)).toEqual({
+    expect(await begunAs(sessionless.outbox)).toEqual({
       agentName: "Payments Agent",
       taskTitle: null,
     });

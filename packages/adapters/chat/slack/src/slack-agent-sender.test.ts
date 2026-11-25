@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type {
   SurfaceOutboxClaim,
+  SurfaceOutboxPostedAs,
   SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
@@ -19,6 +20,7 @@ import { slackAgentSender } from "./slack-outbox-render.ts";
 const TOKEN = "test-bot-credential";
 const SLACK_APP = "slack-app-sender";
 const TASK = { agentName: "Payments Agent", taskTitle: "Fix the login" };
+const AGENT_ONLY = { agentName: "Payments Agent", taskTitle: null };
 
 describe("slackAgentSender", () => {
   test("names a task's agent and its title", () => {
@@ -96,7 +98,6 @@ const claim = (over: Partial<SurfaceOutboxClaim>): SurfaceOutboxClaim => ({
   sessionLinkId: "link-1",
   body: { text: "Done." },
   dedupeKey: "reply:link-1:1",
-  postedAs: TASK,
   ...over,
 });
 
@@ -121,16 +122,22 @@ describe("posting over the fake Slack", () => {
   });
   afterAll(() => fakeSlack.stop());
 
-  async function usernames(rows: SurfaceOutboxClaim[]) {
+  async function usernames(
+    rows: [SurfaceOutboxClaim, SurfaceOutboxPostedAs | null][],
+  ) {
     fakeSlack.messages.length = 0;
     const delivery = createRowDelivery({
       slack: createSlackBotApi({ apiUrl: fakeSlack.url }),
       botToken: async () => TOKEN,
       consoleOrigin: "https://console.example",
     });
-    for (const row of rows) {
+    for (const [row, postedAs] of rows) {
       expect(
-        await delivery.direct({ row, attempts: 1, begin: async () => true }),
+        await delivery.direct({
+          row,
+          attempts: 1,
+          begin: async () => postedAs ?? true,
+        }),
       ).toMatchObject({ kind: "sent" });
     }
     return fakeSlack.messages.map((message) => [
@@ -142,10 +149,10 @@ describe("posting over the fake Slack", () => {
   test("a task's answer, notice and card go out as agent [task]", async () => {
     expect(
       await usernames([
-        claim({}),
-        claim({ kind: "failure_notice" }),
-        claim({ kind: "action_notice" }),
-        claim({ kind: "input_notice", body: card }),
+        [claim({}), TASK],
+        [claim({ kind: "failure_notice" }), TASK],
+        [claim({ kind: "action_notice" }), TASK],
+        [claim({ kind: "input_notice", body: card }), TASK],
       ]),
     ).toEqual([
       ["chat.postMessage", "Payments Agent [Fix the login]"],
@@ -158,14 +165,16 @@ describe("posting over the fake Slack", () => {
   test("an untitled task and a row outside any task go out as the agent", async () => {
     expect(
       await usernames([
-        claim({ postedAs: { agentName: "Payments Agent", taskTitle: null } }),
-        claim({
-          kind: "welcome",
-          sessionId: null,
-          sessionLinkId: null,
-          threadTs: "",
-          postedAs: { agentName: "Payments Agent", taskTitle: null },
-        }),
+        [claim({}), AGENT_ONLY],
+        [
+          claim({
+            kind: "welcome",
+            sessionId: null,
+            sessionLinkId: null,
+            threadTs: "",
+          }),
+          AGENT_ONLY,
+        ],
       ]),
     ).toEqual([
       ["chat.postMessage", "Payments Agent"],
@@ -176,20 +185,27 @@ describe("posting over the fake Slack", () => {
   test("an instruction keeps its sender's name; a refusal names no one", async () => {
     expect(
       await usernames([
-        claim({
-          kind: "instruction",
-          body: {
-            text: "Add a test",
-            sender: { username: "Ada (Web console)" },
-          },
-        }),
-        claim({
-          kind: "notice",
-          slackUserId: "U0READER",
-          sessionId: null,
-          sessionLinkId: null,
-        }),
-        claim({ postedAs: null }),
+        [
+          claim({
+            kind: "instruction",
+            body: {
+              text: "Add a test",
+              sender: { username: "Ada (Web console)" },
+            },
+          }),
+          TASK,
+        ],
+        [
+          claim({
+            kind: "notice",
+            slackUserId: "U0READER",
+            sessionId: null,
+            sessionLinkId: null,
+          }),
+          AGENT_ONLY,
+        ],
+        // A store that reads no name: the app's own.
+        [claim({}), null],
       ]),
     ).toEqual([
       ["chat.postMessage", "Ada (Web console)"],
@@ -228,7 +244,7 @@ describe("an app without chat:write.customize", () => {
     const outcome = await delivery.direct({
       row,
       attempts: 1,
-      begin: async () => true,
+      begin: async () => TASK,
     });
     return { outcome, sent };
   }
@@ -284,42 +300,16 @@ describe("an app without chat:write.customize", () => {
   });
 });
 
-describe("a title whose message Slack deleted since the claim", () => {
+describe("the name read when the send begins", () => {
   const ok: SlackSendResponse = {
     httpStatus: 200,
     retryAfterHeader: null,
     body: { ok: true, ts: "200.000200" },
   };
 
-  test("goes out under the agent's name alone", async () => {
+  test("the drain hands beginSend's name to the delivery", async () => {
     const sent: (string | null)[] = [];
-    const delivery = createRowDelivery({
-      slack: {
-        postMessage: async (_token, input) => {
-          sent.push(input.username ?? null);
-          return ok;
-        },
-        postEphemeral: async () => ok,
-        userImage: async () => null,
-      },
-      botToken: async () => TOKEN,
-      consoleOrigin: null,
-    });
-    for (const row of [claim({}), claim({ kind: "failure_notice" })]) {
-      expect(
-        await delivery.direct({
-          row,
-          attempts: 1,
-          begin: async () => "untitled",
-        }),
-      ).toMatchObject({ kind: "sent" });
-    }
-    expect(sent).toEqual(["Payments Agent", "Payments Agent"]);
-  });
-
-  test("the drain hands beginSend's untitled to the delivery", async () => {
-    const sent: (string | null)[] = [];
-    const batches = [[claim({})], []];
+    const batches = [[claim({}), claim({ id: "outbox-2" })], []];
     const outbox = {
       advanceAnswered: async () => 0,
       closeFinishedLinks: async () => 0,
@@ -332,7 +322,9 @@ describe("a title whose message Slack deleted since the claim", () => {
       closeUnaddressed: async () => [],
       untoldUncertain: async () => [],
       claim: async () => batches.shift() ?? [],
-      beginSend: async () => "untitled" as const,
+      // A title withheld at the send, then a store that reads no name.
+      beginSend: async (fence: { id: string }) =>
+        fence.id === "outbox-1" ? AGENT_ONLY : true,
       settle: async () => true,
       enqueue: async () => "enqueued" as const,
     } as unknown as SurfaceOutboxStore;
@@ -361,6 +353,6 @@ describe("a title whose message Slack deleted since the claim", () => {
       deadline: 1_000,
       now: () => 0,
     });
-    expect(sent).toEqual(["Payments Agent"]);
+    expect(sent).toEqual(["Payments Agent", null]);
   });
 });
