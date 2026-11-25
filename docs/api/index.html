@@ -2443,6 +2443,45 @@
         ],
         "additionalProperties": false
       },
+      "UpdateGitHubWebhookSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "webhook_public_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "webhook_public_url"
+        ],
+        "additionalProperties": false
+      },
+      "RetryGitHubWebhookUpdatesRequest": {
+        "type": "object",
+        "properties": {
+          "app_ids": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "required": [
+          "app_ids"
+        ],
+        "additionalProperties": false
+      },
       "UpdateInstallationConfigRequest": {
         "type": "object",
         "properties": {
@@ -6001,6 +6040,13 @@
                       "reason": {
                         "type": "string",
                         "minLength": 1
+                      },
+                      "budget_owner": {
+                        "type": "string",
+                        "enum": [
+                          "user",
+                          "team"
+                        ]
                       }
                     },
                     "required": [
@@ -14273,6 +14319,7 @@
               "set_password_login",
               "set_emergency_admin",
               "update_slack_settings",
+              "update_github_webhook_settings",
               "update_installation_config",
               "create_workspace_mcp_server",
               "delete_workspace_mcp_server",
@@ -17076,6 +17123,255 @@
           "events_public_url",
           "computed_events_base",
           "events_url_template"
+        ],
+        "additionalProperties": false
+      },
+      "GitHubWebhookSettings": {
+        "type": "object",
+        "properties": {
+          "webhook_public_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhook_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "app_id": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "name": {
+                  "type": "string"
+                },
+                "other_workspaces": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "app_id",
+                "name",
+                "other_workspaces"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "webhook_public_url",
+          "webhook_url",
+          "apps"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateGitHubWebhookSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "webhook_public_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhook_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "app_id": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "name": {
+                  "type": "string"
+                },
+                "other_workspaces": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "app_id",
+                "name",
+                "other_workspaces"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "updates": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "app_id": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "const": "updated"
+                    }
+                  },
+                  "required": [
+                    "app_id",
+                    "name",
+                    "outcome"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "app_id": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "reason_code": {
+                      "type": "string",
+                      "enum": [
+                        "github_rejected",
+                        "url_refused",
+                        "github_unreachable",
+                        "key_unreadable",
+                        "not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "app_id",
+                    "name",
+                    "outcome",
+                    "reason_code"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "webhook_public_url",
+          "webhook_url",
+          "apps",
+          "updates"
+        ],
+        "additionalProperties": false
+      },
+      "RetryGitHubWebhookUpdatesResponse": {
+        "type": "object",
+        "properties": {
+          "updates": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "app_id": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "const": "updated"
+                    }
+                  },
+                  "required": [
+                    "app_id",
+                    "name",
+                    "outcome"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "app_id": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "reason_code": {
+                      "type": "string",
+                      "enum": [
+                        "github_rejected",
+                        "url_refused",
+                        "github_unreachable",
+                        "key_unreadable",
+                        "not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "app_id",
+                    "name",
+                    "outcome",
+                    "reason_code"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "updates"
         ],
         "additionalProperties": false
       },
@@ -45184,7 +45480,7 @@
           "Workspace settings"
         ],
         "summary": "Store the push webhook secret of one of the workspace's GitHub Apps (owner or admin)",
-        "description": "For an App added with its key, or made before this server had a public address: the manager sets the App's webhook on GitHub to the URL the App's `webhook.url` shows, turns on the push event, and enters the same secret here. An App made from the console's manifest while `GITHUB_WEBHOOK_BASE_URL` is set already has both. `role` is a role or a connection id, as for PUT …/github-apps/{role}. The secret is sealed like the App's key and is in no response, receipt, log or error; a push delivery is read only when a stored secret of its App verifies `X-Hub-Signature-256`. Writes a `set_github_app` receipt with `purpose: webhook_secret`. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
+        "description": "For an App added with its key, or made before this server had a public address: the manager sets the App's webhook on GitHub to the URL the App's `webhook.url` shows, turns on the push event, and enters the same secret here. An App made from the console's manifest while a webhook address is saved (PUT /v1/github-webhook-settings) already has both. `role` is a role or a connection id, as for PUT …/github-apps/{role}. The secret is sealed like the App's key and is in no response, receipt, log or error; a push delivery is read only when a stored secret of its App verifies `X-Hub-Signature-256`. Writes a `set_github_app` receipt with `purpose: webhook_secret`. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
         "security": [
           {
             "cookieSession": []
@@ -55049,6 +55345,704 @@
                               "type": "string",
                               "enum": [
                                 "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/github-webhook-settings": {
+      "get": {
+        "operationId": "getGitHubWebhookSettings",
+        "tags": [
+          "Installation settings"
+        ],
+        "summary": "Where GitHub's App webhooks enter, for the whole installation",
+        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `webhook_public_url` is the https base an owner saved, where GitHub reaches this API; null when none is, and then Apps made from the console's manifest get no webhook and Git skills sync without push deliveries. `webhook_url` is what an App's webhook is set to (`\u003cbase>/v1/github/webhook`). `apps` are the Apps a save sets: one per App that a connection in any workspace holds a webhook secret for; `other_workspaces` counts the workspaces besides the caller's that hold it. An App added with its key and no webhook secret is not set. The value applies to every workspace of the installation.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The saved address, the webhook URL, and the Apps a save sets.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "webhook_public_url": "https://hooks.example.com",
+                  "webhook_url": "https://hooks.example.com/v1/github/webhook",
+                  "apps": [
+                    {
+                      "app_id": 123456,
+                      "name": "werft-agent-1a2b",
+                      "other_workspaces": 0
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubWebhookSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateGitHubWebhookSettings",
+        "tags": [
+          "Installation settings"
+        ],
+        "summary": "Save or clear where GitHub's App webhooks enter",
+        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `webhook_public_url`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it. A change is one transaction and one receipt (`update_github_webhook_settings`, the saved and the previous address); the value already saved answers 200 without `receipt_id`, leaves no receipt and sets no App. After a changed address commits, each App in `apps` is set to the new `webhook_url` on GitHub with its own JWT (`PATCH /app/hook/config`, the URL only: the secret and content type stay), and `updates` says what GitHub answered per App: `updated`, or `failed` with `reason_code` `github_rejected` (GitHub refused the App's token), `url_refused` (GitHub refused the URL), `github_unreachable`, or `key_unreadable` (no key of the App opens under this server's master key). A failed App keeps its old URL; the address stays saved either way, and POST /v1/github-webhook-settings/retry sends it again. What GitHub answered is in no receipt and is not kept. Clearing sets no App: GitHub's hook config cannot turn a webhook off.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "webhook_public_url": "https://hooks.example.com"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGitHubWebhookSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The settings after the change, and what GitHub said per App.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "webhook_public_url": "https://hooks.example.com",
+                  "webhook_url": "https://hooks.example.com/v1/github/webhook",
+                  "apps": [
+                    {
+                      "app_id": 123456,
+                      "name": "werft-agent-1a2b",
+                      "other_workspaces": 0
+                    }
+                  ],
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                  "updates": [
+                    {
+                      "app_id": 123456,
+                      "name": "werft-agent-1a2b",
+                      "outcome": "updated"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateGitHubWebhookSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when the address is not an https URL without a query, fragment or credentials (`details.reason_code: webhook_url_invalid`), or is longer than 2048 characters.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/github-webhook-settings/retry": {
+      "post": {
+        "operationId": "retryGitHubWebhookUpdates",
+        "tags": [
+          "Installation settings"
+        ],
+        "summary": "Set Apps whose webhook update failed to the saved address again",
+        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `app_ids` (1 to 100) are App ids from a save's `updates`; each is set to the saved `webhook_url` on GitHub again, as the save does, and `updates` answers per App. An id that is no longer an App in `apps` answers `failed` with `reason_code: not_found` and `name: null`. Writes no receipt: the saved address does not change.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "app_ids": [
+                  123456
+                ]
+              },
+              "schema": {
+                "$ref": "#/components/schemas/RetryGitHubWebhookUpdatesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What GitHub said per App.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "updates": [
+                    {
+                      "app_id": 123456,
+                      "name": "werft-agent-1a2b",
+                      "outcome": "updated"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/RetryGitHubWebhookUpdatesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. No address is saved (`details.reason_code: webhook_url_unset`): save one first.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
                               ]
                             }
                           }
@@ -100971,7 +101965,7 @@
           "GitHub callbacks"
         ],
         "summary": "GitHub's webhook URL for the workspaces' GitHub Apps",
-        "description": "Called by GitHub, not by people: an App's webhook points here (`\u003cGITHUB_WEBHOOK_BASE_URL>/v1/github/webhook`), one URL for every App. `X-GitHub-Hook-Installation-Target-ID` names the App; the raw body, read up to 64 KiB (413 above that), must carry an `X-Hub-Signature-256` that one stored webhook secret of that App verifies, compared in constant time, before anything in it is read. A missing or wrong signature, or an App with no secret stored, answers 401 and starts nothing. A signed `push` is read only for `installation.id`, `repository.id` and `ref`, and starts a check of every Git skill whose sync is on with that installation, repository (by id) and ref, for the workspaces whose secret verified it; the check resolves the ref through the GitHub API again and never uses the commit or files the body names. It answers 202 before the checks run. Any other event answers 202 and is ignored. Deliveries are not deduplicated by `X-GitHub-Delivery`: the check gives the same result however often a push arrives. Rate limited per App and overall before any database read (429).\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
+        "description": "Called by GitHub, not by people: an App's webhook points here (`\u003cwebhook_public_url>/v1/github/webhook`, saved with PUT /v1/github-webhook-settings), one URL for every App. `X-GitHub-Hook-Installation-Target-ID` names the App; the raw body, read up to 64 KiB (413 above that), must carry an `X-Hub-Signature-256` that one stored webhook secret of that App verifies, compared in constant time, before anything in it is read. A missing or wrong signature, or an App with no secret stored, answers 401 and starts nothing. A signed `push` is read only for `installation.id`, `repository.id` and `ref`, and starts a check of every Git skill whose sync is on with that installation, repository (by id) and ref, for the workspaces whose secret verified it; the check resolves the ref through the GitHub API again and never uses the commit or files the body names. It answers 202 before the checks run. Any other event answers 202 and is ignored. Deliveries are not deduplicated by `X-GitHub-Delivery`: the check gives the same result however often a push arrives. Rate limited per App and overall before any database read (429).\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
         "security": [],
         "parameters": [],
         "responses": {

@@ -4,6 +4,7 @@ import {
   AGENT_WORKSPACE_MCP_SERVERS_MAX,
   MCP_RESERVED_SERVER_NAMES,
   mcpServerIdSchema,
+  WERFT_MCP_SERVER,
 } from "../kollegium/agents.ts";
 import { displayNameSchema } from "../musterrolle/workspaces.ts";
 import {
@@ -24,12 +25,15 @@ export const WORKSPACE_MCP_URL_MAX = 2048;
 export const WORKSPACE_MCP_SCOPE_MAX = 1024;
 export const WORKSPACE_MCP_OAUTH_FLOW_TTL_SECONDS = 600;
 /**
- * Names a new workspace server may not take. `memory` is refused at
- * registration only, so a server that already holds it keeps it.
+ * Names a new workspace server may not take. `memory` and the built-in
+ * `werft` are refused at registration only, so a server that already holds
+ * one keeps its row; a session leaves a workspace server named `werft` out,
+ * since that name is the built-in server's there.
  */
 export const WORKSPACE_MCP_RESERVED_NAMES = [
   ...MCP_RESERVED_SERVER_NAMES,
   "memory",
+  WERFT_MCP_SERVER,
 ] as const;
 
 export const workspaceMcpServerIdSchema = z.uuid();

@@ -89,9 +89,10 @@ import {
   JUDGMENT_NOT_CALLED_REASON_VALUES,
   JUDGMENT_RULE_DECISION_VALUES,
   JUDGMENT_RULE_REASON_VALUES,
+  JUDGMENT_VOIDED_REASON_VALUES,
   type JudgmentGrade,
-  type JudgmentOutcome,
-  type JudgmentReason,
+  type JudgmentRecordOutcome,
+  type JudgmentRecordReason,
   type JudgmentRuleDecision,
   type JudgmentRuleReason,
   KILL_RECEIPT_OPERATIONS,
@@ -681,6 +682,26 @@ export const slackSettings = pgTable(
       .defaultNow(),
   },
   (table) => [check("slack_settings_single_row_check", sql`${table.id}`)],
+);
+
+/**
+ * Where GitHub's App webhooks enter, for the whole installation: one row,
+ * absent until an owner saves one or a start carries GITHUB_WEBHOOK_BASE_URL in.
+ */
+export const githubWebhookSettings = pgTable(
+  "github_webhook_settings",
+  {
+    /** Always true; with the check, what keeps the table to one row. */
+    id: boolean().primaryKey().default(true),
+    /** Null: no address GitHub reaches, so Apps get no webhook. */
+    publicUrl: text("public_url"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check("github_webhook_settings_single_row_check", sql`${table.id}`),
+  ],
 );
 
 /**
@@ -6172,7 +6193,7 @@ export const conversationJudgments = pgTable(
     grade: text().$type<JudgmentGrade>().notNull(),
     slackTeamId: text("slack_team_id").notNull(),
     slackChannelId: text("slack_channel_id").notNull(),
-    /** The ts of each message judged, oldest first. */
+    /** The ts of each message judged, oldest first; none once voided. */
     refs: text().array().notNull(),
     /** What the judgment read, set when judged. */
     sources: jsonb().$type<StoredSourceSet>(),
@@ -6185,9 +6206,9 @@ export const conversationJudgments = pgTable(
     /** Calls issued for it, each reserved and settled on its own. */
     attempts: integer().notNull().default(0),
     promptVersion: integer("prompt_version").notNull(),
-    outcome: text().$type<JudgmentOutcome>(),
+    outcome: text().$type<JudgmentRecordOutcome>(),
     decision: text().$type<M1Decision>(),
-    reason: text().$type<JudgmentReason>(),
+    reason: text().$type<JudgmentRecordReason>(),
     ruleDecision: text("rule_decision").$type<JudgmentRuleDecision>(),
     ruleReason: text("rule_reason").$type<JudgmentRuleReason>(),
     // A reply's judge took it; one taken too long ago is given up.
@@ -6229,16 +6250,18 @@ export const conversationJudgments = pgTable(
     ),
     check(
       "conversation_judgments_slack_check",
-      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND cardinality(${table.refs}) >= 1`,
+      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND CASE WHEN ${table.outcome} = 'voided' THEN cardinality(${table.refs}) = 0 AND ${table.sources} IS NULL AND ${table.inputId} IS NULL ELSE cardinality(${table.refs}) >= 1 END`,
     ),
     // Judged all at once, and a reason of the outcome's own set: the model's
-    // six for a judged one, which alone may speak.
+    // six for a judged one, which alone may speak. A voided one keeps no
+    // decision (a1/J6) and, above, no place of what it read.
     check(
       "conversation_judgments_verdict_check",
       sql`CASE ${table.outcome}
         WHEN 'judged' THEN ${table.decision} IN (${sql.raw(sqlList(M1_DECISION_VALUES))}) AND ${table.reason} IN (${sql.raw(sqlList(M1_MODEL_REASON_VALUES))})
         WHEN 'not_called' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_NOT_CALLED_REASON_VALUES))})
         WHEN 'failed' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_FAILED_REASON_VALUES))})
+        WHEN 'voided' THEN ${table.decision} IS NULL AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_VOIDED_REASON_VALUES))})
         ELSE ${table.outcome} IS NULL AND ${table.decision} IS NULL AND ${table.reason} IS NULL
       END AND (${table.outcome} IS NULL) = (${table.judgedAt} IS NULL)`,
     ),

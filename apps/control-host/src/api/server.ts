@@ -38,6 +38,7 @@ import {
   createPostgresGitHubPackagesStore,
   createPostgresGitHubPinStore,
   createPostgresGitHubSettingsStore,
+  createPostgresGitHubWebhookSettingsStore,
   createPostgresInstallationConfigStore,
   createPostgresInstallationSettingsStore,
   createPostgresInviteStore,
@@ -91,10 +92,12 @@ import {
   fillSessionParents,
   forgetLostCheckpointsAtStart,
   hasUncollectedCheckpoint,
+  listGitHubWebhookApps,
   moveSummaryLinks,
   newSessionGitHubReaders,
   openLostCheckpointNotices,
   reconcileRetiredCatalogDrafts,
+  recordBudgetAccountRefusal,
   slackAppKind,
   workspaceRepositoryCeiling,
 } from "@werft-ai/db";
@@ -169,6 +172,7 @@ import {
   createTeamService,
   createTopicSessionChecks,
   createUsageService,
+  createWerftMcpServer,
   createWorkerGateway,
   createWorkspaceMcpService,
   derivedSecretKey,
@@ -176,21 +180,25 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   messageOf,
-  pushRequesterLeft,
   registryCatalog,
+  requesterLeft,
   resolveAgentRelease,
   SessionServiceError,
   SKILL_DAILY_CHECK_PASS_MS,
   settingsJudgeConnections,
+  werftMcpToolNames,
+  werftVersionOf,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
+import { isObjectStoreUnreachable } from "@werft-ai/storage";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { installationProfileFromEnv } from "../installation-profile.ts";
 import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
 import {
   wireAppBotUsers,
   wireGitHubAppDirectory,
+  wireGitHubAppHookConfig,
   wireGitHubConnections,
   wireGitHubManifestConverter,
   wireGitHubRegistry,
@@ -223,7 +231,11 @@ import {
   apiReadinessConfigProblems,
   apiSettingsFromEnv,
 } from "./api-settings.ts";
-import { createApiApp, createInternalApiApp } from "./app.ts";
+import {
+  createApiApp,
+  createInternalApiApp,
+  isStorageUnavailable,
+} from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { AuthAttemptKeys } from "./auth-attempts.ts";
 import {
@@ -257,6 +269,7 @@ import {
   egressAuthorizerConfigFromEnv,
   githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
+  werftMcpGrantKeyOf,
 } from "./egress-authorizer.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
@@ -264,6 +277,11 @@ import {
   githubPackagesConfigFromEnv,
   githubPackagesOutbound,
 } from "./github-packages-config.ts";
+import {
+  carryOverGitHubWebhookSettings,
+  createGitHubWebhookSettingsAdmin,
+  githubWebhookUrlFrom,
+} from "./github-webhook-settings.ts";
 import {
   createInstallationConfigAdmin,
   sessionArchiveStatusOf,
@@ -302,10 +320,8 @@ import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
 import { registerGitHubRepositoryRoutes } from "./routes/github/github-repositories.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
-import {
-  githubWebhookUrlFrom,
-  registerGitHubWebhookRoutes,
-} from "./routes/github/github-webhook.ts";
+import { registerGitHubWebhookRoutes } from "./routes/github/github-webhook.ts";
+import { registerGitHubWebhookSettingsRoutes } from "./routes/github/github-webhook-settings.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
@@ -381,11 +397,13 @@ import {
   createSlackSettingsAdmin,
   slackEventsBaseOf,
 } from "./slack-settings.ts";
+import { createStartupWait } from "./startup-wait.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 import {
   startTelemetryIngest,
   warnCollectorOnEgressAllowlist,
 } from "./tracing-startup.ts";
+import { werftMcpParts } from "./werft-mcp.ts";
 import {
   workspaceMcpHostsFromEnv,
   workspaceMcpOutbound,
@@ -449,6 +467,7 @@ const checkpointStorage = checkpointStorageConfigFromEnv(process.env);
 const checkpointGitMemoryBytes = checkpointGitMemoryBytesFromEnv(process.env);
 const installationProfile = installationProfileFromEnv(process.env);
 const noDiskQuota = noDiskQuotaFromEnv(process.env);
+const startupWait = createStartupWait({ logger });
 if (noDiskQuota) {
   logger.warn(noDiskQuotaWarning(installationProfile), {
     profile: installationProfile,
@@ -465,15 +484,31 @@ if (checkpointStorage === "disabled") {
     { bucket: checkpointStorage.bucket },
   );
 } else {
-  await assertCheckpointBucketProtection(checkpointStorage);
+  await startupWait(
+    "object store",
+    () => assertCheckpointBucketProtection(checkpointStorage),
+    isObjectStoreUnreachable,
+  );
 }
 if (checkpointStorage !== "disabled") {
-  await assertCheckpointBucketEncryption(checkpointStorage, {
-    warn: (message, fields) => logger.warn(message, fields),
-  });
+  await startupWait(
+    "object store",
+    () =>
+      assertCheckpointBucketEncryption(checkpointStorage, {
+        warn: (message, fields) => logger.warn(message, fields),
+      }),
+    isObjectStoreUnreachable,
+  );
 }
 
 const pool = createApiPool(databaseUrl, logger);
+// Before anything below reads it: the passes that run once per start leave
+// what they could not read to the next start.
+await startupWait(
+  "database",
+  () => pool.query("SELECT 1"),
+  isStorageUnavailable,
+);
 const db = drizzle(pool, { schema });
 const installationConfigStore = createPostgresInstallationConfigStore(db);
 const installationConfig = createInstallationConfigSource({
@@ -655,11 +690,16 @@ fillSessionParents(db).then(
   },
 );
 if (checkpointStorage !== "disabled") {
-  const forgotten = await checkpointObjectsAtStart(checkpointStorage, {
-    hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
-    forget: (stillLost) =>
-      forgetLostCheckpointsAtStart(db, new Date(), stillLost),
-  });
+  const forgotten = await startupWait(
+    "object store",
+    () =>
+      checkpointObjectsAtStart(checkpointStorage, {
+        hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+        forget: (stillLost) =>
+          forgetLostCheckpointsAtStart(db, new Date(), stillLost),
+      }),
+    isObjectStoreUnreachable,
+  );
   if (forgotten) {
     logger.warn(
       "The object store came back empty, so the checkpoints it held were given up at start (CHECKPOINT_OBJECTS_LOST=forget); the recovery_required sessions wait for a recovery decision",
@@ -1057,13 +1097,21 @@ const githubRepositories = createGitHubRepositoryService({
   changed: () => catalogRegistry.refresh(),
 });
 const githubInstallations = createPostgresGitHubInstallationStore(db);
-const githubWebhookUrl = githubWebhookUrlFrom(process.env);
-if (githubWebhookUrl === null) {
-  logger.info(
-    "GitHub skills sync without push webhooks (GITHUB_WEBHOOK_BASE_URL unset)",
-    {},
-  );
-}
+const { store: githubWebhookSettingsStore } = carryOverGitHubWebhookSettings({
+  env: process.env,
+  store: createPostgresGitHubWebhookSettingsStore(db),
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+  info: (message, fields) => logger.info(message, fields ?? {}),
+  retryMs: CATALOG_READ_RETRY_MS,
+});
+const githubWebhookUrl = githubWebhookUrlFrom(githubWebhookSettingsStore);
+const githubWebhookSettingsAdmin = createGitHubWebhookSettingsAdmin({
+  authorization,
+  store: githubWebhookSettingsStore,
+  apps: () => listGitHubWebhookApps(db, secretKey),
+  setHook: wireGitHubAppHookConfig({ logger }),
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+});
 const githubApps = createGitHubAppService({
   authorization,
   store: githubAppStore,
@@ -1087,6 +1135,16 @@ const githubApps = createGitHubAppService({
     webBase: "https://github.com",
     refused: (check) =>
       logger.warn("GitHub App manifest state refused", { check }),
+    // The App and its key are stored by then: a failed follow must not turn
+    // the completion into an error the spent state cannot retry.
+    followHook: (app) =>
+      githubWebhookSettingsAdmin.follow(app).catch((error: unknown) => {
+        logger.warn("A new GitHub App's webhook URL was not checked", {
+          app_id: app.appId,
+          error: error instanceof Error ? error.name : "error",
+        });
+        return null;
+      }),
   },
   installations: {
     store: githubInstallations,
@@ -1319,6 +1377,25 @@ if (titleEgressUrl === null) {
 const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const githubMcpGrantKey =
   egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
+// The built-in `werft` MCP server every session has: what it serves is its
+// parts', and a claim trusts exactly the tools they name.
+const werftVersion = werftVersionOf(process.env);
+const werftMcpServerParts = werftMcpParts({ version: werftVersion });
+const werftMcp = createWerftMcpServer({
+  parts: werftMcpServerParts,
+  version: werftVersion,
+  // No message: an exception's text can carry what a part read.
+  onInternalError: (error, { method, name, call }) =>
+    logger.error("Werft MCP call failed", {
+      session_id: call.sessionId,
+      request_id: call.requestId,
+      method,
+      name,
+      error: error instanceof Error ? error.name : "error",
+    }),
+});
+const werftMcpGrantKey =
+  egressAuthorizer === null ? null : werftMcpGrantKeyOf(egressAuthorizer);
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
 // Skill trees live in the checkpoint bucket; without one the routes are absent.
 const skillObjects = extensionBundleObjects(checkpointStorage);
@@ -1457,6 +1534,14 @@ const workers = createWorkerGateway({
   ...(githubMcpGrantKey === null
     ? {}
     : { githubMcp: { store: githubMcpStore, grantKey: githubMcpGrantKey } }),
+  ...(werftMcpGrantKey === null
+    ? {}
+    : {
+        werftMcp: {
+          grantKey: werftMcpGrantKey,
+          tools: werftMcpToolNames(werftMcpServerParts),
+        },
+      }),
   githubPackages: {
     store: githubPackagesStore,
     upstreams: githubPackagesConfig.upstreams,
@@ -1516,11 +1601,16 @@ const authorizerListener =
                 admitsReservations(await installationConfig.sessionBudget()),
             }),
             budgetOf: (call) => budgetChoiceOfCall(db, call),
+            recordAccountRefusal: (refusal) =>
+              recordBudgetAccountRefusal(db, refusal),
             ...(githubMcpGrantKey === null
               ? {}
               : {
                   githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
                 }),
+            ...(werftMcpGrantKey === null
+              ? {}
+              : { werftMcp: { handle: werftMcp, grantKey: werftMcpGrantKey } }),
             ...(checkpointStorage === "disabled"
               ? {}
               : {
@@ -1610,10 +1700,10 @@ const slackInteractions = wireSlackInteractions({
   followUps: createPostgresPushFollowUpStore(db),
   outbox: createPostgresSlackOutboxStore(db),
   // The card's label asks what the policy asks a press (answer 15).
-  requesterLeft: (push) =>
-    pushRequesterLeft(
+  requesterLeft: (card) =>
+    requesterLeft(
       { sessions: sessionShares, channelMembers: slackChannelMembers, logger },
-      push,
+      card,
     ),
   consoleOrigin,
   logger,
@@ -1694,6 +1784,7 @@ const app = createApiApp({
     registerLoginProviderRoutes(router, providerAdmin);
     registerLoginSettingsRoutes(router, loginSettingsAdmin);
     registerSlackSettingsRoutes(router, slackSettingsAdmin);
+    registerGitHubWebhookSettingsRoutes(router, githubWebhookSettingsAdmin);
     registerInstallationConfigRoutes(router, installationConfigAdmin);
     registerLostCheckpointNoticeRoutes(router, lostCheckpointNoticesAdmin);
     registerInstallationStatusRoutes(router, installationStatusReader);

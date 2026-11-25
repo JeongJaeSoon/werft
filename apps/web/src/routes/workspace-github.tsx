@@ -87,6 +87,7 @@ import {
   useRepositoryPage,
 } from "./workspace-github-repositories.tsx";
 import { GitHubUserLinkRow } from "./workspace-github-user-link.tsx";
+import { GitHubWebhookSetting } from "./workspace-github-webhook.tsx";
 import {
   SETTINGS_CARD as CARD,
   type OnOutcome,
@@ -270,6 +271,8 @@ function GitHubCard({
   const queryClient = useQueryClient();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
+  // Apart from the Apps: it decides where every App's webhook enters.
+  const canSetWebhook = useHasPermission("installation.settings.manage");
   const [adding, setAdding] = useState<AddAppStep | null>(null);
   const [sheet, setSheet] = useState(false);
   // The button a dialog opened from, to focus again as it closes.
@@ -369,6 +372,7 @@ function GitHubCard({
             ) : null}
           </>
         )}
+        {canSetWebhook ? <GitHubWebhookSetting onOutcome={onOutcome} /> : null}
         {canManage ? (
           <>
             <AddAppDialog

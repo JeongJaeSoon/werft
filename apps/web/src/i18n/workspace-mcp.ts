@@ -97,7 +97,7 @@ export const workspaceMcpKo = {
     "OAuth를 요구하지 않습니다. 정적 token으로 등록하세요.",
   "workspaceMcp.register.name": "이름",
   "workspaceMcp.register.nameHint":
-    "도구 이름 앞에 mcp__이름__으로 붙습니다. 소문자, 숫자, -, _로 32자까지 씁니다. github와 browser는 쓸 수 없습니다.",
+    "도구 이름 앞에 mcp__이름__으로 붙습니다. 소문자, 숫자, -, _로 32자까지 씁니다. github, browser, memory, werft는 쓸 수 없습니다.",
   "workspaceMcp.register.authKind": "인증 방식",
   "workspaceMcp.register.scope": "요청할 scope",
   "workspaceMcp.register.scopeHint":
@@ -117,7 +117,7 @@ export const workspaceMcpKo = {
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
     "워크스페이스가 등록할 수 있는 서버 수에 닿았습니다. 쓰지 않는 서버를 지운 뒤 등록하세요.",
   "workspaceMcp.error.name_reserved":
-    "github와 browser는 쓸 수 없는 이름입니다.",
+    "github, browser, memory, werft는 쓸 수 없는 이름입니다.",
   "workspaceMcp.error.url_invalid": "URL이 올바르지 않습니다.",
   "workspaceMcp.error.address_not_allowed":
     "이 주소로는 연결할 수 없습니다. 사설·loopback 주소이거나 https가 아닙니다.",
@@ -299,7 +299,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "It asks for no OAuth. Register it with a static token.",
   "workspaceMcp.register.name": "Name",
   "workspaceMcp.register.nameHint":
-    "Tool names get mcp__name__ in front. Up to 32 lowercase letters, digits, - and _; github and browser are taken.",
+    "Tool names get mcp__name__ in front. Up to 32 lowercase letters, digits, - and _; github, browser, memory and werft are taken.",
   "workspaceMcp.register.authKind": "Authentication",
   "workspaceMcp.register.scope": "Scope to ask for",
   "workspaceMcp.register.scopeHint":
@@ -319,7 +319,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
     "The workspace holds as many servers as it may. Delete one it no longer uses first.",
   "workspaceMcp.error.name_reserved":
-    "github and browser cannot be used as names.",
+    "github, browser, memory and werft cannot be used as names.",
   "workspaceMcp.error.url_invalid": "That is not a valid URL.",
   "workspaceMcp.error.address_not_allowed":
     "That address cannot be reached: it is private, loopback or not https.",
@@ -506,7 +506,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "OAuth を求めません。静的 token で登録してください。",
   "workspaceMcp.register.name": "名前",
   "workspaceMcp.register.nameHint":
-    "ツール名の前に mcp__名前__ が付きます。小文字・数字・-・_ で 32 文字まで。github と browser は使えません。",
+    "ツール名の前に mcp__名前__ が付きます。小文字・数字・-・_ で 32 文字まで。github、browser、memory、werft は使えません。",
   "workspaceMcp.register.authKind": "認証方式",
   "workspaceMcp.register.scope": "要求する scope",
   "workspaceMcp.register.scopeHint":
@@ -525,7 +525,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "この名前はこのワークスペースの別のサーバーが使っています。",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
     "ワークスペースが登録できるサーバー数に達しました。使わないサーバーを削除してから登録してください。",
-  "workspaceMcp.error.name_reserved": "github と browser は名前に使えません。",
+  "workspaceMcp.error.name_reserved":
+    "github、browser、memory、werft は名前に使えません。",
   "workspaceMcp.error.url_invalid": "URL が正しくありません。",
   "workspaceMcp.error.address_not_allowed":
     "このアドレスには接続できません。プライベート・loopback のアドレスか、https ではありません。",

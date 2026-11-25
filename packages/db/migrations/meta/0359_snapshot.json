@@ -1,5 +1,5 @@
 {
-  "id": "c5de0efc-ab6b-43f9-80c3-7c39ab259409",
+  "id": "a78891d4-3983-444d-8652-9848ee191fb4",
   "prevId": "7add76ed-8ccd-46f4-9e5f-8a006d410000",
   "version": "7",
   "dialect": "postgresql",
@@ -6721,11 +6721,11 @@
         },
         "conversation_judgments_slack_check": {
           "name": "conversation_judgments_slack_check",
-          "value": "\"conversation_judgments\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_judgments\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND cardinality(\"conversation_judgments\".\"refs\") >= 1"
+          "value": "\"conversation_judgments\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_judgments\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND CASE WHEN \"conversation_judgments\".\"outcome\" = 'voided' THEN cardinality(\"conversation_judgments\".\"refs\") = 0 AND \"conversation_judgments\".\"sources\" IS NULL AND \"conversation_judgments\".\"input_id\" IS NULL ELSE cardinality(\"conversation_judgments\".\"refs\") >= 1 END"
         },
         "conversation_judgments_verdict_check": {
           "name": "conversation_judgments_verdict_check",
-          "value": "CASE \"conversation_judgments\".\"outcome\"\n        WHEN 'judged' THEN \"conversation_judgments\".\"decision\" IN ('speak','quiet') AND \"conversation_judgments\".\"reason\" IN ('not_for_agent','human_conversation','already_handled','out_of_scope','needs_agent','unclear')\n        WHEN 'not_called' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('budget_refused','concurrency_limited','rate_limited','input_too_large','no_active_release','model_unavailable')\n        WHEN 'failed' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('timed_out','unreachable','provider_error','malformed')\n        ELSE \"conversation_judgments\".\"outcome\" IS NULL AND \"conversation_judgments\".\"decision\" IS NULL AND \"conversation_judgments\".\"reason\" IS NULL\n      END AND (\"conversation_judgments\".\"outcome\" IS NULL) = (\"conversation_judgments\".\"judged_at\" IS NULL)"
+          "value": "CASE \"conversation_judgments\".\"outcome\"\n        WHEN 'judged' THEN \"conversation_judgments\".\"decision\" IN ('speak','quiet') AND \"conversation_judgments\".\"reason\" IN ('not_for_agent','human_conversation','already_handled','out_of_scope','needs_agent','unclear')\n        WHEN 'not_called' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('budget_refused','concurrency_limited','rate_limited','input_too_large','no_active_release','model_unavailable')\n        WHEN 'failed' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('timed_out','unreachable','provider_error','malformed')\n        WHEN 'voided' THEN \"conversation_judgments\".\"decision\" IS NULL AND \"conversation_judgments\".\"reason\" IN ('voided_by_delete','voided_by_edit')\n        ELSE \"conversation_judgments\".\"outcome\" IS NULL AND \"conversation_judgments\".\"decision\" IS NULL AND \"conversation_judgments\".\"reason\" IS NULL\n      END AND (\"conversation_judgments\".\"outcome\" IS NULL) = (\"conversation_judgments\".\"judged_at\" IS NULL)"
         },
         "conversation_judgments_rule_check": {
           "name": "conversation_judgments_rule_check",
@@ -17751,18 +17751,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "manifest_sync_error": {
-          "name": "manifest_sync_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "manifest_sync_checked_at": {
-          "name": "manifest_sync_checked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_by_token_user": {
           "name": "created_by_token_user",
           "type": "text",
@@ -17893,10 +17881,6 @@
         "slack_apps_agent_check": {
           "name": "slack_apps_agent_check",
           "value": "(\"slack_apps\".\"kind\" = 'agent') = (\"slack_apps\".\"agent_id\" IS NOT NULL)"
-        },
-        "slack_apps_manifest_sync_error_check": {
-          "name": "slack_apps_manifest_sync_error_check",
-          "value": "\"slack_apps\".\"manifest_sync_error\" IS NULL OR \"slack_apps\".\"manifest_sync_error\" IN ('config_token_inactive','events_url_unset','slack_refused','no_answer')"
         },
         "slack_apps_created_check": {
           "name": "slack_apps_created_check",
