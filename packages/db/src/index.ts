@@ -132,6 +132,7 @@ export * from "./surface/m1-judgments.ts";
 export * from "./surface/slack-app-close.ts";
 export * from "./surface/slack-apps.ts";
 export * from "./surface/slack-channel-members.ts";
+export * from "./surface/slack-channel-notices.ts";
 export * from "./surface/slack-config-tokens.ts";
 export * from "./surface/slack-inbound-events.ts";
 export * from "./surface/slack-install-states.ts";
