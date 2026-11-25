@@ -367,9 +367,10 @@ export function docsIndex(pages: readonly DocsPage[]): DocsIndex {
       documents.set(term, (documents.get(term) ?? 0) + 1);
     }
   }
+  // At least 1: chunks that are all headings would divide by zero.
   const average =
     entries.reduce((sum, { length }) => sum + length, 0) /
-    Math.max(entries.length, 1);
+      Math.max(entries.length, 1) || 1;
   const idfIn = (n: number, df: number) =>
     Math.log(1 + (n - df + 0.5) / (df + 0.5));
   // A title or heading term weighs by how few titles or headings have it.

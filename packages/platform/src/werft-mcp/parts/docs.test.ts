@@ -465,6 +465,39 @@ describe("the documentation of this checkout", () => {
     expect(index.search("qqqzzzunknown", 1)).toEqual([]);
   });
 
+  test("a result too large for one answer is left out, and the answer says so", async () => {
+    const long = [
+      {
+        path: "long.mdx",
+        text: page("x".repeat(40_000), "## needle\n\nneedle here."),
+      },
+    ];
+    const answered = (
+      await ask(long, "tools/call", {
+        name: SEARCH_DOCS_TOOL,
+        arguments: { query: "needle", limit: 1 },
+      })
+    ).result as {
+      content: { text: string }[];
+      structuredContent: { results: unknown[] };
+    };
+    expect(answered.structuredContent.results).toEqual([]);
+    expect(answered.content[0]?.text).toContain("1 more left out");
+    expect(
+      new TextEncoder().encode(JSON.stringify(answered)).length,
+    ).toBeLessThanOrEqual(ANSWER_BYTES);
+  });
+
+  test("pages that are only headings are still found by them", () => {
+    const index = docsIndex(
+      docsPages(
+        [{ path: "index.mdx", text: page("Test", "## Uniqueheading") }],
+        "en",
+      ),
+    );
+    expect(index.search("Uniqueheading", 1)).toHaveLength(1);
+  });
+
   test("a term only a section heading has finds that section", () => {
     const fixture = docsIndex(docsPages(FILES, "ko"));
     expect(fixture.search("주소", 1)[0]?.chunk.section.anchor).toBe("old-urls");

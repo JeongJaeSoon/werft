@@ -281,7 +281,7 @@ export function docsPart(
         });
         const answer = (results: typeof found) => {
           const text =
-            results.length === 0
+            found.length === 0
               ? `No page of the Werft ${context.version} documentation (${lang}) matches "${query}". Try other keywords, or read the contents at ${tocUri(lang)}.`
               : [
                   `Werft ${context.version} documentation (${lang}), ${results.length} result(s) for "${query}":`,
@@ -310,7 +310,7 @@ export function docsPart(
           byteLength(JSON.stringify(a.structuredContent));
         let kept = found.length;
         while (
-          kept > 1 &&
+          kept > 0 &&
           sizeOf(answer(found.slice(0, kept))) > ANSWER_BYTES
         ) {
           kept -= 1;
