@@ -125,8 +125,10 @@ export function createWorkerHost(
         objectPrefix: config.objectStore.scope,
         objects:
           overrides.objectStore ??
-          createWorkerObjectStore(config.objectStore, () =>
-            objectToken.current(),
+          createWorkerObjectStore(
+            config.objectStore,
+            () => objectToken.current(),
+            () => host?.ownershipUnconfirmed,
           ),
         workspaceRoot: config.runtime.cwd,
         home: config.runtime.home,

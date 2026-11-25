@@ -1931,6 +1931,69 @@ describe("runScheduler", () => {
     });
   });
 
+  test("an exit for a lost lease names the cause and the heartbeat's refusal beside the log tail", async () => {
+    const tails = [
+      {
+        exitCode: WORKER_EXIT_LEASE_LOST,
+        logTail:
+          '{"timestamp":"2026-11-25T00:00:00.000Z","level":"info","event":"worker.stopping","kind":"lost","reason":"lease given up"}\n' +
+          '{"timestamp":"2026-11-25T00:00:01.000Z","level":"warn","event":"worker.ownership.lost","reason":"lease given up","heartbeat_status":404,"heartbeat_code":"NOT_FOUND"}\n',
+      },
+      // A worker that prints neither field, and a reason that only quotes one.
+      {
+        exitCode: WORKER_EXIT_LEASE_LOST,
+        logTail:
+          '{"level":"warn","event":"worker.ownership.lost","reason":"said \\"heartbeat_status\\":404, and \\"heartbeat_code\\":\\"NOT_FOUND\\""}\n',
+      },
+      // Not an exit for a lost lease: the line in its tail is not read.
+      {
+        exitCode: 1,
+        logTail:
+          '{"level":"warn","event":"worker.ownership.lost","heartbeat_status":404,"heartbeat_code":"NOT_FOUND"}\n',
+      },
+    ];
+    const { backend, records, run, store } = harness();
+    store.addUnassigned(tails.length);
+    await run();
+    const containers = [...backend.containers.entries()];
+    expect(containers).toHaveLength(tails.length);
+    for (const [index, [name, container]] of containers.entries()) {
+      claimLaunchOf(store, name);
+      container.exited = true;
+      container.failure = {
+        exitCode: tails[index]?.exitCode ?? 1,
+        logTail: tails[index]?.logTail ?? "",
+        terminationReason: "Error",
+      };
+    }
+    await run();
+
+    expect(
+      records
+        .filter((r) => r.message === "Execution resource failed; log tail kept")
+        .map((r) => r.fields),
+    ).toEqual([
+      expect.objectContaining({
+        cause: "worker.ownership.lost",
+        exit_code: WORKER_EXIT_LEASE_LOST,
+        heartbeat_code: "NOT_FOUND",
+        heartbeat_status: 404,
+        log_tail: tails[0]?.logTail,
+      }),
+      expect.objectContaining({
+        cause: "worker.ownership.lost",
+        heartbeat_code: null,
+        heartbeat_status: null,
+      }),
+      expect.objectContaining({
+        cause: null,
+        exit_code: 1,
+        heartbeat_code: null,
+        heartbeat_status: null,
+      }),
+    ]);
+  });
+
   test("a launch the egress proxy turned away says so, with the proxy's reason when the worker relayed it", async () => {
     // What a v0.4.0 worker and a current one print when the proxy's
     // allowlist does not name the gateway.

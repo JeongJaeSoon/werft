@@ -63,6 +63,35 @@ function proxyRefusalOf(logTail: string | undefined): string | undefined {
   return `the egress proxy refused the worker's bootstrap-claim (${said === undefined ? "HTTP 403" : "destination is not allowlisted"}): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. See ${GATEWAY_PORT_DOC}`;
 }
 
+// The worker's own line for a lease it lost (`apps/worker`, worker-host.ts).
+const OWNERSHIP_LOST_LINE = /[^\n]*"event":"worker\.ownership\.lost"[^\n]*/g;
+
+/**
+ * Why a worker that exited for a lost lease lost it: the cause, and what the
+ * gateway answered the heartbeat that lost it, read from the worker's last
+ * `worker.ownership.lost` line. Only a status and an error code are lifted,
+ * each in its fixed shape: no text is copied from the tail. They are null
+ * from a worker that prints neither or lost the lease another way, and all
+ * three are for any other exit, whatever its tail says.
+ */
+function ownershipLossOf(observed: ExecutionObservation): {
+  cause: "worker.ownership.lost" | null;
+  heartbeat_code: string | null;
+  heartbeat_status: number | null;
+} {
+  if (observed.exitCode !== WORKER_EXIT_LEASE_LOST) {
+    return { cause: null, heartbeat_code: null, heartbeat_status: null };
+  }
+  const line = observed.logTail?.match(OWNERSHIP_LOST_LINE)?.at(-1);
+  const status = line?.match(/"heartbeat_status":(\d{3})[,}]/)?.[1];
+  return {
+    cause: "worker.ownership.lost",
+    heartbeat_code:
+      line?.match(/"heartbeat_code":"([A-Z_]{1,64})"/)?.[1] ?? null,
+    heartbeat_status: status === undefined ? null : Number(status),
+  };
+}
+
 /** Step 1: reconcile rows against the provider. */
 export async function reconcileRows(ctx: PassContext): Promise<void> {
   const { backend, lock, logger, store, summary } = ctx;
@@ -115,6 +144,8 @@ async function reconcile(
     // that still finds the resource.
     logger.warn("Execution resource failed; log tail kept", {
       ...fieldsOf(ref),
+      // Named here so the cause reads off this line without the tail.
+      ...ownershipLossOf(observed),
       exit_code: observed.exitCode ?? null,
       log_tail: observed.logTail,
       provider_ref: observed.providerRef,
