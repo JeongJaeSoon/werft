@@ -93,6 +93,19 @@ export function createPostgresMentionTurnStatuses(
         WHERE id = ${turnId}::uuid AND slack_status_reset_at IS NULL`);
     },
 
+    async newerDue(turnId) {
+      const [row] = rowsOf<{ due: boolean }>(
+        await db.execute(sql`
+          SELECT EXISTS (SELECT 1 FROM conversation_turns t
+            JOIN conversation_turns n ON n.topic_id = t.topic_id
+            WHERE t.id = ${turnId}::uuid AND n.id <> t.id
+              AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
+              AND n.slack_status_reset_at IS NULL
+              AND n.created_at > t.created_at) AS due`),
+      );
+      return row?.due === true;
+    },
+
     async releaseReset(turnId) {
       await db.execute(sql`
         UPDATE conversation_turns SET slack_status_claimed_at = NULL

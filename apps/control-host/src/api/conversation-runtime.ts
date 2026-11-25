@@ -26,6 +26,7 @@ import {
   hashToken,
   type MentionTurnRequest,
   type MentionTurnStart,
+  type MentionTurnStatusStore,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import type { Server } from "bun";
@@ -305,6 +306,8 @@ export function createOperatorConversationTurns(deps: {
 export function createMentionConversationTurns(deps: {
   calls: Pick<ConversationCalls, "issueMentionTurn" | "endTurn">;
   queue: Pick<ConversationTurnQueue, "enqueue">;
+  /** Lets the claim the turn is written with go once it is queued. */
+  statuses: Pick<MentionTurnStatusStore, "releaseReset">;
   agents: Pick<AgentStore, "get">;
   catalog: Pick<SessionCatalog, "connections">;
   now?: () => Date;
@@ -402,6 +405,10 @@ export function createMentionConversationTurns(deps: {
         // A turn that could not be queued gets no calls.
         await deps.calls.endTurn(turnId);
         throw error;
+      } finally {
+        // Unreleased, the claim runs out and the next pass after it ends the
+        // turn as it is.
+        await deps.statuses.releaseReset(turnId);
       }
       return { outcome: "queued", turnId };
     },

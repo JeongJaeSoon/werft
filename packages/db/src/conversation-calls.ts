@@ -545,6 +545,8 @@ export function createPostgresConversationCalls(
             sources,
             releaseId: input.releaseId,
             slackInstallationId: input.slackInstallationId,
+            // Its writer's until queued: no pass ends it in between.
+            slackStatusClaimedAt: sql`now()`,
           });
           // A retry of the event, or two passes at once, meets the first
           // turn's engagement: this turn goes back with the transaction.

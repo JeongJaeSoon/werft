@@ -5800,7 +5800,8 @@ export const conversationTurns = pgTable(
     slackStatusResetAt: timestamp("slack_status_reset_at", {
       withTimezone: true,
     }),
-    // When a Slack role pass took on setting it back; a pass that died
+    // Who holds the turn's thread status: its writer from the write until
+    // it is queued, then a Slack role pass setting it back. One that died
     // holding it is passed over once the claim runs out.
     slackStatusClaimedAt: timestamp("slack_status_claimed_at", {
       withTimezone: true,

@@ -78,6 +78,7 @@ import {
   createAuthorizationPolicy,
   createSurfaceBindingService,
   createTopicSessionChecks,
+  type MentionTurnStatusStore,
   SecretKey,
   type SessionCatalog,
   type SurfaceInboundClaim,
@@ -3797,7 +3798,11 @@ describe.each(ENGINES)(
         .map((status) => status.status);
     const secrets = () => createPostgresSecretStore(db, key);
     /** The Slack role's step, as a pass runs it after the inbox. */
-    const endings = (now?: Date, claimMs = 60_000) =>
+    const endings = (
+      now?: Date,
+      claimMs = 60_000,
+      statuses?: MentionTurnStatusStore,
+    ) =>
       slackMentionTurnEndings({
         db,
         secretKey: key,
@@ -3808,6 +3813,7 @@ describe.each(ENGINES)(
         logger,
         limit: 10,
         claimMs,
+        ...(statuses === undefined ? {} : { statuses }),
         deadline: Date.now() + 10_000,
         ...(now === undefined ? {} : { now: () => now }),
       });
@@ -4144,6 +4150,73 @@ describe.each(ENGINES)(
       expect(await Promise.all(atStatus)).toEqual([before]);
       expect(await queued()).toBe(before + 1);
       expect(statusesOf("100.000100")).toEqual(["processing"]);
+    });
+
+    test("a pass while the turn is being written leaves it to its writer, past its wait too", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const late = new Date(
+        Date.now() + OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS + 1_000,
+      );
+      // A pass runs while the writer waits on Slack, between write and queue.
+      const passes: Promise<unknown>[] = [];
+      const push = slack.statuses.push.bind(slack.statuses);
+      slack.statuses.push = (...items) => {
+        passes.push(endings(late));
+        return push(...items);
+      };
+      try {
+        await deliver(fixture, mention("100.000100"));
+        await drain(handler().handle);
+        await Promise.all(passes);
+      } finally {
+        delete (slack.statuses as { push?: unknown }).push;
+      }
+      expect(passes).toHaveLength(1);
+      const [turn] = await mentionTurnsOf(fixture);
+      expect(turn?.state).toBe("running");
+      expect(
+        await queue().outcome(turn?.id as ConversationTurnId, new Date()),
+      ).toBe("pending");
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+    });
+
+    test("a newer turn written while an older one's active is on its way is told processing again", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      await report(await leased(), { outcome: "completed", text: "one" });
+      // The newer mention lands just after the older turn's claim.
+      const store = createPostgresMentionTurnStatuses(db);
+      const statuses: MentionTurnStatusStore = {
+        ...store,
+        async claimReset(turnId, claimMs) {
+          const claim = await store.claimReset(turnId, claimMs);
+          await deliver(
+            fixture,
+            mention("100.000300", { thread_ts: "100.000100" }),
+          );
+          await drain(handle);
+          return claim;
+        },
+      };
+      await endings(undefined, 60_000, statuses);
+      expect(statusesOf("100.000100")).toEqual([
+        "processing",
+        "processing",
+        "active",
+        "processing",
+      ]);
+      await report(await leased(), { outcome: "completed", text: "two" });
+      await endings();
+      await endings();
+      expect(statusesOf("100.000100")).toEqual([
+        "processing",
+        "processing",
+        "active",
+        "processing",
+        "active",
+      ]);
     });
 
     test("rollout on: a mention longer than a turn's input is no turn, no status and no session", async () => {

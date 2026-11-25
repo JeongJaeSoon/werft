@@ -96,11 +96,12 @@ const SET_STATUS_DISABLED = new Set([
 ]);
 
 /**
- * Sets a mention turn's thread back to `active` once the turn ended: false
- * when there is nothing to set back (the app or its token is gone, or the
- * workspace shows no status there); throws when Slack may not have taken it.
+ * Sets a mention turn's thread status: `active` once the turn ended, or
+ * `processing` again for a newer turn of the thread. False when there is
+ * nothing to set (the app or its token is gone, or the workspace shows no
+ * status there); throws when Slack may not have taken it.
  */
-export async function setMentionThreadActive(
+export async function setMentionThreadStatus(
   deps: {
     slack: Pick<SlackBotApi, "setStatus">;
     botToken: (
@@ -109,6 +110,7 @@ export async function setMentionThreadActive(
     ) => Promise<string | null>;
   },
   turn: Pick<MentionTurnDue, "workspaceId" | "slackAppId" | "thread">,
+  status: Extract<SlackThreadStatus, "active" | "processing">,
 ): Promise<boolean> {
   if (turn.slackAppId === null) return false;
   const token = await deps.botToken(turn.workspaceId, turn.slackAppId);
@@ -117,7 +119,7 @@ export async function setMentionThreadActive(
     await deps.slack.setStatus(token, {
       channelId: turn.thread.channelId,
       threadTs: turn.thread.threadTs,
-      status: "active" satisfies SlackThreadStatus,
+      status,
     });
     return true;
   } catch (error) {

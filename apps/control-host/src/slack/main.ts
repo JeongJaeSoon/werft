@@ -51,6 +51,7 @@ import {
   createConversationCalls,
   createSessionService,
   endMentionTurns,
+  type MentionTurnStatusStore,
   registryCatalog,
   repositoryView,
   requesterLeft,
@@ -85,7 +86,7 @@ import {
   type SlackInboundHandler,
   type SlackInboxDrain,
   type SlackNoticeSink,
-  setMentionThreadActive,
+  setMentionThreadStatus,
 } from "../wiring/chat-slack.ts";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
@@ -277,6 +278,7 @@ export function slackSessionHandler(deps: {
         catalog,
       }),
       queue: createPostgresConversationTurnQueue(db, secretKey),
+      statuses: createPostgresMentionTurnStatuses(db),
       agents: agentStore,
       catalog,
     }),
@@ -307,27 +309,29 @@ export function slackMentionTurnEndings(deps: {
   db: Database;
   secretKey: SecretKey;
   catalog: Parameters<typeof createConversationCalls>[0]["catalog"];
-  slack: Parameters<typeof setMentionThreadActive>[0]["slack"];
-  botToken: Parameters<typeof setMentionThreadActive>[0]["botToken"];
+  slack: Parameters<typeof setMentionThreadStatus>[0]["slack"];
+  botToken: Parameters<typeof setMentionThreadStatus>[0]["botToken"];
   logger: StructuredLogger;
   limit: number;
   /** How long one pass may run, past which its claims are taken over. */
   claimMs: number;
   deadline: number;
   now?: () => Date;
+  statuses?: MentionTurnStatusStore;
 }) {
   const { db } = deps;
   return endMentionTurns({
-    statuses: createPostgresMentionTurnStatuses(db),
+    statuses: deps.statuses ?? createPostgresMentionTurnStatuses(db),
     queue: createPostgresConversationTurnQueue(db, deps.secretKey),
     calls: createConversationCalls({
       store: createPostgresConversationCalls(db),
       catalog: deps.catalog,
     }),
-    setActive: (turn) =>
-      setMentionThreadActive(
+    setStatus: (turn, status) =>
+      setMentionThreadStatus(
         { slack: deps.slack, botToken: deps.botToken },
         turn,
+        status,
       ),
     takeMs: OPERATOR_TURN_TAKE_MS,
     leaseMs: CONVERSATION_TURN_LEASE_MS,

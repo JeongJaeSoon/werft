@@ -310,14 +310,21 @@ export interface MentionTurnStatusStore {
   ): Promise<"send" | "superseded" | "done">;
   /** Marks the thread set back, once Slack took it. */
   confirmReset(turnId: ConversationTurnId): Promise<void>;
-  /** Lets the claim go, so a later pass sends again. */
+  /**
+   * Lets the claim go: a pass's, so a later pass sends again; or the one the
+   * turn is written with, held until it is queued.
+   */
   releaseReset(turnId: ConversationTurnId): Promise<void>;
+  /** Whether a newer mention turn of the turn's thread is still due. */
+  newerDue(turnId: ConversationTurnId): Promise<boolean>;
 }
 
 export type MentionTurnEndings = {
   ended: number;
   reset: number;
   superseded: number;
+  /** Threads told "processing" again for a newer turn after an `active`. */
+  reprocessing: number;
   failed: number;
 };
 
@@ -339,11 +346,14 @@ export async function endMentionTurns(deps: {
     ): Promise<unknown>;
   };
   /**
-   * Sets the thread back to `active`: false when the thread shows no
-   * status (the app is gone, or Slack shows none there); throws when Slack
-   * may not have taken it.
+   * Sets the thread's status: false when the thread shows none (the app is
+   * gone, or Slack shows none there); throws when Slack may not have taken
+   * it.
    */
-  setActive(turn: MentionTurnDue): Promise<boolean>;
+  setStatus(
+    turn: MentionTurnDue,
+    status: "active" | "processing",
+  ): Promise<boolean>;
   /** How long a turn may wait to be taken, and then run. */
   takeMs: number;
   leaseMs: number;
@@ -366,6 +376,7 @@ export async function endMentionTurns(deps: {
     ended: 0,
     reset: 0,
     superseded: 0,
+    reprocessing: 0,
     failed: 0,
   };
   for (const turn of await deps.statuses.due(deps.limit, deps.claimMs)) {
@@ -400,7 +411,7 @@ export async function endMentionTurns(deps: {
       if (claim === "superseded") result.superseded += 1;
       if (claim !== "send") continue;
       try {
-        await deps.setActive(turn);
+        await deps.setStatus(turn, "active");
       } catch (error) {
         await deps.statuses.releaseReset(turn.turnId);
         throw error;
@@ -408,6 +419,12 @@ export async function endMentionTurns(deps: {
       // Unconfirmed, the claim runs out and a later pass sends again.
       await deps.statuses.confirmReset(turn.turnId);
       result.reset += 1;
+      // A newer turn written after the claim: its "processing" may have
+      // reached Slack before this `active`, so it is said again.
+      if (await deps.statuses.newerDue(turn.turnId)) {
+        await deps.setStatus(turn, "processing");
+        result.reprocessing += 1;
+      }
     } catch (error) {
       // One turn's failure leaves the others going; it is tried next pass.
       result.failed += 1;
