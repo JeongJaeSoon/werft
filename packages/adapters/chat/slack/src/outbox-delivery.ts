@@ -1,4 +1,5 @@
 import {
+  DEFAULT_USER_LOCALE,
   SLACK_INPUT_MIRROR_EVENT_TYPE,
   SLACK_USER_CHANNEL_CODE,
   slackOutboxChannelRefused,
@@ -16,10 +17,13 @@ import {
   type SlackBotSender,
   type SlackSendResponse,
 } from "./slack-config-api.ts";
-import { slackInboundBackoffMs } from "./slack-inbox.ts";
+import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
 import {
+  SLACK_OUTBOX_MESSAGES,
+  type SlackTextGuard,
   sessionUrl,
   slackInstructionFallbackText,
+  slackOutboxGuard,
   slackOutboxPresentation,
   slackOutboxText,
 } from "./slack-outbox-render.ts";
@@ -98,6 +102,8 @@ export type RowDeliveryDeps = {
   /** Null when the app has no readable token: the row waits, unsent. */
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   consoleOrigin: string | null;
+  /** Told of the Slack references a row's text lost to its scope. */
+  logger?: Pick<SlackInboxLogger, "warn">;
 };
 
 /** The row settle each outcome stands for, and back: one to one. */
@@ -117,6 +123,9 @@ function outcomeOf(settle: SurfaceOutboxSettle): DeliveryOutcome {
       return { kind: "uncertain", code: settle.errorCode };
   }
 }
+
+// Nothing but formatting marks left: Slack would show an empty message.
+const isBlank = (text: string) => /^[\s*_~`>#|-]*$/.test(text);
 
 /** A session's direct message held back from someone who cannot see it. */
 export const SLACK_READER_OUTSIDE_CODE = "reader_outside_channel";
@@ -138,13 +147,14 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     claim: SurfaceOutboxClaim,
     text: string,
     iconUrl: string | null,
+    guard: SlackTextGuard,
   ) => {
     const target = {
       channelId: claim.channelId,
       threadTs: claim.threadTs,
       text,
     };
-    const presentation = slackOutboxPresentation(claim);
+    const presentation = slackOutboxPresentation(claim, guard);
     if (presentation.kind !== "instruction") {
       if (presentation.kind === "text") {
         return deps.slack.postMessage(botToken, target);
@@ -191,14 +201,55 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     return deps.slack.postMessage(botToken, {
       ...target,
       ...metadata,
-      text: slackInstructionFallbackText(claim.body, text, sender.username),
+      text: slackInstructionFallbackText(
+        claim.body,
+        text,
+        sender.username,
+        guard,
+      ),
     });
   };
 
   const deliver = async (
     input: DeliveryInput<SurfaceOutboxClaim>,
   ): Promise<DeliveryOutcome> => {
-    const { row: claim, attempts } = input;
+    const { row, attempts } = input;
+    // The one guard a row's text goes through: on its Markdown here, and
+    // again on the text Slack reads once rendered (the render can join
+    // pieces), every way it goes out below.
+    const { guard: rowGuard, dropped } = slackOutboxGuard(row);
+    // A text the guard emptied still says the answer is done; one that was
+    // only marks to begin with goes as it was.
+    let changed = false;
+    const guard = (text: string) => {
+      const kept = rowGuard(text);
+      if (kept !== text) changed = true;
+      return kept;
+    };
+    const emptied = (text: string) => changed && isBlank(text);
+    const empty =
+      SLACK_OUTBOX_MESSAGES[row.body.locale ?? DEFAULT_USER_LOCALE].emptyReply;
+    const kept = row.body.blocks === undefined ? guard(row.body.text) : "";
+    const claim =
+      row.body.blocks !== undefined
+        ? row
+        : {
+            ...row,
+            body: { ...row.body, text: emptied(kept) ? empty : kept },
+          };
+    const logDropped = () => {
+      if (dropped.size === 0) return;
+      deps.logger?.warn(
+        "Slack send dropped references outside its conversation",
+        {
+          id: claim.id,
+          kind: claim.kind,
+          channel_id: claim.channelId,
+          session_id: claim.sessionId,
+          dropped: [...dropped],
+        },
+      );
+    };
     // Before the token and any Slack call: such a row never goes out.
     if (slackOutboxChannelRefused(claim.kind, claim.channelId)) {
       return { kind: "failed", code: SLACK_USER_CHANNEL_CODE };
@@ -235,14 +286,17 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       claim.kind === "model_notice" && claim.sessionId !== null
         ? sessionUrl(deps.consoleOrigin, claim.sessionId)
         : undefined;
-    const text =
+    const body =
+      modelLink === undefined
+        ? claim.body
+        : { ...claim.body, link_url: modelLink };
+    const rendered =
       claim.kind === "input_notice" && claim.body.blocks !== undefined
         ? claim.body.text
-        : slackOutboxText(
-            modelLink === undefined
-              ? claim.body
-              : { ...claim.body, link_url: modelLink },
-          );
+        : slackOutboxText(body, guard);
+    const text = emptied(rendered)
+      ? slackOutboxText({ ...body, text: empty }, guard)
+      : rendered;
     try {
       const response =
         claim.kind === "notice" && claim.slackUserId !== null
@@ -252,9 +306,11 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
               threadTs: claim.threadTs,
               text,
             })
-          : await postMessage(botToken, claim, text, iconUrl);
+          : await postMessage(botToken, claim, text, iconUrl, guard);
+      logDropped();
       return outcomeOf(slackOutboxSettleFor(attempts, response));
     } catch (error) {
+      logDropped();
       // No answer came: the request may have reached Slack.
       return {
         kind: "uncertain",

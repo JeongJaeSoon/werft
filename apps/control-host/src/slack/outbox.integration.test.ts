@@ -631,7 +631,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         channelId: CHANNEL,
         threadTs: THREAD,
         userId: null,
-        text: `Done: ping &lt;!here&gt;, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`&lt;!here&gt;\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+        // G7: the group mention goes; the one in code stays escaped.
+        text: `Done: ping, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`&lt;!here&gt;\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
         ts: expect.any(String),
         options: {
           link_names: "false",
@@ -934,7 +935,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       {
         threadTs: THREAD,
         // The name shows once, as the sender, not again in the text.
-        text: "Add a test, &lt;!here&gt;",
+        // G7: a group mention leaves even a person's instruction.
+        text: "Add a test,",
         username: "owner (웹 콘솔)",
         icon_url: "https://avatars.example/owner.png",
       },

@@ -19,6 +19,7 @@ import type {
   SurfaceCardFence,
   SurfaceCardRendered,
   SurfaceCardSettleStore,
+  SurfaceConversationScope,
   SurfaceOpenPushCard,
   SurfaceOutboxFence,
   SurfaceOutboxStore,
@@ -1775,6 +1776,18 @@ export function createPostgresSlackOutboxStore(
           attempts: t.attempts,
           seq: t.seq,
           ...entry,
+          // A DM conversation keeps no team of its own; its install's is it.
+          conversationScope: sql<SurfaceConversationScope | null>`(
+            SELECT json_build_object(
+              'kind', cv.kind,
+              'teamId', COALESCE(cv.team_id, si.team_id),
+              'channelId', cv.channel_id
+            )
+            FROM sessions s
+            JOIN conversations cv ON cv.id = s.parent_conversation_id
+            JOIN slack_installations si ON si.id = ${t.installationId}
+            WHERE s.id = ${t.sessionId}
+          )`,
         });
       return rows
         .sort((a, b) => a.seq - b.seq)
