@@ -805,14 +805,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         }
         return null;
       }
-      const limited = await this.#limitReached(
-        bound,
-        preparation,
-        context,
-      ).catch((error: unknown) => {
-        if (isOwnershipLost(error)) reasonCode = "ownership_lost";
-        throw error;
-      });
+      const limited = await timer
+        .time("limit", () => this.#limitReached(bound, preparation, context))
+        .catch((error: unknown) => {
+          if (isOwnershipLost(error)) reasonCode = "ownership_lost";
+          throw error;
+        });
       if (limited !== undefined) {
         outcome = "refused";
         reasonCode = limited;
@@ -1143,16 +1141,18 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     }
     // The lease is held and the engine stopped: the one moment the session's
     // own commits may be remade before this capture pins the tip.
-    const repaired = await repairAttribution({
-      root: this.#options.workspaceRoot,
-      home: this.#options.home ?? "",
-      tool: this.#options.repairTool,
-      gateway: this.#options.gateway,
-      scope: context.scope,
-      spool,
-      ...(bound.judgedTip === undefined ? {} : { judged: [bound.judgedTip] }),
-      logger: this.#captureLogger(context),
-    });
+    const repaired = await timer.time("attribution_repair", () =>
+      repairAttribution({
+        root: this.#options.workspaceRoot,
+        home: this.#options.home ?? "",
+        tool: this.#options.repairTool,
+        gateway: this.#options.gateway,
+        scope: context.scope,
+        spool,
+        ...(bound.judgedTip === undefined ? {} : { judged: [bound.judgedTip] }),
+        logger: this.#captureLogger(context),
+      }),
+    );
     if ("head" in repaired && repaired.head !== undefined) {
       bound.judgedTip = repaired.head;
     }
@@ -1229,14 +1229,18 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     // repair has run.
     const mismatches =
       capture.gitCommit === capture.headCommit
-        ? await workspaceMismatches({
-            root: this.#options.workspaceRoot,
-            tip: capture.gitCommit,
-            expectations: claimExpectations(bound.claim),
-            stripEmails: bound.claim.git_strip ?? [],
-            protectedCommits:
-              repaired.status === "skipped" ? null : repaired.protectedCommits,
-          })
+        ? await timer.time("attribution_check", () =>
+            workspaceMismatches({
+              root: this.#options.workspaceRoot,
+              tip: capture.gitCommit,
+              expectations: claimExpectations(bound.claim),
+              stripEmails: bound.claim.git_strip ?? [],
+              protectedCommits:
+                repaired.status === "skipped"
+                  ? null
+                  : repaired.protectedCommits,
+            }),
+          )
         : [workingTreeSnapshotMismatch(capture.gitCommit)];
     const bases = capture.bundle.incremental ? (previous?.links ?? []) : [];
     timer.reused(bases.length);
