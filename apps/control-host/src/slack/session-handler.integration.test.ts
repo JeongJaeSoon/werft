@@ -25,6 +25,7 @@ import {
   CONVERSATION_TURN_LEASE_MS,
   CONVERSATION_TURN_TEXT_MAX,
   type ConversationDecision,
+  type ConversationId,
   type ConversationInputId,
   type ConversationTurnId,
   type ConversationTurnResult,
@@ -4503,6 +4504,135 @@ describe.each(ENGINES)(
         "processing",
         "active",
       ]);
+    });
+
+    /**
+     * The older turn's ending with a newer mention written just after its
+     * claim, Slack refusing the "processing" said again after its `active`.
+     */
+    const corrective = (
+      fixture: Fixture,
+      handle: ReturnType<typeof handler>["handle"],
+    ) => {
+      const store = createPostgresMentionTurnStatuses(db);
+      const statuses: MentionTurnStatusStore = {
+        ...store,
+        async claimReset(turnId, claimMs) {
+          const claim = await store.claimReset(turnId, claimMs);
+          await deliver(
+            fixture,
+            mention("100.000300", { thread_ts: "100.000100" }),
+          );
+          await drain(handle);
+          return claim;
+        },
+        async reprocess(turnId) {
+          const left = await store.reprocess(turnId);
+          slack.failures.set("agents.sessions.setStatus", "internal_error");
+          return left;
+        },
+      };
+      return endings(undefined, 60_000, statuses).finally(() =>
+        slack.failures.clear(),
+      );
+    };
+    const threadsLeft = () => db.select().from(schema.mentionThreadStatuses);
+
+    test("a newer turn's processing Slack did not take after an older one's active is sent again on the next pass", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      await report(await leased(), { outcome: "completed", text: "one" });
+      await corrective(fixture, handle);
+      expect(statusesOf("100.000100")).toEqual([
+        "processing",
+        "processing",
+        "active",
+      ]);
+      await endings();
+      await endings();
+      expect(statusesOf("100.000100")).toEqual([
+        "processing",
+        "processing",
+        "active",
+        "processing",
+      ]);
+      expect(await threadsLeft()).toEqual([]);
+      await report(await leased(), { outcome: "completed", text: "two" });
+      await endings();
+      await endings();
+      expect(statusesOf("100.000100")).toEqual([
+        "processing",
+        "processing",
+        "active",
+        "processing",
+        "active",
+      ]);
+    });
+
+    test("a processing sent again that lands after the newer turn ended leaves the thread active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      await report(await leased(), { outcome: "completed", text: "one" });
+      await corrective(fixture, handle);
+      // The retry reads "processing", then the newer turn ends and its
+      // `active` reaches Slack before the retry's send.
+      const store = createPostgresMentionTurnStatuses(db);
+      const statuses: MentionTurnStatusStore = {
+        ...store,
+        async claimThreads(limit, claimMs) {
+          const claimed = await store.claimThreads(limit, claimMs);
+          await report(await leased(), { outcome: "completed", text: "two" });
+          await endings();
+          return claimed;
+        },
+      };
+      await endings(undefined, 60_000, statuses);
+      expect(statusesOf("100.000100")).toEqual([
+        "processing",
+        "processing",
+        "active",
+        "active",
+        "processing",
+      ]);
+      await endings();
+      await endings();
+      expect(statusesOf("100.000100")).toEqual([
+        "processing",
+        "processing",
+        "active",
+        "active",
+        "processing",
+        "active",
+      ]);
+      expect(await threadsLeft()).toEqual([]);
+    });
+
+    test("a delete of the conversation's records while its turn runs sets the thread back once", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      const [conversation] = await db
+        .select({ id: schema.conversations.id })
+        .from(schema.conversations)
+        .where(eq(schema.conversations.agentId, fixture.agentId));
+      const deleted = await schema.deleteConversationRecords(db, {
+        conversationId: conversation?.id as ConversationId,
+        by: `${fixture.ownerId}@example.invalid`,
+      });
+      expect(deleted.outcome).toBe("deleted");
+      expect(await mentionTurnsOf(fixture)).toEqual([]);
+      await endings();
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+      // The turn's late report finds nothing to set back.
+      await report(turn, { outcome: "completed", text: "late" });
+      await endings();
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+      expect(await threadsLeft()).toEqual([]);
     });
 
     test("rollout on: a mention longer than a turn's input is no turn, no status and no session", async () => {

@@ -1,11 +1,61 @@
 import type { ConversationTurnId } from "@werft-ai/contracts";
 import type {
+  MentionThreadDue,
   MentionTurnDue,
   MentionTurnStatusStore,
 } from "@werft-ai/platform";
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
+
+// A mention turn of the thread `s` whose "processing" is still due: as due()
+// finds them, by the thread's own place, so it holds with no turn left.
+const threadProcessing = (s: SQL) => sql`EXISTS (
+  SELECT 1 FROM conversation_turns t
+  JOIN conversation_topics tp ON tp.id = t.topic_id
+  WHERE t.agent_id = ${s}.agent_id AND t.origin = 'm2'
+    AND t.slack_installation_id IS NOT NULL
+    AND t.slack_status_reset_at IS NULL
+    AND tp.slack_team_id = ${s}.team_id
+    AND tp.slack_channel_id = ${s}.channel_id
+    AND tp.slack_thread_ts = ${s}.thread_ts
+    AND EXISTS (SELECT 1 FROM conversation_engagements e
+      WHERE e.conversation_turn_id = t.id AND e.kind = 'mention'))`;
+
+const sameThread = (thread: MentionThreadDue) => sql`
+  agent_id = ${thread.agentId}::uuid AND team_id = ${thread.thread.teamId}
+  AND channel_id = ${thread.thread.channelId}
+  AND thread_ts = ${thread.thread.threadTs}`;
+
+// Left again: the latest leave's send reads the turns afresh.
+const LEFT_AGAIN = sql`ON CONFLICT (agent_id, team_id, channel_id, thread_ts)
+  DO UPDATE SET rev = mention_thread_statuses.rev + 1, claimed_at = NULL`;
+
+/**
+ * Leaves each thread of the conversation's mention turns still due to be
+ * set again, before a delete of its records takes them away: with no turn
+ * left, it is set back to `active`.
+ */
+export function leaveMentionThreadResets(conversationId: string): SQL {
+  return sql`
+    INSERT INTO mention_thread_statuses
+      (workspace_id, agent_id, slack_installation_id, team_id, channel_id, thread_ts)
+    SELECT DISTINCT ON (t.agent_id, tp.slack_team_id, tp.slack_channel_id, tp.slack_thread_ts)
+      t.workspace_id, t.agent_id, t.slack_installation_id,
+      tp.slack_team_id, tp.slack_channel_id, tp.slack_thread_ts
+    FROM conversation_turns t
+    JOIN conversation_topics tp ON tp.id = t.topic_id
+    WHERE t.conversation_id = ${conversationId}::uuid AND t.origin = 'm2'
+      AND t.slack_installation_id IS NOT NULL
+      AND t.slack_status_reset_at IS NULL
+      AND tp.slack_team_id IS NOT NULL AND tp.slack_channel_id IS NOT NULL
+      AND tp.slack_thread_ts IS NOT NULL
+      AND EXISTS (SELECT 1 FROM conversation_engagements e
+        WHERE e.conversation_turn_id = t.id AND e.kind = 'mention')
+    ORDER BY t.agent_id, tp.slack_team_id, tp.slack_channel_id,
+      tp.slack_thread_ts, t.created_at DESC
+    ${LEFT_AGAIN}`;
+}
 
 /**
  * The mention turns whose Slack thread was set to "processing": which are
@@ -15,6 +65,11 @@ import { rowsOf } from "../statement-rows.ts";
 export function createPostgresMentionTurnStatuses(
   db: Database,
 ): MentionTurnStatusStore {
+  const releaseThread = async (thread: MentionThreadDue) => {
+    await db.execute(sql`
+      UPDATE mention_thread_statuses SET claimed_at = NULL
+      WHERE ${sameThread(thread)}`);
+  };
   return {
     async due(limit, claimMs) {
       const rows = rowsOf<{
@@ -93,18 +148,95 @@ export function createPostgresMentionTurnStatuses(
         WHERE id = ${turnId}::uuid AND slack_status_reset_at IS NULL`);
     },
 
-    async newerDue(turnId) {
-      const [row] = rowsOf<{ due: boolean }>(
+    async reprocess(turnId) {
+      const left = rowsOf<{ rev: number }>(
         await db.execute(sql`
-          SELECT EXISTS (SELECT 1 FROM conversation_turns t
-            JOIN conversation_turns n ON n.topic_id = t.topic_id
-            WHERE t.id = ${turnId}::uuid AND n.id <> t.id
-              AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
-              AND n.slack_status_reset_at IS NULL
-              AND n.created_at > t.created_at) AS due`),
+          INSERT INTO mention_thread_statuses
+            (workspace_id, agent_id, slack_installation_id, team_id, channel_id, thread_ts)
+          SELECT t.workspace_id, t.agent_id, t.slack_installation_id,
+            tp.slack_team_id, tp.slack_channel_id, tp.slack_thread_ts
+          FROM conversation_turns t
+          JOIN conversation_topics tp ON tp.id = t.topic_id
+          WHERE t.id = ${turnId}::uuid AND t.slack_installation_id IS NOT NULL
+            AND tp.slack_team_id IS NOT NULL AND tp.slack_channel_id IS NOT NULL
+            AND tp.slack_thread_ts IS NOT NULL
+            AND EXISTS (SELECT 1 FROM conversation_turns n
+              WHERE n.topic_id = t.topic_id AND n.id <> t.id
+                AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
+                AND n.slack_status_reset_at IS NULL
+                AND n.created_at > t.created_at)
+          ${LEFT_AGAIN}
+          RETURNING rev`),
       );
-      return row?.due === true;
+      return left.length > 0;
     },
+
+    async claimThreads(limit, claimMs) {
+      const rows = rowsOf<{
+        workspace_id: string;
+        agent_id: string;
+        team_id: string;
+        channel_id: string;
+        thread_ts: string;
+        rev: number;
+        slack_app_id: string | null;
+        processing: boolean;
+      }>(
+        await db.execute(sql`
+          UPDATE mention_thread_statuses s SET claimed_at = now()
+          FROM (SELECT agent_id, team_id, channel_id, thread_ts
+            FROM mention_thread_statuses
+            WHERE claimed_at IS NULL
+              OR claimed_at < now() - ${claimMs} * interval '1 millisecond'
+            ORDER BY created_at
+            LIMIT ${limit}
+            FOR UPDATE SKIP LOCKED) d
+          WHERE (s.agent_id, s.team_id, s.channel_id, s.thread_ts)
+            = (d.agent_id, d.team_id, d.channel_id, d.thread_ts)
+          RETURNING s.workspace_id, s.agent_id, s.team_id, s.channel_id,
+            s.thread_ts, s.rev,
+            (SELECT sa.id FROM slack_installations i
+              JOIN slack_apps sa ON sa.app_id = i.app_id
+              WHERE i.id = s.slack_installation_id
+                AND sa.agent_id = s.agent_id) AS slack_app_id,
+            ${threadProcessing(sql`s`)} AS processing`),
+      );
+      return rows.map(
+        (row): MentionThreadDue => ({
+          workspaceId: row.workspace_id,
+          agentId: row.agent_id,
+          thread: {
+            teamId: row.team_id,
+            channelId: row.channel_id,
+            threadTs: row.thread_ts,
+          },
+          slackAppId: row.slack_app_id,
+          status: row.processing ? "processing" : "active",
+          rev: Number(row.rev),
+        }),
+      );
+    },
+
+    async threadSent(thread, sent) {
+      // What the turns say now: a turn that ended, or one written, since
+      // the claim read them leaves the thread for the next pass.
+      const done = rowsOf(
+        await db.execute(sql`
+          DELETE FROM mention_thread_statuses s
+          WHERE ${sameThread(thread)} AND rev = ${thread.rev}
+            ${
+              sent === null
+                ? sql``
+                : sql`AND ${threadProcessing(sql`s`)} = ${sent === "processing"}`
+            }
+          RETURNING rev`),
+      );
+      if (done.length > 0) return true;
+      await releaseThread(thread);
+      return false;
+    },
+
+    releaseThread,
 
     async releaseReset(turnId) {
       await db.execute(sql`
