@@ -14,9 +14,10 @@ import { Api, e2eStack } from "../e2e/client.ts";
  *   1  the old release: A's turn 1 completes and is checkpointed
  *   2  the new schema under the old control-host: A's turn 2 completes and
  *      is checkpointed, then A is paused and its worker goes away
- *   3  the new control-host with the old worker and proxy: a new session B
- *      completes turn 1 on the old worker, and A resumes on a new old
- *      worker whose turn 3 sees turns 1 and 2 in its history
+ *   3  the new control-host and its proxy settings with the old worker and
+ *      proxy images: a new session B completes turn 1 on the old worker,
+ *      and A resumes on a new old worker whose turn 3 sees turns 1 and 2
+ *      in its history
  */
 const stage = process.env.COMPAT_STAGE;
 const statePath = process.env.COMPAT_STATE;

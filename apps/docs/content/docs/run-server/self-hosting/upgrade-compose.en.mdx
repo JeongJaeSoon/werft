@@ -32,7 +32,7 @@ Select the tag from the [package contract](/run-server/self-hosting/reference/pa
 <a id="2-api--proxy--worker-순서" />
 ### 2. API → proxy → worker order
 
-For protocol or [gate](#실행-전-게이트) field changes, do not replace every image together. Check out the new source commit and install dependencies. Create an intermediate release changing only control_host to the target image while retaining current worker and egress_proxy images. Meet the same settings digest and source_commit requirements. Upgrade with it, then confirm readiness and that every API instance runs the new version.
+For protocol or [gate](#실행-전-게이트) field changes, do not replace every image together. Check out the new source commit and install dependencies. Create an intermediate release changing only control_host to the target image while retaining current worker and egress_proxy images. The intermediate release is applied with the new source commit's compose file, so the egress proxy keeps its image and restarts with the new release's settings (its allowlists among them). Meet the same settings digest and source_commit requirements. Upgrade with it, then confirm readiness and that every API instance runs the new version.
 
 Next upgrade to the final release with target egress proxy and worker digests. This prevents proxy/workers from sending new fields before the API is ready. Apply intermediate and final test-ops inputs separately through `scripts/test-ops.sh upgrade`.
 
@@ -596,3 +596,18 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 ```
 
 The stored key value stays. The connection id saved in the judge settings stays too, and the rolled-back build does not judge Luna rules. After upgrading again, create the connection again and pick it in the judge settings. Rolling back by restoring the pre-upgrade database backup needs no extra step.
+
+<a id="worker-gateway를-3200-포트로-옮긴-릴리스" />
+### The release that moves the worker gateway to port 3200
+
+From this release the API serves `/internal` (the gateway that workers and the conversation runtime call) on port 3200 (`INTERNAL_API_PORT`) alone, not on the public port 3000. A worker reaches the gateway only when the `WORKER_GATEWAY_URL` the scheduler hands it and the egress proxy's `EGRESS_PRIVATE_ALLOWLIST` name the same address. There is no migration.
+
+- Apply the release's compose file (on Kubernetes, the chart) as a whole. Apply the egress proxy's settings together with the control-host or before it. `scripts/test-ops.sh upgrade` recreates the egress proxy, which the scheduler depends on, when its settings change. The same holds for the intermediate release of [2. API → proxy → worker order](#2-api--proxy--worker-순서): the proxy keeps its image and takes the new allowlist. The Kubernetes chart sets the allowlist as an env value of the egress proxy Deployment, so the same `helm upgrade` restarts the proxy Pods with the new value.
+- An installation on the defaults has nothing to do. `WORKER_GATEWAY_URL` defaults to `http://api:3200` and `EGRESS_PRIVATE_ALLOWLIST` to `api:3200,host.docker.internal:3200`.
+- An installation that sets the two values itself changes `api:3000` to `api:3200`. On Kubernetes, one that sets `config.egress.privateAllowlist` changes `<fullname>-api:3000` to `<fullname>-api-internal:3200`. An installation that runs a hand-edited proxy configuration also adds `api:3200` to its allowlist, and restarts the proxy before it upgrades the control-host.
+- With the old allowlist the proxy refuses the worker's gateway call with a 403 (`egress denied: destination is not allowlisted`) and the worker ends before its claim. No session starts. These records remain:
+  - The proxy log: `Egress denied` (`host`, `port` 3200, `reason`).
+  - The `error` of the scheduler log `Launch attempt failed; retrying after a backoff`: `resource exited before a worker claimed it (exit code 1): the egress proxy refused the worker's bootstrap-claim (destination is not allowlisted): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL.` The sentence ends with the address of this section. A worker of an earlier release does not relay the proxy's words, so the parentheses hold `HTTP 403`.
+  - At the launch failure limit (5 by default) the input fails with `LAUNCH_FAILED`, and its failure reason carries the same sentence.
+- After you correct the allowlist and restart the proxy, the next launch after the backoff reaches the gateway. Send an input that ended with `LAUNCH_FAILED` again.
+- A worker running across the upgrade calls the gateway at the earlier address (3000), so its calls fail. Upgrade while no session is running.

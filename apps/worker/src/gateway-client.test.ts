@@ -190,6 +190,24 @@ describe("HttpWorkerGatewayClient", () => {
     expect(error.retryable).toBe(false);
   });
 
+  test("an untyped refusal keeps the first line of what answered, without control characters", async () => {
+    const { gateway } = client(
+      () =>
+        new Response(
+          "egress denied:\tdestination is not allowlisted\r\nsecond line",
+          { status: 403 },
+        ),
+    );
+    const error = (await gateway
+      .nextInput({ ...scope })
+      .catch((caught: unknown) => caught)) as WorkerGatewayRequestError;
+
+    expect(error.message).toBe(
+      "POST /next-input failed with HTTP 403: egress denied: destination is not allowlisted",
+    );
+    expect(error.retryable).toBe(false);
+  });
+
   test("keeps a 5xx without a body retryable", async () => {
     const { gateway } = client(() => new Response("", { status: 503 }));
     const error = (await gateway

@@ -34,6 +34,35 @@ import type {
 } from "./ports/scheduler-store.ts";
 import { replace, teardown } from "./replace.ts";
 
+const GATEWAY_PORT_DOC =
+  "https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/upgrade-compose/#the-release-that-moves-the-worker-gateway-to-port-3200";
+
+// The worker's error line for a claim answered with a 403 that is not the
+// gateway's. What answered follows only from a worker that relays it; an
+// older one prints the status alone.
+const CLAIM_REFUSED =
+  /POST \/bootstrap-claim failed with HTTP 403(?:: ([^\n]*))?/;
+const NOT_ALLOWLISTED = "egress denied: destination is not allowlisted";
+
+/**
+ * What to tell the operator when a worker died before its claim because the
+ * egress proxy turned its gateway call away. The gateway's own refusals carry
+ * an error code, which the worker prints in place of the status, so a bare
+ * 403 on the claim is the proxy's. The text is fixed: nothing is copied from
+ * the tail, which may carry whatever the worker printed.
+ */
+function proxyRefusalOf(logTail: string | undefined): string | undefined {
+  const refused = logTail?.match(CLAIM_REFUSED);
+  if (!refused) return undefined;
+  const said = refused[1];
+  if (said !== undefined && !said.startsWith(NOT_ALLOWLISTED)) {
+    // Another refusal of the proxy's (an address it never dials) or another
+    // hop's answer: the allowlist is not the fix.
+    return `the worker's bootstrap-claim was answered with HTTP 403 before it reached the gateway; if the egress proxy refused it, its Egress denied log line has the reason. See ${GATEWAY_PORT_DOC}`;
+  }
+  return `the egress proxy refused the worker's bootstrap-claim (${said === undefined ? "HTTP 403" : "destination is not allowlisted"}): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL. See ${GATEWAY_PORT_DOC}`;
+}
+
 /** Step 1: reconcile rows against the provider. */
 export async function reconcileRows(ctx: PassContext): Promise<void> {
   const { backend, lock, logger, store, summary } = ctx;
@@ -313,10 +342,11 @@ async function reconcile(
       await reensure(ctx, execution, execution.pendingReplacement ?? "missing");
       return;
     }
+    const refusal = proxyRefusalOf(observed.logTail);
     const outcome = await launchFailed(
       ctx,
       execution,
-      `resource exited before a worker claimed it (exit code ${observed.exitCode ?? "unknown"}${observed.terminationReason === undefined ? "" : `, ${observed.terminationReason}`})`,
+      `resource exited before a worker claimed it (exit code ${observed.exitCode ?? "unknown"}${observed.terminationReason === undefined ? "" : `, ${observed.terminationReason}`})${refusal === undefined ? "" : `: ${refusal}`}`,
       builtWith,
     );
     if (outcome === "quarantined") return;

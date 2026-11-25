@@ -27,7 +27,7 @@ outcome: "호환성과 백업을 확인하고 새 release를 적용한다"
 
 ### 2. API → proxy → worker 순서
 
-protocol 또는 [실행 전 게이트](#실행-전-게이트)의 필드 변경이 있으면 한 번에 모든 이미지를 바꾸지 않는다. 먼저 새 source commit으로 checkout하고 의존성을 설치한 뒤, 대상 release에서 control_host만 새 이미지로 바꾸고 worker와 egress_proxy는 현재 이미지를 유지한 중간 release 파일을 만든다. 동일한 settings digest와 source_commit 조건을 지킨다. 이 중간 release로 upgrade한 뒤 API가 ready이고 모든 API 인스턴스가 새 버전임을 확인한다.
+protocol 또는 [실행 전 게이트](#실행-전-게이트)의 필드 변경이 있으면 한 번에 모든 이미지를 바꾸지 않는다. 먼저 새 source commit으로 checkout하고 의존성을 설치한 뒤, 대상 release에서 control_host만 새 이미지로 바꾸고 worker와 egress_proxy는 현재 이미지를 유지한 중간 release 파일을 만든다. 중간 release도 새 source commit의 compose 파일로 적용하므로, egress proxy는 이미지만 현재 것이고 설정(allowlist 등)은 새 release의 값으로 다시 뜬다. 동일한 settings digest와 source_commit 조건을 지킨다. 이 중간 release로 upgrade한 뒤 API가 ready이고 모든 API 인스턴스가 새 버전임을 확인한다.
 
 그 다음 egress proxy와 worker를 대상 digest로 바꾼 최종 release로 upgrade한다. 이 순서가 API보다 proxy·worker가 먼저 새 필드를 보내는 것을 막는다. test-ops 설치는 중간·최종 release 입력을 각각 `scripts/test-ops.sh upgrade`로 적용한다.
 
@@ -539,3 +539,17 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 ```
 
 넣어 둔 key 값은 남는다. 판정 설정에 저장된 연결 id도 남고, 되돌린 빌드에서 Luna 규칙은 판정되지 않는다. 다시 올린 뒤 연결을 다시 만들고 판정 설정에서 고른다. 업그레이드 전 백업으로 DB를 복원해 되돌릴 때는 할 일이 없다.
+
+### worker gateway를 3200 포트로 옮긴 릴리스
+
+이 릴리스부터 api는 `/internal`(worker와 대화 런타임이 부르는 gateway)을 공개 포트 3000이 아니라 3200(`INTERNAL_API_PORT`)에서만 받는다. scheduler가 worker에게 주는 `WORKER_GATEWAY_URL`과 egress proxy의 `EGRESS_PRIVATE_ALLOWLIST`가 같은 주소를 가리켜야 worker가 gateway에 닿는다. migration은 없다.
+
+- release의 compose 파일(Kubernetes는 chart)을 통째로 적용한다. egress proxy의 설정은 control-host와 함께, 또는 그보다 먼저 적용한다. `scripts/test-ops.sh upgrade`는 scheduler가 의존하는 egress proxy도 설정이 바뀌면 다시 만든다. [2. API → proxy → worker 순서](#2-api--proxy--worker-순서)의 중간 release에서도 같다. proxy는 이미지만 현재 것이고 allowlist는 새 값이 된다. Kubernetes chart는 allowlist를 egress proxy Deployment의 env로 넣으므로, 같은 `helm upgrade`가 proxy Pod를 새 값으로 다시 띄운다.
+- 기본값을 쓰는 설치는 할 일이 없다. `WORKER_GATEWAY_URL`은 `http://api:3200`, `EGRESS_PRIVATE_ALLOWLIST`는 `api:3200,host.docker.internal:3200`이 기본이다.
+- 두 값을 직접 준 설치는 `api:3000`을 `api:3200`으로 바꾼다. Kubernetes에서 `config.egress.privateAllowlist`를 직접 준 설치는 `<fullname>-api:3000`을 `<fullname>-api-internal:3200`으로 바꾼다. proxy 설정을 손으로 고쳐 쓰는 설치도 allowlist에 `api:3200`을 더하고, control-host를 올리기 전에 proxy를 다시 띄운다.
+- allowlist가 옛 값으로 남으면 proxy가 worker의 gateway 호출을 403(`egress denied: destination is not allowlisted`)으로 거절하고, worker는 claim 전에 끝난다. 세션은 시작하지 않는다. 이때 남는 기록은 이렇다.
+  - proxy 로그: `Egress denied`(`host`, `port` 3200, `reason`).
+  - scheduler 로그 `Launch attempt failed; retrying after a backoff`의 `error`: `resource exited before a worker claimed it (exit code 1): the egress proxy refused the worker's bootstrap-claim (destination is not allowlisted): its EGRESS_PRIVATE_ALLOWLIST must name the host and port of WORKER_GATEWAY_URL.` 문장은 이 절의 주소로 끝난다. 앞선 릴리스의 worker는 proxy의 말을 옮기지 않으므로 괄호 안이 `HTTP 403`이다.
+  - launch 실패 한도(기본 5회)에 이르면 그 입력은 `LAUNCH_FAILED`로 실패하고, 실패 사유에 같은 문장이 남는다.
+- allowlist를 고치고 proxy를 다시 띄우면 backoff 뒤의 다음 launch가 gateway에 닿는다. `LAUNCH_FAILED`로 끝난 입력은 다시 보낸다.
+- 올릴 때 돌고 있던 worker는 앞선 주소(3000)로 gateway를 부르므로 호출이 실패한다. 세션이 돌지 않을 때 올린다.

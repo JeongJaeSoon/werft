@@ -104,7 +104,9 @@ export type ExecutionObservation = {
   unschedulable?: { message: string };
   /**
    * The bounded end of a failed resource's output, read before anything
-   * removes it. Only logged: it may carry whatever the worker printed.
+   * removes it. Logged, and matched for the proxy's refusal of a claim
+   * (`proxyRefusalOf`); never copied anywhere else: it may carry whatever
+   * the worker printed.
    */
   logTail?: string;
   /**

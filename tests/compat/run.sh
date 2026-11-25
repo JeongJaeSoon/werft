@@ -4,7 +4,8 @@
 #
 #   1  the old release, from its own checkout and its own images
 #   2  this checkout's migrate (the new schema) under the old control-host
-#   3  this checkout's control-host in every role, the old worker and proxy
+#   3  this checkout's control-host in every role and its proxy settings,
+#      the old worker and proxy images
 #
 # One compose project lives through all three, so the database, object
 # store, installation id and secrets stay, except the catalog MCP's.
@@ -230,11 +231,13 @@ seed_credentials compat_owner_cookie "${seeds[@]}" -- \
 drive 2
 
 echo "== stage 3: every control-host role of ${new_control_host:-this checkout}" >&2
-control_roles=()
+# An upgrade applies the release's deployment config as a whole, so the proxy
+# is recreated with this checkout's settings and keeps the old image.
+upgraded=()
 while read -r service; do
-  control_roles+=("$service")
-done < <(roles "$root" | sed -n 's/^control-host //p' | grep -vx migrate)
-dc up -d --no-deps --wait "${control_roles[@]}" >"$out/up-new.log" 2>&1 ||
+  upgraded+=("$service")
+done < <(roles "$root" | sed -n -E 's/^(control-host|egress-proxy) //p' | grep -vx migrate)
+dc up -d --no-deps --wait "${upgraded[@]}" >"$out/up-new.log" 2>&1 ||
   { tail -50 "$out/up-new.log" >&2; exit 1; }
 # The recreated api has a new ephemeral port.
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
