@@ -1040,12 +1040,11 @@ const { store: githubWebhookSettingsStore } = carryOverGitHubWebhookSettings({
   retryMs: CATALOG_READ_RETRY_MS,
 });
 const githubWebhookUrl = githubWebhookUrlFrom(githubWebhookSettingsStore);
-const githubAppHook = wireGitHubAppHookConfig({ logger });
 const githubWebhookSettingsAdmin = createGitHubWebhookSettingsAdmin({
   authorization,
   store: githubWebhookSettingsStore,
   apps: () => listGitHubWebhookApps(db, secretKey),
-  setHook: githubAppHook,
+  setHook: wireGitHubAppHookConfig({ logger }),
   warn: (message, fields) => logger.warn(message, fields ?? {}),
 });
 const githubApps = createGitHubAppService({
@@ -1071,7 +1070,7 @@ const githubApps = createGitHubAppService({
     webBase: "https://github.com",
     refused: (check) =>
       logger.warn("GitHub App manifest state refused", { check }),
-    setHook: githubAppHook,
+    followHook: (app) => githubWebhookSettingsAdmin.follow(app),
   },
   installations: {
     store: githubInstallations,

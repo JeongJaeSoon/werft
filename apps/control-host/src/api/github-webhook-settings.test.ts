@@ -246,6 +246,73 @@ describe("the GitHub webhook settings service", () => {
     ]);
   });
 
+  test("a PATCH keeps following saves made meanwhile and ends on what is saved", async () => {
+    const memory = memoryStore(null);
+    const sent: string[] = [];
+    const later = [
+      "https://b.example.test",
+      "https://c.example.test",
+      "https://d.example.test",
+      "https://e.example.test",
+    ];
+    const service = createGitHubWebhookSettingsAdmin({
+      authorization: createAuthorizationPolicy({
+        agents: { agentOf: async () => null, isAdmin: async () => false },
+        decisions: { record: async () => {} },
+      }),
+      store: memory.store,
+      apps: async () => [app(7, [WORKSPACE])],
+      setHook: async (_target, url) => {
+        sent.push(url);
+        // Another replica saves while this PATCH is out.
+        const next = later.shift();
+        if (next !== undefined) {
+          await memory.store.setPublicUrl({
+            value: next,
+            audit: {
+              userId: USERS.owner,
+              workspaceId: WORKSPACE,
+              receiptId: crypto.randomUUID(),
+            },
+          });
+        }
+        return "updated";
+      },
+      warn: () => {},
+    });
+    const answer = await service.change(caller("owner"), {
+      webhook_public_url: "https://a.example.test",
+    });
+    expect(answer.updates).toEqual([
+      { app_id: 7, name: "werft-7", outcome: "updated" },
+    ]);
+    expect(sent.at(-1)).toBe("https://e.example.test/v1/github/webhook");
+    expect(sent).toHaveLength(5);
+  });
+
+  test("a new App follows the saved address, and nothing is sent while none is saved", async () => {
+    const unset = admin(null);
+    expect(
+      await unset.admin.follow({
+        appId: 5,
+        apiBase: "https://api.github.test",
+        name: "new",
+        privateKey: "key-5",
+      }),
+    ).toBe(null);
+    expect(unset.sent).toEqual([]);
+    const saved = admin({ publicUrl: BASE });
+    expect(
+      await saved.admin.follow({
+        appId: 5,
+        apiBase: "https://api.github.test",
+        name: "new",
+        privateKey: "key-5",
+      }),
+    ).toEqual({ app_id: 5, name: "new", outcome: "updated" });
+    expect(saved.sent.map(({ url }) => url)).toEqual([URL]);
+  });
+
   test("the address already saved leaves no receipt and sends no App", async () => {
     const { admin: service, sent } = admin({ publicUrl: BASE }, [
       app(7, [WORKSPACE]),

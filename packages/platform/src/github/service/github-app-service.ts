@@ -203,11 +203,16 @@ export function createGitHubAppService(deps: {
     now?: () => Date;
     /** Which check refused a state; for the log, never the response. */
     refused?: (check: string) => void;
-    /** `PATCH /app/hook/config` with the App's JWT; answers, never throws. */
-    setHook?: (
-      app: { appId: number; apiBase: string; privateKey: string },
-      url: string,
-    ) => Promise<unknown>;
+    /**
+     * Sets a new App's webhook URL to the address saved now, again after any
+     * save made meanwhile; answers, never throws.
+     */
+    followHook?: (app: {
+      appId: number;
+      apiBase: string;
+      name: string;
+      privateKey: string;
+    }) => Promise<unknown>;
   };
   installations?: {
     store: GitHubInstallationStore;
@@ -613,16 +618,13 @@ export function createGitHubAppService(deps: {
       }
       // The manifest carried the address saved when it was made. One saved
       // while the owner was on GitHub could not list this App yet.
-      const url = await webhookUrl();
-      if (app.webhookSecret && url && manifests.setHook) {
-        await manifests.setHook(
-          {
-            appId: app.appId,
-            apiBase: deps.apiBase,
-            privateKey: app.privateKey,
-          },
-          url,
-        );
+      if (app.webhookSecret && manifests.followHook) {
+        await manifests.followHook({
+          appId: app.appId,
+          apiBase: deps.apiBase,
+          name: app.name,
+          privateKey: app.privateKey,
+        });
       }
       return {
         github_app: githubApp,

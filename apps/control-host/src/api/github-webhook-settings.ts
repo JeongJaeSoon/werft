@@ -20,9 +20,6 @@ import { requireSignInOwner } from "./provider-admin.ts";
 import { GITHUB_WEBHOOK_PATH } from "./routes/github/github-webhook.ts";
 import { parseEventsPublicUrl } from "./slack-config.ts";
 
-/** A save keeps chasing the saved address at most this many PATCHes per App. */
-const CONVERGE_ROUNDS = 3;
-
 /** The URL an App's webhook is set to, for a saved base. */
 export const githubWebhookUrlOf = (base: string): string =>
   `${base}${GITHUB_WEBHOOK_PATH}`;
@@ -106,17 +103,17 @@ export function createGitHubWebhookSettingsAdmin(deps: {
 
   // Saves are serialized, their PATCHes are not: a slower PATCH of an earlier
   // save can land after a later one. After each PATCH the saved address is
-  // read again, and an App left on another one is set to what is saved.
+  // read again, and an App left on another one is set to what is saved. It
+  // stops only on a PATCH of what is still saved: every extra round follows
+  // a save made since, so it ends once saves do.
   const converge = async (
     app: GitHubWebhookApp,
     first: string,
   ): Promise<GitHubWebhookUpdate> => {
     let base = first;
-    for (let round = 1; ; round++) {
+    for (;;) {
       const result = await update(app, githubWebhookUrlOf(base));
-      if (result.outcome !== "updated" || round === CONVERGE_ROUNDS) {
-        return result;
-      }
+      if (result.outcome !== "updated") return result;
       const now = (await deps.store.read())?.publicUrl ?? null;
       if (now === null || now === base) return result;
       base = now;
@@ -160,6 +157,20 @@ export function createGitHubWebhookSettingsAdmin(deps: {
         ...(changed ? { receipt_id: audit.receiptId } : {}),
         updates,
       };
+    },
+
+    /**
+     * An App made from a manifest carries the address saved when the
+     * manifest was made; one saved while the owner was on GitHub could not
+     * list it yet. Null when nothing is saved.
+     */
+    async follow(
+      app: Omit<GitHubWebhookApp, "workspaceIds">,
+    ): Promise<GitHubWebhookUpdate | null> {
+      const saved = (await deps.store.read())?.publicUrl ?? null;
+      return saved === null
+        ? null
+        : await converge({ ...app, workspaceIds: [] }, saved);
     },
 
     async retry(

@@ -187,7 +187,7 @@ function appWith(
     origin?: string | null;
     enabled?: boolean;
     webhookUrl?: string | (() => string | null);
-    hooks?: Array<{ appId: number; url: string }>;
+    hooks?: Array<{ appId: number; name: string }>;
   } = {},
 ) {
   const origin = options.origin === undefined ? ORIGIN : options.origin;
@@ -220,9 +220,8 @@ function appWith(
             now: () => new Date(clock),
             refused: (check) =>
               logger.warn("GitHub App manifest state refused", { check }),
-            setHook: async (target, url) => {
-              options.hooks?.push({ appId: target.appId, url });
-              return "updated";
+            followHook: async (target) => {
+              options.hooks?.push({ appId: target.appId, name: target.name });
             },
           },
         }),
@@ -331,15 +330,15 @@ describe("making the author GitHub App from a manifest", () => {
     expect(manifest.default_events).toEqual(["push"]);
   });
 
-  test("an address saved while the owner was on GitHub is set on the new App when it completes", async () => {
+  test("a new App with a webhook secret is handed on to follow the saved address", async () => {
     memory.clear();
-    let saved = "https://a.example.test/v1/github/webhook";
-    const hooks: Array<{ appId: number; url: string }> = [];
-    const hooked = appWith(memory, { webhookUrl: () => saved, hooks });
+    const hooks: Array<{ appId: number; name: string }> = [];
+    const hooked = appWith(memory, {
+      webhookUrl: "https://a.example.test/v1/github/webhook",
+      hooks,
+    });
     const owner = cookieFor("owner");
-    const { state, manifest } = await started(hooked, owner);
-    expect(JSON.parse(manifest).hook_attributes.url).toBe(saved);
-    saved = "https://b.example.test/v1/github/webhook";
+    const { state } = await started(hooked, owner);
     convertedHookSecret = "hook-secret-from-github";
     try {
       const done = await hooked("manifest/complete", {
@@ -347,7 +346,9 @@ describe("making the author GitHub App from a manifest", () => {
         body: { code: newCode(), state },
       });
       expect(done.status).toBe(200);
-      expect(hooks).toEqual([{ appId: nextApp - 1, url: saved }]);
+      expect(hooks).toEqual([
+        { appId: nextApp - 1, name: `werft-acme-${nextApp - 1}` },
+      ]);
     } finally {
       convertedHookSecret = null;
     }
