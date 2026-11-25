@@ -15,6 +15,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **대화 rollout이 `on`인 에이전트의 멘션 턴 스레드가 "처리 중"에 남던 두 경우를 고쳤다**(JeongJaeSoon/werft#2239). 첫째는 새 턴을 위해 다시 보낸 "처리 중"을 Slack이 받지 않은 경우, 둘째는 턴이 도는 중에 대화 기록을 지운 경우다. migration `0374_mention_thread_statuses`가 빈 표 `mention_thread_statuses`를 만든다. 따로 할 일은 없다.
+  - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 이 표를 읽지 않으므로 남은 줄을 보내지 않는다. 그 스레드는 다음 멘션 턴이 끝나거나 Slack이 한 시간 뒤 "처리 중"을 스스로 내릴 때 돌아온다. 남은 줄은 다시 올린 이미지가 보낸다.
 - **DB가 잠깐(약 20초 안) 내려가도 진행 중인 세션이 `recovery_required`가 되지 않는다**(JeongJaeSoon/werft#2234). egress 권한 판정이 DB를 읽지 못하면 거절이 아니라 `503`과 `Retry-After`로 답한다. 이 답도 허용은 아니다. 그 동안 egress proxy는 모델 호출을 최대 20초 쥐고 다시 묻고, worker는 transcript batch를 버리지 않고 lease를 내려놓을 때까지 다시 보낸다. 전에는 15초 장애에 turn이 `api_error`로 끝나고 세션이 `CONTEXT_GAP`으로 묶였다. migration은 없고 따로 할 일도 없다.
   - api, egress-proxy, worker 이미지가 모두 이 버전이어야 듣는다. 하나가 앞선 버전이면 그 부분은 전과 같이 동작한다.
   - 장애가 heartbeat 간격(5초)의 끝 무렵에 시작되면 worker가 lease를 먼저 내려놓는다. 그 turn은 `worker_ownership_lost`로 실패하고, 세션은 다음 메시지를 받는다.

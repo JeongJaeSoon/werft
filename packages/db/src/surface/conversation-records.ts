@@ -8,6 +8,7 @@ import { type SQL, sql } from "drizzle-orm";
 import {
   deleteChannelSummary,
   dropBufferedInputs,
+  leaveMentionThreadResets,
   lockSlackChannelMarks,
   lockSlackSourceMark,
 } from "../conversations/index.ts";
@@ -307,6 +308,10 @@ export async function deleteConversationRecords(
             ? await deleteChannelSummary(tx, place)
             : { lines: 0, sourceTs: [] };
           if (!within(summary.sourceTs, seen.touched)) throw new RecordsMoved();
+          // A mention turn under way leaves its thread "processing", and the
+          // rows that would set it back go below: the thread is left to be
+          // set back on its own.
+          await tx.execute(leaveMentionThreadResets(conversation.id));
           // An engagement is written without the conversation's lock: all of
           // the conversation's go, and one not seen before starts again.
           const engagementTs = rowsOf<{ ts: string }>(
