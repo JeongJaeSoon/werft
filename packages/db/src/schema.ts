@@ -91,8 +91,8 @@ import {
   JUDGMENT_RULE_REASON_VALUES,
   JUDGMENT_VOIDED_REASON_VALUES,
   type JudgmentGrade,
-  type JudgmentOutcome,
-  type JudgmentReason,
+  type JudgmentRecordOutcome,
+  type JudgmentRecordReason,
   type JudgmentRuleDecision,
   type JudgmentRuleReason,
   KILL_RECEIPT_OPERATIONS,
@@ -6284,9 +6284,9 @@ export const conversationJudgments = pgTable(
     /** Calls issued for it, each reserved and settled on its own. */
     attempts: integer().notNull().default(0),
     promptVersion: integer("prompt_version").notNull(),
-    outcome: text().$type<JudgmentOutcome>(),
+    outcome: text().$type<JudgmentRecordOutcome>(),
     decision: text().$type<M1Decision>(),
-    reason: text().$type<JudgmentReason>(),
+    reason: text().$type<JudgmentRecordReason>(),
     ruleDecision: text("rule_decision").$type<JudgmentRuleDecision>(),
     ruleReason: text("rule_reason").$type<JudgmentRuleReason>(),
     // A reply's judge took it; one taken too long ago is given up.

@@ -353,11 +353,11 @@ export const JUDGMENT_VOIDED_REASON_VALUES = [
 export type JudgmentVoidedReason =
   (typeof JUDGMENT_VOIDED_REASON_VALUES)[number];
 
+/** A judgment's result: what a record with a decision has. */
 export const JUDGMENT_OUTCOME_VALUES = [
   "judged",
   "not_called",
   "failed",
-  "voided",
 ] as const;
 export type JudgmentOutcome = (typeof JUDGMENT_OUTCOME_VALUES)[number];
 
@@ -365,9 +365,12 @@ export const JUDGMENT_REASON_VALUES = [
   ...M1_MODEL_REASON_VALUES,
   ...JUDGMENT_NOT_CALLED_REASON_VALUES,
   ...JUDGMENT_FAILED_REASON_VALUES,
-  ...JUDGMENT_VOIDED_REASON_VALUES,
 ] as const;
 export type JudgmentReason = (typeof JUDGMENT_REASON_VALUES)[number];
+
+/** What a record's columns hold: a result, or one voided with no decision. */
+export type JudgmentRecordOutcome = JudgmentOutcome | "voided";
+export type JudgmentRecordReason = JudgmentReason | JudgmentVoidedReason;
 
 /** A judgment's result as its record keeps it; only `judged` can speak. */
 export type JudgmentVerdict =
