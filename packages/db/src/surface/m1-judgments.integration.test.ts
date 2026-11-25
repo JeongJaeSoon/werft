@@ -427,7 +427,7 @@ integration("M1 judgment records", () => {
       // After: the judged posts' rows are gone, the line and its sources stay.
       const { rows } = await pool.query(
         "SELECT id FROM conversation_inputs WHERE id = ANY($1::uuid[])",
-        [judged],
+        [judged.map((post) => post.inputId)],
       );
       expect(rows).toEqual([]);
       const [row] = await rowsOf(place.channelId);
