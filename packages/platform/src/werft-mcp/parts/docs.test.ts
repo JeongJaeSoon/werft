@@ -370,6 +370,8 @@ describe("the docs as resources", () => {
       "werft://docs/ko#x",
       "werft://docs/ko/integrations/github#nope",
       "werft://docs/ko/integrations/github#%E0%A4%A",
+      // The URI is echoed back: a second fragment would make it any size.
+      `werft://docs/ko/integrations/github#old-urls#${"x".repeat(70_000)}`,
     ]) {
       expect((await ask(FILES, "resources/read", { uri })).error?.code).toBe(
         -32002,
@@ -463,6 +465,15 @@ describe("the documentation of this checkout", () => {
     expect(index.search("qqqzzzunknown", 1)).toEqual([]);
   });
 
+  test("a term only a section heading has finds that section", () => {
+    const fixture = docsIndex(docsPages(FILES, "ko"));
+    expect(fixture.search("주소", 1)[0]?.chunk.section.anchor).toBe("old-urls");
+    const index = docsIndex(docsPages(files, "en"));
+    expect(index.search("RECOVERYREQUIRED", 1)[0]?.chunk.page.slug).toBe(
+      "reference/api-guide",
+    );
+  });
+
   test("no answer over the real docs is larger than ANSWER_BYTES", async () => {
     const handle = createWerftMcpServer({
       parts: [docsPart({ version: "v0.6.0" }, files)],
@@ -499,6 +510,7 @@ describe("the documentation of this checkout", () => {
         }
       }
       for (const query of [
+        "予約",
         "GitHub 接続 設定 エージェント セッション 承認",
         "설정 연결 에이전트 세션 승인 워크스페이스",
         "configuration agent session approval workspace",

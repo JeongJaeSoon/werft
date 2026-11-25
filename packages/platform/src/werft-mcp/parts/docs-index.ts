@@ -396,7 +396,8 @@ export function docsIndex(pages: readonly DocsPage[]): DocsIndex {
       const total = terms.reduce(
         (sum, term, t) =>
           (documents.get(term) ?? 0) > 0 ||
-          titleIdf(term) < idfIn(titles.size, 0)
+          titleIdf(term) < idfIn(titles.size, 0) ||
+          headingIdf(term) < idfIn(headings.size, 0)
             ? sum + (weights[t] as number)
             : sum,
         0,

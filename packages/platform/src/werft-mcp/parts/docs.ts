@@ -157,9 +157,11 @@ export function docsPart(
       ],
       async read(uri) {
         if (!uri.startsWith(`${RESOURCE_ROOT}/`)) return null;
-        const [path = "", fragment] = uri
+        const [path = "", fragment, ...extra] = uri
           .slice(RESOURCE_ROOT.length + 1)
-          .split("#", 2);
+          .split("#");
+        // The URI is echoed back, so only one a page or section has passes.
+        if (extra.length > 0) return null;
         const [language, ...rest] = path.split("/");
         if (!(DOCS_LANGUAGES as readonly string[]).includes(language ?? "")) {
           return null;
@@ -262,7 +264,7 @@ export function docsPart(
           language ??
           DOCS_SOURCE_LANGUAGE;
         const hits = indexOf(lang).search(query, limit ?? 5);
-        const results = hits.map(({ chunk }) => {
+        const found = hits.map(({ chunk }) => {
           const source = sourceUrl(chunk.page, version);
           return {
             title: chunk.page.title,
@@ -277,24 +279,43 @@ export function docsPart(
             translated: chunk.page.translated,
           };
         });
-        const text =
-          results.length === 0
-            ? `No page of the Werft ${context.version} documentation (${lang}) matches "${query}". Try other keywords, or read the contents at ${tocUri(lang)}.`
-            : [
-                `Werft ${context.version} documentation (${lang}), ${results.length} result(s) for "${query}":`,
-                ...results.map(
-                  (result, i) =>
-                    `${i + 1}. ${result.title}${result.section === null ? "" : ` > ${result.section}`}\n   ${result.url}\n   ${result.excerpt}`,
-                ),
-              ].join("\n");
-        return {
-          content: [{ type: "text", text }],
-          structuredContent: {
-            version: context.version,
-            language: lang,
-            results,
-          },
+        const answer = (results: typeof found) => {
+          const text =
+            results.length === 0
+              ? `No page of the Werft ${context.version} documentation (${lang}) matches "${query}". Try other keywords, or read the contents at ${tocUri(lang)}.`
+              : [
+                  `Werft ${context.version} documentation (${lang}), ${results.length} result(s) for "${query}":`,
+                  ...results.map(
+                    (result, i) =>
+                      `${i + 1}. ${result.title}${result.section === null ? "" : ` > ${result.section}`}\n   ${result.url}\n   ${result.excerpt}`,
+                  ),
+                  ...(results.length < found.length
+                    ? [
+                        `${found.length - results.length} more left out to fit one answer; search with other keywords to see them.`,
+                      ]
+                    : []),
+                ].join("\n");
+          return {
+            content: [{ type: "text" as const, text }],
+            structuredContent: {
+              version: context.version,
+              language: lang,
+              results,
+            },
+          };
         };
+        // The text and the structured copy both travel, so both count.
+        const sizeOf = (a: ReturnType<typeof answer>) =>
+          byteLength(a.content[0]?.text ?? "") +
+          byteLength(JSON.stringify(a.structuredContent));
+        let kept = found.length;
+        while (
+          kept > 1 &&
+          sizeOf(answer(found.slice(0, kept))) > ANSWER_BYTES
+        ) {
+          kept -= 1;
+        }
+        return answer(found.slice(0, kept));
       },
     });
   }
