@@ -300,6 +300,16 @@ export function registerEventRoutes(
         active_streams: active,
       });
       try {
+        // A browser's fetch resolves on the first body byte, not on the
+        // headers: a stream resumed with nothing to replay would read as
+        // still connecting until the first keepalive.
+        if (
+          firstPage.items.length === 0 &&
+          !(await writeBounded(() => stream.write(": connected\n\n")))
+        ) {
+          closeWith("write_stalled");
+          stream.abort();
+        }
         let page = firstPage;
         while (!closed.signal.aborted) {
           let interrupted = false;

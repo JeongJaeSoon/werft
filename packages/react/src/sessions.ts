@@ -37,7 +37,7 @@ import {
   sessionUsageQuery,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWerft } from "./provider.tsx";
 
 /*
@@ -317,32 +317,72 @@ export function eventToolCallId(
   return eventToolResult(payload.data)?.tool_call_id;
 }
 
+/** Where a stream picked up again by hand resumes, per session. */
+interface Resume {
+  readonly id: string;
+  readonly generation: number;
+  last: string | undefined;
+  readonly callNames: Map<string, string>;
+  /** Recent ids shown: a reconnect by hand starts a subscription that has not seen them. */
+  readonly shown: Set<string>;
+}
+
 /**
  * The session's event stream, replayed from the start. The client resumes
  * with Last-Event-ID after a dropped connection and delivers each event once;
- * a refusal (the share taken back, the login gone) closes it for good and the
- * screen says so. An event that changes the session's state refreshes the
- * queries it makes stale.
+ * `failedAttempts` counts the reconnects in a row that did not open. A
+ * refusal (the share taken back, the login gone, a decision that kept
+ * failing) closes it, and `reconnect` opens it again after the last event
+ * shown. An event that changes the session's state refreshes the queries it
+ * makes stale.
  */
 export function useSessionEvents(id: string, enabled: boolean) {
   const { client, onUnauthorized, eventRetry } = useWerft();
   const queryClient = useQueryClient();
   const [events, setEvents] = useState<readonly SessionEventFrame[]>([]);
   const [state, setState] = useState<EventStreamState>("connecting");
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [generation, setGeneration] = useState(0);
+  const resume = useRef<Resume | undefined>(undefined);
+  const reconnect = useCallback(() => setGeneration((n) => n + 1), []);
 
   useEffect(() => {
     if (!enabled) return;
-    setEvents([]);
+    const previous = resume.current;
+    // Only a reconnect asked for by hand keeps what is shown; anything else
+    // (another session, another client) replays from the start.
+    const byHand =
+      previous !== undefined &&
+      previous.id === id &&
+      previous.generation !== generation;
+    const here: Resume = byHand
+      ? { ...previous, generation }
+      : {
+          id,
+          generation,
+          last: undefined,
+          callNames: new Map(),
+          shown: new Set(),
+        };
+    resume.current = here;
+    if (!byHand) setEvents([]);
     setState("connecting");
+    setFailedAttempts(0);
     const stop = new AbortController();
-    const callNames = new Map<string, string>();
+    const { callNames, shown } = here;
     // The replay on connect and a busy turn deliver events in bursts, every
     // frame of a read in one go; a burst refetches each stale query once.
     const stale = new Set<SessionPart>();
     let flush: ReturnType<typeof setTimeout> | undefined;
     void subscribeSessionEvents(client, id, {
       signal: stop.signal,
+      ...(here.last === undefined ? {} : { lastEventId: here.last }),
       onEvent: (frame) => {
+        if (shown.has(frame.id)) return;
+        shown.add(frame.id);
+        if (shown.size > EVENT_WINDOW)
+          shown.delete(shown.values().next().value as string);
+        here.last = frame.id;
         const { payload } = frame;
         for (const part of EVENT_STALES[payload.event] ?? []) stale.add(part);
         if (
@@ -376,7 +416,12 @@ export function useSessionEvents(id: string, enabled: boolean) {
       },
       // The old subscription closes after the next one started.
       onState: (next) => {
-        if (!stop.signal.aborted) setState(next);
+        if (stop.signal.aborted) return;
+        setState(next);
+        if (next === "open") setFailedAttempts(0);
+      },
+      onRetry: (failed) => {
+        if (!stop.signal.aborted) setFailedAttempts(failed);
       },
       onError: (error) => {
         if (isApiError(error, "UNAUTHORIZED")) onUnauthorized?.();
@@ -387,7 +432,15 @@ export function useSessionEvents(id: string, enabled: boolean) {
       stop.abort();
       clearTimeout(flush);
     };
-  }, [client, queryClient, onUnauthorized, eventRetry, id, enabled]);
+  }, [
+    client,
+    queryClient,
+    onUnauthorized,
+    eventRetry,
+    id,
+    enabled,
+    generation,
+  ]);
 
-  return { events, state };
+  return { events, state, failedAttempts, reconnect };
 }

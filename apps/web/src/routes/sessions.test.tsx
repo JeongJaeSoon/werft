@@ -111,6 +111,27 @@ class FakeEventStream {
     this.refusal = () => apiError(404, "NOT_FOUND", "Resource not found");
     this.drop();
   }
+  /**
+   * Every connection from now on meets a policy that cannot decide, as while
+   * storage is unreachable, until recover().
+   */
+  undecided() {
+    this.refusal = () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "FORBIDDEN",
+            message: "This principal does not hold session.read",
+            details: { reason_code: "error" },
+          },
+        }),
+        { status: 403, headers: { "content-type": "application/json" } },
+      );
+    this.drop();
+  }
+  recover() {
+    this.refusal = null;
+  }
   /** Whether the screen has let go of the newest connection. */
   get closed() {
     return this.requests.at(-1)?.signal.aborted ?? false;
@@ -1798,13 +1819,12 @@ describe("session detail", () => {
 
     // A dropped connection resumes after the last event drawn, and what
     // arrives after it is drawn too.
+    // A single drop says nothing: the stream is back before it would matter.
     act(() => stream.drop());
-    expect(await screen.findByText("이벤트에 연결하는 중…")).toBeTruthy();
+    await waitFor(() => expect(stream.requests).toHaveLength(2));
     expect(stream.requests.at(-1)?.headers.get("last-event-id")).toBe("ev_4");
+    expect(screen.queryByText("이벤트에 연결하는 중…")).toBeNull();
     await act(async () => stream.open());
-    await waitFor(() =>
-      expect(screen.queryByText("이벤트에 연결하는 중…")).toBeNull(),
-    );
     act(() =>
       stream.emit("ev_6", "assistant", {
         type: "assistant",
@@ -1813,12 +1833,48 @@ describe("session detail", () => {
     );
     expect(await screen.findByText("Back again")).toBeTruthy();
 
-    act(() => stream.fail());
+    // Attempts that keep failing are announced from the third on, and the
+    // notice goes once the stream opens again.
+    act(() => stream.undecided());
     expect(
-      await screen.findByText(
-        "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
-      ),
+      await screen.findByText("이벤트 연결이 끊겼습니다. 다시 연결하는 중…"),
     ).toBeTruthy();
+    expect(stream.requests.length).toBeGreaterThanOrEqual(6);
+    const before = stream.requests.length;
+    act(() => stream.recover());
+    await waitFor(() => expect(stream.requests.length).toBeGreaterThan(before));
+    await act(async () => stream.open());
+    await waitFor(() =>
+      expect(
+        screen.queryByText("이벤트 연결이 끊겼습니다. 다시 연결하는 중…"),
+      ).toBeNull(),
+    );
+    expect(stream.requests.at(-1)?.headers.get("last-event-id")).toBe("ev_6");
+
+    // A refusal ends it; reconnecting by hand resumes after the last event
+    // shown and keeps what is on screen.
+    act(() => stream.fail());
+    expect(await screen.findByText("이벤트 연결이 끊겼습니다.")).toBeTruthy();
+    act(() => stream.recover());
+    const ended = stream.requests.length;
+    act(() => screen.getByRole("button", { name: "다시 연결" }).click());
+    await waitFor(() => expect(stream.requests.length).toBe(ended + 1));
+    expect(stream.requests.at(-1)?.headers.get("last-event-id")).toBe("ev_6");
+    await act(async () => stream.open());
+    act(() => {
+      stream.emit("ev_6", "assistant", {
+        type: "assistant",
+        text: "Back again",
+      });
+      stream.emit("ev_7", "assistant", {
+        type: "assistant",
+        text: "Once more",
+      });
+    });
+    expect(await screen.findByText("Once more")).toBeTruthy();
+    expect(screen.getAllByText("Back again")).toHaveLength(1);
+    expect(screen.queryByText("이벤트 연결이 끊겼습니다.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "다시 연결" })).toBeNull();
   });
 
   test("a tool call runs until its result arrives, then holds it in the same row", async () => {
@@ -2032,11 +2088,8 @@ describe("session detail", () => {
     expect(next.closed).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.getByText("이벤트에 연결하는 중…")).toBeTruthy();
-    expect(
-      screen.queryByText(
-        "이벤트 연결이 끊겼습니다. 새로고침하면 다시 연결합니다.",
-      ),
-    ).toBeNull();
+    expect(screen.queryByText("이벤트 연결이 끊겼습니다.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "다시 연결" })).toBeNull();
   });
 
   test("a share taken back while open drops the detail and the stream", async () => {
