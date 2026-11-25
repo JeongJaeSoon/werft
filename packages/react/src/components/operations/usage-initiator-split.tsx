@@ -61,7 +61,7 @@ export function UsageInitiatorSplit({
       <GridTableCell className={cn(nested && "ps-4 text-subtle-foreground")}>
         {label}
       </GridTableCell>
-      <GridTableCell>
+      <GridTableCell hideNarrow>
         {loading ? (
           <Box height="0.25rem" />
         ) : (
@@ -89,7 +89,9 @@ export function UsageInitiatorSplit({
       <Card flush>
         <GridTable
           aria-label={messages.title}
-          columns="minmax(0,1fr) minmax(48px,120px) 96px 48px"
+          columns="minmax(0,1fr) minmax(48px,120px) max-content max-content"
+          narrowAt={480}
+          narrowColumns="minmax(0,1fr) max-content max-content"
           align={["start", "start", "end", "end"]}
         >
           {parts.flatMap(([key, label, usd]) => [
