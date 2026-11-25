@@ -42,6 +42,7 @@ const app = createApiApp({
       tracing: new RequestTracing(),
       conversationRuntime: {
         turns,
+        readTools: { call: () => unreachable("conversation read tools") },
         isRuntimeBearer: conversationRuntimeBearer([RUNTIME_BEARER]),
       },
     }),

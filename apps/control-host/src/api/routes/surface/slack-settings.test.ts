@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
+  retrySlackEventsUpdatesResponseSchema,
+  type SlackEventsUpdate,
   type SlackSettings,
   slackSettingsSchema,
   updateSlackSettingsResponseSchema,
@@ -16,6 +18,14 @@ const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const PATH = "/v1/slack-settings";
 const RECEIPT = "019a0000-0000-7000-8000-0000000000e1";
 
+const FAILED: SlackEventsUpdate = {
+  slack_app_id: "019a0000-0000-7000-8000-0000000000b1",
+  agent_id: "019a0000-0000-7000-8000-0000000000c1",
+  name: "Release notes",
+  outcome: "failed",
+  reason_code: "config_token_inactive",
+};
+
 const SETTINGS: SlackSettings = {
   events_public_url: "https://events.example.test/in",
   computed_events_base: "https://werft.example.test",
@@ -25,14 +35,14 @@ const SETTINGS: SlackSettings = {
 
 function request(
   admin: Partial<SlackSettingsAdmin>,
-  method: "GET" | "PUT",
+  method: "GET" | "PUT" | "POST",
   body?: unknown,
 ) {
   return createApiApp({
     authMode: "none",
     registerRoutes: (router) =>
       registerSlackSettingsRoutes(router, admin as SlackSettingsAdmin),
-  }).request(PATH, {
+  }).request(method === "POST" ? `${PATH}/retry` : PATH, {
     method,
     headers: { "X-Owner-Id": WORKSPACE, "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -72,7 +82,7 @@ describe("Slack settings routes", () => {
         {
           change: async (_caller, change) => {
             asked.push(change);
-            return { ...SETTINGS, receipt_id: RECEIPT };
+            return { ...SETTINGS, receipt_id: RECEIPT, updates: [FAILED] };
           },
         },
         "PUT",
@@ -81,7 +91,7 @@ describe("Slack settings routes", () => {
       expect(response.status).toBe(200);
       expect(
         updateSlackSettingsResponseSchema.parse(await response.json()),
-      ).toEqual({ ...SETTINGS, receipt_id: RECEIPT });
+      ).toEqual({ ...SETTINGS, receipt_id: RECEIPT, updates: [FAILED] });
       expect(asked).toEqual([body]);
     }
   });
@@ -98,7 +108,7 @@ describe("Slack settings routes", () => {
         {
           change: async () => {
             called = true;
-            return SETTINGS;
+            return { ...SETTINGS, updates: [] };
           },
         },
         "PUT",
@@ -122,15 +132,62 @@ describe("Slack settings routes", () => {
     expect(error.details).toMatchObject({ reason_code: "events_url_invalid" });
   });
 
+  test("POST retry hands the service the app ids and answers per app", async () => {
+    const asked: unknown[] = [];
+    const response = await request(
+      {
+        retry: async (_caller, body) => {
+          asked.push(body);
+          return { updates: [FAILED] };
+        },
+      },
+      "POST",
+      { slack_app_ids: [FAILED.slack_app_id] },
+    );
+    expect(response.status).toBe(200);
+    expect(
+      retrySlackEventsUpdatesResponseSchema.parse(await response.json()),
+    ).toEqual({ updates: [FAILED] });
+    expect(asked).toEqual([{ slack_app_ids: [FAILED.slack_app_id] }]);
+  });
+
+  for (const invalid of [
+    {},
+    { slack_app_ids: [] },
+    { slack_app_ids: ["not-a-uuid"] },
+    { slack_app_ids: Array(101).fill(FAILED.slack_app_id) },
+  ]) {
+    test(`POST retry refuses ${JSON.stringify(invalid).slice(0, 60)} before the service`, async () => {
+      let called = false;
+      const response = await request(
+        {
+          retry: async () => {
+            called = true;
+            return { updates: [] };
+          },
+        },
+        "POST",
+        invalid,
+      );
+      expect(response.status).toBe(400);
+      expect(called).toBe(false);
+    });
+  }
+
   for (const [method, service] of [
     ["GET", "read"],
     ["PUT", "change"],
+    ["POST", "retry"],
   ] as const) {
     test(`${method} answers 403 when the service refuses the caller`, async () => {
       const response = await request(
         { [service]: refusing("FORBIDDEN", { reason_code: "role" }) },
         method,
-        method === "PUT" ? { events_public_url: null } : undefined,
+        method === "PUT"
+          ? { events_public_url: null }
+          : method === "POST"
+            ? { slack_app_ids: [FAILED.slack_app_id] }
+            : undefined,
       );
       expect(response.status).toBe(403);
       const { error } = apiErrorResponseSchema.parse(await response.json());

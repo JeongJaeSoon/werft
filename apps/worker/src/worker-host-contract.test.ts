@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type PermissionGrant,
   REPOSITORY_PINS_MAX,
   type RuntimeConfig,
   type SessionEvent,
@@ -99,7 +100,12 @@ function host(
 }
 
 /** A tool call in the run's own words: no Claude message shape anywhere. */
-function call(run: ScriptedRun, sent: AgentInput, id: string): void {
+function call(
+  run: ScriptedRun,
+  sent: AgentInput,
+  id: string,
+  rememberOffer?: { toolName: string; ruleContent?: string }[],
+): void {
   const input = { command: `run ${id}` };
   run.push(
     publicEvent(
@@ -119,10 +125,13 @@ function call(run: ScriptedRun, sent: AgentInput, id: string): void {
         askedAt: performance.now(),
         kind: "permission",
         display: input,
+        ...(rememberOffer === undefined ? {} : { rememberOffer }),
       },
     },
   );
 }
+
+const RUN_RULE = [{ toolName: "shell", ruleContent: "run:*" }];
 
 describe("WorkerHost over a run that implements the contract itself", () => {
   test("puts a request the run calls a question to the person as one, whatever its tool is named", async () => {
@@ -962,7 +971,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     ]);
   });
 
-  test("a grant the person also allowed for the session hands the run the rules to keep, and an older grant none", async () => {
+  test("a grant the person also allowed for the session hands the run only this call, and an older grant no more", async () => {
     const run = new ScriptedRun();
     run.onSend = (sent) => {
       call(run, sent, "c1");
@@ -990,16 +999,165 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     await worker.runLoop();
 
     const [first, second] = run.answers;
-    expect(first).toMatchObject({
-      kind: "selected",
-      optionKind: "allow_once",
-      remember: {
-        scope: "session",
-        rules: [{ toolName: "shell", ruleContent: "run:*" }],
-      },
-    });
+    expect(first).toMatchObject({ kind: "selected", optionKind: "allow_once" });
+    expect(first).not.toHaveProperty("remember");
     expect(second).toMatchObject({ kind: "selected" });
     expect(second).not.toHaveProperty("remember");
+  });
+
+  describe("a session allow, held by the host and judged before each call it covers", () => {
+    const parked = (): PermissionGrant => ({
+      request_id: "req_parked_c1",
+      turn_id: "1",
+      tool: "shell",
+      input_hash: approvalInputHash("shell", { command: "run c1" }),
+      remember_offer: [{ tool_name: "shell", rule_content: "run:*" }],
+    });
+
+    test("a later call offering the same rule is allowed without a card while its giver still may", async () => {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => {
+        call(run, sent, "c1");
+        setTimeout(() => call(run, sent, "c2", RUN_RULE), 5);
+        setTimeout(() => finish(run, sent), 40);
+      };
+      const { gateway, worker } = host(run);
+      gateway.grants = [parked()];
+      gateway.enqueue("hello");
+
+      await worker.runLoop();
+
+      expect(gateway.sessionAllowChecks).toMatchObject([
+        {
+          turn_id: "1",
+          grant_request_id: "req_parked_c1",
+          tool_call_id: "c2",
+          input_hash: approvalInputHash("shell", { command: "run c2" }),
+        },
+      ]);
+      expect(gateway.registrations).toEqual([]);
+      expect(run.answers[1]).toEqual({
+        kind: "selected",
+        optionKind: "allow_once",
+        localId: "local-c2",
+        inputHash: approvalInputHash("shell", { command: "run c2" }),
+      });
+    });
+
+    test.each(["stale", "unknown"] as const)(
+      "a resumed allow the run calls %s covers no later call",
+      async (result) => {
+        const run = new ScriptedRun();
+        run.answerResult = result;
+        run.onSend = (sent) => {
+          call(run, sent, "c1");
+          setTimeout(() => call(run, sent, "c2", RUN_RULE), 5);
+          setTimeout(() => finish(run, sent), 40);
+        };
+        const { gateway, worker } = host(run);
+        gateway.grants = [parked()];
+        gateway.enqueue("hello");
+
+        await worker.runLoop();
+
+        expect(gateway.sessionAllowChecks).toEqual([]);
+        expect(gateway.registrations).toHaveLength(1);
+      },
+    );
+
+    test("once its giver no longer may, the call is put to a person and the allow is dropped", async () => {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => {
+        call(run, sent, "c1");
+        setTimeout(() => call(run, sent, "c2", RUN_RULE), 5);
+        setTimeout(() => call(run, sent, "c3", RUN_RULE), 20);
+        setTimeout(() => finish(run, sent), 40);
+      };
+      const { gateway, worker } = host(run);
+      gateway.grants = [parked()];
+      gateway.sessionAllowed = () => false;
+      gateway.enqueue("hello");
+
+      await worker.runLoop();
+
+      expect(gateway.sessionAllowChecks).toHaveLength(1);
+      expect(gateway.registrations.map((entry) => entry.request.kind)).toEqual([
+        "permission",
+        "permission",
+      ]);
+    });
+
+    test("a call the run settles itself while its allow is checked is neither allowed nor put to a person", async () => {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => {
+        call(run, sent, "c1");
+        setTimeout(() => call(run, sent, "c2", RUN_RULE), 5);
+        setTimeout(
+          () =>
+            run.push({
+              type: "approval.resolved",
+              localId: "local-c2",
+              outcome: "withdrawn",
+            }),
+          15,
+        );
+        setTimeout(() => finish(run, sent), 80);
+      };
+      const { gateway, worker } = host(run);
+      gateway.grants = [parked()];
+      gateway.sessionAllowed = () => false;
+      gateway.sessionAllowDelayMs = 40;
+      gateway.enqueue("hello");
+
+      await worker.runLoop();
+
+      expect(gateway.sessionAllowChecks).toHaveLength(1);
+      expect(gateway.registrations).toEqual([]);
+      expect(run.answers).toHaveLength(1);
+    });
+
+    test("an allow that comes back after its turn ended is not given to the run", async () => {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => {
+        call(run, sent, "c1");
+        setTimeout(() => call(run, sent, "c2", RUN_RULE), 5);
+        setTimeout(() => finish(run, sent), 15);
+      };
+      const { gateway, worker } = host(run);
+      gateway.grants = [parked()];
+      gateway.sessionAllowDelayMs = 40;
+      gateway.enqueue("hello");
+
+      await worker.runLoop();
+      await Bun.sleep(60);
+
+      expect(gateway.sessionAllowChecks).toHaveLength(1);
+      expect(gateway.registrations).toEqual([]);
+      expect(run.answers.at(-1)).toMatchObject({
+        kind: "cancelled",
+        message: "The turn ended before the call was allowed",
+      });
+    });
+
+    test("a call offering another rule, or none, is put to a person without asking", async () => {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => {
+        call(run, sent, "c1");
+        setTimeout(() => {
+          call(run, sent, "c2", [{ toolName: "shell", ruleContent: "rm:*" }]);
+          call(run, sent, "c3");
+        }, 5);
+        setTimeout(() => finish(run, sent), 40);
+      };
+      const { gateway, worker } = host(run);
+      gateway.grants = [parked()];
+      gateway.enqueue("hello");
+
+      await worker.runLoop();
+
+      expect(gateway.sessionAllowChecks).toEqual([]);
+      expect(gateway.registrations).toHaveLength(2);
+    });
   });
 
   test("still takes the lease when the run takes checkpoints", async () => {

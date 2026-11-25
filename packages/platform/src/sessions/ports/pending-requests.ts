@@ -1,4 +1,5 @@
 import type {
+  AuthorizationSubject,
   DeciderKey,
   ParkDeclinedRequest,
   ParkedDelivery,
@@ -32,6 +33,11 @@ export type AnswerRequestInput = {
    * the store then takes a member who sees the session behind the door.
    */
   requesterLeft?: true;
+  /**
+   * Who allowed the request for the session, kept with the answer: each
+   * later call the allow covers judges this subject again.
+   */
+  sessionAllowSubject?: AuthorizationSubject;
 };
 
 export type AnswerRequestResult =
@@ -262,6 +268,20 @@ export type InvalidateApprovalCheckpointResult =
   | { outcome: "ok"; invalidated: boolean }
   | FenceRejection;
 
+export type SessionAllowInput = {
+  fence: WorkerFence;
+  grantRequestId: string;
+};
+
+// `grant` is null when the request is not a session allow of this session
+// with its giver on record.
+export type SessionAllowResult =
+  | {
+      outcome: "ok";
+      grant: { ownerScope: string; subject: unknown } | null;
+    }
+  | FenceRejection;
+
 export type PendingControlResult =
   | {
       outcome: "ok";
@@ -281,6 +301,8 @@ export interface WorkerPendingStore {
   invalidateApprovalCheckpointAtomic(
     input: InvalidateApprovalCheckpointInput,
   ): Promise<InvalidateApprovalCheckpointResult>;
+  /** The giver of a session allow, read under this attempt's fence. */
+  sessionAllowAtomic(input: SessionAllowInput): Promise<SessionAllowResult>;
   // A hint for heartbeat: an answer or a control intent is waiting for this
   // attempt to take it.
   hasUndelivered(fence: WorkerFence): Promise<boolean>;

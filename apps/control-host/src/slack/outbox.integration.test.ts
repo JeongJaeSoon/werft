@@ -16,6 +16,7 @@ import {
   drainSlackOutbox,
   reconcileSlackThreadStatuses,
   SLACK_CARD_SETTLE_TIMING,
+  SLACK_OUTBOX_MAX_ATTEMPTS,
   SLACK_OUTBOX_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
   SLACK_THREAD_STATUS_TIMING,
@@ -28,6 +29,7 @@ import {
 } from "@werft-ai/chat-slack";
 import {
   agentCardRequestSchema,
+  BOT_SCOPES,
   type ConversationId,
   type ConversationInputId,
   type ConversationTopicId,
@@ -82,6 +84,7 @@ import {
   createAuthorizationPolicy,
   type PushSource,
   SecretKey,
+  SURFACE_PROGRESS_EDIT_INTERVAL_MS,
 } from "@werft-ai/platform";
 import {
   slackEventEnvelope,
@@ -272,6 +275,7 @@ async function agentInSlack() {
   await createPostgresSlackAppStore(db, key).storeBotToken({
     workspaceId,
     slackAppId,
+    scopes: [...BOT_SCOPES],
     botToken: BOT_CREDENTIAL,
   });
   await registerSlackInstallation(db, {
@@ -4928,7 +4932,7 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     expect(await cardRow()).toMatchObject({ settleState: "due" });
   });
 
-  test("a tool permission card whose requester left says so and loses its session button; a member change in its channel redraws it (94S-2175)", async () => {
+  test("a tool permission card whose requester left says so and keeps its session button; a member change in its channel redraws it (94S-2175)", async () => {
     const { sessionId, card } = await cardThread({
       kind: "permission",
       tool: "Bash",
@@ -4956,13 +4960,14 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     ]);
     const drawn = JSON.stringify(updated().at(-1)?.blocks ?? []);
     expect(drawn).toContain(":information_source: 요청자가 채널을 나갔어요");
-    expect(drawn).not.toContain("이 세션 동안 허용");
+    // A member's session allow is bound to that member, as anyone's.
+    expect(drawn).toContain("이 세션 동안 허용");
     expect(await cardRow()).toMatchObject({
       settleRendered: "open_requester_left",
       settleState: null,
     });
 
-    // Back in: the card as posted, session button and all.
+    // Back in: the card as posted.
     left = false;
     expect(await cards().markChoiceCardsDueIn(here)).toBe(1);
     await settler({ requesterLeft });
@@ -5909,5 +5914,431 @@ describe.each(ENGINES)("closing a closed session's link on %s", (engine) => {
     await outboxPass({ closeLinks: true });
     expect(await rows()).toEqual(before);
     expect(posted()).toEqual([]);
+  });
+});
+
+describe.each(ENGINES)("a progress message on %s", (engine) => {
+  useDatabase(engine);
+
+  const KEY = "progress-1";
+
+  // Update `n` of the progress message in the mention's thread.
+  async function progress(n: number, value: string) {
+    const [link] = await db.select().from(sessionLinks);
+    const [app] = await db.select({ id: slackApps.id }).from(slackApps);
+    if (!link?.sessionId || !app) throw new Error("no link");
+    return createPostgresSlackOutboxStore(db).enqueue({
+      workspaceId: link.workspaceId,
+      agentId: link.agentId,
+      slackAppId: app.id,
+      installationId: link.installationId,
+      kind: "progress",
+      channelId: link.channelId,
+      threadTs: link.threadId,
+      slackUserId: null,
+      sessionId: link.sessionId,
+      sessionLinkId: link.id,
+      body: { text: value },
+      dedupeKey: `progress:${KEY}:${n}`,
+      progressKey: KEY,
+    });
+  }
+
+  // As if the interval since the last send, or a Retry-After, ran out.
+  const intervalOver = () =>
+    db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: sql`now()` })
+      .where(eq(slackOutbox.kind, "progress"));
+
+  const progressRows = () =>
+    db
+      .select({
+        status: slackOutbox.status,
+        errorCode: slackOutbox.errorCode,
+        slackTs: slackOutbox.slackTs,
+        progressTs: slackOutbox.progressTs,
+        text: sql<string>`${slackOutbox.body}->>'text'`,
+      })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "progress"))
+      .orderBy(asc(slackOutbox.seq));
+
+  const waitMsOf = async (n: number) => {
+    const [row] = await db
+      .select({
+        waitMs: sql<number>`extract(epoch from ${slackOutbox.nextAttemptAt} - now()) * 1000`,
+      })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.dedupeKey, `progress:${KEY}:${n}`));
+    return Number(row?.waitMs);
+  };
+
+  beforeEach(() => {
+    slack.updates.length = 0;
+  });
+
+  test("five updates inside the interval: one post, then one edit with the last", async () => {
+    await mention(await agentInSlack(), THREAD);
+    expect(await progress(1, "step 1")).toBe("enqueued");
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    for (const n of [2, 3, 4, 5]) {
+      expect(await progress(n, `step ${n}`)).toBe("enqueued");
+      expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    }
+    expect(await waitMsOf(1)).toBeGreaterThan(
+      SURFACE_PROGRESS_EDIT_INTERVAL_MS - 5_000,
+    );
+    expect(await waitMsOf(1)).toBeLessThanOrEqual(
+      SURFACE_PROGRESS_EDIT_INTERVAL_MS,
+    );
+
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    const [post, ...more] = posted();
+    if (!post) throw new Error("no post");
+    expect(more).toEqual([]);
+    expect(post).toMatchObject({ threadTs: THREAD, text: "step 1" });
+    expect(slack.updates).toEqual([
+      { channelId: CHANNEL, ts: post.ts, text: "step 5", blocks: undefined },
+    ]);
+    const superseded = (n: number) => ({
+      status: "failed" as const,
+      errorCode: "superseded",
+      slackTs: null,
+      progressTs: null,
+      text: `step ${n}`,
+    });
+    expect(await progressRows()).toEqual([
+      {
+        status: "sent",
+        errorCode: null,
+        slackTs: post.ts,
+        progressTs: null,
+        text: "step 1",
+      },
+      superseded(2),
+      superseded(3),
+      superseded(4),
+      {
+        status: "sent",
+        errorCode: null,
+        slackTs: post.ts,
+        progressTs: post.ts,
+        text: "step 5",
+      },
+    ]);
+  });
+
+  test("a rate-limited edit waits out its Retry-After, and the update that overtakes it waits too", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    await progress(2, "step 2");
+    await intervalOver();
+    slack.rateLimit("chat.update", 30);
+    expect(await outboxPass()).toMatchObject({ retried: 1, sent: 0 });
+    expect(await waitMsOf(2)).toBeGreaterThan(25_000);
+    expect(await waitMsOf(2)).toBeLessThanOrEqual(30_000);
+
+    await progress(3, "step 3");
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(slack.updates).toEqual([]);
+    expect((await progressRows())[1]).toMatchObject({
+      status: "failed",
+      errorCode: "superseded",
+    });
+
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    const [post] = posted();
+    if (!post) throw new Error("no post");
+    expect(slack.updates).toEqual([
+      {
+        channelId: CHANNEL,
+        ts: post.ts,
+        text: "step 3",
+        blocks: undefined,
+      },
+    ]);
+  });
+
+  test("a Retry-After shorter than the interval still waits the interval", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    await progress(2, "step 2");
+    await intervalOver();
+    slack.rateLimit("chat.update", 1);
+    expect(await outboxPass()).toMatchObject({ retried: 1 });
+    expect(await waitMsOf(2)).toBeGreaterThan(
+      SURFACE_PROGRESS_EDIT_INTERVAL_MS - 5_000,
+    );
+  });
+
+  test("a post Slack never confirmed stops the message: no second post", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    // As if its send outlived its lease.
+    await db
+      .update(slackOutbox)
+      .set({ status: "uncertain", errorCode: "lease_expired" })
+      .where(eq(slackOutbox.kind, "progress"));
+    await progress(2, "step 2");
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect((await progressRows())[1]).toMatchObject({
+      status: "failed",
+      errorCode: "progress_stopped",
+    });
+  });
+
+  test("a claim made beside another pass's is checked again when its send begins", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await progress(2, "step 2");
+    // Both claimed, as two passes may when one's snapshot predates step 2.
+    const claimed = await db
+      .update(slackOutbox)
+      .set({
+        claimToken: sql`gen_random_uuid()`,
+        leaseExpiresAt: sql`now() + interval '1 minute'`,
+      })
+      .where(eq(slackOutbox.kind, "progress"))
+      .returning({ id: slackOutbox.id, claimToken: slackOutbox.claimToken })
+      .then((rows) =>
+        rows.map(({ id, claimToken }) => ({
+          id,
+          claimToken: claimToken ?? "",
+        })),
+      );
+    const store = createPostgresSlackOutboxStore(db);
+    const fenceOf = async (n: number) => {
+      const [row] = await db
+        .select({ id: slackOutbox.id })
+        .from(slackOutbox)
+        .where(eq(slackOutbox.dedupeKey, `progress:${KEY}:${n}`));
+      const fence = claimed.find((claim) => claim.id === row?.id);
+      if (!fence) throw new Error("no claim");
+      return fence;
+    };
+    const fences = [await fenceOf(1), await fenceOf(2)];
+    // At once: on PostgreSQL two connections, the second waiting on the first.
+    const [one, two] = await Promise.all(
+      fences.map((fence) => store.beginSend(fence)),
+    );
+    expect(one).toBe(false);
+    expect(two).toMatchObject({ progress: { ts: null, reposted: false } });
+    expect(
+      (await progressRows()).map(({ status, errorCode }) => [
+        status,
+        errorCode,
+      ]),
+    ).toEqual([
+      ["failed", "superseded"],
+      ["sending", null],
+    ]);
+  });
+
+  test("a progress message waits out the whole of a long Retry-After", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    await progress(2, "step 2");
+    await intervalOver();
+    slack.rateLimit("chat.update", 600);
+    expect(await outboxPass()).toMatchObject({ retried: 1 });
+    expect(await waitMsOf(2)).toBeGreaterThan(590_000);
+  });
+
+  test("a 429 on the last attempt still holds the next update for its Retry-After", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    await progress(2, "step 2");
+    await intervalOver();
+    // Nine claims spent: this one is the last.
+    await db
+      .update(slackOutbox)
+      .set({ attempts: SLACK_OUTBOX_MAX_ATTEMPTS - 1 })
+      .where(eq(slackOutbox.dedupeKey, `progress:${KEY}:2`));
+    slack.rateLimit("chat.update", 600);
+    expect(await outboxPass()).toMatchObject({ failed: 1 });
+    expect((await progressRows())[1]).toMatchObject({
+      status: "failed",
+      errorCode: "ratelimited",
+    });
+    expect(await waitMsOf(2)).toBeGreaterThan(590_000);
+    await progress(3, "step 3");
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+  });
+
+  test("an edit that fails for good still spaces the next one", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    await progress(2, "step 2");
+    await intervalOver();
+    slack.failures.set("chat.update", "msg_too_long");
+    expect(await outboxPass()).toMatchObject({ failed: 1 });
+    expect(await waitMsOf(2)).toBeGreaterThan(
+      SURFACE_PROGRESS_EDIT_INTERVAL_MS - 5_000,
+    );
+    slack.failures.delete("chat.update");
+    await progress(3, "step 3");
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+  });
+
+  test("a post Slack keeps but takes no edit of stops the message, posted once", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    slack.failures.set("chat.update", "edit_window_closed");
+    await progress(2, "step 2");
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ failed: 1, sent: 0 });
+    expect(posted()).toHaveLength(1);
+    expect((await progressRows())[1]).toMatchObject({
+      status: "failed",
+      errorCode: "progress_stopped",
+    });
+  });
+
+  test("another installation's message of the same key is another message", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    const [row] = await db
+      .select()
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "progress"));
+    if (!row) throw new Error("no row");
+    // Newer, of an installation the pass closes unsent.
+    await createPostgresSlackOutboxStore(db).enqueue({
+      workspaceId: row.workspaceId,
+      agentId: row.agentId,
+      slackAppId: row.slackAppId,
+      installationId: randomUUID(),
+      kind: "progress",
+      channelId: row.channelId,
+      threadTs: row.threadTs,
+      slackUserId: null,
+      sessionId: null,
+      sessionLinkId: null,
+      body: { text: "elsewhere" },
+      dedupeKey: `progress:${KEY}:elsewhere`,
+      progressKey: KEY,
+    });
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(posted().map((message) => message.text)).toEqual(["step 1"]);
+  });
+
+  test("an edit of a deleted post puts the message up again once; later updates edit the new post", async () => {
+    await mention(await agentInSlack(), THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    slack.failures.set("chat.update", "message_not_found");
+    await progress(2, "step 2");
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    const [first, again, ...more] = posted();
+    if (!first || !again) throw new Error("no posts");
+    expect(more).toEqual([]);
+    expect(again).toMatchObject({ threadTs: THREAD, text: "step 2" });
+    expect(again.ts).not.toBe(first.ts);
+
+    slack.failures.delete("chat.update");
+    await progress(3, "step 3");
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(posted()).toHaveLength(2);
+    expect(slack.updates).toEqual([
+      { channelId: CHANNEL, ts: again.ts, text: "step 3", blocks: undefined },
+    ]);
+    expect(
+      (await progressRows()).map(({ slackTs, progressTs }) => ({
+        slackTs,
+        progressTs,
+      })),
+    ).toEqual([
+      { slackTs: first.ts, progressTs: null },
+      { slackTs: again.ts, progressTs: first.ts },
+      { slackTs: again.ts, progressTs: again.ts },
+    ]);
+  });
+
+  test("a post lost again stops the message; the thread's reports still go", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await progress(1, "step 1");
+    await outboxPass();
+    slack.failures.set("chat.update", "message_not_found");
+    await progress(2, "step 2");
+    await intervalOver();
+    await outboxPass();
+    await progress(3, "step 3");
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ failed: 1, sent: 0 });
+    await progress(4, "step 4");
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(posted()).toHaveLength(2);
+    expect(
+      (await progressRows()).map(({ status, errorCode }) => [
+        status,
+        errorCode,
+      ]),
+    ).toEqual([
+      ["sent", null],
+      ["sent", null],
+      ["failed", "progress_stopped"],
+      ["failed", "progress_stopped"],
+    ]);
+
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("done")]]);
+    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+    expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
+      "step 1",
+      "step 2",
+      "done",
+    ]);
+  });
+
+  test("a closed link takes no new update; the last one in before the close still goes", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await progress(1, "step 1");
+    await progress(2, "step 2");
+    // The pass that closes the link sends what came in before it.
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("done")]]);
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      linksClosed: 1,
+      sent: 2,
+    });
+    expect(await progress(3, "step 3")).toBe("link_closed");
+    await intervalOver();
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      claimed: 0,
+    });
+    expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
+      "step 2",
+      "done",
+    ]);
+    expect(slack.updates).toEqual([]);
+    expect(
+      (await progressRows()).map(({ status, errorCode }) => [
+        status,
+        errorCode,
+      ]),
+    ).toEqual([
+      ["failed", "superseded"],
+      ["sent", null],
+    ]);
   });
 });

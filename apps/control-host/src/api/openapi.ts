@@ -289,6 +289,8 @@ import {
   resumeSessionRequestSchema,
   retryGitHubWebhookUpdatesRequestSchema,
   retryGitHubWebhookUpdatesResponseSchema,
+  retrySlackEventsUpdatesRequestSchema,
+  retrySlackEventsUpdatesResponseSchema,
   revertSkillResponseSchema,
   reviewAchievementRequestSchema,
   reviewAchievementResponseSchema,
@@ -498,6 +500,7 @@ const requestComponents = {
   UpdateLoginProviderRequest: updateLoginProviderRequestSchema,
   UpdateLoginSettingsRequest: updateLoginSettingsRequestSchema,
   UpdateSlackSettingsRequest: updateSlackSettingsRequestSchema,
+  RetrySlackEventsUpdatesRequest: retrySlackEventsUpdatesRequestSchema,
   UpdateGitHubWebhookSettingsRequest: updateGitHubWebhookSettingsRequestSchema,
   RetryGitHubWebhookUpdatesRequest: retryGitHubWebhookUpdatesRequestSchema,
   UpdateInstallationConfigRequest: updateInstallationConfigRequestSchema,
@@ -641,6 +644,7 @@ const responseComponents = {
   PutSlackConfigTokenResponse: putSlackConfigTokenResponseSchema,
   SlackSettings: slackSettingsSchema,
   UpdateSlackSettingsResponse: updateSlackSettingsResponseSchema,
+  RetrySlackEventsUpdatesResponse: retrySlackEventsUpdatesResponseSchema,
   GitHubWebhookSettings: githubWebhookSettingsSchema,
   UpdateGitHubWebhookSettingsResponse:
     updateGitHubWebhookSettingsResponseSchema,
@@ -3623,7 +3627,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "updateSlackSettings",
     tag: "Installation settings",
     summary: "Save or clear where Slack's events enter",
-    description: `${SETTINGS_OWNER} \`events_public_url\`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from \`CONSOLE_ORIGIN\` again. A change is one transaction and one receipt (\`update_slack_settings\`, the saved and the previous address); the value already saved answers 200 without \`receipt_id\` and leaves no receipt. Apps made before keep the address they were sent until their events are checked again (POST /v1/agents/{id}/slack/app/events/recheck).`,
+    description: `${SETTINGS_OWNER} \`events_public_url\`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from \`CONSOLE_ORIGIN\` again. A change is one transaction and one receipt (\`update_slack_settings\`, the saved and the previous address); the value already saved answers 200 without \`receipt_id\`, leaves no receipt and sends no app. After a changed address commits, every \`created\` agent app of every workspace is sent its manifest with the events address in effect (the saved one, or \`computed_events_base\` after clearing), as POST /v1/agents/{id}/slack/app/events/recheck sends it: all at once, each through its workspace's App Configuration Token. The answer waits at most 20 seconds. \`updates\` says per app what happened: \`updated\` (\`reinstall_required\` when Slack took new permissions with it), \`sending\` (Slack had not answered when the wait ended; the outcome lands on the app's \`manifest_sync\` once it does), or \`failed\` with \`reason_code\` \`config_token_inactive\`, \`events_url_unset\`, \`slack_refused\` (a rate limit included: its Retry-After is not waited out) or \`no_answer\`, the same reason the app's \`manifest_sync\` records. A failed app keeps the address it was sent before; the new address stays saved either way, and POST /v1/slack-settings/retry sends it again. \`updates\` is empty when nothing changed, or when clearing leaves no https address.`,
     auth: "session",
     body: "UpdateSlackSettingsRequest",
     requestExample: { events_public_url: "https://events.example.com/werft" },
@@ -3637,6 +3641,22 @@ export const API_ROUTE_DECLARATIONS = [
         events_url_template:
           "https://events.example.com/werft/v1/slack/events/{agent_id}",
         receipt_id: EXAMPLE_RECEIPT_ID,
+        updates: [
+          {
+            slack_app_id: "019a0000-0000-7000-8000-0000000000b1",
+            agent_id: "019a0000-0000-7000-8000-0000000000c1",
+            name: "Release notes",
+            outcome: "updated",
+            reinstall_required: false,
+          },
+          {
+            slack_app_id: "019a0000-0000-7000-8000-0000000000b2",
+            agent_id: "019a0000-0000-7000-8000-0000000000c2",
+            name: "Triage",
+            outcome: "failed",
+            reason_code: "config_token_inactive",
+          },
+        ],
       },
     },
     errors: [400, 401, 403, 503],
@@ -3644,6 +3664,37 @@ export const API_ROUTE_DECLARATIONS = [
       BAD_REQUEST:
         "Also when the address is not an https URL without a query, fragment or credentials (`details.reason_code: events_url_invalid`), or is longer than 2048 characters.",
     },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/slack-settings/retry",
+    operationId: "retrySlackEventsUpdates",
+    tag: "Installation settings",
+    summary: "Send apps whose events address update failed the address again",
+    description: `${SETTINGS_OWNER} \`slack_app_ids\` (1 to 100) are app ids from a save's \`updates\`; each is sent the events address in effect again, as the save sends it, and \`updates\` answers per app. An id that is no longer a \`created\` agent app answers \`failed\` with \`reason_code: not_found\`, \`agent_id\` and \`name\` null. Writes no receipt: the saved address does not change.`,
+    auth: "session",
+    body: "RetrySlackEventsUpdatesRequest",
+    requestExample: {
+      slack_app_ids: ["019a0000-0000-7000-8000-0000000000b2"],
+    },
+    success: {
+      status: 200,
+      schema: "RetrySlackEventsUpdatesResponse",
+      description: "What happened per app.",
+      example: {
+        updates: [
+          {
+            slack_app_id: "019a0000-0000-7000-8000-0000000000b2",
+            agent_id: "019a0000-0000-7000-8000-0000000000c2",
+            name: "Triage",
+            outcome: "updated",
+            reinstall_required: false,
+          },
+        ],
+      },
+    },
+    errors: [400, 401, 403, 503],
     idempotent: false,
   },
   {
@@ -7612,7 +7663,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's Slack app, if the platform made one",
     description:
-      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `release_unavailable` (with the `release_id`) while the active release's connection is disabled or gone, or its model left the connection's list, and `repository_required` (with the `release_id`) while a session cannot start: the release names a repository the catalog or the workspace's repository ceiling does not allow, or the agent's GitHub settings cannot be read. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. `events.last_received_at` is when a request signed by the app last reached the events route (kept to within a minute), absent before any; `events.state` stays `verified` when Slack stops sending, so an old `last_received_at` on an app that should be busy says events are being lost before they arrive. `manifest_sync` is the last check of the app's manifest against this server's build, null before any: each start of the API reads every agent app's manifest from Slack (`apps.manifest.export`) and, when only its bot events differ, sends the whole manifest again, which Slack takes without a new install; an app whose bot scopes differ is left for an admin. A recheck and an install's Finalize record their send too. `manifest_sync.error` null: nothing is left for the server to send on its own (the manifest was current or was sent, or it waits for an install: no event subscription yet, or bot scopes that changed). Otherwise the app needs an update: `config_token_inactive` (no active App Configuration Token, nothing was read or sent), `events_url_unset`, `slack_refused` or `no_answer`; the next start or a recheck tries again. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.",
+      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `release_unavailable` (with the `release_id`) while the active release's connection is disabled or gone, or its model left the connection's list, and `repository_required` (with the `release_id`) while a session cannot start: the release names a repository the catalog or the workspace's repository ceiling does not allow, or the agent's GitHub settings cannot be read. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. `events.last_received_at` is when a request signed by the app last reached the events route (kept to within a minute), absent before any; `events.state` stays `verified` when Slack stops sending, so an old `last_received_at` on an app that should be busy says events are being lost before they arrive. `manifest_sync` is the last check of the app's manifest against this server's build, null before any: each start of the API reads every agent app's manifest from Slack (`apps.manifest.export`) and, when only its bot events differ, sends the whole manifest again, which Slack takes without a new install; an app whose bot scopes differ is left for an admin. A recheck and an install's Finalize record their send too. `manifest_sync.error` null: nothing is left for the server to send on its own (the manifest was current or was sent, or it waits for an install: no event subscription yet, or bot scopes that changed). Otherwise the app needs an update: `config_token_inactive` (no active App Configuration Token, nothing was read or sent), `events_url_unset`, `slack_refused` or `no_answer`; the next start or a recheck tries again. `reauthorization` lists the bot scopes this build asks for that the installed app's bot token was not granted (`missing_scopes`), null when it holds them all or before the grant is known (the install records it, each start of the API reads it again from Slack with `auth.test`): Slack needs the manifest and a new install (OAuth) before they apply, so an admin sends the manifest (`POST /v1/agents/{id}/slack/app/events/recheck`) and then installs again (`POST /v1/agents/{id}/slack/install/start`); until then only what needs a missing scope is off. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -7629,6 +7680,7 @@ export const API_ROUTE_DECLARATIONS = [
           last_received_at: "2026-11-24T01:12:00.000Z",
         },
         manifest_sync: { error: null, checked_at: "2026-11-25T00:00:00.000Z" },
+        reauthorization: null,
         warnings: [],
         config_token: "active",
       },
@@ -7661,6 +7713,7 @@ export const API_ROUTE_DECLARATIONS = [
           url: "https://agents.example.test/v1/slack/events/019a0000-0000-7000-8000-0000000000c1",
         },
         manifest_sync: { error: null, checked_at: "2026-11-25T00:00:00.000Z" },
+        reauthorization: null,
         warnings: [],
         config_token: "active",
       },

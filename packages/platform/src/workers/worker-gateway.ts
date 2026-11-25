@@ -42,6 +42,8 @@ import type {
   RestorePlanRequest,
   RestorePlanResponse,
   RuntimeConfig,
+  SessionAllowRequest,
+  SessionAllowResponse,
   TraceContentMode,
   WorkerCapabilities,
   WorkerEvent,
@@ -50,6 +52,7 @@ import type {
   WorkerScope,
 } from "@werft-ai/contracts";
 import {
+  authorizationSubjectSchema,
   canonicalJsonOfJson,
   conversationCallIdSchema,
   DEFAULT_WORKSPACE_ENFORCE,
@@ -140,6 +143,7 @@ import {
   type SessionBudget,
   type Setting,
 } from "../limits/index.ts";
+import type { AuthorizationPolicy } from "../musterrolle/index.ts";
 import type {
   ClaimInput as ClaimInputOf,
   EgressBindings,
@@ -500,8 +504,10 @@ function fenceOf(scope: WorkerScope): WorkerFence {
 
 /**
  * The answer as the polling worker can parse it. A permission answer's
- * `remember` is a field an image without `approval_remember` refuses along
- * with the whole response, so it gets the plain allow the person also gave.
+ * `remember` goes only to an image that keeps it bound to its giver
+ * (`session_allow_check`): any other would hand the rule to its engine,
+ * which then allows every call it covers whoever gave it, or refuse the
+ * field with the whole response. It gets the plain allow the person also gave.
  */
 function withoutUnparsedRemember(
   answer: PostSessionAnswerRequest,
@@ -510,7 +516,7 @@ function withoutUnparsedRemember(
   if (
     answer.kind !== "permission" ||
     answer.remember === undefined ||
-    capabilities?.approval_remember === true
+    capabilities?.session_allow_check === true
   ) {
     return answer;
   }
@@ -775,6 +781,8 @@ export function createWorkerGateway(deps: {
     store: JudgmentEgressStore;
     upstream?: JudgeConnections["upstream"];
   };
+  // Absent, `/session-allow` stands for nothing and every call is asked.
+  authorization?: AuthorizationPolicy;
   // Absent, events are stored without the engine-neutral fields beside them.
   neutralize?: NeutralizeEvent;
   // Absent, a claim carries no `git` and the worker adds no commit trailer.
@@ -2113,11 +2121,11 @@ export function createWorkerGateway(deps: {
             ...(binding.grants === undefined || binding.grants.length === 0
               ? {}
               : {
-                  // An image that did not announce `approval_remember` has a
-                  // strict grant schema that would refuse the whole claim.
+                  // Only an image that keeps the allow bound to its giver
+                  // gets the rules, as withoutUnparsedRemember.
                   grants: binding.grants.map(
                     ({ remember_offer: offer, ...grant }) =>
-                      request.capabilities?.approval_remember === true &&
+                      request.capabilities?.session_allow_check === true &&
                       offer !== undefined
                         ? { ...grant, remember_offer: offer }
                         : grant,
@@ -2954,6 +2962,50 @@ export function createWorkerGateway(deps: {
       });
       if (result.outcome !== "ok") return rejected(result);
       return { invalidated: result.invalidated };
+    },
+
+    // The person who allowed the request for the session, judged as they
+    // stand now on the request they answered: a member who took it over
+    // from a requester who left still passes only while that holds. Their
+    // Slack click's channel no longer stands in for the member check.
+    async sessionAllow(
+      principal: WorkerPrincipal,
+      request: SessionAllowRequest,
+    ): Promise<SessionAllowResponse> {
+      const fence = requireScope(principal, request);
+      const read = await requirePending().sessionAllowAtomic({
+        fence,
+        grantRequestId: request.grant_request_id,
+      });
+      if (read.outcome !== "ok") return rejected(read);
+      const subject = authorizationSubjectSchema.safeParse(read.grant?.subject);
+      if (
+        read.grant === null ||
+        !subject.success ||
+        deps.authorization === undefined
+      ) {
+        return { allowed: false };
+      }
+      const { channel_id: _clicked, ...surface } = subject.data.surface;
+      const decision = await deps.authorization.authorize({
+        subject: { ...subject.data, surface },
+        action: "session.approve",
+        resource: {
+          kind: "session",
+          id: fence.sessionId,
+          owner_scope: read.grant.ownerScope,
+          pending_request_id: request.grant_request_id,
+        },
+        request_id: request.tool_call_id,
+      });
+      if (decision.outcome !== "allow") return { allowed: false };
+      // The lease or the session may have moved while the policy was asked.
+      const after = await requirePending().sessionAllowAtomic({
+        fence,
+        grantRequestId: request.grant_request_id,
+      });
+      if (after.outcome !== "ok") return rejected(after);
+      return { allowed: after.grant !== null };
     },
 
     async parkDeclined(

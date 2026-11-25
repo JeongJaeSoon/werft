@@ -1,4 +1,5 @@
 import {
+  type ChannelSummaryLineId,
   CONVERSATION_TOPIC_SESSION_MAX_BYTES,
   CONVERSATION_TURN_FRESH_TEXT_MAX,
   type ConversationId,
@@ -346,6 +347,38 @@ export function judgmentContexts(source: ContextFragmentSource) {
 }
 export type JudgmentContexts = ReturnType<typeof judgmentContexts>;
 
+/**
+ * What a summary fold reads (a1/J10), through the fragment source: the
+ * lines of its conversation's channel summary past G1, every one and uncut,
+ * in the summary's order, and the version they are of. Null when the
+ * conversation is not the agent's.
+ */
+export function summaryFoldContexts(source: ContextFragmentSource) {
+  return {
+    async read(ref: {
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+    }): Promise<{
+      version: number;
+      lines: { id: ChannelSummaryLineId; text: string }[];
+    } | null> {
+      const conversation = await source.conversationOf(ref);
+      if (conversation === null) return null;
+      const read = await readContext(source, conversation);
+      return {
+        version: read.summaryVersion ?? 0,
+        lines: read.fragments.flatMap((fragment) =>
+          fragment.kind === "channel_summary_line"
+            ? [{ id: fragment.lineId, text: fragment.text }]
+            : [],
+        ),
+      };
+    },
+  };
+}
+export type SummaryFoldContexts = ReturnType<typeof summaryFoldContexts>;
+
 /** How each kind is named before its text, within PIECE_OVERHEAD_BYTES. */
 const PIECE_LABEL: Record<ContextFragment["kind"], string> = {
   channel_summary_line: "channel summary",
@@ -432,6 +465,37 @@ export function topicTurnContexts(source: ContextFragmentSource) {
         };
       }
       return { outcome: "assembled", text, sources: fitted.sources };
+    },
+
+    /**
+     * The conversation's channel summary lines a read tool shows, in the
+     * summary's order: the assembler's read, so only the conversation's own
+     * scopes and none whose source Slack deleted.
+     */
+    async channelSummary(ref: Omit<TopicRef, "topicId">): Promise<
+      | {
+          outcome: "read";
+          lines: { text: string; writtenAt: Date; sources: SourceKey[] }[];
+        }
+      | { outcome: "unknown_conversation" }
+    > {
+      const conversation = await source.conversationOf(ref);
+      if (conversation === null) return { outcome: "unknown_conversation" };
+      const fragments = await assembleContext(source, conversation);
+      return {
+        outcome: "read",
+        lines: fragments.flatMap((fragment) =>
+          fragment.kind === "channel_summary_line"
+            ? [
+                {
+                  text: fragment.text,
+                  writtenAt: fragment.writtenAt,
+                  sources: fragment.sources,
+                },
+              ]
+            : [],
+        ),
+      };
     },
 
     /** An admin delete removes turns a live session may still hold. */

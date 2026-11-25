@@ -31,6 +31,7 @@ export {
   createSlackSecretService,
   createSlackSessionHandler,
   createSlackSigningSecrets,
+  createSlackThreadReader,
   createSlackTokenRevoked,
   createSlackWelcome,
   drainSlackInbox,

@@ -16,7 +16,10 @@ import {
   type SlackAppSettings,
   type SlackBot,
   type SlackBotRefusal,
+  type SlackEventsUpdate,
+  type SlackEventsUpdateFailure,
   type SlackManifestSyncError,
+  type SlackReauthorization,
   type SlackWarning,
 } from "@werft-ai/contracts";
 import {
@@ -49,6 +52,7 @@ import {
   agentManifestDrift,
   buildAgentAppManifest,
   slackAppRedirectUrl,
+  slackMissingScopes,
 } from "./slack-manifest.ts";
 import { slackSecretSummaryOf } from "./slack-secret-service.ts";
 import { isTokenGone } from "./slack-token-gone.ts";
@@ -578,6 +582,7 @@ export function createSlackAppService(deps: {
           url: null,
         },
         manifest_sync: record?.manifestSync ?? null,
+        reauthorization: reauthorizationOf(record),
         warnings: [
           ...issuerWarnings(record, token.issuer),
           ...(await agentWarnings(caller.ownerId, agentId)),
@@ -906,7 +911,13 @@ export function createSlackAppService(deps: {
           at,
           staleBefore: new Date(at.getTime() - SLACK_MANIFEST_CHECK_STALE_MS),
         });
-        if (!claimed) continue;
+        // Another check holds the app; only a grant never read is read here.
+        if (!claimed) {
+          await refreshBotScopes(target.workspaceId, target.slackAppId, {
+            onlyUnknown: true,
+          });
+          continue;
+        }
         summary.checked += 1;
         const outcome = await checkAgentAppManifest(target, tokenActive).catch(
           (error: unknown) => {
@@ -921,6 +932,147 @@ export function createSlackAppService(deps: {
         if (outcome === "failed") summary.failed += 1;
       }
       return summary;
+    },
+    /**
+     * After the events address changed: every created agent app of every
+     * workspace (or those of `slackAppIds`) is sent its manifest with the
+     * address in effect, as a recheck sends it, all at once: Slack's rate
+     * limit is per workspace and minute, which going one by one would not
+     * keep to either. A Retry-After is not waited out, and the answer waits
+     * at most `waitMs`, under the API's request deadline: an app still in
+     * flight then is answered `sending`, and records its own outcome on the
+     * app as its manifest_sync when Slack answers, as every send does.
+     */
+    async resendAgentAppEvents(
+      slackAppIds?: readonly string[],
+      waitMs = 20_000,
+    ): Promise<SlackEventsUpdate[]> {
+      // The wait counts from here: reading the apps is part of it.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waited = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, waitMs);
+      });
+      const wanted = slackAppIds === undefined ? null : new Set(slackAppIds);
+      const listed =
+        deps.apps === null || deps.tokens === null
+          ? []
+          : (await deps.apps.listAgentAppsForManifestCheck()).filter(
+              (target) => wanted === null || wanted.has(target.slackAppId),
+            );
+      const notFound = (slackAppId: string): SlackEventsUpdate => ({
+        slack_app_id: slackAppId,
+        agent_id: null,
+        name: null,
+        outcome: "failed",
+        reason_code: "not_found",
+      });
+      /**
+       * Sends one app the address in effect until a send finds it unchanged: a
+       * save made while one was in flight is what the app is left on.
+       */
+      async function resendEvents(
+        target: (typeof listed)[number],
+      ): Promise<SlackEventsUpdate> {
+        const { apps } = ready();
+        const { workspaceId, slackAppId, agentId } = target;
+        const agent = await apps.manifestAgent(workspaceId, agentId);
+        if (agent === null) return notFound(slackAppId);
+        names.set(slackAppId, agent.name);
+        const failed = (
+          reason_code: SlackEventsUpdateFailure,
+        ): SlackEventsUpdate => ({
+          slack_app_id: slackAppId,
+          agent_id: agentId,
+          name: agent.name,
+          outcome: "failed",
+          reason_code,
+        });
+        let reinstall = false;
+        for (;;) {
+          const eventsUrl = await eventsUrlOf(agentId);
+          if (eventsUrl === null) {
+            await recordManifestSync(
+              workspaceId,
+              slackAppId,
+              "events_url_unset",
+            );
+            return failed("events_url_unset");
+          }
+          try {
+            const { permissionsUpdated } = await updateAgentAppManifest(
+              workspaceId,
+              slackAppId,
+              {
+                name: agent.name,
+                botName: agent.slug,
+                description: agent.role,
+                eventsUrl,
+              },
+            );
+            reinstall ||= permissionsUpdated;
+          } catch (error) {
+            if (
+              error instanceof SessionServiceError &&
+              error.code === "NOT_FOUND"
+            )
+              return notFound(slackAppId);
+            deps.logger?.warn("Slack app events address not sent", {
+              slack_app_id: slackAppId,
+              error: error instanceof Error ? error.name : "unknown",
+            });
+            // updateAgentAppManifest recorded why on the app.
+            const record = await apps.find(workspaceId, slackAppId);
+            return failed(record?.manifestSync?.error ?? "no_answer");
+          }
+          if ((await eventsUrlOf(agentId)) === eventsUrl) {
+            return {
+              slack_app_id: slackAppId,
+              agent_id: agentId,
+              name: agent.name,
+              outcome: "updated",
+              reinstall_required: reinstall,
+            };
+          }
+        }
+      }
+      const answered = new Map<string, SlackEventsUpdate>();
+      // Known once the app's agent is read, inside the wait like the send.
+      const names = new Map<string, string>();
+      const sending = Promise.all(
+        listed.map(async (target) => {
+          const update = await resendEvents(target).catch(
+            (error: unknown): SlackEventsUpdate => {
+              deps.logger?.warn("Slack app events address not sent", {
+                slack_app_id: target.slackAppId,
+                error: error instanceof Error ? error.name : "unknown",
+              });
+              return {
+                slack_app_id: target.slackAppId,
+                agent_id: target.agentId,
+                name: names.get(target.slackAppId) ?? null,
+                outcome: "failed",
+                reason_code: "no_answer",
+              };
+            },
+          );
+          answered.set(target.slackAppId, update);
+        }),
+      );
+      await Promise.race([sending, waited]);
+      clearTimeout(timer);
+      const found = new Set(listed.map((target) => target.slackAppId));
+      return [
+        ...listed.map(
+          (target): SlackEventsUpdate =>
+            answered.get(target.slackAppId) ?? {
+              slack_app_id: target.slackAppId,
+              agent_id: target.agentId,
+              name: names.get(target.slackAppId) ?? null,
+              outcome: "sending",
+            },
+        ),
+        ...[...(wanted ?? [])].filter((id) => !found.has(id)).map(notFound),
+      ];
     },
   };
   return service;
@@ -1086,12 +1238,53 @@ export function createSlackAppService(deps: {
     }
   }
 
+  /**
+   * Reads the scopes the app's bot token holds now (`auth.test`), which an
+   * install made before the grant was recorded lacks. A failure keeps what
+   * was known.
+   */
+  async function refreshBotScopes(
+    workspaceId: string,
+    slackAppId: string,
+    options: { onlyUnknown?: boolean } = {},
+  ) {
+    const secrets = deps.bots?.secrets;
+    if (secrets === undefined) return;
+    try {
+      const { apps } = ready();
+      // A token stored after this read (a new install) has a new version, and
+      // the scopes read with the old one are dropped.
+      const before = await apps.find(workspaceId, slackAppId);
+      const tokenVersion = before?.secrets.slack_bot_token?.secretVersion;
+      if (before?.state !== "created" || tokenVersion === undefined) return;
+      if (options.onlyUnknown && (before.botScopes ?? null) !== null) return;
+      const botToken = await secrets.get({
+        workspaceId,
+        owner: { kind: "slack_app", id: slackAppId },
+        purpose: "slack_bot_token",
+      });
+      if (botToken === null) return;
+      const scopes = await api.botScopes(botToken);
+      if (scopes !== null)
+        await apps.setBotScopes(workspaceId, slackAppId, scopes, tokenVersion);
+    } catch (error) {
+      deps.logger?.warn("Slack bot token scopes not read", {
+        slack_app_id: slackAppId,
+        ...(error instanceof SlackApiError
+          ? { slack_error: error.code, answered: error.answered }
+          : { error: error instanceof Error ? error.name : "unknown" }),
+      });
+    }
+  }
+
   async function checkAgentAppManifest(
     target: { workspaceId: string; slackAppId: string; agentId: string },
     tokenActive: Map<string, boolean>,
   ): Promise<"current" | "sent" | "left" | "failed"> {
     const { apps, tokens } = ready();
     const { workspaceId, slackAppId, agentId } = target;
+    // Needs only the bot token, so it runs whatever the config token's state.
+    await refreshBotScopes(workspaceId, slackAppId);
     let active = tokenActive.get(workspaceId);
     if (active === undefined) {
       active = (await tokens.describe(workspaceId)).state === "active";
@@ -1161,6 +1354,21 @@ export function createSlackAppService(deps: {
       return "failed";
     }
   }
+}
+
+/**
+ * An installed app whose grant lacks a scope this build asks for; null
+ * when nothing is missing or the grant is not known.
+ */
+function reauthorizationOf(
+  record: SurfaceAppRecord | null,
+): SlackReauthorization | null {
+  if (record?.state !== "created" || record.secrets.slack_bot_token === null)
+    return null;
+  const missing = slackMissingScopes(record.botScopes);
+  return missing === null || missing.length === 0
+    ? null
+    : { missing_scopes: missing };
 }
 
 /** What a manifest check records for a failure; null for one it cannot name. */

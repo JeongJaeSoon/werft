@@ -34,6 +34,11 @@ import type {
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
+  SURFACE_PROGRESS_EDIT_INTERVAL_MS,
+  SURFACE_PROGRESS_STOPPED_CODE,
+  SURFACE_PROGRESS_SUPERSEDED_CODE,
+} from "@werft-ai/platform";
+import {
   and,
   asc,
   eq,
@@ -148,6 +153,7 @@ const entry = {
   inputId: t.inputId,
   correlationId: t.correlationId,
   heldForInputId: t.heldForInputId,
+  progressKey: t.progressKey,
 };
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
@@ -840,9 +846,13 @@ export function createPostgresSlackOutboxStore(
     neutralize?: NeutralizeEvent;
     /** The notice versions a `channel_notice` row is judged by. */
     noticeVersions?: readonly SlackNoticeVersionEntry[];
+    /** Defaults to `SURFACE_PROGRESS_EDIT_INTERVAL_MS`. */
+    progressIntervalMs?: number;
   } = {},
 ): SurfaceOutboxStore {
   const noticeVersions = options.noticeVersions ?? SLACK_NOTICE_VERSIONS;
+  const progressIntervalMs =
+    options.progressIntervalMs ?? SURFACE_PROGRESS_EDIT_INTERVAL_MS;
   return {
     threadStatus: createPostgresSlackThreadStatusStore(db),
 
@@ -1849,6 +1859,32 @@ export function createPostgresSlackOutboxStore(
     },
 
     async claim({ limit, leaseMs }) {
+      // A progress update a newer one overtook, or of a message that
+      // stopped, never goes. Skipping the rows a send holds, so this waits
+      // on no lock.
+      await db.execute(sql`
+        UPDATE slack_outbox o SET
+          status = 'failed',
+          error_code = CASE WHEN EXISTS (
+            SELECT 1 FROM slack_outbox s
+            WHERE s.installation_id = o.installation_id AND s.progress_key = o.progress_key
+              AND (s.error_code = ${SURFACE_PROGRESS_STOPPED_CODE}
+                OR ((s.status = 'uncertain' OR s.error_code = 'missing_ts') AND s.progress_ts IS NULL))
+          ) THEN ${SURFACE_PROGRESS_STOPPED_CODE} ELSE ${SURFACE_PROGRESS_SUPERSEDED_CODE} END,
+          claim_token = NULL,
+          lease_expires_at = NULL
+        WHERE o.id IN (
+          SELECT p.id FROM slack_outbox p
+          WHERE p.kind = 'progress' AND p.status = 'pending'
+            AND (p.claim_token IS NULL OR p.lease_expires_at <= now())
+            AND EXISTS (
+              SELECT 1 FROM slack_outbox n
+              WHERE n.installation_id = p.installation_id AND n.progress_key = p.progress_key
+                AND (n.seq > p.seq OR n.error_code = ${SURFACE_PROGRESS_STOPPED_CODE}
+                  OR ((n.status = 'uncertain' OR n.error_code = 'missing_ts') AND n.progress_ts IS NULL))
+            )
+          FOR UPDATE OF p SKIP LOCKED
+        )`);
       const rows = await db
         .update(t)
         .set({
@@ -1866,6 +1902,18 @@ export function createPostgresSlackOutboxStore(
               -- Held while its channel is not one the agent reads.
               AND (c.kind <> 'channel_notice'
                 OR ${channelNoticeListening(sql.raw("c"), noticeVersions)})
+              -- A progress message's newest update alone, one send at a
+              -- time, and none before the interval after the last send or
+              -- a Retry-After an update it overtook was told.
+              AND (c.kind <> 'progress' OR NOT EXISTS (
+                SELECT 1 FROM slack_outbox p
+                WHERE p.installation_id = c.installation_id AND p.progress_key = c.progress_key AND p.id <> c.id
+                  AND (p.seq > c.seq
+                    OR p.status = 'sending'
+                    OR (p.status = 'pending' AND p.claim_token IS NOT NULL
+                      AND p.lease_expires_at > now())
+                    OR p.next_attempt_at > now())
+              ))
             ORDER BY c.seq
             LIMIT ${limit}
             FOR UPDATE OF c SKIP LOCKED
@@ -1915,6 +1963,19 @@ export function createPostgresSlackOutboxStore(
           )
           .for("share");
         if (install?.status === "revoked") return false;
+        // A progress message's begins go one at a time, before any row lock.
+        const [keyed] = await tx
+          .select({
+            progressKey: t.progressKey,
+            installationId: t.installationId,
+          })
+          .from(t)
+          .where(eq(t.id, fence.id));
+        if (keyed?.progressKey) {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${`slack_outbox_progress:${keyed.installationId}:${keyed.progressKey}`}, 0))`,
+          );
+        }
         const [row] = await tx
           .select({
             workspaceId: t.workspaceId,
@@ -1923,6 +1984,8 @@ export function createPostgresSlackOutboxStore(
             sessionLinkId: t.sessionLinkId,
             sources: t.sources,
             throughTurn: t.sourcesTurn,
+            progressKey: t.progressKey,
+            installationId: t.installationId,
           })
           .from(t)
           .where(
@@ -1934,6 +1997,73 @@ export function createPostgresSlackOutboxStore(
           )
           .for("update");
         if (row === undefined) return false;
+        // Read again under the message's lock, as a claim made beside
+        // another pass's may not have seen it: the update edits the post the
+        // last sent one left. A post Slack never confirmed (uncertain, or
+        // no ts in its answer) may be in Slack: with no ts known the message
+        // stops, and after an edit it may have been the one post again.
+        let progress: { ts: string | null; reposted: boolean } | undefined;
+        if (row.progressKey !== null) {
+          const [state] = rowsOf<{
+            busy: boolean;
+            superseded: boolean;
+            wait_until: string | null;
+            stopped: boolean;
+            ts: string | null;
+            reposted: boolean;
+          }>(
+            await tx.execute(sql`
+              WITH me AS (SELECT seq FROM slack_outbox WHERE id = ${fence.id}::uuid),
+              k AS (
+                SELECT seq, status, error_code, slack_ts, progress_ts, next_attempt_at
+                FROM slack_outbox
+                WHERE installation_id = ${row.installationId}::uuid
+                  AND progress_key = ${row.progressKey} AND id <> ${fence.id}::uuid
+              )
+              SELECT
+                EXISTS (SELECT 1 FROM k WHERE status = 'sending') AS busy,
+                EXISTS (SELECT 1 FROM k, me WHERE k.seq > me.seq) AS superseded,
+                (SELECT max(next_attempt_at) FROM k
+                 WHERE next_attempt_at > now())::text AS wait_until,
+                EXISTS (
+                  SELECT 1 FROM k WHERE error_code = ${SURFACE_PROGRESS_STOPPED_CODE}
+                    OR ((status = 'uncertain' OR error_code = 'missing_ts') AND progress_ts IS NULL)
+                ) AS stopped,
+                (SELECT slack_ts FROM k WHERE status = 'sent'
+                 ORDER BY seq DESC LIMIT 1) AS ts,
+                EXISTS (
+                  SELECT 1 FROM k WHERE progress_ts IS NOT NULL AND (
+                    status = 'uncertain' OR error_code = 'missing_ts'
+                    OR (status = 'sent' AND slack_ts <> progress_ts))
+                ) AS reposted`),
+          );
+          if (state === undefined) return false;
+          if (state.stopped || state.superseded) {
+            await tx
+              .update(t)
+              .set({
+                status: "failed",
+                errorCode: state.stopped
+                  ? SURFACE_PROGRESS_STOPPED_CODE
+                  : SURFACE_PROGRESS_SUPERSEDED_CODE,
+                ...released,
+              })
+              .where(eq(t.id, fence.id));
+            return false;
+          }
+          if (state.busy) return false;
+          if (state.wait_until !== null) {
+            await tx
+              .update(t)
+              .set({
+                ...released,
+                nextAttemptAt: sql`${state.wait_until}::timestamptz`,
+              })
+              .where(eq(t.id, fence.id));
+            return false;
+          }
+          progress = { ts: state.ts, reposted: state.reposted };
+        }
         // A title cut or made from the session's first message: that
         // message's direct sources. Their marks are taken with the row's, in
         // one order, so the title read below sees a delete under way.
@@ -1978,7 +2108,11 @@ export function createPostgresSlackOutboxStore(
         }
         const rows = await tx
           .update(t)
-          .set({ status: "sending", attempts: sql`${t.attempts} + 1` })
+          .set({
+            status: "sending",
+            attempts: sql`${t.attempts} + 1`,
+            ...(progress === undefined ? {} : { progressTs: progress.ts }),
+          })
           .where(
             and(
               eq(t.id, fence.id),
@@ -2010,7 +2144,10 @@ export function createPostgresSlackOutboxStore(
             ) AS posted_as
             FROM agents a WHERE a.id = ${row.agentId}::uuid`),
         );
-        return sender?.posted_as ?? true;
+        if (sender === undefined) return true;
+        return progress === undefined
+          ? sender.posted_as
+          : { ...sender.posted_as, progress };
       });
     },
 
@@ -2026,14 +2163,24 @@ export function createPostgresSlackOutboxStore(
               // A push card is drawn once more at once: its requester may
               // have left the channel before it was posted.
               settleState: sql`CASE WHEN ${t.kind} = 'input_notice' AND ${t.dedupeKey} LIKE 'push:%' THEN 'due' ELSE ${t.settleState} END`,
+              // The next update of a progress message waits this long.
+              nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + ${ms(progressIntervalMs)} ELSE ${t.nextAttemptAt} END`,
             }
           : outcome.status === "pending"
             ? {
                 status: "pending" as const,
                 errorCode: outcome.errorCode,
-                nextAttemptAt: sql`now() + make_interval(secs => ${outcome.retryInMs / 1000})`,
+                // A progress message's next call, a retry too, waits the
+                // interval at least.
+                nextAttemptAt: sql`now() + CASE WHEN ${t.kind} = 'progress' THEN greatest(${ms(outcome.retryInMs)}, ${ms(progressIntervalMs)}) ELSE ${ms(outcome.retryInMs)} END`,
               }
-            : { status: outcome.status, errorCode: outcome.errorCode };
+            : {
+                status: outcome.status,
+                errorCode: outcome.errorCode,
+                // A call that ended a progress row still spaces the next, by
+                // the Retry-After it was given up on too.
+                nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + greatest(${ms(outcome.status === "failed" ? (outcome.retryInMs ?? 0) : 0)}, ${ms(progressIntervalMs)}) ELSE ${t.nextAttemptAt} END`,
+              };
       return db.transaction(async (tx) => {
         const [row] = await tx
           .update(t)
@@ -2051,10 +2198,16 @@ export function createPostgresSlackOutboxStore(
             installationId: t.installationId,
             channelId: t.channelId,
             threadTs: t.threadTs,
+            progressTs: t.progressTs,
           });
         if (row === undefined) return false;
-        // A post into the thread is a moment to show its status again soon.
-        if (outcome.status === "sent" && row.sessionId) {
+        // A post into the thread is a moment to show its status again soon;
+        // an edit of one is not.
+        if (
+          outcome.status === "sent" &&
+          row.sessionId &&
+          row.progressTs !== outcome.slackTs
+        ) {
           await touchSlackThreadStatus(tx, row.sessionId);
         }
         if (row.inputId === null) return true;

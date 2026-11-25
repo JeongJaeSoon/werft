@@ -107,20 +107,6 @@ export function createPendingRequestService(deps: {
           },
         );
       });
-      // Until a session-wide allow is bound to the authority of whoever gave
-      // it (94S-2215), no one answering for a requester who left gives one.
-      if (
-        decision.requester_left === true &&
-        input.body.kind === "permission" &&
-        input.body.remember !== undefined
-      ) {
-        throw new SessionServiceError(
-          "FORBIDDEN",
-          "A member answering for a requester who left cannot allow for the session",
-          undefined,
-          { reason_code: "role" },
-        );
-      }
       const textRefusal = answerTextRefusal(input.body);
       if (textRefusal !== null) {
         throw new SessionServiceError("BAD_REQUEST", textRefusal);
@@ -136,6 +122,7 @@ export function createPendingRequestService(deps: {
           decisionId: decision.decision_id,
         },
         ...(decision.requester_left === true ? { requesterLeft: true } : {}),
+        sessionAllowSubject: actor.subject,
       });
       switch (result.outcome) {
         case "conflict":

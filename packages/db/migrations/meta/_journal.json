@@ -1912,6 +1912,41 @@
       "when": 1795603434837,
       "tag": "0363_session_task_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 364,
+      "version": "7",
+      "when": 1795607262754,
+      "tag": "0364_slack_outbox_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 365,
+      "version": "7",
+      "when": 1795612995030,
+      "tag": "0365_pending_session_allow_subject",
+      "breakpoints": true
+    },
+    {
+      "idx": 366,
+      "version": "7",
+      "when": 1795613771446,
+      "tag": "0366_slack_app_bot_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 367,
+      "version": "7",
+      "when": 1795614612471,
+      "tag": "0367_channel_summary_folds",
+      "breakpoints": true
+    },
+    {
+      "idx": 368,
+      "version": "7",
+      "when": 1795615430274,
+      "tag": "0368_conversation_turn_tool_counts",
+      "breakpoints": true
     }
   ]
 }

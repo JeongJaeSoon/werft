@@ -71,12 +71,14 @@ export interface ConversationCallStore {
   /**
    * Ends a running turn without a decision, which also ends its permit, and
    * says what its last refused call was refused for. `limitReached` says,
-   * from that refusal, which limit ended the turn, kept on its row.
+   * from that refusal and whether a read tool call was refused past the
+   * turn's count, which limit ended the turn, kept on its row.
    */
   endTurnAtomic(input: {
     turnId: ConversationTurnId;
     limitReached?: (
       refusal: ConversationTurnCallRefusal | null,
+      toolCallRefused: boolean,
     ) => ConversationTurnLimitReached | null;
   }): Promise<{
     ended: "recorded" | "already_ended" | "gone";

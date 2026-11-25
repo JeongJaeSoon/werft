@@ -1150,12 +1150,34 @@ export interface paths {
         get: operations["getSlackSettings"];
         /**
          * Save or clear where Slack's events enter
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `events_public_url`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from `CONSOLE_ORIGIN` again. A change is one transaction and one receipt (`update_slack_settings`, the saved and the previous address); the value already saved answers 200 without `receipt_id` and leaves no receipt. Apps made before keep the address they were sent until their events are checked again (POST /v1/agents/{id}/slack/app/events/recheck).
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `events_public_url`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from `CONSOLE_ORIGIN` again. A change is one transaction and one receipt (`update_slack_settings`, the saved and the previous address); the value already saved answers 200 without `receipt_id`, leaves no receipt and sends no app. After a changed address commits, every `created` agent app of every workspace is sent its manifest with the events address in effect (the saved one, or `computed_events_base` after clearing), as POST /v1/agents/{id}/slack/app/events/recheck sends it: all at once, each through its workspace's App Configuration Token. The answer waits at most 20 seconds. `updates` says per app what happened: `updated` (`reinstall_required` when Slack took new permissions with it), `sending` (Slack had not answered when the wait ended; the outcome lands on the app's `manifest_sync` once it does), or `failed` with `reason_code` `config_token_inactive`, `events_url_unset`, `slack_refused` (a rate limit included: its Retry-After is not waited out) or `no_answer`, the same reason the app's `manifest_sync` records. A failed app keeps the address it was sent before; the new address stays saved either way, and POST /v1/slack-settings/retry sends it again. `updates` is empty when nothing changed, or when clearing leaves no https address.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         put: operations["updateSlackSettings"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/slack-settings/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send apps whose events address update failed the address again
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `slack_app_ids` (1 to 100) are app ids from a save's `updates`; each is sent the events address in effect again, as the save sends it, and `updates` answers per app. An id that is no longer a `created` agent app answers `failed` with `reason_code: not_found`, `agent_id` and `name` null. Writes no receipt: the saved address does not change.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["retrySlackEventsUpdates"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4104,7 +4126,7 @@ export interface paths {
         };
         /**
          * The agent's Slack app, if the platform made one
-         * @description The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `release_unavailable` (with the `release_id`) while the active release's connection is disabled or gone, or its model left the connection's list, and `repository_required` (with the `release_id`) while a session cannot start: the release names a repository the catalog or the workspace's repository ceiling does not allow, or the agent's GitHub settings cannot be read. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. `events.last_received_at` is when a request signed by the app last reached the events route (kept to within a minute), absent before any; `events.state` stays `verified` when Slack stops sending, so an old `last_received_at` on an app that should be busy says events are being lost before they arrive. `manifest_sync` is the last check of the app's manifest against this server's build, null before any: each start of the API reads every agent app's manifest from Slack (`apps.manifest.export`) and, when only its bot events differ, sends the whole manifest again, which Slack takes without a new install; an app whose bot scopes differ is left for an admin. A recheck and an install's Finalize record their send too. `manifest_sync.error` null: nothing is left for the server to send on its own (the manifest was current or was sent, or it waits for an install: no event subscription yet, or bot scopes that changed). Otherwise the app needs an update: `config_token_inactive` (no active App Configuration Token, nothing was read or sent), `events_url_unset`, `slack_refused` or `no_answer`; the next start or a recheck tries again. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.
+         * @description The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `release_unavailable` (with the `release_id`) while the active release's connection is disabled or gone, or its model left the connection's list, and `repository_required` (with the `release_id`) while a session cannot start: the release names a repository the catalog or the workspace's repository ceiling does not allow, or the agent's GitHub settings cannot be read. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. `events.last_received_at` is when a request signed by the app last reached the events route (kept to within a minute), absent before any; `events.state` stays `verified` when Slack stops sending, so an old `last_received_at` on an app that should be busy says events are being lost before they arrive. `manifest_sync` is the last check of the app's manifest against this server's build, null before any: each start of the API reads every agent app's manifest from Slack (`apps.manifest.export`) and, when only its bot events differ, sends the whole manifest again, which Slack takes without a new install; an app whose bot scopes differ is left for an admin. A recheck and an install's Finalize record their send too. `manifest_sync.error` null: nothing is left for the server to send on its own (the manifest was current or was sent, or it waits for an install: no event subscription yet, or bot scopes that changed). Otherwise the app needs an update: `config_token_inactive` (no active App Configuration Token, nothing was read or sent), `events_url_unset`, `slack_refused` or `no_answer`; the next start or a recheck tries again. `reauthorization` lists the bot scopes this build asks for that the installed app's bot token was not granted (`missing_scopes`), null when it holds them all or before the grant is known (the install records it, each start of the API reads it again from Slack with `auth.test`): Slack needs the manifest and a new install (OAuth) before they apply, so an admin sends the manifest (`POST /v1/agents/{id}/slack/app/events/recheck`) and then installs again (`POST /v1/agents/{id}/slack/install/start`); until then only what needs a missing scope is off. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -5943,6 +5965,9 @@ export interface components {
         };
         UpdateSlackSettingsRequest: {
             events_public_url: string | null;
+        };
+        RetrySlackEventsUpdatesRequest: {
+            slack_app_ids: string[];
         };
         UpdateGitHubWebhookSettingsRequest: {
             webhook_public_url: string | null;
@@ -8960,6 +8985,62 @@ export interface components {
             events_url_template: string | null;
             /** Format: uuid */
             receipt_id?: string;
+            updates: ({
+                /** Format: uuid */
+                slack_app_id: string;
+                /** Format: uuid */
+                agent_id: string;
+                name: string;
+                /** @constant */
+                outcome: "updated";
+                reinstall_required: boolean;
+            } | {
+                /** Format: uuid */
+                slack_app_id: string;
+                agent_id: string | null;
+                name: string | null;
+                /** @constant */
+                outcome: "failed";
+                /** @enum {string} */
+                reason_code: "config_token_inactive" | "events_url_unset" | "slack_refused" | "no_answer" | "not_found";
+            } | {
+                /** Format: uuid */
+                slack_app_id: string;
+                /** Format: uuid */
+                agent_id: string;
+                name: string | null;
+                /** @constant */
+                outcome: "sending";
+            })[];
+        };
+        RetrySlackEventsUpdatesResponse: {
+            updates: ({
+                /** Format: uuid */
+                slack_app_id: string;
+                /** Format: uuid */
+                agent_id: string;
+                name: string;
+                /** @constant */
+                outcome: "updated";
+                reinstall_required: boolean;
+            } | {
+                /** Format: uuid */
+                slack_app_id: string;
+                agent_id: string | null;
+                name: string | null;
+                /** @constant */
+                outcome: "failed";
+                /** @enum {string} */
+                reason_code: "config_token_inactive" | "events_url_unset" | "slack_refused" | "no_answer" | "not_found";
+            } | {
+                /** Format: uuid */
+                slack_app_id: string;
+                /** Format: uuid */
+                agent_id: string;
+                name: string | null;
+                /** @constant */
+                outcome: "sending";
+            })[];
         };
         GitHubWebhookSettings: {
             webhook_public_url: string | null;
@@ -9660,6 +9741,9 @@ export interface components {
                 /** Format: date-time */
                 checked_at: string;
             } | null;
+            reauthorization: {
+                missing_scopes: string[];
+            } | null;
             warnings: ({
                 /** @constant */
                 code: "config_token_issuer_changed";
@@ -9718,6 +9802,9 @@ export interface components {
                 error: ("config_token_inactive" | "events_url_unset" | "slack_refused" | "no_answer") | null;
                 /** Format: date-time */
                 checked_at: string;
+            } | null;
+            reauthorization: {
+                missing_scopes: string[];
             } | null;
             warnings: ({
                 /** @constant */
@@ -21397,13 +21484,154 @@ export interface operations {
                      *       "events_public_url": "https://events.example.com/werft",
                      *       "computed_events_base": "https://werft.example.com",
                      *       "events_url_template": "https://events.example.com/werft/v1/slack/events/{agent_id}",
-                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "updates": [
+                     *         {
+                     *           "slack_app_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "agent_id": "019a0000-0000-7000-8000-0000000000c1",
+                     *           "name": "Release notes",
+                     *           "outcome": "updated",
+                     *           "reinstall_required": false
+                     *         },
+                     *         {
+                     *           "slack_app_id": "019a0000-0000-7000-8000-0000000000b2",
+                     *           "agent_id": "019a0000-0000-7000-8000-0000000000c2",
+                     *           "name": "Triage",
+                     *           "outcome": "failed",
+                     *           "reason_code": "config_token_inactive"
+                     *         }
+                     *       ]
                      *     }
                      */
                     "application/json": components["schemas"]["UpdateSlackSettingsResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when the address is not an https URL without a query, fragment or credentials (`details.reason_code: events_url_invalid`), or is longer than 2048 characters. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    retrySlackEventsUpdates: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "slack_app_ids": [
+                 *         "019a0000-0000-7000-8000-0000000000b2"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["RetrySlackEventsUpdatesRequest"];
+            };
+        };
+        responses: {
+            /** @description What happened per app. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "updates": [
+                     *         {
+                     *           "slack_app_id": "019a0000-0000-7000-8000-0000000000b2",
+                     *           "agent_id": "019a0000-0000-7000-8000-0000000000c2",
+                     *           "name": "Triage",
+                     *           "outcome": "updated",
+                     *           "reinstall_required": false
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RetrySlackEventsUpdatesResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -42613,6 +42841,7 @@ export interface operations {
                      *         "error": null,
                      *         "checked_at": "2026-11-25T00:00:00.000Z"
                      *       },
+                     *       "reauthorization": null,
                      *       "warnings": [],
                      *       "config_token": "active"
                      *     }
@@ -42952,6 +43181,7 @@ export interface operations {
                      *         "error": null,
                      *         "checked_at": "2026-11-25T00:00:00.000Z"
                      *       },
+                     *       "reauthorization": null,
                      *       "warnings": [],
                      *       "config_token": "active"
                      *     }

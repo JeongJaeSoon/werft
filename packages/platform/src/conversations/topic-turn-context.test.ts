@@ -246,3 +246,31 @@ describe("topicTurnContexts", () => {
     expect(s.deleted).toEqual([{ workspaceId: W, sources }]);
   });
 });
+
+describe("the channel summary a read tool shows", () => {
+  test("is the summary lines of the conversation's own scopes, with their sources, nothing else read", async () => {
+    const elsewhere: ContextFragment = {
+      ...line,
+      scope: scopeKeyOf({
+        kind: "channel",
+        workspaceId: W,
+        teamId: "T1",
+        channelId: "C0OTHER",
+      }),
+      text: "another channel's line",
+    };
+    const s = sourceOf([line, answer(1, 3), elsewhere]);
+    const contexts = topicTurnContexts(s.source);
+    expect(await contexts.channelSummary(topic)).toEqual({
+      outcome: "read",
+      lines: [{ text: "the summary", writtenAt: at(1), sources: line.sources }],
+    });
+    expect(
+      await contexts.channelSummary({
+        ...topic,
+        conversationId:
+          "00000000-0000-4000-8000-0000000000d2" as ConversationId,
+      }),
+    ).toEqual({ outcome: "unknown_conversation" });
+  });
+});

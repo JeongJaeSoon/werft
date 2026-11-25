@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   CONVERSATION_TURN_MODEL_CALL_LIMIT,
+  CONVERSATION_TURN_TOOL_CALL_LIMIT,
   type ConversationCallClass,
   type ConversationId,
   type ConversationKind,
@@ -687,11 +688,14 @@ export function createPostgresConversationCalls(
         const p = conversationTurnPermits;
         // The permit first, as a call on it takes it.
         const [permit] = await tx
-          .select({ refusal: p.refusal })
+          .select({ refusal: p.refusal, toolCalls: p.toolCalls })
           .from(p)
           .where(eq(p.turnId, turnId))
           .for("update");
         const refusal = permit?.refusal ?? null;
+        // The refused call is counted too: past the limit means one was.
+        const toolCallRefused =
+          (permit?.toolCalls ?? 0) > CONVERSATION_TURN_TOOL_CALL_LIMIT;
         const [turn] = await tx
           .select({ state: conversationTurns.state })
           .from(conversationTurns)
@@ -706,7 +710,7 @@ export function createPostgresConversationCalls(
         if (turn.state !== "running") {
           return { ended: "already_ended" as const, refusal, limit: null };
         }
-        const limit = limitReached?.(refusal) ?? null;
+        const limit = limitReached?.(refusal, toolCallRefused) ?? null;
         await tx
           .update(conversationTurns)
           .set({

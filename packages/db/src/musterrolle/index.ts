@@ -14,4 +14,8 @@ export {
   enqueueRuntimeRetiredNotices,
   enqueueWorkerImageReplacedNotices,
 } from "./model-cut-notices.ts";
-export { behindPrivateChannel, sessionVisibleTo } from "./session-shares.ts";
+export {
+  behindPrivateChannel,
+  channelKindOf,
+  sessionVisibleTo,
+} from "./session-shares.ts";

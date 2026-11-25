@@ -103,6 +103,10 @@ export const slackKo = {
     "manifest를 Slack에 다시 보냈습니다. 앱에 새 권한이 더해져, 앱을 다시 설치해야 적용됩니다.",
   "slack.eventsUrl.sent":
     "Request URL을 Slack에 다시 보냈습니다. 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다. 확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Retry를 누르세요.",
+  "slack.reauthorize.needed": "Slack 재승인 필요",
+  "slack.reauthorize.body":
+    "이 앱에 새 권한({scopes})이 더해졌지만 지금 설치는 아직 승인하지 않았습니다. 다시 승인할 때까지 이 권한이 필요한 기능만 꺼져 있고, 나머지는 그대로 동작합니다. 다시 승인을 누르면 앱 설정을 Slack에 보낸 뒤 Slack의 승인 화면으로 이동합니다.",
+  "slack.reauthorize.action": "다시 승인",
   "slack.manifestSync.needed": "갱신 필요",
   "slack.manifestSync.config_token_inactive":
     "App Configuration Token이 활성 상태가 아니어서 Werft가 이 앱의 Slack 설정을 확인하거나 갱신하지 못했습니다. 새로 더해진 이벤트를 받지 못할 수 있습니다. 토큰을 다시 넣은 뒤 다시 확인을 누르세요.",

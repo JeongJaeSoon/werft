@@ -1210,7 +1210,7 @@ describe("a prompt card whose requester left", () => {
       .map((element) => element.text)
       .filter((text): text is string => typeof text === "string");
 
-  test("a tool permission card says so and loses its session button and rules line, in every language (94S-2215)", () => {
+  test("a tool permission card says so and keeps its session button and rules line, in every language", () => {
     for (const locale of USER_LOCALE_VALUES) {
       const copy = SLACK_PROMPT_MESSAGES[locale];
       const card = slackPromptMessage(
@@ -1230,16 +1230,13 @@ describe("a prompt card whose requester left", () => {
         ),
       ).toBe(true);
       const left = slackRequesterLeftCard(card, locale);
-      expect(ids(left.blocks)).toEqual([
-        SLACK_INTERACTION_ACTIONS.permissionAllow,
-        SLACK_INTERACTION_ACTIONS.permissionAllowNote,
-        SLACK_INTERACTION_ACTIONS.permissionDeny,
-      ]);
+      // A member's session allow is bound to that member, as anyone's.
+      expect(ids(left.blocks)).toEqual(ids(card.blocks));
       expect(
         texts(left.blocks).some((text) =>
           text.startsWith(`${copy.allowSession}: `),
         ),
-      ).toBe(false);
+      ).toBe(true);
       expect(texts(left.blocks)).toContain(
         `:information_source: ${copy.pushRequesterLeft}`,
       );

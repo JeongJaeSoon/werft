@@ -19,6 +19,7 @@ export * from "./conversation-calls.ts";
 export * from "./conversations/channel-summaries.ts";
 export * from "./conversations/context-fragments.ts";
 export * from "./conversations/conversation-inputs.ts";
+export { createPostgresConversationReadToolStore } from "./conversations/conversation-read-tools.ts";
 export * from "./conversations/conversation-store.ts";
 export { createPostgresConversationTurnQueue } from "./conversations/conversation-turn-queue.ts";
 export {
@@ -149,4 +150,5 @@ export * from "./telemetry-ingest-store.ts";
 export * from "./usage/agent-usage.ts";
 export * from "./usage/metrics-reader.ts";
 export * from "./usage/usage-reader.ts";
+export * from "./werft-mcp/status.ts";
 export { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
