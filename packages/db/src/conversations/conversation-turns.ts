@@ -16,7 +16,7 @@ import {
 import { sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
-import { lockedDeletedSource } from "./deleted-sources.ts";
+import { lockedDeletedSource, lockedReadChanges } from "./deleted-sources.ts";
 
 /** The SHA-256 a web input's retry is compared on, of its text as UTF-8. */
 export function webInputBodyHash(body: string): Buffer {
@@ -54,6 +54,12 @@ export async function insertWebInputTurn(
   return id;
 }
 
+const BEGUN_REQUESTER_KINDS: readonly string[] = [
+  "user",
+  "slack_user",
+  "slack_bot",
+];
+
 export type BeginConversationTurn = {
   workspaceId: string;
   agentId: string;
@@ -90,6 +96,13 @@ export function beginConversationTurn(
   input: BeginConversationTurn,
 ): Promise<BegunConversationTurn> {
   const agentId = input.agentId.toLowerCase();
+  // An operator's turn is the operator command's alone: its kind is given
+  // every decision tool, which no Slack or user path may reach.
+  if (!BEGUN_REQUESTER_KINDS.includes(input.requester.kind)) {
+    throw new RangeError(
+      `A conversation turn's requester is not of kind ${input.requester.kind}`,
+    );
+  }
   return db.transaction(async (tx) => {
     const set = sourceSetOf(input.sources);
     const engaged = input.engagement;
@@ -201,6 +214,60 @@ export function endConversationTurn(
       WHERE id = ${input.turnId}::uuid`);
     return "recorded";
   });
+}
+
+/**
+ * Check spot ② for a conversation turn's decision, with a1/J6's lock and
+ * check: the mark lock of every message the turn read, held to the end of
+ * the caller's transaction, and whether one was deleted. A turn whose
+ * sources overflowed is held to every delete in its channel since it began;
+ * one with no channel to hold that to is void. Takes no row lock: a caller
+ * locks the turn after, as a delete takes marks before the rows holding
+ * them. `sources` is the set as checked, for a caller to see it unchanged.
+ */
+export async function lockedTurnReadDeleted(
+  tx: Database,
+  turnId: ConversationTurnId,
+): Promise<{ deleted: boolean; sources: unknown } | null> {
+  const [turn] = rowsOf<{
+    workspace_id: string;
+    sources: unknown;
+    created_at: string;
+    team_id: string | null;
+    channel_id: string | null;
+  }>(
+    await tx.execute(sql`
+      SELECT ct.workspace_id, ct.sources, ct.created_at::text AS created_at,
+        COALESCE(tp.slack_team_id, c.team_id) AS team_id,
+        COALESCE(tp.slack_channel_id, c.channel_id) AS channel_id
+      FROM conversation_turns ct
+      JOIN conversations c ON c.id = ct.conversation_id
+      LEFT JOIN conversation_topics tp ON tp.id = ct.topic_id
+      WHERE ct.id = ${turnId}::uuid AND ct.origin = 'm2'`),
+  );
+  if (turn === undefined) return null;
+  const set = sourceSetOf(turn.sources);
+  if (turn.team_id === null || turn.channel_id === null) {
+    const deleted =
+      set.overflow ||
+      (await lockedDeletedSource(tx, {
+        workspaceId: turn.workspace_id,
+        sessionId: null,
+        sources: turn.sources,
+        throughTurn: null,
+      })) !== null;
+    return { deleted, sources: turn.sources };
+  }
+  const changes = await lockedReadChanges(tx, {
+    workspaceId: turn.workspace_id,
+    teamId: turn.team_id,
+    channelId: turn.channel_id,
+    messages: [],
+    context: [...set.direct, ...set.inherited],
+    readAt: sql`${turn.created_at}::timestamptz`,
+    overflow: set.overflow,
+  });
+  return { deleted: changes.contextDeleted, sources: turn.sources };
 }
 
 export type WebInputTurnsBackfilled = {

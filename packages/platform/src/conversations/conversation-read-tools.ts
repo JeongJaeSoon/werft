@@ -2,11 +2,14 @@ import {
   CONVERSATION_READ_LIST_LIMIT,
   CONVERSATION_READ_TOOL_RESULT_MAX_BYTES,
   CONVERSATION_THREAD_READ_MESSAGE_LIMIT,
+  type ConversationDecision,
+  type ConversationDecisionToolResponse,
   type ConversationReadTool,
   type ConversationReadToolRefusal,
   type ConversationRuntimeId,
   type ConversationTurnId,
   type ConversationTurnLeaseId,
+  conversationDecisionTools,
 } from "@werft-ai/contracts";
 import type {
   ConversationReadToolStore,
@@ -21,6 +24,12 @@ import type {
 } from "../surface/ports/channel-member-checkable.ts";
 import { type TopicTurnContexts, truncatePost } from "./context-assembler.ts";
 import { placeSource, type SourceKey } from "./source-sets.ts";
+
+export type ConversationDecisionToolOutcome =
+  | ConversationDecisionToolResponse
+  | { outcome: "unknown_turn" }
+  | { outcome: "not_holder" }
+  | { outcome: "lease_expired" };
 
 export type ConversationReadToolOutcome =
   | { outcome: "read"; text: string }
@@ -263,10 +272,11 @@ export function createConversationReadTools(deps: {
     return { outcome: "read", text };
   }
 
-  async function listTasks(
+  // The tasks list_open_tasks lists, and the only ones route_to_task names.
+  function openTasks(
     turn: ConversationToolTurn,
     member: ChannelMembership | null,
-  ): Promise<ConversationReadToolOutcome> {
+  ) {
     const viewer: SessionViewer | null =
       turn.requester.kind === "user"
         ? {
@@ -275,15 +285,23 @@ export function createConversationReadTools(deps: {
             privateChannels: member === "member" ? [turn.conversationId] : [],
           }
         : null;
-    const tasks = await deps.store.openTasks({
+    return deps.store.openTasks({
       turn,
       viewer,
       limit: CONVERSATION_READ_LIST_LIMIT,
     });
+  }
+
+  async function listTasks(
+    turn: ConversationToolTurn,
+    member: ChannelMembership | null,
+  ): Promise<ConversationReadToolOutcome> {
+    const tasks = await openTasks(turn, member);
     const text = fitted(
       { read: "open_tasks" },
       "tasks",
       tasks.map((task) => ({
+        task_id: task.sessionId,
         name: task.title,
         status: task.status,
         created_at: task.createdAt.toISOString(),
@@ -298,7 +316,64 @@ export function createConversationReadTools(deps: {
     return { outcome: "read", text };
   }
 
+  // Decision 26's door, apart from the conversation's own scope: what
+  // cannot be confirmed keeps it shut. Null when no door is asked.
+  async function door(
+    turn: ConversationToolTurn,
+  ): Promise<ChannelMembership | null | "shut"> {
+    if (turn.place.kind !== "channel" || !turn.place.private) return null;
+    const member = await memberNow(turn, turn.place.channelId);
+    return member !== null && member !== "member" ? "shut" : member;
+  }
+
   return {
+    /**
+     * A decision tool call: counted as a tool call, refused when the turn's
+     * requester's kind is not given the tool (G2, by the server's value),
+     * and for route_to_task, when it names no open task the requester sees.
+     * Nothing is written: the turn's end writes the decision it ended on.
+     */
+    async decide(request: {
+      runtimeId: ConversationRuntimeId;
+      turnId: ConversationTurnId;
+      leaseId: ConversationTurnLeaseId;
+      decision: ConversationDecision;
+    }): Promise<ConversationDecisionToolOutcome> {
+      const { decision, ...lease } = request;
+      const admitted = await deps.store.admit({
+        ...lease,
+        tool: decision.tool,
+        now: now(),
+      });
+      switch (admitted.outcome) {
+        case "tool_call_limit":
+          return { outcome: "refused", reason: "tool_call_limit" };
+        case "thread_read_limit":
+          throw new Error("A decision tool is not a thread read");
+        case "admitted":
+          break;
+        default:
+          return admitted;
+      }
+      const { turn } = admitted;
+      if (
+        !conversationDecisionTools(turn.requester.kind).includes(decision.tool)
+      ) {
+        return { outcome: "refused", reason: "tool_not_allowed" };
+      }
+      if (decision.tool === "route_to_task") {
+        const member = await door(turn);
+        if (member === "shut") {
+          return { outcome: "refused", reason: "not_channel_member" };
+        }
+        const tasks = await openTasks(turn, member);
+        if (!tasks.some((task) => task.sessionId === decision.task_id)) {
+          return { outcome: "refused", reason: "unknown_task" };
+        }
+      }
+      return { outcome: "accepted" };
+    },
+
     async call(request: {
       runtimeId: ConversationRuntimeId;
       turnId: ConversationTurnId;
@@ -316,14 +391,9 @@ export function createConversationReadTools(deps: {
           return admitted;
       }
       const { turn } = admitted;
-      // Decision 26's door, apart from the conversation's own scope: what
-      // cannot be confirmed keeps it shut.
-      let member: ChannelMembership | null = null;
-      if (turn.place.kind === "channel" && turn.place.private) {
-        member = await memberNow(turn, turn.place.channelId);
-        if (member !== null && member !== "member") {
-          return { outcome: "refused", reason: "not_channel_member" };
-        }
+      const member = await door(turn);
+      if (member === "shut") {
+        return { outcome: "refused", reason: "not_channel_member" };
       }
       switch (request.tool) {
         case "read_thread":

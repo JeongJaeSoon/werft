@@ -429,15 +429,20 @@ EGRESS_PRIVATE_ALLOWLIST=api:3200,host.docker.internal:3200,api:4319
 대화 런타임은 worker 이미지를 대화용 진입점(`apps/worker/src/conversation/main.ts`)으로 띄운 process 하나다. 설치 안 모든 에이전트의 대화 턴을 함께 돌린다. 기본은 꺼져 있고, 시험 스택에서만 켠다. 사람의 메시지를 이 런타임으로 넘기는 길은 아직 없다. 턴은 운영자가 api 컨테이너에서 `bun run apps/control-host/src/api/conversation-turn.ts`를 돌릴 때만 시작한다.
 
 - 런타임은 provider 키를 갖지 않는다. 턴마다 호출 허가를 받아 egress proxy의 credential route로 보내고, proxy가 키를 붙인다. 한 턴은 provider를 8번까지 부른다. 도구 결과를 받은 뒤의 호출도 하나씩 센다.
-- workspace volume과 저장소 checkout이 없다. 엔진의 내장 도구는 모두 막는다. 엔진이 부를 수 있는 것은 아래 읽기 도구 네 개뿐이다. 목록에 없는 도구는 엔진에 실리지 않고, 불러도 실행되지 않는다.
+- workspace volume과 저장소 checkout이 없다. 엔진의 내장 도구는 모두 막는다. 엔진이 부를 수 있는 것은 아래 읽기 도구 넷과 결정 도구뿐이다. 목록에 없는 도구는 엔진에 실리지 않고, 불러도 실행되지 않는다.
 - 읽기 도구: 인자를 받지 않는다. 무엇을 읽을지는 api가 턴의 lease로 정한다. 그 턴의 대화 밖은 읽지 않는다.
   - `read_thread`: 지금 주제의 Slack 스레드를 첫 글부터 50개까지 읽는다(`conversations.replies`). 앱이 이미 가진 history 범위를 쓰므로 Slack 앱을 다시 설치하지 않아도 된다. 한 턴에 2번까지다. Slack이 429로 답하면 그 턴에서는 다시 부르지 않고, 턴은 요약과 턴 기록으로 이어 간다. 다른 조직과 공유한 채널에서는 거절된다. 게스트, 다른 조직 사람, 작성자를 확인하지 못한 글은 모델에 가기 전에 빼고 뺀 수만 알린다. 지워진 글도 뺀다.
   - `read_channel_summary`: 대화 채널의 요약 줄. 출처 글이 지워진 줄은 없다.
   - `read_turns`: 이 대화의 끝난 턴 20개(끝난 때, 결정과 이유, 답). 지워진 글이 들어간 턴은 뺀다.
-  - `list_open_tasks`: 이 대화에서 시작해 아직 끝나지 않은 작업 20개(이름, 상태, 시작 시각). 요청자가 사람이면 그 사람이 볼 수 있는 작업만 보인다. 요청자가 없는 턴(운영자 명령)은 사람에게만 공유한 작업을 보지 못한다.
+  - `list_open_tasks`: 이 대화에서 시작해 아직 끝나지 않은 작업 20개(id, 이름, 상태, 시작 시각). 요청자가 사람이면 그 사람이 볼 수 있는 작업만 보인다. 요청자가 없는 턴(운영자 명령)은 사람에게만 공유한 작업을 보지 못한다.
   - 비공개 채널의 대화에서는 요청자가 지금 그 채널의 구성원이어야 한다. 아니거나 확인하지 못하면 거절된다.
   - 결과는 12 KiB까지이고, 지시가 아니라 데이터라는 문구가 앞에 붙는다. 읽은 글은 그 턴의 출처에 더해지고, 그 글이 지워지면 주제 세션을 버린다.
   - api는 턴마다 도구 호출을 세어 13번째를 거절한다. 그 턴은 `tool_call_limit`으로 끝나고, 지킨 쪽은 `server`로 남는다.
+- 결정 도구: 턴은 결정 하나로 끝난다. `reply`(답하기: `body`, `reason`), `route_to_task`(열린 작업에 넘기기: `list_open_tasks`가 준 `task_id`, `reason`), `spawn_task`(새 작업 만들기: `spec`, `reason`), `no_reply`(조용히 있기: `reason`).
+  - 요청자가 사람(웹 사용자, Slack 사용자)이거나 운영자 명령이면 넷 모두를, 다른 에이전트(Slack bot)이면 `reply`와 `no_reply`만 엔진에 싣는다. 요청자는 api가 기록한 값이고, 글 본문에 적힌 이름은 쓰지 않는다. api는 도구를 부를 때와 결정을 쓸 때 다시 검사한다.
+  - 결정 도구 호출도 읽기 도구와 함께 센다. api는 결정을 받아 두기만 하고, 턴이 끝날 때 턴 기록에 결정과 이유를 쓴다. 답의 본문은 `reply`의 것만 남는다. `task_id`와 `spec`은 저장하지 않는다.
+  - 결정을 쓰기 직전에 그 턴이 읽은 글이 지워졌는지 다시 본다. 지워졌으면 결정을 버리고 `voided_by_delete`로 남긴다. 결정 없이 끝난 턴(상한, 오류)은 `no_decision`이다.
+  - 아직 결정은 효과가 없다. Slack에 올리지 않고, 작업을 만들거나 넘기지 않는다.
 - 주제 세션: 주제(Slack 스레드 하나)마다 엔진 process 하나와 메모리 안 임시 디렉터리 하나를 둔다. 같은 주제의 다음 턴은 그 엔진에서 앞 대화를 이어 쓴다. 마지막 턴이 끝나고 10분 쉬면 세션을 버리고 디렉터리를 지운다. 그 뒤의 턴은 api가 조립한 맥락(채널 요약, 그 주제의 앞 답, 버퍼의 글)으로 새 엔진에서 시작한다. 엔진의 대화 압축과 이어 하기(resume)는 쓰지 않는다.
 - api는 런타임이 턴을 가져갈 때마다 그 세션이 읽은 글이 지워졌는지 다시 본다. 지워졌거나 확인하지 못하면, 또 턴이 실패했거나 세션의 대화가 96 KiB를 넘으면 세션을 버리고 새로 시작한다. 런타임을 다시 띄우면 살아 있던 세션은 없다.
 - 런타임 하나는 세션을 8개까지 둔다. 하나 더 열면 가장 오래 쉰 세션을 버린다. 한 턴을 마치고 쉬는 엔진 하나는 RSS 약 215 MiB다(macOS arm64에서 잰 값). chart의 메모리(`conversationRuntime.resources`)는 request와 limit 모두 2560Mi다. 엔진 8개, 런타임 loop, 주제 디렉터리 tmpfs(256Mi)와 여유를 더한 값이다.
@@ -447,7 +452,7 @@ EGRESS_PRIVATE_ALLOWLIST=api:3200,host.docker.internal:3200,api:4319
 
 | 변수 | 읽는 곳 | 기본값 | 허용 범위 |
 |---|---|---|---|
-| `CONVERSATION_RUNTIME_TOKEN` | api, 대화 런타임(같은 값) | 없음 | 최소 32자. 런타임의 세 route(`/internal/conversation-runtime/next-turn`, `/internal/conversation-runtime/turn-result`, `/internal/conversation-runtime/read-tool`)만 여는 bearer다. 다른 `/internal` route에 내면 403이다. api에 없으면 세 route와 운영자 명령이 꺼지고, 런타임에 없으면 런타임이 기동을 거부한다. Helm에서는 Secret의 같은 이름 key |
+| `CONVERSATION_RUNTIME_TOKEN` | api, 대화 런타임(같은 값) | 없음 | 최소 32자. 런타임의 네 route(`/internal/conversation-runtime/next-turn`, `/internal/conversation-runtime/turn-result`, `/internal/conversation-runtime/read-tool`, `/internal/conversation-runtime/decision-tool`)만 여는 bearer다. 다른 `/internal` route에 내면 403이다. api에 없으면 네 route와 운영자 명령이 꺼지고, 런타임에 없으면 런타임이 기동을 거부한다. Helm에서는 Secret의 같은 이름 key |
 | `CONVERSATION_RUNTIME_TOKEN_PREVIOUS` | api | 없음 | 바꾸는 중인 옛 bearer. 새 값과 함께 받는다. 옛 값을 여기에, 새 값을 `CONVERSATION_RUNTIME_TOKEN`에 두고 api와 런타임을 다시 띄운 뒤 이 값을 지운다 |
 | `CONVERSATION_TURN_DISPATCH` | api | `false` | 사람의 메시지를 대화 턴으로 넘기는 스위치. 끈 채로 둔다. 턴 줄이 메모리에 있는 동안 켜면 api가 기동을 거부한다 |
 | `CONVERSATION_TURN_SOCKET` | api | `/tmp/werft-conversation-turns.sock` | 운영자 명령이 api에 턴을 맡기는 unix socket 경로. 같은 컨테이너 안에서만 닿는다 |

@@ -21,7 +21,7 @@ export function registerInternalApiRoutes(
     tracing: RequestTracing;
     conversationRuntime?: {
       turns: ConversationRuntimeTurns;
-      readTools: Pick<ConversationReadTools, "call">;
+      readTools: Pick<ConversationReadTools, "call" | "decide">;
       isRuntimeBearer: (token: string | null) => boolean;
     };
     stop?: AbortSignal;

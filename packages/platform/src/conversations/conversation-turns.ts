@@ -232,7 +232,10 @@ export function sameResult(
 ): boolean {
   if (outcome.outcome !== result.outcome) return false;
   if (outcome.outcome === "completed" && result.outcome === "completed") {
-    return outcome.text === result.text;
+    return (
+      outcome.text === result.text &&
+      JSON.stringify(outcome.decision) === JSON.stringify(result.decision)
+    );
   }
   if (outcome.outcome === "failed" && result.outcome === "failed") {
     return (

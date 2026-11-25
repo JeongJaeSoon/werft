@@ -202,10 +202,15 @@ function operatorHarness(
       async endTurn(turnId, outcome) {
         ended.push(turnId);
         const refusal = options.refusal ?? null;
+        const decided =
+          outcome?.outcome === "completed" && outcome.decision !== undefined;
         return {
           ended: "recorded",
+          state: decided ? "decided" : "no_decision",
           refusal,
-          limit: conversationTurnLimitReached(outcome ?? null, refusal),
+          limit: decided
+            ? null
+            : conversationTurnLimitReached(outcome ?? null, refusal),
         };
       },
     },
@@ -260,6 +265,37 @@ describe("an operator's conversation turn", () => {
     expect(h.issued).toEqual([]);
   });
 
+  test("is given every decision tool, and ends on the decision its runtime reports", async () => {
+    const h = operatorHarness({ realTime: true });
+    expect(await h.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
+    const running = h.operator.run(h.request);
+    const turn = await h.turns.nextTurn({ runtimeId, waitMs: 2_000 });
+    if (turn === null) throw new Error("the turn was not queued");
+    expect(turn.decision_tools).toEqual([
+      "reply",
+      "route_to_task",
+      "spawn_task",
+      "no_reply",
+    ]);
+    const result = {
+      outcome: "completed",
+      text: "",
+      decision: { tool: "no_reply", reason: "not for the agent" },
+    } as const;
+    await h.turns.turnResult({
+      runtimeId,
+      turnId: turn.turn_id,
+      leaseId: turn.lease_id,
+      result,
+    });
+    expect(await running).toEqual({
+      outcome: "ended",
+      turn_id: turn.turn_id,
+      turn: result,
+      recorded: "decided",
+    });
+  });
+
   test("writes the turn with its permit, queues it with its scope, and ends it once the runtime reports", async () => {
     const h = operatorHarness({ realTime: true });
     // A runtime is polling.
@@ -296,6 +332,7 @@ describe("an operator's conversation turn", () => {
       outcome: "ended",
       turn_id: turn.turn_id,
       turn: { outcome: "completed", text: "hi" },
+      recorded: "no_decision",
     });
     // Its row and permit end with it: no call is granted on it after.
     expect(h.ended).toEqual([turn.turn_id]);
@@ -528,5 +565,26 @@ describe("an operator's call is the operator command's alone", () => {
       "apps/control-host/src/api/conversation-runtime.ts",
       "apps/control-host/src/api/server.ts",
     ]);
+  }, 30_000);
+
+  test("an operator's turn, given every decision tool, is written by the operator's issue alone", () => {
+    // The one writer of a turn's requester as the operator: its store, called
+    // by issueOperatorTurn only. beginConversationTurn, every other path's,
+    // refuses the kind.
+    expect(naming("issueTurnPermitAtomic")).toEqual([
+      "packages/db/src/conversation-calls.ts",
+      "packages/platform/src/limits/conversation-calls.ts",
+      "packages/platform/src/limits/ports/conversation-call-store.ts",
+    ]);
+    const calls = readFileSync(
+      join(root, "packages/platform/src/limits/conversation-calls.ts"),
+      "utf8",
+    );
+    expect(calls.match(/\.issueTurnPermitAtomic\(/g)).toHaveLength(1);
+    const operatorTurn = calls.slice(calls.indexOf("async issueOperatorTurn("));
+    expect(operatorTurn.indexOf(".issueTurnPermitAtomic(")).toBeGreaterThan(0);
+    expect(operatorTurn.indexOf(".issueTurnPermitAtomic(")).toBeLessThan(
+      operatorTurn.indexOf("endTurn("),
+    );
   }, 30_000);
 });

@@ -329,6 +329,9 @@ export function createConversationCalls(deps: {
     endTurn(turnId: ConversationTurnId, outcome?: ConversationTurnOutcome) {
       return deps.store.endTurnAtomic({
         turnId,
+        ...(outcome?.outcome === "completed" && outcome.decision !== undefined
+          ? { decision: outcome.decision }
+          : {}),
         limitReached: (refusal, toolCallRefused) =>
           conversationTurnLimitReached(
             outcome ?? null,

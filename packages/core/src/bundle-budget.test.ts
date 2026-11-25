@@ -43,8 +43,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // to 150. The installation's GitHub webhook settings and their per-App
   // update answers fit under both. The worker's session allow check route
   // and its capability put ./schemas 17 bytes over 152, so it moves to 153.
+  // The conversation turn's decision tools and their decision put ./forms
+  // 110 bytes over 150, so it moves to 151.
   "./schemas": 153 * 1024,
-  "./forms": 150 * 1024,
+  "./forms": 151 * 1024,
 };
 
 test("every entry has a budget", () => {

@@ -1,11 +1,14 @@
 import {
   apiErrorResponseSchema,
   CONVERSATION_RUNTIME_ROUTE_PREFIX,
+  type ConversationDecision,
+  type ConversationDecisionToolResponse,
   type ConversationReadTool,
   type ConversationReadToolResponse,
   type ConversationRuntimeId,
   type ConversationRuntimeTurn,
   type ConversationTurnResult,
+  conversationDecisionToolResponseSchema,
   conversationNextTurnResponseSchema,
   conversationReadToolResponseSchema,
   conversationTurnResultResponseSchema,
@@ -37,6 +40,12 @@ export interface ConversationTurnSource {
     tool: ConversationReadTool,
     signal: AbortSignal,
   ): Promise<ConversationReadToolResponse | { outcome: "turn_not_held" }>;
+  /** One decision tool call, as readTool. */
+  decisionTool(
+    turn: Pick<ConversationRuntimeTurn, "turn_id" | "lease_id">,
+    decision: ConversationDecision,
+    signal: AbortSignal,
+  ): Promise<ConversationDecisionToolResponse | { outcome: "turn_not_held" }>;
 }
 
 /** Only the call this client makes, so a test double need not be a whole fetch. */
@@ -144,6 +153,36 @@ export class HttpConversationTurnSource implements ConversationTurnSource {
     );
     if (response.ok) {
       return conversationReadToolResponseSchema.parse(await response.json());
+    }
+    if ([403, 404, 409].includes(response.status)) {
+      await response.body?.cancel();
+      return { outcome: "turn_not_held" };
+    }
+    throw await refusal(response);
+  }
+
+  async decisionTool(
+    turn: Pick<ConversationRuntimeTurn, "turn_id" | "lease_id">,
+    decision: ConversationDecision,
+    signal: AbortSignal,
+  ): Promise<ConversationDecisionToolResponse | { outcome: "turn_not_held" }> {
+    const response = await this.post(
+      "/decision-tool",
+      {
+        runtime_id: this.options.runtimeId,
+        turn_id: turn.turn_id,
+        lease_id: turn.lease_id,
+        decision,
+      },
+      AbortSignal.any([
+        signal,
+        AbortSignal.timeout(this.options.requestTimeoutMs),
+      ]),
+    );
+    if (response.ok) {
+      return conversationDecisionToolResponseSchema.parse(
+        await response.json(),
+      );
     }
     if ([403, 404, 409].includes(response.status)) {
       await response.body?.cancel();

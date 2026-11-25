@@ -92,6 +92,38 @@ describe("localToolRelay", () => {
     expect(ran).toEqual(["read_turns"]);
   });
 
+  test("a tool with a schema lists it and is handed its call's input, to judge itself", async () => {
+    const taken: unknown[] = [];
+    const schema = {
+      type: "object",
+      properties: { reason: { type: "string", minLength: 1 } },
+      required: ["reason"],
+      additionalProperties: false,
+    };
+    const { client } = await connected({
+      name: "conversation",
+      binding: "conversation-tools-2",
+      tools: [
+        {
+          name: "no_reply",
+          description: "Stays quiet.",
+          inputSchema: schema,
+          call: async (_signal, input) => {
+            taken.push(input);
+            return { text: "taken", isError: false };
+          },
+        },
+      ],
+    });
+    expect((await client.listTools()).tools as unknown[]).toEqual([
+      { name: "no_reply", description: "Stays quiet.", inputSchema: schema },
+    ]);
+    expect(
+      await client.callTool({ name: "no_reply", arguments: { reason: "r" } }),
+    ).toEqual({ content: [{ type: "text", text: "taken" }] });
+    expect(taken).toEqual([{ reason: "r" }]);
+  });
+
   test("a handler that throws is an error result that says nothing of why", async () => {
     const { client } = await connected(server);
     expect(

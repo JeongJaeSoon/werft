@@ -1,11 +1,14 @@
 import {
+  CONVERSATION_DECISION_TOOL_NAMES,
   CONVERSATION_READ_TOOL_NAMES,
+  CONVERSATION_TOOL_SERVER,
   CONVERSATION_TOPIC_SESSION_MAX_BYTES,
   CONVERSATION_TURN_LIMIT_MS,
   CONVERSATION_TURN_MODEL_CALL_LIMIT,
   CONVERSATION_TURN_TEXT_MAX,
   CONVERSATION_TURN_TOOL_CALL_LIMIT,
   type ConversationRuntimeTurn,
+  type ConversationTurnDecision,
   type ConversationTurnLimit,
   type ConversationTurnResult,
 } from "@werft-ai/contracts";
@@ -32,13 +35,33 @@ export interface ConversationTurnRunner {
 export const CONVERSATION_BUILTIN_TOOLS: readonly string[] = [];
 
 /**
- * Every tool a conversation turn's engine is given: the read tools of the
- * runtime's own server, a fixed list, and nothing built in.
+ * Every tool a conversation turn's engine may be given: the read tools and
+ * the decision tools of the runtime's own server, a fixed list, and nothing
+ * built in. A turn is given the decision tools the server chose for it.
  */
 export const CONVERSATION_TURN_TOOLS: readonly string[] = [
   ...CONVERSATION_BUILTIN_TOOLS,
   ...CONVERSATION_READ_TOOL_NAMES,
+  ...CONVERSATION_DECISION_TOOL_NAMES,
 ];
+
+/** The decision tools a turn's engine is given; absent, the fewest. */
+export function turnDecisionTools(
+  turn: ConversationRuntimeTurn,
+): readonly ConversationTurnDecision[] {
+  return turn.decision_tools ?? ["reply", "no_reply"];
+}
+
+/** The tools a turn's engine is started with. */
+export function turnTools(turn: ConversationRuntimeTurn): string[] {
+  return [
+    ...CONVERSATION_BUILTIN_TOOLS,
+    ...CONVERSATION_READ_TOOL_NAMES,
+    ...turnDecisionTools(turn).map(
+      (tool) => `mcp__${CONVERSATION_TOOL_SERVER}__${tool}`,
+    ),
+  ];
+}
 
 const utf8 = new TextEncoder();
 // As a request body carries it: quoted and escaped.
@@ -48,14 +71,16 @@ const bytesOf = (text: string) => utf8.encode(JSON.stringify(text)).length;
 // and what the engine attaches to a prompt.
 const TURN_OVERHEAD_BYTES = 1_024;
 
-// The engine was started on one model, provider and output cap: a turn on
-// others starts its own.
+// The engine was started on one model, provider, output cap and set of
+// decision tools: a turn on others starts its own, so no turn is given a
+// tool its requester is not.
 const startedFor = (turn: ConversationRuntimeTurn) =>
   JSON.stringify([
     turn.model,
     turn.provider.kind,
     turn.provider.endpoint,
     turn.call.max_tokens,
+    turnDecisionTools(turn),
   ]);
 
 /** The provider's id for the message an event's block is from, when it gave one. */
@@ -98,7 +123,7 @@ export function createConversationTurnRunner(deps: {
     "hold" | "release" | "url" | "requestBytes" | "responseBytes"
   >;
   /** The read tools each session's engine calls, held to the running turn. */
-  tools: Pick<ConversationTools, "hold" | "release" | "server">;
+  tools: Pick<ConversationTools, "hold" | "release" | "server" | "decision">;
   limitMs?: number;
   maxBytes?: number;
   modelCallLimit?: number;
@@ -139,7 +164,7 @@ export function createConversationTurnRunner(deps: {
               model: turn.model,
               // Nobody answers a permission request here: what is not allowed is refused.
               permissionMode: "dontAsk",
-              tools: CONVERSATION_TURN_TOOLS,
+              tools: turnTools(turn),
               disallowedTools: builtinTools,
               // The engine's own stop at the call limit, behind the count below.
               maxTurns: modelCallLimit,
@@ -164,7 +189,9 @@ export function createConversationTurnRunner(deps: {
               instructions: [],
               repoInstructions: null,
               mcpServers: [],
-              localToolServers: [deps.tools.server(permitKey)],
+              localToolServers: [
+                deps.tools.server(permitKey, turnDecisionTools(turn)),
+              ],
             },
           });
       let session: TopicSession;
@@ -269,12 +296,14 @@ export function createConversationTurnRunner(deps: {
             }
             return failed("engine_failed", engineWord);
           }
-          return cut === null
-            ? {
-                outcome: "completed",
-                text: text.slice(0, CONVERSATION_TURN_TEXT_MAX),
-              }
-            : failed("engine_failed");
+          if (cut !== null) return failed("engine_failed");
+          // The one decision the control host accepted, written at the turn's end.
+          const decision = deps.tools.decision(session.permitKey);
+          return {
+            outcome: "completed",
+            text: text.slice(0, CONVERSATION_TURN_TEXT_MAX),
+            ...(decision === undefined ? {} : { decision }),
+          };
         }
         return failed("engine_failed");
       };

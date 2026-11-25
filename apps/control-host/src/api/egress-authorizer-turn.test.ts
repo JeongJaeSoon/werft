@@ -350,6 +350,7 @@ describe("a conversation turn's provider calls", () => {
 
     expect(await calls.endTurn(second.turnId)).toEqual({
       ended: "recorded",
+      state: "no_decision",
       refusal: "budget",
       limit: null,
     });
@@ -573,6 +574,7 @@ describe("a conversation turn's limits, held by the server", () => {
       }),
     ).toEqual({
       ended: "recorded",
+      state: "no_decision",
       refusal: "turn_limit",
       limit: { limit: "model_call_limit", by: "server" },
     });

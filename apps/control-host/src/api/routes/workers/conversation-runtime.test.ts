@@ -35,10 +35,18 @@ function harness() {
     outcome: "read",
     text: "{}",
   };
-  const readTools: Pick<ConversationReadTools, "call"> = {
+  const decideCalls: unknown[] = [];
+  let decideAnswer: Awaited<ReturnType<ConversationReadTools["decide"]>> = {
+    outcome: "accepted",
+  };
+  const readTools: Pick<ConversationReadTools, "call" | "decide"> = {
     async call(input) {
       readCalls.push(input);
       return readAnswer;
+    },
+    async decide(input) {
+      decideCalls.push(input);
+      return decideAnswer;
     },
   };
   let clock = Date.parse("2026-11-24T00:00:00.000Z");
@@ -138,6 +146,10 @@ function harness() {
     answerReads(answer: typeof readAnswer) {
       readAnswer = answer;
     },
+    decideCalls,
+    answerDecisions(answer: typeof decideAnswer) {
+      decideAnswer = answer;
+    },
     advance(ms: number) {
       clock += ms;
     },
@@ -227,6 +239,7 @@ describe("the conversation runtime's routes", () => {
       "/conversation-runtime/next-turn",
       "/conversation-runtime/turn-result",
       "/conversation-runtime/read-tool",
+      "/conversation-runtime/decision-tool",
     ]) {
       expect(await errorOf(await h.post(path, null, {}))).toEqual({
         status: 401,
@@ -242,6 +255,70 @@ describe("the conversation runtime's routes", () => {
     // Nothing was handed out to the refused callers.
     expect((await h.next())?.turn_id).toBeDefined();
     expect(h.readCalls).toEqual([]);
+    expect(h.decideCalls).toEqual([]);
+  });
+
+  test("a decision tool call carries one decision of a listed tool, in its shape; the service's verdict on the turn is its status", async () => {
+    const h = harness();
+    const call = {
+      runtime_id: runtimeId,
+      turn_id: crypto.randomUUID(),
+      lease_id: crypto.randomUUID(),
+      decision: { tool: "reply", body: "Here it is.", reason: "asked" },
+    };
+    const decide = (body: unknown) =>
+      h.post("/conversation-runtime/decision-tool", CURRENT, body);
+
+    const answered = await decide(call);
+    expect([answered.status, await answered.json()]).toEqual([
+      200,
+      { outcome: "accepted" },
+    ]);
+    expect(h.decideCalls).toEqual([
+      {
+        runtimeId: call.runtime_id,
+        turnId: call.turn_id,
+        leaseId: call.lease_id,
+        decision: call.decision,
+      },
+    ]);
+    h.answerDecisions({ outcome: "refused", reason: "tool_not_allowed" });
+    const refused = await decide({
+      ...call,
+      decision: {
+        tool: "spawn_task",
+        spec: "write the report",
+        reason: "needs work",
+      },
+    });
+    expect([refused.status, await refused.json()]).toEqual([
+      200,
+      { outcome: "refused", reason: "tool_not_allowed" },
+    ]);
+
+    // Another tool, a field another tool takes, none of reason, or a bad task id.
+    for (const decision of [
+      { tool: "post_message", body: "x", reason: "r" },
+      { tool: "reply", body: "x", reason: "r", channel: "C0OTHER" },
+      { tool: "no_reply", reason: "r", body: "x" },
+      { tool: "no_reply" },
+      { tool: "reply", body: "", reason: "r" },
+      { tool: "route_to_task", task_id: "task-1", reason: "r" },
+    ]) {
+      expect((await errorOf(await decide({ ...call, decision }))).status).toBe(
+        400,
+      );
+    }
+    expect(h.decideCalls).toHaveLength(2);
+
+    for (const [outcome, status, code] of [
+      ["unknown_turn", 404, "NOT_FOUND"],
+      ["not_holder", 403, "FORBIDDEN"],
+      ["lease_expired", 409, "REQUEST_EXPIRED"],
+    ] as const) {
+      h.answerDecisions({ outcome });
+      expect(await errorOf(await decide(call))).toEqual({ status, code });
+    }
   });
 
   test("a read tool call names one listed tool and nothing else; the service's verdict on the turn is its status", async () => {

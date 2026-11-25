@@ -4,12 +4,14 @@ import type {
   ConversationCallClass,
   ConversationCallId,
   ConversationCallKey,
+  ConversationDecision,
   ConversationId,
   ConversationTopicId,
   ConversationTurnCallRefusal,
   ConversationTurnId,
   ConversationTurnLimit,
   ConversationTurnLimitSide,
+  ConversationTurnState,
 } from "@werft-ai/contracts";
 import type { BudgetRoot } from "../budget-accounts.ts";
 import type { ConversationCallLimit } from "../conversation-call-limits.ts";
@@ -76,12 +78,20 @@ export interface ConversationCallStore {
    */
   endTurnAtomic(input: {
     turnId: ConversationTurnId;
+    /**
+     * The decision the turn ended on, checked again before it is written:
+     * a tool its requester's kind is not given ends it with none, and a
+     * message it read that was deleted voids it (check spot ②).
+     */
+    decision?: ConversationDecision;
     limitReached?: (
       refusal: ConversationTurnCallRefusal | null,
       toolCallRefused: boolean,
     ) => ConversationTurnLimitReached | null;
   }): Promise<{
     ended: "recorded" | "already_ended" | "gone";
+    /** The turn's state after this, as recorded now or before; null when gone. */
+    state: ConversationTurnState | null;
     refusal: ConversationTurnCallRefusal | null;
     limit: ConversationTurnLimitReached | null;
   }>;

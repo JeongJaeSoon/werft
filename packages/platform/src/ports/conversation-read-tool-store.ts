@@ -92,7 +92,8 @@ export interface ConversationReadToolStore {
     turnId: ConversationTurnId;
     leaseId: ConversationTurnLeaseId;
     runtimeId: ConversationRuntimeId;
-    tool: ConversationReadTool;
+    /** A read tool, or a decision tool, which counts the same. */
+    tool: ConversationReadTool | ConversationTurnDecision;
     now: Date;
   }): Promise<ConversationToolAdmission>;
   /** Slack answered 429: the turn reads no thread again. */
