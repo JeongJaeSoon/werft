@@ -412,8 +412,10 @@ integration("usage breakdown on PostgreSQL", () => {
     ]);
     expect(byAgent.rows.map((r) => r.key)).toEqual([null, agentX, agentY]);
 
+    const { conversation: _talk, ...sessionTotals } = byAgent.totals;
     for (const response of [byModel, byAgent]) {
-      expect(response.totals).toEqual(byAgent.totals);
+      const { conversation: _omitted, ...totals } = response.totals;
+      expect(totals).toEqual(sessionTotals);
       expect({
         session_count: response.totals.session_count,
         token_count: response.totals.token_count,
@@ -476,8 +478,169 @@ integration("usage breakdown on PostgreSQL", () => {
         cache_creation_input_tokens: 0,
         token_count: 0,
         cost_usd: "0",
+        ...(by === "agent"
+          ? {
+              conversation: {
+                call_count: 0,
+                cost_usd: "0",
+                cost_complete: true,
+                by_class: {
+                  judgment_usd: "0",
+                  turn_usd: "0",
+                  summary_usd: "0",
+                  other_usd: "0",
+                },
+              },
+            }
+          : {}),
       });
     }
+  });
+
+  // A conversation call (94S-2234) of `agent` asked for by `who`, created at
+  // `at`: settled at `costUsd`, or reserved when it has none.
+  async function conversationCall(
+    agent: string,
+    who: keyof typeof ids | null,
+    at: string,
+    callClass: "m1" | "m2" | "summary",
+    costUsd: number | null,
+  ) {
+    const channel = `C${agent.slice(0, 8)}`;
+    await pool.query(
+      `INSERT INTO channel_contexts (id, workspace_id, team_id, channel_id)
+       VALUES ($1, $2, 'T0ACME', $3) ON CONFLICT DO NOTHING`,
+      [crypto.randomUUID(), workspaceId, channel],
+    );
+    const conversation = await pool.query<{ id: string }>(
+      `INSERT INTO conversations (id, workspace_id, agent_id, kind, team_id, channel_id)
+       VALUES ($1, $2, $3, 'channel', 'T0ACME', $4)
+       ON CONFLICT DO NOTHING RETURNING id`,
+      [crypto.randomUUID(), workspaceId, agent, channel],
+    );
+    const conversationId =
+      conversation.rows[0]?.id ??
+      (
+        await pool.query<{ id: string }>(
+          "SELECT id FROM conversations WHERE agent_id = $1 AND channel_id = $2",
+          [agent, channel],
+        )
+      ).rows[0]?.id;
+    const settled = costUsd !== null;
+    await pool.query(
+      `INSERT INTO conversation_calls (id, workspace_id, agent_id, token_hash,
+         root_kind, requester_user_id, connection_id, path, model, max_tokens,
+         max_request_bytes, state, exchange_id, expires_at, usage, cost_usd,
+         tokens, created_at, started_at, ended_at, conversation_id, call_class,
+         call_key, attempt)
+       VALUES ($1, $2, $3, convert_to($4, 'UTF8'), $5, $6, 'conn',
+         '/v1/messages', 'model', 100, 1000, $7, $8,
+         $9::timestamptz + interval '1 minute', $10::jsonb, $11, $12,
+         $9::timestamptz, $13::timestamptz, $13::timestamptz, $14, $15, $16, 1)`,
+      [
+        crypto.randomUUID(),
+        workspaceId,
+        agent,
+        crypto.randomUUID(),
+        who ? "user" : "none",
+        who ? ids[who] : null,
+        settled ? "settled" : "reserved",
+        settled ? crypto.randomUUID() : null,
+        at,
+        settled ? "{}" : null,
+        costUsd,
+        settled ? 10 : null,
+        settled ? at : null,
+        conversationId,
+        callClass,
+        `${crypto.randomUUID()}:${callClass}`,
+      ],
+    );
+  }
+
+  test("by agent puts each agent's conversation calls beside its sessions, read as the summary is", async () => {
+    await session("alice", "2011-06-01T09:00:00Z", agentX, 0.4, []);
+    await conversationCall(agentY, "alice", "2011-06-01T10:00:00Z", "m2", 0.5);
+    await conversationCall(agentY, "alice", "2011-06-01T10:01:00Z", "m1", null);
+    await conversationCall(agentX, "bob", "2011-06-02T09:00:00Z", "m1", 0.01);
+    await conversationCall(
+      agentX,
+      null,
+      "2011-06-02T09:30:00Z",
+      "summary",
+      0.002,
+    );
+    const period = { since: "2011-06-01", until: "2011-06-03" };
+    const owner = user("owner", "owner");
+    const whole = await breakdown(owner, {
+      scope: "installation",
+      ...period,
+      by: "agent",
+    });
+    const talk = (row: UsageBreakdownResponse["rows"][number] | undefined) => [
+      row?.label,
+      row?.session_count,
+      micro(row?.cost_usd ?? "0"),
+      row?.conversation?.call_count,
+      micro(row?.conversation?.cost_usd ?? "0"),
+      row?.conversation?.cost_complete,
+      micro(row?.conversation?.by_class.judgment_usd ?? "0"),
+      micro(row?.conversation?.by_class.turn_usd ?? "0"),
+      micro(row?.conversation?.by_class.summary_usd ?? "0"),
+    ];
+    // Docs writer has no session but the larger spend, so it comes first.
+    expect(whole.rows.map(talk)).toEqual([
+      ["Docs writer", 0, 0, 2, 500_000, false, 0, 500_000, 0],
+      ["Checkout fixer", 1, 400_000, 2, 12_000, true, 10_000, 0, 2_000],
+    ]);
+    expect(talk({ ...whole.totals, key: null, label: null })).toEqual([
+      null,
+      1,
+      400_000,
+      4,
+      512_000,
+      false,
+      10_000,
+      500_000,
+      2_000,
+    ]);
+    // The sessions' own figures stay the summary's.
+    const sessionsOnly = await summary(owner, {
+      scope: "installation",
+      ...period,
+    });
+    expect(micro(whole.totals.cost_usd)).toBe(micro(sessionsOnly.cost_usd));
+
+    // A member sees only the calls asked for by them.
+    const mine = await breakdown(user("alice", "member"), {
+      scope: "me",
+      ...period,
+      by: "agent",
+    });
+    expect(mine.rows.map(talk)).toEqual([
+      ["Docs writer", 0, 0, 2, 500_000, false, 0, 500_000, 0],
+      ["Checkout fixer", 1, 400_000, 0, 0, true, 0, 0, 0],
+    ]);
+    const bobs = await breakdown(user("bob", "member"), {
+      scope: "me",
+      ...period,
+      by: "agent",
+    });
+    expect(bobs.rows.map(talk)).toEqual([
+      ["Checkout fixer", 0, 0, 1, 10_000, true, 10_000, 0, 0],
+    ]);
+    // An admin reads the whole installation no more than for sessions.
+    const error = await service()
+      .getUsageBreakdown(
+        user("admin", "admin"),
+        usageBreakdownQuerySchema.parse({
+          scope: "installation",
+          ...period,
+          by: "agent",
+        }),
+      )
+      .catch((caught: unknown) => caught);
+    expect((error as SessionServiceError).code).toBe("FORBIDDEN");
   });
 
   test("scope=installation is the signed-in owner's alone", async () => {

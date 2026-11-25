@@ -681,9 +681,42 @@ export const usageSeriesResponseSchema = z
           cost_complete: z.boolean(),
           token_count: countSchema,
           run_seconds: countSchema,
+          // The conversation calls created that day, apart from the
+          // sessions' cost above; the day's whole spend is the two together.
+          conversation_cost_usd: costUsdSchema,
+          // false while one of those calls is reserved, in flight or
+          // resolved without a report.
+          conversation_cost_complete: z.boolean(),
         })
         .strict(),
     ),
+  })
+  .strict();
+
+/**
+ * An agent's conversation calls (a Slack mention or DM, not a session)
+ * created in the period, as each call settled: M1's judgment, an M2
+ * conversation turn's calls, a channel summary's, and `other` for a call
+ * from before the class was recorded, under `by_class`, whose four add up
+ * to `cost_usd`. A call
+ * reserved, in flight (its end unknown included) or resolved without a
+ * report adds 0 and makes `cost_complete` false, as an open or unreported
+ * turn does to a session; a released call never ran and adds nothing.
+ * `call_count` counts every call but the released ones.
+ */
+export const usageConversationCostSchema = z
+  .object({
+    call_count: countSchema,
+    cost_usd: costUsdSchema,
+    cost_complete: z.boolean(),
+    by_class: z
+      .object({
+        judgment_usd: costUsdSchema,
+        turn_usd: costUsdSchema,
+        summary_usd: costUsdSchema,
+        other_usd: costUsdSchema,
+      })
+      .strict(),
   })
   .strict();
 
@@ -710,6 +743,11 @@ const usageBreakdownFiguresSchema = z
  * row whose `key` is null. `key` and `label` are null on the row for sessions
  * without an agent or with that unexplained cost. `totals` is the summary of
  * the same period: `session_count`, `token_count` and `cost_usd` equal it.
+ * Only with `by=agent`: each row and the totals carry `conversation`, the
+ * agent's conversation calls apart from its sessions (`cost_usd` stays the
+ * sessions'); an agent with calls and no session is a row with
+ * `session_count` 0, and the rows go largest session plus conversation
+ * cost first.
  */
 export const usageBreakdownResponseSchema = z
   .object({
@@ -720,10 +758,13 @@ export const usageBreakdownResponseSchema = z
           key: z.string().nullable(),
           // The agent's name; for a model, the model again.
           label: z.string().nullable(),
+          conversation: usageConversationCostSchema.optional(),
         })
         .strict(),
     ),
-    totals: usageBreakdownFiguresSchema,
+    totals: usageBreakdownFiguresSchema
+      .extend({ conversation: usageConversationCostSchema.optional() })
+      .strict(),
   })
   .strict();
 
@@ -733,6 +774,7 @@ export type UsageBreakdownQuery = z.infer<typeof usageBreakdownQuerySchema>;
 export type UsageBreakdownResponse = z.infer<
   typeof usageBreakdownResponseSchema
 >;
+export type UsageConversationCost = z.infer<typeof usageConversationCostSchema>;
 export type UsageSeriesQuery = z.infer<typeof usageSeriesQuerySchema>;
 export type UsageSeriesResponse = z.infer<typeof usageSeriesResponseSchema>;
 export type UsageSummaryQuery = z.infer<typeof usageSummaryQuerySchema>;

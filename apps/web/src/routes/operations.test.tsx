@@ -60,6 +60,8 @@ function series(scope: "me" | "installation", days: number) {
       cost_complete: true,
       token_count: 1_272_000,
       run_seconds: 7710,
+      conversation_cost_usd: "0",
+      conversation_cost_complete: true,
     })),
   };
 }
@@ -970,6 +972,185 @@ describe("사용량·한도", () => {
     expect(partial[0]).toContain("10/20");
   });
 
+  test("사용량 탭: 에이전트별에만 대화 열이 있고, 세션 없이 대화만 있는 기간도 비지 않는다", async () => {
+    setSystemTime(NOW);
+    const talk = {
+      call_count: 2,
+      cost_usd: "0.060000",
+      cost_complete: true,
+      by_class: {
+        judgment_usd: "0.010000",
+        turn_usd: "0.050000",
+        summary_usd: "0",
+        other_usd: "0",
+      },
+    };
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": (request: Request) => {
+        const by = new URL(request.url).searchParams.get("by");
+        return by === "agent"
+          ? json(200, {
+              rows: [
+                {
+                  key: "a1",
+                  label: "slack-helper",
+                  ...figures(0, "0"),
+                  conversation: talk,
+                },
+              ],
+              totals: { ...figures(0, "0"), conversation: talk },
+            })
+          : json(200, { rows: [], totals: figures(0, "0") });
+      },
+      "GET /v1/usage/series": () => {
+        const body = series("me", 30);
+        return json(200, {
+          ...body,
+          buckets: body.buckets.map((bucket, i) => ({
+            ...bucket,
+            session_count: 0,
+            cost_usd: "0",
+            token_count: 0,
+            run_seconds: 0,
+            conversation_cost_usd: i === 0 ? "0.060000" : "0",
+          })),
+        });
+      },
+    });
+    const agents = await screen.findByRole("table", { name: "에이전트별" });
+    expect(
+      within(agents)
+        .getAllByRole("columnheader")
+        .map((head) => head.textContent),
+    ).toEqual(["에이전트", "세션", "토큰", "대화", "비용"]);
+    expect(await within(agents).findByText("slack-helper")).toBeTruthy();
+    expect(within(agents).getByText("대화 턴 $0.05")).toBeTruthy();
+    expect(screen.queryByText("이 기간에 시작한 세션이 없습니다.")).toBeNull();
+    expect(screen.getByText("세션 $0.00 · 대화 $0.06")).toBeTruthy();
+  });
+
+  test("사용량 탭: 비용 0으로 끝난 대화 호출만 있는 기간도 빈 상태가 아니다", async () => {
+    setSystemTime(NOW);
+    const talk = {
+      call_count: 1,
+      cost_usd: "0",
+      cost_complete: true,
+      by_class: {
+        judgment_usd: "0",
+        turn_usd: "0",
+        summary_usd: "0",
+        other_usd: "0",
+      },
+    };
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": (request: Request) =>
+        new URL(request.url).searchParams.get("by") === "agent"
+          ? json(200, {
+              rows: [
+                {
+                  key: "a1",
+                  label: "free-helper",
+                  ...figures(0, "0"),
+                  conversation: talk,
+                },
+              ],
+              totals: { ...figures(0, "0"), conversation: talk },
+            })
+          : json(200, { rows: [], totals: figures(0, "0") }),
+      "GET /v1/usage/series": () => {
+        const body = series("me", 30);
+        return json(200, {
+          ...body,
+          buckets: body.buckets.map((bucket) => ({
+            ...bucket,
+            session_count: 0,
+            cost_usd: "0",
+            token_count: 0,
+            run_seconds: 0,
+          })),
+        });
+      },
+    });
+    const agents = await screen.findByRole("table", { name: "에이전트별" });
+    expect(await within(agents).findByText("free-helper")).toBeTruthy();
+    expect(screen.queryByText("이 기간에 시작한 세션이 없습니다.")).toBeNull();
+  });
+
+  test("개요의 '비용이 큰 에이전트'도 대화 비용을 세션 비용 옆에 보인다", async () => {
+    setSystemTime(NOW);
+    const talk = {
+      call_count: 3,
+      cost_usd: "10.000000",
+      cost_complete: true,
+      by_class: {
+        judgment_usd: "1.000000",
+        turn_usd: "9.000000",
+        summary_usd: "0",
+        other_usd: "0",
+      },
+    };
+    renderAt("/operations?days=7", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": () =>
+        json(200, {
+          rows: [
+            {
+              key: "a1",
+              label: "slack-helper",
+              ...figures(0, "0"),
+              conversation: talk,
+            },
+          ],
+          totals: { ...figures(0, "0"), conversation: talk },
+        }),
+    });
+    const table = await screen.findByRole("table", {
+      name: "비용이 큰 에이전트",
+    });
+    expect(await within(table).findByText("slack-helper")).toBeTruthy();
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((head) => head.textContent),
+    ).toEqual(["에이전트", "세션", "대화", "비용"]);
+    expect(within(table).getByText("$10.00")).toBeTruthy();
+    expect(within(table).getByText("대화 턴 $9.00")).toBeTruthy();
+  });
+
+  test("사용량 탭: 에이전트별이 실패하면 세션 없는 기간이어도 빈 상태로 가리지 않고 다시 시도를 남긴다", async () => {
+    setSystemTime(NOW);
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      ...usageRoutes,
+      "GET /v1/usage/breakdown": (request: Request) =>
+        new URL(request.url).searchParams.get("by") === "agent"
+          ? json(500, { error: { code: "INTERNAL", message: "x" } })
+          : json(200, { rows: [], totals: figures(0, "0") }),
+      "GET /v1/usage/series": () => {
+        const body = series("me", 30);
+        return json(200, {
+          ...body,
+          buckets: body.buckets.map((bucket) => ({
+            ...bucket,
+            session_count: 0,
+            cost_usd: "0",
+            token_count: 0,
+            run_seconds: 0,
+          })),
+        });
+      },
+    });
+    expect(
+      await screen.findByRole("button", { name: "다시 시도" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("이 기간에 시작한 세션이 없습니다.")).toBeNull();
+  });
+
   test("사용량 탭: 기간에 세션이 없으면 KPI 아래 빈 상태만 보인다", async () => {
     setSystemTime(NOW);
     renderAt("/operations/usage", {
@@ -1034,7 +1215,7 @@ describe("사용량·한도", () => {
       screen.getByText(
         (_, el) =>
           el?.textContent ===
-          `${scope} · ${first} – 2026-10-24 (UTC) · 비용·토큰·실행 시간은 세션을 시작한 날에 붙습니다 · 오후 12:40에 읽은 값`,
+          `${scope} · ${first} – 2026-10-24 (UTC) · 세션의 비용·토큰·실행 시간은 세션을 시작한 날에, 대화 비용은 호출한 날에 붙습니다 · 오후 12:40에 읽은 값`,
       );
     await waitFor(() => basis("설치 전체", "2026-09-25"));
     const user = await setupUser();
