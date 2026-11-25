@@ -113,7 +113,8 @@ export async function drainSlackOutbox(deps: {
   inputHoldMs?: number;
   /**
    * Closes the links of closed sessions once their last report is in, so the
-   * thread's next mention opens a new link. Off by default.
+   * thread's next mention opens a new link. Off when absent; the slack role
+   * turns it on unless `SLACK_ROLE_CLOSE_LINKS` is false.
    */
   closeLinks?: boolean;
   now?: () => number;
