@@ -19,6 +19,7 @@ import {
   agentReleases,
   agents,
   agentVersions,
+  createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresSessionUnitOfWork,
   createPostgresUsageReader,
@@ -93,6 +94,7 @@ integration("usage breakdown on PostgreSQL", () => {
     return createUsageService({
       authorization: createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
+        agents: createDatabaseAgentAuthority(db),
       }),
       reader: createPostgresUsageReader(db),
       limits: {
