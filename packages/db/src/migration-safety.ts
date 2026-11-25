@@ -28,6 +28,7 @@ export const GROWING_TABLES: readonly string[] = [
   "conversation_inputs",
   "conversation_judgments",
   "conversation_topics",
+  "conversation_turn_queue",
   "conversation_turns",
   "conversations",
   "events",
