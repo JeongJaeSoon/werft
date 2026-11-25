@@ -143,7 +143,10 @@ import {
   type SessionBudget,
   type Setting,
 } from "../limits/index.ts";
-import type { AuthorizationPolicy } from "../musterrolle/index.ts";
+import {
+  type AuthorizationPolicy,
+  AuthorizationUndecidedError,
+} from "../musterrolle/index.ts";
 import type {
   ClaimInput as ClaimInputOf,
   EgressBindings,
@@ -2987,17 +2990,30 @@ export function createWorkerGateway(deps: {
         return { allowed: false };
       }
       const { channel_id: _clicked, ...surface } = subject.data.surface;
-      const decision = await deps.authorization.authorize({
-        subject: { ...subject.data, surface },
-        action: "session.approve",
-        resource: {
-          kind: "session",
-          id: fence.sessionId,
-          owner_scope: read.grant.ownerScope,
-          pending_request_id: request.grant_request_id,
-        },
-        request_id: request.tool_call_id,
-      });
+      const decision = await deps.authorization
+        .authorize({
+          subject: { ...subject.data, surface },
+          action: "session.approve",
+          resource: {
+            kind: "session",
+            id: fence.sessionId,
+            owner_scope: read.grant.ownerScope,
+            pending_request_id: request.grant_request_id,
+          },
+          request_id: request.tool_call_id,
+        })
+        .catch((error: unknown) => {
+          // Neither yes nor no: the worker asks again rather than a person.
+          if (error instanceof AuthorizationUndecidedError) {
+            throw new WorkerGatewayError(
+              503,
+              "BACKEND_UNAVAILABLE",
+              "The session allow could not be checked: storage is unavailable",
+              true,
+            );
+          }
+          throw error;
+        });
       if (decision.outcome !== "allow") return { allowed: false };
       // The lease or the session may have moved while the policy was asked.
       const after = await requirePending().sessionAllowAtomic({

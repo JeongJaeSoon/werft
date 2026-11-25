@@ -32,6 +32,7 @@ import type { ChannelMemberCheckable } from "../surface/ports/channel-member-che
 import type { UsageDecision } from "./agent-usage-decision.ts";
 import type { ConversationAccess } from "./ports/conversation-access.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
+import { AuthorizationUndecidedError } from "./service-errors.ts";
 
 export type RecordedActor = {
   principal: PrincipalRef;
@@ -643,6 +644,12 @@ export function createAuthorizationPolicy(
     conversations?: ConversationAccess;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
+    /**
+     * Which failures mean the store could not be read. authorize() throws
+     * AuthorizationUndecidedError for those instead of refusing; without
+     * it every failure is a refusal.
+     */
+    storageUnavailable?: (error: unknown) => boolean;
     /** Hears the failures that end in a refusal instead of an error. */
     logger?: {
       warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -1336,6 +1343,13 @@ export function createAuthorizationPolicy(
       try {
         [reason, effective_scopes, redact, left] = await decide(request);
       } catch (error) {
+        if (deps.storageUnavailable?.(error)) {
+          deps.logger?.warn("Authorization undecided: storage unavailable", {
+            action: request.action,
+            error_name: errorName(error),
+          });
+          throw new AuthorizationUndecidedError(error);
+        }
         deps.logger?.warn("Authorization could not decide; refusing", {
           action: request.action,
           error_name: errorName(error),
@@ -1387,6 +1401,10 @@ export function createAuthorizationPolicy(
           outcome: decision.outcome,
           error_name: errorName(error),
         });
+        // A refusal stands unrecorded; what it would have granted is undecided.
+        if (decision.outcome !== "deny" && deps.storageUnavailable?.(error)) {
+          throw new AuthorizationUndecidedError(error);
+        }
         return refusedUnrecorded(decision);
       }
     },

@@ -774,6 +774,7 @@ const authorization = createAuthorizationPolicy({
   sessions: sessionShares,
   channelMembers: slackChannelMembers,
   decisions: createPostgresDecisionLog(db),
+  storageUnavailable: isStorageUnavailable,
   logger,
 });
 const agentStore = createPostgresAgentStore(db);

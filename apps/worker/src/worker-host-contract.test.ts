@@ -85,9 +85,11 @@ function host(
   run: ScriptedRun,
   logger?: WorkerLogger,
   overrides: Partial<WorkerTimeouts> = {},
+  sleep?: (ms: number) => Promise<void>,
 ) {
   const gateway = new FakeWorkerGateway();
   const worker = new WorkerHost({
+    ...(sleep === undefined ? {} : { sleep }),
     checkpoints: unwiredCheckpoints,
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
     gateway,
@@ -1085,6 +1087,103 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         "permission",
         "permission",
       ]);
+    });
+
+    describe("an allow the gateway could not check", () => {
+      const undecided = () =>
+        new WorkerGatewayRequestError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "The session allow could not be checked: storage is unavailable",
+          true,
+        );
+      // The retry's waits are recorded and cut short; the heartbeat's are kept.
+      const retrySleep = (slept: number[]) => async (ms: number) => {
+        if (ms > 4_000) return Bun.sleep(ms);
+        slept.push(ms);
+        await Bun.sleep(1);
+      };
+      const run = () => {
+        const scripted = new ScriptedRun();
+        scripted.onSend = (sent) => {
+          call(scripted, sent, "c1");
+          setTimeout(() => call(scripted, sent, "c2", RUN_RULE), 5);
+          setTimeout(() => finish(scripted, sent), 60);
+        };
+        return scripted;
+      };
+
+      test("is asked again after a wait, and allowed once the gateway says so", async () => {
+        const slept: number[] = [];
+        const scripted = run();
+        const { gateway, worker } = host(
+          scripted,
+          undefined,
+          {},
+          retrySleep(slept),
+        );
+        gateway.grants = [parked()];
+        gateway.sessionAllowFailure = () =>
+          gateway.sessionAllowChecks.length === 1 ? undecided() : undefined;
+        gateway.enqueue("hello");
+
+        await worker.runLoop();
+
+        expect(slept).toEqual([1_000]);
+        expect(gateway.sessionAllowChecks).toHaveLength(2);
+        expect(gateway.registrations).toEqual([]);
+        expect(scripted.answers[1]).toMatchObject({
+          kind: "selected",
+          optionKind: "allow_once",
+          localId: "local-c2",
+        });
+      });
+
+      test("still undecided at the 20 s cap, it does not stand: the call is put to a person, never allowed", async () => {
+        const slept: number[] = [];
+        const scripted = run();
+        const { gateway, worker } = host(
+          scripted,
+          undefined,
+          {},
+          retrySleep(slept),
+        );
+        gateway.grants = [parked()];
+        gateway.sessionAllowFailure = undecided;
+        gateway.enqueue("hello");
+
+        await worker.runLoop();
+
+        expect(slept).toEqual([
+          1_000, 2_000, 4_000, 4_000, 4_000, 4_000, 1_000,
+        ]);
+        expect(gateway.sessionAllowChecks).toHaveLength(8);
+        expect(gateway.registrations).toHaveLength(1);
+        expect(scripted.answers.slice(1)).not.toContainEqual(
+          expect.objectContaining({ localId: "local-c2", kind: "selected" }),
+        );
+      });
+
+      test("a refusal is not asked again", async () => {
+        const slept: number[] = [];
+        const scripted = run();
+        const { gateway, worker } = host(
+          scripted,
+          undefined,
+          {},
+          retrySleep(slept),
+        );
+        gateway.grants = [parked()];
+        gateway.sessionAllowFailure = () =>
+          new WorkerGatewayRequestError(403, "FORBIDDEN", "refused", false);
+        gateway.enqueue("hello");
+
+        await worker.runLoop();
+
+        expect(slept).toEqual([]);
+        expect(gateway.sessionAllowChecks).toHaveLength(1);
+        expect(gateway.registrations).toHaveLength(1);
+      });
     });
 
     test("a call the run settles itself while its allow is checked is neither allowed nor put to a person", async () => {

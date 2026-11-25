@@ -326,6 +326,13 @@ const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
 // A session asks for few; the oldest goes first, and is only asked again.
 const SESSION_ALLOWS_HELD = 100;
+/**
+ * A session allow the gateway could not check (its store unreadable) is
+ * asked about again on the egress hold's schedule, so a short outage does
+ * not put the call back to a person; past the cap it is put to them.
+ */
+const SESSION_ALLOW_UNDECIDED_BACKOFF_MS = [1_000, 2_000, 4_000];
+const SESSION_ALLOW_UNDECIDED_HOLD_MS = 20_000;
 
 /** What is left of a lease, counted from when the request it answered went out. */
 type ClaimedLease = { remainingMs: number; sentAt: number };
@@ -3255,27 +3262,49 @@ export class WorkerHost {
   ): Promise<boolean> {
     const gateway = this.options.gateway;
     if (gateway.sessionAllow === undefined) return false;
-    try {
-      const { allowed } = await gateway.sessionAllow({
-        ...this.scope,
-        turn_id: turnId,
-        grant_request_id: allow.requestId,
-        tool_call_id: request.toolCallId,
-        input_hash: request.inputHash,
-      });
-      this.logger.info("worker.session_allow.checked", {
-        request_id: allow.requestId,
-        tool_call_id: request.toolCallId,
-        allowed,
-      });
-      return allowed;
-    } catch (error) {
-      this.logger.warn("worker.session_allow.unconfirmed", {
-        request_id: allow.requestId,
-        tool_call_id: request.toolCallId,
-        error: describe(error),
-      });
-      return false;
+    const startedAt = performance.now();
+    // Counted too, so a sleep that returns early cannot stretch the hold.
+    let slept = 0;
+    for (let asked = 0; ; asked += 1) {
+      try {
+        const { allowed } = await gateway.sessionAllow({
+          ...this.scope,
+          turn_id: turnId,
+          grant_request_id: allow.requestId,
+          tool_call_id: request.toolCallId,
+          input_hash: request.inputHash,
+        });
+        this.logger.info("worker.session_allow.checked", {
+          request_id: allow.requestId,
+          tool_call_id: request.toolCallId,
+          allowed,
+        });
+        return allowed;
+      } catch (error) {
+        const spent = Math.max(performance.now() - startedAt, slept);
+        const wait = Math.min(
+          SESSION_ALLOW_UNDECIDED_BACKOFF_MS[
+            Math.min(asked, SESSION_ALLOW_UNDECIDED_BACKOFF_MS.length - 1)
+          ] ?? 0,
+          SESSION_ALLOW_UNDECIDED_HOLD_MS - spent,
+        );
+        if (!undecidedAllow(error) || wait <= 0 || this.ownerLost) {
+          this.logger.warn("worker.session_allow.unconfirmed", {
+            request_id: allow.requestId,
+            tool_call_id: request.toolCallId,
+            error: describe(error),
+          });
+          return false;
+        }
+        this.logger.info("worker.session_allow.undecided", {
+          request_id: allow.requestId,
+          tool_call_id: request.toolCallId,
+          retry_in_ms: wait,
+        });
+        await this.sleep(wait);
+        slept += wait;
+        if (this.ownerLost || this.turn?.turnId !== turnId) return false;
+      }
     }
   }
 
@@ -3939,6 +3968,15 @@ function unknownOutcome(
   },
 ): Settlement {
   return { ...ended, reason, status: "outcome_unknown", synthetic: true };
+}
+
+/** The gateway could not check the allow: asked again, never read as one. */
+function undecidedAllow(error: unknown): boolean {
+  return (
+    error instanceof WorkerGatewayRequestError &&
+    error.status === 503 &&
+    error.code === "BACKEND_UNAVAILABLE"
+  );
 }
 
 function releaseReason(error: unknown): string {

@@ -28,7 +28,10 @@ import {
   receiptActorOf,
 } from "./policy.ts";
 import type { DecisionLog } from "./ports/decision-log.ts";
-import { SessionServiceError } from "./service-errors.ts";
+import {
+  AuthorizationUndecidedError,
+  SessionServiceError,
+} from "./service-errors.ts";
 
 // Any store call means the refusal came too late.
 const unreachable = new Proxy(
@@ -222,6 +225,32 @@ describe("service entry points without HTTP", () => {
       expect(error).toMatchObject({ code: "FORBIDDEN" });
     });
   }
+
+  test("every entry point passes on a store it could not read as a retryable BACKEND_UNAVAILABLE", async () => {
+    const down = Object.assign(new Error("connection terminated"), {
+      code: "57P01",
+    });
+    const undecided = createAuthorizationPolicy({
+      identity: {
+        reread: async () => {
+          throw down;
+        },
+      },
+      storageUnavailable: (error) => error === down,
+    });
+    for (const [, , call] of entryPoints) {
+      const error = await call(
+        services(undecided),
+        testCaller("owner-a"),
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(AuthorizationUndecidedError);
+      expect(error).toMatchObject({
+        code: "BACKEND_UNAVAILABLE",
+        retry: { afterSeconds: 1 },
+        cause: down,
+      });
+    }
+  });
 
   test("a policy that rejects instead of deciding is a refusal", async () => {
     const rejecting: AuthorizationPolicy = {
@@ -1159,5 +1188,87 @@ describe("access axes", () => {
       await screen.authorize(act, { record: false });
     }
     expect(entries).toEqual([]);
+  });
+});
+
+describe("authorize when its store cannot be read", () => {
+  const down = Object.assign(new Error("connection terminated"), {
+    code: "57P01",
+  });
+  const isDown = (error: unknown) => error === down;
+  const web = callerFor(member, { kind: "web" }, "req-1");
+
+  test("throws undecided instead of refusing, and never answers allow", async () => {
+    const undecided = createAuthorizationPolicy({
+      identity: {
+        reread: async () => {
+          throw down;
+        },
+      },
+      storageUnavailable: isDown,
+    });
+    const error = await undecided.authorize(request(web)).catch((e) => e);
+    expect(error).toBeInstanceOf(AuthorizationUndecidedError);
+    expect(error.cause).toBe(down);
+  });
+
+  test("any other failure is still a refusal with reason error", async () => {
+    const broken = createAuthorizationPolicy({
+      identity: {
+        reread: async () => {
+          throw new Error("invalid input syntax for type uuid");
+        },
+      },
+      storageUnavailable: isDown,
+    });
+    expect(await broken.authorize(request(web))).toMatchObject({
+      outcome: "deny",
+      reason_code: "error",
+    });
+  });
+
+  test("without a classifier a store failure stays a refusal", async () => {
+    const unclassified = createAuthorizationPolicy({
+      identity: {
+        reread: async () => {
+          throw down;
+        },
+      },
+    });
+    expect(await unclassified.authorize(request(web))).toMatchObject({
+      outcome: "deny",
+      reason_code: "error",
+    });
+  });
+
+  test("an allow whose record cannot be written is undecided; a refusal stands unrecorded", async () => {
+    const failingLog: DecisionLog = {
+      record: async () => {
+        throw down;
+      },
+    } as unknown as DecisionLog;
+    const recording = createAuthorizationPolicy({
+      decisions: failingLog,
+      storageUnavailable: isDown,
+    });
+    const allow = await recording
+      .authorize(
+        request(web, {
+          subject: { ...web.subject, justification: "kept on the record" },
+        }),
+      )
+      .catch((e) => e);
+    expect(allow).toBeInstanceOf(AuthorizationUndecidedError);
+    expect(
+      await recording.authorize(
+        request(callerFor(member, { kind: "web" }, "req-2"), {
+          resource: {
+            kind: "session",
+            id: SESSION,
+            owner_scope: WORKSPACE_B,
+          },
+        }),
+      ),
+    ).toMatchObject({ outcome: "deny" });
   });
 });

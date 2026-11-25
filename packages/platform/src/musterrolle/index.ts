@@ -17,6 +17,7 @@ export {
 } from "./require-permitted.ts";
 export {
   ACTOR_INACTIVE,
+  AuthorizationUndecidedError,
   NOT_FOUND,
   OUTRANKED,
   SECRET_STORE_OFF,
