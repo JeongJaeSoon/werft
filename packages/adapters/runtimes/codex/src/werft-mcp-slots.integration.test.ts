@@ -29,7 +29,7 @@ const TOOL = "mcp__werft__probe";
  * server can say something (instructions, a tool's description, a resource,
  * a skill file, a prompt), recording every method it is asked.
  */
-function startSlotServer(bearer: string) {
+function startSlotServer(bearer: string, instructions = SLOT.instructions) {
   const methods: string[] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -45,7 +45,7 @@ function startSlotServer(bearer: string) {
       if (typeof body?.method === "string") methods.push(body.method);
       const mcp = new McpServer(
         { name: "werft", version: "1" },
-        { instructions: SLOT.instructions },
+        { instructions },
       );
       mcp.registerTool(
         "probe",
@@ -92,7 +92,11 @@ function startSlotServer(bearer: string) {
 }
 
 const SLOT = {
-  instructions: "SLOT_INSTRUCTIONS ask this server first.",
+  // A first line longer than the engine's cut of it, and more lines.
+  instructions:
+    "SLOT_INSTRUCTIONS ask this server first." +
+    " filler".repeat(150) +
+    " SLOT_LONG_TAIL\nSLOT_SECOND_LINE\n\nSLOT_SECOND_PARAGRAPH",
   toolDescription: "SLOT_TOOL_DESCRIPTION says the server answered.",
   resourceDescription: "SLOT_RESOURCE_DESCRIPTION",
   resourceBody: "SLOT_RESOURCE_BODY",
@@ -133,20 +137,25 @@ describe.skipIf(!available)(
       await rm(root, { recursive: true, force: true });
     });
 
-    async function turn(reply: Parameters<typeof fakeResponses>[1]) {
-      const platform = startSlotServer(BEARER);
+    async function turn(
+      reply: Parameters<typeof fakeResponses>[1],
+      model = "gpt-test",
+      instructions = SLOT.instructions,
+    ) {
+      const platform = startSlotServer(BEARER, instructions);
       const seen: Seen[] = [];
-      const model = fakeResponses(seen, reply);
+      const responses = fakeResponses(seen, reply);
       turns += 1;
       const work = join(root, `work-${turns}`);
       await Bun.write(join(work, ".keep"), "");
       const base = startOf({
-        port: model.port as number,
+        port: responses.port as number,
         work,
         egressToken: "egress-placeholder",
       });
       const start = {
         ...base,
+        config: { ...base.config, model },
         bundle: {
           ...base.bundle,
           mcpServers: [
@@ -180,7 +189,7 @@ describe.skipIf(!available)(
         await reading;
       } finally {
         await run.close();
-        await model.stop(true);
+        await responses.stop(true);
         await platform.stop();
       }
       return {
@@ -206,7 +215,7 @@ describe.skipIf(!available)(
       });
       // The instructions are the description of the server's tool namespace.
       expect(first).toContain(
-        `"name":"mcp__werft","description":"${SLOT.instructions}"`,
+        `"name":"mcp__werft","description":${JSON.stringify(SLOT.instructions)}`,
       );
       // It offers the model its own tools for reading a server's resources.
       expect(first).toContain('"name":"list_mcp_resources"');
@@ -259,6 +268,55 @@ describe.skipIf(!available)(
         "resources/list",
         "resources/read",
       ]);
+    }, 60_000);
+
+    // A model of the family the engine searches tools for (the one a real
+    // stack's settings name) is shown no MCP server up front: the server's
+    // instructions and tool descriptions reach the model only with the
+    // answer of a search that finds the server's tools.
+    test("for a model it searches tools for, the engine shows the server only with a search's answer", async () => {
+      const { requests, methods } = await turn(
+        (call) =>
+          call === 1
+            ? [
+                {
+                  type: "tool_search_call",
+                  id: "ts_1",
+                  call_id: "call_search_1",
+                  execution: "client",
+                  status: "completed",
+                  arguments: { query: "probe" },
+                },
+              ]
+            : [assistantMessage("done")],
+        "gpt-5.5",
+      );
+      const [first, second] = requests;
+      expect(first).toContain('"type":"tool_search"');
+      // Up front, only a cut of the instructions' first line: the
+      // engine's list of the namespaces it defers.
+      expect(first).toContain(
+        "Deferred tool namespaces:\\n- mcp__werft: SLOT_INSTRUCTIONS ask this server first. filler",
+      );
+      expect(first).toContain(" fil...\\n</tools>");
+      expect(first).not.toContain("SLOT_LONG_TAIL");
+      expect(first).not.toContain("SLOT_SECOND_LINE");
+      expect(slotsIn(first ?? "").toolDescription).toBe(false);
+      // With the search's answer, all of them and the tool's description.
+      expect(second).toContain("SLOT_SECOND_PARAGRAPH");
+      expect(slotsIn(second ?? "").toolDescription).toBe(true);
+      expect(methods.filter((m) => m.startsWith("skills/"))).toEqual([]);
+    }, 60_000);
+
+    test("a first line of 240 characters reaches the model whole before any search", async () => {
+      const line = `SLOT_INSTRUCTIONS ${"x".repeat(240 - 32)} SLOT_RULE_END`;
+      expect(line).toHaveLength(240);
+      const { requests } = await turn(
+        () => [assistantMessage("done")],
+        "gpt-5.5",
+        `${line}\n\nSLOT_SECOND_PARAGRAPH`,
+      );
+      expect(requests[0]).toContain(`- mcp__werft: ${line}\\n</tools>`);
     }, 60_000);
   },
 );

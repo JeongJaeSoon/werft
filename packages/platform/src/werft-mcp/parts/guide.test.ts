@@ -6,7 +6,7 @@ import {
   INSTRUCTION_PATTERNS,
   plainTextHostExtractor,
 } from "../../extensions/skill-checks.ts";
-import { WERFT_FIRST_RULE } from "../instructions.ts";
+import { WERFT_FIRST_RULE, WERFT_MCP_INSTRUCTIONS } from "../instructions.ts";
 import { maskSecrets } from "../secrets.ts";
 import { createWerftMcpServer } from "../server.ts";
 import {
@@ -54,6 +54,22 @@ function frontmatterOf(text: string): Record<string, string> {
 }
 
 describe("the guide part of the built-in werft server", () => {
+  test("the criteria are the instructions' first line, short enough for a Codex model to see before it searches", () => {
+    expect(WERFT_MCP_INSTRUCTIONS.split("\n")[0]).toBe(WERFT_FIRST_RULE);
+    // Codex 0.167.0 shows a deferred server's first line cut at about 247
+    // characters (werft-mcp-slots.integration.test.ts in its adapter).
+    expect(WERFT_FIRST_RULE.length).toBeLessThanOrEqual(240);
+    for (const said of [
+      "use it first",
+      "before general knowledge",
+      "what this agent is connected to in Werft",
+      "what it may do here",
+      "check its status here first",
+    ]) {
+      expect(WERFT_FIRST_RULE).toContain(said);
+    }
+  });
+
   test("serves its usage guide as a read-only tool whose description carries the criteria", async () => {
     const server = ask();
     const tools = (await server("tools/list")).result?.tools as {
