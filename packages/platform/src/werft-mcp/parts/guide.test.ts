@@ -42,15 +42,11 @@ function ask() {
     )) as Answer;
 }
 
-function frontmatterOf(text: string): Record<string, string> {
+// As a host reads it: YAML, so a value YAML reads otherwise fails here.
+function frontmatterOf(text: string): Record<string, unknown> {
   const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
   if (match === null) throw new Error("no frontmatter");
-  return Object.fromEntries(
-    (match[1] ?? "").split("\n").map((line) => {
-      const at = line.indexOf(": ");
-      return [line.slice(0, at), line.slice(at + 2)];
-    }),
-  );
+  return Bun.YAML.parse(match[1] ?? "") as Record<string, unknown>;
 }
 
 describe("the guide part of the built-in werft server", () => {
